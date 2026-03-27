@@ -1,0 +1,53 @@
+[workspace]
+members = [
+    "rust/crates/fire-models",
+    "rust/crates/fire-core",
+    "rust/crates/fire-uniffi",
+]
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
+license = "GPL-3.0-only"
+rust-version = "1.85"
+version = "0.1.0"
+authors = ["Fire contributors"]
+homepage = "https://github.com/peterich-rs/fire"
+repository = "https://github.com/peterich-rs/fire.git"
+
+[workspace.dependencies]
+mars-xlog = { path = "third_party/xlog-rs/crates/xlog", default-features = false, features = ["rust-backend", "tracing"] }
+openwire = { path = "third_party/openwire/crates/openwire", default-features = false, features = ["tls-rustls", "platform-verifier", "json"] }
+async-trait = "0.1.89"
+base64 = "0.22"
+bytes = "1.10.1"
+futures-channel = "0.3.31"
+futures-core = "0.3.31"
+futures-util = "0.3.31"
+http = "1.3.1"
+http-body = "1.0.1"
+http-body-util = "0.1.3"
+hyper = { version = "1.8.1", features = ["full"] }
+hyper-util = { version = "0.1.18", default-features = false, features = ["client-legacy"] }
+libc = "0.2"
+pin-project-lite = "0.2.16"
+rcgen = "0.14.5"
+rustls = "0.23.35"
+rustls-webpki = "0.103.10"
+rustls-native-certs = "0.8.2"
+rustls-pemfile = "2.2.0"
+rustls-platform-verifier = "0.6.2"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "2.0.17"
+tokio = { version = "1.48.0", features = ["full"] }
+tokio-rustls = "0.26.4"
+tower = { version = "0.5.3", features = ["timeout", "util"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3.20", features = ["env-filter", "fmt"] }
+uniffi = "=0.29.4"
+url = "2.5"
+
+[profile.release]
+lto = true
+strip = true

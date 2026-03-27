@@ -1,0 +1,9 @@
+[submodule "references/fluxdo"]
+	path = references/fluxdo
+	url = https://github.com/Lingyan000/fluxdo.git
+[submodule "third_party/openwire"]
+	path = third_party/openwire
+	url = https://github.com/peterich-rs/openwire.git
+[submodule "third_party/xlog-rs"]
+	path = third_party/xlog-rs
+	url = https://github.com/peterich-rs/xlog-rs.git

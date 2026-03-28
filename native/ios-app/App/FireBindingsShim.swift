@@ -156,6 +156,373 @@ public struct LoginSyncState: Sendable {
     }
 }
 
+public enum TopicListKindState: String, Codable, Sendable {
+    case latest
+    case new
+    case unread
+    case unseen
+    case hot
+    case top
+}
+
+public struct TopicListQueryState: Sendable {
+    public var kind: TopicListKindState
+    public var page: UInt32?
+    public var topicIds: [UInt64]
+    public var order: String?
+    public var ascending: Bool?
+
+    public init(
+        kind: TopicListKindState,
+        page: UInt32?,
+        topicIds: [UInt64],
+        order: String?,
+        ascending: Bool?
+    ) {
+        self.kind = kind
+        self.page = page
+        self.topicIds = topicIds
+        self.order = order
+        self.ascending = ascending
+    }
+}
+
+public struct TopicUserState: Codable, Sendable {
+    public var id: UInt64
+    public var username: String
+    public var avatarTemplate: String?
+
+    public init(id: UInt64, username: String, avatarTemplate: String?) {
+        self.id = id
+        self.username = username
+        self.avatarTemplate = avatarTemplate
+    }
+}
+
+public struct TopicPosterState: Codable, Sendable {
+    public var userId: UInt64
+    public var description: String?
+    public var extras: String?
+
+    public init(userId: UInt64, description: String?, extras: String?) {
+        self.userId = userId
+        self.description = description
+        self.extras = extras
+    }
+}
+
+public struct TopicSummaryState: Codable, Sendable {
+    public var id: UInt64
+    public var title: String
+    public var slug: String
+    public var postsCount: UInt32
+    public var replyCount: UInt32
+    public var views: UInt32
+    public var likeCount: UInt32
+    public var excerpt: String?
+    public var createdAt: String?
+    public var lastPostedAt: String?
+    public var lastPosterUsername: String?
+    public var categoryId: UInt64?
+    public var pinned: Bool
+    public var visible: Bool
+    public var closed: Bool
+    public var archived: Bool
+    public var tags: [String]
+    public var posters: [TopicPosterState]
+    public var unseen: Bool
+    public var unreadPosts: UInt32
+    public var newPosts: UInt32
+    public var lastReadPostNumber: UInt32?
+    public var highestPostNumber: UInt32
+    public var hasAcceptedAnswer: Bool
+    public var canHaveAnswer: Bool
+
+    public init(
+        id: UInt64,
+        title: String,
+        slug: String,
+        postsCount: UInt32,
+        replyCount: UInt32,
+        views: UInt32,
+        likeCount: UInt32,
+        excerpt: String?,
+        createdAt: String?,
+        lastPostedAt: String?,
+        lastPosterUsername: String?,
+        categoryId: UInt64?,
+        pinned: Bool,
+        visible: Bool,
+        closed: Bool,
+        archived: Bool,
+        tags: [String],
+        posters: [TopicPosterState],
+        unseen: Bool,
+        unreadPosts: UInt32,
+        newPosts: UInt32,
+        lastReadPostNumber: UInt32?,
+        highestPostNumber: UInt32,
+        hasAcceptedAnswer: Bool,
+        canHaveAnswer: Bool
+    ) {
+        self.id = id
+        self.title = title
+        self.slug = slug
+        self.postsCount = postsCount
+        self.replyCount = replyCount
+        self.views = views
+        self.likeCount = likeCount
+        self.excerpt = excerpt
+        self.createdAt = createdAt
+        self.lastPostedAt = lastPostedAt
+        self.lastPosterUsername = lastPosterUsername
+        self.categoryId = categoryId
+        self.pinned = pinned
+        self.visible = visible
+        self.closed = closed
+        self.archived = archived
+        self.tags = tags
+        self.posters = posters
+        self.unseen = unseen
+        self.unreadPosts = unreadPosts
+        self.newPosts = newPosts
+        self.lastReadPostNumber = lastReadPostNumber
+        self.highestPostNumber = highestPostNumber
+        self.hasAcceptedAnswer = hasAcceptedAnswer
+        self.canHaveAnswer = canHaveAnswer
+    }
+}
+
+public struct TopicListState: Codable, Sendable {
+    public var topics: [TopicSummaryState]
+    public var users: [TopicUserState]
+    public var moreTopicsUrl: String?
+
+    public init(topics: [TopicSummaryState], users: [TopicUserState], moreTopicsUrl: String?) {
+        self.topics = topics
+        self.users = users
+        self.moreTopicsUrl = moreTopicsUrl
+    }
+}
+
+public struct TopicDetailQueryState: Sendable {
+    public var topicId: UInt64
+    public var postNumber: UInt32?
+    public var trackVisit: Bool
+    public var filter: String?
+    public var usernameFilters: String?
+    public var filterTopLevelReplies: Bool
+
+    public init(
+        topicId: UInt64,
+        postNumber: UInt32?,
+        trackVisit: Bool,
+        filter: String?,
+        usernameFilters: String?,
+        filterTopLevelReplies: Bool
+    ) {
+        self.topicId = topicId
+        self.postNumber = postNumber
+        self.trackVisit = trackVisit
+        self.filter = filter
+        self.usernameFilters = usernameFilters
+        self.filterTopLevelReplies = filterTopLevelReplies
+    }
+}
+
+public struct TopicReactionState: Codable, Sendable {
+    public var id: String
+    public var kind: String?
+    public var count: UInt32
+
+    public init(id: String, kind: String?, count: UInt32) {
+        self.id = id
+        self.kind = kind
+        self.count = count
+    }
+}
+
+public struct TopicPostState: Codable, Sendable {
+    public var id: UInt64
+    public var username: String
+    public var name: String?
+    public var avatarTemplate: String?
+    public var cooked: String
+    public var postNumber: UInt32
+    public var postType: Int32
+    public var createdAt: String?
+    public var updatedAt: String?
+    public var likeCount: UInt32
+    public var replyCount: UInt32
+    public var replyToPostNumber: UInt32?
+    public var bookmarked: Bool
+    public var bookmarkId: UInt64?
+    public var reactions: [TopicReactionState]
+    public var currentUserReaction: TopicReactionState?
+    public var acceptedAnswer: Bool
+    public var canEdit: Bool
+    public var canDelete: Bool
+    public var canRecover: Bool
+    public var hidden: Bool
+
+    public init(
+        id: UInt64,
+        username: String,
+        name: String?,
+        avatarTemplate: String?,
+        cooked: String,
+        postNumber: UInt32,
+        postType: Int32,
+        createdAt: String?,
+        updatedAt: String?,
+        likeCount: UInt32,
+        replyCount: UInt32,
+        replyToPostNumber: UInt32?,
+        bookmarked: Bool,
+        bookmarkId: UInt64?,
+        reactions: [TopicReactionState],
+        currentUserReaction: TopicReactionState?,
+        acceptedAnswer: Bool,
+        canEdit: Bool,
+        canDelete: Bool,
+        canRecover: Bool,
+        hidden: Bool
+    ) {
+        self.id = id
+        self.username = username
+        self.name = name
+        self.avatarTemplate = avatarTemplate
+        self.cooked = cooked
+        self.postNumber = postNumber
+        self.postType = postType
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+        self.likeCount = likeCount
+        self.replyCount = replyCount
+        self.replyToPostNumber = replyToPostNumber
+        self.bookmarked = bookmarked
+        self.bookmarkId = bookmarkId
+        self.reactions = reactions
+        self.currentUserReaction = currentUserReaction
+        self.acceptedAnswer = acceptedAnswer
+        self.canEdit = canEdit
+        self.canDelete = canDelete
+        self.canRecover = canRecover
+        self.hidden = hidden
+    }
+}
+
+public struct TopicPostStreamState: Codable, Sendable {
+    public var posts: [TopicPostState]
+    public var stream: [UInt64]
+
+    public init(posts: [TopicPostState], stream: [UInt64]) {
+        self.posts = posts
+        self.stream = stream
+    }
+}
+
+public struct TopicDetailCreatedByState: Codable, Sendable {
+    public var id: UInt64
+    public var username: String
+    public var avatarTemplate: String?
+
+    public init(id: UInt64, username: String, avatarTemplate: String?) {
+        self.id = id
+        self.username = username
+        self.avatarTemplate = avatarTemplate
+    }
+}
+
+public struct TopicDetailMetaState: Codable, Sendable {
+    public var notificationLevel: Int32?
+    public var canEdit: Bool
+    public var createdBy: TopicDetailCreatedByState?
+
+    public init(
+        notificationLevel: Int32?,
+        canEdit: Bool,
+        createdBy: TopicDetailCreatedByState?
+    ) {
+        self.notificationLevel = notificationLevel
+        self.canEdit = canEdit
+        self.createdBy = createdBy
+    }
+}
+
+public struct TopicDetailState: Codable, Sendable {
+    public var id: UInt64
+    public var title: String
+    public var slug: String
+    public var postsCount: UInt32
+    public var categoryId: UInt64?
+    public var tags: [String]
+    public var views: UInt32
+    public var likeCount: UInt32
+    public var createdAt: String?
+    public var lastReadPostNumber: UInt32?
+    public var bookmarks: [UInt64]
+    public var acceptedAnswer: Bool
+    public var hasAcceptedAnswer: Bool
+    public var canVote: Bool
+    public var voteCount: Int32
+    public var userVoted: Bool
+    public var summarizable: Bool
+    public var hasCachedSummary: Bool
+    public var hasSummary: Bool
+    public var archetype: String?
+    public var postStream: TopicPostStreamState
+    public var details: TopicDetailMetaState
+
+    public init(
+        id: UInt64,
+        title: String,
+        slug: String,
+        postsCount: UInt32,
+        categoryId: UInt64?,
+        tags: [String],
+        views: UInt32,
+        likeCount: UInt32,
+        createdAt: String?,
+        lastReadPostNumber: UInt32?,
+        bookmarks: [UInt64],
+        acceptedAnswer: Bool,
+        hasAcceptedAnswer: Bool,
+        canVote: Bool,
+        voteCount: Int32,
+        userVoted: Bool,
+        summarizable: Bool,
+        hasCachedSummary: Bool,
+        hasSummary: Bool,
+        archetype: String?,
+        postStream: TopicPostStreamState,
+        details: TopicDetailMetaState
+    ) {
+        self.id = id
+        self.title = title
+        self.slug = slug
+        self.postsCount = postsCount
+        self.categoryId = categoryId
+        self.tags = tags
+        self.views = views
+        self.likeCount = likeCount
+        self.createdAt = createdAt
+        self.lastReadPostNumber = lastReadPostNumber
+        self.bookmarks = bookmarks
+        self.acceptedAnswer = acceptedAnswer
+        self.hasAcceptedAnswer = hasAcceptedAnswer
+        self.canVote = canVote
+        self.voteCount = voteCount
+        self.userVoted = userVoted
+        self.summarizable = summarizable
+        self.hasCachedSummary = hasCachedSummary
+        self.hasSummary = hasSummary
+        self.archetype = archetype
+        self.postStream = postStream
+        self.details = details
+    }
+}
+
 public final class FireCoreHandle {
     private let storedBaseUrl: String
     private let storedWorkspacePath: String?
@@ -262,6 +629,34 @@ public final class FireCoreHandle {
         return try restoreSessionJson(json: payload)
     }
 
+    public func fetchTopicList(query: TopicListQueryState) throws -> TopicListState {
+        if (query.kind == .unread || query.kind == .unseen) && !state.readiness.canReadAuthenticatedApi {
+            throw NSError(
+                domain: "FireBindingsStub",
+                code: 401,
+                userInfo: [NSLocalizedDescriptionKey: "Authenticated topic list requires a login session."]
+            )
+        }
+
+        let allTopics = sampleTopics(for: query.kind)
+        let topics = query.topicIds.isEmpty
+            ? allTopics
+            : allTopics.filter { query.topicIds.contains($0.id) }
+
+        return TopicListState(
+            topics: topics,
+            users: sampleUsers(),
+            moreTopicsUrl: "/latest?page=1"
+        )
+    }
+
+    public func fetchTopicDetail(query: TopicDetailQueryState) throws -> TopicDetailState {
+        guard let detail = sampleTopicDetail(topicId: query.topicId) else {
+            throw CocoaError(.fileReadNoSuchFile)
+        }
+        return detail
+    }
+
     public func clearSessionPath(path: String) throws {
         let url = URL(fileURLWithPath: path)
         if FileManager.default.fileExists(atPath: url.path) {
@@ -321,6 +716,334 @@ public final class FireCoreHandle {
             if !canWriteAuthenticatedApi || !state.bootstrap.hasPreloadedData { return .bootstrapCaptured }
             return .ready
         }()
+    }
+
+    private func sampleUsers() -> [TopicUserState] {
+        let currentUsername = state.bootstrap.currentUsername ?? "guest"
+        return [
+            TopicUserState(id: 1, username: "alice", avatarTemplate: "/user_avatar/linux.do/alice/{size}/1.png"),
+            TopicUserState(id: 2, username: "bob", avatarTemplate: "/user_avatar/linux.do/bob/{size}/2.png"),
+            TopicUserState(id: 3, username: currentUsername, avatarTemplate: "/user_avatar/linux.do/\(currentUsername)/{size}/3.png"),
+        ]
+    }
+
+    private func sampleTopics(for kind: TopicListKindState) -> [TopicSummaryState] {
+        let topics = [
+            TopicSummaryState(
+                id: 123,
+                title: "Fire native shell now reaches the first read path",
+                slug: "fire-native-first-read-path",
+                postsCount: 24,
+                replyCount: 18,
+                views: 512,
+                likeCount: 34,
+                excerpt: "Login, bootstrap, and the first authenticated topic flow are now connected in the host shells.",
+                createdAt: "2026-03-28T09:30:00Z",
+                lastPostedAt: "2026-03-28T11:10:00Z",
+                lastPosterUsername: "alice",
+                categoryId: 2,
+                pinned: false,
+                visible: true,
+                closed: false,
+                archived: false,
+                tags: ["fire", "native"],
+                posters: [
+                    TopicPosterState(userId: 1, description: "Original Poster", extras: nil),
+                    TopicPosterState(userId: 3, description: "Frequent Poster", extras: "latest"),
+                ],
+                unseen: false,
+                unreadPosts: 3,
+                newPosts: 1,
+                lastReadPostNumber: 21,
+                highestPostNumber: 24,
+                hasAcceptedAnswer: false,
+                canHaveAnswer: true
+            ),
+            TopicSummaryState(
+                id: 124,
+                title: "Next up: replace host stubs with generated UniFFI bindings",
+                slug: "replace-host-stubs-with-uniffi",
+                postsCount: 13,
+                replyCount: 8,
+                views: 340,
+                likeCount: 22,
+                excerpt: "The shell UI is in place, but the temporary Swift/Kotlin shims still need to be swapped for generated bindings.",
+                createdAt: "2026-03-28T08:45:00Z",
+                lastPostedAt: "2026-03-28T10:50:00Z",
+                lastPosterUsername: state.bootstrap.currentUsername ?? "guest",
+                categoryId: 3,
+                pinned: false,
+                visible: true,
+                closed: false,
+                archived: false,
+                tags: ["uniffi", "roadmap"],
+                posters: [
+                    TopicPosterState(userId: 2, description: "Original Poster", extras: nil),
+                    TopicPosterState(userId: 3, description: "Most Recent Poster", extras: nil),
+                ],
+                unseen: true,
+                unreadPosts: 5,
+                newPosts: 2,
+                lastReadPostNumber: 8,
+                highestPostNumber: 13,
+                hasAcceptedAnswer: true,
+                canHaveAnswer: true
+            ),
+            TopicSummaryState(
+                id: 125,
+                title: "MessageBus orchestration planning thread",
+                slug: "messagebus-orchestration-planning-thread",
+                postsCount: 9,
+                replyCount: 4,
+                views: 201,
+                likeCount: 11,
+                excerpt: "Shared session key and topic tracking metadata are ready to feed the next real-time step.",
+                createdAt: "2026-03-27T16:15:00Z",
+                lastPostedAt: "2026-03-28T07:20:00Z",
+                lastPosterUsername: "bob",
+                categoryId: 4,
+                pinned: false,
+                visible: true,
+                closed: false,
+                archived: false,
+                tags: ["messagebus"],
+                posters: [
+                    TopicPosterState(userId: 2, description: "Original Poster", extras: nil),
+                ],
+                unseen: false,
+                unreadPosts: 0,
+                newPosts: 0,
+                lastReadPostNumber: 9,
+                highestPostNumber: 9,
+                hasAcceptedAnswer: false,
+                canHaveAnswer: false
+            ),
+        ]
+
+        switch kind {
+        case .latest:
+            return topics
+        case .new:
+            return Array(topics.prefix(2))
+        case .unread, .unseen:
+            return topics.filter { $0.unreadPosts > 0 || $0.unseen }
+        case .hot:
+            return [topics[1], topics[0]]
+        case .top:
+            return topics.sorted { $0.likeCount > $1.likeCount }
+        }
+    }
+
+    private func sampleTopicDetail(topicId: UInt64) -> TopicDetailState? {
+        let currentUsername = state.bootstrap.currentUsername ?? "guest"
+
+        switch topicId {
+        case 123:
+            return TopicDetailState(
+                id: 123,
+                title: "Fire native shell now reaches the first read path",
+                slug: "fire-native-first-read-path",
+                postsCount: 24,
+                categoryId: 2,
+                tags: ["fire", "native"],
+                views: 512,
+                likeCount: 34,
+                createdAt: "2026-03-28T09:30:00Z",
+                lastReadPostNumber: 21,
+                bookmarks: [],
+                acceptedAnswer: false,
+                hasAcceptedAnswer: false,
+                canVote: false,
+                voteCount: 0,
+                userVoted: false,
+                summarizable: true,
+                hasCachedSummary: false,
+                hasSummary: false,
+                archetype: "regular",
+                postStream: TopicPostStreamState(
+                    posts: [
+                        TopicPostState(
+                            id: 9001,
+                            username: "alice",
+                            name: "Alice",
+                            avatarTemplate: "/user_avatar/linux.do/alice/{size}/1.png",
+                            cooked: "<p>登录流程已经可用了，接下来先把第一个已登录读取链路打通。</p>",
+                            postNumber: 1,
+                            postType: 1,
+                            createdAt: "2026-03-28T09:30:00Z",
+                            updatedAt: "2026-03-28T09:35:00Z",
+                            likeCount: 12,
+                            replyCount: 1,
+                            replyToPostNumber: nil,
+                            bookmarked: false,
+                            bookmarkId: nil,
+                            reactions: [TopicReactionState(id: "heart", kind: "like", count: 12)],
+                            currentUserReaction: nil,
+                            acceptedAnswer: false,
+                            canEdit: false,
+                            canDelete: false,
+                            canRecover: false,
+                            hidden: false
+                        ),
+                        TopicPostState(
+                            id: 9002,
+                            username: currentUsername,
+                            name: currentUsername.capitalized,
+                            avatarTemplate: "/user_avatar/linux.do/\(currentUsername)/{size}/3.png",
+                            cooked: "<p>现在 host shell 可以直接加载 latest 列表，并打开 topic detail 预览帖子内容。</p>",
+                            postNumber: 2,
+                            postType: 1,
+                            createdAt: "2026-03-28T10:05:00Z",
+                            updatedAt: "2026-03-28T10:05:00Z",
+                            likeCount: 4,
+                            replyCount: 0,
+                            replyToPostNumber: 1,
+                            bookmarked: false,
+                            bookmarkId: nil,
+                            reactions: [],
+                            currentUserReaction: nil,
+                            acceptedAnswer: false,
+                            canEdit: true,
+                            canDelete: false,
+                            canRecover: false,
+                            hidden: false
+                        ),
+                    ],
+                    stream: [9001, 9002]
+                ),
+                details: TopicDetailMetaState(
+                    notificationLevel: 1,
+                    canEdit: false,
+                    createdBy: TopicDetailCreatedByState(
+                        id: 1,
+                        username: "alice",
+                        avatarTemplate: "/user_avatar/linux.do/alice/{size}/1.png"
+                    )
+                )
+            )
+        case 124:
+            return TopicDetailState(
+                id: 124,
+                title: "Next up: replace host stubs with generated UniFFI bindings",
+                slug: "replace-host-stubs-with-uniffi",
+                postsCount: 13,
+                categoryId: 3,
+                tags: ["uniffi", "roadmap"],
+                views: 340,
+                likeCount: 22,
+                createdAt: "2026-03-28T08:45:00Z",
+                lastReadPostNumber: 8,
+                bookmarks: [1240],
+                acceptedAnswer: true,
+                hasAcceptedAnswer: true,
+                canVote: false,
+                voteCount: 0,
+                userVoted: false,
+                summarizable: true,
+                hasCachedSummary: false,
+                hasSummary: false,
+                archetype: "regular",
+                postStream: TopicPostStreamState(
+                    posts: [
+                        TopicPostState(
+                            id: 9101,
+                            username: "bob",
+                            name: "Bob",
+                            avatarTemplate: "/user_avatar/linux.do/bob/{size}/2.png",
+                            cooked: "<p>当前 topic UI 先走临时 shim，下一步要把它替换成真正生成的 UniFFI bindings。</p>",
+                            postNumber: 1,
+                            postType: 1,
+                            createdAt: "2026-03-28T08:45:00Z",
+                            updatedAt: "2026-03-28T08:50:00Z",
+                            likeCount: 9,
+                            replyCount: 0,
+                            replyToPostNumber: nil,
+                            bookmarked: true,
+                            bookmarkId: 1240,
+                            reactions: [TopicReactionState(id: "heart", kind: "like", count: 9)],
+                            currentUserReaction: nil,
+                            acceptedAnswer: true,
+                            canEdit: false,
+                            canDelete: false,
+                            canRecover: false,
+                            hidden: false
+                        ),
+                    ],
+                    stream: [9101]
+                ),
+                details: TopicDetailMetaState(
+                    notificationLevel: 2,
+                    canEdit: false,
+                    createdBy: TopicDetailCreatedByState(
+                        id: 2,
+                        username: "bob",
+                        avatarTemplate: "/user_avatar/linux.do/bob/{size}/2.png"
+                    )
+                )
+            )
+        case 125:
+            return TopicDetailState(
+                id: 125,
+                title: "MessageBus orchestration planning thread",
+                slug: "messagebus-orchestration-planning-thread",
+                postsCount: 9,
+                categoryId: 4,
+                tags: ["messagebus"],
+                views: 201,
+                likeCount: 11,
+                createdAt: "2026-03-27T16:15:00Z",
+                lastReadPostNumber: 9,
+                bookmarks: [],
+                acceptedAnswer: false,
+                hasAcceptedAnswer: false,
+                canVote: false,
+                voteCount: 0,
+                userVoted: false,
+                summarizable: true,
+                hasCachedSummary: false,
+                hasSummary: false,
+                archetype: "regular",
+                postStream: TopicPostStreamState(
+                    posts: [
+                        TopicPostState(
+                            id: 9201,
+                            username: "bob",
+                            name: "Bob",
+                            avatarTemplate: "/user_avatar/linux.do/bob/{size}/2.png",
+                            cooked: "<p>shared_session_key 和 topicTrackingStateMeta 已经在 bootstrap 里了，下一步是把 MessageBus 长轮询拉起来。</p>",
+                            postNumber: 1,
+                            postType: 1,
+                            createdAt: "2026-03-27T16:15:00Z",
+                            updatedAt: "2026-03-27T16:15:00Z",
+                            likeCount: 6,
+                            replyCount: 0,
+                            replyToPostNumber: nil,
+                            bookmarked: false,
+                            bookmarkId: nil,
+                            reactions: [],
+                            currentUserReaction: nil,
+                            acceptedAnswer: false,
+                            canEdit: false,
+                            canDelete: false,
+                            canRecover: false,
+                            hidden: false
+                        ),
+                    ],
+                    stream: [9201]
+                ),
+                details: TopicDetailMetaState(
+                    notificationLevel: 1,
+                    canEdit: false,
+                    createdBy: TopicDetailCreatedByState(
+                        id: 2,
+                        username: "bob",
+                        avatarTemplate: "/user_avatar/linux.do/bob/{size}/2.png"
+                    )
+                )
+            )
+        default:
+            return nil
+        }
     }
 }
 #endif

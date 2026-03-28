@@ -45,11 +45,17 @@ fire/
 - Rust workspace 已初始化
 - `openwire` / `xlog-rs` 已纳入仓内子模块位
 - API 文档已按原生重构路径补充登录、CSRF、Cloudflare、MessageBus 等关键前置条件
+- iOS / Android 宿主壳已打通登录、会话恢复、bootstrap 刷新与首个 topic list / detail 读取路径
+- Android 现已在构建时生成 Kotlin UniFFI bindings 并打包真实 Rust `.so`
+- iOS 现已在构建时生成 Swift UniFFI bindings、FFI headers/modulemap，并链接真实 Rust `staticlib`
 
 ## 本地验证
 
 ```bash
 cargo check
+xcodegen generate --spec native/ios-app/project.yml
+xcodebuild -project native/ios-app/Fire.xcodeproj -scheme Fire -destination 'generic/platform=iOS Simulator' build
+ANDROID_HOME=$HOME/Library/Android/sdk ANDROID_SDK_ROOT=$HOME/Library/Android/sdk JAVA_HOME=/Library/Java/JavaVirtualMachines/temurin-17.jdk/Contents/Home native/android-app/gradlew -p native/android-app assembleDebug
 ```
 
 ## 说明

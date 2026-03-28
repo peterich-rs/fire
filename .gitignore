@@ -8,3 +8,5 @@
 .codex/
 /target/
 /rust/target/
+**/*.xcodeproj/xcuserdata/
+**/*.xcworkspace/xcuserdata/

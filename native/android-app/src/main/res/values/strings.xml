@@ -1,10 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Fire</string>
-    <string name="shell_subtitle">Native host shell for LinuxDo login, session restore, and Rust integration.</string>
+    <string name="shell_subtitle">Native host shell for LinuxDo login, session restore, and inline topic browsing.</string>
     <string name="action_restore_session">Restore Session</string>
     <string name="action_open_login">Open Login</string>
     <string name="action_refresh_bootstrap">Refresh Bootstrap</string>
+    <string name="action_refresh_topics">Refresh Topics</string>
     <string name="action_logout">Logout</string>
     <string name="action_close">Close</string>
     <string name="action_sync_login">Sync Login</string>
@@ -14,4 +15,14 @@
     <string name="action_reload">Reload</string>
     <string name="login_title">LinuxDo Login</string>
     <string name="login_url">https://linux.do</string>
+    <string name="browser_title">Topic Browser</string>
+    <string name="browser_loading">Loading topics…</string>
+    <string name="browser_empty">No topics available for this feed.</string>
+    <string name="browser_detail_empty">Select a topic to inspect its detail inline.</string>
+    <string name="feed_latest">Latest</string>
+    <string name="feed_new">New</string>
+    <string name="feed_unread">Unread</string>
+    <string name="feed_unseen">Unseen</string>
+    <string name="feed_hot">Hot</string>
+    <string name="feed_top">Top</string>
 </resources>

@@ -1,8 +1,8 @@
 # Android Native App
 
-This directory now contains a runnable Android host shell. The current build uses
-`src/main/java/uniffi/fire_uniffi/FireBindingsStub.kt` so the app can launch before
-the generated UniFFI Kotlin bindings are wired in.
+This directory now contains a runnable Android host shell. The current build
+generates Kotlin UniFFI bindings at build time and packages Rust-backed Android
+shared libraries for the app to load through JNA.
 
 Current host-side login wiring lives under `src/main/java/com/fire/app/session/`:
 
@@ -12,11 +12,20 @@ Current host-side login wiring lives under `src/main/java/com/fire/app/session/`
   - restores persisted session snapshots on cold start
   - persists the latest Rust session snapshot to `filesDir/fire/session.json`
   - lets Rust initialize shared logs under `filesDir/fire/logs`
-  - wraps `syncLoginContext`, `refreshBootstrap`, `refreshCsrfToken`, and logout
+  - wraps `syncLoginContext`, `refreshBootstrap`, `refreshCsrfToken`, topic fetches, and logout
+- `scripts/sync_uniffi_bindings.sh`
+  - builds the host dylib used for UniFFI metadata extraction
+  - generates Kotlin bindings from `fire-uniffi`
+  - cross-compiles `libfire_uniffi.so` for `arm64-v8a` and `x86_64`
+  - writes generated sources and JNI libraries into the Gradle build directory before `preBuild`
 - `FireWebViewLoginCoordinator.kt`
   - reads `WebView` cookies, `current-username`, `csrf-token`, and page HTML
   - converts them into `LoginSyncState`
   - completes login by syncing into Rust and backfilling bootstrap if the page is not reusable
+- `MainActivity.kt`
+  - restores the persisted session snapshot on launch and after login
+  - renders a basic inline topic browser with feed filters, topic list items, and topic detail
+  - opens topic detail inline in the same host shell instead of pushing a separate screen
 - `LoginActivity.kt`
   - presents login as a full-screen activity with visible page title, URL, and loading state
   - exposes back, forward, home, and reload controls
@@ -25,11 +34,11 @@ Current host-side login wiring lives under `src/main/java/com/fire/app/session/`
 
 Expected integration flow:
 
-1. Generate the UniFFI Kotlin bindings from `rust/crates/fire-uniffi`.
-2. Replace `src/main/java/uniffi/fire_uniffi/FireBindingsStub.kt` with the generated bindings.
-3. Keep the files in `src/main/java/com/fire/app/session/` in the same Android module.
-4. Create a single `FireSessionStore` instance during app startup and call `restorePersistedSessionIfAvailable()`.
-5. Drive the login `WebView` through `FireWebViewLoginCoordinator.completeLogin(webView)`.
+1. Run `./gradlew assembleDebug`; Gradle will invoke `scripts/sync_uniffi_bindings.sh` before `preBuild`.
+2. Keep the files in `src/main/java/com/fire/app/session/` in the same Android module.
+3. Create a single `FireSessionStore` instance during app startup and call `restorePersistedSessionIfAvailable()`.
+4. Drive the login `WebView` through `FireWebViewLoginCoordinator.completeLogin(webView)`.
+5. After login or restore, render the inline topic browser from `MainActivity`.
 6. On explicit logout, call `FireWebViewLoginCoordinator.logout()` and clear host-side `CookieManager` entries if desired.
 
 Workspace note:
@@ -39,10 +48,16 @@ Workspace note:
 - Rust can resolve relative paths inside that workspace for shared file ownership such as logs, caches, or exports.
 - The current persisted session file remains `filesDir/fire/session.json`.
 
+Current browser note:
+
+- The Android shell now loads the real Rust session/topic APIs through generated Kotlin UniFFI bindings.
+- `MainActivity` still renders a compact inline browser, but the data path is no longer stubbed.
+
 Note:
 
-- The Kotlin files assume the generated bindings use the `uniffi.fire_uniffi` package. If your UniFFI generation step uses a different namespace, adjust the imports.
-- Build with a full JDK that includes `jlink`. On this machine, `JAVA_HOME=/Library/Java/JavaVirtualMachines/temurin-17.jdk/Contents/Home ./gradlew assembleDebug` is verified working.
+- The generated Kotlin bindings currently use the `uniffi.fire_uniffi` package and JNA to load `libfire_uniffi.so`.
+- Build with a full JDK that includes `jlink`. On this machine, `ANDROID_HOME=$HOME/Library/Android/sdk ANDROID_SDK_ROOT=$HOME/Library/Android/sdk JAVA_HOME=/Library/Java/JavaVirtualMachines/temurin-17.jdk/Contents/Home ./gradlew assembleDebug` is verified working.
+- The Gradle build expects an Android SDK/NDK installation. By default the sync script resolves the NDK from `$ANDROID_NDK_HOME`, `$ANDROID_NDK_ROOT`, or `$ANDROID_HOME/ndk/28.2.13676358`.
 - Android does not have an iOS-style runtime "internet permission" prompt for ordinary web access. `android.permission.INTERNET` is a normal install-time permission, so there is no separate network-permission preflight to mirror.
 
 Planned responsibilities beyond the current wiring:

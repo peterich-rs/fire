@@ -63,7 +63,7 @@ public actor FireSessionStore {
 
     @discardableResult
     public func syncLoginContext(_ captured: FireCapturedLoginState) throws -> SessionState {
-        let state = try core.syncLoginContext(
+        let state = core.syncLoginContext(
             context: LoginSyncState(
                 currentUrl: captured.currentURL,
                 username: captured.username,
@@ -110,6 +110,39 @@ public actor FireSessionStore {
 
     public func exportSessionJSON() throws -> String {
         try core.exportSessionJson()
+    }
+
+    public func fetchTopicList(query: TopicListQueryState) throws -> TopicListState {
+        try core.fetchTopicList(query: query)
+    }
+
+    public func fetchTopicList(kind: TopicListKindState) throws -> TopicListState {
+        try fetchTopicList(
+            query: TopicListQueryState(
+                kind: kind,
+                page: nil,
+                topicIds: [],
+                order: nil,
+                ascending: nil
+            )
+        )
+    }
+
+    public func fetchTopicDetail(query: TopicDetailQueryState) throws -> TopicDetailState {
+        try core.fetchTopicDetail(query: query)
+    }
+
+    public func fetchTopicDetail(topicID: UInt64, trackVisit: Bool = true) throws -> TopicDetailState {
+        try fetchTopicDetail(
+            query: TopicDetailQueryState(
+                topicId: topicID,
+                postNumber: nil,
+                trackVisit: trackVisit,
+                filter: nil,
+                usernameFilters: nil,
+                filterTopLevelReplies: false
+            )
+        )
     }
 
     @discardableResult

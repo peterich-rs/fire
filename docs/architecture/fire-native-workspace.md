@@ -80,6 +80,9 @@ The first usable session pipeline now lives in the Rust workspace:
   - retries one logout request on `BAD CSRF` after refreshing `/session/csrf`
 - `fire-uniffi`
   - exports the session snapshot, readiness flags, login sync input, bootstrap sync APIs, persistence APIs, topic APIs, and logout APIs to Swift/Kotlin
+- `native/ios-app` and `native/android-app`
+  - now drive a minimal latest-topic list plus topic detail shell on top of the exported topic API surface
+  - now build against generated UniFFI bindings in app builds, with Android packaging `.so` libraries and iOS linking a generated Rust static library
 
 The intended native integration order is:
 
@@ -93,6 +96,8 @@ The intended native integration order is:
 8. Use `fetch_topic_list` and `fetch_topic_detail` for the first authenticated read path.
 9. On explicit logout, prefer `logout_remote`, then fall back to `logout_local`, and clear the persisted session.
 
+The current host shells now cover that first read path at the UI layer, and both app targets now compile against generated UniFFI outputs.
+
 Current file ownership convention:
 
 - Native hosts provide a platform workspace root to Rust:
@@ -105,9 +110,11 @@ Current file ownership convention:
   - `session.json` for the persisted session snapshot triggered by the host shell
 - The current session snapshot remains host-triggered persistence under `session.json` inside that workspace root.
 
+The Android host shell now generates Kotlin UniFFI bindings at build time, packages Rust-backed Android `.so` libraries, and renders the inline topic browser against the real shared Rust core. The iOS host shell now does the same at build time for Swift bindings plus a Rust static library and links that output directly into the Xcode target.
+
 ## Next Build Steps
 
-1. Create the Swift and Kotlin host apps under `native/` and wire them to the exported session APIs.
-2. Build the authenticated topic list / topic detail API layer on top of the current session pipeline.
-3. Add MessageBus client orchestration on top of restored `shared_session_key` / `topicTrackingStateMeta`.
-4. Move platform cookie storage into keychain/keystore backed persistence and reconcile it with the Rust snapshot lifecycle.
+1. Expand the current Android/iOS topic browser shells with richer navigation, pagination, category metadata, and post rendering on top of the existing topic API layer.
+2. Add MessageBus client orchestration on top of restored `shared_session_key` / `topicTrackingStateMeta`.
+3. Move platform cookie storage into keychain/keystore backed persistence and reconcile it with the Rust snapshot lifecycle.
+4. Decide whether iOS build outputs should stay project-local under `Generated/` or be elevated into a reusable package/XCFramework flow for distribution and CI caching.

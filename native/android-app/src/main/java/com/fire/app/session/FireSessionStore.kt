@@ -7,6 +7,10 @@ import java.io.File
 import uniffi.fire_uniffi.FireCoreHandle
 import uniffi.fire_uniffi.LoginSyncState
 import uniffi.fire_uniffi.PlatformCookieState
+import uniffi.fire_uniffi.TopicDetailQueryState
+import uniffi.fire_uniffi.TopicDetailState
+import uniffi.fire_uniffi.TopicListQueryState
+import uniffi.fire_uniffi.TopicListState
 import uniffi.fire_uniffi.SessionState
 
 class FireSessionStore(
@@ -97,6 +101,14 @@ class FireSessionStore(
         val state = core.logoutRemote(true)
         clearPersistedSession()
         state
+    }
+
+    suspend fun fetchTopicList(query: TopicListQueryState): TopicListState = withContext(Dispatchers.Default) {
+        core.fetchTopicList(query)
+    }
+
+    suspend fun fetchTopicDetail(query: TopicDetailQueryState): TopicDetailState = withContext(Dispatchers.Default) {
+        core.fetchTopicDetail(query)
     }
 
     suspend fun clearPersistedSession() = withContext(Dispatchers.IO) {

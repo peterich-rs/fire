@@ -8,26 +8,50 @@
 
 /* Begin PBXBuildFile section */
 		0006B08A873FC6192E616F01 /* FireApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 996D95DE48DA65385BD587F7 /* FireApp.swift */; };
+		178E55B850EED60EE530A0F2 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9B970247E0258DD4D4F34101 /* Foundation.framework */; };
 		1F1EEDCE0B4FEAE2880DC061 /* FireWebViewLoginCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5E5271F93B7DF18859B101F /* FireWebViewLoginCoordinator.swift */; };
 		48AF44A62E5FD00C2E7D6673 /* FireBindingsShim.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89B281CC26C23F076A764AB6 /* FireBindingsShim.swift */; };
+		790B44E436B0CF137B1FD8A7 /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E69013450F80AEC210D5512D /* Security.framework */; };
 		8D77430DC1266A1EDEF3A6E4 /* FireAppViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFA66CA083BF4889AE258926 /* FireAppViewModel.swift */; };
+		9726B24BBA832290EA063E8F /* libiconv.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = FD5A94769988E39B8BEA7B56 /* libiconv.tbd */; };
 		A29E21413FA011161D518004 /* FireSessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8834ADE6E3ADB8A03391560C /* FireSessionStore.swift */; };
+		BACF637B5B2F0C0C8EDA3048 /* fire_uniffi.swift in Sources */ = {isa = PBXBuildFile; fileRef = 588B3F8CFD76DF758BE3A242 /* fire_uniffi.swift */; };
 		C02B0FA4DC635EE4FF05F19F /* SessionState+Helpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5F3291447D7DA0AEF9AA413 /* SessionState+Helpers.swift */; };
 		C4381D212A49ACCE13469C1B /* FireRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C98E6A3F52E02947DF2A136 /* FireRootView.swift */; };
 		CFF789D0907079D9365F031E /* FireLoginWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6725F42C679E922AA3DD1FBF /* FireLoginWebView.swift */; };
+		E67F86DADDE88559438DE849 /* CoreFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 08F96260D49AF4E41AB4739C /* CoreFoundation.framework */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		08F96260D49AF4E41AB4739C /* CoreFoundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreFoundation.framework; path = System/Library/Frameworks/CoreFoundation.framework; sourceTree = SDKROOT; };
 		48CAB0E38556929FC140E25D /* Fire.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Fire.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		588B3F8CFD76DF758BE3A242 /* fire_uniffi.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = fire_uniffi.swift; sourceTree = "<group>"; };
 		6725F42C679E922AA3DD1FBF /* FireLoginWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireLoginWebView.swift; sourceTree = "<group>"; };
 		6C98E6A3F52E02947DF2A136 /* FireRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireRootView.swift; sourceTree = "<group>"; };
 		8834ADE6E3ADB8A03391560C /* FireSessionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireSessionStore.swift; sourceTree = "<group>"; };
 		89B281CC26C23F076A764AB6 /* FireBindingsShim.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireBindingsShim.swift; sourceTree = "<group>"; };
 		996D95DE48DA65385BD587F7 /* FireApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireApp.swift; sourceTree = "<group>"; };
+		9B970247E0258DD4D4F34101 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = System/Library/Frameworks/Foundation.framework; sourceTree = SDKROOT; };
 		B5E5271F93B7DF18859B101F /* FireWebViewLoginCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireWebViewLoginCoordinator.swift; sourceTree = "<group>"; };
 		BFA66CA083BF4889AE258926 /* FireAppViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireAppViewModel.swift; sourceTree = "<group>"; };
+		E69013450F80AEC210D5512D /* Security.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Security.framework; path = System/Library/Frameworks/Security.framework; sourceTree = SDKROOT; };
 		F5F3291447D7DA0AEF9AA413 /* SessionState+Helpers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionState+Helpers.swift"; sourceTree = "<group>"; };
+		FD5A94769988E39B8BEA7B56 /* libiconv.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libiconv.tbd; path = usr/lib/libiconv.tbd; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		1E5D1534135BDBC408E23F3B /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				790B44E436B0CF137B1FD8A7 /* Security.framework in Frameworks */,
+				178E55B850EED60EE530A0F2 /* Foundation.framework in Frameworks */,
+				E67F86DADDE88559438DE849 /* CoreFoundation.framework in Frameworks */,
+				9726B24BBA832290EA063E8F /* libiconv.tbd in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
 		1D88C155B3075FF19641DF3E /* Products */ = {
@@ -66,8 +90,29 @@
 			children = (
 				73EB36381D2DB9DA74378162 /* App */,
 				32338F9E71B0E67C5112C300 /* FireAppSession */,
+				B6732AD346DE25D47D208DE1 /* Generated */,
+				D5EBFF4F5452417E0754E6D0 /* Frameworks */,
 				1D88C155B3075FF19641DF3E /* Products */,
 			);
+			sourceTree = "<group>";
+		};
+		B6732AD346DE25D47D208DE1 /* Generated */ = {
+			isa = PBXGroup;
+			children = (
+				588B3F8CFD76DF758BE3A242 /* fire_uniffi.swift */,
+			);
+			path = Generated;
+			sourceTree = "<group>";
+		};
+		D5EBFF4F5452417E0754E6D0 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				08F96260D49AF4E41AB4739C /* CoreFoundation.framework */,
+				9B970247E0258DD4D4F34101 /* Foundation.framework */,
+				FD5A94769988E39B8BEA7B56 /* libiconv.tbd */,
+				E69013450F80AEC210D5512D /* Security.framework */,
+			);
+			name = Frameworks;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -77,7 +122,9 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = 8B557C6BBAEE714D516101F2 /* Build configuration list for PBXNativeTarget "Fire" */;
 			buildPhases = (
+				7F9225EA44D6B7B0AD49A18F /* Sync Fire UniFFI Bindings */,
 				C48ECD0BE135A9DCE10B1CAA /* Sources */,
+				1E5D1534135BDBC408E23F3B /* Frameworks */,
 			);
 			buildRules = (
 			);
@@ -123,6 +170,36 @@
 		};
 /* End PBXProject section */
 
+/* Begin PBXShellScriptBuildPhase section */
+		7F9225EA44D6B7B0AD49A18F /* Sync Fire UniFFI Bindings */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/scripts/sync_uniffi_bindings.sh",
+				"$(SRCROOT)/../../Cargo.toml",
+				"$(SRCROOT)/../../Cargo.lock",
+			);
+			name = "Sync Fire UniFFI Bindings";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(SRCROOT)/Generated/fire_uniffi.swift",
+				"$(SRCROOT)/Generated/fire_uniffiFFI/fire_uniffiFFI.h",
+				"$(SRCROOT)/Generated/fire_uniffiFFI/module.modulemap",
+				"$(SRCROOT)/Generated/lib/$(PLATFORM_NAME)/libfire_uniffi.a",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/bash;
+			shellScript = "#!/usr/bin/env bash\nset -euo pipefail\n\nscript_dir=\"$(cd -- \"$(dirname -- \"${BASH_SOURCE[0]}\")\" && pwd)\"\nproject_root=\"${SRCROOT:-$(cd -- \"$script_dir/..\" && pwd)}\"\nrepo_root=\"$(cd -- \"$project_root/../..\" && pwd)\"\ngenerated_dir=\"$project_root/Generated\"\nswift_out_dir=\"$generated_dir\"\nffi_out_dir=\"$generated_dir/fire_uniffiFFI\"\nlib_out_root=\"$generated_dir/lib\"\n\nexport PATH=\"$HOME/.cargo/bin:$PATH\"\n\ncargo_bin=\"${CARGO:-$(command -v cargo || true)}\"\nrustup_bin=\"${RUSTUP:-$(command -v rustup || true)}\"\n\nif [[ -z \"$cargo_bin\" ]]; then\n  echo \"unable to locate cargo in PATH\" >&2\n  exit 1\nfi\n\nif [[ -z \"$rustup_bin\" ]]; then\n  echo \"unable to locate rustup in PATH\" >&2\n  exit 1\nfi\n\nplatform_name=\"${PLATFORM_NAME:-iphonesimulator}\"\nconfiguration_name=\"${CONFIGURATION:-Debug}\"\nprofile_dir=\"debug\"\n\nif [[ \"$configuration_name\" == \"Release\" ]]; then\n  profile_dir=\"release\"\nfi\n\ntmp_dir=\"$(mktemp -d \"${TMPDIR:-/tmp}/fire-ios-uniffi.XXXXXX\")\"\ntrap 'rm -rf \"$tmp_dir\"' EXIT\n\nmkdir -p \"$swift_out_dir\" \"$ffi_out_dir\" \"$lib_out_root/$platform_name\"\nrm -f \"$generated_dir/fire_uniffiFFI.h\" \"$generated_dir/fire_uniffiFFI.modulemap\"\n\ninstalled_targets=\"$(\"$rustup_bin\" target list --installed)\"\n\nensure_rust_target_installed() {\n  local rust_target=\"$1\"\n\n  if ! grep -qx \"$rust_target\" <<<\"$installed_targets\"; then\n    echo \"required Rust target is not installed: $rust_target\" >&2\n    echo \"run: rustup target add $rust_target\" >&2\n    exit 1\n  fi\n}\n\nmap_simulator_arch_to_rust_target() {\n  local arch=\"$1\"\n\n  case \"$arch\" in\n    arm64)\n      printf '%s\\n' \"aarch64-apple-ios-sim\"\n      ;;\n    x86_64)\n      printf '%s\\n' \"x86_64-apple-ios\"\n      ;;\n    *)\n      echo \"unsupported iOS simulator arch: $arch\" >&2\n      exit 1\n      ;;\n  esac\n}\n\ndeclare -a rust_targets=()\n\ncase \"$platform_name\" in\n  iphoneos)\n    rust_targets=(\"aarch64-apple-ios\")\n    ;;\n  iphonesimulator)\n    if [[ -n \"${ARCHS:-}\" ]]; then\n      for arch in $ARCHS; do\n        rust_targets+=(\"$(map_simulator_arch_to_rust_target \"$arch\")\")\n      done\n    else\n      case \"$(uname -m)\" in\n        arm64)\n          rust_targets=(\"aarch64-apple-ios-sim\")\n          ;;\n        x86_64)\n          rust_targets=(\"x86_64-apple-ios\")\n          ;;\n        *)\n          echo \"unable to infer simulator Rust target from host architecture\" >&2\n          exit 1\n          ;;\n      esac\n    fi\n    ;;\n  *)\n    echo \"unsupported PLATFORM_NAME: $platform_name\" >&2\n    exit 1\n    ;;\nesac\n\ndedupe_targets() {\n  local seen=\"\"\n  local rust_target\n  local deduped=()\n\n  for rust_target in \"${rust_targets[@]}\"; do\n    if [[ \" $seen \" == *\" $rust_target \"* ]]; then\n      continue\n    fi\n\n    seen+=\" $rust_target\"\n    deduped+=(\"$rust_target\")\n  done\n\n  rust_targets=(\"${deduped[@]}\")\n}\n\nbuild_staticlib() {\n  local rust_target=\"$1\"\n\n  ensure_rust_target_installed \"$rust_target\"\n\n  if [[ \"$profile_dir\" == \"release\" ]]; then\n    (\n      cd \"$repo_root\"\n      \"$cargo_bin\" rustc -p fire-uniffi --lib --target \"$rust_target\" --release --crate-type staticlib\n    )\n  else\n    (\n      cd \"$repo_root\"\n      \"$cargo_bin\" rustc -p fire-uniffi --lib --target \"$rust_target\" --crate-type staticlib\n    )\n  fi\n}\n\ndedupe_targets\n\n(\n  cd \"$repo_root\"\n  \"$cargo_bin\" build -p fire-uniffi --lib\n  \"$cargo_bin\" run -p fire-uniffi --bin uniffi-bindgen -- generate \\\n    --library \"$repo_root/rust/target/debug/libfire_uniffi.dylib\" \\\n    --language swift \\\n    --no-format \\\n    --out-dir \"$tmp_dir/bindings\"\n)\n\ncp \"$tmp_dir/bindings/fire_uniffi.swift\" \"$swift_out_dir/fire_uniffi.swift\"\ncp \"$tmp_dir/bindings/fire_uniffiFFI.h\" \"$ffi_out_dir/fire_uniffiFFI.h\"\ncp \"$tmp_dir/bindings/fire_uniffiFFI.modulemap\" \"$ffi_out_dir/module.modulemap\"\n\ndeclare -a built_libraries=()\n\nfor rust_target in \"${rust_targets[@]}\"; do\n  build_staticlib \"$rust_target\"\n  built_libraries+=(\"$repo_root/rust/target/$rust_target/$profile_dir/libfire_uniffi.a\")\ndone\n\nfinal_library_path=\"$lib_out_root/$platform_name/libfire_uniffi.a\"\n\nif [[ ${#built_libraries[@]} -eq 1 ]]; then\n  cp \"${built_libraries[0]}\" \"$final_library_path\"\nelse\n  simulator_library_path=\"$tmp_dir/libfire_uniffi.a\"\n  xcrun lipo -create \"${built_libraries[@]}\" -output \"$simulator_library_path\"\n  cp \"$simulator_library_path\" \"$final_library_path\"\nfi\n";
+			showEnvVarsInLog = 0;
+		};
+/* End PBXShellScriptBuildPhase section */
+
 /* Begin PBXSourcesBuildPhase section */
 		C48ECD0BE135A9DCE10B1CAA /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
@@ -136,6 +213,7 @@
 				A29E21413FA011161D518004 /* FireSessionStore.swift in Sources */,
 				1F1EEDCE0B4FEAE2880DC061 /* FireWebViewLoginCoordinator.swift in Sources */,
 				C02B0FA4DC635EE4FF05F19F /* SessionState+Helpers.swift in Sources */,
+				BACF637B5B2F0C0C8EDA3048 /* fire_uniffi.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -156,10 +234,21 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
+				LIBRARY_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/Generated/lib/$(PLATFORM_NAME)",
+				);
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-lfire_uniffi",
+				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.fire.app.ios;
 				PRODUCT_NAME = Fire;
 				SDKROOT = iphoneos;
-				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) FIRE_USE_UNIFFI_STUBS";
+				SWIFT_INCLUDE_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/Generated",
+				);
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Debug;
@@ -223,7 +312,7 @@
 				SDKROOT = iphoneos;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
-				SWIFT_VERSION = 5.1;
+				SWIFT_VERSION = 5.10;
 			};
 			name = Debug;
 		};
@@ -279,7 +368,7 @@
 				SDKROOT = iphoneos;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
-				SWIFT_VERSION = 5.1;
+				SWIFT_VERSION = 5.10;
 			};
 			name = Release;
 		};
@@ -297,10 +386,21 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
+				LIBRARY_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/Generated/lib/$(PLATFORM_NAME)",
+				);
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-lfire_uniffi",
+				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.fire.app.ios;
 				PRODUCT_NAME = Fire;
 				SDKROOT = iphoneos;
-				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) FIRE_USE_UNIFFI_STUBS";
+				SWIFT_INCLUDE_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/Generated",
+				);
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Release;

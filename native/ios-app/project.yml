@@ -3,7 +3,7 @@ options:
   minimumXcodeGenVersion: 2.45.3
 settings:
   base:
-    SWIFT_VERSION: 5.10
+    SWIFT_VERSION: "5.10"
     CODE_SIGN_STYLE: Automatic
 targets:
   Fire:
@@ -13,6 +13,14 @@ targets:
     sources:
       - path: App
       - path: Sources/FireAppSession
+      - path: Generated/fire_uniffi.swift
+        optional: true
+        buildPhase: sources
+    dependencies:
+      - sdk: Security.framework
+      - sdk: Foundation.framework
+      - sdk: CoreFoundation.framework
+      - sdk: libiconv.tbd
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.fire.app.ios
@@ -22,4 +30,27 @@ targets:
         INFOPLIST_KEY_CFBundleDisplayName: Fire
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
-        SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) FIRE_USE_UNIFFI_STUBS"
+        LIBRARY_SEARCH_PATHS:
+          - "$(inherited)"
+          - "$(SRCROOT)/Generated/lib/$(PLATFORM_NAME)"
+        OTHER_LDFLAGS:
+          - "$(inherited)"
+          - "-lfire_uniffi"
+        SWIFT_INCLUDE_PATHS:
+          - "$(inherited)"
+          - "$(SRCROOT)/Generated"
+    preBuildScripts:
+      - path: scripts/sync_uniffi_bindings.sh
+        name: Sync Fire UniFFI Bindings
+        shell: /bin/bash
+        showEnvVars: false
+        basedOnDependencyAnalysis: false
+        inputFiles:
+          - $(SRCROOT)/scripts/sync_uniffi_bindings.sh
+          - $(SRCROOT)/../../Cargo.toml
+          - $(SRCROOT)/../../Cargo.lock
+        outputFiles:
+          - $(SRCROOT)/Generated/fire_uniffi.swift
+          - $(SRCROOT)/Generated/fire_uniffiFFI/fire_uniffiFFI.h
+          - $(SRCROOT)/Generated/fire_uniffiFFI/module.modulemap
+          - $(SRCROOT)/Generated/lib/$(PLATFORM_NAME)/libfire_uniffi.a

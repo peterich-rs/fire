@@ -100,53 +100,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          readarray -t sim_selection < <(
-            python3 - <<'PY'
-            import json
-            import subprocess
-
-            devicetypes = json.loads(
-                subprocess.check_output(["xcrun", "simctl", "list", "devicetypes", "-j"])
-            )["devicetypes"]
-            runtimes = json.loads(
-                subprocess.check_output(["xcrun", "simctl", "list", "runtimes", "-j"])
-            )["runtimes"]
-
-            device_type_id = next(
-                (
-                    item["identifier"]
-                    for item in devicetypes
-                    if item.get("name", "").startswith("iPhone ")
-                ),
-                None,
-            )
-
-            ios_runtimes = [
-                item
-                for item in runtimes
-                if item.get("isAvailable")
-                and item.get("identifier", "").startswith(
-                    "com.apple.CoreSimulator.SimRuntime.iOS-"
-                )
-            ]
-            ios_runtimes.sort(
-                key=lambda item: tuple(
-                    int(part) for part in item.get("version", "0").split(".")
-                ),
-            )
-            runtime_id = ios_runtimes[-1]["identifier"] if ios_runtimes else None
-
-            if not device_type_id:
-                raise SystemExit("no available iPhone simulator device type found")
-            if not runtime_id:
-                raise SystemExit("no available iOS simulator runtime found")
-
-            print(device_type_id)
-            print(runtime_id)
-            PY
-          )
-          device_type_id="${sim_selection[0]}"
-          runtime_id="${sim_selection[1]}"
+          sim_selection="$(
+            python3 -c 'import json, subprocess; devicetypes = json.loads(subprocess.check_output(["xcrun", "simctl", "list", "devicetypes", "-j"]))["devicetypes"]; runtimes = json.loads(subprocess.check_output(["xcrun", "simctl", "list", "runtimes", "-j"]))["runtimes"]; device_type_id = next((item["identifier"] for item in devicetypes if item.get("name", "").startswith("iPhone ")), ""); ios_runtimes = [item for item in runtimes if item.get("isAvailable") and item.get("identifier", "").startswith("com.apple.CoreSimulator.SimRuntime.iOS-")]; ios_runtimes.sort(key=lambda item: tuple(int(part) for part in item.get("version", "0").split("."))); runtime_id = ios_runtimes[-1]["identifier"] if ios_runtimes else ""; print(device_type_id); print(runtime_id)'
+          )"
+          device_type_id="$(printf '%s\n' "$sim_selection" | sed -n '1p')"
+          runtime_id="$(printf '%s\n' "$sim_selection" | sed -n '2p')"
+          test -n "$device_type_id" || { echo "no available iPhone simulator device type found" >&2; exit 1; }
+          test -n "$runtime_id" || { echo "no available iOS simulator runtime found" >&2; exit 1; }
           sim_id="$(xcrun simctl create Fire-CI "$device_type_id" "$runtime_id")"
           trap 'xcrun simctl delete "$sim_id"' EXIT
           xcrun simctl boot "$sim_id" || true

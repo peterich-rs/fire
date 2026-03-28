@@ -133,12 +133,12 @@ build_staticlib() {
   if [[ "$profile_dir" == "release" ]]; then
     (
       cd "$repo_root"
-      run_host_cargo "$cargo_bin" rustc -p fire-uniffi --lib --target "$rust_target" --release --crate-type staticlib
+      run_host_cargo "$cargo_bin" build -p fire-uniffi --target "$rust_target" --release
     )
   else
     (
       cd "$repo_root"
-      run_host_cargo "$cargo_bin" rustc -p fire-uniffi --lib --target "$rust_target" --crate-type staticlib
+      run_host_cargo "$cargo_bin" build -p fire-uniffi --target "$rust_target"
     )
   fi
 }
@@ -146,14 +146,10 @@ build_staticlib() {
 run_host_cargo() {
   if [[ "$(uname -s)" == "Darwin" ]]; then
     local sdk_root
-    local host_cc
-    local rustflags
     local library_path
     local iphoneos_deployment_target
 
     sdk_root="$(xcrun --sdk macosx --show-sdk-path)"
-    host_cc="$(xcrun --sdk macosx --find clang)"
-    rustflags="-C linker=${host_cc} -C link-arg=-isysroot -C link-arg=${sdk_root}"
     library_path="${sdk_root}/usr/lib"
     iphoneos_deployment_target="${IPHONEOS_DEPLOYMENT_TARGET:-17.0}"
 
@@ -161,7 +157,6 @@ run_host_cargo() {
       HOME="$HOME" \
       PATH="$PATH" \
       SDKROOT="$sdk_root" \
-      RUSTFLAGS="$rustflags" \
       LIBRARY_PATH="$library_path" \
       PLATFORM_NAME= \
       EFFECTIVE_PLATFORM_NAME= \
@@ -184,7 +179,10 @@ dedupe_targets
   else
     run_host_cargo "$cargo_bin" build -p fire-uniffi --lib
   fi
-  run_host_cargo "$cargo_bin" run -p fire-uniffi --bin uniffi-bindgen -- generate \
+  run_host_cargo "$cargo_bin" build -p fire-uniffi --bin uniffi-bindgen
+  RUSTFLAGS= \
+  IPHONEOS_DEPLOYMENT_TARGET=17.0 \
+  "$repo_root/rust/target/debug/uniffi-bindgen" generate \
     --library "$repo_root/rust/target/$profile_dir/libfire_uniffi.dylib" \
     --language swift \
     --no-format \

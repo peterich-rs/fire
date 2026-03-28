@@ -133,12 +133,12 @@ build_staticlib() {
   if [[ "$profile_dir" == "release" ]]; then
     (
       cd "$repo_root"
-      run_host_cargo "$cargo_bin" build -p fire-uniffi --target "$rust_target" --release
+      run_target_cargo "$cargo_bin" build -p fire-uniffi --target "$rust_target" --release
     )
   else
     (
       cd "$repo_root"
-      run_host_cargo "$cargo_bin" build -p fire-uniffi --target "$rust_target"
+      run_target_cargo "$cargo_bin" build -p fire-uniffi --target "$rust_target"
     )
   fi
 }
@@ -147,11 +147,9 @@ run_host_cargo() {
   if [[ "$(uname -s)" == "Darwin" ]]; then
     local sdk_root
     local library_path
-    local iphoneos_deployment_target
 
     sdk_root="$(xcrun --sdk macosx --show-sdk-path)"
     library_path="${sdk_root}/usr/lib"
-    iphoneos_deployment_target="${IPHONEOS_DEPLOYMENT_TARGET:-17.0}"
 
     env -i \
       HOME="$HOME" \
@@ -161,9 +159,20 @@ run_host_cargo() {
       PLATFORM_NAME= \
       EFFECTIVE_PLATFORM_NAME= \
       ARCHS= \
-      IPHONEOS_DEPLOYMENT_TARGET="$iphoneos_deployment_target" \
       TVOS_DEPLOYMENT_TARGET= \
       WATCHOS_DEPLOYMENT_TARGET= \
+      "$@"
+  else
+    "$@"
+  fi
+}
+
+run_target_cargo() {
+  if [[ "$(uname -s)" == "Darwin" ]]; then
+    env -i \
+      HOME="$HOME" \
+      PATH="$PATH" \
+      IPHONEOS_DEPLOYMENT_TARGET="${IPHONEOS_DEPLOYMENT_TARGET:-17.0}" \
       "$@"
   else
     "$@"

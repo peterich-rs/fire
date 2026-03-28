@@ -11,6 +11,13 @@ generated_jni_libs_dir="$2"
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd -- "$script_dir/../../.." && pwd)"
+uniffi_config_path="$repo_root/rust/crates/fire-uniffi/uniffi.toml"
+build_profile="${FIRE_BUILD_PROFILE:-debug}"
+profile_dir="debug"
+
+if [[ "$build_profile" == "release" ]]; then
+  profile_dir="release"
+fi
 
 android_sdk_root="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-$HOME/Library/Android/sdk}}"
 android_ndk_version="${ANDROID_NDK_VERSION:-28.2.13676358}"
@@ -35,10 +42,15 @@ build_android_target() {
   local triple_prefix="$3"
   local clang="$toolchain_bin_dir/${triple_prefix}26-clang"
   local clangxx="$toolchain_bin_dir/${triple_prefix}26-clang++"
+  local cargo_args=(build -p fire-uniffi --target "$rust_target")
 
   if [[ ! -x "$clang" || ! -x "$clangxx" ]]; then
     echo "unable to locate Android clang toolchain for $rust_target" >&2
     exit 1
+  fi
+
+  if [[ "$profile_dir" == "release" ]]; then
+    cargo_args+=(--release)
   fi
 
   (
@@ -62,23 +74,28 @@ build_android_target() {
         ;;
     esac
 
-    cargo build -p fire-uniffi --target "$rust_target"
+    cargo "${cargo_args[@]}"
   )
 
   mkdir -p "$generated_jni_libs_dir/$abi_dir"
-  cp "$repo_root/rust/target/$rust_target/debug/libfire_uniffi.so" \
+  cp "$repo_root/rust/target/$rust_target/$profile_dir/libfire_uniffi.so" \
     "$generated_jni_libs_dir/$abi_dir/libfire_uniffi.so"
 }
 
 (
   cd "$repo_root"
-  cargo build -p fire-uniffi
+  if [[ "$profile_dir" == "release" ]]; then
+    cargo build -p fire-uniffi --release
+  else
+    cargo build -p fire-uniffi
+  fi
   cargo run -p fire-uniffi --bin uniffi-bindgen -- generate \
     --library \
     --language kotlin \
     --no-format \
+    --config "$uniffi_config_path" \
     --out-dir "$tmp_dir" \
-    rust/target/debug/libfire_uniffi.dylib
+    "rust/target/$profile_dir/libfire_uniffi.dylib"
 )
 
 mkdir -p "$generated_kotlin_dir/uniffi/fire_uniffi"

@@ -7,29 +7,54 @@ plugins {
 
 val fireRepoRoot = rootDir.parentFile?.parentFile
     ?: error("Unable to resolve Fire repository root from $rootDir")
-val generatedUniffiKotlinDir = layout.buildDirectory.dir("generated/uniffi/kotlin")
-val generatedUniffiJniLibsDir = layout.buildDirectory.dir("generated/uniffi/jniLibs")
+val generatedUniffiRootDir = layout.buildDirectory.dir("generated/uniffi")
 
-val syncFireUniffiBindings = tasks.register<Exec>("syncFireUniffiBindings") {
+fun registerSyncFireUniffiBindingsTask(
+    taskName: String,
+    buildTypeName: String,
+    rustProfile: String,
+) = tasks.register<Exec>(taskName) {
     val script = fireRepoRoot.resolve("native/android-app/scripts/sync_uniffi_bindings.sh")
+    val generatedKotlinDir = generatedUniffiRootDir.map { it.dir("$buildTypeName/kotlin") }
+    val generatedJniLibsDir = generatedUniffiRootDir.map { it.dir("$buildTypeName/jniLibs") }
 
     inputs.file(script)
     inputs.file(fireRepoRoot.resolve("Cargo.toml"))
     inputs.file(fireRepoRoot.resolve("Cargo.lock"))
+    inputs.file(fireRepoRoot.resolve("rust/crates/fire-uniffi/uniffi.toml"))
     inputs.dir(fireRepoRoot.resolve("rust"))
     inputs.dir(fireRepoRoot.resolve("third_party/openwire"))
     inputs.dir(fireRepoRoot.resolve("third_party/xlog-rs"))
+    inputs.property("fireRustProfile", rustProfile)
 
-    outputs.dir(generatedUniffiKotlinDir)
-    outputs.dir(generatedUniffiJniLibsDir)
+    outputs.dir(generatedKotlinDir)
+    outputs.dir(generatedJniLibsDir)
+
+    environment("FIRE_BUILD_PROFILE", rustProfile)
 
     commandLine(
         "bash",
         script.absolutePath,
-        generatedUniffiKotlinDir.get().asFile.absolutePath,
-        generatedUniffiJniLibsDir.get().asFile.absolutePath,
+        generatedKotlinDir.get().asFile.absolutePath,
+        generatedJniLibsDir.get().asFile.absolutePath,
     )
 }
+
+val generatedDebugUniffiKotlinDir = generatedUniffiRootDir.map { it.dir("debug/kotlin") }
+val generatedDebugUniffiJniLibsDir = generatedUniffiRootDir.map { it.dir("debug/jniLibs") }
+val generatedReleaseUniffiKotlinDir = generatedUniffiRootDir.map { it.dir("release/kotlin") }
+val generatedReleaseUniffiJniLibsDir = generatedUniffiRootDir.map { it.dir("release/jniLibs") }
+
+val syncFireUniffiDebugBindings = registerSyncFireUniffiBindingsTask(
+    taskName = "syncFireUniffiDebugBindings",
+    buildTypeName = "debug",
+    rustProfile = "debug",
+)
+val syncFireUniffiReleaseBindings = registerSyncFireUniffiBindingsTask(
+    taskName = "syncFireUniffiReleaseBindings",
+    buildTypeName = "release",
+    rustProfile = "release",
+)
 
 android {
     namespace = "com.fire.app"
@@ -63,15 +88,23 @@ android {
     }
 
     sourceSets {
-        getByName("main") {
-            java.srcDir(generatedUniffiKotlinDir)
-            jniLibs.srcDir(generatedUniffiJniLibsDir)
+        getByName("debug") {
+            java.srcDir(generatedDebugUniffiKotlinDir)
+            jniLibs.srcDir(generatedDebugUniffiJniLibsDir)
+        }
+        getByName("release") {
+            java.srcDir(generatedReleaseUniffiKotlinDir)
+            jniLibs.srcDir(generatedReleaseUniffiJniLibsDir)
         }
     }
 }
 
-tasks.named("preBuild").configure {
-    dependsOn(syncFireUniffiBindings)
+tasks.matching { it.name == "preDebugBuild" }.configureEach {
+    dependsOn(syncFireUniffiDebugBindings)
+}
+
+tasks.matching { it.name == "preReleaseBuild" }.configureEach {
+    dependsOn(syncFireUniffiReleaseBindings)
 }
 
 kotlin {
@@ -87,5 +120,6 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
     implementation("androidx.webkit:webkit:1.13.0")
     implementation("com.google.android.material:material:1.12.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.1")
     implementation("net.java.dev.jna:jna:5.16.0@aar")
 }

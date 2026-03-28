@@ -6,7 +6,10 @@ Current crates:
 
 - `fire-models`: shared serializable models for session/bootstrap state.
 - `fire-core`: Discourse client state, shared session logic, and future API entrypoint.
-- `fire-uniffi`: UniFFI bindings exposed to Swift and Kotlin.
+- `fire-uniffi`: UniFFI boundary exposed to Swift and Kotlin.
+  - exports local session/persistence APIs plus async topic/bootstrap/logout APIs
+  - keeps its generator settings in `crates/fire-uniffi/uniffi.toml`
+  - is the only crate that should carry UniFFI-specific binding configuration
 
 Local third-party dependencies are wired in from:
 

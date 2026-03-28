@@ -1,4 +1,7 @@
-use std::sync::{Arc, OnceLock};
+use std::{
+    future::Future,
+    sync::{Arc, OnceLock},
+};
 
 use fire_core::{FireCore, FireCoreConfig, FireCoreError};
 use fire_models::{
@@ -615,14 +618,103 @@ impl From<TopicDetail> for TopicDetailState {
 
 #[derive(uniffi::Error, thiserror::Error, Debug)]
 pub enum FireUniFfiError {
-    #[error("{details}")]
-    Message { details: String },
+    #[error("configuration error: {details}")]
+    Configuration { details: String },
+    #[error("validation error: {details}")]
+    Validation { details: String },
+    #[error("authentication error: {details}")]
+    Authentication { details: String },
+    #[error("network error: {details}")]
+    Network { details: String },
+    #[error("{operation} failed with HTTP {status}: {body}")]
+    HttpStatus {
+        operation: String,
+        status: u16,
+        body: String,
+    },
+    #[error("storage error: {details}")]
+    Storage { details: String },
+    #[error("serialization error: {details}")]
+    Serialization { details: String },
+    #[error("runtime error: {details}")]
+    Runtime { details: String },
+    #[error("internal error: {details}")]
+    Internal { details: String },
 }
 
 impl From<FireCoreError> for FireUniFfiError {
     fn from(value: FireCoreError) -> Self {
-        Self::Message {
-            details: value.to_string(),
+        match value {
+            FireCoreError::InvalidUrl(source) => Self::Configuration {
+                details: source.to_string(),
+            },
+            FireCoreError::RequestBuild(source) => Self::Internal {
+                details: source.to_string(),
+            },
+            FireCoreError::ClientBuild { source } | FireCoreError::Network { source } => {
+                Self::Network {
+                    details: source.to_string(),
+                }
+            }
+            FireCoreError::Logger(source) => Self::Configuration {
+                details: source.to_string(),
+            },
+            FireCoreError::HttpStatus {
+                operation,
+                status,
+                body,
+            } => Self::HttpStatus {
+                operation: operation.to_string(),
+                status,
+                body,
+            },
+            FireCoreError::MissingCurrentUsername => Self::Authentication {
+                details: "logout requires a current username".to_string(),
+            },
+            FireCoreError::MissingLoginSession => Self::Authentication {
+                details: "request requires a login session".to_string(),
+            },
+            FireCoreError::MissingCsrfToken => Self::Authentication {
+                details: "request requires a csrf token".to_string(),
+            },
+            FireCoreError::MissingWorkspacePath => Self::Configuration {
+                details: "fire workspace path is not configured".to_string(),
+            },
+            FireCoreError::InvalidWorkspaceRelativePath { path } => Self::Validation {
+                details: format!(
+                    "workspace relative path must stay under the configured root: {}",
+                    path.display()
+                ),
+            },
+            FireCoreError::WorkspaceIo { path, source }
+            | FireCoreError::PersistIo { path, source } => Self::Storage {
+                details: format!("{}: {}", path.display(), source),
+            },
+            FireCoreError::LoggerWorkspaceMismatch { expected, found } => Self::Configuration {
+                details: format!(
+                    "logger workspace mismatch: expected {}, found {}",
+                    expected.display(),
+                    found.display()
+                ),
+            },
+            FireCoreError::InvalidCsrfResponse => Self::Validation {
+                details: "csrf response did not contain a usable token".to_string(),
+            },
+            FireCoreError::PersistSerialize(source) | FireCoreError::PersistDeserialize(source) => {
+                Self::Serialization {
+                    details: source.to_string(),
+                }
+            }
+            FireCoreError::PersistVersionMismatch { expected, found } => Self::Validation {
+                details: format!(
+                    "persisted session uses unsupported version {found}, expected {expected}"
+                ),
+            },
+            FireCoreError::PersistBaseUrlMismatch { expected, found } => Self::Validation {
+                details: format!(
+                    "persisted session base url mismatch: expected {expected}, found {found}"
+                ),
+            },
         }
     }
 }
@@ -658,10 +750,7 @@ impl FireCoreHandle {
             .map(|path| path.display().to_string())
     }
 
-    pub fn resolve_workspace_path(
-        &self,
-        relative_path: String,
-    ) -> Result<String, FireUniFfiError> {
+    pub fn resolve_workspace_path(&self, relative_path: String) -> Result<String, FireUniFfiError> {
         self.inner
             .resolve_workspace_path(relative_path)
             .map(|path| path.display().to_string())
@@ -702,19 +791,23 @@ impl FireCoreHandle {
         self.inner.clear_session_path(path).map_err(Into::into)
     }
 
-    pub fn fetch_topic_list(
+    pub async fn fetch_topic_list(
         &self,
         query: TopicListQueryState,
     ) -> Result<TopicListState, FireUniFfiError> {
-        let response = ffi_runtime().block_on(self.inner.fetch_topic_list(query.into()))?;
+        let inner = Arc::clone(&self.inner);
+        let response =
+            run_on_ffi_runtime(async move { inner.fetch_topic_list(query.into()).await }).await?;
         Ok(response.into())
     }
 
-    pub fn fetch_topic_detail(
+    pub async fn fetch_topic_detail(
         &self,
         query: TopicDetailQueryState,
     ) -> Result<TopicDetailState, FireUniFfiError> {
-        let response = ffi_runtime().block_on(self.inner.fetch_topic_detail(query.into()))?;
+        let inner = Arc::clone(&self.inner);
+        let response =
+            run_on_ffi_runtime(async move { inner.fetch_topic_detail(query.into()).await }).await?;
         Ok(response.into())
     }
 
@@ -746,23 +839,42 @@ impl FireCoreHandle {
         SessionState::from_snapshot(self.inner.logout_local(preserve_cf_clearance))
     }
 
-    pub fn refresh_bootstrap(&self) -> Result<SessionState, FireUniFfiError> {
-        let snapshot = ffi_runtime().block_on(self.inner.refresh_bootstrap())?;
+    pub async fn refresh_bootstrap(&self) -> Result<SessionState, FireUniFfiError> {
+        let inner = Arc::clone(&self.inner);
+        let snapshot = run_on_ffi_runtime(async move { inner.refresh_bootstrap().await }).await?;
         Ok(SessionState::from_snapshot(snapshot))
     }
 
-    pub fn refresh_csrf_token(&self) -> Result<SessionState, FireUniFfiError> {
-        let snapshot = ffi_runtime().block_on(self.inner.refresh_csrf_token())?;
+    pub async fn refresh_csrf_token(&self) -> Result<SessionState, FireUniFfiError> {
+        let inner = Arc::clone(&self.inner);
+        let snapshot = run_on_ffi_runtime(async move { inner.refresh_csrf_token().await }).await?;
         Ok(SessionState::from_snapshot(snapshot))
     }
 
-    pub fn logout_remote(
+    pub async fn logout_remote(
         &self,
         preserve_cf_clearance: bool,
     ) -> Result<SessionState, FireUniFfiError> {
-        let snapshot = ffi_runtime().block_on(self.inner.logout_remote(preserve_cf_clearance))?;
+        let inner = Arc::clone(&self.inner);
+        let snapshot =
+            run_on_ffi_runtime(async move { inner.logout_remote(preserve_cf_clearance).await })
+                .await?;
         Ok(SessionState::from_snapshot(snapshot))
     }
+}
+
+async fn run_on_ffi_runtime<T, Fut>(future: Fut) -> Result<T, FireUniFfiError>
+where
+    T: Send + 'static,
+    Fut: Future<Output = Result<T, FireCoreError>> + Send + 'static,
+{
+    ffi_runtime()
+        .spawn(future)
+        .await
+        .map_err(|error| FireUniFfiError::Runtime {
+            details: error.to_string(),
+        })?
+        .map_err(Into::into)
 }
 
 fn ffi_runtime() -> &'static Runtime {
@@ -773,4 +885,51 @@ fn ffi_runtime() -> &'static Runtime {
             .build()
             .expect("failed to create ffi runtime")
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::{io, path::PathBuf};
+
+    #[test]
+    fn maps_http_status_errors_without_flattening() {
+        let error = FireUniFfiError::from(FireCoreError::HttpStatus {
+            operation: "fetch topic list",
+            status: 429,
+            body: "slow down".to_string(),
+        });
+
+        assert!(matches!(
+            error,
+            FireUniFfiError::HttpStatus {
+                operation,
+                status: 429,
+                body,
+            } if operation == "fetch topic list" && body == "slow down"
+        ));
+    }
+
+    #[test]
+    fn maps_storage_errors_to_storage_variant() {
+        let error = FireUniFfiError::from(FireCoreError::PersistIo {
+            path: PathBuf::from("/tmp/session.json"),
+            source: io::Error::new(io::ErrorKind::PermissionDenied, "denied"),
+        });
+
+        assert!(matches!(
+            error,
+            FireUniFfiError::Storage { details }
+                if details.contains("/tmp/session.json") && details.contains("denied")
+        ));
+    }
+
+    #[test]
+    fn runs_async_work_on_ffi_runtime() {
+        let value = ffi_runtime()
+            .block_on(run_on_ffi_runtime(async { Ok::<_, FireCoreError>(42_u8) }))
+            .expect("ffi runtime should resolve async work");
+
+        assert_eq!(value, 42);
+    }
 }

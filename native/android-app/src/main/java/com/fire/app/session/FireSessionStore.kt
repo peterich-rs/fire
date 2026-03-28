@@ -103,11 +103,11 @@ class FireSessionStore(
         state
     }
 
-    suspend fun fetchTopicList(query: TopicListQueryState): TopicListState = withContext(Dispatchers.Default) {
+    suspend fun fetchTopicList(query: TopicListQueryState): TopicListState = withContext(Dispatchers.IO) {
         core.fetchTopicList(query)
     }
 
-    suspend fun fetchTopicDetail(query: TopicDetailQueryState): TopicDetailState = withContext(Dispatchers.Default) {
+    suspend fun fetchTopicDetail(query: TopicDetailQueryState): TopicDetailState = withContext(Dispatchers.IO) {
         core.fetchTopicDetail(query)
     }
 

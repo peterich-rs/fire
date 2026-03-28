@@ -77,25 +77,25 @@ public actor FireSessionStore {
     }
 
     @discardableResult
-    public func refreshBootstrapIfNeeded() throws -> SessionState {
+    public func refreshBootstrapIfNeeded() async throws -> SessionState {
         let current = core.snapshot()
         if current.bootstrap.hasPreloadedData {
             return current
         }
 
-        let refreshed = try core.refreshBootstrap()
+        let refreshed = try await core.refreshBootstrap()
         try persistCurrentSession()
         return refreshed
     }
 
     @discardableResult
-    public func refreshCsrfTokenIfNeeded() throws -> SessionState {
+    public func refreshCsrfTokenIfNeeded() async throws -> SessionState {
         let current = core.snapshot()
         if current.cookies.csrfToken != nil {
             return current
         }
 
-        let refreshed = try core.refreshCsrfToken()
+        let refreshed = try await core.refreshCsrfToken()
         try persistCurrentSession()
         return refreshed
     }
@@ -112,12 +112,12 @@ public actor FireSessionStore {
         try core.exportSessionJson()
     }
 
-    public func fetchTopicList(query: TopicListQueryState) throws -> TopicListState {
-        try core.fetchTopicList(query: query)
+    public func fetchTopicList(query: TopicListQueryState) async throws -> TopicListState {
+        try await core.fetchTopicList(query: query)
     }
 
-    public func fetchTopicList(kind: TopicListKindState) throws -> TopicListState {
-        try fetchTopicList(
+    public func fetchTopicList(kind: TopicListKindState) async throws -> TopicListState {
+        try await fetchTopicList(
             query: TopicListQueryState(
                 kind: kind,
                 page: nil,
@@ -128,12 +128,12 @@ public actor FireSessionStore {
         )
     }
 
-    public func fetchTopicDetail(query: TopicDetailQueryState) throws -> TopicDetailState {
-        try core.fetchTopicDetail(query: query)
+    public func fetchTopicDetail(query: TopicDetailQueryState) async throws -> TopicDetailState {
+        try await core.fetchTopicDetail(query: query)
     }
 
-    public func fetchTopicDetail(topicID: UInt64, trackVisit: Bool = true) throws -> TopicDetailState {
-        try fetchTopicDetail(
+    public func fetchTopicDetail(topicID: UInt64, trackVisit: Bool = true) async throws -> TopicDetailState {
+        try await fetchTopicDetail(
             query: TopicDetailQueryState(
                 topicId: topicID,
                 postNumber: nil,
@@ -153,8 +153,8 @@ public actor FireSessionStore {
     }
 
     @discardableResult
-    public func logout() throws -> SessionState {
-        let state = try core.logoutRemote(preserveCfClearance: true)
+    public func logout() async throws -> SessionState {
+        let state = try await core.logoutRemote(preserveCfClearance: true)
         try clearPersistedSession()
         return state
     }

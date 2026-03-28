@@ -15,9 +15,10 @@ Current host-side app wiring lives under `src/main/java/com/fire/app/` plus `src
   - wraps `syncLoginContext`, `refreshBootstrap`, `refreshCsrfToken`, topic fetches, and logout
 - `scripts/sync_uniffi_bindings.sh`
   - builds the host dylib used for UniFFI metadata extraction
+  - reads generator settings from `rust/crates/fire-uniffi/uniffi.toml`
   - generates Kotlin bindings from `fire-uniffi`
   - cross-compiles `libfire_uniffi.so` for `arm64-v8a` and `x86_64`
-  - writes generated sources and JNI libraries into the Gradle build directory before `preBuild`
+  - writes variant-specific generated sources and JNI libraries into the Gradle build directory
 - `FireWebViewLoginCoordinator.kt`
   - reads `WebView` cookies, `current-username`, `csrf-token`, and page HTML
   - converts them into `LoginSyncState`
@@ -41,7 +42,7 @@ Current host-side app wiring lives under `src/main/java/com/fire/app/` plus `src
 
 Expected integration flow:
 
-1. Run `./gradlew assembleDebug`; Gradle will invoke `scripts/sync_uniffi_bindings.sh` before `preBuild`.
+1. Run `./gradlew assembleDebug` or `./gradlew assembleRelease`; Gradle will invoke the matching UniFFI sync task before `preDebugBuild` / `preReleaseBuild`.
 2. Keep the files in `src/main/java/com/fire/app/session/` in the same Android module.
 3. Create a single `FireSessionStore` instance during app startup and call `restorePersistedSessionIfAvailable()`.
 4. Drive the login `WebView` through `FireWebViewLoginCoordinator.completeLogin(webView)`.
@@ -58,15 +59,18 @@ Workspace note:
 Current browser note:
 
 - The Android shell now loads the real Rust session/topic APIs through generated Kotlin UniFFI bindings.
+- Network-backed UniFFI APIs now surface to Kotlin as native `suspend fun` calls instead of a synchronous wrapper.
 - `MainActivity` still renders a compact browser shell, but the data path is no longer stubbed.
 - The current browser shell now supports `Load More` pagination and category metadata derived from the shared Rust bootstrap snapshot.
 - Topic detail now opens in a dedicated activity instead of being embedded under the feed list.
 
 Note:
 
-- The generated Kotlin bindings currently use the `uniffi.fire_uniffi` package and JNA to load `libfire_uniffi.so`.
-- Build with a full JDK that includes `jlink`. On this machine, `ANDROID_HOME=$HOME/Library/Android/sdk ANDROID_SDK_ROOT=$HOME/Library/Android/sdk JAVA_HOME=/Library/Java/JavaVirtualMachines/temurin-17.jdk/Contents/Home ./gradlew assembleDebug` is verified working.
+- The generated Kotlin bindings are configured by `rust/crates/fire-uniffi/uniffi.toml`, currently use the `uniffi.fire_uniffi` package, and load `libfire_uniffi.so` through JNA.
+- `assembleDebug` now packages Rust debug `.so` outputs and `assembleRelease` packages Rust release `.so` outputs.
+- Build with a full JDK that includes `jlink`. On this machine, `ANDROID_HOME=$HOME/Library/Android/sdk ANDROID_SDK_ROOT=$HOME/Library/Android/sdk JAVA_HOME=/Library/Java/JavaVirtualMachines/temurin-17.jdk/Contents/Home ./gradlew assembleDebug` and `./gradlew assembleRelease` are verified working.
 - The Gradle build expects an Android SDK/NDK installation. By default the sync script resolves the NDK from `$ANDROID_NDK_HOME`, `$ANDROID_NDK_ROOT`, or `$ANDROID_HOME/ndk/28.2.13676358`.
+- Async UniFFI bindings rely on `kotlinx-coroutines-core`, which is now declared directly by this module.
 - Android does not have an iOS-style runtime "internet permission" prompt for ordinary web access. `android.permission.INTERNET` is a normal install-time permission, so there is no separate network-permission preflight to mirror.
 
 Planned responsibilities beyond the current wiring:

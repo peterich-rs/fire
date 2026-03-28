@@ -44,11 +44,15 @@ targets:
         name: Sync Fire UniFFI Bindings
         shell: /bin/bash
         showEnvVars: false
-        basedOnDependencyAnalysis: false
+        basedOnDependencyAnalysis: true
         inputFiles:
           - $(SRCROOT)/scripts/sync_uniffi_bindings.sh
           - $(SRCROOT)/../../Cargo.toml
           - $(SRCROOT)/../../Cargo.lock
+          - $(SRCROOT)/../../rust
+          - $(SRCROOT)/../../third_party/openwire
+          - $(SRCROOT)/../../third_party/xlog-rs
+          - $(SRCROOT)/../../rust/crates/fire-uniffi/uniffi.toml
         outputFiles:
           - $(SRCROOT)/Generated/fire_uniffi.swift
           - $(SRCROOT)/Generated/fire_uniffiFFI/fire_uniffiFFI.h

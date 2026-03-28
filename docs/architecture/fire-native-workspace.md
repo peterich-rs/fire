@@ -80,6 +80,8 @@ The first usable session pipeline now lives in the Rust workspace:
   - retries one logout request on `BAD CSRF` after refreshing `/session/csrf`
 - `fire-uniffi`
   - exports the session snapshot, readiness flags, login sync input, bootstrap sync APIs, persistence APIs, topic APIs, and logout APIs to Swift/Kotlin
+  - now exposes network-backed APIs as native async UniFFI methods for Swift/Kotlin instead of re-wrapping them as synchronous FFI calls
+  - keeps binding configuration in `rust/crates/fire-uniffi/uniffi.toml`
 - `native/ios-app` and `native/android-app`
   - now drive a minimal latest-topic list plus topic detail shell on top of the exported topic API surface
   - now build against generated UniFFI bindings in app builds, with Android packaging `.so` libraries and iOS linking a generated Rust static library
@@ -110,7 +112,7 @@ Current file ownership convention:
   - `session.json` for the persisted session snapshot triggered by the host shell
 - The current session snapshot remains host-triggered persistence under `session.json` inside that workspace root.
 
-The Android host shell now generates Kotlin UniFFI bindings at build time, packages Rust-backed Android `.so` libraries, and renders the topic browser against the real shared Rust core. The iOS host shell now does the same at build time for Swift bindings plus a Rust static library and links that output directly into the Xcode target.
+The Android host shell now generates Kotlin UniFFI bindings at build time, packages Rust-backed Android `.so` libraries per build variant, and renders the topic browser against the real shared Rust core. The iOS host shell now does the same at build time for Swift bindings plus a Rust static library and links that output directly into the Xcode target, while keeping the host bindgen step isolated from Xcode's iPhone SDK environment.
 Both native hosts now keep feed pagination state, derive category metadata from bootstrap `data-preloaded.site.categories`, and render richer topic/detail metadata on top of the shared Rust topic APIs. Android topic detail now opens in a dedicated native screen, and iOS topic detail now renders cooked post HTML as attributed content instead of flattening it to plain text.
 
 ## Next Build Steps

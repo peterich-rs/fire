@@ -8,6 +8,7 @@ generated_dir="$project_root/Generated"
 swift_out_dir="$generated_dir"
 ffi_out_dir="$generated_dir/fire_uniffiFFI"
 lib_out_root="$generated_dir/lib"
+uniffi_config_path="$repo_root/rust/crates/fire-uniffi/uniffi.toml"
 
 export PATH="$HOME/.cargo/bin:$PATH"
 
@@ -134,15 +135,34 @@ build_staticlib() {
   fi
 }
 
+run_host_cargo() {
+  local cargo_home="${CARGO_HOME:-$HOME/.cargo}"
+  local rustup_home="${RUSTUP_HOME:-$HOME/.rustup}"
+  local tmp_dir="${TMPDIR:-/tmp}"
+
+  env -i \
+    HOME="$HOME" \
+    PATH="$PATH" \
+    TMPDIR="$tmp_dir" \
+    CARGO_HOME="$cargo_home" \
+    RUSTUP_HOME="$rustup_home" \
+    "$@"
+}
+
 dedupe_targets
 
 (
   cd "$repo_root"
-  "$cargo_bin" build -p fire-uniffi --lib
-  "$cargo_bin" run -p fire-uniffi --bin uniffi-bindgen -- generate \
-    --library "$repo_root/rust/target/debug/libfire_uniffi.dylib" \
+  if [[ "$profile_dir" == "release" ]]; then
+    run_host_cargo "$cargo_bin" build -p fire-uniffi --lib --release
+  else
+    run_host_cargo "$cargo_bin" build -p fire-uniffi --lib
+  fi
+  run_host_cargo "$cargo_bin" run -p fire-uniffi --bin uniffi-bindgen -- generate \
+    --library "$repo_root/rust/target/$profile_dir/libfire_uniffi.dylib" \
     --language swift \
     --no-format \
+    --config "$uniffi_config_path" \
     --out-dir "$tmp_dir/bindings"
 )
 

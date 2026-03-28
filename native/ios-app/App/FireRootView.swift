@@ -73,19 +73,19 @@ struct FireRootView: View {
                             }
                         }
 
-                        if viewModel.isLoadingTopics && viewModel.topics.isEmpty {
+                        if viewModel.isLoadingTopics && viewModel.topicRows.isEmpty {
                             ProgressView("Loading topics...")
-                        } else if viewModel.topics.isEmpty {
+                        } else if viewModel.topicRows.isEmpty {
                             Text("No topics loaded yet.")
                                 .foregroundStyle(.secondary)
                         } else {
-                            ForEach(viewModel.topics, id: \.id) { topic in
+                            ForEach(viewModel.topicRows) { topicRow in
                                 NavigationLink {
-                                    FireTopicDetailView(viewModel: viewModel, topic: topic)
+                                    FireTopicDetailView(viewModel: viewModel, topic: topicRow.topic)
                                 } label: {
                                     FireTopicRow(
-                                        topic: topic,
-                                        category: viewModel.categoryPresentation(for: topic.categoryId)
+                                        row: topicRow,
+                                        category: viewModel.categoryPresentation(for: topicRow.topic.categoryId)
                                     )
                                 }
                             }
@@ -172,7 +172,7 @@ struct FireRootView: View {
 }
 
 private struct FireTopicRow: View {
-    let topic: TopicSummaryState
+    let row: FireTopicRowPresentation
     let category: FireTopicCategoryPresentation?
 
     var body: some View {
@@ -186,7 +186,7 @@ private struct FireTopicRow: View {
                     )
                 }
 
-                ForEach(FireTopicPresentation.topicStatusLabels(for: topic), id: \.self) { label in
+                ForEach(row.statusLabels, id: \.self) { label in
                     FireTopicPill(
                         label: label,
                         backgroundColor: Color.secondary.opacity(0.12),
@@ -195,23 +195,22 @@ private struct FireTopicRow: View {
                 }
             }
 
-            Text(topic.title)
+            Text(row.topic.title)
                 .font(.headline)
 
-            if let excerpt = topic.excerpt {
-                Text(FireTopicPresentation.plainText(from: excerpt))
+            if let excerptText = row.excerptText {
+                Text(excerptText)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
             }
 
-            if let lastPosterUsername = topic.lastPosterUsername
-                ?? topic.posters.first?.description
-                ?? topic.posters.first.map({ "User \($0.userId)" })
-            {
+            if row.lastPosterUsername != nil || row.activityTimestampText != nil {
                 HStack(spacing: 8) {
-                    Text(lastPosterUsername)
-                    if let timestamp = FireTopicPresentation.formatTimestamp(topic.lastPostedAt ?? topic.createdAt) {
+                    if let lastPosterUsername = row.lastPosterUsername {
+                        Text(lastPosterUsername)
+                    }
+                    if let timestamp = row.activityTimestampText {
                         Text(timestamp)
                     }
                 }
@@ -220,15 +219,15 @@ private struct FireTopicRow: View {
             }
 
             HStack(spacing: 12) {
-                Text("Posts \(topic.postsCount)")
-                Text("Replies \(topic.replyCount)")
-                Text("Views \(topic.views)")
-                Text("Likes \(topic.likeCount)")
-                if topic.unreadPosts > 0 {
-                    Text("Unread \(topic.unreadPosts)")
+                Text("Posts \(row.topic.postsCount)")
+                Text("Replies \(row.topic.replyCount)")
+                Text("Views \(row.topic.views)")
+                Text("Likes \(row.topic.likeCount)")
+                if row.topic.unreadPosts > 0 {
+                    Text("Unread \(row.topic.unreadPosts)")
                 }
-                if !topic.tags.isEmpty {
-                    Text("#\(topic.tags.joined(separator: " #"))")
+                if let tagSummaryText = row.tagSummaryText {
+                    Text(tagSummaryText)
                 }
             }
             .font(.caption)
@@ -245,6 +244,7 @@ private struct FireTopicDetailView: View {
     var body: some View {
         List {
             Section("Overview") {
+                let tagNames = FireTopicPresentation.tagNames(from: topic.tags)
                 if let category = viewModel.categoryPresentation(for: topic.categoryId) {
                     FireTopicCategoryHeader(category: category)
                 }
@@ -264,8 +264,8 @@ private struct FireTopicDetailView: View {
                 if let lastReadPostNumber = topic.lastReadPostNumber {
                     LabeledContent("Last Read", value: "#\(lastReadPostNumber)")
                 }
-                if !topic.tags.isEmpty {
-                    LabeledContent("Tags", value: topic.tags.joined(separator: ", "))
+                if !tagNames.isEmpty {
+                    LabeledContent("Tags", value: tagNames.joined(separator: ", "))
                 }
             }
 

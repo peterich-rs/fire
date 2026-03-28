@@ -41,6 +41,44 @@ final class FireTopicPresentationTests: XCTestCase {
             from: "<p>Hello<br>Fire</p><ul><li>Rust</li><li>CI</li></ul>"
         )
 
-        XCTAssertEqual(plainText, "Hello Fire \nRust \nCI")
+        XCTAssertEqual(plainText, "Hello\nFire\n\n Rust\n CI")
+    }
+
+    func testBuildRowPresentationsPrecomputesListRenderingFields() throws {
+        let topic = TopicSummaryState(
+            id: 42,
+            title: "Fire Native",
+            slug: "fire-native",
+            postsCount: 18,
+            replyCount: 17,
+            views: 2048,
+            likeCount: 32,
+            excerpt: "<p>Hello&nbsp;<strong>Fire</strong></p>",
+            createdAt: "2026-03-28T10:00:00Z",
+            lastPostedAt: "2026-03-28T11:30:00Z",
+            lastPosterUsername: nil,
+            categoryId: 7,
+            pinned: true,
+            visible: true,
+            closed: false,
+            archived: false,
+            tags: [TopicTagState(id: nil, name: "rust", slug: nil)],
+            posters: [TopicPosterState(userId: 9, description: nil, extras: nil)],
+            unseen: false,
+            unreadPosts: 3,
+            newPosts: 1,
+            lastReadPostNumber: nil,
+            highestPostNumber: 18,
+            hasAcceptedAnswer: false,
+            canHaveAnswer: true
+        )
+
+        let row = try XCTUnwrap(FireTopicPresentation.buildRowPresentations(from: [topic]).first)
+
+        XCTAssertEqual(row.excerptText, "Hello Fire")
+        XCTAssertEqual(row.lastPosterUsername, "User 9")
+        XCTAssertEqual(row.statusLabels, ["Pinned", "Unread 3", "New 1"])
+        XCTAssertEqual(row.tagSummaryText, "#rust")
+        XCTAssertNotNil(row.activityTimestampText)
     }
 }

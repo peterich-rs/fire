@@ -7,6 +7,7 @@ import java.time.OffsetDateTime
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
 import java.util.Locale
+import uniffi.fire_uniffi.TopicTagState
 import uniffi.fire_uniffi.TopicSummaryState
 
 data class TopicCategoryPresentation(
@@ -90,6 +91,12 @@ object TopicPresentation {
             if (topic.hasAcceptedAnswer) add("Solved")
             if (topic.unreadPosts > 0u) add("${topic.unreadPosts} unread")
             if (topic.newPosts > 0u) add("${topic.newPosts} new")
+        }
+    }
+
+    fun tagNames(tags: List<TopicTagState>): List<String> {
+        return tags.mapNotNull { tag ->
+            tag.name.takeIf { it.isNotBlank() } ?: tag.slug?.takeIf { it.isNotBlank() }
         }
     }
 

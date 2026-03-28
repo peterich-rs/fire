@@ -21,6 +21,25 @@
 - `topic_list.topics`: 话题数组
 - `topic_list.more_topics_url`: 下一页 URL
 - `users`: 话题创建者/参与者侧载数据
+- `topic_list.topics[].tags`: LinuxDo 当前 `latest` 负载里常见为 `TopicTag[]` 对象数组；旧格式也可能仍是字符串数组，客户端需要兼容两种形态
+- `topic_list.topics[].unread_posts` / `new_posts` / `last_read_post_number`: 实际返回里可能为 `null`
+- `topic_list.topics[].can_have_answer`: 实际返回里可能为 `null`
+
+## TopicTag
+
+```json
+{
+  "id": 3,
+  "name": "ChatGPT",
+  "slug": "chatgpt"
+}
+```
+
+补充说明：
+
+- 当前 LinuxDo `latest` / topic detail 负载中，`tags` 常见为 `TopicTag[]`
+- 旧格式里 `tags` 也可能仍是 `["chatgpt", "flutter"]` 这样的字符串数组
+- 客户端共享模型建议统一收敛为结构化 `TopicTag`
 
 ## TopicDetail
 
@@ -31,7 +50,13 @@
   "slug": "topic-title",
   "posts_count": 10,
   "category_id": 1,
-  "tags": ["flutter"],
+  "tags": [
+    {
+      "id": 3,
+      "name": "ChatGPT",
+      "slug": "chatgpt"
+    }
+  ],
   "views": 100,
   "like_count": 20,
   "created_at": "2026-03-26T00:00:00Z",
@@ -64,6 +89,7 @@
 - `has_cached_summary`
 - `has_summary`
 - `archetype`
+- `tags` 在不同接口/站点版本中可能返回 `TopicTag[]` 或旧的字符串数组
 
 ## Post
 

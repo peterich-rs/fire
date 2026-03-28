@@ -50,6 +50,7 @@ fi
 tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/fire-android-uniffi.XXXXXX")"
 trap 'rm -rf "$tmp_dir"' EXIT
 
+rm -rf "$generated_kotlin_dir" "$generated_jni_libs_dir"
 mkdir -p "$generated_kotlin_dir" "$generated_jni_libs_dir"
 
 build_android_target() {
@@ -114,19 +115,13 @@ build_android_target() {
     "rust/target/$profile_dir/$host_library_filename"
 )
 
-generated_kotlin_source="$(
-  find "$tmp_dir" -type f -name 'fire_uniffi.kt' | sort | head -n 1
-)"
-
-if [[ -z "$generated_kotlin_source" ]]; then
+if ! find "$tmp_dir" -type f -name '*.kt' | grep -q .; then
   echo "unable to locate generated Kotlin bindings under $tmp_dir" >&2
   find "$tmp_dir" -maxdepth 6 -type f | sort >&2 || true
   exit 1
 fi
 
-mkdir -p "$generated_kotlin_dir/uniffi/fire_uniffi"
-cp "$generated_kotlin_source" \
-  "$generated_kotlin_dir/uniffi/fire_uniffi/fire_uniffi.kt"
+cp -R "$tmp_dir"/. "$generated_kotlin_dir"/
 
 build_android_target "aarch64-linux-android" "arm64-v8a" "aarch64-linux-android"
 build_android_target "x86_64-linux-android" "x86_64" "x86_64-linux-android"

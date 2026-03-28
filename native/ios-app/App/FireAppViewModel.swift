@@ -31,6 +31,7 @@ final class FireAppViewModel: ObservableObject {
     @Published private(set) var session: SessionState = .placeholder()
     @Published private(set) var selectedTopicKind: TopicListKindState = .latest
     @Published private(set) var topics: [TopicSummaryState] = []
+    @Published private(set) var topicRows: [FireTopicRowPresentation] = []
     @Published private(set) var moreTopicsUrl: String?
     @Published private(set) var nextTopicsPage: UInt32?
     @Published private(set) var topicCategories: [UInt64: FireTopicCategoryPresentation] = [:]
@@ -42,34 +43,23 @@ final class FireAppViewModel: ObservableObject {
     @Published var isPresentingLogin = false
     @Published var isPreparingLogin = false
 
-    private let sessionStore: FireSessionStore?
-    private let loginCoordinator: FireWebViewLoginCoordinator?
+    private var sessionStore: FireSessionStore?
+    private var loginCoordinator: FireWebViewLoginCoordinator?
+    private var sessionStoreInitializationTask: Task<FireSessionStore, Error>?
     private let loginURL = URL(string: "https://linux.do")!
 
-    init() {
-        do {
-            let sessionStore = try FireSessionStore()
-            self.sessionStore = sessionStore
-            self.loginCoordinator = FireWebViewLoginCoordinator(sessionStore: sessionStore)
-        } catch {
-            self.sessionStore = nil
-            self.loginCoordinator = nil
-            self.errorMessage = error.localizedDescription
-        }
-    }
+    init() {}
 
     func loadInitialState() {
-        guard let loginCoordinator, let sessionStore else {
-            return
-        }
-
         Task {
             do {
+                let loginCoordinator = try await loginCoordinatorValue()
+                let sessionStore = try await sessionStoreValue()
                 errorMessage = nil
                 if let restored = try await loginCoordinator.restorePersistedSessionIfAvailable() {
-                    applySession(restored)
+                    await applySession(restored)
                 } else {
-                    applySession(await sessionStore.snapshot())
+                    await applySession(await sessionStore.snapshot())
                 }
                 await refreshTopicsIfPossible(force: true)
             } catch {
@@ -79,14 +69,15 @@ final class FireAppViewModel: ObservableObject {
     }
 
     func refreshSession() {
-        guard let sessionStore else {
-            return
-        }
-
         Task {
-            errorMessage = nil
-            applySession(await sessionStore.snapshot())
-            await refreshTopicsIfPossible(force: false)
+            do {
+                let sessionStore = try await sessionStoreValue()
+                errorMessage = nil
+                await applySession(await sessionStore.snapshot())
+                await refreshTopicsIfPossible(force: false)
+            } catch {
+                errorMessage = error.localizedDescription
+            }
         }
     }
 
@@ -102,6 +93,7 @@ final class FireAppViewModel: ObservableObject {
             defer { isPreparingLogin = false }
 
             do {
+                _ = try await loginCoordinatorValue()
                 try await prepareLoginNetworkAccess()
                 isPresentingLogin = true
             } catch {
@@ -111,14 +103,11 @@ final class FireAppViewModel: ObservableObject {
     }
 
     func completeLogin(from webView: WKWebView) {
-        guard let loginCoordinator else {
-            return
-        }
-
         Task {
             do {
+                let loginCoordinator = try await loginCoordinatorValue()
                 errorMessage = nil
-                applySession(try await loginCoordinator.completeLogin(from: webView))
+                await applySession(try await loginCoordinator.completeLogin(from: webView))
                 isPresentingLogin = false
                 await refreshTopicsIfPossible(force: true)
             } catch {
@@ -128,14 +117,11 @@ final class FireAppViewModel: ObservableObject {
     }
 
     func refreshBootstrap() {
-        guard let sessionStore else {
-            return
-        }
-
         Task {
             do {
+                let sessionStore = try await sessionStoreValue()
                 errorMessage = nil
-                applySession(try await sessionStore.refreshBootstrapIfNeeded())
+                await applySession(try await sessionStore.refreshBootstrapIfNeeded())
                 await refreshTopicsIfPossible(force: false)
             } catch {
                 errorMessage = error.localizedDescription
@@ -144,14 +130,11 @@ final class FireAppViewModel: ObservableObject {
     }
 
     func logout() {
-        guard let loginCoordinator else {
-            return
-        }
-
         Task {
             do {
+                let loginCoordinator = try await loginCoordinatorValue()
                 errorMessage = nil
-                applySession(try await loginCoordinator.logout())
+                await applySession(try await loginCoordinator.logout())
                 selectedTopicKind = .latest
                 clearTopicState()
             } catch {
@@ -240,30 +223,22 @@ final class FireAppViewModel: ObservableObject {
     }
 
     func listLogFiles() async throws -> [LogFileSummaryState] {
-        guard let sessionStore else {
-            throw FireDiagnosticsAccessError.unavailable
-        }
+        let sessionStore = try await sessionStoreValue()
         return try await sessionStore.listLogFiles()
     }
 
     func readLogFile(relativePath: String) async throws -> LogFileDetailState {
-        guard let sessionStore else {
-            throw FireDiagnosticsAccessError.unavailable
-        }
+        let sessionStore = try await sessionStoreValue()
         return try await sessionStore.readLogFile(relativePath: relativePath)
     }
 
     func listNetworkTraces(limit: UInt64 = 200) async throws -> [NetworkTraceSummaryState] {
-        guard let sessionStore else {
-            throw FireDiagnosticsAccessError.unavailable
-        }
+        let sessionStore = try await sessionStoreValue()
         return await sessionStore.listNetworkTraces(limit: limit)
     }
 
     func networkTraceDetail(traceID: UInt64) async throws -> NetworkTraceDetailState {
-        guard let sessionStore else {
-            throw FireDiagnosticsAccessError.unavailable
-        }
+        let sessionStore = try await sessionStoreValue()
         guard let detail = await sessionStore.networkTraceDetail(traceID: traceID) else {
             throw FireDiagnosticsAccessError.traceNotFound
         }
@@ -290,9 +265,6 @@ final class FireAppViewModel: ObservableObject {
     }
 
     private func loadTopics(page: UInt32?, reset: Bool, force: Bool) async {
-        guard let sessionStore else {
-            return
-        }
         if !session.readiness.canReadAuthenticatedApi {
             clearTopicState()
             return
@@ -312,6 +284,7 @@ final class FireAppViewModel: ObservableObject {
         }
 
         do {
+            let sessionStore = try await sessionStoreValue()
             errorMessage = nil
             let requestedKind = selectedTopicKind
             let response = try await sessionStore.fetchTopicList(
@@ -323,18 +296,24 @@ final class FireAppViewModel: ObservableObject {
                     ascending: nil
                 )
             )
+            let mergedTopics = reset ? response.topics : mergeTopics(existing: topics, incoming: response.topics)
+            let visibleTopicIDs = Set(mergedTopics.map(\.id))
+            let topicRows = await Task.detached(priority: .userInitiated) {
+                FireTopicPresentation.buildRowPresentations(from: mergedTopics)
+            }.value
             guard requestedKind == selectedTopicKind else {
                 return
             }
-            topics = reset ? response.topics : mergeTopics(existing: topics, incoming: response.topics)
+            topics = mergedTopics
+            self.topicRows = topicRows
             moreTopicsUrl = response.moreTopicsUrl
             nextTopicsPage = FireTopicPresentation.nextPage(from: response.moreTopicsUrl)
-            let visibleTopicIDs = Set(topics.map(\.id))
             topicDetails = topicDetails.filter { visibleTopicIDs.contains($0.key) }
             loadingTopicIDs = loadingTopicIDs.intersection(visibleTopicIDs)
         } catch {
             if reset {
                 topics = []
+                topicRows = []
                 moreTopicsUrl = nil
                 nextTopicsPage = nil
             }
@@ -344,6 +323,7 @@ final class FireAppViewModel: ObservableObject {
 
     private func clearTopicState() {
         topics = []
+        topicRows = []
         moreTopicsUrl = nil
         nextTopicsPage = nil
         topicDetails = [:]
@@ -352,9 +332,16 @@ final class FireAppViewModel: ObservableObject {
         loadingTopicIDs = []
     }
 
-    private func applySession(_ session: SessionState) {
+    private func applySession(_ session: SessionState) async {
         self.session = session
-        topicCategories = FireTopicPresentation.parseCategories(from: session.bootstrap.preloadedJson)
+        let preloadedJSON = session.bootstrap.preloadedJson
+        let categories = await Task.detached(priority: .userInitiated) {
+            FireTopicPresentation.parseCategories(from: preloadedJSON)
+        }.value
+        guard self.session.bootstrap.preloadedJson == preloadedJSON else {
+            return
+        }
+        topicCategories = categories
     }
 
     private func mergeTopics(
@@ -372,5 +359,43 @@ final class FireAppViewModel: ObservableObject {
         }
 
         return orderedIDs.compactMap { merged[$0] }
+    }
+
+    private func sessionStoreValue() async throws -> FireSessionStore {
+        if let sessionStore {
+            return sessionStore
+        }
+
+        if let sessionStoreInitializationTask {
+            let sessionStore = try await sessionStoreInitializationTask.value
+            self.sessionStore = sessionStore
+            return sessionStore
+        }
+
+        let initializationTask = Task.detached(priority: .userInitiated) {
+            try FireSessionStore()
+        }
+        sessionStoreInitializationTask = initializationTask
+
+        do {
+            let sessionStore = try await initializationTask.value
+            sessionStoreInitializationTask = nil
+            self.sessionStore = sessionStore
+            return sessionStore
+        } catch {
+            sessionStoreInitializationTask = nil
+            throw error
+        }
+    }
+
+    private func loginCoordinatorValue() async throws -> FireWebViewLoginCoordinator {
+        if let loginCoordinator {
+            return loginCoordinator
+        }
+
+        let sessionStore = try await sessionStoreValue()
+        let loginCoordinator = FireWebViewLoginCoordinator(sessionStore: sessionStore)
+        self.loginCoordinator = loginCoordinator
+        return loginCoordinator
     }
 }

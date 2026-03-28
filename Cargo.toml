@@ -9,7 +9,7 @@ resolver = "2"
 [workspace.package]
 edition = "2021"
 license = "GPL-3.0-only"
-rust-version = "1.85"
+rust-version = "1.88"
 version = "0.1.0"
 authors = ["Fire contributors"]
 homepage = "https://github.com/peterich-rs/fire"
@@ -17,6 +17,7 @@ repository = "https://github.com/peterich-rs/fire.git"
 
 [workspace.dependencies]
 mars-xlog = { path = "third_party/xlog-rs/crates/xlog", default-features = false, features = ["rust-backend", "tracing"] }
+mars-xlog-core = { path = "third_party/xlog-rs/crates/xlog-core" }
 openwire = { path = "third_party/openwire/crates/openwire", default-features = false, features = ["tls-rustls", "platform-verifier", "json"] }
 async-trait = "0.1.89"
 base64 = "0.22"

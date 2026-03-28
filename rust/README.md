@@ -2,13 +2,15 @@
 
 This directory contains the shared Rust core for the native clients.
 
+The workspace MSRV is Rust `1.88`, pinned in the repository with [`rust-toolchain.toml`](../rust-toolchain.toml) as `1.88.0`.
+
 Current crates:
 
 - `fire-models`: shared serializable models for session/bootstrap state.
 - `fire-core`: Discourse client state, shared session logic, and future API entrypoint.
-  - keeps config, logging, HTML/bootstrap parsing, cookie transport, topic payload mapping, and session persistence in focused internal modules
+  - keeps config, logging, readable-log export, network request tracing, HTML/bootstrap parsing, cookie transport, topic payload mapping, and session persistence in focused internal modules
 - `fire-uniffi`: UniFFI boundary exposed to Swift and Kotlin.
-  - exports local session/persistence APIs plus async topic/bootstrap/logout APIs
+  - exports local session/persistence APIs, diagnostics APIs, plus async topic/bootstrap/logout APIs
   - keeps its generator settings in `crates/fire-uniffi/uniffi.toml`
   - is the only crate that should carry UniFFI-specific binding configuration
 

@@ -1,28 +1,42 @@
 use http::{header::HeaderMap, Method, Request, Response};
 use openwire::{RequestBody, ResponseBody};
+use serde::de::DeserializeOwned;
 use url::Url;
 
 use super::FireCore;
 use crate::error::FireCoreError;
 
+pub(crate) struct TracedRequest {
+    pub(crate) trace_id: u64,
+    pub(crate) request: Request<RequestBody>,
+}
+
 impl FireCore {
-    pub(crate) fn build_home_request(&self) -> Result<Request<RequestBody>, FireCoreError> {
+    pub(crate) fn build_home_request(
+        &self,
+        operation: &'static str,
+    ) -> Result<TracedRequest, FireCoreError> {
         let uri = self.base_url.join("/")?;
-        Request::builder()
+        let mut request = Request::builder()
             .method(Method::GET)
             .uri(uri.as_str())
             .header("Accept", "text/html")
             .header("User-Agent", "Fire/0.1")
             .body(RequestBody::empty())
-            .map_err(FireCoreError::RequestBuild)
+            .map_err(FireCoreError::RequestBuild)?;
+        let trace_id = self
+            .diagnostics
+            .prepare_request_trace(operation, &mut request);
+        Ok(TracedRequest { trace_id, request })
     }
 
     pub(crate) fn build_json_get_request(
         &self,
+        operation: &'static str,
         path: &str,
         query_params: Vec<(&str, String)>,
         extra_headers: &[(&str, String)],
-    ) -> Result<Request<RequestBody>, FireCoreError> {
+    ) -> Result<TracedRequest, FireCoreError> {
         let mut uri = self.base_url.join(path)?;
         if !query_params.is_empty() {
             let mut serializer = uri.query_pairs_mut();
@@ -58,17 +72,22 @@ impl FireCore {
             builder = builder.header(*name, value);
         }
 
-        builder
+        let mut request = builder
             .body(RequestBody::empty())
-            .map_err(FireCoreError::RequestBuild)
+            .map_err(FireCoreError::RequestBuild)?;
+        let trace_id = self
+            .diagnostics
+            .prepare_request_trace(operation, &mut request);
+        Ok(TracedRequest { trace_id, request })
     }
 
     pub(crate) fn build_api_request(
         &self,
+        operation: &'static str,
         method: Method,
         path: &str,
         requires_csrf: bool,
-    ) -> Result<Request<RequestBody>, FireCoreError> {
+    ) -> Result<TracedRequest, FireCoreError> {
         let uri = self.base_url.join(path)?;
         let origin = request_origin(&self.base_url);
         let referer = request_referer(&self.base_url);
@@ -101,14 +120,67 @@ impl FireCore {
             builder = builder.header("X-CSRF-Token", csrf_token);
         }
 
-        builder
+        let mut request = builder
             .body(RequestBody::empty())
-            .map_err(FireCoreError::RequestBuild)
+            .map_err(FireCoreError::RequestBuild)?;
+        let trace_id = self
+            .diagnostics
+            .prepare_request_trace(operation, &mut request);
+        Ok(TracedRequest { trace_id, request })
+    }
+
+    pub(crate) async fn execute_request(
+        &self,
+        traced: TracedRequest,
+    ) -> Result<(u64, Response<ResponseBody>), FireCoreError> {
+        let response = self
+            .client
+            .execute(traced.request)
+            .await
+            .map_err(|source| FireCoreError::Network { source })?;
+        Ok((traced.trace_id, response))
+    }
+
+    pub(crate) async fn read_response_text(
+        &self,
+        trace_id: u64,
+        response: Response<ResponseBody>,
+    ) -> Result<String, FireCoreError> {
+        let content_type = header_value(response.headers(), "content-type");
+        let text = response.into_body().text().await.map_err(|source| {
+            self.diagnostics.record_call_failed(trace_id, &source);
+            FireCoreError::Network { source }
+        })?;
+        self.diagnostics
+            .record_response_body_text(trace_id, &text, content_type.as_deref());
+        Ok(text)
+    }
+
+    pub(crate) async fn read_response_json<T>(
+        &self,
+        operation: &'static str,
+        trace_id: u64,
+        response: Response<ResponseBody>,
+    ) -> Result<T, FireCoreError>
+    where
+        T: DeserializeOwned,
+    {
+        let text = self.read_response_text(trace_id, response).await?;
+        serde_json::from_str(&text).map_err(|source| {
+            self.diagnostics.record_parse_error(
+                trace_id,
+                format!("Failed to parse {operation} response"),
+                source.to_string(),
+            );
+            FireCoreError::ResponseDeserialize { operation, source }
+        })
     }
 }
 
 pub(crate) async fn expect_success(
+    core: &FireCore,
     operation: &'static str,
+    trace_id: u64,
     response: Response<ResponseBody>,
 ) -> Result<Response<ResponseBody>, FireCoreError> {
     if response.status().is_success() {
@@ -121,6 +193,8 @@ pub(crate) async fn expect_success(
         .text()
         .await
         .unwrap_or_else(|error| format!("<failed to read error body: {error}>"));
+    core.diagnostics
+        .record_http_status_error(trace_id, status, &body);
     Err(FireCoreError::HttpStatus {
         operation,
         status,

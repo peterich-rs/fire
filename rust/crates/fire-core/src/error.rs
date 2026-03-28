@@ -22,6 +22,11 @@ pub enum FireCoreError {
         status: u16,
         body: String,
     },
+    #[error("failed to parse {operation} response: {source}")]
+    ResponseDeserialize {
+        operation: &'static str,
+        source: serde_json::Error,
+    },
     #[error("logout requires a current username")]
     MissingCurrentUsername,
     #[error("request requires a login session")]
@@ -34,6 +39,8 @@ pub enum FireCoreError {
     InvalidWorkspaceRelativePath { path: PathBuf },
     #[error("failed to access workspace path {path}: {source}")]
     WorkspaceIo { path: PathBuf, source: io::Error },
+    #[error("failed to access diagnostics path {path}: {source}")]
+    DiagnosticsIo { path: PathBuf, source: io::Error },
     #[error("logger workspace mismatch: expected {expected}, found {found}")]
     LoggerWorkspaceMismatch { expected: PathBuf, found: PathBuf },
     #[error("csrf response did not contain a usable token")]
@@ -42,6 +49,12 @@ pub enum FireCoreError {
     PersistSerialize(serde_json::Error),
     #[error("failed to deserialize persisted session: {0}")]
     PersistDeserialize(serde_json::Error),
+    #[error("failed to serialize diagnostics payload: {0}")]
+    DiagnosticsSerialize(serde_json::Error),
+    #[error("failed to deserialize diagnostics payload: {0}")]
+    DiagnosticsDeserialize(serde_json::Error),
+    #[error("network request trace not found: {trace_id}")]
+    DiagnosticsTraceNotFound { trace_id: String },
     #[error("persisted session uses unsupported version {found}, expected {expected}")]
     PersistVersionMismatch { expected: u32, found: u32 },
     #[error("persisted session base url mismatch: expected {expected}, found {found}")]

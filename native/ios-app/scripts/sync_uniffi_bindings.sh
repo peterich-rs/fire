@@ -39,10 +39,17 @@ trap 'rm -rf "$tmp_dir"' EXIT
 mkdir -p "$swift_out_dir" "$ffi_out_dir" "$lib_out_root/$platform_name"
 rm -f "$generated_dir/fire_uniffiFFI.h" "$generated_dir/fire_uniffiFFI.modulemap"
 
-installed_targets="$("$rustup_bin" target list --installed)"
-
 ensure_rust_target_installed() {
   local rust_target="$1"
+  local installed_targets
+
+  installed_targets="$(
+    env \
+      HOME="$HOME" \
+      PATH="$PATH" \
+      RUSTUP_HOME="${RUSTUP_HOME:-$HOME/.rustup}" \
+      "$rustup_bin" target list --installed
+  )"
 
   if ! grep -qx "$rust_target" <<<"$installed_targets"; then
     echo "required Rust target is not installed: $rust_target" >&2
@@ -72,6 +79,9 @@ declare -a rust_targets=()
 
 case "$platform_name" in
   iphoneos)
+    if [[ -z "${IPHONEOS_DEPLOYMENT_TARGET:-}" ]]; then
+      export IPHONEOS_DEPLOYMENT_TARGET="17.0"
+    fi
     rust_targets=("aarch64-apple-ios")
     ;;
   iphonesimulator)
@@ -120,33 +130,49 @@ dedupe_targets() {
 build_staticlib() {
   local rust_target="$1"
 
-  ensure_rust_target_installed "$rust_target"
-
   if [[ "$profile_dir" == "release" ]]; then
     (
       cd "$repo_root"
-      "$cargo_bin" rustc -p fire-uniffi --lib --target "$rust_target" --release --crate-type staticlib
+      run_host_cargo "$cargo_bin" rustc -p fire-uniffi --lib --target "$rust_target" --release --crate-type staticlib
     )
   else
     (
       cd "$repo_root"
-      "$cargo_bin" rustc -p fire-uniffi --lib --target "$rust_target" --crate-type staticlib
+      run_host_cargo "$cargo_bin" rustc -p fire-uniffi --lib --target "$rust_target" --crate-type staticlib
     )
   fi
 }
 
 run_host_cargo() {
-  local cargo_home="${CARGO_HOME:-$HOME/.cargo}"
-  local rustup_home="${RUSTUP_HOME:-$HOME/.rustup}"
-  local tmp_dir="${TMPDIR:-/tmp}"
+  if [[ "$(uname -s)" == "Darwin" ]]; then
+    local sdk_root
+    local host_cc
+    local rustflags
+    local library_path
+    local iphoneos_deployment_target
 
-  env -i \
-    HOME="$HOME" \
-    PATH="$PATH" \
-    TMPDIR="$tmp_dir" \
-    CARGO_HOME="$cargo_home" \
-    RUSTUP_HOME="$rustup_home" \
+    sdk_root="$(xcrun --sdk macosx --show-sdk-path)"
+    host_cc="$(xcrun --sdk macosx --find clang)"
+    rustflags="-C linker=${host_cc} -C link-arg=-isysroot -C link-arg=${sdk_root}"
+    library_path="${sdk_root}/usr/lib"
+    iphoneos_deployment_target="${IPHONEOS_DEPLOYMENT_TARGET:-17.0}"
+
+    env -i \
+      HOME="$HOME" \
+      PATH="$PATH" \
+      SDKROOT="$sdk_root" \
+      RUSTFLAGS="$rustflags" \
+      LIBRARY_PATH="$library_path" \
+      PLATFORM_NAME= \
+      EFFECTIVE_PLATFORM_NAME= \
+      ARCHS= \
+      IPHONEOS_DEPLOYMENT_TARGET="$iphoneos_deployment_target" \
+      TVOS_DEPLOYMENT_TARGET= \
+      WATCHOS_DEPLOYMENT_TARGET= \
+      "$@"
+  else
     "$@"
+  fi
 }
 
 dedupe_targets

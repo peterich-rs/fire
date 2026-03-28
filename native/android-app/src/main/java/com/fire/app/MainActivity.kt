@@ -16,6 +16,7 @@ import androidx.core.text.HtmlCompat
 import androidx.lifecycle.lifecycleScope
 import com.fire.app.databinding.ActivityMainBinding
 import com.fire.app.session.FireSessionStore
+import com.fire.app.session.FireSessionStoreRepository
 import kotlinx.coroutines.launch
 import uniffi.fire_uniffi.BootstrapState
 import uniffi.fire_uniffi.CookieState
@@ -53,7 +54,7 @@ class MainActivity : AppCompatActivity() {
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        sessionStore = FireSessionStore(applicationContext)
+        sessionStore = FireSessionStoreRepository.get(applicationContext)
 
         binding.restoreButton.setOnClickListener { refreshSessionAndFeed() }
         binding.openLoginButton.setOnClickListener {
@@ -61,6 +62,9 @@ class MainActivity : AppCompatActivity() {
         }
         binding.refreshBootstrapButton.setOnClickListener { refreshBootstrap() }
         binding.logoutButton.setOnClickListener { logout() }
+        binding.openDiagnosticsButton.setOnClickListener {
+            startActivity(Intent(this, DiagnosticsActivity::class.java))
+        }
         binding.refreshFeedButton.setOnClickListener { reloadCurrentFeed() }
         binding.loadMoreButton.setOnClickListener { loadMoreFeed() }
         binding.copyLastErrorButton.setOnClickListener { copyLastError() }

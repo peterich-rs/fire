@@ -52,6 +52,12 @@ struct FireRootView: View {
                     }
                 }
 
+                Section("Diagnostics") {
+                    NavigationLink("Open Diagnostics") {
+                        FireDiagnosticsView(viewModel: viewModel)
+                    }
+                }
+
                 Section("Topic Browser") {
                     if !viewModel.session.readiness.canReadAuthenticatedApi {
                         Text("Complete login first to load the authenticated topic list.")

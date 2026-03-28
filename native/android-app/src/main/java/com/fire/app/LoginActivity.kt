@@ -12,7 +12,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.isVisible
 import androidx.lifecycle.lifecycleScope
 import com.fire.app.databinding.ActivityLoginBinding
-import com.fire.app.session.FireSessionStore
+import com.fire.app.session.FireSessionStoreRepository
 import com.fire.app.session.FireWebViewLoginCoordinator
 import kotlinx.coroutines.launch
 
@@ -27,7 +27,7 @@ class LoginActivity : AppCompatActivity() {
         setContentView(binding.root)
 
         loginCoordinator = FireWebViewLoginCoordinator(
-            sessionStore = FireSessionStore(applicationContext),
+            sessionStore = FireSessionStoreRepository.get(applicationContext),
         )
 
         onBackPressedDispatcher.addCallback(this) {

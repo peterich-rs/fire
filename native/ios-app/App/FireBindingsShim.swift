@@ -523,6 +523,162 @@ public struct TopicDetailState: Codable, Sendable {
     }
 }
 
+public struct LogFileSummaryState: Codable, Sendable {
+    public var relativePath: String
+    public var fileName: String
+    public var sizeBytes: UInt64
+    public var modifiedAtUnixMs: UInt64
+
+    public init(
+        relativePath: String,
+        fileName: String,
+        sizeBytes: UInt64,
+        modifiedAtUnixMs: UInt64
+    ) {
+        self.relativePath = relativePath
+        self.fileName = fileName
+        self.sizeBytes = sizeBytes
+        self.modifiedAtUnixMs = modifiedAtUnixMs
+    }
+}
+
+public struct LogFileDetailState: Codable, Sendable {
+    public var relativePath: String
+    public var fileName: String
+    public var sizeBytes: UInt64
+    public var modifiedAtUnixMs: UInt64
+    public var contents: String
+    public var isTruncated: Bool
+
+    public init(
+        relativePath: String,
+        fileName: String,
+        sizeBytes: UInt64,
+        modifiedAtUnixMs: UInt64,
+        contents: String,
+        isTruncated: Bool
+    ) {
+        self.relativePath = relativePath
+        self.fileName = fileName
+        self.sizeBytes = sizeBytes
+        self.modifiedAtUnixMs = modifiedAtUnixMs
+        self.contents = contents
+        self.isTruncated = isTruncated
+    }
+}
+
+public enum NetworkTraceOutcomeState: String, Codable, Sendable {
+    case inProgress
+    case succeeded
+    case failed
+}
+
+public struct NetworkTraceHeaderState: Codable, Sendable {
+    public var name: String
+    public var value: String
+
+    public init(name: String, value: String) {
+        self.name = name
+        self.value = value
+    }
+}
+
+public struct NetworkTraceEventState: Codable, Sendable {
+    public var sequence: UInt32
+    public var timestampUnixMs: UInt64
+    public var phase: String
+    public var summary: String
+    public var details: String?
+
+    public init(
+        sequence: UInt32,
+        timestampUnixMs: UInt64,
+        phase: String,
+        summary: String,
+        details: String?
+    ) {
+        self.sequence = sequence
+        self.timestampUnixMs = timestampUnixMs
+        self.phase = phase
+        self.summary = summary
+        self.details = details
+    }
+}
+
+public struct NetworkTraceSummaryState: Codable, Sendable {
+    public var id: UInt64
+    public var callId: UInt64?
+    public var operation: String
+    public var method: String
+    public var url: String
+    public var startedAtUnixMs: UInt64
+    public var finishedAtUnixMs: UInt64?
+    public var durationMs: UInt64?
+    public var outcome: NetworkTraceOutcomeState
+    public var statusCode: UInt16?
+    public var errorMessage: String?
+    public var responseContentType: String?
+    public var responseBodyTruncated: Bool
+
+    public init(
+        id: UInt64,
+        callId: UInt64?,
+        operation: String,
+        method: String,
+        url: String,
+        startedAtUnixMs: UInt64,
+        finishedAtUnixMs: UInt64?,
+        durationMs: UInt64?,
+        outcome: NetworkTraceOutcomeState,
+        statusCode: UInt16?,
+        errorMessage: String?,
+        responseContentType: String?,
+        responseBodyTruncated: Bool
+    ) {
+        self.id = id
+        self.callId = callId
+        self.operation = operation
+        self.method = method
+        self.url = url
+        self.startedAtUnixMs = startedAtUnixMs
+        self.finishedAtUnixMs = finishedAtUnixMs
+        self.durationMs = durationMs
+        self.outcome = outcome
+        self.statusCode = statusCode
+        self.errorMessage = errorMessage
+        self.responseContentType = responseContentType
+        self.responseBodyTruncated = responseBodyTruncated
+    }
+}
+
+public struct NetworkTraceDetailState: Codable, Sendable {
+    public var summary: NetworkTraceSummaryState
+    public var requestHeaders: [NetworkTraceHeaderState]
+    public var responseHeaders: [NetworkTraceHeaderState]
+    public var responseBody: String?
+    public var responseBodyTruncated: Bool
+    public var responseBodyBytes: UInt64?
+    public var events: [NetworkTraceEventState]
+
+    public init(
+        summary: NetworkTraceSummaryState,
+        requestHeaders: [NetworkTraceHeaderState],
+        responseHeaders: [NetworkTraceHeaderState],
+        responseBody: String?,
+        responseBodyTruncated: Bool,
+        responseBodyBytes: UInt64?,
+        events: [NetworkTraceEventState]
+    ) {
+        self.summary = summary
+        self.requestHeaders = requestHeaders
+        self.responseHeaders = responseHeaders
+        self.responseBody = responseBody
+        self.responseBodyTruncated = responseBodyTruncated
+        self.responseBodyBytes = responseBodyBytes
+        self.events = events
+    }
+}
+
 public final class FireCoreHandle {
     private let storedBaseUrl: String
     private let storedWorkspacePath: String?
@@ -563,6 +719,29 @@ public final class FireCoreHandle {
     }
 
     public func flushLogs(sync: Bool) {}
+
+    public func listLogFiles() throws -> [LogFileSummaryState] {
+        []
+    }
+
+    public func readLogFile(relativePath: String) throws -> LogFileDetailState {
+        LogFileDetailState(
+            relativePath: relativePath,
+            fileName: URL(fileURLWithPath: relativePath).lastPathComponent,
+            sizeBytes: 0,
+            modifiedAtUnixMs: 0,
+            contents: "",
+            isTruncated: false
+        )
+    }
+
+    public func listNetworkTraces(limit: UInt64) -> [NetworkTraceSummaryState] {
+        []
+    }
+
+    public func networkTraceDetail(traceId: UInt64) -> NetworkTraceDetailState? {
+        nil
+    }
 
     public func hasLoginSession() -> Bool {
         state.hasLoginSession

@@ -108,6 +108,22 @@ public actor FireSessionStore {
         workspacePath
     }
 
+    public func listLogFiles() throws -> [LogFileSummaryState] {
+        try core.listLogFiles()
+    }
+
+    public func readLogFile(relativePath: String) throws -> LogFileDetailState {
+        try core.readLogFile(relativePath: relativePath)
+    }
+
+    public func listNetworkTraces(limit: UInt64 = 200) -> [NetworkTraceSummaryState] {
+        core.listNetworkTraces(limit: limit)
+    }
+
+    public func networkTraceDetail(traceID: UInt64) -> NetworkTraceDetailState? {
+        core.networkTraceDetail(traceId: traceID)
+    }
+
     public func exportSessionJSON() throws -> String {
         try core.exportSessionJson()
     }

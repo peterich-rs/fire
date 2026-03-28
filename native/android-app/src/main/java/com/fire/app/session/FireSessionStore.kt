@@ -6,6 +6,10 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import uniffi.fire_uniffi.FireCoreHandle
 import uniffi.fire_uniffi.LoginSyncState
+import uniffi.fire_uniffi.LogFileDetailState
+import uniffi.fire_uniffi.LogFileSummaryState
+import uniffi.fire_uniffi.NetworkTraceDetailState
+import uniffi.fire_uniffi.NetworkTraceSummaryState
 import uniffi.fire_uniffi.PlatformCookieState
 import uniffi.fire_uniffi.TopicDetailQueryState
 import uniffi.fire_uniffi.TopicDetailState
@@ -86,6 +90,26 @@ class FireSessionStore(
     }
 
     fun workspacePath(): String = workspaceDir.absolutePath
+
+    suspend fun listLogFiles(): List<LogFileSummaryState> =
+        withContext(Dispatchers.IO) {
+            core.listLogFiles()
+        }
+
+    suspend fun readLogFile(relativePath: String): LogFileDetailState =
+        withContext(Dispatchers.IO) {
+            core.readLogFile(relativePath)
+        }
+
+    suspend fun listNetworkTraces(limit: ULong = 200uL): List<NetworkTraceSummaryState> =
+        withContext(Dispatchers.IO) {
+            core.listNetworkTraces(limit)
+        }
+
+    suspend fun networkTraceDetail(traceId: ULong): NetworkTraceDetailState? =
+        withContext(Dispatchers.IO) {
+            core.networkTraceDetail(traceId)
+        }
 
     suspend fun exportSessionJson(): String = withContext(Dispatchers.Default) {
         core.exportSessionJson()

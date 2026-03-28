@@ -49,18 +49,12 @@ impl FireCore {
             params.push(("ascending", ascending.to_string()));
         }
 
-        let request = self.build_json_get_request(&path, params, &[])?;
-        let response = self
-            .client
-            .execute(request)
-            .await
-            .map_err(|source| FireCoreError::Network { source })?;
-        let response = expect_success("fetch topic list", response).await?;
-        let raw: RawTopicListResponse = response
-            .into_body()
-            .json()
-            .await
-            .map_err(|source| FireCoreError::Network { source })?;
+        let traced = self.build_json_get_request("fetch topic list", &path, params, &[])?;
+        let (trace_id, response) = self.execute_request(traced).await?;
+        let response = expect_success(self, "fetch topic list", trace_id, response).await?;
+        let raw: RawTopicListResponse = self
+            .read_response_json("fetch topic list", trace_id, response)
+            .await?;
         Ok(raw.into())
     }
 
@@ -94,18 +88,13 @@ impl FireCore {
             extra_headers.push(("Discourse-Track-View-Topic-Id", query.topic_id.to_string()));
         }
 
-        let request = self.build_json_get_request(&path, params, &extra_headers)?;
-        let response = self
-            .client
-            .execute(request)
-            .await
-            .map_err(|source| FireCoreError::Network { source })?;
-        let response = expect_success("fetch topic detail", response).await?;
-        let raw: RawTopicDetail = response
-            .into_body()
-            .json()
-            .await
-            .map_err(|source| FireCoreError::Network { source })?;
+        let traced =
+            self.build_json_get_request("fetch topic detail", &path, params, &extra_headers)?;
+        let (trace_id, response) = self.execute_request(traced).await?;
+        let response = expect_success(self, "fetch topic detail", trace_id, response).await?;
+        let raw: RawTopicDetail = self
+            .read_response_json("fetch topic detail", trace_id, response)
+            .await?;
         Ok(raw.into())
     }
 }

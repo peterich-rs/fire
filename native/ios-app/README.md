@@ -40,6 +40,10 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
   - moves the first system-level network prompt, when one appears on-device, out of the login page itself
   - restores the persisted session snapshot and keeps the topic browser in sync with login state
   - tracks paginated topic feed state and derives category metadata from bootstrap `preloadedJson`
+- `App/FireDiagnosticsView.swift`
+  - renders a native diagnostics screen on top of the shared Rust diagnostics APIs
+  - lists workspace log files plus reverse-chronological network request traces
+  - opens dedicated detail pages for log content and per-request execution chains
 - `App/FireTopicPresentation.swift`
   - extracts `site.categories` from bootstrap `preloadedJson`
   - parses `more_topics_url` into the next feed page
@@ -64,6 +68,7 @@ Workspace note:
 
 - The iOS host now passes `Application Support/Fire` into Rust as the workspace root.
 - Rust now initializes shared logging under `Application Support/Fire/logs` and keeps xlog cache files under `Application Support/Fire/cache/xlog`.
+- Rust also mirrors readable tracing output into `Application Support/Fire/diagnostics/fire-readable.log`.
 - Rust can resolve relative paths inside that workspace for shared file ownership such as logs, caches, or exports.
 - The current persisted session file remains `Application Support/Fire/session.json`.
 
@@ -76,6 +81,7 @@ Current UX note:
 - Network-backed UniFFI APIs now surface to Swift as native `async/await` methods instead of a synchronous wrapper.
 - The current topic browser now supports `Load More` pagination, category-aware topic rows, and richer topic/detail metadata sourced from the shared Rust session snapshot.
 - Topic posts now render their cooked HTML as attributed text in the detail screen instead of flattening everything into plain text.
+- The app now exposes a diagnostics screen for readable logs and Rust-owned request trace inspection.
 
 Build prerequisites:
 
@@ -89,8 +95,11 @@ Verified local commands:
 
 - `xcodegen generate --spec native/ios-app/project.yml`
 - `xcodebuild -project native/ios-app/Fire.xcodeproj -scheme Fire -destination 'platform=iOS Simulator,name=iPhone 16' -derivedDataPath /tmp/fire-ios-tests CODE_SIGNING_ALLOWED=NO test`
-- `xcodebuild -project native/ios-app/Fire.xcodeproj -scheme Fire -destination 'generic/platform=iOS' -derivedDataPath /tmp/fire-ios-deriveddata CODE_SIGNING_ALLOWED=NO build`
-- `xcodebuild -project native/ios-app/Fire.xcodeproj -scheme Fire -configuration Release -destination 'generic/platform=iOS' -derivedDataPath /tmp/fire-ios-deriveddata-release CODE_SIGNING_ALLOWED=NO build`
+
+Current build note:
+
+- The simulator/unit-test path above is verified locally after the diagnostics addition.
+- The device `Release` Xcode path currently still depends on the host UniFFI cargo build inheriting a clean macOS SDK environment inside the pre-build script; the Rust release host build itself is verified separately with `SDKROOT="$(xcrun --sdk macosx --show-sdk-path)" RUSTFLAGS="-C linker=$(xcrun --sdk macosx --find clang) -C link-arg=-isysroot -C link-arg=$(xcrun --sdk macosx --show-sdk-path)" cargo build -p fire-uniffi --lib --release`.
 
 Planned responsibilities beyond the current wiring:
 

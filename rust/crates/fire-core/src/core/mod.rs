@@ -17,6 +17,10 @@ use url::Url;
 use crate::{
     config::FireCoreConfig,
     cookies::FireSessionCookieJar,
+    diagnostics::{
+        list_log_files, read_log_file, FireDiagnosticsStore, FireLogFileDetail, FireLogFileSummary,
+        FireNetworkTraceEventListenerFactory, NetworkTraceDetail, NetworkTraceSummary,
+    },
     error::FireCoreError,
     logging::logger_runtime_for_workspace,
     workspace::{normalize_workspace_path, validate_workspace_relative_path},
@@ -27,6 +31,7 @@ pub struct FireCore {
     base_url: Url,
     workspace_path: Option<PathBuf>,
     client: Client,
+    diagnostics: Arc<FireDiagnosticsStore>,
     session: Arc<RwLock<SessionSnapshot>>,
 }
 
@@ -52,8 +57,12 @@ impl FireCore {
         };
         let session = Arc::new(RwLock::new(session));
         let cookie_jar = Arc::new(FireSessionCookieJar::new(base_url.clone(), session.clone()));
+        let diagnostics = Arc::new(FireDiagnosticsStore::new());
         let client = Client::builder()
             .cookie_jar(cookie_jar)
+            .event_listener_factory(FireNetworkTraceEventListenerFactory::new(Arc::clone(
+                &diagnostics,
+            )))
             .build()
             .map_err(|source| FireCoreError::ClientBuild { source })?;
 
@@ -61,6 +70,7 @@ impl FireCore {
             base_url,
             workspace_path,
             client,
+            diagnostics,
             session,
         })
     }
@@ -98,6 +108,33 @@ impl FireCore {
 
     pub fn shared_client(&self) -> Client {
         self.client.clone()
+    }
+
+    pub fn list_log_files(&self) -> Result<Vec<FireLogFileSummary>, FireCoreError> {
+        self.flush_logs(true);
+        let workspace_path = self
+            .workspace_path()
+            .ok_or(FireCoreError::MissingWorkspacePath)?;
+        list_log_files(workspace_path)
+    }
+
+    pub fn read_log_file(
+        &self,
+        relative_path: impl AsRef<Path>,
+    ) -> Result<FireLogFileDetail, FireCoreError> {
+        self.flush_logs(true);
+        let workspace_path = self
+            .workspace_path()
+            .ok_or(FireCoreError::MissingWorkspacePath)?;
+        read_log_file(workspace_path, relative_path)
+    }
+
+    pub fn list_network_traces(&self, limit: usize) -> Vec<NetworkTraceSummary> {
+        self.diagnostics.summaries(limit)
+    }
+
+    pub fn network_trace_detail(&self, trace_id: u64) -> Option<NetworkTraceDetail> {
+        self.diagnostics.detail(trace_id)
     }
 
     pub(crate) fn update_session<F>(&self, mutate: F) -> SessionSnapshot

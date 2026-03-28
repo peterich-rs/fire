@@ -10,6 +10,7 @@ authors.workspace = true
 fire-models = { path = "../fire-models" }
 http.workspace = true
 mars-xlog.workspace = true
+mars-xlog-core.workspace = true
 openwire.workspace = true
 regex.workspace = true
 serde.workspace = true

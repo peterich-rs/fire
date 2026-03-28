@@ -12,7 +12,7 @@ Current host-side app wiring lives under `src/main/java/com/fire/app/` plus `src
   - restores persisted session snapshots on cold start
   - persists the latest Rust session snapshot to `filesDir/fire/session.json`
   - lets Rust initialize shared logs under `filesDir/fire/logs`
-  - wraps `syncLoginContext`, `refreshBootstrap`, `refreshCsrfToken`, topic fetches, and logout
+  - wraps `syncLoginContext`, `refreshBootstrap`, `refreshCsrfToken`, diagnostics reads, topic fetches, and logout
 - `scripts/sync_uniffi_bindings.sh`
   - builds the host dylib used for UniFFI metadata extraction
   - reads generator settings from `rust/crates/fire-uniffi/uniffi.toml`
@@ -32,6 +32,10 @@ Current host-side app wiring lives under `src/main/java/com/fire/app/` plus `src
   - restores the persisted session snapshot on launch and after login
   - renders a paginated topic browser with feed filters, category-aware topic items, and a focused selected-topic summary
   - opens topic detail in a dedicated screen instead of fetching and rendering it inline in the feed host
+- `DiagnosticsActivity.kt`, `LogViewerActivity.kt`, `RequestTraceDetailActivity.kt`
+  - surface a native diagnostics entry point
+  - list readable/shared log files from the Rust workspace
+  - render a reverse-chronological request trace overview and per-request execution-chain/detail pages
 - `TopicDetailActivity.kt`
   - loads topic detail on demand from the shared Rust API
   - renders post HTML in a dedicated native screen with richer metadata and clickable links
@@ -54,6 +58,7 @@ Workspace note:
 
 - The Android host now passes `filesDir/fire` into Rust as the workspace root.
 - Rust now initializes shared logging under `filesDir/fire/logs` and keeps xlog cache files under `filesDir/fire/cache/xlog`.
+- Rust also mirrors tracing output into `filesDir/fire/diagnostics/fire-readable.log`.
 - Rust can resolve relative paths inside that workspace for shared file ownership such as logs, caches, or exports.
 - The current persisted session file remains `filesDir/fire/session.json`.
 
@@ -64,6 +69,7 @@ Current browser note:
 - `MainActivity` still renders a compact browser shell, but the data path is no longer stubbed.
 - The current browser shell now supports `Load More` pagination and category metadata derived from the shared Rust bootstrap snapshot.
 - Topic detail now opens in a dedicated activity instead of being embedded under the feed list.
+- The host shell now exposes a diagnostics screen for readable logs and Rust-owned request traces.
 
 Note:
 

@@ -12,6 +12,20 @@ private enum FireLoginPreparationError: LocalizedError {
     }
 }
 
+private enum FireDiagnosticsAccessError: LocalizedError {
+    case unavailable
+    case traceNotFound
+
+    var errorDescription: String? {
+        switch self {
+        case .unavailable:
+            "Diagnostics are unavailable because the shared session store was not initialized."
+        case .traceNotFound:
+            "The selected network request trace is no longer available."
+        }
+    }
+}
+
 @MainActor
 final class FireAppViewModel: ObservableObject {
     @Published private(set) var session: SessionState = .placeholder()
@@ -223,6 +237,37 @@ final class FireAppViewModel: ObservableObject {
             return nil
         }
         return topicCategories[categoryID]
+    }
+
+    func listLogFiles() async throws -> [LogFileSummaryState] {
+        guard let sessionStore else {
+            throw FireDiagnosticsAccessError.unavailable
+        }
+        return try await sessionStore.listLogFiles()
+    }
+
+    func readLogFile(relativePath: String) async throws -> LogFileDetailState {
+        guard let sessionStore else {
+            throw FireDiagnosticsAccessError.unavailable
+        }
+        return try await sessionStore.readLogFile(relativePath: relativePath)
+    }
+
+    func listNetworkTraces(limit: UInt64 = 200) async throws -> [NetworkTraceSummaryState] {
+        guard let sessionStore else {
+            throw FireDiagnosticsAccessError.unavailable
+        }
+        return await sessionStore.listNetworkTraces(limit: limit)
+    }
+
+    func networkTraceDetail(traceID: UInt64) async throws -> NetworkTraceDetailState {
+        guard let sessionStore else {
+            throw FireDiagnosticsAccessError.unavailable
+        }
+        guard let detail = await sessionStore.networkTraceDetail(traceID: traceID) else {
+            throw FireDiagnosticsAccessError.traceNotFound
+        }
+        return detail
     }
 
     private func prepareLoginNetworkAccess() async throws {

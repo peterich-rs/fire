@@ -51,6 +51,8 @@ fire/
 
 ## 本地验证
 
+当前仓库通过根目录 `rust-toolchain.toml` 固定 Rust `1.88.0`，workspace 的 `rust-version` 与之对齐为 `1.88`。
+
 ```bash
 cargo check
 xcodegen generate --spec native/ios-app/project.yml

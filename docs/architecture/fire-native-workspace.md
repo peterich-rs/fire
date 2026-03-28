@@ -54,6 +54,7 @@ fire/
   - MessageBus
   - shared models
   - logging integration
+  - request tracing integration
 
 ## Dependency Strategy
 
@@ -76,14 +77,17 @@ The first usable session pipeline now lives in the Rust workspace:
   - derives `currentUser.username`, `siteSettings.long_polling_base_url`, and `topicTrackingStateMeta` from `data-preloaded`
   - exposes network-backed `refresh_bootstrap`, `refresh_csrf_token`, `logout_remote`, and local `logout_local`
   - can export/import persisted session JSON and save/load session snapshots from disk for cold-start restoration
+  - keeps an in-process request trace timeline for every Rust-owned HTTP call, including execution-chain events, headers, and captured response bodies
+  - exposes workspace log file listing/reading, including the readable tracing mirror under `diagnostics/`
   - exposes authenticated topic list and topic detail fetching for `latest/new/unread/unseen/hot/top` plus tracked topic detail requests
   - retries one logout request on `BAD CSRF` after refreshing `/session/csrf`
 - `fire-uniffi`
-  - exports the session snapshot, readiness flags, login sync input, bootstrap sync APIs, persistence APIs, topic APIs, and logout APIs to Swift/Kotlin
+  - exports the session snapshot, readiness flags, login sync input, bootstrap sync APIs, persistence APIs, diagnostics APIs, topic APIs, and logout APIs to Swift/Kotlin
   - now exposes network-backed APIs as native async UniFFI methods for Swift/Kotlin instead of re-wrapping them as synchronous FFI calls
   - keeps binding configuration in `rust/crates/fire-uniffi/uniffi.toml`
 - `native/ios-app` and `native/android-app`
   - now drive a minimal latest-topic list plus topic detail shell on top of the exported topic API surface
+  - now surface native diagnostics screens for workspace logs plus request-trace overview/detail views
   - now build against generated UniFFI bindings in app builds, with Android packaging `.so` libraries and iOS linking a generated Rust static library
 
 The intended native integration order is:
@@ -108,6 +112,7 @@ Current file ownership convention:
 - Rust keeps this workspace root for shared file concerns that belong to the shared layer.
 - The current Rust-owned file layout inside that workspace is:
   - `logs/` for Mars Xlog output
+  - `diagnostics/fire-readable.log` for a plaintext tracing mirror
   - `cache/xlog/` for Xlog cache and mmap spill files
   - `session.json` for the persisted session snapshot triggered by the host shell
 - The current session snapshot remains host-triggered persistence under `session.json` inside that workspace root.

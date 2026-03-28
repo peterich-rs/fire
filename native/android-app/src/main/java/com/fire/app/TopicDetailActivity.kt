@@ -13,6 +13,7 @@ import androidx.core.text.HtmlCompat
 import androidx.lifecycle.lifecycleScope
 import com.fire.app.databinding.ActivityTopicDetailBinding
 import com.fire.app.session.FireSessionStore
+import com.fire.app.session.FireSessionStoreRepository
 import kotlinx.coroutines.launch
 import uniffi.fire_uniffi.TopicDetailQueryState
 import uniffi.fire_uniffi.TopicDetailState
@@ -38,7 +39,7 @@ class TopicDetailActivity : AppCompatActivity() {
             return
         }
 
-        sessionStore = FireSessionStore(applicationContext)
+        sessionStore = FireSessionStoreRepository.get(applicationContext)
 
         binding.backButton.setOnClickListener { finish() }
         binding.refreshButton.setOnClickListener { loadTopicDetail(force = true) }

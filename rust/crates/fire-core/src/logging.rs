@@ -1,11 +1,14 @@
 use std::{
     fs,
+    fs::OpenOptions,
+    io::{self, Write},
     path::{Path, PathBuf},
-    sync::{Mutex, OnceLock},
+    sync::{Arc, Mutex, OnceLock},
 };
 
 use mars_xlog::{LogLevel, Xlog, XlogConfig};
 use tracing_subscriber::prelude::*;
+use tracing_subscriber::{filter::LevelFilter, fmt::writer::MakeWriter};
 
 use crate::error::FireCoreError;
 
@@ -13,6 +16,8 @@ const FIRE_LOGGER_NAME_PREFIX: &str = "fire";
 const FIRE_LOGS_DIR_NAME: &str = "logs";
 const FIRE_LOG_CACHE_PARENT_DIR: &str = "cache";
 const FIRE_LOG_CACHE_DIR_NAME: &str = "xlog";
+const FIRE_DIAGNOSTICS_DIR_NAME: &str = "diagnostics";
+const FIRE_READABLE_LOG_FILE_NAME: &str = "fire-readable.log";
 
 #[derive(Debug, Clone)]
 pub struct FireLoggerConfig {
@@ -51,6 +56,7 @@ pub(crate) struct FireLoggerRuntime {
     workspace_path: PathBuf,
     pub(crate) log_dir: PathBuf,
     pub(crate) cache_dir: PathBuf,
+    readable_log_writer: Arc<Mutex<FileBackedMakeWriter>>,
     logger: FireLogger,
 }
 
@@ -60,6 +66,8 @@ impl FireLoggerRuntime {
         let cache_dir = workspace_path
             .join(FIRE_LOG_CACHE_PARENT_DIR)
             .join(FIRE_LOG_CACHE_DIR_NAME);
+        let diagnostics_dir = workspace_path.join(FIRE_DIAGNOSTICS_DIR_NAME);
+        let readable_log_path = diagnostics_dir.join(FIRE_READABLE_LOG_FILE_NAME);
 
         fs::create_dir_all(&log_dir).map_err(|source| FireCoreError::WorkspaceIo {
             path: log_dir.clone(),
@@ -69,12 +77,18 @@ impl FireLoggerRuntime {
             path: cache_dir.clone(),
             source,
         })?;
+        fs::create_dir_all(&diagnostics_dir).map_err(|source| FireCoreError::WorkspaceIo {
+            path: diagnostics_dir.clone(),
+            source,
+        })?;
 
         let level = if cfg!(debug_assertions) {
             LogLevel::Debug
         } else {
             LogLevel::Info
         };
+        let readable_log_writer =
+            Arc::new(Mutex::new(FileBackedMakeWriter::new(&readable_log_path)?));
         let logger = FireLogger::init(FireLoggerConfig {
             log_dir: log_dir.display().to_string(),
             cache_dir: Some(cache_dir.display().to_string()),
@@ -82,12 +96,17 @@ impl FireLoggerRuntime {
             level,
         })?;
         logger.set_console_log_open(cfg!(debug_assertions));
-        init_tracing(logger.inner.clone(), level);
+        init_tracing(
+            logger.inner.clone(),
+            level,
+            Arc::clone(&readable_log_writer),
+        );
 
         Ok(Self {
             workspace_path,
             log_dir,
             cache_dir,
+            readable_log_writer,
             logger,
         })
     }
@@ -104,19 +123,103 @@ impl FireLoggerRuntime {
 
     pub(crate) fn flush(&self, sync: bool) {
         self.logger.flush(sync);
+        if let Ok(mut writer) = self.readable_log_writer.lock() {
+            let _ = writer.flush();
+        }
     }
 }
 
-fn init_tracing(logger: Xlog, level: LogLevel) {
+fn init_tracing(
+    logger: Xlog,
+    level: LogLevel,
+    readable_log_writer: Arc<Mutex<FileBackedMakeWriter>>,
+) {
     static TRACING_INIT: OnceLock<()> = OnceLock::new();
     let _ = TRACING_INIT.get_or_init(|| {
         let (layer, _handle) = mars_xlog::XlogLayer::with_config(
             logger,
             mars_xlog::XlogLayerConfig::new(level).enabled(true),
         );
-        let subscriber = tracing_subscriber::registry().with(layer);
+        let readable_layer = tracing_subscriber::fmt::layer()
+            .compact()
+            .with_ansi(false)
+            .with_writer(SharedFileMakeWriter {
+                inner: readable_log_writer,
+            })
+            .with_filter(level_filter_for(level));
+        let subscriber = tracing_subscriber::registry()
+            .with(layer)
+            .with(readable_layer);
         let _ = tracing::subscriber::set_global_default(subscriber);
     });
+}
+
+fn level_filter_for(level: LogLevel) -> LevelFilter {
+    match level {
+        LogLevel::Verbose | LogLevel::Debug => LevelFilter::DEBUG,
+        LogLevel::Info => LevelFilter::INFO,
+        LogLevel::Warn => LevelFilter::WARN,
+        LogLevel::Error | LogLevel::Fatal => LevelFilter::ERROR,
+        LogLevel::None => LevelFilter::OFF,
+    }
+}
+
+struct FileBackedMakeWriter {
+    file: std::fs::File,
+}
+
+impl FileBackedMakeWriter {
+    fn new(path: &Path) -> Result<Self, FireCoreError> {
+        let file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+            .map_err(|source| FireCoreError::WorkspaceIo {
+                path: path.to_path_buf(),
+                source,
+            })?;
+        Ok(Self { file })
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.file.flush()
+    }
+}
+
+#[derive(Clone)]
+struct SharedFileMakeWriter {
+    inner: Arc<Mutex<FileBackedMakeWriter>>,
+}
+
+impl<'a> MakeWriter<'a> for SharedFileMakeWriter {
+    type Writer = SharedFileWriterGuard;
+
+    fn make_writer(&'a self) -> Self::Writer {
+        SharedFileWriterGuard {
+            inner: Arc::clone(&self.inner),
+        }
+    }
+}
+
+struct SharedFileWriterGuard {
+    inner: Arc<Mutex<FileBackedMakeWriter>>,
+}
+
+impl Write for SharedFileWriterGuard {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.inner
+            .lock()
+            .expect("readable log writer lock poisoned")
+            .file
+            .write(buf)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.inner
+            .lock()
+            .expect("readable log writer lock poisoned")
+            .flush()
+    }
 }
 
 pub(crate) fn logger_runtime_for_workspace(

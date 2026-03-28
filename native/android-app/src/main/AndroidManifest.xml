@@ -13,6 +13,15 @@
             android:name=".LoginActivity"
             android:exported="false" />
         <activity
+            android:name=".DiagnosticsActivity"
+            android:exported="false" />
+        <activity
+            android:name=".LogViewerActivity"
+            android:exported="false" />
+        <activity
+            android:name=".RequestTraceDetailActivity"
+            android:exported="false" />
+        <activity
             android:name=".TopicDetailActivity"
             android:exported="false" />
         <activity

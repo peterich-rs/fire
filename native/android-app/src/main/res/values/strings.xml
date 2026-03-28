@@ -9,6 +9,8 @@
     <string name="action_load_more">Load More Topics</string>
     <string name="action_copy_last_error">Copy Last Error</string>
     <string name="action_refresh">Refresh</string>
+    <string name="action_open_diagnostics">Open Diagnostics</string>
+    <string name="action_open_log_viewer">Open Log Viewer</string>
     <string name="action_logout">Logout</string>
     <string name="action_close">Close</string>
     <string name="action_sync_login">Sync Login</string>
@@ -19,6 +21,15 @@
     <string name="login_title">LinuxDo Login</string>
     <string name="login_url">https://linux.do</string>
     <string name="browser_title">Topic Browser</string>
+    <string name="diagnostics_title">Diagnostics</string>
+    <string name="diagnostics_subtitle">Readable app logs plus captured network request traces.</string>
+    <string name="diagnostics_no_traces">No captured network requests yet.</string>
+    <string name="diagnostics_loading">Loading diagnostics…</string>
+    <string name="diagnostics_trace_error">Unable to load diagnostics.</string>
+    <string name="diagnostics_log_title">Readable Log</string>
+    <string name="diagnostics_log_empty">No readable log content is available yet.</string>
+    <string name="diagnostics_trace_detail_title">Request Trace</string>
+    <string name="diagnostics_trace_response_empty">No response body captured.</string>
     <string name="last_error_title">Last Error</string>
     <string name="last_error_copied">Last error copied.</string>
     <string name="browser_loading">Loading topics…</string>

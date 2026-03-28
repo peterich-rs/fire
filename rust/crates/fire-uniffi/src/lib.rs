@@ -3,7 +3,11 @@ use std::{
     sync::{Arc, OnceLock},
 };
 
-use fire_core::{FireCore, FireCoreConfig, FireCoreError};
+use fire_core::{
+    FireCore, FireCoreConfig, FireCoreError, FireLogFileDetail, FireLogFileSummary,
+    NetworkTraceDetail, NetworkTraceEvent, NetworkTraceHeader, NetworkTraceOutcome,
+    NetworkTraceSummary,
+};
 use fire_models::{
     BootstrapArtifacts, CookieSnapshot, LoginPhase, LoginSyncInput, PlatformCookie,
     SessionReadiness, SessionSnapshot, TopicDetail, TopicDetailCreatedBy, TopicDetailMeta,
@@ -616,6 +620,177 @@ impl From<TopicDetail> for TopicDetailState {
     }
 }
 
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct LogFileSummaryState {
+    pub relative_path: String,
+    pub file_name: String,
+    pub size_bytes: u64,
+    pub modified_at_unix_ms: u64,
+}
+
+impl From<FireLogFileSummary> for LogFileSummaryState {
+    fn from(value: FireLogFileSummary) -> Self {
+        Self {
+            relative_path: value.relative_path,
+            file_name: value.file_name,
+            size_bytes: value.size_bytes,
+            modified_at_unix_ms: value.modified_at_unix_ms,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct LogFileDetailState {
+    pub relative_path: String,
+    pub file_name: String,
+    pub size_bytes: u64,
+    pub modified_at_unix_ms: u64,
+    pub contents: String,
+    pub is_truncated: bool,
+}
+
+impl From<FireLogFileDetail> for LogFileDetailState {
+    fn from(value: FireLogFileDetail) -> Self {
+        Self {
+            relative_path: value.relative_path,
+            file_name: value.file_name,
+            size_bytes: value.size_bytes,
+            modified_at_unix_ms: value.modified_at_unix_ms,
+            contents: value.contents,
+            is_truncated: value.is_truncated,
+        }
+    }
+}
+
+#[derive(uniffi::Enum, Debug, Clone, Copy)]
+pub enum NetworkTraceOutcomeState {
+    InProgress,
+    Succeeded,
+    Failed,
+}
+
+impl From<NetworkTraceOutcome> for NetworkTraceOutcomeState {
+    fn from(value: NetworkTraceOutcome) -> Self {
+        match value {
+            NetworkTraceOutcome::InProgress => Self::InProgress,
+            NetworkTraceOutcome::Succeeded => Self::Succeeded,
+            NetworkTraceOutcome::Failed => Self::Failed,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct NetworkTraceHeaderState {
+    pub name: String,
+    pub value: String,
+}
+
+impl From<NetworkTraceHeader> for NetworkTraceHeaderState {
+    fn from(value: NetworkTraceHeader) -> Self {
+        Self {
+            name: value.name,
+            value: value.value,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct NetworkTraceEventState {
+    pub sequence: u32,
+    pub timestamp_unix_ms: u64,
+    pub phase: String,
+    pub summary: String,
+    pub details: Option<String>,
+}
+
+impl From<NetworkTraceEvent> for NetworkTraceEventState {
+    fn from(value: NetworkTraceEvent) -> Self {
+        Self {
+            sequence: value.sequence,
+            timestamp_unix_ms: value.timestamp_unix_ms,
+            phase: value.phase,
+            summary: value.summary,
+            details: value.details,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct NetworkTraceSummaryState {
+    pub id: u64,
+    pub call_id: Option<u64>,
+    pub operation: String,
+    pub method: String,
+    pub url: String,
+    pub started_at_unix_ms: u64,
+    pub finished_at_unix_ms: Option<u64>,
+    pub duration_ms: Option<u64>,
+    pub outcome: NetworkTraceOutcomeState,
+    pub status_code: Option<u16>,
+    pub error_message: Option<String>,
+    pub response_content_type: Option<String>,
+    pub response_body_truncated: bool,
+}
+
+impl From<NetworkTraceSummary> for NetworkTraceSummaryState {
+    fn from(value: NetworkTraceSummary) -> Self {
+        Self {
+            id: value.id,
+            call_id: value.call_id,
+            operation: value.operation,
+            method: value.method,
+            url: value.url,
+            started_at_unix_ms: value.started_at_unix_ms,
+            finished_at_unix_ms: value.finished_at_unix_ms,
+            duration_ms: value.duration_ms,
+            outcome: value.outcome.into(),
+            status_code: value.status_code,
+            error_message: value.error_message,
+            response_content_type: value.response_content_type,
+            response_body_truncated: value.response_body_truncated,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct NetworkTraceDetailState {
+    pub summary: NetworkTraceSummaryState,
+    pub request_headers: Vec<NetworkTraceHeaderState>,
+    pub response_headers: Vec<NetworkTraceHeaderState>,
+    pub response_body: Option<String>,
+    pub response_body_truncated: bool,
+    pub response_body_bytes: Option<u64>,
+    pub events: Vec<NetworkTraceEventState>,
+}
+
+impl From<NetworkTraceDetail> for NetworkTraceDetailState {
+    fn from(value: NetworkTraceDetail) -> Self {
+        Self {
+            summary: NetworkTraceSummaryState {
+                id: value.id,
+                call_id: value.call_id,
+                operation: value.operation,
+                method: value.method,
+                url: value.url,
+                started_at_unix_ms: value.started_at_unix_ms,
+                finished_at_unix_ms: value.finished_at_unix_ms,
+                duration_ms: value.duration_ms,
+                outcome: value.outcome.into(),
+                status_code: value.status_code,
+                error_message: value.error_message,
+                response_content_type: value.response_content_type,
+                response_body_truncated: value.response_body_truncated,
+            },
+            request_headers: value.request_headers.into_iter().map(Into::into).collect(),
+            response_headers: value.response_headers.into_iter().map(Into::into).collect(),
+            response_body: value.response_body,
+            response_body_truncated: value.response_body_truncated,
+            response_body_bytes: value.response_body_bytes,
+            events: value.events.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
 #[derive(uniffi::Error, thiserror::Error, Debug)]
 pub enum FireUniFfiError {
     #[error("configuration error: {details}")]
@@ -668,6 +843,9 @@ impl From<FireCoreError> for FireUniFfiError {
                 status,
                 body,
             },
+            FireCoreError::ResponseDeserialize { source, .. } => Self::Serialization {
+                details: source.to_string(),
+            },
             FireCoreError::MissingCurrentUsername => Self::Authentication {
                 details: "logout requires a current username".to_string(),
             },
@@ -687,7 +865,8 @@ impl From<FireCoreError> for FireUniFfiError {
                 ),
             },
             FireCoreError::WorkspaceIo { path, source }
-            | FireCoreError::PersistIo { path, source } => Self::Storage {
+            | FireCoreError::PersistIo { path, source }
+            | FireCoreError::DiagnosticsIo { path, source } => Self::Storage {
                 details: format!("{}: {}", path.display(), source),
             },
             FireCoreError::LoggerWorkspaceMismatch { expected, found } => Self::Configuration {
@@ -700,11 +879,15 @@ impl From<FireCoreError> for FireUniFfiError {
             FireCoreError::InvalidCsrfResponse => Self::Validation {
                 details: "csrf response did not contain a usable token".to_string(),
             },
-            FireCoreError::PersistSerialize(source) | FireCoreError::PersistDeserialize(source) => {
-                Self::Serialization {
-                    details: source.to_string(),
-                }
-            }
+            FireCoreError::PersistSerialize(source)
+            | FireCoreError::PersistDeserialize(source)
+            | FireCoreError::DiagnosticsSerialize(source)
+            | FireCoreError::DiagnosticsDeserialize(source) => Self::Serialization {
+                details: source.to_string(),
+            },
+            FireCoreError::DiagnosticsTraceNotFound { trace_id } => Self::Validation {
+                details: format!("network request trace not found: {trace_id}"),
+            },
             FireCoreError::PersistVersionMismatch { expected, found } => Self::Validation {
                 details: format!(
                     "persisted session uses unsupported version {found}, expected {expected}"
@@ -759,6 +942,35 @@ impl FireCoreHandle {
 
     pub fn flush_logs(&self, sync: bool) {
         self.inner.flush_logs(sync);
+    }
+
+    pub fn list_log_files(&self) -> Result<Vec<LogFileSummaryState>, FireUniFfiError> {
+        self.inner
+            .list_log_files()
+            .map(|items| items.into_iter().map(Into::into).collect())
+            .map_err(Into::into)
+    }
+
+    pub fn read_log_file(
+        &self,
+        relative_path: String,
+    ) -> Result<LogFileDetailState, FireUniFfiError> {
+        self.inner
+            .read_log_file(relative_path)
+            .map(Into::into)
+            .map_err(Into::into)
+    }
+
+    pub fn list_network_traces(&self, limit: u64) -> Vec<NetworkTraceSummaryState> {
+        self.inner
+            .list_network_traces(limit as usize)
+            .into_iter()
+            .map(Into::into)
+            .collect()
+    }
+
+    pub fn network_trace_detail(&self, trace_id: u64) -> Option<NetworkTraceDetailState> {
+        self.inner.network_trace_detail(trace_id).map(Into::into)
     }
 
     pub fn has_login_session(&self) -> bool {

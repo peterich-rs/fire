@@ -737,6 +737,7 @@ dependencies = [
  "fire-models",
  "http",
  "mars-xlog",
+ "mars-xlog-core",
  "openwire",
  "regex",
  "serde",

@@ -19,10 +19,12 @@ fun registerSyncFireUniffiBindingsTask(
     val generatedJniLibsDir = generatedUniffiRootDir.map { it.dir("$buildTypeName/jniLibs") }
 
     inputs.file(script)
+    inputs.file(fireRepoRoot.resolve(".cargo/config.toml"))
     inputs.file(fireRepoRoot.resolve("Cargo.toml"))
     inputs.file(fireRepoRoot.resolve("Cargo.lock"))
+    inputs.file(fireRepoRoot.resolve("rust-toolchain.toml"))
     inputs.file(fireRepoRoot.resolve("rust/crates/fire-uniffi/uniffi.toml"))
-    inputs.dir(fireRepoRoot.resolve("rust"))
+    inputs.dir(fireRepoRoot.resolve("rust/crates"))
     inputs.dir(fireRepoRoot.resolve("third_party/openwire"))
     inputs.dir(fireRepoRoot.resolve("third_party/xlog-rs"))
     inputs.property("fireRustProfile", rustProfile)

@@ -1,5 +1,9 @@
 # iOS Native App
 
+This directory now contains a runnable iOS host shell. The current build uses
+`App/FireBindingsShim.swift` under the `FIRE_USE_UNIFFI_STUBS` compilation flag so
+the app can build before the generated UniFFI Swift bindings are added.
+
 Current host-side login wiring lives under `Sources/FireAppSession/`:
 
 - `FireSessionStore.swift`
@@ -15,10 +19,16 @@ Current host-side login wiring lives under `Sources/FireAppSession/`:
 Expected integration flow:
 
 1. Generate the UniFFI Swift bindings from `rust/crates/fire-uniffi`.
-2. Add the generated Swift sources and the native files in `Sources/FireAppSession/` to the same Xcode target.
-3. Create a single `FireSessionStore` instance early in app launch and call `restorePersistedSessionIfAvailable()`.
-4. Drive the login `WKWebView` through `FireWebViewLoginCoordinator.completeLogin(from:)`.
-5. On explicit logout, call `FireWebViewLoginCoordinator.logout()` and clear any host-side WebView cookies if desired.
+2. Replace `App/FireBindingsShim.swift` with the generated Swift bindings and remove the `FIRE_USE_UNIFFI_STUBS` flag from `project.yml`.
+3. Keep the native files in `Sources/FireAppSession/` in the same Xcode target.
+4. Create a single `FireSessionStore` instance early in app launch and call `restorePersistedSessionIfAvailable()`.
+5. Drive the login `WKWebView` through `FireWebViewLoginCoordinator.completeLogin(from:)`.
+6. On explicit logout, call `FireWebViewLoginCoordinator.logout()` and clear any host-side WebView cookies if desired.
+
+Verified local commands:
+
+- `xcodegen generate --spec native/ios-app/project.yml`
+- `xcodebuild -project native/ios-app/Fire.xcodeproj -scheme Fire -destination 'generic/platform=iOS Simulator' build`
 
 Planned responsibilities beyond the current wiring:
 

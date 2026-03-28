@@ -1,5 +1,9 @@
 # Android Native App
 
+This directory now contains a runnable Android host shell. The current build uses
+`src/main/java/uniffi/fire_uniffi/FireBindingsStub.kt` so the app can launch before
+the generated UniFFI Kotlin bindings are wired in.
+
 Current host-side login wiring lives under `src/main/java/com/fire/app/session/`:
 
 - `FireSessionStore.kt`
@@ -15,14 +19,16 @@ Current host-side login wiring lives under `src/main/java/com/fire/app/session/`
 Expected integration flow:
 
 1. Generate the UniFFI Kotlin bindings from `rust/crates/fire-uniffi`.
-2. Add the generated Kotlin sources and the files in `src/main/java/com/fire/app/session/` to the same Android module.
-3. Create a single `FireSessionStore` instance during app startup and call `restorePersistedSessionIfAvailable()`.
-4. Drive the login `WebView` through `FireWebViewLoginCoordinator.completeLogin(webView)`.
-5. On explicit logout, call `FireWebViewLoginCoordinator.logout()` and clear host-side `CookieManager` entries if desired.
+2. Replace `src/main/java/uniffi/fire_uniffi/FireBindingsStub.kt` with the generated bindings.
+3. Keep the files in `src/main/java/com/fire/app/session/` in the same Android module.
+4. Create a single `FireSessionStore` instance during app startup and call `restorePersistedSessionIfAvailable()`.
+5. Drive the login `WebView` through `FireWebViewLoginCoordinator.completeLogin(webView)`.
+6. On explicit logout, call `FireWebViewLoginCoordinator.logout()` and clear host-side `CookieManager` entries if desired.
 
 Note:
 
 - The Kotlin files assume the generated bindings use the `uniffi.fire_uniffi` package. If your UniFFI generation step uses a different namespace, adjust the imports.
+- Build with a full JDK that includes `jlink`. On this machine, `JAVA_HOME=/Library/Java/JavaVirtualMachines/temurin-17.jdk/Contents/Home ./gradlew assembleDebug` is verified working.
 
 Planned responsibilities beyond the current wiring:
 

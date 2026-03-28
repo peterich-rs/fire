@@ -93,7 +93,8 @@ public final class FireWebViewLoginCoordinator {
     }
 
     private func readStringJavaScript(script: String, in webView: WKWebView) async throws -> String? {
-        let value = try await withCheckedThrowingContinuation { continuation in
+        let value: Any? = try await withCheckedThrowingContinuation {
+            (continuation: CheckedContinuation<Any?, Error>) in
             webView.evaluateJavaScript(script) { result, error in
                 if let error {
                     continuation.resume(throwing: error)

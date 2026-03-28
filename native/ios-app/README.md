@@ -99,7 +99,8 @@ Verified local commands:
 Current build note:
 
 - The simulator/unit-test path above is verified locally after the diagnostics addition.
-- The device `Release` Xcode path currently still depends on the host UniFFI cargo build inheriting a clean macOS SDK environment inside the pre-build script; the Rust release host build itself is verified separately with `SDKROOT="$(xcrun --sdk macosx --show-sdk-path)" RUSTFLAGS="-C linker=$(xcrun --sdk macosx --find clang) -C link-arg=-isysroot -C link-arg=$(xcrun --sdk macosx --show-sdk-path)" cargo build -p fire-uniffi --lib --release`.
+- The device `Release` Xcode path is also verified locally.
+- The UniFFI pre-build script now sanitizes host and iOS-target cargo environments separately: host cargo invocations keep the macOS SDK and library search path, while iOS target cargo invocations keep the macOS `SDKROOT` needed for host build scripts without leaking the macOS `LIBRARY_PATH` into iPhoneOS/iPhoneSimulator links.
 
 Planned responsibilities beyond the current wiring:
 

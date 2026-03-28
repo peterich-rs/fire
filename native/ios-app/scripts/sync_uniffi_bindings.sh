@@ -169,10 +169,22 @@ run_host_cargo() {
 
 run_target_cargo() {
   if [[ "$(uname -s)" == "Darwin" ]]; then
+    local sdk_root
+    local iphoneos_deployment_target
+
+    sdk_root="$(xcrun --sdk macosx --show-sdk-path)"
+    iphoneos_deployment_target="${IPHONEOS_DEPLOYMENT_TARGET:-17.0}"
+
     env -i \
       HOME="$HOME" \
       PATH="$PATH" \
-      IPHONEOS_DEPLOYMENT_TARGET="${IPHONEOS_DEPLOYMENT_TARGET:-17.0}" \
+      SDKROOT="$sdk_root" \
+      PLATFORM_NAME= \
+      EFFECTIVE_PLATFORM_NAME= \
+      ARCHS= \
+      IPHONEOS_DEPLOYMENT_TARGET="$iphoneos_deployment_target" \
+      TVOS_DEPLOYMENT_TARGET= \
+      WATCHOS_DEPLOYMENT_TARGET= \
       "$@"
   else
     "$@"

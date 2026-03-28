@@ -253,8 +253,14 @@ private struct FireTopicDetailView: View {
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
-                            Text(FireTopicPresentation.plainText(from: post.cooked))
-                                .font(.body)
+                            if let attributed = FireTopicPresentation.attributedText(from: post.cooked) {
+                                Text(attributed)
+                                    .font(.body)
+                                    .tint(.accentColor)
+                            } else {
+                                Text(FireTopicPresentation.plainText(from: post.cooked))
+                                    .font(.body)
+                            }
                             HStack(spacing: 12) {
                                 Text("Likes \(post.likeCount)")
                                 Text("Replies \(post.replyCount)")

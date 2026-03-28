@@ -1,6 +1,5 @@
 package com.fire.app
 
-import android.graphics.Typeface
 import android.content.Intent
 import android.os.Bundle
 import android.view.View
@@ -19,12 +18,9 @@ import uniffi.fire_uniffi.BootstrapState
 import uniffi.fire_uniffi.CookieState
 import uniffi.fire_uniffi.SessionState
 import uniffi.fire_uniffi.SessionReadinessState
-import uniffi.fire_uniffi.TopicDetailQueryState
-import uniffi.fire_uniffi.TopicDetailState
 import uniffi.fire_uniffi.TopicListKindState
 import uniffi.fire_uniffi.TopicListQueryState
 import uniffi.fire_uniffi.TopicListState
-import uniffi.fire_uniffi.TopicPostState
 import uniffi.fire_uniffi.TopicSummaryState
 
 class MainActivity : AppCompatActivity() {
@@ -36,7 +32,6 @@ class MainActivity : AppCompatActivity() {
     private var nextFeedPage: UInt? = null
     private var selectedTopicId: ULong? = null
     private var currentTopicList: TopicListState? = null
-    private var currentTopicDetail: TopicDetailState? = null
     private var topicCategories: Map<ULong, TopicCategoryPresentation> = emptyMap()
     private var browserStatusMessage: String? = null
     private var isBrowserLoading = false
@@ -112,7 +107,6 @@ class MainActivity : AppCompatActivity() {
                 nextFeedPage = null
                 selectedTopicId = null
                 currentTopicList = null
-                currentTopicDetail = null
                 renderSession(session)
                 reloadCurrentFeed()
             } catch (error: Exception) {
@@ -171,12 +165,6 @@ class MainActivity : AppCompatActivity() {
                     topicList.topics.any { it.id == id }
                 } ?: topicList.topics.firstOrNull()?.id
                 selectedTopicId = nextTopicId
-                val shouldFetchDetail = nextTopicId != null && (
-                    reset || currentTopicDetail?.id != nextTopicId
-                )
-                if (shouldFetchDetail) {
-                    currentTopicDetail = null
-                }
                 renderSession(session)
                 renderBrowser()
 
@@ -187,19 +175,6 @@ class MainActivity : AppCompatActivity() {
                     return@launch
                 }
 
-                if (shouldFetchDetail) {
-                    val detail = sessionStore.fetchTopicDetail(
-                        TopicDetailQueryState(
-                            topicId = nextTopicId,
-                            postNumber = null,
-                            trackVisit = true,
-                            filter = null,
-                            usernameFilters = null,
-                            filterTopLevelReplies = false,
-                        ),
-                    )
-                    currentTopicDetail = detail
-                }
                 setBrowserLoading(false, browserFeedSummary(topicList))
                 isLoadingMoreFeed = false
                 renderBrowser()
@@ -214,31 +189,50 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun openTopic(topicId: ULong) {
-        lifecycleScope.launch {
-            selectedTopicId = topicId
-            setBrowserLoading(true, getString(R.string.browser_loading))
-            renderSession(session)
-            renderBrowser()
+        selectedTopicId = topicId
+        renderSession(session)
+        renderBrowser()
 
-            try {
-                currentTopicDetail = sessionStore.fetchTopicDetail(
-                    TopicDetailQueryState(
-                        topicId = topicId,
-                        postNumber = null,
-                        trackVisit = true,
-                        filter = null,
-                        usernameFilters = null,
-                        filterTopLevelReplies = false,
-                    ),
-                )
-                setBrowserLoading(false, browserFeedSummary(currentTopicList))
-                renderBrowser()
-            } catch (error: Exception) {
-                browserStatusMessage = error.localizedMessage
-                setBrowserLoading(false, browserStatusMessage)
-                renderSession(session)
-                renderBrowser()
+        currentTopicList
+            ?.topics
+            ?.firstOrNull { it.id == topicId }
+            ?.let { topic ->
+                startActivity(TopicDetailActivity.intent(this, topic.id, topic.title))
             }
+    }
+
+    private fun openSelectedTopic() {
+        val selected = selectedTopicSummary() ?: return
+        openTopic(selected.id)
+    }
+
+    private fun selectedTopicSummary(): TopicSummaryState? {
+        val selectedTopicId = selectedTopicId ?: return null
+        return currentTopicList?.topics?.firstOrNull { it.id == selectedTopicId }
+    }
+
+    private fun selectedTopicMeta(topic: TopicSummaryState): String {
+        return buildList {
+            categoryLabelFor(topic.categoryId)?.let(::add)
+            topic.lastPosterUsername?.let(::add)
+            TopicPresentation.formatTimestamp(topic.lastPostedAt ?: topic.createdAt)?.let(::add)
+            add("${topic.postsCount} posts")
+            add("${topic.views} views")
+            if (topic.tags.isNotEmpty()) {
+                add("#${topic.tags.joinToString(" #")}")
+            }
+        }.joinToString(" · ")
+    }
+
+    private fun detailActionButton(): View {
+        return Button(this).apply {
+            text = getString(R.string.browser_open_detail)
+            isAllCaps = false
+            setOnClickListener { openSelectedTopic() }
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            )
         }
     }
 
@@ -286,31 +280,16 @@ class MainActivity : AppCompatActivity() {
             getString(R.string.action_load_more)
         }
 
-        binding.topicDetailTitleText.text = currentTopicDetail?.title ?: getString(R.string.browser_detail_empty)
-        binding.topicDetailMetaText.text = currentTopicDetail?.let { topic ->
-            buildList {
-                add("Topic #${topic.id}")
-                categoryLabelFor(topic.categoryId)?.let(::add)
-                topic.details.createdBy?.username?.let(::add)
-                TopicPresentation.formatTimestamp(topic.createdAt)?.let(::add)
-                add("${topic.postsCount} posts")
-                add("${topic.views} views")
-                add("${topic.likeCount} likes")
-                topic.lastReadPostNumber?.let { add("last read #$it") }
-                if (topic.tags.isNotEmpty()) {
-                    add("#${topic.tags.joinToString(" #")}")
-                }
-            }.joinToString(" · ")
-        }.orEmpty()
+        val selectedTopic = selectedTopicSummary()
+        binding.topicDetailTitleText.text = selectedTopic?.title ?: getString(R.string.browser_detail_empty)
+        binding.topicDetailMetaText.text = selectedTopic?.let(::selectedTopicMeta)
+            ?: getString(R.string.browser_detail_dedicated)
 
         binding.topicDetailContainer.removeAllViews()
-        val detail = currentTopicDetail
-        if (detail == null) {
-            binding.topicDetailContainer.addView(sectionBodyText(getString(R.string.browser_detail_empty)))
+        if (selectedTopic == null) {
+            binding.topicDetailContainer.addView(sectionBodyText(getString(R.string.browser_detail_dedicated)))
         } else {
-            detail.postStream.posts.forEachIndexed { index, post ->
-                binding.topicDetailContainer.addView(postView(post, index == 0))
-            }
+            binding.topicDetailContainer.addView(detailActionButton())
         }
     }
 
@@ -404,60 +383,6 @@ class MainActivity : AppCompatActivity() {
                 ViewGroup.LayoutParams.WRAP_CONTENT,
             ).apply {
                 topMargin = if (binding.topicListContainer.childCount == 0) 0 else dp(8)
-            }
-        }
-    }
-
-    private fun postView(post: TopicPostState, isFirstPost: Boolean): View {
-        return LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(12), dp(if (isFirstPost) 0 else 12), dp(12), dp(12))
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-            ).apply {
-                topMargin = if (isFirstPost) 0 else dp(10)
-            }
-
-            addView(
-                TextView(context).apply {
-                    setTypeface(typeface, Typeface.BOLD)
-                    text = postHeader(post)
-                    textSize = 14f
-                },
-            )
-            TopicPresentation.formatTimestamp(post.createdAt)?.let { createdAt ->
-                addView(
-                    TextView(context).apply {
-                        text = createdAt
-                        textSize = 12f
-                        setPadding(0, dp(4), 0, 0)
-                    },
-                )
-            }
-            addView(
-                TextView(context).apply {
-                    text = HtmlCompat.fromHtml(post.cooked, HtmlCompat.FROM_HTML_MODE_LEGACY)
-                    textSize = 14f
-                    setPadding(0, dp(6), 0, 0)
-                },
-            )
-        }
-    }
-
-    private fun postHeader(post: TopicPostState): String {
-        return buildString {
-            append("#${post.postNumber} ")
-            append(post.username)
-            if (!post.name.isNullOrBlank()) {
-                append(" (${post.name})")
-            }
-            append(" · ${post.likeCount} likes")
-            if (post.replyToPostNumber != null) {
-                append(" · reply to #${post.replyToPostNumber}")
-            }
-            if (post.replyCount > 0u) {
-                append(" · ${post.replyCount} replies")
             }
         }
     }

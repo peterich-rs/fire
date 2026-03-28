@@ -132,6 +132,30 @@ enum FireTopicPresentation {
         )
     }
 
+    static func attributedText(from html: String) -> AttributedString? {
+        guard !html.isEmpty else {
+            return nil
+        }
+
+        let normalized = html
+            .replacingOccurrences(of: "<br\\s*/?>", with: "<br />", options: .regularExpression)
+
+        guard let data = normalized.data(using: .utf8),
+              let attributed = try? NSAttributedString(
+                  data: data,
+                  options: [
+                      .documentType: NSAttributedString.DocumentType.html,
+                      .characterEncoding: String.Encoding.utf8.rawValue,
+                  ],
+                  documentAttributes: nil
+              )
+        else {
+            return nil
+        }
+
+        return AttributedString(attributed)
+    }
+
     static func topicStatusLabels(for topic: TopicSummaryState) -> [String] {
         var labels: [String] = []
 

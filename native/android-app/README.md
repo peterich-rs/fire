@@ -4,7 +4,7 @@ This directory now contains a runnable Android host shell. The current build
 generates Kotlin UniFFI bindings at build time and packages Rust-backed Android
 shared libraries for the app to load through JNA.
 
-Current host-side login wiring lives under `src/main/java/com/fire/app/session/`:
+Current host-side app wiring lives under `src/main/java/com/fire/app/` plus `src/main/java/com/fire/app/session/`:
 
 - `FireSessionStore.kt`
   - owns `FireCoreHandle`
@@ -28,8 +28,11 @@ Current host-side login wiring lives under `src/main/java/com/fire/app/session/`
   - normalizes topic/post timestamps for inline rendering
 - `MainActivity.kt`
   - restores the persisted session snapshot on launch and after login
-  - renders a paginated inline topic browser with feed filters, category-aware topic items, and richer topic detail metadata
-  - opens topic detail inline in the same host shell instead of pushing a separate screen
+  - renders a paginated topic browser with feed filters, category-aware topic items, and a focused selected-topic summary
+  - opens topic detail in a dedicated screen instead of fetching and rendering it inline in the feed host
+- `TopicDetailActivity.kt`
+  - loads topic detail on demand from the shared Rust API
+  - renders post HTML in a dedicated native screen with richer metadata and clickable links
 - `LoginActivity.kt`
   - presents login as a full-screen activity with visible page title, URL, and loading state
   - exposes back, forward, home, and reload controls
@@ -55,8 +58,9 @@ Workspace note:
 Current browser note:
 
 - The Android shell now loads the real Rust session/topic APIs through generated Kotlin UniFFI bindings.
-- `MainActivity` still renders a compact inline browser, but the data path is no longer stubbed.
+- `MainActivity` still renders a compact browser shell, but the data path is no longer stubbed.
 - The current browser shell now supports `Load More` pagination and category metadata derived from the shared Rust bootstrap snapshot.
+- Topic detail now opens in a dedicated activity instead of being embedded under the feed list.
 
 Note:
 

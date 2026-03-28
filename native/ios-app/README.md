@@ -36,8 +36,13 @@ Current host-side login wiring lives under `Sources/FireAppSession/`:
   - performs a lightweight network preflight before presenting the login browser
   - moves the first system-level network prompt, when one appears on-device, out of the login page itself
   - restores the persisted session snapshot and keeps the topic browser in sync with login state
+  - tracks paginated topic feed state and derives category metadata from bootstrap `preloadedJson`
+- `App/FireTopicPresentation.swift`
+  - extracts `site.categories` from bootstrap `preloadedJson`
+  - parses `more_topics_url` into the next feed page
+  - normalizes topic/post timestamps and HTML excerpts for native presentation
 - `App/FireRootView.swift`
-  - renders the first topic read path with feed filters, topic list rows, and inline topic detail navigation
+  - renders the first topic read path with feed filters, category pills, feed pagination, and inline topic detail navigation
   - now reads the real generated Swift-facing contracts exported from `fire-uniffi`
 
 Expected integration flow:
@@ -63,6 +68,7 @@ Current UX note:
 - The login browser can navigate back from Google or other intermediate pages without forcing the user to close and reopen login.
 - The network preflight is a best-effort connectivity warm-up. iOS does not provide a generic "internet permission" API for arbitrary web access, so this only shifts the first prompt/request earlier; it does not create a separate permission flow.
 - The current topic browser now runs against the real shared Rust core through generated UniFFI Swift bindings.
+- The current topic browser now supports `Load More` pagination, category-aware topic rows, and richer topic/detail metadata sourced from the shared Rust session snapshot.
 
 Build prerequisites:
 

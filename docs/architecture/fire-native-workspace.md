@@ -111,10 +111,11 @@ Current file ownership convention:
 - The current session snapshot remains host-triggered persistence under `session.json` inside that workspace root.
 
 The Android host shell now generates Kotlin UniFFI bindings at build time, packages Rust-backed Android `.so` libraries, and renders the inline topic browser against the real shared Rust core. The iOS host shell now does the same at build time for Swift bindings plus a Rust static library and links that output directly into the Xcode target.
+Both native hosts now keep feed pagination state, derive category metadata from bootstrap `data-preloaded.site.categories`, and render richer topic/detail metadata on top of the shared Rust topic APIs.
 
 ## Next Build Steps
 
-1. Expand the current Android/iOS topic browser shells with richer navigation, pagination, category metadata, and post rendering on top of the existing topic API layer.
+1. Continue expanding the current Android/iOS topic browser shells with dedicated screens, deeper post rendering, avatar/media handling, and category/user navigation on top of the existing topic API layer.
 2. Add MessageBus client orchestration on top of restored `shared_session_key` / `topicTrackingStateMeta`.
 3. Move platform cookie storage into keychain/keystore backed persistence and reconcile it with the Rust snapshot lifecycle.
 4. Decide whether iOS build outputs should stay project-local under `Generated/` or be elevated into a reusable package/XCFramework flow for distribution and CI caching.

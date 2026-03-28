@@ -59,8 +59,7 @@ struct FireRootView: View {
                             Menu(viewModel.selectedTopicKind.title) {
                                 ForEach(TopicListKindState.orderedCases, id: \.self) { kind in
                                     Button(kind.title) {
-                                        viewModel.selectedTopicKind = kind
-                                        viewModel.refreshTopics()
+                                        viewModel.selectTopicKind(kind)
                                     }
                                 }
                             }
@@ -76,18 +75,42 @@ struct FireRootView: View {
                                 NavigationLink {
                                     FireTopicDetailView(viewModel: viewModel, topic: topic)
                                 } label: {
-                                    FireTopicRow(topic: topic)
+                                    FireTopicRow(
+                                        topic: topic,
+                                        category: viewModel.categoryPresentation(for: topic.categoryId)
+                                    )
                                 }
                             }
-                            if let moreTopicsUrl = viewModel.moreTopicsUrl {
-                                LabeledContent("More", value: moreTopicsUrl)
-                                    .font(.footnote)
-                                    .foregroundStyle(.secondary)
+
+                            if let moreTopicsUrl = viewModel.moreTopicsUrl, !moreTopicsUrl.isEmpty {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    if let nextTopicsPage = viewModel.nextTopicsPage {
+                                        Text("More topics are available on page \(nextTopicsPage + 1).")
+                                            .font(.footnote)
+                                            .foregroundStyle(.secondary)
+                                    }
+
+                                    Button {
+                                        viewModel.loadMoreTopics()
+                                    } label: {
+                                        if viewModel.isAppendingTopics {
+                                            Text("Loading More...")
+                                        } else {
+                                            Text("Load More Topics")
+                                        }
+                                    }
+                                    .disabled(viewModel.isLoadingTopics || viewModel.nextTopicsPage == nil)
+
+                                    LabeledContent("Source", value: moreTopicsUrl)
+                                        .font(.footnote)
+                                        .foregroundStyle(.secondary)
+                                }
+                                .padding(.vertical, 4)
                             }
                         }
 
                         if viewModel.isLoadingTopics && !viewModel.topics.isEmpty {
-                            ProgressView("Refreshing topics...")
+                            ProgressView(viewModel.isAppendingTopics ? "Loading more topics..." : "Refreshing topics...")
                         }
                     }
                 }
@@ -117,22 +140,62 @@ struct FireRootView: View {
 
 private struct FireTopicRow: View {
     let topic: TopicSummaryState
+    let category: FireTopicCategoryPresentation?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
+            FlowLayout(spacing: 6) {
+                if let category {
+                    FireTopicPill(
+                        label: category.displayName,
+                        backgroundColor: Color(fireHex: category.colorHex)?.opacity(0.18) ?? Color.accentColor.opacity(0.12),
+                        foregroundColor: Color(fireHex: category.textColorHex) ?? Color(fireHex: category.colorHex) ?? .accentColor
+                    )
+                }
+
+                ForEach(FireTopicPresentation.topicStatusLabels(for: topic), id: \.self) { label in
+                    FireTopicPill(
+                        label: label,
+                        backgroundColor: Color.secondary.opacity(0.12),
+                        foregroundColor: .secondary
+                    )
+                }
+            }
+
             Text(topic.title)
                 .font(.headline)
+
             if let excerpt = topic.excerpt {
-                Text(excerpt)
+                Text(FireTopicPresentation.plainText(from: excerpt))
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
             }
+
+            if let lastPosterUsername = topic.lastPosterUsername
+                ?? topic.posters.first?.description
+                ?? topic.posters.first.map({ "User \($0.userId)" })
+            {
+                HStack(spacing: 8) {
+                    Text(lastPosterUsername)
+                    if let timestamp = FireTopicPresentation.formatTimestamp(topic.lastPostedAt ?? topic.createdAt) {
+                        Text(timestamp)
+                    }
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+
             HStack(spacing: 12) {
+                Text("Posts \(topic.postsCount)")
                 Text("Replies \(topic.replyCount)")
                 Text("Views \(topic.views)")
+                Text("Likes \(topic.likeCount)")
                 if topic.unreadPosts > 0 {
                     Text("Unread \(topic.unreadPosts)")
+                }
+                if !topic.tags.isEmpty {
+                    Text("#\(topic.tags.joined(separator: " #"))")
                 }
             }
             .font(.caption)
@@ -149,9 +212,25 @@ private struct FireTopicDetailView: View {
     var body: some View {
         List {
             Section("Overview") {
+                if let category = viewModel.categoryPresentation(for: topic.categoryId) {
+                    FireTopicCategoryHeader(category: category)
+                }
                 LabeledContent("Replies", value: "\(topic.replyCount)")
+                LabeledContent("Posts", value: "\(topic.postsCount)")
                 LabeledContent("Views", value: "\(topic.views)")
                 LabeledContent("Likes", value: "\(topic.likeCount)")
+                if let timestamp = FireTopicPresentation.formatTimestamp(topic.createdAt) {
+                    LabeledContent("Created", value: timestamp)
+                }
+                if let timestamp = FireTopicPresentation.formatTimestamp(topic.lastPostedAt) {
+                    LabeledContent("Last Activity", value: timestamp)
+                }
+                if let lastPoster = topic.lastPosterUsername {
+                    LabeledContent("Last Poster", value: lastPoster)
+                }
+                if let lastReadPostNumber = topic.lastReadPostNumber {
+                    LabeledContent("Last Read", value: "#\(lastReadPostNumber)")
+                }
                 if !topic.tags.isEmpty {
                     LabeledContent("Tags", value: topic.tags.joined(separator: ", "))
                 }
@@ -169,7 +248,12 @@ private struct FireTopicDetailView: View {
                                     .font(.caption.monospacedDigit())
                                     .foregroundStyle(.secondary)
                             }
-                            Text(plainText(from: post.cooked))
+                            if let timestamp = FireTopicPresentation.formatTimestamp(post.createdAt) {
+                                Text(timestamp)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Text(FireTopicPresentation.plainText(from: post.cooked))
                                 .font(.body)
                             HStack(spacing: 12) {
                                 Text("Likes \(post.likeCount)")
@@ -205,14 +289,99 @@ private struct FireTopicDetailView: View {
             viewModel.loadTopicDetail(topicId: topic.id)
         }
     }
+}
 
-    private func plainText(from html: String) -> String {
-        html
-            .replacingOccurrences(of: "<[^>]+>", with: " ", options: .regularExpression)
-            .replacingOccurrences(of: "&nbsp;", with: " ")
-            .replacingOccurrences(of: "&quot;", with: "\"")
-            .replacingOccurrences(of: "&amp;", with: "&")
-            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+private struct FireTopicCategoryHeader: View {
+    let category: FireTopicCategoryPresentation
+
+    var body: some View {
+        HStack {
+            Text(category.displayName)
+                .font(.footnote.weight(.semibold))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(Color(fireHex: category.colorHex)?.opacity(0.18) ?? Color.accentColor.opacity(0.12))
+                .foregroundStyle(Color(fireHex: category.textColorHex) ?? Color(fireHex: category.colorHex) ?? .accentColor)
+                .clipShape(Capsule())
+            Spacer()
+        }
+        .padding(.vertical, 2)
+    }
+}
+
+private struct FireTopicPill: View {
+    let label: String
+    let backgroundColor: Color
+    let foregroundColor: Color
+
+    var body: some View {
+        Text(label)
+            .font(.caption.weight(.medium))
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(backgroundColor)
+            .foregroundStyle(foregroundColor)
+            .clipShape(Capsule())
+    }
+}
+
+private struct FlowLayout: Layout {
+    var spacing: CGFloat = 8
+
+    func sizeThatFits(
+        proposal: ProposedViewSize,
+        subviews: Subviews,
+        cache: inout ()
+    ) -> CGSize {
+        let maxWidth = proposal.width ?? .greatestFiniteMagnitude
+        var lineWidth: CGFloat = 0
+        var lineHeight: CGFloat = 0
+        var totalHeight: CGFloat = 0
+        var maxLineWidth: CGFloat = 0
+
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if lineWidth > 0, lineWidth + spacing + size.width > maxWidth {
+                totalHeight += lineHeight + spacing
+                maxLineWidth = max(maxLineWidth, lineWidth)
+                lineWidth = size.width
+                lineHeight = size.height
+            } else {
+                lineWidth += (lineWidth > 0 ? spacing : 0) + size.width
+                lineHeight = max(lineHeight, size.height)
+            }
+        }
+
+        totalHeight += lineHeight
+        maxLineWidth = max(maxLineWidth, lineWidth)
+
+        return CGSize(width: maxLineWidth, height: totalHeight)
+    }
+
+    func placeSubviews(
+        in bounds: CGRect,
+        proposal: ProposedViewSize,
+        subviews: Subviews,
+        cache: inout ()
+    ) {
+        var cursor = CGPoint(x: bounds.minX, y: bounds.minY)
+        var lineHeight: CGFloat = 0
+
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if cursor.x > bounds.minX, cursor.x + size.width > bounds.maxX {
+                cursor.x = bounds.minX
+                cursor.y += lineHeight + spacing
+                lineHeight = 0
+            }
+
+            subview.place(
+                at: cursor,
+                proposal: ProposedViewSize(width: size.width, height: size.height)
+            )
+
+            cursor.x += size.width + spacing
+            lineHeight = max(lineHeight, size.height)
+        }
     }
 }

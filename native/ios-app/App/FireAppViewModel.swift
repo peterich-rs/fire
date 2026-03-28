@@ -15,11 +15,14 @@ private enum FireLoginPreparationError: LocalizedError {
 @MainActor
 final class FireAppViewModel: ObservableObject {
     @Published private(set) var session: SessionState = .placeholder()
-    @Published var selectedTopicKind: TopicListKindState = .latest
+    @Published private(set) var selectedTopicKind: TopicListKindState = .latest
     @Published private(set) var topics: [TopicSummaryState] = []
     @Published private(set) var moreTopicsUrl: String?
+    @Published private(set) var nextTopicsPage: UInt32?
+    @Published private(set) var topicCategories: [UInt64: FireTopicCategoryPresentation] = [:]
     @Published private(set) var topicDetails: [UInt64: TopicDetailState] = [:]
     @Published private(set) var isLoadingTopics = false
+    @Published private(set) var isAppendingTopics = false
     @Published private(set) var loadingTopicIDs: Set<UInt64> = []
     @Published var errorMessage: String?
     @Published var isPresentingLogin = false
@@ -50,9 +53,9 @@ final class FireAppViewModel: ObservableObject {
             do {
                 errorMessage = nil
                 if let restored = try await loginCoordinator.restorePersistedSessionIfAvailable() {
-                    session = restored
+                    applySession(restored)
                 } else {
-                    session = await sessionStore.snapshot()
+                    applySession(await sessionStore.snapshot())
                 }
                 await refreshTopicsIfPossible(force: true)
             } catch {
@@ -68,7 +71,7 @@ final class FireAppViewModel: ObservableObject {
 
         Task {
             errorMessage = nil
-            session = await sessionStore.snapshot()
+            applySession(await sessionStore.snapshot())
             await refreshTopicsIfPossible(force: false)
         }
     }
@@ -101,7 +104,7 @@ final class FireAppViewModel: ObservableObject {
         Task {
             do {
                 errorMessage = nil
-                session = try await loginCoordinator.completeLogin(from: webView)
+                applySession(try await loginCoordinator.completeLogin(from: webView))
                 isPresentingLogin = false
                 await refreshTopicsIfPossible(force: true)
             } catch {
@@ -118,7 +121,7 @@ final class FireAppViewModel: ObservableObject {
         Task {
             do {
                 errorMessage = nil
-                session = try await sessionStore.refreshBootstrapIfNeeded()
+                applySession(try await sessionStore.refreshBootstrapIfNeeded())
                 await refreshTopicsIfPossible(force: false)
             } catch {
                 errorMessage = error.localizedDescription
@@ -134,7 +137,7 @@ final class FireAppViewModel: ObservableObject {
         Task {
             do {
                 errorMessage = nil
-                session = try await loginCoordinator.logout()
+                applySession(try await loginCoordinator.logout())
                 selectedTopicKind = .latest
                 clearTopicState()
             } catch {
@@ -143,9 +146,27 @@ final class FireAppViewModel: ObservableObject {
         }
     }
 
+    func selectTopicKind(_ kind: TopicListKindState) {
+        guard selectedTopicKind != kind else {
+            return
+        }
+        selectedTopicKind = kind
+        refreshTopics()
+    }
+
     func refreshTopics() {
         Task {
             await refreshTopicsIfPossible(force: true)
+        }
+    }
+
+    func loadMoreTopics() {
+        guard let nextTopicsPage else {
+            return
+        }
+
+        Task {
+            await loadTopics(page: nextTopicsPage, reset: false, force: true)
         }
     }
 
@@ -197,6 +218,13 @@ final class FireAppViewModel: ObservableObject {
         loadingTopicIDs.contains(topicId)
     }
 
+    func categoryPresentation(for categoryID: UInt64?) -> FireTopicCategoryPresentation? {
+        guard let categoryID else {
+            return nil
+        }
+        return topicCategories[categoryID]
+    }
+
     private func prepareLoginNetworkAccess() async throws {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.waitsForConnectivity = true
@@ -213,20 +241,30 @@ final class FireAppViewModel: ObservableObject {
     }
 
     private func refreshTopicsIfPossible(force: Bool) async {
+        await loadTopics(page: nil, reset: true, force: force)
+    }
+
+    private func loadTopics(page: UInt32?, reset: Bool, force: Bool) async {
         guard let sessionStore else {
             return
         }
-
         if !session.readiness.canReadAuthenticatedApi {
             clearTopicState()
             return
         }
-        if !force && !topics.isEmpty {
+        if isLoadingTopics {
+            return
+        }
+        if reset && !force && !topics.isEmpty {
             return
         }
 
         isLoadingTopics = true
-        defer { isLoadingTopics = false }
+        isAppendingTopics = !reset
+        defer {
+            isLoadingTopics = false
+            isAppendingTopics = false
+        }
 
         do {
             errorMessage = nil
@@ -234,7 +272,7 @@ final class FireAppViewModel: ObservableObject {
             let response = try await sessionStore.fetchTopicList(
                 query: TopicListQueryState(
                     kind: requestedKind,
-                    page: nil,
+                    page: page,
                     topicIds: [],
                     order: nil,
                     ascending: nil
@@ -243,14 +281,18 @@ final class FireAppViewModel: ObservableObject {
             guard requestedKind == selectedTopicKind else {
                 return
             }
-            topics = response.topics
+            topics = reset ? response.topics : mergeTopics(existing: topics, incoming: response.topics)
             moreTopicsUrl = response.moreTopicsUrl
-            let visibleTopicIDs = Set(response.topics.map(\.id))
+            nextTopicsPage = FireTopicPresentation.nextPage(from: response.moreTopicsUrl)
+            let visibleTopicIDs = Set(topics.map(\.id))
             topicDetails = topicDetails.filter { visibleTopicIDs.contains($0.key) }
             loadingTopicIDs = loadingTopicIDs.intersection(visibleTopicIDs)
         } catch {
-            topics = []
-            moreTopicsUrl = nil
+            if reset {
+                topics = []
+                moreTopicsUrl = nil
+                nextTopicsPage = nil
+            }
             errorMessage = error.localizedDescription
         }
     }
@@ -258,8 +300,32 @@ final class FireAppViewModel: ObservableObject {
     private func clearTopicState() {
         topics = []
         moreTopicsUrl = nil
+        nextTopicsPage = nil
         topicDetails = [:]
         isLoadingTopics = false
+        isAppendingTopics = false
         loadingTopicIDs = []
+    }
+
+    private func applySession(_ session: SessionState) {
+        self.session = session
+        topicCategories = FireTopicPresentation.parseCategories(from: session.bootstrap.preloadedJson)
+    }
+
+    private func mergeTopics(
+        existing: [TopicSummaryState],
+        incoming: [TopicSummaryState]
+    ) -> [TopicSummaryState] {
+        var merged = Dictionary(uniqueKeysWithValues: existing.map { ($0.id, $0) })
+        var orderedIDs = existing.map(\.id)
+
+        for topic in incoming {
+            if merged[topic.id] == nil {
+                orderedIDs.append(topic.id)
+            }
+            merged[topic.id] = topic
+        }
+
+        return orderedIDs.compactMap { merged[$0] }
     }
 }

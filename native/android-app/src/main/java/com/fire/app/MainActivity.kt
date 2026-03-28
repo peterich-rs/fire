@@ -32,11 +32,15 @@ class MainActivity : AppCompatActivity() {
     private lateinit var sessionStore: FireSessionStore
 
     private var currentFeedKind = TopicListKindState.LATEST
+    private var currentFeedPage: UInt = 0u
+    private var nextFeedPage: UInt? = null
     private var selectedTopicId: ULong? = null
     private var currentTopicList: TopicListState? = null
     private var currentTopicDetail: TopicDetailState? = null
+    private var topicCategories: Map<ULong, TopicCategoryPresentation> = emptyMap()
     private var browserStatusMessage: String? = null
     private var isBrowserLoading = false
+    private var isLoadingMoreFeed = false
     private var session: SessionState = placeholderSession()
 
     private val loginLauncher = registerForActivityResult(
@@ -59,6 +63,7 @@ class MainActivity : AppCompatActivity() {
         binding.refreshBootstrapButton.setOnClickListener { refreshBootstrap() }
         binding.logoutButton.setOnClickListener { logout() }
         binding.refreshFeedButton.setOnClickListener { reloadCurrentFeed() }
+        binding.loadMoreButton.setOnClickListener { loadMoreFeed() }
 
         binding.latestButton.setOnClickListener { loadFeed(TopicListKindState.LATEST) }
         binding.newButton.setOnClickListener { loadFeed(TopicListKindState.NEW) }
@@ -73,7 +78,7 @@ class MainActivity : AppCompatActivity() {
     private fun refreshSessionAndFeed() {
         lifecycleScope.launch {
             try {
-                session = sessionStore.restorePersistedSessionIfAvailable() ?: sessionStore.snapshot()
+                applySession(sessionStore.restorePersistedSessionIfAvailable() ?: sessionStore.snapshot())
                 renderSession(session)
                 reloadCurrentFeed()
             } catch (error: Exception) {
@@ -87,7 +92,7 @@ class MainActivity : AppCompatActivity() {
     private fun refreshBootstrap() {
         lifecycleScope.launch {
             try {
-                session = sessionStore.refreshBootstrapIfNeeded()
+                applySession(sessionStore.refreshBootstrapIfNeeded())
                 renderSession(session)
                 reloadCurrentFeed()
             } catch (error: Exception) {
@@ -101,9 +106,13 @@ class MainActivity : AppCompatActivity() {
     private fun logout() {
         lifecycleScope.launch {
             try {
-                session = sessionStore.logout()
+                applySession(sessionStore.logout())
                 currentFeedKind = TopicListKindState.LATEST
+                currentFeedPage = 0u
+                nextFeedPage = null
                 selectedTopicId = null
+                currentTopicList = null
+                currentTopicDetail = null
                 renderSession(session)
                 reloadCurrentFeed()
             } catch (error: Exception) {
@@ -115,58 +124,89 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun reloadCurrentFeed() {
-        loadFeed(currentFeedKind, selectedTopicId)
+        loadFeed(currentFeedKind, selectedTopicId, reset = true, page = null)
     }
 
-    private fun loadFeed(kind: TopicListKindState, preferredTopicId: ULong? = selectedTopicId) {
+    private fun loadMoreFeed() {
+        val page = nextFeedPage ?: return
+        loadFeed(currentFeedKind, selectedTopicId, reset = false, page = page)
+    }
+
+    private fun loadFeed(
+        kind: TopicListKindState,
+        preferredTopicId: ULong? = selectedTopicId,
+        reset: Boolean = true,
+        page: UInt? = null,
+    ) {
         lifecycleScope.launch {
             currentFeedKind = kind
-            setBrowserLoading(true, getString(R.string.browser_loading))
+            isLoadingMoreFeed = !reset
+            setBrowserLoading(
+                true,
+                getString(if (reset) R.string.browser_loading else R.string.browser_loading_more),
+            )
             renderSession(session)
             renderBrowser()
 
             try {
-                val topicList = sessionStore.fetchTopicList(
+                val response = sessionStore.fetchTopicList(
                     TopicListQueryState(
                         kind = kind,
-                        page = 1u,
+                        page = page,
                         topicIds = emptyList(),
                         order = null,
                         ascending = null,
                     ),
                 )
-                currentTopicList = topicList
+                currentFeedPage = page ?: 0u
+                nextFeedPage = TopicPresentation.nextPage(response.moreTopicsUrl)
+                currentTopicList = if (reset || currentTopicList == null) {
+                    response
+                } else {
+                    mergeTopicLists(currentTopicList!!, response)
+                }
+                val topicList = currentTopicList!!
 
                 val nextTopicId = preferredTopicId?.takeIf { id ->
                     topicList.topics.any { it.id == id }
                 } ?: topicList.topics.firstOrNull()?.id
                 selectedTopicId = nextTopicId
-                currentTopicDetail = null
+                val shouldFetchDetail = nextTopicId != null && (
+                    reset || currentTopicDetail?.id != nextTopicId
+                )
+                if (shouldFetchDetail) {
+                    currentTopicDetail = null
+                }
                 renderSession(session)
                 renderBrowser()
 
                 if (nextTopicId == null) {
                     setBrowserLoading(false, getString(R.string.browser_empty))
+                    isLoadingMoreFeed = false
                     renderBrowser()
                     return@launch
                 }
 
-                val detail = sessionStore.fetchTopicDetail(
-                    TopicDetailQueryState(
-                        topicId = nextTopicId,
-                        postNumber = null,
-                        trackVisit = true,
-                        filter = null,
-                        usernameFilters = null,
-                        filterTopLevelReplies = false,
-                    ),
-                )
-                currentTopicDetail = detail
+                if (shouldFetchDetail) {
+                    val detail = sessionStore.fetchTopicDetail(
+                        TopicDetailQueryState(
+                            topicId = nextTopicId,
+                            postNumber = null,
+                            trackVisit = true,
+                            filter = null,
+                            usernameFilters = null,
+                            filterTopLevelReplies = false,
+                        ),
+                    )
+                    currentTopicDetail = detail
+                }
                 setBrowserLoading(false, browserFeedSummary(topicList))
+                isLoadingMoreFeed = false
                 renderBrowser()
             } catch (error: Exception) {
                 browserStatusMessage = error.localizedMessage
                 setBrowserLoading(false, browserStatusMessage)
+                isLoadingMoreFeed = false
                 renderSession(session)
                 renderBrowser()
             }
@@ -208,6 +248,7 @@ class MainActivity : AppCompatActivity() {
             appendLine("Has Login: ${state.hasLoginSession}")
             appendLine("Username: ${state.bootstrap.currentUsername ?: "-"}")
             appendLine("Bootstrap Ready: ${state.bootstrap.hasPreloadedData}")
+            appendLine("Categories: ${topicCategories.size}")
             appendLine("Has CSRF: ${state.cookies.csrfToken != null}")
             appendLine("Read API: ${state.readiness.canReadAuthenticatedApi}")
             appendLine("Write API: ${state.readiness.canWriteAuthenticatedApi}")
@@ -232,18 +273,34 @@ class MainActivity : AppCompatActivity() {
                 binding.topicListContainer.addView(topicButton(topic))
             }
         }
+        binding.loadMoreButton.visibility = if (
+            nextFeedPage != null && topicList?.topics?.isNotEmpty() == true
+        ) {
+            View.VISIBLE
+        } else {
+            View.GONE
+        }
+        binding.loadMoreButton.text = if (isLoadingMoreFeed) {
+            getString(R.string.browser_loading_more)
+        } else {
+            getString(R.string.action_load_more)
+        }
 
         binding.topicDetailTitleText.text = currentTopicDetail?.title ?: getString(R.string.browser_detail_empty)
         binding.topicDetailMetaText.text = currentTopicDetail?.let { topic ->
-            buildString {
-                append("Topic #${topic.id}")
-                append(" · ${topic.postsCount} posts")
-                append(" · ${topic.views} views")
-                append(" · ${topic.likeCount} likes")
+            buildList {
+                add("Topic #${topic.id}")
+                categoryLabelFor(topic.categoryId)?.let(::add)
+                topic.details.createdBy?.username?.let(::add)
+                TopicPresentation.formatTimestamp(topic.createdAt)?.let(::add)
+                add("${topic.postsCount} posts")
+                add("${topic.views} views")
+                add("${topic.likeCount} likes")
+                topic.lastReadPostNumber?.let { add("last read #$it") }
                 if (topic.tags.isNotEmpty()) {
-                    append(" · #${topic.tags.joinToString(" #")}")
+                    add("#${topic.tags.joinToString(" #")}")
                 }
-            }
+            }.joinToString(" · ")
         }.orEmpty()
 
         binding.topicDetailContainer.removeAllViews()
@@ -271,6 +328,7 @@ class MainActivity : AppCompatActivity() {
             button.isEnabled = !isBrowserLoading
         }
         binding.refreshFeedButton.isEnabled = !isBrowserLoading
+        binding.loadMoreButton.isEnabled = !isBrowserLoading && nextFeedPage != null
     }
 
     private fun setBrowserLoading(loading: Boolean, message: String? = null) {
@@ -290,8 +348,9 @@ class MainActivity : AppCompatActivity() {
         return buildString {
             append("${currentFeedKind.displayName()} feed")
             append(" · ${topics.size} topics")
+            append(" · pages 1-${currentFeedPage.toInt() + 1}")
             if (!topicList?.moreTopicsUrl.isNullOrBlank()) {
-                append(" · more available")
+                append(" · page ${(nextFeedPage?.toInt() ?: currentFeedPage.toInt()) + 1} ready")
             }
             if (!selected.isNullOrBlank()) {
                 append(" · $selected")
@@ -300,6 +359,16 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun topicButton(topic: TopicSummaryState): View {
+        val category = categoryLabelFor(topic.categoryId)
+        val statusLabels = TopicPresentation.topicStatusLabels(topic)
+        val lastActivity = listOfNotNull(
+            topic.lastPosterUsername,
+            TopicPresentation.formatTimestamp(topic.lastPostedAt ?: topic.createdAt),
+        )
+        val excerpt = topic.excerpt
+            ?.takeIf { it.isNotBlank() }
+            ?.let { HtmlCompat.fromHtml(it, HtmlCompat.FROM_HTML_MODE_LEGACY).toString().trim() }
+
         return Button(this).apply {
             isAllCaps = false
             textAlignment = View.TEXT_ALIGNMENT_VIEW_START
@@ -307,12 +376,26 @@ class MainActivity : AppCompatActivity() {
                 if (topic.id == selectedTopicId) {
                     append("▶ ")
                 }
+                if (category != null) {
+                    append("[$category] ")
+                }
                 append(topic.title)
+                if (statusLabels.isNotEmpty()) {
+                    append(" · ")
+                    append(statusLabels.joinToString(" · "))
+                }
                 append("\n")
-                append("${topic.replyCount} replies · ${topic.views} views · ${topic.likeCount} likes")
-                if (!topic.excerpt.isNullOrBlank()) {
+                append("${topic.postsCount} posts · ${topic.replyCount} replies · ${topic.views} views · ${topic.likeCount} likes")
+                if (lastActivity.isNotEmpty()) {
                     append("\n")
-                    append(topic.excerpt)
+                    append(lastActivity.joinToString(" · "))
+                }
+                if (topic.tags.isNotEmpty()) {
+                    append(" · #${topic.tags.joinToString(" #")}")
+                }
+                if (!excerpt.isNullOrBlank()) {
+                    append("\n")
+                    append(excerpt)
                 }
             }
             setOnClickListener { openTopic(topic.id) }
@@ -343,6 +426,15 @@ class MainActivity : AppCompatActivity() {
                     textSize = 14f
                 },
             )
+            TopicPresentation.formatTimestamp(post.createdAt)?.let { createdAt ->
+                addView(
+                    TextView(context).apply {
+                        text = createdAt
+                        textSize = 12f
+                        setPadding(0, dp(4), 0, 0)
+                    },
+                )
+            }
             addView(
                 TextView(context).apply {
                     text = HtmlCompat.fromHtml(post.cooked, HtmlCompat.FROM_HTML_MODE_LEGACY)
@@ -363,6 +455,9 @@ class MainActivity : AppCompatActivity() {
             append(" · ${post.likeCount} likes")
             if (post.replyToPostNumber != null) {
                 append(" · reply to #${post.replyToPostNumber}")
+            }
+            if (post.replyCount > 0u) {
+                append(" · ${post.replyCount} replies")
             }
         }
     }
@@ -419,5 +514,34 @@ class MainActivity : AppCompatActivity() {
 
     private fun dp(value: Int): Int {
         return (value * resources.displayMetrics.density).toInt()
+    }
+
+    private fun applySession(state: SessionState) {
+        session = state
+        topicCategories = TopicPresentation.parseCategories(session.bootstrap.preloadedJson)
+    }
+
+    private fun mergeTopicLists(
+        existing: TopicListState,
+        incoming: TopicListState,
+    ): TopicListState {
+        val topicsById = LinkedHashMap<ULong, TopicSummaryState>()
+        existing.topics.forEach { topicsById[it.id] = it }
+        incoming.topics.forEach { topicsById[it.id] = it }
+
+        val usersById = LinkedHashMap<ULong, uniffi.fire_uniffi.TopicUserState>()
+        existing.users.forEach { usersById[it.id] = it }
+        incoming.users.forEach { usersById[it.id] = it }
+
+        return TopicListState(
+            topics = topicsById.values.toList(),
+            users = usersById.values.toList(),
+            moreTopicsUrl = incoming.moreTopicsUrl,
+        )
+    }
+
+    private fun categoryLabelFor(categoryId: ULong?): String? {
+        val id = categoryId ?: return null
+        return topicCategories[id]?.displayName ?: "Category #$id"
     }
 }

@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		0006B08A873FC6192E616F01 /* FireApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 996D95DE48DA65385BD587F7 /* FireApp.swift */; };
+		0ED224A3C2B64ED1DE67CA99 /* FireTopicPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = A14122231F5DBCCFFC5AD36C /* FireTopicPresentation.swift */; };
 		178E55B850EED60EE530A0F2 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9B970247E0258DD4D4F34101 /* Foundation.framework */; };
 		1F1EEDCE0B4FEAE2880DC061 /* FireWebViewLoginCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5E5271F93B7DF18859B101F /* FireWebViewLoginCoordinator.swift */; };
 		48AF44A62E5FD00C2E7D6673 /* FireBindingsShim.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89B281CC26C23F076A764AB6 /* FireBindingsShim.swift */; };
@@ -32,6 +33,7 @@
 		89B281CC26C23F076A764AB6 /* FireBindingsShim.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireBindingsShim.swift; sourceTree = "<group>"; };
 		996D95DE48DA65385BD587F7 /* FireApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireApp.swift; sourceTree = "<group>"; };
 		9B970247E0258DD4D4F34101 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = System/Library/Frameworks/Foundation.framework; sourceTree = SDKROOT; };
+		A14122231F5DBCCFFC5AD36C /* FireTopicPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireTopicPresentation.swift; sourceTree = "<group>"; };
 		B5E5271F93B7DF18859B101F /* FireWebViewLoginCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireWebViewLoginCoordinator.swift; sourceTree = "<group>"; };
 		BFA66CA083BF4889AE258926 /* FireAppViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireAppViewModel.swift; sourceTree = "<group>"; };
 		E69013450F80AEC210D5512D /* Security.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Security.framework; path = System/Library/Frameworks/Security.framework; sourceTree = SDKROOT; };
@@ -80,6 +82,7 @@
 				89B281CC26C23F076A764AB6 /* FireBindingsShim.swift */,
 				6725F42C679E922AA3DD1FBF /* FireLoginWebView.swift */,
 				6C98E6A3F52E02947DF2A136 /* FireRootView.swift */,
+				A14122231F5DBCCFFC5AD36C /* FireTopicPresentation.swift */,
 				F5F3291447D7DA0AEF9AA413 /* SessionState+Helpers.swift */,
 			);
 			path = App;
@@ -211,6 +214,7 @@
 				CFF789D0907079D9365F031E /* FireLoginWebView.swift in Sources */,
 				C4381D212A49ACCE13469C1B /* FireRootView.swift in Sources */,
 				A29E21413FA011161D518004 /* FireSessionStore.swift in Sources */,
+				0ED224A3C2B64ED1DE67CA99 /* FireTopicPresentation.swift in Sources */,
 				1F1EEDCE0B4FEAE2880DC061 /* FireWebViewLoginCoordinator.swift in Sources */,
 				C02B0FA4DC635EE4FF05F19F /* SessionState+Helpers.swift in Sources */,
 				BACF637B5B2F0C0C8EDA3048 /* fire_uniffi.swift in Sources */,

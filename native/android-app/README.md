@@ -22,9 +22,13 @@ Current host-side login wiring lives under `src/main/java/com/fire/app/session/`
   - reads `WebView` cookies, `current-username`, `csrf-token`, and page HTML
   - converts them into `LoginSyncState`
   - completes login by syncing into Rust and backfilling bootstrap if the page is not reusable
+- `TopicPresentation.kt`
+  - extracts `site.categories` from bootstrap `preloadedJson`
+  - parses `more_topics_url` into a native feed page cursor
+  - normalizes topic/post timestamps for inline rendering
 - `MainActivity.kt`
   - restores the persisted session snapshot on launch and after login
-  - renders a basic inline topic browser with feed filters, topic list items, and topic detail
+  - renders a paginated inline topic browser with feed filters, category-aware topic items, and richer topic detail metadata
   - opens topic detail inline in the same host shell instead of pushing a separate screen
 - `LoginActivity.kt`
   - presents login as a full-screen activity with visible page title, URL, and loading state
@@ -52,6 +56,7 @@ Current browser note:
 
 - The Android shell now loads the real Rust session/topic APIs through generated Kotlin UniFFI bindings.
 - `MainActivity` still renders a compact inline browser, but the data path is no longer stubbed.
+- The current browser shell now supports `Load More` pagination and category metadata derived from the shared Rust bootstrap snapshot.
 
 Note:
 

@@ -8,8 +8,15 @@ authors.workspace = true
 
 [dependencies]
 fire-models = { path = "../fire-models" }
+http.workspace = true
 mars-xlog.workspace = true
 openwire.workspace = true
+regex.workspace = true
+serde.workspace = true
+serde_json.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 url.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true

@@ -14,4 +14,5 @@ crate-type = ["cdylib", "rlib"]
 fire-core = { path = "../fire-core" }
 fire-models = { path = "../fire-models" }
 thiserror.workspace = true
+tokio.workspace = true
 uniffi.workspace = true

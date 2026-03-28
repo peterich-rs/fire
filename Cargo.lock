@@ -721,9 +721,14 @@ name = "fire-core"
 version = "0.1.0"
 dependencies = [
  "fire-models",
+ "http",
  "mars-xlog",
  "openwire",
+ "regex",
+ "serde",
+ "serde_json",
  "thiserror 2.0.18",
+ "tokio",
  "tracing",
  "url",
 ]
@@ -742,6 +747,7 @@ dependencies = [
  "fire-core",
  "fire-models",
  "thiserror 2.0.18",
+ "tokio",
  "uniffi",
 ]
 

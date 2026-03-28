@@ -63,9 +63,34 @@ fire/
 - `third_party/` stores build dependencies as submodules so the superproject can be pushed cleanly to GitHub.
 - The root Cargo workspace owns only the local Fire crates.
 
+## Current Login Pipeline
+
+The first usable session pipeline now lives in the Rust workspace:
+
+- `fire-models`
+  - defines the shared login/session snapshot
+  - tracks auth cookies, CSRF, bootstrap artifacts, login phase, and session readiness
+- `fire-core`
+  - merges platform-synced cookies from iOS/Android WebView
+  - parses homepage HTML for `csrf-token`, `shared_session_key`, `discourse-base-uri`, `data-preloaded`, and Turnstile `sitekey`
+  - derives `currentUser.username`, `siteSettings.long_polling_base_url`, and `topicTrackingStateMeta` from `data-preloaded`
+  - exposes network-backed `refresh_bootstrap`, `refresh_csrf_token`, `logout_remote`, and local `logout_local`
+  - retries one logout request on `BAD CSRF` after refreshing `/session/csrf`
+- `fire-uniffi`
+  - exports the session snapshot, readiness flags, login sync input, bootstrap sync APIs, and logout APIs to Swift/Kotlin
+
+The intended native integration order is:
+
+1. Open LinuxDo login in `WKWebView` / `WebView`.
+2. After login or Cloudflare verification, read platform cookies and the current page HTML/meta.
+3. Call `sync_login_context` in Rust with `_t`, `_forum_session`, `cf_clearance`, optional username, CSRF, and homepage HTML.
+4. If homepage HTML is unavailable or stale, call `refresh_bootstrap`.
+5. If write APIs need a newer token, call `refresh_csrf_token`.
+6. On explicit logout, prefer `logout_remote`, then fall back to `logout_local` when needed.
+
 ## Next Build Steps
 
-1. Flesh out `fire-core` around the documented bootstrap/session pipeline.
-2. Expose stable Rust APIs through `fire-uniffi`.
-3. Create the Swift and Kotlin host apps under `native/`.
-4. Port WebView login and cookie sync first, then move topic browsing and posting flows.
+1. Create the Swift and Kotlin host apps under `native/` and wire them to the exported session APIs.
+2. Persist session snapshots and platform cookies across cold starts.
+3. Build the authenticated topic list / topic detail API layer on top of the current session pipeline.
+4. Add MessageBus client orchestration once native login restoration is stable.

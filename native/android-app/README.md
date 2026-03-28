@@ -75,7 +75,7 @@ Note:
 - Async UniFFI bindings rely on `kotlinx-coroutines-core`, which is now declared directly by this module.
 - Android does not have an iOS-style runtime "internet permission" prompt for ordinary web access. `android.permission.INTERNET` is a normal install-time permission, so there is no separate network-permission preflight to mirror.
 
-Unit test coverage now starts with `src/test/java/com/fire/app/TopicPresentationTest.kt`, and CI runs `./gradlew testDebugUnitTest assembleDebug assembleRelease`.
+Unit test coverage now starts with `src/test/java/com/fire/app/TopicPresentationTest.kt`, and CI runs `./gradlew clean testDebugUnitTest assembleDebug` plus a separate `./gradlew clean assembleRelease` invocation. Running debug/unit and release in separate Gradle processes matches the currently verified local path and avoids a flaky combined-variant native-lib packaging failure on this machine.
 
 Planned responsibilities beyond the current wiring:
 

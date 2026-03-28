@@ -51,13 +51,21 @@ jobs:
           rustup default 1.85.0
           rustup target add aarch64-linux-android x86_64-linux-android
 
-      - name: Run Android unit tests and builds
+      - name: Run Android debug unit tests and debug build
         working-directory: native/android-app
         env:
           ANDROID_HOME: ${{ env.ANDROID_SDK_ROOT }}
           ANDROID_SDK_ROOT: ${{ env.ANDROID_SDK_ROOT }}
           ANDROID_NDK_VERSION: ${{ env.ANDROID_NDK_VERSION }}
-        run: ./gradlew testDebugUnitTest assembleDebug assembleRelease
+        run: ./gradlew clean testDebugUnitTest assembleDebug
+
+      - name: Run Android release build
+        working-directory: native/android-app
+        env:
+          ANDROID_HOME: ${{ env.ANDROID_SDK_ROOT }}
+          ANDROID_SDK_ROOT: ${{ env.ANDROID_SDK_ROOT }}
+          ANDROID_NDK_VERSION: ${{ env.ANDROID_NDK_VERSION }}
+        run: ./gradlew clean assembleRelease
 
   ios:
     name: iOS Build And Unit Test

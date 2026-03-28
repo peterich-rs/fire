@@ -65,9 +65,21 @@ data class LoginSyncState(
     val cookies: List<PlatformCookieState>,
 )
 
-class FireCoreHandle(baseUrl: String?) {
+class FireCoreHandle(baseUrl: String?, private val workspacePath: String?) {
     private val resolvedBaseUrl = baseUrl ?: "https://linux.do"
     private var sessionState = placeholderState(resolvedBaseUrl)
+
+    fun workspacePath(): String? = workspacePath
+
+    fun resolveWorkspacePath(relativePath: String): String {
+        val root = workspacePath ?: error("workspace path is not configured")
+        require(relativePath.isNotEmpty()) { "relativePath must not be empty" }
+        require(!relativePath.startsWith("/")) { "relativePath must be relative" }
+        require(!relativePath.contains("..")) { "relativePath must stay under the workspace root" }
+        return File(root, relativePath).absolutePath
+    }
+
+    fun flushLogs(sync: Boolean) = Unit
 
     fun snapshot(): SessionState = sessionState
 

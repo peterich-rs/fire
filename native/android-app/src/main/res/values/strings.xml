@@ -8,4 +8,10 @@
     <string name="action_logout">Logout</string>
     <string name="action_close">Close</string>
     <string name="action_sync_login">Sync Login</string>
+    <string name="action_back">Back</string>
+    <string name="action_forward">Forward</string>
+    <string name="action_home">Home</string>
+    <string name="action_reload">Reload</string>
+    <string name="login_title">LinuxDo Login</string>
+    <string name="login_url">https://linux.do</string>
 </resources>

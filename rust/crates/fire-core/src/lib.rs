@@ -1,7 +1,7 @@
 use std::{
     fs, io,
-    path::{Path, PathBuf},
-    sync::{Arc, OnceLock, RwLock},
+    path::{Component, Path, PathBuf},
+    sync::{Arc, Mutex, OnceLock, RwLock},
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -21,18 +21,26 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thiserror::Error;
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
+use tracing_subscriber::prelude::*;
 use url::Url;
+
+const FIRE_LOGGER_NAME_PREFIX: &str = "fire";
+const FIRE_LOGS_DIR_NAME: &str = "logs";
+const FIRE_LOG_CACHE_PARENT_DIR: &str = "cache";
+const FIRE_LOG_CACHE_DIR_NAME: &str = "xlog";
 
 #[derive(Debug, Clone)]
 pub struct FireCoreConfig {
     pub base_url: String,
+    pub workspace_path: Option<String>,
 }
 
 impl Default for FireCoreConfig {
     fn default() -> Self {
         Self {
             base_url: "https://linux.do".to_string(),
+            workspace_path: None,
         }
     }
 }
@@ -63,11 +71,117 @@ impl FireLogger {
     pub fn set_console_log_open(&self, open: bool) {
         self.inner.set_console_log_open(open);
     }
+
+    pub fn flush(&self, sync: bool) {
+        self.inner.flush(sync);
+    }
+}
+
+#[derive(Clone)]
+struct FireLoggerRuntime {
+    workspace_path: PathBuf,
+    log_dir: PathBuf,
+    cache_dir: PathBuf,
+    logger: FireLogger,
+}
+
+impl FireLoggerRuntime {
+    fn initialize(workspace_path: PathBuf) -> Result<Self, FireCoreError> {
+        let log_dir = workspace_path.join(FIRE_LOGS_DIR_NAME);
+        let cache_dir = workspace_path
+            .join(FIRE_LOG_CACHE_PARENT_DIR)
+            .join(FIRE_LOG_CACHE_DIR_NAME);
+
+        fs::create_dir_all(&log_dir).map_err(|source| FireCoreError::WorkspaceIo {
+            path: log_dir.clone(),
+            source,
+        })?;
+        fs::create_dir_all(&cache_dir).map_err(|source| FireCoreError::WorkspaceIo {
+            path: cache_dir.clone(),
+            source,
+        })?;
+
+        let level = if cfg!(debug_assertions) {
+            LogLevel::Debug
+        } else {
+            LogLevel::Info
+        };
+        let logger = FireLogger::init(FireLoggerConfig {
+            log_dir: log_dir.display().to_string(),
+            cache_dir: Some(cache_dir.display().to_string()),
+            name_prefix: FIRE_LOGGER_NAME_PREFIX.to_string(),
+            level,
+        })?;
+        logger.set_console_log_open(cfg!(debug_assertions));
+        init_tracing(logger.inner.clone(), level);
+
+        Ok(Self {
+            workspace_path,
+            log_dir,
+            cache_dir,
+            logger,
+        })
+    }
+
+    fn validate_workspace(&self, workspace_path: &Path) -> Result<(), FireCoreError> {
+        if self.workspace_path != workspace_path {
+            return Err(FireCoreError::LoggerWorkspaceMismatch {
+                expected: self.workspace_path.clone(),
+                found: workspace_path.to_path_buf(),
+            });
+        }
+        Ok(())
+    }
+
+    fn flush(&self, sync: bool) {
+        self.logger.flush(sync);
+    }
+}
+
+fn init_tracing(logger: Xlog, level: LogLevel) {
+    static TRACING_INIT: OnceLock<()> = OnceLock::new();
+    let _ = TRACING_INIT.get_or_init(|| {
+        let (layer, _handle) = mars_xlog::XlogLayer::with_config(
+            logger,
+            mars_xlog::XlogLayerConfig::new(level).enabled(true),
+        );
+        let subscriber = tracing_subscriber::registry().with(layer);
+        let _ = tracing::subscriber::set_global_default(subscriber);
+    });
+}
+
+fn logger_runtime_for_workspace(
+    workspace_path: &Path,
+) -> Result<&'static FireLoggerRuntime, FireCoreError> {
+    static LOGGER_RUNTIME: OnceLock<FireLoggerRuntime> = OnceLock::new();
+    static LOGGER_INIT_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+    if let Some(runtime) = LOGGER_RUNTIME.get() {
+        runtime.validate_workspace(workspace_path)?;
+        return Ok(runtime);
+    }
+
+    let lock = LOGGER_INIT_LOCK.get_or_init(|| Mutex::new(()));
+    let _guard = lock.lock().expect("logger init lock poisoned");
+
+    if let Some(runtime) = LOGGER_RUNTIME.get() {
+        runtime.validate_workspace(workspace_path)?;
+        return Ok(runtime);
+    }
+
+    let runtime = FireLoggerRuntime::initialize(workspace_path.to_path_buf())?;
+    let _ = LOGGER_RUNTIME.set(runtime);
+    let runtime = LOGGER_RUNTIME
+        .get()
+        .expect("logger runtime should be initialized");
+    runtime.validate_workspace(workspace_path)?;
+    Ok(runtime)
 }
 
 #[derive(Clone)]
 pub struct FireCore {
     base_url: Url,
+    workspace_path: Option<PathBuf>,
     client: Client,
     session: Arc<RwLock<SessionSnapshot>>,
 }
@@ -75,6 +189,16 @@ pub struct FireCore {
 impl FireCore {
     pub fn new(config: FireCoreConfig) -> Result<Self, FireCoreError> {
         let base_url = Url::parse(&config.base_url)?;
+        let workspace_path = normalize_workspace_path(config.workspace_path);
+        if let Some(workspace_path) = workspace_path.as_deref() {
+            let logger = logger_runtime_for_workspace(workspace_path)?;
+            info!(
+                workspace_path = %workspace_path.display(),
+                log_dir = %logger.log_dir.display(),
+                cache_dir = %logger.cache_dir.display(),
+                "initialized fire workspace logging"
+            );
+        }
         let session = SessionSnapshot {
             cookies: CookieSnapshot::default(),
             bootstrap: BootstrapArtifacts {
@@ -91,6 +215,7 @@ impl FireCore {
 
         Ok(Self {
             base_url,
+            workspace_path,
             client,
             session,
         })
@@ -98,6 +223,29 @@ impl FireCore {
 
     pub fn base_url(&self) -> &str {
         self.base_url.as_str()
+    }
+
+    pub fn workspace_path(&self) -> Option<&Path> {
+        self.workspace_path.as_deref()
+    }
+
+    pub fn resolve_workspace_path(
+        &self,
+        relative_path: impl AsRef<Path>,
+    ) -> Result<PathBuf, FireCoreError> {
+        let workspace_path = self
+            .workspace_path()
+            .ok_or(FireCoreError::MissingWorkspacePath)?;
+        validate_workspace_relative_path(relative_path.as_ref())?;
+        Ok(workspace_path.join(relative_path))
+    }
+
+    pub fn flush_logs(&self, sync: bool) {
+        if let Some(workspace_path) = self.workspace_path() {
+            if let Ok(runtime) = logger_runtime_for_workspace(workspace_path) {
+                runtime.flush(sync);
+            }
+        }
     }
 
     pub fn snapshot(&self) -> SessionSnapshot {
@@ -653,6 +801,14 @@ pub enum FireCoreError {
     MissingLoginSession,
     #[error("request requires a csrf token")]
     MissingCsrfToken,
+    #[error("fire workspace path is not configured")]
+    MissingWorkspacePath,
+    #[error("workspace relative path must stay under the configured root: {path}")]
+    InvalidWorkspaceRelativePath { path: PathBuf },
+    #[error("failed to access workspace path {path}: {source}")]
+    WorkspaceIo { path: PathBuf, source: io::Error },
+    #[error("logger workspace mismatch: expected {expected}, found {found}")]
+    LoggerWorkspaceMismatch { expected: PathBuf, found: PathBuf },
     #[error("csrf response did not contain a usable token")]
     InvalidCsrfResponse,
     #[error("failed to serialize persisted session: {0}")]
@@ -665,6 +821,38 @@ pub enum FireCoreError {
     PersistBaseUrlMismatch { expected: String, found: String },
     #[error("failed to access persisted session at {path}: {source}")]
     PersistIo { path: PathBuf, source: io::Error },
+}
+
+fn normalize_workspace_path(workspace_path: Option<String>) -> Option<PathBuf> {
+    workspace_path.and_then(|value| {
+        let trimmed = value.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(PathBuf::from(trimmed))
+        }
+    })
+}
+
+fn validate_workspace_relative_path(path: &Path) -> Result<(), FireCoreError> {
+    if path.as_os_str().is_empty() || path.is_absolute() {
+        return Err(FireCoreError::InvalidWorkspaceRelativePath {
+            path: path.to_path_buf(),
+        });
+    }
+
+    for component in path.components() {
+        match component {
+            Component::Normal(_) | Component::CurDir => {}
+            Component::RootDir | Component::ParentDir | Component::Prefix(_) => {
+                return Err(FireCoreError::InvalidWorkspaceRelativePath {
+                    path: path.to_path_buf(),
+                });
+            }
+        }
+    }
+
+    Ok(())
 }
 
 #[derive(Debug, Default)]
@@ -1498,6 +1686,7 @@ mod tests {
         let server = TestServer::spawn(responses).await.expect("server");
         let core = FireCore::new(FireCoreConfig {
             base_url: server.base_url(),
+            workspace_path: None,
         })
         .expect("core");
 
@@ -1530,6 +1719,7 @@ mod tests {
         let server = TestServer::spawn(responses).await.expect("server");
         let core = FireCore::new(FireCoreConfig {
             base_url: server.base_url(),
+            workspace_path: None,
         })
         .expect("core");
 
@@ -1707,6 +1897,37 @@ mod tests {
         }
     }
 
+    #[test]
+    fn resolve_workspace_path_joins_relative_paths_under_root() {
+        let workspace_path = temp_workspace_dir("workspace-root");
+        let core = FireCore::new(FireCoreConfig {
+            base_url: "https://linux.do".to_string(),
+            workspace_path: Some(workspace_path.display().to_string()),
+        })
+        .expect("core");
+
+        let resolved = core
+            .resolve_workspace_path("logs/fire-current.xlog")
+            .expect("resolved");
+
+        assert_eq!(resolved, workspace_path.join("logs/fire-current.xlog"));
+    }
+
+    #[test]
+    fn resolve_workspace_path_rejects_parent_segments() {
+        let workspace_path = temp_workspace_dir("workspace-root");
+        let core = FireCore::new(FireCoreConfig {
+            base_url: "https://linux.do".to_string(),
+            workspace_path: Some(workspace_path.display().to_string()),
+        })
+        .expect("core");
+
+        match core.resolve_workspace_path("../outside.log") {
+            Err(FireCoreError::InvalidWorkspaceRelativePath { .. }) => {}
+            other => panic!("unexpected resolve result: {other:?}"),
+        }
+    }
+
     #[tokio::test]
     async fn refresh_csrf_token_updates_session_from_network() {
         let responses = vec![raw_json_response(
@@ -1717,6 +1938,7 @@ mod tests {
         let server = TestServer::spawn(responses).await.expect("server");
         let core = FireCore::new(FireCoreConfig {
             base_url: server.base_url(),
+            workspace_path: None,
         })
         .expect("core");
 
@@ -1736,6 +1958,7 @@ mod tests {
         let server = TestServer::spawn(responses).await.expect("server");
         let core = FireCore::new(FireCoreConfig {
             base_url: server.base_url(),
+            workspace_path: None,
         })
         .expect("core");
 
@@ -1973,6 +2196,7 @@ mod tests {
         let server = TestServer::spawn(responses).await.expect("server");
         let core = FireCore::new(FireCoreConfig {
             base_url: server.base_url(),
+            workspace_path: None,
         })?;
 
         let snapshot = core.refresh_bootstrap().await?;
@@ -1991,6 +2215,14 @@ mod tests {
         path.push(format!("fire-tests-{}", std::process::id()));
         fs::create_dir_all(&path).expect("temp dir");
         path.push(name);
+        path
+    }
+
+    fn temp_workspace_dir(name: &str) -> PathBuf {
+        let mut path = env::temp_dir();
+        path.push(format!("fire-tests-{}", std::process::id()));
+        path.push(name);
+        fs::create_dir_all(&path).expect("temp workspace dir");
         path
     }
 }

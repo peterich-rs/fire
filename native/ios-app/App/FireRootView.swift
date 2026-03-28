@@ -27,9 +27,16 @@ struct FireRootView: View {
                     Button("Restore Session") {
                         viewModel.loadInitialState()
                     }
-                    Button("Open Login") {
-                        viewModel.isPresentingLogin = true
+                    Button {
+                        viewModel.openLogin()
+                    } label: {
+                        if viewModel.isPreparingLogin {
+                            Text("Preparing Login...")
+                        } else {
+                            Text("Open Login")
+                        }
                     }
+                    .disabled(viewModel.isPreparingLogin)
                     Button("Refresh Bootstrap") {
                         viewModel.refreshBootstrap()
                     }
@@ -48,8 +55,8 @@ struct FireRootView: View {
             }
             .navigationTitle("Fire Native")
         }
-        .sheet(isPresented: $viewModel.isPresentingLogin) {
-            FireLoginSheet(viewModel: viewModel)
+        .fullScreenCover(isPresented: $viewModel.isPresentingLogin) {
+            FireLoginScreen(viewModel: viewModel)
         }
         .task {
             viewModel.loadInitialState()

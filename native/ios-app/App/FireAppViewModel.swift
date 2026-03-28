@@ -1,14 +1,27 @@
 import Foundation
 import WebKit
 
+private enum FireLoginPreparationError: LocalizedError {
+    case invalidResponse
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidResponse:
+            "Unable to prepare login network access."
+        }
+    }
+}
+
 @MainActor
 final class FireAppViewModel: ObservableObject {
     @Published private(set) var session: SessionState = .placeholder()
     @Published var errorMessage: String?
     @Published var isPresentingLogin = false
+    @Published var isPreparingLogin = false
 
     private let sessionStore: FireSessionStore?
     private let loginCoordinator: FireWebViewLoginCoordinator?
+    private let loginURL = URL(string: "https://linux.do")!
 
     init() {
         do {
@@ -47,6 +60,26 @@ final class FireAppViewModel: ObservableObject {
 
         Task {
             session = await sessionStore.snapshot()
+        }
+    }
+
+    func openLogin() {
+        guard !isPreparingLogin else {
+            return
+        }
+
+        errorMessage = nil
+        isPreparingLogin = true
+
+        Task {
+            defer { isPreparingLogin = false }
+
+            do {
+                try await prepareLoginNetworkAccess()
+                isPresentingLogin = true
+            } catch {
+                errorMessage = error.localizedDescription
+            }
         }
     }
 
@@ -90,6 +123,21 @@ final class FireAppViewModel: ObservableObject {
             } catch {
                 errorMessage = error.localizedDescription
             }
+        }
+    }
+
+    private func prepareLoginNetworkAccess() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.waitsForConnectivity = true
+
+        let session = URLSession(configuration: configuration)
+        var request = URLRequest(url: loginURL)
+        request.timeoutInterval = 20
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+
+        let (_, response) = try await session.data(for: request)
+        guard response is HTTPURLResponse else {
+            throw FireLoginPreparationError.invalidResponse
         }
     }
 }

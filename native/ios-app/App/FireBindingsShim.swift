@@ -158,17 +158,44 @@ public struct LoginSyncState: Sendable {
 
 public final class FireCoreHandle {
     private let storedBaseUrl: String
+    private let storedWorkspacePath: String?
     private var state: SessionState
 
-    public init(baseUrl: String?) throws {
+    public init(baseUrl: String?, workspacePath: String?) throws {
         let resolvedBaseUrl = baseUrl ?? "https://linux.do"
         self.storedBaseUrl = resolvedBaseUrl
+        self.storedWorkspacePath = workspacePath
         self.state = SessionState.placeholder(baseUrl: resolvedBaseUrl)
     }
 
     public func baseUrl() -> String {
         storedBaseUrl
     }
+
+    public func workspacePath() -> String? {
+        storedWorkspacePath
+    }
+
+    public func resolveWorkspacePath(relativePath: String) throws -> String {
+        guard let storedWorkspacePath, !storedWorkspacePath.isEmpty else {
+            throw CocoaError(.fileReadNoSuchFile)
+        }
+
+        let nsRelativePath = relativePath as NSString
+        let normalizedComponents = nsRelativePath.pathComponents.filter { $0 != "." }
+        if nsRelativePath.isAbsolutePath
+            || relativePath.isEmpty
+            || normalizedComponents.contains("..")
+        {
+            throw CocoaError(.fileReadInvalidFileName)
+        }
+
+        return URL(fileURLWithPath: storedWorkspacePath)
+            .appendingPathComponent(relativePath, isDirectory: false)
+            .path
+    }
+
+    public func flushLogs(sync: Bool) {}
 
     public func hasLoginSession() -> Bool {
         state.hasLoginSession

@@ -28,15 +28,26 @@ public struct FireCapturedLoginState: Sendable {
 
 public actor FireSessionStore {
     private let core: FireCoreHandle
+    private let workspacePath: String
     private let sessionFilePath: String
 
     public init(
         baseURL: String? = nil,
+        workspacePath: String? = nil,
         sessionFilePath: String? = nil,
         fileManager: FileManager = .default
     ) throws {
-        self.core = try FireCoreHandle(baseUrl: baseURL)
-        self.sessionFilePath = try sessionFilePath ?? Self.defaultSessionFilePath(fileManager: fileManager)
+        let resolvedWorkspacePath = try workspacePath
+            ?? sessionFilePath.map {
+                URL(fileURLWithPath: $0).deletingLastPathComponent().path
+            }
+            ?? Self.defaultWorkspacePath(fileManager: fileManager)
+        let core = try FireCoreHandle(baseUrl: baseURL, workspacePath: resolvedWorkspacePath)
+        let resolvedSessionFilePath = try sessionFilePath
+            ?? core.resolveWorkspacePath(relativePath: "session.json")
+        self.core = core
+        self.workspacePath = resolvedWorkspacePath
+        self.sessionFilePath = resolvedSessionFilePath
     }
 
     public func snapshot() -> SessionState {
@@ -93,6 +104,10 @@ public actor FireSessionStore {
         try core.saveSessionToPath(path: sessionFilePath)
     }
 
+    public func workspacePathValue() -> String {
+        workspacePath
+    }
+
     public func exportSessionJSON() throws -> String {
         try core.exportSessionJson()
     }
@@ -115,7 +130,7 @@ public actor FireSessionStore {
         try core.clearSessionPath(path: sessionFilePath)
     }
 
-    public static func defaultSessionFilePath(fileManager: FileManager = .default) throws -> String {
+    public static func defaultWorkspacePath(fileManager: FileManager = .default) throws -> String {
         guard let directory = try fileManager.url(
             for: .applicationSupportDirectory,
             in: .userDomainMask,
@@ -131,6 +146,13 @@ public actor FireSessionStore {
             withIntermediateDirectories: true,
             attributes: nil
         )
-        return fireDirectory.appendingPathComponent("session.json", isDirectory: false).path
+        return fireDirectory.path
+    }
+
+    public static func defaultSessionFilePath(fileManager: FileManager = .default) throws -> String {
+        let workspacePath = try defaultWorkspacePath(fileManager: fileManager)
+        return URL(fileURLWithPath: workspacePath)
+            .appendingPathComponent("session.json", isDirectory: false)
+            .path
     }
 }

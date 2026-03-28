@@ -635,9 +635,13 @@ pub struct FireCoreHandle {
 #[uniffi::export]
 impl FireCoreHandle {
     #[uniffi::constructor]
-    pub fn new(base_url: Option<String>) -> Result<Self, FireUniFfiError> {
+    pub fn new(
+        base_url: Option<String>,
+        workspace_path: Option<String>,
+    ) -> Result<Self, FireUniFfiError> {
         let inner = FireCore::new(FireCoreConfig {
             base_url: base_url.unwrap_or_else(|| "https://linux.do".to_string()),
+            workspace_path,
         })?;
         Ok(Self {
             inner: Arc::new(inner),
@@ -646,6 +650,26 @@ impl FireCoreHandle {
 
     pub fn base_url(&self) -> String {
         self.inner.base_url().to_string()
+    }
+
+    pub fn workspace_path(&self) -> Option<String> {
+        self.inner
+            .workspace_path()
+            .map(|path| path.display().to_string())
+    }
+
+    pub fn resolve_workspace_path(
+        &self,
+        relative_path: String,
+    ) -> Result<String, FireUniFfiError> {
+        self.inner
+            .resolve_workspace_path(relative_path)
+            .map(|path| path.display().to_string())
+            .map_err(Into::into)
+    }
+
+    pub fn flush_logs(&self, sync: bool) {
+        self.inner.flush_logs(sync);
     }
 
     pub fn has_login_session(&self) -> bool {

@@ -93,6 +93,18 @@ The intended native integration order is:
 8. Use `fetch_topic_list` and `fetch_topic_detail` for the first authenticated read path.
 9. On explicit logout, prefer `logout_remote`, then fall back to `logout_local`, and clear the persisted session.
 
+Current file ownership convention:
+
+- Native hosts provide a platform workspace root to Rust:
+  - iOS: `Application Support/Fire`
+  - Android: `filesDir/fire`
+- Rust keeps this workspace root for shared file concerns that belong to the shared layer.
+- The current Rust-owned file layout inside that workspace is:
+  - `logs/` for Mars Xlog output
+  - `cache/xlog/` for Xlog cache and mmap spill files
+  - `session.json` for the persisted session snapshot triggered by the host shell
+- The current session snapshot remains host-triggered persistence under `session.json` inside that workspace root.
+
 ## Next Build Steps
 
 1. Create the Swift and Kotlin host apps under `native/` and wire them to the exported session APIs.

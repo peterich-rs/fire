@@ -12,10 +12,21 @@ import uniffi.fire_uniffi.SessionState
 class FireSessionStore(
     context: Context,
     baseUrl: String? = null,
+    workspacePath: String? = null,
     sessionFilePath: String? = null,
 ) {
-    private val core = FireCoreHandle(baseUrl)
-    private val sessionFile = File(sessionFilePath ?: defaultSessionFilePath(context))
+    private val workspaceDir: File
+    private val core: FireCoreHandle
+    private val sessionFile: File
+
+    init {
+        val resolvedWorkspacePath = workspacePath
+            ?: sessionFilePath?.let { File(it).parentFile?.absolutePath }
+            ?: defaultWorkspacePath(context)
+        workspaceDir = File(resolvedWorkspacePath)
+        core = FireCoreHandle(baseUrl, workspaceDir.absolutePath)
+        sessionFile = File(sessionFilePath ?: core.resolveWorkspacePath("session.json"))
+    }
 
     suspend fun snapshot(): SessionState = withContext(Dispatchers.Default) {
         core.snapshot()
@@ -70,6 +81,8 @@ class FireSessionStore(
         core.saveSessionToPath(sessionFile.absolutePath)
     }
 
+    fun workspacePath(): String = workspaceDir.absolutePath
+
     suspend fun exportSessionJson(): String = withContext(Dispatchers.Default) {
         core.exportSessionJson()
     }
@@ -91,8 +104,12 @@ class FireSessionStore(
     }
 
     companion object {
+        fun defaultWorkspacePath(context: Context): String {
+            return File(context.filesDir, "fire").absolutePath
+        }
+
         fun defaultSessionFilePath(context: Context): String {
-            return File(context.filesDir, "fire/session.json").absolutePath
+            return File(defaultWorkspacePath(context), "session.json").absolutePath
         }
     }
 }

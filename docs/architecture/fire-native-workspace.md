@@ -75,22 +75,25 @@ The first usable session pipeline now lives in the Rust workspace:
   - parses homepage HTML for `csrf-token`, `shared_session_key`, `discourse-base-uri`, `data-preloaded`, and Turnstile `sitekey`
   - derives `currentUser.username`, `siteSettings.long_polling_base_url`, and `topicTrackingStateMeta` from `data-preloaded`
   - exposes network-backed `refresh_bootstrap`, `refresh_csrf_token`, `logout_remote`, and local `logout_local`
+  - can export/import persisted session JSON and save/load session snapshots from disk for cold-start restoration
   - retries one logout request on `BAD CSRF` after refreshing `/session/csrf`
 - `fire-uniffi`
-  - exports the session snapshot, readiness flags, login sync input, bootstrap sync APIs, and logout APIs to Swift/Kotlin
+  - exports the session snapshot, readiness flags, login sync input, bootstrap sync APIs, persistence APIs, and logout APIs to Swift/Kotlin
 
 The intended native integration order is:
 
 1. Open LinuxDo login in `WKWebView` / `WebView`.
 2. After login or Cloudflare verification, read platform cookies and the current page HTML/meta.
 3. Call `sync_login_context` in Rust with `_t`, `_forum_session`, `cf_clearance`, optional username, CSRF, and homepage HTML.
-4. If homepage HTML is unavailable or stale, call `refresh_bootstrap`.
-5. If write APIs need a newer token, call `refresh_csrf_token`.
-6. On explicit logout, prefer `logout_remote`, then fall back to `logout_local` when needed.
+4. Persist the latest session snapshot through `export_session_json` or `save_session_to_path`.
+5. On cold start, restore the snapshot through `restore_session_json` or `load_session_from_path`.
+6. If homepage HTML is unavailable or stale, call `refresh_bootstrap`.
+7. If write APIs need a newer token, call `refresh_csrf_token`.
+8. On explicit logout, prefer `logout_remote`, then fall back to `logout_local`, and clear the persisted session.
 
 ## Next Build Steps
 
 1. Create the Swift and Kotlin host apps under `native/` and wire them to the exported session APIs.
-2. Persist session snapshots and platform cookies across cold starts.
-3. Build the authenticated topic list / topic detail API layer on top of the current session pipeline.
-4. Add MessageBus client orchestration once native login restoration is stable.
+2. Build the authenticated topic list / topic detail API layer on top of the current session pipeline.
+3. Add MessageBus client orchestration on top of restored `shared_session_key` / `topicTrackingStateMeta`.
+4. Move platform cookie storage into keychain/keystore backed persistence and reconcile it with the Rust snapshot lifecycle.

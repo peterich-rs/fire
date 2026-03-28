@@ -263,6 +263,28 @@ impl FireCoreHandle {
         SessionState::from_snapshot(self.inner.snapshot())
     }
 
+    pub fn export_session_json(&self) -> Result<String, FireUniFfiError> {
+        self.inner.export_session_json().map_err(Into::into)
+    }
+
+    pub fn restore_session_json(&self, json: String) -> Result<SessionState, FireUniFfiError> {
+        let snapshot = self.inner.restore_session_json(json)?;
+        Ok(SessionState::from_snapshot(snapshot))
+    }
+
+    pub fn save_session_to_path(&self, path: String) -> Result<(), FireUniFfiError> {
+        self.inner.save_session_to_path(path).map_err(Into::into)
+    }
+
+    pub fn load_session_from_path(&self, path: String) -> Result<SessionState, FireUniFfiError> {
+        let snapshot = self.inner.load_session_from_path(path)?;
+        Ok(SessionState::from_snapshot(snapshot))
+    }
+
+    pub fn clear_session_path(&self, path: String) -> Result<(), FireUniFfiError> {
+        self.inner.clear_session_path(path).map_err(Into::into)
+    }
+
     pub fn apply_cookies(&self, cookies: CookieState) -> SessionState {
         SessionState::from_snapshot(self.inner.apply_cookies(cookies.into()))
     }

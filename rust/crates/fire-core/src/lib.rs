@@ -1,4 +1,9 @@
-use std::sync::{Arc, OnceLock, RwLock};
+use std::{
+    fs, io,
+    path::{Path, PathBuf},
+    sync::{Arc, OnceLock, RwLock},
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use fire_models::{BootstrapArtifacts, CookieSnapshot, LoginSyncInput, SessionSnapshot};
 use http::{
@@ -8,7 +13,7 @@ use http::{
 use mars_xlog::{LogLevel, Xlog, XlogConfig, XlogError};
 use openwire::{Client, CookieJar, RequestBody, ResponseBody, WireError};
 use regex::Regex;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thiserror::Error;
 use tracing::{debug, warn};
@@ -203,6 +208,60 @@ impl FireCore {
         })
     }
 
+    pub fn export_session_json(&self) -> Result<String, FireCoreError> {
+        let envelope = PersistedSessionEnvelope::new(self.snapshot());
+        serde_json::to_string_pretty(&envelope).map_err(FireCoreError::PersistSerialize)
+    }
+
+    pub fn restore_session_json(&self, json: String) -> Result<SessionSnapshot, FireCoreError> {
+        let envelope: PersistedSessionEnvelope =
+            serde_json::from_str(&json).map_err(FireCoreError::PersistDeserialize)?;
+        let snapshot = self.normalize_persisted_snapshot(envelope)?;
+        Ok(self.update_session(|session| {
+            *session = snapshot.clone();
+            debug!(
+                phase = ?session.login_phase(),
+                readiness = ?session.readiness(),
+                "restored persisted session from json"
+            );
+        }))
+    }
+
+    pub fn save_session_to_path(&self, path: impl AsRef<Path>) -> Result<(), FireCoreError> {
+        let path = path.as_ref();
+        let payload = self.export_session_json()?;
+        write_atomic(path, payload.as_bytes()).map_err(|source| FireCoreError::PersistIo {
+            path: path.to_path_buf(),
+            source,
+        })
+    }
+
+    pub fn load_session_from_path(
+        &self,
+        path: impl AsRef<Path>,
+    ) -> Result<SessionSnapshot, FireCoreError> {
+        let path = path.as_ref();
+        let payload = fs::read_to_string(path).map_err(|source| FireCoreError::PersistIo {
+            path: path.to_path_buf(),
+            source,
+        })?;
+        let snapshot = self.restore_session_json(payload)?;
+        debug!(path = %path.display(), "restored persisted session from path");
+        Ok(snapshot)
+    }
+
+    pub fn clear_session_path(&self, path: impl AsRef<Path>) -> Result<(), FireCoreError> {
+        let path = path.as_ref();
+        match fs::remove_file(path) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+            Err(source) => Err(FireCoreError::PersistIo {
+                path: path.to_path_buf(),
+                source,
+            }),
+        }
+    }
+
     pub fn has_login_session(&self) -> bool {
         self.session
             .read()
@@ -393,6 +452,30 @@ impl FireCore {
         mutate(&mut session);
         session.clone()
     }
+
+    fn normalize_persisted_snapshot(
+        &self,
+        envelope: PersistedSessionEnvelope,
+    ) -> Result<SessionSnapshot, FireCoreError> {
+        if envelope.version != PersistedSessionEnvelope::CURRENT_VERSION {
+            return Err(FireCoreError::PersistVersionMismatch {
+                expected: PersistedSessionEnvelope::CURRENT_VERSION,
+                found: envelope.version,
+            });
+        }
+
+        let mut snapshot = envelope.snapshot;
+        let persisted_base_url = snapshot.bootstrap.base_url.clone();
+        if !persisted_base_url.is_empty() && persisted_base_url != self.base_url() {
+            return Err(FireCoreError::PersistBaseUrlMismatch {
+                expected: self.base_url().to_string(),
+                found: persisted_base_url,
+            });
+        }
+
+        snapshot = sanitize_snapshot_for_restore(self.base_url(), snapshot);
+        Ok(snapshot)
+    }
 }
 
 #[derive(Debug, Error)]
@@ -419,6 +502,16 @@ pub enum FireCoreError {
     MissingCsrfToken,
     #[error("csrf response did not contain a usable token")]
     InvalidCsrfResponse,
+    #[error("failed to serialize persisted session: {0}")]
+    PersistSerialize(serde_json::Error),
+    #[error("failed to deserialize persisted session: {0}")]
+    PersistDeserialize(serde_json::Error),
+    #[error("persisted session uses unsupported version {found}, expected {expected}")]
+    PersistVersionMismatch { expected: u32, found: u32 },
+    #[error("persisted session base url mismatch: expected {expected}, found {found}")]
+    PersistBaseUrlMismatch { expected: String, found: String },
+    #[error("failed to access persisted session at {path}: {source}")]
+    PersistIo { path: PathBuf, source: io::Error },
 }
 
 #[derive(Debug, Default)]
@@ -430,6 +523,25 @@ struct ParsedHomeState {
 #[derive(Debug, Deserialize)]
 struct CsrfResponse {
     csrf: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct PersistedSessionEnvelope {
+    version: u32,
+    saved_at_unix_ms: u64,
+    snapshot: SessionSnapshot,
+}
+
+impl PersistedSessionEnvelope {
+    const CURRENT_VERSION: u32 = 1;
+
+    fn new(snapshot: SessionSnapshot) -> Self {
+        Self {
+            version: Self::CURRENT_VERSION,
+            saved_at_unix_ms: now_unix_ms(),
+            snapshot,
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -682,6 +794,74 @@ fn is_bad_csrf_body(body: &str) -> bool {
     body == r#"["BAD CSRF"]"#
 }
 
+fn sanitize_snapshot_for_restore(base_url: &str, mut snapshot: SessionSnapshot) -> SessionSnapshot {
+    snapshot.bootstrap.base_url = base_url.to_string();
+
+    normalize_option(&mut snapshot.cookies.t_token);
+    normalize_option(&mut snapshot.cookies.forum_session);
+    normalize_option(&mut snapshot.cookies.cf_clearance);
+    normalize_option(&mut snapshot.cookies.csrf_token);
+
+    normalize_option(&mut snapshot.bootstrap.discourse_base_uri);
+    normalize_option(&mut snapshot.bootstrap.shared_session_key);
+    normalize_option(&mut snapshot.bootstrap.current_username);
+    normalize_option(&mut snapshot.bootstrap.long_polling_base_url);
+    normalize_option(&mut snapshot.bootstrap.turnstile_sitekey);
+    normalize_option(&mut snapshot.bootstrap.topic_tracking_state_meta);
+    normalize_option(&mut snapshot.bootstrap.preloaded_json);
+
+    if let Some(preloaded_json) = snapshot.bootstrap.preloaded_json.clone() {
+        snapshot.bootstrap.has_preloaded_data = true;
+        hydrate_preloaded_fields(&preloaded_json, &mut snapshot.bootstrap);
+    } else {
+        snapshot.bootstrap.has_preloaded_data = false;
+    }
+
+    if !snapshot.cookies.can_authenticate_requests() {
+        snapshot.clear_login_state(true);
+        snapshot.bootstrap.base_url = base_url.to_string();
+    }
+
+    snapshot
+}
+
+fn normalize_option(slot: &mut Option<String>) {
+    if slot.as_ref().is_some_and(|value| value.is_empty()) {
+        *slot = None;
+    }
+}
+
+fn write_atomic(path: &Path, contents: &[u8]) -> io::Result<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+
+    let temp_path = temp_path_for(path);
+    fs::write(&temp_path, contents)?;
+
+    if path.exists() {
+        fs::remove_file(path)?;
+    }
+
+    fs::rename(temp_path, path)
+}
+
+fn temp_path_for(path: &Path) -> PathBuf {
+    let millis = now_unix_ms();
+    let pid = std::process::id();
+    let file_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .map_or_else(|| "fire-session".to_string(), ToOwned::to_owned);
+    path.with_file_name(format!("{file_name}.{pid}.{millis}.tmp"))
+}
+
+fn now_unix_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |duration| duration.as_millis() as u64)
+}
+
 async fn expect_success(
     operation: &'static str,
     response: http::Response<ResponseBody>,
@@ -706,8 +886,9 @@ async fn expect_success(
 #[cfg(test)]
 mod tests {
     use std::{
-        io,
+        env, fs, io,
         net::SocketAddr,
+        path::PathBuf,
         sync::{
             atomic::{AtomicUsize, Ordering},
             Arc,
@@ -781,6 +962,153 @@ mod tests {
         assert_eq!(snapshot.login_phase(), LoginPhase::Ready);
         assert!(snapshot.readiness().can_write_authenticated_api);
         assert!(snapshot.readiness().can_open_message_bus);
+    }
+
+    #[test]
+    fn session_can_roundtrip_through_json_export_and_restore() {
+        let core = FireCore::new(FireCoreConfig::default()).expect("core");
+        let expected = core.sync_login_context(LoginSyncInput {
+            username: Some("alice".into()),
+            home_html: Some(sample_home_html()),
+            csrf_token: None,
+            current_url: Some("https://linux.do/".into()),
+            cookies: vec![
+                PlatformCookie {
+                    name: "_t".into(),
+                    value: "token".into(),
+                    domain: None,
+                    path: None,
+                },
+                PlatformCookie {
+                    name: "_forum_session".into(),
+                    value: "forum".into(),
+                    domain: None,
+                    path: None,
+                },
+            ],
+        });
+
+        let json = core.export_session_json().expect("export");
+        let restored_core = FireCore::new(FireCoreConfig::default()).expect("core");
+        let restored = restored_core.restore_session_json(json).expect("restore");
+
+        assert_eq!(restored, expected);
+    }
+
+    #[test]
+    fn restore_drops_incomplete_login_state_but_keeps_cf_clearance() {
+        let core = FireCore::new(FireCoreConfig::default()).expect("core");
+        let json = r#"
+{
+  "version": 1,
+  "saved_at_unix_ms": 1,
+  "snapshot": {
+    "cookies": {
+      "t_token": "token",
+      "forum_session": "",
+      "cf_clearance": "clearance",
+      "csrf_token": "csrf"
+    },
+    "bootstrap": {
+      "base_url": "https://linux.do/",
+      "discourse_base_uri": "/",
+      "shared_session_key": "shared",
+      "current_username": "alice",
+      "long_polling_base_url": "https://linux.do",
+      "turnstile_sitekey": "sitekey",
+      "topic_tracking_state_meta": "{\"message_bus_last_id\":42}",
+      "preloaded_json": "{\"currentUser\":{\"username\":\"alice\"}}",
+      "has_preloaded_data": true
+    }
+  }
+}
+"#;
+
+        let restored = core
+            .restore_session_json(json.to_string())
+            .expect("restore");
+
+        assert_eq!(restored.cookies.cf_clearance.as_deref(), Some("clearance"));
+        assert_eq!(restored.cookies.t_token, None);
+        assert_eq!(restored.cookies.csrf_token, None);
+        assert_eq!(restored.bootstrap.current_username, None);
+        assert!(!restored.bootstrap.has_preloaded_data);
+    }
+
+    #[test]
+    fn session_can_roundtrip_through_file_persistence() {
+        let core = FireCore::new(FireCoreConfig::default()).expect("core");
+        let expected = core.sync_login_context(LoginSyncInput {
+            username: Some("alice".into()),
+            home_html: Some(sample_home_html()),
+            csrf_token: Some("csrf-token".into()),
+            current_url: Some("https://linux.do/".into()),
+            cookies: vec![
+                PlatformCookie {
+                    name: "_t".into(),
+                    value: "token".into(),
+                    domain: None,
+                    path: None,
+                },
+                PlatformCookie {
+                    name: "_forum_session".into(),
+                    value: "forum".into(),
+                    domain: None,
+                    path: None,
+                },
+                PlatformCookie {
+                    name: "cf_clearance".into(),
+                    value: "clearance".into(),
+                    domain: None,
+                    path: None,
+                },
+            ],
+        });
+
+        let path = temp_session_file("session-roundtrip.json");
+        core.save_session_to_path(&path).expect("save");
+
+        let restored_core = FireCore::new(FireCoreConfig::default()).expect("core");
+        let restored = restored_core.load_session_from_path(&path).expect("load");
+        restored_core.clear_session_path(&path).expect("clear");
+
+        assert_eq!(restored, expected);
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn restore_rejects_base_url_mismatch() {
+        let core = FireCore::new(FireCoreConfig::default()).expect("core");
+        let json = r#"
+{
+  "version": 1,
+  "saved_at_unix_ms": 1,
+  "snapshot": {
+    "cookies": {
+      "t_token": "token",
+      "forum_session": "forum",
+      "cf_clearance": null,
+      "csrf_token": null
+    },
+    "bootstrap": {
+      "base_url": "https://example.com/",
+      "discourse_base_uri": null,
+      "shared_session_key": null,
+      "current_username": null,
+      "long_polling_base_url": null,
+      "turnstile_sitekey": null,
+      "topic_tracking_state_meta": null,
+      "preloaded_json": null,
+      "has_preloaded_data": false
+    }
+  }
+}
+"#;
+
+        match core.restore_session_json(json.to_string()) {
+            Err(FireCoreError::PersistBaseUrlMismatch { .. }) => {}
+            other => panic!("unexpected restore result: {other:?}"),
+        }
     }
 
     #[tokio::test]
@@ -940,5 +1268,13 @@ mod tests {
         );
         assert!(snapshot.bootstrap.has_preloaded_data);
         Ok(())
+    }
+
+    fn temp_session_file(name: &str) -> PathBuf {
+        let mut path = env::temp_dir();
+        path.push(format!("fire-tests-{}", std::process::id()));
+        fs::create_dir_all(&path).expect("temp dir");
+        path.push(name);
+        path
     }
 }

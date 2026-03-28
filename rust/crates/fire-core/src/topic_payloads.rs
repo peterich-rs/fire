@@ -1,6 +1,6 @@
 use fire_models::{
     TopicDetail, TopicDetailCreatedBy, TopicDetailMeta, TopicListResponse, TopicPost,
-    TopicPostStream, TopicPoster, TopicReaction, TopicSummary, TopicUser,
+    TopicPostStream, TopicPoster, TopicReaction, TopicSummary, TopicTag, TopicUser,
 };
 use serde::{Deserialize, Deserializer};
 use serde_json::Value;
@@ -78,19 +78,19 @@ impl From<RawTopicPoster> for TopicPoster {
 
 #[derive(Debug, Default, Deserialize)]
 struct RawTopicSummary {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_default_u64")]
     id: u64,
     #[serde(default)]
     title: String,
     #[serde(default)]
     slug: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_default_u32")]
     posts_count: u32,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_default_u32")]
     reply_count: u32,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_default_u32")]
     views: u32,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_default_u32")]
     like_count: u32,
     #[serde(default, deserialize_with = "deserialize_optional_scalar_string")]
     excerpt: Option<String>,
@@ -109,22 +109,23 @@ struct RawTopicSummary {
     closed: bool,
     #[serde(default)]
     archived: bool,
-    #[serde(default)]
-    tags: Vec<String>,
+    #[serde(default, deserialize_with = "deserialize_topic_tags")]
+    tags: Vec<TopicTag>,
     #[serde(default)]
     posters: Vec<RawTopicPoster>,
     #[serde(default)]
     unseen: bool,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_default_u32")]
     unread_posts: u32,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_default_u32")]
     new_posts: u32,
+    #[serde(default, deserialize_with = "deserialize_optional_u32")]
     last_read_post_number: Option<u32>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_default_u32")]
     highest_post_number: u32,
     #[serde(default)]
     has_accepted_answer: bool,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_default_bool")]
     can_have_answer: bool,
 }
 
@@ -309,23 +310,24 @@ impl From<RawTopicDetailMeta> for TopicDetailMeta {
 
 #[derive(Debug, Default, Deserialize)]
 pub(crate) struct RawTopicDetail {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_default_u64")]
     id: u64,
     #[serde(default)]
     title: String,
     #[serde(default)]
     slug: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_default_u32")]
     posts_count: u32,
     category_id: Option<u64>,
-    #[serde(default)]
-    tags: Vec<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_topic_tags")]
+    tags: Vec<TopicTag>,
+    #[serde(default, deserialize_with = "deserialize_default_u32")]
     views: u32,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_default_u32")]
     like_count: u32,
     #[serde(default, deserialize_with = "deserialize_optional_scalar_string")]
     created_at: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_optional_u32")]
     last_read_post_number: Option<u32>,
     #[serde(default)]
     bookmarks: Vec<u64>,
@@ -402,4 +404,109 @@ where
         Some(Value::Number(value)) => Some(value.to_string()),
         Some(Value::Array(_)) | Some(Value::Object(_)) => None,
     })
+}
+
+fn deserialize_default_u64<'de, D>(deserializer: D) -> Result<u64, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    Ok(deserialize_optional_u64(deserializer)?.unwrap_or_default())
+}
+
+fn deserialize_optional_u64<'de, D>(deserializer: D) -> Result<Option<u64>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = Option::<Value>::deserialize(deserializer)?;
+    Ok(match value {
+        None | Some(Value::Null) => None,
+        Some(Value::Number(value)) => value.as_u64(),
+        Some(Value::String(value)) => value.parse::<u64>().ok(),
+        Some(Value::Bool(value)) => Some(u64::from(value)),
+        Some(Value::Array(_)) | Some(Value::Object(_)) => None,
+    })
+}
+
+fn deserialize_default_u32<'de, D>(deserializer: D) -> Result<u32, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    Ok(deserialize_optional_u32(deserializer)?.unwrap_or_default())
+}
+
+fn deserialize_optional_u32<'de, D>(deserializer: D) -> Result<Option<u32>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = Option::<Value>::deserialize(deserializer)?;
+    Ok(match value {
+        None | Some(Value::Null) => None,
+        Some(Value::Number(value)) => value.as_u64().and_then(|value| u32::try_from(value).ok()),
+        Some(Value::String(value)) => value.parse::<u32>().ok(),
+        Some(Value::Bool(value)) => Some(u32::from(value)),
+        Some(Value::Array(_)) | Some(Value::Object(_)) => None,
+    })
+}
+
+fn deserialize_default_bool<'de, D>(deserializer: D) -> Result<bool, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = Option::<Value>::deserialize(deserializer)?;
+    Ok(match value {
+        None | Some(Value::Null) => false,
+        Some(Value::Bool(value)) => value,
+        Some(Value::Number(value)) => value.as_i64().is_some_and(|value| value != 0),
+        Some(Value::String(value)) => matches!(value.as_str(), "true" | "1"),
+        Some(Value::Array(_)) | Some(Value::Object(_)) => false,
+    })
+}
+
+fn deserialize_topic_tags<'de, D>(deserializer: D) -> Result<Vec<TopicTag>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = Option::<Value>::deserialize(deserializer)?;
+    let Value::Array(values) = value.unwrap_or(Value::Array(Vec::new())) else {
+        return Ok(Vec::new());
+    };
+
+    Ok(values
+        .into_iter()
+        .filter_map(|value| match value {
+            Value::Null => None,
+            Value::String(value) => Some(TopicTag {
+                id: None,
+                name: value,
+                slug: None,
+            }),
+            Value::Number(value) => Some(TopicTag {
+                id: None,
+                name: value.to_string(),
+                slug: None,
+            }),
+            Value::Bool(value) => Some(TopicTag {
+                id: None,
+                name: value.to_string(),
+                slug: None,
+            }),
+            Value::Object(mut value) => {
+                let id = value.remove("id").and_then(|value| match value {
+                    Value::Number(value) => value.as_u64(),
+                    Value::String(value) => value.parse::<u64>().ok(),
+                    _ => None,
+                });
+                let slug = value
+                    .remove("slug")
+                    .and_then(|value| value.as_str().map(ToOwned::to_owned));
+                let name = value
+                    .remove("name")
+                    .and_then(|value| value.as_str().map(ToOwned::to_owned))
+                    .or_else(|| slug.clone())?;
+
+                Some(TopicTag { id, name, slug })
+            }
+            Value::Array(_) => None,
+        })
+        .collect())
 }

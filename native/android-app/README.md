@@ -14,11 +14,12 @@ Current host-side app wiring lives under `src/main/java/com/fire/app/` plus `src
   - lets Rust initialize shared logs under `filesDir/fire/logs`
   - wraps `syncLoginContext`, `refreshBootstrap`, `refreshCsrfToken`, diagnostics reads, topic fetches, and logout
 - `scripts/sync_uniffi_bindings.sh`
-  - builds the host dylib used for UniFFI metadata extraction
+  - builds an unstripped host debug library for UniFFI metadata extraction
   - reads generator settings from `rust/crates/fire-uniffi/uniffi.toml`
   - generates Kotlin bindings from `fire-uniffi`
   - cross-compiles `libfire_uniffi.so` for `arm64-v8a` and `x86_64`
   - resolves the host-side UniFFI metadata library extension per OS so Gradle sync can run on macOS and Linux CI
+  - keeps release Android `.so` packaging separate from host bindgen input so Linux CI is not broken by the workspace `strip = true` release profile
   - writes variant-specific generated sources and JNI libraries into the Gradle build directory
 - `FireWebViewLoginCoordinator.kt`
   - reads `WebView` cookies, `current-username`, `csrf-token`, and page HTML

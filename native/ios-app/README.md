@@ -39,7 +39,8 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
   - performs a lightweight network preflight before presenting the login browser
   - moves the first system-level network prompt, when one appears on-device, out of the login page itself
   - restores the persisted session snapshot and keeps the topic browser in sync with login state
-  - tracks paginated topic feed state and derives category metadata from bootstrap `preloadedJson`
+  - now builds `FireSessionStore` lazily on a detached task so Rust/logging initialization does not block the first SwiftUI render on the main actor
+  - tracks paginated topic feed state, derives category metadata from bootstrap `preloadedJson`, and precomputes list-row presentation models before publishing them back to SwiftUI
 - `App/FireDiagnosticsView.swift`
   - renders a native diagnostics screen on top of the shared Rust diagnostics APIs
   - lists workspace log files plus reverse-chronological network request traces
@@ -48,6 +49,7 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
   - extracts `site.categories` from bootstrap `preloadedJson`
   - parses `more_topics_url` into the next feed page
   - normalizes topic/post timestamps, HTML excerpts, and cooked post bodies for native presentation
+  - now builds lightweight topic row view data off the main actor so the root feed does not parse HTML during every SwiftUI body evaluation
 - `Tests/Unit/FireTopicPresentationTests.swift`
   - covers category extraction, pagination cursor parsing, and HTML-to-plain-text normalization in the pure Swift presentation helpers
 - `App/FireRootView.swift`
@@ -99,7 +101,8 @@ Verified local commands:
 Current build note:
 
 - The simulator/unit-test path above is verified locally after the diagnostics addition.
-- The device `Release` Xcode path currently still depends on the host UniFFI cargo build inheriting a clean macOS SDK environment inside the pre-build script; the Rust release host build itself is verified separately with `SDKROOT="$(xcrun --sdk macosx --show-sdk-path)" RUSTFLAGS="-C linker=$(xcrun --sdk macosx --find clang) -C link-arg=-isysroot -C link-arg=$(xcrun --sdk macosx --show-sdk-path)" cargo build -p fire-uniffi --lib --release`.
+- The device `Release` Xcode path is also verified locally.
+- The UniFFI pre-build script now sanitizes host and iOS-target cargo environments separately: host cargo invocations keep the macOS SDK and library search path, while iOS target cargo invocations keep the macOS `SDKROOT` needed for host build scripts without leaking the macOS `LIBRARY_PATH` into iPhoneOS/iPhoneSimulator links.
 
 Planned responsibilities beyond the current wiring:
 

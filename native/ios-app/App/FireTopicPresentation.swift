@@ -14,6 +14,19 @@ struct FireTopicCategoryPresentation: Equatable, Sendable {
     }
 }
 
+struct FireTopicRowPresentation: Identifiable, Sendable {
+    let topic: TopicSummaryState
+    let excerptText: String?
+    let lastPosterUsername: String?
+    let activityTimestampText: String?
+    let statusLabels: [String]
+    let tagSummaryText: String?
+
+    var id: UInt64 {
+        topic.id
+    }
+}
+
 enum FireTopicPresentation {
     static func parseCategories(from preloadedJSON: String?) -> [UInt64: FireTopicCategoryPresentation] {
         guard
@@ -113,23 +126,18 @@ enum FireTopicPresentation {
             .replacingOccurrences(of: "<br\\s*/?>", with: "\n", options: .regularExpression)
             .replacingOccurrences(of: "</p>", with: "\n\n", options: .regularExpression)
             .replacingOccurrences(of: "</li>", with: "\n", options: .regularExpression)
+        let stripped = normalized
+            .replacingOccurrences(of: "<[^>]+>", with: " ", options: .regularExpression)
+        return normalizeWhitespace(in: decodeCommonEntities(in: stripped))
+    }
 
-        if let data = normalized.data(using: .utf8),
-           let attributed = try? NSAttributedString(
-               data: data,
-               options: [
-                   .documentType: NSAttributedString.DocumentType.html,
-                   .characterEncoding: String.Encoding.utf8.rawValue,
-               ],
-               documentAttributes: nil
-           )
-        {
-            return normalizeWhitespace(in: attributed.string)
+    static func previewText(from html: String?) -> String? {
+        guard let html, !html.isEmpty else {
+            return nil
         }
 
-        return normalizeWhitespace(
-            in: normalized.replacingOccurrences(of: "<[^>]+>", with: " ", options: .regularExpression)
-        )
+        let compact = normalizeWhitespace(in: plainText(from: html).replacingOccurrences(of: "\n", with: " "))
+        return compact.isEmpty ? nil : compact
     }
 
     static func attributedText(from html: String) -> AttributedString? {
@@ -156,6 +164,25 @@ enum FireTopicPresentation {
         return AttributedString(attributed)
     }
 
+    static func buildRowPresentations(from topics: [TopicSummaryState]) -> [FireTopicRowPresentation] {
+        let timestampFormatter = TimestampFormatter()
+
+        return topics.map { topic in
+            let tagNames = tagNames(from: topic.tags)
+
+            return FireTopicRowPresentation(
+                topic: topic,
+                excerptText: previewText(from: topic.excerpt),
+                lastPosterUsername: topic.lastPosterUsername
+                    ?? topic.posters.first?.description
+                    ?? topic.posters.first.map { "User \($0.userId)" },
+                activityTimestampText: timestampFormatter.format(topic.lastPostedAt ?? topic.createdAt),
+                statusLabels: topicStatusLabels(for: topic),
+                tagSummaryText: tagNames.isEmpty ? nil : "#\(tagNames.joined(separator: " #"))"
+            )
+        }
+    }
+
     static func topicStatusLabels(for topic: TopicSummaryState) -> [String] {
         var labels: [String] = []
 
@@ -179,6 +206,15 @@ enum FireTopicPresentation {
         }
 
         return labels
+    }
+
+    static func tagNames(from tags: [TopicTagState]) -> [String] {
+        tags.compactMap { tag in
+            if !tag.name.isEmpty {
+                return tag.name
+            }
+            return tag.slug?.isEmpty == false ? tag.slug : nil
+        }
     }
 
     private static let fractionalISO8601: ISO8601DateFormatter = {
@@ -233,6 +269,61 @@ enum FireTopicPresentation {
             .replacingOccurrences(of: "\n{3,}", with: "\n\n", options: .regularExpression)
             .replacingOccurrences(of: "[ \\t]{2,}", with: " ", options: .regularExpression)
             .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func decodeCommonEntities(in string: String) -> String {
+        var decoded = string
+        let entities = [
+            ("&nbsp;", " "),
+            ("&#160;", " "),
+            ("&amp;", "&"),
+            ("&quot;", "\""),
+            ("&#34;", "\""),
+            ("&#39;", "'"),
+            ("&#x27;", "'"),
+            ("&lt;", "<"),
+            ("&gt;", ">"),
+        ]
+
+        for (entity, replacement) in entities {
+            decoded = decoded.replacingOccurrences(of: entity, with: replacement)
+        }
+
+        return decoded
+    }
+}
+
+private struct TimestampFormatter {
+    private let fractionalISO8601: ISO8601DateFormatter
+    private let basicISO8601: ISO8601DateFormatter
+    private let displayFormatter: DateFormatter
+
+    init() {
+        let fractionalISO8601 = ISO8601DateFormatter()
+        fractionalISO8601.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        self.fractionalISO8601 = fractionalISO8601
+
+        let basicISO8601 = ISO8601DateFormatter()
+        basicISO8601.formatOptions = [.withInternetDateTime]
+        self.basicISO8601 = basicISO8601
+
+        let displayFormatter = DateFormatter()
+        displayFormatter.dateStyle = .medium
+        displayFormatter.timeStyle = .short
+        self.displayFormatter = displayFormatter
+    }
+
+    func format(_ rawValue: String?) -> String? {
+        guard let rawValue, !rawValue.isEmpty else {
+            return nil
+        }
+
+        let date = fractionalISO8601.date(from: rawValue) ?? basicISO8601.date(from: rawValue)
+        guard let date else {
+            return rawValue
+        }
+
+        return displayFormatter.string(from: date)
     }
 }
 

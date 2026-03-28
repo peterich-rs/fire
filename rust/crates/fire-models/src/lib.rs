@@ -267,6 +267,13 @@ pub struct TopicPoster {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TopicTag {
+    pub id: Option<u64>,
+    pub name: String,
+    pub slug: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TopicSummary {
     pub id: u64,
     pub title: String,
@@ -284,7 +291,7 @@ pub struct TopicSummary {
     pub visible: bool,
     pub closed: bool,
     pub archived: bool,
-    pub tags: Vec<String>,
+    pub tags: Vec<TopicTag>,
     pub posters: Vec<TopicPoster>,
     pub unseen: bool,
     pub unread_posts: u32,
@@ -371,7 +378,7 @@ pub struct TopicDetail {
     pub slug: String,
     pub posts_count: u32,
     pub category_id: Option<u64>,
-    pub tags: Vec<String>,
+    pub tags: Vec<TopicTag>,
     pub views: u32,
     pub like_count: u32,
     pub created_at: Option<String>,

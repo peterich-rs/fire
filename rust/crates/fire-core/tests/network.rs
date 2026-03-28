@@ -8,7 +8,7 @@ use common::{
 };
 use fire_core::{FireCore, FireCoreConfig};
 use fire_models::{
-    LoginSyncInput, PlatformCookie, TopicDetailQuery, TopicListKind, TopicListQuery,
+    LoginSyncInput, PlatformCookie, TopicDetailQuery, TopicListKind, TopicListQuery, TopicTag,
 };
 
 #[tokio::test]
@@ -40,6 +40,21 @@ async fn fetch_topic_list_parses_latest_payload() {
     assert_eq!(response.topics.len(), 1);
     assert_eq!(response.topics[0].id, 123);
     assert_eq!(response.topics[0].title, "Fire topic");
+    assert_eq!(
+        response.topics[0].tags,
+        vec![
+            TopicTag {
+                id: None,
+                name: "rust".into(),
+                slug: None,
+            },
+            TopicTag {
+                id: None,
+                name: "linuxdo".into(),
+                slug: None,
+            },
+        ]
+    );
     assert_eq!(response.users[0].username, "alice");
     assert_eq!(response.more_topics_url.as_deref(), Some("/latest?page=1"));
 }
@@ -79,6 +94,57 @@ async fn fetch_topic_list_tolerates_object_poster_metadata_fields() {
 }
 
 #[tokio::test]
+async fn fetch_topic_list_tolerates_object_tags_and_null_counters() {
+    let payload = sample_latest_json()
+        .replace(
+            r#""tags": ["rust", "linuxdo"]"#,
+            r#""tags": [{"id": 1451, "name": "Rust", "slug": "rust"}, {"id": 99, "name": "LinuxDo", "slug": "linuxdo"}]"#,
+        )
+        .replace(r#""unread_posts": 2"#, r#""unread_posts": null"#)
+        .replace(r#""new_posts": 1"#, r#""new_posts": null"#)
+        .replace(r#""can_have_answer": true"#, r#""can_have_answer": null"#);
+    let responses = vec![raw_json_response(200, "application/json", &payload)];
+    let server = TestServer::spawn(responses).await.expect("server");
+    let core = FireCore::new(FireCoreConfig {
+        base_url: server.base_url(),
+        workspace_path: None,
+    })
+    .expect("core");
+
+    let response = core
+        .fetch_topic_list(TopicListQuery {
+            kind: TopicListKind::Latest,
+            page: None,
+            topic_ids: Vec::new(),
+            order: None,
+            ascending: None,
+        })
+        .await
+        .expect("topic list");
+    let _ = server.shutdown().await;
+
+    assert_eq!(response.topics.len(), 1);
+    assert_eq!(
+        response.topics[0].tags,
+        vec![
+            TopicTag {
+                id: Some(1451),
+                name: "Rust".into(),
+                slug: Some("rust".into()),
+            },
+            TopicTag {
+                id: Some(99),
+                name: "LinuxDo".into(),
+                slug: Some("linuxdo".into()),
+            },
+        ]
+    );
+    assert_eq!(response.topics[0].unread_posts, 0);
+    assert_eq!(response.topics[0].new_posts, 0);
+    assert!(!response.topics[0].can_have_answer);
+}
+
+#[tokio::test]
 async fn fetch_topic_detail_parses_detail_payload() {
     let responses = vec![raw_json_response(
         200,
@@ -107,6 +173,21 @@ async fn fetch_topic_detail_parses_detail_payload() {
 
     assert_eq!(detail.id, 123);
     assert_eq!(detail.title, "Fire topic");
+    assert_eq!(
+        detail.tags,
+        vec![
+            TopicTag {
+                id: None,
+                name: "rust".into(),
+                slug: None,
+            },
+            TopicTag {
+                id: None,
+                name: "linuxdo".into(),
+                slug: None,
+            },
+        ]
+    );
     assert_eq!(detail.post_stream.posts.len(), 1);
     assert_eq!(detail.post_stream.posts[0].username, "alice");
     assert_eq!(

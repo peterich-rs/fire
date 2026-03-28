@@ -14,6 +14,7 @@ repo_root="$(cd -- "$script_dir/../../.." && pwd)"
 uniffi_config_path="$repo_root/rust/crates/fire-uniffi/uniffi.toml"
 build_profile="${FIRE_BUILD_PROFILE:-debug}"
 profile_dir="debug"
+host_bindings_profile_dir="debug"
 
 if [[ "$build_profile" == "release" ]]; then
   profile_dir="release"
@@ -50,6 +51,7 @@ fi
 tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/fire-android-uniffi.XXXXXX")"
 trap 'rm -rf "$tmp_dir"' EXIT
 
+rm -rf "$generated_kotlin_dir" "$generated_jni_libs_dir"
 mkdir -p "$generated_kotlin_dir" "$generated_jni_libs_dir"
 
 build_android_target() {
@@ -100,10 +102,13 @@ build_android_target() {
 
 (
   cd "$repo_root"
+  # Generate Kotlin bindings from an unstripped host build. The workspace release
+  # profile enables `strip = true`, which removes the UniFFI metadata from Linux
+  # release host libraries and leaves bindgen with no Kotlin files to emit.
+  cargo build -p fire-uniffi
+
   if [[ "$profile_dir" == "release" ]]; then
     cargo build -p fire-uniffi --release
-  else
-    cargo build -p fire-uniffi
   fi
   cargo run -p fire-uniffi --bin uniffi-bindgen -- generate \
     --library \
@@ -111,22 +116,16 @@ build_android_target() {
     --no-format \
     --config "$uniffi_config_path" \
     --out-dir "$tmp_dir" \
-    "rust/target/$profile_dir/$host_library_filename"
+    "rust/target/$host_bindings_profile_dir/$host_library_filename"
 )
 
-generated_kotlin_source="$(
-  find "$tmp_dir" -type f -name 'fire_uniffi.kt' | sort | head -n 1
-)"
-
-if [[ -z "$generated_kotlin_source" ]]; then
+if ! find "$tmp_dir" -type f -name '*.kt' | grep -q .; then
   echo "unable to locate generated Kotlin bindings under $tmp_dir" >&2
   find "$tmp_dir" -maxdepth 6 -type f | sort >&2 || true
   exit 1
 fi
 
-mkdir -p "$generated_kotlin_dir/uniffi/fire_uniffi"
-cp "$generated_kotlin_source" \
-  "$generated_kotlin_dir/uniffi/fire_uniffi/fire_uniffi.kt"
+cp -R "$tmp_dir"/. "$generated_kotlin_dir"/
 
 build_android_target "aarch64-linux-android" "arm64-v8a" "aarch64-linux-android"
 build_android_target "x86_64-linux-android" "x86_64" "x86_64-linux-android"

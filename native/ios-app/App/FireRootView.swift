@@ -1,8 +1,10 @@
 import Foundation
 import SwiftUI
+import UIKit
 
 struct FireRootView: View {
     @StateObject private var viewModel = FireAppViewModel()
+    @State private var copiedErrorMessage: String?
 
     var body: some View {
         NavigationStack {
@@ -116,10 +118,22 @@ struct FireRootView: View {
                 }
 
                 if let errorMessage = viewModel.errorMessage {
-                    Section("Last Error") {
+                    Section {
                         Text(errorMessage)
                             .font(.footnote.monospaced())
                             .foregroundStyle(.red)
+                    } header: {
+                        HStack {
+                            Text("Last Error")
+                            Spacer()
+                            Button {
+                                copyErrorMessage(errorMessage)
+                            } label: {
+                                Image(systemName: copiedErrorMessage == errorMessage ? "checkmark" : "doc.on.doc")
+                            }
+                            .buttonStyle(.borderless)
+                            .accessibilityLabel(copiedErrorMessage == errorMessage ? "Copied last error" : "Copy last error")
+                        }
                     }
                 }
             }
@@ -135,6 +149,19 @@ struct FireRootView: View {
 
     private func boolText(_ value: Bool) -> String {
         value ? "Yes" : "No"
+    }
+
+    private func copyErrorMessage(_ errorMessage: String) {
+        UIPasteboard.general.string = errorMessage
+        copiedErrorMessage = errorMessage
+
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(1.5))
+
+            if copiedErrorMessage == errorMessage {
+                copiedErrorMessage = nil
+            }
+        }
     }
 }
 

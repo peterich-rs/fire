@@ -2,7 +2,8 @@ use fire_models::{
     TopicDetail, TopicDetailCreatedBy, TopicDetailMeta, TopicListResponse, TopicPost,
     TopicPostStream, TopicPoster, TopicReaction, TopicSummary, TopicUser,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer};
+use serde_json::Value;
 
 #[derive(Debug, Default, Deserialize)]
 pub(crate) struct RawTopicListResponse {
@@ -31,6 +32,7 @@ impl From<RawTopicListResponse> for TopicListResponse {
 struct RawTopicListPage {
     #[serde(default)]
     topics: Vec<RawTopicSummary>,
+    #[serde(default, deserialize_with = "deserialize_optional_scalar_string")]
     more_topics_url: Option<String>,
 }
 
@@ -40,6 +42,7 @@ struct RawTopicUser {
     id: u64,
     #[serde(default)]
     username: String,
+    #[serde(default, deserialize_with = "deserialize_optional_scalar_string")]
     avatar_template: Option<String>,
 }
 
@@ -57,7 +60,9 @@ impl From<RawTopicUser> for TopicUser {
 struct RawTopicPoster {
     #[serde(default)]
     user_id: u64,
+    #[serde(default, deserialize_with = "deserialize_optional_scalar_string")]
     description: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_optional_scalar_string")]
     extras: Option<String>,
 }
 
@@ -87,9 +92,13 @@ struct RawTopicSummary {
     views: u32,
     #[serde(default)]
     like_count: u32,
+    #[serde(default, deserialize_with = "deserialize_optional_scalar_string")]
     excerpt: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_optional_scalar_string")]
     created_at: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_optional_scalar_string")]
     last_posted_at: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_optional_scalar_string")]
     last_poster_username: Option<String>,
     category_id: Option<u64>,
     #[serde(default)]
@@ -156,6 +165,7 @@ struct RawTopicReaction {
     #[serde(default)]
     id: String,
     #[serde(rename = "type")]
+    #[serde(default, deserialize_with = "deserialize_optional_scalar_string")]
     kind: Option<String>,
     #[serde(default)]
     count: u32,
@@ -177,7 +187,9 @@ struct RawTopicPost {
     id: u64,
     #[serde(default)]
     username: String,
+    #[serde(default, deserialize_with = "deserialize_optional_scalar_string")]
     name: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_optional_scalar_string")]
     avatar_template: Option<String>,
     #[serde(default)]
     cooked: String,
@@ -185,7 +197,9 @@ struct RawTopicPost {
     post_number: u32,
     #[serde(default = "default_post_type")]
     post_type: i32,
+    #[serde(default, deserialize_with = "deserialize_optional_scalar_string")]
     created_at: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_optional_scalar_string")]
     updated_at: Option<String>,
     #[serde(default)]
     like_count: u32,
@@ -261,6 +275,7 @@ struct RawTopicDetailCreatedBy {
     id: u64,
     #[serde(default)]
     username: String,
+    #[serde(default, deserialize_with = "deserialize_optional_scalar_string")]
     avatar_template: Option<String>,
 }
 
@@ -309,6 +324,7 @@ pub(crate) struct RawTopicDetail {
     views: u32,
     #[serde(default)]
     like_count: u32,
+    #[serde(default, deserialize_with = "deserialize_optional_scalar_string")]
     created_at: Option<String>,
     last_read_post_number: Option<u32>,
     #[serde(default)]
@@ -329,6 +345,7 @@ pub(crate) struct RawTopicDetail {
     has_cached_summary: bool,
     #[serde(default)]
     has_summary: bool,
+    #[serde(default, deserialize_with = "deserialize_optional_scalar_string")]
     archetype: Option<String>,
     #[serde(default)]
     post_stream: RawTopicPostStream,
@@ -371,4 +388,18 @@ fn default_visible() -> bool {
 
 fn default_post_type() -> i32 {
     1
+}
+
+fn deserialize_optional_scalar_string<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = Option::<Value>::deserialize(deserializer)?;
+    Ok(match value {
+        None | Some(Value::Null) => None,
+        Some(Value::String(value)) => Some(value),
+        Some(Value::Bool(value)) => Some(value.to_string()),
+        Some(Value::Number(value)) => Some(value.to_string()),
+        Some(Value::Array(_)) | Some(Value::Object(_)) => None,
+    })
 }

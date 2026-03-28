@@ -44,6 +44,8 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
   - extracts `site.categories` from bootstrap `preloadedJson`
   - parses `more_topics_url` into the next feed page
   - normalizes topic/post timestamps, HTML excerpts, and cooked post bodies for native presentation
+- `Tests/Unit/FireTopicPresentationTests.swift`
+  - covers category extraction, pagination cursor parsing, and HTML-to-plain-text normalization in the pure Swift presentation helpers
 - `App/FireRootView.swift`
   - renders the first topic read path with feed filters, category pills, feed pagination, and dedicated topic detail navigation
   - now reads the real generated Swift-facing contracts exported from `fire-uniffi`
@@ -86,6 +88,7 @@ Build prerequisites:
 Verified local commands:
 
 - `xcodegen generate --spec native/ios-app/project.yml`
+- `xcodebuild -project native/ios-app/Fire.xcodeproj -scheme Fire -destination 'platform=iOS Simulator,name=iPhone 16' -derivedDataPath /tmp/fire-ios-tests CODE_SIGNING_ALLOWED=NO test`
 - `xcodebuild -project native/ios-app/Fire.xcodeproj -scheme Fire -destination 'generic/platform=iOS' -derivedDataPath /tmp/fire-ios-deriveddata CODE_SIGNING_ALLOWED=NO build`
 - `xcodebuild -project native/ios-app/Fire.xcodeproj -scheme Fire -configuration Release -destination 'generic/platform=iOS' -derivedDataPath /tmp/fire-ios-deriveddata-release CODE_SIGNING_ALLOWED=NO build`
 

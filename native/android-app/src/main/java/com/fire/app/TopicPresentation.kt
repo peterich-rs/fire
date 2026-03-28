@@ -1,8 +1,8 @@
 package com.fire.app
 
-import android.net.Uri
 import org.json.JSONArray
 import org.json.JSONObject
+import java.net.URI
 import java.time.OffsetDateTime
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
@@ -63,12 +63,12 @@ object TopicPresentation {
         }
 
         val candidates = listOf(
-            Uri.parse(moreTopicsUrl),
-            Uri.parse("https://linux.do$moreTopicsUrl"),
+            moreTopicsUrl,
+            "https://linux.do$moreTopicsUrl",
         )
 
         return candidates.firstNotNullOfOrNull { candidate ->
-            candidate.getQueryParameter("page")?.toUIntOrNull()
+            queryParameter(candidate, "page")?.toUIntOrNull()
         }
     }
 
@@ -104,5 +104,26 @@ object TopicPresentation {
                 root.optJSONObject("category_list")?.optJSONArray("categories")
             else -> null
         }
+    }
+
+    private fun queryParameter(url: String, name: String): String? {
+        val rawQuery = runCatching {
+            URI(url).rawQuery
+        }.getOrNull() ?: return null
+
+        return rawQuery
+            .split('&')
+            .asSequence()
+            .mapNotNull { segment ->
+                val separatorIndex = segment.indexOf('=')
+                if (separatorIndex < 0) {
+                    return@mapNotNull null
+                }
+
+                val key = segment.substring(0, separatorIndex)
+                val value = segment.substring(separatorIndex + 1)
+                if (key == name) value else null
+            }
+            .firstOrNull()
     }
 }

@@ -1,11 +1,14 @@
 use std::{fs, io, path::Path};
 
-use tracing::debug;
+use tracing::{debug, warn};
 
 use super::FireCore;
 use crate::{
     error::FireCoreError,
-    session_store::{sanitize_snapshot_for_restore, write_atomic, PersistedSessionEnvelope},
+    session_store::{
+        sanitize_snapshot_for_restore, write_atomic, LegacyPersistedSessionSnapshot,
+        PersistedSessionEnvelope,
+    },
 };
 
 impl FireCore {
@@ -18,9 +21,7 @@ impl FireCore {
         &self,
         json: String,
     ) -> Result<fire_models::SessionSnapshot, FireCoreError> {
-        let envelope: PersistedSessionEnvelope =
-            serde_json::from_str(&json).map_err(FireCoreError::PersistDeserialize)?;
-        let snapshot = self.normalize_persisted_snapshot(envelope)?;
+        let snapshot = self.decode_persisted_snapshot(&json)?;
         Ok(self.update_session(|session| {
             *session = snapshot.clone();
             debug!(
@@ -66,6 +67,21 @@ impl FireCore {
         }
     }
 
+    fn decode_persisted_snapshot(
+        &self,
+        json: &str,
+    ) -> Result<fire_models::SessionSnapshot, FireCoreError> {
+        match serde_json::from_str::<PersistedSessionEnvelope>(json) {
+            Ok(envelope) => self.normalize_persisted_snapshot(envelope),
+            Err(envelope_error) => {
+                let legacy_snapshot: LegacyPersistedSessionSnapshot = serde_json::from_str(json)
+                    .map_err(|_| FireCoreError::PersistDeserialize(envelope_error))?;
+                warn!("restoring legacy persisted session without envelope metadata");
+                self.normalize_snapshot_for_restore(legacy_snapshot.into())
+            }
+        }
+    }
+
     fn normalize_persisted_snapshot(
         &self,
         envelope: PersistedSessionEnvelope,
@@ -77,7 +93,13 @@ impl FireCore {
             });
         }
 
-        let mut snapshot = envelope.snapshot;
+        self.normalize_snapshot_for_restore(envelope.snapshot)
+    }
+
+    fn normalize_snapshot_for_restore(
+        &self,
+        mut snapshot: fire_models::SessionSnapshot,
+    ) -> Result<fire_models::SessionSnapshot, FireCoreError> {
         let persisted_base_url = snapshot.bootstrap.base_url.clone();
         if !persisted_base_url.is_empty() && persisted_base_url != self.base_url() {
             return Err(FireCoreError::PersistBaseUrlMismatch {

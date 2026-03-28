@@ -96,6 +96,62 @@ fn session_can_roundtrip_through_json_export_and_restore() {
 }
 
 #[test]
+fn restore_accepts_legacy_unversioned_ios_stub_session_json() {
+    let core = FireCore::new(FireCoreConfig::default()).expect("core");
+    let json = r#"
+{
+  "cookies": {
+    "tToken": "token",
+    "forumSession": "forum",
+    "cfClearance": "clearance",
+    "csrfToken": "csrf-token"
+  },
+  "bootstrap": {
+    "baseUrl": "https://linux.do/",
+    "discourseBaseUri": "/",
+    "sharedSessionKey": "shared-session",
+    "currentUsername": "alice",
+    "longPollingBaseUrl": "https://linux.do",
+    "turnstileSitekey": "sitekey",
+    "topicTrackingStateMeta": "{\"message_bus_last_id\":42}",
+    "preloadedJson": "{\"currentUser\":{\"username\":\"alice\"}}",
+    "hasPreloadedData": true
+  },
+  "readiness": {
+    "hasLoginCookie": true,
+    "hasForumSession": true,
+    "hasCloudflareClearance": true,
+    "hasCsrfToken": true,
+    "hasCurrentUser": true,
+    "hasPreloadedData": true,
+    "hasSharedSessionKey": true,
+    "canReadAuthenticatedApi": true,
+    "canWriteAuthenticatedApi": true,
+    "canOpenMessageBus": true
+  },
+  "loginPhase": "ready",
+  "hasLoginSession": true
+}
+"#;
+
+    let restored = core
+        .restore_session_json(json.to_string())
+        .expect("restore");
+
+    assert_eq!(restored.cookies.t_token.as_deref(), Some("token"));
+    assert_eq!(restored.cookies.forum_session.as_deref(), Some("forum"));
+    assert_eq!(restored.cookies.cf_clearance.as_deref(), Some("clearance"));
+    assert_eq!(restored.cookies.csrf_token.as_deref(), Some("csrf-token"));
+    assert_eq!(restored.bootstrap.base_url, "https://linux.do/");
+    assert_eq!(
+        restored.bootstrap.current_username.as_deref(),
+        Some("alice")
+    );
+    assert!(restored.bootstrap.has_preloaded_data);
+    assert_eq!(restored.login_phase(), LoginPhase::Ready);
+}
+
+#[test]
 fn restore_drops_incomplete_login_state_but_keeps_cf_clearance() {
     let core = FireCore::new(FireCoreConfig::default()).expect("core");
     let json = r#"

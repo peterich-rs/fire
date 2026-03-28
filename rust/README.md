@@ -12,6 +12,12 @@ Current crates:
   - keeps its generator settings in `crates/fire-uniffi/uniffi.toml`
   - is the only crate that should carry UniFFI-specific binding configuration
 
+CI now validates this workspace in three layers:
+
+- host Rust build/test on macOS, Windows, and Ubuntu
+- Android cross-target Rust builds for the UniFFI shared library targets
+- iOS cross-target Rust builds for the UniFFI static library targets
+
 Local third-party dependencies are wired in from:
 
 - `third_party/openwire`

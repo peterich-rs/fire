@@ -103,7 +103,15 @@ tasks.matching { it.name == "preDebugBuild" }.configureEach {
     dependsOn(syncFireUniffiDebugBindings)
 }
 
+tasks.matching { it.name == "preDebugUnitTestBuild" }.configureEach {
+    dependsOn(syncFireUniffiDebugBindings)
+}
+
 tasks.matching { it.name == "preReleaseBuild" }.configureEach {
+    dependsOn(syncFireUniffiReleaseBindings)
+}
+
+tasks.matching { it.name == "preReleaseUnitTestBuild" }.configureEach {
     dependsOn(syncFireUniffiReleaseBindings)
 }
 
@@ -122,4 +130,6 @@ dependencies {
     implementation("com.google.android.material:material:1.12.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.1")
     implementation("net.java.dev.jna:jna:5.16.0@aar")
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20240303")
 }

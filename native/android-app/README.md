@@ -18,6 +18,7 @@ Current host-side app wiring lives under `src/main/java/com/fire/app/` plus `src
   - reads generator settings from `rust/crates/fire-uniffi/uniffi.toml`
   - generates Kotlin bindings from `fire-uniffi`
   - cross-compiles `libfire_uniffi.so` for `arm64-v8a` and `x86_64`
+  - resolves the host-side UniFFI metadata library extension per OS so Gradle sync can run on macOS and Linux CI
   - writes variant-specific generated sources and JNI libraries into the Gradle build directory
 - `FireWebViewLoginCoordinator.kt`
   - reads `WebView` cookies, `current-username`, `csrf-token`, and page HTML
@@ -67,11 +68,14 @@ Current browser note:
 Note:
 
 - The generated Kotlin bindings are configured by `rust/crates/fire-uniffi/uniffi.toml`, currently use the `uniffi.fire_uniffi` package, and load `libfire_uniffi.so` through JNA.
+- Android Rust targets now inherit `-Wl,-z,max-page-size=16384` from `.cargo/config.toml` so packaged shared libraries are aligned for Android 15+ 16 KB page-size compatibility.
 - `assembleDebug` now packages Rust debug `.so` outputs and `assembleRelease` packages Rust release `.so` outputs.
 - Build with a full JDK that includes `jlink`. On this machine, `ANDROID_HOME=$HOME/Library/Android/sdk ANDROID_SDK_ROOT=$HOME/Library/Android/sdk JAVA_HOME=/Library/Java/JavaVirtualMachines/temurin-17.jdk/Contents/Home ./gradlew assembleDebug` and `./gradlew assembleRelease` are verified working.
 - The Gradle build expects an Android SDK/NDK installation. By default the sync script resolves the NDK from `$ANDROID_NDK_HOME`, `$ANDROID_NDK_ROOT`, or `$ANDROID_HOME/ndk/28.2.13676358`.
 - Async UniFFI bindings rely on `kotlinx-coroutines-core`, which is now declared directly by this module.
 - Android does not have an iOS-style runtime "internet permission" prompt for ordinary web access. `android.permission.INTERNET` is a normal install-time permission, so there is no separate network-permission preflight to mirror.
+
+Unit test coverage now starts with `src/test/java/com/fire/app/TopicPresentationTest.kt`, and CI runs `./gradlew testDebugUnitTest assembleDebug assembleRelease`.
 
 Planned responsibilities beyond the current wiring:
 

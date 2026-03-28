@@ -26,6 +26,22 @@ toolchain_prebuilt_dir="$(find "$android_ndk_root/toolchains/llvm/prebuilt" -min
 toolchain_bin_dir="$toolchain_prebuilt_dir/bin"
 llvm_ar="$toolchain_bin_dir/llvm-ar"
 
+case "$(uname -s)" in
+  Darwin)
+    host_library_filename="libfire_uniffi.dylib"
+    ;;
+  Linux)
+    host_library_filename="libfire_uniffi.so"
+    ;;
+  MINGW*|MSYS*|CYGWIN*)
+    host_library_filename="fire_uniffi.dll"
+    ;;
+  *)
+    echo "unsupported host platform for UniFFI bindgen library resolution" >&2
+    exit 1
+    ;;
+esac
+
 if [[ ! -x "$llvm_ar" ]]; then
   echo "unable to locate llvm-ar under $android_ndk_root" >&2
   exit 1
@@ -95,7 +111,7 @@ build_android_target() {
     --no-format \
     --config "$uniffi_config_path" \
     --out-dir "$tmp_dir" \
-    "rust/target/$profile_dir/libfire_uniffi.dylib"
+    "rust/target/$profile_dir/$host_library_filename"
 )
 
 mkdir -p "$generated_kotlin_dir/uniffi/fire_uniffi"

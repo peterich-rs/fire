@@ -1,6 +1,19 @@
 name: Fire
 options:
   minimumXcodeGenVersion: 2.45.3
+schemes:
+  Fire:
+    build:
+      targets:
+        Fire: all
+        FireTests:
+          - test
+    test:
+      gatherCoverageData: true
+      targets:
+        - name: FireTests
+          parallelizable: true
+          randomExecutionOrder: true
 settings:
   base:
     SWIFT_VERSION: "5.10"
@@ -58,3 +71,17 @@ targets:
           - $(SRCROOT)/Generated/fire_uniffiFFI/fire_uniffiFFI.h
           - $(SRCROOT)/Generated/fire_uniffiFFI/module.modulemap
           - $(SRCROOT)/Generated/lib/$(PLATFORM_NAME)/libfire_uniffi.a
+  FireTests:
+    type: bundle.unit-test
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: Tests/Unit
+    dependencies:
+      - target: Fire
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        SWIFT_INCLUDE_PATHS:
+          - "$(inherited)"
+          - "$(SRCROOT)/Generated"

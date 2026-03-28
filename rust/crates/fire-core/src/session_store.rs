@@ -4,7 +4,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use fire_models::SessionSnapshot;
+use fire_models::{BootstrapArtifacts, CookieSnapshot, SessionSnapshot};
 use serde::{Deserialize, Serialize};
 
 use crate::parsing::hydrate_preloaded_fields;
@@ -24,6 +24,82 @@ impl PersistedSessionEnvelope {
             version: Self::CURRENT_VERSION,
             saved_at_unix_ms: now_unix_ms(),
             snapshot,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct LegacyPersistedSessionSnapshot {
+    pub(crate) cookies: LegacyCookieSnapshot,
+    pub(crate) bootstrap: LegacyBootstrapArtifacts,
+}
+
+impl From<LegacyPersistedSessionSnapshot> for SessionSnapshot {
+    fn from(value: LegacyPersistedSessionSnapshot) -> Self {
+        Self {
+            cookies: value.cookies.into(),
+            bootstrap: value.bootstrap.into(),
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct LegacyCookieSnapshot {
+    #[serde(alias = "tToken")]
+    pub(crate) t_token: Option<String>,
+    #[serde(alias = "forumSession")]
+    pub(crate) forum_session: Option<String>,
+    #[serde(alias = "cfClearance")]
+    pub(crate) cf_clearance: Option<String>,
+    #[serde(alias = "csrfToken")]
+    pub(crate) csrf_token: Option<String>,
+}
+
+impl From<LegacyCookieSnapshot> for CookieSnapshot {
+    fn from(value: LegacyCookieSnapshot) -> Self {
+        Self {
+            t_token: value.t_token,
+            forum_session: value.forum_session,
+            cf_clearance: value.cf_clearance,
+            csrf_token: value.csrf_token,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct LegacyBootstrapArtifacts {
+    #[serde(alias = "baseUrl")]
+    pub(crate) base_url: String,
+    #[serde(alias = "discourseBaseUri")]
+    pub(crate) discourse_base_uri: Option<String>,
+    #[serde(alias = "sharedSessionKey")]
+    pub(crate) shared_session_key: Option<String>,
+    #[serde(alias = "currentUsername")]
+    pub(crate) current_username: Option<String>,
+    #[serde(alias = "longPollingBaseUrl")]
+    pub(crate) long_polling_base_url: Option<String>,
+    #[serde(alias = "turnstileSitekey")]
+    pub(crate) turnstile_sitekey: Option<String>,
+    #[serde(alias = "topicTrackingStateMeta")]
+    pub(crate) topic_tracking_state_meta: Option<String>,
+    #[serde(alias = "preloadedJson")]
+    pub(crate) preloaded_json: Option<String>,
+    #[serde(default, alias = "hasPreloadedData")]
+    pub(crate) has_preloaded_data: bool,
+}
+
+impl From<LegacyBootstrapArtifacts> for BootstrapArtifacts {
+    fn from(value: LegacyBootstrapArtifacts) -> Self {
+        Self {
+            base_url: value.base_url,
+            discourse_base_uri: value.discourse_base_uri,
+            shared_session_key: value.shared_session_key,
+            current_username: value.current_username,
+            long_polling_base_url: value.long_polling_base_url,
+            turnstile_sitekey: value.turnstile_sitekey,
+            topic_tracking_state_meta: value.topic_tracking_state_meta,
+            preloaded_json: value.preloaded_json,
+            has_preloaded_data: value.has_preloaded_data,
         }
     }
 }

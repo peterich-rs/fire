@@ -1,5 +1,7 @@
 package com.fire.app
 
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Intent
 import android.os.Bundle
 import android.view.View
@@ -7,6 +9,7 @@ import android.view.ViewGroup
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.text.HtmlCompat
@@ -34,6 +37,7 @@ class MainActivity : AppCompatActivity() {
     private var currentTopicList: TopicListState? = null
     private var topicCategories: Map<ULong, TopicCategoryPresentation> = emptyMap()
     private var browserStatusMessage: String? = null
+    private var lastErrorMessage: String? = null
     private var isBrowserLoading = false
     private var isLoadingMoreFeed = false
     private var session: SessionState = placeholderSession()
@@ -59,6 +63,7 @@ class MainActivity : AppCompatActivity() {
         binding.logoutButton.setOnClickListener { logout() }
         binding.refreshFeedButton.setOnClickListener { reloadCurrentFeed() }
         binding.loadMoreButton.setOnClickListener { loadMoreFeed() }
+        binding.copyLastErrorButton.setOnClickListener { copyLastError() }
 
         binding.latestButton.setOnClickListener { loadFeed(TopicListKindState.LATEST) }
         binding.newButton.setOnClickListener { loadFeed(TopicListKindState.NEW) }
@@ -72,12 +77,14 @@ class MainActivity : AppCompatActivity() {
 
     private fun refreshSessionAndFeed() {
         lifecycleScope.launch {
+            clearLastError()
             try {
                 applySession(sessionStore.restorePersistedSessionIfAvailable() ?: sessionStore.snapshot())
                 renderSession(session)
                 reloadCurrentFeed()
             } catch (error: Exception) {
-                browserStatusMessage = error.localizedMessage
+                recordLastError(error)
+                browserStatusMessage = lastErrorMessage
                 renderSession(session)
                 renderBrowser()
             }
@@ -86,12 +93,14 @@ class MainActivity : AppCompatActivity() {
 
     private fun refreshBootstrap() {
         lifecycleScope.launch {
+            clearLastError()
             try {
                 applySession(sessionStore.refreshBootstrapIfNeeded())
                 renderSession(session)
                 reloadCurrentFeed()
             } catch (error: Exception) {
-                browserStatusMessage = error.localizedMessage
+                recordLastError(error)
+                browserStatusMessage = lastErrorMessage
                 renderSession(session)
                 renderBrowser()
             }
@@ -100,6 +109,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun logout() {
         lifecycleScope.launch {
+            clearLastError()
             try {
                 applySession(sessionStore.logout())
                 currentFeedKind = TopicListKindState.LATEST
@@ -110,7 +120,8 @@ class MainActivity : AppCompatActivity() {
                 renderSession(session)
                 reloadCurrentFeed()
             } catch (error: Exception) {
-                browserStatusMessage = error.localizedMessage
+                recordLastError(error)
+                browserStatusMessage = lastErrorMessage
                 renderSession(session)
                 renderBrowser()
             }
@@ -133,6 +144,7 @@ class MainActivity : AppCompatActivity() {
         page: UInt? = null,
     ) {
         lifecycleScope.launch {
+            clearLastError()
             currentFeedKind = kind
             isLoadingMoreFeed = !reset
             setBrowserLoading(
@@ -179,7 +191,8 @@ class MainActivity : AppCompatActivity() {
                 isLoadingMoreFeed = false
                 renderBrowser()
             } catch (error: Exception) {
-                browserStatusMessage = error.localizedMessage
+                recordLastError(error)
+                browserStatusMessage = lastErrorMessage
                 setBrowserLoading(false, browserStatusMessage)
                 isLoadingMoreFeed = false
                 renderSession(session)
@@ -250,6 +263,13 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun renderLastError() {
+        val errorMessage = lastErrorMessage
+        binding.lastErrorSection.visibility = if (errorMessage.isNullOrBlank()) View.GONE else View.VISIBLE
+        binding.lastErrorText.text = errorMessage.orEmpty()
+        binding.copyLastErrorButton.isEnabled = !errorMessage.isNullOrBlank()
+    }
+
     private fun renderBrowser() {
         updateFeedButtonState()
         binding.browserStatusText.text = browserStatusMessage ?: browserFeedSummary(currentTopicList)
@@ -314,6 +334,29 @@ class MainActivity : AppCompatActivity() {
         isBrowserLoading = loading
         browserStatusMessage = message
         updateFeedButtonState()
+    }
+
+    private fun recordLastError(error: Throwable) {
+        lastErrorMessage = error.localizedMessage?.takeIf { it.isNotBlank() } ?: error.toString()
+        renderLastError()
+    }
+
+    private fun clearLastError() {
+        if (lastErrorMessage == null) {
+            return
+        }
+
+        lastErrorMessage = null
+        renderLastError()
+    }
+
+    private fun copyLastError() {
+        val errorMessage = lastErrorMessage ?: return
+        val clipboard = getSystemService(ClipboardManager::class.java) ?: return
+        clipboard.setPrimaryClip(
+            ClipData.newPlainText(getString(R.string.last_error_title), errorMessage),
+        )
+        Toast.makeText(this, R.string.last_error_copied, Toast.LENGTH_SHORT).show()
     }
 
     private fun browserFeedSummary(topicList: TopicListState?): String {

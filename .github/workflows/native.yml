@@ -1,0 +1,112 @@
+name: Native CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  android:
+    name: Android Build And Unit Test
+    runs-on: ubuntu-24.04
+    env:
+      ANDROID_NDK_VERSION: 28.2.13676358
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK and NDK packages
+        shell: bash
+        run: |
+          yes | sdkmanager --licenses >/dev/null
+          sdkmanager \
+            "platform-tools" \
+            "platforms;android-35" \
+            "build-tools;35.0.0" \
+            "ndk;${ANDROID_NDK_VERSION}"
+
+      - name: Install Rust toolchain and Android targets
+        shell: bash
+        run: |
+          rustup toolchain install 1.85.0 --profile minimal
+          rustup default 1.85.0
+          rustup target add aarch64-linux-android x86_64-linux-android
+
+      - name: Run Android unit tests and builds
+        working-directory: native/android-app
+        env:
+          ANDROID_HOME: ${{ env.ANDROID_SDK_ROOT }}
+          ANDROID_SDK_ROOT: ${{ env.ANDROID_SDK_ROOT }}
+          ANDROID_NDK_VERSION: ${{ env.ANDROID_NDK_VERSION }}
+        run: ./gradlew testDebugUnitTest assembleDebug assembleRelease
+
+  ios:
+    name: iOS Build And Unit Test
+    runs-on: macos-15
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Rust toolchain and iOS targets
+        shell: bash
+        run: |
+          rustup toolchain install 1.85.0 --profile minimal
+          rustup default 1.85.0
+          rustup target add aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios
+
+      - name: Install XcodeGen
+        shell: bash
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate --spec native/ios-app/project.yml
+
+      - name: Run iOS unit tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          device_type_id="$(xcrun simctl list devicetypes available | awk -F '[()]' '/^iPhone / {print $2; exit}')"
+          runtime_id="$(xcrun simctl list runtimes available | awk -F '[()]' '/^iOS .* - com.apple.CoreSimulator.SimRuntime.iOS-/ {id=$2} END {print id}')"
+          sim_id="$(xcrun simctl create Fire-CI "$device_type_id" "$runtime_id")"
+          trap 'xcrun simctl delete "$sim_id"' EXIT
+          xcrun simctl boot "$sim_id" || true
+          xcrun simctl bootstatus "$sim_id" -b
+          xcodebuild \
+            -project native/ios-app/Fire.xcodeproj \
+            -scheme Fire \
+            -destination "id=$sim_id" \
+            -derivedDataPath /tmp/fire-ios-tests \
+            CODE_SIGNING_ALLOWED=NO \
+            test
+
+      - name: Build iOS app for device
+        run: |
+          xcodebuild \
+            -project native/ios-app/Fire.xcodeproj \
+            -scheme Fire \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath /tmp/fire-ios-release \
+            CODE_SIGNING_ALLOWED=NO \
+            build

@@ -7,6 +7,7 @@
     <string name="action_refresh_bootstrap">Refresh Bootstrap</string>
     <string name="action_refresh_topics">Refresh Topics</string>
     <string name="action_load_more">Load More Topics</string>
+    <string name="action_copy_last_error">Copy Last Error</string>
     <string name="action_refresh">Refresh</string>
     <string name="action_logout">Logout</string>
     <string name="action_close">Close</string>
@@ -18,6 +19,8 @@
     <string name="login_title">LinuxDo Login</string>
     <string name="login_url">https://linux.do</string>
     <string name="browser_title">Topic Browser</string>
+    <string name="last_error_title">Last Error</string>
+    <string name="last_error_copied">Last error copied.</string>
     <string name="browser_loading">Loading topics…</string>
     <string name="browser_loading_more">Loading more topics…</string>
     <string name="browser_empty">No topics available for this feed.</string>

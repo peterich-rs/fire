@@ -45,6 +45,40 @@ async fn fetch_topic_list_parses_latest_payload() {
 }
 
 #[tokio::test]
+async fn fetch_topic_list_tolerates_object_poster_metadata_fields() {
+    let payload = sample_latest_json()
+        .replace(
+            r#""description": "Original Poster""#,
+            r#""description": {"localized": "Original Poster"}"#,
+        )
+        .replace(r#""extras": "latest""#, r#""extras": {"role": "latest"}"#);
+    let responses = vec![raw_json_response(200, "application/json", &payload)];
+    let server = TestServer::spawn(responses).await.expect("server");
+    let core = FireCore::new(FireCoreConfig {
+        base_url: server.base_url(),
+        workspace_path: None,
+    })
+    .expect("core");
+
+    let response = core
+        .fetch_topic_list(TopicListQuery {
+            kind: TopicListKind::Latest,
+            page: None,
+            topic_ids: Vec::new(),
+            order: None,
+            ascending: None,
+        })
+        .await
+        .expect("topic list");
+    let _ = server.shutdown().await;
+
+    assert_eq!(response.topics.len(), 1);
+    assert_eq!(response.topics[0].posters.len(), 1);
+    assert_eq!(response.topics[0].posters[0].description, None);
+    assert_eq!(response.topics[0].posters[0].extras, None);
+}
+
+#[tokio::test]
 async fn fetch_topic_detail_parses_detail_payload() {
     let responses = vec![raw_json_response(
         200,

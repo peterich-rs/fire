@@ -80,6 +80,7 @@ class TopicDetailActivity : AppCompatActivity() {
     }
 
     private fun renderDetail(detail: TopicDetailState) {
+        val tagNames = TopicPresentation.tagNames(detail.tags)
         binding.pageTitleText.text = detail.title
         binding.pageMetaText.text = buildList {
             add(getString(R.string.topic_detail_topic_number, detail.id.toString()))
@@ -90,8 +91,8 @@ class TopicDetailActivity : AppCompatActivity() {
             add(getString(R.string.topic_detail_views_count, detail.views.toString()))
             add(getString(R.string.topic_detail_likes_count, detail.likeCount.toString()))
             detail.lastReadPostNumber?.let { add(getString(R.string.topic_detail_last_read, it.toString())) }
-            if (detail.tags.isNotEmpty()) {
-                add("#${detail.tags.joinToString(" #")}")
+            if (tagNames.isNotEmpty()) {
+                add("#${tagNames.joinToString(" #")}")
             }
         }.joinToString(" · ")
 

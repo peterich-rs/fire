@@ -229,14 +229,15 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun selectedTopicMeta(topic: TopicSummaryState): String {
+        val tagNames = TopicPresentation.tagNames(topic.tags)
         return buildList {
             categoryLabelFor(topic.categoryId)?.let(::add)
             topic.lastPosterUsername?.let(::add)
             TopicPresentation.formatTimestamp(topic.lastPostedAt ?: topic.createdAt)?.let(::add)
             add("${topic.postsCount} posts")
             add("${topic.views} views")
-            if (topic.tags.isNotEmpty()) {
-                add("#${topic.tags.joinToString(" #")}")
+            if (tagNames.isNotEmpty()) {
+                add("#${tagNames.joinToString(" #")}")
             }
         }.joinToString(" · ")
     }
@@ -394,6 +395,7 @@ class MainActivity : AppCompatActivity() {
         val excerpt = topic.excerpt
             ?.takeIf { it.isNotBlank() }
             ?.let { HtmlCompat.fromHtml(it, HtmlCompat.FROM_HTML_MODE_LEGACY).toString().trim() }
+        val tagNames = TopicPresentation.tagNames(topic.tags)
 
         return Button(this).apply {
             isAllCaps = false
@@ -416,8 +418,8 @@ class MainActivity : AppCompatActivity() {
                     append("\n")
                     append(lastActivity.joinToString(" · "))
                 }
-                if (topic.tags.isNotEmpty()) {
-                    append(" · #${topic.tags.joinToString(" #")}")
+                if (tagNames.isNotEmpty()) {
+                    append(" · #${tagNames.joinToString(" #")}")
                 }
                 if (!excerpt.isNullOrBlank()) {
                     append("\n")

@@ -12,7 +12,7 @@ use fire_models::{
     BootstrapArtifacts, CookieSnapshot, LoginPhase, LoginSyncInput, PlatformCookie,
     SessionReadiness, SessionSnapshot, TopicDetail, TopicDetailCreatedBy, TopicDetailMeta,
     TopicDetailQuery, TopicListKind, TopicListQuery, TopicListResponse, TopicPost, TopicPostStream,
-    TopicPoster, TopicReaction, TopicSummary, TopicUser,
+    TopicPoster, TopicReaction, TopicSummary, TopicTag, TopicUser,
 };
 use tokio::runtime::{Builder, Runtime};
 
@@ -333,6 +333,23 @@ impl From<TopicPoster> for TopicPosterState {
 }
 
 #[derive(uniffi::Record, Debug, Clone)]
+pub struct TopicTagState {
+    pub id: Option<u64>,
+    pub name: String,
+    pub slug: Option<String>,
+}
+
+impl From<TopicTag> for TopicTagState {
+    fn from(value: TopicTag) -> Self {
+        Self {
+            id: value.id,
+            name: value.name,
+            slug: value.slug,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
 pub struct TopicSummaryState {
     pub id: u64,
     pub title: String,
@@ -350,7 +367,7 @@ pub struct TopicSummaryState {
     pub visible: bool,
     pub closed: bool,
     pub archived: bool,
-    pub tags: Vec<String>,
+    pub tags: Vec<TopicTagState>,
     pub posters: Vec<TopicPosterState>,
     pub unseen: bool,
     pub unread_posts: u32,
@@ -380,7 +397,7 @@ impl From<TopicSummary> for TopicSummaryState {
             visible: value.visible,
             closed: value.closed,
             archived: value.archived,
-            tags: value.tags,
+            tags: value.tags.into_iter().map(Into::into).collect(),
             posters: value.posters.into_iter().map(Into::into).collect(),
             unseen: value.unseen,
             unread_posts: value.unread_posts,
@@ -572,7 +589,7 @@ pub struct TopicDetailState {
     pub slug: String,
     pub posts_count: u32,
     pub category_id: Option<u64>,
-    pub tags: Vec<String>,
+    pub tags: Vec<TopicTagState>,
     pub views: u32,
     pub like_count: u32,
     pub created_at: Option<String>,
@@ -599,7 +616,7 @@ impl From<TopicDetail> for TopicDetailState {
             slug: value.slug,
             posts_count: value.posts_count,
             category_id: value.category_id,
-            tags: value.tags,
+            tags: value.tags.into_iter().map(Into::into).collect(),
             views: value.views,
             like_count: value.like_count,
             created_at: value.created_at,

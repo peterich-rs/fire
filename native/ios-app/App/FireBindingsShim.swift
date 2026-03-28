@@ -211,6 +211,18 @@ public struct TopicPosterState: Codable, Sendable {
     }
 }
 
+public struct TopicTagState: Codable, Sendable {
+    public var id: UInt64?
+    public var name: String
+    public var slug: String?
+
+    public init(id: UInt64?, name: String, slug: String?) {
+        self.id = id
+        self.name = name
+        self.slug = slug
+    }
+}
+
 public struct TopicSummaryState: Codable, Sendable {
     public var id: UInt64
     public var title: String
@@ -228,7 +240,7 @@ public struct TopicSummaryState: Codable, Sendable {
     public var visible: Bool
     public var closed: Bool
     public var archived: Bool
-    public var tags: [String]
+    public var tags: [TopicTagState]
     public var posters: [TopicPosterState]
     public var unseen: Bool
     public var unreadPosts: UInt32
@@ -255,7 +267,7 @@ public struct TopicSummaryState: Codable, Sendable {
         visible: Bool,
         closed: Bool,
         archived: Bool,
-        tags: [String],
+        tags: [TopicTagState],
         posters: [TopicPosterState],
         unseen: Bool,
         unreadPosts: UInt32,
@@ -456,7 +468,7 @@ public struct TopicDetailState: Codable, Sendable {
     public var slug: String
     public var postsCount: UInt32
     public var categoryId: UInt64?
-    public var tags: [String]
+    public var tags: [TopicTagState]
     public var views: UInt32
     public var likeCount: UInt32
     public var createdAt: String?
@@ -480,7 +492,7 @@ public struct TopicDetailState: Codable, Sendable {
         slug: String,
         postsCount: UInt32,
         categoryId: UInt64?,
-        tags: [String],
+        tags: [TopicTagState],
         views: UInt32,
         likeCount: UInt32,
         createdAt: String?,
@@ -925,7 +937,10 @@ public final class FireCoreHandle {
                 visible: true,
                 closed: false,
                 archived: false,
-                tags: ["fire", "native"],
+                tags: [
+                    TopicTagState(id: nil, name: "fire", slug: nil),
+                    TopicTagState(id: nil, name: "native", slug: nil),
+                ],
                 posters: [
                     TopicPosterState(userId: 1, description: "Original Poster", extras: nil),
                     TopicPosterState(userId: 3, description: "Frequent Poster", extras: "latest"),
@@ -955,7 +970,10 @@ public final class FireCoreHandle {
                 visible: true,
                 closed: false,
                 archived: false,
-                tags: ["uniffi", "roadmap"],
+                tags: [
+                    TopicTagState(id: nil, name: "uniffi", slug: nil),
+                    TopicTagState(id: nil, name: "roadmap", slug: nil),
+                ],
                 posters: [
                     TopicPosterState(userId: 2, description: "Original Poster", extras: nil),
                     TopicPosterState(userId: 3, description: "Most Recent Poster", extras: nil),
@@ -985,7 +1003,9 @@ public final class FireCoreHandle {
                 visible: true,
                 closed: false,
                 archived: false,
-                tags: ["messagebus"],
+                tags: [
+                    TopicTagState(id: nil, name: "messagebus", slug: nil),
+                ],
                 posters: [
                     TopicPosterState(userId: 2, description: "Original Poster", extras: nil),
                 ],
@@ -1024,7 +1044,10 @@ public final class FireCoreHandle {
                 slug: "fire-native-first-read-path",
                 postsCount: 24,
                 categoryId: 2,
-                tags: ["fire", "native"],
+                tags: [
+                    TopicTagState(id: nil, name: "fire", slug: nil),
+                    TopicTagState(id: nil, name: "native", slug: nil),
+                ],
                 views: 512,
                 likeCount: 34,
                 createdAt: "2026-03-28T09:30:00Z",
@@ -1107,7 +1130,10 @@ public final class FireCoreHandle {
                 slug: "replace-host-stubs-with-uniffi",
                 postsCount: 13,
                 categoryId: 3,
-                tags: ["uniffi", "roadmap"],
+                tags: [
+                    TopicTagState(id: nil, name: "uniffi", slug: nil),
+                    TopicTagState(id: nil, name: "roadmap", slug: nil),
+                ],
                 views: 340,
                 likeCount: 22,
                 createdAt: "2026-03-28T08:45:00Z",
@@ -1167,7 +1193,9 @@ public final class FireCoreHandle {
                 slug: "messagebus-orchestration-planning-thread",
                 postsCount: 9,
                 categoryId: 4,
-                tags: ["messagebus"],
+                tags: [
+                    TopicTagState(id: nil, name: "messagebus", slug: nil),
+                ],
                 views: 201,
                 likeCount: 11,
                 createdAt: "2026-03-27T16:15:00Z",

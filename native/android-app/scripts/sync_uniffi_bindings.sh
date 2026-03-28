@@ -14,6 +14,7 @@ repo_root="$(cd -- "$script_dir/../../.." && pwd)"
 uniffi_config_path="$repo_root/rust/crates/fire-uniffi/uniffi.toml"
 build_profile="${FIRE_BUILD_PROFILE:-debug}"
 profile_dir="debug"
+host_bindings_profile_dir="debug"
 
 if [[ "$build_profile" == "release" ]]; then
   profile_dir="release"
@@ -101,10 +102,13 @@ build_android_target() {
 
 (
   cd "$repo_root"
+  # Generate Kotlin bindings from an unstripped host build. The workspace release
+  # profile enables `strip = true`, which removes the UniFFI metadata from Linux
+  # release host libraries and leaves bindgen with no Kotlin files to emit.
+  cargo build -p fire-uniffi
+
   if [[ "$profile_dir" == "release" ]]; then
     cargo build -p fire-uniffi --release
-  else
-    cargo build -p fire-uniffi
   fi
   cargo run -p fire-uniffi --bin uniffi-bindgen -- generate \
     --library \
@@ -112,7 +116,7 @@ build_android_target() {
     --no-format \
     --config "$uniffi_config_path" \
     --out-dir "$tmp_dir" \
-    "rust/target/$profile_dir/$host_library_filename"
+    "rust/target/$host_bindings_profile_dir/$host_library_filename"
 )
 
 if ! find "$tmp_dir" -type f -name '*.kt' | grep -q .; then

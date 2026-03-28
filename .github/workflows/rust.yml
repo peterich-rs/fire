@@ -9,6 +9,9 @@ on:
 permissions:
   contents: read
 
+env:
+  RUST_TOOLCHAIN: 1.88.0
+
 concurrency:
   group: rust-ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -26,8 +29,8 @@ jobs:
       - name: Install Rust toolchain
         shell: bash
         run: |
-          rustup toolchain install 1.85.0 --profile minimal --component rustfmt --component clippy
-          rustup default 1.85.0
+          rustup toolchain install "${RUST_TOOLCHAIN}" --profile minimal --component rustfmt --component clippy
+          rustup default "${RUST_TOOLCHAIN}"
 
       - name: Check formatting
         run: cargo fmt --all --check
@@ -54,8 +57,8 @@ jobs:
       - name: Install Rust toolchain
         shell: bash
         run: |
-          rustup toolchain install 1.85.0 --profile minimal
-          rustup default 1.85.0
+          rustup toolchain install "${RUST_TOOLCHAIN}" --profile minimal
+          rustup default "${RUST_TOOLCHAIN}"
 
       - name: Run workspace tests
         shell: bash
@@ -77,14 +80,17 @@ jobs:
       - name: Install Rust toolchain
         shell: bash
         run: |
-          rustup toolchain install 1.85.0 --profile minimal
-          rustup default 1.85.0
+          rustup toolchain install "${RUST_TOOLCHAIN}" --profile minimal
+          rustup default "${RUST_TOOLCHAIN}"
           rustup target add aarch64-linux-android x86_64-linux-android
 
       - name: Install Android NDK
         shell: bash
         run: |
+          set -euo pipefail
+          set +o pipefail
           yes | sdkmanager --licenses >/dev/null
+          set -o pipefail
           sdkmanager "ndk;${ANDROID_NDK_VERSION}"
 
       - name: Build fire-uniffi for Android
@@ -124,8 +130,8 @@ jobs:
       - name: Install Rust toolchain
         shell: bash
         run: |
-          rustup toolchain install 1.85.0 --profile minimal
-          rustup default 1.85.0
+          rustup toolchain install "${RUST_TOOLCHAIN}" --profile minimal
+          rustup default "${RUST_TOOLCHAIN}"
           rustup target add aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios
 
       - name: Build fire-uniffi for iOS

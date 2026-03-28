@@ -3,7 +3,9 @@ use std::sync::{Arc, OnceLock};
 use fire_core::{FireCore, FireCoreConfig, FireCoreError};
 use fire_models::{
     BootstrapArtifacts, CookieSnapshot, LoginPhase, LoginSyncInput, PlatformCookie,
-    SessionReadiness, SessionSnapshot,
+    SessionReadiness, SessionSnapshot, TopicDetail, TopicDetailCreatedBy, TopicDetailMeta,
+    TopicDetailQuery, TopicListKind, TopicListQuery, TopicListResponse, TopicPost, TopicPostStream,
+    TopicPoster, TopicReaction, TopicSummary, TopicUser,
 };
 use tokio::runtime::{Builder, Runtime};
 
@@ -220,6 +222,397 @@ impl SessionState {
     }
 }
 
+#[derive(uniffi::Enum, Debug, Clone, Copy)]
+pub enum TopicListKindState {
+    Latest,
+    New,
+    Unread,
+    Unseen,
+    Hot,
+    Top,
+}
+
+impl From<TopicListKind> for TopicListKindState {
+    fn from(value: TopicListKind) -> Self {
+        match value {
+            TopicListKind::Latest => Self::Latest,
+            TopicListKind::New => Self::New,
+            TopicListKind::Unread => Self::Unread,
+            TopicListKind::Unseen => Self::Unseen,
+            TopicListKind::Hot => Self::Hot,
+            TopicListKind::Top => Self::Top,
+        }
+    }
+}
+
+impl From<TopicListKindState> for TopicListKind {
+    fn from(value: TopicListKindState) -> Self {
+        match value {
+            TopicListKindState::Latest => Self::Latest,
+            TopicListKindState::New => Self::New,
+            TopicListKindState::Unread => Self::Unread,
+            TopicListKindState::Unseen => Self::Unseen,
+            TopicListKindState::Hot => Self::Hot,
+            TopicListKindState::Top => Self::Top,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct TopicListQueryState {
+    pub kind: TopicListKindState,
+    pub page: Option<u32>,
+    pub topic_ids: Vec<u64>,
+    pub order: Option<String>,
+    pub ascending: Option<bool>,
+}
+
+impl From<TopicListQuery> for TopicListQueryState {
+    fn from(value: TopicListQuery) -> Self {
+        Self {
+            kind: value.kind.into(),
+            page: value.page,
+            topic_ids: value.topic_ids,
+            order: value.order,
+            ascending: value.ascending,
+        }
+    }
+}
+
+impl From<TopicListQueryState> for TopicListQuery {
+    fn from(value: TopicListQueryState) -> Self {
+        Self {
+            kind: value.kind.into(),
+            page: value.page,
+            topic_ids: value.topic_ids,
+            order: value.order,
+            ascending: value.ascending,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct TopicUserState {
+    pub id: u64,
+    pub username: String,
+    pub avatar_template: Option<String>,
+}
+
+impl From<TopicUser> for TopicUserState {
+    fn from(value: TopicUser) -> Self {
+        Self {
+            id: value.id,
+            username: value.username,
+            avatar_template: value.avatar_template,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct TopicPosterState {
+    pub user_id: u64,
+    pub description: Option<String>,
+    pub extras: Option<String>,
+}
+
+impl From<TopicPoster> for TopicPosterState {
+    fn from(value: TopicPoster) -> Self {
+        Self {
+            user_id: value.user_id,
+            description: value.description,
+            extras: value.extras,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct TopicSummaryState {
+    pub id: u64,
+    pub title: String,
+    pub slug: String,
+    pub posts_count: u32,
+    pub reply_count: u32,
+    pub views: u32,
+    pub like_count: u32,
+    pub excerpt: Option<String>,
+    pub created_at: Option<String>,
+    pub last_posted_at: Option<String>,
+    pub last_poster_username: Option<String>,
+    pub category_id: Option<u64>,
+    pub pinned: bool,
+    pub visible: bool,
+    pub closed: bool,
+    pub archived: bool,
+    pub tags: Vec<String>,
+    pub posters: Vec<TopicPosterState>,
+    pub unseen: bool,
+    pub unread_posts: u32,
+    pub new_posts: u32,
+    pub last_read_post_number: Option<u32>,
+    pub highest_post_number: u32,
+    pub has_accepted_answer: bool,
+    pub can_have_answer: bool,
+}
+
+impl From<TopicSummary> for TopicSummaryState {
+    fn from(value: TopicSummary) -> Self {
+        Self {
+            id: value.id,
+            title: value.title,
+            slug: value.slug,
+            posts_count: value.posts_count,
+            reply_count: value.reply_count,
+            views: value.views,
+            like_count: value.like_count,
+            excerpt: value.excerpt,
+            created_at: value.created_at,
+            last_posted_at: value.last_posted_at,
+            last_poster_username: value.last_poster_username,
+            category_id: value.category_id,
+            pinned: value.pinned,
+            visible: value.visible,
+            closed: value.closed,
+            archived: value.archived,
+            tags: value.tags,
+            posters: value.posters.into_iter().map(Into::into).collect(),
+            unseen: value.unseen,
+            unread_posts: value.unread_posts,
+            new_posts: value.new_posts,
+            last_read_post_number: value.last_read_post_number,
+            highest_post_number: value.highest_post_number,
+            has_accepted_answer: value.has_accepted_answer,
+            can_have_answer: value.can_have_answer,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct TopicListState {
+    pub topics: Vec<TopicSummaryState>,
+    pub users: Vec<TopicUserState>,
+    pub more_topics_url: Option<String>,
+}
+
+impl From<TopicListResponse> for TopicListState {
+    fn from(value: TopicListResponse) -> Self {
+        Self {
+            topics: value.topics.into_iter().map(Into::into).collect(),
+            users: value.users.into_iter().map(Into::into).collect(),
+            more_topics_url: value.more_topics_url,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct TopicDetailQueryState {
+    pub topic_id: u64,
+    pub post_number: Option<u32>,
+    pub track_visit: bool,
+    pub filter: Option<String>,
+    pub username_filters: Option<String>,
+    pub filter_top_level_replies: bool,
+}
+
+impl From<TopicDetailQuery> for TopicDetailQueryState {
+    fn from(value: TopicDetailQuery) -> Self {
+        Self {
+            topic_id: value.topic_id,
+            post_number: value.post_number,
+            track_visit: value.track_visit,
+            filter: value.filter,
+            username_filters: value.username_filters,
+            filter_top_level_replies: value.filter_top_level_replies,
+        }
+    }
+}
+
+impl From<TopicDetailQueryState> for TopicDetailQuery {
+    fn from(value: TopicDetailQueryState) -> Self {
+        Self {
+            topic_id: value.topic_id,
+            post_number: value.post_number,
+            track_visit: value.track_visit,
+            filter: value.filter,
+            username_filters: value.username_filters,
+            filter_top_level_replies: value.filter_top_level_replies,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct TopicReactionState {
+    pub id: String,
+    pub kind: Option<String>,
+    pub count: u32,
+}
+
+impl From<TopicReaction> for TopicReactionState {
+    fn from(value: TopicReaction) -> Self {
+        Self {
+            id: value.id,
+            kind: value.kind,
+            count: value.count,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct TopicPostState {
+    pub id: u64,
+    pub username: String,
+    pub name: Option<String>,
+    pub avatar_template: Option<String>,
+    pub cooked: String,
+    pub post_number: u32,
+    pub post_type: i32,
+    pub created_at: Option<String>,
+    pub updated_at: Option<String>,
+    pub like_count: u32,
+    pub reply_count: u32,
+    pub reply_to_post_number: Option<u32>,
+    pub bookmarked: bool,
+    pub bookmark_id: Option<u64>,
+    pub reactions: Vec<TopicReactionState>,
+    pub current_user_reaction: Option<TopicReactionState>,
+    pub accepted_answer: bool,
+    pub can_edit: bool,
+    pub can_delete: bool,
+    pub can_recover: bool,
+    pub hidden: bool,
+}
+
+impl From<TopicPost> for TopicPostState {
+    fn from(value: TopicPost) -> Self {
+        Self {
+            id: value.id,
+            username: value.username,
+            name: value.name,
+            avatar_template: value.avatar_template,
+            cooked: value.cooked,
+            post_number: value.post_number,
+            post_type: value.post_type,
+            created_at: value.created_at,
+            updated_at: value.updated_at,
+            like_count: value.like_count,
+            reply_count: value.reply_count,
+            reply_to_post_number: value.reply_to_post_number,
+            bookmarked: value.bookmarked,
+            bookmark_id: value.bookmark_id,
+            reactions: value.reactions.into_iter().map(Into::into).collect(),
+            current_user_reaction: value.current_user_reaction.map(Into::into),
+            accepted_answer: value.accepted_answer,
+            can_edit: value.can_edit,
+            can_delete: value.can_delete,
+            can_recover: value.can_recover,
+            hidden: value.hidden,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct TopicPostStreamState {
+    pub posts: Vec<TopicPostState>,
+    pub stream: Vec<u64>,
+}
+
+impl From<TopicPostStream> for TopicPostStreamState {
+    fn from(value: TopicPostStream) -> Self {
+        Self {
+            posts: value.posts.into_iter().map(Into::into).collect(),
+            stream: value.stream,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct TopicDetailCreatedByState {
+    pub id: u64,
+    pub username: String,
+    pub avatar_template: Option<String>,
+}
+
+impl From<TopicDetailCreatedBy> for TopicDetailCreatedByState {
+    fn from(value: TopicDetailCreatedBy) -> Self {
+        Self {
+            id: value.id,
+            username: value.username,
+            avatar_template: value.avatar_template,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct TopicDetailMetaState {
+    pub notification_level: Option<i32>,
+    pub can_edit: bool,
+    pub created_by: Option<TopicDetailCreatedByState>,
+}
+
+impl From<TopicDetailMeta> for TopicDetailMetaState {
+    fn from(value: TopicDetailMeta) -> Self {
+        Self {
+            notification_level: value.notification_level,
+            can_edit: value.can_edit,
+            created_by: value.created_by.map(Into::into),
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct TopicDetailState {
+    pub id: u64,
+    pub title: String,
+    pub slug: String,
+    pub posts_count: u32,
+    pub category_id: Option<u64>,
+    pub tags: Vec<String>,
+    pub views: u32,
+    pub like_count: u32,
+    pub created_at: Option<String>,
+    pub last_read_post_number: Option<u32>,
+    pub bookmarks: Vec<u64>,
+    pub accepted_answer: bool,
+    pub has_accepted_answer: bool,
+    pub can_vote: bool,
+    pub vote_count: i32,
+    pub user_voted: bool,
+    pub summarizable: bool,
+    pub has_cached_summary: bool,
+    pub has_summary: bool,
+    pub archetype: Option<String>,
+    pub post_stream: TopicPostStreamState,
+    pub details: TopicDetailMetaState,
+}
+
+impl From<TopicDetail> for TopicDetailState {
+    fn from(value: TopicDetail) -> Self {
+        Self {
+            id: value.id,
+            title: value.title,
+            slug: value.slug,
+            posts_count: value.posts_count,
+            category_id: value.category_id,
+            tags: value.tags,
+            views: value.views,
+            like_count: value.like_count,
+            created_at: value.created_at,
+            last_read_post_number: value.last_read_post_number,
+            bookmarks: value.bookmarks,
+            accepted_answer: value.accepted_answer,
+            has_accepted_answer: value.has_accepted_answer,
+            can_vote: value.can_vote,
+            vote_count: value.vote_count,
+            user_voted: value.user_voted,
+            summarizable: value.summarizable,
+            has_cached_summary: value.has_cached_summary,
+            has_summary: value.has_summary,
+            archetype: value.archetype,
+            post_stream: value.post_stream.into(),
+            details: value.details.into(),
+        }
+    }
+}
+
 #[derive(uniffi::Error, thiserror::Error, Debug)]
 pub enum FireUniFfiError {
     #[error("{details}")]
@@ -283,6 +676,22 @@ impl FireCoreHandle {
 
     pub fn clear_session_path(&self, path: String) -> Result<(), FireUniFfiError> {
         self.inner.clear_session_path(path).map_err(Into::into)
+    }
+
+    pub fn fetch_topic_list(
+        &self,
+        query: TopicListQueryState,
+    ) -> Result<TopicListState, FireUniFfiError> {
+        let response = ffi_runtime().block_on(self.inner.fetch_topic_list(query.into()))?;
+        Ok(response.into())
+    }
+
+    pub fn fetch_topic_detail(
+        &self,
+        query: TopicDetailQueryState,
+    ) -> Result<TopicDetailState, FireUniFfiError> {
+        let response = ffi_runtime().block_on(self.inner.fetch_topic_detail(query.into()))?;
+        Ok(response.into())
     }
 
     pub fn apply_cookies(&self, cookies: CookieState) -> SessionState {

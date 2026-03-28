@@ -5,7 +5,12 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use fire_models::{BootstrapArtifacts, CookieSnapshot, LoginSyncInput, SessionSnapshot};
+use fire_models::{
+    BootstrapArtifacts, CookieSnapshot, LoginSyncInput, SessionSnapshot, TopicDetail,
+    TopicDetailCreatedBy, TopicDetailMeta, TopicDetailQuery, TopicListKind, TopicListQuery,
+    TopicListResponse, TopicPost, TopicPostStream, TopicPoster, TopicReaction, TopicSummary,
+    TopicUser,
+};
 use http::{
     header::{HeaderMap, HeaderValue},
     Method, Request, StatusCode,
@@ -274,6 +279,106 @@ impl FireCore {
         self.client.clone()
     }
 
+    pub async fn fetch_topic_list(
+        &self,
+        query: TopicListQuery,
+    ) -> Result<TopicListResponse, FireCoreError> {
+        if matches!(query.kind, TopicListKind::Unread | TopicListKind::Unseen)
+            && !self.snapshot().cookies.can_authenticate_requests()
+        {
+            return Err(FireCoreError::MissingLoginSession);
+        }
+
+        let path = if query.topic_ids.is_empty() {
+            query.kind.path().to_string()
+        } else {
+            TopicListKind::Latest.path().to_string()
+        };
+
+        let mut params = Vec::new();
+        if let Some(page) = query.page {
+            if page > 0 {
+                params.push(("page", page.to_string()));
+            }
+        }
+        if !query.topic_ids.is_empty() {
+            params.push((
+                "topic_ids",
+                query
+                    .topic_ids
+                    .iter()
+                    .map(u64::to_string)
+                    .collect::<Vec<_>>()
+                    .join(","),
+            ));
+        }
+        if let Some(order) = query.order {
+            params.push(("order", order));
+        }
+        if let Some(ascending) = query.ascending {
+            params.push(("ascending", ascending.to_string()));
+        }
+
+        let request = self.build_json_get_request(&path, params, &[])?;
+        let response = self
+            .client
+            .execute(request)
+            .await
+            .map_err(|source| FireCoreError::Network { source })?;
+        let response = expect_success("fetch topic list", response).await?;
+        let raw: RawTopicListResponse = response
+            .into_body()
+            .json()
+            .await
+            .map_err(|source| FireCoreError::Network { source })?;
+        Ok(raw.into())
+    }
+
+    pub async fn fetch_topic_detail(
+        &self,
+        query: TopicDetailQuery,
+    ) -> Result<TopicDetail, FireCoreError> {
+        let path = if let Some(post_number) = query.post_number {
+            format!("/t/{}/{}.json", query.topic_id, post_number)
+        } else {
+            format!("/t/{}.json", query.topic_id)
+        };
+
+        let mut params = Vec::new();
+        if query.track_visit {
+            params.push(("track_visit", "true".to_string()));
+        }
+        if let Some(filter) = query.filter {
+            params.push(("filter", filter));
+        }
+        if let Some(username_filters) = query.username_filters {
+            params.push(("username_filters", username_filters));
+        }
+        if query.filter_top_level_replies {
+            params.push(("filter_top_level_replies", "true".to_string()));
+        }
+
+        let mut extra_headers = Vec::new();
+        if query.track_visit {
+            extra_headers.push(("Discourse-Track-View", "1".to_string()));
+            extra_headers.push(("Discourse-Track-View-Topic-Id", query.topic_id.to_string()));
+        }
+
+        let request = self.build_json_get_request(&path, params, &extra_headers)?;
+        let response = self
+            .client
+            .execute(request)
+            .await
+            .map_err(|source| FireCoreError::Network { source })?;
+        let response = expect_success("fetch topic detail", response).await?;
+        let raw: RawTopicDetail = response
+            .into_body()
+            .json()
+            .await
+            .map_err(|source| FireCoreError::Network { source })?;
+        Ok(raw.into())
+    }
+
     pub async fn refresh_bootstrap(&self) -> Result<SessionSnapshot, FireCoreError> {
         let request = self.build_home_request()?;
         let response = self
@@ -401,6 +506,52 @@ impl FireCore {
             .map_err(FireCoreError::RequestBuild)
     }
 
+    fn build_json_get_request(
+        &self,
+        path: &str,
+        query_params: Vec<(&str, String)>,
+        extra_headers: &[(&str, String)],
+    ) -> Result<Request<RequestBody>, FireCoreError> {
+        let mut uri = self.base_url.join(path)?;
+        if !query_params.is_empty() {
+            let mut serializer = uri.query_pairs_mut();
+            for (key, value) in query_params {
+                serializer.append_pair(key, &value);
+            }
+        }
+
+        let origin = request_origin(&self.base_url);
+        let referer = request_referer(&self.base_url);
+        let snapshot = self.snapshot();
+
+        let mut builder = Request::builder()
+            .method(Method::GET)
+            .uri(uri.as_str())
+            .header(
+                "Accept",
+                "application/json;q=0.9, text/plain;q=0.8, */*;q=0.5",
+            )
+            .header("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
+            .header("X-Requested-With", "XMLHttpRequest")
+            .header("User-Agent", "Fire/0.1")
+            .header("Origin", origin)
+            .header("Referer", referer);
+
+        if snapshot.cookies.has_login_session() {
+            builder = builder
+                .header("Discourse-Logged-In", "true")
+                .header("Discourse-Present", "true");
+        }
+
+        for (name, value) in extra_headers {
+            builder = builder.header(*name, value);
+        }
+
+        builder
+            .body(RequestBody::empty())
+            .map_err(FireCoreError::RequestBuild)
+    }
+
     fn build_api_request(
         &self,
         method: Method,
@@ -498,6 +649,8 @@ pub enum FireCoreError {
     },
     #[error("logout requires a current username")]
     MissingCurrentUsername,
+    #[error("request requires a login session")]
+    MissingLoginSession,
     #[error("request requires a csrf token")]
     MissingCsrfToken,
     #[error("csrf response did not contain a usable token")]
@@ -530,6 +683,367 @@ struct PersistedSessionEnvelope {
     version: u32,
     saved_at_unix_ms: u64,
     snapshot: SessionSnapshot,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct RawTopicListResponse {
+    #[serde(default)]
+    topic_list: RawTopicListPage,
+    #[serde(default)]
+    users: Vec<RawTopicUser>,
+}
+
+impl From<RawTopicListResponse> for TopicListResponse {
+    fn from(value: RawTopicListResponse) -> Self {
+        Self {
+            topics: value
+                .topic_list
+                .topics
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+            users: value.users.into_iter().map(Into::into).collect(),
+            more_topics_url: value.topic_list.more_topics_url,
+        }
+    }
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct RawTopicListPage {
+    #[serde(default)]
+    topics: Vec<RawTopicSummary>,
+    more_topics_url: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct RawTopicUser {
+    #[serde(default)]
+    id: u64,
+    #[serde(default)]
+    username: String,
+    avatar_template: Option<String>,
+}
+
+impl From<RawTopicUser> for TopicUser {
+    fn from(value: RawTopicUser) -> Self {
+        Self {
+            id: value.id,
+            username: value.username,
+            avatar_template: value.avatar_template,
+        }
+    }
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct RawTopicPoster {
+    #[serde(default)]
+    user_id: u64,
+    description: Option<String>,
+    extras: Option<String>,
+}
+
+impl From<RawTopicPoster> for TopicPoster {
+    fn from(value: RawTopicPoster) -> Self {
+        Self {
+            user_id: value.user_id,
+            description: value.description,
+            extras: value.extras,
+        }
+    }
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct RawTopicSummary {
+    #[serde(default)]
+    id: u64,
+    #[serde(default)]
+    title: String,
+    #[serde(default)]
+    slug: String,
+    #[serde(default)]
+    posts_count: u32,
+    #[serde(default)]
+    reply_count: u32,
+    #[serde(default)]
+    views: u32,
+    #[serde(default)]
+    like_count: u32,
+    excerpt: Option<String>,
+    created_at: Option<String>,
+    last_posted_at: Option<String>,
+    last_poster_username: Option<String>,
+    category_id: Option<u64>,
+    #[serde(default)]
+    pinned: bool,
+    #[serde(default = "default_visible")]
+    visible: bool,
+    #[serde(default)]
+    closed: bool,
+    #[serde(default)]
+    archived: bool,
+    #[serde(default)]
+    tags: Vec<String>,
+    #[serde(default)]
+    posters: Vec<RawTopicPoster>,
+    #[serde(default)]
+    unseen: bool,
+    #[serde(default)]
+    unread_posts: u32,
+    #[serde(default)]
+    new_posts: u32,
+    last_read_post_number: Option<u32>,
+    #[serde(default)]
+    highest_post_number: u32,
+    #[serde(default)]
+    has_accepted_answer: bool,
+    #[serde(default)]
+    can_have_answer: bool,
+}
+
+impl From<RawTopicSummary> for TopicSummary {
+    fn from(value: RawTopicSummary) -> Self {
+        Self {
+            id: value.id,
+            title: value.title,
+            slug: value.slug,
+            posts_count: value.posts_count,
+            reply_count: value.reply_count,
+            views: value.views,
+            like_count: value.like_count,
+            excerpt: value.excerpt,
+            created_at: value.created_at,
+            last_posted_at: value.last_posted_at,
+            last_poster_username: value.last_poster_username,
+            category_id: value.category_id,
+            pinned: value.pinned,
+            visible: value.visible,
+            closed: value.closed,
+            archived: value.archived,
+            tags: value.tags,
+            posters: value.posters.into_iter().map(Into::into).collect(),
+            unseen: value.unseen,
+            unread_posts: value.unread_posts,
+            new_posts: value.new_posts,
+            last_read_post_number: value.last_read_post_number,
+            highest_post_number: value.highest_post_number,
+            has_accepted_answer: value.has_accepted_answer,
+            can_have_answer: value.can_have_answer,
+        }
+    }
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct RawTopicReaction {
+    #[serde(default)]
+    id: String,
+    #[serde(rename = "type")]
+    kind: Option<String>,
+    #[serde(default)]
+    count: u32,
+}
+
+impl From<RawTopicReaction> for TopicReaction {
+    fn from(value: RawTopicReaction) -> Self {
+        Self {
+            id: value.id,
+            kind: value.kind,
+            count: value.count,
+        }
+    }
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct RawTopicPost {
+    #[serde(default)]
+    id: u64,
+    #[serde(default)]
+    username: String,
+    name: Option<String>,
+    avatar_template: Option<String>,
+    #[serde(default)]
+    cooked: String,
+    #[serde(default)]
+    post_number: u32,
+    #[serde(default = "default_post_type")]
+    post_type: i32,
+    created_at: Option<String>,
+    updated_at: Option<String>,
+    #[serde(default)]
+    like_count: u32,
+    #[serde(default)]
+    reply_count: u32,
+    reply_to_post_number: Option<u32>,
+    #[serde(default)]
+    bookmarked: bool,
+    bookmark_id: Option<u64>,
+    #[serde(default)]
+    reactions: Vec<RawTopicReaction>,
+    current_user_reaction: Option<RawTopicReaction>,
+    #[serde(default)]
+    accepted_answer: bool,
+    #[serde(default)]
+    can_edit: bool,
+    #[serde(default)]
+    can_delete: bool,
+    #[serde(default)]
+    can_recover: bool,
+    #[serde(default)]
+    hidden: bool,
+}
+
+impl From<RawTopicPost> for TopicPost {
+    fn from(value: RawTopicPost) -> Self {
+        Self {
+            id: value.id,
+            username: value.username,
+            name: value.name,
+            avatar_template: value.avatar_template,
+            cooked: value.cooked,
+            post_number: value.post_number,
+            post_type: value.post_type,
+            created_at: value.created_at,
+            updated_at: value.updated_at,
+            like_count: value.like_count,
+            reply_count: value.reply_count,
+            reply_to_post_number: value.reply_to_post_number,
+            bookmarked: value.bookmarked,
+            bookmark_id: value.bookmark_id,
+            reactions: value.reactions.into_iter().map(Into::into).collect(),
+            current_user_reaction: value.current_user_reaction.map(Into::into),
+            accepted_answer: value.accepted_answer,
+            can_edit: value.can_edit,
+            can_delete: value.can_delete,
+            can_recover: value.can_recover,
+            hidden: value.hidden,
+        }
+    }
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct RawTopicPostStream {
+    #[serde(default)]
+    posts: Vec<RawTopicPost>,
+    #[serde(default)]
+    stream: Vec<u64>,
+}
+
+impl From<RawTopicPostStream> for TopicPostStream {
+    fn from(value: RawTopicPostStream) -> Self {
+        Self {
+            posts: value.posts.into_iter().map(Into::into).collect(),
+            stream: value.stream,
+        }
+    }
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct RawTopicDetailCreatedBy {
+    #[serde(default)]
+    id: u64,
+    #[serde(default)]
+    username: String,
+    avatar_template: Option<String>,
+}
+
+impl From<RawTopicDetailCreatedBy> for TopicDetailCreatedBy {
+    fn from(value: RawTopicDetailCreatedBy) -> Self {
+        Self {
+            id: value.id,
+            username: value.username,
+            avatar_template: value.avatar_template,
+        }
+    }
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct RawTopicDetailMeta {
+    notification_level: Option<i32>,
+    #[serde(default)]
+    can_edit: bool,
+    created_by: Option<RawTopicDetailCreatedBy>,
+}
+
+impl From<RawTopicDetailMeta> for TopicDetailMeta {
+    fn from(value: RawTopicDetailMeta) -> Self {
+        Self {
+            notification_level: value.notification_level,
+            can_edit: value.can_edit,
+            created_by: value.created_by.map(Into::into),
+        }
+    }
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct RawTopicDetail {
+    #[serde(default)]
+    id: u64,
+    #[serde(default)]
+    title: String,
+    #[serde(default)]
+    slug: String,
+    #[serde(default)]
+    posts_count: u32,
+    category_id: Option<u64>,
+    #[serde(default)]
+    tags: Vec<String>,
+    #[serde(default)]
+    views: u32,
+    #[serde(default)]
+    like_count: u32,
+    created_at: Option<String>,
+    last_read_post_number: Option<u32>,
+    #[serde(default)]
+    bookmarks: Vec<u64>,
+    #[serde(default)]
+    accepted_answer: bool,
+    #[serde(default)]
+    has_accepted_answer: bool,
+    #[serde(default)]
+    can_vote: bool,
+    #[serde(default)]
+    vote_count: i32,
+    #[serde(default)]
+    user_voted: bool,
+    #[serde(default)]
+    summarizable: bool,
+    #[serde(default)]
+    has_cached_summary: bool,
+    #[serde(default)]
+    has_summary: bool,
+    archetype: Option<String>,
+    #[serde(default)]
+    post_stream: RawTopicPostStream,
+    #[serde(default)]
+    details: RawTopicDetailMeta,
+}
+
+impl From<RawTopicDetail> for TopicDetail {
+    fn from(value: RawTopicDetail) -> Self {
+        Self {
+            id: value.id,
+            title: value.title,
+            slug: value.slug,
+            posts_count: value.posts_count,
+            category_id: value.category_id,
+            tags: value.tags,
+            views: value.views,
+            like_count: value.like_count,
+            created_at: value.created_at,
+            last_read_post_number: value.last_read_post_number,
+            bookmarks: value.bookmarks,
+            accepted_answer: value.accepted_answer,
+            has_accepted_answer: value.has_accepted_answer,
+            can_vote: value.can_vote,
+            vote_count: value.vote_count,
+            user_voted: value.user_voted,
+            summarizable: value.summarizable,
+            has_cached_summary: value.has_cached_summary,
+            has_summary: value.has_summary,
+            archetype: value.archetype,
+            post_stream: value.post_stream.into(),
+            details: value.details.into(),
+        }
+    }
 }
 
 impl PersistedSessionEnvelope {
@@ -728,6 +1242,14 @@ fn decode_html_entities(raw: &str) -> String {
         .replace("&#39;", "'")
 }
 
+fn default_visible() -> bool {
+    true
+}
+
+fn default_post_type() -> i32 {
+    1
+}
+
 fn same_cookie_scope(base_url: &Url, request_url: &Url) -> bool {
     base_url.scheme() == request_url.scheme()
         && base_url.host_str() == request_url.host_str()
@@ -897,7 +1419,9 @@ mod tests {
 
     use super::FireCore;
     use crate::{FireCoreConfig, FireCoreError};
-    use fire_models::{LoginPhase, LoginSyncInput, PlatformCookie};
+    use fire_models::{
+        LoginPhase, LoginSyncInput, PlatformCookie, TopicDetailQuery, TopicListKind, TopicListQuery,
+    };
     use tokio::{
         io::{AsyncReadExt, AsyncWriteExt},
         net::TcpListener,
@@ -962,6 +1486,78 @@ mod tests {
         assert_eq!(snapshot.login_phase(), LoginPhase::Ready);
         assert!(snapshot.readiness().can_write_authenticated_api);
         assert!(snapshot.readiness().can_open_message_bus);
+    }
+
+    #[tokio::test]
+    async fn fetch_topic_list_parses_latest_payload() {
+        let responses = vec![raw_json_response(
+            200,
+            "application/json",
+            &sample_latest_json(),
+        )];
+        let server = TestServer::spawn(responses).await.expect("server");
+        let core = FireCore::new(FireCoreConfig {
+            base_url: server.base_url(),
+        })
+        .expect("core");
+
+        let response = core
+            .fetch_topic_list(TopicListQuery {
+                kind: TopicListKind::Latest,
+                page: None,
+                topic_ids: Vec::new(),
+                order: None,
+                ascending: None,
+            })
+            .await
+            .expect("topic list");
+        let _ = server.shutdown().await;
+
+        assert_eq!(response.topics.len(), 1);
+        assert_eq!(response.topics[0].id, 123);
+        assert_eq!(response.topics[0].title, "Fire topic");
+        assert_eq!(response.users[0].username, "alice");
+        assert_eq!(response.more_topics_url.as_deref(), Some("/latest?page=1"));
+    }
+
+    #[tokio::test]
+    async fn fetch_topic_detail_parses_detail_payload() {
+        let responses = vec![raw_json_response(
+            200,
+            "application/json",
+            &sample_topic_detail_json(),
+        )];
+        let server = TestServer::spawn(responses).await.expect("server");
+        let core = FireCore::new(FireCoreConfig {
+            base_url: server.base_url(),
+        })
+        .expect("core");
+
+        let detail = core
+            .fetch_topic_detail(TopicDetailQuery {
+                topic_id: 123,
+                post_number: None,
+                track_visit: true,
+                filter: None,
+                username_filters: None,
+                filter_top_level_replies: false,
+            })
+            .await
+            .expect("detail");
+        let _ = server.shutdown().await;
+
+        assert_eq!(detail.id, 123);
+        assert_eq!(detail.title, "Fire topic");
+        assert_eq!(detail.post_stream.posts.len(), 1);
+        assert_eq!(detail.post_stream.posts[0].username, "alice");
+        assert_eq!(
+            detail
+                .details
+                .created_by
+                .as_ref()
+                .map(|value| value.username.as_str()),
+            Some("alice")
+        );
     }
 
     #[test]
@@ -1194,6 +1790,126 @@ mod tests {
   </body>
 </html>
 "#
+        .to_string()
+    }
+
+    fn sample_latest_json() -> String {
+        r#"{
+  "topic_list": {
+    "topics": [
+      {
+        "id": 123,
+        "title": "Fire topic",
+        "slug": "fire-topic",
+        "posts_count": 12,
+        "reply_count": 11,
+        "views": 345,
+        "like_count": 21,
+        "excerpt": "topic excerpt",
+        "created_at": "2026-03-28T00:00:00Z",
+        "last_posted_at": "2026-03-28T01:00:00Z",
+        "last_poster_username": "alice",
+        "category_id": 2,
+        "pinned": false,
+        "visible": true,
+        "closed": false,
+        "archived": false,
+        "tags": ["rust", "linuxdo"],
+        "posters": [
+          {
+            "user_id": 1,
+            "description": "Original Poster",
+            "extras": "latest"
+          }
+        ],
+        "unseen": false,
+        "unread_posts": 2,
+        "new_posts": 1,
+        "last_read_post_number": 10,
+        "highest_post_number": 12,
+        "has_accepted_answer": false,
+        "can_have_answer": true
+      }
+    ],
+    "more_topics_url": "/latest?page=1"
+  },
+  "users": [
+    {
+      "id": 1,
+      "username": "alice",
+      "avatar_template": "/user_avatar/linux.do/alice/{size}/1_2.png"
+    }
+  ]
+}"#
+        .to_string()
+    }
+
+    fn sample_topic_detail_json() -> String {
+        r#"{
+  "id": 123,
+  "title": "Fire topic",
+  "slug": "fire-topic",
+  "posts_count": 12,
+  "category_id": 2,
+  "tags": ["rust", "linuxdo"],
+  "views": 345,
+  "like_count": 21,
+  "created_at": "2026-03-28T00:00:00Z",
+  "last_read_post_number": 10,
+  "bookmarks": [],
+  "accepted_answer": false,
+  "has_accepted_answer": false,
+  "can_vote": false,
+  "vote_count": 0,
+  "user_voted": false,
+  "summarizable": true,
+  "has_cached_summary": false,
+  "has_summary": false,
+  "archetype": "regular",
+  "post_stream": {
+    "posts": [
+      {
+        "id": 9001,
+        "username": "alice",
+        "name": "Alice",
+        "avatar_template": "/user_avatar/linux.do/alice/{size}/1_2.png",
+        "cooked": "<p>Hello Fire</p>",
+        "post_number": 1,
+        "post_type": 1,
+        "created_at": "2026-03-28T00:00:00Z",
+        "updated_at": "2026-03-28T00:00:00Z",
+        "like_count": 3,
+        "reply_count": 0,
+        "reply_to_post_number": null,
+        "bookmarked": false,
+        "bookmark_id": null,
+        "reactions": [
+          {
+            "id": "heart",
+            "type": "emoji",
+            "count": 3
+          }
+        ],
+        "current_user_reaction": null,
+        "accepted_answer": false,
+        "can_edit": true,
+        "can_delete": true,
+        "can_recover": false,
+        "hidden": false
+      }
+    ],
+    "stream": [9001]
+  },
+  "details": {
+    "notification_level": 1,
+    "can_edit": true,
+    "created_by": {
+      "id": 1,
+      "username": "alice",
+      "avatar_template": "/user_avatar/linux.do/alice/{size}/1_2.png"
+    }
+  }
+}"#
         .to_string()
     }
 

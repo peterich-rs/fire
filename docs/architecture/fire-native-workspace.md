@@ -76,9 +76,10 @@ The first usable session pipeline now lives in the Rust workspace:
   - derives `currentUser.username`, `siteSettings.long_polling_base_url`, and `topicTrackingStateMeta` from `data-preloaded`
   - exposes network-backed `refresh_bootstrap`, `refresh_csrf_token`, `logout_remote`, and local `logout_local`
   - can export/import persisted session JSON and save/load session snapshots from disk for cold-start restoration
+  - exposes authenticated topic list and topic detail fetching for `latest/new/unread/unseen/hot/top` plus tracked topic detail requests
   - retries one logout request on `BAD CSRF` after refreshing `/session/csrf`
 - `fire-uniffi`
-  - exports the session snapshot, readiness flags, login sync input, bootstrap sync APIs, persistence APIs, and logout APIs to Swift/Kotlin
+  - exports the session snapshot, readiness flags, login sync input, bootstrap sync APIs, persistence APIs, topic APIs, and logout APIs to Swift/Kotlin
 
 The intended native integration order is:
 
@@ -89,7 +90,8 @@ The intended native integration order is:
 5. On cold start, restore the snapshot through `restore_session_json` or `load_session_from_path`.
 6. If homepage HTML is unavailable or stale, call `refresh_bootstrap`.
 7. If write APIs need a newer token, call `refresh_csrf_token`.
-8. On explicit logout, prefer `logout_remote`, then fall back to `logout_local`, and clear the persisted session.
+8. Use `fetch_topic_list` and `fetch_topic_detail` for the first authenticated read path.
+9. On explicit logout, prefer `logout_remote`, then fall back to `logout_local`, and clear the persisted session.
 
 ## Next Build Steps
 

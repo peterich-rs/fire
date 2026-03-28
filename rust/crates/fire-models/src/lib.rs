@@ -219,6 +219,177 @@ impl SessionSnapshot {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TopicListKind {
+    #[default]
+    Latest,
+    New,
+    Unread,
+    Unseen,
+    Hot,
+    Top,
+}
+
+impl TopicListKind {
+    pub fn path(self) -> &'static str {
+        match self {
+            Self::Latest => "/latest.json",
+            Self::New => "/new.json",
+            Self::Unread => "/unread.json",
+            Self::Unseen => "/unseen.json",
+            Self::Hot => "/hot.json",
+            Self::Top => "/top.json",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TopicListQuery {
+    pub kind: TopicListKind,
+    pub page: Option<u32>,
+    pub topic_ids: Vec<u64>,
+    pub order: Option<String>,
+    pub ascending: Option<bool>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TopicUser {
+    pub id: u64,
+    pub username: String,
+    pub avatar_template: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TopicPoster {
+    pub user_id: u64,
+    pub description: Option<String>,
+    pub extras: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TopicSummary {
+    pub id: u64,
+    pub title: String,
+    pub slug: String,
+    pub posts_count: u32,
+    pub reply_count: u32,
+    pub views: u32,
+    pub like_count: u32,
+    pub excerpt: Option<String>,
+    pub created_at: Option<String>,
+    pub last_posted_at: Option<String>,
+    pub last_poster_username: Option<String>,
+    pub category_id: Option<u64>,
+    pub pinned: bool,
+    pub visible: bool,
+    pub closed: bool,
+    pub archived: bool,
+    pub tags: Vec<String>,
+    pub posters: Vec<TopicPoster>,
+    pub unseen: bool,
+    pub unread_posts: u32,
+    pub new_posts: u32,
+    pub last_read_post_number: Option<u32>,
+    pub highest_post_number: u32,
+    pub has_accepted_answer: bool,
+    pub can_have_answer: bool,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TopicListResponse {
+    pub topics: Vec<TopicSummary>,
+    pub users: Vec<TopicUser>,
+    pub more_topics_url: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TopicDetailQuery {
+    pub topic_id: u64,
+    pub post_number: Option<u32>,
+    pub track_visit: bool,
+    pub filter: Option<String>,
+    pub username_filters: Option<String>,
+    pub filter_top_level_replies: bool,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TopicReaction {
+    pub id: String,
+    pub kind: Option<String>,
+    pub count: u32,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TopicPost {
+    pub id: u64,
+    pub username: String,
+    pub name: Option<String>,
+    pub avatar_template: Option<String>,
+    pub cooked: String,
+    pub post_number: u32,
+    pub post_type: i32,
+    pub created_at: Option<String>,
+    pub updated_at: Option<String>,
+    pub like_count: u32,
+    pub reply_count: u32,
+    pub reply_to_post_number: Option<u32>,
+    pub bookmarked: bool,
+    pub bookmark_id: Option<u64>,
+    pub reactions: Vec<TopicReaction>,
+    pub current_user_reaction: Option<TopicReaction>,
+    pub accepted_answer: bool,
+    pub can_edit: bool,
+    pub can_delete: bool,
+    pub can_recover: bool,
+    pub hidden: bool,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TopicPostStream {
+    pub posts: Vec<TopicPost>,
+    pub stream: Vec<u64>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TopicDetailCreatedBy {
+    pub id: u64,
+    pub username: String,
+    pub avatar_template: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TopicDetailMeta {
+    pub notification_level: Option<i32>,
+    pub can_edit: bool,
+    pub created_by: Option<TopicDetailCreatedBy>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TopicDetail {
+    pub id: u64,
+    pub title: String,
+    pub slug: String,
+    pub posts_count: u32,
+    pub category_id: Option<u64>,
+    pub tags: Vec<String>,
+    pub views: u32,
+    pub like_count: u32,
+    pub created_at: Option<String>,
+    pub last_read_post_number: Option<u32>,
+    pub bookmarks: Vec<u64>,
+    pub accepted_answer: bool,
+    pub has_accepted_answer: bool,
+    pub can_vote: bool,
+    pub vote_count: i32,
+    pub user_voted: bool,
+    pub summarizable: bool,
+    pub has_cached_summary: bool,
+    pub has_summary: bool,
+    pub archetype: Option<String>,
+    pub post_stream: TopicPostStream,
+    pub details: TopicDetailMeta,
+}
+
 fn merge_string_patch(slot: &mut Option<String>, patch: Option<String>) {
     if let Some(value) = patch {
         if value.is_empty() {

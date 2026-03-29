@@ -59,7 +59,7 @@ final class FireAppViewModel: ObservableObject {
                 if let restored = try await loginCoordinator.restorePersistedSessionIfAvailable() {
                     await applySession(restored)
                 } else {
-                    await applySession(await sessionStore.snapshot())
+                    await applySession(try await sessionStore.snapshot())
                 }
                 await refreshTopicsIfPossible(force: true)
             } catch {
@@ -73,7 +73,7 @@ final class FireAppViewModel: ObservableObject {
             do {
                 let sessionStore = try await sessionStoreValue()
                 errorMessage = nil
-                await applySession(await sessionStore.snapshot())
+                await applySession(try await sessionStore.snapshot())
                 await refreshTopicsIfPossible(force: false)
             } catch {
                 errorMessage = error.localizedDescription
@@ -234,12 +234,12 @@ final class FireAppViewModel: ObservableObject {
 
     func listNetworkTraces(limit: UInt64 = 200) async throws -> [NetworkTraceSummaryState] {
         let sessionStore = try await sessionStoreValue()
-        return await sessionStore.listNetworkTraces(limit: limit)
+        return try await sessionStore.listNetworkTraces(limit: limit)
     }
 
     func networkTraceDetail(traceID: UInt64) async throws -> NetworkTraceDetailState {
         let sessionStore = try await sessionStoreValue()
-        guard let detail = await sessionStore.networkTraceDetail(traceID: traceID) else {
+        guard let detail = try await sessionStore.networkTraceDetail(traceID: traceID) else {
             throw FireDiagnosticsAccessError.traceNotFound
         }
         return detail

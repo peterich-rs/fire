@@ -81,8 +81,9 @@ Current UX note:
 - The network preflight is a best-effort connectivity warm-up. iOS does not provide a generic "internet permission" API for arbitrary web access, so this only shifts the first prompt/request earlier; it does not create a separate permission flow.
 - The current topic browser now runs against the real shared Rust core through generated UniFFI Swift bindings.
 - Network-backed UniFFI APIs now surface to Swift as native `async/await` methods instead of a synchronous wrapper.
+- The UniFFI boundary now returns exported host interactions as Swift `throws`; if Rust panics, the boundary logs the panic, throws an `Internal` UniFFI error instead of tripping generated `try!` call sites, and poisons the current `FireCoreHandle` so the host can recreate it.
 - The current topic browser now supports `Load More` pagination, category-aware topic rows, and richer topic/detail metadata sourced from the shared Rust session snapshot.
-- Topic posts now render their cooked HTML as attributed text in the detail screen instead of flattening everything into plain text.
+- Topic posts now render their cooked HTML as normalized plain text in the detail screen until a safer structured HTML/module renderer lands.
 - The app now exposes a diagnostics screen for readable logs and Rust-owned request trace inspection.
 
 Build prerequisites:

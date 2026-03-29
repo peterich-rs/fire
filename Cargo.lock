@@ -762,8 +762,10 @@ version = "0.1.0"
 dependencies = [
  "fire-core",
  "fire-models",
+ "futures-util",
  "thiserror 2.0.18",
  "tokio",
+ "tracing",
  "uniffi",
 ]
 

@@ -10,6 +10,7 @@ use fire_core::{FireCore, FireCoreConfig};
 use fire_models::{
     LoginSyncInput, PlatformCookie, TopicDetailQuery, TopicListKind, TopicListQuery, TopicTag,
 };
+use serde_json::{json, Value};
 
 #[tokio::test]
 async fn fetch_topic_list_parses_latest_payload() {
@@ -198,6 +199,129 @@ async fn fetch_topic_detail_parses_detail_payload() {
             .map(|value| value.username.as_str()),
         Some("alice")
     );
+}
+
+#[tokio::test]
+async fn fetch_topic_detail_tolerates_object_bookmarks_and_accepted_answer_metadata() {
+    let mut payload: Value =
+        serde_json::from_str(&sample_topic_detail_json()).expect("detail fixture json");
+    let object = payload.as_object_mut().expect("detail fixture object");
+    object.insert(
+        "bookmarks".into(),
+        json!([
+            {
+                "id": 1240,
+                "bookmarkable_type": "Topic",
+                "bookmarkable_id": 123
+            },
+            {
+                "id": 1241,
+                "bookmarkable_type": "Post",
+                "bookmarkable_id": 9001
+            }
+        ]),
+    );
+    object.insert(
+        "accepted_answer".into(),
+        json!({
+            "post_number": 5,
+            "username": "alice"
+        }),
+    );
+    object.insert("has_accepted_answer".into(), json!(true));
+    let payload = payload.to_string();
+
+    let responses = vec![raw_json_response(200, "application/json", &payload)];
+    let server = TestServer::spawn(responses).await.expect("server");
+    let core = FireCore::new(FireCoreConfig {
+        base_url: server.base_url(),
+        workspace_path: None,
+    })
+    .expect("core");
+
+    let detail = core
+        .fetch_topic_detail(TopicDetailQuery {
+            topic_id: 123,
+            post_number: None,
+            track_visit: true,
+            filter: None,
+            username_filters: None,
+            filter_top_level_replies: false,
+        })
+        .await
+        .expect("detail");
+    let _ = server.shutdown().await;
+
+    assert_eq!(detail.bookmarks, vec![1240, 1241]);
+    assert!(detail.accepted_answer);
+    assert!(detail.has_accepted_answer);
+}
+
+#[tokio::test]
+async fn fetch_topic_detail_tolerates_null_scalars_and_null_details() {
+    let mut payload: Value =
+        serde_json::from_str(&sample_topic_detail_json()).expect("detail fixture json");
+    let object = payload.as_object_mut().expect("detail fixture object");
+    object.insert("title".into(), Value::Null);
+    object.insert("category_id".into(), json!("2"));
+    object.insert("details".into(), Value::Null);
+
+    let post = object
+        .get_mut("post_stream")
+        .and_then(Value::as_object_mut)
+        .and_then(|stream| stream.get_mut("posts"))
+        .and_then(Value::as_array_mut)
+        .and_then(|posts| posts.first_mut())
+        .and_then(Value::as_object_mut)
+        .expect("first post");
+    post.insert("username".into(), Value::Null);
+    post.insert("cooked".into(), Value::Null);
+    post.insert("post_type".into(), json!("1"));
+    post.insert("like_count".into(), Value::Null);
+    post.insert("reply_count".into(), Value::Null);
+    post.insert("reply_to_post_number".into(), json!("12"));
+    post.insert("bookmarked".into(), Value::Null);
+    post.insert("accepted_answer".into(), Value::Null);
+    post.insert("can_edit".into(), Value::Null);
+    post.insert("can_delete".into(), Value::Null);
+    post.insert("can_recover".into(), Value::Null);
+    post.insert("hidden".into(), Value::Null);
+    post.insert("reactions".into(), Value::Null);
+
+    let payload = payload.to_string();
+
+    let responses = vec![raw_json_response(200, "application/json", &payload)];
+    let server = TestServer::spawn(responses).await.expect("server");
+    let core = FireCore::new(FireCoreConfig {
+        base_url: server.base_url(),
+        workspace_path: None,
+    })
+    .expect("core");
+
+    let detail = core
+        .fetch_topic_detail(TopicDetailQuery {
+            topic_id: 123,
+            post_number: None,
+            track_visit: true,
+            filter: None,
+            username_filters: None,
+            filter_top_level_replies: false,
+        })
+        .await
+        .expect("detail");
+    let _ = server.shutdown().await;
+
+    assert_eq!(detail.title, "");
+    assert_eq!(detail.category_id, Some(2));
+    assert_eq!(detail.details.notification_level, None);
+    assert_eq!(detail.details.created_by, None);
+    assert!(!detail.details.can_edit);
+    assert_eq!(detail.post_stream.posts[0].username, "");
+    assert_eq!(detail.post_stream.posts[0].cooked, "");
+    assert_eq!(detail.post_stream.posts[0].reply_to_post_number, Some(12));
+    assert_eq!(detail.post_stream.posts[0].reactions.len(), 0);
+    assert_eq!(detail.post_stream.posts[0].like_count, 0);
+    assert_eq!(detail.post_stream.posts[0].reply_count, 0);
 }
 
 #[tokio::test]

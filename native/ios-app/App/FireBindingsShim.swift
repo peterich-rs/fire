@@ -703,11 +703,11 @@ public final class FireCoreHandle {
         self.state = SessionState.placeholder(baseUrl: resolvedBaseUrl)
     }
 
-    public func baseUrl() -> String {
+    public func baseUrl() throws -> String {
         storedBaseUrl
     }
 
-    public func workspacePath() -> String? {
+    public func workspacePath() throws -> String? {
         storedWorkspacePath
     }
 
@@ -730,7 +730,7 @@ public final class FireCoreHandle {
             .path
     }
 
-    public func flushLogs(sync: Bool) {}
+    public func flushLogs(sync: Bool) throws {}
 
     public func listLogFiles() throws -> [LogFileSummaryState] {
         []
@@ -747,19 +747,19 @@ public final class FireCoreHandle {
         )
     }
 
-    public func listNetworkTraces(limit: UInt64) -> [NetworkTraceSummaryState] {
+    public func listNetworkTraces(limit: UInt64) throws -> [NetworkTraceSummaryState] {
         []
     }
 
-    public func networkTraceDetail(traceId: UInt64) -> NetworkTraceDetailState? {
+    public func networkTraceDetail(traceId: UInt64) throws -> NetworkTraceDetailState? {
         nil
     }
 
-    public func hasLoginSession() -> Bool {
+    public func hasLoginSession() throws -> Bool {
         state.hasLoginSession
     }
 
-    public func snapshot() -> SessionState {
+    public func snapshot() throws -> SessionState {
         state
     }
 

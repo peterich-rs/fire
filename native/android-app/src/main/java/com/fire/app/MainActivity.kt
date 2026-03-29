@@ -12,7 +12,6 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.text.HtmlCompat
 import androidx.lifecycle.lifecycleScope
 import com.fire.app.databinding.ActivityMainBinding
 import com.fire.app.session.FireSessionStore
@@ -394,7 +393,8 @@ class MainActivity : AppCompatActivity() {
         )
         val excerpt = topic.excerpt
             ?.takeIf { it.isNotBlank() }
-            ?.let { HtmlCompat.fromHtml(it, HtmlCompat.FROM_HTML_MODE_LEGACY).toString().trim() }
+            ?.let(TopicPresentation::plainTextFromHtml)
+            ?.takeIf { it.isNotBlank() }
         val tagNames = TopicPresentation.tagNames(topic.tags)
 
         return Button(this).apply {

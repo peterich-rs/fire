@@ -50,8 +50,8 @@ public actor FireSessionStore {
         self.sessionFilePath = resolvedSessionFilePath
     }
 
-    public func snapshot() -> SessionState {
-        core.snapshot()
+    public func snapshot() throws -> SessionState {
+        try core.snapshot()
     }
 
     public func restorePersistedSessionIfAvailable() throws -> SessionState? {
@@ -63,7 +63,7 @@ public actor FireSessionStore {
 
     @discardableResult
     public func syncLoginContext(_ captured: FireCapturedLoginState) throws -> SessionState {
-        let state = core.syncLoginContext(
+        let state = try core.syncLoginContext(
             context: LoginSyncState(
                 currentUrl: captured.currentURL,
                 username: captured.username,
@@ -78,7 +78,7 @@ public actor FireSessionStore {
 
     @discardableResult
     public func refreshBootstrapIfNeeded() async throws -> SessionState {
-        let current = core.snapshot()
+        let current = try core.snapshot()
         if current.bootstrap.hasPreloadedData {
             return current
         }
@@ -90,7 +90,7 @@ public actor FireSessionStore {
 
     @discardableResult
     public func refreshCsrfTokenIfNeeded() async throws -> SessionState {
-        let current = core.snapshot()
+        let current = try core.snapshot()
         if current.cookies.csrfToken != nil {
             return current
         }
@@ -116,12 +116,12 @@ public actor FireSessionStore {
         try core.readLogFile(relativePath: relativePath)
     }
 
-    public func listNetworkTraces(limit: UInt64 = 200) -> [NetworkTraceSummaryState] {
-        core.listNetworkTraces(limit: limit)
+    public func listNetworkTraces(limit: UInt64 = 200) throws -> [NetworkTraceSummaryState] {
+        try core.listNetworkTraces(limit: limit)
     }
 
-    public func networkTraceDetail(traceID: UInt64) -> NetworkTraceDetailState? {
-        core.networkTraceDetail(traceId: traceID)
+    public func networkTraceDetail(traceID: UInt64) throws -> NetworkTraceDetailState? {
+        try core.networkTraceDetail(traceId: traceID)
     }
 
     public func exportSessionJSON() throws -> String {

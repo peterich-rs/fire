@@ -346,11 +346,38 @@ public struct TopicReactionState: Codable, Sendable {
     public var id: String
     public var kind: String?
     public var count: UInt32
+    public var canUndo: Bool?
 
-    public init(id: String, kind: String?, count: UInt32) {
+    public init(id: String, kind: String?, count: UInt32, canUndo: Bool? = nil) {
         self.id = id
         self.kind = kind
         self.count = count
+        self.canUndo = canUndo
+    }
+}
+
+public struct TopicReplyRequestState: Sendable {
+    public var topicId: UInt64
+    public var raw: String
+    public var replyToPostNumber: UInt32?
+
+    public init(topicId: UInt64, raw: String, replyToPostNumber: UInt32?) {
+        self.topicId = topicId
+        self.raw = raw
+        self.replyToPostNumber = replyToPostNumber
+    }
+}
+
+public struct PostReactionUpdateState: Codable, Sendable {
+    public var reactions: [TopicReactionState]
+    public var currentUserReaction: TopicReactionState?
+
+    public init(
+        reactions: [TopicReactionState],
+        currentUserReaction: TopicReactionState?
+    ) {
+        self.reactions = reactions
+        self.currentUserReaction = currentUserReaction
     }
 }
 
@@ -846,6 +873,49 @@ public final class FireCoreHandle {
             throw CocoaError(.fileReadNoSuchFile)
         }
         return detail
+    }
+
+    public func createReply(request: TopicReplyRequestState) throws -> TopicPostState {
+        let username = state.bootstrap.currentUsername ?? "guest"
+        let postNumber = (request.replyToPostNumber ?? 1) + 1
+        let timestamp = ISO8601DateFormatter().string(from: Date())
+        return TopicPostState(
+            id: UInt64.random(in: 10_000...99_999),
+            username: username,
+            name: username.capitalized,
+            avatarTemplate: "/user_avatar/linux.do/\(username)/{size}/3.png",
+            cooked: "<p>\(request.raw)</p>",
+            postNumber: postNumber,
+            postType: 1,
+            createdAt: timestamp,
+            updatedAt: timestamp,
+            likeCount: 0,
+            replyCount: 0,
+            replyToPostNumber: request.replyToPostNumber,
+            bookmarked: false,
+            bookmarkId: nil,
+            reactions: [],
+            currentUserReaction: nil,
+            acceptedAnswer: false,
+            canEdit: true,
+            canDelete: true,
+            canRecover: false,
+            hidden: false
+        )
+    }
+
+    public func likePost(postId: UInt64) throws {}
+
+    public func unlikePost(postId: UInt64) throws {}
+
+    public func togglePostReaction(
+        postId: UInt64,
+        reactionId: String
+    ) throws -> PostReactionUpdateState {
+        PostReactionUpdateState(
+            reactions: [TopicReactionState(id: reactionId, kind: "emoji", count: 1)],
+            currentUserReaction: TopicReactionState(id: reactionId, kind: "emoji", count: 1)
+        )
     }
 
     public func clearSessionPath(path: String) throws {

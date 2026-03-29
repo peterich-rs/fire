@@ -77,6 +77,21 @@ public actor FireSessionStore {
     }
 
     @discardableResult
+    public func applyPlatformCookies(_ cookies: [PlatformCookieState]) throws -> SessionState {
+        let current = try core.snapshot()
+        let state = try core.applyCookies(
+            cookies: CookieState(
+                tToken: latestCookieValue(named: "_t", from: cookies) ?? current.cookies.tToken,
+                forumSession: latestCookieValue(named: "_forum_session", from: cookies) ?? current.cookies.forumSession,
+                cfClearance: latestCookieValue(named: "cf_clearance", from: cookies) ?? current.cookies.cfClearance,
+                csrfToken: current.cookies.csrfToken
+            )
+        )
+        try persistCurrentSession()
+        return state
+    }
+
+    @discardableResult
     public func refreshBootstrap() async throws -> SessionState {
         let refreshed = try await core.refreshBootstrap()
         try persistCurrentSession()
@@ -169,6 +184,42 @@ public actor FireSessionStore {
                 filterTopLevelReplies: false
             )
         )
+    }
+
+    public func createReply(
+        topicID: UInt64,
+        raw: String,
+        replyToPostNumber: UInt32?
+    ) async throws -> TopicPostState {
+        try await core.createReply(
+            input: TopicReplyRequestState(
+                topicId: topicID,
+                raw: raw,
+                replyToPostNumber: replyToPostNumber
+            )
+        )
+    }
+
+    public func likePost(postID: UInt64) async throws {
+        try await core.likePost(postId: postID)
+    }
+
+    public func unlikePost(postID: UInt64) async throws {
+        try await core.unlikePost(postId: postID)
+    }
+
+    public func togglePostReaction(
+        postID: UInt64,
+        reactionID: String
+    ) async throws -> PostReactionUpdateState {
+        try await core.togglePostReaction(postId: postID, reactionId: reactionID)
+    }
+
+    private func latestCookieValue(
+        named name: String,
+        from cookies: [PlatformCookieState]
+    ) -> String? {
+        cookies.last(where: { $0.name == name && !$0.value.isEmpty })?.value
     }
 
     @discardableResult

@@ -6,9 +6,10 @@ use common::{
     raw_json_response, raw_text_response, sample_home_html, sample_latest_json,
     sample_topic_detail_json, TestServer,
 };
-use fire_core::{FireCore, FireCoreConfig};
+use fire_core::{FireCore, FireCoreConfig, FireCoreError};
 use fire_models::{
-    LoginSyncInput, PlatformCookie, TopicDetailQuery, TopicListKind, TopicListQuery, TopicTag,
+    LoginSyncInput, PlatformCookie, TopicDetailQuery, TopicListKind, TopicListQuery,
+    TopicReplyRequest, TopicTag,
 };
 use serde_json::{json, Value};
 
@@ -411,4 +412,319 @@ async fn refresh_bootstrap_fetches_home_html() {
         Some("alice")
     );
     assert!(snapshot.bootstrap.has_preloaded_data);
+}
+
+#[tokio::test]
+async fn create_reply_refreshes_csrf_and_parses_wrapped_post_payload() {
+    let responses = vec![
+        raw_json_response(200, "application/json", r#"{"csrf":"fresh-csrf"}"#),
+        raw_json_response(
+            200,
+            "application/json",
+            r#"{
+              "post": {
+                "id": 9010,
+                "username": "alice",
+                "name": "Alice",
+                "avatar_template": "/user_avatar/linux.do/alice/{size}/1_2.png",
+                "cooked": "<p>Reply body</p>",
+                "post_number": 2,
+                "post_type": 1,
+                "created_at": "2026-03-28T00:10:00Z",
+                "updated_at": "2026-03-28T00:10:00Z",
+                "like_count": 0,
+                "reply_count": 0,
+                "reply_to_post_number": 1,
+                "bookmarked": false,
+                "bookmark_id": null,
+                "reactions": [],
+                "current_user_reaction": null,
+                "accepted_answer": false,
+                "can_edit": true,
+                "can_delete": true,
+                "can_recover": false,
+                "hidden": false
+              }
+            }"#,
+        ),
+    ];
+    let server = TestServer::spawn(responses).await.expect("server");
+    let core = FireCore::new(FireCoreConfig {
+        base_url: server.base_url(),
+        workspace_path: None,
+    })
+    .expect("core");
+
+    let _ = core.sync_login_context(LoginSyncInput {
+        username: Some("alice".into()),
+        home_html: None,
+        csrf_token: None,
+        current_url: Some(server.base_url()),
+        cookies: vec![
+            PlatformCookie {
+                name: "_t".into(),
+                value: "token".into(),
+                domain: None,
+                path: None,
+            },
+            PlatformCookie {
+                name: "_forum_session".into(),
+                value: "forum".into(),
+                domain: None,
+                path: None,
+            },
+        ],
+    });
+
+    let post = core
+        .create_reply(TopicReplyRequest {
+            topic_id: 123,
+            raw: "Reply body".into(),
+            reply_to_post_number: Some(1),
+        })
+        .await
+        .expect("create reply");
+    let requests = server.shutdown_with_requests().await;
+
+    assert_eq!(post.id, 9010);
+    assert_eq!(post.post_number, 2);
+    assert_eq!(post.reply_to_post_number, Some(1));
+    assert_eq!(requests.len(), 2);
+    assert!(requests[0].contains("GET /session/csrf HTTP/1.1"));
+    assert!(requests[1].contains("POST /posts.json HTTP/1.1"));
+    assert!(requests[1]
+        .to_ascii_lowercase()
+        .contains("x-csrf-token: fresh-csrf"));
+    assert!(requests[1].contains("topic_id=123&raw=Reply+body&reply_to_post_number=1"));
+    assert_eq!(
+        core.snapshot().cookies.csrf_token.as_deref(),
+        Some("fresh-csrf")
+    );
+}
+
+#[tokio::test]
+async fn create_reply_surfaces_pending_review_state() {
+    let responses = vec![raw_json_response(
+        200,
+        "application/json",
+        r#"{"action":"enqueued","pending_count":2}"#,
+    )];
+    let server = TestServer::spawn(responses).await.expect("server");
+    let core = FireCore::new(FireCoreConfig {
+        base_url: server.base_url(),
+        workspace_path: None,
+    })
+    .expect("core");
+
+    let _ = core.sync_login_context(LoginSyncInput {
+        username: Some("alice".into()),
+        home_html: Some(sample_home_html()),
+        csrf_token: Some("csrf-token".into()),
+        current_url: Some(server.base_url()),
+        cookies: vec![
+            PlatformCookie {
+                name: "_t".into(),
+                value: "token".into(),
+                domain: None,
+                path: None,
+            },
+            PlatformCookie {
+                name: "_forum_session".into(),
+                value: "forum".into(),
+                domain: None,
+                path: None,
+            },
+        ],
+    });
+
+    let error = core
+        .create_reply(TopicReplyRequest {
+            topic_id: 123,
+            raw: "Reply body".into(),
+            reply_to_post_number: None,
+        })
+        .await
+        .expect_err("create reply should enqueue");
+    let _ = server.shutdown().await;
+
+    assert!(matches!(
+        error,
+        FireCoreError::PostEnqueued { pending_count: 2 }
+    ));
+}
+
+#[tokio::test]
+async fn toggle_post_reaction_parses_reaction_update_payload() {
+    let responses = vec![raw_json_response(
+        200,
+        "application/json",
+        r#"{
+          "reactions": [
+            { "id": "heart", "type": "emoji", "count": 4 },
+            { "id": "laughing", "type": "emoji", "count": 1 }
+          ],
+          "current_user_reaction": { "id": "laughing", "type": "emoji", "count": 1, "can_undo": true }
+        }"#,
+    )];
+    let server = TestServer::spawn(responses).await.expect("server");
+    let core = FireCore::new(FireCoreConfig {
+        base_url: server.base_url(),
+        workspace_path: None,
+    })
+    .expect("core");
+
+    let _ = core.sync_login_context(LoginSyncInput {
+        username: Some("alice".into()),
+        home_html: Some(sample_home_html()),
+        csrf_token: Some("csrf-token".into()),
+        current_url: Some(server.base_url()),
+        cookies: vec![
+            PlatformCookie {
+                name: "_t".into(),
+                value: "token".into(),
+                domain: None,
+                path: None,
+            },
+            PlatformCookie {
+                name: "_forum_session".into(),
+                value: "forum".into(),
+                domain: None,
+                path: None,
+            },
+        ],
+    });
+
+    let update = core
+        .toggle_post_reaction(9001, "laughing".into())
+        .await
+        .expect("toggle post reaction");
+    let requests = server.shutdown_with_requests().await;
+
+    assert_eq!(update.reactions.len(), 2);
+    assert_eq!(update.reactions[0].id, "heart");
+    assert_eq!(
+        update
+            .current_user_reaction
+            .as_ref()
+            .map(|reaction| reaction.id.as_str()),
+        Some("laughing")
+    );
+    assert_eq!(
+        update
+            .current_user_reaction
+            .as_ref()
+            .and_then(|reaction| reaction.can_undo),
+        Some(true)
+    );
+    assert_eq!(requests.len(), 1);
+    assert!(requests[0].contains(
+        "PUT /discourse-reactions/posts/9001/custom-reactions/laughing/toggle.json HTTP/1.1"
+    ));
+    assert!(requests[0]
+        .to_ascii_lowercase()
+        .contains("x-csrf-token: csrf-token"));
+    assert!(requests[0]
+        .to_ascii_lowercase()
+        .contains("content-length: 0"));
+}
+
+#[tokio::test]
+async fn toggle_post_reaction_encodes_reaction_path_segment() {
+    let responses = vec![raw_json_response(
+        200,
+        "application/json",
+        r#"{
+          "reactions": [
+            { "id": "+1", "type": "emoji", "count": 1 }
+          ],
+          "current_user_reaction": { "id": "+1", "type": "emoji", "count": 1, "can_undo": true }
+        }"#,
+    )];
+    let server = TestServer::spawn(responses).await.expect("server");
+    let core = FireCore::new(FireCoreConfig {
+        base_url: server.base_url(),
+        workspace_path: None,
+    })
+    .expect("core");
+
+    let _ = core.sync_login_context(LoginSyncInput {
+        username: Some("alice".into()),
+        home_html: Some(sample_home_html()),
+        csrf_token: Some("csrf-token".into()),
+        current_url: Some(server.base_url()),
+        cookies: vec![
+            PlatformCookie {
+                name: "_t".into(),
+                value: "token".into(),
+                domain: None,
+                path: None,
+            },
+            PlatformCookie {
+                name: "_forum_session".into(),
+                value: "forum".into(),
+                domain: None,
+                path: None,
+            },
+        ],
+    });
+
+    let update = core
+        .toggle_post_reaction(9001, "+1".into())
+        .await
+        .expect("toggle post reaction");
+    let requests = server.shutdown_with_requests().await;
+
+    assert_eq!(
+        update
+            .current_user_reaction
+            .as_ref()
+            .map(|reaction| reaction.id.as_str()),
+        Some("+1")
+    );
+    assert_eq!(requests.len(), 1);
+    assert!(requests[0].contains(
+        "PUT /discourse-reactions/posts/9001/custom-reactions/%2B1/toggle.json HTTP/1.1"
+    ));
+}
+
+#[tokio::test]
+async fn like_post_uses_post_actions_endpoint() {
+    let responses = vec![raw_text_response(200, "{}")];
+    let server = TestServer::spawn(responses).await.expect("server");
+    let core = FireCore::new(FireCoreConfig {
+        base_url: server.base_url(),
+        workspace_path: None,
+    })
+    .expect("core");
+
+    let _ = core.sync_login_context(LoginSyncInput {
+        username: Some("alice".into()),
+        home_html: Some(sample_home_html()),
+        csrf_token: Some("csrf-token".into()),
+        current_url: Some(server.base_url()),
+        cookies: vec![
+            PlatformCookie {
+                name: "_t".into(),
+                value: "token".into(),
+                domain: None,
+                path: None,
+            },
+            PlatformCookie {
+                name: "_forum_session".into(),
+                value: "forum".into(),
+                domain: None,
+                path: None,
+            },
+        ],
+    });
+
+    core.like_post(9001).await.expect("like post");
+    let requests = server.shutdown_with_requests().await;
+
+    assert_eq!(requests.len(), 1);
+    assert!(requests[0].contains("POST /post_actions HTTP/1.1"));
+    assert!(requests[0]
+        .to_ascii_lowercase()
+        .contains("x-csrf-token: csrf-token"));
+    assert!(requests[0].contains("id=9001&post_action_type_id=2"));
 }

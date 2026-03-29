@@ -26,6 +26,26 @@ private enum FireDiagnosticsAccessError: LocalizedError {
     }
 }
 
+private enum FireTopicInteractionError: LocalizedError {
+    case unavailable
+    case requiresAuthenticatedWrite
+    case emptyReply
+    case requiresCloudflareVerification
+
+    var errorDescription: String? {
+        switch self {
+        case .unavailable:
+            "互动能力暂时不可用。"
+        case .requiresAuthenticatedWrite:
+            "当前会话还不能执行回复或表情回应。"
+        case .emptyReply:
+            "回复内容不能为空。"
+        case .requiresCloudflareVerification:
+            "需要先完成 Cloudflare 验证。请在登录页完成验证后点 Sync，再重试。"
+        }
+    }
+}
+
 @MainActor
 final class FireAppViewModel: ObservableObject {
     @Published private(set) var session: SessionState = .placeholder()
@@ -39,6 +59,8 @@ final class FireAppViewModel: ObservableObject {
     @Published private(set) var isLoadingTopics = false
     @Published private(set) var isAppendingTopics = false
     @Published private(set) var loadingTopicIDs: Set<UInt64> = []
+    @Published private(set) var submittingReplyTopicIDs: Set<UInt64> = []
+    @Published private(set) var mutatingPostIDs: Set<UInt64> = []
     @Published var errorMessage: String?
     @Published var isPresentingLogin = false
     @Published var isPreparingLogin = false
@@ -228,11 +250,134 @@ final class FireAppViewModel: ObservableObject {
         loadingTopicIDs.contains(topicId)
     }
 
+    func isSubmittingReply(topicId: UInt64) -> Bool {
+        submittingReplyTopicIDs.contains(topicId)
+    }
+
+    func isMutatingPost(postId: UInt64) -> Bool {
+        mutatingPostIDs.contains(postId)
+    }
+
     func categoryPresentation(for categoryID: UInt64?) -> FireTopicCategoryPresentation? {
         guard let categoryID else {
             return nil
         }
         return topicCategories[categoryID]
+    }
+
+    func enabledReactionOptions() -> [FireReactionOption] {
+        FireTopicPresentation.enabledReactionOptions(from: session.bootstrap.preloadedJson)
+    }
+
+    func submitReply(
+        topicId: UInt64,
+        raw: String,
+        replyToPostNumber: UInt32?
+    ) async throws {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            throw FireTopicInteractionError.emptyReply
+        }
+
+        let sessionStore = try await sessionStoreValue()
+        guard session.readiness.canWriteAuthenticatedApi else {
+            throw FireTopicInteractionError.requiresAuthenticatedWrite
+        }
+        guard !submittingReplyTopicIDs.contains(topicId) else {
+            return
+        }
+
+        submittingReplyTopicIDs.insert(topicId)
+        defer { submittingReplyTopicIDs.remove(topicId) }
+
+        do {
+            errorMessage = nil
+            _ = try await performWriteWithCloudflareRetry {
+                try await sessionStore.createReply(
+                    topicID: topicId,
+                    raw: trimmed,
+                    replyToPostNumber: replyToPostNumber
+                )
+            }
+            if let snapshot = try? await sessionStore.snapshot() {
+                await applySession(snapshot)
+            }
+            try? await refreshTopicDetailAfterMutation(topicId: topicId, sessionStore: sessionStore)
+        } catch {
+            errorMessage = error.localizedDescription
+            throw error
+        }
+    }
+
+    func setPostLiked(
+        topicId: UInt64,
+        postId: UInt64,
+        liked: Bool
+    ) async throws {
+        let sessionStore = try await sessionStoreValue()
+        guard session.readiness.canWriteAuthenticatedApi else {
+            throw FireTopicInteractionError.requiresAuthenticatedWrite
+        }
+        guard !mutatingPostIDs.contains(postId) else {
+            return
+        }
+
+        mutatingPostIDs.insert(postId)
+        defer { mutatingPostIDs.remove(postId) }
+
+        do {
+            errorMessage = nil
+            try await performWriteWithCloudflareRetry {
+                if liked {
+                    try await sessionStore.likePost(postID: postId)
+                } else {
+                    try await sessionStore.unlikePost(postID: postId)
+                }
+            }
+            if let snapshot = try? await sessionStore.snapshot() {
+                await applySession(snapshot)
+            }
+            try? await refreshTopicDetailAfterMutation(topicId: topicId, sessionStore: sessionStore)
+        } catch {
+            errorMessage = error.localizedDescription
+            throw error
+        }
+    }
+
+    func togglePostReaction(
+        topicId: UInt64,
+        postId: UInt64,
+        reactionId: String
+    ) async throws {
+        let trimmedReactionID = reactionId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedReactionID.isEmpty else {
+            return
+        }
+
+        let sessionStore = try await sessionStoreValue()
+        guard session.readiness.canWriteAuthenticatedApi else {
+            throw FireTopicInteractionError.requiresAuthenticatedWrite
+        }
+        guard !mutatingPostIDs.contains(postId) else {
+            return
+        }
+
+        mutatingPostIDs.insert(postId)
+        defer { mutatingPostIDs.remove(postId) }
+
+        do {
+            errorMessage = nil
+            let update = try await performWriteWithCloudflareRetry {
+                try await sessionStore.togglePostReaction(
+                    postID: postId,
+                    reactionID: trimmedReactionID
+                )
+            }
+            applyPostReactionUpdate(topicId: topicId, postId: postId, update: update)
+        } catch {
+            errorMessage = error.localizedDescription
+            throw error
+        }
     }
 
     func listLogFiles() async throws -> [LogFileSummaryState] {
@@ -347,10 +492,13 @@ final class FireAppViewModel: ObservableObject {
         isLoadingTopics = false
         isAppendingTopics = false
         loadingTopicIDs = []
+        submittingReplyTopicIDs = []
+        mutatingPostIDs = []
     }
 
     private func applySession(_ session: SessionState) async {
         self.session = session
+        session.mirrorCookiesToNativeStorage()
         let preloadedJSON = session.bootstrap.preloadedJson
         let categories = await Task.detached(priority: .userInitiated) {
             FireTopicPresentation.parseCategories(from: preloadedJSON)
@@ -359,6 +507,96 @@ final class FireAppViewModel: ObservableObject {
             return
         }
         topicCategories = categories
+    }
+
+    private func refreshTopicDetailAfterMutation(
+        topicId: UInt64,
+        sessionStore: FireSessionStore
+    ) async throws {
+        let detail = try await sessionStore.fetchTopicDetail(
+            query: TopicDetailQueryState(
+                topicId: topicId,
+                postNumber: nil,
+                trackVisit: false,
+                filter: nil,
+                usernameFilters: nil,
+                filterTopLevelReplies: false
+            )
+        )
+        topicDetails[topicId] = detail
+    }
+
+    private func performWriteWithCloudflareRetry<T>(
+        operation: () async throws -> T
+    ) async throws -> T {
+        do {
+            return try await operation()
+        } catch {
+            guard isCloudflareChallenge(error) else {
+                throw error
+            }
+
+            try? await syncPlatformCookiesFromWebViewStore()
+
+            do {
+                return try await operation()
+            } catch {
+                guard isCloudflareChallenge(error) else {
+                    throw error
+                }
+                isPresentingLogin = true
+                throw FireTopicInteractionError.requiresCloudflareVerification
+            }
+        }
+    }
+
+    private func syncPlatformCookiesFromWebViewStore() async throws {
+        let loginCoordinator = try await loginCoordinatorValue()
+        let session = try await loginCoordinator.refreshPlatformCookies()
+        await applySession(session)
+    }
+
+    private func isCloudflareChallenge(_ error: Error) -> Bool {
+        guard case let FireUniFfiError.HttpStatus(_, status, body) = error else {
+            return false
+        }
+        guard status == 403 else {
+            return false
+        }
+
+        return body.localizedCaseInsensitiveContains("just a moment")
+            || body.localizedCaseInsensitiveContains("cf challenge")
+            || body.contains("__cf_chl_opt")
+            || body.contains("/cdn-cgi/challenge-platform/")
+    }
+
+    private func applyPostReactionUpdate(
+        topicId: UInt64,
+        postId: UInt64,
+        update: PostReactionUpdateState
+    ) {
+        guard var detail = topicDetails[topicId] else {
+            return
+        }
+        guard let postIndex = detail.postStream.posts.firstIndex(where: { $0.id == postId }) else {
+            return
+        }
+
+        var post = detail.postStream.posts[postIndex]
+        let previousHeartCount = post.reactions.first(where: { $0.id == "heart" })?.count
+        let updatedHeartCount = update.reactions.first(where: { $0.id == "heart" })?.count
+
+        post.reactions = update.reactions
+        post.currentUserReaction = update.currentUserReaction
+
+        if let updatedHeartCount {
+            post.likeCount = updatedHeartCount
+        } else if previousHeartCount != nil || post.currentUserReaction?.id == "heart" {
+            post.likeCount = 0
+        }
+
+        detail.postStream.posts[postIndex] = post
+        topicDetails[topicId] = detail
     }
 
     private func mergeTopics(

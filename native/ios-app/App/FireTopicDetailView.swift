@@ -574,14 +574,43 @@ struct FireTopicDetailView: View {
 
         Task { @MainActor in
             do {
-                try await viewModel.togglePostReaction(
-                    topicId: topic.id,
-                    postId: postId,
-                    reactionId: toggledReactionID
+                try await transitionReaction(
+                    from: currentReactionID,
+                    to: desiredReactionID,
+                    toggledReactionId: toggledReactionID,
+                    postId: postId
                 )
             } catch {
                 composerNotice = error.localizedDescription
             }
+        }
+    }
+
+    private func transitionReaction(
+        from currentReactionID: String?,
+        to desiredReactionID: String?,
+        toggledReactionId: String,
+        postId: UInt64
+    ) async throws {
+        switch (currentReactionID, desiredReactionID) {
+        case (nil, "heart"):
+            try await viewModel.setPostLiked(
+                topicId: topic.id,
+                postId: postId,
+                liked: true
+            )
+        case ("heart", nil):
+            try await viewModel.setPostLiked(
+                topicId: topic.id,
+                postId: postId,
+                liked: false
+            )
+        default:
+            try await viewModel.togglePostReaction(
+                topicId: topic.id,
+                postId: postId,
+                reactionId: toggledReactionId
+            )
         }
     }
 }

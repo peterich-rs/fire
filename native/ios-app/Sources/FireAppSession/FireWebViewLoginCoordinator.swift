@@ -67,8 +67,19 @@ public final class FireWebViewLoginCoordinator {
         )
     }
 
+    public func refreshPlatformCookies() async throws -> SessionState {
+        let cookies = try await relevantCookies(
+            from: WKWebsiteDataStore.default().httpCookieStore
+        )
+        return try await sessionStore.applyPlatformCookies(cookies)
+    }
+
     private func relevantCookies(from webView: WKWebView) async throws -> [PlatformCookieState] {
-        let allCookies = try await httpCookies(from: webView.configuration.websiteDataStore.httpCookieStore)
+        try await relevantCookies(from: webView.configuration.websiteDataStore.httpCookieStore)
+    }
+
+    private func relevantCookies(from store: WKHTTPCookieStore) async throws -> [PlatformCookieState] {
+        let allCookies = try await httpCookies(from: store)
         return allCookies.compactMap { cookie in
             guard ["_t", "_forum_session", "cf_clearance"].contains(cookie.name) else {
                 return nil

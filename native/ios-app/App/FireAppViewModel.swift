@@ -30,6 +30,7 @@ private enum FireTopicInteractionError: LocalizedError {
     case unavailable
     case requiresAuthenticatedWrite
     case emptyReply
+    case requiresCloudflareVerification
 
     var errorDescription: String? {
         switch self {
@@ -39,6 +40,8 @@ private enum FireTopicInteractionError: LocalizedError {
             "当前会话还不能执行回复或表情回应。"
         case .emptyReply:
             "回复内容不能为空。"
+        case .requiresCloudflareVerification:
+            "需要先完成 Cloudflare 验证。请在登录页完成验证后点 Sync，再重试。"
         }
     }
 }
@@ -289,11 +292,13 @@ final class FireAppViewModel: ObservableObject {
 
         do {
             errorMessage = nil
-            _ = try await sessionStore.createReply(
-                topicID: topicId,
-                raw: trimmed,
-                replyToPostNumber: replyToPostNumber
-            )
+            _ = try await performWriteWithCloudflareRetry {
+                try await sessionStore.createReply(
+                    topicID: topicId,
+                    raw: trimmed,
+                    replyToPostNumber: replyToPostNumber
+                )
+            }
             if let snapshot = try? await sessionStore.snapshot() {
                 await applySession(snapshot)
             }
@@ -322,10 +327,12 @@ final class FireAppViewModel: ObservableObject {
 
         do {
             errorMessage = nil
-            if liked {
-                try await sessionStore.likePost(postID: postId)
-            } else {
-                try await sessionStore.unlikePost(postID: postId)
+            try await performWriteWithCloudflareRetry {
+                if liked {
+                    try await sessionStore.likePost(postID: postId)
+                } else {
+                    try await sessionStore.unlikePost(postID: postId)
+                }
             }
             if let snapshot = try? await sessionStore.snapshot() {
                 await applySession(snapshot)
@@ -360,10 +367,12 @@ final class FireAppViewModel: ObservableObject {
 
         do {
             errorMessage = nil
-            let update = try await sessionStore.togglePostReaction(
-                postID: postId,
-                reactionID: trimmedReactionID
-            )
+            let update = try await performWriteWithCloudflareRetry {
+                try await sessionStore.togglePostReaction(
+                    postID: postId,
+                    reactionID: trimmedReactionID
+                )
+            }
             applyPostReactionUpdate(topicId: topicId, postId: postId, update: update)
         } catch {
             errorMessage = error.localizedDescription
@@ -515,6 +524,50 @@ final class FireAppViewModel: ObservableObject {
             )
         )
         topicDetails[topicId] = detail
+    }
+
+    private func performWriteWithCloudflareRetry<T>(
+        operation: () async throws -> T
+    ) async throws -> T {
+        do {
+            return try await operation()
+        } catch {
+            guard isCloudflareChallenge(error) else {
+                throw error
+            }
+
+            try? await syncPlatformCookiesFromWebViewStore()
+
+            do {
+                return try await operation()
+            } catch {
+                guard isCloudflareChallenge(error) else {
+                    throw error
+                }
+                isPresentingLogin = true
+                throw FireTopicInteractionError.requiresCloudflareVerification
+            }
+        }
+    }
+
+    private func syncPlatformCookiesFromWebViewStore() async throws {
+        let loginCoordinator = try await loginCoordinatorValue()
+        let session = try await loginCoordinator.refreshPlatformCookies()
+        await applySession(session)
+    }
+
+    private func isCloudflareChallenge(_ error: Error) -> Bool {
+        guard case let FireUniFfiError.HttpStatus(_, status, body) = error else {
+            return false
+        }
+        guard status == 403 else {
+            return false
+        }
+
+        return body.localizedCaseInsensitiveContains("just a moment")
+            || body.localizedCaseInsensitiveContains("cf challenge")
+            || body.contains("__cf_chl_opt")
+            || body.contains("/cdn-cgi/challenge-platform/")
     }
 
     private func applyPostReactionUpdate(

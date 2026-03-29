@@ -313,6 +313,8 @@ enum FireTopicPresentation {
         let normalized = reactionID.lowercased()
         let mapping: [String: (String, String)] = [
             "heart": ("❤️", "点赞"),
+            "+1": ("👍", "赞同"),
+            "-1": ("👎", "反对"),
             "thumbsup": ("👍", "赞同"),
             "laughing": ("😆", "笑哭"),
             "open_mouth": ("😮", "惊讶"),

@@ -11,6 +11,7 @@ Current crates:
   - keeps config, logging, readable-log export, network request tracing, HTML/bootstrap parsing, cookie transport, topic payload mapping, and session persistence in focused internal modules
 - `fire-uniffi`: UniFFI boundary exposed to Swift and Kotlin.
   - exports local session/persistence APIs, diagnostics APIs, plus async topic/bootstrap/logout APIs
+  - wraps exported calls in a panic boundary so Rust panics are logged, mapped to `FireUniFfiError::Internal`, and poison the current handle for follow-up calls
   - keeps its generator settings in `crates/fire-uniffi/uniffi.toml`
   - is the only crate that should carry UniFFI-specific binding configuration
 

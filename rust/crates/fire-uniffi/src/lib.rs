@@ -1,6 +1,12 @@
 use std::{
+    any::Any,
+    backtrace::Backtrace,
     future::Future,
-    sync::{Arc, OnceLock},
+    panic::{self, AssertUnwindSafe},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex, OnceLock,
+    },
 };
 
 use fire_core::{
@@ -14,9 +20,100 @@ use fire_models::{
     TopicDetailQuery, TopicListKind, TopicListQuery, TopicListResponse, TopicPost, TopicPostStream,
     TopicPoster, TopicReaction, TopicSummary, TopicTag, TopicUser,
 };
+use futures_util::FutureExt;
 use tokio::runtime::{Builder, Runtime};
+use tracing::error;
 
 uniffi::setup_scaffolding!("fire_uniffi");
+
+#[derive(Default)]
+struct PanicState {
+    poisoned: AtomicBool,
+    last_panic: Mutex<Option<String>>,
+}
+
+impl PanicState {
+    fn ensure_healthy(&self, operation: &'static str) -> Result<(), FireUniFfiError> {
+        if !self.poisoned.load(Ordering::SeqCst) {
+            return Ok(());
+        }
+
+        let previous = self
+            .last_panic
+            .lock()
+            .ok()
+            .and_then(|guard| guard.clone())
+            .unwrap_or_else(|| "unknown panic".to_string());
+        Err(FireUniFfiError::Internal {
+            details: format!(
+                "fire core handle is poisoned by a previous panic ({previous}); recreate the handle before calling {operation}"
+            ),
+        })
+    }
+
+    fn capture_panic(
+        &self,
+        operation: &'static str,
+        payload: &(dyn Any + Send),
+    ) -> FireUniFfiError {
+        let report = CapturedPanic::from_payload(operation, payload);
+        report.log();
+        self.poisoned.store(true, Ordering::SeqCst);
+        if let Ok(mut last_panic) = self.last_panic.lock() {
+            *last_panic = Some(report.summary());
+        }
+        FireUniFfiError::Internal {
+            details: report.user_message(),
+        }
+    }
+}
+
+struct CapturedPanic {
+    operation: &'static str,
+    message: String,
+    backtrace: String,
+}
+
+impl CapturedPanic {
+    fn from_payload(operation: &'static str, payload: &(dyn Any + Send)) -> Self {
+        Self {
+            operation,
+            message: panic_payload_to_string(payload),
+            backtrace: Backtrace::force_capture().to_string(),
+        }
+    }
+
+    fn summary(&self) -> String {
+        format!("{} panicked: {}", self.operation, self.message)
+    }
+
+    fn user_message(&self) -> String {
+        self.summary()
+    }
+
+    fn log(&self) {
+        error!(
+            operation = self.operation,
+            panic_message = %self.message,
+            backtrace = %self.backtrace,
+            "caught panic across fire-uniffi boundary"
+        );
+        eprintln!(
+            "fire-uniffi caught panic in {}: {}\nbacktrace:\n{}",
+            self.operation, self.message, self.backtrace
+        );
+    }
+}
+
+fn panic_payload_to_string(payload: &(dyn Any + Send)) -> String {
+    if let Some(message) = payload.downcast_ref::<&'static str>() {
+        (*message).to_string()
+    } else if let Some(message) = payload.downcast_ref::<String>() {
+        message.clone()
+    } else {
+        "non-string panic payload".to_string()
+    }
+}
 
 #[derive(uniffi::Record, Debug, Clone)]
 pub struct PlatformCookieState {
@@ -922,6 +1019,7 @@ impl From<FireCoreError> for FireUniFfiError {
 #[derive(uniffi::Object)]
 pub struct FireCoreHandle {
     inner: Arc<FireCore>,
+    panic_state: Arc<PanicState>,
 }
 
 #[uniffi::export]
@@ -931,93 +1029,120 @@ impl FireCoreHandle {
         base_url: Option<String>,
         workspace_path: Option<String>,
     ) -> Result<Self, FireUniFfiError> {
-        let inner = FireCore::new(FireCoreConfig {
-            base_url: base_url.unwrap_or_else(|| "https://linux.do".to_string()),
-            workspace_path,
-        })?;
-        Ok(Self {
-            inner: Arc::new(inner),
+        constructor_guard("constructor.new", || {
+            Ok(Self {
+                inner: Arc::new(FireCore::new(FireCoreConfig {
+                    base_url: base_url.unwrap_or_else(|| "https://linux.do".to_string()),
+                    workspace_path,
+                })?),
+                panic_state: Arc::new(PanicState::default()),
+            })
         })
     }
 
-    pub fn base_url(&self) -> String {
-        self.inner.base_url().to_string()
+    pub fn base_url(&self) -> Result<String, FireUniFfiError> {
+        self.run_infallible("base_url", |inner| inner.base_url().to_string())
     }
 
-    pub fn workspace_path(&self) -> Option<String> {
-        self.inner
-            .workspace_path()
-            .map(|path| path.display().to_string())
+    pub fn workspace_path(&self) -> Result<Option<String>, FireUniFfiError> {
+        self.run_infallible("workspace_path", |inner| {
+            inner
+                .workspace_path()
+                .map(|path| path.display().to_string())
+        })
     }
 
     pub fn resolve_workspace_path(&self, relative_path: String) -> Result<String, FireUniFfiError> {
-        self.inner
-            .resolve_workspace_path(relative_path)
-            .map(|path| path.display().to_string())
-            .map_err(Into::into)
+        self.run_fallible("resolve_workspace_path", move |inner| {
+            inner
+                .resolve_workspace_path(relative_path)
+                .map(|path| path.display().to_string())
+        })
     }
 
-    pub fn flush_logs(&self, sync: bool) {
-        self.inner.flush_logs(sync);
+    pub fn flush_logs(&self, sync: bool) -> Result<(), FireUniFfiError> {
+        self.run_infallible("flush_logs", move |inner| inner.flush_logs(sync))
     }
 
     pub fn list_log_files(&self) -> Result<Vec<LogFileSummaryState>, FireUniFfiError> {
-        self.inner
-            .list_log_files()
-            .map(|items| items.into_iter().map(Into::into).collect())
-            .map_err(Into::into)
+        self.run_fallible("list_log_files", |inner| {
+            inner
+                .list_log_files()
+                .map(|items| items.into_iter().map(Into::into).collect())
+        })
     }
 
     pub fn read_log_file(
         &self,
         relative_path: String,
     ) -> Result<LogFileDetailState, FireUniFfiError> {
-        self.inner
-            .read_log_file(relative_path)
-            .map(Into::into)
-            .map_err(Into::into)
+        self.run_fallible("read_log_file", move |inner| {
+            inner.read_log_file(relative_path).map(Into::into)
+        })
     }
 
-    pub fn list_network_traces(&self, limit: u64) -> Vec<NetworkTraceSummaryState> {
-        self.inner
-            .list_network_traces(limit as usize)
-            .into_iter()
-            .map(Into::into)
-            .collect()
+    pub fn list_network_traces(
+        &self,
+        limit: u64,
+    ) -> Result<Vec<NetworkTraceSummaryState>, FireUniFfiError> {
+        self.run_infallible("list_network_traces", move |inner| {
+            inner
+                .list_network_traces(limit as usize)
+                .into_iter()
+                .map(Into::into)
+                .collect()
+        })
     }
 
-    pub fn network_trace_detail(&self, trace_id: u64) -> Option<NetworkTraceDetailState> {
-        self.inner.network_trace_detail(trace_id).map(Into::into)
+    pub fn network_trace_detail(
+        &self,
+        trace_id: u64,
+    ) -> Result<Option<NetworkTraceDetailState>, FireUniFfiError> {
+        self.run_infallible("network_trace_detail", move |inner| {
+            inner.network_trace_detail(trace_id).map(Into::into)
+        })
     }
 
-    pub fn has_login_session(&self) -> bool {
-        self.inner.has_login_session()
+    pub fn has_login_session(&self) -> Result<bool, FireUniFfiError> {
+        self.run_infallible("has_login_session", |inner| inner.has_login_session())
     }
 
-    pub fn snapshot(&self) -> SessionState {
-        SessionState::from_snapshot(self.inner.snapshot())
+    pub fn snapshot(&self) -> Result<SessionState, FireUniFfiError> {
+        self.run_infallible("snapshot", |inner| {
+            SessionState::from_snapshot(inner.snapshot())
+        })
     }
 
     pub fn export_session_json(&self) -> Result<String, FireUniFfiError> {
-        self.inner.export_session_json().map_err(Into::into)
+        self.run_fallible("export_session_json", |inner| inner.export_session_json())
     }
 
     pub fn restore_session_json(&self, json: String) -> Result<SessionState, FireUniFfiError> {
-        let snapshot = self.inner.restore_session_json(json)?;
-        Ok(SessionState::from_snapshot(snapshot))
+        self.run_fallible("restore_session_json", move |inner| {
+            inner
+                .restore_session_json(json)
+                .map(SessionState::from_snapshot)
+        })
     }
 
     pub fn save_session_to_path(&self, path: String) -> Result<(), FireUniFfiError> {
-        self.inner.save_session_to_path(path).map_err(Into::into)
+        self.run_fallible("save_session_to_path", move |inner| {
+            inner.save_session_to_path(path)
+        })
     }
 
     pub fn load_session_from_path(&self, path: String) -> Result<SessionState, FireUniFfiError> {
-        let snapshot = self.inner.load_session_from_path(path)?;
-        Ok(SessionState::from_snapshot(snapshot))
+        self.run_fallible("load_session_from_path", move |inner| {
+            inner
+                .load_session_from_path(path)
+                .map(SessionState::from_snapshot)
+        })
     }
 
     pub fn clear_session_path(&self, path: String) -> Result<(), FireUniFfiError> {
-        self.inner.clear_session_path(path).map_err(Into::into)
+        self.run_fallible("clear_session_path", move |inner| {
+            inner.clear_session_path(path)
+        })
     }
 
     pub async fn fetch_topic_list(
@@ -1025,8 +1150,11 @@ impl FireCoreHandle {
         query: TopicListQueryState,
     ) -> Result<TopicListState, FireUniFfiError> {
         let inner = Arc::clone(&self.inner);
-        let response =
-            run_on_ffi_runtime(async move { inner.fetch_topic_list(query.into()).await }).await?;
+        let panic_state = Arc::clone(&self.panic_state);
+        let response = run_on_ffi_runtime("fetch_topic_list", panic_state, async move {
+            inner.fetch_topic_list(query.into()).await
+        })
+        .await?;
         Ok(response.into())
     }
 
@@ -1035,48 +1163,82 @@ impl FireCoreHandle {
         query: TopicDetailQueryState,
     ) -> Result<TopicDetailState, FireUniFfiError> {
         let inner = Arc::clone(&self.inner);
-        let response =
-            run_on_ffi_runtime(async move { inner.fetch_topic_detail(query.into()).await }).await?;
+        let panic_state = Arc::clone(&self.panic_state);
+        let response = run_on_ffi_runtime("fetch_topic_detail", panic_state, async move {
+            inner.fetch_topic_detail(query.into()).await
+        })
+        .await?;
         Ok(response.into())
     }
 
-    pub fn apply_cookies(&self, cookies: CookieState) -> SessionState {
-        SessionState::from_snapshot(self.inner.apply_cookies(cookies.into()))
+    pub fn apply_cookies(&self, cookies: CookieState) -> Result<SessionState, FireUniFfiError> {
+        self.run_infallible("apply_cookies", move |inner| {
+            SessionState::from_snapshot(inner.apply_cookies(cookies.into()))
+        })
     }
 
-    pub fn apply_bootstrap(&self, bootstrap: BootstrapState) -> SessionState {
-        SessionState::from_snapshot(self.inner.apply_bootstrap(bootstrap.into()))
+    pub fn apply_bootstrap(
+        &self,
+        bootstrap: BootstrapState,
+    ) -> Result<SessionState, FireUniFfiError> {
+        self.run_infallible("apply_bootstrap", move |inner| {
+            SessionState::from_snapshot(inner.apply_bootstrap(bootstrap.into()))
+        })
     }
 
-    pub fn apply_csrf_token(&self, csrf_token: String) -> SessionState {
-        SessionState::from_snapshot(self.inner.apply_csrf_token(csrf_token))
+    pub fn apply_csrf_token(&self, csrf_token: String) -> Result<SessionState, FireUniFfiError> {
+        self.run_infallible("apply_csrf_token", move |inner| {
+            SessionState::from_snapshot(inner.apply_csrf_token(csrf_token))
+        })
     }
 
-    pub fn clear_csrf_token(&self) -> SessionState {
-        SessionState::from_snapshot(self.inner.clear_csrf_token())
+    pub fn clear_csrf_token(&self) -> Result<SessionState, FireUniFfiError> {
+        self.run_infallible("clear_csrf_token", |inner| {
+            SessionState::from_snapshot(inner.clear_csrf_token())
+        })
     }
 
-    pub fn apply_home_html(&self, html: String) -> SessionState {
-        SessionState::from_snapshot(self.inner.apply_home_html(html))
+    pub fn apply_home_html(&self, html: String) -> Result<SessionState, FireUniFfiError> {
+        self.run_infallible("apply_home_html", move |inner| {
+            SessionState::from_snapshot(inner.apply_home_html(html))
+        })
     }
 
-    pub fn sync_login_context(&self, context: LoginSyncState) -> SessionState {
-        SessionState::from_snapshot(self.inner.sync_login_context(context.into()))
+    pub fn sync_login_context(
+        &self,
+        context: LoginSyncState,
+    ) -> Result<SessionState, FireUniFfiError> {
+        self.run_infallible("sync_login_context", move |inner| {
+            SessionState::from_snapshot(inner.sync_login_context(context.into()))
+        })
     }
 
-    pub fn logout_local(&self, preserve_cf_clearance: bool) -> SessionState {
-        SessionState::from_snapshot(self.inner.logout_local(preserve_cf_clearance))
+    pub fn logout_local(
+        &self,
+        preserve_cf_clearance: bool,
+    ) -> Result<SessionState, FireUniFfiError> {
+        self.run_infallible("logout_local", move |inner| {
+            SessionState::from_snapshot(inner.logout_local(preserve_cf_clearance))
+        })
     }
 
     pub async fn refresh_bootstrap(&self) -> Result<SessionState, FireUniFfiError> {
         let inner = Arc::clone(&self.inner);
-        let snapshot = run_on_ffi_runtime(async move { inner.refresh_bootstrap().await }).await?;
+        let panic_state = Arc::clone(&self.panic_state);
+        let snapshot = run_on_ffi_runtime("refresh_bootstrap", panic_state, async move {
+            inner.refresh_bootstrap().await
+        })
+        .await?;
         Ok(SessionState::from_snapshot(snapshot))
     }
 
     pub async fn refresh_csrf_token(&self) -> Result<SessionState, FireUniFfiError> {
         let inner = Arc::clone(&self.inner);
-        let snapshot = run_on_ffi_runtime(async move { inner.refresh_csrf_token().await }).await?;
+        let panic_state = Arc::clone(&self.panic_state);
+        let snapshot = run_on_ffi_runtime("refresh_csrf_token", panic_state, async move {
+            inner.refresh_csrf_token().await
+        })
+        .await?;
         Ok(SessionState::from_snapshot(snapshot))
     }
 
@@ -1085,24 +1247,74 @@ impl FireCoreHandle {
         preserve_cf_clearance: bool,
     ) -> Result<SessionState, FireUniFfiError> {
         let inner = Arc::clone(&self.inner);
-        let snapshot =
-            run_on_ffi_runtime(async move { inner.logout_remote(preserve_cf_clearance).await })
-                .await?;
+        let panic_state = Arc::clone(&self.panic_state);
+        let snapshot = run_on_ffi_runtime("logout_remote", panic_state, async move {
+            inner.logout_remote(preserve_cf_clearance).await
+        })
+        .await?;
         Ok(SessionState::from_snapshot(snapshot))
     }
 }
 
-async fn run_on_ffi_runtime<T, Fut>(future: Fut) -> Result<T, FireUniFfiError>
+impl FireCoreHandle {
+    fn run_fallible<T, F>(&self, operation: &'static str, f: F) -> Result<T, FireUniFfiError>
+    where
+        F: FnOnce(&FireCore) -> Result<T, FireCoreError>,
+    {
+        self.panic_state.ensure_healthy(operation)?;
+        match panic::catch_unwind(AssertUnwindSafe(|| f(self.inner.as_ref()))) {
+            Ok(Ok(value)) => Ok(value),
+            Ok(Err(error)) => Err(error.into()),
+            Err(payload) => Err(self.panic_state.capture_panic(operation, payload.as_ref())),
+        }
+    }
+
+    fn run_infallible<T, F>(&self, operation: &'static str, f: F) -> Result<T, FireUniFfiError>
+    where
+        F: FnOnce(&FireCore) -> T,
+    {
+        self.panic_state.ensure_healthy(operation)?;
+        match panic::catch_unwind(AssertUnwindSafe(|| f(self.inner.as_ref()))) {
+            Ok(value) => Ok(value),
+            Err(payload) => Err(self.panic_state.capture_panic(operation, payload.as_ref())),
+        }
+    }
+}
+
+fn constructor_guard<T, F>(operation: &'static str, f: F) -> Result<T, FireUniFfiError>
+where
+    F: FnOnce() -> Result<T, FireCoreError>,
+{
+    match panic::catch_unwind(AssertUnwindSafe(f)) {
+        Ok(Ok(value)) => Ok(value),
+        Ok(Err(error)) => Err(error.into()),
+        Err(payload) => {
+            let report = CapturedPanic::from_payload(operation, payload.as_ref());
+            report.log();
+            Err(FireUniFfiError::Internal {
+                details: report.user_message(),
+            })
+        }
+    }
+}
+
+async fn run_on_ffi_runtime<T, Fut>(
+    operation: &'static str,
+    panic_state: Arc<PanicState>,
+    future: Fut,
+) -> Result<T, FireUniFfiError>
 where
     T: Send + 'static,
     Fut: Future<Output = Result<T, FireCoreError>> + Send + 'static,
 {
+    panic_state.ensure_healthy(operation)?;
     ffi_runtime()
-        .spawn(future)
+        .spawn(AssertUnwindSafe(future).catch_unwind())
         .await
         .map_err(|error| FireUniFfiError::Runtime {
             details: error.to_string(),
         })?
+        .map_err(|payload| panic_state.capture_panic(operation, payload.as_ref()))?
         .map_err(Into::into)
 }
 
@@ -1155,10 +1367,66 @@ mod tests {
 
     #[test]
     fn runs_async_work_on_ffi_runtime() {
+        let panic_state = Arc::new(PanicState::default());
         let value = ffi_runtime()
-            .block_on(run_on_ffi_runtime(async { Ok::<_, FireCoreError>(42_u8) }))
+            .block_on(run_on_ffi_runtime(
+                "test_async_success",
+                Arc::clone(&panic_state),
+                async { Ok::<_, FireCoreError>(42_u8) },
+            ))
             .expect("ffi runtime should resolve async work");
 
         assert_eq!(value, 42);
+    }
+
+    #[test]
+    fn converts_sync_panic_to_internal_error_and_poisoned_handle() {
+        let handle = FireCoreHandle::new(None, None).expect("constructor should succeed");
+
+        let error = handle
+            .run_infallible("test_sync_panic", |_| {
+                panic!("boom");
+            })
+            .expect_err("panic should map to an internal error");
+
+        assert!(matches!(
+            error,
+            FireUniFfiError::Internal { details } if details.contains("test_sync_panic panicked: boom")
+        ));
+        assert!(matches!(
+            handle.panic_state.ensure_healthy("snapshot"),
+            Err(FireUniFfiError::Internal { details })
+                if details.contains("poisoned by a previous panic")
+                    && details.contains("test_sync_panic panicked: boom")
+        ));
+    }
+
+    #[test]
+    fn converts_async_panic_to_internal_error_and_poisoned_handle() {
+        let panic_state = Arc::new(PanicState::default());
+
+        let error = ffi_runtime()
+            .block_on(run_on_ffi_runtime(
+                "test_async_panic",
+                Arc::clone(&panic_state),
+                async {
+                    panic!("async boom");
+                    #[allow(unreachable_code)]
+                    Ok::<(), FireCoreError>(())
+                },
+            ))
+            .expect_err("panic should map to an internal error");
+
+        assert!(matches!(
+            error,
+            FireUniFfiError::Internal { details }
+                if details.contains("test_async_panic panicked: async boom")
+        ));
+        assert!(matches!(
+            panic_state.ensure_healthy("fetch_topic_list"),
+            Err(FireUniFfiError::Internal { details })
+                if details.contains("poisoned by a previous panic")
+                    && details.contains("test_async_panic panicked: async boom")
+        ));
     }
 }

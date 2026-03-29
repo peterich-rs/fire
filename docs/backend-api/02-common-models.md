@@ -90,6 +90,10 @@
 - `has_summary`
 - `archetype`
 - `tags` 在不同接口/站点版本中可能返回 `TopicTag[]` 或旧的字符串数组
+- `accepted_answer` 在 topic detail 里常见为对象 `{ post_number, username, ... }`，未采纳时才可能是 `false`
+- `bookmarks` 实际是书签对象数组，不是单纯的 ID 列表；常见字段包括 `id`、`bookmarkable_type`、`bookmarkable_id`、`name`、`reminder_at`
+- `details` 可能为 `null`
+- `category_id`、`notification_level`、`vote_count` 以及帖子内多数字段在实际返回里都应按“可空/可字符串化标量”容错，而不要假设总是稳定的 JSON 标量类型
 
 ## Post
 
@@ -118,6 +122,11 @@
   "hidden": false
 }
 ```
+
+补充说明：
+
+- `username`、`cooked`、`like_count`、`reply_count`、`bookmarked`、`accepted_answer`、`can_edit`、`can_delete`、`can_recover`、`hidden` 在实际负载里都应按可空字段容错
+- `reactions` 可能为 `null` 或空数组
 
 ## User
 

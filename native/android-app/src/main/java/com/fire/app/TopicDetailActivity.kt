@@ -3,13 +3,11 @@ package com.fire.app
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
-import android.text.method.LinkMovementMethod
 import android.view.View
 import android.view.ViewGroup
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.text.HtmlCompat
 import androidx.lifecycle.lifecycleScope
 import com.fire.app.databinding.ActivityTopicDetailBinding
 import com.fire.app.session.FireSessionStore
@@ -145,11 +143,9 @@ class TopicDetailActivity : AppCompatActivity() {
 
             addView(
                 TextView(context).apply {
-                    text = HtmlCompat.fromHtml(post.cooked, HtmlCompat.FROM_HTML_MODE_LEGACY)
+                    text = TopicPresentation.plainTextFromHtml(post.cooked)
                     textSize = 15f
                     setPadding(0, dp(8), 0, 0)
-                    movementMethod = LinkMovementMethod.getInstance()
-                    linksClickable = true
                 },
             )
         }

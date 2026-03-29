@@ -13,6 +13,8 @@ crate-type = ["cdylib", "staticlib", "rlib"]
 [dependencies]
 fire-core = { path = "../fire-core" }
 fire-models = { path = "../fire-models" }
+futures-util.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
+tracing.workspace = true
 uniffi = { workspace = true, features = ["cli"] }

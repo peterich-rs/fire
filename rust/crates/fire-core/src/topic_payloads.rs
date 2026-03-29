@@ -2,14 +2,17 @@ use fire_models::{
     TopicDetail, TopicDetailCreatedBy, TopicDetailMeta, TopicListResponse, TopicPost,
     TopicPostStream, TopicPoster, TopicReaction, TopicSummary, TopicTag, TopicUser,
 };
-use serde::{Deserialize, Deserializer};
+use serde::{
+    de::{DeserializeOwned, Error as DeError},
+    Deserialize, Deserializer,
+};
 use serde_json::Value;
 
 #[derive(Debug, Default, Deserialize)]
 pub(crate) struct RawTopicListResponse {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_default_record")]
     topic_list: RawTopicListPage,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_default_sequence")]
     users: Vec<RawTopicUser>,
 }
 
@@ -30,7 +33,7 @@ impl From<RawTopicListResponse> for TopicListResponse {
 
 #[derive(Debug, Default, Deserialize)]
 struct RawTopicListPage {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_default_sequence")]
     topics: Vec<RawTopicSummary>,
     #[serde(default, deserialize_with = "deserialize_optional_scalar_string")]
     more_topics_url: Option<String>,
@@ -38,9 +41,9 @@ struct RawTopicListPage {
 
 #[derive(Debug, Default, Deserialize)]
 struct RawTopicUser {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_default_u64")]
     id: u64,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_default_string")]
     username: String,
     #[serde(default, deserialize_with = "deserialize_optional_scalar_string")]
     avatar_template: Option<String>,
@@ -58,7 +61,7 @@ impl From<RawTopicUser> for TopicUser {
 
 #[derive(Debug, Default, Deserialize)]
 struct RawTopicPoster {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_default_u64")]
     user_id: u64,
     #[serde(default, deserialize_with = "deserialize_optional_scalar_string")]
     description: Option<String>,
@@ -80,9 +83,9 @@ impl From<RawTopicPoster> for TopicPoster {
 struct RawTopicSummary {
     #[serde(default, deserialize_with = "deserialize_default_u64")]
     id: u64,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_default_string")]
     title: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_default_string")]
     slug: String,
     #[serde(default, deserialize_with = "deserialize_default_u32")]
     posts_count: u32,
@@ -100,20 +103,24 @@ struct RawTopicSummary {
     last_posted_at: Option<String>,
     #[serde(default, deserialize_with = "deserialize_optional_scalar_string")]
     last_poster_username: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_optional_u64")]
     category_id: Option<u64>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_default_bool")]
     pinned: bool,
-    #[serde(default = "default_visible")]
+    #[serde(
+        default = "default_visible",
+        deserialize_with = "deserialize_default_true_bool"
+    )]
     visible: bool,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_default_bool")]
     closed: bool,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_default_bool")]
     archived: bool,
     #[serde(default, deserialize_with = "deserialize_topic_tags")]
     tags: Vec<TopicTag>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_default_sequence")]
     posters: Vec<RawTopicPoster>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_default_bool")]
     unseen: bool,
     #[serde(default, deserialize_with = "deserialize_default_u32")]
     unread_posts: u32,
@@ -123,7 +130,7 @@ struct RawTopicSummary {
     last_read_post_number: Option<u32>,
     #[serde(default, deserialize_with = "deserialize_default_u32")]
     highest_post_number: u32,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_default_bool")]
     has_accepted_answer: bool,
     #[serde(default, deserialize_with = "deserialize_default_bool")]
     can_have_answer: bool,
@@ -163,12 +170,12 @@ impl From<RawTopicSummary> for TopicSummary {
 
 #[derive(Debug, Default, Deserialize)]
 struct RawTopicReaction {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_default_string")]
     id: String,
     #[serde(rename = "type")]
     #[serde(default, deserialize_with = "deserialize_optional_scalar_string")]
     kind: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_default_u32")]
     count: u32,
 }
 
@@ -184,44 +191,49 @@ impl From<RawTopicReaction> for TopicReaction {
 
 #[derive(Debug, Default, Deserialize)]
 struct RawTopicPost {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_default_u64")]
     id: u64,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_default_string")]
     username: String,
     #[serde(default, deserialize_with = "deserialize_optional_scalar_string")]
     name: Option<String>,
     #[serde(default, deserialize_with = "deserialize_optional_scalar_string")]
     avatar_template: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_default_string")]
     cooked: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_default_u32")]
     post_number: u32,
-    #[serde(default = "default_post_type")]
+    #[serde(
+        default = "default_post_type",
+        deserialize_with = "deserialize_default_i32"
+    )]
     post_type: i32,
     #[serde(default, deserialize_with = "deserialize_optional_scalar_string")]
     created_at: Option<String>,
     #[serde(default, deserialize_with = "deserialize_optional_scalar_string")]
     updated_at: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_default_u32")]
     like_count: u32,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_default_u32")]
     reply_count: u32,
+    #[serde(default, deserialize_with = "deserialize_optional_u32")]
     reply_to_post_number: Option<u32>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_default_bool")]
     bookmarked: bool,
+    #[serde(default, deserialize_with = "deserialize_optional_u64")]
     bookmark_id: Option<u64>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_default_sequence")]
     reactions: Vec<RawTopicReaction>,
     current_user_reaction: Option<RawTopicReaction>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_default_bool")]
     accepted_answer: bool,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_default_bool")]
     can_edit: bool,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_default_bool")]
     can_delete: bool,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_default_bool")]
     can_recover: bool,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_default_bool")]
     hidden: bool,
 }
 
@@ -255,9 +267,9 @@ impl From<RawTopicPost> for TopicPost {
 
 #[derive(Debug, Default, Deserialize)]
 struct RawTopicPostStream {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_default_sequence")]
     posts: Vec<RawTopicPost>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_u64_sequence")]
     stream: Vec<u64>,
 }
 
@@ -272,9 +284,9 @@ impl From<RawTopicPostStream> for TopicPostStream {
 
 #[derive(Debug, Default, Deserialize)]
 struct RawTopicDetailCreatedBy {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_default_u64")]
     id: u64,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_default_string")]
     username: String,
     #[serde(default, deserialize_with = "deserialize_optional_scalar_string")]
     avatar_template: Option<String>,
@@ -292,8 +304,9 @@ impl From<RawTopicDetailCreatedBy> for TopicDetailCreatedBy {
 
 #[derive(Debug, Default, Deserialize)]
 struct RawTopicDetailMeta {
+    #[serde(default, deserialize_with = "deserialize_optional_i32")]
     notification_level: Option<i32>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_default_bool")]
     can_edit: bool,
     created_by: Option<RawTopicDetailCreatedBy>,
 }
@@ -312,12 +325,13 @@ impl From<RawTopicDetailMeta> for TopicDetailMeta {
 pub(crate) struct RawTopicDetail {
     #[serde(default, deserialize_with = "deserialize_default_u64")]
     id: u64,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_default_string")]
     title: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_default_string")]
     slug: String,
     #[serde(default, deserialize_with = "deserialize_default_u32")]
     posts_count: u32,
+    #[serde(default, deserialize_with = "deserialize_optional_u64")]
     category_id: Option<u64>,
     #[serde(default, deserialize_with = "deserialize_topic_tags")]
     tags: Vec<TopicTag>,
@@ -329,29 +343,29 @@ pub(crate) struct RawTopicDetail {
     created_at: Option<String>,
     #[serde(default, deserialize_with = "deserialize_optional_u32")]
     last_read_post_number: Option<u32>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_bookmark_ids")]
     bookmarks: Vec<u64>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_presence_bool")]
     accepted_answer: bool,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_default_bool")]
     has_accepted_answer: bool,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_default_bool")]
     can_vote: bool,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_default_i32")]
     vote_count: i32,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_default_bool")]
     user_voted: bool,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_default_bool")]
     summarizable: bool,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_default_bool")]
     has_cached_summary: bool,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_default_bool")]
     has_summary: bool,
     #[serde(default, deserialize_with = "deserialize_optional_scalar_string")]
     archetype: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_default_record")]
     post_stream: RawTopicPostStream,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_default_record")]
     details: RawTopicDetailMeta,
 }
 
@@ -392,6 +406,54 @@ fn default_post_type() -> i32 {
     1
 }
 
+fn deserialize_default_record<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+where
+    D: Deserializer<'de>,
+    T: DeserializeOwned + Default,
+{
+    let value = Option::<Value>::deserialize(deserializer)?;
+    match value {
+        None | Some(Value::Null) => Ok(T::default()),
+        Some(value) => T::deserialize(value).map_err(D::Error::custom),
+    }
+}
+
+fn deserialize_default_sequence<'de, D, T>(deserializer: D) -> Result<Vec<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: DeserializeOwned,
+{
+    let value = Option::<Value>::deserialize(deserializer)?;
+    let Value::Array(values) = value.unwrap_or(Value::Array(Vec::new())) else {
+        return Ok(Vec::new());
+    };
+
+    Ok(values
+        .into_iter()
+        .filter_map(|value| T::deserialize(value).ok())
+        .collect())
+}
+
+fn deserialize_u64_sequence<'de, D>(deserializer: D) -> Result<Vec<u64>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = Option::<Value>::deserialize(deserializer)?;
+    let Value::Array(values) = value.unwrap_or(Value::Array(Vec::new())) else {
+        return Ok(Vec::new());
+    };
+
+    Ok(values
+        .into_iter()
+        .filter_map(|value| match value {
+            Value::Number(value) => value.as_u64(),
+            Value::String(value) => value.parse::<u64>().ok(),
+            Value::Bool(value) => Some(u64::from(value)),
+            Value::Array(_) | Value::Object(_) | Value::Null => None,
+        })
+        .collect())
+}
+
 fn deserialize_optional_scalar_string<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
 where
     D: Deserializer<'de>,
@@ -404,6 +466,13 @@ where
         Some(Value::Number(value)) => Some(value.to_string()),
         Some(Value::Array(_)) | Some(Value::Object(_)) => None,
     })
+}
+
+fn deserialize_default_string<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    Ok(deserialize_optional_scalar_string(deserializer)?.unwrap_or_default())
 }
 
 fn deserialize_default_u64<'de, D>(deserializer: D) -> Result<u64, D::Error>
@@ -448,6 +517,27 @@ where
     })
 }
 
+fn deserialize_optional_i32<'de, D>(deserializer: D) -> Result<Option<i32>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = Option::<Value>::deserialize(deserializer)?;
+    Ok(match value {
+        None | Some(Value::Null) => None,
+        Some(Value::Number(value)) => value.as_i64().and_then(|value| i32::try_from(value).ok()),
+        Some(Value::String(value)) => value.parse::<i32>().ok(),
+        Some(Value::Bool(value)) => Some(i32::from(value)),
+        Some(Value::Array(_)) | Some(Value::Object(_)) => None,
+    })
+}
+
+fn deserialize_default_i32<'de, D>(deserializer: D) -> Result<i32, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    Ok(deserialize_optional_i32(deserializer)?.unwrap_or_default())
+}
+
 fn deserialize_default_bool<'de, D>(deserializer: D) -> Result<bool, D::Error>
 where
     D: Deserializer<'de>,
@@ -460,6 +550,61 @@ where
         Some(Value::String(value)) => matches!(value.as_str(), "true" | "1"),
         Some(Value::Array(_)) | Some(Value::Object(_)) => false,
     })
+}
+
+fn deserialize_default_true_bool<'de, D>(deserializer: D) -> Result<bool, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = Option::<Value>::deserialize(deserializer)?;
+    Ok(match value {
+        None | Some(Value::Null) => true,
+        Some(Value::Bool(value)) => value,
+        Some(Value::Number(value)) => value.as_i64().is_some_and(|value| value != 0),
+        Some(Value::String(value)) => matches!(value.as_str(), "true" | "1"),
+        Some(Value::Array(_)) | Some(Value::Object(_)) => true,
+    })
+}
+
+fn deserialize_presence_bool<'de, D>(deserializer: D) -> Result<bool, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = Option::<Value>::deserialize(deserializer)?;
+    Ok(match value {
+        None | Some(Value::Null) => false,
+        Some(Value::Bool(value)) => value,
+        Some(Value::Number(value)) => value.as_i64().is_some_and(|value| value != 0),
+        Some(Value::String(value)) => !value.is_empty() && !matches!(value.as_str(), "false" | "0"),
+        Some(Value::Array(value)) => !value.is_empty(),
+        Some(Value::Object(value)) => !value.is_empty(),
+    })
+}
+
+fn deserialize_bookmark_ids<'de, D>(deserializer: D) -> Result<Vec<u64>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = Option::<Value>::deserialize(deserializer)?;
+    let Value::Array(values) = value.unwrap_or(Value::Array(Vec::new())) else {
+        return Ok(Vec::new());
+    };
+
+    Ok(values
+        .into_iter()
+        .filter_map(|value| match value {
+            Value::Number(value) => value.as_u64(),
+            Value::String(value) => value.parse::<u64>().ok(),
+            Value::Bool(value) => Some(u64::from(value)),
+            Value::Object(mut value) => value.remove("id").and_then(|value| match value {
+                Value::Number(value) => value.as_u64(),
+                Value::String(value) => value.parse::<u64>().ok(),
+                Value::Bool(value) => Some(u64::from(value)),
+                Value::Array(_) | Value::Object(_) | Value::Null => None,
+            }),
+            Value::Array(_) | Value::Null => None,
+        })
+        .collect())
 }
 
 fn deserialize_topic_tags<'de, D>(deserializer: D) -> Result<Vec<TopicTag>, D::Error>

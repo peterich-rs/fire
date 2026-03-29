@@ -39,7 +39,7 @@ Current host-side app wiring lives under `src/main/java/com/fire/app/` plus `src
   - render a reverse-chronological request trace overview and per-request execution-chain/detail pages
 - `TopicDetailActivity.kt`
   - loads topic detail on demand from the shared Rust API
-  - renders post HTML in a dedicated native screen with richer metadata and clickable links
+  - renders cooked post bodies as safe plain text in a dedicated native screen while topic-detail HTML module handling is still pending
 - `LoginActivity.kt`
   - presents login as a full-screen activity with visible page title, URL, and loading state
   - exposes back, forward, home, and reload controls
@@ -67,6 +67,7 @@ Current browser note:
 
 - The Android shell now loads the real Rust session/topic APIs through generated Kotlin UniFFI bindings.
 - Network-backed UniFFI APIs now surface to Kotlin as native `suspend fun` calls instead of a synchronous wrapper.
+- The UniFFI boundary now returns all exported host interactions through `FireUniFfiError`; if Rust panics, the boundary logs the panic, returns an `Internal` error, and poisons the current `FireCoreHandle` so the host can recreate it instead of continuing on corrupted state.
 - `MainActivity` still renders a compact browser shell, but the data path is no longer stubbed.
 - The current browser shell now supports `Load More` pagination and category metadata derived from the shared Rust bootstrap snapshot.
 - Topic detail now opens in a dedicated activity instead of being embedded under the feed list.

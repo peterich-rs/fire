@@ -36,19 +36,36 @@ extension SessionState {
             hasLoginSession: false
         )
     }
+
+    var profileDisplayName: String {
+        if let currentUsername = bootstrap.currentUsername, !currentUsername.isEmpty {
+            return currentUsername
+        }
+        if readiness.canReadAuthenticatedApi || hasLoginSession {
+            return "会话已连接"
+        }
+        return "未登录"
+    }
+
+    var profileStatusTitle: String {
+        if readiness.canReadAuthenticatedApi && !readiness.hasCurrentUser {
+            return "账号信息同步中"
+        }
+        return loginPhase.title
+    }
 }
 
 extension LoginPhaseState {
     var title: String {
         switch self {
         case .anonymous:
-            return "Anonymous"
+            return "未登录"
         case .cookiesCaptured:
-            return "Cookies Captured"
+            return "Cookie 已同步"
         case .bootstrapCaptured:
-            return "Bootstrap Captured"
+            return "会话初始化中"
         case .ready:
-            return "Ready"
+            return "已就绪"
         }
     }
 }

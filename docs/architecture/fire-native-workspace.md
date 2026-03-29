@@ -98,10 +98,10 @@ The intended native integration order is:
 3. Call `sync_login_context` in Rust with `_t`, `_forum_session`, `cf_clearance`, optional username, CSRF, and homepage HTML.
 4. Persist the latest session snapshot through `export_session_json` or `save_session_to_path`.
 5. On cold start, restore the snapshot through `restore_session_json` or `load_session_from_path`.
-6. If homepage HTML is unavailable or stale, call `refresh_bootstrap`.
+6. If homepage HTML is unavailable or stale, or the restored authenticated snapshot is missing username/shared-session bootstrap fields, call `refresh_bootstrap`.
 7. If write APIs need a newer token, call `refresh_csrf_token`.
 8. Use `fetch_topic_list` and `fetch_topic_detail` for the first authenticated read path.
-9. On explicit logout, prefer `logout_remote`, then fall back to `logout_local`, and clear the persisted session.
+9. On explicit logout, prefer `logout_remote`, then fall back to `logout_local`, clear the persisted session, and remove host-side WebView auth cookies so the native shell and platform browser state agree.
 
 The current host shells now cover that first read path at the UI layer, and both app targets now compile against generated UniFFI outputs.
 
@@ -119,7 +119,7 @@ Current file ownership convention:
 - The current session snapshot remains host-triggered persistence under `session.json` inside that workspace root.
 
 The Android host shell now generates Kotlin UniFFI bindings at build time, packages Rust-backed Android `.so` libraries per build variant, and renders the topic browser against the real shared Rust core. The iOS host shell now does the same at build time for Swift bindings plus a Rust static library and links that output directly into the Xcode target, while keeping the host bindgen step isolated from Xcode's iPhone SDK environment.
-Both native hosts now keep feed pagination state, derive category metadata from bootstrap `data-preloaded.site.categories`, and render richer topic/detail metadata on top of the shared Rust topic APIs. Android topic detail now opens in a dedicated native screen, and both native hosts currently flatten cooked post HTML to safer plain text until a structured module-aware renderer is implemented.
+Both native hosts now keep feed pagination state, derive category metadata from bootstrap `data-preloaded.site.categories`, and render richer topic/detail metadata on top of the shared Rust topic APIs. The iOS host has now moved past the developer-style `List` shell into a more formal SwiftUI workspace with a session gate, feed console, spotlight topic paging, dense thread scanning, adaptive light/dark theming, and full-screen login chrome, while Android topic detail already opens in a dedicated native screen. Both native hosts currently flatten cooked post HTML to safer plain text until a structured module-aware renderer is implemented.
 
 ## Next Build Steps
 

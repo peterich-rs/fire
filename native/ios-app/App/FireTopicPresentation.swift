@@ -117,6 +117,10 @@ enum FireTopicPresentation {
         return displayFormatter.string(from: date)
     }
 
+    static func compactTimestamp(_ rawValue: String?) -> String? {
+        TimestampFormatter(style: .compact).format(rawValue)
+    }
+
     static func plainText(from html: String) -> String {
         guard !html.isEmpty else {
             return ""
@@ -217,6 +221,18 @@ enum FireTopicPresentation {
         }
     }
 
+    static func monogram(for username: String) -> String {
+        let scalars = username
+            .split(whereSeparator: { !$0.isLetter && !$0.isNumber })
+            .compactMap { component in component.first }
+        let letters = scalars.prefix(2).map { String($0).uppercased() }
+        if !letters.isEmpty {
+            return letters.joined()
+        }
+
+        return String(username.prefix(1)).uppercased()
+    }
+
     private static let fractionalISO8601: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -296,9 +312,16 @@ enum FireTopicPresentation {
 private struct TimestampFormatter {
     private let fractionalISO8601: ISO8601DateFormatter
     private let basicISO8601: ISO8601DateFormatter
-    private let displayFormatter: DateFormatter
+    private let style: Style
 
-    init() {
+    enum Style {
+        case full
+        case compact
+    }
+
+    init(style: Style = .full) {
+        self.style = style
+
         let fractionalISO8601 = ISO8601DateFormatter()
         fractionalISO8601.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         self.fractionalISO8601 = fractionalISO8601
@@ -306,11 +329,6 @@ private struct TimestampFormatter {
         let basicISO8601 = ISO8601DateFormatter()
         basicISO8601.formatOptions = [.withInternetDateTime]
         self.basicISO8601 = basicISO8601
-
-        let displayFormatter = DateFormatter()
-        displayFormatter.dateStyle = .medium
-        displayFormatter.timeStyle = .short
-        self.displayFormatter = displayFormatter
     }
 
     func format(_ rawValue: String?) -> String? {
@@ -323,8 +341,26 @@ private struct TimestampFormatter {
             return rawValue
         }
 
-        return displayFormatter.string(from: date)
+        switch style {
+        case .full:
+            return Self.fullFormatter.string(from: date)
+        case .compact:
+            return Self.compactFormatter.localizedString(for: date, relativeTo: Date())
+        }
     }
+
+    private static let fullFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return formatter
+    }()
+
+    private static let compactFormatter: RelativeDateTimeFormatter = {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .short
+        return formatter
+    }()
 }
 
 extension Color {

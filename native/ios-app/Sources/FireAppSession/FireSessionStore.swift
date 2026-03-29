@@ -77,15 +77,25 @@ public actor FireSessionStore {
     }
 
     @discardableResult
-    public func refreshBootstrapIfNeeded() async throws -> SessionState {
-        let current = try core.snapshot()
-        if current.bootstrap.hasPreloadedData {
-            return current
-        }
-
+    public func refreshBootstrap() async throws -> SessionState {
         let refreshed = try await core.refreshBootstrap()
         try persistCurrentSession()
         return refreshed
+    }
+
+    @discardableResult
+    public func refreshBootstrapIfNeeded() async throws -> SessionState {
+        let current = try core.snapshot()
+        let readiness = current.readiness
+        let needsBootstrapRefresh = !current.bootstrap.hasPreloadedData
+            || !readiness.hasCurrentUser
+            || !readiness.hasSharedSessionKey
+
+        guard readiness.canReadAuthenticatedApi, needsBootstrapRefresh else {
+            return current
+        }
+
+        return try await refreshBootstrap()
     }
 
     @discardableResult
@@ -170,6 +180,10 @@ public actor FireSessionStore {
 
     @discardableResult
     public func logout() async throws -> SessionState {
+        let current = try core.snapshot()
+        if current.readiness.canReadAuthenticatedApi && !current.readiness.hasCurrentUser {
+            _ = try await refreshBootstrapIfNeeded()
+        }
         let state = try await core.logoutRemote(preserveCfClearance: true)
         try clearPersistedSession()
         return state

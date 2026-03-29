@@ -81,4 +81,82 @@ final class FireTopicPresentationTests: XCTestCase {
         XCTAssertEqual(row.tagSummaryText, "#rust")
         XCTAssertNotNil(row.activityTimestampText)
     }
+
+    func testProfileDisplayNameAvoidsAnonymousCopyWhenAuthenticatedIdentityIsMissing() {
+        let session = SessionState(
+            cookies: CookieState(
+                tToken: "token",
+                forumSession: "forum",
+                cfClearance: "clearance",
+                csrfToken: "csrf"
+            ),
+            bootstrap: BootstrapState(
+                baseUrl: "https://linux.do",
+                discourseBaseUri: "/",
+                sharedSessionKey: "shared-session",
+                currentUsername: nil,
+                longPollingBaseUrl: "https://linux.do",
+                turnstileSitekey: nil,
+                topicTrackingStateMeta: "{\"message_bus_last_id\":42}",
+                preloadedJson: "{\"site\":{}}",
+                hasPreloadedData: true
+            ),
+            readiness: SessionReadinessState(
+                hasLoginCookie: true,
+                hasForumSession: true,
+                hasCloudflareClearance: true,
+                hasCsrfToken: true,
+                hasCurrentUser: false,
+                hasPreloadedData: true,
+                hasSharedSessionKey: true,
+                canReadAuthenticatedApi: true,
+                canWriteAuthenticatedApi: true,
+                canOpenMessageBus: true
+            ),
+            loginPhase: .cookiesCaptured,
+            hasLoginSession: true
+        )
+
+        XCTAssertEqual(session.profileDisplayName, "会话已连接")
+        XCTAssertEqual(session.profileStatusTitle, "账号信息同步中")
+    }
+
+    func testProfileDisplayNamePrefersResolvedUsername() {
+        let session = SessionState(
+            cookies: CookieState(
+                tToken: nil,
+                forumSession: nil,
+                cfClearance: nil,
+                csrfToken: nil
+            ),
+            bootstrap: BootstrapState(
+                baseUrl: "https://linux.do",
+                discourseBaseUri: nil,
+                sharedSessionKey: nil,
+                currentUsername: "alice",
+                longPollingBaseUrl: nil,
+                turnstileSitekey: nil,
+                topicTrackingStateMeta: nil,
+                preloadedJson: nil,
+                hasPreloadedData: false
+            ),
+            readiness: SessionReadinessState(
+                hasLoginCookie: false,
+                hasForumSession: false,
+                hasCloudflareClearance: false,
+                hasCsrfToken: false,
+                hasCurrentUser: true,
+                hasPreloadedData: false,
+                hasSharedSessionKey: false,
+                canReadAuthenticatedApi: false,
+                canWriteAuthenticatedApi: false,
+                canOpenMessageBus: false
+            ),
+            loginPhase: .ready,
+            hasLoginSession: true
+        )
+
+        XCTAssertEqual(session.profileDisplayName, "alice")
+        XCTAssertEqual(session.profileStatusTitle, "已就绪")
+    }
 }

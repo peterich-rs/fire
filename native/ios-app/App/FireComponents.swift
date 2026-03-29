@@ -542,13 +542,14 @@ struct FireSecondaryButtonStyle: ButtonStyle {
 
 struct FlowLayout: Layout {
     var spacing: CGFloat = 6
+    var fallbackWidth: CGFloat? = nil
 
     func sizeThatFits(
         proposal: ProposedViewSize,
         subviews: Subviews,
         cache: inout ()
     ) -> CGSize {
-        let maxWidth = proposal.width ?? .greatestFiniteMagnitude
+        let maxWidth = resolvedMaxWidth(for: proposal)
         var lineWidth: CGFloat = 0
         var lineHeight: CGFloat = 0
         var totalHeight: CGFloat = 0
@@ -598,6 +599,18 @@ struct FlowLayout: Layout {
             cursor.x += size.width + spacing
             lineHeight = max(lineHeight, size.height)
         }
+    }
+
+    private func resolvedMaxWidth(for proposal: ProposedViewSize) -> CGFloat {
+        if let proposalWidth = proposal.width, proposalWidth.isFinite, proposalWidth > 0 {
+            return proposalWidth
+        }
+
+        if let fallbackWidth, fallbackWidth.isFinite, fallbackWidth > 0 {
+            return fallbackWidth
+        }
+
+        return max(UIScreen.main.bounds.width - 120, 180)
     }
 }
 

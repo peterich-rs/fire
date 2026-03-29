@@ -404,7 +404,7 @@ struct FireTopicDetailView: View {
                     } label: {
                         Image(systemName: "xmark.circle.fill")
                             .font(.caption)
-                            .foregroundStyle(.tertiary)
+                            .foregroundStyle(FireTheme.tertiaryInk)
                     }
                     .buttonStyle(.plain)
                 }
@@ -653,8 +653,11 @@ private struct FirePostRow: View {
         post.currentUserReaction?.id == "heart"
     }
 
-    private var heartCount: UInt32 {
-        post.reactions.first(where: { $0.id == "heart" })?.count ?? post.likeCount
+    private var totalReactionCount: UInt32 {
+        let total = post.reactions.reduce(UInt32(0)) { partialResult, reaction in
+            partialResult + reaction.count
+        }
+        return total > 0 ? total : post.likeCount
     }
 
     private var canChangeReaction: Bool {
@@ -698,7 +701,7 @@ private struct FirePostRow: View {
                     if let timestamp = FireTopicPresentation.compactTimestamp(post.createdAt) {
                         Text(timestamp)
                             .font(.caption2)
-                            .foregroundStyle(.tertiary)
+                            .foregroundStyle(FireTheme.tertiaryInk)
                     }
 
                     Spacer()
@@ -711,7 +714,7 @@ private struct FirePostRow: View {
 
                     Text("#\(post.postNumber)")
                         .font(.caption2.monospacedDigit())
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(FireTheme.tertiaryInk)
                 }
 
                 Text(FireTopicPresentation.plainText(from: post.cooked))
@@ -772,8 +775,8 @@ private struct FirePostRow: View {
                         } label: {
                             FirePostMetaAction(
                                 systemImage: isHeartSelected ? "heart.fill" : "heart",
-                                value: heartCount > 0 ? "\(heartCount)" : nil,
-                                tint: isHeartSelected ? .red : .secondary
+                                value: totalReactionCount > 0 ? "\(totalReactionCount)" : nil,
+                                tint: isHeartSelected ? .red : FireTheme.tertiaryInk
                             )
                         }
                         .buttonStyle(.plain)
@@ -790,7 +793,7 @@ private struct FirePostRow: View {
                                 FirePostMetaAction(
                                     systemImage: "face.smiling",
                                     value: currentReactionOption.map { "\($0.symbol)" },
-                                    tint: currentReactionOption == nil ? .secondary : FireTheme.accent
+                                    tint: currentReactionOption == nil ? FireTheme.tertiaryInk : FireTheme.accent
                                 )
                             }
                             .disabled(!canChangeReaction)
@@ -802,7 +805,7 @@ private struct FirePostRow: View {
                             FirePostMetaAction(
                                 systemImage: "arrowshape.turn.up.left",
                                 value: post.replyCount > 0 ? "\(post.replyCount)" : nil,
-                                tint: .secondary
+                                tint: FireTheme.tertiaryInk
                             )
                         }
                         .buttonStyle(.plain)
@@ -811,7 +814,7 @@ private struct FirePostRow: View {
                         FirePostMetaAction(
                             systemImage: "arrowshape.turn.up.left",
                             value: "\(post.replyCount)",
-                            tint: .secondary
+                            tint: FireTheme.tertiaryInk
                         )
                     }
 

@@ -3,6 +3,7 @@ use std::io;
 use fire_models::{PostReactionUpdate, TopicPost, TopicReplyRequest};
 use http::Method;
 use serde_json::Value;
+use tracing::{info, warn};
 use url::form_urlencoded::byte_serialize;
 
 use super::{network::expect_success, FireCore};
@@ -13,6 +14,13 @@ use crate::{
 
 impl FireCore {
     pub async fn create_reply(&self, input: TopicReplyRequest) -> Result<TopicPost, FireCoreError> {
+        info!(
+            topic_id = input.topic_id,
+            reply_to = ?input.reply_to_post_number,
+            raw_len = input.raw.len(),
+            "creating reply"
+        );
+
         let mut fields = vec![("topic_id", input.topic_id.to_string()), ("raw", input.raw)];
         if let Some(reply_to_post_number) = input.reply_to_post_number {
             fields.push(("reply_to_post_number", reply_to_post_number.to_string()));
@@ -33,10 +41,26 @@ impl FireCore {
         let value: Value = self
             .read_response_json("create reply", trace_id, response)
             .await?;
-        parse_create_reply_response(value)
+        let result = parse_create_reply_response(value);
+        match &result {
+            Ok(post) => info!(
+                topic_id = input.topic_id,
+                post_id = post.id,
+                post_number = post.post_number,
+                "reply created successfully"
+            ),
+            Err(e) => warn!(
+                topic_id = input.topic_id,
+                error = %e,
+                "reply creation failed during response parsing"
+            ),
+        }
+        result
     }
 
     pub async fn like_post(&self, post_id: u64) -> Result<(), FireCoreError> {
+        info!(post_id, "liking post");
+
         let fields = vec![
             ("id", post_id.to_string()),
             ("post_action_type_id", "2".to_string()),
@@ -54,10 +78,13 @@ impl FireCore {
             .await?;
         let response = expect_success(self, "like post", trace_id, response).await?;
         let _ = self.read_response_text(trace_id, response).await?;
+        info!(post_id, "post liked successfully");
         Ok(())
     }
 
     pub async fn unlike_post(&self, post_id: u64) -> Result<(), FireCoreError> {
+        info!(post_id, "unliking post");
+
         let path = format!("/post_actions/{post_id}?post_action_type_id=2");
         let (trace_id, response) = self
             .execute_api_request_with_csrf_retry("unlike post", || {
@@ -66,6 +93,7 @@ impl FireCore {
             .await?;
         let response = expect_success(self, "unlike post", trace_id, response).await?;
         let _ = self.read_response_text(trace_id, response).await?;
+        info!(post_id, "post unliked successfully");
         Ok(())
     }
 
@@ -74,6 +102,8 @@ impl FireCore {
         post_id: u64,
         reaction_id: String,
     ) -> Result<PostReactionUpdate, FireCoreError> {
+        info!(post_id, reaction_id = %reaction_id, "toggling post reaction");
+
         let reaction_id = encode_path_segment(&reaction_id);
         let path = format!(
             "/discourse-reactions/posts/{post_id}/custom-reactions/{reaction_id}/toggle.json"
@@ -87,7 +117,21 @@ impl FireCore {
         let value: Value = self
             .read_response_json("toggle post reaction", trace_id, response)
             .await?;
-        parse_toggle_reaction_response(value)
+        let result = parse_toggle_reaction_response(value);
+        match &result {
+            Ok(update) => info!(
+                post_id,
+                reactions_count = update.reactions.len(),
+                has_current = update.current_user_reaction.is_some(),
+                "post reaction toggled successfully"
+            ),
+            Err(e) => warn!(
+                post_id,
+                error = %e,
+                "post reaction toggle failed during response parsing"
+            ),
+        }
+        result
     }
 }
 

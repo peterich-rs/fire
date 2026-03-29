@@ -1,6 +1,7 @@
 use http::{header::HeaderMap, Method, Request, Response, StatusCode};
 use openwire::{RequestBody, ResponseBody};
 use serde::de::DeserializeOwned;
+use tracing::{debug, info, warn};
 use url::Url;
 
 use super::FireCore;
@@ -175,11 +176,29 @@ impl FireCore {
         &self,
         traced: TracedRequest,
     ) -> Result<(u64, Response<ResponseBody>), FireCoreError> {
+        debug!(
+            trace_id = traced.trace_id,
+            method = %traced.request.method(),
+            uri = %traced.request.uri(),
+            "executing HTTP request"
+        );
         let response = self
             .client
             .execute(traced.request)
             .await
-            .map_err(|source| FireCoreError::Network { source })?;
+            .map_err(|source| {
+                warn!(
+                    trace_id = traced.trace_id,
+                    error = %source,
+                    "HTTP request failed"
+                );
+                FireCoreError::Network { source }
+            })?;
+        debug!(
+            trace_id = traced.trace_id,
+            status = response.status().as_u16(),
+            "HTTP response received"
+        );
         Ok((traced.trace_id, response))
     }
 
@@ -207,6 +226,10 @@ impl FireCore {
         F: FnMut() -> Result<TracedRequest, FireCoreError>,
     {
         if !self.snapshot().cookies.has_csrf_token() {
+            info!(
+                operation,
+                "no CSRF token available, refreshing before request"
+            );
             let _ = self.refresh_csrf_token().await?;
         }
 
@@ -222,6 +245,13 @@ impl FireCore {
             .record_http_status_error(trace_id, StatusCode::FORBIDDEN.as_u16(), &body);
 
         if !is_bad_csrf_body(&body) {
+            warn!(
+                operation,
+                trace_id,
+                status = 403u16,
+                body_prefix = %body.chars().take(200).collect::<String>(),
+                "request rejected with 403 (not a CSRF error)"
+            );
             return Err(FireCoreError::HttpStatus {
                 operation,
                 status: StatusCode::FORBIDDEN.as_u16(),
@@ -229,6 +259,10 @@ impl FireCore {
             });
         }
 
+        info!(
+            operation,
+            trace_id, "received BAD CSRF, refreshing token and retrying"
+        );
         let _ = self.clear_csrf_token();
         let _ = self.refresh_csrf_token().await?;
 
@@ -247,6 +281,13 @@ impl FireCore {
     {
         let text = self.read_response_text(trace_id, response).await?;
         serde_json::from_str(&text).map_err(|source| {
+            warn!(
+                operation,
+                trace_id,
+                error = %source,
+                body_prefix = %text.chars().take(200).collect::<String>(),
+                "failed to deserialize JSON response"
+            );
             self.diagnostics.record_parse_error(
                 trace_id,
                 format!("Failed to parse {operation} response"),
@@ -273,6 +314,13 @@ pub(crate) async fn expect_success(
         .text()
         .await
         .unwrap_or_else(|error| format!("<failed to read error body: {error}>"));
+    warn!(
+        operation,
+        trace_id,
+        status,
+        body_prefix = %body.chars().take(200).collect::<String>(),
+        "HTTP request returned non-success status"
+    );
     core.diagnostics
         .record_http_status_error(trace_id, status, &body);
     Err(FireCoreError::HttpStatus {

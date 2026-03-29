@@ -1,11 +1,12 @@
 use fire_models::{BootstrapArtifacts, CookieSnapshot, LoginSyncInput, SessionSnapshot};
-use tracing::debug;
+use tracing::{debug, info};
 
 use super::FireCore;
 use crate::parsing::parse_home_state;
 
 impl FireCore {
     pub fn apply_cookies(&self, cookies: CookieSnapshot) -> SessionSnapshot {
+        info!("applying cookie patch to session");
         self.update_session(|session| {
             session.cookies.merge_patch(&cookies);
             debug!(
@@ -66,6 +67,16 @@ impl FireCore {
     }
 
     pub fn sync_login_context(&self, input: LoginSyncInput) -> SessionSnapshot {
+        info!(
+            cookie_count = input.cookies.len(),
+            has_username = input.username.is_some(),
+            has_csrf = input.csrf_token.is_some(),
+            has_home_html = input
+                .home_html
+                .as_ref()
+                .is_some_and(|html| !html.is_empty()),
+            "syncing platform login context"
+        );
         let parsed_html = input
             .home_html
             .as_deref()
@@ -103,6 +114,7 @@ impl FireCore {
     }
 
     pub fn logout_local(&self, preserve_cf_clearance: bool) -> SessionSnapshot {
+        info!(preserve_cf_clearance, "clearing local login state");
         self.update_session(|session| {
             session.clear_login_state(preserve_cf_clearance);
             debug!(

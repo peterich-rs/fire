@@ -98,10 +98,10 @@ The intended native integration order is:
 3. Call `sync_login_context` in Rust with `_t`, `_forum_session`, `cf_clearance`, optional username, CSRF, and homepage HTML.
 4. Persist the latest session snapshot through `export_session_json` or `save_session_to_path`.
 5. On cold start, restore the snapshot through `restore_session_json` or `load_session_from_path`.
-6. If homepage HTML is unavailable or stale, call `refresh_bootstrap`.
+6. If homepage HTML is unavailable or stale, or the restored authenticated snapshot is missing username/shared-session bootstrap fields, call `refresh_bootstrap`.
 7. If write APIs need a newer token, call `refresh_csrf_token`.
 8. Use `fetch_topic_list` and `fetch_topic_detail` for the first authenticated read path.
-9. On explicit logout, prefer `logout_remote`, then fall back to `logout_local`, and clear the persisted session.
+9. On explicit logout, prefer `logout_remote`, then fall back to `logout_local`, clear the persisted session, and remove host-side WebView auth cookies so the native shell and platform browser state agree.
 
 The current host shells now cover that first read path at the UI layer, and both app targets now compile against generated UniFFI outputs.
 

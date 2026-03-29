@@ -5,7 +5,9 @@ struct FireHomeView: View {
     @Namespace private var feedSelectionNamespace
 
     private var sessionTitle: String {
-        viewModel.session.bootstrap.currentUsername ?? "Fire"
+        viewModel.session.readiness.canReadAuthenticatedApi
+            ? viewModel.session.profileDisplayName
+            : "Fire"
     }
 
     var body: some View {

@@ -42,6 +42,7 @@ final class FireAppViewModel: ObservableObject {
     @Published var errorMessage: String?
     @Published var isPresentingLogin = false
     @Published var isPreparingLogin = false
+    @Published var isLoggingOut = false
 
     private var sessionStore: FireSessionStore?
     private var loginCoordinator: FireWebViewLoginCoordinator?
@@ -56,11 +57,14 @@ final class FireAppViewModel: ObservableObject {
                 let loginCoordinator = try await loginCoordinatorValue()
                 let sessionStore = try await sessionStoreValue()
                 errorMessage = nil
+                let initialSession: SessionState
                 if let restored = try await loginCoordinator.restorePersistedSessionIfAvailable() {
-                    await applySession(restored)
+                    initialSession = restored
                 } else {
-                    await applySession(try await sessionStore.snapshot())
+                    initialSession = try await sessionStore.snapshot()
                 }
+                await applySession(initialSession)
+                await applySession(try await sessionStore.refreshBootstrapIfNeeded())
                 await refreshTopicsIfPossible(force: true)
             } catch {
                 errorMessage = error.localizedDescription
@@ -74,6 +78,7 @@ final class FireAppViewModel: ObservableObject {
                 let sessionStore = try await sessionStoreValue()
                 errorMessage = nil
                 await applySession(try await sessionStore.snapshot())
+                await applySession(try await sessionStore.refreshBootstrapIfNeeded())
                 await refreshTopicsIfPossible(force: false)
             } catch {
                 errorMessage = error.localizedDescription
@@ -121,7 +126,7 @@ final class FireAppViewModel: ObservableObject {
             do {
                 let sessionStore = try await sessionStoreValue()
                 errorMessage = nil
-                await applySession(try await sessionStore.refreshBootstrapIfNeeded())
+                await applySession(try await sessionStore.refreshBootstrap())
                 await refreshTopicsIfPossible(force: false)
             } catch {
                 errorMessage = error.localizedDescription
@@ -130,7 +135,15 @@ final class FireAppViewModel: ObservableObject {
     }
 
     func logout() {
+        guard !isLoggingOut else {
+            return
+        }
+
+        isLoggingOut = true
+
         Task {
+            defer { isLoggingOut = false }
+
             do {
                 let loginCoordinator = try await loginCoordinatorValue()
                 errorMessage = nil

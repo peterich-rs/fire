@@ -24,13 +24,15 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
   - owns `FireCoreHandle`
   - passes the platform workspace root (`Application Support/Fire`) into Rust during initialization
   - restores persisted session snapshots on cold start
+  - repairs authenticated-but-incomplete restored sessions by refreshing bootstrap when username or shared session metadata is missing
   - persists the latest Rust session snapshot to `Application Support/Fire/session.json`
   - lets Rust initialize shared logs under `Application Support/Fire/logs`
   - wraps `syncLoginContext`, async `refreshBootstrap`, async `refreshCsrfToken`, async topic fetches, and async logout
 - `FireWebViewLoginCoordinator.swift`
   - reads `WKWebView` cookies, `current-username`, `csrf-token`, and page HTML
   - converts them into `LoginSyncState`
-  - completes login by syncing into Rust and backfilling bootstrap if the page is not reusable
+  - completes login by syncing into Rust and backfilling bootstrap whenever the captured page leaves username/session metadata incomplete
+  - clears host-side LinuxDo auth cookies after a successful explicit logout while preserving `cf_clearance`
 - `App/FireLoginWebView.swift`
   - presents the login browser as a full-screen flow
   - now wraps the embedded `WKWebView` in a full-screen native browser shell with adaptive light/dark chrome, a compact top bar, and a bottom command dock
@@ -39,7 +41,7 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
 - `App/FireAppViewModel.swift`
   - performs a lightweight network preflight before presenting the login browser
   - moves the first system-level network prompt, when one appears on-device, out of the login page itself
-  - restores the persisted session snapshot and keeps the topic browser in sync with login state
+  - restores the persisted session snapshot, repairs incomplete authenticated session identity on cold start, and keeps the topic browser in sync with login state
   - now builds `FireSessionStore` lazily on a detached task so Rust/logging initialization does not block the first SwiftUI render on the main actor
   - tracks paginated topic feed state, derives category metadata from bootstrap `preloadedJson`, and precomputes list-row presentation models before publishing them back to SwiftUI
 - `App/FireDiagnosticsView.swift`
@@ -68,7 +70,7 @@ Expected integration flow:
 4. Create a single `FireSessionStore` instance early in app launch and call `restorePersistedSessionIfAvailable()`.
 5. Drive the login `WKWebView` through `FireWebViewLoginCoordinator.completeLogin(from:)`.
 6. After login or restore, render the topic feeds and topic detail through `fetchTopicList` / `fetchTopicDetail`.
-7. On explicit logout, call `FireWebViewLoginCoordinator.logout()` and clear any host-side WebView cookies if desired.
+7. On explicit logout, call `FireWebViewLoginCoordinator.logout()` so the Rust snapshot, persisted session file, and host-side LinuxDo auth cookies stay aligned.
 
 Workspace note:
 
@@ -91,6 +93,7 @@ Current UX note:
 - The current topic browser now supports spotlight topic paging, `Load More` pagination, category-aware topic rows, richer topic/detail metadata sourced from the shared Rust session snapshot, and a more formal native reading surface instead of the earlier developer-facing list presentation.
 - Topic posts now render their cooked HTML as normalized plain text in the detail screen until a safer structured HTML/module renderer lands.
 - The app now exposes a diagnostics screen for readable logs and Rust-owned request trace inspection.
+- The profile screen now treats an authenticated-but-not-yet-identified session as a recovery state instead of rendering it as "未登录", and logout now shows progress plus surfaces failures inline.
 
 Build prerequisites:
 

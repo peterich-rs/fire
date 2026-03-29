@@ -15,15 +15,14 @@ public final class FireWebViewLoginCoordinator {
 
     public func completeLogin(from webView: WKWebView) async throws -> SessionState {
         let captured = try await captureLoginState(from: webView)
-        let state = try await sessionStore.syncLoginContext(captured)
-        if state.bootstrap.hasPreloadedData {
-            return state
-        }
+        _ = try await sessionStore.syncLoginContext(captured)
         return try await sessionStore.refreshBootstrapIfNeeded()
     }
 
     public func logout() async throws -> SessionState {
-        try await sessionStore.logout()
+        let state = try await sessionStore.logout()
+        try await clearPlatformLoginCookies(preserveCfClearance: true)
+        return state
     }
 
     public func captureLoginState(from webView: WKWebView) async throws -> FireCapturedLoginState {
@@ -88,6 +87,35 @@ public final class FireWebViewLoginCoordinator {
         try await withCheckedThrowingContinuation { continuation in
             store.getAllCookies { cookies in
                 continuation.resume(returning: cookies)
+            }
+        }
+    }
+
+    private func clearPlatformLoginCookies(preserveCfClearance: Bool) async throws {
+        let store = WKWebsiteDataStore.default().httpCookieStore
+        let cookies = try await httpCookies(from: store)
+
+        for cookie in cookies where shouldDelete(cookie, preserveCfClearance: preserveCfClearance) {
+            await deleteCookie(cookie, from: store)
+        }
+    }
+
+    private func shouldDelete(_ cookie: HTTPCookie, preserveCfClearance: Bool) -> Bool {
+        guard cookie.domain.range(of: "linux.do", options: .caseInsensitive) != nil else {
+            return false
+        }
+
+        if preserveCfClearance && cookie.name == "cf_clearance" {
+            return false
+        }
+
+        return ["_t", "_forum_session", "cf_clearance"].contains(cookie.name)
+    }
+
+    private func deleteCookie(_ cookie: HTTPCookie, from store: WKHTTPCookieStore) async {
+        await withCheckedContinuation { continuation in
+            store.delete(cookie) {
+                continuation.resume()
             }
         }
     }

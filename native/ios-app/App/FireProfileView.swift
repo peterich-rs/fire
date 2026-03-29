@@ -1,19 +1,39 @@
 import SwiftUI
+import UIKit
 
 struct FireProfileView: View {
     @ObservedObject var viewModel: FireAppViewModel
+    @State private var copiedErrorMessage = false
 
     private var username: String {
-        viewModel.session.bootstrap.currentUsername ?? "未登录"
+        viewModel.session.profileDisplayName
     }
 
     private var isLoggedIn: Bool {
         viewModel.session.readiness.canReadAuthenticatedApi
     }
 
+    private var canLogout: Bool {
+        viewModel.session.hasLoginSession || isLoggedIn
+    }
+
+    private var sessionStatusColor: Color {
+        if viewModel.session.readiness.hasCurrentUser {
+            return .green
+        }
+        if isLoggedIn {
+            return .orange
+        }
+        return .red
+    }
+
     var body: some View {
         NavigationStack {
             List {
+                if let errorMessage = viewModel.errorMessage {
+                    errorSection(message: errorMessage)
+                }
+
                 if isLoggedIn {
                     userHeaderSection
                     statsSection
@@ -44,10 +64,10 @@ struct FireProfileView: View {
 
                     HStack(spacing: 6) {
                         Circle()
-                            .fill(Color.green)
+                            .fill(sessionStatusColor)
                             .frame(width: 8, height: 8)
 
-                        Text(viewModel.session.loginPhase.title)
+                        Text(viewModel.session.profileStatusTitle)
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -97,6 +117,19 @@ struct FireProfileView: View {
 
     private var sessionSection: some View {
         Section("会话信息") {
+            LabeledContent("账号") {
+                HStack(spacing: 4) {
+                    Circle()
+                        .fill(sessionStatusColor)
+                        .frame(width: 8, height: 8)
+                    Text(viewModel.session.bootstrap.currentUsername ?? (isLoggedIn ? "等待同步" : "未登录"))
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            LabeledContent("登录阶段", value: viewModel.session.profileStatusTitle)
+
             LabeledContent("Base URL", value: viewModel.session.bootstrap.baseUrl)
 
             LabeledContent("Bootstrap") {
@@ -149,19 +182,34 @@ struct FireProfileView: View {
             } label: {
                 Label("刷新 Bootstrap", systemImage: "arrow.triangle.2.circlepath")
             }
+            .disabled(viewModel.isLoggingOut)
 
             Button {
                 viewModel.loadInitialState()
             } label: {
                 Label("恢复会话", systemImage: "arrow.counterclockwise")
             }
+            .disabled(viewModel.isLoggingOut)
 
-            if isLoggedIn {
+            if canLogout {
                 Button(role: .destructive) {
                     viewModel.logout()
                 } label: {
-                    Label("退出登录", systemImage: "rectangle.portrait.and.arrow.right")
+                    HStack(spacing: 12) {
+                        Label(
+                            viewModel.isLoggingOut ? "退出中…" : "退出登录",
+                            systemImage: "rectangle.portrait.and.arrow.right"
+                        )
+
+                        Spacer()
+
+                        if viewModel.isLoggingOut {
+                            ProgressView()
+                                .controlSize(.small)
+                        }
+                    }
                 }
+                .disabled(viewModel.isLoggingOut)
             } else {
                 Button {
                     viewModel.openLogin()
@@ -171,8 +219,30 @@ struct FireProfileView: View {
                         systemImage: "person.badge.key"
                     )
                 }
-                .disabled(viewModel.isPreparingLogin)
+                .disabled(viewModel.isPreparingLogin || viewModel.isLoggingOut)
             }
         }
+    }
+
+    private func errorSection(message: String) -> some View {
+        Section {
+            FireErrorBanner(
+                message: message,
+                copied: copiedErrorMessage,
+                onCopy: {
+                    UIPasteboard.general.string = message
+                    copiedErrorMessage = true
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .seconds(1.2))
+                        copiedErrorMessage = false
+                    }
+                },
+                onDismiss: viewModel.dismissError
+            )
+            .padding(.vertical, 4)
+        }
+        .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+        .listRowBackground(Color.clear)
+        .listRowSeparator(.hidden)
     }
 }

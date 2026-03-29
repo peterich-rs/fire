@@ -27,6 +27,30 @@ struct FireTopicRowPresentation: Identifiable, Sendable {
     }
 }
 
+struct FireTopicReplyPresentation: Identifiable, Sendable {
+    let post: TopicPostState
+    let depth: Int
+    let parentPostNumber: UInt32?
+
+    var id: UInt64 {
+        post.id
+    }
+}
+
+struct FireTopicReplySectionPresentation: Identifiable, Sendable {
+    let anchorPost: TopicPostState
+    let replies: [FireTopicReplyPresentation]
+
+    var id: UInt64 {
+        anchorPost.id
+    }
+}
+
+struct FireTopicThreadPresentation: Sendable {
+    let originalPost: TopicPostState?
+    let replySections: [FireTopicReplySectionPresentation]
+}
+
 enum FireTopicPresentation {
     static func parseCategories(from preloadedJSON: String?) -> [UInt64: FireTopicCategoryPresentation] {
         guard
@@ -187,6 +211,138 @@ enum FireTopicPresentation {
         }
     }
 
+    static func buildThreadPresentation(from posts: [TopicPostState]) -> FireTopicThreadPresentation {
+        guard !posts.isEmpty else {
+            return FireTopicThreadPresentation(originalPost: nil, replySections: [])
+        }
+
+        guard let originalPost = posts.min(by: { $0.postNumber < $1.postNumber }) else {
+            return FireTopicThreadPresentation(originalPost: nil, replySections: [])
+        }
+
+        let rootPostNumber = originalPost.postNumber
+        let postsByNumber = Dictionary(uniqueKeysWithValues: posts.map { ($0.postNumber, $0) })
+
+        var childrenByParent: [UInt32: [TopicPostState]] = [:]
+        for post in posts where post.postNumber != rootPostNumber {
+            guard let parentPostNumber = normalizedReplyTarget(for: post),
+                  parentPostNumber != post.postNumber
+            else {
+                continue
+            }
+
+            childrenByParent[parentPostNumber, default: []].append(post)
+        }
+
+        var consumedPostNumbers: Set<UInt32> = [rootPostNumber]
+        var replySections: [FireTopicReplySectionPresentation] = []
+
+        for post in posts where post.postNumber != rootPostNumber {
+            guard !consumedPostNumbers.contains(post.postNumber) else {
+                continue
+            }
+
+            let normalizedParent = normalizedReplyTarget(for: post)
+            let shouldStartSection = normalizedParent == nil
+                || normalizedParent == rootPostNumber
+                || normalizedParent.map { postsByNumber[$0] == nil } == true
+
+            guard shouldStartSection else {
+                continue
+            }
+
+            consumedPostNumbers.insert(post.postNumber)
+            var branchVisited: Set<UInt32> = [post.postNumber]
+            let replies = flattenReplies(
+                for: post.postNumber,
+                depth: 1,
+                childrenByParent: childrenByParent,
+                consumedPostNumbers: &consumedPostNumbers,
+                branchVisited: &branchVisited
+            )
+            replySections.append(
+                FireTopicReplySectionPresentation(anchorPost: post, replies: replies)
+            )
+        }
+
+        for post in posts where post.postNumber != rootPostNumber && !consumedPostNumbers.contains(post.postNumber) {
+            consumedPostNumbers.insert(post.postNumber)
+            var branchVisited: Set<UInt32> = [post.postNumber]
+            let replies = flattenReplies(
+                for: post.postNumber,
+                depth: 1,
+                childrenByParent: childrenByParent,
+                consumedPostNumbers: &consumedPostNumbers,
+                branchVisited: &branchVisited
+            )
+            replySections.append(
+                FireTopicReplySectionPresentation(anchorPost: post, replies: replies)
+            )
+        }
+
+        return FireTopicThreadPresentation(
+            originalPost: originalPost,
+            replySections: replySections
+        )
+    }
+
+    /// A flattened post ready for display in a list, carrying its nesting depth
+    /// and optional reply-context label.
+    struct FlatPost: Identifiable, Sendable {
+        let post: TopicPostState
+        let depth: Int
+        let replyContext: String?
+        let showsThreadLine: Bool
+
+        var id: UInt64 { post.id }
+    }
+
+    /// Flattens a `FireTopicThreadPresentation` into a display-order list.
+    ///
+    /// The original post comes first, then each reply section's anchor post
+    /// (at depth 0) followed by its nested replies (at increasing depth).
+    /// This preserves the section anchor's original order in the stream while
+    /// visually grouping nested replies underneath.
+    static func flattenThreadForDisplay(
+        from thread: FireTopicThreadPresentation,
+        totalPostCount: Int
+    ) -> [FlatPost] {
+        var result: [FlatPost] = []
+
+        if let originalPost = thread.originalPost {
+            result.append(FlatPost(
+                post: originalPost,
+                depth: 0,
+                replyContext: nil,
+                showsThreadLine: !thread.replySections.isEmpty
+            ))
+        }
+
+        for (sectionIndex, section) in thread.replySections.enumerated() {
+            let isLastSection = sectionIndex == thread.replySections.count - 1
+            let hasNestedReplies = !section.replies.isEmpty
+
+            result.append(FlatPost(
+                post: section.anchorPost,
+                depth: 0,
+                replyContext: nil,
+                showsThreadLine: hasNestedReplies || !isLastSection
+            ))
+
+            for (replyIndex, reply) in section.replies.enumerated() {
+                let isLastReply = replyIndex == section.replies.count - 1
+                result.append(FlatPost(
+                    post: reply.post,
+                    depth: reply.depth,
+                    replyContext: reply.parentPostNumber.map { "回复 #\($0)" },
+                    showsThreadLine: !isLastReply || !isLastSection
+                ))
+            }
+        }
+
+        return result
+    }
+
     static func topicStatusLabels(for topic: TopicSummaryState) -> [String] {
         var labels: [String] = []
 
@@ -251,6 +407,56 @@ enum FireTopicPresentation {
         formatter.timeStyle = .short
         return formatter
     }()
+
+    private static func normalizedReplyTarget(for post: TopicPostState) -> UInt32? {
+        guard let replyToPostNumber = post.replyToPostNumber, replyToPostNumber > 0 else {
+            return nil
+        }
+
+        return replyToPostNumber
+    }
+
+    private static func flattenReplies(
+        for parentPostNumber: UInt32,
+        depth: Int,
+        childrenByParent: [UInt32: [TopicPostState]],
+        consumedPostNumbers: inout Set<UInt32>,
+        branchVisited: inout Set<UInt32>
+    ) -> [FireTopicReplyPresentation] {
+        guard let children = childrenByParent[parentPostNumber] else {
+            return []
+        }
+
+        var flattened: [FireTopicReplyPresentation] = []
+        for child in children {
+            guard !branchVisited.contains(child.postNumber) else {
+                continue
+            }
+
+            consumedPostNumbers.insert(child.postNumber)
+            flattened.append(
+                FireTopicReplyPresentation(
+                    post: child,
+                    depth: depth,
+                    parentPostNumber: normalizedReplyTarget(for: child)
+                )
+            )
+
+            branchVisited.insert(child.postNumber)
+            flattened.append(
+                contentsOf: flattenReplies(
+                    for: child.postNumber,
+                    depth: depth + 1,
+                    childrenByParent: childrenByParent,
+                    consumedPostNumbers: &consumedPostNumbers,
+                    branchVisited: &branchVisited
+                )
+            )
+            branchVisited.remove(child.postNumber)
+        }
+
+        return flattened
+    }
 
     private static func stringValue(_ value: Any?) -> String {
         switch value {

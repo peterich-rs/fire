@@ -52,6 +52,7 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
   - extracts `site.categories` from bootstrap `preloadedJson`
   - parses `more_topics_url` into the next feed page
   - normalizes topic/post timestamps, HTML excerpts, and cooked post bodies for native presentation
+  - rebuilds topic replies into a floor-oriented thread presentation from `reply_to_post_number` so nested replies stay grouped under their top-level floor
   - now builds lightweight topic row view data off the main actor so the root feed does not parse HTML during every SwiftUI body evaluation
 - `Tests/Unit/FireTopicPresentationTests.swift`
   - covers category extraction, pagination cursor parsing, and HTML-to-plain-text normalization in the pure Swift presentation helpers
@@ -91,7 +92,8 @@ Current UX note:
 - The UniFFI boundary now returns exported host interactions as Swift `throws`; if Rust panics, the boundary logs the panic, throws an `Internal` UniFFI error instead of tripping generated `try!` call sites, and poisons the current `FireCoreHandle` so the host can recreate it.
 - The app now enters through a branded session gate when authenticated topic reads are not ready, instead of exposing raw readiness/debug state as the primary UI.
 - The current topic browser now supports spotlight topic paging, `Load More` pagination, category-aware topic rows, richer topic/detail metadata sourced from the shared Rust session snapshot, and a more formal native reading surface instead of the earlier developer-facing list presentation.
-- Topic posts now render their cooked HTML as normalized plain text in the detail screen until a safer structured HTML/module renderer lands.
+- Topic detail now groups replies into floor cards with nested follow-up replies under each top-level floor, instead of rendering the entire post stream as a flat time-ordered list.
+- Topic posts still render their cooked HTML as normalized plain text in the detail screen until a safer structured HTML/module renderer lands.
 - The app now exposes a diagnostics screen for readable logs and Rust-owned request trace inspection.
 - The profile screen now treats an authenticated-but-not-yet-identified session as a recovery state instead of rendering it as "未登录", and logout now shows progress plus surfaces failures inline.
 

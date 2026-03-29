@@ -8,6 +8,7 @@ import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
 import java.util.Locale
 import uniffi.fire_uniffi.TopicTagState
+import uniffi.fire_uniffi.TopicPostState
 import uniffi.fire_uniffi.TopicSummaryState
 
 data class TopicCategoryPresentation(
@@ -21,6 +22,22 @@ data class TopicCategoryPresentation(
     val displayName: String
         get() = if (name.isBlank()) "Category #$id" else name
 }
+
+data class TopicReplyPresentation(
+    val post: TopicPostState,
+    val depth: Int,
+    val parentPostNumber: UInt?,
+)
+
+data class TopicReplySectionPresentation(
+    val anchorPost: TopicPostState,
+    val replies: List<TopicReplyPresentation>,
+)
+
+data class TopicThreadPresentation(
+    val originalPost: TopicPostState?,
+    val replySections: List<TopicReplySectionPresentation>,
+)
 
 object TopicPresentation {
     private val displayFormatter: DateTimeFormatter =
@@ -123,6 +140,84 @@ object TopicPresentation {
             .trim()
     }
 
+    fun buildThreadPresentation(posts: List<TopicPostState>): TopicThreadPresentation {
+        if (posts.isEmpty()) {
+            return TopicThreadPresentation(originalPost = null, replySections = emptyList())
+        }
+
+        val originalPost = posts.minByOrNull { it.postNumber.toInt() }
+            ?: return TopicThreadPresentation(originalPost = null, replySections = emptyList())
+        val rootPostNumber = originalPost.postNumber
+        val postsByNumber = posts.associateBy { it.postNumber }
+
+        val childrenByParent = mutableMapOf<UInt, MutableList<TopicPostState>>()
+        posts
+            .asSequence()
+            .filter { it.postNumber != rootPostNumber }
+            .forEach { post ->
+                val parentPostNumber = normalizedReplyTarget(post)
+                if (parentPostNumber != null && parentPostNumber != post.postNumber) {
+                    childrenByParent.getOrPut(parentPostNumber) { mutableListOf() }.add(post)
+                }
+            }
+
+        val consumedPostNumbers = mutableSetOf(rootPostNumber)
+        val replySections = mutableListOf<TopicReplySectionPresentation>()
+
+        posts
+            .asSequence()
+            .filter { it.postNumber != rootPostNumber }
+            .forEach { post ->
+                if (post.postNumber in consumedPostNumbers) {
+                    return@forEach
+                }
+
+                val normalizedParent = normalizedReplyTarget(post)
+                val shouldStartSection = normalizedParent == null ||
+                    normalizedParent == rootPostNumber ||
+                    postsByNumber[normalizedParent] == null
+                if (!shouldStartSection) {
+                    return@forEach
+                }
+
+                consumedPostNumbers += post.postNumber
+                val branchVisited = mutableSetOf(post.postNumber)
+                replySections += TopicReplySectionPresentation(
+                    anchorPost = post,
+                    replies = flattenReplies(
+                        parentPostNumber = post.postNumber,
+                        depth = 1,
+                        childrenByParent = childrenByParent,
+                        consumedPostNumbers = consumedPostNumbers,
+                        branchVisited = branchVisited,
+                    ),
+                )
+            }
+
+        posts
+            .asSequence()
+            .filter { it.postNumber != rootPostNumber && it.postNumber !in consumedPostNumbers }
+            .forEach { post ->
+                consumedPostNumbers += post.postNumber
+                val branchVisited = mutableSetOf(post.postNumber)
+                replySections += TopicReplySectionPresentation(
+                    anchorPost = post,
+                    replies = flattenReplies(
+                        parentPostNumber = post.postNumber,
+                        depth = 1,
+                        childrenByParent = childrenByParent,
+                        consumedPostNumbers = consumedPostNumbers,
+                        branchVisited = branchVisited,
+                    ),
+                )
+            }
+
+        return TopicThreadPresentation(
+            originalPost = originalPost,
+            replySections = replySections,
+        )
+    }
+
     private fun findCategories(root: JSONObject): JSONArray? {
         val site = root.optJSONObject("site")
         return when {
@@ -155,6 +250,49 @@ object TopicPresentation {
                 if (key == name) value else null
             }
             .firstOrNull()
+    }
+
+    private fun normalizedReplyTarget(post: TopicPostState): UInt? {
+        val replyToPostNumber = post.replyToPostNumber ?: return null
+        return replyToPostNumber.takeIf { it > 0u }
+    }
+
+    private fun flattenReplies(
+        parentPostNumber: UInt,
+        depth: Int,
+        childrenByParent: Map<UInt, List<TopicPostState>>,
+        consumedPostNumbers: MutableSet<UInt>,
+        branchVisited: MutableSet<UInt>,
+    ): List<TopicReplyPresentation> {
+        val children = childrenByParent[parentPostNumber].orEmpty()
+        return buildList {
+            for (child in children) {
+                if (child.postNumber in branchVisited) {
+                    continue
+                }
+
+                consumedPostNumbers += child.postNumber
+                add(
+                    TopicReplyPresentation(
+                        post = child,
+                        depth = depth,
+                        parentPostNumber = normalizedReplyTarget(child),
+                    ),
+                )
+
+                branchVisited += child.postNumber
+                addAll(
+                    flattenReplies(
+                        parentPostNumber = child.postNumber,
+                        depth = depth + 1,
+                        childrenByParent = childrenByParent,
+                        consumedPostNumbers = consumedPostNumbers,
+                        branchVisited = branchVisited,
+                    ),
+                )
+                branchVisited -= child.postNumber
+            }
+        }
     }
 
     private fun decodeCommonEntities(value: String): String {

@@ -4,7 +4,7 @@ import SwiftUI
 struct FireApp: App {
     var body: some Scene {
         WindowGroup {
-            FireRootView()
+            FireTabRoot()
         }
     }
 }

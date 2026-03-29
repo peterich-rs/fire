@@ -245,6 +245,10 @@ final class FireAppViewModel: ObservableObject {
         return detail
     }
 
+    func dismissError() {
+        errorMessage = nil
+    }
+
     private func prepareLoginNetworkAccess() async throws {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.waitsForConnectivity = true

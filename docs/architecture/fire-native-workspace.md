@@ -119,7 +119,7 @@ Current file ownership convention:
 - The current session snapshot remains host-triggered persistence under `session.json` inside that workspace root.
 
 The Android host shell now generates Kotlin UniFFI bindings at build time, packages Rust-backed Android `.so` libraries per build variant, and renders the topic browser against the real shared Rust core. The iOS host shell now does the same at build time for Swift bindings plus a Rust static library and links that output directly into the Xcode target, while keeping the host bindgen step isolated from Xcode's iPhone SDK environment.
-Both native hosts now keep feed pagination state, derive category metadata from bootstrap `data-preloaded.site.categories`, and render richer topic/detail metadata on top of the shared Rust topic APIs. Android topic detail now opens in a dedicated native screen, and both native hosts currently flatten cooked post HTML to safer plain text until a structured module-aware renderer is implemented.
+Both native hosts now keep feed pagination state, derive category metadata from bootstrap `data-preloaded.site.categories`, and render richer topic/detail metadata on top of the shared Rust topic APIs. The iOS host has now moved past the developer-style `List` shell into a more formal SwiftUI workspace with a session gate, feed console, spotlight topic paging, dense thread scanning, adaptive light/dark theming, and full-screen login chrome, while Android topic detail already opens in a dedicated native screen. Both native hosts currently flatten cooked post HTML to safer plain text until a structured module-aware renderer is implemented.
 
 ## Next Build Steps
 

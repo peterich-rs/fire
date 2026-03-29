@@ -74,7 +74,33 @@ final class FireDiagnosticsViewModel: ObservableObject {
     func requestTraceDetail(traceID: UInt64) -> NetworkTraceDetailState? {
         requestTraceDetails[traceID]
     }
+
+    // MARK: - Computed Stats
+
+    var succeededCount: Int {
+        requestTraces.filter { $0.outcome == .succeeded }.count
+    }
+
+    var failedCount: Int {
+        requestTraces.filter { $0.outcome == .failed }.count
+    }
+
+    var inProgressCount: Int {
+        requestTraces.filter { $0.outcome == .inProgress }.count
+    }
+
+    var averageDurationMs: UInt64? {
+        let durations = requestTraces.compactMap(\.durationMs)
+        guard !durations.isEmpty else { return nil }
+        return durations.reduce(0, +) / UInt64(durations.count)
+    }
+
+    var totalLogSizeBytes: UInt64 {
+        logFiles.reduce(0) { $0 + $1.sizeBytes }
+    }
 }
+
+// MARK: - Dashboard (Entry Point)
 
 struct FireDiagnosticsView: View {
     @StateObject private var diagnosticsViewModel: FireDiagnosticsViewModel
@@ -87,73 +113,32 @@ struct FireDiagnosticsView: View {
 
     var body: some View {
         List {
-            Section("Overview") {
-                LabeledContent("Captured Requests", value: "\(diagnosticsViewModel.requestTraces.count)")
-                LabeledContent("Log Files", value: "\(diagnosticsViewModel.logFiles.count)")
-            }
-
-            Section("Log Files") {
-                if diagnosticsViewModel.isLoading && diagnosticsViewModel.logFiles.isEmpty {
-                    ProgressView("Loading logs...")
-                } else if diagnosticsViewModel.logFiles.isEmpty {
-                    Text("No log files are available yet.")
-                        .foregroundStyle(.secondary)
-                } else {
-                    ForEach(diagnosticsViewModel.logFiles, id: \.relativePath) { file in
-                        NavigationLink {
-                            FireDiagnosticsLogView(
-                                viewModel: diagnosticsViewModel,
-                                relativePath: file.relativePath
-                            )
-                        } label: {
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text(file.fileName)
-                                    .font(.headline)
-                                HStack(spacing: 12) {
-                                    Text(FireDiagnosticsPresentation.byteSize(file.sizeBytes))
-                                    Text(FireDiagnosticsPresentation.timestamp(file.modifiedAtUnixMs))
-                                }
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                Text(file.relativePath)
-                                    .font(.caption.monospaced())
-                                    .foregroundStyle(.tertiary)
-                            }
-                            .padding(.vertical, 4)
-                        }
-                    }
-                }
-            }
-
-            Section("Network Requests") {
-                if diagnosticsViewModel.isLoading && diagnosticsViewModel.requestTraces.isEmpty {
-                    ProgressView("Loading request traces...")
-                } else if diagnosticsViewModel.requestTraces.isEmpty {
-                    Text("No captured network requests yet.")
-                        .foregroundStyle(.secondary)
-                } else {
-                    ForEach(diagnosticsViewModel.requestTraces, id: \.id) { trace in
-                        NavigationLink {
-                            FireRequestTraceDetailView(
-                                viewModel: diagnosticsViewModel,
-                                traceID: trace.id
-                            )
-                        } label: {
-                            FireRequestTraceRow(trace: trace)
-                        }
-                    }
-                }
-            }
-
             if let errorMessage = diagnosticsViewModel.errorMessage {
-                Section("Diagnostics Error") {
-                    Text(errorMessage)
-                        .font(.footnote.monospaced())
-                        .foregroundStyle(.red)
+                Section {
+                    Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
                 }
             }
+
+            Section {
+                NavigationLink {
+                    FireNetworkTracesListView(viewModel: diagnosticsViewModel)
+                } label: {
+                    networkCard
+                }
+
+                NavigationLink {
+                    FireLogFilesListView(viewModel: diagnosticsViewModel)
+                } label: {
+                    logCard
+                }
+            }
+            .listRowSeparator(.hidden)
+            .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
         }
-        .navigationTitle("Diagnostics")
+        .listStyle(.plain)
+        .navigationTitle("诊断工具")
         .task {
             diagnosticsViewModel.refresh()
         }
@@ -161,7 +146,592 @@ struct FireDiagnosticsView: View {
             diagnosticsViewModel.refresh()
         }
     }
+
+    // MARK: - Network Summary Card
+
+    private var networkCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("网络请求", systemImage: "network")
+                .font(.headline)
+
+            if diagnosticsViewModel.isLoading && diagnosticsViewModel.requestTraces.isEmpty {
+                ProgressView()
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.vertical, 8)
+            } else {
+                HStack(spacing: 0) {
+                    miniStat(
+                        value: "\(diagnosticsViewModel.requestTraces.count)",
+                        label: "总计",
+                        color: .primary
+                    )
+                    miniStat(
+                        value: "\(diagnosticsViewModel.succeededCount)",
+                        label: "成功",
+                        color: .green
+                    )
+                    miniStat(
+                        value: "\(diagnosticsViewModel.failedCount)",
+                        label: "失败",
+                        color: diagnosticsViewModel.failedCount > 0 ? .red : .secondary
+                    )
+                    if let avgMs = diagnosticsViewModel.averageDurationMs {
+                        miniStat(
+                            value: "\(avgMs)ms",
+                            label: "平均耗时",
+                            color: .secondary
+                        )
+                    }
+                }
+            }
+        }
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color(.secondarySystemGroupedBackground))
+        )
+    }
+
+    // MARK: - Log Summary Card
+
+    private var logCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("日志文件", systemImage: "doc.text")
+                .font(.headline)
+
+            if diagnosticsViewModel.isLoading && diagnosticsViewModel.logFiles.isEmpty {
+                ProgressView()
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.vertical, 8)
+            } else {
+                HStack(spacing: 0) {
+                    miniStat(
+                        value: "\(diagnosticsViewModel.logFiles.count)",
+                        label: "文件数",
+                        color: .primary
+                    )
+                    miniStat(
+                        value: FireDiagnosticsPresentation.byteSize(diagnosticsViewModel.totalLogSizeBytes),
+                        label: "总计大小",
+                        color: .secondary
+                    )
+                }
+            }
+        }
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color(.secondarySystemGroupedBackground))
+        )
+    }
+
+    private func miniStat(value: String, label: String, color: Color) -> some View {
+        VStack(spacing: 2) {
+            Text(value)
+                .font(.title3.monospacedDigit().weight(.semibold))
+                .foregroundStyle(color)
+            Text(label)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+    }
 }
+
+// MARK: - Network Traces List
+
+private struct FireNetworkTracesListView: View {
+    @ObservedObject var viewModel: FireDiagnosticsViewModel
+
+    var body: some View {
+        List {
+            if viewModel.requestTraces.isEmpty {
+                ContentUnavailableView(
+                    "暂无请求记录",
+                    systemImage: "network.slash",
+                    description: Text("尚未捕获到任何网络请求。")
+                )
+            } else {
+                ForEach(viewModel.requestTraces, id: \.id) { trace in
+                    NavigationLink {
+                        FireRequestTraceDetailView(viewModel: viewModel, traceID: trace.id)
+                    } label: {
+                        FireRequestTraceRow(trace: trace)
+                    }
+                }
+            }
+        }
+        .listStyle(.plain)
+        .navigationTitle("网络请求")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+// MARK: - Request Trace Row (compact, Postman-like)
+
+private struct FireRequestTraceRow: View {
+    let trace: NetworkTraceSummaryState
+
+    private var statusColor: Color {
+        if trace.outcome == .failed { return .red }
+        guard let code = trace.statusCode else { return .secondary }
+        if code < 300 { return .green }
+        if code < 400 { return .orange }
+        return .red
+    }
+
+    private var methodColor: Color {
+        switch trace.method.uppercased() {
+        case "GET": return .blue
+        case "POST": return .green
+        case "PUT": return .orange
+        case "DELETE": return .red
+        case "PATCH": return .purple
+        default: return .secondary
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Text(trace.method)
+                    .font(.caption.monospaced().weight(.bold))
+                    .foregroundStyle(methodColor)
+                    .frame(width: 46, alignment: .leading)
+
+                if let statusCode = trace.statusCode {
+                    Text("\(statusCode)")
+                        .font(.caption.monospacedDigit().weight(.semibold))
+                        .foregroundStyle(statusColor)
+                }
+
+                Spacer()
+
+                if let durationMs = trace.durationMs {
+                    Text("\(durationMs)ms")
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+
+                outcomeIcon
+            }
+
+            Text(FireDiagnosticsPresentation.compactURL(trace.url))
+                .font(.subheadline.monospaced())
+                .lineLimit(1)
+                .truncationMode(.middle)
+
+            if let errorMessage = trace.errorMessage {
+                Text(errorMessage)
+                    .font(.caption2)
+                    .foregroundStyle(.red)
+                    .lineLimit(1)
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    private var outcomeIcon: some View {
+        Group {
+            switch trace.outcome {
+            case .succeeded:
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(.green)
+            case .failed:
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundStyle(.red)
+            case .inProgress:
+                ProgressView()
+                    .controlSize(.mini)
+            }
+        }
+        .font(.caption)
+    }
+}
+
+// MARK: - Request Trace Detail (Tabbed — Postman style)
+
+private struct FireRequestTraceDetailView: View {
+    @ObservedObject var viewModel: FireDiagnosticsViewModel
+    let traceID: UInt64
+
+    @State private var selectedTab: DetailTab = .overview
+
+    enum DetailTab: String, CaseIterable {
+        case overview = "概要"
+        case request = "Request"
+        case response = "Response"
+        case timeline = "Timeline"
+    }
+
+    var body: some View {
+        Group {
+            if let detail = viewModel.requestTraceDetail(traceID: traceID) {
+                VStack(spacing: 0) {
+                    requestSummaryBar(detail: detail)
+
+                    Picker("Tab", selection: $selectedTab) {
+                        ForEach(DetailTab.allCases, id: \.self) { tab in
+                            Text(tab.rawValue).tag(tab)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+
+                    Divider()
+
+                    ScrollView {
+                        switch selectedTab {
+                        case .overview:
+                            overviewContent(detail: detail)
+                        case .request:
+                            requestContent(detail: detail)
+                        case .response:
+                            responseContent(detail: detail)
+                        case .timeline:
+                            timelineContent(detail: detail)
+                        }
+                    }
+                }
+            } else {
+                ProgressView("加载请求详情…")
+                    .task {
+                        viewModel.loadTraceDetail(traceID: traceID)
+                    }
+            }
+        }
+        .navigationTitle("请求详情")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    // MARK: - Summary Bar (always visible at top)
+
+    private func requestSummaryBar(detail: NetworkTraceDetailState) -> some View {
+        VStack(spacing: 6) {
+            HStack(spacing: 8) {
+                Text(detail.summary.method)
+                    .font(.subheadline.monospaced().weight(.bold))
+                    .foregroundStyle(methodColor(detail.summary.method))
+
+                if let statusCode = detail.summary.statusCode {
+                    Text("\(statusCode)")
+                        .font(.subheadline.monospacedDigit().weight(.semibold))
+                        .foregroundStyle(statusCodeColor(statusCode))
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(statusCodeColor(statusCode).opacity(0.12))
+                        .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                }
+
+                Spacer()
+
+                if let durationMs = detail.summary.durationMs {
+                    Label("\(durationMs)ms", systemImage: "clock")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Text(detail.summary.url)
+                .font(.caption.monospaced())
+                .lineLimit(2)
+                .multilineTextAlignment(.leading)
+                .foregroundStyle(.secondary)
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(Color(.secondarySystemGroupedBackground))
+    }
+
+    // MARK: - Overview Tab
+
+    private func overviewContent(detail: NetworkTraceDetailState) -> some View {
+        VStack(spacing: 0) {
+            kvRow("Operation", detail.summary.operation)
+            kvRow("Method", detail.summary.method)
+            kvRow("URL", detail.summary.url, selectable: true)
+            kvRow("Started", FireDiagnosticsPresentation.timestamp(detail.summary.startedAtUnixMs))
+
+            if let finishedAtUnixMs = detail.summary.finishedAtUnixMs {
+                kvRow("Finished", FireDiagnosticsPresentation.timestamp(finishedAtUnixMs))
+            }
+
+            if let durationMs = detail.summary.durationMs {
+                kvRow("Duration", "\(durationMs) ms")
+            }
+
+            kvRow("Outcome", FireDiagnosticsPresentation.outcome(detail.summary))
+
+            if let statusCode = detail.summary.statusCode {
+                kvRow("Status", "HTTP \(statusCode)")
+            }
+
+            if let responseBodyBytes = detail.responseBodyBytes {
+                kvRow("Body Size", FireDiagnosticsPresentation.byteSize(responseBodyBytes))
+            }
+
+            if let contentType = detail.summary.responseContentType {
+                kvRow("Content-Type", contentType)
+            }
+
+            if let callID = detail.summary.callId {
+                kvRow("Call ID", "\(callID)")
+            }
+
+            if let errorMessage = detail.summary.errorMessage {
+                kvRow("Error", errorMessage, valueColor: .red)
+            }
+        }
+        .padding(.horizontal, 16)
+    }
+
+    // MARK: - Request Tab
+
+    private func requestContent(detail: NetworkTraceDetailState) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            sectionHeader("Headers (\(detail.requestHeaders.count))")
+
+            if detail.requestHeaders.isEmpty {
+                emptyNote("无请求 headers")
+            } else {
+                headersBlock(detail.requestHeaders)
+            }
+
+            // Request body is not captured in the current model,
+            // but the section is here for future support.
+        }
+        .padding(.horizontal, 16)
+    }
+
+    // MARK: - Response Tab
+
+    private func responseContent(detail: NetworkTraceDetailState) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            sectionHeader("Headers (\(detail.responseHeaders.count))")
+
+            if detail.responseHeaders.isEmpty {
+                emptyNote("无响应 headers")
+            } else {
+                headersBlock(detail.responseHeaders)
+            }
+
+            sectionHeader("Body")
+
+            if let responseBody = detail.responseBody, !responseBody.isEmpty {
+                if detail.responseBodyTruncated {
+                    Label("已截断至 256 KB", systemImage: "scissors")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                        .padding(.bottom, 4)
+                }
+
+                Text(responseBody)
+                    .font(.system(.caption, design: .monospaced))
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(12)
+                    .background(Color(.tertiarySystemGroupedBackground))
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            } else {
+                emptyNote("未捕获到响应 body")
+            }
+        }
+        .padding(.horizontal, 16)
+    }
+
+    // MARK: - Timeline Tab
+
+    private func timelineContent(detail: NetworkTraceDetailState) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if detail.events.isEmpty {
+                ContentUnavailableView(
+                    "无执行链",
+                    systemImage: "clock.arrow.trianglehead.counterclockwise.rotate.90",
+                    description: Text("该请求没有记录执行事件。")
+                )
+            } else {
+                ForEach(Array(detail.events.enumerated()), id: \.offset) { index, event in
+                    HStack(alignment: .top, spacing: 12) {
+                        VStack(spacing: 0) {
+                            Circle()
+                                .fill(index == 0 ? Color.accentColor : Color(.tertiaryLabel))
+                                .frame(width: 8, height: 8)
+
+                            if index < detail.events.count - 1 {
+                                Rectangle()
+                                    .fill(Color(.separator))
+                                    .frame(width: 1)
+                                    .frame(maxHeight: .infinity)
+                            }
+                        }
+                        .frame(width: 8)
+                        .padding(.top, 6)
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack {
+                                Text(event.phase)
+                                    .font(.caption.monospaced().weight(.semibold))
+                                    .foregroundStyle(.secondary)
+                                Spacer()
+                                Text(FireDiagnosticsPresentation.timestamp(event.timestampUnixMs))
+                                    .font(.caption2)
+                                    .foregroundStyle(.tertiary)
+                            }
+
+                            Text(event.summary)
+                                .font(.subheadline)
+
+                            if let details = event.details, !details.isEmpty {
+                                Text(details)
+                                    .font(.caption.monospaced())
+                                    .foregroundStyle(.secondary)
+                                    .textSelection(.enabled)
+                            }
+                        }
+                        .padding(.vertical, 8)
+                    }
+
+                    if index < detail.events.count - 1 {
+                        Divider()
+                            .padding(.leading, 20)
+                    }
+                }
+                .padding(.horizontal, 16)
+            }
+        }
+    }
+
+    // MARK: - Reusable Parts
+
+    private func kvRow(_ key: String, _ value: String, selectable: Bool = false, valueColor: Color = .primary) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .top) {
+                Text(key)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 80, alignment: .leading)
+
+                if selectable {
+                    Text(value)
+                        .font(.subheadline)
+                        .foregroundStyle(valueColor)
+                        .textSelection(.enabled)
+                } else {
+                    Text(value)
+                        .font(.subheadline)
+                        .foregroundStyle(valueColor)
+                }
+            }
+            .padding(.vertical, 8)
+
+            Divider()
+        }
+    }
+
+    private func headersBlock(_ headers: [NetworkTraceHeaderState]) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(Array(headers.enumerated()), id: \.offset) { _, header in
+                Text("\(header.name): ")
+                    .font(.system(.caption, design: .monospaced, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                +
+                Text(header.value)
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(.primary)
+            }
+            .textSelection(.enabled)
+            .padding(.vertical, 3)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(.tertiarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+
+    private func sectionHeader(_ title: String) -> some View {
+        Text(title)
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(.secondary)
+            .padding(.top, 16)
+            .padding(.bottom, 6)
+    }
+
+    private func emptyNote(_ text: String) -> some View {
+        Text(text)
+            .font(.caption)
+            .foregroundStyle(.tertiary)
+            .padding(.vertical, 8)
+    }
+
+    // MARK: - Color Helpers
+
+    private func methodColor(_ method: String) -> Color {
+        switch method.uppercased() {
+        case "GET": return .blue
+        case "POST": return .green
+        case "PUT": return .orange
+        case "DELETE": return .red
+        case "PATCH": return .purple
+        default: return .secondary
+        }
+    }
+
+    private func statusCodeColor(_ code: UInt16) -> Color {
+        if code < 300 { return .green }
+        if code < 400 { return .orange }
+        return .red
+    }
+}
+
+// MARK: - Log Files List
+
+private struct FireLogFilesListView: View {
+    @ObservedObject var viewModel: FireDiagnosticsViewModel
+
+    var body: some View {
+        List {
+            if viewModel.logFiles.isEmpty {
+                ContentUnavailableView(
+                    "暂无日志",
+                    systemImage: "doc.text",
+                    description: Text("尚未生成任何日志文件。")
+                )
+            } else {
+                ForEach(viewModel.logFiles, id: \.relativePath) { file in
+                    NavigationLink {
+                        FireDiagnosticsLogView(viewModel: viewModel, relativePath: file.relativePath)
+                    } label: {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(file.fileName)
+                                    .font(.subheadline.weight(.medium))
+
+                                Text(FireDiagnosticsPresentation.timestamp(file.modifiedAtUnixMs))
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+
+                            Spacer()
+
+                            Text(FireDiagnosticsPresentation.byteSize(file.sizeBytes))
+                                .font(.caption.monospacedDigit())
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(.vertical, 2)
+                    }
+                }
+            }
+        }
+        .listStyle(.plain)
+        .navigationTitle("日志文件")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+// MARK: - Log Detail View
 
 private struct FireDiagnosticsLogView: View {
     @ObservedObject var viewModel: FireDiagnosticsViewModel
@@ -172,201 +742,48 @@ private struct FireDiagnosticsLogView: View {
             if let logFile = viewModel.logFile(relativePath: relativePath) {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(logFile.fileName)
-                                .font(.headline)
-                            Text(logFile.relativePath)
-                                .font(.footnote.monospaced())
-                                .foregroundStyle(.secondary)
-                            Text(
-                                logFile.isTruncated
-                                    ? "Showing a truncated preview of \(FireDiagnosticsPresentation.byteSize(logFile.sizeBytes))."
-                                    : "Showing \(FireDiagnosticsPresentation.byteSize(logFile.sizeBytes))."
-                            )
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
+                        HStack {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(logFile.fileName)
+                                    .font(.headline)
+
+                                Text(FireDiagnosticsPresentation.byteSize(logFile.sizeBytes))
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+
+                            Spacer()
+
+                            if logFile.isTruncated {
+                                Label("已截断", systemImage: "scissors")
+                                    .font(.caption)
+                                    .foregroundStyle(.orange)
+                            }
                         }
 
-                        Text(logFile.contents.isEmpty ? "No log lines captured yet." : logFile.contents)
-                            .font(.system(.footnote, design: .monospaced))
+                        Text(logFile.contents.isEmpty ? "暂无日志内容。" : logFile.contents)
+                            .font(.system(.caption, design: .monospaced))
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .textSelection(.enabled)
+                            .padding(12)
+                            .background(Color(.tertiarySystemGroupedBackground))
+                            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                     }
-                    .padding()
+                    .padding(16)
                 }
             } else {
-                ProgressView("Loading log...")
+                ProgressView("加载日志…")
                     .task {
                         viewModel.loadLogFile(relativePath: relativePath)
                     }
             }
         }
-        .navigationTitle("Log File")
+        .navigationTitle("日志")
         .navigationBarTitleDisplayMode(.inline)
     }
 }
 
-private struct FireRequestTraceRow: View {
-    let trace: NetworkTraceSummaryState
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(trace.method)
-                    .font(.caption.monospaced())
-                    .foregroundStyle(.secondary)
-                Text(trace.operation)
-                    .font(.subheadline)
-                Text(FireDiagnosticsPresentation.compactURL(trace.url))
-                    .font(.headline)
-                    .lineLimit(1)
-            }
-
-            HStack(spacing: 12) {
-                Text(FireDiagnosticsPresentation.outcome(trace))
-                if let statusCode = trace.statusCode {
-                    Text("HTTP \(statusCode)")
-                }
-                if let durationMs = trace.durationMs {
-                    Text("\(durationMs) ms")
-                }
-                Text(FireDiagnosticsPresentation.timestamp(trace.startedAtUnixMs))
-            }
-            .font(.caption)
-            .foregroundStyle(.secondary)
-
-            if let errorMessage = trace.errorMessage {
-                Text(errorMessage)
-                    .font(.caption.monospaced())
-                    .foregroundStyle(.red)
-                    .lineLimit(2)
-            }
-        }
-        .padding(.vertical, 4)
-    }
-}
-
-private struct FireRequestTraceDetailView: View {
-    @ObservedObject var viewModel: FireDiagnosticsViewModel
-    let traceID: UInt64
-
-    var body: some View {
-        Group {
-            if let detail = viewModel.requestTraceDetail(traceID: traceID) {
-                List {
-                    Section("Overview") {
-                        LabeledContent("Operation", value: detail.summary.operation)
-                        LabeledContent("Method", value: detail.summary.method)
-                        LabeledContent("URL", value: detail.summary.url)
-                        LabeledContent(
-                            "Started",
-                            value: FireDiagnosticsPresentation.timestamp(detail.summary.startedAtUnixMs)
-                        )
-                        if let finishedAtUnixMs = detail.summary.finishedAtUnixMs {
-                            LabeledContent(
-                                "Finished",
-                                value: FireDiagnosticsPresentation.timestamp(finishedAtUnixMs)
-                            )
-                        }
-                        if let durationMs = detail.summary.durationMs {
-                            LabeledContent("Duration", value: "\(durationMs) ms")
-                        }
-                        LabeledContent("Outcome", value: FireDiagnosticsPresentation.outcome(detail.summary))
-                        if let statusCode = detail.summary.statusCode {
-                            LabeledContent("Status", value: "HTTP \(statusCode)")
-                        }
-                        if let responseBodyBytes = detail.responseBodyBytes {
-                            LabeledContent("Body Size", value: FireDiagnosticsPresentation.byteSize(responseBodyBytes))
-                        }
-                        if let callID = detail.summary.callId {
-                            LabeledContent("Call ID", value: "\(callID)")
-                        }
-                        if let errorMessage = detail.summary.errorMessage {
-                            LabeledContent("Error", value: errorMessage)
-                                .foregroundStyle(.red)
-                        }
-                    }
-
-                    Section("Request Headers") {
-                        FireHeaderList(headers: detail.requestHeaders)
-                    }
-
-                    Section("Response Headers") {
-                        FireHeaderList(headers: detail.responseHeaders)
-                    }
-
-                    Section("Response Body") {
-                        if let responseBody = detail.responseBody, !responseBody.isEmpty {
-                            if detail.responseBodyTruncated {
-                                Text("Response body is truncated to the first 256 KB.")
-                                    .font(.footnote)
-                                    .foregroundStyle(.secondary)
-                            }
-                            Text(responseBody)
-                                .font(.system(.footnote, design: .monospaced))
-                                .textSelection(.enabled)
-                        } else {
-                            Text("No response body captured.")
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-
-                    Section("Execution Chain") {
-                        ForEach(Array(detail.events.enumerated()), id: \.offset) { _, event in
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(event.phase)
-                                    .font(.caption.monospaced())
-                                    .foregroundStyle(.secondary)
-                                Text(event.summary)
-                                    .font(.body)
-                                if let details = event.details, !details.isEmpty {
-                                    Text(details)
-                                        .font(.footnote.monospaced())
-                                        .foregroundStyle(.secondary)
-                                        .textSelection(.enabled)
-                                }
-                                Text(FireDiagnosticsPresentation.timestamp(event.timestampUnixMs))
-                                    .font(.caption2)
-                                    .foregroundStyle(.tertiary)
-                            }
-                            .padding(.vertical, 2)
-                        }
-                    }
-                }
-            } else {
-                ProgressView("Loading request trace...")
-                    .task {
-                        viewModel.loadTraceDetail(traceID: traceID)
-                    }
-            }
-        }
-        .navigationTitle("Request Trace")
-        .navigationBarTitleDisplayMode(.inline)
-    }
-}
-
-private struct FireHeaderList: View {
-    let headers: [NetworkTraceHeaderState]
-
-    var body: some View {
-        if headers.isEmpty {
-            Text("No headers captured.")
-                .foregroundStyle(.secondary)
-        } else {
-            ForEach(Array(headers.enumerated()), id: \.offset) { _, header in
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(header.name)
-                        .font(.caption.monospaced())
-                        .foregroundStyle(.secondary)
-                    Text(header.value)
-                        .font(.footnote.monospaced())
-                        .textSelection(.enabled)
-                }
-                .padding(.vertical, 2)
-            }
-        }
-    }
-}
+// MARK: - Presentation Helpers
 
 private enum FireDiagnosticsPresentation {
     private static let timestampFormatter: DateFormatter = {
@@ -400,11 +817,11 @@ private enum FireDiagnosticsPresentation {
     static func outcome(_ trace: NetworkTraceSummaryState) -> String {
         switch trace.outcome {
         case .inProgress:
-            return "In Progress"
+            return "进行中"
         case .succeeded:
-            return "Succeeded"
+            return "成功"
         case .failed:
-            return "Failed"
+            return "失败"
         }
     }
 }

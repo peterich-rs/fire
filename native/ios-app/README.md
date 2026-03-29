@@ -33,7 +33,8 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
   - completes login by syncing into Rust and backfilling bootstrap if the page is not reusable
 - `App/FireLoginWebView.swift`
   - presents the login browser as a full-screen flow
-  - exposes back, forward, home, and reload controls so OAuth hops can return to LinuxDo without closing the sheet
+  - now wraps the embedded `WKWebView` in a full-screen native browser shell with adaptive light/dark chrome, a compact top bar, and a bottom command dock
+  - exposes back, forward, home, reload, and session sync controls so OAuth hops can return to LinuxDo without closing the flow
   - enables back/forward swipe gestures on the embedded `WKWebView`
 - `App/FireAppViewModel.swift`
   - performs a lightweight network preflight before presenting the login browser
@@ -53,7 +54,10 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
 - `Tests/Unit/FireTopicPresentationTests.swift`
   - covers category extraction, pagination cursor parsing, and HTML-to-plain-text normalization in the pure Swift presentation helpers
 - `App/FireRootView.swift`
-  - renders the first topic read path with feed filters, category pills, feed pagination, and dedicated topic detail navigation
+  - now replaces the earlier stacked-card list shell with a structured SwiftUI reading workspace that separates session gate, feed console, spotlight topics, and dense thread scanning
+  - renders the first topic read path with featured-topic paging, feed filters, category-aware list rows, feed pagination, and dedicated topic detail navigation
+  - keeps diagnostics reachable without letting them dominate the main browsing surface
+  - uses a shared semantic color system that adapts the workspace to both light and dark appearance
   - now reads the real generated Swift-facing contracts exported from `fire-uniffi`
 
 Expected integration flow:
@@ -78,11 +82,13 @@ Current UX note:
 
 - The app now opens login as a full-screen browser instead of a partial sheet.
 - The login browser can navigate back from Google or other intermediate pages without forcing the user to close and reopen login.
+- The login shell and reading workspace now adapt to both light and dark system appearance while preserving the same hierarchy and contrast model.
 - The network preflight is a best-effort connectivity warm-up. iOS does not provide a generic "internet permission" API for arbitrary web access, so this only shifts the first prompt/request earlier; it does not create a separate permission flow.
 - The current topic browser now runs against the real shared Rust core through generated UniFFI Swift bindings.
 - Network-backed UniFFI APIs now surface to Swift as native `async/await` methods instead of a synchronous wrapper.
 - The UniFFI boundary now returns exported host interactions as Swift `throws`; if Rust panics, the boundary logs the panic, throws an `Internal` UniFFI error instead of tripping generated `try!` call sites, and poisons the current `FireCoreHandle` so the host can recreate it.
-- The current topic browser now supports `Load More` pagination, category-aware topic rows, and richer topic/detail metadata sourced from the shared Rust session snapshot.
+- The app now enters through a branded session gate when authenticated topic reads are not ready, instead of exposing raw readiness/debug state as the primary UI.
+- The current topic browser now supports spotlight topic paging, `Load More` pagination, category-aware topic rows, richer topic/detail metadata sourced from the shared Rust session snapshot, and a more formal native reading surface instead of the earlier developer-facing list presentation.
 - Topic posts now render their cooked HTML as normalized plain text in the detail screen until a safer structured HTML/module renderer lands.
 - The app now exposes a diagnostics screen for readable logs and Rust-owned request trace inspection.
 
@@ -97,7 +103,7 @@ Build prerequisites:
 Verified local commands:
 
 - `xcodegen generate --spec native/ios-app/project.yml`
-- `xcodebuild -project native/ios-app/Fire.xcodeproj -scheme Fire -destination 'platform=iOS Simulator,name=iPhone 16' -derivedDataPath /tmp/fire-ios-tests CODE_SIGNING_ALLOWED=NO test`
+- `xcodebuild -project native/ios-app/Fire.xcodeproj -scheme Fire -destination 'platform=iOS Simulator,OS=18.2,name=iPhone 16' -derivedDataPath /tmp/fire-ios-ui CODE_SIGNING_ALLOWED=NO test`
 
 Current build note:
 

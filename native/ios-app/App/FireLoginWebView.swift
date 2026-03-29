@@ -110,67 +110,223 @@ struct FireLoginScreen: View {
     @StateObject private var webViewBox = FireWebViewBox()
 
     var body: some View {
-        NavigationStack {
-            FireLoginWebView(
-                url: URL(string: "https://linux.do")!,
-                webViewBox: webViewBox
-            )
-            .navigationTitle(webViewBox.pageTitle)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbarTitleMenu {
-                if let currentURL = webViewBox.currentURL {
-                    Text(currentURL)
+        ZStack {
+            FireSceneBackground()
+
+            VStack(spacing: 14) {
+                FireLoginTopBar(
+                    pageTitle: webViewBox.pageTitle,
+                    currentURL: webViewBox.currentURL,
+                    isLoading: webViewBox.isLoading
+                ) {
+                    dismiss()
                 }
-            }
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Close") {
-                        dismiss()
-                    }
+
+                FireLoginBrowserFrame {
+                    FireLoginWebView(
+                        url: URL(string: "https://linux.do")!,
+                        webViewBox: webViewBox
+                    )
                 }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Sync") {
+                .frame(maxHeight: .infinity)
+
+                FireLoginBottomBar(
+                    webViewBox: webViewBox,
+                    onSync: {
                         guard let webView = webViewBox.webView else {
                             return
                         }
                         viewModel.completeLogin(from: webView)
                     }
+                )
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
+            .padding(.bottom, 12)
+        }
+        .toolbar(.hidden, for: .navigationBar)
+        .ignoresSafeArea(edges: .bottom)
+    }
+}
+
+private struct FireLoginTopBar: View {
+    let pageTitle: String
+    let currentURL: String?
+    let isLoading: Bool
+    let onClose: () -> Void
+
+    var body: some View {
+        FireLoginChromePanel {
+            HStack(spacing: 14) {
+                Button(action: onClose) {
+                    FireToolbarIcon(symbol: "xmark")
                 }
-                ToolbarItemGroup(placement: .bottomBar) {
-                    Button {
-                        webViewBox.goBack()
-                    } label: {
-                        Image(systemName: "chevron.backward")
-                    }
-                    .disabled(!webViewBox.canGoBack)
+                .buttonStyle(.plain)
 
-                    Button {
-                        webViewBox.goForward()
-                    } label: {
-                        Image(systemName: "chevron.forward")
-                    }
-                    .disabled(!webViewBox.canGoForward)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(pageTitle)
+                        .font(.headline)
+                        .foregroundStyle(FireTheme.ink)
+                        .lineLimit(1)
 
-                    Spacer()
-
-                    if webViewBox.isLoading {
-                        ProgressView()
-                            .controlSize(.small)
-                    }
-
-                    Button {
-                        webViewBox.loadHome()
-                    } label: {
-                        Image(systemName: "house")
-                    }
-
-                    Button {
-                        webViewBox.reload()
-                    } label: {
-                        Image(systemName: "arrow.clockwise")
-                    }
+                    Text(currentURL ?? "linux.do")
+                        .font(.caption)
+                        .foregroundStyle(FireTheme.tertiaryInk)
+                        .lineLimit(1)
                 }
+
+                Spacer()
+
+                FireLoginBadge(
+                    label: isLoading ? "Loading" : "Ready",
+                    accent: isLoading ? FireTheme.accent : FireTheme.success
+                )
             }
         }
+    }
+}
+
+private struct FireLoginBottomBar: View {
+    @ObservedObject var webViewBox: FireWebViewBox
+    let onSync: () -> Void
+
+    var body: some View {
+        FireLoginChromePanel {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(spacing: 12) {
+                    HStack(spacing: 10) {
+                        FireLoginCommandButton(
+                            symbol: "chevron.backward",
+                            disabled: !webViewBox.canGoBack,
+                            action: webViewBox.goBack
+                        )
+                        FireLoginCommandButton(
+                            symbol: "chevron.forward",
+                            disabled: !webViewBox.canGoForward,
+                            action: webViewBox.goForward
+                        )
+                        FireLoginCommandButton(
+                            symbol: "house",
+                            disabled: false,
+                            action: webViewBox.loadHome
+                        )
+                        FireLoginCommandButton(
+                            symbol: "arrow.clockwise",
+                            disabled: false,
+                            action: webViewBox.reload
+                        )
+                    }
+
+                    Spacer(minLength: 8)
+
+                    Button("Sync Session", action: onSync)
+                        .buttonStyle(FirePrimaryButtonStyle())
+                        .disabled(webViewBox.webView == nil)
+                }
+
+                Text(
+                    webViewBox.isLoading
+                        ? "页面还在跳转或加载，等状态稳定后再同步会更稳。"
+                        : "完成登录后点击 Sync Session，把 cookie、bootstrap 和 CSRF 同步回共享 core。"
+                )
+                .font(.footnote)
+                .foregroundStyle(FireTheme.subtleInk)
+                .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+}
+
+private struct FireLoginBrowserFrame<Content: View>: View {
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 34, style: .continuous)
+                .fill(FireTheme.chromeStrong)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 34, style: .continuous)
+                        .strokeBorder(FireTheme.chromeBorder, lineWidth: 1)
+                )
+
+            content
+                .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
+                .padding(6)
+        }
+        .shadow(color: Color.black.opacity(0.16), radius: 28, y: 16)
+    }
+}
+
+private struct FireLoginChromePanel<Content: View>: View {
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        content
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 28, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [FireTheme.chromeStrong, FireTheme.chrome],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 28, style: .continuous)
+                            .strokeBorder(FireTheme.chromeBorder, lineWidth: 1)
+                    )
+            )
+            .shadow(color: Color.black.opacity(0.08), radius: 18, y: 10)
+    }
+}
+
+private struct FireLoginCommandButton: View {
+    let symbol: String
+    let disabled: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(disabled ? FireTheme.tertiaryInk : FireTheme.inverseInk)
+                .frame(width: 42, height: 42)
+                .background(
+                    Circle()
+                        .fill(disabled ? FireTheme.track : FireTheme.panel)
+                        .overlay(
+                            Circle()
+                                .strokeBorder(disabled ? FireTheme.divider : FireTheme.inverseDivider, lineWidth: 1)
+                        )
+                )
+        }
+        .buttonStyle(.plain)
+        .disabled(disabled)
+    }
+}
+
+private struct FireLoginBadge: View {
+    let label: String
+    let accent: Color
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Circle()
+                .fill(accent)
+                .frame(width: 8, height: 8)
+
+            Text(label)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(FireTheme.subtleInk)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(
+            Capsule()
+                .fill(FireTheme.softSurface)
+        )
     }
 }

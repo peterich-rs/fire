@@ -242,19 +242,15 @@ struct FirePostRow: View {
             }
 
             VStack(alignment: .leading, spacing: 6) {
-                if let replyContext {
-                    Text(replyContext)
-                        .font(.caption2.weight(.medium))
-                        .foregroundStyle(FireTheme.accent)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(FireTheme.accent.opacity(0.1))
-                        .clipShape(Capsule())
-                }
-
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Text(post.username.isEmpty ? "Unknown" : post.username)
                         .font(.subheadline.weight(.semibold))
+
+                    if let replyContext {
+                        Text(replyContext)
+                            .font(.caption2.weight(.medium))
+                            .foregroundStyle(FireTheme.accent)
+                    }
 
                     if let timestamp = FireTopicPresentation.compactTimestamp(post.createdAt) {
                         Text(timestamp)

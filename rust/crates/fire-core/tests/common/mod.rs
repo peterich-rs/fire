@@ -6,7 +6,7 @@ use std::{
     path::PathBuf,
     sync::{
         atomic::{AtomicUsize, Ordering},
-        Arc,
+        Arc, Mutex,
     },
 };
 
@@ -169,6 +169,7 @@ pub(crate) fn raw_text_response(status: u16, body: &str) -> String {
 pub(crate) struct TestServer {
     addr: SocketAddr,
     requests: Arc<AtomicUsize>,
+    captured_requests: Arc<Mutex<Vec<String>>>,
     handle: JoinHandle<()>,
 }
 
@@ -177,16 +178,23 @@ impl TestServer {
         let listener = TcpListener::bind("127.0.0.1:0").await?;
         let addr = listener.local_addr()?;
         let requests = Arc::new(AtomicUsize::new(0));
+        let captured_requests = Arc::new(Mutex::new(Vec::new()));
         let requests_handle = requests.clone();
+        let captured_requests_handle = captured_requests.clone();
         let responses = Arc::new(responses);
         let handle = tokio::spawn(async move {
             for response in responses.iter() {
                 let Ok((mut stream, _)) = listener.accept().await else {
                     return;
                 };
-                let mut buffer = vec![0_u8; 4096];
-                let _ = stream.read(&mut buffer).await;
+                let mut buffer = vec![0_u8; 16_384];
+                let bytes_read = stream.read(&mut buffer).await.unwrap_or_default();
                 requests_handle.fetch_add(1, Ordering::SeqCst);
+                if let Ok(request) = String::from_utf8(buffer[..bytes_read].to_vec()) {
+                    if let Ok(mut captured_requests) = captured_requests_handle.lock() {
+                        captured_requests.push(request);
+                    }
+                }
                 let _ = stream.write_all(response.as_bytes()).await;
                 let _ = stream.shutdown().await;
             }
@@ -195,6 +203,7 @@ impl TestServer {
         Ok(Self {
             addr,
             requests,
+            captured_requests,
             handle,
         })
     }
@@ -206,6 +215,14 @@ impl TestServer {
     pub(crate) async fn shutdown(self) -> Arc<AtomicUsize> {
         let _ = self.handle.await;
         self.requests
+    }
+
+    pub(crate) async fn shutdown_with_requests(self) -> Vec<String> {
+        let _ = self.handle.await;
+        self.captured_requests
+            .lock()
+            .map(|requests| requests.clone())
+            .unwrap_or_default()
     }
 }
 

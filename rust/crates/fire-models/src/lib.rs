@@ -322,8 +322,31 @@ pub struct TopicDetailQuery {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TopicReaction {
     pub id: String,
+    #[serde(default, alias = "type")]
     pub kind: Option<String>,
     pub count: u32,
+    #[serde(default)]
+    pub can_undo: Option<bool>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TopicReplyRequest {
+    pub topic_id: u64,
+    pub raw: String,
+    pub reply_to_post_number: Option<u32>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CreateReplyResult {
+    pub post: Option<TopicPost>,
+    pub pending_review: bool,
+    pub pending_count: u32,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PostReactionUpdate {
+    pub reactions: Vec<TopicReaction>,
+    pub current_user_reaction: Option<TopicReaction>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

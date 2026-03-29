@@ -44,6 +44,94 @@ final class FireTopicPresentationTests: XCTestCase {
         XCTAssertEqual(plainText, "Hello\nFire\n\n Rust\n CI")
     }
 
+    func testImageAttachmentsResolveRelativeUploadsAndSkipEmoji() {
+        let attachments = FireTopicPresentation.imageAttachments(
+            from: """
+            <p>Hello</p>
+            <img class="emoji" src="/images/emoji/twitter/smile.png">
+            <img src="/uploads/default/original/1X/fire.png" alt="fire" width="1200" height="800">
+            <img src="https://cdn.example.com/second.jpg">
+            """,
+            baseURLString: "https://linux.do"
+        )
+
+        XCTAssertEqual(attachments.count, 2)
+        XCTAssertEqual(
+            attachments.map(\.url.absoluteString),
+            [
+                "https://linux.do/uploads/default/original/1X/fire.png",
+                "https://cdn.example.com/second.jpg",
+            ]
+        )
+        XCTAssertEqual(attachments.first?.altText, "fire")
+        XCTAssertEqual(Double(attachments.first?.aspectRatio ?? 0), 1.5, accuracy: 0.001)
+    }
+
+    func testEnabledReactionOptionsReadsConfiguredReactionOrder() {
+        let options = FireTopicPresentation.enabledReactionOptions(
+            from: """
+            {
+              "siteSettings": {
+                "discourse_reactions_enabled_reactions": "heart|laughing|thumbsup"
+              }
+            }
+            """
+        )
+
+        XCTAssertEqual(options.map(\.id), ["heart", "laughing", "thumbsup"])
+        XCTAssertEqual(options[1].symbol, "😆")
+    }
+
+    func testMinimumReplyLengthReadsSiteSettings() {
+        XCTAssertEqual(
+            FireTopicPresentation.minimumReplyLength(
+                from: """
+                {
+                  "siteSettings": {
+                    "min_post_length": 15
+                  }
+                }
+                """
+            ),
+            15
+        )
+        XCTAssertEqual(FireTopicPresentation.minimumReplyLength(from: nil), 1)
+    }
+
+    func testImageAttachmentsExtractsNonEmojiImagesAndNormalizesRelativeURLs() {
+        let images = FireTopicPresentation.imageAttachments(
+            from: """
+            <p>Hello</p>
+            <img src="/uploads/default/original/1X/fire.png" alt="fire" width="1280" height="720">
+            <img src="https://cdn.example.com/remote.jpg" width="400" height="300">
+            <img src="/images/emoji/twitter/fire.png" class="emoji" alt=":fire:">
+            """,
+            baseURLString: "https://linux.do"
+        )
+
+        XCTAssertEqual(images.count, 2)
+        XCTAssertEqual(images.first?.url.absoluteString, "https://linux.do/uploads/default/original/1X/fire.png")
+        XCTAssertEqual(images.first?.altText, "fire")
+        XCTAssertEqual(images.first?.aspectRatio ?? 0, 1280.0 / 720.0, accuracy: 0.001)
+        XCTAssertEqual(images.last?.url.absoluteString, "https://cdn.example.com/remote.jpg")
+    }
+
+    func testEnabledReactionOptionsReadsBootstrapSettings() {
+        let reactions = FireTopicPresentation.enabledReactionOptions(
+            from: """
+            {
+              "siteSettings": {
+                "discourse_reactions_enabled_reactions": "heart|laughing|open_mouth"
+              }
+            }
+            """
+        )
+
+        XCTAssertEqual(reactions.map(\.id), ["heart", "laughing", "open_mouth"])
+        XCTAssertEqual(reactions[1].symbol, "😆")
+        XCTAssertEqual(reactions[2].label, "惊讶")
+    }
+
     func testBuildRowPresentationsPrecomputesListRenderingFields() throws {
         let topic = TopicSummaryState(
             id: 42,

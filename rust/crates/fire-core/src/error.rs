@@ -33,6 +33,8 @@ pub enum FireCoreError {
     MissingLoginSession,
     #[error("request requires a csrf token")]
     MissingCsrfToken,
+    #[error("post is pending review (pending_count={pending_count})")]
+    PostEnqueued { pending_count: u32 },
     #[error("fire workspace path is not configured")]
     MissingWorkspacePath,
     #[error("workspace relative path must stay under the configured root: {path}")]

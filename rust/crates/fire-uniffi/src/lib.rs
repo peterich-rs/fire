@@ -16,9 +16,10 @@ use fire_core::{
 };
 use fire_models::{
     BootstrapArtifacts, CookieSnapshot, LoginPhase, LoginSyncInput, PlatformCookie,
-    SessionReadiness, SessionSnapshot, TopicDetail, TopicDetailCreatedBy, TopicDetailMeta,
-    TopicDetailQuery, TopicListKind, TopicListQuery, TopicListResponse, TopicPost, TopicPostStream,
-    TopicPoster, TopicReaction, TopicSummary, TopicTag, TopicUser,
+    PostReactionUpdate, SessionReadiness, SessionSnapshot, TopicDetail, TopicDetailCreatedBy,
+    TopicDetailMeta, TopicDetailQuery, TopicListKind, TopicListQuery, TopicListResponse, TopicPost,
+    TopicPostStream, TopicPoster, TopicReaction, TopicReplyRequest, TopicSummary, TopicTag,
+    TopicUser,
 };
 use futures_util::FutureExt;
 use tokio::runtime::{Builder, Runtime};
@@ -565,6 +566,7 @@ pub struct TopicReactionState {
     pub id: String,
     pub kind: Option<String>,
     pub count: u32,
+    pub can_undo: Option<bool>,
 }
 
 impl From<TopicReaction> for TopicReactionState {
@@ -573,6 +575,39 @@ impl From<TopicReaction> for TopicReactionState {
             id: value.id,
             kind: value.kind,
             count: value.count,
+            can_undo: value.can_undo,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct TopicReplyRequestState {
+    pub topic_id: u64,
+    pub raw: String,
+    pub reply_to_post_number: Option<u32>,
+}
+
+impl From<TopicReplyRequestState> for TopicReplyRequest {
+    fn from(value: TopicReplyRequestState) -> Self {
+        Self {
+            topic_id: value.topic_id,
+            raw: value.raw,
+            reply_to_post_number: value.reply_to_post_number,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct PostReactionUpdateState {
+    pub reactions: Vec<TopicReactionState>,
+    pub current_user_reaction: Option<TopicReactionState>,
+}
+
+impl From<PostReactionUpdate> for PostReactionUpdateState {
+    fn from(value: PostReactionUpdate) -> Self {
+        Self {
+            reactions: value.reactions.into_iter().map(Into::into).collect(),
+            current_user_reaction: value.current_user_reaction.map(Into::into),
         }
     }
 }
@@ -969,6 +1004,9 @@ impl From<FireCoreError> for FireUniFfiError {
             FireCoreError::MissingCsrfToken => Self::Authentication {
                 details: "request requires a csrf token".to_string(),
             },
+            FireCoreError::PostEnqueued { pending_count } => Self::Validation {
+                details: format!("post is pending review (pending_count={pending_count})"),
+            },
             FireCoreError::MissingWorkspacePath => Self::Configuration {
                 details: "fire workspace path is not configured".to_string(),
             },
@@ -1166,6 +1204,53 @@ impl FireCoreHandle {
         let panic_state = Arc::clone(&self.panic_state);
         let response = run_on_ffi_runtime("fetch_topic_detail", panic_state, async move {
             inner.fetch_topic_detail(query.into()).await
+        })
+        .await?;
+        Ok(response.into())
+    }
+
+    pub async fn create_reply(
+        &self,
+        input: TopicReplyRequestState,
+    ) -> Result<TopicPostState, FireUniFfiError> {
+        let inner = Arc::clone(&self.inner);
+        let panic_state = Arc::clone(&self.panic_state);
+        let response = run_on_ffi_runtime("create_reply", panic_state, async move {
+            inner.create_reply(input.into()).await
+        })
+        .await?;
+        Ok(response.into())
+    }
+
+    pub async fn like_post(&self, post_id: u64) -> Result<(), FireUniFfiError> {
+        let inner = Arc::clone(&self.inner);
+        let panic_state = Arc::clone(&self.panic_state);
+        run_on_ffi_runtime("like_post", panic_state, async move {
+            inner.like_post(post_id).await
+        })
+        .await?;
+        Ok(())
+    }
+
+    pub async fn unlike_post(&self, post_id: u64) -> Result<(), FireUniFfiError> {
+        let inner = Arc::clone(&self.inner);
+        let panic_state = Arc::clone(&self.panic_state);
+        run_on_ffi_runtime("unlike_post", panic_state, async move {
+            inner.unlike_post(post_id).await
+        })
+        .await?;
+        Ok(())
+    }
+
+    pub async fn toggle_post_reaction(
+        &self,
+        post_id: u64,
+        reaction_id: String,
+    ) -> Result<PostReactionUpdateState, FireUniFfiError> {
+        let inner = Arc::clone(&self.inner);
+        let panic_state = Arc::clone(&self.panic_state);
+        let response = run_on_ffi_runtime("toggle_post_reaction", panic_state, async move {
+            inner.toggle_post_reaction(post_id, reaction_id).await
         })
         .await?;
         Ok(response.into())

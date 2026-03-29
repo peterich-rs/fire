@@ -607,6 +607,7 @@ struct FireAvatarView: View {
     let avatarTemplate: String?
     let username: String
     let size: CGFloat
+    var baseURLString: String = "https://linux.do"
 
     private var avatarURL: URL? {
         guard let avatarTemplate, !avatarTemplate.isEmpty else {
@@ -617,7 +618,11 @@ struct FireAvatarView: View {
         if path.hasPrefix("http") {
             return URL(string: path)
         }
-        return URL(string: "https://linux.do\(path)")
+        if path.hasPrefix("//") {
+            let scheme = URL(string: baseURLString)?.scheme ?? "https"
+            return URL(string: "\(scheme):\(path)")
+        }
+        return URL(string: path, relativeTo: URL(string: baseURLString))?.absoluteURL
     }
 
     private var monogram: String {

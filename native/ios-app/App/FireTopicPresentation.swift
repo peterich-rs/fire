@@ -51,6 +51,28 @@ struct FireTopicThreadPresentation: Sendable {
     let replySections: [FireTopicReplySectionPresentation]
 }
 
+struct FireCookedImage: Identifiable, Hashable, Sendable {
+    let url: URL
+    let altText: String?
+    let width: CGFloat?
+    let height: CGFloat?
+
+    var id: String { url.absoluteString }
+
+    var aspectRatio: CGFloat? {
+        guard let width, let height, width > 0, height > 0 else {
+            return nil
+        }
+        return width / height
+    }
+}
+
+struct FireReactionOption: Identifiable, Hashable, Sendable {
+    let id: String
+    let symbol: String
+    let label: String
+}
+
 enum FireTopicPresentation {
     static func parseCategories(from preloadedJSON: String?) -> [UInt64: FireTopicCategoryPresentation] {
         guard
@@ -174,6 +196,7 @@ enum FireTopicPresentation {
         }
 
         let normalized = html
+            .replacingOccurrences(of: "<img\\b[^>]*>", with: "", options: .regularExpression)
             .replacingOccurrences(of: "<br\\s*/?>", with: "<br />", options: .regularExpression)
 
         guard let data = normalized.data(using: .utf8),
@@ -190,6 +213,118 @@ enum FireTopicPresentation {
         }
 
         return AttributedString(attributed)
+    }
+
+    static func imageAttachments(from html: String, baseURLString: String) -> [FireCookedImage] {
+        guard !html.isEmpty else {
+            return []
+        }
+
+        let nsRange = NSRange(html.startIndex..., in: html)
+        let tags = imageTagRegex.matches(in: html, range: nsRange)
+        var images: [FireCookedImage] = []
+        var seenURLs: Set<String> = []
+
+        for match in tags {
+            guard let range = Range(match.range, in: html) else {
+                continue
+            }
+
+            let tag = String(html[range])
+            let classes = attributeValue(named: "class", in: tag)?
+                .split(separator: " ")
+                .map(String.init) ?? []
+            if classes.contains(where: { $0.caseInsensitiveCompare("emoji") == .orderedSame }) {
+                continue
+            }
+
+            guard
+                let rawSource = attributeValue(named: "src", in: tag),
+                let sourceURL = resolvedAssetURL(from: rawSource, baseURLString: baseURLString)
+            else {
+                continue
+            }
+
+            let absoluteURL = sourceURL.absoluteString
+            if absoluteURL.contains("/images/emoji/") || seenURLs.contains(absoluteURL) {
+                continue
+            }
+
+            seenURLs.insert(absoluteURL)
+            images.append(
+                FireCookedImage(
+                    url: sourceURL,
+                    altText: attributeValue(named: "alt", in: tag),
+                    width: attributeValue(named: "width", in: tag).flatMap(Double.init).map { CGFloat($0) },
+                    height: attributeValue(named: "height", in: tag).flatMap(Double.init).map { CGFloat($0) }
+                )
+            )
+        }
+
+        return images
+    }
+
+    static func minimumReplyLength(from preloadedJSON: String?) -> Int {
+        guard
+            let preloadedJSON,
+            let data = preloadedJSON.data(using: .utf8),
+            let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else {
+            return 1
+        }
+
+        let rawValue = (root["siteSettings"] as? [String: Any])?["min_post_length"]
+        switch rawValue {
+        case let value as Int:
+            return max(1, value)
+        case let value as NSNumber:
+            return max(1, value.intValue)
+        case let value as String:
+            return max(1, Int(value) ?? 1)
+        default:
+            return 1
+        }
+    }
+
+    static func enabledReactionOptions(from preloadedJSON: String?) -> [FireReactionOption] {
+        guard
+            let preloadedJSON,
+            let data = preloadedJSON.data(using: .utf8),
+            let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else {
+            return [reactionOption(for: "heart")]
+        }
+
+        let reactionString = (root["siteSettings"] as? [String: Any])?["discourse_reactions_enabled_reactions"] as? String
+        let ids = reactionString?
+            .split(separator: "|")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty } ?? ["heart"]
+
+        return ids.reduce(into: [FireReactionOption]()) { result, reactionID in
+            guard !result.contains(where: { $0.id == reactionID }) else {
+                return
+            }
+            result.append(reactionOption(for: reactionID))
+        }
+    }
+
+    static func reactionOption(for reactionID: String) -> FireReactionOption {
+        let normalized = reactionID.lowercased()
+        let mapping: [String: (String, String)] = [
+            "heart": ("❤️", "点赞"),
+            "thumbsup": ("👍", "赞同"),
+            "laughing": ("😆", "笑哭"),
+            "open_mouth": ("😮", "惊讶"),
+            "cry": ("😢", "难过"),
+            "angry": ("😡", "生气"),
+            "confused": ("😕", "困惑"),
+            "clap": ("👏", "鼓掌"),
+            "tada": ("🎉", "庆祝"),
+        ]
+        let fallbackLabel = normalized.replacingOccurrences(of: "_", with: " ")
+        let (symbol, label) = mapping[normalized] ?? ("🙂", fallbackLabel)
+        return FireReactionOption(id: reactionID, symbol: symbol, label: label)
     }
 
     static func buildRowPresentations(from topics: [TopicSummaryState]) -> [FireTopicRowPresentation] {
@@ -408,6 +543,11 @@ enum FireTopicPresentation {
         return formatter
     }()
 
+    private static let imageTagRegex = try! NSRegularExpression(
+        pattern: #"<img\b[^>]*>"#,
+        options: [.caseInsensitive]
+    )
+
     private static func normalizedReplyTarget(for post: TopicPostState) -> UInt32? {
         guard let replyToPostNumber = post.replyToPostNumber, replyToPostNumber > 0 else {
             return nil
@@ -512,6 +652,49 @@ enum FireTopicPresentation {
         }
 
         return decoded
+    }
+
+    private static func attributeValue(named name: String, in tag: String) -> String? {
+        let escapedName = NSRegularExpression.escapedPattern(for: name)
+        let pattern = #"(?i)\b\#(escapedName)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else {
+            return nil
+        }
+
+        let range = NSRange(tag.startIndex..., in: tag)
+        guard let match = regex.firstMatch(in: tag, range: range) else {
+            return nil
+        }
+
+        for index in 1...3 {
+            let capture = match.range(at: index)
+            guard
+                capture.location != NSNotFound,
+                let captureRange = Range(capture, in: tag)
+            else {
+                continue
+            }
+            return decodeCommonEntities(in: String(tag[captureRange]))
+        }
+
+        return nil
+    }
+
+    private static func resolvedAssetURL(from rawValue: String, baseURLString: String) -> URL? {
+        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return nil
+        }
+
+        if trimmed.hasPrefix("//") {
+            return URL(string: "https:\(trimmed)")
+        }
+
+        if let absoluteURL = URL(string: trimmed), absoluteURL.scheme != nil {
+            return absoluteURL
+        }
+
+        return URL(string: trimmed, relativeTo: URL(string: baseURLString))?.absoluteURL
     }
 }
 

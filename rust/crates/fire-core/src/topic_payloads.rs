@@ -1,6 +1,6 @@
 use fire_models::{
-    TopicDetail, TopicDetailCreatedBy, TopicDetailMeta, TopicListResponse, TopicPost,
-    TopicPostStream, TopicPoster, TopicReaction, TopicSummary, TopicTag, TopicUser,
+    PostReactionUpdate, TopicDetail, TopicDetailCreatedBy, TopicDetailMeta, TopicListResponse,
+    TopicPost, TopicPostStream, TopicPoster, TopicReaction, TopicSummary, TopicTag, TopicUser,
 };
 use serde::{
     de::{DeserializeOwned, Error as DeError},
@@ -177,6 +177,8 @@ struct RawTopicReaction {
     kind: Option<String>,
     #[serde(default, deserialize_with = "deserialize_default_u32")]
     count: u32,
+    #[serde(default, deserialize_with = "deserialize_optional_bool")]
+    can_undo: Option<bool>,
 }
 
 impl From<RawTopicReaction> for TopicReaction {
@@ -185,6 +187,23 @@ impl From<RawTopicReaction> for TopicReaction {
             id: value.id,
             kind: value.kind,
             count: value.count,
+            can_undo: value.can_undo,
+        }
+    }
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct RawPostReactionUpdate {
+    #[serde(default, deserialize_with = "deserialize_default_sequence")]
+    reactions: Vec<RawTopicReaction>,
+    current_user_reaction: Option<RawTopicReaction>,
+}
+
+impl From<RawPostReactionUpdate> for PostReactionUpdate {
+    fn from(value: RawPostReactionUpdate) -> Self {
+        Self {
+            reactions: value.reactions.into_iter().map(Into::into).collect(),
+            current_user_reaction: value.current_user_reaction.map(Into::into),
         }
     }
 }
@@ -263,6 +282,16 @@ impl From<RawTopicPost> for TopicPost {
             hidden: value.hidden,
         }
     }
+}
+
+pub(crate) fn parse_topic_post_value(value: Value) -> Result<TopicPost, serde_json::Error> {
+    RawTopicPost::deserialize(value).map(Into::into)
+}
+
+pub(crate) fn parse_post_reaction_update_value(
+    value: Value,
+) -> Result<PostReactionUpdate, serde_json::Error> {
+    RawPostReactionUpdate::deserialize(value).map(Into::into)
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -549,6 +578,20 @@ where
         Some(Value::Number(value)) => value.as_i64().is_some_and(|value| value != 0),
         Some(Value::String(value)) => matches!(value.as_str(), "true" | "1"),
         Some(Value::Array(_)) | Some(Value::Object(_)) => false,
+    })
+}
+
+fn deserialize_optional_bool<'de, D>(deserializer: D) -> Result<Option<bool>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = Option::<Value>::deserialize(deserializer)?;
+    Ok(match value {
+        None | Some(Value::Null) => None,
+        Some(Value::Bool(value)) => Some(value),
+        Some(Value::Number(value)) => value.as_i64().map(|value| value != 0),
+        Some(Value::String(value)) => Some(matches!(value.as_str(), "true" | "1")),
+        Some(Value::Array(_)) | Some(Value::Object(_)) => None,
     })
 }
 

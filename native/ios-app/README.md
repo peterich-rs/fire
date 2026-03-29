@@ -44,6 +44,8 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
   - restores the persisted session snapshot, repairs incomplete authenticated session identity on cold start, and keeps the topic browser in sync with login state
   - now builds `FireSessionStore` lazily on a detached task so Rust/logging initialization does not block the first SwiftUI render on the main actor
   - tracks paginated topic feed state, derives category metadata from bootstrap `preloadedJson`, and precomputes list-row presentation models before publishing them back to SwiftUI
+  - mirrors authenticated LinuxDo cookies into native `HTTPCookieStorage` so inline media/image requests can reuse the restored session
+  - coordinates native reply, like, and custom reaction mutations on top of the shared Rust interaction APIs
 - `App/FireDiagnosticsView.swift`
   - renders a native diagnostics screen on top of the shared Rust diagnostics APIs
   - lists workspace log files plus reverse-chronological network request traces
@@ -53,9 +55,10 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
   - parses `more_topics_url` into the next feed page
   - normalizes topic/post timestamps, HTML excerpts, and cooked post bodies for native presentation
   - rebuilds topic replies into a floor-oriented thread presentation from `reply_to_post_number` so nested replies stay grouped under their top-level floor
+  - extracts inline cooked-image attachments plus enabled reaction options from bootstrap/topic HTML so the native detail view can render media and interaction affordances without a WebView
   - now builds lightweight topic row view data off the main actor so the root feed does not parse HTML during every SwiftUI body evaluation
 - `Tests/Unit/FireTopicPresentationTests.swift`
-  - covers category extraction, pagination cursor parsing, and HTML-to-plain-text normalization in the pure Swift presentation helpers
+  - covers category extraction, pagination cursor parsing, image extraction, reaction config parsing, and HTML-to-plain-text normalization in the pure Swift presentation helpers
 - `App/FireRootView.swift`
   - now replaces the earlier stacked-card list shell with a structured SwiftUI reading workspace that separates session gate, feed console, spotlight topics, and dense thread scanning
   - renders the first topic read path with featured-topic paging, feed filters, category-aware list rows, feed pagination, and dedicated topic detail navigation
@@ -92,8 +95,9 @@ Current UX note:
 - The UniFFI boundary now returns exported host interactions as Swift `throws`; if Rust panics, the boundary logs the panic, throws an `Internal` UniFFI error instead of tripping generated `try!` call sites, and poisons the current `FireCoreHandle` so the host can recreate it.
 - The app now enters through a branded session gate when authenticated topic reads are not ready, instead of exposing raw readiness/debug state as the primary UI.
 - The current topic browser now supports spotlight topic paging, `Load More` pagination, category-aware topic rows, richer topic/detail metadata sourced from the shared Rust session snapshot, and a more formal native reading surface instead of the earlier developer-facing list presentation.
-- Topic detail now groups replies into floor cards with nested follow-up replies under each top-level floor, instead of rendering the entire post stream as a flat time-ordered list.
-- Topic posts still render their cooked HTML as normalized plain text in the detail screen until a safer structured HTML/module renderer lands.
+- Topic detail now hides the tab bar as a dedicated reading page, promotes the original post into the topic header as the main body, keeps replies grouped into floor cards with nested follow-up replies under each top-level floor, and exposes a persistent quick-reply bar at the bottom instead of a modal composer sheet.
+- Topic detail now supports per-post reply targeting, post likes, and custom emoji reactions through the shared Rust write APIs.
+- Topic posts now render normalized native text plus inline image attachments in the detail screen, while more complex cooked modules still fall back to the lightweight native presentation instead of a full HTML/WebView renderer.
 - The app now exposes a diagnostics screen for readable logs and Rust-owned request trace inspection.
 - The profile screen now treats an authenticated-but-not-yet-identified session as a recovery state instead of rendering it as "未登录", and logout now shows progress plus surfaces failures inline.
 

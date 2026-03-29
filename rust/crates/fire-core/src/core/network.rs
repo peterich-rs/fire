@@ -1,4 +1,4 @@
-use http::{header::HeaderMap, Method, Request, Response};
+use http::{header::HeaderMap, Method, Request, Response, StatusCode};
 use openwire::{RequestBody, ResponseBody};
 use serde::de::DeserializeOwned;
 use url::Url;
@@ -88,6 +88,46 @@ impl FireCore {
         path: &str,
         requires_csrf: bool,
     ) -> Result<TracedRequest, FireCoreError> {
+        let body = if matches!(method, Method::GET | Method::HEAD) {
+            RequestBody::empty()
+        } else {
+            RequestBody::explicit_empty()
+        };
+        self.build_api_request_with_body(operation, method, path, None, body, requires_csrf)
+    }
+
+    pub(crate) fn build_form_request(
+        &self,
+        operation: &'static str,
+        method: Method,
+        path: &str,
+        fields: Vec<(&str, String)>,
+        requires_csrf: bool,
+    ) -> Result<TracedRequest, FireCoreError> {
+        let mut serializer = url::form_urlencoded::Serializer::new(String::new());
+        for (key, value) in fields {
+            serializer.append_pair(key, &value);
+        }
+
+        self.build_api_request_with_body(
+            operation,
+            method,
+            path,
+            Some("application/x-www-form-urlencoded; charset=utf-8"),
+            RequestBody::from(serializer.finish()),
+            requires_csrf,
+        )
+    }
+
+    pub(crate) fn build_api_request_with_body(
+        &self,
+        operation: &'static str,
+        method: Method,
+        path: &str,
+        content_type: Option<&str>,
+        body: RequestBody,
+        requires_csrf: bool,
+    ) -> Result<TracedRequest, FireCoreError> {
         let uri = self.base_url.join(path)?;
         let origin = request_origin(&self.base_url);
         let referer = request_referer(&self.base_url);
@@ -120,9 +160,11 @@ impl FireCore {
             builder = builder.header("X-CSRF-Token", csrf_token);
         }
 
-        let mut request = builder
-            .body(RequestBody::empty())
-            .map_err(FireCoreError::RequestBuild)?;
+        if let Some(content_type) = content_type {
+            builder = builder.header("Content-Type", content_type);
+        }
+
+        let mut request = builder.body(body).map_err(FireCoreError::RequestBuild)?;
         let trace_id = self
             .diagnostics
             .prepare_request_trace(operation, &mut request);
@@ -154,6 +196,44 @@ impl FireCore {
         self.diagnostics
             .record_response_body_text(trace_id, &text, content_type.as_deref());
         Ok(text)
+    }
+
+    pub(crate) async fn execute_api_request_with_csrf_retry<F>(
+        &self,
+        operation: &'static str,
+        mut make_request: F,
+    ) -> Result<(u64, Response<ResponseBody>), FireCoreError>
+    where
+        F: FnMut() -> Result<TracedRequest, FireCoreError>,
+    {
+        if !self.snapshot().cookies.has_csrf_token() {
+            let _ = self.refresh_csrf_token().await?;
+        }
+
+        let traced = make_request()?;
+        let (trace_id, response) = self.execute_request(traced).await?;
+
+        if response.status() != StatusCode::FORBIDDEN {
+            return Ok((trace_id, response));
+        }
+
+        let body = self.read_response_text(trace_id, response).await?;
+        self.diagnostics
+            .record_http_status_error(trace_id, StatusCode::FORBIDDEN.as_u16(), &body);
+
+        if !is_bad_csrf_body(&body) {
+            return Err(FireCoreError::HttpStatus {
+                operation,
+                status: StatusCode::FORBIDDEN.as_u16(),
+                body,
+            });
+        }
+
+        let _ = self.clear_csrf_token();
+        let _ = self.refresh_csrf_token().await?;
+
+        let retry = make_request()?;
+        self.execute_request(retry).await
     }
 
     pub(crate) async fn read_response_json<T>(

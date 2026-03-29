@@ -1,4 +1,5 @@
 mod auth;
+mod interactions;
 mod network;
 mod persistence;
 mod session;

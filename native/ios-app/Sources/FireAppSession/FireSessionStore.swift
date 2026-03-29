@@ -171,6 +171,35 @@ public actor FireSessionStore {
         )
     }
 
+    public func createReply(
+        topicID: UInt64,
+        raw: String,
+        replyToPostNumber: UInt32?
+    ) async throws -> TopicPostState {
+        try await core.createReply(
+            input: TopicReplyRequestState(
+                topicId: topicID,
+                raw: raw,
+                replyToPostNumber: replyToPostNumber
+            )
+        )
+    }
+
+    public func likePost(postID: UInt64) async throws {
+        try await core.likePost(postId: postID)
+    }
+
+    public func unlikePost(postID: UInt64) async throws {
+        try await core.unlikePost(postId: postID)
+    }
+
+    public func togglePostReaction(
+        postID: UInt64,
+        reactionID: String
+    ) async throws -> PostReactionUpdateState {
+        try await core.togglePostReaction(postId: postID, reactionId: reactionID)
+    }
+
     @discardableResult
     public func restoreSessionJSON(_ json: String) throws -> SessionState {
         let state = try core.restoreSessionJson(json: json)

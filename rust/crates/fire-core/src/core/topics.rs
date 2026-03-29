@@ -1,6 +1,7 @@
 use fire_models::{
     TopicDetail, TopicDetailQuery, TopicListKind, TopicListQuery, TopicListResponse,
 };
+use tracing::{info, warn};
 
 use super::{network::expect_success, FireCore};
 use crate::{
@@ -13,9 +14,17 @@ impl FireCore {
         &self,
         query: TopicListQuery,
     ) -> Result<TopicListResponse, FireCoreError> {
+        info!(
+            kind = ?query.kind,
+            page = ?query.page,
+            topic_ids_count = query.topic_ids.len(),
+            "fetching topic list"
+        );
+
         if matches!(query.kind, TopicListKind::Unread | TopicListKind::Unseen)
             && !self.snapshot().cookies.can_authenticate_requests()
         {
+            warn!(kind = ?query.kind, "topic list fetch rejected: missing login session");
             return Err(FireCoreError::MissingLoginSession);
         }
 
@@ -55,13 +64,28 @@ impl FireCore {
         let raw: RawTopicListResponse = self
             .read_response_json("fetch topic list", trace_id, response)
             .await?;
-        Ok(raw.into())
+        let result: TopicListResponse = raw.into();
+        info!(
+            kind = ?query.kind,
+            topic_count = result.topics.len(),
+            user_count = result.users.len(),
+            has_more = result.more_topics_url.is_some(),
+            "topic list fetched successfully"
+        );
+        Ok(result)
     }
 
     pub async fn fetch_topic_detail(
         &self,
         query: TopicDetailQuery,
     ) -> Result<TopicDetail, FireCoreError> {
+        info!(
+            topic_id = query.topic_id,
+            post_number = ?query.post_number,
+            track_visit = query.track_visit,
+            "fetching topic detail"
+        );
+
         let path = if let Some(post_number) = query.post_number {
             format!("/t/{}/{}.json", query.topic_id, post_number)
         } else {
@@ -95,6 +119,13 @@ impl FireCore {
         let raw: RawTopicDetail = self
             .read_response_json("fetch topic detail", trace_id, response)
             .await?;
-        Ok(raw.into())
+        let result: TopicDetail = raw.into();
+        info!(
+            topic_id = result.id,
+            posts_count = result.posts_count,
+            post_stream_len = result.post_stream.posts.len(),
+            "topic detail fetched successfully"
+        );
+        Ok(result)
     }
 }

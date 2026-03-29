@@ -17,6 +17,10 @@ struct FireTopicCategoryPresentation: Equatable, Sendable {
 struct FireTopicRowPresentation: Identifiable, Sendable {
     let topic: TopicSummaryState
     let excerptText: String?
+    let originalPosterUsername: String?
+    let originalPosterAvatarTemplate: String?
+    let tagNames: [String]
+    let createdTimestampText: String?
     let lastPosterUsername: String?
     let activityTimestampText: String?
     let statusLabels: [String]
@@ -165,6 +169,10 @@ enum FireTopicPresentation {
 
     static func compactTimestamp(_ rawValue: String?) -> String? {
         TimestampFormatter(style: .compact).format(rawValue)
+    }
+
+    static func compactCount(_ value: UInt32) -> String {
+        compactCount(UInt64(value))
     }
 
     static func plainText(from html: String) -> String {
@@ -329,15 +337,24 @@ enum FireTopicPresentation {
         return FireReactionOption(id: reactionID, symbol: symbol, label: label)
     }
 
-    static func buildRowPresentations(from topics: [TopicSummaryState]) -> [FireTopicRowPresentation] {
-        let timestampFormatter = TimestampFormatter()
+    static func buildRowPresentations(
+        from topics: [TopicSummaryState],
+        users: [TopicUserState]
+    ) -> [FireTopicRowPresentation] {
+        let timestampFormatter = TimestampFormatter(style: .compact)
+        let usersByID = Dictionary(uniqueKeysWithValues: users.map { ($0.id, $0) })
 
         return topics.map { topic in
             let tagNames = tagNames(from: topic.tags)
+            let originalPoster = originalPosterUser(for: topic, usersByID: usersByID)
 
             return FireTopicRowPresentation(
                 topic: topic,
                 excerptText: previewText(from: topic.excerpt),
+                originalPosterUsername: normalizedUsername(originalPoster?.username),
+                originalPosterAvatarTemplate: normalizedAvatarTemplate(originalPoster?.avatarTemplate),
+                tagNames: Array(tagNames.prefix(2)),
+                createdTimestampText: timestampFormatter.format(topic.createdAt),
                 lastPosterUsername: topic.lastPosterUsername
                     ?? topic.posters.first?.description
                     ?? topic.posters.first.map { "User \($0.userId)" },
@@ -524,6 +541,65 @@ enum FireTopicPresentation {
         }
 
         return String(username.prefix(1)).uppercased()
+    }
+
+    private static func compactCount(_ value: UInt64) -> String {
+        switch value {
+        case 0..<1_000:
+            return "\(value)"
+        case 1_000..<10_000:
+            return compactCountSegment(Double(value), divisor: 1_000, suffix: "k")
+        case 10_000..<100_000_000:
+            return compactCountSegment(Double(value), divisor: 10_000, suffix: "万")
+        default:
+            return compactCountSegment(Double(value), divisor: 100_000_000, suffix: "亿")
+        }
+    }
+
+    private static func compactCountSegment(_ value: Double, divisor: Double, suffix: String) -> String {
+        let compact = value / divisor
+        let formatted: String
+
+        if compact >= 10 {
+            formatted = String(format: "%.0f", compact.rounded())
+        } else {
+            formatted = String(format: "%.1f", compact)
+        }
+
+        return formatted.replacingOccurrences(of: ".0", with: "") + suffix
+    }
+
+    private static func originalPosterUser(
+        for topic: TopicSummaryState,
+        usersByID: [UInt64: TopicUserState]
+    ) -> TopicUserState? {
+        let originalPoster = topic.posters.first(where: {
+            $0.description?.localizedCaseInsensitiveContains("original poster") == true
+        }) ?? topic.posters.first
+
+        guard let userID = originalPoster?.userId else {
+            return nil
+        }
+
+        return usersByID[userID]
+    }
+
+    private static func normalizedUsername(_ username: String?) -> String? {
+        guard let username else {
+            return nil
+        }
+
+        let trimmed = username.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private static func normalizedAvatarTemplate(_ avatarTemplate: String?) -> String? {
+        guard let avatarTemplate else {
+            return nil
+        }
+
+        let trimmed = avatarTemplate.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     private static let fractionalISO8601: ISO8601DateFormatter = {

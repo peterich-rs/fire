@@ -69,6 +69,7 @@ final class FireAppViewModel: ObservableObject {
     private var sessionStore: FireSessionStore?
     private var loginCoordinator: FireWebViewLoginCoordinator?
     private var sessionStoreInitializationTask: Task<FireSessionStore, Error>?
+    private var topicUsers: [TopicUserState] = []
     private let loginURL = URL(string: "https://linux.do")!
 
     init() {}
@@ -459,14 +460,18 @@ final class FireAppViewModel: ObservableObject {
                 )
             )
             let mergedTopics = reset ? response.topics : mergeTopics(existing: topics, incoming: response.topics)
+            let mergedTopicUsers = reset
+                ? response.users
+                : mergeTopicUsers(existing: topicUsers, incoming: response.users)
             let visibleTopicIDs = Set(mergedTopics.map(\.id))
             let topicRows = await Task.detached(priority: .userInitiated) {
-                FireTopicPresentation.buildRowPresentations(from: mergedTopics)
+                FireTopicPresentation.buildRowPresentations(from: mergedTopics, users: mergedTopicUsers)
             }.value
             guard requestedKind == selectedTopicKind else {
                 return
             }
             topics = mergedTopics
+            topicUsers = mergedTopicUsers
             self.topicRows = topicRows
             moreTopicsUrl = response.moreTopicsUrl
             nextTopicsPage = FireTopicPresentation.nextPage(from: response.moreTopicsUrl)
@@ -475,6 +480,7 @@ final class FireAppViewModel: ObservableObject {
         } catch {
             if reset {
                 topics = []
+                topicUsers = []
                 topicRows = []
                 moreTopicsUrl = nil
                 nextTopicsPage = nil
@@ -485,6 +491,7 @@ final class FireAppViewModel: ObservableObject {
 
     private func clearTopicState() {
         topics = []
+        topicUsers = []
         topicRows = []
         moreTopicsUrl = nil
         nextTopicsPage = nil
@@ -611,6 +618,23 @@ final class FireAppViewModel: ObservableObject {
                 orderedIDs.append(topic.id)
             }
             merged[topic.id] = topic
+        }
+
+        return orderedIDs.compactMap { merged[$0] }
+    }
+
+    private func mergeTopicUsers(
+        existing: [TopicUserState],
+        incoming: [TopicUserState]
+    ) -> [TopicUserState] {
+        var merged = Dictionary(uniqueKeysWithValues: existing.map { ($0.id, $0) })
+        var orderedIDs = existing.map(\.id)
+
+        for user in incoming {
+            if merged[user.id] == nil {
+                orderedIDs.append(user.id)
+            }
+            merged[user.id] = user
         }
 
         return orderedIDs.compactMap { merged[$0] }

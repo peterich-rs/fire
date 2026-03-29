@@ -161,13 +161,73 @@ final class FireTopicPresentationTests: XCTestCase {
             canHaveAnswer: true
         )
 
-        let row = try XCTUnwrap(FireTopicPresentation.buildRowPresentations(from: [topic]).first)
+        let row = try XCTUnwrap(
+            FireTopicPresentation.buildRowPresentations(from: [topic], users: []).first
+        )
 
         XCTAssertEqual(row.excerptText, "Hello Fire")
         XCTAssertEqual(row.lastPosterUsername, "User 9")
+        XCTAssertEqual(row.tagNames, ["rust"])
         XCTAssertEqual(row.statusLabels, ["Pinned", "Unread 3", "New 1"])
         XCTAssertEqual(row.tagSummaryText, "#rust")
+        XCTAssertNotNil(row.createdTimestampText)
         XCTAssertNotNil(row.activityTimestampText)
+    }
+
+    func testBuildRowPresentationsMapsOriginalPosterProfileFromTopicUsers() throws {
+        let topic = TopicSummaryState(
+            id: 7,
+            title: "Avatar Mapping",
+            slug: "avatar-mapping",
+            postsCount: 2400,
+            replyCount: 2399,
+            views: 92000,
+            likeCount: 18,
+            excerpt: nil,
+            createdAt: "2026-03-28T10:00:00Z",
+            lastPostedAt: "2026-03-28T11:30:00Z",
+            lastPosterUsername: "bob",
+            categoryId: 9,
+            pinned: false,
+            visible: true,
+            closed: false,
+            archived: false,
+            tags: [],
+            posters: [
+                TopicPosterState(userId: 11, description: "Most Recent Poster", extras: nil),
+                TopicPosterState(userId: 9, description: "Original Poster", extras: nil),
+            ],
+            unseen: false,
+            unreadPosts: 0,
+            newPosts: 0,
+            lastReadPostNumber: nil,
+            highestPostNumber: 2400,
+            hasAcceptedAnswer: false,
+            canHaveAnswer: true
+        )
+        let users = [
+            TopicUserState(
+                id: 9,
+                username: "alice",
+                avatarTemplate: "/user_avatar/linux.do/alice/{size}/1.png"
+            ),
+            TopicUserState(
+                id: 11,
+                username: "bob",
+                avatarTemplate: "/user_avatar/linux.do/bob/{size}/2.png"
+            ),
+        ]
+
+        let row = try XCTUnwrap(
+            FireTopicPresentation.buildRowPresentations(from: [topic], users: users).first
+        )
+
+        XCTAssertEqual(row.originalPosterUsername, "alice")
+        XCTAssertEqual(
+            row.originalPosterAvatarTemplate,
+            "/user_avatar/linux.do/alice/{size}/1.png"
+        )
+        XCTAssertEqual(row.lastPosterUsername, "bob")
     }
 
     func testBuildThreadPresentationGroupsNestedRepliesUnderTopLevelFloors() {

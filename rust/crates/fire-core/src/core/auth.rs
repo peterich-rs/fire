@@ -1,7 +1,7 @@
 use fire_models::{BootstrapArtifacts, CookieSnapshot, SessionSnapshot};
 use http::{Method, StatusCode};
 use serde::Deserialize;
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 
 use super::{
     network::{expect_success, header_value, is_bad_csrf_body},
@@ -17,6 +17,7 @@ struct CsrfResponse {
 
 impl FireCore {
     pub async fn refresh_bootstrap(&self) -> Result<SessionSnapshot, FireCoreError> {
+        info!("refreshing bootstrap via home page request");
         let traced = self.build_home_request("refresh bootstrap")?;
         let (trace_id, response) = self.execute_request(traced).await?;
         let response = expect_success(self, "refresh bootstrap", trace_id, response).await?;
@@ -24,7 +25,7 @@ impl FireCore {
         let html = self.read_response_text(trace_id, response).await?;
         let parsed = parse_home_state(self.base_url(), &html);
 
-        Ok(self.update_session(|session| {
+        let result = self.update_session(|session| {
             session.cookies.merge_patch(&parsed.cookies_patch);
             session.bootstrap.merge_patch(&parsed.bootstrap_patch);
             if let Some(response_username) = response_username.clone() {
@@ -38,10 +39,17 @@ impl FireCore {
                 readiness = ?session.readiness(),
                 "refreshed bootstrap over network"
             );
-        }))
+        });
+        info!(
+            username = ?result.bootstrap.current_username,
+            has_preloaded = result.bootstrap.has_preloaded_data,
+            "bootstrap refresh complete"
+        );
+        Ok(result)
     }
 
     pub async fn refresh_csrf_token(&self) -> Result<SessionSnapshot, FireCoreError> {
+        info!("refreshing CSRF token");
         let traced =
             self.build_api_request("refresh csrf token", Method::GET, "/session/csrf", false)?;
         let (trace_id, response) = self.execute_request(traced).await?;
@@ -58,7 +66,7 @@ impl FireCore {
             return Err(FireCoreError::InvalidCsrfResponse);
         }
 
-        Ok(self.update_session(|session| {
+        let result = self.update_session(|session| {
             session.cookies.merge_patch(&CookieSnapshot {
                 csrf_token: Some(payload.csrf.clone()),
                 ..CookieSnapshot::default()
@@ -68,7 +76,9 @@ impl FireCore {
                 readiness = ?session.readiness(),
                 "refreshed csrf token over network"
             );
-        }))
+        });
+        info!("CSRF token refreshed successfully");
+        Ok(result)
     }
 
     pub async fn logout_remote(
@@ -80,6 +90,7 @@ impl FireCore {
             .bootstrap
             .current_username
             .ok_or(FireCoreError::MissingCurrentUsername)?;
+        info!(username = %username, preserve_cf_clearance, "initiating remote logout");
 
         if !self.snapshot().cookies.has_csrf_token() {
             let _ = self.refresh_csrf_token().await?;

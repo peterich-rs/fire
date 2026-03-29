@@ -13,89 +13,157 @@ struct FireTopicRow: View {
             FireAvatarView(
                 avatarTemplate: avatarTemplate,
                 username: displayUsername,
-                size: 36
+                size: 34
             )
-            .padding(.top, 2)
+            .padding(.top, 1)
 
-            VStack(alignment: .leading, spacing: 5) {
+            VStack(alignment: .leading, spacing: 6) {
                 Text(row.topic.title)
                     .font(.subheadline.weight(.medium))
                     .foregroundStyle(.primary)
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
 
-                HStack(spacing: 6) {
+                FlowLayout(spacing: 6, fallbackWidth: tagFlowFallbackWidth) {
                     if let category {
-                        Text(category.displayName)
-                            .font(.caption2.weight(.medium))
-                            .foregroundStyle(Color(fireHex: category.textColorHex) ?? accentColor)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(accentColor.opacity(0.12))
-                            .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                        categoryChip(category)
+                    }
+
+                    ForEach(row.tagNames, id: \.self) { tagName in
+                        tagChip(tagName)
                     }
 
                     if row.topic.pinned {
-                        Image(systemName: "pin.fill")
-                            .font(.caption2)
-                            .foregroundStyle(.orange)
+                        statusIcon("pin.fill", color: .orange)
                     }
 
                     if row.topic.hasAcceptedAnswer {
-                        Image(systemName: "checkmark.circle.fill")
-                            .font(.caption2)
-                            .foregroundStyle(.green)
+                        statusIcon("checkmark.circle.fill", color: .green)
                     }
 
                     if row.topic.unreadPosts > 0 {
-                        Circle()
-                            .fill(FireTheme.accent)
-                            .frame(width: 7, height: 7)
+                        unreadDot
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .fixedSize(horizontal: false, vertical: true)
+
+                HStack(alignment: .center, spacing: 6) {
+                    Text(displayUsername)
+                        .font(.caption2.weight(.medium))
+                        .foregroundStyle(FireTheme.subtleInk)
+                        .lineLimit(1)
+
+                    if let createdTimestampText = row.createdTimestampText {
+                        Text(createdTimestampText)
+                            .font(.caption2)
+                            .foregroundStyle(FireTheme.tertiaryInk)
+                            .lineLimit(1)
                     }
 
                     Spacer(minLength: 0)
-
-                    if let activityTimestampText = row.activityTimestampText {
-                        Text(activityTimestampText)
-                            .font(.caption2)
-                            .foregroundStyle(.tertiary)
-                    }
                 }
 
-                HStack(spacing: 10) {
-                    if let lastPosterUsername = row.lastPosterUsername {
-                        Text(lastPosterUsername)
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
-
-                    Label("\(row.topic.postsCount)", systemImage: "text.bubble")
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-
-                    Label("\(row.topic.views)", systemImage: "eye")
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-
-                    if row.topic.likeCount > 0 {
-                        Label("\(row.topic.likeCount)", systemImage: "heart")
-                            .font(.caption2)
-                            .foregroundStyle(.tertiary)
-                    }
+                HStack(spacing: 0) {
+                    topicStat(
+                        value: row.topic.replyCount,
+                        systemImage: "arrowshape.turn.up.left",
+                        alignment: .leading
+                    )
+                    topicStat(
+                        value: row.topic.views,
+                        systemImage: "eye",
+                        alignment: .center
+                    )
+                    topicStat(
+                        value: row.topic.likeCount,
+                        systemImage: "heart",
+                        alignment: .trailing
+                    )
                 }
             }
         }
-        .padding(.vertical, 6)
+        .padding(.vertical, 8)
     }
 
     private var displayUsername: String {
-        row.lastPosterUsername
+        row.originalPosterUsername
             ?? row.topic.lastPosterUsername
-            ?? row.topic.posters.first?.description
+            ?? fallbackPresentationUsername
+            ?? row.topic.posters.first.map { "User \($0.userId)" }
             ?? "?"
     }
 
     private var avatarTemplate: String? {
-        nil
+        row.originalPosterAvatarTemplate
+    }
+
+    private var fallbackPresentationUsername: String? {
+        guard let candidate = row.lastPosterUsername?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !candidate.isEmpty
+        else {
+            return nil
+        }
+
+        return candidate.localizedCaseInsensitiveContains("poster") ? nil : candidate
+    }
+
+    private var unreadDot: some View {
+        ZStack {
+            Circle()
+                .fill(FireTheme.accent)
+                .frame(width: 7, height: 7)
+        }
+        .frame(width: 18, height: 18)
+    }
+
+    private var tagFlowFallbackWidth: CGFloat {
+        max(UIScreen.main.bounds.width - 120, 180)
+    }
+
+    private func categoryChip(_ category: FireTopicCategoryPresentation) -> some View {
+        Text(category.displayName)
+            .font(.caption2.weight(.medium))
+            .foregroundStyle(Color(fireHex: category.textColorHex) ?? accentColor)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(accentColor.opacity(0.12))
+            .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+            .lineLimit(1)
+            .truncationMode(.tail)
+    }
+
+    private func tagChip(_ tagName: String) -> some View {
+        Text("#\(tagName)")
+            .font(.caption2)
+            .foregroundStyle(FireTheme.subtleInk)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(Color(.tertiarySystemFill))
+            .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+            .lineLimit(1)
+            .truncationMode(.tail)
+    }
+
+    private func statusIcon(_ systemName: String, color: Color) -> some View {
+        Image(systemName: systemName)
+            .font(.caption2)
+            .foregroundStyle(color)
+            .frame(width: 18, height: 18)
+            .background(color.opacity(0.10))
+            .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+    }
+
+    private func topicStat(value: UInt32, systemImage: String, alignment: Alignment) -> some View {
+        HStack(spacing: 5) {
+            Image(systemName: systemImage)
+                .font(.caption2)
+
+            Text(FireTopicPresentation.compactCount(value))
+                .font(.caption2.monospacedDigit())
+                .lineLimit(1)
+        }
+        .foregroundStyle(FireTheme.tertiaryInk)
+        .frame(maxWidth: .infinity, alignment: alignment)
     }
 }

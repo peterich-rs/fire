@@ -16,6 +16,18 @@ struct FireTopicDetailView: View {
         viewModel.categoryPresentation(for: topic.categoryId)
     }
 
+    private var threadPresentation: FireTopicThreadPresentation? {
+        detail.map { FireTopicPresentation.buildThreadPresentation(from: $0.postStream.posts) }
+    }
+
+    private var flatPosts: [FireTopicPresentation.FlatPost] {
+        guard let detail, let thread = threadPresentation else { return [] }
+        return FireTopicPresentation.flattenThreadForDisplay(
+            from: thread,
+            totalPostCount: detail.postStream.posts.count
+        )
+    }
+
     var body: some View {
         List {
             topicHeaderSection
@@ -122,11 +134,25 @@ struct FireTopicDetailView: View {
     private var postsSection: some View {
         Section {
             if let detail {
-                ForEach(Array(detail.postStream.posts.enumerated()), id: \.element.id) { index, post in
-                    FirePostRow(
-                        post: post,
-                        showsThreadLine: index != detail.postStream.posts.count - 1
-                    )
+                let posts = flatPosts
+                if posts.isEmpty {
+                    ForEach(Array(detail.postStream.posts.enumerated()), id: \.element.id) { index, post in
+                        FirePostRow(
+                            post: post,
+                            depth: 0,
+                            replyContext: nil,
+                            showsThreadLine: index != detail.postStream.posts.count - 1
+                        )
+                    }
+                } else {
+                    ForEach(posts) { flatPost in
+                        FirePostRow(
+                            post: flatPost.post,
+                            depth: flatPost.depth,
+                            replyContext: flatPost.replyContext,
+                            showsThreadLine: flatPost.showsThreadLine
+                        )
+                    }
                 }
             } else if viewModel.isLoadingTopic(topicId: topic.id) {
                 HStack {
@@ -166,7 +192,10 @@ struct FireTopicDetailView: View {
             HStack {
                 Text("帖子")
                 Spacer()
-                if let detail {
+                if let detail, let threadPresentation {
+                    Text("\(detail.postStream.posts.count) 条 · \(threadPresentation.replySections.count) 楼")
+                        .foregroundStyle(.secondary)
+                } else if let detail {
                     Text("\(detail.postStream.posts.count) 条")
                         .foregroundStyle(.secondary)
                 }
@@ -179,15 +208,28 @@ struct FireTopicDetailView: View {
 
 struct FirePostRow: View {
     let post: TopicPostState
+    let depth: Int
+    let replyContext: String?
     let showsThreadLine: Bool
 
+    /// Maximum indentation depth to prevent excessive nesting.
+    private static let maxVisualDepth = 3
+
+    private var indentWidth: CGFloat {
+        CGFloat(min(depth, Self.maxVisualDepth)) * 20
+    }
+
     var body: some View {
-        HStack(alignment: .top, spacing: 10) {
+        HStack(alignment: .top, spacing: depth > 0 ? 6 : 10) {
+            if depth > 0 {
+                Color.clear.frame(width: indentWidth)
+            }
+
             VStack(spacing: 0) {
                 FireAvatarView(
                     avatarTemplate: post.avatarTemplate,
                     username: post.username.isEmpty ? "?" : post.username,
-                    size: 32
+                    size: depth > 0 ? 26 : 32
                 )
 
                 if showsThreadLine {
@@ -200,6 +242,16 @@ struct FirePostRow: View {
             }
 
             VStack(alignment: .leading, spacing: 6) {
+                if let replyContext {
+                    Text(replyContext)
+                        .font(.caption2.weight(.medium))
+                        .foregroundStyle(FireTheme.accent)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(FireTheme.accent.opacity(0.1))
+                        .clipShape(Capsule())
+                }
+
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Text(post.username.isEmpty ? "Unknown" : post.username)
                         .font(.subheadline.weight(.semibold))

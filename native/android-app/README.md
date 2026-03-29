@@ -29,6 +29,7 @@ Current host-side app wiring lives under `src/main/java/com/fire/app/` plus `src
   - extracts `site.categories` from bootstrap `preloadedJson`
   - parses `more_topics_url` into a native feed page cursor
   - normalizes topic/post timestamps for inline rendering
+  - rebuilds topic replies into floor-oriented sections from `reply_to_post_number` so replies-to-replies stay visually attached to their parent floor
 - `MainActivity.kt`
   - restores the persisted session snapshot on launch and after login
   - renders a paginated topic browser with feed filters, category-aware topic items, and a focused selected-topic summary
@@ -39,7 +40,8 @@ Current host-side app wiring lives under `src/main/java/com/fire/app/` plus `src
   - render a reverse-chronological request trace overview and per-request execution-chain/detail pages
 - `TopicDetailActivity.kt`
   - loads topic detail on demand from the shared Rust API
-  - renders cooked post bodies as safe plain text in a dedicated native screen while topic-detail HTML module handling is still pending
+  - renders the original post plus floor-oriented reply sections in a dedicated native screen
+  - renders cooked post bodies as safe plain text while topic-detail HTML module handling is still pending
 - `LoginActivity.kt`
   - presents login as a full-screen activity with visible page title, URL, and loading state
   - exposes back, forward, home, and reload controls

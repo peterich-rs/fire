@@ -82,6 +82,26 @@ final class FireTopicPresentationTests: XCTestCase {
         XCTAssertNotNil(row.activityTimestampText)
     }
 
+    func testBuildThreadPresentationGroupsNestedRepliesUnderTopLevelFloors() {
+        let thread = FireTopicPresentation.buildThreadPresentation(
+            from: [
+                makePost(postNumber: 1, replyToPostNumber: nil, username: "author"),
+                makePost(postNumber: 2, replyToPostNumber: 1, username: "floor-a"),
+                makePost(postNumber: 3, replyToPostNumber: 2, username: "nested-a1"),
+                makePost(postNumber: 4, replyToPostNumber: 3, username: "nested-a2"),
+                makePost(postNumber: 5, replyToPostNumber: 1, username: "floor-b"),
+                makePost(postNumber: 6, replyToPostNumber: 99, username: "orphan"),
+            ]
+        )
+
+        XCTAssertEqual(thread.originalPost?.postNumber, 1)
+        XCTAssertEqual(thread.replySections.map(\.anchorPost.postNumber), [2, 5, 6])
+        XCTAssertEqual(thread.replySections[0].replies.map(\.post.postNumber), [3, 4])
+        XCTAssertEqual(thread.replySections[0].replies.map(\.depth), [1, 2])
+        XCTAssertEqual(thread.replySections[1].replies.count, 0)
+        XCTAssertEqual(thread.replySections[2].replies.count, 0)
+    }
+
     func testProfileDisplayNameAvoidsAnonymousCopyWhenAuthenticatedIdentityIsMissing() {
         let session = SessionState(
             cookies: CookieState(
@@ -158,5 +178,35 @@ final class FireTopicPresentationTests: XCTestCase {
 
         XCTAssertEqual(session.profileDisplayName, "alice")
         XCTAssertEqual(session.profileStatusTitle, "已就绪")
+    }
+
+    private func makePost(
+        postNumber: UInt32,
+        replyToPostNumber: UInt32?,
+        username: String
+    ) -> TopicPostState {
+        TopicPostState(
+            id: UInt64(postNumber),
+            username: username,
+            name: nil,
+            avatarTemplate: nil,
+            cooked: "<p>\(username)</p>",
+            postNumber: postNumber,
+            postType: 1,
+            createdAt: "2026-03-28T10:00:00Z",
+            updatedAt: "2026-03-28T10:00:00Z",
+            likeCount: 0,
+            replyCount: 0,
+            replyToPostNumber: replyToPostNumber,
+            bookmarked: false,
+            bookmarkId: nil,
+            reactions: [],
+            currentUserReaction: nil,
+            acceptedAnswer: false,
+            canEdit: false,
+            canDelete: false,
+            canRecover: false,
+            hidden: false
+        )
     }
 }

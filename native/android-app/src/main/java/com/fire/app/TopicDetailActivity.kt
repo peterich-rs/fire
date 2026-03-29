@@ -2,6 +2,9 @@ package com.fire.app
 
 import android.content.Context
 import android.content.Intent
+import android.graphics.Color
+import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.view.View
 import android.view.ViewGroup
@@ -100,53 +103,215 @@ class TopicDetailActivity : AppCompatActivity() {
             return
         }
 
-        detail.postStream.posts.forEachIndexed { index, post ->
-            binding.postsContainer.addView(postView(post, index == 0))
+        val thread = TopicPresentation.buildThreadPresentation(detail.postStream.posts)
+
+        thread.originalPost?.let { originalPost ->
+            binding.postsContainer.addView(
+                sectionCard(
+                    title = getString(R.string.topic_detail_original_post),
+                    subtitle = null,
+                    accentColor = sectionAccentColor(),
+                ) {
+                    addView(
+                        postCardView(
+                            post = originalPost,
+                            roleLabel = getString(R.string.topic_detail_original_post_badge),
+                            depth = 0,
+                            emphasized = true,
+                        ),
+                    )
+                },
+            )
+        }
+
+        if (thread.replySections.isEmpty()) {
+            binding.postsContainer.addView(
+                sectionBodyText(getString(R.string.topic_detail_no_replies)),
+            )
+            return
+        }
+
+        thread.replySections.forEach { section ->
+            binding.postsContainer.addView(
+                sectionCard(
+                    title = getString(R.string.topic_detail_floor_title, section.anchorPost.postNumber.toString()),
+                    subtitle = section.replies
+                        .takeIf { it.isNotEmpty() }
+                        ?.let { getString(R.string.topic_detail_floor_nested_count, it.size.toString()) },
+                    accentColor = sectionAccentColor(alpha = 0x66),
+                ) {
+                    addView(
+                        postCardView(
+                            post = section.anchorPost,
+                            roleLabel = getString(R.string.topic_detail_reply_to_topic),
+                            depth = 0,
+                            emphasized = true,
+                        ),
+                    )
+
+                    section.replies.forEach { reply ->
+                        addView(
+                            postCardView(
+                                post = reply.post,
+                                roleLabel = reply.parentPostNumber
+                                    ?.let { getString(R.string.topic_detail_nested_reply_to, it.toString()) },
+                                depth = reply.depth,
+                                emphasized = false,
+                            ),
+                        )
+                    }
+                },
+            )
         }
     }
 
-    private fun postView(post: TopicPostState, isFirstPost: Boolean): View {
+    private fun sectionCard(
+        title: String,
+        subtitle: String?,
+        accentColor: Int,
+        contentBuilder: LinearLayout.() -> Unit,
+    ): View {
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(16), dp(if (isFirstPost) 0 else 14), dp(16), dp(16))
+            setPadding(dp(16), dp(16), dp(16), dp(16))
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT,
             ).apply {
-                topMargin = if (isFirstPost) 0 else dp(12)
+                leftMargin = dp(16)
+                rightMargin = dp(16)
+                topMargin = dp(12)
             }
-            setBackgroundResource(android.R.color.transparent)
-
-            addView(
-                TextView(context).apply {
-                    text = post.username
-                    textSize = 16f
-                    setTypeface(typeface, android.graphics.Typeface.BOLD)
-                },
+            background = roundedBackground(
+                fillColor = Color.parseColor("#FFF6F7FB"),
+                strokeColor = accentColor,
             )
 
             addView(
                 TextView(context).apply {
-                    text = buildList {
-                        add("#${post.postNumber}")
-                        TopicPresentation.formatTimestamp(post.createdAt)?.let(::add)
-                        add(getString(R.string.topic_detail_likes_count, post.likeCount.toString()))
-                        if (post.replyCount > 0u) {
-                            add(getString(R.string.topic_detail_replies_count, post.replyCount.toString()))
-                        }
-                        post.replyToPostNumber?.let { add(getString(R.string.topic_detail_reply_to, it.toString())) }
-                    }.joinToString(" · ")
-                    textSize = 12f
-                    setPadding(0, dp(4), 0, 0)
+                    text = title
+                    textSize = 18f
+                    setTypeface(typeface, Typeface.BOLD)
+                    setTextColor(Color.parseColor("#FF111827"))
+                },
+            )
+
+            subtitle?.let {
+                addView(
+                    TextView(context).apply {
+                        text = it
+                        textSize = 12f
+                        setTextColor(Color.parseColor("#FF6B7280"))
+                        setPadding(0, dp(4), 0, 0)
+                    },
+                )
+            }
+
+            contentBuilder()
+        }
+    }
+
+    private fun postCardView(
+        post: TopicPostState,
+        roleLabel: String?,
+        depth: Int,
+        emphasized: Boolean,
+    ): View {
+        val accentColor = if (emphasized) sectionAccentColor() else Color.parseColor("#FF6B91FF")
+        val fillColor = if (emphasized) Color.WHITE else Color.parseColor("#FFF9FAFB")
+        val strokeColor = if (emphasized) Color.parseColor("#1F2F6FEB") else Color.parseColor("#1F6B91FF")
+
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ).apply {
+                topMargin = dp(12)
+                marginStart = dp(minOf(depth, 3) * 18)
+            }
+
+            addView(
+                View(context).apply {
+                    layoutParams = LinearLayout.LayoutParams(dp(3), ViewGroup.LayoutParams.MATCH_PARENT)
+                    background = GradientDrawable().apply {
+                        shape = GradientDrawable.RECTANGLE
+                        cornerRadius = dp(3).toFloat()
+                        setColor(accentColor)
+                    }
                 },
             )
 
             addView(
-                TextView(context).apply {
-                    text = TopicPresentation.plainTextFromHtml(post.cooked)
-                    textSize = 15f
-                    setPadding(0, dp(8), 0, 0)
+                LinearLayout(context).apply {
+                    orientation = LinearLayout.VERTICAL
+                    layoutParams = LinearLayout.LayoutParams(
+                        0,
+                        ViewGroup.LayoutParams.WRAP_CONTENT,
+                        1f,
+                    ).apply {
+                        marginStart = dp(10)
+                    }
+                    setPadding(dp(12), dp(12), dp(12), dp(12))
+                    background = roundedBackground(fillColor = fillColor, strokeColor = strokeColor)
+
+                    roleLabel?.let {
+                        addView(chipView(it, accentColor))
+                    }
+
+                    addView(
+                        TextView(context).apply {
+                            text = post.username.ifBlank { "Unknown" }
+                            textSize = 16f
+                            setTypeface(typeface, Typeface.BOLD)
+                            setTextColor(Color.parseColor("#FF111827"))
+                            if (roleLabel != null) {
+                                setPadding(0, dp(8), 0, 0)
+                            }
+                        },
+                    )
+
+                    addView(
+                        TextView(context).apply {
+                            text = buildList {
+                                add("#${post.postNumber}")
+                                TopicPresentation.formatTimestamp(post.createdAt)?.let(::add)
+                                add(getString(R.string.topic_detail_likes_count, post.likeCount.toString()))
+                                if (post.replyCount > 0u) {
+                                    add(getString(R.string.topic_detail_replies_count, post.replyCount.toString()))
+                                }
+                                post.replyToPostNumber?.let { add(getString(R.string.topic_detail_reply_to, it.toString())) }
+                            }.joinToString(" · ")
+                            textSize = 12f
+                            setTextColor(Color.parseColor("#FF6B7280"))
+                            setPadding(0, dp(4), 0, 0)
+                        },
+                    )
+
+                    addView(
+                        TextView(context).apply {
+                            text = TopicPresentation.plainTextFromHtml(post.cooked)
+                            textSize = 15f
+                            setTextColor(Color.parseColor("#FF1F2937"))
+                            setPadding(0, dp(8), 0, 0)
+                        },
+                    )
                 },
+            )
+        }
+    }
+
+    private fun chipView(text: String, accentColor: Int): View {
+        return TextView(this).apply {
+            this.text = text
+            textSize = 11f
+            setTypeface(typeface, Typeface.BOLD)
+            setTextColor(accentColor)
+            setPadding(dp(8), dp(4), dp(8), dp(4))
+            background = roundedBackground(
+                fillColor = sectionAccentColor(alpha = 0x18),
+                strokeColor = Color.TRANSPARENT,
+                cornerRadiusDp = 999,
             )
         }
     }
@@ -171,6 +336,25 @@ class TopicDetailActivity : AppCompatActivity() {
 
     private fun dp(value: Int): Int {
         return (value * resources.displayMetrics.density).toInt()
+    }
+
+    private fun roundedBackground(
+        fillColor: Int,
+        strokeColor: Int,
+        cornerRadiusDp: Int = 18,
+    ): GradientDrawable {
+        return GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = dp(cornerRadiusDp).toFloat()
+            setColor(fillColor)
+            if (strokeColor != Color.TRANSPARENT) {
+                setStroke(dp(1), strokeColor)
+            }
+        }
+    }
+
+    private fun sectionAccentColor(alpha: Int = 0xFF): Int {
+        return Color.argb(alpha, 0x2F, 0x6F, 0xEB)
     }
 
     companion object {

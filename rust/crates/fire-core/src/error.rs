@@ -26,6 +26,10 @@ pub enum FireCoreError {
     MissingCurrentUsername,
     #[error("request requires a login session")]
     MissingLoginSession,
+    #[error("message bus requires a shared session key")]
+    MissingSharedSessionKey,
+    #[error("message bus requires at least one subscription cursor")]
+    MissingMessageBusSubscriptions,
     #[error("request requires a csrf token")]
     MissingCsrfToken,
     #[error("fire workspace path is not configured")]
@@ -46,6 +50,8 @@ pub enum FireCoreError {
     PersistVersionMismatch { expected: u32, found: u32 },
     #[error("persisted session base url mismatch: expected {expected}, found {found}")]
     PersistBaseUrlMismatch { expected: String, found: String },
+    #[error("invalid message bus response: {details}")]
+    InvalidMessageBusResponse { details: String },
     #[error("failed to access persisted session at {path}: {source}")]
     PersistIo { path: PathBuf, source: io::Error },
 }

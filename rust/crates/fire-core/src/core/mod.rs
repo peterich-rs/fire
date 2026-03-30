@@ -1,4 +1,5 @@
 mod auth;
+mod message_bus;
 mod network;
 mod persistence;
 mod session;

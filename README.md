@@ -63,3 +63,9 @@ ANDROID_HOME=$HOME/Library/Android/sdk ANDROID_SDK_ROOT=$HOME/Library/Android/sd
 - `references/fluxdo` 是历史参考，不是 Fire 的运行时依赖。
 - Fire 的主仓库地址为 `https://github.com/peterich-rs/fire`。
 - 根目录许可证当前仍沿用现有仓库的 `GPL-3.0`，如果 Fire 后续采用其他协议，需要单独重置。
+
+## 贡献
+
+- 提交 PR 前，请先阅读 `CONTRIBUTING.md`。
+- 非微小改动默认推荐采用本地文档驱动流程。
+- `.codex/` 是本地工作文档目录，不应进入 git 提交。

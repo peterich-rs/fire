@@ -10,9 +10,46 @@
   - `siteSettings.long_polling_base_url`
   - HTML `<meta name="shared_session_key" ...>`
   - `topicTrackingStateMeta`
+  - `currentUser.id`
   - `currentUser.notification_channel_position`
 - 前台 `clientId` 是单例，并在上传、Presence、MessageBus 之间复用
 - iOS 后台通知拉取会生成单独的临时 `clientId`（例如 `ios_bg_<timestamp>`）
+
+## Fire 当前共享层基础能力
+
+- Rust 共享层现在已经导出 `message_bus_context(client_id?)`
+  - 若 `client_id` 为空，则使用默认前台 `clientId` 策略：`fire_<host>_<username-or-foreground>`
+  - 会返回：
+    - `client_id`
+    - `poll_base_url`
+    - `poll_url`
+    - 是否需要附带 `X-Shared-Session-Key`
+    - `shared_session_key`
+    - `current_username`
+    - `current_user_id`
+    - `notification_channel_position`
+    - 原始 `topicTrackingStateMeta`
+    - 从 `topicTrackingStateMeta` 派生出的初始 `channel -> last_message_id`
+- 当前共享层还会额外补出 `/notification/{userId}` 初始订阅位点，前提是 `currentUser.id` 与 `currentUser.notification_channel_position` 都已可用
+- Rust 共享层现在还已经导出：
+  - `poll_message_bus(client_id?, extra_subscriptions)`
+  - `apply_message_bus_status_updates(updates)`
+- `poll_message_bus(...)` 当前只做单次请求，不负责无限循环和重连调度：
+  - 会把稳定订阅位点和额外页面级订阅合并
+  - 会生成 `application/x-www-form-urlencoded` 的 `channel -> last_message_id` 请求体
+  - 会按 `|` 分段解析返回内容
+  - 会把 `channel="/__status"` 的 `data` 解析成位点更新
+  - 会自动把可持久化位点回写到当前 session snapshot
+- `apply_message_bus_status_updates(...)` 当前只持久化稳定可恢复位点：
+  - `/notification/{userId}` -> `notification_channel_position`
+  - 已存在于 `topicTrackingStateMeta` 的频道 -> tracking meta
+  - `/latest`、`/new` 之类页面级临时频道不会写回持久化 tracking meta
+- 当前共享层只导出可从 session snapshot 稳定恢复的基础上下文，不直接替宿主决定页面级临时频道：
+  - `/latest`
+  - `/new`
+  - `/topic/{topicId}`
+  - `/presence/discourse-presence/reply/{topicId}`
+- 长轮询循环、重连策略、页面级附加频道管理仍属于后续 orchestration
 
 ## 轮询入口
 
@@ -46,6 +83,16 @@
 - 还需要特殊处理控制消息：
   - `channel="/__status"` 时，`data` 里的 `channel -> last_message_id` 映射要回写到本地订阅位点
 
+当前共享层解析后的基础消息结构为：
+
+```json
+{
+  "channel": "/topic/123",
+  "message_id": 1001,
+  "data_json": "{\"type\":\"created\"}"
+}
+```
+
 ```json
 [
   {
@@ -61,6 +108,7 @@
 ### 全局 tracking 频道
 
 - 登录后，当前客户端会先把首页 `topicTrackingStateMeta` 中出现的全部 `channel -> messageId` 注册进 MessageBus
+- Fire 当前共享层会保留原始 `topicTrackingStateMeta`，并只结构化导出其中可稳定识别的 `channel -> messageId` 项
 - `/latest` 和 `/new` 只是页面级额外订阅，不代表全量 tracking 频道
 
 ### 话题列表页面级频道

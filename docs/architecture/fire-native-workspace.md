@@ -73,13 +73,16 @@ The first usable session pipeline now lives in the Rust workspace:
 - `fire-core`
   - merges platform-synced cookies from iOS/Android WebView
   - parses homepage HTML for `csrf-token`, `shared_session_key`, `discourse-base-uri`, `data-preloaded`, and Turnstile `sitekey`
-  - derives `currentUser.username`, `siteSettings.long_polling_base_url`, and `topicTrackingStateMeta` from `data-preloaded`
+  - derives `currentUser.username`, `currentUser.id`, `currentUser.notification_channel_position`, `siteSettings.long_polling_base_url`, and `topicTrackingStateMeta` from `data-preloaded`
   - exposes network-backed `refresh_bootstrap`, `refresh_csrf_token`, `logout_remote`, and local `logout_local`
   - can export/import persisted session JSON and save/load session snapshots from disk for cold-start restoration
   - exposes authenticated topic list and topic detail fetching for `latest/new/unread/unseen/hot/top` plus tracked topic detail requests
+  - now exports a MessageBus bootstrap context with default foreground `client_id`, poll URL derivation, shared-session-key requirements, and stable subscription cursors recoverable from the session snapshot
+  - now supports a single MessageBus poll request with segmented response parsing plus `channel="/__status"` cursor extraction and session snapshot write-back for recoverable cursors
   - retries one logout request on `BAD CSRF` after refreshing `/session/csrf`
 - `fire-uniffi`
   - exports the session snapshot, readiness flags, login sync input, bootstrap sync APIs, persistence APIs, topic APIs, and logout APIs to Swift/Kotlin
+  - now exports the shared MessageBus bootstrap context, single-poll result shape, and cursor write-back APIs to Swift/Kotlin
   - now exposes network-backed APIs as native async UniFFI methods for Swift/Kotlin instead of re-wrapping them as synchronous FFI calls
   - keeps binding configuration in `rust/crates/fire-uniffi/uniffi.toml`
 - `native/ios-app` and `native/android-app`
@@ -118,6 +121,6 @@ Both native hosts now keep feed pagination state, derive category metadata from 
 ## Next Build Steps
 
 1. Continue expanding the current Android/iOS topic browser shells with avatar/media handling, category/user navigation, and richer interaction models on top of the existing topic API layer.
-2. Add MessageBus client orchestration on top of restored `shared_session_key` / `topicTrackingStateMeta`.
+2. Add long-running MessageBus orchestration, reconnect/backoff behavior, and page-level channel management on top of the existing shared single-poll foundation.
 3. Move platform cookie storage into keychain/keystore backed persistence and reconcile it with the Rust snapshot lifecycle.
 4. Decide whether iOS build outputs should stay project-local under `Generated/` or be elevated into a reusable package/XCFramework flow for distribution and CI caching.

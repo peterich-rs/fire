@@ -28,7 +28,7 @@ pub(crate) fn sample_home_html() -> String {
   </head>
   <body>
     <div data-sitekey="turnstile-key"></div>
-    <div id="data-discourse-setup" data-preloaded="{&quot;currentUser&quot;:{&quot;username&quot;:&quot;alice&quot;},&quot;siteSettings&quot;:{&quot;long_polling_base_url&quot;:&quot;https://linux.do&quot;},&quot;topicTrackingStateMeta&quot;:{&quot;message_bus_last_id&quot;:42}}"></div>
+    <div id="data-discourse-setup" data-preloaded="{&quot;currentUser&quot;:{&quot;id&quot;:1,&quot;username&quot;:&quot;alice&quot;,&quot;notification_channel_position&quot;:7},&quot;siteSettings&quot;:{&quot;long_polling_base_url&quot;:&quot;https://linux.do&quot;},&quot;topicTrackingStateMeta&quot;:{&quot;/topic/123&quot;:42,&quot;message_bus_last_id&quot;:99}}"></div>
   </body>
 </html>
 "#

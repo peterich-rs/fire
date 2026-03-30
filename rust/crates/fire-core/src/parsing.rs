@@ -51,6 +51,26 @@ pub(crate) fn hydrate_preloaded_fields(preloaded_json: &str, bootstrap: &mut Boo
         bootstrap.current_username = Some(username.to_string());
     }
 
+    if let Some(current_user_id) = preloaded
+        .get("currentUser")
+        .and_then(|value| value.get("id"))
+        .and_then(Value::as_u64)
+    {
+        bootstrap.current_user_id = Some(current_user_id);
+    }
+
+    if let Some(notification_channel_position) = preloaded
+        .get("currentUser")
+        .and_then(|value| value.get("notification_channel_position"))
+        .and_then(|value| {
+            value
+                .as_i64()
+                .or_else(|| value.as_u64().map(|id| id as i64))
+        })
+    {
+        bootstrap.notification_channel_position = Some(notification_channel_position);
+    }
+
     if let Some(long_polling_base_url) = preloaded
         .get("siteSettings")
         .and_then(|value| value.get("long_polling_base_url"))

@@ -76,6 +76,10 @@ pub(crate) struct LegacyBootstrapArtifacts {
     pub(crate) shared_session_key: Option<String>,
     #[serde(alias = "currentUsername")]
     pub(crate) current_username: Option<String>,
+    #[serde(alias = "currentUserId")]
+    pub(crate) current_user_id: Option<u64>,
+    #[serde(alias = "notificationChannelPosition")]
+    pub(crate) notification_channel_position: Option<i64>,
     #[serde(alias = "longPollingBaseUrl")]
     pub(crate) long_polling_base_url: Option<String>,
     #[serde(alias = "turnstileSitekey")]
@@ -95,6 +99,8 @@ impl From<LegacyBootstrapArtifacts> for BootstrapArtifacts {
             discourse_base_uri: value.discourse_base_uri,
             shared_session_key: value.shared_session_key,
             current_username: value.current_username,
+            current_user_id: value.current_user_id,
+            notification_channel_position: value.notification_channel_position,
             long_polling_base_url: value.long_polling_base_url,
             turnstile_sitekey: value.turnstile_sitekey,
             topic_tracking_state_meta: value.topic_tracking_state_meta,

@@ -5,7 +5,8 @@ use std::{
 
 use fire_core::{FireCore, FireCoreConfig, FireCoreError};
 use fire_models::{
-    BootstrapArtifacts, CookieSnapshot, LoginPhase, LoginSyncInput, PlatformCookie,
+    BootstrapArtifacts, CookieSnapshot, LoginPhase, LoginSyncInput, MessageBusContext,
+    MessageBusMessage, MessageBusPollResult, MessageBusSubscription, PlatformCookie,
     SessionReadiness, SessionSnapshot, TopicDetail, TopicDetailCreatedBy, TopicDetailMeta,
     TopicDetailQuery, TopicListKind, TopicListQuery, TopicListResponse, TopicPost, TopicPostStream,
     TopicPoster, TopicReaction, TopicSummary, TopicUser,
@@ -80,6 +81,8 @@ pub struct BootstrapState {
     pub discourse_base_uri: Option<String>,
     pub shared_session_key: Option<String>,
     pub current_username: Option<String>,
+    pub current_user_id: Option<u64>,
+    pub notification_channel_position: Option<i64>,
     pub long_polling_base_url: Option<String>,
     pub turnstile_sitekey: Option<String>,
     pub topic_tracking_state_meta: Option<String>,
@@ -94,6 +97,8 @@ impl From<BootstrapArtifacts> for BootstrapState {
             discourse_base_uri: value.discourse_base_uri,
             shared_session_key: value.shared_session_key,
             current_username: value.current_username,
+            current_user_id: value.current_user_id,
+            notification_channel_position: value.notification_channel_position,
             long_polling_base_url: value.long_polling_base_url,
             turnstile_sitekey: value.turnstile_sitekey,
             topic_tracking_state_meta: value.topic_tracking_state_meta,
@@ -110,11 +115,100 @@ impl From<BootstrapState> for BootstrapArtifacts {
             discourse_base_uri: value.discourse_base_uri,
             shared_session_key: value.shared_session_key,
             current_username: value.current_username,
+            current_user_id: value.current_user_id,
+            notification_channel_position: value.notification_channel_position,
             long_polling_base_url: value.long_polling_base_url,
             turnstile_sitekey: value.turnstile_sitekey,
             topic_tracking_state_meta: value.topic_tracking_state_meta,
             preloaded_json: value.preloaded_json,
             has_preloaded_data: value.has_preloaded_data,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct MessageBusSubscriptionState {
+    pub channel: String,
+    pub last_message_id: i64,
+}
+
+impl From<MessageBusSubscription> for MessageBusSubscriptionState {
+    fn from(value: MessageBusSubscription) -> Self {
+        Self {
+            channel: value.channel,
+            last_message_id: value.last_message_id,
+        }
+    }
+}
+
+impl From<MessageBusSubscriptionState> for MessageBusSubscription {
+    fn from(value: MessageBusSubscriptionState) -> Self {
+        Self {
+            channel: value.channel,
+            last_message_id: value.last_message_id,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct MessageBusContextState {
+    pub client_id: String,
+    pub poll_base_url: String,
+    pub poll_url: String,
+    pub requires_shared_session_key_header: bool,
+    pub shared_session_key: String,
+    pub current_username: Option<String>,
+    pub current_user_id: Option<u64>,
+    pub notification_channel_position: Option<i64>,
+    pub topic_tracking_state_meta: Option<String>,
+    pub subscriptions: Vec<MessageBusSubscriptionState>,
+}
+
+impl From<MessageBusContext> for MessageBusContextState {
+    fn from(value: MessageBusContext) -> Self {
+        Self {
+            client_id: value.client_id,
+            poll_base_url: value.poll_base_url,
+            poll_url: value.poll_url,
+            requires_shared_session_key_header: value.requires_shared_session_key_header,
+            shared_session_key: value.shared_session_key,
+            current_username: value.current_username,
+            current_user_id: value.current_user_id,
+            notification_channel_position: value.notification_channel_position,
+            topic_tracking_state_meta: value.topic_tracking_state_meta,
+            subscriptions: value.subscriptions.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct MessageBusMessageState {
+    pub channel: String,
+    pub message_id: i64,
+    pub data_json: Option<String>,
+}
+
+impl From<MessageBusMessage> for MessageBusMessageState {
+    fn from(value: MessageBusMessage) -> Self {
+        Self {
+            channel: value.channel,
+            message_id: value.message_id,
+            data_json: value.data_json,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct MessageBusPollResultState {
+    pub messages: Vec<MessageBusMessageState>,
+    pub status_updates: Vec<MessageBusSubscriptionState>,
+}
+
+impl From<MessageBusPollResult> for MessageBusPollResultState {
+    fn from(value: MessageBusPollResult) -> Self {
+        Self {
+            messages: value.messages.into_iter().map(Into::into).collect(),
+            status_updates: value.status_updates.into_iter().map(Into::into).collect(),
         }
     }
 }
@@ -674,6 +768,12 @@ impl From<FireCoreError> for FireUniFfiError {
             FireCoreError::MissingLoginSession => Self::Authentication {
                 details: "request requires a login session".to_string(),
             },
+            FireCoreError::MissingSharedSessionKey => Self::Authentication {
+                details: "message bus requires a shared session key".to_string(),
+            },
+            FireCoreError::MissingMessageBusSubscriptions => Self::Validation {
+                details: "message bus requires at least one subscription cursor".to_string(),
+            },
             FireCoreError::MissingCsrfToken => Self::Authentication {
                 details: "request requires a csrf token".to_string(),
             },
@@ -715,6 +815,7 @@ impl From<FireCoreError> for FireUniFfiError {
                     "persisted session base url mismatch: expected {expected}, found {found}"
                 ),
             },
+            FireCoreError::InvalidMessageBusResponse { details } => Self::Validation { details },
         }
     }
 }
@@ -769,6 +870,30 @@ impl FireCoreHandle {
         SessionState::from_snapshot(self.inner.snapshot())
     }
 
+    pub fn default_message_bus_client_id(&self) -> String {
+        self.inner.default_message_bus_client_id()
+    }
+
+    pub fn message_bus_context(
+        &self,
+        client_id: Option<String>,
+    ) -> Result<MessageBusContextState, FireUniFfiError> {
+        self.inner
+            .message_bus_context(client_id)
+            .map(Into::into)
+            .map_err(Into::into)
+    }
+
+    pub fn apply_message_bus_status_updates(
+        &self,
+        updates: Vec<MessageBusSubscriptionState>,
+    ) -> SessionState {
+        SessionState::from_snapshot(
+            self.inner
+                .apply_message_bus_status_updates(updates.into_iter().map(Into::into).collect()),
+        )
+    }
+
     pub fn export_session_json(&self) -> Result<String, FireUniFfiError> {
         self.inner.export_session_json().map_err(Into::into)
     }
@@ -789,6 +914,24 @@ impl FireCoreHandle {
 
     pub fn clear_session_path(&self, path: String) -> Result<(), FireUniFfiError> {
         self.inner.clear_session_path(path).map_err(Into::into)
+    }
+
+    pub async fn poll_message_bus(
+        &self,
+        client_id: Option<String>,
+        extra_subscriptions: Vec<MessageBusSubscriptionState>,
+    ) -> Result<MessageBusPollResultState, FireUniFfiError> {
+        let inner = Arc::clone(&self.inner);
+        let result = run_on_ffi_runtime(async move {
+            inner
+                .poll_message_bus(
+                    client_id,
+                    extra_subscriptions.into_iter().map(Into::into).collect(),
+                )
+                .await
+        })
+        .await?;
+        Ok(result.into())
     }
 
     pub async fn fetch_topic_list(
@@ -921,6 +1064,17 @@ mod tests {
             error,
             FireUniFfiError::Storage { details }
                 if details.contains("/tmp/session.json") && details.contains("denied")
+        ));
+    }
+
+    #[test]
+    fn maps_missing_shared_session_key_to_authentication_variant() {
+        let error = FireUniFfiError::from(FireCoreError::MissingSharedSessionKey);
+
+        assert!(matches!(
+            error,
+            FireUniFfiError::Authentication { details }
+                if details == "message bus requires a shared session key"
         ));
     }
 

@@ -1,4 +1,7 @@
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PlatformCookie {
@@ -75,6 +78,8 @@ pub struct BootstrapArtifacts {
     pub discourse_base_uri: Option<String>,
     pub shared_session_key: Option<String>,
     pub current_username: Option<String>,
+    pub current_user_id: Option<u64>,
+    pub notification_channel_position: Option<i64>,
     pub long_polling_base_url: Option<String>,
     pub turnstile_sitekey: Option<String>,
     pub topic_tracking_state_meta: Option<String>,
@@ -101,6 +106,11 @@ impl BootstrapArtifacts {
             patch.shared_session_key.clone(),
         );
         merge_string_patch(&mut self.current_username, patch.current_username.clone());
+        merge_copy_patch(&mut self.current_user_id, patch.current_user_id);
+        merge_copy_patch(
+            &mut self.notification_channel_position,
+            patch.notification_channel_position,
+        );
         merge_string_patch(
             &mut self.long_polling_base_url,
             patch.long_polling_base_url.clone(),
@@ -127,10 +137,39 @@ impl BootstrapArtifacts {
     pub fn clear_login_state(&mut self) {
         self.shared_session_key = None;
         self.current_username = None;
+        self.current_user_id = None;
+        self.notification_channel_position = None;
         self.long_polling_base_url = None;
         self.topic_tracking_state_meta = None;
         self.preloaded_json = None;
         self.has_preloaded_data = false;
+    }
+
+    pub fn message_bus_subscriptions(&self) -> Vec<MessageBusSubscription> {
+        let mut subscriptions = BTreeMap::new();
+
+        if let Some(topic_tracking_state_meta) = self.topic_tracking_state_meta.as_deref() {
+            if let Ok(value) = serde_json::from_str::<Value>(topic_tracking_state_meta) {
+                collect_message_bus_subscriptions(&value, &mut subscriptions);
+            }
+        }
+
+        if let (Some(current_user_id), Some(notification_channel_position)) =
+            (self.current_user_id, self.notification_channel_position)
+        {
+            subscriptions.insert(
+                format!("/notification/{current_user_id}"),
+                notification_channel_position,
+            );
+        }
+
+        subscriptions
+            .into_iter()
+            .map(|(channel, last_message_id)| MessageBusSubscription {
+                channel,
+                last_message_id,
+            })
+            .collect()
     }
 }
 
@@ -217,6 +256,39 @@ impl SessionSnapshot {
         self.cookies.clear_login_state(preserve_cf_clearance);
         self.bootstrap.clear_login_state();
     }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MessageBusSubscription {
+    pub channel: String,
+    pub last_message_id: i64,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MessageBusContext {
+    pub client_id: String,
+    pub poll_base_url: String,
+    pub poll_url: String,
+    pub requires_shared_session_key_header: bool,
+    pub shared_session_key: String,
+    pub current_username: Option<String>,
+    pub current_user_id: Option<u64>,
+    pub notification_channel_position: Option<i64>,
+    pub topic_tracking_state_meta: Option<String>,
+    pub subscriptions: Vec<MessageBusSubscription>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MessageBusMessage {
+    pub channel: String,
+    pub message_id: i64,
+    pub data_json: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MessageBusPollResult {
+    pub messages: Vec<MessageBusMessage>,
+    pub status_updates: Vec<MessageBusSubscription>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -400,6 +472,59 @@ fn merge_string_patch(slot: &mut Option<String>, patch: Option<String>) {
     }
 }
 
+fn merge_copy_patch<T: Copy>(slot: &mut Option<T>, patch: Option<T>) {
+    if let Some(value) = patch {
+        *slot = Some(value);
+    }
+}
+
+fn collect_message_bus_subscriptions(value: &Value, subscriptions: &mut BTreeMap<String, i64>) {
+    match value {
+        Value::Object(map) => {
+            for (channel, candidate) in map {
+                if let Some(last_message_id) =
+                    channel_message_bus_last_message_id(channel, candidate)
+                {
+                    subscriptions.insert(channel.to_string(), last_message_id);
+                    continue;
+                }
+
+                collect_message_bus_subscriptions(candidate, subscriptions);
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                collect_message_bus_subscriptions(item, subscriptions);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn channel_message_bus_last_message_id(channel: &str, value: &Value) -> Option<i64> {
+    if !channel.starts_with('/') {
+        return None;
+    }
+
+    match value {
+        Value::Number(number) => number
+            .as_i64()
+            .or_else(|| number.as_u64().map(|id| id as i64)),
+        Value::String(raw) => raw.parse::<i64>().ok(),
+        Value::Object(map) => {
+            for key in ["message_id", "last_message_id"] {
+                if let Some(nested) = map.get(key) {
+                    if let Some(id) = channel_message_bus_last_message_id(channel, nested) {
+                        return Some(id);
+                    }
+                }
+            }
+            None
+        }
+        _ => None,
+    }
+}
+
 fn is_non_empty(value: Option<&str>) -> bool {
     value.is_some_and(|value| !value.is_empty())
 }
@@ -491,6 +616,8 @@ mod tests {
                 discourse_base_uri: Some("/".into()),
                 shared_session_key: Some("shared".into()),
                 current_username: Some("alice".into()),
+                current_user_id: Some(1),
+                notification_channel_position: Some(42),
                 long_polling_base_url: Some("https://linux.do".into()),
                 turnstile_sitekey: Some("sitekey".into()),
                 topic_tracking_state_meta: Some("{\"seq\":1}".into()),
@@ -504,6 +631,8 @@ mod tests {
         assert_eq!(snapshot.cookies.cf_clearance.as_deref(), Some("clearance"));
         assert_eq!(snapshot.cookies.t_token, None);
         assert_eq!(snapshot.bootstrap.current_username, None);
+        assert_eq!(snapshot.bootstrap.current_user_id, None);
+        assert_eq!(snapshot.bootstrap.notification_channel_position, None);
         assert_eq!(snapshot.bootstrap.shared_session_key, None);
         assert_eq!(snapshot.bootstrap.preloaded_json, None);
         assert!(!snapshot.bootstrap.has_preloaded_data);
@@ -511,5 +640,50 @@ mod tests {
             snapshot.bootstrap.turnstile_sitekey.as_deref(),
             Some("sitekey")
         );
+    }
+
+    #[test]
+    fn message_bus_subscriptions_include_notification_channel_and_tracking_entries() {
+        let bootstrap = BootstrapArtifacts {
+            current_user_id: Some(7),
+            notification_channel_position: Some(88),
+            topic_tracking_state_meta: Some(
+                r#"{
+                    "/topic/123": 1001,
+                    "/topic/456": {"message_id": "1002"},
+                    "message_bus_last_id": 77
+                }"#
+                .into(),
+            ),
+            ..BootstrapArtifacts::default()
+        };
+
+        assert_eq!(
+            bootstrap.message_bus_subscriptions(),
+            vec![
+                super::MessageBusSubscription {
+                    channel: "/notification/7".into(),
+                    last_message_id: 88,
+                },
+                super::MessageBusSubscription {
+                    channel: "/topic/123".into(),
+                    last_message_id: 1001,
+                },
+                super::MessageBusSubscription {
+                    channel: "/topic/456".into(),
+                    last_message_id: 1002,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn message_bus_subscriptions_ignore_invalid_tracking_meta() {
+        let bootstrap = BootstrapArtifacts {
+            topic_tracking_state_meta: Some(r#"{"message_bus_last_id":42}"#.into()),
+            ..BootstrapArtifacts::default()
+        };
+
+        assert!(bootstrap.message_bus_subscriptions().is_empty());
     }
 }

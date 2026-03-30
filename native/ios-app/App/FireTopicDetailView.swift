@@ -50,20 +50,28 @@ struct FireTopicDetailView: View {
         viewModel.categoryPresentation(for: topic.categoryId)
     }
 
+    private var postsByNumber: [UInt32: TopicPostState] {
+        guard let detail else {
+            return [:]
+        }
+        return Dictionary(uniqueKeysWithValues: detail.postStream.posts.map { ($0.postNumber, $0) })
+    }
+
     private var threadPresentation: FireTopicThreadPresentation? {
-        detail.map { FireTopicPresentation.buildThreadPresentation(from: $0.postStream.posts) }
+        detail?.thread
     }
 
     private var flatPosts: [FireTopicPresentation.FlatPost] {
-        guard let detail, let thread = threadPresentation else { return [] }
+        guard let thread = threadPresentation else { return [] }
         return FireTopicPresentation.flattenThreadForDisplay(
             from: thread,
-            totalPostCount: detail.postStream.posts.count
+            postsByNumber: postsByNumber
         )
     }
 
     private var originalPost: TopicPostState? {
-        if let originalPost = threadPresentation?.originalPost {
+        if let originalPostNumber = threadPresentation?.originalPostNumber,
+           let originalPost = postsByNumber[originalPostNumber] {
             return originalPost
         }
         return detail?.postStream.posts.min(by: { $0.postNumber < $1.postNumber })
@@ -94,7 +102,7 @@ struct FireTopicDetailView: View {
     }
 
     private var reactionOptions: [FireReactionOption] {
-        FireTopicPresentation.enabledReactionOptions(from: viewModel.session.bootstrap.preloadedJson)
+        FireTopicPresentation.enabledReactionOptions(from: viewModel.session.bootstrap.enabledReactionIds)
     }
 
     private var nonHeartReactionOptions: [FireReactionOption] {
@@ -102,7 +110,7 @@ struct FireTopicDetailView: View {
     }
 
     private var minimumReplyLength: Int {
-        FireTopicPresentation.minimumReplyLength(from: viewModel.session.bootstrap.preloadedJson)
+        FireTopicPresentation.minimumReplyLength(from: viewModel.session.bootstrap.minPostLength)
     }
 
     private var baseURLString: String {

@@ -21,6 +21,7 @@ import uniffi.fire_uniffi.BootstrapState
 import uniffi.fire_uniffi.CookieState
 import uniffi.fire_uniffi.SessionState
 import uniffi.fire_uniffi.SessionReadinessState
+import uniffi.fire_uniffi.TopicCategoryState
 import uniffi.fire_uniffi.TopicListKindState
 import uniffi.fire_uniffi.TopicListQueryState
 import uniffi.fire_uniffi.TopicListState
@@ -35,7 +36,7 @@ class MainActivity : AppCompatActivity() {
     private var nextFeedPage: UInt? = null
     private var selectedTopicId: ULong? = null
     private var currentTopicList: TopicListState? = null
-    private var topicCategories: Map<ULong, TopicCategoryPresentation> = emptyMap()
+    private var topicCategories: Map<ULong, TopicCategoryState> = emptyMap()
     private var browserStatusMessage: String? = null
     private var lastErrorMessage: String? = null
     private var isBrowserLoading = false
@@ -168,7 +169,7 @@ class MainActivity : AppCompatActivity() {
                     ),
                 )
                 currentFeedPage = page ?: 0u
-                nextFeedPage = TopicPresentation.nextPage(response.moreTopicsUrl)
+                nextFeedPage = response.nextPage
                 currentTopicList = if (reset || currentTopicList == null) {
                     response
                 } else {
@@ -457,6 +458,9 @@ class MainActivity : AppCompatActivity() {
                 topicTrackingStateMeta = null,
                 preloadedJson = null,
                 hasPreloadedData = false,
+                categories = emptyList(),
+                enabledReactionIds = listOf("heart"),
+                minPostLength = 1u,
             ),
             readiness = SessionReadinessState(
                 hasLoginCookie = false,
@@ -472,6 +476,8 @@ class MainActivity : AppCompatActivity() {
             ),
             loginPhase = uniffi.fire_uniffi.LoginPhaseState.ANONYMOUS,
             hasLoginSession = false,
+            profileDisplayName = "未登录",
+            loginPhaseLabel = "未登录",
         )
     }
 
@@ -492,7 +498,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun applySession(state: SessionState) {
         session = state
-        topicCategories = TopicPresentation.parseCategories(session.bootstrap.preloadedJson)
+        topicCategories = session.bootstrap.categories.associateBy { it.id }
     }
 
     private fun mergeTopicLists(
@@ -507,15 +513,21 @@ class MainActivity : AppCompatActivity() {
         existing.users.forEach { usersById[it.id] = it }
         incoming.users.forEach { usersById[it.id] = it }
 
+        val rowsByTopicId = LinkedHashMap<ULong, uniffi.fire_uniffi.TopicRowState>()
+        existing.rows.forEach { rowsByTopicId[it.topic.id] = it }
+        incoming.rows.forEach { rowsByTopicId[it.topic.id] = it }
+
         return TopicListState(
             topics = topicsById.values.toList(),
             users = usersById.values.toList(),
+            rows = rowsByTopicId.values.toList(),
             moreTopicsUrl = incoming.moreTopicsUrl,
+            nextPage = incoming.nextPage,
         )
     }
 
     private fun categoryLabelFor(categoryId: ULong?): String? {
         val id = categoryId ?: return null
-        return topicCategories[id]?.displayName ?: "Category #$id"
+        return topicCategories[id]?.displayName() ?: "Category #$id"
     }
 }

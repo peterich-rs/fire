@@ -2,40 +2,6 @@ import XCTest
 @testable import Fire
 
 final class FireTopicPresentationTests: XCTestCase {
-    func testParseCategoriesReadsSiteCategories() {
-        let categories = FireTopicPresentation.parseCategories(
-            from: """
-            {
-              "site": {
-                "categories": [
-                  {
-                    "id": 7,
-                    "name": "Rust",
-                    "slug": "rust",
-                    "parent_category_id": 2,
-                    "color": "FFFFFF",
-                    "text_color": "000000"
-                  }
-                ]
-              }
-            }
-            """
-        )
-
-        XCTAssertEqual(categories[7]?.name, "Rust")
-        XCTAssertEqual(categories[7]?.slug, "rust")
-        XCTAssertEqual(categories[7]?.parentCategoryID, 2)
-        XCTAssertEqual(categories[7]?.colorHex, "FFFFFF")
-        XCTAssertEqual(categories[7]?.textColorHex, "000000")
-    }
-
-    func testNextPageReadsRelativeAndAbsoluteMoreTopicsURLs() {
-        XCTAssertEqual(FireTopicPresentation.nextPage(from: "/latest?page=3"), 3)
-        XCTAssertEqual(FireTopicPresentation.nextPage(from: "https://linux.do/latest?page=9"), 9)
-        XCTAssertNil(FireTopicPresentation.nextPage(from: "/latest"))
-        XCTAssertNil(FireTopicPresentation.nextPage(from: nil))
-    }
-
     func testPlainTextNormalizesHTMLContent() {
         let plainText = FireTopicPresentation.plainText(
             from: "<p>Hello<br>Fire</p><ul><li>Rust</li><li>CI</li></ul>"
@@ -67,72 +33,22 @@ final class FireTopicPresentationTests: XCTestCase {
         XCTAssertEqual(Double(attachments.first?.aspectRatio ?? 0), 1.5, accuracy: 0.001)
     }
 
-    func testEnabledReactionOptionsReadsConfiguredReactionOrder() {
+    func testEnabledReactionOptionsPreserveOrderAndDeduplicateIDs() {
         let options = FireTopicPresentation.enabledReactionOptions(
-            from: """
-            {
-              "siteSettings": {
-                "discourse_reactions_enabled_reactions": "heart|laughing|thumbsup"
-              }
-            }
-            """
+            from: ["heart", "laughing", "thumbsup", "heart"]
         )
 
         XCTAssertEqual(options.map(\.id), ["heart", "laughing", "thumbsup"])
         XCTAssertEqual(options[1].symbol, "😆")
+        XCTAssertEqual(options[2].label, "赞同")
     }
 
-    func testMinimumReplyLengthReadsSiteSettings() {
-        XCTAssertEqual(
-            FireTopicPresentation.minimumReplyLength(
-                from: """
-                {
-                  "siteSettings": {
-                    "min_post_length": 15
-                  }
-                }
-                """
-            ),
-            15
-        )
-        XCTAssertEqual(FireTopicPresentation.minimumReplyLength(from: nil), 1)
+    func testMinimumReplyLengthFallsBackToOne() {
+        XCTAssertEqual(FireTopicPresentation.minimumReplyLength(from: 15), 15)
+        XCTAssertEqual(FireTopicPresentation.minimumReplyLength(from: 0), 1)
     }
 
-    func testImageAttachmentsExtractsNonEmojiImagesAndNormalizesRelativeURLs() {
-        let images = FireTopicPresentation.imageAttachments(
-            from: """
-            <p>Hello</p>
-            <img src="/uploads/default/original/1X/fire.png" alt="fire" width="1280" height="720">
-            <img src="https://cdn.example.com/remote.jpg" width="400" height="300">
-            <img src="/images/emoji/twitter/fire.png" class="emoji" alt=":fire:">
-            """,
-            baseURLString: "https://linux.do"
-        )
-
-        XCTAssertEqual(images.count, 2)
-        XCTAssertEqual(images.first?.url.absoluteString, "https://linux.do/uploads/default/original/1X/fire.png")
-        XCTAssertEqual(images.first?.altText, "fire")
-        XCTAssertEqual(images.first?.aspectRatio ?? 0, 1280.0 / 720.0, accuracy: 0.001)
-        XCTAssertEqual(images.last?.url.absoluteString, "https://cdn.example.com/remote.jpg")
-    }
-
-    func testEnabledReactionOptionsReadsBootstrapSettings() {
-        let reactions = FireTopicPresentation.enabledReactionOptions(
-            from: """
-            {
-              "siteSettings": {
-                "discourse_reactions_enabled_reactions": "heart|laughing|open_mouth"
-              }
-            }
-            """
-        )
-
-        XCTAssertEqual(reactions.map(\.id), ["heart", "laughing", "open_mouth"])
-        XCTAssertEqual(reactions[1].symbol, "😆")
-        XCTAssertEqual(reactions[2].label, "惊讶")
-    }
-
-    func testBuildRowPresentationsPrecomputesListRenderingFields() throws {
+    func testTopicStatusLabelsReflectFlagsAndCounters() {
         let topic = TopicSummaryState(
             id: 42,
             title: "Fire Native",
@@ -161,93 +77,56 @@ final class FireTopicPresentationTests: XCTestCase {
             canHaveAnswer: true
         )
 
-        let row = try XCTUnwrap(
-            FireTopicPresentation.buildRowPresentations(from: [topic], users: []).first
-        )
-
-        XCTAssertEqual(row.excerptText, "Hello Fire")
-        XCTAssertEqual(row.lastPosterUsername, "User 9")
-        XCTAssertEqual(row.tagNames, ["rust"])
-        XCTAssertEqual(row.statusLabels, ["Pinned", "Unread 3", "New 1"])
-        XCTAssertEqual(row.tagSummaryText, "#rust")
-        XCTAssertNotNil(row.createdTimestampText)
-        XCTAssertNotNil(row.activityTimestampText)
-    }
-
-    func testBuildRowPresentationsMapsOriginalPosterProfileFromTopicUsers() throws {
-        let topic = TopicSummaryState(
-            id: 7,
-            title: "Avatar Mapping",
-            slug: "avatar-mapping",
-            postsCount: 2400,
-            replyCount: 2399,
-            views: 92000,
-            likeCount: 18,
-            excerpt: nil,
-            createdAt: "2026-03-28T10:00:00Z",
-            lastPostedAt: "2026-03-28T11:30:00Z",
-            lastPosterUsername: "bob",
-            categoryId: 9,
-            pinned: false,
-            visible: true,
-            closed: false,
-            archived: false,
-            tags: [],
-            posters: [
-                TopicPosterState(userId: 11, description: "Most Recent Poster", extras: nil),
-                TopicPosterState(userId: 9, description: "Original Poster", extras: nil),
-            ],
-            unseen: false,
-            unreadPosts: 0,
-            newPosts: 0,
-            lastReadPostNumber: nil,
-            highestPostNumber: 2400,
-            hasAcceptedAnswer: false,
-            canHaveAnswer: true
-        )
-        let users = [
-            TopicUserState(
-                id: 9,
-                username: "alice",
-                avatarTemplate: "/user_avatar/linux.do/alice/{size}/1.png"
-            ),
-            TopicUserState(
-                id: 11,
-                username: "bob",
-                avatarTemplate: "/user_avatar/linux.do/bob/{size}/2.png"
-            ),
-        ]
-
-        let row = try XCTUnwrap(
-            FireTopicPresentation.buildRowPresentations(from: [topic], users: users).first
-        )
-
-        XCTAssertEqual(row.originalPosterUsername, "alice")
         XCTAssertEqual(
-            row.originalPosterAvatarTemplate,
-            "/user_avatar/linux.do/alice/{size}/1.png"
+            FireTopicPresentation.topicStatusLabels(for: topic),
+            ["Pinned", "Unread 3", "New 1"]
         )
-        XCTAssertEqual(row.lastPosterUsername, "bob")
+        XCTAssertEqual(FireTopicPresentation.tagNames(from: topic.tags), ["rust"])
     }
 
-    func testBuildThreadPresentationGroupsNestedRepliesUnderTopLevelFloors() {
-        let thread = FireTopicPresentation.buildThreadPresentation(
-            from: [
+    func testCompactTimestampFormatsUnixMilliseconds() {
+        let timestamp = FireTopicPresentation.compactTimestamp(unixMs: 1_711_624_600_000)
+        XCTAssertNotNil(timestamp)
+    }
+
+    func testFlattenThreadForDisplayUsesRustThreadStateOrdering() {
+        let thread = TopicThreadState(
+            originalPostNumber: 1,
+            replySections: [
+                TopicThreadSectionState(
+                    anchorPostNumber: 2,
+                    replies: [
+                        TopicThreadReplyState(postNumber: 3, depth: 1, parentPostNumber: 2),
+                        TopicThreadReplyState(postNumber: 4, depth: 2, parentPostNumber: 3),
+                    ]
+                ),
+                TopicThreadSectionState(anchorPostNumber: 5, replies: []),
+                TopicThreadSectionState(anchorPostNumber: 6, replies: []),
+            ]
+        )
+
+        let postsByNumber = Dictionary(
+            uniqueKeysWithValues: [
                 makePost(postNumber: 1, replyToPostNumber: nil, username: "author"),
                 makePost(postNumber: 2, replyToPostNumber: 1, username: "floor-a"),
                 makePost(postNumber: 3, replyToPostNumber: 2, username: "nested-a1"),
                 makePost(postNumber: 4, replyToPostNumber: 3, username: "nested-a2"),
                 makePost(postNumber: 5, replyToPostNumber: 1, username: "floor-b"),
                 makePost(postNumber: 6, replyToPostNumber: 99, username: "orphan"),
-            ]
+            ].map { ($0.postNumber, $0) }
         )
 
-        XCTAssertEqual(thread.originalPost?.postNumber, 1)
-        XCTAssertEqual(thread.replySections.map(\.anchorPost.postNumber), [2, 5, 6])
-        XCTAssertEqual(thread.replySections[0].replies.map(\.post.postNumber), [3, 4])
-        XCTAssertEqual(thread.replySections[0].replies.map(\.depth), [1, 2])
-        XCTAssertEqual(thread.replySections[1].replies.count, 0)
-        XCTAssertEqual(thread.replySections[2].replies.count, 0)
+        let flatPosts = FireTopicPresentation.flattenThreadForDisplay(
+            from: thread,
+            postsByNumber: postsByNumber
+        )
+
+        XCTAssertEqual(flatPosts.map(\.post.postNumber), [1, 2, 3, 4, 5, 6])
+        XCTAssertEqual(flatPosts.map(\.depth), [0, 0, 1, 2, 0, 0])
+        XCTAssertEqual(flatPosts[2].replyContext, "回复 #2")
+        XCTAssertEqual(flatPosts[3].replyContext, "回复 #3")
+        XCTAssertTrue(flatPosts[0].showsThreadLine)
+        XCTAssertFalse(flatPosts[5].showsThreadLine)
     }
 
     func testProfileDisplayNameAvoidsAnonymousCopyWhenAuthenticatedIdentityIsMissing() {
@@ -258,14 +137,8 @@ final class FireTopicPresentationTests: XCTestCase {
                 cfClearance: "clearance",
                 csrfToken: "csrf"
             ),
-            bootstrap: BootstrapState(
-                baseUrl: "https://linux.do",
-                discourseBaseUri: "/",
-                sharedSessionKey: "shared-session",
+            bootstrap: makeBootstrap(
                 currentUsername: nil,
-                longPollingBaseUrl: "https://linux.do",
-                turnstileSitekey: nil,
-                topicTrackingStateMeta: "{\"message_bus_last_id\":42}",
                 preloadedJson: "{\"site\":{}}",
                 hasPreloadedData: true
             ),
@@ -282,7 +155,9 @@ final class FireTopicPresentationTests: XCTestCase {
                 canOpenMessageBus: true
             ),
             loginPhase: .cookiesCaptured,
-            hasLoginSession: true
+            hasLoginSession: true,
+            profileDisplayName: "会话已连接",
+            loginPhaseLabel: "账号信息同步中"
         )
 
         XCTAssertEqual(session.profileDisplayName, "会话已连接")
@@ -297,14 +172,8 @@ final class FireTopicPresentationTests: XCTestCase {
                 cfClearance: nil,
                 csrfToken: nil
             ),
-            bootstrap: BootstrapState(
-                baseUrl: "https://linux.do",
-                discourseBaseUri: nil,
-                sharedSessionKey: nil,
+            bootstrap: makeBootstrap(
                 currentUsername: "alice",
-                longPollingBaseUrl: nil,
-                turnstileSitekey: nil,
-                topicTrackingStateMeta: nil,
                 preloadedJson: nil,
                 hasPreloadedData: false
             ),
@@ -321,11 +190,34 @@ final class FireTopicPresentationTests: XCTestCase {
                 canOpenMessageBus: false
             ),
             loginPhase: .ready,
-            hasLoginSession: true
+            hasLoginSession: true,
+            profileDisplayName: "alice",
+            loginPhaseLabel: "已就绪"
         )
 
         XCTAssertEqual(session.profileDisplayName, "alice")
         XCTAssertEqual(session.profileStatusTitle, "已就绪")
+    }
+
+    private func makeBootstrap(
+        currentUsername: String?,
+        preloadedJson: String?,
+        hasPreloadedData: Bool
+    ) -> BootstrapState {
+        BootstrapState(
+            baseUrl: "https://linux.do",
+            discourseBaseUri: "/",
+            sharedSessionKey: "shared-session",
+            currentUsername: currentUsername,
+            longPollingBaseUrl: "https://linux.do",
+            turnstileSitekey: nil,
+            topicTrackingStateMeta: "{\"message_bus_last_id\":42}",
+            preloadedJson: preloadedJson,
+            hasPreloadedData: hasPreloadedData,
+            categories: [],
+            enabledReactionIds: ["heart"],
+            minPostLength: 1
+        )
     }
 
     private func makePost(

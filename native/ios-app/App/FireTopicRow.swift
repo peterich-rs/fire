@@ -54,7 +54,9 @@ struct FireTopicRow: View {
                         .foregroundStyle(FireTheme.subtleInk)
                         .lineLimit(1)
 
-                    if let createdTimestampText = row.createdTimestampText {
+                    if let createdTimestampText = FireTopicPresentation.compactTimestamp(
+                        unixMs: row.createdTimestampUnixMs
+                    ) {
                         Text(createdTimestampText)
                             .font(.caption2)
                             .foregroundStyle(FireTheme.tertiaryInk)

@@ -6,6 +6,7 @@ mod error;
 mod logging;
 mod parsing;
 mod session_store;
+mod sync_utils;
 mod topic_payloads;
 mod workspace;
 

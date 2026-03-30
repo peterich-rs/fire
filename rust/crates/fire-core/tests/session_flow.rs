@@ -27,6 +27,13 @@ fn apply_home_html_extracts_bootstrap_and_readiness() {
         Some("turnstile-key")
     );
     assert!(snapshot.bootstrap.has_preloaded_data);
+    assert_eq!(snapshot.bootstrap.categories.len(), 1);
+    assert_eq!(snapshot.bootstrap.categories[0].name, "Rust");
+    assert_eq!(
+        snapshot.bootstrap.enabled_reaction_ids,
+        vec!["heart", "clap", "tada"]
+    );
+    assert_eq!(snapshot.bootstrap.min_post_length, 20);
 }
 
 #[test]
@@ -62,6 +69,52 @@ fn sync_login_context_merges_platform_cookies_and_html() {
     assert_eq!(snapshot.login_phase(), LoginPhase::Ready);
     assert!(snapshot.readiness().can_write_authenticated_api);
     assert!(snapshot.readiness().can_open_message_bus);
+}
+
+#[tokio::test]
+async fn refresh_bootstrap_if_needed_skips_for_unauthenticated_session() {
+    let core = FireCore::new(FireCoreConfig::default()).expect("core");
+
+    let snapshot = core
+        .refresh_bootstrap_if_needed()
+        .await
+        .expect("refresh should be skipped");
+
+    assert_eq!(snapshot, core.snapshot());
+    assert!(!snapshot.readiness().can_read_authenticated_api);
+}
+
+#[tokio::test]
+async fn refresh_csrf_token_if_needed_skips_when_token_exists() {
+    let core = FireCore::new(FireCoreConfig::default()).expect("core");
+    let _ = core.sync_login_context(LoginSyncInput {
+        username: Some("alice".into()),
+        home_html: None,
+        csrf_token: Some("csrf-token".into()),
+        current_url: Some("https://linux.do/".into()),
+        cookies: vec![
+            PlatformCookie {
+                name: "_t".into(),
+                value: "token".into(),
+                domain: None,
+                path: None,
+            },
+            PlatformCookie {
+                name: "_forum_session".into(),
+                value: "forum".into(),
+                domain: None,
+                path: None,
+            },
+        ],
+    });
+
+    let snapshot = core
+        .refresh_csrf_token_if_needed()
+        .await
+        .expect("refresh should be skipped");
+
+    assert_eq!(snapshot.cookies.csrf_token.as_deref(), Some("csrf-token"));
+    assert_eq!(snapshot, core.snapshot());
 }
 
 #[test]

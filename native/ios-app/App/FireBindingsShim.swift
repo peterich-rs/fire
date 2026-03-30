@@ -51,6 +51,9 @@ public struct BootstrapState: Codable, Sendable {
     public var topicTrackingStateMeta: String?
     public var preloadedJson: String?
     public var hasPreloadedData: Bool
+    public var categories: [TopicCategoryState]
+    public var enabledReactionIds: [String]
+    public var minPostLength: UInt32
 
     public init(
         baseUrl: String,
@@ -61,7 +64,10 @@ public struct BootstrapState: Codable, Sendable {
         turnstileSitekey: String? = nil,
         topicTrackingStateMeta: String? = nil,
         preloadedJson: String? = nil,
-        hasPreloadedData: Bool = false
+        hasPreloadedData: Bool = false,
+        categories: [TopicCategoryState] = [],
+        enabledReactionIds: [String] = ["heart"],
+        minPostLength: UInt32 = 1
     ) {
         self.baseUrl = baseUrl
         self.discourseBaseUri = discourseBaseUri
@@ -72,6 +78,9 @@ public struct BootstrapState: Codable, Sendable {
         self.topicTrackingStateMeta = topicTrackingStateMeta
         self.preloadedJson = preloadedJson
         self.hasPreloadedData = hasPreloadedData
+        self.categories = categories
+        self.enabledReactionIds = enabledReactionIds
+        self.minPostLength = minPostLength
     }
 }
 
@@ -118,19 +127,25 @@ public struct SessionState: Codable, Sendable {
     public var readiness: SessionReadinessState
     public var loginPhase: LoginPhaseState
     public var hasLoginSession: Bool
+    public var profileDisplayName: String
+    public var loginPhaseLabel: String
 
     public init(
         cookies: CookieState,
         bootstrap: BootstrapState,
         readiness: SessionReadinessState,
         loginPhase: LoginPhaseState,
-        hasLoginSession: Bool
+        hasLoginSession: Bool,
+        profileDisplayName: String,
+        loginPhaseLabel: String
     ) {
         self.cookies = cookies
         self.bootstrap = bootstrap
         self.readiness = readiness
         self.loginPhase = loginPhase
         self.hasLoginSession = hasLoginSession
+        self.profileDisplayName = profileDisplayName
+        self.loginPhaseLabel = loginPhaseLabel
     }
 }
 
@@ -223,6 +238,31 @@ public struct TopicTagState: Codable, Sendable {
     }
 }
 
+public struct TopicCategoryState: Codable, Sendable {
+    public var id: UInt64
+    public var name: String
+    public var slug: String
+    public var parentCategoryId: UInt64?
+    public var colorHex: String?
+    public var textColorHex: String?
+
+    public init(
+        id: UInt64,
+        name: String,
+        slug: String,
+        parentCategoryId: UInt64?,
+        colorHex: String?,
+        textColorHex: String?
+    ) {
+        self.id = id
+        self.name = name
+        self.slug = slug
+        self.parentCategoryId = parentCategoryId
+        self.colorHex = colorHex
+        self.textColorHex = textColorHex
+    }
+}
+
 public struct TopicSummaryState: Codable, Sendable {
     public var id: UInt64
     public var title: String
@@ -305,15 +345,56 @@ public struct TopicSummaryState: Codable, Sendable {
     }
 }
 
+public struct TopicRowState: Codable, Sendable {
+    public var topic: TopicSummaryState
+    public var excerptText: String?
+    public var originalPosterUsername: String?
+    public var originalPosterAvatarTemplate: String?
+    public var tagNames: [String]
+    public var createdTimestampUnixMs: UInt64?
+    public var activityTimestampUnixMs: UInt64?
+    public var lastPosterUsername: String?
+
+    public init(
+        topic: TopicSummaryState,
+        excerptText: String?,
+        originalPosterUsername: String?,
+        originalPosterAvatarTemplate: String?,
+        tagNames: [String],
+        createdTimestampUnixMs: UInt64?,
+        activityTimestampUnixMs: UInt64?,
+        lastPosterUsername: String?
+    ) {
+        self.topic = topic
+        self.excerptText = excerptText
+        self.originalPosterUsername = originalPosterUsername
+        self.originalPosterAvatarTemplate = originalPosterAvatarTemplate
+        self.tagNames = tagNames
+        self.createdTimestampUnixMs = createdTimestampUnixMs
+        self.activityTimestampUnixMs = activityTimestampUnixMs
+        self.lastPosterUsername = lastPosterUsername
+    }
+}
+
 public struct TopicListState: Codable, Sendable {
     public var topics: [TopicSummaryState]
     public var users: [TopicUserState]
+    public var rows: [TopicRowState]
     public var moreTopicsUrl: String?
+    public var nextPage: UInt32?
 
-    public init(topics: [TopicSummaryState], users: [TopicUserState], moreTopicsUrl: String?) {
+    public init(
+        topics: [TopicSummaryState],
+        users: [TopicUserState],
+        rows: [TopicRowState] = [],
+        moreTopicsUrl: String?,
+        nextPage: UInt32? = nil
+    ) {
         self.topics = topics
         self.users = users
+        self.rows = rows
         self.moreTopicsUrl = moreTopicsUrl
+        self.nextPage = nextPage
     }
 }
 
@@ -461,6 +542,41 @@ public struct TopicPostStreamState: Codable, Sendable {
     }
 }
 
+public struct TopicThreadReplyState: Codable, Sendable {
+    public var postNumber: UInt32
+    public var depth: UInt32
+    public var parentPostNumber: UInt32?
+
+    public init(postNumber: UInt32, depth: UInt32, parentPostNumber: UInt32?) {
+        self.postNumber = postNumber
+        self.depth = depth
+        self.parentPostNumber = parentPostNumber
+    }
+}
+
+public struct TopicThreadSectionState: Codable, Sendable {
+    public var anchorPostNumber: UInt32
+    public var replies: [TopicThreadReplyState]
+
+    public init(anchorPostNumber: UInt32, replies: [TopicThreadReplyState]) {
+        self.anchorPostNumber = anchorPostNumber
+        self.replies = replies
+    }
+}
+
+public struct TopicThreadState: Codable, Sendable {
+    public var originalPostNumber: UInt32?
+    public var replySections: [TopicThreadSectionState]
+
+    public init(
+        originalPostNumber: UInt32? = nil,
+        replySections: [TopicThreadSectionState] = []
+    ) {
+        self.originalPostNumber = originalPostNumber
+        self.replySections = replySections
+    }
+}
+
 public struct TopicDetailCreatedByState: Codable, Sendable {
     public var id: UInt64
     public var username: String
@@ -511,6 +627,7 @@ public struct TopicDetailState: Codable, Sendable {
     public var hasSummary: Bool
     public var archetype: String?
     public var postStream: TopicPostStreamState
+    public var thread: TopicThreadState
     public var details: TopicDetailMetaState
 
     public init(
@@ -535,6 +652,7 @@ public struct TopicDetailState: Codable, Sendable {
         hasSummary: Bool,
         archetype: String?,
         postStream: TopicPostStreamState,
+        thread: TopicThreadState = TopicThreadState(),
         details: TopicDetailMetaState
     ) {
         self.id = id
@@ -558,6 +676,7 @@ public struct TopicDetailState: Codable, Sendable {
         self.hasSummary = hasSummary
         self.archetype = archetype
         self.postStream = postStream
+        self.thread = thread
         self.details = details
     }
 }
@@ -802,6 +921,12 @@ public final class FireCoreHandle {
         return state
     }
 
+    public func mergePlatformCookies(cookies: [PlatformCookieState]) throws -> SessionState {
+        mergeCookies(cookies)
+        updateDerivedState()
+        return state
+    }
+
     public func refreshBootstrap() throws -> SessionState {
         state.bootstrap.hasPreloadedData = true
         if state.bootstrap.currentUsername == nil {
@@ -811,12 +936,29 @@ public final class FireCoreHandle {
         return state
     }
 
+    public func refreshBootstrapIfNeeded() throws -> SessionState {
+        let needsBootstrapRefresh = !state.bootstrap.hasPreloadedData
+            || !state.readiness.hasCurrentUser
+            || !state.readiness.hasSharedSessionKey
+        if state.readiness.canReadAuthenticatedApi && needsBootstrapRefresh {
+            return try refreshBootstrap()
+        }
+        return state
+    }
+
     public func refreshCsrfToken() throws -> SessionState {
         if state.cookies.csrfToken == nil {
             state.cookies.csrfToken = UUID().uuidString
         }
         updateDerivedState()
         return state
+    }
+
+    public func refreshCsrfTokenIfNeeded() throws -> SessionState {
+        if state.cookies.csrfToken != nil {
+            return state
+        }
+        return try refreshCsrfToken()
     }
 
     public func exportSessionJson() throws -> String {
@@ -864,7 +1006,9 @@ public final class FireCoreHandle {
         return TopicListState(
             topics: topics,
             users: sampleUsers(),
-            moreTopicsUrl: "/latest?page=1"
+            rows: sampleTopicRows(topics: topics, users: sampleUsers()),
+            moreTopicsUrl: "/latest?page=1",
+            nextPage: 1
         )
     }
 
@@ -977,6 +1121,30 @@ public final class FireCoreHandle {
             if !canWriteAuthenticatedApi || !state.bootstrap.hasPreloadedData { return .bootstrapCaptured }
             return .ready
         }()
+        state.profileDisplayName = {
+            if let username = state.bootstrap.currentUsername, !username.isEmpty {
+                return username
+            }
+            if canReadAuthenticatedApi || hasLoginCookie {
+                return "会话已连接"
+            }
+            return "未登录"
+        }()
+        state.loginPhaseLabel = {
+            if canReadAuthenticatedApi && !hasCurrentUser {
+                return "账号信息同步中"
+            }
+            switch state.loginPhase {
+            case .anonymous:
+                return "未登录"
+            case .cookiesCaptured:
+                return "Cookie 已同步"
+            case .bootstrapCaptured:
+                return "会话初始化中"
+            case .ready:
+                return "已就绪"
+            }
+        }()
     }
 
     private func sampleUsers() -> [TopicUserState] {
@@ -986,6 +1154,26 @@ public final class FireCoreHandle {
             TopicUserState(id: 2, username: "bob", avatarTemplate: "/user_avatar/linux.do/bob/{size}/2.png"),
             TopicUserState(id: 3, username: currentUsername, avatarTemplate: "/user_avatar/linux.do/\(currentUsername)/{size}/3.png"),
         ]
+    }
+
+    private func sampleTopicRows(
+        topics: [TopicSummaryState],
+        users: [TopicUserState]
+    ) -> [TopicRowState] {
+        let usersById = Dictionary(uniqueKeysWithValues: users.map { ($0.id, $0) })
+        return topics.map { topic in
+            let originalPoster = topic.posters.first.flatMap { usersById[$0.userId] }
+            return TopicRowState(
+                topic: topic,
+                excerptText: topic.excerpt,
+                originalPosterUsername: originalPoster?.username,
+                originalPosterAvatarTemplate: originalPoster?.avatarTemplate,
+                tagNames: topic.tags.compactMap { !$0.name.isEmpty ? $0.name : $0.slug },
+                createdTimestampUnixMs: nil,
+                activityTimestampUnixMs: nil,
+                lastPosterUsername: topic.lastPosterUsername
+            )
+        }
     }
 
     private func sampleTopics(for kind: TopicListKindState) -> [TopicSummaryState] {

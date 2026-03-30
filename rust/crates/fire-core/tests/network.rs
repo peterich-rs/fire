@@ -59,6 +59,34 @@ async fn fetch_topic_list_parses_latest_payload() {
     );
     assert_eq!(response.users[0].username, "alice");
     assert_eq!(response.more_topics_url.as_deref(), Some("/latest?page=1"));
+    assert_eq!(response.next_page, Some(1));
+    assert_eq!(response.rows.len(), 1);
+    assert_eq!(response.rows[0].topic.id, 123);
+    assert_eq!(
+        response.rows[0].excerpt_text.as_deref(),
+        Some("topic excerpt")
+    );
+    assert_eq!(
+        response.rows[0].original_poster_username.as_deref(),
+        Some("alice")
+    );
+    assert_eq!(
+        response.rows[0].original_poster_avatar_template.as_deref(),
+        Some("/user_avatar/linux.do/alice/{size}/1_2.png")
+    );
+    assert_eq!(response.rows[0].tag_names, vec!["rust", "linuxdo"]);
+    assert_eq!(
+        response.rows[0].created_timestamp_unix_ms,
+        Some(1_774_656_000_000)
+    );
+    assert_eq!(
+        response.rows[0].activity_timestamp_unix_ms,
+        Some(1_774_659_600_000)
+    );
+    assert_eq!(
+        response.rows[0].last_poster_username.as_deref(),
+        Some("alice")
+    );
 }
 
 #[tokio::test]
@@ -144,6 +172,69 @@ async fn fetch_topic_list_tolerates_object_tags_and_null_counters() {
     assert_eq!(response.topics[0].unread_posts, 0);
     assert_eq!(response.topics[0].new_posts, 0);
     assert!(!response.topics[0].can_have_answer);
+    assert_eq!(response.rows[0].tag_names, vec!["Rust", "LinuxDo"]);
+}
+
+#[tokio::test]
+async fn fetch_topic_list_builds_plain_text_excerpt_for_rows() {
+    let payload = sample_latest_json().replace(
+        r#""excerpt": "topic excerpt""#,
+        r#""excerpt": "<p>Hello&nbsp;<strong>Fire</strong></p>""#,
+    );
+    let responses = vec![raw_json_response(200, "application/json", &payload)];
+    let server = TestServer::spawn(responses).await.expect("server");
+    let core = FireCore::new(FireCoreConfig {
+        base_url: server.base_url(),
+        workspace_path: None,
+    })
+    .expect("core");
+
+    let response = core
+        .fetch_topic_list(TopicListQuery {
+            kind: TopicListKind::Latest,
+            page: None,
+            topic_ids: Vec::new(),
+            order: None,
+            ascending: None,
+        })
+        .await
+        .expect("topic list");
+    let _ = server.shutdown().await;
+
+    assert_eq!(response.rows[0].excerpt_text.as_deref(), Some("Hello Fire"));
+}
+
+#[tokio::test]
+async fn fetch_topic_list_surfaces_cloudflare_challenge_error() {
+    let responses = vec![raw_text_response(
+        403,
+        r#"<html><head><title>Just a moment...</title></head><body>__cf_chl_opt</body></html>"#,
+    )];
+    let server = TestServer::spawn(responses).await.expect("server");
+    let core = FireCore::new(FireCoreConfig {
+        base_url: server.base_url(),
+        workspace_path: None,
+    })
+    .expect("core");
+
+    let error = core
+        .fetch_topic_list(TopicListQuery {
+            kind: TopicListKind::Latest,
+            page: None,
+            topic_ids: Vec::new(),
+            order: None,
+            ascending: None,
+        })
+        .await
+        .expect_err("cloudflare challenge should surface as an error");
+    let _ = server.shutdown().await;
+
+    assert!(matches!(
+        error,
+        FireCoreError::CloudflareChallenge {
+            operation: "fetch topic list"
+        }
+    ));
 }
 
 #[tokio::test]
@@ -192,6 +283,8 @@ async fn fetch_topic_detail_parses_detail_payload() {
     );
     assert_eq!(detail.post_stream.posts.len(), 1);
     assert_eq!(detail.post_stream.posts[0].username, "alice");
+    assert_eq!(detail.thread.original_post_number, Some(1));
+    assert_eq!(detail.thread.reply_sections.len(), 0);
     assert_eq!(
         detail
             .details
@@ -550,6 +643,58 @@ async fn create_reply_surfaces_pending_review_state() {
     assert!(matches!(
         error,
         FireCoreError::PostEnqueued { pending_count: 2 }
+    ));
+}
+
+#[tokio::test]
+async fn create_reply_surfaces_cloudflare_challenge_error() {
+    let responses = vec![raw_text_response(
+        403,
+        r#"<html><body><h1>Just a moment</h1><script src="/cdn-cgi/challenge-platform/h/g/orchestrate/chl_page/v1"></script></body></html>"#,
+    )];
+    let server = TestServer::spawn(responses).await.expect("server");
+    let core = FireCore::new(FireCoreConfig {
+        base_url: server.base_url(),
+        workspace_path: None,
+    })
+    .expect("core");
+
+    let _ = core.sync_login_context(LoginSyncInput {
+        username: Some("alice".into()),
+        home_html: None,
+        csrf_token: Some("csrf".into()),
+        current_url: Some(server.base_url()),
+        cookies: vec![
+            PlatformCookie {
+                name: "_t".into(),
+                value: "token".into(),
+                domain: None,
+                path: None,
+            },
+            PlatformCookie {
+                name: "_forum_session".into(),
+                value: "forum".into(),
+                domain: None,
+                path: None,
+            },
+        ],
+    });
+
+    let error = core
+        .create_reply(TopicReplyRequest {
+            topic_id: 123,
+            raw: "Reply body".into(),
+            reply_to_post_number: Some(1),
+        })
+        .await
+        .expect_err("cloudflare challenge should surface as an error");
+    let _ = server.shutdown().await;
+
+    assert!(matches!(
+        error,
+        FireCoreError::CloudflareChallenge {
+            operation: "create reply"
+        }
     ));
 }
 

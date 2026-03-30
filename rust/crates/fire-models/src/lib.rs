@@ -45,18 +45,18 @@ impl CookieSnapshot {
     }
 
     pub fn merge_platform_cookies(&mut self, cookies: &[PlatformCookie]) {
-        for cookie in cookies {
-            match cookie.name.as_str() {
-                "_t" => merge_string_patch(&mut self.t_token, Some(cookie.value.clone())),
-                "_forum_session" => {
-                    merge_string_patch(&mut self.forum_session, Some(cookie.value.clone()));
-                }
-                "cf_clearance" => {
-                    merge_string_patch(&mut self.cf_clearance, Some(cookie.value.clone()));
-                }
-                _ => {}
-            }
-        }
+        merge_string_patch(
+            &mut self.t_token,
+            latest_non_empty_platform_cookie_value(cookies, "_t"),
+        );
+        merge_string_patch(
+            &mut self.forum_session,
+            latest_non_empty_platform_cookie_value(cookies, "_forum_session"),
+        );
+        merge_string_patch(
+            &mut self.cf_clearance,
+            latest_non_empty_platform_cookie_value(cookies, "cf_clearance"),
+        );
     }
 
     pub fn clear_login_state(&mut self, preserve_cf_clearance: bool) {
@@ -69,7 +69,7 @@ impl CookieSnapshot {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BootstrapArtifacts {
     pub base_url: String,
     pub discourse_base_uri: Option<String>,
@@ -80,6 +80,31 @@ pub struct BootstrapArtifacts {
     pub topic_tracking_state_meta: Option<String>,
     pub preloaded_json: Option<String>,
     pub has_preloaded_data: bool,
+    #[serde(default)]
+    pub categories: Vec<TopicCategory>,
+    #[serde(default = "default_enabled_reaction_ids")]
+    pub enabled_reaction_ids: Vec<String>,
+    #[serde(default = "default_min_post_length")]
+    pub min_post_length: u32,
+}
+
+impl Default for BootstrapArtifacts {
+    fn default() -> Self {
+        Self {
+            base_url: String::new(),
+            discourse_base_uri: None,
+            shared_session_key: None,
+            current_username: None,
+            long_polling_base_url: None,
+            turnstile_sitekey: None,
+            topic_tracking_state_meta: None,
+            preloaded_json: None,
+            has_preloaded_data: false,
+            categories: Vec::new(),
+            enabled_reaction_ids: default_enabled_reaction_ids(),
+            min_post_length: default_min_post_length(),
+        }
+    }
 }
 
 impl BootstrapArtifacts {
@@ -115,12 +140,23 @@ impl BootstrapArtifacts {
             if preloaded_json.is_empty() {
                 self.preloaded_json = None;
                 self.has_preloaded_data = false;
+                self.categories = Vec::new();
+                self.enabled_reaction_ids = default_enabled_reaction_ids();
+                self.min_post_length = default_min_post_length();
             } else {
                 self.preloaded_json = Some(preloaded_json);
                 self.has_preloaded_data = true;
+                self.categories = patch.categories.clone();
+                self.enabled_reaction_ids =
+                    normalized_enabled_reaction_ids(patch.enabled_reaction_ids.clone());
+                self.min_post_length = patch.min_post_length.max(1);
             }
         } else if patch.has_preloaded_data {
             self.has_preloaded_data = true;
+            self.categories = patch.categories.clone();
+            self.enabled_reaction_ids =
+                normalized_enabled_reaction_ids(patch.enabled_reaction_ids.clone());
+            self.min_post_length = patch.min_post_length.max(1);
         }
     }
 
@@ -131,6 +167,9 @@ impl BootstrapArtifacts {
         self.topic_tracking_state_meta = None;
         self.preloaded_json = None;
         self.has_preloaded_data = false;
+        self.categories = Vec::new();
+        self.enabled_reaction_ids = default_enabled_reaction_ids();
+        self.min_post_length = default_min_post_length();
     }
 }
 
@@ -213,9 +252,47 @@ impl SessionSnapshot {
         LoginPhase::Ready
     }
 
+    pub fn profile_display_name(&self) -> String {
+        if let Some(current_username) = self
+            .bootstrap
+            .current_username
+            .as_deref()
+            .filter(|value| !value.is_empty())
+        {
+            return current_username.to_string();
+        }
+
+        let readiness = self.readiness();
+        if readiness.can_read_authenticated_api || self.cookies.has_login_session() {
+            "会话已连接".to_string()
+        } else {
+            "未登录".to_string()
+        }
+    }
+
+    pub fn login_phase_label(&self) -> String {
+        let readiness = self.readiness();
+        if readiness.can_read_authenticated_api && !readiness.has_current_user {
+            "账号信息同步中".to_string()
+        } else {
+            self.login_phase().title().to_string()
+        }
+    }
+
     pub fn clear_login_state(&mut self, preserve_cf_clearance: bool) {
         self.cookies.clear_login_state(preserve_cf_clearance);
         self.bootstrap.clear_login_state();
+    }
+}
+
+impl LoginPhase {
+    pub fn title(self) -> &'static str {
+        match self {
+            Self::Anonymous => "未登录",
+            Self::CookiesCaptured => "Cookie 已同步",
+            Self::BootstrapCaptured => "会话初始化中",
+            Self::Ready => "已就绪",
+        }
     }
 }
 
@@ -274,6 +351,16 @@ pub struct TopicTag {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TopicCategory {
+    pub id: u64,
+    pub name: String,
+    pub slug: String,
+    pub parent_category_id: Option<u64>,
+    pub color_hex: Option<String>,
+    pub text_color_hex: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TopicSummary {
     pub id: u64,
     pub title: String,
@@ -303,10 +390,25 @@ pub struct TopicSummary {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TopicRow {
+    pub topic: TopicSummary,
+    pub excerpt_text: Option<String>,
+    pub original_poster_username: Option<String>,
+    pub original_poster_avatar_template: Option<String>,
+    pub tag_names: Vec<String>,
+    pub created_timestamp_unix_ms: Option<u64>,
+    pub activity_timestamp_unix_ms: Option<u64>,
+    pub last_poster_username: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TopicListResponse {
     pub topics: Vec<TopicSummary>,
     pub users: Vec<TopicUser>,
+    #[serde(default)]
+    pub rows: Vec<TopicRow>,
     pub more_topics_url: Option<String>,
+    pub next_page: Option<u32>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -334,13 +436,6 @@ pub struct TopicReplyRequest {
     pub topic_id: u64,
     pub raw: String,
     pub reply_to_post_number: Option<u32>,
-}
-
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct CreateReplyResult {
-    pub post: Option<TopicPost>,
-    pub pending_review: bool,
-    pub pending_count: u32,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -381,6 +476,121 @@ pub struct TopicPostStream {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TopicThreadReply {
+    pub post_number: u32,
+    pub depth: u32,
+    pub parent_post_number: Option<u32>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TopicThreadSection {
+    pub anchor_post_number: u32,
+    pub replies: Vec<TopicThreadReply>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TopicThread {
+    pub original_post_number: Option<u32>,
+    pub reply_sections: Vec<TopicThreadSection>,
+}
+
+impl TopicThread {
+    pub fn from_posts(posts: &[TopicPost]) -> Self {
+        let Some(original_post) = posts.iter().min_by_key(|post| post.post_number) else {
+            return Self::default();
+        };
+
+        let root_post_number = original_post.post_number;
+        let post_numbers: std::collections::HashSet<u32> =
+            posts.iter().map(|post| post.post_number).collect();
+        let mut children_by_parent: std::collections::BTreeMap<u32, Vec<&TopicPost>> =
+            std::collections::BTreeMap::new();
+
+        for post in posts
+            .iter()
+            .filter(|post| post.post_number != root_post_number)
+        {
+            let Some(parent_post_number) = normalized_reply_target(post.reply_to_post_number)
+            else {
+                continue;
+            };
+            if parent_post_number == post.post_number {
+                continue;
+            }
+            children_by_parent
+                .entry(parent_post_number)
+                .or_default()
+                .push(post);
+        }
+
+        let mut consumed_post_numbers = std::collections::HashSet::from([root_post_number]);
+        let mut reply_sections = Vec::new();
+
+        for post in posts
+            .iter()
+            .filter(|post| post.post_number != root_post_number)
+        {
+            if consumed_post_numbers.contains(&post.post_number) {
+                continue;
+            }
+
+            let normalized_parent = normalized_reply_target(post.reply_to_post_number);
+            let should_start_section = normalized_parent.is_none()
+                || normalized_parent == Some(root_post_number)
+                || normalized_parent.is_some_and(|parent| !post_numbers.contains(&parent));
+            if !should_start_section {
+                continue;
+            }
+
+            consumed_post_numbers.insert(post.post_number);
+            let mut branch_visited = std::collections::HashSet::from([post.post_number]);
+            let replies = flatten_thread_replies(
+                post.post_number,
+                1,
+                &children_by_parent,
+                &mut consumed_post_numbers,
+                &mut branch_visited,
+            );
+            reply_sections.push(TopicThreadSection {
+                anchor_post_number: post.post_number,
+                replies,
+            });
+        }
+
+        let remaining_post_numbers: Vec<u32> = posts
+            .iter()
+            .filter(|post| post.post_number != root_post_number)
+            .map(|post| post.post_number)
+            .filter(|post_number| !consumed_post_numbers.contains(post_number))
+            .collect();
+
+        for post_number in remaining_post_numbers {
+            let Some(post) = posts.iter().find(|post| post.post_number == post_number) else {
+                continue;
+            };
+            consumed_post_numbers.insert(post.post_number);
+            let mut branch_visited = std::collections::HashSet::from([post.post_number]);
+            let replies = flatten_thread_replies(
+                post.post_number,
+                1,
+                &children_by_parent,
+                &mut consumed_post_numbers,
+                &mut branch_visited,
+            );
+            reply_sections.push(TopicThreadSection {
+                anchor_post_number: post.post_number,
+                replies,
+            });
+        }
+
+        Self {
+            original_post_number: Some(root_post_number),
+            reply_sections,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TopicDetailCreatedBy {
     pub id: u64,
     pub username: String,
@@ -417,6 +627,8 @@ pub struct TopicDetail {
     pub has_summary: bool,
     pub archetype: Option<String>,
     pub post_stream: TopicPostStream,
+    #[serde(default)]
+    pub thread: TopicThread,
     pub details: TopicDetailMeta,
 }
 
@@ -434,9 +646,90 @@ fn is_non_empty(value: Option<&str>) -> bool {
     value.is_some_and(|value| !value.is_empty())
 }
 
+fn latest_non_empty_platform_cookie_value(
+    cookies: &[PlatformCookie],
+    name: &str,
+) -> Option<String> {
+    cookies
+        .iter()
+        .rev()
+        .find(|cookie| cookie.name == name && !cookie.value.is_empty())
+        .map(|cookie| cookie.value.clone())
+}
+
+fn default_enabled_reaction_ids() -> Vec<String> {
+    vec!["heart".to_string()]
+}
+
+fn default_min_post_length() -> u32 {
+    1
+}
+
+fn normalized_enabled_reaction_ids(ids: Vec<String>) -> Vec<String> {
+    let mut normalized = Vec::new();
+    for id in ids {
+        let trimmed = id.trim();
+        if trimmed.is_empty() || normalized.iter().any(|existing| existing == trimmed) {
+            continue;
+        }
+        normalized.push(trimmed.to_string());
+    }
+
+    if normalized.is_empty() {
+        default_enabled_reaction_ids()
+    } else {
+        normalized
+    }
+}
+
+fn normalized_reply_target(reply_to_post_number: Option<u32>) -> Option<u32> {
+    reply_to_post_number.filter(|post_number| *post_number > 0)
+}
+
+fn flatten_thread_replies(
+    parent_post_number: u32,
+    depth: u32,
+    children_by_parent: &std::collections::BTreeMap<u32, Vec<&TopicPost>>,
+    consumed_post_numbers: &mut std::collections::HashSet<u32>,
+    branch_visited: &mut std::collections::HashSet<u32>,
+) -> Vec<TopicThreadReply> {
+    let Some(children) = children_by_parent.get(&parent_post_number) else {
+        return Vec::new();
+    };
+
+    let mut replies = Vec::new();
+    for child in children {
+        if branch_visited.contains(&child.post_number) {
+            continue;
+        }
+
+        consumed_post_numbers.insert(child.post_number);
+        replies.push(TopicThreadReply {
+            post_number: child.post_number,
+            depth,
+            parent_post_number: normalized_reply_target(child.reply_to_post_number),
+        });
+
+        branch_visited.insert(child.post_number);
+        replies.extend(flatten_thread_replies(
+            child.post_number,
+            depth + 1,
+            children_by_parent,
+            consumed_post_numbers,
+            branch_visited,
+        ));
+        branch_visited.remove(&child.post_number);
+    }
+
+    replies
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{BootstrapArtifacts, CookieSnapshot, LoginPhase, PlatformCookie, SessionSnapshot};
+    use super::{
+        BootstrapArtifacts, CookieSnapshot, LoginPhase, PlatformCookie, SessionSnapshot, TopicPost,
+        TopicThread,
+    };
 
     #[test]
     fn platform_cookie_merge_updates_known_auth_fields() {
@@ -465,6 +758,63 @@ mod tests {
         assert!(cookies.has_login_session());
         assert!(cookies.has_forum_session());
         assert!(cookies.has_cloudflare_clearance());
+    }
+
+    #[test]
+    fn platform_cookie_merge_keeps_existing_values_when_batch_has_only_empty_values() {
+        let mut cookies = CookieSnapshot {
+            t_token: Some("token".into()),
+            forum_session: Some("forum".into()),
+            cf_clearance: Some("clearance".into()),
+            csrf_token: None,
+        };
+
+        cookies.merge_platform_cookies(&[
+            PlatformCookie {
+                name: "_t".into(),
+                value: String::new(),
+                domain: None,
+                path: None,
+            },
+            PlatformCookie {
+                name: "_forum_session".into(),
+                value: String::new(),
+                domain: None,
+                path: None,
+            },
+        ]);
+
+        assert_eq!(cookies.t_token.as_deref(), Some("token"));
+        assert_eq!(cookies.forum_session.as_deref(), Some("forum"));
+        assert_eq!(cookies.cf_clearance.as_deref(), Some("clearance"));
+    }
+
+    #[test]
+    fn platform_cookie_merge_uses_latest_non_empty_value_per_cookie_name() {
+        let mut cookies = CookieSnapshot::default();
+
+        cookies.merge_platform_cookies(&[
+            PlatformCookie {
+                name: "_t".into(),
+                value: "stale".into(),
+                domain: None,
+                path: None,
+            },
+            PlatformCookie {
+                name: "_t".into(),
+                value: String::new(),
+                domain: None,
+                path: None,
+            },
+            PlatformCookie {
+                name: "_t".into(),
+                value: "fresh".into(),
+                domain: None,
+                path: None,
+            },
+        ]);
+
+        assert_eq!(cookies.t_token.as_deref(), Some("fresh"));
     }
 
     #[test]
@@ -526,6 +876,9 @@ mod tests {
                 topic_tracking_state_meta: Some("{\"seq\":1}".into()),
                 preloaded_json: Some("{\"ok\":true}".into()),
                 has_preloaded_data: true,
+                categories: Vec::new(),
+                enabled_reaction_ids: vec!["heart".into(), "clap".into()],
+                min_post_length: 20,
             },
         };
 
@@ -541,5 +894,72 @@ mod tests {
             snapshot.bootstrap.turnstile_sitekey.as_deref(),
             Some("sitekey")
         );
+        assert_eq!(snapshot.bootstrap.categories, Vec::new());
+        assert_eq!(snapshot.bootstrap.enabled_reaction_ids, vec!["heart"]);
+        assert_eq!(snapshot.bootstrap.min_post_length, 1);
+    }
+
+    #[test]
+    fn topic_thread_groups_nested_replies_without_duplication() {
+        let thread = TopicThread::from_posts(&[
+            topic_post(1, None),
+            topic_post(2, Some(1)),
+            topic_post(3, Some(2)),
+            topic_post(4, Some(3)),
+            topic_post(5, Some(1)),
+            topic_post(6, Some(99)),
+        ]);
+
+        assert_eq!(thread.original_post_number, Some(1));
+        assert_eq!(
+            thread
+                .reply_sections
+                .iter()
+                .map(|section| section.anchor_post_number)
+                .collect::<Vec<_>>(),
+            vec![2, 5, 6]
+        );
+        assert_eq!(
+            thread.reply_sections[0]
+                .replies
+                .iter()
+                .map(|reply| reply.post_number)
+                .collect::<Vec<_>>(),
+            vec![3, 4]
+        );
+        assert_eq!(
+            thread.reply_sections[0]
+                .replies
+                .iter()
+                .map(|reply| reply.depth)
+                .collect::<Vec<_>>(),
+            vec![1, 2]
+        );
+    }
+
+    fn topic_post(post_number: u32, reply_to_post_number: Option<u32>) -> TopicPost {
+        TopicPost {
+            id: u64::from(post_number),
+            username: format!("user-{post_number}"),
+            name: None,
+            avatar_template: None,
+            cooked: format!("<p>{post_number}</p>"),
+            post_number,
+            post_type: 1,
+            created_at: None,
+            updated_at: None,
+            like_count: 0,
+            reply_count: 0,
+            reply_to_post_number,
+            bookmarked: false,
+            bookmark_id: None,
+            reactions: Vec::new(),
+            current_user_reaction: None,
+            accepted_answer: false,
+            can_edit: false,
+            can_delete: false,
+            can_recover: false,
+            hidden: false,
+        }
     }
 }

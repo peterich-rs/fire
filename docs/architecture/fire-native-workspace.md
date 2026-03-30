@@ -55,6 +55,7 @@ fire/
   - shared models
   - logging integration
   - request tracing integration
+  - Cloudflare challenge detection
 
 ## Dependency Strategy
 
@@ -72,15 +73,16 @@ The first usable session pipeline now lives in the Rust workspace:
   - defines the shared login/session snapshot
   - tracks auth cookies, CSRF, bootstrap artifacts, login phase, and session readiness
 - `fire-core`
-  - merges platform-synced cookies from iOS/Android WebView
+  - merges platform-synced cookies from iOS/Android WebView with shared latest-non-empty cookie semantics
   - parses homepage HTML for `csrf-token`, `shared_session_key`, `discourse-base-uri`, `data-preloaded`, and Turnstile `sitekey`
-  - derives `currentUser.username`, `siteSettings.long_polling_base_url`, and `topicTrackingStateMeta` from `data-preloaded`
-  - exposes network-backed `refresh_bootstrap`, `refresh_csrf_token`, `logout_remote`, and local `logout_local`
+  - derives `currentUser.username`, `siteSettings.long_polling_base_url`, `topicTrackingStateMeta`, bootstrap category metadata, enabled reaction ids, and minimum reply length from `data-preloaded`
+  - exposes network-backed `refresh_bootstrap`, `refresh_bootstrap_if_needed`, `refresh_csrf_token`, `refresh_csrf_token_if_needed`, `logout_remote`, and local `logout_local`
   - can export/import persisted session JSON and save/load session snapshots from disk for cold-start restoration
   - keeps an in-process request trace timeline for every Rust-owned HTTP call, including execution-chain events, headers, and captured response bodies
   - exposes workspace log file listing/reading, including the readable tracing mirror under `diagnostics/`
-  - exposes authenticated topic list and topic detail fetching for `latest/new/unread/unseen/hot/top` plus tracked topic detail requests
+  - exposes authenticated topic list and topic detail fetching for `latest/new/unread/unseen/hot/top`, including Rust-owned topic-row view-model derivation, `next_page` derivation, and reply-thread regrouping for topic detail post streams
   - retries one logout request on `BAD CSRF` after refreshing `/session/csrf`
+  - classifies Cloudflare challenge HTML into a dedicated shared error instead of leaving 403 body sniffing to each host
 - `fire-uniffi`
   - exports the session snapshot, readiness flags, login sync input, bootstrap sync APIs, persistence APIs, diagnostics APIs, topic APIs, and logout APIs to Swift/Kotlin
   - now exposes network-backed APIs as native async UniFFI methods for Swift/Kotlin instead of re-wrapping them as synchronous FFI calls
@@ -98,8 +100,8 @@ The intended native integration order is:
 3. Call `sync_login_context` in Rust with `_t`, `_forum_session`, `cf_clearance`, optional username, CSRF, and homepage HTML.
 4. Persist the latest session snapshot through `export_session_json` or `save_session_to_path`.
 5. On cold start, restore the snapshot through `restore_session_json` or `load_session_from_path`.
-6. If homepage HTML is unavailable or stale, or the restored authenticated snapshot is missing username/shared-session bootstrap fields, call `refresh_bootstrap`.
-7. If write APIs need a newer token, call `refresh_csrf_token`.
+6. If homepage HTML is unavailable or stale, or the restored authenticated snapshot is missing username/shared-session bootstrap fields, call `refresh_bootstrap_if_needed`.
+7. If write APIs need a newer token, call `refresh_csrf_token_if_needed`.
 8. Use `fetch_topic_list` and `fetch_topic_detail` for the first authenticated read path.
 9. On explicit logout, prefer `logout_remote`, then fall back to `logout_local`, clear the persisted session, and remove host-side WebView auth cookies so the native shell and platform browser state agree.
 
@@ -119,7 +121,7 @@ Current file ownership convention:
 - The current session snapshot remains host-triggered persistence under `session.json` inside that workspace root.
 
 The Android host shell now generates Kotlin UniFFI bindings at build time, packages Rust-backed Android `.so` libraries per build variant, and renders the topic browser against the real shared Rust core. The iOS host shell now does the same at build time for Swift bindings plus a Rust static library and links that output directly into the Xcode target, while keeping the host bindgen step isolated from Xcode's iPhone SDK environment.
-Both native hosts now keep feed pagination state, derive category metadata from bootstrap `data-preloaded.site.categories`, and render richer topic/detail metadata on top of the shared Rust topic APIs. The iOS host has now moved past the developer-style `List` shell into a more formal SwiftUI workspace with a session gate, feed console, spotlight topic paging, dense thread scanning, adaptive light/dark theming, and full-screen login chrome, while Android topic detail already opens in a dedicated native screen. Topic detail reply streams are now regrouped natively into top-level floors plus nested follow-up replies using `reply_to_post_number`; the iOS detail screen hides the tab bar as a dedicated reading page, promotes the original post into the header as the main topic body, keeps a persistent bottom quick-reply input, and exposes like/custom-reaction toggles through shared Rust write APIs. Cooked post bodies no longer collapse purely to plain text on iOS: the host now renders normalized native text plus inline image attachments, while richer custom cooked modules still await a fuller native renderer.
+Both native hosts now keep feed selection and screen-local UI state, while Rust owns the shared derived data that used to be reimplemented per host: session display labels, topic-list row shaping, topic-list `next_page`, bootstrap category metadata, enabled reaction ids, minimum reply length, and topic-detail reply-thread regrouping. The iOS host has now moved past the developer-style `List` shell into a more formal SwiftUI workspace with a session gate, feed console, adaptive light/dark theming, and full-screen login chrome, while Android topic detail already opens in a dedicated native screen. The iOS detail screen hides the tab bar as a dedicated reading page, promotes the original post into the header as the main topic body, keeps a persistent bottom quick-reply input, and exposes like/custom-reaction toggles through shared Rust write APIs. Cooked post bodies no longer collapse purely to plain text on iOS: the host now renders normalized native text plus inline image attachments, while richer custom cooked modules still await a fuller native renderer.
 
 ## Next Build Steps
 

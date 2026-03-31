@@ -50,7 +50,6 @@ private enum FireTopicInteractionError: LocalizedError {
 final class FireAppViewModel: ObservableObject {
     @Published private(set) var session: SessionState = .placeholder()
     @Published private(set) var selectedTopicKind: TopicListKindState = .latest
-    @Published private(set) var topics: [TopicSummaryState] = []
     @Published private(set) var topicRows: [FireTopicRowPresentation] = []
     @Published private(set) var moreTopicsUrl: String?
     @Published private(set) var nextTopicsPage: UInt32?
@@ -69,7 +68,6 @@ final class FireAppViewModel: ObservableObject {
     private var sessionStore: FireSessionStore?
     private var loginCoordinator: FireWebViewLoginCoordinator?
     private var sessionStoreInitializationTask: Task<FireSessionStore, Error>?
-    private var topicUsers: [TopicUserState] = []
     private let loginURL = URL(string: "https://linux.do")!
 
     init() {}
@@ -267,7 +265,7 @@ final class FireAppViewModel: ObservableObject {
     }
 
     func enabledReactionOptions() -> [FireReactionOption] {
-        FireTopicPresentation.enabledReactionOptions(from: session.bootstrap.preloadedJson)
+        FireTopicPresentation.enabledReactionOptions(from: session.bootstrap.enabledReactionIds)
     }
 
     func submitReply(
@@ -435,7 +433,7 @@ final class FireAppViewModel: ObservableObject {
         if isLoadingTopics {
             return
         }
-        if reset && !force && !topics.isEmpty {
+        if reset && !force && !topicRows.isEmpty {
             return
         }
 
@@ -459,28 +457,20 @@ final class FireAppViewModel: ObservableObject {
                     ascending: nil
                 )
             )
-            let mergedTopics = reset ? response.topics : mergeTopics(existing: topics, incoming: response.topics)
-            let mergedTopicUsers = reset
-                ? response.users
-                : mergeTopicUsers(existing: topicUsers, incoming: response.users)
-            let visibleTopicIDs = Set(mergedTopics.map(\.id))
-            let topicRows = await Task.detached(priority: .userInitiated) {
-                FireTopicPresentation.buildRowPresentations(from: mergedTopics, users: mergedTopicUsers)
-            }.value
+            let mergedTopicRows = reset
+                ? response.rows
+                : mergeTopicRows(existing: topicRows, incoming: response.rows)
+            let visibleTopicIDs = Set(mergedTopicRows.map(\.topic.id))
             guard requestedKind == selectedTopicKind else {
                 return
             }
-            topics = mergedTopics
-            topicUsers = mergedTopicUsers
-            self.topicRows = topicRows
+            topicRows = mergedTopicRows
             moreTopicsUrl = response.moreTopicsUrl
-            nextTopicsPage = FireTopicPresentation.nextPage(from: response.moreTopicsUrl)
+            nextTopicsPage = response.nextPage
             topicDetails = topicDetails.filter { visibleTopicIDs.contains($0.key) }
             loadingTopicIDs = loadingTopicIDs.intersection(visibleTopicIDs)
         } catch {
             if reset {
-                topics = []
-                topicUsers = []
                 topicRows = []
                 moreTopicsUrl = nil
                 nextTopicsPage = nil
@@ -490,8 +480,6 @@ final class FireAppViewModel: ObservableObject {
     }
 
     private func clearTopicState() {
-        topics = []
-        topicUsers = []
         topicRows = []
         moreTopicsUrl = nil
         nextTopicsPage = nil
@@ -506,14 +494,7 @@ final class FireAppViewModel: ObservableObject {
     private func applySession(_ session: SessionState) async {
         self.session = session
         session.mirrorCookiesToNativeStorage()
-        let preloadedJSON = session.bootstrap.preloadedJson
-        let categories = await Task.detached(priority: .userInitiated) {
-            FireTopicPresentation.parseCategories(from: preloadedJSON)
-        }.value
-        guard self.session.bootstrap.preloadedJson == preloadedJSON else {
-            return
-        }
-        topicCategories = categories
+        topicCategories = Dictionary(uniqueKeysWithValues: session.bootstrap.categories.map { ($0.id, $0) })
     }
 
     private func refreshTopicDetailAfterMutation(
@@ -539,7 +520,7 @@ final class FireAppViewModel: ObservableObject {
         do {
             return try await operation()
         } catch {
-            guard isCloudflareChallenge(error) else {
+            guard case FireUniFfiError.CloudflareChallenge = error else {
                 throw error
             }
 
@@ -548,7 +529,7 @@ final class FireAppViewModel: ObservableObject {
             do {
                 return try await operation()
             } catch {
-                guard isCloudflareChallenge(error) else {
+                guard case FireUniFfiError.CloudflareChallenge = error else {
                     throw error
                 }
                 isPresentingLogin = true
@@ -561,20 +542,6 @@ final class FireAppViewModel: ObservableObject {
         let loginCoordinator = try await loginCoordinatorValue()
         let session = try await loginCoordinator.refreshPlatformCookies()
         await applySession(session)
-    }
-
-    private func isCloudflareChallenge(_ error: Error) -> Bool {
-        guard case let FireUniFfiError.HttpStatus(_, status, body) = error else {
-            return false
-        }
-        guard status == 403 else {
-            return false
-        }
-
-        return body.localizedCaseInsensitiveContains("just a moment")
-            || body.localizedCaseInsensitiveContains("cf challenge")
-            || body.contains("__cf_chl_opt")
-            || body.contains("/cdn-cgi/challenge-platform/")
     }
 
     private func applyPostReactionUpdate(
@@ -606,35 +573,18 @@ final class FireAppViewModel: ObservableObject {
         topicDetails[topicId] = detail
     }
 
-    private func mergeTopics(
-        existing: [TopicSummaryState],
-        incoming: [TopicSummaryState]
-    ) -> [TopicSummaryState] {
-        var merged = Dictionary(uniqueKeysWithValues: existing.map { ($0.id, $0) })
-        var orderedIDs = existing.map(\.id)
+    private func mergeTopicRows(
+        existing: [FireTopicRowPresentation],
+        incoming: [FireTopicRowPresentation]
+    ) -> [FireTopicRowPresentation] {
+        var merged = Dictionary(uniqueKeysWithValues: existing.map { ($0.topic.id, $0) })
+        var orderedIDs = existing.map { $0.topic.id }
 
-        for topic in incoming {
-            if merged[topic.id] == nil {
-                orderedIDs.append(topic.id)
+        for row in incoming {
+            if merged[row.topic.id] == nil {
+                orderedIDs.append(row.topic.id)
             }
-            merged[topic.id] = topic
-        }
-
-        return orderedIDs.compactMap { merged[$0] }
-    }
-
-    private func mergeTopicUsers(
-        existing: [TopicUserState],
-        incoming: [TopicUserState]
-    ) -> [TopicUserState] {
-        var merged = Dictionary(uniqueKeysWithValues: existing.map { ($0.id, $0) })
-        var orderedIDs = existing.map(\.id)
-
-        for user in incoming {
-            if merged[user.id] == nil {
-                orderedIDs.append(user.id)
-            }
-            merged[user.id] = user
+            merged[row.topic.id] = row
         }
 
         return orderedIDs.compactMap { merged[$0] }

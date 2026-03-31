@@ -10,16 +10,19 @@ use std::{
 };
 
 use fire_core::{
-    FireCore, FireCoreConfig, FireCoreError, FireLogFileDetail, FireLogFileSummary,
-    NetworkTraceDetail, NetworkTraceEvent, NetworkTraceHeader, NetworkTraceOutcome,
-    NetworkTraceSummary,
+    monogram_for_username as shared_monogram_for_username,
+    plain_text_from_html as shared_plain_text_from_html,
+    preview_text_from_html as shared_preview_text_from_html, FireCore, FireCoreConfig,
+    FireCoreError, FireLogFileDetail, FireLogFileSummary, NetworkTraceDetail, NetworkTraceEvent,
+    NetworkTraceHeader, NetworkTraceOutcome, NetworkTraceSummary,
 };
 use fire_models::{
     BootstrapArtifacts, CookieSnapshot, LoginPhase, LoginSyncInput, PlatformCookie,
-    PostReactionUpdate, SessionReadiness, SessionSnapshot, TopicDetail, TopicDetailCreatedBy,
-    TopicDetailMeta, TopicDetailQuery, TopicListKind, TopicListQuery, TopicListResponse, TopicPost,
-    TopicPostStream, TopicPoster, TopicReaction, TopicReplyRequest, TopicSummary, TopicTag,
-    TopicUser,
+    PostReactionUpdate, SessionReadiness, SessionSnapshot, TopicCategory, TopicDetail,
+    TopicDetailCreatedBy, TopicDetailMeta, TopicDetailQuery, TopicListKind, TopicListQuery,
+    TopicListResponse, TopicPost, TopicPostStream, TopicPoster, TopicReaction, TopicReplyRequest,
+    TopicRow, TopicSummary, TopicTag, TopicThread, TopicThreadFlatPost, TopicThreadReply,
+    TopicThreadSection, TopicUser,
 };
 use futures_util::FutureExt;
 use tokio::runtime::{Builder, Runtime};
@@ -177,6 +180,42 @@ impl From<CookieState> for CookieSnapshot {
 }
 
 #[derive(uniffi::Record, Debug, Clone)]
+pub struct TopicCategoryState {
+    pub id: u64,
+    pub name: String,
+    pub slug: String,
+    pub parent_category_id: Option<u64>,
+    pub color_hex: Option<String>,
+    pub text_color_hex: Option<String>,
+}
+
+impl From<TopicCategory> for TopicCategoryState {
+    fn from(value: TopicCategory) -> Self {
+        Self {
+            id: value.id,
+            name: value.name,
+            slug: value.slug,
+            parent_category_id: value.parent_category_id,
+            color_hex: value.color_hex,
+            text_color_hex: value.text_color_hex,
+        }
+    }
+}
+
+impl From<TopicCategoryState> for TopicCategory {
+    fn from(value: TopicCategoryState) -> Self {
+        Self {
+            id: value.id,
+            name: value.name,
+            slug: value.slug,
+            parent_category_id: value.parent_category_id,
+            color_hex: value.color_hex,
+            text_color_hex: value.text_color_hex,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
 pub struct BootstrapState {
     pub base_url: String,
     pub discourse_base_uri: Option<String>,
@@ -187,6 +226,9 @@ pub struct BootstrapState {
     pub topic_tracking_state_meta: Option<String>,
     pub preloaded_json: Option<String>,
     pub has_preloaded_data: bool,
+    pub categories: Vec<TopicCategoryState>,
+    pub enabled_reaction_ids: Vec<String>,
+    pub min_post_length: u32,
 }
 
 impl From<BootstrapArtifacts> for BootstrapState {
@@ -201,6 +243,9 @@ impl From<BootstrapArtifacts> for BootstrapState {
             topic_tracking_state_meta: value.topic_tracking_state_meta,
             preloaded_json: value.preloaded_json,
             has_preloaded_data: value.has_preloaded_data,
+            categories: value.categories.into_iter().map(Into::into).collect(),
+            enabled_reaction_ids: value.enabled_reaction_ids,
+            min_post_length: value.min_post_length,
         }
     }
 }
@@ -217,6 +262,9 @@ impl From<BootstrapState> for BootstrapArtifacts {
             topic_tracking_state_meta: value.topic_tracking_state_meta,
             preloaded_json: value.preloaded_json,
             has_preloaded_data: value.has_preloaded_data,
+            categories: value.categories.into_iter().map(Into::into).collect(),
+            enabled_reaction_ids: value.enabled_reaction_ids,
+            min_post_length: value.min_post_length,
         }
     }
 }
@@ -311,6 +359,8 @@ pub struct SessionState {
     pub readiness: SessionReadinessState,
     pub login_phase: LoginPhaseState,
     pub has_login_session: bool,
+    pub profile_display_name: String,
+    pub login_phase_label: String,
 }
 
 impl SessionState {
@@ -319,6 +369,8 @@ impl SessionState {
         let login_phase = snapshot.login_phase();
         Self {
             has_login_session: snapshot.cookies.has_login_session(),
+            profile_display_name: snapshot.profile_display_name(),
+            login_phase_label: snapshot.login_phase_label(),
             cookies: snapshot.cookies.into(),
             bootstrap: snapshot.bootstrap.into(),
             readiness: readiness.into(),
@@ -509,10 +561,51 @@ impl From<TopicSummary> for TopicSummaryState {
 }
 
 #[derive(uniffi::Record, Debug, Clone)]
+pub struct TopicRowState {
+    pub topic: TopicSummaryState,
+    pub excerpt_text: Option<String>,
+    pub original_poster_username: Option<String>,
+    pub original_poster_avatar_template: Option<String>,
+    pub tag_names: Vec<String>,
+    pub status_labels: Vec<String>,
+    pub is_pinned: bool,
+    pub is_closed: bool,
+    pub is_archived: bool,
+    pub has_accepted_answer: bool,
+    pub has_unread_posts: bool,
+    pub created_timestamp_unix_ms: Option<u64>,
+    pub activity_timestamp_unix_ms: Option<u64>,
+    pub last_poster_username: Option<String>,
+}
+
+impl From<TopicRow> for TopicRowState {
+    fn from(value: TopicRow) -> Self {
+        Self {
+            topic: value.topic.into(),
+            excerpt_text: value.excerpt_text,
+            original_poster_username: value.original_poster_username,
+            original_poster_avatar_template: value.original_poster_avatar_template,
+            tag_names: value.tag_names,
+            status_labels: value.status_labels,
+            is_pinned: value.is_pinned,
+            is_closed: value.is_closed,
+            is_archived: value.is_archived,
+            has_accepted_answer: value.has_accepted_answer,
+            has_unread_posts: value.has_unread_posts,
+            created_timestamp_unix_ms: value.created_timestamp_unix_ms,
+            activity_timestamp_unix_ms: value.activity_timestamp_unix_ms,
+            last_poster_username: value.last_poster_username,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
 pub struct TopicListState {
     pub topics: Vec<TopicSummaryState>,
     pub users: Vec<TopicUserState>,
+    pub rows: Vec<TopicRowState>,
     pub more_topics_url: Option<String>,
+    pub next_page: Option<u32>,
 }
 
 impl From<TopicListResponse> for TopicListState {
@@ -520,7 +613,9 @@ impl From<TopicListResponse> for TopicListState {
         Self {
             topics: value.topics.into_iter().map(Into::into).collect(),
             users: value.users.into_iter().map(Into::into).collect(),
+            rows: value.rows.into_iter().map(Into::into).collect(),
             more_topics_url: value.more_topics_url,
+            next_page: value.next_page,
         }
     }
 }
@@ -681,6 +776,74 @@ impl From<TopicPostStream> for TopicPostStreamState {
 }
 
 #[derive(uniffi::Record, Debug, Clone)]
+pub struct TopicThreadReplyState {
+    pub post_number: u32,
+    pub depth: u32,
+    pub parent_post_number: Option<u32>,
+}
+
+impl From<TopicThreadReply> for TopicThreadReplyState {
+    fn from(value: TopicThreadReply) -> Self {
+        Self {
+            post_number: value.post_number,
+            depth: value.depth,
+            parent_post_number: value.parent_post_number,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct TopicThreadSectionState {
+    pub anchor_post_number: u32,
+    pub replies: Vec<TopicThreadReplyState>,
+}
+
+impl From<TopicThreadSection> for TopicThreadSectionState {
+    fn from(value: TopicThreadSection) -> Self {
+        Self {
+            anchor_post_number: value.anchor_post_number,
+            replies: value.replies.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct TopicThreadState {
+    pub original_post_number: Option<u32>,
+    pub reply_sections: Vec<TopicThreadSectionState>,
+}
+
+impl From<TopicThread> for TopicThreadState {
+    fn from(value: TopicThread) -> Self {
+        Self {
+            original_post_number: value.original_post_number,
+            reply_sections: value.reply_sections.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct TopicThreadFlatPostState {
+    pub post: TopicPostState,
+    pub depth: u32,
+    pub parent_post_number: Option<u32>,
+    pub shows_thread_line: bool,
+    pub is_original_post: bool,
+}
+
+impl From<TopicThreadFlatPost> for TopicThreadFlatPostState {
+    fn from(value: TopicThreadFlatPost) -> Self {
+        Self {
+            post: value.post.into(),
+            depth: value.depth,
+            parent_post_number: value.parent_post_number,
+            shows_thread_line: value.shows_thread_line,
+            is_original_post: value.is_original_post,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
 pub struct TopicDetailCreatedByState {
     pub id: u64,
     pub username: String,
@@ -737,6 +900,8 @@ pub struct TopicDetailState {
     pub has_summary: bool,
     pub archetype: Option<String>,
     pub post_stream: TopicPostStreamState,
+    pub thread: TopicThreadState,
+    pub flat_posts: Vec<TopicThreadFlatPostState>,
     pub details: TopicDetailMetaState,
 }
 
@@ -764,6 +929,8 @@ impl From<TopicDetail> for TopicDetailState {
             has_summary: value.has_summary,
             archetype: value.archetype,
             post_stream: value.post_stream.into(),
+            thread: value.thread.into(),
+            flat_posts: value.flat_posts.into_iter().map(Into::into).collect(),
             details: value.details.into(),
         }
     }
@@ -950,6 +1117,8 @@ pub enum FireUniFfiError {
     Authentication { details: String },
     #[error("network error: {details}")]
     Network { details: String },
+    #[error("request requires Cloudflare challenge verification")]
+    CloudflareChallenge,
     #[error("{operation} failed with HTTP {status}: {body}")]
     HttpStatus {
         operation: String,
@@ -983,6 +1152,7 @@ impl From<FireCoreError> for FireUniFfiError {
             FireCoreError::Logger(source) => Self::Configuration {
                 details: source.to_string(),
             },
+            FireCoreError::CloudflareChallenge { .. } => Self::CloudflareChallenge,
             FireCoreError::HttpStatus {
                 operation,
                 status,
@@ -1052,6 +1222,21 @@ impl From<FireCoreError> for FireUniFfiError {
             },
         }
     }
+}
+
+#[uniffi::export]
+pub fn plain_text_from_html(raw_html: String) -> String {
+    shared_plain_text_from_html(&raw_html)
+}
+
+#[uniffi::export]
+pub fn preview_text_from_html(raw_html: Option<String>) -> Option<String> {
+    shared_preview_text_from_html(raw_html.as_deref())
+}
+
+#[uniffi::export]
+pub fn monogram_for_username(username: String) -> String {
+    shared_monogram_for_username(&username)
 }
 
 #[derive(uniffi::Object)]
@@ -1124,8 +1309,9 @@ impl FireCoreHandle {
         limit: u64,
     ) -> Result<Vec<NetworkTraceSummaryState>, FireUniFfiError> {
         self.run_infallible("list_network_traces", move |inner| {
+            let limit = usize::try_from(limit).unwrap_or(usize::MAX);
             inner
-                .list_network_traces(limit as usize)
+                .list_network_traces(limit)
                 .into_iter()
                 .map(Into::into)
                 .collect()
@@ -1262,6 +1448,17 @@ impl FireCoreHandle {
         })
     }
 
+    pub fn merge_platform_cookies(
+        &self,
+        cookies: Vec<PlatformCookieState>,
+    ) -> Result<SessionState, FireUniFfiError> {
+        self.run_infallible("merge_platform_cookies", move |inner| {
+            SessionState::from_snapshot(
+                inner.merge_platform_cookies(cookies.into_iter().map(Into::into).collect()),
+            )
+        })
+    }
+
     pub fn apply_bootstrap(
         &self,
         bootstrap: BootstrapState,
@@ -1317,6 +1514,16 @@ impl FireCoreHandle {
         Ok(SessionState::from_snapshot(snapshot))
     }
 
+    pub async fn refresh_bootstrap_if_needed(&self) -> Result<SessionState, FireUniFfiError> {
+        let inner = Arc::clone(&self.inner);
+        let panic_state = Arc::clone(&self.panic_state);
+        let snapshot = run_on_ffi_runtime("refresh_bootstrap_if_needed", panic_state, async move {
+            inner.refresh_bootstrap_if_needed().await
+        })
+        .await?;
+        Ok(SessionState::from_snapshot(snapshot))
+    }
+
     pub async fn refresh_csrf_token(&self) -> Result<SessionState, FireUniFfiError> {
         let inner = Arc::clone(&self.inner);
         let panic_state = Arc::clone(&self.panic_state);
@@ -1324,6 +1531,17 @@ impl FireCoreHandle {
             inner.refresh_csrf_token().await
         })
         .await?;
+        Ok(SessionState::from_snapshot(snapshot))
+    }
+
+    pub async fn refresh_csrf_token_if_needed(&self) -> Result<SessionState, FireUniFfiError> {
+        let inner = Arc::clone(&self.inner);
+        let panic_state = Arc::clone(&self.panic_state);
+        let snapshot =
+            run_on_ffi_runtime("refresh_csrf_token_if_needed", panic_state, async move {
+                inner.refresh_csrf_token_if_needed().await
+            })
+            .await?;
         Ok(SessionState::from_snapshot(snapshot))
     }
 
@@ -1434,6 +1652,15 @@ mod tests {
                 body,
             } if operation == "fetch topic list" && body == "slow down"
         ));
+    }
+
+    #[test]
+    fn maps_cloudflare_challenge_errors_to_dedicated_variant() {
+        let error = FireUniFfiError::from(FireCoreError::CloudflareChallenge {
+            operation: "create reply",
+        });
+
+        assert!(matches!(error, FireUniFfiError::CloudflareChallenge));
     }
 
     #[test]

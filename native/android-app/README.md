@@ -29,10 +29,9 @@ Current host-side app wiring lives under `src/main/java/com/fire/app/` plus `src
   - extracts `site.categories` from bootstrap `preloadedJson`
   - parses `more_topics_url` into a native feed page cursor
   - normalizes topic/post timestamps for inline rendering
-  - rebuilds topic replies into floor-oriented sections from `reply_to_post_number` so replies-to-replies stay visually attached to their parent floor
 - `MainActivity.kt`
   - restores the persisted session snapshot on launch and after login
-  - renders a paginated topic browser with feed filters, category-aware topic items, and a focused selected-topic summary
+  - renders a paginated topic browser with feed filters, category-aware Rust-owned topic rows, and a focused selected-topic summary
   - opens topic detail in a dedicated screen instead of fetching and rendering it inline in the feed host
 - `DiagnosticsActivity.kt`, `LogViewerActivity.kt`, `RequestTraceDetailActivity.kt`
   - surface a native diagnostics entry point
@@ -40,8 +39,8 @@ Current host-side app wiring lives under `src/main/java/com/fire/app/` plus `src
   - render a reverse-chronological request trace overview and per-request execution-chain/detail pages
 - `TopicDetailActivity.kt`
   - loads topic detail on demand from the shared Rust API
-  - renders the original post plus floor-oriented reply sections in a dedicated native screen
-  - renders cooked post bodies as safe plain text while topic-detail HTML module handling is still pending
+  - renders the original post plus Rust-generated flat thread posts in a dedicated native screen
+  - renders cooked post bodies through shared Rust plain-text helpers while topic-detail HTML module handling is still pending
 - `LoginActivity.kt`
   - presents login as a full-screen activity with visible page title, URL, and loading state
   - exposes back, forward, home, and reload controls
@@ -71,7 +70,7 @@ Current browser note:
 - Network-backed UniFFI APIs now surface to Kotlin as native `suspend fun` calls instead of a synchronous wrapper.
 - The UniFFI boundary now returns all exported host interactions through `FireUniFfiError`; if Rust panics, the boundary logs the panic, returns an `Internal` error, and poisons the current `FireCoreHandle` so the host can recreate it instead of continuing on corrupted state.
 - `MainActivity` still renders a compact browser shell, but the data path is no longer stubbed.
-- The current browser shell now supports `Load More` pagination and category metadata derived from the shared Rust bootstrap snapshot.
+- The current browser shell now supports `Load More` pagination, category metadata derived from the shared Rust bootstrap snapshot, and Rust-owned row/status presentation data instead of rebuilding those labels on Android.
 - Topic detail now opens in a dedicated activity instead of being embedded under the feed list.
 - The host shell now exposes a diagnostics screen for readable logs and Rust-owned request traces.
 

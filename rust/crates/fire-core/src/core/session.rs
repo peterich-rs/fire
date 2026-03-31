@@ -1,10 +1,27 @@
-use fire_models::{BootstrapArtifacts, CookieSnapshot, LoginSyncInput, SessionSnapshot};
+use fire_models::{
+    BootstrapArtifacts, CookieSnapshot, LoginSyncInput, PlatformCookie, SessionSnapshot,
+};
 use tracing::{debug, info};
 
 use super::FireCore;
-use crate::parsing::parse_home_state;
+use crate::{parsing::parse_home_state, sync_utils::read_rwlock};
 
 impl FireCore {
+    pub fn merge_platform_cookies(&self, cookies: Vec<PlatformCookie>) -> SessionSnapshot {
+        info!(
+            cookie_count = cookies.len(),
+            "merging platform cookies into session"
+        );
+        self.update_session(|session| {
+            session.cookies.merge_platform_cookies(&cookies);
+            debug!(
+                phase = ?session.login_phase(),
+                readiness = ?session.readiness(),
+                "merged platform cookies"
+            );
+        })
+    }
+
     pub fn apply_cookies(&self, cookies: CookieSnapshot) -> SessionSnapshot {
         info!("applying cookie patch to session");
         self.update_session(|session| {
@@ -127,9 +144,7 @@ impl FireCore {
     }
 
     pub fn has_login_session(&self) -> bool {
-        self.session
-            .read()
-            .expect("session poisoned")
+        read_rwlock(&self.session, "session")
             .cookies
             .has_login_session()
     }

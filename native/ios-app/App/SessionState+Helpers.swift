@@ -20,7 +20,10 @@ extension SessionState {
                 turnstileSitekey: nil,
                 topicTrackingStateMeta: nil,
                 preloadedJson: nil,
-                hasPreloadedData: false
+                hasPreloadedData: false,
+                categories: [],
+                enabledReactionIds: ["heart"],
+                minPostLength: 1
             ),
             readiness: SessionReadinessState(
                 hasLoginCookie: false,
@@ -35,48 +38,18 @@ extension SessionState {
                 canOpenMessageBus: false
             ),
             loginPhase: .anonymous,
-            hasLoginSession: false
+            hasLoginSession: false,
+            profileDisplayName: "未登录",
+            loginPhaseLabel: "未登录"
         )
     }
 
-    var profileDisplayName: String {
-        if let currentUsername = bootstrap.currentUsername, !currentUsername.isEmpty {
-            return currentUsername
-        }
-        if readiness.canReadAuthenticatedApi || hasLoginSession {
-            return "会话已连接"
-        }
-        return "未登录"
-    }
-
     var profileStatusTitle: String {
-        if readiness.canReadAuthenticatedApi && !readiness.hasCurrentUser {
-            return "账号信息同步中"
-        }
-        return loginPhase.title
+        loginPhaseLabel
     }
 
     var baseURL: URL {
         URL(string: bootstrap.baseUrl) ?? URL(string: "https://linux.do")!
-    }
-
-    var enabledReactionIDs: [String] {
-        guard
-            let preloadedJson = bootstrap.preloadedJson,
-            let data = preloadedJson.data(using: .utf8),
-            let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-            let siteSettings = root["siteSettings"] as? [String: Any],
-            let reactions = siteSettings["discourse_reactions_enabled_reactions"] as? String
-        else {
-            return ["heart"]
-        }
-
-        let values = reactions
-            .split(separator: "|")
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-
-        return values.isEmpty ? ["heart"] : values
     }
 
     func mirrorCookiesToNativeStorage() {
@@ -115,21 +88,6 @@ extension SessionState {
                 .path: "/",
                 .secure: baseURL.scheme?.lowercased() == "https",
             ])
-        }
-    }
-}
-
-extension LoginPhaseState {
-    var title: String {
-        switch self {
-        case .anonymous:
-            return "未登录"
-        case .cookiesCaptured:
-            return "Cookie 已同步"
-        case .bootstrapCaptured:
-            return "会话初始化中"
-        case .ready:
-            return "已就绪"
         }
     }
 }

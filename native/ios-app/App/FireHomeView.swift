@@ -76,9 +76,9 @@ struct FireHomeView: View {
 
     private var topicListSection: some View {
         Section {
-            ForEach(viewModel.topicRows, id: \.topic.id) { topicRow in
+            ForEach(viewModel.topicRows, id: \.id) { topicRow in
                 NavigationLink {
-                    FireTopicDetailView(viewModel: viewModel, row: topicRow)
+                    FireTopicDetailView(viewModel: viewModel, topic: topicRow.topic)
                 } label: {
                     FireTopicRow(
                         row: topicRow,

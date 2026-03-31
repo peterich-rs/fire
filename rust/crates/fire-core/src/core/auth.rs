@@ -4,7 +4,7 @@ use serde::Deserialize;
 use tracing::{debug, info, warn};
 
 use super::{
-    network::{classify_http_status_error, expect_success, header_value, is_bad_csrf_body},
+    network::{expect_success, header_value, is_bad_csrf_body},
     FireCore,
 };
 use crate::error::FireCoreError;
@@ -16,20 +16,6 @@ struct CsrfResponse {
 }
 
 impl FireCore {
-    pub async fn refresh_bootstrap_if_needed(&self) -> Result<SessionSnapshot, FireCoreError> {
-        let current = self.snapshot();
-        let readiness = current.readiness();
-        let needs_bootstrap_refresh = !current.bootstrap.has_preloaded_data
-            || !readiness.has_current_user
-            || !readiness.has_shared_session_key;
-
-        if readiness.can_read_authenticated_api && needs_bootstrap_refresh {
-            self.refresh_bootstrap().await
-        } else {
-            Ok(current)
-        }
-    }
-
     pub async fn refresh_bootstrap(&self) -> Result<SessionSnapshot, FireCoreError> {
         info!("refreshing bootstrap via home page request");
         let traced = self.build_home_request("refresh bootstrap")?;
@@ -60,15 +46,6 @@ impl FireCore {
             "bootstrap refresh complete"
         );
         Ok(result)
-    }
-
-    pub async fn refresh_csrf_token_if_needed(&self) -> Result<SessionSnapshot, FireCoreError> {
-        let current = self.snapshot();
-        if current.cookies.csrf_token.is_some() {
-            Ok(current)
-        } else {
-            self.refresh_csrf_token().await
-        }
     }
 
     pub async fn refresh_csrf_token(&self) -> Result<SessionSnapshot, FireCoreError> {
@@ -141,11 +118,11 @@ impl FireCore {
                 return Ok(self.logout_local(preserve_cf_clearance));
             }
 
-            return Err(classify_http_status_error(
-                "logout",
-                StatusCode::FORBIDDEN.as_u16(),
+            return Err(FireCoreError::HttpStatus {
+                operation: "logout",
+                status: StatusCode::FORBIDDEN.as_u16(),
                 body,
-            ));
+            });
         }
 
         let response = expect_success(self, "logout", trace_id, response).await?;

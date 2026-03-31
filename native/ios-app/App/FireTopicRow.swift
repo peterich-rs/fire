@@ -33,15 +33,15 @@ struct FireTopicRow: View {
                         tagChip(tagName)
                     }
 
-                    if row.isPinned {
+                    if row.topic.pinned {
                         statusIcon("pin.fill", color: .orange)
                     }
 
-                    if row.hasAcceptedAnswer {
+                    if row.topic.hasAcceptedAnswer {
                         statusIcon("checkmark.circle.fill", color: .green)
                     }
 
-                    if row.hasUnreadPosts {
+                    if row.topic.unreadPosts > 0 {
                         unreadDot
                     }
                 }
@@ -54,9 +54,7 @@ struct FireTopicRow: View {
                         .foregroundStyle(FireTheme.subtleInk)
                         .lineLimit(1)
 
-                    if let createdTimestampText = FireTopicPresentation.compactTimestamp(
-                        unixMs: row.createdTimestampUnixMs
-                    ) {
+                    if let createdTimestampText = row.createdTimestampText {
                         Text(createdTimestampText)
                             .font(.caption2)
                             .foregroundStyle(FireTheme.tertiaryInk)

@@ -5,8 +5,6 @@ use http::header::HeaderValue;
 use openwire::CookieJar;
 use url::Url;
 
-use crate::sync_utils::{read_rwlock, write_rwlock};
-
 #[derive(Clone)]
 pub(crate) struct FireSessionCookieJar {
     base_url: Url,
@@ -46,7 +44,7 @@ impl CookieJar for FireSessionCookieJar {
             return;
         }
 
-        let mut session = write_rwlock(&self.session, "session");
+        let mut session = self.session.write().expect("session poisoned");
         session.cookies.merge_patch(&patch);
     }
 
@@ -55,7 +53,7 @@ impl CookieJar for FireSessionCookieJar {
             return None;
         }
 
-        let session = read_rwlock(&self.session, "session");
+        let session = self.session.read().expect("session poisoned");
         let cookies = build_cookie_header(&session.cookies);
         if cookies.is_empty() {
             return None;

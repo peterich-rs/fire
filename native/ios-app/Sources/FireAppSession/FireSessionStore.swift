@@ -78,7 +78,15 @@ public actor FireSessionStore {
 
     @discardableResult
     public func applyPlatformCookies(_ cookies: [PlatformCookieState]) throws -> SessionState {
-        let state = try core.mergePlatformCookies(cookies: cookies)
+        let current = try core.snapshot()
+        let state = try core.applyCookies(
+            cookies: CookieState(
+                tToken: latestCookieValue(named: "_t", from: cookies) ?? current.cookies.tToken,
+                forumSession: latestCookieValue(named: "_forum_session", from: cookies) ?? current.cookies.forumSession,
+                cfClearance: latestCookieValue(named: "cf_clearance", from: cookies) ?? current.cookies.cfClearance,
+                csrfToken: current.cookies.csrfToken
+            )
+        )
         try persistCurrentSession()
         return state
     }
@@ -92,21 +100,28 @@ public actor FireSessionStore {
 
     @discardableResult
     public func refreshBootstrapIfNeeded() async throws -> SessionState {
-        let before = try core.exportSessionJson()
-        let refreshed = try await core.refreshBootstrapIfNeeded()
-        if try core.exportSessionJson() != before {
-            try persistCurrentSession()
+        let current = try core.snapshot()
+        let readiness = current.readiness
+        let needsBootstrapRefresh = !current.bootstrap.hasPreloadedData
+            || !readiness.hasCurrentUser
+            || !readiness.hasSharedSessionKey
+
+        guard readiness.canReadAuthenticatedApi, needsBootstrapRefresh else {
+            return current
         }
-        return refreshed
+
+        return try await refreshBootstrap()
     }
 
     @discardableResult
     public func refreshCsrfTokenIfNeeded() async throws -> SessionState {
-        let before = try core.exportSessionJson()
-        let refreshed = try await core.refreshCsrfTokenIfNeeded()
-        if try core.exportSessionJson() != before {
-            try persistCurrentSession()
+        let current = try core.snapshot()
+        if current.cookies.csrfToken != nil {
+            return current
         }
+
+        let refreshed = try await core.refreshCsrfToken()
+        try persistCurrentSession()
         return refreshed
     }
 
@@ -198,6 +213,13 @@ public actor FireSessionStore {
         reactionID: String
     ) async throws -> PostReactionUpdateState {
         try await core.togglePostReaction(postId: postID, reactionId: reactionID)
+    }
+
+    private func latestCookieValue(
+        named name: String,
+        from cookies: [PlatformCookieState]
+    ) -> String? {
+        cookies.last(where: { $0.name == name && !$0.value.isEmpty })?.value
     }
 
     @discardableResult

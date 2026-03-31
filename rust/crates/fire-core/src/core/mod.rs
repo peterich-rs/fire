@@ -24,13 +24,8 @@ use crate::{
     },
     error::FireCoreError,
     logging::logger_runtime_for_workspace,
-    sync_utils::{read_rwlock, write_rwlock},
     workspace::{normalize_workspace_path, validate_workspace_relative_path},
 };
-use std::time::Duration;
-
-const NETWORK_CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
-const NETWORK_CALL_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Clone)]
 pub struct FireCore {
@@ -66,8 +61,6 @@ impl FireCore {
         let diagnostics = Arc::new(FireDiagnosticsStore::new());
         let client = Client::builder()
             .cookie_jar(cookie_jar)
-            .connect_timeout(NETWORK_CONNECT_TIMEOUT)
-            .call_timeout(NETWORK_CALL_TIMEOUT)
             .event_listener_factory(FireNetworkTraceEventListenerFactory::new(Arc::clone(
                 &diagnostics,
             )))
@@ -111,7 +104,7 @@ impl FireCore {
     }
 
     pub fn snapshot(&self) -> SessionSnapshot {
-        read_rwlock(&self.session, "session").clone()
+        self.session.read().expect("session poisoned").clone()
     }
 
     pub fn shared_client(&self) -> Client {
@@ -149,7 +142,7 @@ impl FireCore {
     where
         F: FnOnce(&mut SessionSnapshot),
     {
-        let mut session = write_rwlock(&self.session, "session");
+        let mut session = self.session.write().expect("session poisoned");
         mutate(&mut session);
         session.clone()
     }

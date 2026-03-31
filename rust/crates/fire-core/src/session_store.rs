@@ -100,7 +100,6 @@ impl From<LegacyBootstrapArtifacts> for BootstrapArtifacts {
             topic_tracking_state_meta: value.topic_tracking_state_meta,
             preloaded_json: value.preloaded_json,
             has_preloaded_data: value.has_preloaded_data,
-            ..BootstrapArtifacts::default()
         }
     }
 }
@@ -153,6 +152,10 @@ pub(crate) fn write_atomic(path: &Path, contents: &[u8]) -> io::Result<()> {
     let temp_path = temp_path_for(path);
     fs::write(&temp_path, contents)?;
 
+    if path.exists() {
+        fs::remove_file(path)?;
+    }
+
     fs::rename(temp_path, path)
 }
 
@@ -170,28 +173,4 @@ fn now_unix_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |duration| duration.as_millis() as u64)
-}
-
-#[cfg(test)]
-mod tests {
-    use std::{env, fs, path::PathBuf};
-
-    use super::write_atomic;
-
-    #[test]
-    fn write_atomic_replaces_existing_file_contents() {
-        let path = temp_path("write-atomic-replaces-existing-file-contents.json");
-        fs::write(&path, b"before").expect("seed file");
-
-        write_atomic(&path, b"after").expect("replace file");
-
-        assert_eq!(fs::read(&path).expect("read file"), b"after");
-        let _ = fs::remove_file(path);
-    }
-
-    fn temp_path(file_name: &str) -> PathBuf {
-        let mut path = env::temp_dir();
-        path.push(format!("fire-core-{file_name}-{}", std::process::id()));
-        path
-    }
 }

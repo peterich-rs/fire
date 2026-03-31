@@ -1,19 +1,12 @@
 use fire_models::{
     PostReactionUpdate, TopicDetail, TopicDetailCreatedBy, TopicDetailMeta, TopicListResponse,
-    TopicPost, TopicPostStream, TopicPoster, TopicReaction, TopicRow, TopicSummary, TopicTag,
-    TopicThread, TopicUser,
+    TopicPost, TopicPostStream, TopicPoster, TopicReaction, TopicSummary, TopicTag, TopicUser,
 };
 use serde::{
     de::{DeserializeOwned, Error as DeError},
     Deserialize, Deserializer,
 };
 use serde_json::Value;
-use std::{any::type_name, collections::HashMap};
-use time::{format_description::well_known::Rfc3339, OffsetDateTime};
-use tracing::warn;
-
-use crate::preview_text_from_html;
-use crate::topic_status_labels;
 
 #[derive(Debug, Default, Deserialize)]
 pub(crate) struct RawTopicListResponse {
@@ -25,21 +18,15 @@ pub(crate) struct RawTopicListResponse {
 
 impl From<RawTopicListResponse> for TopicListResponse {
     fn from(value: RawTopicListResponse) -> Self {
-        let topics: Vec<TopicSummary> = value
-            .topic_list
-            .topics
-            .into_iter()
-            .map(Into::into)
-            .collect();
-        let users: Vec<TopicUser> = value.users.into_iter().map(Into::into).collect();
-        let next_page = next_page_from_more_topics_url(value.topic_list.more_topics_url.as_deref());
-        let rows = topic_rows_from_topics_and_users(&topics, &users);
         Self {
-            topics,
-            users,
-            rows,
+            topics: value
+                .topic_list
+                .topics
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+            users: value.users.into_iter().map(Into::into).collect(),
             more_topics_url: value.topic_list.more_topics_url,
-            next_page,
         }
     }
 }
@@ -179,111 +166,6 @@ impl From<RawTopicSummary> for TopicSummary {
             can_have_answer: value.can_have_answer,
         }
     }
-}
-
-fn topic_rows_from_topics_and_users(topics: &[TopicSummary], users: &[TopicUser]) -> Vec<TopicRow> {
-    let users_by_id: HashMap<u64, &TopicUser> = users.iter().map(|user| (user.id, user)).collect();
-    topics
-        .iter()
-        .cloned()
-        .map(|topic| topic_row_from_topic(topic, &users_by_id))
-        .collect()
-}
-
-fn topic_row_from_topic(topic: TopicSummary, users_by_id: &HashMap<u64, &TopicUser>) -> TopicRow {
-    let tag_names = topic_tag_names(&topic.tags);
-    let original_poster = original_poster_user(&topic, users_by_id);
-    TopicRow {
-        excerpt_text: preview_text_from_html(topic.excerpt.as_deref()),
-        original_poster_username: normalized_scalar(
-            original_poster.map(|user| user.username.as_str()),
-        ),
-        original_poster_avatar_template: normalized_scalar(
-            original_poster.and_then(|user| user.avatar_template.as_deref()),
-        ),
-        tag_names,
-        status_labels: topic_status_labels(&topic),
-        is_pinned: topic.pinned,
-        is_closed: topic.closed,
-        is_archived: topic.archived,
-        has_accepted_answer: topic.has_accepted_answer,
-        has_unread_posts: topic.unread_posts > 0,
-        created_timestamp_unix_ms: timestamp_unix_ms(topic.created_at.as_deref()),
-        activity_timestamp_unix_ms: timestamp_unix_ms(
-            topic
-                .last_posted_at
-                .as_deref()
-                .or(topic.created_at.as_deref()),
-        ),
-        last_poster_username: resolved_last_poster_username(&topic),
-        topic,
-    }
-}
-
-fn original_poster_user<'a>(
-    topic: &TopicSummary,
-    users_by_id: &HashMap<u64, &'a TopicUser>,
-) -> Option<&'a TopicUser> {
-    let original_poster = topic
-        .posters
-        .iter()
-        .find(|poster| {
-            poster
-                .description
-                .as_deref()
-                .is_some_and(|value| value.to_ascii_lowercase().contains("original poster"))
-        })
-        .or_else(|| topic.posters.first())?;
-    users_by_id.get(&original_poster.user_id).copied()
-}
-
-fn resolved_last_poster_username(topic: &TopicSummary) -> Option<String> {
-    normalized_scalar(topic.last_poster_username.as_deref())
-        .or_else(|| {
-            topic
-                .posters
-                .first()
-                .and_then(|poster| normalized_scalar(poster.description.as_deref()))
-        })
-        .or_else(|| {
-            topic
-                .posters
-                .first()
-                .map(|poster| format!("User {}", poster.user_id))
-        })
-}
-
-fn topic_tag_names(tags: &[TopicTag]) -> Vec<String> {
-    tags.iter()
-        .filter_map(|tag| {
-            normalized_scalar(Some(tag.name.as_str()))
-                .or_else(|| normalized_scalar(tag.slug.as_deref()))
-        })
-        .take(2)
-        .collect()
-}
-
-fn normalized_scalar(value: Option<&str>) -> Option<String> {
-    let value = value?;
-    let trimmed = value.trim();
-    if trimmed.is_empty() {
-        None
-    } else {
-        Some(trimmed.to_string())
-    }
-}
-
-fn timestamp_unix_ms(raw_value: Option<&str>) -> Option<u64> {
-    let raw_value = raw_value?.trim();
-    if raw_value.is_empty() {
-        return None;
-    }
-
-    let timestamp_ms = OffsetDateTime::parse(raw_value, &Rfc3339)
-        .ok()?
-        .unix_timestamp_nanos()
-        / 1_000_000;
-    u64::try_from(timestamp_ms).ok()
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -518,9 +400,6 @@ pub(crate) struct RawTopicDetail {
 
 impl From<RawTopicDetail> for TopicDetail {
     fn from(value: RawTopicDetail) -> Self {
-        let post_stream: TopicPostStream = value.post_stream.into();
-        let thread = TopicThread::from_posts(&post_stream.posts);
-        let flat_posts = thread.flatten(&post_stream.posts);
         Self {
             id: value.id,
             title: value.title,
@@ -542,38 +421,10 @@ impl From<RawTopicDetail> for TopicDetail {
             has_cached_summary: value.has_cached_summary,
             has_summary: value.has_summary,
             archetype: value.archetype,
-            post_stream,
-            thread,
-            flat_posts,
+            post_stream: value.post_stream.into(),
             details: value.details.into(),
         }
     }
-}
-
-fn next_page_from_more_topics_url(more_topics_url: Option<&str>) -> Option<u32> {
-    let more_topics_url = more_topics_url?.trim();
-    if more_topics_url.is_empty() {
-        return None;
-    }
-
-    [
-        more_topics_url,
-        &format!("https://linux.do{more_topics_url}"),
-    ]
-    .into_iter()
-    .find_map(query_page_parameter)
-}
-
-fn query_page_parameter(url: &str) -> Option<u32> {
-    let query = url.split_once('?')?.1;
-    query.split('&').find_map(|segment| {
-        let (key, value) = segment.split_once('=')?;
-        if key == "page" {
-            value.parse::<u32>().ok()
-        } else {
-            None
-        }
-    })
 }
 
 fn default_visible() -> bool {
@@ -606,21 +457,10 @@ where
         return Ok(Vec::new());
     };
 
-    let record_type = type_name::<T>();
-    let mut records = Vec::with_capacity(values.len());
-    for (index, value) in values.into_iter().enumerate() {
-        match T::deserialize(value) {
-            Ok(record) => records.push(record),
-            Err(error) => warn!(
-                index,
-                record_type,
-                error = %error,
-                "dropping malformed item while deserializing default sequence"
-            ),
-        }
-    }
-
-    Ok(records)
+    Ok(values
+        .into_iter()
+        .filter_map(|value| T::deserialize(value).ok())
+        .collect())
 }
 
 fn deserialize_u64_sequence<'de, D>(deserializer: D) -> Result<Vec<u64>, D::Error>

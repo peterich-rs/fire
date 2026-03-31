@@ -1,17 +1,58 @@
 import Foundation
 import SwiftUI
 
-typealias FireTopicCategoryPresentation = TopicCategoryState
-typealias FireTopicRowPresentation = TopicRowState
-typealias FireTopicFlatPostPresentation = TopicThreadFlatPostState
-typealias FireTopicReplyPresentation = TopicThreadReplyState
-typealias FireTopicReplySectionPresentation = TopicThreadSectionState
-typealias FireTopicThreadPresentation = TopicThreadState
+struct FireTopicCategoryPresentation: Equatable, Sendable {
+    let id: UInt64
+    let name: String
+    let slug: String
+    let parentCategoryID: UInt64?
+    let colorHex: String?
+    let textColorHex: String?
 
-extension TopicCategoryState {
     var displayName: String {
         name.isEmpty ? "Category #\(id)" : name
     }
+}
+
+struct FireTopicRowPresentation: Identifiable, Sendable {
+    let topic: TopicSummaryState
+    let excerptText: String?
+    let originalPosterUsername: String?
+    let originalPosterAvatarTemplate: String?
+    let tagNames: [String]
+    let createdTimestampText: String?
+    let lastPosterUsername: String?
+    let activityTimestampText: String?
+    let statusLabels: [String]
+    let tagSummaryText: String?
+
+    var id: UInt64 {
+        topic.id
+    }
+}
+
+struct FireTopicReplyPresentation: Identifiable, Sendable {
+    let post: TopicPostState
+    let depth: Int
+    let parentPostNumber: UInt32?
+
+    var id: UInt64 {
+        post.id
+    }
+}
+
+struct FireTopicReplySectionPresentation: Identifiable, Sendable {
+    let anchorPost: TopicPostState
+    let replies: [FireTopicReplyPresentation]
+
+    var id: UInt64 {
+        anchorPost.id
+    }
+}
+
+struct FireTopicThreadPresentation: Sendable {
+    let originalPost: TopicPostState?
+    let replySections: [FireTopicReplySectionPresentation]
 }
 
 struct FireCookedImage: Identifiable, Hashable, Sendable {
@@ -37,6 +78,83 @@ struct FireReactionOption: Identifiable, Hashable, Sendable {
 }
 
 enum FireTopicPresentation {
+    static func parseCategories(from preloadedJSON: String?) -> [UInt64: FireTopicCategoryPresentation] {
+        guard
+            let preloadedJSON,
+            let data = preloadedJSON.data(using: .utf8),
+            let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else {
+            return [:]
+        }
+
+        let candidates: [Any?] = [
+            (root["site"] as? [String: Any])?["categories"],
+            (root["site"] as? [String: Any])?["category_list"],
+            root["categories"],
+            root["category_list"],
+        ]
+
+        let categories = candidates
+            .compactMap { value -> [[String: Any]]? in
+                if let dictionaries = value as? [[String: Any]] {
+                    return dictionaries
+                }
+                if let dictionary = value as? [String: Any],
+                   let nested = dictionary["categories"] as? [[String: Any]] {
+                    return nested
+                }
+                if let array = value as? [Any] {
+                    return array.compactMap { $0 as? [String: Any] }
+                }
+                return nil
+            }
+            .first ?? []
+
+        return Dictionary(uniqueKeysWithValues: categories.compactMap { raw in
+            guard let id = unsignedInteger(from: raw["id"]) else {
+                return nil
+            }
+
+            return (
+                id,
+                FireTopicCategoryPresentation(
+                    id: id,
+                    name: stringValue(raw["name"]),
+                    slug: stringValue(raw["slug"]),
+                    parentCategoryID: unsignedInteger(from: raw["parent_category_id"]),
+                    colorHex: stringValue(raw["color"]),
+                    textColorHex: stringValue(raw["text_color"])
+                )
+            )
+        })
+    }
+
+    static func nextPage(from moreTopicsURL: String?) -> UInt32? {
+        guard let moreTopicsURL, !moreTopicsURL.isEmpty else {
+            return nil
+        }
+
+        let candidates = [
+            URLComponents(string: moreTopicsURL),
+            URLComponents(string: "https://linux.do\(moreTopicsURL)"),
+        ]
+
+        for components in candidates {
+            guard let queryItems = components?.queryItems else {
+                continue
+            }
+            if let page = queryItems
+                .first(where: { $0.name == "page" })?
+                .value
+                .flatMap(UInt32.init)
+            {
+                return page
+            }
+        }
+
+        return nil
+    }
+
     static func formatTimestamp(_ rawValue: String?) -> String? {
         guard let rawValue, !rawValue.isEmpty else {
             return nil
@@ -53,17 +171,31 @@ enum FireTopicPresentation {
         TimestampFormatter(style: .compact).format(rawValue)
     }
 
-    static func compactTimestamp(unixMs: UInt64?) -> String? {
-        guard let unixMs else {
-            return nil
-        }
-        return TimestampFormatter(style: .compact).format(
-            date: Date(timeIntervalSince1970: Double(unixMs) / 1000.0)
-        )
-    }
-
     static func compactCount(_ value: UInt32) -> String {
         compactCount(UInt64(value))
+    }
+
+    static func plainText(from html: String) -> String {
+        guard !html.isEmpty else {
+            return ""
+        }
+
+        let normalized = html
+            .replacingOccurrences(of: "<br\\s*/?>", with: "\n", options: .regularExpression)
+            .replacingOccurrences(of: "</p>", with: "\n\n", options: .regularExpression)
+            .replacingOccurrences(of: "</li>", with: "\n", options: .regularExpression)
+        let stripped = normalized
+            .replacingOccurrences(of: "<[^>]+>", with: " ", options: .regularExpression)
+        return normalizeWhitespace(in: decodeCommonEntities(in: stripped))
+    }
+
+    static func previewText(from html: String?) -> String? {
+        guard let html, !html.isEmpty else {
+            return nil
+        }
+
+        let compact = normalizeWhitespace(in: plainText(from: html).replacingOccurrences(of: "\n", with: " "))
+        return compact.isEmpty ? nil : compact
     }
 
     static func attributedText(from html: String) -> AttributedString? {
@@ -140,12 +272,43 @@ enum FireTopicPresentation {
         return images
     }
 
-    static func minimumReplyLength(from minPostLength: UInt32) -> Int {
-        max(Int(minPostLength), 1)
+    static func minimumReplyLength(from preloadedJSON: String?) -> Int {
+        guard
+            let preloadedJSON,
+            let data = preloadedJSON.data(using: .utf8),
+            let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else {
+            return 1
+        }
+
+        let rawValue = (root["siteSettings"] as? [String: Any])?["min_post_length"]
+        switch rawValue {
+        case let value as Int:
+            return max(1, value)
+        case let value as NSNumber:
+            return max(1, value.intValue)
+        case let value as String:
+            return max(1, Int(value) ?? 1)
+        default:
+            return 1
+        }
     }
 
-    static func enabledReactionOptions(from reactionIDs: [String]) -> [FireReactionOption] {
-        let ids = reactionIDs.isEmpty ? ["heart"] : reactionIDs
+    static func enabledReactionOptions(from preloadedJSON: String?) -> [FireReactionOption] {
+        guard
+            let preloadedJSON,
+            let data = preloadedJSON.data(using: .utf8),
+            let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else {
+            return [reactionOption(for: "heart")]
+        }
+
+        let reactionString = (root["siteSettings"] as? [String: Any])?["discourse_reactions_enabled_reactions"] as? String
+        let ids = reactionString?
+            .split(separator: "|")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty } ?? ["heart"]
+
         return ids.reduce(into: [FireReactionOption]()) { result, reactionID in
             guard !result.contains(where: { $0.id == reactionID }) else {
                 return
@@ -174,6 +337,212 @@ enum FireTopicPresentation {
         return FireReactionOption(id: reactionID, symbol: symbol, label: label)
     }
 
+    static func buildRowPresentations(
+        from topics: [TopicSummaryState],
+        users: [TopicUserState]
+    ) -> [FireTopicRowPresentation] {
+        let timestampFormatter = TimestampFormatter(style: .compact)
+        let usersByID = Dictionary(uniqueKeysWithValues: users.map { ($0.id, $0) })
+
+        return topics.map { topic in
+            let tagNames = tagNames(from: topic.tags)
+            let originalPoster = originalPosterUser(for: topic, usersByID: usersByID)
+
+            return FireTopicRowPresentation(
+                topic: topic,
+                excerptText: previewText(from: topic.excerpt),
+                originalPosterUsername: normalizedUsername(originalPoster?.username),
+                originalPosterAvatarTemplate: normalizedAvatarTemplate(originalPoster?.avatarTemplate),
+                tagNames: Array(tagNames.prefix(2)),
+                createdTimestampText: timestampFormatter.format(topic.createdAt),
+                lastPosterUsername: topic.lastPosterUsername
+                    ?? topic.posters.first?.description
+                    ?? topic.posters.first.map { "User \($0.userId)" },
+                activityTimestampText: timestampFormatter.format(topic.lastPostedAt ?? topic.createdAt),
+                statusLabels: topicStatusLabels(for: topic),
+                tagSummaryText: tagNames.isEmpty ? nil : "#\(tagNames.joined(separator: " #"))"
+            )
+        }
+    }
+
+    static func buildThreadPresentation(from posts: [TopicPostState]) -> FireTopicThreadPresentation {
+        guard !posts.isEmpty else {
+            return FireTopicThreadPresentation(originalPost: nil, replySections: [])
+        }
+
+        guard let originalPost = posts.min(by: { $0.postNumber < $1.postNumber }) else {
+            return FireTopicThreadPresentation(originalPost: nil, replySections: [])
+        }
+
+        let rootPostNumber = originalPost.postNumber
+        let postsByNumber = Dictionary(uniqueKeysWithValues: posts.map { ($0.postNumber, $0) })
+
+        var childrenByParent: [UInt32: [TopicPostState]] = [:]
+        for post in posts where post.postNumber != rootPostNumber {
+            guard let parentPostNumber = normalizedReplyTarget(for: post),
+                  parentPostNumber != post.postNumber
+            else {
+                continue
+            }
+
+            childrenByParent[parentPostNumber, default: []].append(post)
+        }
+
+        var consumedPostNumbers: Set<UInt32> = [rootPostNumber]
+        var replySections: [FireTopicReplySectionPresentation] = []
+
+        for post in posts where post.postNumber != rootPostNumber {
+            guard !consumedPostNumbers.contains(post.postNumber) else {
+                continue
+            }
+
+            let normalizedParent = normalizedReplyTarget(for: post)
+            let shouldStartSection = normalizedParent == nil
+                || normalizedParent == rootPostNumber
+                || normalizedParent.map { postsByNumber[$0] == nil } == true
+
+            guard shouldStartSection else {
+                continue
+            }
+
+            consumedPostNumbers.insert(post.postNumber)
+            var branchVisited: Set<UInt32> = [post.postNumber]
+            let replies = flattenReplies(
+                for: post.postNumber,
+                depth: 1,
+                childrenByParent: childrenByParent,
+                consumedPostNumbers: &consumedPostNumbers,
+                branchVisited: &branchVisited
+            )
+            replySections.append(
+                FireTopicReplySectionPresentation(anchorPost: post, replies: replies)
+            )
+        }
+
+        for post in posts where post.postNumber != rootPostNumber && !consumedPostNumbers.contains(post.postNumber) {
+            consumedPostNumbers.insert(post.postNumber)
+            var branchVisited: Set<UInt32> = [post.postNumber]
+            let replies = flattenReplies(
+                for: post.postNumber,
+                depth: 1,
+                childrenByParent: childrenByParent,
+                consumedPostNumbers: &consumedPostNumbers,
+                branchVisited: &branchVisited
+            )
+            replySections.append(
+                FireTopicReplySectionPresentation(anchorPost: post, replies: replies)
+            )
+        }
+
+        return FireTopicThreadPresentation(
+            originalPost: originalPost,
+            replySections: replySections
+        )
+    }
+
+    /// A flattened post ready for display in a list, carrying its nesting depth
+    /// and optional reply-context label.
+    struct FlatPost: Identifiable, Sendable {
+        let post: TopicPostState
+        let depth: Int
+        let replyContext: String?
+        let showsThreadLine: Bool
+
+        var id: UInt64 { post.id }
+    }
+
+    /// Flattens a `FireTopicThreadPresentation` into a display-order list.
+    ///
+    /// The original post comes first, then each reply section's anchor post
+    /// (at depth 0) followed by its nested replies (at increasing depth).
+    /// This preserves the section anchor's original order in the stream while
+    /// visually grouping nested replies underneath.
+    static func flattenThreadForDisplay(
+        from thread: FireTopicThreadPresentation,
+        totalPostCount: Int
+    ) -> [FlatPost] {
+        var result: [FlatPost] = []
+
+        if let originalPost = thread.originalPost {
+            result.append(FlatPost(
+                post: originalPost,
+                depth: 0,
+                replyContext: nil,
+                showsThreadLine: !thread.replySections.isEmpty
+            ))
+        }
+
+        for (sectionIndex, section) in thread.replySections.enumerated() {
+            let isLastSection = sectionIndex == thread.replySections.count - 1
+            let hasNestedReplies = !section.replies.isEmpty
+
+            result.append(FlatPost(
+                post: section.anchorPost,
+                depth: 0,
+                replyContext: nil,
+                showsThreadLine: hasNestedReplies || !isLastSection
+            ))
+
+            for (replyIndex, reply) in section.replies.enumerated() {
+                let isLastReply = replyIndex == section.replies.count - 1
+                result.append(FlatPost(
+                    post: reply.post,
+                    depth: reply.depth,
+                    replyContext: reply.parentPostNumber.map { "回复 #\($0)" },
+                    showsThreadLine: !isLastReply || !isLastSection
+                ))
+            }
+        }
+
+        return result
+    }
+
+    static func topicStatusLabels(for topic: TopicSummaryState) -> [String] {
+        var labels: [String] = []
+
+        if topic.pinned {
+            labels.append("Pinned")
+        }
+        if topic.closed {
+            labels.append("Closed")
+        }
+        if topic.archived {
+            labels.append("Archived")
+        }
+        if topic.hasAcceptedAnswer {
+            labels.append("Solved")
+        }
+        if topic.unreadPosts > 0 {
+            labels.append("Unread \(topic.unreadPosts)")
+        }
+        if topic.newPosts > 0 {
+            labels.append("New \(topic.newPosts)")
+        }
+
+        return labels
+    }
+
+    static func tagNames(from tags: [TopicTagState]) -> [String] {
+        tags.compactMap { tag in
+            if !tag.name.isEmpty {
+                return tag.name
+            }
+            return tag.slug?.isEmpty == false ? tag.slug : nil
+        }
+    }
+
+    static func monogram(for username: String) -> String {
+        let scalars = username
+            .split(whereSeparator: { !$0.isLetter && !$0.isNumber })
+            .compactMap { component in component.first }
+        let letters = scalars.prefix(2).map { String($0).uppercased() }
+        if !letters.isEmpty {
+            return letters.joined()
+        }
+
+        return String(username.prefix(1)).uppercased()
+    }
+
     private static func compactCount(_ value: UInt64) -> String {
         switch value {
         case 0..<1_000:
@@ -200,6 +569,39 @@ enum FireTopicPresentation {
         return formatted.replacingOccurrences(of: ".0", with: "") + suffix
     }
 
+    private static func originalPosterUser(
+        for topic: TopicSummaryState,
+        usersByID: [UInt64: TopicUserState]
+    ) -> TopicUserState? {
+        let originalPoster = topic.posters.first(where: {
+            $0.description?.localizedCaseInsensitiveContains("original poster") == true
+        }) ?? topic.posters.first
+
+        guard let userID = originalPoster?.userId else {
+            return nil
+        }
+
+        return usersByID[userID]
+    }
+
+    private static func normalizedUsername(_ username: String?) -> String? {
+        guard let username else {
+            return nil
+        }
+
+        let trimmed = username.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private static func normalizedAvatarTemplate(_ avatarTemplate: String?) -> String? {
+        guard let avatarTemplate else {
+            return nil
+        }
+
+        let trimmed = avatarTemplate.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
     private static let fractionalISO8601: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -223,6 +625,91 @@ enum FireTopicPresentation {
         pattern: #"<img\b[^>]*>"#,
         options: [.caseInsensitive]
     )
+
+    private static func normalizedReplyTarget(for post: TopicPostState) -> UInt32? {
+        guard let replyToPostNumber = post.replyToPostNumber, replyToPostNumber > 0 else {
+            return nil
+        }
+
+        return replyToPostNumber
+    }
+
+    private static func flattenReplies(
+        for parentPostNumber: UInt32,
+        depth: Int,
+        childrenByParent: [UInt32: [TopicPostState]],
+        consumedPostNumbers: inout Set<UInt32>,
+        branchVisited: inout Set<UInt32>
+    ) -> [FireTopicReplyPresentation] {
+        guard let children = childrenByParent[parentPostNumber] else {
+            return []
+        }
+
+        var flattened: [FireTopicReplyPresentation] = []
+        for child in children {
+            guard !branchVisited.contains(child.postNumber) else {
+                continue
+            }
+
+            consumedPostNumbers.insert(child.postNumber)
+            flattened.append(
+                FireTopicReplyPresentation(
+                    post: child,
+                    depth: depth,
+                    parentPostNumber: normalizedReplyTarget(for: child)
+                )
+            )
+
+            branchVisited.insert(child.postNumber)
+            flattened.append(
+                contentsOf: flattenReplies(
+                    for: child.postNumber,
+                    depth: depth + 1,
+                    childrenByParent: childrenByParent,
+                    consumedPostNumbers: &consumedPostNumbers,
+                    branchVisited: &branchVisited
+                )
+            )
+            branchVisited.remove(child.postNumber)
+        }
+
+        return flattened
+    }
+
+    private static func stringValue(_ value: Any?) -> String {
+        switch value {
+        case let string as String:
+            return string
+        case let number as NSNumber:
+            return number.stringValue
+        default:
+            return ""
+        }
+    }
+
+    private static func unsignedInteger(from value: Any?) -> UInt64? {
+        switch value {
+        case let int as Int:
+            return int >= 0 ? UInt64(int) : nil
+        case let int64 as Int64:
+            return int64 >= 0 ? UInt64(int64) : nil
+        case let number as NSNumber:
+            let raw = number.int64Value
+            return raw >= 0 ? UInt64(raw) : nil
+        case let string as String:
+            return UInt64(string)
+        default:
+            return nil
+        }
+    }
+
+    private static func normalizeWhitespace(in string: String) -> String {
+        string
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\n{3,}", with: "\n\n", options: .regularExpression)
+            .replacingOccurrences(of: "[ \\t]{2,}", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 
     private static func decodeCommonEntities(in string: String) -> String {
         var decoded = string
@@ -321,10 +808,6 @@ private struct TimestampFormatter {
             return rawValue
         }
 
-        return format(date: date)
-    }
-
-    func format(date: Date) -> String {
         switch style {
         case .full:
             return Self.fullFormatter.string(from: date)

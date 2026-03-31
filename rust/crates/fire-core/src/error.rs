@@ -22,8 +22,6 @@ pub enum FireCoreError {
         status: u16,
         body: String,
     },
-    #[error("{operation} requires Cloudflare challenge verification")]
-    CloudflareChallenge { operation: &'static str },
     #[error("failed to parse {operation} response: {source}")]
     ResponseDeserialize {
         operation: &'static str,

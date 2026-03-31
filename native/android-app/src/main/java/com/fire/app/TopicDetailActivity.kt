@@ -16,8 +16,6 @@ import com.fire.app.databinding.ActivityTopicDetailBinding
 import com.fire.app.session.FireSessionStore
 import com.fire.app.session.FireSessionStoreRepository
 import kotlinx.coroutines.launch
-import uniffi.fire_uniffi.plainTextFromHtml
-import uniffi.fire_uniffi.TopicCategoryState
 import uniffi.fire_uniffi.TopicDetailQueryState
 import uniffi.fire_uniffi.TopicDetailState
 import uniffi.fire_uniffi.TopicPostState
@@ -28,7 +26,7 @@ class TopicDetailActivity : AppCompatActivity() {
 
     private var topicId: ULong = 0uL
     private var topicTitle: String = ""
-    private var topicCategories: Map<ULong, TopicCategoryState> = emptyMap()
+    private var topicCategories: Map<ULong, TopicCategoryPresentation> = emptyMap()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -58,7 +56,7 @@ class TopicDetailActivity : AppCompatActivity() {
 
             try {
                 val restored = sessionStore.restorePersistedSessionIfAvailable() ?: sessionStore.snapshot()
-                topicCategories = restored.bootstrap.categories.associateBy { it.id }
+                topicCategories = TopicPresentation.parseCategories(restored.bootstrap.preloadedJson)
 
                 val detail = sessionStore.fetchTopicDetail(
                     TopicDetailQueryState(
@@ -105,7 +103,9 @@ class TopicDetailActivity : AppCompatActivity() {
             return
         }
 
-        detail.flatPosts.firstOrNull { it.isOriginalPost }?.post?.let { originalPost ->
+        val thread = TopicPresentation.buildThreadPresentation(detail.postStream.posts)
+
+        thread.originalPost?.let { originalPost ->
             binding.postsContainer.addView(
                 sectionCard(
                     title = getString(R.string.topic_detail_original_post),
@@ -124,34 +124,45 @@ class TopicDetailActivity : AppCompatActivity() {
             )
         }
 
-        val replyPosts = detail.flatPosts.filterNot { it.isOriginalPost }
-        if (replyPosts.isEmpty()) {
+        if (thread.replySections.isEmpty()) {
             binding.postsContainer.addView(
                 sectionBodyText(getString(R.string.topic_detail_no_replies)),
             )
             return
         }
 
-        binding.postsContainer.addView(
-            sectionCard(
-                title = getString(R.string.topic_detail_replies_section),
-                subtitle = getString(R.string.topic_detail_replies_count, replyPosts.size.toString()),
-                accentColor = sectionAccentColor(alpha = 0x66),
-            ) {
-                replyPosts.forEach { flatPost ->
+        thread.replySections.forEach { section ->
+            binding.postsContainer.addView(
+                sectionCard(
+                    title = getString(R.string.topic_detail_floor_title, section.anchorPost.postNumber.toString()),
+                    subtitle = section.replies
+                        .takeIf { it.isNotEmpty() }
+                        ?.let { getString(R.string.topic_detail_floor_nested_count, it.size.toString()) },
+                    accentColor = sectionAccentColor(alpha = 0x66),
+                ) {
                     addView(
                         postCardView(
-                            post = flatPost.post,
-                            roleLabel = flatPost.parentPostNumber
-                                ?.let { getString(R.string.topic_detail_nested_reply_to, it.toString()) }
-                                ?: getString(R.string.topic_detail_reply_to_topic),
-                            depth = flatPost.depth.toInt(),
-                            emphasized = flatPost.depth == 0u,
+                            post = section.anchorPost,
+                            roleLabel = getString(R.string.topic_detail_reply_to_topic),
+                            depth = 0,
+                            emphasized = true,
                         ),
                     )
-                }
-            },
-        )
+
+                    section.replies.forEach { reply ->
+                        addView(
+                            postCardView(
+                                post = reply.post,
+                                roleLabel = reply.parentPostNumber
+                                    ?.let { getString(R.string.topic_detail_nested_reply_to, it.toString()) },
+                                depth = reply.depth,
+                                emphasized = false,
+                            ),
+                        )
+                    }
+                },
+            )
+        }
     }
 
     private fun sectionCard(
@@ -279,7 +290,7 @@ class TopicDetailActivity : AppCompatActivity() {
 
                     addView(
                         TextView(context).apply {
-                            text = plainTextFromHtml(rawHtml = post.cooked)
+                            text = TopicPresentation.plainTextFromHtml(post.cooked)
                             textSize = 15f
                             setTextColor(Color.parseColor("#FF1F2937"))
                             setPadding(0, dp(8), 0, 0)
@@ -315,8 +326,7 @@ class TopicDetailActivity : AppCompatActivity() {
 
     private fun categoryLabelFor(categoryId: ULong?): String? {
         val id = categoryId ?: return null
-        return topicCategories[id]?.displayName()
-            ?: getString(R.string.topic_detail_category_fallback, id.toString())
+        return topicCategories[id]?.displayName ?: getString(R.string.topic_detail_category_fallback, id.toString())
     }
 
     private fun setLoading(loading: Boolean) {

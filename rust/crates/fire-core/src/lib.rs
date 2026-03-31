@@ -5,9 +5,7 @@ mod diagnostics;
 mod error;
 mod logging;
 mod parsing;
-mod presentation;
 mod session_store;
-mod sync_utils;
 mod topic_payloads;
 mod workspace;
 
@@ -19,6 +17,3 @@ pub use diagnostics::{
 };
 pub use error::FireCoreError;
 pub use logging::{FireLogger, FireLoggerConfig};
-pub use presentation::{
-    monogram_for_username, plain_text_from_html, preview_text_from_html, topic_status_labels,
-};

@@ -1,6 +1,6 @@
 use std::sync::OnceLock;
 
-use fire_models::{BootstrapArtifacts, CookieSnapshot, TopicCategory};
+use fire_models::{BootstrapArtifacts, CookieSnapshot};
 use regex::Regex;
 use serde_json::Value;
 use tracing::warn;
@@ -27,9 +27,10 @@ pub(crate) fn parse_home_state(base_url: &str, html: &str) -> ParsedHomeState {
     parsed.bootstrap_patch.turnstile_sitekey = find_first_attr(html, "data-sitekey");
 
     if let Some(preloaded_json) = find_first_attr(html, "data-preloaded") {
-        parsed.bootstrap_patch.preloaded_json = Some(preloaded_json.clone());
+        let decoded = decode_html_entities(&preloaded_json);
+        parsed.bootstrap_patch.preloaded_json = Some(decoded.clone());
         parsed.bootstrap_patch.has_preloaded_data = true;
-        hydrate_preloaded_fields(&preloaded_json, &mut parsed.bootstrap_patch);
+        hydrate_preloaded_fields(&decoded, &mut parsed.bootstrap_patch);
     }
 
     parsed
@@ -64,10 +65,6 @@ pub(crate) fn hydrate_preloaded_fields(preloaded_json: &str, bootstrap: &mut Boo
             bootstrap.topic_tracking_state_meta = serde_json::to_string(meta).ok();
         }
     }
-
-    bootstrap.categories = categories_from_preloaded(&preloaded);
-    bootstrap.enabled_reaction_ids = enabled_reaction_ids_from_preloaded(&preloaded);
-    bootstrap.min_post_length = min_post_length_from_preloaded(&preloaded);
 }
 
 fn find_meta_content(html: &str, target_name: &str) -> Option<String> {
@@ -76,9 +73,7 @@ fn find_meta_content(html: &str, target_name: &str) -> Option<String> {
             continue;
         }
 
-        let Some(name) = extract_attr(tag, "name") else {
-            continue;
-        };
+        let name = extract_attr(tag, "name")?;
         if !name.eq_ignore_ascii_case(target_name) {
             continue;
         }
@@ -103,8 +98,6 @@ fn find_first_attr(html: &str, attribute_name: &str) -> Option<String> {
 
 fn all_tags(html: &str) -> impl Iterator<Item = &str> {
     static TAG_RE: OnceLock<Regex> = OnceLock::new();
-    // NOTE: This lightweight scanner is intentionally scoped to Discourse bootstrap tags.
-    // If parsing expands beyond meta/data-* extraction, switch to a real HTML parser.
     let regex = TAG_RE.get_or_init(|| Regex::new(r"(?is)<[^>]+>").expect("tag regex"));
     regex.find_iter(html).map(|matched| matched.as_str())
 }
@@ -136,264 +129,10 @@ fn extract_attr(tag: &str, attribute_name: &str) -> Option<String> {
     None
 }
 
-pub(crate) fn decode_html_entities(raw: &str) -> String {
-    let mut decoded = String::with_capacity(raw.len());
-    let mut cursor = raw;
-
-    while let Some(start) = cursor.find('&') {
-        decoded.push_str(&cursor[..start]);
-        let entity_start = &cursor[start..];
-
-        let Some(end) = entity_start.find(';') else {
-            decoded.push_str(entity_start);
-            return decoded;
-        };
-
-        let entity = &entity_start[1..end];
-        if let Some(ch) = decode_html_entity(entity) {
-            decoded.push(ch);
-        } else {
-            decoded.push_str(&entity_start[..=end]);
-        }
-
-        cursor = &entity_start[end + 1..];
-    }
-
-    decoded.push_str(cursor);
-    decoded
-}
-
-fn decode_html_entity(entity: &str) -> Option<char> {
-    match entity {
-        "nbsp" | "#160" => Some(' '),
-        "quot" => Some('"'),
-        "amp" => Some('&'),
-        "lt" => Some('<'),
-        "gt" => Some('>'),
-        "apos" | "#39" => Some('\''),
-        _ => decode_numeric_html_entity(entity),
-    }
-}
-
-fn decode_numeric_html_entity(entity: &str) -> Option<char> {
-    let value = if let Some(hex) = entity
-        .strip_prefix("#x")
-        .or_else(|| entity.strip_prefix("#X"))
-    {
-        u32::from_str_radix(hex, 16).ok()?
-    } else if let Some(decimal) = entity.strip_prefix('#') {
-        decimal.parse::<u32>().ok()?
-    } else {
-        return None;
-    };
-
-    char::from_u32(value)
-}
-
-fn categories_from_preloaded(preloaded: &Value) -> Vec<TopicCategory> {
-    category_candidates(preloaded)
-        .find_map(category_values_from_candidate)
-        .map(|values| {
-            values
-                .iter()
-                .filter_map(topic_category_from_value)
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
-fn category_candidates(preloaded: &Value) -> impl Iterator<Item = &Value> {
-    [
-        preloaded
-            .get("site")
-            .and_then(Value::as_object)
-            .and_then(|site| site.get("categories")),
-        preloaded
-            .get("site")
-            .and_then(Value::as_object)
-            .and_then(|site| site.get("category_list")),
-        preloaded.get("categories"),
-        preloaded.get("category_list"),
-    ]
-    .into_iter()
-    .flatten()
-}
-
-fn category_values_from_candidate(candidate: &Value) -> Option<&Vec<Value>> {
-    if let Some(values) = candidate.as_array() {
-        return Some(values);
-    }
-
-    candidate
-        .as_object()
-        .and_then(|value| value.get("categories"))
-        .and_then(Value::as_array)
-}
-
-fn topic_category_from_value(value: &Value) -> Option<TopicCategory> {
-    let object = value.as_object()?;
-    Some(TopicCategory {
-        id: positive_u64_from_value(object.get("id")?)?,
-        name: scalar_string_or_empty(object.get("name")),
-        slug: scalar_string_or_empty(object.get("slug")),
-        parent_category_id: object
-            .get("parent_category_id")
-            .and_then(positive_u64_from_value),
-        color_hex: object
-            .get("color")
-            .and_then(optional_scalar_string)
-            .filter(|value| !value.is_empty()),
-        text_color_hex: object
-            .get("text_color")
-            .and_then(optional_scalar_string)
-            .filter(|value| !value.is_empty()),
-    })
-}
-
-fn enabled_reaction_ids_from_preloaded(preloaded: &Value) -> Vec<String> {
-    let Some(raw) = preloaded
-        .get("siteSettings")
-        .and_then(Value::as_object)
-        .and_then(|settings| settings.get("discourse_reactions_enabled_reactions"))
-        .and_then(optional_scalar_string)
-    else {
-        return vec!["heart".to_string()];
-    };
-
-    let mut ids = Vec::new();
-    for part in raw
-        .split('|')
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        if ids.iter().any(|existing| existing == part) {
-            continue;
-        }
-        ids.push(part.to_string());
-    }
-
-    if ids.is_empty() {
-        vec!["heart".to_string()]
-    } else {
-        ids
-    }
-}
-
-fn min_post_length_from_preloaded(preloaded: &Value) -> u32 {
-    preloaded
-        .get("siteSettings")
-        .and_then(Value::as_object)
-        .and_then(|settings| settings.get("min_post_length"))
-        .and_then(positive_u32_from_value)
-        .unwrap_or(1)
-}
-
-fn optional_scalar_string(value: &Value) -> Option<String> {
-    match value {
-        Value::String(value) => Some(value.clone()),
-        Value::Bool(value) => Some(value.to_string()),
-        Value::Number(value) => Some(value.to_string()),
-        _ => None,
-    }
-}
-
-fn scalar_string_or_empty(value: Option<&Value>) -> String {
-    value.and_then(optional_scalar_string).unwrap_or_default()
-}
-
-fn positive_u64_from_value(value: &Value) -> Option<u64> {
-    match value {
-        Value::Number(value) => value.as_u64(),
-        Value::String(value) => value.parse::<u64>().ok(),
-        Value::Bool(value) => Some(u64::from(*value)),
-        _ => None,
-    }
-    .filter(|value| *value > 0)
-}
-
-fn positive_u32_from_value(value: &Value) -> Option<u32> {
-    match value {
-        Value::Number(value) => value.as_u64().and_then(|value| u32::try_from(value).ok()),
-        Value::String(value) => value.parse::<u32>().ok(),
-        Value::Bool(value) => Some(u32::from(*value)),
-        _ => None,
-    }
-    .filter(|value| *value > 0)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{decode_html_entities, parse_home_state};
-
-    #[test]
-    fn parse_home_state_skips_meta_tags_without_name() {
-        let html = r#"
-<!doctype html>
-<html>
-  <head>
-    <meta charset="utf-8">
-    <meta http-equiv="x-ua-compatible" content="ie=edge">
-    <meta name="csrf-token" content="csrf-token">
-    <meta name="shared_session_key" content="shared-session">
-    <meta name="current-username" content="alice">
-    <meta name="discourse-base-uri" content="/">
-  </head>
-</html>
-"#;
-
-        let parsed = parse_home_state("https://linux.do/", html);
-
-        assert_eq!(
-            parsed.cookies_patch.csrf_token.as_deref(),
-            Some("csrf-token")
-        );
-        assert_eq!(
-            parsed.bootstrap_patch.shared_session_key.as_deref(),
-            Some("shared-session")
-        );
-        assert_eq!(
-            parsed.bootstrap_patch.current_username.as_deref(),
-            Some("alice")
-        );
-        assert_eq!(
-            parsed.bootstrap_patch.discourse_base_uri.as_deref(),
-            Some("/")
-        );
-    }
-
-    #[test]
-    fn parse_home_state_decodes_preloaded_json_once() {
-        let html = r#"
-<!doctype html>
-<html>
-  <body>
-    <div data-preloaded="{&quot;siteSettings&quot;:{&quot;title&quot;:&quot;A &amp;amp; B&quot;,&quot;min_post_length&quot;:18,&quot;discourse_reactions_enabled_reactions&quot;:&quot;heart|clap&quot;},&quot;site&quot;:{&quot;categories&quot;:[{&quot;id&quot;:7,&quot;name&quot;:&quot;Rust&quot;,&quot;slug&quot;:&quot;rust&quot;,&quot;color&quot;:&quot;FFFFFF&quot;,&quot;text_color&quot;:&quot;000000&quot;}]}}"></div>
-  </body>
-</html>
-"#;
-
-        let parsed = parse_home_state("https://linux.do/", html);
-
-        assert_eq!(
-            parsed.bootstrap_patch.preloaded_json.as_deref(),
-            Some(
-                r#"{"siteSettings":{"title":"A &amp; B","min_post_length":18,"discourse_reactions_enabled_reactions":"heart|clap"},"site":{"categories":[{"id":7,"name":"Rust","slug":"rust","color":"FFFFFF","text_color":"000000"}]}}"#
-            )
-        );
-        assert_eq!(parsed.bootstrap_patch.min_post_length, 18);
-        assert_eq!(
-            parsed.bootstrap_patch.enabled_reaction_ids,
-            vec!["heart", "clap"]
-        );
-        assert_eq!(parsed.bootstrap_patch.categories.len(), 1);
-        assert_eq!(parsed.bootstrap_patch.categories[0].id, 7);
-    }
-
-    #[test]
-    fn decode_html_entities_supports_named_and_numeric_forms() {
-        assert_eq!(
-            decode_html_entities("&quot;&amp;&lt;&gt;&#39;&apos;&#x41;&#65;"),
-            "\"&<>''AA"
-        );
-    }
+fn decode_html_entities(raw: &str) -> String {
+    raw.replace("&quot;", "\"")
+        .replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&#39;", "'")
 }

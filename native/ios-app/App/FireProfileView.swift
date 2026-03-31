@@ -88,13 +88,13 @@ struct FireProfileView: View {
                 Divider()
                     .frame(height: 30)
                 statItem(
-                    value: "\(viewModel.topicRows.reduce(0) { $0 + Int($1.topic.unreadPosts) })",
+                    value: "\(viewModel.topics.reduce(0) { $0 + Int($1.unreadPosts) })",
                     label: "未读帖子"
                 )
                 Divider()
                     .frame(height: 30)
                 statItem(
-                    value: "\(viewModel.topicRows.filter(\.hasAcceptedAnswer).count)",
+                    value: "\(viewModel.topics.filter(\.hasAcceptedAnswer).count)",
                     label: "已解决"
                 )
             }

@@ -58,7 +58,6 @@
     <string name="topic_detail_original_post">Original post</string>
     <string name="topic_detail_original_post_badge">Topic starter</string>
     <string name="topic_detail_no_replies">No replies yet.</string>
-    <string name="topic_detail_replies_section">Replies</string>
     <string name="topic_detail_floor_title">Floor #%1$s</string>
     <string name="topic_detail_floor_nested_count">%1$s nested replies</string>
     <string name="topic_detail_reply_to_topic">Reply to topic</string>

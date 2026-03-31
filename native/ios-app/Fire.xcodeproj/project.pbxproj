@@ -13,6 +13,7 @@
 		1F1EEDCE0B4FEAE2880DC061 /* FireWebViewLoginCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5E5271F93B7DF18859B101F /* FireWebViewLoginCoordinator.swift */; };
 		217BC99CE792BDFA88ED89FC /* FireTabRoot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05507C09C3878752BCC013E3 /* FireTabRoot.swift */; };
 		428170833590DCF14AEEA64C /* FireTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8FFC5F5EA7CD05C23FBEB9A2 /* FireTheme.swift */; };
+		48AF44A62E5FD00C2E7D6673 /* FireBindingsShim.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89B281CC26C23F076A764AB6 /* FireBindingsShim.swift */; };
 		6A8BA8AACC4ED45E311894CE /* FireTopicDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 67647993BFF688FB02B71DBB /* FireTopicDetailView.swift */; };
 		72EF4FD238A8072A48B7948E /* FireTopicRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D1C4D30FB92D47F801B64D4 /* FireTopicRow.swift */; };
 		790B44E436B0CF137B1FD8A7 /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E69013450F80AEC210D5512D /* Security.framework */; };
@@ -54,6 +55,7 @@
 		6725F42C679E922AA3DD1FBF /* FireLoginWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireLoginWebView.swift; sourceTree = "<group>"; };
 		67647993BFF688FB02B71DBB /* FireTopicDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireTopicDetailView.swift; sourceTree = "<group>"; };
 		8834ADE6E3ADB8A03391560C /* FireSessionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireSessionStore.swift; sourceTree = "<group>"; };
+		89B281CC26C23F076A764AB6 /* FireBindingsShim.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireBindingsShim.swift; sourceTree = "<group>"; };
 		8FFC5F5EA7CD05C23FBEB9A2 /* FireTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireTheme.swift; sourceTree = "<group>"; };
 		9189433D7C9260885742A5BA /* FireTopicPresentationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireTopicPresentationTests.swift; sourceTree = "<group>"; };
 		996D95DE48DA65385BD587F7 /* FireApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireApp.swift; sourceTree = "<group>"; };
@@ -107,6 +109,7 @@
 			children = (
 				996D95DE48DA65385BD587F7 /* FireApp.swift */,
 				BFA66CA083BF4889AE258926 /* FireAppViewModel.swift */,
+				89B281CC26C23F076A764AB6 /* FireBindingsShim.swift */,
 				27F174773C4A2B3D0A4D29DD /* FireComponents.swift */,
 				0F4A54860996435FDDF40EBE /* FireDiagnosticsView.swift */,
 				E7E60D1F8BA725E4D60AFBA3 /* FireHomeView.swift */,
@@ -288,6 +291,7 @@
 			files = (
 				0006B08A873FC6192E616F01 /* FireApp.swift in Sources */,
 				8D77430DC1266A1EDEF3A6E4 /* FireAppViewModel.swift in Sources */,
+				48AF44A62E5FD00C2E7D6673 /* FireBindingsShim.swift in Sources */,
 				7FC4730D00066ED2E1605539 /* FireComponents.swift in Sources */,
 				CBBBFC3F31D03FD92B0C29C5 /* FireDiagnosticsView.swift in Sources */,
 				795E7AB547CA854593A42D91 /* FireHomeView.swift in Sources */,

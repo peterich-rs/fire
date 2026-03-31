@@ -252,11 +252,11 @@ impl FireCore {
                 body_prefix = %body.chars().take(200).collect::<String>(),
                 "request rejected with 403 (not a CSRF error)"
             );
-            return Err(classify_http_status_error(
+            return Err(FireCoreError::HttpStatus {
                 operation,
-                StatusCode::FORBIDDEN.as_u16(),
+                status: StatusCode::FORBIDDEN.as_u16(),
                 body,
-            ));
+            });
         }
 
         info!(
@@ -323,7 +323,11 @@ pub(crate) async fn expect_success(
     );
     core.diagnostics
         .record_http_status_error(trace_id, status, &body);
-    Err(classify_http_status_error(operation, status, body))
+    Err(FireCoreError::HttpStatus {
+        operation,
+        status,
+        body,
+    })
 }
 
 pub(crate) fn header_value(headers: &HeaderMap, name: &str) -> Option<String> {
@@ -337,30 +341,6 @@ pub(crate) fn header_value(headers: &HeaderMap, name: &str) -> Option<String> {
 
 pub(crate) fn is_bad_csrf_body(body: &str) -> bool {
     body == r#"["BAD CSRF"]"#
-}
-
-pub(crate) fn classify_http_status_error(
-    operation: &'static str,
-    status: u16,
-    body: String,
-) -> FireCoreError {
-    if status == StatusCode::FORBIDDEN.as_u16() && is_cloudflare_challenge_body(&body) {
-        FireCoreError::CloudflareChallenge { operation }
-    } else {
-        FireCoreError::HttpStatus {
-            operation,
-            status,
-            body,
-        }
-    }
-}
-
-pub(crate) fn is_cloudflare_challenge_body(body: &str) -> bool {
-    let normalized = body.to_ascii_lowercase();
-    normalized.contains("just a moment")
-        || normalized.contains("cf challenge")
-        || normalized.contains("__cf_chl_opt")
-        || normalized.contains("/cdn-cgi/challenge-platform/")
 }
 
 fn request_origin(base_url: &Url) -> String {

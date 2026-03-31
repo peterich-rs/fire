@@ -173,7 +173,10 @@ impl FireCore {
             .await?;
         let response = expect_success(self, "report topic timings", trace_id, response).await?;
         let _ = self.read_response_text(trace_id, response).await?;
-        info!(topic_id = input.topic_id, "topic timings reported successfully");
+        info!(
+            topic_id = input.topic_id,
+            "topic timings reported successfully"
+        );
         Ok(())
     }
 }

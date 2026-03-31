@@ -156,11 +156,9 @@ async fn update_topic_reply_presence_reuses_active_message_bus_client_id() {
     ])
     .await
     .expect("app server");
-    let poll_server = TestServer::spawn(vec![
-        raw_json_response(200, "application/json", "[]"),
-    ])
-    .await
-    .expect("poll server");
+    let poll_server = TestServer::spawn(vec![raw_json_response(200, "application/json", "[]")])
+        .await
+        .expect("poll server");
     let core = authenticated_core(&app_server.base_url());
     let _ = core.apply_bootstrap(BootstrapArtifacts {
         base_url: app_server.base_url(),

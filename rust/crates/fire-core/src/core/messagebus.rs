@@ -211,10 +211,14 @@ impl FireCore {
             last_message_id,
             "executing background notification-alert poll request"
         );
-        let response = self.message_bus_client.execute(request).await.map_err(|source| {
-            self.diagnostics.record_call_failed(trace_id, &source);
-            FireCoreError::Network { source }
-        })?;
+        let response = self
+            .message_bus_client
+            .execute(request)
+            .await
+            .map_err(|source| {
+                self.diagnostics.record_call_failed(trace_id, &source);
+                FireCoreError::Network { source }
+            })?;
 
         if !response.status().is_success() {
             match read_message_bus_error_response_for_diagnostics(

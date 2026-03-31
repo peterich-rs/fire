@@ -23,9 +23,9 @@ use fire_models::{
     NotificationItem, NotificationListResponse, NotificationState, PlatformCookie,
     PostReactionUpdate, SessionReadiness, SessionSnapshot, TopicCategory, TopicDetail,
     TopicDetailCreatedBy, TopicDetailMeta, TopicDetailQuery, TopicListKind, TopicListQuery,
-    TopicListResponse, TopicPost, TopicPostStream, TopicPoster, TopicPresence,
-    TopicPresenceUser, TopicReaction, TopicReplyRequest, TopicRow, TopicSummary, TopicTag,
-    TopicThread, TopicThreadFlatPost, TopicThreadReply, TopicThreadSection, TopicTimingEntry,
+    TopicListResponse, TopicPost, TopicPostStream, TopicPoster, TopicPresence, TopicPresenceUser,
+    TopicReaction, TopicReplyRequest, TopicRow, TopicSummary, TopicTag, TopicThread,
+    TopicThreadFlatPost, TopicThreadReply, TopicThreadSection, TopicTimingEntry,
     TopicTimingsRequest, TopicUser,
 };
 use futures_util::FutureExt;
@@ -1899,10 +1899,11 @@ impl FireCoreHandle {
     ) -> Result<NotificationAlertPollResultState, FireUniFfiError> {
         let inner = Arc::clone(&self.inner);
         let panic_state = Arc::clone(&self.panic_state);
-        let response = run_on_ffi_runtime("poll_notification_alert_once", panic_state, async move {
-            inner.poll_notification_alert_once(last_message_id).await
-        })
-        .await?;
+        let response =
+            run_on_ffi_runtime("poll_notification_alert_once", panic_state, async move {
+                inner.poll_notification_alert_once(last_message_id).await
+            })
+            .await?;
         Ok(response.into())
     }
 

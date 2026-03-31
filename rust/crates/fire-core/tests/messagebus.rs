@@ -4,9 +4,7 @@ use std::time::Duration;
 
 use common::{raw_json_response, TestServer};
 use fire_core::{FireCore, FireCoreConfig};
-use fire_models::{
-    BootstrapArtifacts, CookieSnapshot, MessageBusClientMode, MessageBusEventKind,
-};
+use fire_models::{BootstrapArtifacts, CookieSnapshot, MessageBusClientMode, MessageBusEventKind};
 use tokio::{sync::mpsc::unbounded_channel, time::timeout};
 
 #[tokio::test]

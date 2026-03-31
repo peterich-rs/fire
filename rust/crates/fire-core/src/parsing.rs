@@ -202,7 +202,7 @@ fn categories_from_preloaded(preloaded: &Value) -> Vec<TopicCategory> {
         .unwrap_or_default()
 }
 
-fn category_candidates<'a>(preloaded: &'a Value) -> impl Iterator<Item = &'a Value> {
+fn category_candidates(preloaded: &Value) -> impl Iterator<Item = &Value> {
     [
         preloaded
             .get("site")

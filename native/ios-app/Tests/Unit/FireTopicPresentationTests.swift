@@ -230,6 +230,8 @@ final class FireTopicPresentationTests: XCTestCase {
             discourseBaseUri: "/",
             sharedSessionKey: "shared-session",
             currentUsername: currentUsername,
+            currentUserId: nil,
+            notificationChannelPosition: nil,
             longPollingBaseUrl: "https://linux.do",
             turnstileSitekey: nil,
             topicTrackingStateMeta: "{\"message_bus_last_id\":42}",

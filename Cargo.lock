@@ -736,6 +736,7 @@ version = "0.1.0"
 dependencies = [
  "fire-models",
  "http",
+ "http-body-util",
  "mars-xlog",
  "mars-xlog-core",
  "openwire",

@@ -45,8 +45,18 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
   - now builds `FireSessionStore` lazily on a detached task so Rust/logging initialization does not block the first SwiftUI render on the main actor
   - tracks paginated topic feed state and publishes Rust-backed bootstrap metadata plus Rust-generated topic-row view models into SwiftUI
   - mirrors authenticated LinuxDo cookies into native `HTTPCookieStorage` so inline media/image requests can reuse the restored session
-  - coordinates native reply, like, and custom reaction mutations on top of the shared Rust interaction APIs
+  - coordinates native reply, like, custom reaction, and topic-timing reporting on top of the shared Rust interaction APIs
+  - now owns the foreground MessageBus lifecycle on iOS, including topic-detail reaction/presence subscriptions, shared notification-state sync, and reply-presence heartbeats while the quick composer is focused
   - now treats Rust-owned `CloudflareChallenge` errors as the signal for cookie resync and login fallback
+- `App/FireTopicDetailView.swift`
+  - subscribes the current topic's detail, reaction, and reply-presence channels through the shared Rust MessageBus surface
+  - reports visible-post reading timings through a native viewport tracker that flushes into the shared Rust `/topics/timings` API
+  - now shows live "typing" presence above the quick-reply bar while keeping the actual presence state and heartbeats in the shared layer
+- `App/FireBackgroundNotificationAlert.swift`
+  - schedules iOS `BGAppRefreshTask` runs for `/notification-alert/{userId}` polling
+  - restores the persisted Rust session in the background, performs a one-shot shared MessageBus alert poll, and turns the result into host-owned local notifications
+- `App/FireAppDelegate.swift`
+  - registers the background refresh task at launch and keeps `UNUserNotificationCenter` delegate ownership on the host side
 - `App/FireDiagnosticsView.swift`
   - renders a native diagnostics screen on top of the shared Rust diagnostics APIs
   - lists workspace log files plus reverse-chronological network request traces
@@ -74,6 +84,13 @@ Expected integration flow:
 6. After login or restore, render the topic feeds and topic detail through `fetchTopicList` / `fetchTopicDetail`.
 7. On explicit logout, call `FireWebViewLoginCoordinator.logout()` so the Rust snapshot, persisted session file, and host-side LinuxDo auth cookies stay aligned.
 
+Xcode project generation rules:
+
+- `native/ios-app/project.yml` is the source of truth for `Fire.xcodeproj`.
+- New Swift files placed under existing source roots such as `App/` or `Sources/FireAppSession/` do not require a `project.yml` edit, but they do require rerunning `xcodegen generate --spec native/ios-app/project.yml` and committing the regenerated `Fire.xcodeproj`.
+- Changes that introduce a new source/resource directory, framework dependency, build script, target, or Xcode build setting must update `project.yml` first, then regenerate `Fire.xcodeproj`.
+- CI regenerates `Fire.xcodeproj` from `project.yml` before building and now fails if the checked-in project differs from the generated result. This catches local project drift where source files exist on disk but the committed Xcode project was not regenerated.
+
 Workspace note:
 
 - The iOS host now passes `Application Support/Fire` into Rust as the workspace root.
@@ -96,7 +113,11 @@ Current UX note:
 - Topic rows now come across the UniFFI boundary as Rust-generated row models that already resolve original-poster identity, status labels, plain-text excerpts, trimmed tag names, and Unix-millisecond timestamps from the topic-list payload, while Swift only formats timestamps and renders the native row layout.
 - Topic detail now consumes Rust-generated flat thread posts and shared text helpers, hides the tab bar as a dedicated reading page, promotes the original post into the topic header as the main body, and exposes a persistent quick-reply bar at the bottom instead of a modal composer sheet.
 - Topic detail now supports per-post reply targeting, post likes, and custom emoji reactions through the shared Rust write APIs.
+- Topic detail now also reports native visible-post reading timings through the shared Rust `/topics/timings` API instead of keeping that reporting path host-specific.
+- Topic detail now also listens to the shared MessageBus reaction/presence channels, refreshes live post state from Rust on matching events, and shows shared reply-presence users in the quick-reply area.
 - Topic posts now render normalized native text plus inline image attachments in the detail screen, while more complex cooked modules still fall back to the lightweight native presentation instead of a full HTML/WebView renderer.
+- The app now keeps the in-app notification list synchronized from Rust-owned notification runtime state when MessageBus notification events arrive, instead of only updating the unread badge count.
+- iOS now schedules background refresh work for `/notification-alert/{userId}` and presents host-owned local notifications from a dedicated one-shot Rust MessageBus poll path.
 - The app now exposes a diagnostics screen for readable logs and Rust-owned request trace inspection.
 - The profile screen now consumes Rust-derived session display labels, so authenticated recovery states are described consistently across hosts instead of being inferred separately in Swift.
 
@@ -111,6 +132,7 @@ Build prerequisites:
 Verified local commands:
 
 - `xcodegen generate --spec native/ios-app/project.yml`
+- `xcodebuild -project native/ios-app/Fire.xcodeproj -scheme Fire -destination 'generic/platform=iOS Simulator' build`
 - `xcodebuild -project native/ios-app/Fire.xcodeproj -scheme Fire -destination 'platform=iOS Simulator,OS=18.2,name=iPhone 16' -derivedDataPath /tmp/fire-ios-ui CODE_SIGNING_ALLOWED=NO test`
 
 Current build note:

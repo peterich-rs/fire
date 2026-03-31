@@ -1,13 +1,16 @@
 mod auth;
 mod interactions;
+mod messagebus;
 mod network;
+mod notifications;
 mod persistence;
+mod presence;
 mod session;
 mod topics;
 
 use std::{
     path::{Path, PathBuf},
-    sync::{Arc, RwLock},
+    sync::{Arc, Mutex, RwLock},
 };
 
 use fire_models::{BootstrapArtifacts, CookieSnapshot, SessionSnapshot};
@@ -31,14 +34,22 @@ use std::time::Duration;
 
 const NETWORK_CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 const NETWORK_CALL_TIMEOUT: Duration = Duration::from_secs(30);
+const MESSAGE_BUS_CALL_TIMEOUT: Duration = Duration::from_secs(75);
+const CLIENT_MAX_CONNECTIONS_PER_HOST: usize = 8;
+const CLIENT_POOL_MAX_IDLE_PER_HOST: usize = 4;
+const MESSAGE_BUS_HTTP2_KEEP_ALIVE_INTERVAL: Duration = Duration::from_secs(30);
 
 #[derive(Clone)]
 pub struct FireCore {
     base_url: Url,
     workspace_path: Option<PathBuf>,
     client: Client,
+    message_bus_client: Client,
     diagnostics: Arc<FireDiagnosticsStore>,
     session: Arc<RwLock<SessionSnapshot>>,
+    message_bus: Arc<Mutex<messagebus::FireMessageBusRuntime>>,
+    notifications: Arc<Mutex<notifications::FireNotificationRuntime>>,
+    topic_presence: Arc<Mutex<presence::FireTopicPresenceRuntime>>,
 }
 
 impl FireCore {
@@ -64,13 +75,49 @@ impl FireCore {
         let session = Arc::new(RwLock::new(session));
         let cookie_jar = Arc::new(FireSessionCookieJar::new(base_url.clone(), session.clone()));
         let diagnostics = Arc::new(FireDiagnosticsStore::new());
-        let client = Client::builder()
-            .cookie_jar(cookie_jar)
-            .connect_timeout(NETWORK_CONNECT_TIMEOUT)
-            .call_timeout(NETWORK_CALL_TIMEOUT)
-            .event_listener_factory(FireNetworkTraceEventListenerFactory::new(Arc::clone(
-                &diagnostics,
-            )))
+        let client_builder = {
+            let builder = Client::builder()
+                .cookie_jar(Arc::clone(&cookie_jar))
+                .application_interceptor(network::FireCommonHeaderInterceptor::new(
+                    base_url.clone(),
+                    Arc::clone(&session),
+                ))
+                .connect_timeout(NETWORK_CONNECT_TIMEOUT)
+                .call_timeout(NETWORK_CALL_TIMEOUT)
+                .max_connections_per_host(CLIENT_MAX_CONNECTIONS_PER_HOST)
+                .pool_max_idle_per_host(CLIENT_POOL_MAX_IDLE_PER_HOST)
+                .event_listener_factory(FireNetworkTraceEventListenerFactory::new(Arc::clone(
+                    &diagnostics,
+                )));
+            #[cfg(debug_assertions)]
+            let builder = builder.use_system_proxy(true);
+            builder
+        };
+        let client = client_builder
+            .build()
+            .map_err(|source| FireCoreError::ClientBuild { source })?;
+
+        let message_bus_client_builder = {
+            let builder = Client::builder()
+                .cookie_jar(cookie_jar)
+                .application_interceptor(network::FireCommonHeaderInterceptor::new(
+                    base_url.clone(),
+                    Arc::clone(&session),
+                ))
+                .connect_timeout(NETWORK_CONNECT_TIMEOUT)
+                .call_timeout(MESSAGE_BUS_CALL_TIMEOUT)
+                .max_connections_per_host(CLIENT_MAX_CONNECTIONS_PER_HOST)
+                .pool_max_idle_per_host(CLIENT_POOL_MAX_IDLE_PER_HOST)
+                .http2_keep_alive_interval(MESSAGE_BUS_HTTP2_KEEP_ALIVE_INTERVAL)
+                .http2_keep_alive_while_idle(true)
+                .event_listener_factory(FireNetworkTraceEventListenerFactory::new(Arc::clone(
+                    &diagnostics,
+                )));
+            #[cfg(debug_assertions)]
+            let builder = builder.use_system_proxy(true);
+            builder
+        };
+        let message_bus_client = message_bus_client_builder
             .build()
             .map_err(|source| FireCoreError::ClientBuild { source })?;
 
@@ -78,8 +125,12 @@ impl FireCore {
             base_url,
             workspace_path,
             client,
+            message_bus_client,
             diagnostics,
             session,
+            message_bus: Arc::new(Mutex::new(messagebus::FireMessageBusRuntime::default())),
+            notifications: Arc::new(Mutex::new(notifications::FireNotificationRuntime::default())),
+            topic_presence: Arc::new(Mutex::new(presence::FireTopicPresenceRuntime::default())),
         })
     }
 
@@ -149,8 +200,13 @@ impl FireCore {
     where
         F: FnOnce(&mut SessionSnapshot),
     {
-        let mut session = write_rwlock(&self.session, "session");
-        mutate(&mut session);
-        session.clone()
+        let snapshot = {
+            let mut session = write_rwlock(&self.session, "session");
+            mutate(&mut session);
+            session.clone()
+        };
+        notifications::reconcile_notification_runtime(&self.notifications, &snapshot);
+        presence::reconcile_topic_presence_runtime(&self.topic_presence, &snapshot);
+        snapshot
     }
 }

@@ -16,6 +16,8 @@ extension SessionState {
                 discourseBaseUri: nil,
                 sharedSessionKey: nil,
                 currentUsername: nil,
+                currentUserId: nil,
+                notificationChannelPosition: nil,
                 longPollingBaseUrl: nil,
                 turnstileSitekey: nil,
                 topicTrackingStateMeta: nil,

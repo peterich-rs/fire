@@ -36,8 +36,11 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all --check
 
-      - name: Run clippy
+      - name: Run clippy (debug)
         run: cargo clippy -p fire-models -p fire-core -p fire-uniffi --all-targets --no-deps -- -D warnings
+
+      - name: Run clippy (release)
+        run: cargo clippy -p fire-models -p fire-core -p fire-uniffi --all-targets --no-deps --release -- -D warnings
 
   host-test:
     name: Rust Host Test (${{ matrix.os }})

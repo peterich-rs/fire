@@ -75,6 +75,8 @@ pub struct BootstrapArtifacts {
     pub discourse_base_uri: Option<String>,
     pub shared_session_key: Option<String>,
     pub current_username: Option<String>,
+    pub current_user_id: Option<u64>,
+    pub notification_channel_position: Option<i64>,
     pub long_polling_base_url: Option<String>,
     pub turnstile_sitekey: Option<String>,
     pub topic_tracking_state_meta: Option<String>,
@@ -95,6 +97,8 @@ impl Default for BootstrapArtifacts {
             discourse_base_uri: None,
             shared_session_key: None,
             current_username: None,
+            current_user_id: None,
+            notification_channel_position: None,
             long_polling_base_url: None,
             turnstile_sitekey: None,
             topic_tracking_state_meta: None,
@@ -126,6 +130,11 @@ impl BootstrapArtifacts {
             patch.shared_session_key.clone(),
         );
         merge_string_patch(&mut self.current_username, patch.current_username.clone());
+        merge_number_patch(&mut self.current_user_id, patch.current_user_id);
+        merge_number_patch(
+            &mut self.notification_channel_position,
+            patch.notification_channel_position,
+        );
         merge_string_patch(
             &mut self.long_polling_base_url,
             patch.long_polling_base_url.clone(),
@@ -163,6 +172,8 @@ impl BootstrapArtifacts {
     pub fn clear_login_state(&mut self) {
         self.shared_session_key = None;
         self.current_username = None;
+        self.current_user_id = None;
+        self.notification_channel_position = None;
         self.long_polling_base_url = None;
         self.topic_tracking_state_meta = None;
         self.preloaded_json = None;
@@ -294,6 +305,170 @@ impl LoginPhase {
             Self::Ready => "已就绪",
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MessageBusClientMode {
+    #[default]
+    Foreground,
+    IosBackground,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MessageBusSubscriptionScope {
+    #[default]
+    Durable,
+    Transient,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MessageBusSubscription {
+    pub channel: String,
+    pub last_message_id: Option<i64>,
+    pub scope: MessageBusSubscriptionScope,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MessageBusEventKind {
+    TopicList,
+    TopicDetail,
+    TopicReaction,
+    Presence,
+    Notification,
+    NotificationAlert,
+    #[default]
+    Unknown,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MessageBusEvent {
+    pub channel: String,
+    pub message_id: i64,
+    pub kind: MessageBusEventKind,
+    pub topic_list_kind: Option<TopicListKind>,
+    pub topic_id: Option<u64>,
+    pub notification_user_id: Option<u64>,
+    pub message_type: Option<String>,
+    pub detail_event_type: Option<String>,
+    pub reload_topic: bool,
+    pub refresh_stream: bool,
+    pub all_unread_notifications_count: Option<u32>,
+    pub unread_notifications: Option<u32>,
+    pub unread_high_priority_notifications: Option<u32>,
+    pub payload_json: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TopicPresenceUser {
+    pub id: u64,
+    pub username: String,
+    pub avatar_template: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TopicPresence {
+    pub topic_id: u64,
+    pub message_id: i64,
+    pub users: Vec<TopicPresenceUser>,
+}
+
+impl TopicPresence {
+    pub fn empty(topic_id: u64) -> Self {
+        Self {
+            topic_id,
+            message_id: -1,
+            users: Vec::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NotificationAlert {
+    pub message_id: i64,
+    pub notification_type: Option<u32>,
+    pub topic_id: Option<u64>,
+    pub post_number: Option<u32>,
+    pub topic_title: Option<String>,
+    pub excerpt: Option<String>,
+    pub username: Option<String>,
+    pub post_url: Option<String>,
+    pub payload_json: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NotificationAlertPollResult {
+    pub notification_user_id: u64,
+    pub client_id: String,
+    pub last_message_id: i64,
+    pub alerts: Vec<NotificationAlert>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NotificationCounters {
+    pub all_unread: u32,
+    pub unread: u32,
+    pub high_priority: u32,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NotificationData {
+    pub display_username: Option<String>,
+    pub original_post_id: Option<String>,
+    pub original_post_type: Option<i32>,
+    pub original_username: Option<String>,
+    pub revision_number: Option<u32>,
+    pub topic_title: Option<String>,
+    pub badge_name: Option<String>,
+    pub badge_id: Option<u64>,
+    pub badge_slug: Option<String>,
+    pub group_name: Option<String>,
+    pub inbox_count: Option<String>,
+    pub count: Option<u32>,
+    pub username: Option<String>,
+    pub username2: Option<String>,
+    pub avatar_template: Option<String>,
+    pub excerpt: Option<String>,
+    pub payload_json: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NotificationItem {
+    pub id: u64,
+    pub user_id: Option<u64>,
+    pub notification_type: i32,
+    pub read: bool,
+    pub high_priority: bool,
+    pub created_at: Option<String>,
+    pub created_timestamp_unix_ms: Option<u64>,
+    pub post_number: Option<u32>,
+    pub topic_id: Option<u64>,
+    pub slug: Option<String>,
+    pub fancy_title: Option<String>,
+    pub acting_user_avatar_template: Option<String>,
+    pub data: NotificationData,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NotificationListResponse {
+    pub notifications: Vec<NotificationItem>,
+    pub total_rows_notifications: u32,
+    pub seen_notification_id: Option<u64>,
+    pub load_more_notifications: Option<String>,
+    pub next_offset: Option<u32>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NotificationState {
+    pub counters: NotificationCounters,
+    pub recent: Vec<NotificationItem>,
+    pub has_loaded_recent: bool,
+    pub recent_seen_notification_id: Option<u64>,
+    pub full: Vec<NotificationItem>,
+    pub has_loaded_full: bool,
+    pub total_rows_notifications: u32,
+    pub full_seen_notification_id: Option<u64>,
+    pub full_load_more_notifications: Option<String>,
+    pub full_next_offset: Option<u32>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -443,6 +618,19 @@ pub struct TopicReplyRequest {
     pub topic_id: u64,
     pub raw: String,
     pub reply_to_post_number: Option<u32>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TopicTimingEntry {
+    pub post_number: u32,
+    pub milliseconds: u32,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TopicTimingsRequest {
+    pub topic_id: u64,
+    pub topic_time_ms: u32,
+    pub timings: Vec<TopicTimingEntry>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -712,6 +900,15 @@ fn merge_string_patch(slot: &mut Option<String>, patch: Option<String>) {
     }
 }
 
+fn merge_number_patch<T>(slot: &mut Option<T>, patch: Option<T>)
+where
+    T: Copy,
+{
+    if let Some(value) = patch {
+        *slot = Some(value);
+    }
+}
+
 fn is_non_empty(value: Option<&str>) -> bool {
     value.is_some_and(|value| !value.is_empty())
 }
@@ -941,6 +1138,8 @@ mod tests {
                 discourse_base_uri: Some("/".into()),
                 shared_session_key: Some("shared".into()),
                 current_username: Some("alice".into()),
+                current_user_id: Some(1),
+                notification_channel_position: Some(42),
                 long_polling_base_url: Some("https://linux.do".into()),
                 turnstile_sitekey: Some("sitekey".into()),
                 topic_tracking_state_meta: Some("{\"seq\":1}".into()),
@@ -957,6 +1156,8 @@ mod tests {
         assert_eq!(snapshot.cookies.cf_clearance.as_deref(), Some("clearance"));
         assert_eq!(snapshot.cookies.t_token, None);
         assert_eq!(snapshot.bootstrap.current_username, None);
+        assert_eq!(snapshot.bootstrap.current_user_id, None);
+        assert_eq!(snapshot.bootstrap.notification_channel_position, None);
         assert_eq!(snapshot.bootstrap.shared_session_key, None);
         assert_eq!(snapshot.bootstrap.preloaded_json, None);
         assert!(!snapshot.bootstrap.has_preloaded_data);

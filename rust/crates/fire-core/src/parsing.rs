@@ -5,6 +5,8 @@ use regex::Regex;
 use serde_json::Value;
 use tracing::warn;
 
+use crate::json_helpers::{integer_i64, positive_u32, positive_u64};
+
 #[derive(Debug, Default)]
 pub(crate) struct ParsedHomeState {
     pub(crate) cookies_patch: CookieSnapshot,
@@ -48,6 +50,22 @@ pub(crate) fn hydrate_preloaded_fields(preloaded_json: &str, bootstrap: &mut Boo
         .filter(|value| !value.is_empty())
     {
         bootstrap.current_username = Some(username.to_string());
+    }
+
+    if let Some(current_user_id) = preloaded
+        .get("currentUser")
+        .and_then(|value| value.get("id"))
+        .and_then(|value| positive_u64(Some(value)))
+    {
+        bootstrap.current_user_id = Some(current_user_id);
+    }
+
+    if let Some(notification_channel_position) = preloaded
+        .get("currentUser")
+        .and_then(|value| value.get("notification_channel_position"))
+        .and_then(|value| integer_i64(Some(value)))
+    {
+        bootstrap.notification_channel_position = Some(notification_channel_position);
     }
 
     if let Some(long_polling_base_url) = preloaded
@@ -233,12 +251,10 @@ fn category_values_from_candidate(candidate: &Value) -> Option<&Vec<Value>> {
 fn topic_category_from_value(value: &Value) -> Option<TopicCategory> {
     let object = value.as_object()?;
     Some(TopicCategory {
-        id: positive_u64_from_value(object.get("id")?)?,
+        id: positive_u64(object.get("id"))?,
         name: scalar_string_or_empty(object.get("name")),
         slug: scalar_string_or_empty(object.get("slug")),
-        parent_category_id: object
-            .get("parent_category_id")
-            .and_then(positive_u64_from_value),
+        parent_category_id: positive_u64(object.get("parent_category_id")),
         color_hex: object
             .get("color")
             .and_then(optional_scalar_string)
@@ -284,7 +300,7 @@ fn min_post_length_from_preloaded(preloaded: &Value) -> u32 {
         .get("siteSettings")
         .and_then(Value::as_object)
         .and_then(|settings| settings.get("min_post_length"))
-        .and_then(positive_u32_from_value)
+        .and_then(|value| positive_u32(Some(value)))
         .unwrap_or(1)
 }
 
@@ -299,26 +315,6 @@ fn optional_scalar_string(value: &Value) -> Option<String> {
 
 fn scalar_string_or_empty(value: Option<&Value>) -> String {
     value.and_then(optional_scalar_string).unwrap_or_default()
-}
-
-fn positive_u64_from_value(value: &Value) -> Option<u64> {
-    match value {
-        Value::Number(value) => value.as_u64(),
-        Value::String(value) => value.parse::<u64>().ok(),
-        Value::Bool(value) => Some(u64::from(*value)),
-        _ => None,
-    }
-    .filter(|value| *value > 0)
-}
-
-fn positive_u32_from_value(value: &Value) -> Option<u32> {
-    match value {
-        Value::Number(value) => value.as_u64().and_then(|value| u32::try_from(value).ok()),
-        Value::String(value) => value.parse::<u32>().ok(),
-        Value::Bool(value) => Some(u32::from(*value)),
-        _ => None,
-    }
-    .filter(|value| *value > 0)
 }
 
 #[cfg(test)]

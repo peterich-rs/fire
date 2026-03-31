@@ -29,14 +29,24 @@ private struct FireReplyComposerContext: Identifiable, Equatable {
 }
 
 struct FireTopicDetailView: View {
+    fileprivate static let scrollCoordinateSpaceName = "fire-topic-detail-scroll"
+
     @ObservedObject var viewModel: FireAppViewModel
     let row: FireTopicRowPresentation
 
+    @Environment(\.scenePhase) private var scenePhase
     @State private var composerContext: FireReplyComposerContext?
     @State private var replyDraft = ""
     @State private var composerNotice: String?
     @State private var quickReplyError: String?
+    @State private var timingTracker: FireTopicTimingTracker
     @FocusState private var isReplyFieldFocused: Bool
+
+    init(viewModel: FireAppViewModel, row: FireTopicRowPresentation) {
+        self.viewModel = viewModel
+        self.row = row
+        _timingTracker = State(initialValue: FireTopicTimingTracker(topicId: row.topic.id))
+    }
 
     private var topic: TopicSummaryState {
         row.topic
@@ -98,6 +108,10 @@ struct FireTopicDetailView: View {
         FireTopicPresentation.enabledReactionOptions(from: viewModel.session.bootstrap.enabledReactionIds)
     }
 
+    private var typingUsers: [TopicPresenceUserState] {
+        viewModel.topicPresenceUsers(for: topic.id)
+    }
+
     private var nonHeartReactionOptions: [FireReactionOption] {
         reactionOptions.filter { $0.id != "heart" }
     }
@@ -113,6 +127,10 @@ struct FireTopicDetailView: View {
 
     private var canWriteInteractions: Bool {
         viewModel.session.readiness.canWriteAuthenticatedApi
+    }
+
+    private var messageBusSubscriptionTaskID: String {
+        "\(topic.id)-\(viewModel.session.readiness.canOpenMessageBus)"
     }
 
     private var displayedReplyCount: UInt32 {
@@ -160,14 +178,23 @@ struct FireTopicDetailView: View {
     }
 
     var body: some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: 18) {
-                topicHeaderSection
-                postsSection
+        GeometryReader { geometry in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 18) {
+                    topicHeaderSection
+                    postsSection
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 12)
+                .padding(.bottom, 24)
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 12)
-            .padding(.bottom, 24)
+            .coordinateSpace(name: Self.scrollCoordinateSpaceName)
+            .onPreferenceChange(FireVisiblePostFramePreferenceKey.self) { frames in
+                let visiblePostNumbers = frames.compactMap { postNumber, frame in
+                    frame.maxY > 0 && frame.minY < geometry.size.height ? postNumber : nil
+                }
+                timingTracker.updateVisiblePostNumbers(Set(visiblePostNumbers))
+            }
         }
         .navigationTitle("话题")
         .navigationBarTitleDisplayMode(.inline)
@@ -191,18 +218,56 @@ struct FireTopicDetailView: View {
             Text(composerNotice ?? "")
         }
         .refreshable {
-            viewModel.loadTopicDetail(topicId: topic.id, force: true)
-            try? await Task.sleep(for: .seconds(1))
+            timingTracker.recordInteraction()
+            await viewModel.loadTopicDetail(topicId: topic.id, force: true)
         }
-        .task {
-            viewModel.loadTopicDetail(topicId: topic.id)
+        .task(id: topic.id) {
+            timingTracker.start { topicId, topicTimeMs, timings in
+                await viewModel.reportTopicTimings(
+                    topicId: topicId,
+                    topicTimeMs: topicTimeMs,
+                    timings: timings
+                )
+            }
+            await timingTracker.setSceneActive(scenePhase == .active)
+            await viewModel.loadTopicDetail(topicId: topic.id)
+        }
+        .task(id: messageBusSubscriptionTaskID) {
+            await viewModel.maintainTopicDetailSubscription(topicId: topic.id)
+        }
+        .onChange(of: scenePhase) { _, phase in
+            Task {
+                await timingTracker.setSceneActive(phase == .active)
+            }
+        }
+        .onChange(of: isReplyFieldFocused) { _, isFocused in
+            if isFocused {
+                viewModel.beginTopicReplyPresence(topicId: topic.id)
+            } else {
+                Task {
+                    await viewModel.endTopicReplyPresence(topicId: topic.id)
+                }
+            }
+        }
+        .onDisappear {
+            Task {
+                await timingTracker.stop()
+                await viewModel.endTopicReplyPresence(topicId: topic.id)
+            }
         }
         .onChange(of: replyDraft) { _, _ in
             if quickReplyError != nil {
                 quickReplyError = nil
             }
         }
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { _ in
+                    timingTracker.recordInteraction()
+                }
+        )
         .simultaneousGesture(TapGesture().onEnded {
+            timingTracker.recordInteraction()
             dismissKeyboard()
         })
     }
@@ -253,6 +318,7 @@ struct FireTopicDetailView: View {
                         toggleReaction(reactionId, for: post)
                     }
                 )
+                .background(FireVisiblePostFrameReporter(postNumber: originalPost.postNumber))
             } else if let excerpt = row.excerptText {
                 Text(excerpt)
                     .font(.subheadline)
@@ -323,6 +389,7 @@ struct FireTopicDetailView: View {
                                     toggleReaction(reactionId, for: post)
                                 }
                             )
+                            .background(FireVisiblePostFrameReporter(postNumber: flatPost.post.postNumber))
 
                             if index != displayPosts.count - 1 {
                                 Divider()
@@ -350,7 +417,9 @@ struct FireTopicDetailView: View {
                         .multilineTextAlignment(.center)
 
                     Button("重试") {
-                        viewModel.loadTopicDetail(topicId: topic.id, force: true)
+                        Task {
+                            await viewModel.loadTopicDetail(topicId: topic.id, force: true)
+                        }
                     }
                     .buttonStyle(.bordered)
                     .tint(FireTheme.accent)
@@ -359,7 +428,9 @@ struct FireTopicDetailView: View {
                 .padding(.vertical, 20)
             } else {
                 Button("加载帖子") {
-                    viewModel.loadTopicDetail(topicId: topic.id, force: true)
+                    Task {
+                        await viewModel.loadTopicDetail(topicId: topic.id, force: true)
+                    }
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 20)
@@ -369,6 +440,13 @@ struct FireTopicDetailView: View {
 
     private var quickReplyBar: some View {
         VStack(alignment: .leading, spacing: 10) {
+            if !typingUsers.isEmpty {
+                FireTypingPresenceStrip(
+                    users: typingUsers,
+                    baseURLString: baseURLString
+                )
+            }
+
             if let composerContext, let targetPost = composerTargetPost {
                 let canChangeTargetReaction = canChangeReaction(for: targetPost)
                 ScrollView(.horizontal, showsIndicators: false) {
@@ -613,6 +691,69 @@ struct FireTopicDetailView: View {
                 reactionId: toggledReactionId
             )
         }
+    }
+}
+
+private struct FireVisiblePostFrameReporter: View {
+    let postNumber: UInt32
+
+    var body: some View {
+        GeometryReader { proxy in
+            Color.clear.preference(
+                key: FireVisiblePostFramePreferenceKey.self,
+                value: [
+                    postNumber: proxy.frame(in: .named(FireTopicDetailView.scrollCoordinateSpaceName))
+                ]
+            )
+        }
+    }
+}
+
+private struct FireVisiblePostFramePreferenceKey: PreferenceKey {
+    static var defaultValue: [UInt32: CGRect] = [:]
+
+    static func reduce(value: inout [UInt32: CGRect], nextValue: () -> [UInt32: CGRect]) {
+        value.merge(nextValue(), uniquingKeysWith: { _, latest in latest })
+    }
+}
+
+private struct FireTypingPresenceStrip: View {
+    let users: [TopicPresenceUserState]
+    let baseURLString: String
+
+    private var summary: String {
+        let names = users.prefix(3).map(\.username)
+        let leading = names.joined(separator: "、")
+        if users.count > 3 {
+            return "\(leading) 等 \(users.count) 人正在输入"
+        }
+        return "\(leading) 正在输入"
+    }
+
+    var body: some View {
+        HStack(spacing: 10) {
+            HStack(spacing: -8) {
+                ForEach(Array(users.prefix(3)), id: \.id) { user in
+                    FireAvatarView(
+                        avatarTemplate: user.avatarTemplate ?? "",
+                        username: user.username,
+                        size: 22,
+                        baseURLString: baseURLString
+                    )
+                    .overlay(
+                        Circle()
+                            .stroke(Color(.systemBackground), lineWidth: 1)
+                    )
+                }
+            }
+
+            Text(summary)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(FireTheme.subtleInk)
+
+            Spacer()
+        }
+        .padding(.horizontal, 4)
     }
 }
 

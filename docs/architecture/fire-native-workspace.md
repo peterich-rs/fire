@@ -14,7 +14,7 @@ This repository is now the root of the Fire native rebuild.
 - `rust/`
   - contains the shared Rust core and the UniFFI boundary
 - `native/`
-  - contains the future iOS and Android native host apps
+  - contains the iOS and Android native host apps
 
 ## Local Layout
 
@@ -52,6 +52,7 @@ fire/
   - bootstrap parsing results
   - API orchestration
   - MessageBus
+  - in-app notification state and unread-counter reconciliation
   - shared models
   - logging integration
   - request tracing integration
@@ -65,33 +66,16 @@ fire/
 - `third_party/` stores build dependencies as submodules so the superproject can be pushed cleanly to GitHub.
 - The root Cargo workspace owns only the local Fire crates.
 
-## Current Login Pipeline
-
-The first usable session pipeline now lives in the Rust workspace:
+## Shared Surface
 
 - `fire-models`
-  - defines the shared login/session snapshot
-  - tracks auth cookies, CSRF, bootstrap artifacts, login phase, and session readiness
+  - defines the shared login/session snapshot, notification models, and topic-facing models
 - `fire-core`
-  - merges platform-synced cookies from iOS/Android WebView with shared latest-non-empty cookie semantics
-  - parses homepage HTML for `csrf-token`, `shared_session_key`, `discourse-base-uri`, `data-preloaded`, and Turnstile `sitekey`
-  - derives `currentUser.username`, `siteSettings.long_polling_base_url`, `topicTrackingStateMeta`, bootstrap category metadata, enabled reaction ids, and minimum reply length from `data-preloaded`
-  - exposes network-backed `refresh_bootstrap`, `refresh_bootstrap_if_needed`, `refresh_csrf_token`, `refresh_csrf_token_if_needed`, `logout_remote`, and local `logout_local`
-  - can export/import persisted session JSON and save/load session snapshots from disk for cold-start restoration
-  - keeps an in-process request trace timeline for every Rust-owned HTTP call, including execution-chain events, headers, and captured response bodies
-  - exposes workspace log file listing/reading, including the readable tracing mirror under `diagnostics/`
-  - exposes authenticated topic list and topic detail fetching for `latest/new/unread/unseen/hot/top`, including Rust-owned topic-row view-model derivation, `next_page` derivation, and reply-thread regrouping for topic detail post streams
-  - retries one logout request on `BAD CSRF` after refreshing `/session/csrf`
-  - classifies Cloudflare challenge HTML into a dedicated shared error instead of leaving 403 body sniffing to each host
+  - owns session sync, bootstrap parsing, auth refresh/logout, persistence, diagnostics, topic list/detail reads, the current reply/reaction write path, the Rust MessageBus poll/subscription runtime, and the shared notification fetch/state/mark-read reconciliation layer
 - `fire-uniffi`
-  - exports the session snapshot, readiness flags, login sync input, bootstrap sync APIs, persistence APIs, diagnostics APIs, topic APIs, and logout APIs to Swift/Kotlin
-  - now exposes network-backed APIs as native async UniFFI methods for Swift/Kotlin instead of re-wrapping them as synchronous FFI calls
-  - now keeps exported platform interactions on `Result`-style error paths so Rust panics are logged, returned as `Internal` UniFFI errors, and poison the current handle for subsequent calls
-  - keeps binding configuration in `rust/crates/fire-uniffi/uniffi.toml`
+  - exports the shared async API surface, notification list/state APIs, MessageBus callback interface, and error model to Swift/Kotlin
 - `native/ios-app` and `native/android-app`
-  - now drive a minimal latest-topic list plus topic detail shell on top of the exported topic API surface
-  - now surface native diagnostics screens for workspace logs plus request-trace overview/detail views
-  - now build against generated UniFFI bindings in app builds, with Android packaging `.so` libraries and iOS linking a generated Rust static library
+  - host WebView login, cookie capture, native UI state, the current topic browser/detail shells, and thin notification-store wrappers over the shared Rust notification APIs
 
 The intended native integration order is:
 
@@ -104,10 +88,9 @@ The intended native integration order is:
 7. If write APIs need a newer token, call `refresh_csrf_token_if_needed`.
 8. Use `fetch_topic_list` and `fetch_topic_detail` for the first authenticated read path.
 9. On explicit logout, prefer `logout_remote`, then fall back to `logout_local`, clear the persisted session, and remove host-side WebView auth cookies so the native shell and platform browser state agree.
+10. Use `notification_state`, `fetch_recent_notifications`, `fetch_notifications`, `mark_notification_read`, and `mark_all_notifications_read` for the shared in-app notification data path; keep OS-level/system notification presentation on the hosts.
 
-The current host shells now cover that first read path at the UI layer, and both app targets now compile against generated UniFFI outputs.
-
-Current file ownership convention:
+File ownership convention:
 
 - Native hosts provide a platform workspace root to Rust:
   - iOS: `Application Support/Fire`
@@ -120,12 +103,48 @@ Current file ownership convention:
   - `session.json` for the persisted session snapshot triggered by the host shell
 - The current session snapshot remains host-triggered persistence under `session.json` inside that workspace root.
 
-The Android host shell now generates Kotlin UniFFI bindings at build time, packages Rust-backed Android `.so` libraries per build variant, and renders the topic browser against the real shared Rust core. The iOS host shell now does the same at build time for Swift bindings plus a Rust static library and links that output directly into the Xcode target, while keeping the host bindgen step isolated from Xcode's iPhone SDK environment.
-Both native hosts now keep feed selection and screen-local UI state, while Rust owns the shared derived data that used to be reimplemented per host: session display labels, topic-list row shaping and status labels, topic-list `next_page`, bootstrap category metadata, enabled reaction ids, minimum reply length, shared HTML-to-plain-text helpers, and topic-detail reply-thread regrouping plus flat display ordering. The iOS host has now moved past the developer-style `List` shell into a more formal SwiftUI workspace with a session gate, feed console, adaptive light/dark theming, and full-screen login chrome, while Android topic detail already opens in a dedicated native screen. The iOS detail screen hides the tab bar as a dedicated reading page, promotes the original post into the header as the main topic body, keeps a persistent bottom quick-reply input, and exposes like/custom-reaction toggles through shared Rust write APIs. Cooked post bodies no longer collapse purely to plain text on iOS: the host now renders normalized native text plus inline image attachments, while richer custom cooked modules still await a fuller native renderer.
+## Current MessageBus Status
 
-## Next Build Steps
+- The shared Rust/UniFFI MessageBus foundation is now in place:
+  - Rust owns the foreground poll/subscription runtime, bootstrap tracking-channel registration, cross-origin `X-Shared-Session-Key` handling, and typed event classification for topic-list, topic-detail, topic-reaction, topic-reply-presence, notification, and notification-alert channels.
+  - Rust now owns `/notifications` recent/full-list fetch, pagination cursors, mark-read flows, unread counters, and recent/full-list reconciliation.
+  - MessageBus `/notification/{userId}` payloads now merge unread counts, recent read-state updates, and new-notification inserts into the shared notification runtime.
+  - Rust now owns topic-reply Presence bootstrap (`GET /presence/get`) plus active-client presence heartbeats (`POST /presence/update`) on top of the current foreground MessageBus `clientId`.
+  - Rust now also owns `/topics/timings` request shaping plus a one-shot `/notification-alert/{userId}` polling surface for iOS background refresh runs.
+- Host integration status:
+  - iOS now auto-starts the foreground MessageBus, refreshes topic list/detail state on matching events, subscribes topic detail reaction and presence channels, syncs the notification list from shared notification state, reports topic reading timings, and surfaces topic-reply presence above the quick-reply bar.
+  - iOS now also schedules `BGAppRefreshTask` runs that restore the persisted Rust session, perform a one-shot shared `/notification-alert/{userId}` poll with a temporary background `clientId`, and present host-owned local notifications.
+  - Android currently exposes the shared notification APIs through its session-store wrapper, but does not yet wire live MessageBus host behavior.
+  - OS-level/system notification presentation remains host-owned; Rust currently stops at event delivery plus the background alert polling primitive.
 
-1. Continue expanding the current Android/iOS topic browser shells with richer cooked-module rendering, upload-backed composer flows, and category/user navigation on top of the existing topic API layer.
-2. Add MessageBus client orchestration on top of restored `shared_session_key` / `topicTrackingStateMeta`.
-3. Move platform cookie storage into keychain/keystore backed persistence and reconcile it with the Rust snapshot lifecycle.
-4. Decide whether iOS build outputs should stay project-local under `Generated/` or be elevated into a reusable package/XCFramework flow for distribution and CI caching.
+## Next Delivery Priorities
+
+- P2: Move login cookie persistence into platform-secured storage.
+  - Keep `_t` / `_forum_session` in Keychain or Keystore backed storage and inject them back into Rust on startup.
+  - Stop treating `session.json` as the durable home for raw auth cookies once the secured platform storage path exists; keep only non-secret bootstrap/session data there, and require the host to re-inject platform cookies before authenticated reads, writes, or MessageBus startup after a cold launch.
+- P3: Add shared search APIs plus the first native search UI.
+  - Cover `/search.json`, tag search, and mention autocomplete in Rust.
+  - Start with iOS search entry, filter builder, and result views; Android can follow the same Rust surface afterward.
+- P4: Extend the shared write path into a full composer pipeline.
+  - Add upload, draft, and create-topic APIs in Rust, reusing the shared foreground `clientId`.
+  - Build the iOS composer with title, category, tags, upload progress, draft recovery, and mention autocomplete.
+- P5: Add user profile and social relationship surfaces.
+  - Implement shared user detail, summary, follow graph, follow/unfollow, and bookmark APIs in Rust.
+  - Add native entry points from topic author taps into profile and bookmark screens.
+- P6: Finish Presence and reading-timing reporting on top of the shared `clientId`.
+  - The shared Rust/iOS foreground Presence path, `/topics/timings` reporting, and the iOS background `notification-alert` chain are now in place.
+  - Remaining work is Android host integration plus any notification tap-through/deep-link follow-up on the native hosts.
+- P7: Deepen cooked-post rendering on both native hosts.
+  - Prioritize poll UI, syntax-highlighted code blocks, richer quote/table/spoiler handling, and parity between the iOS and Android renderers.
+  - Keep cooked-module rendering host-owned even when the backing fetch and mutation APIs live in Rust.
+
+Current dependency order:
+
+- P2 is independent of the completed shared notification layer and can run in parallel with host-side notification UI work.
+- The Rust MessageBus surface now unlocks the completed shared notification layer, the shared `clientId` requirement in P4 uploads, and P6 Presence.
+- P3 is independent, but P4 should wait for its mention-autocomplete surface.
+- P7 should stay host-owned and layer on top of the topic-detail rendering stack instead of reopening shared API ownership.
+
+Deferred but still open:
+
+- Decide whether iOS generated build outputs should remain project-local under `Generated/` or move into a reusable package/XCFramework distribution path for CI and release workflows.

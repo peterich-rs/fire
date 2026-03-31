@@ -138,6 +138,35 @@ public actor FireSessionStore {
         try core.exportSessionJson()
     }
 
+    public func notificationState() throws -> NotificationCenterState {
+        try core.notificationState()
+    }
+
+    public func fetchRecentNotifications(limit: UInt32? = nil) async throws -> NotificationListState {
+        try await core.fetchRecentNotifications(limit: limit)
+    }
+
+    public func fetchNotifications(
+        limit: UInt32? = nil,
+        offset: UInt32? = nil
+    ) async throws -> NotificationListState {
+        try await core.fetchNotifications(limit: limit, offset: offset)
+    }
+
+    public func markNotificationRead(id: UInt64) async throws -> NotificationCenterState {
+        try await core.markNotificationRead(notificationId: id)
+    }
+
+    public func markAllNotificationsRead() async throws -> NotificationCenterState {
+        try await core.markAllNotificationsRead()
+    }
+
+    public func pollNotificationAlertOnce(
+        lastMessageId: Int64
+    ) async throws -> NotificationAlertPollResultState {
+        try await core.pollNotificationAlertOnce(lastMessageId: lastMessageId)
+    }
+
     public func fetchTopicList(query: TopicListQueryState) async throws -> TopicListState {
         try await core.fetchTopicList(query: query)
     }
@@ -185,6 +214,12 @@ public actor FireSessionStore {
         )
     }
 
+    public func reportTopicTimings(
+        input: TopicTimingsRequestState
+    ) async throws {
+        try await core.reportTopicTimings(input: input)
+    }
+
     public func likePost(postID: UInt64) async throws {
         try await core.likePost(postId: postID)
     }
@@ -206,6 +241,63 @@ public actor FireSessionStore {
         try persistCurrentSession()
         return state
     }
+
+    // MARK: - MessageBus
+
+    @discardableResult
+    public func startMessageBus(handler: any MessageBusEventHandler) async throws -> String {
+        try await core.startMessageBus(mode: .foreground, handler: handler)
+    }
+
+    public func stopMessageBus(clearSubscriptions: Bool = false) throws {
+        try core.stopMessageBus(clearSubscriptions: clearSubscriptions)
+    }
+
+    public func subscribeTopicDetailChannel(topicId: UInt64) throws {
+        try core.subscribeChannel(
+            subscription: MessageBusSubscriptionState(
+                channel: "/topic/\(topicId)",
+                lastMessageId: nil,
+                scope: .transient
+            )
+        )
+    }
+
+    public func unsubscribeTopicDetailChannel(topicId: UInt64) throws {
+        try core.unsubscribeChannel(channel: "/topic/\(topicId)")
+    }
+
+    public func subscribeTopicReactionChannel(topicId: UInt64) throws {
+        try core.subscribeChannel(
+            subscription: MessageBusSubscriptionState(
+                channel: "/topic/\(topicId)/reactions",
+                lastMessageId: nil,
+                scope: .transient
+            )
+        )
+    }
+
+    public func unsubscribeTopicReactionChannel(topicId: UInt64) throws {
+        try core.unsubscribeChannel(channel: "/topic/\(topicId)/reactions")
+    }
+
+    public func topicReplyPresenceState(topicId: UInt64) throws -> TopicPresenceState {
+        try core.topicReplyPresenceState(topicId: topicId)
+    }
+
+    public func bootstrapTopicReplyPresence(topicId: UInt64) async throws -> TopicPresenceState {
+        try await core.bootstrapTopicReplyPresence(topicId: topicId)
+    }
+
+    public func unsubscribeTopicReplyPresenceChannel(topicId: UInt64) throws {
+        try core.unsubscribeChannel(channel: "/presence/discourse-presence/reply/\(topicId)")
+    }
+
+    public func updateTopicReplyPresence(topicId: UInt64, active: Bool) async throws {
+        try await core.updateTopicReplyPresence(topicId: topicId, active: active)
+    }
+
+    // MARK: - Logout
 
     @discardableResult
     public func logout() async throws -> SessionState {

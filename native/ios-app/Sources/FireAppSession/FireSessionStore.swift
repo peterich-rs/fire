@@ -161,6 +161,12 @@ public actor FireSessionStore {
         try await core.markAllNotificationsRead()
     }
 
+    public func pollNotificationAlertOnce(
+        lastMessageId: Int64
+    ) async throws -> NotificationAlertPollResultState {
+        try await core.pollNotificationAlertOnce(lastMessageId: lastMessageId)
+    }
+
     public func fetchTopicList(query: TopicListQueryState) async throws -> TopicListState {
         try await core.fetchTopicList(query: query)
     }
@@ -208,6 +214,12 @@ public actor FireSessionStore {
         )
     }
 
+    public func reportTopicTimings(
+        input: TopicTimingsRequestState
+    ) async throws {
+        try await core.reportTopicTimings(input: input)
+    }
+
     public func likePost(postID: UInt64) async throws {
         try await core.likePost(postId: postID)
     }
@@ -253,6 +265,36 @@ public actor FireSessionStore {
 
     public func unsubscribeTopicDetailChannel(topicId: UInt64) throws {
         try core.unsubscribeChannel(channel: "/topic/\(topicId)")
+    }
+
+    public func subscribeTopicReactionChannel(topicId: UInt64) throws {
+        try core.subscribeChannel(
+            subscription: MessageBusSubscriptionState(
+                channel: "/topic/\(topicId)/reactions",
+                lastMessageId: nil,
+                scope: .transient
+            )
+        )
+    }
+
+    public func unsubscribeTopicReactionChannel(topicId: UInt64) throws {
+        try core.unsubscribeChannel(channel: "/topic/\(topicId)/reactions")
+    }
+
+    public func topicReplyPresenceState(topicId: UInt64) throws -> TopicPresenceState {
+        try core.topicReplyPresenceState(topicId: topicId)
+    }
+
+    public func bootstrapTopicReplyPresence(topicId: UInt64) async throws -> TopicPresenceState {
+        try await core.bootstrapTopicReplyPresence(topicId: topicId)
+    }
+
+    public func unsubscribeTopicReplyPresenceChannel(topicId: UInt64) throws {
+        try core.unsubscribeChannel(channel: "/presence/discourse-presence/reply/\(topicId)")
+    }
+
+    public func updateTopicReplyPresence(topicId: UInt64, active: Bool) async throws {
+        try await core.updateTopicReplyPresence(topicId: topicId, active: active)
     }
 
     // MARK: - Logout

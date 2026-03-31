@@ -9,7 +9,8 @@ use std::{
 
 use fire_models::{
     BootstrapArtifacts, MessageBusClientMode, MessageBusEvent, MessageBusEventKind,
-    MessageBusSubscription, MessageBusSubscriptionScope, SessionSnapshot, TopicListKind,
+    MessageBusSubscription, MessageBusSubscriptionScope, NotificationAlert,
+    NotificationAlertPollResult, SessionSnapshot, TopicListKind,
 };
 use http::{Method, Request, Response};
 use http_body_util::BodyExt;
@@ -23,6 +24,7 @@ use url::{form_urlencoded::Serializer, Url};
 use super::{
     network::{classify_http_status_error, header_value, request_origin, FireRequestProfile},
     notifications::{merge_notification_event_data, FireNotificationRuntime},
+    presence::{merge_topic_presence_event_data, FireTopicPresenceRuntime},
     FireCore,
 };
 use crate::{
@@ -63,6 +65,7 @@ struct MessageBusPollContext {
     session: Arc<RwLock<SessionSnapshot>>,
     runtime: Arc<Mutex<FireMessageBusRuntime>>,
     notifications: Arc<Mutex<FireNotificationRuntime>>,
+    topic_presence: Arc<Mutex<FireTopicPresenceRuntime>>,
     event_sender: UnboundedSender<MessageBusEvent>,
     client_id: String,
 }
@@ -173,6 +176,70 @@ impl FireCore {
             runtime.foreground_client_id = None;
         }
     }
+
+    pub async fn poll_notification_alert_once(
+        &self,
+        last_message_id: i64,
+    ) -> Result<NotificationAlertPollResult, FireCoreError> {
+        let snapshot = self.snapshot();
+        if !snapshot.cookies.can_authenticate_requests() {
+            return Err(FireCoreError::MissingLoginSession);
+        }
+        if message_bus_requires_shared_session_key(&self.base_url, &snapshot.bootstrap)?
+            && snapshot.bootstrap.shared_session_key.is_none()
+        {
+            return Err(FireCoreError::MissingSharedSessionKey);
+        }
+
+        let notification_user_id = snapshot
+            .bootstrap
+            .current_user_id
+            .ok_or(FireCoreError::MissingCurrentUserId)?;
+        let channel = format!("/notification-alert/{notification_user_id}");
+        let client_id = generate_ios_background_client_id();
+        let (trace_id, request) = build_message_bus_poll_request_for_snapshot(
+            &self.diagnostics,
+            &self.base_url,
+            &snapshot,
+            &client_id,
+            &[(channel.clone(), last_message_id)],
+        )?;
+        debug!(
+            trace_id,
+            client_id = %client_id,
+            channel = %channel,
+            last_message_id,
+            "executing background notification-alert poll request"
+        );
+        let response = self.message_bus_client.execute(request).await.map_err(|source| {
+            self.diagnostics.record_call_failed(trace_id, &source);
+            FireCoreError::Network { source }
+        })?;
+
+        if !response.status().is_success() {
+            match read_message_bus_error_response_for_diagnostics(
+                &self.diagnostics,
+                trace_id,
+                response,
+            )
+            .await
+            {
+                Err(error) => return Err(error),
+                Ok(_) => unreachable!("message bus error response should not succeed"),
+            }
+        }
+
+        read_notification_alert_success_response(
+            &self.diagnostics,
+            trace_id,
+            response,
+            notification_user_id,
+            &client_id,
+            &channel,
+            last_message_id,
+        )
+        .await
+    }
 }
 
 fn restart_poll_task(
@@ -224,6 +291,7 @@ fn spawn_poll_task(
         session: Arc::clone(&core.session),
         runtime: Arc::clone(&core.message_bus),
         notifications: Arc::clone(&core.notifications),
+        topic_presence: Arc::clone(&core.topic_presence),
         event_sender,
         client_id,
     };
@@ -303,9 +371,25 @@ fn build_message_bus_poll_request(
     subscriptions: &[(String, i64)],
 ) -> Result<(u64, Request<RequestBody>), FireCoreError> {
     let snapshot = read_rwlock(&context.session, "session").clone();
-    let poll_base_url = message_bus_poll_base_url(&context.base_url, &snapshot.bootstrap)?;
-    let uri = poll_base_url.join(&format!("/message-bus/{}/poll", context.client_id))?;
-    let same_origin = request_origin(&context.base_url) == request_origin(&poll_base_url);
+    build_message_bus_poll_request_for_snapshot(
+        &context.diagnostics,
+        &context.base_url,
+        &snapshot,
+        &context.client_id,
+        subscriptions,
+    )
+}
+
+fn build_message_bus_poll_request_for_snapshot(
+    diagnostics: &Arc<FireDiagnosticsStore>,
+    base_url: &Url,
+    snapshot: &SessionSnapshot,
+    client_id: &str,
+    subscriptions: &[(String, i64)],
+) -> Result<(u64, Request<RequestBody>), FireCoreError> {
+    let poll_base_url = message_bus_poll_base_url(base_url, &snapshot.bootstrap)?;
+    let uri = poll_base_url.join(&format!("/message-bus/{client_id}/poll"))?;
+    let same_origin = request_origin(base_url) == request_origin(&poll_base_url);
 
     let mut serializer = Serializer::new(String::new());
     for (channel, last_message_id) in subscriptions {
@@ -327,6 +411,7 @@ fn build_message_bus_poll_request(
         let shared_session_key = snapshot
             .bootstrap
             .shared_session_key
+            .as_ref()
             .ok_or(FireCoreError::MissingSharedSessionKey)?;
         builder = builder.header("X-Shared-Session-Key", shared_session_key);
     }
@@ -337,9 +422,7 @@ fn build_message_bus_poll_request(
     request
         .extensions_mut()
         .insert(FireRequestProfile::MessageBusPoll);
-    let trace_id = context
-        .diagnostics
-        .prepare_request_trace(MESSAGE_BUS_OPERATION, &mut request);
+    let trace_id = diagnostics.prepare_request_trace(MESSAGE_BUS_OPERATION, &mut request);
     Ok((trace_id, request))
 }
 
@@ -348,14 +431,20 @@ async fn read_message_bus_error_response(
     trace_id: u64,
     response: Response<ResponseBody>,
 ) -> Result<bool, FireCoreError> {
+    read_message_bus_error_response_for_diagnostics(&context.diagnostics, trace_id, response).await
+}
+
+async fn read_message_bus_error_response_for_diagnostics(
+    diagnostics: &Arc<FireDiagnosticsStore>,
+    trace_id: u64,
+    response: Response<ResponseBody>,
+) -> Result<bool, FireCoreError> {
     let status = response.status().as_u16();
     let body = response.into_body().text().await.map_err(|source| {
-        context.diagnostics.record_call_failed(trace_id, &source);
+        diagnostics.record_call_failed(trace_id, &source);
         FireCoreError::Network { source }
     })?;
-    context
-        .diagnostics
-        .record_http_status_error(trace_id, status, &body);
+    diagnostics.record_http_status_error(trace_id, status, &body);
     Err(classify_http_status_error(
         MESSAGE_BUS_OPERATION,
         status,
@@ -416,6 +505,95 @@ async fn read_message_bus_success_response(
     Ok(true)
 }
 
+async fn read_notification_alert_success_response(
+    diagnostics: &Arc<FireDiagnosticsStore>,
+    trace_id: u64,
+    response: Response<ResponseBody>,
+    notification_user_id: u64,
+    client_id: &str,
+    channel: &str,
+    initial_last_message_id: i64,
+) -> Result<NotificationAlertPollResult, FireCoreError> {
+    let content_type = header_value(response.headers(), "content-type");
+    let mut body = response.into_body();
+    let mut response_text = String::new();
+    let mut chunk_buffer = String::new();
+    let mut result = NotificationAlertPollResult {
+        notification_user_id,
+        client_id: client_id.to_string(),
+        last_message_id: initial_last_message_id,
+        alerts: Vec::new(),
+    };
+
+    while let Some(frame) = body.frame().await {
+        let frame = frame.map_err(|source| {
+            diagnostics.record_call_failed(trace_id, &source);
+            FireCoreError::Network { source }
+        })?;
+        let Ok(bytes) = frame.into_data() else {
+            continue;
+        };
+        let text = String::from_utf8_lossy(&bytes);
+        response_text.push_str(&text);
+        chunk_buffer.push_str(&text);
+
+        while let Some(delimiter) = chunk_buffer.find('|') {
+            let chunk = chunk_buffer[..delimiter].trim().to_string();
+            chunk_buffer = chunk_buffer[delimiter + 1..].to_string();
+            if !chunk.is_empty() {
+                process_notification_alert_chunk(&mut result, channel, client_id, &chunk);
+            }
+        }
+    }
+
+    if !chunk_buffer.trim().is_empty() {
+        process_notification_alert_chunk(&mut result, channel, client_id, chunk_buffer.trim());
+    }
+
+    diagnostics.record_response_body_text(trace_id, &response_text, content_type.as_deref());
+    Ok(result)
+}
+
+fn process_notification_alert_chunk(
+    result: &mut NotificationAlertPollResult,
+    channel: &str,
+    client_id: &str,
+    chunk: &str,
+) {
+    let messages: Vec<RawMessageBusMessage> = match serde_json::from_str(chunk) {
+        Ok(messages) => messages,
+        Err(error) => {
+            warn!(
+                client_id = %client_id,
+                error = %error,
+                chunk = %chunk,
+                "failed to parse background notification-alert chunk"
+            );
+            return;
+        }
+    };
+
+    for message in messages {
+        if message.channel == "/__status" {
+            if let Some(last_message_id) = message
+                .data
+                .get(channel)
+                .and_then(|value| integer_i64(Some(value)))
+            {
+                result.last_message_id = result.last_message_id.max(last_message_id);
+            }
+            continue;
+        }
+
+        if message.channel != channel {
+            continue;
+        }
+
+        result.last_message_id = result.last_message_id.max(message.message_id);
+        result.alerts.push(notification_alert_from_raw(&message));
+    }
+}
+
 fn process_chunk(context: &MessageBusPollContext, chunk: &str) -> Result<bool, FireCoreError> {
     let messages: Vec<RawMessageBusMessage> = match serde_json::from_str(chunk) {
         Ok(messages) => messages,
@@ -439,6 +617,14 @@ fn process_chunk(context: &MessageBusPollContext, chunk: &str) -> Result<bool, F
         update_channel_checkpoint(&context.runtime, &message.channel, message.message_id);
         if notification_user_id_from_channel(&message.channel).is_some() {
             merge_notification_event_data(&context.notifications, &message.data);
+        }
+        if let Some(topic_id) = presence_topic_id_from_channel(&message.channel) {
+            merge_topic_presence_event_data(
+                &context.topic_presence,
+                topic_id,
+                message.message_id,
+                &message.data,
+            );
         }
         let event = message_bus_event_from_raw(&message);
         if context.event_sender.send(event).is_err() {
@@ -508,6 +694,17 @@ fn message_bus_event_from_raw(message: &RawMessageBusMessage) -> MessageBusEvent
         };
     }
 
+    if let Some(topic_id) = topic_reaction_topic_id_from_channel(&message.channel) {
+        return MessageBusEvent {
+            channel: message.channel.clone(),
+            message_id: message.message_id,
+            kind: MessageBusEventKind::TopicReaction,
+            topic_id: Some(topic_id),
+            payload_json,
+            ..MessageBusEvent::default()
+        };
+    }
+
     if let Some(topic_id) = topic_id_from_channel(&message.channel) {
         return MessageBusEvent {
             channel: message.channel.clone(),
@@ -521,6 +718,17 @@ fn message_bus_event_from_raw(message: &RawMessageBusMessage) -> MessageBusEvent
                 .map(ToOwned::to_owned),
             reload_topic: boolean(message.data.get("reload_topic")),
             refresh_stream: boolean(message.data.get("refresh_stream")),
+            payload_json,
+            ..MessageBusEvent::default()
+        };
+    }
+
+    if let Some(topic_id) = presence_topic_id_from_channel(&message.channel) {
+        return MessageBusEvent {
+            channel: message.channel.clone(),
+            message_id: message.message_id,
+            kind: MessageBusEventKind::Presence,
+            topic_id: Some(topic_id),
             payload_json,
             ..MessageBusEvent::default()
         };
@@ -549,12 +757,64 @@ fn message_bus_event_from_raw(message: &RawMessageBusMessage) -> MessageBusEvent
         };
     }
 
+    if let Some(notification_user_id) = notification_alert_user_id_from_channel(&message.channel) {
+        return MessageBusEvent {
+            channel: message.channel.clone(),
+            message_id: message.message_id,
+            kind: MessageBusEventKind::NotificationAlert,
+            notification_user_id: Some(notification_user_id),
+            payload_json,
+            ..MessageBusEvent::default()
+        };
+    }
+
     MessageBusEvent {
         channel: message.channel.clone(),
         message_id: message.message_id,
         kind: MessageBusEventKind::Unknown,
         payload_json,
         ..MessageBusEvent::default()
+    }
+}
+
+fn notification_alert_from_raw(message: &RawMessageBusMessage) -> NotificationAlert {
+    NotificationAlert {
+        message_id: message.message_id,
+        notification_type: message
+            .data
+            .get("notification_type")
+            .and_then(|value| integer_u32(Some(value))),
+        topic_id: message
+            .data
+            .get("topic_id")
+            .and_then(|value| positive_u64(Some(value))),
+        post_number: message
+            .data
+            .get("post_number")
+            .and_then(|value| integer_u32(Some(value))),
+        topic_title: message
+            .data
+            .get("topic_title")
+            .and_then(Value::as_str)
+            .map(ToOwned::to_owned),
+        excerpt: message
+            .data
+            .get("excerpt")
+            .and_then(Value::as_str)
+            .map(ToOwned::to_owned),
+        username: message
+            .data
+            .get("username")
+            .and_then(Value::as_str)
+            .map(ToOwned::to_owned),
+        post_url: message
+            .data
+            .get("post_url")
+            .and_then(Value::as_str)
+            .map(ToOwned::to_owned),
+        payload_json: serde_json::to_string(&message.data)
+            .ok()
+            .filter(|value| value != "null"),
     }
 }
 
@@ -727,10 +987,56 @@ fn topic_id_from_channel(channel: &str) -> Option<u64> {
     }
 }
 
+fn topic_reaction_topic_id_from_channel(channel: &str) -> Option<u64> {
+    let mut parts = channel.trim_matches('/').split('/');
+    match (parts.next(), parts.next(), parts.next(), parts.next()) {
+        (Some("topic"), Some(topic_id), Some("reactions"), None) => topic_id.parse::<u64>().ok(),
+        _ => None,
+    }
+}
+
+pub(crate) fn presence_topic_id_from_channel(channel: &str) -> Option<u64> {
+    let mut parts = channel.trim_matches('/').split('/');
+    match (
+        parts.next(),
+        parts.next(),
+        parts.next(),
+        parts.next(),
+        parts.next(),
+    ) {
+        (Some("presence"), Some("discourse-presence"), Some("reply"), Some(topic_id), None) => {
+            topic_id.parse::<u64>().ok()
+        }
+        _ => None,
+    }
+}
+
+pub(crate) fn message_bus_presence_channel_for_topic(topic_id: u64) -> String {
+    format!("/presence/discourse-presence/reply/{topic_id}")
+}
+
 fn notification_user_id_from_channel(channel: &str) -> Option<u64> {
     let mut parts = channel.trim_matches('/').split('/');
     match (parts.next(), parts.next(), parts.next()) {
         (Some("notification"), Some(user_id), None) => user_id.parse::<u64>().ok(),
         _ => None,
     }
+}
+
+fn notification_alert_user_id_from_channel(channel: &str) -> Option<u64> {
+    let mut parts = channel.trim_matches('/').split('/');
+    match (parts.next(), parts.next(), parts.next()) {
+        (Some("notification-alert"), Some(user_id), None) => user_id.parse::<u64>().ok(),
+        _ => None,
+    }
+}
+
+pub(crate) fn active_message_bus_client_id(
+    runtime: &Arc<Mutex<FireMessageBusRuntime>>,
+) -> Option<String> {
+    runtime
+        .lock()
+        .expect("message bus runtime lock poisoned")
+        .active_client_id
+        .clone()
 }

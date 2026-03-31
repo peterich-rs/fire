@@ -23,6 +23,7 @@ impl FireCore {
     ) -> Result<fire_models::SessionSnapshot, FireCoreError> {
         let snapshot = self.decode_persisted_snapshot(&json)?;
         self.clear_notification_state();
+        self.clear_topic_presence_state();
         Ok(self.update_session(|session| {
             *session = snapshot.clone();
             debug!(

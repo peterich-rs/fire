@@ -4,7 +4,9 @@ use std::time::Duration;
 
 use common::{raw_json_response, TestServer};
 use fire_core::{FireCore, FireCoreConfig};
-use fire_models::{BootstrapArtifacts, CookieSnapshot, MessageBusClientMode, MessageBusEventKind};
+use fire_models::{
+    BootstrapArtifacts, CookieSnapshot, MessageBusClientMode, MessageBusEventKind,
+};
 use tokio::{sync::mpsc::unbounded_channel, time::timeout};
 
 #[tokio::test]
@@ -136,4 +138,57 @@ async fn foreground_client_id_is_reused_and_ios_background_gets_temporary_id() {
     assert_eq!(foreground_client_id, restarted_foreground_client_id);
     assert!(background_client_id.starts_with("ios_bg_"));
     assert_ne!(foreground_client_id, background_client_id);
+}
+
+#[tokio::test]
+async fn poll_notification_alert_once_returns_alerts_and_checkpoint() {
+    let server = TestServer::spawn(vec![raw_json_response(
+        200,
+        "application/json",
+        r#"[{"channel":"/notification-alert/1","message_id":14,"data":{"notification_type":2,"topic_id":123,"post_number":4,"topic_title":"Fire alert","excerpt":"New reply","username":"bob","post_url":"/t/fire/123/4"}}]|[{"channel":"/__status","message_id":0,"data":{"/notification-alert/1":16}}]"#,
+    )])
+    .await
+    .expect("server");
+    let core = authenticated_core(&server.base_url());
+
+    let result = core
+        .poll_notification_alert_once(10)
+        .await
+        .expect("poll notification alert");
+    let requests = server.shutdown_with_requests().await;
+
+    assert_eq!(result.notification_user_id, 1);
+    assert!(result.client_id.starts_with("ios_bg_"));
+    assert_eq!(result.last_message_id, 16);
+    assert_eq!(result.alerts.len(), 1);
+    assert_eq!(result.alerts[0].message_id, 14);
+    assert_eq!(result.alerts[0].notification_type, Some(2));
+    assert_eq!(result.alerts[0].topic_id, Some(123));
+    assert_eq!(result.alerts[0].post_number, Some(4));
+    assert_eq!(result.alerts[0].topic_title.as_deref(), Some("Fire alert"));
+
+    let request = requests[0].to_ascii_lowercase();
+    assert!(request.contains(&format!("post /message-bus/{}/poll", result.client_id)));
+    assert!(request.contains("%2fnotification-alert%2f1=10"));
+    assert!(request.contains("discourse-background: true"));
+}
+
+fn authenticated_core(base_url: &str) -> FireCore {
+    let core = FireCore::new(FireCoreConfig {
+        base_url: base_url.to_string(),
+        workspace_path: None,
+    })
+    .expect("core");
+    let _ = core.apply_cookies(CookieSnapshot {
+        t_token: Some("token".into()),
+        forum_session: Some("forum".into()),
+        ..CookieSnapshot::default()
+    });
+    let _ = core.apply_bootstrap(BootstrapArtifacts {
+        base_url: base_url.to_string(),
+        current_username: Some("alice".into()),
+        current_user_id: Some(1),
+        ..BootstrapArtifacts::default()
+    });
+    core
 }

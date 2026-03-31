@@ -103,12 +103,19 @@ File ownership convention:
   - `session.json` for the persisted session snapshot triggered by the host shell
 - The current session snapshot remains host-triggered persistence under `session.json` inside that workspace root.
 
-## Current Notification Status
+## Current MessageBus Status
 
-- The shared Rust/UniFFI notification data path is now in place on top of MessageBus:
+- The shared Rust/UniFFI MessageBus foundation is now in place:
+  - Rust owns the foreground poll/subscription runtime, bootstrap tracking-channel registration, cross-origin `X-Shared-Session-Key` handling, and typed event classification for topic-list, topic-detail, topic-reaction, topic-reply-presence, notification, and notification-alert channels.
   - Rust now owns `/notifications` recent/full-list fetch, pagination cursors, mark-read flows, unread counters, and recent/full-list reconciliation.
   - MessageBus `/notification/{userId}` payloads now merge unread counts, recent read-state updates, and new-notification inserts into the shared notification runtime.
-  - iOS and Android session-store wrappers now expose the shared notification APIs, while OS-level/system notification presentation remains host-owned.
+  - Rust now owns topic-reply Presence bootstrap (`GET /presence/get`) plus active-client presence heartbeats (`POST /presence/update`) on top of the current foreground MessageBus `clientId`.
+  - Rust now also owns `/topics/timings` request shaping plus a one-shot `/notification-alert/{userId}` polling surface for iOS background refresh runs.
+- Host integration status:
+  - iOS now auto-starts the foreground MessageBus, refreshes topic list/detail state on matching events, subscribes topic detail reaction and presence channels, syncs the notification list from shared notification state, reports topic reading timings, and surfaces topic-reply presence above the quick-reply bar.
+  - iOS now also schedules `BGAppRefreshTask` runs that restore the persisted Rust session, perform a one-shot shared `/notification-alert/{userId}` poll with a temporary background `clientId`, and present host-owned local notifications.
+  - Android currently exposes the shared notification APIs through its session-store wrapper, but does not yet wire live MessageBus host behavior.
+  - OS-level/system notification presentation remains host-owned; Rust currently stops at event delivery plus the background alert polling primitive.
 
 ## Next Delivery Priorities
 
@@ -124,9 +131,9 @@ File ownership convention:
 - P5: Add user profile and social relationship surfaces.
   - Implement shared user detail, summary, follow graph, follow/unfollow, and bookmark APIs in Rust.
   - Add native entry points from topic author taps into profile and bookmark screens.
-- P6: Add Presence and reading-timing reporting on top of the shared `clientId`.
-  - Reuse the MessageBus client for Presence channel subscription and `/presence/get` bootstrap ordering.
-  - Keep `/topics/timings` as a Rust-owned background reporting path.
+- P6: Finish Presence and reading-timing reporting on top of the shared `clientId`.
+  - The shared Rust/iOS foreground Presence path, `/topics/timings` reporting, and the iOS background `notification-alert` chain are now in place.
+  - Remaining work is Android host integration plus any notification tap-through/deep-link follow-up on the native hosts.
 - P7: Deepen cooked-post rendering on both native hosts.
   - Prioritize poll UI, syntax-highlighted code blocks, richer quote/table/spoiler handling, and parity between the iOS and Android renderers.
   - Keep cooked-module rendering host-owned even when the backing fetch and mutation APIs live in Rust.

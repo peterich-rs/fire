@@ -332,7 +332,10 @@ pub struct MessageBusSubscription {
 pub enum MessageBusEventKind {
     TopicList,
     TopicDetail,
+    TopicReaction,
+    Presence,
     Notification,
+    NotificationAlert,
     #[default]
     Unknown,
 }
@@ -353,6 +356,51 @@ pub struct MessageBusEvent {
     pub unread_notifications: Option<u32>,
     pub unread_high_priority_notifications: Option<u32>,
     pub payload_json: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TopicPresenceUser {
+    pub id: u64,
+    pub username: String,
+    pub avatar_template: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TopicPresence {
+    pub topic_id: u64,
+    pub message_id: i64,
+    pub users: Vec<TopicPresenceUser>,
+}
+
+impl TopicPresence {
+    pub fn empty(topic_id: u64) -> Self {
+        Self {
+            topic_id,
+            message_id: -1,
+            users: Vec::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NotificationAlert {
+    pub message_id: i64,
+    pub notification_type: Option<u32>,
+    pub topic_id: Option<u64>,
+    pub post_number: Option<u32>,
+    pub topic_title: Option<String>,
+    pub excerpt: Option<String>,
+    pub username: Option<String>,
+    pub post_url: Option<String>,
+    pub payload_json: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NotificationAlertPollResult {
+    pub notification_user_id: u64,
+    pub client_id: String,
+    pub last_message_id: i64,
+    pub alerts: Vec<NotificationAlert>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -570,6 +618,19 @@ pub struct TopicReplyRequest {
     pub topic_id: u64,
     pub raw: String,
     pub reply_to_post_number: Option<u32>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TopicTimingEntry {
+    pub post_number: u32,
+    pub milliseconds: u32,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TopicTimingsRequest {
+    pub topic_id: u64,
+    pub topic_time_ms: u32,
+    pub timings: Vec<TopicTimingEntry>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

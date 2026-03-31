@@ -19,12 +19,14 @@ use fire_core::{
 use fire_models::{
     BootstrapArtifacts, CookieSnapshot, LoginPhase, LoginSyncInput, MessageBusClientMode,
     MessageBusEvent, MessageBusEventKind, MessageBusSubscription, MessageBusSubscriptionScope,
-    NotificationCounters, NotificationData, NotificationItem, NotificationListResponse,
-    NotificationState, PlatformCookie, PostReactionUpdate, SessionReadiness, SessionSnapshot,
-    TopicCategory, TopicDetail, TopicDetailCreatedBy, TopicDetailMeta, TopicDetailQuery,
-    TopicListKind, TopicListQuery, TopicListResponse, TopicPost, TopicPostStream, TopicPoster,
-    TopicReaction, TopicReplyRequest, TopicRow, TopicSummary, TopicTag, TopicThread,
-    TopicThreadFlatPost, TopicThreadReply, TopicThreadSection, TopicUser,
+    NotificationAlert, NotificationAlertPollResult, NotificationCounters, NotificationData,
+    NotificationItem, NotificationListResponse, NotificationState, PlatformCookie,
+    PostReactionUpdate, SessionReadiness, SessionSnapshot, TopicCategory, TopicDetail,
+    TopicDetailCreatedBy, TopicDetailMeta, TopicDetailQuery, TopicListKind, TopicListQuery,
+    TopicListResponse, TopicPost, TopicPostStream, TopicPoster, TopicPresence,
+    TopicPresenceUser, TopicReaction, TopicReplyRequest, TopicRow, TopicSummary, TopicTag,
+    TopicThread, TopicThreadFlatPost, TopicThreadReply, TopicThreadSection, TopicTimingEntry,
+    TopicTimingsRequest, TopicUser,
 };
 use futures_util::FutureExt;
 use tokio::runtime::{Builder, Runtime};
@@ -466,7 +468,10 @@ impl From<MessageBusSubscriptionState> for MessageBusSubscription {
 pub enum MessageBusEventKindState {
     TopicList,
     TopicDetail,
+    TopicReaction,
+    Presence,
     Notification,
+    NotificationAlert,
     Unknown,
 }
 
@@ -475,7 +480,10 @@ impl From<MessageBusEventKind> for MessageBusEventKindState {
         match value {
             MessageBusEventKind::TopicList => Self::TopicList,
             MessageBusEventKind::TopicDetail => Self::TopicDetail,
+            MessageBusEventKind::TopicReaction => Self::TopicReaction,
+            MessageBusEventKind::Presence => Self::Presence,
             MessageBusEventKind::Notification => Self::Notification,
+            MessageBusEventKind::NotificationAlert => Self::NotificationAlert,
             MessageBusEventKind::Unknown => Self::Unknown,
         }
     }
@@ -486,7 +494,10 @@ impl From<MessageBusEventKindState> for MessageBusEventKind {
         match value {
             MessageBusEventKindState::TopicList => Self::TopicList,
             MessageBusEventKindState::TopicDetail => Self::TopicDetail,
+            MessageBusEventKindState::TopicReaction => Self::TopicReaction,
+            MessageBusEventKindState::Presence => Self::Presence,
             MessageBusEventKindState::Notification => Self::Notification,
+            MessageBusEventKindState::NotificationAlert => Self::NotificationAlert,
             MessageBusEventKindState::Unknown => Self::Unknown,
         }
     }
@@ -527,6 +538,88 @@ impl From<MessageBusEvent> for MessageBusEventState {
             unread_notifications: value.unread_notifications,
             unread_high_priority_notifications: value.unread_high_priority_notifications,
             payload_json: value.payload_json,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct TopicPresenceUserState {
+    pub id: u64,
+    pub username: String,
+    pub avatar_template: Option<String>,
+}
+
+impl From<TopicPresenceUser> for TopicPresenceUserState {
+    fn from(value: TopicPresenceUser) -> Self {
+        Self {
+            id: value.id,
+            username: value.username,
+            avatar_template: value.avatar_template,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct TopicPresenceState {
+    pub topic_id: u64,
+    pub message_id: i64,
+    pub users: Vec<TopicPresenceUserState>,
+}
+
+impl From<TopicPresence> for TopicPresenceState {
+    fn from(value: TopicPresence) -> Self {
+        Self {
+            topic_id: value.topic_id,
+            message_id: value.message_id,
+            users: value.users.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct NotificationAlertState {
+    pub message_id: i64,
+    pub notification_type: Option<u32>,
+    pub topic_id: Option<u64>,
+    pub post_number: Option<u32>,
+    pub topic_title: Option<String>,
+    pub excerpt: Option<String>,
+    pub username: Option<String>,
+    pub post_url: Option<String>,
+    pub payload_json: Option<String>,
+}
+
+impl From<NotificationAlert> for NotificationAlertState {
+    fn from(value: NotificationAlert) -> Self {
+        Self {
+            message_id: value.message_id,
+            notification_type: value.notification_type,
+            topic_id: value.topic_id,
+            post_number: value.post_number,
+            topic_title: value.topic_title,
+            excerpt: value.excerpt,
+            username: value.username,
+            post_url: value.post_url,
+            payload_json: value.payload_json,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct NotificationAlertPollResultState {
+    pub notification_user_id: u64,
+    pub client_id: String,
+    pub last_message_id: i64,
+    pub alerts: Vec<NotificationAlertState>,
+}
+
+impl From<NotificationAlertPollResult> for NotificationAlertPollResultState {
+    fn from(value: NotificationAlertPollResult) -> Self {
+        Self {
+            notification_user_id: value.notification_user_id,
+            client_id: value.client_id,
+            last_message_id: value.last_message_id,
+            alerts: value.alerts.into_iter().map(Into::into).collect(),
         }
     }
 }
@@ -996,6 +1089,38 @@ impl From<TopicReplyRequestState> for TopicReplyRequest {
             topic_id: value.topic_id,
             raw: value.raw,
             reply_to_post_number: value.reply_to_post_number,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct TopicTimingEntryState {
+    pub post_number: u32,
+    pub milliseconds: u32,
+}
+
+impl From<TopicTimingEntryState> for TopicTimingEntry {
+    fn from(value: TopicTimingEntryState) -> Self {
+        Self {
+            post_number: value.post_number,
+            milliseconds: value.milliseconds,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct TopicTimingsRequestState {
+    pub topic_id: u64,
+    pub topic_time_ms: u32,
+    pub timings: Vec<TopicTimingEntryState>,
+}
+
+impl From<TopicTimingsRequestState> for TopicTimingsRequest {
+    fn from(value: TopicTimingsRequestState) -> Self {
+        Self {
+            topic_id: value.topic_id,
+            topic_time_ms: value.topic_time_ms,
+            timings: value.timings.into_iter().map(Into::into).collect(),
         }
     }
 }
@@ -1476,6 +1601,9 @@ impl From<FireCoreError> for FireUniFfiError {
             FireCoreError::MissingCurrentUsername => Self::Authentication {
                 details: "logout requires a current username".to_string(),
             },
+            FireCoreError::MissingCurrentUserId => Self::Authentication {
+                details: "request requires a current user id".to_string(),
+            },
             FireCoreError::MissingLoginSession => Self::Authentication {
                 details: "request requires a login session".to_string(),
             },
@@ -1729,6 +1857,55 @@ impl FireCoreHandle {
         Ok(client_id)
     }
 
+    pub fn topic_reply_presence_state(
+        &self,
+        topic_id: u64,
+    ) -> Result<TopicPresenceState, FireUniFfiError> {
+        self.run_infallible("topic_reply_presence_state", move |inner| {
+            inner.topic_reply_presence_state(topic_id).into()
+        })
+    }
+
+    pub async fn bootstrap_topic_reply_presence(
+        &self,
+        topic_id: u64,
+    ) -> Result<TopicPresenceState, FireUniFfiError> {
+        let inner = Arc::clone(&self.inner);
+        let panic_state = Arc::clone(&self.panic_state);
+        let presence =
+            run_on_ffi_runtime("bootstrap_topic_reply_presence", panic_state, async move {
+                inner.bootstrap_topic_reply_presence(topic_id).await
+            })
+            .await?;
+        Ok(presence.into())
+    }
+
+    pub async fn update_topic_reply_presence(
+        &self,
+        topic_id: u64,
+        active: bool,
+    ) -> Result<(), FireUniFfiError> {
+        let inner = Arc::clone(&self.inner);
+        let panic_state = Arc::clone(&self.panic_state);
+        run_on_ffi_runtime("update_topic_reply_presence", panic_state, async move {
+            inner.update_topic_reply_presence(topic_id, active).await
+        })
+        .await
+    }
+
+    pub async fn poll_notification_alert_once(
+        &self,
+        last_message_id: i64,
+    ) -> Result<NotificationAlertPollResultState, FireUniFfiError> {
+        let inner = Arc::clone(&self.inner);
+        let panic_state = Arc::clone(&self.panic_state);
+        let response = run_on_ffi_runtime("poll_notification_alert_once", panic_state, async move {
+            inner.poll_notification_alert_once(last_message_id).await
+        })
+        .await?;
+        Ok(response.into())
+    }
+
     pub fn notification_state(&self) -> Result<NotificationCenterState, FireUniFfiError> {
         self.run_infallible("notification_state", |inner| {
             inner.notification_state().into()
@@ -1824,6 +2001,19 @@ impl FireCoreHandle {
         })
         .await?;
         Ok(response.into())
+    }
+
+    pub async fn report_topic_timings(
+        &self,
+        input: TopicTimingsRequestState,
+    ) -> Result<(), FireUniFfiError> {
+        let inner = Arc::clone(&self.inner);
+        let panic_state = Arc::clone(&self.panic_state);
+        run_on_ffi_runtime("report_topic_timings", panic_state, async move {
+            inner.report_topic_timings(input.into()).await
+        })
+        .await?;
+        Ok(())
     }
 
     pub async fn like_post(&self, post_id: u64) -> Result<(), FireUniFfiError> {

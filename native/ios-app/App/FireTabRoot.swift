@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct FireTabRoot: View {
+    @Environment(\.scenePhase) private var scenePhase
     @StateObject private var viewModel = FireAppViewModel()
 
     private var isAuthenticated: Bool {
@@ -38,6 +39,33 @@ struct FireTabRoot: View {
         }
         .task {
             viewModel.loadInitialState()
+        }
+        .task(id: isAuthenticated) {
+            if isAuthenticated {
+                await FireBackgroundNotificationAlertScheduler.requestAuthorizationIfNeeded()
+            } else {
+                FireBackgroundNotificationAlertScheduler.cancelRefresh()
+            }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            switch phase {
+            case .active:
+                if isAuthenticated {
+                    Task {
+                        await FireBackgroundNotificationAlertScheduler.requestAuthorizationIfNeeded()
+                    }
+                }
+            case .background:
+                if isAuthenticated {
+                    FireBackgroundNotificationAlertScheduler.scheduleRefresh()
+                } else {
+                    FireBackgroundNotificationAlertScheduler.cancelRefresh()
+                }
+            case .inactive:
+                break
+            @unknown default:
+                break
+            }
         }
     }
 }

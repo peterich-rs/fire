@@ -216,6 +216,54 @@ impl FireCore {
         )
     }
 
+    pub(crate) fn build_form_request_with_headers(
+        &self,
+        operation: &'static str,
+        method: Method,
+        path: &str,
+        fields: Vec<(String, String)>,
+        extra_headers: Vec<(&str, String)>,
+        requires_csrf: bool,
+    ) -> Result<TracedRequest, FireCoreError> {
+        let mut serializer = url::form_urlencoded::Serializer::new(String::new());
+        for (key, value) in fields {
+            serializer.append_pair(&key, &value);
+        }
+
+        let uri = self.base_url.join(path)?;
+        let snapshot = self.snapshot();
+
+        let mut builder = Request::builder()
+            .method(method)
+            .uri(uri.as_str())
+            .header("Accept", FIRE_JSON_ACCEPT)
+            .header(
+                "Content-Type",
+                "application/x-www-form-urlencoded; charset=utf-8",
+            );
+
+        if requires_csrf {
+            let csrf_token = snapshot
+                .cookies
+                .csrf_token
+                .ok_or(FireCoreError::MissingCsrfToken)?;
+            builder = builder.header("X-CSRF-Token", csrf_token);
+        }
+
+        for (name, value) in extra_headers {
+            builder = builder.header(name, value);
+        }
+
+        let mut request = builder
+            .body(RequestBody::from(serializer.finish()))
+            .map_err(FireCoreError::RequestBuild)?;
+        request.extensions_mut().insert(FireRequestProfile::JsonApi);
+        let trace_id = self
+            .diagnostics
+            .prepare_request_trace(operation, &mut request);
+        Ok(TracedRequest { trace_id, request })
+    }
+
     pub(crate) fn build_api_request_with_body(
         &self,
         operation: &'static str,

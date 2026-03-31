@@ -62,6 +62,7 @@ final class FireAppViewModel: ObservableObject {
     @Published private(set) var nextTopicsPage: UInt32?
     @Published private(set) var topicCategories: [UInt64: FireTopicCategoryPresentation] = [:]
     @Published private(set) var topicDetails: [UInt64: TopicDetailState] = [:]
+    @Published private(set) var topicPresenceUsersByTopic: [UInt64: [TopicPresenceUserState]] = [:]
     @Published private(set) var isLoadingTopics = false
     @Published private(set) var isAppendingTopics = false
     @Published private(set) var loadingTopicIDs: Set<UInt64> = []
@@ -98,6 +99,8 @@ final class FireAppViewModel: ObservableObject {
     private var messageBusRetryTask: Task<Void, Never>?
     private var pendingTopicListRefreshTask: Task<Void, Never>?
     private var pendingTopicDetailRefreshTasks: [UInt64: Task<Void, Never>] = [:]
+    private var pendingNotificationStateRefreshTask: Task<Void, Never>?
+    private var topicPresenceHeartbeatTasks: [UInt64: Task<Void, Never>] = [:]
 
     init() {}
 
@@ -278,6 +281,10 @@ final class FireAppViewModel: ObservableObject {
         topicDetails[topicId]
     }
 
+    func topicPresenceUsers(for topicId: UInt64) -> [TopicPresenceUserState] {
+        topicPresenceUsersByTopic[topicId] ?? []
+    }
+
     func isLoadingTopic(topicId: UInt64) -> Bool {
         loadingTopicIDs.contains(topicId)
     }
@@ -290,12 +297,24 @@ final class FireAppViewModel: ObservableObject {
 
         do {
             try await store.subscribeTopicDetailChannel(topicId: topicId)
+            try await store.subscribeTopicReactionChannel(topicId: topicId)
         } catch {
             return
         }
 
+        do {
+            let presence = try await store.bootstrapTopicReplyPresence(topicId: topicId)
+            applyTopicPresenceState(presence)
+        } catch {
+            topicPresenceUsersByTopic[topicId] = []
+        }
+
         defer {
             Task {
+                await self.endTopicReplyPresence(topicId: topicId)
+                self.topicPresenceUsersByTopic[topicId] = []
+                try? await store.unsubscribeTopicReplyPresenceChannel(topicId: topicId)
+                try? await store.unsubscribeTopicReactionChannel(topicId: topicId)
                 try? await store.unsubscribeTopicDetailChannel(topicId: topicId)
             }
         }
@@ -441,6 +460,40 @@ final class FireAppViewModel: ObservableObject {
         }
     }
 
+    func reportTopicTimings(
+        topicId: UInt64,
+        topicTimeMs: UInt32,
+        timings: [UInt32: UInt32]
+    ) async -> Bool {
+        guard let sessionStore else { return false }
+        guard session.readiness.canWriteAuthenticatedApi else { return false }
+        guard topicTimeMs > 0 else { return true }
+
+        let timingEntries = timings
+            .filter { $0.key > 0 && $0.value > 0 }
+            .sorted { $0.key < $1.key }
+            .map { postNumber, milliseconds in
+                TopicTimingEntryState(
+                    postNumber: postNumber,
+                    milliseconds: milliseconds
+                )
+            }
+        guard !timingEntries.isEmpty else { return true }
+
+        do {
+            try await sessionStore.reportTopicTimings(
+                input: TopicTimingsRequestState(
+                    topicId: topicId,
+                    topicTimeMs: topicTimeMs,
+                    timings: timingEntries
+                )
+            )
+            return true
+        } catch {
+            return false
+        }
+    }
+
     // MARK: - Notifications
 
     func loadRecentNotifications(force: Bool = true) async {
@@ -547,12 +600,17 @@ final class FireAppViewModel: ObservableObject {
         messageBusRetryTask?.cancel()
         messageBusRetryTask = nil
         messageBusStartRetryCount = 0
+        pendingNotificationStateRefreshTask?.cancel()
+        pendingNotificationStateRefreshTask = nil
         clearMessageBusError()
         guard isMessageBusActive else { return }
         pendingTopicListRefreshTask?.cancel()
         pendingTopicListRefreshTask = nil
         pendingTopicDetailRefreshTasks.values.forEach { $0.cancel() }
         pendingTopicDetailRefreshTasks = [:]
+        topicPresenceHeartbeatTasks.values.forEach { $0.cancel() }
+        topicPresenceHeartbeatTasks = [:]
+        topicPresenceUsersByTopic = [:]
         messageBusCoordinator = nil
         isMessageBusActive = false
         guard let sessionStore else { return }
@@ -570,10 +628,20 @@ final class FireAppViewModel: ObservableObject {
             guard topicDetails[topicId] != nil else { return }
             scheduleTopicDetailRefresh(topicId: topicId)
 
+        case .topicReaction:
+            guard let topicId = event.topicId else { return }
+            guard topicDetails[topicId] != nil else { return }
+            scheduleTopicDetailRefresh(topicId: topicId)
+
+        case .presence:
+            guard let topicId = event.topicId else { return }
+            refreshTopicPresenceState(topicId: topicId)
+
         case .notification:
-            if let count = event.allUnreadNotificationsCount {
-                notificationUnreadCount = Int(count)
-            }
+            scheduleNotificationStateRefresh()
+
+        case .notificationAlert:
+            break
 
         case .unknown:
             break
@@ -602,6 +670,63 @@ final class FireAppViewModel: ObservableObject {
                 self.topicDetails[topicId] = detail
             } catch {}
         }
+    }
+
+    private func scheduleNotificationStateRefresh() {
+        pendingNotificationStateRefreshTask?.cancel()
+        pendingNotificationStateRefreshTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(150))
+            guard !Task.isCancelled else { return }
+            guard let self, let store = self.sessionStore else { return }
+            guard let state = try? await store.notificationState() else { return }
+            self.notificationUnreadCount = Int(state.counters.allUnread)
+            self.recentNotifications = state.recent
+            self.pendingNotificationStateRefreshTask = nil
+        }
+    }
+
+    private func refreshTopicPresenceState(topicId: UInt64) {
+        guard let store = sessionStore else { return }
+        Task { [weak self] in
+            guard let self else { return }
+            guard let presence = try? await store.topicReplyPresenceState(topicId: topicId) else {
+                return
+            }
+            self.applyTopicPresenceState(presence)
+        }
+    }
+
+    func beginTopicReplyPresence(topicId: UInt64) {
+        guard isMessageBusActive else { return }
+        guard session.readiness.canWriteAuthenticatedApi else { return }
+        guard topicPresenceHeartbeatTasks[topicId] == nil else { return }
+        guard let store = sessionStore else { return }
+
+        topicPresenceHeartbeatTasks[topicId] = Task { [weak self] in
+            while !Task.isCancelled {
+                do {
+                    try await store.updateTopicReplyPresence(topicId: topicId, active: true)
+                } catch {
+                    return
+                }
+
+                guard let self else { return }
+                guard self.topicPresenceHeartbeatTasks[topicId] != nil else { return }
+
+                do {
+                    try await Task.sleep(for: .seconds(25))
+                } catch {
+                    return
+                }
+            }
+        }
+    }
+
+    func endTopicReplyPresence(topicId: UInt64) async {
+        let task = topicPresenceHeartbeatTasks.removeValue(forKey: topicId)
+        task?.cancel()
+        guard let store = sessionStore else { return }
+        try? await store.updateTopicReplyPresence(topicId: topicId, active: false)
     }
 
     // MARK: - Private helpers
@@ -694,6 +819,20 @@ final class FireAppViewModel: ObservableObject {
     private func clearNotificationState() {
         notificationUnreadCount = 0
         recentNotifications = []
+    }
+
+    private func applyTopicPresenceState(_ state: TopicPresenceState) {
+        let currentUserID = session.bootstrap.currentUserId
+        let filteredUsers = state.users.filter { user in
+            guard let currentUserID else { return true }
+            return user.id != currentUserID
+        }
+
+        if filteredUsers.isEmpty {
+            topicPresenceUsersByTopic.removeValue(forKey: state.topicId)
+        } else {
+            topicPresenceUsersByTopic[state.topicId] = filteredUsers
+        }
     }
 
     private func applySession(_ session: SessionState) async {

@@ -134,6 +134,7 @@ impl FireCore {
         info!(preserve_cf_clearance, "clearing local login state");
         self.stop_message_bus(true);
         self.clear_notification_state();
+        self.clear_topic_presence_state();
         self.update_session(|session| {
             session.clear_login_state(preserve_cf_clearance);
             debug!(

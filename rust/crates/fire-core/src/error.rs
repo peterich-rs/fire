@@ -31,6 +31,8 @@ pub enum FireCoreError {
     },
     #[error("logout requires a current username")]
     MissingCurrentUsername,
+    #[error("request requires a current user id")]
+    MissingCurrentUserId,
     #[error("request requires a login session")]
     MissingLoginSession,
     #[error("message bus requires a shared session key")]

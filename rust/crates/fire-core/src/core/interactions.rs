@@ -1,6 +1,6 @@
 use std::io;
 
-use fire_models::{PostReactionUpdate, TopicPost, TopicReplyRequest};
+use fire_models::{PostReactionUpdate, TopicPost, TopicReplyRequest, TopicTimingsRequest};
 use http::Method;
 use serde_json::Value;
 use tracing::{info, warn};
@@ -132,6 +132,49 @@ impl FireCore {
             ),
         }
         result
+    }
+
+    pub async fn report_topic_timings(
+        &self,
+        input: TopicTimingsRequest,
+    ) -> Result<(), FireCoreError> {
+        info!(
+            topic_id = input.topic_id,
+            topic_time_ms = input.topic_time_ms,
+            timings_count = input.timings.len(),
+            "reporting topic timings"
+        );
+
+        let mut fields = vec![
+            ("topic_id".to_string(), input.topic_id.to_string()),
+            ("topic_time".to_string(), input.topic_time_ms.to_string()),
+        ];
+        for timing in input.timings {
+            fields.push((
+                format!("timings[{}]", timing.post_number),
+                timing.milliseconds.to_string(),
+            ));
+        }
+
+        let (trace_id, response) = self
+            .execute_api_request_with_csrf_retry("report topic timings", || {
+                self.build_form_request_with_headers(
+                    "report topic timings",
+                    Method::POST,
+                    "/topics/timings",
+                    fields.clone(),
+                    vec![
+                        ("X-SILENCE-LOGGER", "true".to_string()),
+                        ("Discourse-Background", "true".to_string()),
+                    ],
+                    true,
+                )
+            })
+            .await?;
+        let response = expect_success(self, "report topic timings", trace_id, response).await?;
+        let _ = self.read_response_text(trace_id, response).await?;
+        info!(topic_id = input.topic_id, "topic timings reported successfully");
+        Ok(())
     }
 }
 

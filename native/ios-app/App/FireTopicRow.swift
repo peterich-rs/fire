@@ -33,15 +33,15 @@ struct FireTopicRow: View {
                         tagChip(tagName)
                     }
 
-                    if row.topic.pinned {
+                    if row.isPinned {
                         statusIcon("pin.fill", color: .orange)
                     }
 
-                    if row.topic.hasAcceptedAnswer {
+                    if row.hasAcceptedAnswer {
                         statusIcon("checkmark.circle.fill", color: .green)
                     }
 
-                    if row.topic.unreadPosts > 0 {
+                    if row.hasUnreadPosts {
                         unreadDot
                     }
                 }

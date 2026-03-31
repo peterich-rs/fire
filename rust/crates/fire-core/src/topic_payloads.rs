@@ -8,11 +8,12 @@ use serde::{
     Deserialize, Deserializer,
 };
 use serde_json::Value;
-use std::{any::type_name, collections::HashMap, sync::OnceLock};
+use std::{any::type_name, collections::HashMap};
 use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 use tracing::warn;
 
-use crate::parsing::decode_html_entities;
+use crate::preview_text_from_html;
+use crate::topic_status_labels;
 
 #[derive(Debug, Default, Deserialize)]
 pub(crate) struct RawTopicListResponse {
@@ -201,6 +202,12 @@ fn topic_row_from_topic(topic: TopicSummary, users_by_id: &HashMap<u64, &TopicUs
             original_poster.and_then(|user| user.avatar_template.as_deref()),
         ),
         tag_names,
+        status_labels: topic_status_labels(&topic),
+        is_pinned: topic.pinned,
+        is_closed: topic.closed,
+        is_archived: topic.archived,
+        has_accepted_answer: topic.has_accepted_answer,
+        has_unread_posts: topic.unread_posts > 0,
         created_timestamp_unix_ms: timestamp_unix_ms(topic.created_at.as_deref()),
         activity_timestamp_unix_ms: timestamp_unix_ms(
             topic
@@ -256,43 +263,6 @@ fn topic_tag_names(tags: &[TopicTag]) -> Vec<String> {
         .collect()
 }
 
-fn preview_text_from_html(raw_html: Option<&str>) -> Option<String> {
-    let html = raw_html?.trim();
-    if html.is_empty() {
-        return None;
-    }
-
-    let compact = normalize_whitespace(&plain_text_from_html(html).replace('\n', " "));
-    if compact.is_empty() {
-        None
-    } else {
-        Some(compact)
-    }
-}
-
-fn plain_text_from_html(raw_html: &str) -> String {
-    let normalized = br_tag_regex().replace_all(raw_html, "\n").into_owned();
-    let normalized = paragraph_close_regex()
-        .replace_all(&normalized, "\n\n")
-        .into_owned();
-    let normalized = list_item_close_regex()
-        .replace_all(&normalized, "\n")
-        .into_owned();
-    let stripped = html_tag_regex().replace_all(&normalized, " ");
-    normalize_whitespace(&decode_html_entities(&stripped))
-}
-
-fn normalize_whitespace(value: &str) -> String {
-    let normalized = value.replace("\r\n", "\n");
-    let normalized = repeated_blank_lines_regex()
-        .replace_all(&normalized, "\n\n")
-        .into_owned();
-    repeated_spaces_regex()
-        .replace_all(&normalized, " ")
-        .trim()
-        .to_string()
-}
-
 fn normalized_scalar(value: Option<&str>) -> Option<String> {
     let value = value?;
     let trimmed = value.trim();
@@ -314,36 +284,6 @@ fn timestamp_unix_ms(raw_value: Option<&str>) -> Option<u64> {
         .unix_timestamp_nanos()
         / 1_000_000;
     u64::try_from(timestamp_ms).ok()
-}
-
-fn br_tag_regex() -> &'static regex::Regex {
-    static RE: OnceLock<regex::Regex> = OnceLock::new();
-    RE.get_or_init(|| regex::Regex::new(r"(?i)<br\s*/?>").expect("br regex"))
-}
-
-fn paragraph_close_regex() -> &'static regex::Regex {
-    static RE: OnceLock<regex::Regex> = OnceLock::new();
-    RE.get_or_init(|| regex::Regex::new(r"(?i)</p>").expect("paragraph regex"))
-}
-
-fn list_item_close_regex() -> &'static regex::Regex {
-    static RE: OnceLock<regex::Regex> = OnceLock::new();
-    RE.get_or_init(|| regex::Regex::new(r"(?i)</li>").expect("list item regex"))
-}
-
-fn html_tag_regex() -> &'static regex::Regex {
-    static RE: OnceLock<regex::Regex> = OnceLock::new();
-    RE.get_or_init(|| regex::Regex::new(r"<[^>]+>").expect("html tag regex"))
-}
-
-fn repeated_blank_lines_regex() -> &'static regex::Regex {
-    static RE: OnceLock<regex::Regex> = OnceLock::new();
-    RE.get_or_init(|| regex::Regex::new(r"\n{3,}").expect("blank lines regex"))
-}
-
-fn repeated_spaces_regex() -> &'static regex::Regex {
-    static RE: OnceLock<regex::Regex> = OnceLock::new();
-    RE.get_or_init(|| regex::Regex::new(r"[ \t]{2,}").expect("spaces regex"))
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -580,6 +520,7 @@ impl From<RawTopicDetail> for TopicDetail {
     fn from(value: RawTopicDetail) -> Self {
         let post_stream: TopicPostStream = value.post_stream.into();
         let thread = TopicThread::from_posts(&post_stream.posts);
+        let flat_posts = thread.flatten(&post_stream.posts);
         Self {
             id: value.id,
             title: value.title,
@@ -603,6 +544,7 @@ impl From<RawTopicDetail> for TopicDetail {
             archetype: value.archetype,
             post_stream,
             thread,
+            flat_posts,
             details: value.details.into(),
         }
     }

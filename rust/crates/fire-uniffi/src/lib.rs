@@ -10,16 +10,19 @@ use std::{
 };
 
 use fire_core::{
-    FireCore, FireCoreConfig, FireCoreError, FireLogFileDetail, FireLogFileSummary,
-    NetworkTraceDetail, NetworkTraceEvent, NetworkTraceHeader, NetworkTraceOutcome,
-    NetworkTraceSummary,
+    monogram_for_username as shared_monogram_for_username,
+    plain_text_from_html as shared_plain_text_from_html,
+    preview_text_from_html as shared_preview_text_from_html, FireCore, FireCoreConfig,
+    FireCoreError, FireLogFileDetail, FireLogFileSummary, NetworkTraceDetail, NetworkTraceEvent,
+    NetworkTraceHeader, NetworkTraceOutcome, NetworkTraceSummary,
 };
 use fire_models::{
     BootstrapArtifacts, CookieSnapshot, LoginPhase, LoginSyncInput, PlatformCookie,
     PostReactionUpdate, SessionReadiness, SessionSnapshot, TopicCategory, TopicDetail,
     TopicDetailCreatedBy, TopicDetailMeta, TopicDetailQuery, TopicListKind, TopicListQuery,
     TopicListResponse, TopicPost, TopicPostStream, TopicPoster, TopicReaction, TopicReplyRequest,
-    TopicRow, TopicSummary, TopicTag, TopicThread, TopicThreadReply, TopicThreadSection, TopicUser,
+    TopicRow, TopicSummary, TopicTag, TopicThread, TopicThreadFlatPost, TopicThreadReply,
+    TopicThreadSection, TopicUser,
 };
 use futures_util::FutureExt;
 use tokio::runtime::{Builder, Runtime};
@@ -564,6 +567,12 @@ pub struct TopicRowState {
     pub original_poster_username: Option<String>,
     pub original_poster_avatar_template: Option<String>,
     pub tag_names: Vec<String>,
+    pub status_labels: Vec<String>,
+    pub is_pinned: bool,
+    pub is_closed: bool,
+    pub is_archived: bool,
+    pub has_accepted_answer: bool,
+    pub has_unread_posts: bool,
     pub created_timestamp_unix_ms: Option<u64>,
     pub activity_timestamp_unix_ms: Option<u64>,
     pub last_poster_username: Option<String>,
@@ -577,6 +586,12 @@ impl From<TopicRow> for TopicRowState {
             original_poster_username: value.original_poster_username,
             original_poster_avatar_template: value.original_poster_avatar_template,
             tag_names: value.tag_names,
+            status_labels: value.status_labels,
+            is_pinned: value.is_pinned,
+            is_closed: value.is_closed,
+            is_archived: value.is_archived,
+            has_accepted_answer: value.has_accepted_answer,
+            has_unread_posts: value.has_unread_posts,
             created_timestamp_unix_ms: value.created_timestamp_unix_ms,
             activity_timestamp_unix_ms: value.activity_timestamp_unix_ms,
             last_poster_username: value.last_poster_username,
@@ -808,6 +823,27 @@ impl From<TopicThread> for TopicThreadState {
 }
 
 #[derive(uniffi::Record, Debug, Clone)]
+pub struct TopicThreadFlatPostState {
+    pub post: TopicPostState,
+    pub depth: u32,
+    pub parent_post_number: Option<u32>,
+    pub shows_thread_line: bool,
+    pub is_original_post: bool,
+}
+
+impl From<TopicThreadFlatPost> for TopicThreadFlatPostState {
+    fn from(value: TopicThreadFlatPost) -> Self {
+        Self {
+            post: value.post.into(),
+            depth: value.depth,
+            parent_post_number: value.parent_post_number,
+            shows_thread_line: value.shows_thread_line,
+            is_original_post: value.is_original_post,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
 pub struct TopicDetailCreatedByState {
     pub id: u64,
     pub username: String,
@@ -865,6 +901,7 @@ pub struct TopicDetailState {
     pub archetype: Option<String>,
     pub post_stream: TopicPostStreamState,
     pub thread: TopicThreadState,
+    pub flat_posts: Vec<TopicThreadFlatPostState>,
     pub details: TopicDetailMetaState,
 }
 
@@ -893,6 +930,7 @@ impl From<TopicDetail> for TopicDetailState {
             archetype: value.archetype,
             post_stream: value.post_stream.into(),
             thread: value.thread.into(),
+            flat_posts: value.flat_posts.into_iter().map(Into::into).collect(),
             details: value.details.into(),
         }
     }
@@ -1184,6 +1222,21 @@ impl From<FireCoreError> for FireUniFfiError {
             },
         }
     }
+}
+
+#[uniffi::export]
+pub fn plain_text_from_html(raw_html: String) -> String {
+    shared_plain_text_from_html(&raw_html)
+}
+
+#[uniffi::export]
+pub fn preview_text_from_html(raw_html: Option<String>) -> Option<String> {
+    shared_preview_text_from_html(raw_html.as_deref())
+}
+
+#[uniffi::export]
+pub fn monogram_for_username(username: String) -> String {
+    shared_monogram_for_username(&username)
 }
 
 #[derive(uniffi::Object)]

@@ -30,13 +30,17 @@ private struct FireReplyComposerContext: Identifiable, Equatable {
 
 struct FireTopicDetailView: View {
     @ObservedObject var viewModel: FireAppViewModel
-    let topic: TopicSummaryState
+    let row: FireTopicRowPresentation
 
     @State private var composerContext: FireReplyComposerContext?
     @State private var replyDraft = ""
     @State private var composerNotice: String?
     @State private var quickReplyError: String?
     @FocusState private var isReplyFieldFocused: Bool
+
+    private var topic: TopicSummaryState {
+        row.topic
+    }
 
     private var detail: TopicDetailState? {
         viewModel.topicDetail(for: topic.id)
@@ -50,34 +54,22 @@ struct FireTopicDetailView: View {
         viewModel.categoryPresentation(for: topic.categoryId)
     }
 
-    private var postsByNumber: [UInt32: TopicPostState] {
-        guard let detail else {
-            return [:]
-        }
-        return Dictionary(uniqueKeysWithValues: detail.postStream.posts.map { ($0.postNumber, $0) })
-    }
-
     private var threadPresentation: FireTopicThreadPresentation? {
         detail?.thread
     }
 
-    private var flatPosts: [FireTopicPresentation.FlatPost] {
-        guard let thread = threadPresentation else { return [] }
-        return FireTopicPresentation.flattenThreadForDisplay(
-            from: thread,
-            postsByNumber: postsByNumber
-        )
+    private var flatPosts: [FireTopicFlatPostPresentation] {
+        detail?.flatPosts ?? []
     }
 
     private var originalPost: TopicPostState? {
-        if let originalPostNumber = threadPresentation?.originalPostNumber,
-           let originalPost = postsByNumber[originalPostNumber] {
+        if let originalPost = flatPosts.first(where: \.isOriginalPost)?.post {
             return originalPost
         }
         return detail?.postStream.posts.min(by: { $0.postNumber < $1.postNumber })
     }
 
-    private var replyPosts: [FireTopicPresentation.FlatPost] {
+    private var replyPosts: [FireTopicFlatPostPresentation] {
         guard let detail else {
             return []
         }
@@ -85,11 +77,12 @@ struct FireTopicDetailView: View {
         let originalPostID = originalPost?.id
         let displayPosts = flatPosts.isEmpty
             ? detail.postStream.posts.map {
-                FireTopicPresentation.FlatPost(
+                FireTopicFlatPostPresentation(
                     post: $0,
                     depth: 0,
-                    replyContext: nil,
-                    showsThreadLine: false
+                    parentPostNumber: $0.replyToPostNumber,
+                    showsThreadLine: false,
+                    isOriginalPost: $0.id == originalPostID
                 )
             }
             : flatPosts
@@ -229,7 +222,7 @@ struct FireTopicDetailView: View {
                     )
                 }
 
-                ForEach(FireTopicPresentation.tagNames(from: topic.tags), id: \.self) { tag in
+                ForEach(row.tagNames, id: \.self) { tag in
                     Text("#\(tag)")
                         .font(.caption2.weight(.medium))
                         .foregroundStyle(.secondary)
@@ -239,7 +232,7 @@ struct FireTopicDetailView: View {
                         .clipShape(Capsule())
                 }
 
-                ForEach(FireTopicPresentation.topicStatusLabels(for: topic), id: \.self) { label in
+                ForEach(row.statusLabels, id: \.self) { label in
                     FireStatusChip(label: label, tone: .accent)
                 }
             }
@@ -260,7 +253,7 @@ struct FireTopicDetailView: View {
                         toggleReaction(reactionId, for: post)
                     }
                 )
-            } else if let excerpt = FireTopicPresentation.previewText(from: topic.excerpt) {
+            } else if let excerpt = row.excerptText {
                 Text(excerpt)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
@@ -314,11 +307,11 @@ struct FireTopicDetailView: View {
                         .padding(.vertical, 24)
                 } else {
                     VStack(spacing: 0) {
-                        ForEach(Array(displayPosts.enumerated()), id: \.element.id) { index, flatPost in
+                        ForEach(Array(displayPosts.enumerated()), id: \.element.post.id) { index, flatPost in
                             FirePostRow(
                                 post: flatPost.post,
-                                depth: flatPost.depth,
-                                replyContext: flatPost.replyContext,
+                                depth: Int(flatPost.depth),
+                                replyContext: flatPost.parentPostNumber.map { "回复 #\($0)" },
                                 showsThreadLine: flatPost.showsThreadLine,
                                 baseURLString: baseURLString,
                                 reactionOptions: reactionOptions,
@@ -725,7 +718,7 @@ private struct FirePostRow: View {
                         .foregroundStyle(FireTheme.tertiaryInk)
                 }
 
-                Text(FireTopicPresentation.plainText(from: post.cooked))
+                Text(plainTextFromHtml(rawHtml: post.cooked))
                     .font(.subheadline)
                     .foregroundStyle(.primary.opacity(0.92))
                     .fixedSize(horizontal: false, vertical: true)

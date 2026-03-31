@@ -76,6 +76,15 @@ async fn fetch_topic_list_parses_latest_payload() {
     );
     assert_eq!(response.rows[0].tag_names, vec!["rust", "linuxdo"]);
     assert_eq!(
+        response.rows[0].status_labels,
+        vec!["Unread 2".to_string(), "New 1".to_string()]
+    );
+    assert!(!response.rows[0].is_pinned);
+    assert!(!response.rows[0].is_closed);
+    assert!(!response.rows[0].is_archived);
+    assert!(!response.rows[0].has_accepted_answer);
+    assert!(response.rows[0].has_unread_posts);
+    assert_eq!(
         response.rows[0].created_timestamp_unix_ms,
         Some(1_774_656_000_000)
     );
@@ -285,6 +294,10 @@ async fn fetch_topic_detail_parses_detail_payload() {
     assert_eq!(detail.post_stream.posts[0].username, "alice");
     assert_eq!(detail.thread.original_post_number, Some(1));
     assert_eq!(detail.thread.reply_sections.len(), 0);
+    assert_eq!(detail.flat_posts.len(), 1);
+    assert!(detail.flat_posts[0].is_original_post);
+    assert_eq!(detail.flat_posts[0].post.post_number, 1);
+    assert!(!detail.flat_posts[0].shows_thread_line);
     assert_eq!(
         detail
             .details

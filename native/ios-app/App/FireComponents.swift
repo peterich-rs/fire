@@ -639,7 +639,7 @@ struct FireAvatarView: View {
     }
 
     private var monogram: String {
-        FireTopicPresentation.monogram(for: username.isEmpty ? "?" : username)
+        monogramForUsername(username: username.isEmpty ? "?" : username)
     }
 
     var body: some View {

@@ -16,6 +16,7 @@ import com.fire.app.databinding.ActivityTopicDetailBinding
 import com.fire.app.session.FireSessionStore
 import com.fire.app.session.FireSessionStoreRepository
 import kotlinx.coroutines.launch
+import uniffi.fire_uniffi.plainTextFromHtml
 import uniffi.fire_uniffi.TopicCategoryState
 import uniffi.fire_uniffi.TopicDetailQueryState
 import uniffi.fire_uniffi.TopicDetailState
@@ -104,9 +105,7 @@ class TopicDetailActivity : AppCompatActivity() {
             return
         }
 
-        val postsByNumber = detail.postStream.posts.associateBy { it.postNumber }
-
-        detail.thread.originalPostNumber?.let(postsByNumber::get)?.let { originalPost ->
+        detail.flatPosts.firstOrNull { it.isOriginalPost }?.post?.let { originalPost ->
             binding.postsContainer.addView(
                 sectionCard(
                     title = getString(R.string.topic_detail_original_post),
@@ -125,47 +124,34 @@ class TopicDetailActivity : AppCompatActivity() {
             )
         }
 
-        if (detail.thread.replySections.isEmpty()) {
+        val replyPosts = detail.flatPosts.filterNot { it.isOriginalPost }
+        if (replyPosts.isEmpty()) {
             binding.postsContainer.addView(
                 sectionBodyText(getString(R.string.topic_detail_no_replies)),
             )
             return
         }
 
-        detail.thread.replySections.forEach { section ->
-            val anchorPost = postsByNumber[section.anchorPostNumber] ?: return@forEach
-            binding.postsContainer.addView(
-                sectionCard(
-                    title = getString(R.string.topic_detail_floor_title, anchorPost.postNumber.toString()),
-                    subtitle = section.replies
-                        .takeIf { it.isNotEmpty() }
-                        ?.let { getString(R.string.topic_detail_floor_nested_count, it.size.toString()) },
-                    accentColor = sectionAccentColor(alpha = 0x66),
-                ) {
+        binding.postsContainer.addView(
+            sectionCard(
+                title = getString(R.string.topic_detail_replies_section),
+                subtitle = getString(R.string.topic_detail_replies_count, replyPosts.size.toString()),
+                accentColor = sectionAccentColor(alpha = 0x66),
+            ) {
+                replyPosts.forEach { flatPost ->
                     addView(
                         postCardView(
-                            post = anchorPost,
-                            roleLabel = getString(R.string.topic_detail_reply_to_topic),
-                            depth = 0,
-                            emphasized = true,
+                            post = flatPost.post,
+                            roleLabel = flatPost.parentPostNumber
+                                ?.let { getString(R.string.topic_detail_nested_reply_to, it.toString()) }
+                                ?: getString(R.string.topic_detail_reply_to_topic),
+                            depth = flatPost.depth.toInt(),
+                            emphasized = flatPost.depth == 0u,
                         ),
                     )
-
-                    section.replies.forEach { reply ->
-                        val replyPost = postsByNumber[reply.postNumber] ?: return@forEach
-                        addView(
-                            postCardView(
-                                post = replyPost,
-                                roleLabel = reply.parentPostNumber
-                                    ?.let { getString(R.string.topic_detail_nested_reply_to, it.toString()) },
-                                depth = reply.depth.toInt(),
-                                emphasized = false,
-                            ),
-                        )
-                    }
-                },
-            )
-        }
+                }
+            },
+        )
     }
 
     private fun sectionCard(
@@ -293,7 +279,7 @@ class TopicDetailActivity : AppCompatActivity() {
 
                     addView(
                         TextView(context).apply {
-                            text = TopicPresentation.plainTextFromHtml(post.cooked)
+                            text = plainTextFromHtml(rawHtml = post.cooked)
                             textSize = 15f
                             setTextColor(Color.parseColor("#FF1F2937"))
                             setPadding(0, dp(8), 0, 0)

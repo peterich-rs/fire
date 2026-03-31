@@ -3,6 +3,7 @@ import SwiftUI
 
 typealias FireTopicCategoryPresentation = TopicCategoryState
 typealias FireTopicRowPresentation = TopicRowState
+typealias FireTopicFlatPostPresentation = TopicThreadFlatPostState
 typealias FireTopicReplyPresentation = TopicThreadReplyState
 typealias FireTopicReplySectionPresentation = TopicThreadSectionState
 typealias FireTopicThreadPresentation = TopicThreadState
@@ -63,29 +64,6 @@ enum FireTopicPresentation {
 
     static func compactCount(_ value: UInt32) -> String {
         compactCount(UInt64(value))
-    }
-
-    static func plainText(from html: String) -> String {
-        guard !html.isEmpty else {
-            return ""
-        }
-
-        let normalized = html
-            .replacingOccurrences(of: "<br\\s*/?>", with: "\n", options: .regularExpression)
-            .replacingOccurrences(of: "</p>", with: "\n\n", options: .regularExpression)
-            .replacingOccurrences(of: "</li>", with: "\n", options: .regularExpression)
-        let stripped = normalized
-            .replacingOccurrences(of: "<[^>]+>", with: " ", options: .regularExpression)
-        return normalizeWhitespace(in: decodeCommonEntities(in: stripped))
-    }
-
-    static func previewText(from html: String?) -> String? {
-        guard let html, !html.isEmpty else {
-            return nil
-        }
-
-        let compact = normalizeWhitespace(in: plainText(from: html).replacingOccurrences(of: "\n", with: " "))
-        return compact.isEmpty ? nil : compact
     }
 
     static func attributedText(from html: String) -> AttributedString? {
@@ -196,116 +174,6 @@ enum FireTopicPresentation {
         return FireReactionOption(id: reactionID, symbol: symbol, label: label)
     }
 
-    /// A flattened post ready for display in a list, carrying its nesting depth
-    /// and optional reply-context label.
-    struct FlatPost: Identifiable, Sendable {
-        let post: TopicPostState
-        let depth: Int
-        let replyContext: String?
-        let showsThreadLine: Bool
-
-        var id: UInt64 { post.id }
-    }
-
-    /// Flattens a `FireTopicThreadPresentation` into a display-order list.
-    ///
-    /// The original post comes first, then each reply section's anchor post
-    /// (at depth 0) followed by its nested replies (at increasing depth).
-    /// This preserves the section anchor's original order in the stream while
-    /// visually grouping nested replies underneath.
-    static func flattenThreadForDisplay(
-        from thread: FireTopicThreadPresentation,
-        postsByNumber: [UInt32: TopicPostState]
-    ) -> [FlatPost] {
-        var result: [FlatPost] = []
-
-        if let originalPost = thread.originalPostNumber.flatMap({ postsByNumber[$0] }) {
-            result.append(FlatPost(
-                post: originalPost,
-                depth: 0,
-                replyContext: nil,
-                showsThreadLine: !thread.replySections.isEmpty
-            ))
-        }
-
-        for (sectionIndex, section) in thread.replySections.enumerated() {
-            let isLastSection = sectionIndex == thread.replySections.count - 1
-            let hasNestedReplies = !section.replies.isEmpty
-
-            guard let anchorPost = postsByNumber[section.anchorPostNumber] else {
-                continue
-            }
-
-            result.append(FlatPost(
-                post: anchorPost,
-                depth: 0,
-                replyContext: nil,
-                showsThreadLine: hasNestedReplies || !isLastSection
-            ))
-
-            for (replyIndex, reply) in section.replies.enumerated() {
-                guard let replyPost = postsByNumber[reply.postNumber] else {
-                    continue
-                }
-                let isLastReply = replyIndex == section.replies.count - 1
-                result.append(FlatPost(
-                    post: replyPost,
-                    depth: Int(reply.depth),
-                    replyContext: reply.parentPostNumber.map { "回复 #\($0)" },
-                    showsThreadLine: !isLastReply || !isLastSection
-                ))
-            }
-        }
-
-        return result
-    }
-
-    static func topicStatusLabels(for topic: TopicSummaryState) -> [String] {
-        var labels: [String] = []
-
-        if topic.pinned {
-            labels.append("Pinned")
-        }
-        if topic.closed {
-            labels.append("Closed")
-        }
-        if topic.archived {
-            labels.append("Archived")
-        }
-        if topic.hasAcceptedAnswer {
-            labels.append("Solved")
-        }
-        if topic.unreadPosts > 0 {
-            labels.append("Unread \(topic.unreadPosts)")
-        }
-        if topic.newPosts > 0 {
-            labels.append("New \(topic.newPosts)")
-        }
-
-        return labels
-    }
-
-    static func tagNames(from tags: [TopicTagState]) -> [String] {
-        tags.compactMap { tag in
-            if !tag.name.isEmpty {
-                return tag.name
-            }
-            return tag.slug?.isEmpty == false ? tag.slug : nil
-        }
-    }
-
-    static func monogram(for username: String) -> String {
-        let scalars = username
-            .split(whereSeparator: { !$0.isLetter && !$0.isNumber })
-            .compactMap { component in component.first }
-        let letters = scalars.prefix(2).map { String($0).uppercased() }
-        if !letters.isEmpty {
-            return letters.joined()
-        }
-
-        return String(username.prefix(1)).uppercased()
-    }
-
     private static func compactCount(_ value: UInt64) -> String {
         switch value {
         case 0..<1_000:
@@ -355,14 +223,6 @@ enum FireTopicPresentation {
         pattern: #"<img\b[^>]*>"#,
         options: [.caseInsensitive]
     )
-
-    private static func normalizeWhitespace(in string: String) -> String {
-        string
-            .replacingOccurrences(of: "\r\n", with: "\n")
-            .replacingOccurrences(of: "\n{3,}", with: "\n\n", options: .regularExpression)
-            .replacingOccurrences(of: "[ \\t]{2,}", with: " ", options: .regularExpression)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-    }
 
     private static func decodeCommonEntities(in string: String) -> String {
         var decoded = string

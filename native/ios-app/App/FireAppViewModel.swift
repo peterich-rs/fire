@@ -50,7 +50,6 @@ private enum FireTopicInteractionError: LocalizedError {
 final class FireAppViewModel: ObservableObject {
     @Published private(set) var session: SessionState = .placeholder()
     @Published private(set) var selectedTopicKind: TopicListKindState = .latest
-    @Published private(set) var topics: [TopicSummaryState] = []
     @Published private(set) var topicRows: [FireTopicRowPresentation] = []
     @Published private(set) var moreTopicsUrl: String?
     @Published private(set) var nextTopicsPage: UInt32?
@@ -434,7 +433,7 @@ final class FireAppViewModel: ObservableObject {
         if isLoadingTopics {
             return
         }
-        if reset && !force && !topics.isEmpty {
+        if reset && !force && !topicRows.isEmpty {
             return
         }
 
@@ -458,15 +457,13 @@ final class FireAppViewModel: ObservableObject {
                     ascending: nil
                 )
             )
-            let mergedTopics = reset ? response.topics : mergeTopics(existing: topics, incoming: response.topics)
             let mergedTopicRows = reset
                 ? response.rows
                 : mergeTopicRows(existing: topicRows, incoming: response.rows)
-            let visibleTopicIDs = Set(mergedTopics.map(\.id))
+            let visibleTopicIDs = Set(mergedTopicRows.map(\.topic.id))
             guard requestedKind == selectedTopicKind else {
                 return
             }
-            topics = mergedTopics
             topicRows = mergedTopicRows
             moreTopicsUrl = response.moreTopicsUrl
             nextTopicsPage = response.nextPage
@@ -474,7 +471,6 @@ final class FireAppViewModel: ObservableObject {
             loadingTopicIDs = loadingTopicIDs.intersection(visibleTopicIDs)
         } catch {
             if reset {
-                topics = []
                 topicRows = []
                 moreTopicsUrl = nil
                 nextTopicsPage = nil
@@ -484,7 +480,6 @@ final class FireAppViewModel: ObservableObject {
     }
 
     private func clearTopicState() {
-        topics = []
         topicRows = []
         moreTopicsUrl = nil
         nextTopicsPage = nil
@@ -576,23 +571,6 @@ final class FireAppViewModel: ObservableObject {
 
         detail.postStream.posts[postIndex] = post
         topicDetails[topicId] = detail
-    }
-
-    private func mergeTopics(
-        existing: [TopicSummaryState],
-        incoming: [TopicSummaryState]
-    ) -> [TopicSummaryState] {
-        var merged = Dictionary(uniqueKeysWithValues: existing.map { ($0.id, $0) })
-        var orderedIDs = existing.map(\.id)
-
-        for topic in incoming {
-            if merged[topic.id] == nil {
-                orderedIDs.append(topic.id)
-            }
-            merged[topic.id] = topic
-        }
-
-        return orderedIDs.compactMap { merged[$0] }
     }
 
     private func mergeTopicRows(

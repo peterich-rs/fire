@@ -25,6 +25,7 @@ import uniffi.fire_uniffi.TopicCategoryState
 import uniffi.fire_uniffi.TopicListKindState
 import uniffi.fire_uniffi.TopicListQueryState
 import uniffi.fire_uniffi.TopicListState
+import uniffi.fire_uniffi.TopicRowState
 import uniffi.fire_uniffi.TopicSummaryState
 
 class MainActivity : AppCompatActivity() {
@@ -178,8 +179,8 @@ class MainActivity : AppCompatActivity() {
                 val topicList = currentTopicList!!
 
                 val nextTopicId = preferredTopicId?.takeIf { id ->
-                    topicList.topics.any { it.id == id }
-                } ?: topicList.topics.firstOrNull()?.id
+                    topicList.rows.any { it.topic.id == id }
+                } ?: topicList.rows.firstOrNull()?.topic?.id
                 selectedTopicId = nextTopicId
                 renderSession(session)
                 renderBrowser()
@@ -211,33 +212,33 @@ class MainActivity : AppCompatActivity() {
         renderBrowser()
 
         currentTopicList
-            ?.topics
-            ?.firstOrNull { it.id == topicId }
-            ?.let { topic ->
-                startActivity(TopicDetailActivity.intent(this, topic.id, topic.title))
+            ?.rows
+            ?.firstOrNull { it.topic.id == topicId }
+            ?.let { row ->
+                startActivity(TopicDetailActivity.intent(this, row.topic.id, row.topic.title))
             }
     }
 
     private fun openSelectedTopic() {
-        val selected = selectedTopicSummary() ?: return
-        openTopic(selected.id)
+        val selected = selectedTopicRow() ?: return
+        openTopic(selected.topic.id)
     }
 
-    private fun selectedTopicSummary(): TopicSummaryState? {
+    private fun selectedTopicRow(): TopicRowState? {
         val selectedTopicId = selectedTopicId ?: return null
-        return currentTopicList?.topics?.firstOrNull { it.id == selectedTopicId }
+        return currentTopicList?.rows?.firstOrNull { it.topic.id == selectedTopicId }
     }
 
-    private fun selectedTopicMeta(topic: TopicSummaryState): String {
-        val tagNames = TopicPresentation.tagNames(topic.tags)
+    private fun selectedTopicMeta(row: TopicRowState): String {
         return buildList {
-            categoryLabelFor(topic.categoryId)?.let(::add)
-            topic.lastPosterUsername?.let(::add)
-            TopicPresentation.formatTimestamp(topic.lastPostedAt ?: topic.createdAt)?.let(::add)
-            add("${topic.postsCount} posts")
-            add("${topic.views} views")
-            if (tagNames.isNotEmpty()) {
-                add("#${tagNames.joinToString(" #")}")
+            categoryLabelFor(row.topic.categoryId)?.let(::add)
+            row.lastPosterUsername?.let(::add)
+            TopicPresentation.formatTimestamp(row.activityTimestampUnixMs ?: row.createdTimestampUnixMs)
+                ?.let(::add)
+            add("${row.topic.postsCount} posts")
+            add("${row.topic.views} views")
+            if (row.tagNames.isNotEmpty()) {
+                add("#${row.tagNames.joinToString(" #")}")
             }
         }.joinToString(" · ")
     }
@@ -281,19 +282,19 @@ class MainActivity : AppCompatActivity() {
 
         binding.topicListContainer.removeAllViews()
         val topicList = currentTopicList
-        if (topicList == null || topicList.topics.isEmpty()) {
+        if (topicList == null || topicList.rows.isEmpty()) {
             binding.topicListContainer.addView(
                 sectionBodyText(
                     if (browserStatusMessage == null) getString(R.string.browser_empty) else browserStatusMessage!!,
                 ),
             )
         } else {
-            topicList.topics.forEach { topic ->
-                binding.topicListContainer.addView(topicButton(topic))
+            topicList.rows.forEach { row ->
+                binding.topicListContainer.addView(topicButton(row))
             }
         }
         binding.loadMoreButton.visibility = if (
-            nextFeedPage != null && topicList?.topics?.isNotEmpty() == true
+            nextFeedPage != null && topicList?.rows?.isNotEmpty() == true
         ) {
             View.VISIBLE
         } else {
@@ -305,8 +306,8 @@ class MainActivity : AppCompatActivity() {
             getString(R.string.action_load_more)
         }
 
-        val selectedTopic = selectedTopicSummary()
-        binding.topicDetailTitleText.text = selectedTopic?.title ?: getString(R.string.browser_detail_empty)
+        val selectedTopic = selectedTopicRow()
+        binding.topicDetailTitleText.text = selectedTopic?.topic?.title ?: getString(R.string.browser_detail_empty)
         binding.topicDetailMetaText.text = selectedTopic?.let(::selectedTopicMeta)
             ?: getString(R.string.browser_detail_dedicated)
 
@@ -365,16 +366,16 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun browserFeedSummary(topicList: TopicListState?): String {
-        val topics = topicList?.topics.orEmpty()
-        if (topics.isEmpty()) {
+        val rows = topicList?.rows.orEmpty()
+        if (rows.isEmpty()) {
             return getString(R.string.browser_empty)
         }
         val selected = selectedTopicId?.let { id ->
-            topics.firstOrNull { it.id == id }?.title
+            rows.firstOrNull { it.topic.id == id }?.topic?.title
         }
         return buildString {
             append("${currentFeedKind.displayName()} feed")
-            append(" · ${topics.size} topics")
+            append(" · ${rows.size} topics")
             append(" · pages 1-${currentFeedPage.toInt() + 1}")
             if (!topicList?.moreTopicsUrl.isNullOrBlank()) {
                 append(" · page ${(nextFeedPage?.toInt() ?: currentFeedPage.toInt()) + 1} ready")
@@ -385,18 +386,15 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun topicButton(topic: TopicSummaryState): View {
+    private fun topicButton(row: TopicRowState): View {
+        val topic = row.topic
         val category = categoryLabelFor(topic.categoryId)
-        val statusLabels = TopicPresentation.topicStatusLabels(topic)
         val lastActivity = listOfNotNull(
-            topic.lastPosterUsername,
-            TopicPresentation.formatTimestamp(topic.lastPostedAt ?: topic.createdAt),
+            row.lastPosterUsername,
+            TopicPresentation.formatTimestamp(row.activityTimestampUnixMs ?: row.createdTimestampUnixMs),
         )
-        val excerpt = topic.excerpt
-            ?.takeIf { it.isNotBlank() }
-            ?.let(TopicPresentation::plainTextFromHtml)
-            ?.takeIf { it.isNotBlank() }
-        val tagNames = TopicPresentation.tagNames(topic.tags)
+        val excerpt = row.excerptText?.takeIf { it.isNotBlank() }
+        val tagNames = row.tagNames
 
         return Button(this).apply {
             isAllCaps = false
@@ -409,9 +407,9 @@ class MainActivity : AppCompatActivity() {
                     append("[$category] ")
                 }
                 append(topic.title)
-                if (statusLabels.isNotEmpty()) {
+                if (row.statusLabels.isNotEmpty()) {
                     append(" · ")
-                    append(statusLabels.joinToString(" · "))
+                    append(row.statusLabels.joinToString(" · "))
                 }
                 append("\n")
                 append("${topic.postsCount} posts · ${topic.replyCount} replies · ${topic.views} views · ${topic.likeCount} likes")

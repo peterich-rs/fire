@@ -3,11 +3,17 @@ import XCTest
 
 final class FireTopicPresentationTests: XCTestCase {
     func testPlainTextNormalizesHTMLContent() {
-        let plainText = FireTopicPresentation.plainText(
-            from: "<p>Hello<br>Fire</p><ul><li>Rust</li><li>CI</li></ul>"
-        )
+        let plainText = plainTextFromHtml(rawHtml: "<p>Hello<br>Fire</p><ul><li>Rust</li><li>CI</li></ul>")
 
         XCTAssertEqual(plainText, "Hello\nFire\n\n Rust\n CI")
+    }
+
+    func testSharedTextHelpersProvidePreviewAndMonogram() {
+        XCTAssertEqual(
+            previewTextFromHtml(rawHtml: "<p>Hello&nbsp;<strong>Fire</strong></p>"),
+            "Hello Fire"
+        )
+        XCTAssertEqual(monogramForUsername(username: "fire native"), "FN")
     }
 
     func testImageAttachmentsResolveRelativeUploadsAndSkipEmoji() {
@@ -48,40 +54,54 @@ final class FireTopicPresentationTests: XCTestCase {
         XCTAssertEqual(FireTopicPresentation.minimumReplyLength(from: 0), 1)
     }
 
-    func testTopicStatusLabelsReflectFlagsAndCounters() {
-        let topic = TopicSummaryState(
-            id: 42,
-            title: "Fire Native",
-            slug: "fire-native",
-            postsCount: 18,
-            replyCount: 17,
-            views: 2048,
-            likeCount: 32,
-            excerpt: "<p>Hello&nbsp;<strong>Fire</strong></p>",
-            createdAt: "2026-03-28T10:00:00Z",
-            lastPostedAt: "2026-03-28T11:30:00Z",
-            lastPosterUsername: nil,
-            categoryId: 7,
-            pinned: true,
-            visible: true,
-            closed: false,
-            archived: false,
-            tags: [TopicTagState(id: nil, name: "rust", slug: nil)],
-            posters: [TopicPosterState(userId: 9, description: nil, extras: nil)],
-            unseen: false,
-            unreadPosts: 3,
-            newPosts: 1,
-            lastReadPostNumber: nil,
-            highestPostNumber: 18,
+    func testTopicRowStateCarriesRustStatusLabels() {
+        let row = TopicRowState(
+            topic: TopicSummaryState(
+                id: 42,
+                title: "Fire Native",
+                slug: "fire-native",
+                postsCount: 18,
+                replyCount: 17,
+                views: 2048,
+                likeCount: 32,
+                excerpt: "<p>Hello&nbsp;<strong>Fire</strong></p>",
+                createdAt: "2026-03-28T10:00:00Z",
+                lastPostedAt: "2026-03-28T11:30:00Z",
+                lastPosterUsername: nil,
+                categoryId: 7,
+                pinned: true,
+                visible: true,
+                closed: false,
+                archived: false,
+                tags: [TopicTagState(id: nil, name: "rust", slug: nil)],
+                posters: [TopicPosterState(userId: 9, description: nil, extras: nil)],
+                unseen: false,
+                unreadPosts: 3,
+                newPosts: 1,
+                lastReadPostNumber: nil,
+                highestPostNumber: 18,
+                hasAcceptedAnswer: false,
+                canHaveAnswer: true
+            ),
+            excerptText: "Hello Fire",
+            originalPosterUsername: "alice",
+            originalPosterAvatarTemplate: nil,
+            tagNames: ["rust"],
+            statusLabels: ["Pinned", "Unread 3", "New 1"],
+            isPinned: true,
+            isClosed: false,
+            isArchived: false,
             hasAcceptedAnswer: false,
-            canHaveAnswer: true
+            hasUnreadPosts: true,
+            createdTimestampUnixMs: 1_711_624_600_000,
+            activityTimestampUnixMs: 1_711_630_000_000,
+            lastPosterUsername: "alice"
         )
 
-        XCTAssertEqual(
-            FireTopicPresentation.topicStatusLabels(for: topic),
-            ["Pinned", "Unread 3", "New 1"]
-        )
-        XCTAssertEqual(FireTopicPresentation.tagNames(from: topic.tags), ["rust"])
+        XCTAssertEqual(row.statusLabels, ["Pinned", "Unread 3", "New 1"])
+        XCTAssertTrue(row.isPinned)
+        XCTAssertTrue(row.hasUnreadPosts)
+        XCTAssertEqual(row.tagNames, ["rust"])
     }
 
     func testCompactTimestampFormatsUnixMilliseconds() {
@@ -89,44 +109,45 @@ final class FireTopicPresentationTests: XCTestCase {
         XCTAssertNotNil(timestamp)
     }
 
-    func testFlattenThreadForDisplayUsesRustThreadStateOrdering() {
-        let thread = TopicThreadState(
-            originalPostNumber: 1,
-            replySections: [
-                TopicThreadSectionState(
-                    anchorPostNumber: 2,
-                    replies: [
-                        TopicThreadReplyState(postNumber: 3, depth: 1, parentPostNumber: 2),
-                        TopicThreadReplyState(postNumber: 4, depth: 2, parentPostNumber: 3),
-                    ]
-                ),
-                TopicThreadSectionState(anchorPostNumber: 5, replies: []),
-                TopicThreadSectionState(anchorPostNumber: 6, replies: []),
-            ]
-        )
+    func testTopicThreadFlatPostStateCarriesRustDisplayMetadata() {
+        let flatPosts = [
+            TopicThreadFlatPostState(
+                post: makePost(postNumber: 1, replyToPostNumber: nil, username: "author"),
+                depth: 0,
+                parentPostNumber: nil,
+                showsThreadLine: true,
+                isOriginalPost: true
+            ),
+            TopicThreadFlatPostState(
+                post: makePost(postNumber: 2, replyToPostNumber: 1, username: "floor-a"),
+                depth: 0,
+                parentPostNumber: nil,
+                showsThreadLine: true,
+                isOriginalPost: false
+            ),
+            TopicThreadFlatPostState(
+                post: makePost(postNumber: 3, replyToPostNumber: 2, username: "nested-a1"),
+                depth: 1,
+                parentPostNumber: 2,
+                showsThreadLine: true,
+                isOriginalPost: false
+            ),
+            TopicThreadFlatPostState(
+                post: makePost(postNumber: 4, replyToPostNumber: 3, username: "nested-a2"),
+                depth: 2,
+                parentPostNumber: 3,
+                showsThreadLine: false,
+                isOriginalPost: false
+            ),
+        ]
 
-        let postsByNumber = Dictionary(
-            uniqueKeysWithValues: [
-                makePost(postNumber: 1, replyToPostNumber: nil, username: "author"),
-                makePost(postNumber: 2, replyToPostNumber: 1, username: "floor-a"),
-                makePost(postNumber: 3, replyToPostNumber: 2, username: "nested-a1"),
-                makePost(postNumber: 4, replyToPostNumber: 3, username: "nested-a2"),
-                makePost(postNumber: 5, replyToPostNumber: 1, username: "floor-b"),
-                makePost(postNumber: 6, replyToPostNumber: 99, username: "orphan"),
-            ].map { ($0.postNumber, $0) }
-        )
-
-        let flatPosts = FireTopicPresentation.flattenThreadForDisplay(
-            from: thread,
-            postsByNumber: postsByNumber
-        )
-
-        XCTAssertEqual(flatPosts.map(\.post.postNumber), [1, 2, 3, 4, 5, 6])
-        XCTAssertEqual(flatPosts.map(\.depth), [0, 0, 1, 2, 0, 0])
-        XCTAssertEqual(flatPosts[2].replyContext, "回复 #2")
-        XCTAssertEqual(flatPosts[3].replyContext, "回复 #3")
+        XCTAssertEqual(flatPosts.map(\.post.postNumber), [1, 2, 3, 4])
+        XCTAssertEqual(flatPosts.map(\.depth), [0, 0, 1, 2])
+        XCTAssertEqual(flatPosts[2].parentPostNumber, 2)
+        XCTAssertEqual(flatPosts[3].parentPostNumber, 3)
         XCTAssertTrue(flatPosts[0].showsThreadLine)
-        XCTAssertFalse(flatPosts[5].showsThreadLine)
+        XCTAssertFalse(flatPosts[3].showsThreadLine)
+        XCTAssertTrue(flatPosts[0].isOriginalPost)
     }
 
     func testProfileDisplayNameAvoidsAnonymousCopyWhenAuthenticatedIdentityIsMissing() {

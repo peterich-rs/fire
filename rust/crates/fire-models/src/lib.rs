@@ -396,6 +396,13 @@ pub struct TopicRow {
     pub original_poster_username: Option<String>,
     pub original_poster_avatar_template: Option<String>,
     pub tag_names: Vec<String>,
+    #[serde(default)]
+    pub status_labels: Vec<String>,
+    pub is_pinned: bool,
+    pub is_closed: bool,
+    pub is_archived: bool,
+    pub has_accepted_answer: bool,
+    pub has_unread_posts: bool,
     pub created_timestamp_unix_ms: Option<u64>,
     pub activity_timestamp_unix_ms: Option<u64>,
     pub last_poster_username: Option<String>,
@@ -494,6 +501,15 @@ pub struct TopicThread {
     pub reply_sections: Vec<TopicThreadSection>,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TopicThreadFlatPost {
+    pub post: TopicPost,
+    pub depth: u32,
+    pub parent_post_number: Option<u32>,
+    pub shows_thread_line: bool,
+    pub is_original_post: bool,
+}
+
 impl TopicThread {
     pub fn from_posts(posts: &[TopicPost]) -> Self {
         let Some(original_post) = posts.iter().min_by_key(|post| post.post_number) else {
@@ -588,6 +604,58 @@ impl TopicThread {
             reply_sections,
         }
     }
+
+    pub fn flatten(&self, posts: &[TopicPost]) -> Vec<TopicThreadFlatPost> {
+        let posts_by_number: std::collections::HashMap<u32, &TopicPost> =
+            posts.iter().map(|post| (post.post_number, post)).collect();
+        let mut result = Vec::new();
+
+        if let Some(original_post) = self
+            .original_post_number
+            .and_then(|post_number| posts_by_number.get(&post_number))
+        {
+            result.push(TopicThreadFlatPost {
+                post: (*original_post).clone(),
+                depth: 0,
+                parent_post_number: None,
+                shows_thread_line: !self.reply_sections.is_empty(),
+                is_original_post: true,
+            });
+        }
+
+        for (section_index, section) in self.reply_sections.iter().enumerate() {
+            let is_last_section = section_index == self.reply_sections.len() - 1;
+            let has_nested_replies = !section.replies.is_empty();
+
+            let Some(anchor_post) = posts_by_number.get(&section.anchor_post_number) else {
+                continue;
+            };
+
+            result.push(TopicThreadFlatPost {
+                post: (*anchor_post).clone(),
+                depth: 0,
+                parent_post_number: None,
+                shows_thread_line: has_nested_replies || !is_last_section,
+                is_original_post: false,
+            });
+
+            for (reply_index, reply) in section.replies.iter().enumerate() {
+                let Some(reply_post) = posts_by_number.get(&reply.post_number) else {
+                    continue;
+                };
+                let is_last_reply = reply_index == section.replies.len() - 1;
+                result.push(TopicThreadFlatPost {
+                    post: (*reply_post).clone(),
+                    depth: reply.depth,
+                    parent_post_number: reply.parent_post_number,
+                    shows_thread_line: !is_last_reply || !is_last_section,
+                    is_original_post: false,
+                });
+            }
+        }
+
+        result
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -629,6 +697,8 @@ pub struct TopicDetail {
     pub post_stream: TopicPostStream,
     #[serde(default)]
     pub thread: TopicThread,
+    #[serde(default)]
+    pub flat_posts: Vec<TopicThreadFlatPost>,
     pub details: TopicDetailMeta,
 }
 
@@ -728,7 +798,7 @@ fn flatten_thread_replies(
 mod tests {
     use super::{
         BootstrapArtifacts, CookieSnapshot, LoginPhase, PlatformCookie, SessionSnapshot, TopicPost,
-        TopicThread,
+        TopicThread, TopicThreadFlatPost,
     };
 
     #[test]
@@ -934,6 +1004,41 @@ mod tests {
                 .map(|reply| reply.depth)
                 .collect::<Vec<_>>(),
             vec![1, 2]
+        );
+    }
+
+    #[test]
+    fn topic_thread_flattens_to_display_order_posts() {
+        let posts = vec![
+            topic_post(1, None),
+            topic_post(2, Some(1)),
+            topic_post(3, Some(2)),
+            topic_post(4, Some(3)),
+            topic_post(5, Some(1)),
+            topic_post(6, Some(99)),
+        ];
+        let thread = TopicThread::from_posts(&posts);
+
+        assert_eq!(
+            thread
+                .flatten(&posts)
+                .into_iter()
+                .map(|flat_post: TopicThreadFlatPost| (
+                    flat_post.post.post_number,
+                    flat_post.depth,
+                    flat_post.parent_post_number,
+                    flat_post.shows_thread_line,
+                    flat_post.is_original_post,
+                ))
+                .collect::<Vec<_>>(),
+            vec![
+                (1, 0, None, true, true),
+                (2, 0, None, true, false),
+                (3, 1, Some(2), true, false),
+                (4, 2, Some(3), true, false),
+                (5, 0, None, true, false),
+                (6, 0, None, false, false),
+            ]
         );
     }
 

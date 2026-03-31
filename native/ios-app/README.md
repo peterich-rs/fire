@@ -52,12 +52,11 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
   - lists workspace log files plus reverse-chronological network request traces
   - opens dedicated detail pages for log content and per-request execution chains
 - `App/FireTopicPresentation.swift`
-  - normalizes topic/post timestamps, HTML excerpts, and cooked post bodies for native presentation
-  - flattens Rust-owned thread sections into display-ready rows for the SwiftUI detail screen
+  - normalizes topic/post timestamps for native presentation
   - extracts inline cooked-image attachments plus enabled reaction options from bootstrap/topic HTML so the native detail view can render media and interaction affordances without a WebView
-  - now focuses on host-only presentation helpers after topic-row shaping moved into Rust
+  - now focuses on host-only presentation helpers after topic-row shaping, shared text helpers, and thread flattening moved into Rust
 - `Tests/Unit/FireTopicPresentationTests.swift`
-  - covers the remaining Swift-owned presentation helpers such as HTML/plain-text normalization, cooked-image extraction, row shaping, thread flattening, and session profile labels
+  - covers the remaining Swift-owned presentation helpers plus the generated Rust-backed text and row/thread models consumed by SwiftUI
 - `App/FireRootView.swift`
   - now replaces the earlier stacked-card list shell with a structured SwiftUI reading workspace that separates session gate, feed console, spotlight topics, and dense thread scanning
   - renders the first topic read path with featured-topic paging, feed filters, category-aware list rows, feed pagination, and dedicated topic detail navigation
@@ -94,8 +93,8 @@ Current UX note:
 - The UniFFI boundary now returns exported host interactions as Swift `throws`; if Rust panics, the boundary logs the panic, throws an `Internal` UniFFI error instead of tripping generated `try!` call sites, and poisons the current `FireCoreHandle` so the host can recreate it.
 - The app now enters through a branded session gate when authenticated topic reads are not ready, instead of exposing raw readiness/debug state as the primary UI.
 - The current topic browser now supports spotlight topic paging, `Load More` pagination, category-aware topic rows, richer topic/detail metadata sourced from the shared Rust session snapshot, and a more formal native reading surface instead of the earlier developer-facing list presentation.
-- Topic rows now come across the UniFFI boundary as Rust-generated row models that already resolve original-poster identity, plain-text excerpts, trimmed tag names, and Unix-millisecond timestamps from the topic-list payload, while Swift only formats those timestamps for display and renders the native row layout.
-- Topic detail now hides the tab bar as a dedicated reading page, promotes the original post into the topic header as the main body, keeps replies grouped into floor cards with nested follow-up replies under each top-level floor, and exposes a persistent quick-reply bar at the bottom instead of a modal composer sheet.
+- Topic rows now come across the UniFFI boundary as Rust-generated row models that already resolve original-poster identity, status labels, plain-text excerpts, trimmed tag names, and Unix-millisecond timestamps from the topic-list payload, while Swift only formats timestamps and renders the native row layout.
+- Topic detail now consumes Rust-generated flat thread posts and shared text helpers, hides the tab bar as a dedicated reading page, promotes the original post into the topic header as the main body, and exposes a persistent quick-reply bar at the bottom instead of a modal composer sheet.
 - Topic detail now supports per-post reply targeting, post likes, and custom emoji reactions through the shared Rust write APIs.
 - Topic posts now render normalized native text plus inline image attachments in the detail screen, while more complex cooked modules still fall back to the lightweight native presentation instead of a full HTML/WebView renderer.
 - The app now exposes a diagnostics screen for readable logs and Rust-owned request trace inspection.

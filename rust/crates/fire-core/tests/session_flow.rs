@@ -18,6 +18,8 @@ fn apply_home_html_extracts_bootstrap_and_readiness() {
         snapshot.bootstrap.current_username.as_deref(),
         Some("alice")
     );
+    assert_eq!(snapshot.bootstrap.current_user_id, Some(1));
+    assert_eq!(snapshot.bootstrap.notification_channel_position, Some(42));
     assert_eq!(
         snapshot.bootstrap.long_polling_base_url.as_deref(),
         Some("https://linux.do")
@@ -164,10 +166,12 @@ fn restore_accepts_legacy_unversioned_ios_stub_session_json() {
     "discourseBaseUri": "/",
     "sharedSessionKey": "shared-session",
     "currentUsername": "alice",
+    "currentUserId": 1,
+    "notificationChannelPosition": 42,
     "longPollingBaseUrl": "https://linux.do",
     "turnstileSitekey": "sitekey",
     "topicTrackingStateMeta": "{\"message_bus_last_id\":42}",
-    "preloadedJson": "{\"currentUser\":{\"username\":\"alice\"}}",
+    "preloadedJson": "{\"currentUser\":{\"id\":1,\"username\":\"alice\",\"notification_channel_position\":42}}",
     "hasPreloadedData": true
   },
   "readiness": {
@@ -200,6 +204,8 @@ fn restore_accepts_legacy_unversioned_ios_stub_session_json() {
         restored.bootstrap.current_username.as_deref(),
         Some("alice")
     );
+    assert_eq!(restored.bootstrap.current_user_id, Some(1));
+    assert_eq!(restored.bootstrap.notification_channel_position, Some(42));
     assert!(restored.bootstrap.has_preloaded_data);
     assert_eq!(restored.login_phase(), LoginPhase::Ready);
 }
@@ -223,10 +229,12 @@ fn restore_drops_incomplete_login_state_but_keeps_cf_clearance() {
       "discourse_base_uri": "/",
       "shared_session_key": "shared",
       "current_username": "alice",
+      "current_user_id": 1,
+      "notification_channel_position": 42,
       "long_polling_base_url": "https://linux.do",
       "turnstile_sitekey": "sitekey",
       "topic_tracking_state_meta": "{\"message_bus_last_id\":42}",
-      "preloaded_json": "{\"currentUser\":{\"username\":\"alice\"}}",
+      "preloaded_json": "{\"currentUser\":{\"id\":1,\"username\":\"alice\",\"notification_channel_position\":42}}",
       "has_preloaded_data": true
     }
   }
@@ -241,6 +249,8 @@ fn restore_drops_incomplete_login_state_but_keeps_cf_clearance() {
     assert_eq!(restored.cookies.t_token, None);
     assert_eq!(restored.cookies.csrf_token, None);
     assert_eq!(restored.bootstrap.current_username, None);
+    assert_eq!(restored.bootstrap.current_user_id, None);
+    assert_eq!(restored.bootstrap.notification_channel_position, None);
     assert!(!restored.bootstrap.has_preloaded_data);
 }
 

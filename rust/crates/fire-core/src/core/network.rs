@@ -1,11 +1,122 @@
-use http::{header::HeaderMap, Method, Request, Response, StatusCode};
-use openwire::{RequestBody, ResponseBody};
+use std::sync::{Arc, RwLock};
+
+use http::{
+    header::{HeaderMap, HeaderValue, ACCEPT_LANGUAGE, ORIGIN, REFERER, USER_AGENT},
+    Method, Request, Response, StatusCode,
+};
+use openwire::{BoxFuture, Exchange, Interceptor, Next, RequestBody, ResponseBody, WireError};
 use serde::de::DeserializeOwned;
 use tracing::{debug, info, warn};
 use url::Url;
 
 use super::FireCore;
-use crate::error::FireCoreError;
+use crate::{error::FireCoreError, sync_utils::read_rwlock};
+
+const FIRE_USER_AGENT: &str = "Fire/0.1";
+const FIRE_ACCEPT_LANGUAGE: &str = "zh-CN,zh;q=0.9,en;q=0.8";
+const FIRE_JSON_ACCEPT: &str = "application/json;q=0.9, text/plain;q=0.8, */*;q=0.5";
+
+#[derive(Clone, Copy)]
+pub(crate) enum FireRequestProfile {
+    HomeHtml,
+    JsonApi,
+    MessageBusPoll,
+}
+
+#[derive(Clone)]
+pub(crate) struct FireCommonHeaderInterceptor {
+    origin: String,
+    referer: String,
+    session: Arc<RwLock<fire_models::SessionSnapshot>>,
+}
+
+impl FireCommonHeaderInterceptor {
+    pub(crate) fn new(base_url: Url, session: Arc<RwLock<fire_models::SessionSnapshot>>) -> Self {
+        Self {
+            origin: request_origin(&base_url),
+            referer: request_referer(&base_url),
+            session,
+        }
+    }
+
+    fn apply_headers(&self, request: &mut Request<RequestBody>) {
+        let Some(profile) = request.extensions().get::<FireRequestProfile>().copied() else {
+            return;
+        };
+
+        insert_static_header_if_missing(
+            request.headers_mut(),
+            USER_AGENT.as_str(),
+            FIRE_USER_AGENT,
+        );
+
+        match profile {
+            FireRequestProfile::HomeHtml => {}
+            FireRequestProfile::JsonApi => {
+                insert_static_header_if_missing(
+                    request.headers_mut(),
+                    ACCEPT_LANGUAGE.as_str(),
+                    FIRE_ACCEPT_LANGUAGE,
+                );
+                insert_string_header_if_missing(
+                    request.headers_mut(),
+                    ORIGIN.as_str(),
+                    &self.origin,
+                );
+                insert_string_header_if_missing(
+                    request.headers_mut(),
+                    REFERER.as_str(),
+                    &self.referer,
+                );
+                insert_static_header_if_missing(
+                    request.headers_mut(),
+                    "X-Requested-With",
+                    "XMLHttpRequest",
+                );
+                self.apply_login_headers(request.headers_mut());
+            }
+            FireRequestProfile::MessageBusPoll => {
+                insert_static_header_if_missing(
+                    request.headers_mut(),
+                    ACCEPT_LANGUAGE.as_str(),
+                    FIRE_ACCEPT_LANGUAGE,
+                );
+                insert_string_header_if_missing(
+                    request.headers_mut(),
+                    ORIGIN.as_str(),
+                    &self.origin,
+                );
+                insert_string_header_if_missing(
+                    request.headers_mut(),
+                    REFERER.as_str(),
+                    &self.referer,
+                );
+                self.apply_login_headers(request.headers_mut());
+            }
+        }
+    }
+
+    fn apply_login_headers(&self, headers: &mut HeaderMap) {
+        if read_rwlock(&self.session, "session")
+            .cookies
+            .has_login_session()
+        {
+            insert_static_header_if_missing(headers, "Discourse-Logged-In", "true");
+            insert_static_header_if_missing(headers, "Discourse-Present", "true");
+        }
+    }
+}
+
+impl Interceptor for FireCommonHeaderInterceptor {
+    fn intercept(
+        &self,
+        mut exchange: Exchange,
+        next: Next,
+    ) -> BoxFuture<Result<Response<ResponseBody>, WireError>> {
+        self.apply_headers(exchange.request_mut());
+        next.run(exchange)
+    }
+}
 
 pub(crate) struct TracedRequest {
     pub(crate) trace_id: u64,
@@ -22,9 +133,11 @@ impl FireCore {
             .method(Method::GET)
             .uri(uri.as_str())
             .header("Accept", "text/html")
-            .header("User-Agent", "Fire/0.1")
             .body(RequestBody::empty())
             .map_err(FireCoreError::RequestBuild)?;
+        request
+            .extensions_mut()
+            .insert(FireRequestProfile::HomeHtml);
         let trace_id = self
             .diagnostics
             .prepare_request_trace(operation, &mut request);
@@ -46,28 +159,10 @@ impl FireCore {
             }
         }
 
-        let origin = request_origin(&self.base_url);
-        let referer = request_referer(&self.base_url);
-        let snapshot = self.snapshot();
-
         let mut builder = Request::builder()
             .method(Method::GET)
             .uri(uri.as_str())
-            .header(
-                "Accept",
-                "application/json;q=0.9, text/plain;q=0.8, */*;q=0.5",
-            )
-            .header("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
-            .header("X-Requested-With", "XMLHttpRequest")
-            .header("User-Agent", "Fire/0.1")
-            .header("Origin", origin)
-            .header("Referer", referer);
-
-        if snapshot.cookies.has_login_session() {
-            builder = builder
-                .header("Discourse-Logged-In", "true")
-                .header("Discourse-Present", "true");
-        }
+            .header("Accept", FIRE_JSON_ACCEPT);
 
         for (name, value) in extra_headers {
             builder = builder.header(*name, value);
@@ -76,6 +171,7 @@ impl FireCore {
         let mut request = builder
             .body(RequestBody::empty())
             .map_err(FireCoreError::RequestBuild)?;
+        request.extensions_mut().insert(FireRequestProfile::JsonApi);
         let trace_id = self
             .diagnostics
             .prepare_request_trace(operation, &mut request);
@@ -130,28 +226,12 @@ impl FireCore {
         requires_csrf: bool,
     ) -> Result<TracedRequest, FireCoreError> {
         let uri = self.base_url.join(path)?;
-        let origin = request_origin(&self.base_url);
-        let referer = request_referer(&self.base_url);
         let snapshot = self.snapshot();
 
         let mut builder = Request::builder()
             .method(method)
             .uri(uri.as_str())
-            .header(
-                "Accept",
-                "application/json;q=0.9, text/plain;q=0.8, */*;q=0.5",
-            )
-            .header("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
-            .header("X-Requested-With", "XMLHttpRequest")
-            .header("User-Agent", "Fire/0.1")
-            .header("Origin", origin)
-            .header("Referer", referer);
-
-        if snapshot.cookies.has_login_session() {
-            builder = builder
-                .header("Discourse-Logged-In", "true")
-                .header("Discourse-Present", "true");
-        }
+            .header("Accept", FIRE_JSON_ACCEPT);
 
         if requires_csrf {
             let csrf_token = snapshot
@@ -166,6 +246,7 @@ impl FireCore {
         }
 
         let mut request = builder.body(body).map_err(FireCoreError::RequestBuild)?;
+        request.extensions_mut().insert(FireRequestProfile::JsonApi);
         let trace_id = self
             .diagnostics
             .prepare_request_trace(operation, &mut request);
@@ -215,6 +296,20 @@ impl FireCore {
         self.diagnostics
             .record_response_body_text(trace_id, &text, content_type.as_deref());
         Ok(text)
+    }
+
+    pub(crate) async fn read_response_json_direct<T>(
+        &self,
+        trace_id: u64,
+        response: Response<ResponseBody>,
+    ) -> Result<T, FireCoreError>
+    where
+        T: DeserializeOwned,
+    {
+        response.into_body().json().await.map_err(|source| {
+            self.diagnostics.record_call_failed(trace_id, &source);
+            FireCoreError::Network { source }
+        })
     }
 
     pub(crate) async fn execute_api_request_with_csrf_retry<F>(
@@ -270,7 +365,7 @@ impl FireCore {
         self.execute_request(retry).await
     }
 
-    pub(crate) async fn read_response_json<T>(
+    pub(crate) async fn read_response_json_with_diagnostics<T>(
         &self,
         operation: &'static str,
         trace_id: u64,
@@ -295,6 +390,19 @@ impl FireCore {
             );
             FireCoreError::ResponseDeserialize { operation, source }
         })
+    }
+
+    pub(crate) async fn read_response_json<T>(
+        &self,
+        operation: &'static str,
+        trace_id: u64,
+        response: Response<ResponseBody>,
+    ) -> Result<T, FireCoreError>
+    where
+        T: DeserializeOwned,
+    {
+        self.read_response_json_with_diagnostics(operation, trace_id, response)
+            .await
     }
 }
 
@@ -363,7 +471,7 @@ pub(crate) fn is_cloudflare_challenge_body(body: &str) -> bool {
         || normalized.contains("/cdn-cgi/challenge-platform/")
 }
 
-fn request_origin(base_url: &Url) -> String {
+pub(crate) fn request_origin(base_url: &Url) -> String {
     let mut origin = base_url.clone();
     origin.set_path("");
     origin.set_query(None);
@@ -372,10 +480,29 @@ fn request_origin(base_url: &Url) -> String {
     value.to_string()
 }
 
-fn request_referer(base_url: &Url) -> String {
+pub(crate) fn request_referer(base_url: &Url) -> String {
     let mut referer = base_url.clone();
     referer.set_path("/");
     referer.set_query(None);
     referer.set_fragment(None);
     referer.to_string()
+}
+
+fn insert_static_header_if_missing(
+    headers: &mut HeaderMap,
+    name: &'static str,
+    value: &'static str,
+) {
+    if !headers.contains_key(name) {
+        headers.insert(name, HeaderValue::from_static(value));
+    }
+}
+
+fn insert_string_header_if_missing(headers: &mut HeaderMap, name: &'static str, value: &str) {
+    if headers.contains_key(name) {
+        return;
+    }
+    if let Ok(value) = HeaderValue::from_str(value) {
+        headers.insert(name, value);
+    }
 }

@@ -138,6 +138,29 @@ public actor FireSessionStore {
         try core.exportSessionJson()
     }
 
+    public func notificationState() throws -> NotificationCenterState {
+        try core.notificationState()
+    }
+
+    public func fetchRecentNotifications(limit: UInt32? = nil) async throws -> NotificationListState {
+        try await core.fetchRecentNotifications(limit: limit)
+    }
+
+    public func fetchNotifications(
+        limit: UInt32? = nil,
+        offset: UInt32? = nil
+    ) async throws -> NotificationListState {
+        try await core.fetchNotifications(limit: limit, offset: offset)
+    }
+
+    public func markNotificationRead(id: UInt64) async throws -> NotificationCenterState {
+        try await core.markNotificationRead(notificationId: id)
+    }
+
+    public func markAllNotificationsRead() async throws -> NotificationCenterState {
+        try await core.markAllNotificationsRead()
+    }
+
     public func fetchTopicList(query: TopicListQueryState) async throws -> TopicListState {
         try await core.fetchTopicList(query: query)
     }
@@ -206,6 +229,33 @@ public actor FireSessionStore {
         try persistCurrentSession()
         return state
     }
+
+    // MARK: - MessageBus
+
+    @discardableResult
+    public func startMessageBus(handler: any MessageBusEventHandler) async throws -> String {
+        try await core.startMessageBus(mode: .foreground, handler: handler)
+    }
+
+    public func stopMessageBus(clearSubscriptions: Bool = false) throws {
+        try core.stopMessageBus(clearSubscriptions: clearSubscriptions)
+    }
+
+    public func subscribeTopicDetailChannel(topicId: UInt64) throws {
+        try core.subscribeChannel(
+            subscription: MessageBusSubscriptionState(
+                channel: "/topic/\(topicId)",
+                lastMessageId: nil,
+                scope: .transient
+            )
+        )
+    }
+
+    public func unsubscribeTopicDetailChannel(topicId: UInt64) throws {
+        try core.unsubscribeChannel(channel: "/topic/\(topicId)")
+    }
+
+    // MARK: - Logout
 
     @discardableResult
     public func logout() async throws -> SessionState {

@@ -17,12 +17,14 @@ use fire_core::{
     NetworkTraceHeader, NetworkTraceOutcome, NetworkTraceSummary,
 };
 use fire_models::{
-    BootstrapArtifacts, CookieSnapshot, LoginPhase, LoginSyncInput, PlatformCookie,
-    PostReactionUpdate, SessionReadiness, SessionSnapshot, TopicCategory, TopicDetail,
-    TopicDetailCreatedBy, TopicDetailMeta, TopicDetailQuery, TopicListKind, TopicListQuery,
-    TopicListResponse, TopicPost, TopicPostStream, TopicPoster, TopicReaction, TopicReplyRequest,
-    TopicRow, TopicSummary, TopicTag, TopicThread, TopicThreadFlatPost, TopicThreadReply,
-    TopicThreadSection, TopicUser,
+    BootstrapArtifacts, CookieSnapshot, LoginPhase, LoginSyncInput, MessageBusClientMode,
+    MessageBusEvent, MessageBusEventKind, MessageBusSubscription, MessageBusSubscriptionScope,
+    NotificationCounters, NotificationData, NotificationItem, NotificationListResponse,
+    NotificationState, PlatformCookie, PostReactionUpdate, SessionReadiness, SessionSnapshot,
+    TopicCategory, TopicDetail, TopicDetailCreatedBy, TopicDetailMeta, TopicDetailQuery,
+    TopicListKind, TopicListQuery, TopicListResponse, TopicPost, TopicPostStream, TopicPoster,
+    TopicReaction, TopicReplyRequest, TopicRow, TopicSummary, TopicTag, TopicThread,
+    TopicThreadFlatPost, TopicThreadReply, TopicThreadSection, TopicUser,
 };
 use futures_util::FutureExt;
 use tokio::runtime::{Builder, Runtime};
@@ -221,6 +223,8 @@ pub struct BootstrapState {
     pub discourse_base_uri: Option<String>,
     pub shared_session_key: Option<String>,
     pub current_username: Option<String>,
+    pub current_user_id: Option<u64>,
+    pub notification_channel_position: Option<i64>,
     pub long_polling_base_url: Option<String>,
     pub turnstile_sitekey: Option<String>,
     pub topic_tracking_state_meta: Option<String>,
@@ -238,6 +242,8 @@ impl From<BootstrapArtifacts> for BootstrapState {
             discourse_base_uri: value.discourse_base_uri,
             shared_session_key: value.shared_session_key,
             current_username: value.current_username,
+            current_user_id: value.current_user_id,
+            notification_channel_position: value.notification_channel_position,
             long_polling_base_url: value.long_polling_base_url,
             turnstile_sitekey: value.turnstile_sitekey,
             topic_tracking_state_meta: value.topic_tracking_state_meta,
@@ -257,6 +263,8 @@ impl From<BootstrapState> for BootstrapArtifacts {
             discourse_base_uri: value.discourse_base_uri,
             shared_session_key: value.shared_session_key,
             current_username: value.current_username,
+            current_user_id: value.current_user_id,
+            notification_channel_position: value.notification_channel_position,
             long_polling_base_url: value.long_polling_base_url,
             turnstile_sitekey: value.turnstile_sitekey,
             topic_tracking_state_meta: value.topic_tracking_state_meta,
@@ -375,6 +383,306 @@ impl SessionState {
             bootstrap: snapshot.bootstrap.into(),
             readiness: readiness.into(),
             login_phase: login_phase.into(),
+        }
+    }
+}
+
+#[derive(uniffi::Enum, Debug, Clone, Copy)]
+pub enum MessageBusClientModeState {
+    Foreground,
+    IosBackground,
+}
+
+impl From<MessageBusClientMode> for MessageBusClientModeState {
+    fn from(value: MessageBusClientMode) -> Self {
+        match value {
+            MessageBusClientMode::Foreground => Self::Foreground,
+            MessageBusClientMode::IosBackground => Self::IosBackground,
+        }
+    }
+}
+
+impl From<MessageBusClientModeState> for MessageBusClientMode {
+    fn from(value: MessageBusClientModeState) -> Self {
+        match value {
+            MessageBusClientModeState::Foreground => Self::Foreground,
+            MessageBusClientModeState::IosBackground => Self::IosBackground,
+        }
+    }
+}
+
+#[derive(uniffi::Enum, Debug, Clone, Copy)]
+pub enum MessageBusSubscriptionScopeState {
+    Durable,
+    Transient,
+}
+
+impl From<MessageBusSubscriptionScope> for MessageBusSubscriptionScopeState {
+    fn from(value: MessageBusSubscriptionScope) -> Self {
+        match value {
+            MessageBusSubscriptionScope::Durable => Self::Durable,
+            MessageBusSubscriptionScope::Transient => Self::Transient,
+        }
+    }
+}
+
+impl From<MessageBusSubscriptionScopeState> for MessageBusSubscriptionScope {
+    fn from(value: MessageBusSubscriptionScopeState) -> Self {
+        match value {
+            MessageBusSubscriptionScopeState::Durable => Self::Durable,
+            MessageBusSubscriptionScopeState::Transient => Self::Transient,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct MessageBusSubscriptionState {
+    pub channel: String,
+    pub last_message_id: Option<i64>,
+    pub scope: MessageBusSubscriptionScopeState,
+}
+
+impl From<MessageBusSubscription> for MessageBusSubscriptionState {
+    fn from(value: MessageBusSubscription) -> Self {
+        Self {
+            channel: value.channel,
+            last_message_id: value.last_message_id,
+            scope: value.scope.into(),
+        }
+    }
+}
+
+impl From<MessageBusSubscriptionState> for MessageBusSubscription {
+    fn from(value: MessageBusSubscriptionState) -> Self {
+        Self {
+            channel: value.channel,
+            last_message_id: value.last_message_id,
+            scope: value.scope.into(),
+        }
+    }
+}
+
+#[derive(uniffi::Enum, Debug, Clone, Copy)]
+pub enum MessageBusEventKindState {
+    TopicList,
+    TopicDetail,
+    Notification,
+    Unknown,
+}
+
+impl From<MessageBusEventKind> for MessageBusEventKindState {
+    fn from(value: MessageBusEventKind) -> Self {
+        match value {
+            MessageBusEventKind::TopicList => Self::TopicList,
+            MessageBusEventKind::TopicDetail => Self::TopicDetail,
+            MessageBusEventKind::Notification => Self::Notification,
+            MessageBusEventKind::Unknown => Self::Unknown,
+        }
+    }
+}
+
+impl From<MessageBusEventKindState> for MessageBusEventKind {
+    fn from(value: MessageBusEventKindState) -> Self {
+        match value {
+            MessageBusEventKindState::TopicList => Self::TopicList,
+            MessageBusEventKindState::TopicDetail => Self::TopicDetail,
+            MessageBusEventKindState::Notification => Self::Notification,
+            MessageBusEventKindState::Unknown => Self::Unknown,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct MessageBusEventState {
+    pub channel: String,
+    pub message_id: i64,
+    pub kind: MessageBusEventKindState,
+    pub topic_list_kind: Option<TopicListKindState>,
+    pub topic_id: Option<u64>,
+    pub notification_user_id: Option<u64>,
+    pub message_type: Option<String>,
+    pub detail_event_type: Option<String>,
+    pub reload_topic: bool,
+    pub refresh_stream: bool,
+    pub all_unread_notifications_count: Option<u32>,
+    pub unread_notifications: Option<u32>,
+    pub unread_high_priority_notifications: Option<u32>,
+    pub payload_json: Option<String>,
+}
+
+impl From<MessageBusEvent> for MessageBusEventState {
+    fn from(value: MessageBusEvent) -> Self {
+        Self {
+            channel: value.channel,
+            message_id: value.message_id,
+            kind: value.kind.into(),
+            topic_list_kind: value.topic_list_kind.map(Into::into),
+            topic_id: value.topic_id,
+            notification_user_id: value.notification_user_id,
+            message_type: value.message_type,
+            detail_event_type: value.detail_event_type,
+            reload_topic: value.reload_topic,
+            refresh_stream: value.refresh_stream,
+            all_unread_notifications_count: value.all_unread_notifications_count,
+            unread_notifications: value.unread_notifications,
+            unread_high_priority_notifications: value.unread_high_priority_notifications,
+            payload_json: value.payload_json,
+        }
+    }
+}
+
+#[uniffi::export(with_foreign)]
+pub trait MessageBusEventHandler: Send + Sync {
+    fn on_message_bus_event(&self, event: MessageBusEventState);
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct NotificationCountersState {
+    pub all_unread: u32,
+    pub unread: u32,
+    pub high_priority: u32,
+}
+
+impl From<NotificationCounters> for NotificationCountersState {
+    fn from(value: NotificationCounters) -> Self {
+        Self {
+            all_unread: value.all_unread,
+            unread: value.unread,
+            high_priority: value.high_priority,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct NotificationDataState {
+    pub display_username: Option<String>,
+    pub original_post_id: Option<String>,
+    pub original_post_type: Option<i32>,
+    pub original_username: Option<String>,
+    pub revision_number: Option<u32>,
+    pub topic_title: Option<String>,
+    pub badge_name: Option<String>,
+    pub badge_id: Option<u64>,
+    pub badge_slug: Option<String>,
+    pub group_name: Option<String>,
+    pub inbox_count: Option<String>,
+    pub count: Option<u32>,
+    pub username: Option<String>,
+    pub username2: Option<String>,
+    pub avatar_template: Option<String>,
+    pub excerpt: Option<String>,
+    pub payload_json: Option<String>,
+}
+
+impl From<NotificationData> for NotificationDataState {
+    fn from(value: NotificationData) -> Self {
+        Self {
+            display_username: value.display_username,
+            original_post_id: value.original_post_id,
+            original_post_type: value.original_post_type,
+            original_username: value.original_username,
+            revision_number: value.revision_number,
+            topic_title: value.topic_title,
+            badge_name: value.badge_name,
+            badge_id: value.badge_id,
+            badge_slug: value.badge_slug,
+            group_name: value.group_name,
+            inbox_count: value.inbox_count,
+            count: value.count,
+            username: value.username,
+            username2: value.username2,
+            avatar_template: value.avatar_template,
+            excerpt: value.excerpt,
+            payload_json: value.payload_json,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct NotificationItemState {
+    pub id: u64,
+    pub user_id: Option<u64>,
+    pub notification_type: i32,
+    pub read: bool,
+    pub high_priority: bool,
+    pub created_at: Option<String>,
+    pub created_timestamp_unix_ms: Option<u64>,
+    pub post_number: Option<u32>,
+    pub topic_id: Option<u64>,
+    pub slug: Option<String>,
+    pub fancy_title: Option<String>,
+    pub acting_user_avatar_template: Option<String>,
+    pub data: NotificationDataState,
+}
+
+impl From<NotificationItem> for NotificationItemState {
+    fn from(value: NotificationItem) -> Self {
+        Self {
+            id: value.id,
+            user_id: value.user_id,
+            notification_type: value.notification_type,
+            read: value.read,
+            high_priority: value.high_priority,
+            created_at: value.created_at,
+            created_timestamp_unix_ms: value.created_timestamp_unix_ms,
+            post_number: value.post_number,
+            topic_id: value.topic_id,
+            slug: value.slug,
+            fancy_title: value.fancy_title,
+            acting_user_avatar_template: value.acting_user_avatar_template,
+            data: value.data.into(),
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct NotificationListState {
+    pub notifications: Vec<NotificationItemState>,
+    pub total_rows_notifications: u32,
+    pub seen_notification_id: Option<u64>,
+    pub load_more_notifications: Option<String>,
+    pub next_offset: Option<u32>,
+}
+
+impl From<NotificationListResponse> for NotificationListState {
+    fn from(value: NotificationListResponse) -> Self {
+        Self {
+            notifications: value.notifications.into_iter().map(Into::into).collect(),
+            total_rows_notifications: value.total_rows_notifications,
+            seen_notification_id: value.seen_notification_id,
+            load_more_notifications: value.load_more_notifications,
+            next_offset: value.next_offset,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct NotificationCenterState {
+    pub counters: NotificationCountersState,
+    pub recent: Vec<NotificationItemState>,
+    pub has_loaded_recent: bool,
+    pub recent_seen_notification_id: Option<u64>,
+    pub full: Vec<NotificationItemState>,
+    pub has_loaded_full: bool,
+    pub total_rows_notifications: u32,
+    pub full_seen_notification_id: Option<u64>,
+    pub full_load_more_notifications: Option<String>,
+    pub full_next_offset: Option<u32>,
+}
+
+impl From<NotificationState> for NotificationCenterState {
+    fn from(value: NotificationState) -> Self {
+        Self {
+            counters: value.counters.into(),
+            recent: value.recent.into_iter().map(Into::into).collect(),
+            has_loaded_recent: value.has_loaded_recent,
+            recent_seen_notification_id: value.recent_seen_notification_id,
+            full: value.full.into_iter().map(Into::into).collect(),
+            has_loaded_full: value.has_loaded_full,
+            total_rows_notifications: value.total_rows_notifications,
+            full_seen_notification_id: value.full_seen_notification_id,
+            full_load_more_notifications: value.full_load_more_notifications,
+            full_next_offset: value.full_next_offset,
         }
     }
 }
@@ -1171,6 +1479,15 @@ impl From<FireCoreError> for FireUniFfiError {
             FireCoreError::MissingLoginSession => Self::Authentication {
                 details: "request requires a login session".to_string(),
             },
+            FireCoreError::MissingSharedSessionKey => Self::Authentication {
+                details: "message bus requires a shared session key".to_string(),
+            },
+            FireCoreError::MissingMessageBusSubscription => Self::Validation {
+                details: "message bus requires at least one subscribed channel".to_string(),
+            },
+            FireCoreError::MessageBusNotStarted => Self::Validation {
+                details: "message bus has not been started".to_string(),
+            },
             FireCoreError::MissingCsrfToken => Self::Authentication {
                 details: "request requires a csrf token".to_string(),
             },
@@ -1367,6 +1684,107 @@ impl FireCoreHandle {
         self.run_fallible("clear_session_path", move |inner| {
             inner.clear_session_path(path)
         })
+    }
+
+    pub fn subscribe_channel(
+        &self,
+        subscription: MessageBusSubscriptionState,
+    ) -> Result<(), FireUniFfiError> {
+        self.run_fallible("subscribe_channel", move |inner| {
+            inner.subscribe_message_bus_channel(subscription.into())
+        })
+    }
+
+    pub fn unsubscribe_channel(&self, channel: String) -> Result<(), FireUniFfiError> {
+        self.run_fallible("unsubscribe_channel", move |inner| {
+            inner.unsubscribe_message_bus_channel(channel)
+        })
+    }
+
+    pub fn stop_message_bus(&self, clear_subscriptions: bool) -> Result<(), FireUniFfiError> {
+        self.run_infallible("stop_message_bus", move |inner| {
+            inner.stop_message_bus(clear_subscriptions)
+        })
+    }
+
+    pub async fn start_message_bus(
+        &self,
+        mode: MessageBusClientModeState,
+        handler: Arc<dyn MessageBusEventHandler>,
+    ) -> Result<String, FireUniFfiError> {
+        let inner = Arc::clone(&self.inner);
+        let panic_state = Arc::clone(&self.panic_state);
+        let (event_sender, mut event_receiver) = tokio::sync::mpsc::unbounded_channel();
+        let client_id = run_on_ffi_runtime("start_message_bus", panic_state, async move {
+            inner.start_message_bus(mode.into(), event_sender).await
+        })
+        .await?;
+
+        ffi_runtime().spawn(async move {
+            while let Some(event) = event_receiver.recv().await {
+                handler.on_message_bus_event(event.into());
+            }
+        });
+
+        Ok(client_id)
+    }
+
+    pub fn notification_state(&self) -> Result<NotificationCenterState, FireUniFfiError> {
+        self.run_infallible("notification_state", |inner| {
+            inner.notification_state().into()
+        })
+    }
+
+    pub async fn fetch_recent_notifications(
+        &self,
+        limit: Option<u32>,
+    ) -> Result<NotificationListState, FireUniFfiError> {
+        let inner = Arc::clone(&self.inner);
+        let panic_state = Arc::clone(&self.panic_state);
+        let response = run_on_ffi_runtime("fetch_recent_notifications", panic_state, async move {
+            inner.fetch_recent_notifications(limit).await
+        })
+        .await?;
+        Ok(response.into())
+    }
+
+    pub async fn fetch_notifications(
+        &self,
+        limit: Option<u32>,
+        offset: Option<u32>,
+    ) -> Result<NotificationListState, FireUniFfiError> {
+        let inner = Arc::clone(&self.inner);
+        let panic_state = Arc::clone(&self.panic_state);
+        let response = run_on_ffi_runtime("fetch_notifications", panic_state, async move {
+            inner.fetch_notifications(limit, offset).await
+        })
+        .await?;
+        Ok(response.into())
+    }
+
+    pub async fn mark_notification_read(
+        &self,
+        notification_id: u64,
+    ) -> Result<NotificationCenterState, FireUniFfiError> {
+        let inner = Arc::clone(&self.inner);
+        let panic_state = Arc::clone(&self.panic_state);
+        let response = run_on_ffi_runtime("mark_notification_read", panic_state, async move {
+            inner.mark_notification_read(notification_id).await
+        })
+        .await?;
+        Ok(response.into())
+    }
+
+    pub async fn mark_all_notifications_read(
+        &self,
+    ) -> Result<NotificationCenterState, FireUniFfiError> {
+        let inner = Arc::clone(&self.inner);
+        let panic_state = Arc::clone(&self.panic_state);
+        let response = run_on_ffi_runtime("mark_all_notifications_read", panic_state, async move {
+            inner.mark_all_notifications_read().await
+        })
+        .await?;
+        Ok(response.into())
     }
 
     pub async fn fetch_topic_list(

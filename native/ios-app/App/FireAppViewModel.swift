@@ -48,7 +48,14 @@ private enum FireTopicInteractionError: LocalizedError {
 
 @MainActor
 final class FireAppViewModel: ObservableObject {
+    private static let messageBusErrorPrefix = "实时同步连接失败："
+
+    // MARK: - Session
+
     @Published private(set) var session: SessionState = .placeholder()
+
+    // MARK: - Topic list
+
     @Published private(set) var selectedTopicKind: TopicListKindState = .latest
     @Published private(set) var topicRows: [FireTopicRowPresentation] = []
     @Published private(set) var moreTopicsUrl: String?
@@ -58,19 +65,43 @@ final class FireAppViewModel: ObservableObject {
     @Published private(set) var isLoadingTopics = false
     @Published private(set) var isAppendingTopics = false
     @Published private(set) var loadingTopicIDs: Set<UInt64> = []
+
+    // MARK: - Write interactions
+
     @Published private(set) var submittingReplyTopicIDs: Set<UInt64> = []
     @Published private(set) var mutatingPostIDs: Set<UInt64> = []
+
+    // MARK: - Notifications
+
+    @Published private(set) var notificationUnreadCount: Int = 0
+    @Published private(set) var recentNotifications: [NotificationItemState] = []
+    @Published private(set) var isLoadingNotifications = false
+
+    // MARK: - General UI state
+
     @Published var errorMessage: String?
     @Published var isPresentingLogin = false
     @Published var isPreparingLogin = false
     @Published var isLoggingOut = false
+
+    // MARK: - Private
 
     private var sessionStore: FireSessionStore?
     private var loginCoordinator: FireWebViewLoginCoordinator?
     private var sessionStoreInitializationTask: Task<FireSessionStore, Error>?
     private let loginURL = URL(string: "https://linux.do")!
 
+    // MessageBus
+    private var messageBusCoordinator: FireMessageBusCoordinator?
+    private var isMessageBusActive = false
+    private var messageBusStartRetryCount = 0
+    private var messageBusRetryTask: Task<Void, Never>?
+    private var pendingTopicListRefreshTask: Task<Void, Never>?
+    private var pendingTopicDetailRefreshTasks: [UInt64: Task<Void, Never>] = [:]
+
     init() {}
+
+    // MARK: - Lifecycle
 
     func loadInitialState() {
         Task {
@@ -87,6 +118,7 @@ final class FireAppViewModel: ObservableObject {
                 await applySession(initialSession)
                 await applySession(try await sessionStore.refreshBootstrapIfNeeded())
                 await refreshTopicsIfPossible(force: true)
+                await loadRecentNotifications(force: false)
             } catch {
                 errorMessage = error.localizedDescription
             }
@@ -167,15 +199,19 @@ final class FireAppViewModel: ObservableObject {
 
             do {
                 let loginCoordinator = try await loginCoordinatorValue()
+                stopMessageBus()
                 errorMessage = nil
                 await applySession(try await loginCoordinator.logout())
                 selectedTopicKind = .latest
                 clearTopicState()
+                clearNotificationState()
             } catch {
                 errorMessage = error.localizedDescription
             }
         }
     }
+
+    // MARK: - Topic list
 
     func selectTopicKind(_ kind: TopicListKindState) {
         guard selectedTopicKind != kind else {
@@ -201,7 +237,7 @@ final class FireAppViewModel: ObservableObject {
         }
     }
 
-    func loadTopicDetail(topicId: UInt64, force: Bool = false) {
+    func loadTopicDetail(topicId: UInt64, force: Bool = false) async {
         guard let sessionStore else {
             return
         }
@@ -218,26 +254,23 @@ final class FireAppViewModel: ObservableObject {
         }
 
         loadingTopicIDs.insert(topicId)
+        defer { loadingTopicIDs.remove(topicId) }
 
-        Task {
-            defer { loadingTopicIDs.remove(topicId) }
-
-            do {
-                errorMessage = nil
-                let detail = try await sessionStore.fetchTopicDetail(
-                    query: TopicDetailQueryState(
-                        topicId: topicId,
-                        postNumber: nil,
-                        trackVisit: true,
-                        filter: nil,
-                        usernameFilters: nil,
-                        filterTopLevelReplies: false
-                    )
+        do {
+            errorMessage = nil
+            let detail = try await sessionStore.fetchTopicDetail(
+                query: TopicDetailQueryState(
+                    topicId: topicId,
+                    postNumber: nil,
+                    trackVisit: true,
+                    filter: nil,
+                    usernameFilters: nil,
+                    filterTopLevelReplies: false
                 )
-                topicDetails[topicId] = detail
-            } catch {
-                errorMessage = error.localizedDescription
-            }
+            )
+            topicDetails[topicId] = detail
+        } catch {
+            errorMessage = error.localizedDescription
         }
     }
 
@@ -248,6 +281,35 @@ final class FireAppViewModel: ObservableObject {
     func isLoadingTopic(topicId: UInt64) -> Bool {
         loadingTopicIDs.contains(topicId)
     }
+
+    // MARK: - Topic detail MessageBus subscription
+
+    func maintainTopicDetailSubscription(topicId: UInt64) async {
+        guard isMessageBusActive else { return }
+        guard let store = sessionStore else { return }
+
+        do {
+            try await store.subscribeTopicDetailChannel(topicId: topicId)
+        } catch {
+            return
+        }
+
+        defer {
+            Task {
+                try? await store.unsubscribeTopicDetailChannel(topicId: topicId)
+            }
+        }
+
+        while !Task.isCancelled {
+            do {
+                try await Task.sleep(for: .seconds(3600))
+            } catch {
+                break
+            }
+        }
+    }
+
+    // MARK: - Write interactions
 
     func isSubmittingReply(topicId: UInt64) -> Bool {
         submittingReplyTopicIDs.contains(topicId)
@@ -379,6 +441,54 @@ final class FireAppViewModel: ObservableObject {
         }
     }
 
+    // MARK: - Notifications
+
+    func loadRecentNotifications(force: Bool = true) async {
+        guard let sessionStore else { return }
+        guard session.readiness.canReadAuthenticatedApi else { return }
+        guard !isLoadingNotifications || force else { return }
+
+        isLoadingNotifications = true
+        defer { isLoadingNotifications = false }
+        do {
+            let list = try await sessionStore.fetchRecentNotifications()
+            recentNotifications = list.notifications
+            if let state = try? await sessionStore.notificationState() {
+                notificationUnreadCount = Int(state.counters.allUnread)
+            }
+        } catch {
+            // Silent: notification failures shouldn't interrupt UX
+        }
+    }
+
+    func markNotificationRead(id: UInt64) {
+        guard let sessionStore else { return }
+        Task {
+            do {
+                let state = try await sessionStore.markNotificationRead(id: id)
+                notificationUnreadCount = Int(state.counters.allUnread)
+                if let idx = recentNotifications.firstIndex(where: { $0.id == id }) {
+                    recentNotifications[idx].read = true
+                }
+            } catch {}
+        }
+    }
+
+    func markAllNotificationsRead() {
+        guard let sessionStore else { return }
+        Task {
+            do {
+                let state = try await sessionStore.markAllNotificationsRead()
+                notificationUnreadCount = Int(state.counters.allUnread)
+                recentNotifications = recentNotifications.map {
+                    var n = $0; n.read = true; return n
+                }
+            } catch {}
+        }
+    }
+
+    // MARK: - Diagnostics
+
     func listLogFiles() async throws -> [LogFileSummaryState] {
         let sessionStore = try await sessionStoreValue()
         return try await sessionStore.listLogFiles()
@@ -405,6 +515,96 @@ final class FireAppViewModel: ObservableObject {
     func dismissError() {
         errorMessage = nil
     }
+
+    // MARK: - MessageBus lifecycle
+
+    private func startMessageBus() async {
+        guard let sessionStore else { return }
+        guard session.readiness.canOpenMessageBus else { return }
+        guard !isMessageBusActive else { return }
+
+        messageBusRetryTask?.cancel()
+        messageBusRetryTask = nil
+
+        let coordinator = FireMessageBusCoordinator { [weak self] event in
+            self?.handleMessageBusEvent(event)
+        }
+        messageBusCoordinator = coordinator
+
+        do {
+            _ = try await sessionStore.startMessageBus(handler: coordinator)
+            isMessageBusActive = true
+            messageBusStartRetryCount = 0
+            clearMessageBusError()
+        } catch {
+            messageBusCoordinator = nil
+            errorMessage = Self.messageBusErrorPrefix + error.localizedDescription
+            scheduleMessageBusRetry()
+        }
+    }
+
+    private func stopMessageBus() {
+        messageBusRetryTask?.cancel()
+        messageBusRetryTask = nil
+        messageBusStartRetryCount = 0
+        clearMessageBusError()
+        guard isMessageBusActive else { return }
+        pendingTopicListRefreshTask?.cancel()
+        pendingTopicListRefreshTask = nil
+        pendingTopicDetailRefreshTasks.values.forEach { $0.cancel() }
+        pendingTopicDetailRefreshTasks = [:]
+        messageBusCoordinator = nil
+        isMessageBusActive = false
+        guard let sessionStore else { return }
+        Task { try? await sessionStore.stopMessageBus(clearSubscriptions: true) }
+    }
+
+    private func handleMessageBusEvent(_ event: MessageBusEventState) {
+        switch event.kind {
+        case .topicList:
+            guard let kind = event.topicListKind else { return }
+            scheduleTopicListRefresh(for: kind)
+
+        case .topicDetail:
+            guard let topicId = event.topicId else { return }
+            guard topicDetails[topicId] != nil else { return }
+            scheduleTopicDetailRefresh(topicId: topicId)
+
+        case .notification:
+            if let count = event.allUnreadNotificationsCount {
+                notificationUnreadCount = Int(count)
+            }
+
+        case .unknown:
+            break
+        }
+    }
+
+    private func scheduleTopicListRefresh(for busKind: TopicListKindState) {
+        guard busKind == selectedTopicKind else { return }
+        pendingTopicListRefreshTask?.cancel()
+        pendingTopicListRefreshTask = Task {
+            try? await Task.sleep(for: .seconds(1.5))
+            guard !Task.isCancelled else { return }
+            await refreshTopicsIfPossible(force: true)
+        }
+    }
+
+    private func scheduleTopicDetailRefresh(topicId: UInt64) {
+        pendingTopicDetailRefreshTasks[topicId]?.cancel()
+        pendingTopicDetailRefreshTasks[topicId] = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(1.5))
+            guard !Task.isCancelled else { return }
+            guard let self, let store = self.sessionStore else { return }
+            guard self.topicDetails[topicId] != nil else { return }
+            do {
+                let detail = try await store.fetchTopicDetail(topicID: topicId, trackVisit: false)
+                self.topicDetails[topicId] = detail
+            } catch {}
+        }
+    }
+
+    // MARK: - Private helpers
 
     private func prepareLoginNetworkAccess() async throws {
         let configuration = URLSessionConfiguration.ephemeral
@@ -491,10 +691,56 @@ final class FireAppViewModel: ObservableObject {
         mutatingPostIDs = []
     }
 
+    private func clearNotificationState() {
+        notificationUnreadCount = 0
+        recentNotifications = []
+    }
+
     private func applySession(_ session: SessionState) async {
         self.session = session
         session.mirrorCookiesToNativeStorage()
         topicCategories = Dictionary(uniqueKeysWithValues: session.bootstrap.categories.map { ($0.id, $0) })
+
+        // Sync notification badge from in-memory state when available
+        if session.readiness.canReadAuthenticatedApi, let store = sessionStore {
+            if let state = try? await store.notificationState() {
+                notificationUnreadCount = Int(state.counters.allUnread)
+            }
+        }
+
+        // Reconcile MessageBus lifecycle
+        if session.readiness.canOpenMessageBus && !isMessageBusActive {
+            await startMessageBus()
+        } else if !session.readiness.canOpenMessageBus && isMessageBusActive {
+            stopMessageBus()
+        } else if !session.readiness.canOpenMessageBus {
+            stopMessageBus()
+        }
+    }
+
+    private func scheduleMessageBusRetry() {
+        guard session.readiness.canOpenMessageBus else { return }
+        guard !isMessageBusActive else { return }
+        guard messageBusStartRetryCount < 3 else { return }
+
+        messageBusStartRetryCount += 1
+        let retryDelay = Duration.seconds(Double(messageBusStartRetryCount * 2))
+        messageBusRetryTask = Task { [weak self] in
+            do {
+                try await Task.sleep(for: retryDelay)
+            } catch {
+                return
+            }
+            guard let self else { return }
+            self.messageBusRetryTask = nil
+            await self.startMessageBus()
+        }
+    }
+
+    private func clearMessageBusError() {
+        if errorMessage?.hasPrefix(Self.messageBusErrorPrefix) == true {
+            errorMessage = nil
+        }
     }
 
     private func refreshTopicDetailAfterMutation(

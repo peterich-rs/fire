@@ -33,6 +33,12 @@ pub enum FireCoreError {
     MissingCurrentUsername,
     #[error("request requires a login session")]
     MissingLoginSession,
+    #[error("message bus requires a shared session key")]
+    MissingSharedSessionKey,
+    #[error("message bus requires at least one subscribed channel")]
+    MissingMessageBusSubscription,
+    #[error("message bus has not been started")]
+    MessageBusNotStarted,
     #[error("request requires a csrf token")]
     MissingCsrfToken,
     #[error("post is pending review (pending_count={pending_count})")]

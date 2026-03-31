@@ -132,6 +132,8 @@ impl FireCore {
 
     pub fn logout_local(&self, preserve_cf_clearance: bool) -> SessionSnapshot {
         info!(preserve_cf_clearance, "clearing local login state");
+        self.stop_message_bus(true);
+        self.clear_notification_state();
         self.update_session(|session| {
             session.clear_login_state(preserve_cf_clearance);
             debug!(

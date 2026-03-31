@@ -9,6 +9,7 @@ authors.workspace = true
 [dependencies]
 fire-models = { path = "../fire-models" }
 http.workspace = true
+http-body-util.workspace = true
 mars-xlog.workspace = true
 mars-xlog-core.workspace = true
 openwire.workspace = true
@@ -17,9 +18,7 @@ serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 time.workspace = true
+tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 url.workspace = true
-
-[dev-dependencies]
-tokio.workspace = true

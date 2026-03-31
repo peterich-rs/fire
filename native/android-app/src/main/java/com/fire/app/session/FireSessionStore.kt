@@ -10,12 +10,14 @@ import uniffi.fire_uniffi.LogFileDetailState
 import uniffi.fire_uniffi.LogFileSummaryState
 import uniffi.fire_uniffi.NetworkTraceDetailState
 import uniffi.fire_uniffi.NetworkTraceSummaryState
+import uniffi.fire_uniffi.NotificationCenterState
+import uniffi.fire_uniffi.NotificationListState
 import uniffi.fire_uniffi.PlatformCookieState
+import uniffi.fire_uniffi.SessionState
 import uniffi.fire_uniffi.TopicDetailQueryState
 import uniffi.fire_uniffi.TopicDetailState
 import uniffi.fire_uniffi.TopicListQueryState
 import uniffi.fire_uniffi.TopicListState
-import uniffi.fire_uniffi.SessionState
 
 class FireSessionStore(
     context: Context,
@@ -114,6 +116,32 @@ class FireSessionStore(
     suspend fun exportSessionJson(): String = withContext(Dispatchers.Default) {
         core.exportSessionJson()
     }
+
+    suspend fun notificationState(): NotificationCenterState = withContext(Dispatchers.Default) {
+        core.notificationState()
+    }
+
+    suspend fun fetchRecentNotifications(limit: UInt? = null): NotificationListState =
+        withContext(Dispatchers.IO) {
+            core.fetchRecentNotifications(limit)
+        }
+
+    suspend fun fetchNotifications(
+        limit: UInt? = null,
+        offset: UInt? = null,
+    ): NotificationListState = withContext(Dispatchers.IO) {
+        core.fetchNotifications(limit, offset)
+    }
+
+    suspend fun markNotificationRead(id: ULong): NotificationCenterState =
+        withContext(Dispatchers.IO) {
+            core.markNotificationRead(id)
+        }
+
+    suspend fun markAllNotificationsRead(): NotificationCenterState =
+        withContext(Dispatchers.IO) {
+            core.markAllNotificationsRead()
+        }
 
     suspend fun restoreSessionJson(json: String): SessionState = withContext(Dispatchers.Default) {
         val restored = core.restoreSessionJson(json)

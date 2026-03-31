@@ -451,6 +451,8 @@ class MainActivity : AppCompatActivity() {
                 discourseBaseUri = null,
                 sharedSessionKey = null,
                 currentUsername = null,
+                currentUserId = null,
+                notificationChannelPosition = null,
                 longPollingBaseUrl = null,
                 turnstileSitekey = null,
                 topicTrackingStateMeta = null,

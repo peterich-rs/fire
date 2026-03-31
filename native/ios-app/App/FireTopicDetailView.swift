@@ -115,6 +115,10 @@ struct FireTopicDetailView: View {
         viewModel.session.readiness.canWriteAuthenticatedApi
     }
 
+    private var messageBusSubscriptionTaskID: String {
+        "\(topic.id)-\(viewModel.session.readiness.canOpenMessageBus)"
+    }
+
     private var displayedReplyCount: UInt32 {
         if let detail {
             return max(detail.postsCount, 1) - 1
@@ -191,11 +195,13 @@ struct FireTopicDetailView: View {
             Text(composerNotice ?? "")
         }
         .refreshable {
-            viewModel.loadTopicDetail(topicId: topic.id, force: true)
-            try? await Task.sleep(for: .seconds(1))
+            await viewModel.loadTopicDetail(topicId: topic.id, force: true)
         }
-        .task {
-            viewModel.loadTopicDetail(topicId: topic.id)
+        .task(id: topic.id) {
+            await viewModel.loadTopicDetail(topicId: topic.id)
+        }
+        .task(id: messageBusSubscriptionTaskID) {
+            await viewModel.maintainTopicDetailSubscription(topicId: topic.id)
         }
         .onChange(of: replyDraft) { _, _ in
             if quickReplyError != nil {
@@ -350,7 +356,9 @@ struct FireTopicDetailView: View {
                         .multilineTextAlignment(.center)
 
                     Button("重试") {
-                        viewModel.loadTopicDetail(topicId: topic.id, force: true)
+                        Task {
+                            await viewModel.loadTopicDetail(topicId: topic.id, force: true)
+                        }
                     }
                     .buttonStyle(.bordered)
                     .tint(FireTheme.accent)
@@ -359,7 +367,9 @@ struct FireTopicDetailView: View {
                 .padding(.vertical, 20)
             } else {
                 Button("加载帖子") {
-                    viewModel.loadTopicDetail(topicId: topic.id, force: true)
+                    Task {
+                        await viewModel.loadTopicDetail(topicId: topic.id, force: true)
+                    }
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 20)

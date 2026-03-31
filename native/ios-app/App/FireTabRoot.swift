@@ -16,6 +16,12 @@ struct FireTabRoot: View {
                             Label("首页", systemImage: "house")
                         }
 
+                    FireNotificationsView(viewModel: viewModel)
+                        .tabItem {
+                            Label("通知", systemImage: "bell")
+                        }
+                        .badge(viewModel.notificationUnreadCount)
+
                     FireProfileView(viewModel: viewModel)
                         .tabItem {
                             Label("我的", systemImage: "person")

@@ -97,6 +97,9 @@ jobs:
       - name: Generate Xcode project
         run: xcodegen generate --spec native/ios-app/project.yml
 
+      - name: Verify generated Xcode project is up to date
+        run: git diff --exit-code -- native/ios-app/Fire.xcodeproj
+
       - name: Run iOS unit tests
         shell: bash
         run: |

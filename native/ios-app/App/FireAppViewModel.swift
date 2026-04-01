@@ -324,13 +324,15 @@ final class FireAppViewModel: ObservableObject {
     // MARK: - Topic detail MessageBus subscription
 
     func maintainTopicDetailSubscription(topicId: UInt64) async {
-        guard isMessageBusActive else { return }
+        guard session.readiness.canOpenMessageBus else { return }
         guard let store = sessionStore else { return }
 
         do {
             try await store.subscribeTopicDetailChannel(topicId: topicId)
             try await store.subscribeTopicReactionChannel(topicId: topicId)
         } catch {
+            try? await store.unsubscribeTopicReactionChannel(topicId: topicId)
+            try? await store.unsubscribeTopicDetailChannel(topicId: topicId)
             return
         }
 
@@ -349,6 +351,10 @@ final class FireAppViewModel: ObservableObject {
                 try? await store.unsubscribeTopicReactionChannel(topicId: topicId)
                 try? await store.unsubscribeTopicDetailChannel(topicId: topicId)
             }
+        }
+
+        if !isMessageBusActive {
+            await startMessageBus()
         }
 
         while !Task.isCancelled {

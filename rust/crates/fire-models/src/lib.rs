@@ -59,6 +59,12 @@ impl CookieSnapshot {
         );
     }
 
+    pub fn apply_platform_cookies(&mut self, cookies: &[PlatformCookie]) {
+        self.t_token = latest_non_empty_platform_cookie_value(cookies, "_t");
+        self.forum_session = latest_non_empty_platform_cookie_value(cookies, "_forum_session");
+        self.cf_clearance = latest_non_empty_platform_cookie_value(cookies, "cf_clearance");
+    }
+
     pub fn clear_login_state(&mut self, preserve_cf_clearance: bool) {
         self.t_token = None;
         self.forum_session = None;
@@ -1082,6 +1088,36 @@ mod tests {
         ]);
 
         assert_eq!(cookies.t_token.as_deref(), Some("fresh"));
+    }
+
+    #[test]
+    fn platform_cookie_apply_replaces_known_auth_fields() {
+        let mut cookies = CookieSnapshot {
+            t_token: Some("stale-token".into()),
+            forum_session: Some("stale-forum".into()),
+            cf_clearance: Some("stale-clearance".into()),
+            csrf_token: Some("csrf".into()),
+        };
+
+        cookies.apply_platform_cookies(&[
+            PlatformCookie {
+                name: "_t".into(),
+                value: "fresh-token".into(),
+                domain: None,
+                path: None,
+            },
+            PlatformCookie {
+                name: "cf_clearance".into(),
+                value: "fresh-clearance".into(),
+                domain: None,
+                path: None,
+            },
+        ]);
+
+        assert_eq!(cookies.t_token.as_deref(), Some("fresh-token"));
+        assert_eq!(cookies.forum_session, None);
+        assert_eq!(cookies.cf_clearance.as_deref(), Some("fresh-clearance"));
+        assert_eq!(cookies.csrf_token.as_deref(), Some("csrf"));
     }
 
     #[test]

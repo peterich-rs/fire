@@ -6,14 +6,20 @@ use super::FireCore;
 use crate::{
     error::FireCoreError,
     session_store::{
-        sanitize_snapshot_for_restore, write_atomic, LegacyPersistedSessionSnapshot,
-        PersistedSessionEnvelope,
+        sanitize_snapshot_for_persist, sanitize_snapshot_for_restore, write_atomic,
+        LegacyPersistedSessionSnapshot, PersistedSessionEnvelope,
     },
 };
 
 impl FireCore {
     pub fn export_session_json(&self) -> Result<String, FireCoreError> {
         let envelope = PersistedSessionEnvelope::new(self.snapshot());
+        serde_json::to_string_pretty(&envelope).map_err(FireCoreError::PersistSerialize)
+    }
+
+    pub fn export_redacted_session_json(&self) -> Result<String, FireCoreError> {
+        let envelope =
+            PersistedSessionEnvelope::new_redacted(sanitize_snapshot_for_persist(self.snapshot()));
         serde_json::to_string_pretty(&envelope).map_err(FireCoreError::PersistSerialize)
     }
 
@@ -37,6 +43,18 @@ impl FireCore {
     pub fn save_session_to_path(&self, path: impl AsRef<Path>) -> Result<(), FireCoreError> {
         let path = path.as_ref();
         let payload = self.export_session_json()?;
+        write_atomic(path, payload.as_bytes()).map_err(|source| FireCoreError::PersistIo {
+            path: path.to_path_buf(),
+            source,
+        })
+    }
+
+    pub fn save_redacted_session_to_path(
+        &self,
+        path: impl AsRef<Path>,
+    ) -> Result<(), FireCoreError> {
+        let path = path.as_ref();
+        let payload = self.export_redacted_session_json()?;
         write_atomic(path, payload.as_bytes()).map_err(|source| FireCoreError::PersistIo {
             path: path.to_path_buf(),
             source,
@@ -79,7 +97,7 @@ impl FireCore {
                 let legacy_snapshot: LegacyPersistedSessionSnapshot = serde_json::from_str(json)
                     .map_err(|_| FireCoreError::PersistDeserialize(envelope_error))?;
                 warn!("restoring legacy persisted session without envelope metadata");
-                self.normalize_snapshot_for_restore(legacy_snapshot.into())
+                self.normalize_snapshot_for_restore(legacy_snapshot.into(), false)
             }
         }
     }
@@ -88,19 +106,22 @@ impl FireCore {
         &self,
         envelope: PersistedSessionEnvelope,
     ) -> Result<fire_models::SessionSnapshot, FireCoreError> {
-        if envelope.version != PersistedSessionEnvelope::CURRENT_VERSION {
+        if envelope.version != PersistedSessionEnvelope::FULL_SNAPSHOT_VERSION
+            && envelope.version != PersistedSessionEnvelope::REDACTED_SNAPSHOT_VERSION
+        {
             return Err(FireCoreError::PersistVersionMismatch {
-                expected: PersistedSessionEnvelope::CURRENT_VERSION,
+                expected: PersistedSessionEnvelope::REDACTED_SNAPSHOT_VERSION,
                 found: envelope.version,
             });
         }
 
-        self.normalize_snapshot_for_restore(envelope.snapshot)
+        self.normalize_snapshot_for_restore(envelope.snapshot, envelope.auth_cookies_redacted)
     }
 
     fn normalize_snapshot_for_restore(
         &self,
         mut snapshot: fire_models::SessionSnapshot,
+        auth_cookies_redacted: bool,
     ) -> Result<fire_models::SessionSnapshot, FireCoreError> {
         let persisted_base_url = snapshot.bootstrap.base_url.clone();
         if !persisted_base_url.is_empty() && persisted_base_url != self.base_url() {
@@ -110,7 +131,7 @@ impl FireCore {
             });
         }
 
-        snapshot = sanitize_snapshot_for_restore(self.base_url(), snapshot);
+        snapshot = sanitize_snapshot_for_restore(self.base_url(), snapshot, auth_cookies_redacted);
         Ok(snapshot)
     }
 }

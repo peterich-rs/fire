@@ -13,16 +13,29 @@ use crate::parsing::hydrate_preloaded_fields;
 pub(crate) struct PersistedSessionEnvelope {
     pub(crate) version: u32,
     pub(crate) saved_at_unix_ms: u64,
+    #[serde(default)]
+    pub(crate) auth_cookies_redacted: bool,
     pub(crate) snapshot: SessionSnapshot,
 }
 
 impl PersistedSessionEnvelope {
-    pub(crate) const CURRENT_VERSION: u32 = 1;
+    pub(crate) const FULL_SNAPSHOT_VERSION: u32 = 1;
+    pub(crate) const REDACTED_SNAPSHOT_VERSION: u32 = 2;
 
     pub(crate) fn new(snapshot: SessionSnapshot) -> Self {
         Self {
-            version: Self::CURRENT_VERSION,
+            version: Self::FULL_SNAPSHOT_VERSION,
             saved_at_unix_ms: now_unix_ms(),
+            auth_cookies_redacted: false,
+            snapshot,
+        }
+    }
+
+    pub(crate) fn new_redacted(snapshot: SessionSnapshot) -> Self {
+        Self {
+            version: Self::REDACTED_SNAPSHOT_VERSION,
+            saved_at_unix_ms: now_unix_ms(),
+            auth_cookies_redacted: true,
             snapshot,
         }
     }
@@ -114,6 +127,7 @@ impl From<LegacyBootstrapArtifacts> for BootstrapArtifacts {
 pub(crate) fn sanitize_snapshot_for_restore(
     base_url: &str,
     mut snapshot: SessionSnapshot,
+    auth_cookies_redacted: bool,
 ) -> SessionSnapshot {
     snapshot.bootstrap.base_url = base_url.to_string();
 
@@ -137,11 +151,25 @@ pub(crate) fn sanitize_snapshot_for_restore(
         snapshot.bootstrap.has_preloaded_data = false;
     }
 
+    let has_any_cookie_state = snapshot.cookies.has_login_session()
+        || snapshot.cookies.has_forum_session()
+        || snapshot.cookies.has_cloudflare_clearance()
+        || snapshot.cookies.has_csrf_token();
+
     if !snapshot.cookies.can_authenticate_requests() {
-        snapshot.clear_login_state(true);
-        snapshot.bootstrap.base_url = base_url.to_string();
+        if auth_cookies_redacted && !has_any_cookie_state {
+            snapshot.cookies.clear_login_state(false);
+        } else {
+            snapshot.clear_login_state(true);
+            snapshot.bootstrap.base_url = base_url.to_string();
+        }
     }
 
+    snapshot
+}
+
+pub(crate) fn sanitize_snapshot_for_persist(mut snapshot: SessionSnapshot) -> SessionSnapshot {
+    snapshot.cookies.clear_login_state(false);
     snapshot
 }
 
@@ -182,7 +210,9 @@ fn now_unix_ms() -> u64 {
 mod tests {
     use std::{env, fs, path::PathBuf};
 
-    use super::write_atomic;
+    use fire_models::{BootstrapArtifacts, CookieSnapshot, SessionSnapshot};
+
+    use super::{sanitize_snapshot_for_persist, write_atomic};
 
     #[test]
     fn write_atomic_replaces_existing_file_contents() {
@@ -193,6 +223,32 @@ mod tests {
 
         assert_eq!(fs::read(&path).expect("read file"), b"after");
         let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn sanitize_snapshot_for_persist_strips_auth_and_csrf_tokens() {
+        let sanitized = sanitize_snapshot_for_persist(SessionSnapshot {
+            cookies: CookieSnapshot {
+                t_token: Some("token".into()),
+                forum_session: Some("forum".into()),
+                cf_clearance: Some("clearance".into()),
+                csrf_token: Some("csrf".into()),
+            },
+            bootstrap: BootstrapArtifacts {
+                base_url: "https://linux.do/".into(),
+                current_username: Some("alice".into()),
+                ..BootstrapArtifacts::default()
+            },
+        });
+
+        assert_eq!(sanitized.cookies.t_token, None);
+        assert_eq!(sanitized.cookies.forum_session, None);
+        assert_eq!(sanitized.cookies.cf_clearance, None);
+        assert_eq!(sanitized.cookies.csrf_token, None);
+        assert_eq!(
+            sanitized.bootstrap.current_username.as_deref(),
+            Some("alice")
+        );
     }
 
     fn temp_path(file_name: &str) -> PathBuf {

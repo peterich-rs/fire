@@ -109,17 +109,9 @@ final class FireAppViewModel: ObservableObject {
     func loadInitialState() {
         Task {
             do {
-                let loginCoordinator = try await loginCoordinatorValue()
                 let sessionStore = try await sessionStoreValue()
                 errorMessage = nil
-                let initialSession: SessionState
-                if let restored = try await loginCoordinator.restorePersistedSessionIfAvailable() {
-                    initialSession = restored
-                } else {
-                    initialSession = try await sessionStore.snapshot()
-                }
-                await applySession(initialSession)
-                await applySession(try await sessionStore.refreshBootstrapIfNeeded())
+                await applySession(try await sessionStore.restoreColdStartSession())
                 await refreshTopicsIfPossible(force: true)
                 await loadRecentNotifications(force: false)
             } catch {

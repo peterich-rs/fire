@@ -91,13 +91,16 @@ The intended native integration order is:
 1. Open LinuxDo login in `WKWebView` / `WebView`.
 2. After login or Cloudflare verification, read platform cookies and the current page HTML/meta.
 3. Call `sync_login_context` in Rust with `_t`, `_forum_session`, `cf_clearance`, optional username, CSRF, and homepage HTML.
-4. Persist the latest session snapshot through `export_session_json` or `save_session_to_path`.
+4. Persist the latest session snapshot through the host-appropriate session policy:
+   - iOS writes a redacted `session.json` through `export_redacted_session_json` or `save_redacted_session_to_path` and keeps `_t`, `_forum_session`, and `cf_clearance` in Keychain.
+   - Android currently still uses `export_session_json` or `save_session_to_path` until Keystore-backed parity lands.
 5. On cold start, restore the snapshot through `restore_session_json` or `load_session_from_path`.
-6. If homepage HTML is unavailable or stale, or the restored authenticated snapshot is missing username/shared-session bootstrap fields, call `refresh_bootstrap_if_needed`.
-7. If write APIs need a newer token, call `refresh_csrf_token_if_needed`.
-8. Use `fetch_topic_list` and `fetch_topic_detail` for the first authenticated read path.
-9. On explicit logout, prefer `logout_remote`, then fall back to `logout_local`, clear the persisted session, and remove host-side WebView auth cookies so the native shell and platform browser state agree.
-10. Use `notification_state`, `fetch_recent_notifications`, `fetch_notifications`, `mark_notification_read`, and `mark_all_notifications_read` for the shared in-app notification data path; keep OS-level/system notification presentation on the hosts.
+6. Before any authenticated request, hosts that keep auth cookies outside `session.json` must re-inject platform cookies into Rust.
+7. If homepage HTML is unavailable or stale, or the restored authenticated snapshot is missing username/shared-session bootstrap fields, call `refresh_bootstrap_if_needed`.
+8. If write APIs need a newer token, call `refresh_csrf_token_if_needed`.
+9. Use `fetch_topic_list` and `fetch_topic_detail` for the first authenticated read path.
+10. On explicit logout, prefer `logout_remote`, then fall back to `logout_local`, clear the persisted session, and remove host-side WebView auth cookies so the native shell and platform browser state agree.
+11. Use `notification_state`, `fetch_recent_notifications`, `fetch_notifications`, `mark_notification_read`, and `mark_all_notifications_read` for the shared in-app notification data path; keep OS-level/system notification presentation on the hosts.
 
 File ownership convention:
 
@@ -110,4 +113,6 @@ File ownership convention:
   - `diagnostics/fire-readable.log` for a plaintext tracing mirror
   - `cache/xlog/` for Xlog cache and mmap spill files
   - `session.json` for the persisted session snapshot triggered by the host shell
-- The current session snapshot remains host-triggered persistence under `session.json` inside that workspace root.
+- `session.json` remains host-triggered persistence under that workspace root.
+- iOS now treats `session.json` as a redacted cache and stores `_t`, `_forum_session`, and `cf_clearance` in Keychain.
+- Android currently still restores the full snapshot from `session.json` until its secure-cookie migration lands.

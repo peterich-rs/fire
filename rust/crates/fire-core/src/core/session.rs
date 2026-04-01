@@ -22,6 +22,21 @@ impl FireCore {
         })
     }
 
+    pub fn apply_platform_cookies(&self, cookies: Vec<PlatformCookie>) -> SessionSnapshot {
+        info!(
+            cookie_count = cookies.len(),
+            "applying platform cookies into session"
+        );
+        self.update_session(|session| {
+            session.cookies.apply_platform_cookies(&cookies);
+            debug!(
+                phase = ?session.login_phase(),
+                readiness = ?session.readiness(),
+                "applied platform cookies"
+            );
+        })
+    }
+
     pub fn apply_cookies(&self, cookies: CookieSnapshot) -> SessionSnapshot {
         info!("applying cookie patch to session");
         self.update_session(|session| {
@@ -99,7 +114,7 @@ impl FireCore {
             .as_deref()
             .map(|html| parse_home_state(self.base_url(), html));
         self.update_session(|session| {
-            session.cookies.merge_platform_cookies(&input.cookies);
+            session.cookies.apply_platform_cookies(&input.cookies);
 
             if let Some(csrf_token) = input.csrf_token {
                 session.cookies.merge_patch(&CookieSnapshot {

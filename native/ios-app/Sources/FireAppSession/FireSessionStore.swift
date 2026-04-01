@@ -28,14 +28,17 @@ public struct FireCapturedLoginState: Sendable {
 
 public actor FireSessionStore {
     private let core: FireCoreHandle
+    private let baseURL: URL
     private let workspacePath: String
     private let sessionFilePath: String
+    private let authCookieStore: any FireAuthCookieSecureStore
 
     public init(
         baseURL: String? = nil,
         workspacePath: String? = nil,
         sessionFilePath: String? = nil,
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        authCookieStore: (any FireAuthCookieSecureStore)? = nil
     ) throws {
         let resolvedWorkspacePath = try workspacePath
             ?? sessionFilePath.map {
@@ -43,11 +46,15 @@ public actor FireSessionStore {
             }
             ?? Self.defaultWorkspacePath(fileManager: fileManager)
         let core = try FireCoreHandle(baseUrl: baseURL, workspacePath: resolvedWorkspacePath)
+        let resolvedBaseURL = URL(string: try core.snapshot().bootstrap.baseUrl)
+            ?? URL(string: "https://linux.do")!
         let resolvedSessionFilePath = try sessionFilePath
             ?? core.resolveWorkspacePath(relativePath: "session.json")
         self.core = core
+        self.baseURL = resolvedBaseURL
         self.workspacePath = resolvedWorkspacePath
         self.sessionFilePath = resolvedSessionFilePath
+        self.authCookieStore = authCookieStore ?? FireKeychainAuthCookieStore(baseURL: resolvedBaseURL)
     }
 
     public func snapshot() throws -> SessionState {
@@ -62,7 +69,27 @@ public actor FireSessionStore {
     }
 
     @discardableResult
+    public func restoreColdStartSession() async throws -> SessionState {
+        _ = try restorePersistedSessionIfAvailable()
+        let secureSecrets = try authCookieStore.load()
+
+        if !secureSecrets.isEmpty {
+            _ = try applyPlatformCookies(secureSecrets.platformCookies(baseURL: baseURL))
+        }
+
+        let current = try core.snapshot()
+        if !current.readiness.canReadAuthenticatedApi && shouldDiscardRestoredBootstrap(current) {
+            let cleared = try core.logoutLocal(preserveCfClearance: true)
+            try persistCurrentSession()
+            return cleared
+        }
+
+        return try await refreshBootstrapIfNeeded()
+    }
+
+    @discardableResult
     public func syncLoginContext(_ captured: FireCapturedLoginState) throws -> SessionState {
+        try authCookieStore.save(FireAuthCookieSecrets(platformCookies: captured.cookies))
         let state = try core.syncLoginContext(
             context: LoginSyncState(
                 currentUrl: captured.currentURL,
@@ -78,7 +105,8 @@ public actor FireSessionStore {
 
     @discardableResult
     public func applyPlatformCookies(_ cookies: [PlatformCookieState]) throws -> SessionState {
-        let state = try core.mergePlatformCookies(cookies: cookies)
+        try authCookieStore.save(FireAuthCookieSecrets(platformCookies: cookies))
+        let state = try core.applyPlatformCookies(cookies: cookies)
         try persistCurrentSession()
         return state
     }
@@ -92,9 +120,9 @@ public actor FireSessionStore {
 
     @discardableResult
     public func refreshBootstrapIfNeeded() async throws -> SessionState {
-        let before = try core.exportSessionJson()
+        let before = try persistedSessionJSON()
         let refreshed = try await core.refreshBootstrapIfNeeded()
-        if try core.exportSessionJson() != before {
+        if try persistedSessionJSON() != before {
             try persistCurrentSession()
         }
         return refreshed
@@ -102,16 +130,16 @@ public actor FireSessionStore {
 
     @discardableResult
     public func refreshCsrfTokenIfNeeded() async throws -> SessionState {
-        let before = try core.exportSessionJson()
+        let before = try persistedSessionJSON()
         let refreshed = try await core.refreshCsrfTokenIfNeeded()
-        if try core.exportSessionJson() != before {
+        if try persistedSessionJSON() != before {
             try persistCurrentSession()
         }
         return refreshed
     }
 
     public func persistCurrentSession() throws {
-        try core.saveSessionToPath(path: sessionFilePath)
+        try core.saveRedactedSessionToPath(path: sessionFilePath)
     }
 
     public func workspacePathValue() -> String {
@@ -135,7 +163,7 @@ public actor FireSessionStore {
     }
 
     public func exportSessionJSON() throws -> String {
-        try core.exportSessionJson()
+        try persistedSessionJSON()
     }
 
     public func notificationState() throws -> NotificationCenterState {
@@ -238,6 +266,10 @@ public actor FireSessionStore {
     @discardableResult
     public func restoreSessionJSON(_ json: String) throws -> SessionState {
         let state = try core.restoreSessionJson(json: json)
+        let restoredSecrets = FireAuthCookieSecrets(cookieState: state.cookies)
+        if !restoredSecrets.isEmpty {
+            try authCookieStore.save(restoredSecrets)
+        }
         try persistCurrentSession()
         return state
     }
@@ -306,6 +338,7 @@ public actor FireSessionStore {
             _ = try await refreshBootstrapIfNeeded()
         }
         let state = try await core.logoutRemote(preserveCfClearance: true)
+        try authCookieStore.save(FireAuthCookieSecrets(cookieState: state.cookies))
         try clearPersistedSession()
         return state
     }
@@ -338,5 +371,15 @@ public actor FireSessionStore {
         return URL(fileURLWithPath: workspacePath)
             .appendingPathComponent("session.json", isDirectory: false)
             .path
+    }
+
+    private func shouldDiscardRestoredBootstrap(_ session: SessionState) -> Bool {
+        session.readiness.hasCurrentUser
+            || session.readiness.hasPreloadedData
+            || session.readiness.hasSharedSessionKey
+    }
+
+    private func persistedSessionJSON() throws -> String {
+        try core.exportRedactedSessionJson()
     }
 }

@@ -1786,6 +1786,12 @@ impl FireCoreHandle {
         self.run_fallible("export_session_json", |inner| inner.export_session_json())
     }
 
+    pub fn export_redacted_session_json(&self) -> Result<String, FireUniFfiError> {
+        self.run_fallible("export_redacted_session_json", |inner| {
+            inner.export_redacted_session_json()
+        })
+    }
+
     pub fn restore_session_json(&self, json: String) -> Result<SessionState, FireUniFfiError> {
         self.run_fallible("restore_session_json", move |inner| {
             inner
@@ -1797,6 +1803,12 @@ impl FireCoreHandle {
     pub fn save_session_to_path(&self, path: String) -> Result<(), FireUniFfiError> {
         self.run_fallible("save_session_to_path", move |inner| {
             inner.save_session_to_path(path)
+        })
+    }
+
+    pub fn save_redacted_session_to_path(&self, path: String) -> Result<(), FireUniFfiError> {
+        self.run_fallible("save_redacted_session_to_path", move |inner| {
+            inner.save_redacted_session_to_path(path)
         })
     }
 
@@ -2064,6 +2076,17 @@ impl FireCoreHandle {
         self.run_infallible("merge_platform_cookies", move |inner| {
             SessionState::from_snapshot(
                 inner.merge_platform_cookies(cookies.into_iter().map(Into::into).collect()),
+            )
+        })
+    }
+
+    pub fn apply_platform_cookies(
+        &self,
+        cookies: Vec<PlatformCookieState>,
+    ) -> Result<SessionState, FireUniFfiError> {
+        self.run_infallible("apply_platform_cookies", move |inner| {
+            SessionState::from_snapshot(
+                inner.apply_platform_cookies(cookies.into_iter().map(Into::into).collect()),
             )
         })
     }

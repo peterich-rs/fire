@@ -23,15 +23,18 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
 - `FireSessionStore.swift`
   - owns `FireCoreHandle`
   - passes the platform workspace root (`Application Support/Fire`) into Rust during initialization
-  - restores persisted session snapshots on cold start
-  - delegates platform-cookie merge semantics plus bootstrap/CSRF refresh decisions to Rust instead of reimplementing them in Swift
-  - persists the latest Rust session snapshot to `Application Support/Fire/session.json`
+  - restores the redacted persisted session snapshot on cold start, then re-injects Keychain cookies before authenticated requests
+  - delegates platform-cookie apply semantics plus bootstrap/CSRF refresh decisions to Rust instead of reimplementing them in Swift
+  - persists the latest Rust session snapshot as a redacted `Application Support/Fire/session.json`
   - lets Rust initialize shared logs under `Application Support/Fire/logs`
   - wraps `syncLoginContext`, async `refreshBootstrap`, async `refreshCsrfToken`, async topic fetches, and async logout
+- `FireAuthCookieKeychainStore.swift`
+  - stores `_t`, `_forum_session`, and `cf_clearance` in Keychain using a host-scoped generic-password entry
+  - preserves `cf_clearance` across explicit logout so Cloudflare challenge state stays aligned with the host shell
 - `FireWebViewLoginCoordinator.swift`
   - reads `WKWebView` cookies, `current-username`, `csrf-token`, and page HTML
   - converts them into `LoginSyncState`
-  - completes login by syncing into Rust and backfilling bootstrap whenever the captured page leaves username/session metadata incomplete
+  - completes login by syncing platform cookies into Keychain and Rust, then backfilling bootstrap whenever the captured page leaves username/session metadata incomplete
   - clears host-side LinuxDo auth cookies after a successful explicit logout while preserving `cf_clearance`
 - `App/FireLoginWebView.swift`
   - presents the login browser as a full-screen flow
@@ -41,7 +44,7 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
 - `App/FireAppViewModel.swift`
   - performs a lightweight network preflight before presenting the login browser
   - moves the first system-level network prompt, when one appears on-device, out of the login page itself
-  - restores the persisted session snapshot, repairs incomplete authenticated session identity on cold start, and keeps the topic browser in sync with login state
+  - restores the redacted session cache, replays Keychain cookies through Rust on cold start, repairs incomplete authenticated session identity, and keeps the topic browser in sync with login state
   - now builds `FireSessionStore` lazily on a detached task so Rust/logging initialization does not block the first SwiftUI render on the main actor
   - tracks paginated topic feed state and publishes Rust-backed bootstrap metadata plus Rust-generated topic-row view models into SwiftUI
   - mirrors authenticated LinuxDo cookies into native `HTTPCookieStorage` so inline media/image requests can reuse the restored session
@@ -54,7 +57,7 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
   - now shows live "typing" presence above the quick-reply bar while keeping the actual presence state and heartbeats in the shared layer
 - `App/FireBackgroundNotificationAlert.swift`
   - schedules iOS `BGAppRefreshTask` runs for `/notification-alert/{userId}` polling
-  - restores the persisted Rust session in the background, performs a one-shot shared MessageBus alert poll, and turns the result into host-owned local notifications
+  - restores the redacted Rust session plus Keychain cookies in the background, performs a one-shot shared MessageBus alert poll, and turns the result into host-owned local notifications
 - `App/FireAppDelegate.swift`
   - registers the background refresh task at launch and keeps `UNUserNotificationCenter` delegate ownership on the host side
 - `App/FireDiagnosticsView.swift`
@@ -79,7 +82,7 @@ Expected integration flow:
 1. Run `xcodegen generate --spec native/ios-app/project.yml`.
 2. Build the app target. Xcode runs `scripts/sync_uniffi_bindings.sh` before compile and refreshes the UniFFI Swift/FFI/staticlib outputs in `Generated/`.
 3. Keep the native files in `Sources/FireAppSession/` in the same Xcode target.
-4. Create a single `FireSessionStore` instance early in app launch and call `restorePersistedSessionIfAvailable()`.
+4. Create a single `FireSessionStore` instance early in app launch and call `restoreColdStartSession()`.
 5. Drive the login `WKWebView` through `FireWebViewLoginCoordinator.completeLogin(from:)`.
 6. After login or restore, render the topic feeds and topic detail through `fetchTopicList` / `fetchTopicDetail`.
 7. On explicit logout, call `FireWebViewLoginCoordinator.logout()` so the Rust snapshot, persisted session file, and host-side LinuxDo auth cookies stay aligned.
@@ -97,7 +100,8 @@ Workspace note:
 - Rust now initializes shared logging under `Application Support/Fire/logs` and keeps xlog cache files under `Application Support/Fire/cache/xlog`.
 - Rust also mirrors readable tracing output into `Application Support/Fire/diagnostics/fire-readable.log`.
 - Rust can resolve relative paths inside that workspace for shared file ownership such as logs, caches, or exports.
-- The current persisted session file remains `Application Support/Fire/session.json`.
+- The current persisted session file remains `Application Support/Fire/session.json`, but iOS now writes it as a redacted cache.
+- iOS keeps `_t`, `_forum_session`, and `cf_clearance` in Keychain and re-injects them into Rust during cold start before any authenticated refresh path runs.
 
 Current UX note:
 

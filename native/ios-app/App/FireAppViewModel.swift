@@ -595,6 +595,10 @@ final class FireAppViewModel: ObservableObject {
         }
     }
 
+    func resetSearch() {
+        clearSearchState(resetQuery: true)
+    }
+
     func setSearchScope(_ scope: FireSearchScope) {
         guard searchScope != scope else {
             return

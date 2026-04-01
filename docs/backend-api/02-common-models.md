@@ -184,6 +184,49 @@
 }
 ```
 
+## TagSearchResult
+
+```json
+{
+  "results": [
+    {
+      "name": "rust",
+      "text": "Rust",
+      "count": 100
+    }
+  ],
+  "required_tag_group": {
+    "name": "platform",
+    "min_count": 1
+  }
+}
+```
+
+## UserMentionResult
+
+```json
+{
+  "users": [
+    {
+      "username": "alice",
+      "name": "Alice",
+      "avatar_template": "/user_avatar/linux.do/alice/{size}/1_2.png",
+      "priority_group": 1
+    }
+  ],
+  "groups": [
+    {
+      "name": "staff",
+      "full_name": "Staff",
+      "flair_url": "/images/flair.png",
+      "flair_bg_color": "FFFFFF",
+      "flair_color": "000000",
+      "user_count": 3
+    }
+  ]
+}
+```
+
 ## NotificationListResponse
 
 ```json

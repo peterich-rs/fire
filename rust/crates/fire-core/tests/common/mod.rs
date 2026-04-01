@@ -155,6 +155,95 @@ pub(crate) fn sample_topic_detail_json() -> String {
     .to_string()
 }
 
+pub(crate) fn sample_search_json() -> String {
+    r#"{
+  "posts": [
+    {
+      "id": 9001,
+      "username": "alice",
+      "avatar_template": "/user_avatar/linux.do/alice/{size}/1_2.png",
+      "created_at": "2026-03-28T00:00:00Z",
+      "like_count": 3,
+      "blurb": "<p>Hello Fire</p>",
+      "post_number": 1,
+      "topic_id": 123,
+      "topic_title_headline": "Fire topic"
+    }
+  ],
+  "topics": [
+    {
+      "id": 123,
+      "title": "Fire topic",
+      "slug": "fire-topic",
+      "category_id": 2,
+      "tags": ["rust", "linuxdo"],
+      "posts_count": 12,
+      "views": 345,
+      "closed": false,
+      "archived": false
+    }
+  ],
+  "users": [
+    {
+      "id": 1,
+      "username": "alice",
+      "name": "Alice",
+      "avatar_template": "/user_avatar/linux.do/alice/{size}/1_2.png"
+    }
+  ],
+  "grouped_search_result": {
+    "term": "fire",
+    "more_posts": true,
+    "more_users": false,
+    "more_categories": false,
+    "more_full_page_results": true,
+    "search_log_id": 42
+  }
+}"#
+    .to_string()
+}
+
+pub(crate) fn sample_tag_search_json() -> String {
+    r#"{
+  "results": [
+    {
+      "name": "rust",
+      "text": "Rust",
+      "count": 100
+    }
+  ],
+  "required_tag_group": {
+    "name": "platform",
+    "min_count": 1
+  }
+}"#
+    .to_string()
+}
+
+pub(crate) fn sample_user_mention_json() -> String {
+    r#"{
+  "users": [
+    {
+      "username": "alice",
+      "name": "Alice",
+      "avatar_template": "/user_avatar/linux.do/alice/{size}/1_2.png",
+      "priority_group": 1
+    }
+  ],
+  "groups": [
+    {
+      "name": "staff",
+      "full_name": "Staff",
+      "flair_url": "/images/flair.png",
+      "flair_bg_color": "FFFFFF",
+      "flair_color": "000000",
+      "user_count": 3
+    }
+  ]
+}"#
+    .to_string()
+}
+
 pub(crate) fn raw_json_response(status: u16, content_type: &str, body: &str) -> String {
     format!(
         "HTTP/1.1 {status} TEST\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",

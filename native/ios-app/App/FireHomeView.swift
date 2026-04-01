@@ -25,6 +25,15 @@ struct FireHomeView: View {
             }
             .listStyle(.plain)
             .navigationTitle(sessionTitle)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    NavigationLink {
+                        FireSearchView(viewModel: viewModel)
+                    } label: {
+                        Image(systemName: "magnifyingglass")
+                    }
+                }
+            }
             .refreshable {
                 await refreshTopics()
             }

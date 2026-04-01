@@ -5,6 +5,7 @@ mod network;
 mod notifications;
 mod persistence;
 mod presence;
+mod search;
 mod session;
 mod topics;
 

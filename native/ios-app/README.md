@@ -51,6 +51,8 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
   - coordinates native reply, like, custom reaction, and topic-timing reporting on top of the shared Rust interaction APIs
   - now owns the foreground MessageBus lifecycle on iOS, including topic-detail reaction/presence subscriptions, shared notification-state sync, and reply-presence heartbeats while the quick composer is focused
   - now treats Rust-owned `CloudflareChallenge` errors as the signal for cookie resync and login fallback
+- `App/FireSearchView.swift`
+  - provides a native search workspace with keyword input, topic/post/user scope switching, paginated result loading, and topic-detail navigation reuse
 - `App/FireTopicDetailView.swift`
   - subscribes the current topic's detail, reaction, and reply-presence channels through the shared Rust MessageBus surface
   - reports visible-post reading timings through a native viewport tracker that flushes into the shared Rust `/topics/timings` API
@@ -110,6 +112,8 @@ Current UX note:
 - The login shell and reading workspace now adapt to both light and dark system appearance while preserving the same hierarchy and contrast model.
 - The network preflight is a best-effort connectivity warm-up. iOS does not provide a generic "internet permission" API for arbitrary web access, so this only shifts the first prompt/request earlier; it does not create a separate permission flow.
 - The current topic browser now runs against the real shared Rust core through generated UniFFI Swift bindings.
+- The app now includes a native search screen for topic/post/user discovery on top of the shared Rust `/search.json` API.
+- The shared search layer also exposes tag search and user mention endpoints for upcoming composer/autocomplete flows.
 - Network-backed UniFFI APIs now surface to Swift as native `async/await` methods instead of a synchronous wrapper.
 - The UniFFI boundary now returns exported host interactions as Swift `throws`; if Rust panics, the boundary logs the panic, throws an `Internal` UniFFI error instead of tripping generated `try!` call sites, and poisons the current `FireCoreHandle` so the host can recreate it.
 - The app now enters through a branded session gate when authenticated topic reads are not ready, instead of exposing raw readiness/debug state as the primary UI.

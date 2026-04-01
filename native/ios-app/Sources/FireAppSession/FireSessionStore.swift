@@ -195,6 +195,18 @@ public actor FireSessionStore {
         try await core.pollNotificationAlertOnce(lastMessageId: lastMessageId)
     }
 
+    public func search(query: SearchQueryState) async throws -> SearchResultState {
+        try await core.search(query: query)
+    }
+
+    public func searchTags(query: TagSearchQueryState) async throws -> TagSearchResultState {
+        try await core.searchTags(query: query)
+    }
+
+    public func searchUsers(query: UserMentionQueryState) async throws -> UserMentionResultState {
+        try await core.searchUsers(query: query)
+    }
+
     public func fetchTopicList(query: TopicListQueryState) async throws -> TopicListState {
         try await core.fetchTopicList(query: query)
     }

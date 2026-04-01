@@ -8,6 +8,7 @@ mod logging;
 mod notification_payloads;
 mod parsing;
 mod presentation;
+mod search_payloads;
 mod session_store;
 mod sync_utils;
 mod topic_payloads;

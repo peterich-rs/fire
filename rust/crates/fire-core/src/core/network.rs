@@ -598,27 +598,6 @@ pub(crate) fn is_cloudflare_challenge_body(body: &str) -> bool {
         || normalized.contains("/cdn-cgi/challenge-platform/")
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn default_api_profile_uses_client_defaults() {
-        assert_eq!(
-            call_options_for_profile(FireCallProfile::DefaultApi),
-            CallOptions::default()
-        );
-    }
-
-    #[test]
-    fn message_bus_profile_only_overrides_call_timeout() {
-        assert_eq!(
-            call_options_for_profile(FireCallProfile::MessageBusPoll),
-            CallOptions::default().call_timeout(MESSAGE_BUS_CALL_TIMEOUT)
-        );
-    }
-}
-
 pub(crate) fn request_origin(base_url: &Url) -> String {
     let mut origin = base_url.clone();
     origin.set_path("");
@@ -652,5 +631,26 @@ fn insert_string_header_if_missing(headers: &mut HeaderMap, name: &'static str, 
     }
     if let Ok(value) = HeaderValue::from_str(value) {
         headers.insert(name, value);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_api_profile_uses_client_defaults() {
+        assert_eq!(
+            call_options_for_profile(FireCallProfile::DefaultApi),
+            CallOptions::default()
+        );
+    }
+
+    #[test]
+    fn message_bus_profile_only_overrides_call_timeout() {
+        assert_eq!(
+            call_options_for_profile(FireCallProfile::MessageBusPoll),
+            CallOptions::default().call_timeout(MESSAGE_BUS_CALL_TIMEOUT)
+        );
     }
 }

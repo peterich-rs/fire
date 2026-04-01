@@ -4,13 +4,25 @@ use http::{
     header::{HeaderMap, HeaderValue, ACCEPT_LANGUAGE, ORIGIN, REFERER, USER_AGENT},
     Method, Request, Response, StatusCode,
 };
-use openwire::{BoxFuture, Exchange, Interceptor, Next, RequestBody, ResponseBody, WireError};
+use openwire::{
+    BoxFuture, Call, CallOptions, Client, Exchange, Interceptor, Next, RequestBody, ResponseBody,
+    WireError,
+};
 use serde::de::DeserializeOwned;
 use tracing::{debug, info, warn};
 use url::Url;
 
-use super::FireCore;
-use crate::{error::FireCoreError, sync_utils::read_rwlock};
+use super::{
+    FireCore, CLIENT_MAX_CONNECTIONS_PER_HOST, CLIENT_POOL_MAX_IDLE_PER_HOST,
+    MESSAGE_BUS_CALL_TIMEOUT, MESSAGE_BUS_HTTP2_KEEP_ALIVE_INTERVAL, NETWORK_CALL_TIMEOUT,
+    NETWORK_CONNECT_TIMEOUT,
+};
+use crate::{
+    cookies::FireSessionCookieJar,
+    diagnostics::{FireDiagnosticsStore, FireNetworkTraceEventListenerFactory},
+    error::FireCoreError,
+    sync_utils::read_rwlock,
+};
 
 const FIRE_USER_AGENT: &str = "Fire/0.1";
 const FIRE_ACCEPT_LANGUAGE: &str = "zh-CN,zh;q=0.9,en;q=0.8";
@@ -21,6 +33,18 @@ pub(crate) enum FireRequestProfile {
     HomeHtml,
     JsonApi,
     MessageBusPoll,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum FireCallProfile {
+    #[default]
+    DefaultApi,
+    MessageBusPoll,
+}
+
+#[derive(Clone)]
+pub(crate) struct FireNetworkLayer {
+    client: Client,
 }
 
 #[derive(Clone)]
@@ -121,6 +145,82 @@ impl Interceptor for FireCommonHeaderInterceptor {
 pub(crate) struct TracedRequest {
     pub(crate) trace_id: u64,
     pub(crate) request: Request<RequestBody>,
+}
+
+impl FireNetworkLayer {
+    pub(crate) fn new(
+        base_url: &Url,
+        session: Arc<RwLock<fire_models::SessionSnapshot>>,
+        diagnostics: Arc<FireDiagnosticsStore>,
+        cookie_jar: Arc<FireSessionCookieJar>,
+    ) -> Result<Self, FireCoreError> {
+        let builder = Client::builder()
+            .cookie_jar(cookie_jar)
+            .application_interceptor(FireCommonHeaderInterceptor::new(base_url.clone(), session))
+            .connect_timeout(NETWORK_CONNECT_TIMEOUT)
+            .call_timeout(NETWORK_CALL_TIMEOUT)
+            .max_connections_per_host(CLIENT_MAX_CONNECTIONS_PER_HOST)
+            .pool_max_idle_per_host(CLIENT_POOL_MAX_IDLE_PER_HOST)
+            .http2_keep_alive_interval(MESSAGE_BUS_HTTP2_KEEP_ALIVE_INTERVAL)
+            .http2_keep_alive_while_idle(true)
+            .event_listener_factory(FireNetworkTraceEventListenerFactory::new(diagnostics));
+        #[cfg(debug_assertions)]
+        let builder = builder.use_system_proxy(true);
+        let client = builder
+            .build()
+            .map_err(|source| FireCoreError::ClientBuild { source })?;
+        Ok(Self { client })
+    }
+
+    pub(crate) fn client(&self) -> Client {
+        self.client.clone()
+    }
+
+    pub(crate) async fn execute_traced(
+        &self,
+        traced: TracedRequest,
+        profile: FireCallProfile,
+    ) -> Result<(u64, Response<ResponseBody>), FireCoreError> {
+        debug!(
+            trace_id = traced.trace_id,
+            method = %traced.request.method(),
+            uri = %traced.request.uri(),
+            profile = ?profile,
+            "executing HTTP request"
+        );
+        let response = apply_call_profile(self.client.new_call(traced.request), profile)
+            .execute()
+            .await
+            .map_err(|source| {
+                warn!(
+                    trace_id = traced.trace_id,
+                    error = %source,
+                    profile = ?profile,
+                    "HTTP request failed"
+                );
+                FireCoreError::Network { source }
+            })?;
+        debug!(
+            trace_id = traced.trace_id,
+            status = response.status().as_u16(),
+            profile = ?profile,
+            "HTTP response received"
+        );
+        Ok((traced.trace_id, response))
+    }
+}
+
+fn apply_call_profile(call: Call, profile: FireCallProfile) -> Call {
+    call.options(call_options_for_profile(profile))
+}
+
+fn call_options_for_profile(profile: FireCallProfile) -> CallOptions {
+    match profile {
+        FireCallProfile::DefaultApi => CallOptions::default(),
+        FireCallProfile::MessageBusPoll => {
+            CallOptions::default().call_timeout(MESSAGE_BUS_CALL_TIMEOUT)
+        }
+    }
 }
 
 impl FireCore {
@@ -305,30 +405,9 @@ impl FireCore {
         &self,
         traced: TracedRequest,
     ) -> Result<(u64, Response<ResponseBody>), FireCoreError> {
-        debug!(
-            trace_id = traced.trace_id,
-            method = %traced.request.method(),
-            uri = %traced.request.uri(),
-            "executing HTTP request"
-        );
-        let response = self
-            .client
-            .execute(traced.request)
+        self.network
+            .execute_traced(traced, FireCallProfile::DefaultApi)
             .await
-            .map_err(|source| {
-                warn!(
-                    trace_id = traced.trace_id,
-                    error = %source,
-                    "HTTP request failed"
-                );
-                FireCoreError::Network { source }
-            })?;
-        debug!(
-            trace_id = traced.trace_id,
-            status = response.status().as_u16(),
-            "HTTP response received"
-        );
-        Ok((traced.trace_id, response))
     }
 
     pub(crate) async fn read_response_text(
@@ -552,5 +631,26 @@ fn insert_string_header_if_missing(headers: &mut HeaderMap, name: &'static str, 
     }
     if let Ok(value) = HeaderValue::from_str(value) {
         headers.insert(name, value);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_api_profile_uses_client_defaults() {
+        assert_eq!(
+            call_options_for_profile(FireCallProfile::DefaultApi),
+            CallOptions::default()
+        );
+    }
+
+    #[test]
+    fn message_bus_profile_only_overrides_call_timeout() {
+        assert_eq!(
+            call_options_for_profile(FireCallProfile::MessageBusPoll),
+            CallOptions::default().call_timeout(MESSAGE_BUS_CALL_TIMEOUT)
+        );
     }
 }

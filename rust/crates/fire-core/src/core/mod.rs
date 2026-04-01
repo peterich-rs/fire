@@ -23,7 +23,7 @@ use crate::{
     cookies::FireSessionCookieJar,
     diagnostics::{
         list_log_files, read_log_file, FireDiagnosticsStore, FireLogFileDetail, FireLogFileSummary,
-        FireNetworkTraceEventListenerFactory, NetworkTraceDetail, NetworkTraceSummary,
+        NetworkTraceDetail, NetworkTraceSummary,
     },
     error::FireCoreError,
     logging::logger_runtime_for_workspace,
@@ -43,8 +43,7 @@ const MESSAGE_BUS_HTTP2_KEEP_ALIVE_INTERVAL: Duration = Duration::from_secs(30);
 pub struct FireCore {
     base_url: Url,
     workspace_path: Option<PathBuf>,
-    client: Client,
-    message_bus_client: Client,
+    network: network::FireNetworkLayer,
     diagnostics: Arc<FireDiagnosticsStore>,
     session: Arc<RwLock<SessionSnapshot>>,
     message_bus: Arc<Mutex<messagebus::FireMessageBusRuntime>>,
@@ -75,57 +74,17 @@ impl FireCore {
         let session = Arc::new(RwLock::new(session));
         let cookie_jar = Arc::new(FireSessionCookieJar::new(base_url.clone(), session.clone()));
         let diagnostics = Arc::new(FireDiagnosticsStore::new());
-        let client_builder = {
-            let builder = Client::builder()
-                .cookie_jar(Arc::clone(&cookie_jar))
-                .application_interceptor(network::FireCommonHeaderInterceptor::new(
-                    base_url.clone(),
-                    Arc::clone(&session),
-                ))
-                .connect_timeout(NETWORK_CONNECT_TIMEOUT)
-                .call_timeout(NETWORK_CALL_TIMEOUT)
-                .max_connections_per_host(CLIENT_MAX_CONNECTIONS_PER_HOST)
-                .pool_max_idle_per_host(CLIENT_POOL_MAX_IDLE_PER_HOST)
-                .event_listener_factory(FireNetworkTraceEventListenerFactory::new(Arc::clone(
-                    &diagnostics,
-                )));
-            #[cfg(debug_assertions)]
-            let builder = builder.use_system_proxy(true);
-            builder
-        };
-        let client = client_builder
-            .build()
-            .map_err(|source| FireCoreError::ClientBuild { source })?;
-
-        let message_bus_client_builder = {
-            let builder = Client::builder()
-                .cookie_jar(cookie_jar)
-                .application_interceptor(network::FireCommonHeaderInterceptor::new(
-                    base_url.clone(),
-                    Arc::clone(&session),
-                ))
-                .connect_timeout(NETWORK_CONNECT_TIMEOUT)
-                .call_timeout(MESSAGE_BUS_CALL_TIMEOUT)
-                .max_connections_per_host(CLIENT_MAX_CONNECTIONS_PER_HOST)
-                .pool_max_idle_per_host(CLIENT_POOL_MAX_IDLE_PER_HOST)
-                .http2_keep_alive_interval(MESSAGE_BUS_HTTP2_KEEP_ALIVE_INTERVAL)
-                .http2_keep_alive_while_idle(true)
-                .event_listener_factory(FireNetworkTraceEventListenerFactory::new(Arc::clone(
-                    &diagnostics,
-                )));
-            #[cfg(debug_assertions)]
-            let builder = builder.use_system_proxy(true);
-            builder
-        };
-        let message_bus_client = message_bus_client_builder
-            .build()
-            .map_err(|source| FireCoreError::ClientBuild { source })?;
+        let network = network::FireNetworkLayer::new(
+            &base_url,
+            Arc::clone(&session),
+            Arc::clone(&diagnostics),
+            cookie_jar,
+        )?;
 
         Ok(Self {
             base_url,
             workspace_path,
-            client,
-            message_bus_client,
+            network,
             diagnostics,
             session,
             message_bus: Arc::new(Mutex::new(messagebus::FireMessageBusRuntime::default())),
@@ -166,7 +125,7 @@ impl FireCore {
     }
 
     pub fn shared_client(&self) -> Client {
-        self.client.clone()
+        self.network.client()
     }
 
     pub fn list_log_files(&self) -> Result<Vec<FireLogFileSummary>, FireCoreError> {

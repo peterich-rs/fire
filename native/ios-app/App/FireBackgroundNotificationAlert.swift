@@ -60,17 +60,7 @@ actor FireBackgroundNotificationAlertWorker {
     func performRefresh() async -> Bool {
         do {
             let sessionStore = try FireSessionStore()
-            let initialSession = if let restored = try await sessionStore.restorePersistedSessionIfAvailable() {
-                restored
-            } else {
-                try await sessionStore.snapshot()
-            }
-            let session: SessionState
-            if initialSession.readiness.canReadAuthenticatedApi && !initialSession.readiness.hasCurrentUser {
-                session = try await sessionStore.refreshBootstrapIfNeeded()
-            } else {
-                session = initialSession
-            }
+            let session = try await sessionStore.restoreColdStartSession()
 
             guard session.readiness.canOpenMessageBus,
                   let userId = session.bootstrap.currentUserId else {

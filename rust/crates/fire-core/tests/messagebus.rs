@@ -4,7 +4,10 @@ use std::time::Duration;
 
 use common::{raw_json_response, TestServer};
 use fire_core::{FireCore, FireCoreConfig};
-use fire_models::{BootstrapArtifacts, CookieSnapshot, MessageBusClientMode, MessageBusEventKind};
+use fire_models::{
+    BootstrapArtifacts, CookieSnapshot, MessageBusClientMode, MessageBusEventKind,
+    MessageBusSubscription, MessageBusSubscriptionScope,
+};
 use tokio::{sync::mpsc::unbounded_channel, time::timeout};
 
 #[tokio::test]
@@ -136,6 +139,54 @@ async fn foreground_client_id_is_reused_and_ios_background_gets_temporary_id() {
     assert_eq!(foreground_client_id, restarted_foreground_client_id);
     assert!(background_client_id.starts_with("ios_bg_"));
     assert_ne!(foreground_client_id, background_client_id);
+}
+
+#[tokio::test]
+async fn start_message_bus_without_subscriptions_waits_for_later_subscribe() {
+    let server = TestServer::spawn(vec![
+        raw_json_response(
+            200,
+            "application/json",
+            r#"[{"channel":"/topic/123","message_id":9,"data":{"type":"append","reload_topic":true}}]"#,
+        ),
+        raw_json_response(200, "application/json", "[]"),
+    ])
+    .await
+    .expect("server");
+    let core = authenticated_core(&server.base_url());
+
+    let (sender, mut receiver) = unbounded_channel();
+    let client_id = core
+        .start_message_bus(MessageBusClientMode::Foreground, sender)
+        .await
+        .expect("start idle message bus");
+
+    core.subscribe_message_bus_channel(MessageBusSubscription {
+        channel: "/topic/123".into(),
+        last_message_id: Some(-1),
+        scope: MessageBusSubscriptionScope::Transient,
+    })
+    .expect("subscribe topic detail");
+
+    let event = timeout(Duration::from_secs(2), receiver.recv())
+        .await
+        .expect("topic detail event timeout")
+        .expect("topic detail event missing");
+
+    assert_eq!(event.kind, MessageBusEventKind::TopicDetail);
+    assert_eq!(event.topic_id, Some(123));
+    assert_eq!(event.message_id, 9);
+
+    core.stop_message_bus(true);
+
+    let requests = server.shutdown_with_requests().await;
+    assert!(
+        !requests.is_empty(),
+        "expected a poll request after subscribe"
+    );
+    let first = requests[0].to_ascii_lowercase();
+    assert!(first.contains(&format!("post /message-bus/{client_id}/poll")));
+    assert!(first.contains("%2ftopic%2f123=-1"));
 }
 
 #[tokio::test]

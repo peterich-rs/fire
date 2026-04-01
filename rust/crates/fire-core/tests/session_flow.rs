@@ -3,6 +3,7 @@ mod common;
 use common::{sample_home_html, temp_session_file, temp_workspace_dir};
 use fire_core::{FireCore, FireCoreConfig, FireCoreError};
 use fire_models::{LoginPhase, LoginSyncInput, PlatformCookie};
+use serde_json::Value;
 
 #[test]
 fn apply_home_html_extracts_bootstrap_and_readiness() {
@@ -151,6 +152,51 @@ fn session_can_roundtrip_through_json_export_and_restore() {
 }
 
 #[test]
+fn redacted_session_export_strips_auth_and_csrf_tokens() {
+    let core = FireCore::new(FireCoreConfig::default()).expect("core");
+    let _ = core.sync_login_context(LoginSyncInput {
+        username: Some("alice".into()),
+        home_html: Some(sample_home_html()),
+        csrf_token: Some("csrf-token".into()),
+        current_url: Some("https://linux.do/".into()),
+        cookies: vec![
+            PlatformCookie {
+                name: "_t".into(),
+                value: "token".into(),
+                domain: None,
+                path: None,
+            },
+            PlatformCookie {
+                name: "_forum_session".into(),
+                value: "forum".into(),
+                domain: None,
+                path: None,
+            },
+            PlatformCookie {
+                name: "cf_clearance".into(),
+                value: "clearance".into(),
+                domain: None,
+                path: None,
+            },
+        ],
+    });
+
+    let json = core.export_redacted_session_json().expect("export");
+    let value: Value = serde_json::from_str(&json).expect("json");
+
+    assert_eq!(value["version"], 2);
+    assert_eq!(value["auth_cookies_redacted"], true);
+    assert_eq!(value["snapshot"]["cookies"]["t_token"], Value::Null);
+    assert_eq!(value["snapshot"]["cookies"]["forum_session"], Value::Null);
+    assert_eq!(value["snapshot"]["cookies"]["cf_clearance"], Value::Null);
+    assert_eq!(value["snapshot"]["cookies"]["csrf_token"], Value::Null);
+    assert_eq!(
+        value["snapshot"]["bootstrap"]["current_username"],
+        Value::String("alice".into())
+    );
+}
+
+#[test]
 fn restore_accepts_legacy_unversioned_ios_stub_session_json() {
     let core = FireCore::new(FireCoreConfig::default()).expect("core");
     let json = r#"
@@ -255,6 +301,75 @@ fn restore_drops_incomplete_login_state_but_keeps_cf_clearance() {
 }
 
 #[test]
+fn restore_preserves_bootstrap_when_auth_cookies_were_redacted() {
+    let core = FireCore::new(FireCoreConfig::default()).expect("core");
+    let json = r#"
+{
+  "version": 2,
+  "saved_at_unix_ms": 1,
+  "auth_cookies_redacted": true,
+  "snapshot": {
+    "cookies": {
+      "t_token": null,
+      "forum_session": null,
+      "cf_clearance": null,
+      "csrf_token": null
+    },
+    "bootstrap": {
+      "base_url": "https://linux.do/",
+      "discourse_base_uri": "/",
+      "shared_session_key": "shared",
+      "current_username": "alice",
+      "current_user_id": 1,
+      "notification_channel_position": 42,
+      "long_polling_base_url": "https://linux.do",
+      "turnstile_sitekey": "sitekey",
+      "topic_tracking_state_meta": "{\"message_bus_last_id\":42}",
+      "preloaded_json": "{\"currentUser\":{\"id\":1,\"username\":\"alice\",\"notification_channel_position\":42}}",
+      "has_preloaded_data": true
+    }
+  }
+}
+"#;
+
+    let restored = core
+        .restore_session_json(json.to_string())
+        .expect("restore");
+
+    assert_eq!(restored.cookies.t_token, None);
+    assert_eq!(
+        restored.bootstrap.current_username.as_deref(),
+        Some("alice")
+    );
+    assert_eq!(restored.bootstrap.current_user_id, Some(1));
+    assert_eq!(
+        restored.bootstrap.shared_session_key.as_deref(),
+        Some("shared")
+    );
+    assert!(restored.bootstrap.has_preloaded_data);
+    assert!(!restored.readiness().can_read_authenticated_api);
+
+    let restored = core.apply_platform_cookies(vec![
+        PlatformCookie {
+            name: "_t".into(),
+            value: "token".into(),
+            domain: None,
+            path: None,
+        },
+        PlatformCookie {
+            name: "_forum_session".into(),
+            value: "forum".into(),
+            domain: None,
+            path: None,
+        },
+    ]);
+
+    assert!(restored.readiness().can_read_authenticated_api);
+    assert!(restored.readiness().can_open_message_bus);
+    assert_eq!(restored.login_phase(), LoginPhase::BootstrapCaptured);
+}
+
+#[test]
 fn session_can_roundtrip_through_file_persistence() {
     let core = FireCore::new(FireCoreConfig::default()).expect("core");
     let expected = core.sync_login_context(LoginSyncInput {
@@ -292,6 +407,55 @@ fn session_can_roundtrip_through_file_persistence() {
     restored_core.clear_session_path(&path).expect("clear");
 
     assert_eq!(restored, expected);
+    assert!(!path.exists());
+}
+
+#[test]
+fn redacted_session_can_roundtrip_through_file_persistence() {
+    let core = FireCore::new(FireCoreConfig::default()).expect("core");
+    let _ = core.sync_login_context(LoginSyncInput {
+        username: Some("alice".into()),
+        home_html: Some(sample_home_html()),
+        csrf_token: Some("csrf-token".into()),
+        current_url: Some("https://linux.do/".into()),
+        cookies: vec![
+            PlatformCookie {
+                name: "_t".into(),
+                value: "token".into(),
+                domain: None,
+                path: None,
+            },
+            PlatformCookie {
+                name: "_forum_session".into(),
+                value: "forum".into(),
+                domain: None,
+                path: None,
+            },
+            PlatformCookie {
+                name: "cf_clearance".into(),
+                value: "clearance".into(),
+                domain: None,
+                path: None,
+            },
+        ],
+    });
+
+    let path = temp_session_file("session-redacted-roundtrip.json");
+    core.save_redacted_session_to_path(&path).expect("save");
+
+    let restored_core = FireCore::new(FireCoreConfig::default()).expect("core");
+    let restored = restored_core.load_session_from_path(&path).expect("load");
+    restored_core.clear_session_path(&path).expect("clear");
+
+    assert_eq!(restored.cookies.t_token, None);
+    assert_eq!(restored.cookies.forum_session, None);
+    assert_eq!(restored.cookies.cf_clearance, None);
+    assert_eq!(restored.cookies.csrf_token, None);
+    assert_eq!(
+        restored.bootstrap.current_username.as_deref(),
+        Some("alice")
+    );
+    assert!(restored.bootstrap.has_preloaded_data);
     assert!(!path.exists());
 }
 

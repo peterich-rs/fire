@@ -296,8 +296,8 @@
 
 ```json
 {
-  "users": [MentionUser],
-  "groups": [MentionGroup]
+  "users": [UserMentionUser],
+  "groups": [UserMentionGroup]
 }
 ```
 

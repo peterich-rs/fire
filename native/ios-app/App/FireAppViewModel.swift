@@ -46,6 +46,33 @@ private enum FireTopicInteractionError: LocalizedError {
     }
 }
 
+enum FireSearchScope: String, CaseIterable, Identifiable {
+    case all
+    case topic
+    case post
+    case user
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .all: "全部"
+        case .topic: "话题"
+        case .post: "帖子"
+        case .user: "用户"
+        }
+    }
+
+    var typeFilter: SearchTypeFilterState? {
+        switch self {
+        case .all: nil
+        case .topic: .topic
+        case .post: .post
+        case .user: .user
+        }
+    }
+}
+
 @MainActor
 final class FireAppViewModel: ObservableObject {
     private static let messageBusErrorPrefix = "实时同步连接失败："
@@ -78,6 +105,16 @@ final class FireAppViewModel: ObservableObject {
     @Published private(set) var recentNotifications: [NotificationItemState] = []
     @Published private(set) var isLoadingNotifications = false
 
+    // MARK: - Search
+
+    @Published var searchQuery = ""
+    @Published private(set) var searchScope: FireSearchScope = .all
+    @Published private(set) var searchResult: SearchResultState?
+    @Published private(set) var searchCurrentPage: UInt32 = 1
+    @Published private(set) var isSearching = false
+    @Published private(set) var isAppendingSearch = false
+    @Published private(set) var searchErrorMessage: String?
+
     // MARK: - General UI state
 
     @Published var errorMessage: String?
@@ -101,6 +138,8 @@ final class FireAppViewModel: ObservableObject {
     private var pendingTopicDetailRefreshTasks: [UInt64: Task<Void, Never>] = [:]
     private var pendingNotificationStateRefreshTask: Task<Void, Never>?
     private var topicPresenceHeartbeatTasks: [UInt64: Task<Void, Never>] = [:]
+    private var searchTask: Task<Void, Never>?
+    private var latestSearchRequestID: UInt64 = 0
 
     init() {}
 
@@ -109,17 +148,9 @@ final class FireAppViewModel: ObservableObject {
     func loadInitialState() {
         Task {
             do {
-                let loginCoordinator = try await loginCoordinatorValue()
                 let sessionStore = try await sessionStoreValue()
                 errorMessage = nil
-                let initialSession: SessionState
-                if let restored = try await loginCoordinator.restorePersistedSessionIfAvailable() {
-                    initialSession = restored
-                } else {
-                    initialSession = try await sessionStore.snapshot()
-                }
-                await applySession(initialSession)
-                await applySession(try await sessionStore.refreshBootstrapIfNeeded())
+                await applySession(try await sessionStore.restoreColdStartSession())
                 await refreshTopicsIfPossible(force: true)
                 await loadRecentNotifications(force: false)
             } catch {
@@ -208,6 +239,7 @@ final class FireAppViewModel: ObservableObject {
                 selectedTopicKind = .latest
                 clearTopicState()
                 clearNotificationState()
+                clearSearchState(resetQuery: true)
             } catch {
                 errorMessage = error.localizedDescription
             }
@@ -292,13 +324,15 @@ final class FireAppViewModel: ObservableObject {
     // MARK: - Topic detail MessageBus subscription
 
     func maintainTopicDetailSubscription(topicId: UInt64) async {
-        guard isMessageBusActive else { return }
+        guard session.readiness.canOpenMessageBus else { return }
         guard let store = sessionStore else { return }
 
         do {
             try await store.subscribeTopicDetailChannel(topicId: topicId)
             try await store.subscribeTopicReactionChannel(topicId: topicId)
         } catch {
+            try? await store.unsubscribeTopicReactionChannel(topicId: topicId)
+            try? await store.unsubscribeTopicDetailChannel(topicId: topicId)
             return
         }
 
@@ -317,6 +351,10 @@ final class FireAppViewModel: ObservableObject {
                 try? await store.unsubscribeTopicReactionChannel(topicId: topicId)
                 try? await store.unsubscribeTopicDetailChannel(topicId: topicId)
             }
+        }
+
+        if !isMessageBusActive {
+            await startMessageBus()
         }
 
         while !Task.isCancelled {
@@ -538,6 +576,152 @@ final class FireAppViewModel: ObservableObject {
                 }
             } catch {}
         }
+    }
+
+    // MARK: - Search
+
+    var canLoadMoreSearchResults: Bool {
+        guard let searchResult else { return false }
+        switch searchScope {
+        case .all:
+            return searchResult.groupedResult.moreFullPageResults
+                || searchResult.groupedResult.morePosts
+                || searchResult.groupedResult.moreUsers
+        case .topic, .post:
+            return searchResult.groupedResult.moreFullPageResults
+                || searchResult.groupedResult.morePosts
+        case .user:
+            return searchResult.groupedResult.moreUsers
+        }
+    }
+
+    func resetSearch() {
+        clearSearchState(resetQuery: true)
+    }
+
+    func setSearchScope(_ scope: FireSearchScope) {
+        guard searchScope != scope else {
+            return
+        }
+        searchScope = scope
+        guard searchResult != nil else {
+            return
+        }
+        submitSearch(reset: true)
+    }
+
+    func submitSearch(reset: Bool) {
+        let trimmedQuery = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedQuery.isEmpty else {
+            clearSearchState(resetQuery: false)
+            return
+        }
+        if !reset && (isSearching || isAppendingSearch) {
+            return
+        }
+
+        searchTask?.cancel()
+        let nextPage = reset ? UInt32(1) : searchCurrentPage + 1
+        let requestID = latestSearchRequestID &+ 1
+        latestSearchRequestID = requestID
+        let scope = searchScope
+
+        if reset {
+            isSearching = true
+            isAppendingSearch = false
+        } else {
+            isAppendingSearch = true
+        }
+
+        searchTask = Task { [weak self] in
+            guard let self else { return }
+
+            do {
+                let response = try await self.search(
+                    query: trimmedQuery,
+                    typeFilter: scope.typeFilter,
+                    page: nextPage
+                )
+                guard !Task.isCancelled, requestID == self.latestSearchRequestID else {
+                    return
+                }
+
+                self.searchErrorMessage = nil
+                self.searchCurrentPage = nextPage
+                self.searchResult = reset
+                    ? response
+                    : self.mergeSearchResult(existing: self.searchResult, incoming: response)
+            } catch is CancellationError {
+                return
+            } catch {
+                guard !Task.isCancelled, requestID == self.latestSearchRequestID else {
+                    return
+                }
+                self.searchErrorMessage = error.localizedDescription
+            }
+
+            guard requestID == self.latestSearchRequestID else {
+                return
+            }
+            self.isSearching = false
+            self.isAppendingSearch = false
+            self.searchTask = nil
+        }
+    }
+
+    func search(
+        query: String,
+        typeFilter: SearchTypeFilterState?,
+        page: UInt32? = nil
+    ) async throws -> SearchResultState {
+        let sessionStore = try await sessionStoreValue()
+        return try await sessionStore.search(
+            query: SearchQueryState(
+                q: query,
+                page: page,
+                typeFilter: typeFilter
+            )
+        )
+    }
+
+    // Reserved for upcoming composer tag autocomplete surfaces.
+    func searchTags(
+        query: String?,
+        filterForInput: Bool = false,
+        limit: UInt32? = nil,
+        categoryID: UInt64? = nil,
+        selectedTags: [String] = []
+    ) async throws -> TagSearchResultState {
+        let sessionStore = try await sessionStoreValue()
+        return try await sessionStore.searchTags(
+            query: TagSearchQueryState(
+                q: query,
+                filterForInput: filterForInput,
+                limit: limit,
+                categoryId: categoryID,
+                selectedTags: selectedTags
+            )
+        )
+    }
+
+    // Reserved for upcoming composer @mention autocomplete surfaces.
+    func searchUsers(
+        term: String,
+        includeGroups: Bool = true,
+        limit: UInt32 = 6,
+        topicID: UInt64? = nil,
+        categoryID: UInt64? = nil
+    ) async throws -> UserMentionResultState {
+        let sessionStore = try await sessionStoreValue()
+        return try await sessionStore.searchUsers(
+            query: UserMentionQueryState(
+                term: term,
+                includeGroups: includeGroups,
+                limit: limit,
+                topicId: topicID,
+                categoryId: categoryID
+            )
+        )
     }
 
     // MARK: - Diagnostics
@@ -784,7 +968,7 @@ final class FireAppViewModel: ObservableObject {
             )
             let mergedTopicRows = reset
                 ? response.rows
-                : mergeTopicRows(existing: topicRows, incoming: response.rows)
+                : mergeItemsByID(topicRows, response.rows, keyPath: \.topic.id)
             let visibleTopicIDs = Set(mergedTopicRows.map(\.topic.id))
             guard requestedKind == selectedTopicKind else {
                 return
@@ -819,6 +1003,21 @@ final class FireAppViewModel: ObservableObject {
     private func clearNotificationState() {
         notificationUnreadCount = 0
         recentNotifications = []
+    }
+
+    private func clearSearchState(resetQuery: Bool) {
+        searchTask?.cancel()
+        searchTask = nil
+        latestSearchRequestID = latestSearchRequestID &+ 1
+        if resetQuery {
+            searchQuery = ""
+        }
+        searchResult = nil
+        searchCurrentPage = 1
+        isSearching = false
+        isAppendingSearch = false
+        searchErrorMessage = nil
+        searchScope = .all
     }
 
     private func applyTopicPresenceState(_ state: TopicPresenceState) {
@@ -958,18 +1157,36 @@ final class FireAppViewModel: ObservableObject {
         topicDetails[topicId] = detail
     }
 
-    private func mergeTopicRows(
-        existing: [FireTopicRowPresentation],
-        incoming: [FireTopicRowPresentation]
-    ) -> [FireTopicRowPresentation] {
-        var merged = Dictionary(uniqueKeysWithValues: existing.map { ($0.topic.id, $0) })
-        var orderedIDs = existing.map { $0.topic.id }
+    private func mergeSearchResult(
+        existing: SearchResultState?,
+        incoming: SearchResultState
+    ) -> SearchResultState {
+        guard let existing else {
+            return incoming
+        }
 
-        for row in incoming {
-            if merged[row.topic.id] == nil {
-                orderedIDs.append(row.topic.id)
+        return SearchResultState(
+            posts: mergeItemsByID(existing.posts, incoming.posts, keyPath: \.id),
+            topics: mergeItemsByID(existing.topics, incoming.topics, keyPath: \.id),
+            users: mergeItemsByID(existing.users, incoming.users, keyPath: \.id),
+            groupedResult: incoming.groupedResult
+        )
+    }
+
+    private func mergeItemsByID<Item>(
+        _ existing: [Item],
+        _ incoming: [Item],
+        keyPath: KeyPath<Item, UInt64>
+    ) -> [Item] {
+        var merged = Dictionary(uniqueKeysWithValues: existing.map { ($0[keyPath: keyPath], $0) })
+        var orderedIDs = existing.map { $0[keyPath: keyPath] }
+
+        for item in incoming {
+            let id = item[keyPath: keyPath]
+            if merged[id] == nil {
+                orderedIDs.append(id)
             }
-            merged[row.topic.id] = row
+            merged[id] = item
         }
 
         return orderedIDs.compactMap { merged[$0] }

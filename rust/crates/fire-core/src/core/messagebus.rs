@@ -142,9 +142,6 @@ impl FireCore {
             .lock()
             .expect("message bus runtime lock poisoned");
         ensure_bootstrap_subscriptions(&snapshot.bootstrap, &mut runtime);
-        if runtime.subscriptions.is_empty() {
-            return Err(FireCoreError::MissingMessageBusSubscription);
-        }
 
         stop_poll_task_locked(&mut runtime);
         runtime.active_mode = Some(mode);
@@ -153,6 +150,17 @@ impl FireCore {
 
         let client_id = client_id_for_mode(&mut runtime, mode);
         runtime.active_client_id = Some(client_id.clone());
+
+        if runtime.subscriptions.is_empty() {
+            info!(
+                client_id = %client_id,
+                mode = ?mode,
+                subscriptions = 0,
+                "message bus started idle without subscriptions"
+            );
+            return Ok(client_id);
+        }
+
         runtime.poll_task = Some(spawn_poll_task(self, &runtime, client_id.clone())?);
 
         info!(

@@ -1,4 +1,19 @@
+use std::io;
+
 use serde_json::Value;
+
+pub(crate) fn object_field<'a>(value: &'a Value, key: &str) -> Option<&'a Value> {
+    value.as_object()?.get(key)
+}
+
+pub(crate) fn scalar_string(value: Option<&Value>) -> Option<String> {
+    match value? {
+        Value::String(value) => normalized_scalar(value),
+        Value::Number(value) => normalized_scalar(&value.to_string()),
+        Value::Bool(value) => Some(value.to_string()),
+        _ => None,
+    }
+}
 
 pub(crate) fn integer_u64(value: Option<&Value>) -> Option<u64> {
     match value? {
@@ -45,5 +60,18 @@ pub(crate) fn boolean(value: Option<&Value>) -> bool {
         Some(Value::Number(value)) => value.as_i64().is_some_and(|value| value != 0),
         Some(Value::String(value)) => matches!(value.trim(), "true" | "1"),
         _ => false,
+    }
+}
+
+pub(crate) fn invalid_json(details: impl Into<String>) -> serde_json::Error {
+    serde_json::Error::io(io::Error::new(io::ErrorKind::InvalidData, details.into()))
+}
+
+fn normalized_scalar(value: &str) -> Option<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
     }
 }

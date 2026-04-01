@@ -14,7 +14,7 @@ use fire_models::{
 };
 use http::{Method, Request, Response};
 use http_body_util::BodyExt;
-use openwire::{Client, RequestBody, ResponseBody};
+use openwire::{RequestBody, ResponseBody};
 use serde::Deserialize;
 use serde_json::Value;
 use tokio::{runtime::Handle, sync::mpsc::UnboundedSender, task::JoinHandle, time::sleep};
@@ -22,7 +22,10 @@ use tracing::{debug, info, warn};
 use url::{form_urlencoded::Serializer, Url};
 
 use super::{
-    network::{classify_http_status_error, header_value, request_origin, FireRequestProfile},
+    network::{
+        classify_http_status_error, header_value, request_origin, FireCallProfile,
+        FireNetworkLayer, FireRequestProfile, TracedRequest,
+    },
     notifications::{merge_notification_event_data, FireNotificationRuntime},
     presence::{merge_topic_presence_event_data, FireTopicPresenceRuntime},
     FireCore,
@@ -60,7 +63,7 @@ struct RuntimeSubscription {
 #[derive(Clone)]
 struct MessageBusPollContext {
     base_url: Url,
-    client: Client,
+    network: FireNetworkLayer,
     diagnostics: Arc<FireDiagnosticsStore>,
     session: Arc<RwLock<SessionSnapshot>>,
     runtime: Arc<Mutex<FireMessageBusRuntime>>,
@@ -197,7 +200,7 @@ impl FireCore {
             .ok_or(FireCoreError::MissingCurrentUserId)?;
         let channel = format!("/notification-alert/{notification_user_id}");
         let client_id = generate_ios_background_client_id();
-        let (trace_id, request) = build_message_bus_poll_request_for_snapshot(
+        let traced = build_message_bus_poll_request_for_snapshot(
             &self.diagnostics,
             &self.base_url,
             &snapshot,
@@ -205,20 +208,16 @@ impl FireCore {
             &[(channel.clone(), last_message_id)],
         )?;
         debug!(
-            trace_id,
+            trace_id = traced.trace_id,
             client_id = %client_id,
             channel = %channel,
             last_message_id,
             "executing background notification-alert poll request"
         );
-        let response = self
-            .message_bus_client
-            .execute(request)
-            .await
-            .map_err(|source| {
-                self.diagnostics.record_call_failed(trace_id, &source);
-                FireCoreError::Network { source }
-            })?;
+        let (trace_id, response) = self
+            .network
+            .execute_traced(traced, FireCallProfile::MessageBusPoll)
+            .await?;
 
         if !response.status().is_success() {
             match read_message_bus_error_response_for_diagnostics(
@@ -290,7 +289,7 @@ fn spawn_poll_task(
         .ok_or(FireCoreError::MessageBusNotStarted)?;
     let context = MessageBusPollContext {
         base_url: core.base_url.clone(),
-        client: core.message_bus_client.clone(),
+        network: core.network.clone(),
         diagnostics: Arc::clone(&core.diagnostics),
         session: Arc::clone(&core.session),
         runtime: Arc::clone(&core.message_bus),
@@ -351,17 +350,17 @@ async fn execute_poll_once(
     context: &MessageBusPollContext,
     subscriptions: &[(String, i64)],
 ) -> Result<bool, FireCoreError> {
-    let (trace_id, request) = build_message_bus_poll_request(context, subscriptions)?;
+    let traced = build_message_bus_poll_request(context, subscriptions)?;
     debug!(
-        trace_id,
+        trace_id = traced.trace_id,
         client_id = %context.client_id,
         subscriptions = subscriptions.len(),
         "executing message bus poll request"
     );
-    let response = context.client.execute(request).await.map_err(|source| {
-        context.diagnostics.record_call_failed(trace_id, &source);
-        FireCoreError::Network { source }
-    })?;
+    let (trace_id, response) = context
+        .network
+        .execute_traced(traced, FireCallProfile::MessageBusPoll)
+        .await?;
 
     if !response.status().is_success() {
         return read_message_bus_error_response(context, trace_id, response).await;
@@ -373,7 +372,7 @@ async fn execute_poll_once(
 fn build_message_bus_poll_request(
     context: &MessageBusPollContext,
     subscriptions: &[(String, i64)],
-) -> Result<(u64, Request<RequestBody>), FireCoreError> {
+) -> Result<TracedRequest, FireCoreError> {
     let snapshot = read_rwlock(&context.session, "session").clone();
     build_message_bus_poll_request_for_snapshot(
         &context.diagnostics,
@@ -390,7 +389,7 @@ fn build_message_bus_poll_request_for_snapshot(
     snapshot: &SessionSnapshot,
     client_id: &str,
     subscriptions: &[(String, i64)],
-) -> Result<(u64, Request<RequestBody>), FireCoreError> {
+) -> Result<TracedRequest, FireCoreError> {
     let poll_base_url = message_bus_poll_base_url(base_url, &snapshot.bootstrap)?;
     let uri = poll_base_url.join(&format!("/message-bus/{client_id}/poll"))?;
     let same_origin = request_origin(base_url) == request_origin(&poll_base_url);
@@ -427,7 +426,7 @@ fn build_message_bus_poll_request_for_snapshot(
         .extensions_mut()
         .insert(FireRequestProfile::MessageBusPoll);
     let trace_id = diagnostics.prepare_request_trace(MESSAGE_BUS_OPERATION, &mut request);
-    Ok((trace_id, request))
+    Ok(TracedRequest { trace_id, request })
 }
 
 async fn read_message_bus_error_response(

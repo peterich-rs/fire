@@ -33,6 +33,12 @@ jobs:
           rustup toolchain install "${RUST_TOOLCHAIN}" --profile minimal --component rustfmt --component clippy
           rustup default "${RUST_TOOLCHAIN}"
 
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: rust-${{ runner.os }}-${{ env.RUST_TOOLCHAIN }}
+          workspaces: |
+            . -> rust/target
+
       - name: Check formatting
         run: cargo fmt --all --check
 
@@ -64,6 +70,12 @@ jobs:
           rustup toolchain install "${RUST_TOOLCHAIN}" --profile minimal
           rustup default "${RUST_TOOLCHAIN}"
 
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: rust-${{ runner.os }}-${{ env.RUST_TOOLCHAIN }}
+          workspaces: |
+            . -> rust/target
+
       - name: Run workspace tests
         shell: bash
         run: cargo test -p fire-models -p fire-core -p fire-uniffi --all-targets
@@ -88,10 +100,22 @@ jobs:
           rustup default "${RUST_TOOLCHAIN}"
           rustup target add aarch64-linux-android x86_64-linux-android
 
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: rust-${{ runner.os }}-${{ env.RUST_TOOLCHAIN }}
+          workspaces: |
+            . -> rust/target
+
       - name: Install Android NDK
         shell: bash
         run: |
           set -euo pipefail
+          android_ndk_root="${ANDROID_SDK_ROOT}/ndk/${ANDROID_NDK_VERSION}"
+          if [[ -d "${android_ndk_root}" ]]; then
+            echo "Android NDK ${ANDROID_NDK_VERSION} already present at ${android_ndk_root}"
+            exit 0
+          fi
+
           set +o pipefail
           yes | sdkmanager --licenses >/dev/null
           set -o pipefail
@@ -137,6 +161,12 @@ jobs:
           rustup toolchain install "${RUST_TOOLCHAIN}" --profile minimal
           rustup default "${RUST_TOOLCHAIN}"
           rustup target add aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: rust-${{ runner.os }}-${{ env.RUST_TOOLCHAIN }}
+          workspaces: |
+            . -> rust/target
 
       - name: Build fire-uniffi for iOS
         shell: bash

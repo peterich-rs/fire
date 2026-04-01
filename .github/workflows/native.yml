@@ -42,14 +42,21 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          packages=()
+          [[ -d "${ANDROID_SDK_ROOT}/platform-tools" ]] || packages+=("platform-tools")
+          [[ -d "${ANDROID_SDK_ROOT}/platforms/android-35" ]] || packages+=("platforms;android-35")
+          [[ -d "${ANDROID_SDK_ROOT}/build-tools/35.0.0" ]] || packages+=("build-tools;35.0.0")
+          [[ -d "${ANDROID_SDK_ROOT}/ndk/${ANDROID_NDK_VERSION}" ]] || packages+=("ndk;${ANDROID_NDK_VERSION}")
+
+          if [[ ${#packages[@]} -eq 0 ]]; then
+            echo "Android SDK and NDK packages already present"
+            exit 0
+          fi
+
           set +o pipefail
           yes | sdkmanager --licenses >/dev/null
           set -o pipefail
-          sdkmanager \
-            "platform-tools" \
-            "platforms;android-35" \
-            "build-tools;35.0.0" \
-            "ndk;${ANDROID_NDK_VERSION}"
+          sdkmanager "${packages[@]}"
 
       - name: Install Rust toolchain and Android targets
         shell: bash
@@ -57,6 +64,12 @@ jobs:
           rustup toolchain install "${RUST_TOOLCHAIN}" --profile minimal
           rustup default "${RUST_TOOLCHAIN}"
           rustup target add aarch64-linux-android x86_64-linux-android
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: rust-${{ runner.os }}-${{ env.RUST_TOOLCHAIN }}
+          workspaces: |
+            . -> rust/target
 
       - name: Run Android debug unit tests and debug build
         working-directory: native/android-app
@@ -72,7 +85,7 @@ jobs:
           ANDROID_HOME: ${{ env.ANDROID_SDK_ROOT }}
           ANDROID_SDK_ROOT: ${{ env.ANDROID_SDK_ROOT }}
           ANDROID_NDK_VERSION: ${{ env.ANDROID_NDK_VERSION }}
-        run: ./gradlew clean assembleRelease
+        run: ./gradlew assembleRelease
 
   ios:
     name: iOS Build And Unit Test
@@ -90,9 +103,23 @@ jobs:
           rustup default "${RUST_TOOLCHAIN}"
           rustup target add aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios
 
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: rust-${{ runner.os }}-${{ env.RUST_TOOLCHAIN }}
+          workspaces: |
+            . -> rust/target
+
       - name: Install XcodeGen
         shell: bash
-        run: brew install xcodegen
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+          HOMEBREW_NO_INSTALL_CLEANUP: "1"
+        run: |
+          if command -v xcodegen >/dev/null 2>&1; then
+            xcodegen --version
+          else
+            brew install xcodegen
+          fi
 
       - name: Generate Xcode project
         run: xcodegen generate --spec native/ios-app/project.yml

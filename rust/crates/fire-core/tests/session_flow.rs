@@ -30,8 +30,12 @@ fn apply_home_html_extracts_bootstrap_and_readiness() {
         Some("turnstile-key")
     );
     assert!(snapshot.bootstrap.has_preloaded_data);
+    assert!(snapshot.bootstrap.has_site_metadata);
+    assert_eq!(snapshot.bootstrap.top_tags, vec!["swift", "rust"]);
+    assert!(snapshot.bootstrap.can_tag_topics);
     assert_eq!(snapshot.bootstrap.categories.len(), 1);
     assert_eq!(snapshot.bootstrap.categories[0].name, "Rust");
+    assert!(snapshot.bootstrap.has_site_settings);
     assert_eq!(
         snapshot.bootstrap.enabled_reaction_ids,
         vec!["heart", "clap", "tada"]
@@ -106,8 +110,24 @@ async fn refresh_bootstrap_if_needed_skips_same_origin_session_without_shared_se
     let expected = core.apply_bootstrap(BootstrapArtifacts {
         base_url: dormant_server.base_url(),
         current_username: Some("alice".into()),
-        preloaded_json: Some("{\"currentUser\":{\"username\":\"alice\"}}".into()),
+        preloaded_json: Some(
+            "{\"currentUser\":{\"username\":\"alice\"},\"site\":{\"categories\":[{\"id\":2,\"name\":\"Rust\",\"slug\":\"rust\"}],\"top_tags\":[\"rust\"],\"can_tag_topics\":true},\"siteSettings\":{\"min_post_length\":18,\"discourse_reactions_enabled_reactions\":\"heart|clap\"}}".into()
+        ),
         has_preloaded_data: true,
+        has_site_metadata: true,
+        top_tags: vec!["rust".into()],
+        can_tag_topics: true,
+        categories: vec![fire_models::TopicCategory {
+            id: 2,
+            name: "Rust".into(),
+            slug: "rust".into(),
+            parent_category_id: None,
+            color_hex: None,
+            text_color_hex: None,
+        }],
+        has_site_settings: true,
+        enabled_reaction_ids: vec!["heart".into(), "clap".into()],
+        min_post_length: 18,
         ..BootstrapArtifacts::default()
     });
 
@@ -119,6 +139,60 @@ async fn refresh_bootstrap_if_needed_skips_same_origin_session_without_shared_se
 
     assert_eq!(snapshot, expected);
     assert!(snapshot.readiness().can_open_message_bus);
+}
+
+#[tokio::test]
+async fn refresh_bootstrap_if_needed_refreshes_when_site_metadata_is_missing() {
+    let response_html = r#"
+<!doctype html>
+<html>
+  <head>
+    <meta name="csrf-token" content="csrf-token">
+    <meta name="current-username" content="alice">
+    <meta name="discourse-base-uri" content="/">
+  </head>
+  <body>
+    <div id="data-discourse-setup" data-preloaded="{&quot;currentUser&quot;:{&quot;id&quot;:1,&quot;username&quot;:&quot;alice&quot;},&quot;siteSettings&quot;:{&quot;min_post_length&quot;:18,&quot;discourse_reactions_enabled_reactions&quot;:&quot;heart|clap&quot;},&quot;site&quot;:{&quot;categories&quot;:[{&quot;id&quot;:2,&quot;name&quot;:&quot;Rust&quot;,&quot;slug&quot;:&quot;rust&quot;}],&quot;top_tags&quot;:[&quot;rust&quot;,&quot;swift&quot;],&quot;can_tag_topics&quot;:true}}"></div>
+  </body>
+</html>
+"#;
+    let app_server = common::TestServer::spawn(vec![common::raw_text_response(200, response_html)])
+        .await
+        .expect("app server");
+    let core = FireCore::new(FireCoreConfig {
+        base_url: app_server.base_url(),
+        workspace_path: None,
+    })
+    .expect("core");
+    let _ = core.apply_cookies(CookieSnapshot {
+        t_token: Some("token".into()),
+        forum_session: Some("forum".into()),
+        ..CookieSnapshot::default()
+    });
+    let _ = core.apply_bootstrap(BootstrapArtifacts {
+        base_url: app_server.base_url(),
+        current_username: Some("alice".into()),
+        preloaded_json: Some("{\"currentUser\":{\"username\":\"alice\"}}".into()),
+        has_preloaded_data: true,
+        ..BootstrapArtifacts::default()
+    });
+
+    let snapshot = core
+        .refresh_bootstrap_if_needed()
+        .await
+        .expect("site metadata bootstrap refresh should run");
+    let _ = app_server.shutdown().await;
+
+    assert!(snapshot.bootstrap.has_site_metadata);
+    assert_eq!(snapshot.bootstrap.categories.len(), 1);
+    assert_eq!(snapshot.bootstrap.top_tags, vec!["rust", "swift"]);
+    assert!(snapshot.bootstrap.can_tag_topics);
+    assert!(snapshot.bootstrap.has_site_settings);
+    assert_eq!(
+        snapshot.bootstrap.enabled_reaction_ids,
+        vec!["heart", "clap"]
+    );
+    assert_eq!(snapshot.bootstrap.min_post_length, 18);
 }
 
 #[tokio::test]
@@ -309,7 +383,7 @@ fn restore_accepts_legacy_unversioned_ios_stub_session_json() {
     "longPollingBaseUrl": "https://linux.do",
     "turnstileSitekey": "sitekey",
     "topicTrackingStateMeta": "{\"message_bus_last_id\":42}",
-    "preloadedJson": "{\"currentUser\":{\"id\":1,\"username\":\"alice\",\"notification_channel_position\":42}}",
+    "preloadedJson": "{\"currentUser\":{\"id\":1,\"username\":\"alice\",\"notification_channel_position\":42},\"siteSettings\":{\"min_post_length\":18,\"discourse_reactions_enabled_reactions\":\"heart|clap\"},\"site\":{\"categories\":[{\"id\":2,\"name\":\"Rust\",\"slug\":\"rust\"}],\"top_tags\":[\"rust\"],\"can_tag_topics\":true}}",
     "hasPreloadedData": true
   },
   "readiness": {

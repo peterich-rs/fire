@@ -23,6 +23,8 @@ impl FireCore {
         let requires_shared_session_key =
             message_bus_requires_shared_session_key(&self.base_url, &current.bootstrap)?;
         let needs_bootstrap_refresh = !current.bootstrap.has_preloaded_data
+            || !current.bootstrap.has_site_metadata
+            || !current.bootstrap.has_site_settings
             || !readiness.has_current_user
             || (requires_shared_session_key && !readiness.has_shared_session_key);
 

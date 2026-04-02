@@ -391,6 +391,23 @@ final class FireAppViewModel: ObservableObject {
         return topicCategories[categoryID]
     }
 
+    func allCategories() -> [FireTopicCategoryPresentation] {
+        session.bootstrap.categories
+    }
+
+    func topTags() -> [String] {
+        session.bootstrap.topTags
+    }
+
+    var canTagTopics: Bool {
+        session.bootstrap.canTagTopics
+    }
+
+    func fetchFilteredTopicList(query: TopicListQueryState) async throws -> TopicListState {
+        let sessionStore = try await sessionStoreValue()
+        return try await sessionStore.fetchTopicList(query: query)
+    }
+
     func enabledReactionOptions() -> [FireReactionOption] {
         FireTopicPresentation.enabledReactionOptions(from: session.bootstrap.enabledReactionIds)
     }
@@ -971,7 +988,13 @@ final class FireAppViewModel: ObservableObject {
                     page: page,
                     topicIds: [],
                     order: nil,
-                    ascending: nil
+                    ascending: nil,
+                    categorySlug: nil,
+                    categoryId: nil,
+                    parentCategorySlug: nil,
+                    tag: nil,
+                    additionalTags: [],
+                    matchAllTags: false
                 )
             )
             let mergedTopicRows = reset

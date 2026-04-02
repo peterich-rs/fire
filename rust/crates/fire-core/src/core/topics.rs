@@ -17,6 +17,8 @@ impl FireCore {
         info!(
             kind = ?query.kind,
             page = ?query.page,
+            category_slug = ?query.category_slug,
+            tag = ?query.tag,
             topic_ids_count = query.topic_ids.len(),
             "fetching topic list"
         );
@@ -28,11 +30,7 @@ impl FireCore {
             return Err(FireCoreError::MissingLoginSession);
         }
 
-        let path = if query.topic_ids.is_empty() {
-            query.kind.path().to_string()
-        } else {
-            TopicListKind::Latest.path().to_string()
-        };
+        let path = query.api_path();
 
         let mut params = Vec::new();
         if let Some(page) = query.page {
@@ -51,11 +49,17 @@ impl FireCore {
                     .join(","),
             ));
         }
-        if let Some(order) = query.order {
-            params.push(("order", order));
+        if let Some(order) = &query.order {
+            params.push(("order", order.clone()));
         }
         if let Some(ascending) = query.ascending {
             params.push(("ascending", ascending.to_string()));
+        }
+        for tag in &query.additional_tags {
+            params.push(("tags[]", tag.clone()));
+        }
+        if query.match_all_tags {
+            params.push(("match_all_tags", "true".to_string()));
         }
 
         let traced = self.build_json_get_request("fetch topic list", &path, params, &[])?;

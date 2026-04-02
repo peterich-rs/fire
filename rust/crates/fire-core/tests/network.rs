@@ -30,10 +30,7 @@ async fn fetch_topic_list_parses_latest_payload() {
     let response = core
         .fetch_topic_list(TopicListQuery {
             kind: TopicListKind::Latest,
-            page: None,
-            topic_ids: Vec::new(),
-            order: None,
-            ascending: None,
+            ..TopicListQuery::default()
         })
         .await
         .expect("topic list");
@@ -117,10 +114,7 @@ async fn fetch_topic_list_tolerates_object_poster_metadata_fields() {
     let response = core
         .fetch_topic_list(TopicListQuery {
             kind: TopicListKind::Latest,
-            page: None,
-            topic_ids: Vec::new(),
-            order: None,
-            ascending: None,
+            ..TopicListQuery::default()
         })
         .await
         .expect("topic list");
@@ -153,10 +147,7 @@ async fn fetch_topic_list_tolerates_object_tags_and_null_counters() {
     let response = core
         .fetch_topic_list(TopicListQuery {
             kind: TopicListKind::Latest,
-            page: None,
-            topic_ids: Vec::new(),
-            order: None,
-            ascending: None,
+            ..TopicListQuery::default()
         })
         .await
         .expect("topic list");
@@ -201,10 +192,7 @@ async fn fetch_topic_list_builds_plain_text_excerpt_for_rows() {
     let response = core
         .fetch_topic_list(TopicListQuery {
             kind: TopicListKind::Latest,
-            page: None,
-            topic_ids: Vec::new(),
-            order: None,
-            ascending: None,
+            ..TopicListQuery::default()
         })
         .await
         .expect("topic list");
@@ -229,10 +217,7 @@ async fn fetch_topic_list_surfaces_cloudflare_challenge_error() {
     let error = core
         .fetch_topic_list(TopicListQuery {
             kind: TopicListKind::Latest,
-            page: None,
-            topic_ids: Vec::new(),
-            order: None,
-            ascending: None,
+            ..TopicListQuery::default()
         })
         .await
         .expect_err("cloudflare challenge should surface as an error");

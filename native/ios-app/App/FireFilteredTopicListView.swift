@@ -1,80 +1,77 @@
 import SwiftUI
 
-struct FireHomeView: View {
+struct FireFilteredTopicListView: View {
     @ObservedObject var viewModel: FireAppViewModel
-    @Namespace private var feedSelectionNamespace
 
-    private var sessionTitle: String {
-        viewModel.session.readiness.canReadAuthenticatedApi
-            ? viewModel.session.profileDisplayName
-            : "Fire"
-    }
+    let title: String
+    let categorySlug: String?
+    let categoryId: UInt64?
+    let parentCategorySlug: String?
+    let tag: String?
+
+    @State private var selectedKind: TopicListKindState = .latest
+    @State private var rows: [FireTopicRowPresentation] = []
+    @State private var nextPage: UInt32?
+    @State private var isLoading = false
+    @State private var isAppending = false
+    @State private var errorMessage: String?
 
     var body: some View {
-        NavigationStack {
-            List {
-                feedSelectorSection
+        List {
+            kindSelectorSection
 
-                if viewModel.isLoadingTopics && viewModel.topicRows.isEmpty {
-                    loadingSection
-                } else if viewModel.topicRows.isEmpty {
-                    emptySection
-                } else {
-                    topicListSection
-                }
+            if isLoading && rows.isEmpty {
+                loadingSection
+            } else if rows.isEmpty {
+                emptySection
+            } else {
+                topicListSection
             }
-            .listStyle(.plain)
-            .navigationTitle(sessionTitle)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    NavigationLink {
-                        FireCategoriesView(viewModel: viewModel)
-                    } label: {
-                        Image(systemName: "square.grid.2x2")
-                    }
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    NavigationLink {
-                        FireSearchView(viewModel: viewModel)
-                    } label: {
-                        Image(systemName: "magnifyingglass")
-                    }
-                }
-            }
-            .refreshable {
-                await refreshTopics()
+        }
+        .listStyle(.plain)
+        .navigationTitle(title)
+        .navigationBarTitleDisplayMode(.inline)
+        .refreshable {
+            await loadTopics(page: nil, reset: true)
+        }
+        .task {
+            if rows.isEmpty {
+                await loadTopics(page: nil, reset: true)
             }
         }
     }
 
-    // MARK: - Feed Selector
+    // MARK: - Kind Selector
 
-    private var feedSelectorSection: some View {
+    private var kindSelectorSection: some View {
         Section {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 4) {
                     ForEach(TopicListKindState.orderedCases, id: \.self) { kind in
                         Button {
                             withAnimation(.easeInOut(duration: 0.2)) {
-                                viewModel.selectTopicKind(kind)
+                                guard selectedKind != kind else { return }
+                                selectedKind = kind
+                                rows = []
+                                nextPage = nil
+                                Task {
+                                    await loadTopics(page: nil, reset: true)
+                                }
                             }
                         } label: {
                             Text(kind.title)
                                 .font(.subheadline.weight(.medium))
                                 .foregroundStyle(
-                                    viewModel.selectedTopicKind == kind
-                                        ? Color.white
-                                        : Color(.label)
+                                    selectedKind == kind ? Color.white : Color(.label)
                                 )
                                 .padding(.horizontal, 14)
                                 .padding(.vertical, 7)
                                 .background(
-                                    Capsule()
-                                        .fill(
-                                            viewModel.selectedTopicKind == kind
-                                                ? FireTheme.accent
-                                                : Color(.tertiarySystemFill)
-                                        )
+                                    Capsule().fill(
+                                        selectedKind == kind
+                                            ? FireTheme.accent
+                                            : Color(.tertiarySystemFill)
+                                    )
                                 )
                         }
                         .buttonStyle(.plain)
@@ -92,7 +89,7 @@ struct FireHomeView: View {
 
     private var topicListSection: some View {
         Section {
-            ForEach(viewModel.topicRows, id: \.topic.id) { topicRow in
+            ForEach(rows, id: \.topic.id) { topicRow in
                 NavigationLink {
                     FireTopicDetailView(viewModel: viewModel, row: topicRow)
                 } label: {
@@ -103,7 +100,7 @@ struct FireHomeView: View {
                 }
             }
 
-            if let _ = viewModel.nextTopicsPage {
+            if nextPage != nil {
                 loadMoreRow
             }
         }
@@ -111,25 +108,25 @@ struct FireHomeView: View {
 
     private var loadMoreRow: some View {
         Button {
-            viewModel.loadMoreTopics()
+            guard let page = nextPage else { return }
+            Task {
+                await loadTopics(page: page, reset: false)
+            }
         } label: {
             HStack {
                 Spacer()
-
-                if viewModel.isAppendingTopics {
-                    ProgressView()
-                        .controlSize(.small)
+                if isAppending {
+                    ProgressView().controlSize(.small)
                 } else {
                     Label("加载更多", systemImage: "arrow.down.circle")
                         .font(.subheadline.weight(.medium))
                         .foregroundStyle(FireTheme.accent)
                 }
-
                 Spacer()
             }
             .padding(.vertical, 8)
         }
-        .disabled(viewModel.isLoadingTopics)
+        .disabled(isLoading)
         .listRowSeparator(.hidden)
     }
 
@@ -142,12 +139,10 @@ struct FireHomeView: View {
                     Circle()
                         .fill(Color(.tertiarySystemFill))
                         .frame(width: 38, height: 38)
-
                     VStack(alignment: .leading, spacing: 6) {
                         RoundedRectangle(cornerRadius: 4)
                             .fill(Color(.tertiarySystemFill))
                             .frame(height: 14)
-
                         RoundedRectangle(cornerRadius: 4)
                             .fill(Color(.quaternarySystemFill))
                             .frame(width: 100, height: 10)
@@ -165,13 +160,11 @@ struct FireHomeView: View {
                 Image(systemName: "tray")
                     .font(.title)
                     .foregroundStyle(.secondary)
-
-                Text("当前 feed 暂无话题")
+                Text(errorMessage ?? "暂无话题")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
-
                 Button("刷新") {
-                    viewModel.refreshTopics()
+                    Task { await loadTopics(page: nil, reset: true) }
                 }
                 .buttonStyle(.bordered)
                 .tint(FireTheme.accent)
@@ -182,11 +175,47 @@ struct FireHomeView: View {
         .listRowSeparator(.hidden)
     }
 
-    // MARK: - Helpers
+    // MARK: - Data Loading
 
-    @Sendable
-    private func refreshTopics() async {
-        viewModel.refreshTopics()
-        try? await Task.sleep(for: .seconds(1))
+    private func loadTopics(page: UInt32?, reset: Bool) async {
+        guard !isLoading else { return }
+        isLoading = true
+        isAppending = !reset
+        defer {
+            isLoading = false
+            isAppending = false
+        }
+
+        do {
+            let query = TopicListQueryState(
+                kind: selectedKind,
+                page: page,
+                topicIds: [],
+                order: nil,
+                ascending: nil,
+                categorySlug: categorySlug,
+                categoryId: categoryId,
+                parentCategorySlug: parentCategorySlug,
+                tag: tag,
+                additionalTags: [],
+                matchAllTags: false
+            )
+            let response = try await viewModel.fetchFilteredTopicList(query: query)
+            if reset {
+                rows = response.rows
+            } else {
+                let existingIDs = Set(rows.map(\.topic.id))
+                let newRows = response.rows.filter { !existingIDs.contains($0.topic.id) }
+                rows.append(contentsOf: newRows)
+            }
+            nextPage = response.nextPage
+            errorMessage = nil
+        } catch {
+            if reset {
+                rows = []
+                nextPage = nil
+            }
+            errorMessage = error.localizedDescription
+        }
     }
 }

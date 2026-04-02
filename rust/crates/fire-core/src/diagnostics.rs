@@ -238,7 +238,7 @@ impl FireDiagnosticsStore {
             outcome: NetworkTraceOutcome::InProgress,
             status_code: None,
             error_message: None,
-            request_headers: sanitize_headers(request.headers()),
+            request_headers: Vec::new(),
             response_headers: Vec::new(),
             response_content_type: None,
             response_body: None,
@@ -290,6 +290,22 @@ impl FireDiagnosticsStore {
                 "call_start",
                 format!("Call {} started", ctx.call_id().as_u64()),
                 Some(format!("operation: {}", trace.operation)),
+            );
+        });
+    }
+
+    pub(crate) fn record_request_headers_snapshot(
+        &self,
+        trace_id: u64,
+        request: &Request<RequestBody>,
+        attempt: u32,
+    ) {
+        self.with_trace(trace_id, |trace| {
+            trace.request_headers = sanitize_headers(request.headers());
+            trace.push_event(
+                "request_headers_snapshot",
+                format!("Captured request headers for attempt {attempt}"),
+                Some(format!("header_count: {}", trace.request_headers.len())),
             );
         });
     }

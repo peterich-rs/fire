@@ -15,7 +15,7 @@
 
 开发前请先确认这些前置资源：
 - 主站登录态：`_t`、`_forum_session`、`cf_clearance`、`X-CSRF-Token`
-- 运行时基础数据：首页 `data-preloaded`、`shared_session_key`、`topicTrackingStateMeta`、`currentUser.username`
+- 运行时基础数据：首页 `data-preloaded`、`topicTrackingStateMeta`、`currentUser.username`，以及跨域长轮询场景下可能存在的 `shared_session_key`
 - 单例 `clientId`：上传、Presence、MessageBus 当前都复用同一个前台 `clientId`
 - 站点/分类约束：`siteSettings` 里的最小长度、默认分类、功能开关，以及分类的 tag/permission 元数据
 - 如果用 LDC 打赏：需要先到 `https://credit.linux.do/merchant` 申请 `clientId/clientSecret`
@@ -49,10 +49,10 @@
 如果你要在其他技术栈复现 Fire 的主要能力，推荐的最小调用链路如下：
 
 1. `GET /`
-   获取首页 HTML，提取 `csrf-token`、`shared_session_key`、`data-preloaded`
+   获取首页 HTML，提取 `csrf-token`、`data-preloaded`，以及跨域长轮询场景下可能存在的 `shared_session_key`
 2. 如需写操作，优先复用首页 HTML / 登录 WebView 中已有的 CSRF；缺失或收到 `BAD CSRF` 时再 `GET /session/csrf`
    获取最新 CSRF
 3. 使用 Cookie Session 调用主站 API
-4. 如需实时能力，先持久化 `siteSettings.long_polling_base_url`、`shared_session_key`、`topicTrackingStateMeta`
+4. 如需实时能力，先持久化 `siteSettings.long_polling_base_url`、`topicTrackingStateMeta`，以及跨域长轮询场景下可能存在的 `shared_session_key`
 5. 使用单例 `clientId` 调用 `POST /message-bus/{clientId}/poll`
 6. 如遇 Cloudflare 挑战，先完成 `/challenge` 页面验证并拿到 `cf_clearance`

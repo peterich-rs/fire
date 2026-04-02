@@ -120,6 +120,7 @@ final class FireAppViewModel: ObservableObject {
     @Published var errorMessage: String?
     @Published var isPresentingLogin = false
     @Published var isPreparingLogin = false
+    @Published var isSyncingLoginSession = false
     @Published var isLoggingOut = false
 
     // MARK: - Private
@@ -195,7 +196,14 @@ final class FireAppViewModel: ObservableObject {
     }
 
     func completeLogin(from webView: WKWebView) {
+        guard !isSyncingLoginSession else {
+            return
+        }
+
+        isSyncingLoginSession = true
         Task {
+            defer { isSyncingLoginSession = false }
+
             do {
                 let loginCoordinator = try await loginCoordinatorValue()
                 errorMessage = nil

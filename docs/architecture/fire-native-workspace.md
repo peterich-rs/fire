@@ -89,14 +89,14 @@ fire/
 The intended native integration order is:
 
 1. Open LinuxDo login in `WKWebView` / `WebView`.
-2. After login or Cloudflare verification, read platform cookies and the current page HTML/meta.
-3. Call `sync_login_context` in Rust with `_t`, `_forum_session`, `cf_clearance`, optional username, CSRF, and homepage HTML.
+2. After login or Cloudflare verification, read the platform cookie store, the current page HTML/meta, and the live WebView/browser user agent.
+3. Call `sync_login_context` in Rust with the full same-site browser cookie batch, optional username, CSRF, the preferred homepage HTML captured through the browser context, and the WebView/browser user agent.
 4. Persist the latest session snapshot through the host-appropriate session policy:
-   - iOS writes a redacted `session.json` through `export_redacted_session_json` or `save_redacted_session_to_path` and keeps `_t`, `_forum_session`, and `cf_clearance` in Keychain.
+   - iOS writes a redacted `session.json` through `export_redacted_session_json` or `save_redacted_session_to_path` and keeps the full same-site browser cookie batch in Keychain so Rust can rebuild authenticated browser context on cold start.
    - Android currently still uses `export_session_json` or `save_session_to_path` until Keystore-backed parity lands.
 5. On cold start, restore the snapshot through `restore_session_json` or `load_session_from_path`.
-6. Before any authenticated request, hosts that keep auth cookies outside `session.json` must re-inject platform cookies into Rust.
-7. If homepage HTML is unavailable or stale, or the restored authenticated snapshot is missing username/shared-session bootstrap fields, call `refresh_bootstrap_if_needed`.
+6. Before any authenticated request, hosts that keep browser cookies outside `session.json` must re-inject that platform cookie batch into Rust.
+7. If homepage HTML is unavailable or stale, or the restored authenticated snapshot is missing username/preloaded bootstrap fields, call `refresh_bootstrap_if_needed`. Only treat `shared_session_key` as required when MessageBus uses a cross-origin long-polling host.
 8. If write APIs need a newer token, call `refresh_csrf_token_if_needed`.
 9. Use `fetch_topic_list` and `fetch_topic_detail` for the first authenticated read path.
 10. On explicit logout, prefer `logout_remote`, then fall back to `logout_local`, clear the persisted session, and remove host-side WebView auth cookies so the native shell and platform browser state agree.
@@ -114,5 +114,5 @@ File ownership convention:
   - `cache/xlog/` for Xlog cache and mmap spill files
   - `session.json` for the persisted session snapshot triggered by the host shell
 - `session.json` remains host-triggered persistence under that workspace root.
-- iOS now treats `session.json` as a redacted cache and stores `_t`, `_forum_session`, and `cf_clearance` in Keychain.
+- iOS now treats `session.json` as a redacted cache and stores the full same-site browser cookie batch in Keychain.
 - Android currently still restores the full snapshot from `session.json` until its secure-cookie migration lands.

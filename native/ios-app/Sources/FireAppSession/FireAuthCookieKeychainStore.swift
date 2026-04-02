@@ -8,6 +8,43 @@ public enum FireAuthCookieSecureStoreError: Error {
     case unexpectedStatus(OSStatus)
 }
 
+public struct FireStoredPlatformCookie: Codable, Equatable, Sendable {
+    public var name: String
+    public var value: String
+    public var domain: String?
+    public var path: String?
+
+    public init(
+        name: String,
+        value: String,
+        domain: String?,
+        path: String?
+    ) {
+        self.name = name
+        self.value = value
+        self.domain = domain
+        self.path = path
+    }
+
+    init(_ cookie: PlatformCookieState) {
+        self.init(
+            name: cookie.name,
+            value: cookie.value,
+            domain: cookie.domain,
+            path: cookie.path
+        )
+    }
+
+    func asPlatformCookie(baseURL: URL) -> PlatformCookieState {
+        PlatformCookieState(
+            name: name,
+            value: value,
+            domain: domain ?? baseURL.host ?? "linux.do",
+            path: path ?? "/"
+        )
+    }
+}
+
 public protocol FireAuthCookieSecureStore: Sendable {
     func load() throws -> FireAuthCookieSecrets
     func save(_ secrets: FireAuthCookieSecrets) throws
@@ -18,42 +55,60 @@ public struct FireAuthCookieSecrets: Codable, Equatable, Sendable {
     public var tToken: String?
     public var forumSession: String?
     public var cfClearance: String?
+    public var platformCookies: [FireStoredPlatformCookie]
 
     public init(
         tToken: String? = nil,
         forumSession: String? = nil,
-        cfClearance: String? = nil
+        cfClearance: String? = nil,
+        platformCookies: [FireStoredPlatformCookie] = []
     ) {
         self.tToken = Self.normalized(tToken)
         self.forumSession = Self.normalized(forumSession)
         self.cfClearance = Self.normalized(cfClearance)
+        self.platformCookies = Self.normalizedPlatformCookies(platformCookies)
     }
 
     public init(platformCookies: [PlatformCookieState]) {
         self.init(
             tToken: Self.latestNonEmptyValue(named: "_t", in: platformCookies),
             forumSession: Self.latestNonEmptyValue(named: "_forum_session", in: platformCookies),
-            cfClearance: Self.latestNonEmptyValue(named: "cf_clearance", in: platformCookies)
+            cfClearance: Self.latestNonEmptyValue(named: "cf_clearance", in: platformCookies),
+            platformCookies: platformCookies.map(FireStoredPlatformCookie.init)
         )
     }
 
     public init(cookieState: CookieState) {
-        self.init(
-            tToken: cookieState.tToken,
-            forumSession: cookieState.forumSession,
-            cfClearance: cookieState.cfClearance
-        )
+        if !cookieState.platformCookies.isEmpty {
+            self.init(platformCookies: cookieState.platformCookies)
+        } else {
+            self.init(
+                tToken: cookieState.tToken,
+                forumSession: cookieState.forumSession,
+                cfClearance: cookieState.cfClearance
+            )
+        }
     }
 
     public var isEmpty: Bool {
-        tToken == nil && forumSession == nil && cfClearance == nil
+        tToken == nil && forumSession == nil && cfClearance == nil && platformCookies.isEmpty
     }
 
     public func preservingCfClearanceOnly() -> FireAuthCookieSecrets {
-        FireAuthCookieSecrets(cfClearance: cfClearance)
+        FireAuthCookieSecrets(
+            cfClearance: cfClearance,
+            platformCookies: platformCookies.filter { storedCookie in
+                let lowerName = storedCookie.name.lowercased()
+                return lowerName != "_t" && lowerName != "_forum_session"
+            }
+        )
     }
 
     public func platformCookies(baseURL: URL) -> [PlatformCookieState] {
+        if !platformCookies.isEmpty {
+            return platformCookies.map { $0.asPlatformCookie(baseURL: baseURL) }
+        }
+
         let host = baseURL.host ?? "linux.do"
         return [
             ("_t", tToken),
@@ -90,6 +145,38 @@ public struct FireAuthCookieSecrets: Codable, Equatable, Sendable {
             return nil
         }
         return value
+    }
+
+    private static func normalizedPlatformCookies(
+        _ cookies: [FireStoredPlatformCookie]
+    ) -> [FireStoredPlatformCookie] {
+        var deduped: [FireStoredPlatformCookie] = []
+        for cookie in cookies {
+            let normalizedCookie = FireStoredPlatformCookie(
+                name: cookie.name,
+                value: cookie.value,
+                domain: Self.normalized(cookie.domain),
+                path: Self.normalized(cookie.path) ?? "/"
+            )
+            let normalizedValue = normalizedCookie.value.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !normalizedCookie.name.isEmpty, !normalizedValue.isEmpty else {
+                continue
+            }
+            deduped.removeAll { existing in
+                existing.name == normalizedCookie.name
+                    && existing.domain?.lowercased() == normalizedCookie.domain?.lowercased()
+                    && (existing.path ?? "/") == (normalizedCookie.path ?? "/")
+            }
+            deduped.append(
+                FireStoredPlatformCookie(
+                    name: normalizedCookie.name,
+                    value: normalizedValue,
+                    domain: normalizedCookie.domain?.lowercased(),
+                    path: normalizedCookie.path ?? "/"
+                )
+            )
+        }
+        return deduped
     }
 }
 

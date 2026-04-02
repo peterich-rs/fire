@@ -24,7 +24,21 @@ use crate::{
     sync_utils::read_rwlock,
 };
 
-const FIRE_USER_AGENT: &str = "Fire/0.1";
+// Discourse strips `data-preloaded` for crawler-style requests, so the shared
+// Rust client needs a browser-style fallback UA until hosts pass through an
+// exact WebView/browser UA.
+#[cfg(target_os = "ios")]
+const FIRE_USER_AGENT: &str = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1";
+#[cfg(target_os = "android")]
+const FIRE_USER_AGENT: &str = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36";
+#[cfg(target_os = "macos")]
+const FIRE_USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15";
+#[cfg(all(
+    not(target_os = "ios"),
+    not(target_os = "android"),
+    not(target_os = "macos")
+))]
+const FIRE_USER_AGENT: &str = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 const FIRE_ACCEPT_LANGUAGE: &str = "zh-CN,zh;q=0.9,en;q=0.8";
 const FIRE_JSON_ACCEPT: &str = "application/json;q=0.9, text/plain;q=0.8, */*;q=0.5";
 
@@ -54,6 +68,17 @@ pub(crate) struct FireCommonHeaderInterceptor {
     session: Arc<RwLock<fire_models::SessionSnapshot>>,
 }
 
+#[derive(Clone)]
+pub(crate) struct FireTraceSnapshotInterceptor {
+    diagnostics: Arc<FireDiagnosticsStore>,
+}
+
+impl FireTraceSnapshotInterceptor {
+    pub(crate) fn new(diagnostics: Arc<FireDiagnosticsStore>) -> Self {
+        Self { diagnostics }
+    }
+}
+
 impl FireCommonHeaderInterceptor {
     pub(crate) fn new(base_url: Url, session: Arc<RwLock<fire_models::SessionSnapshot>>) -> Self {
         Self {
@@ -67,67 +92,19 @@ impl FireCommonHeaderInterceptor {
         let Some(profile) = request.extensions().get::<FireRequestProfile>().copied() else {
             return;
         };
-
-        insert_static_header_if_missing(
+        let snapshot = read_rwlock(&self.session, "session").clone();
+        apply_common_profile_headers(
             request.headers_mut(),
-            USER_AGENT.as_str(),
-            FIRE_USER_AGENT,
+            profile,
+            &self.origin,
+            &self.referer,
+            snapshot
+                .browser_user_agent
+                .as_deref()
+                .filter(|value| !value.is_empty())
+                .unwrap_or(FIRE_USER_AGENT),
+            snapshot.cookies.has_login_session(),
         );
-
-        match profile {
-            FireRequestProfile::HomeHtml => {}
-            FireRequestProfile::JsonApi => {
-                insert_static_header_if_missing(
-                    request.headers_mut(),
-                    ACCEPT_LANGUAGE.as_str(),
-                    FIRE_ACCEPT_LANGUAGE,
-                );
-                insert_string_header_if_missing(
-                    request.headers_mut(),
-                    ORIGIN.as_str(),
-                    &self.origin,
-                );
-                insert_string_header_if_missing(
-                    request.headers_mut(),
-                    REFERER.as_str(),
-                    &self.referer,
-                );
-                insert_static_header_if_missing(
-                    request.headers_mut(),
-                    "X-Requested-With",
-                    "XMLHttpRequest",
-                );
-                self.apply_login_headers(request.headers_mut());
-            }
-            FireRequestProfile::MessageBusPoll => {
-                insert_static_header_if_missing(
-                    request.headers_mut(),
-                    ACCEPT_LANGUAGE.as_str(),
-                    FIRE_ACCEPT_LANGUAGE,
-                );
-                insert_string_header_if_missing(
-                    request.headers_mut(),
-                    ORIGIN.as_str(),
-                    &self.origin,
-                );
-                insert_string_header_if_missing(
-                    request.headers_mut(),
-                    REFERER.as_str(),
-                    &self.referer,
-                );
-                self.apply_login_headers(request.headers_mut());
-            }
-        }
-    }
-
-    fn apply_login_headers(&self, headers: &mut HeaderMap) {
-        if read_rwlock(&self.session, "session")
-            .cookies
-            .has_login_session()
-        {
-            insert_static_header_if_missing(headers, "Discourse-Logged-In", "true");
-            insert_static_header_if_missing(headers, "Discourse-Present", "true");
-        }
     }
 }
 
@@ -138,6 +115,27 @@ impl Interceptor for FireCommonHeaderInterceptor {
         next: Next,
     ) -> BoxFuture<Result<Response<ResponseBody>, WireError>> {
         self.apply_headers(exchange.request_mut());
+        next.run(exchange)
+    }
+}
+
+impl Interceptor for FireTraceSnapshotInterceptor {
+    fn intercept(
+        &self,
+        exchange: Exchange,
+        next: Next,
+    ) -> BoxFuture<Result<Response<ResponseBody>, WireError>> {
+        if let Some(metadata) = exchange
+            .request()
+            .extensions()
+            .get::<crate::diagnostics::FireRequestTraceMetadata>()
+        {
+            self.diagnostics.record_request_headers_snapshot(
+                metadata.trace_id,
+                exchange.request(),
+                exchange.attempt(),
+            );
+        }
         next.run(exchange)
     }
 }
@@ -157,6 +155,7 @@ impl FireNetworkLayer {
         let builder = Client::builder()
             .cookie_jar(cookie_jar)
             .application_interceptor(FireCommonHeaderInterceptor::new(base_url.clone(), session))
+            .network_interceptor(FireTraceSnapshotInterceptor::new(Arc::clone(&diagnostics)))
             .connect_timeout(NETWORK_CONNECT_TIMEOUT)
             .call_timeout(NETWORK_CALL_TIMEOUT)
             .max_connections_per_host(CLIENT_MAX_CONNECTIONS_PER_HOST)
@@ -235,9 +234,7 @@ impl FireCore {
             .header("Accept", "text/html")
             .body(RequestBody::empty())
             .map_err(FireCoreError::RequestBuild)?;
-        request
-            .extensions_mut()
-            .insert(FireRequestProfile::HomeHtml);
+        request.extensions_mut().insert(FireRequestProfile::HomeHtml);
         let trace_id = self
             .diagnostics
             .prepare_request_trace(operation, &mut request);
@@ -613,6 +610,40 @@ pub(crate) fn request_referer(base_url: &Url) -> String {
     referer.set_query(None);
     referer.set_fragment(None);
     referer.to_string()
+}
+
+fn apply_common_profile_headers(
+    headers: &mut HeaderMap,
+    profile: FireRequestProfile,
+    origin: &str,
+    referer: &str,
+    user_agent: &str,
+    has_login_session: bool,
+) {
+    insert_string_header_if_missing(headers, USER_AGENT.as_str(), user_agent);
+    insert_static_header_if_missing(headers, ACCEPT_LANGUAGE.as_str(), FIRE_ACCEPT_LANGUAGE);
+
+    match profile {
+        FireRequestProfile::HomeHtml => {}
+        FireRequestProfile::JsonApi => {
+            insert_string_header_if_missing(headers, ORIGIN.as_str(), origin);
+            insert_string_header_if_missing(headers, REFERER.as_str(), referer);
+            insert_static_header_if_missing(headers, "X-Requested-With", "XMLHttpRequest");
+            apply_login_headers(headers, has_login_session);
+        }
+        FireRequestProfile::MessageBusPoll => {
+            insert_string_header_if_missing(headers, ORIGIN.as_str(), origin);
+            insert_string_header_if_missing(headers, REFERER.as_str(), referer);
+            apply_login_headers(headers, has_login_session);
+        }
+    }
+}
+
+fn apply_login_headers(headers: &mut HeaderMap, has_login_session: bool) {
+    if has_login_session {
+        insert_static_header_if_missing(headers, "Discourse-Logged-In", "true");
+        insert_static_header_if_missing(headers, "Discourse-Present", "true");
+    }
 }
 
 fn insert_static_header_if_missing(

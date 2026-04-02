@@ -21,7 +21,7 @@ impl FireSessionCookieJar {
 
 impl CookieJar for FireSessionCookieJar {
     fn set_cookies(&self, cookie_headers: &mut dyn Iterator<Item = &HeaderValue>, url: &Url) {
-        if !same_cookie_scope(&self.base_url, url) {
+        if !same_site_scope(&self.base_url, url) {
             return;
         }
 
@@ -30,16 +30,17 @@ impl CookieJar for FireSessionCookieJar {
             let Ok(value) = header.to_str() else {
                 continue;
             };
-            let Some((name, value)) = parse_set_cookie(value) else {
+            let Some(cookie) = parse_set_cookie(value, url) else {
                 continue;
             };
 
-            match name {
-                "_t" => patch.t_token = Some(value.to_string()),
-                "_forum_session" => patch.forum_session = Some(value.to_string()),
-                "cf_clearance" => patch.cf_clearance = Some(value.to_string()),
+            match cookie.name.as_str() {
+                "_t" => patch.t_token = Some(cookie.value.clone()),
+                "_forum_session" => patch.forum_session = Some(cookie.value.clone()),
+                "cf_clearance" => patch.cf_clearance = Some(cookie.value.clone()),
                 _ => {}
             }
+            patch.platform_cookies.push(cookie);
         }
 
         if patch == CookieSnapshot::default() {
@@ -51,12 +52,16 @@ impl CookieJar for FireSessionCookieJar {
     }
 
     fn cookies(&self, url: &Url) -> Option<HeaderValue> {
-        if !same_cookie_scope(&self.base_url, url) {
+        let session = read_rwlock(&self.session, "session");
+        if session.cookies.platform_cookies.is_empty() {
+            if !same_origin_scope(&self.base_url, url) {
+                return None;
+            }
+        } else if !same_site_scope(&self.base_url, url) {
             return None;
         }
 
-        let session = read_rwlock(&self.session, "session");
-        let cookies = build_cookie_header(&session.cookies);
+        let cookies = build_cookie_header(&session.cookies, &self.base_url, url);
         if cookies.is_empty() {
             return None;
         }
@@ -65,13 +70,60 @@ impl CookieJar for FireSessionCookieJar {
     }
 }
 
-fn same_cookie_scope(base_url: &Url, request_url: &Url) -> bool {
+fn same_origin_scope(base_url: &Url, request_url: &Url) -> bool {
     base_url.scheme() == request_url.scheme()
         && base_url.host_str() == request_url.host_str()
         && base_url.port_or_known_default() == request_url.port_or_known_default()
 }
 
-fn build_cookie_header(cookies: &CookieSnapshot) -> String {
+fn same_site_scope(base_url: &Url, request_url: &Url) -> bool {
+    base_url.scheme() == request_url.scheme()
+        && hosts_share_base_domain(base_url.host_str(), request_url.host_str())
+}
+
+fn hosts_share_base_domain(base_host: Option<&str>, request_host: Option<&str>) -> bool {
+    let Some(base_host) = base_host.map(|value| value.trim_start_matches('.').to_ascii_lowercase()) else {
+        return false;
+    };
+    let Some(request_host) =
+        request_host.map(|value| value.trim_start_matches('.').to_ascii_lowercase())
+    else {
+        return false;
+    };
+    request_host == base_host || request_host.ends_with(&format!(".{base_host}"))
+}
+
+fn build_cookie_header(cookies: &CookieSnapshot, base_url: &Url, request_url: &Url) -> String {
+    if !cookies.platform_cookies.is_empty() {
+        let mut matching = cookies
+            .platform_cookies
+            .iter()
+            .filter(|cookie| cookie_matches_url(cookie, base_url, request_url))
+            .cloned()
+            .collect::<Vec<_>>();
+        matching.sort_by(|left, right| {
+            let left_path_len = left.path.as_deref().unwrap_or("/").len();
+            let right_path_len = right.path.as_deref().unwrap_or("/").len();
+            right_path_len.cmp(&left_path_len)
+        });
+
+        let joined = matching
+            .into_iter()
+            .filter_map(|cookie| {
+                let value = cookie.value.trim();
+                if value.is_empty() {
+                    None
+                } else {
+                    Some(format!("{}={}", cookie.name, value))
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("; ");
+        if !joined.is_empty() {
+            return joined;
+        }
+    }
+
     let mut pairs = Vec::new();
     push_cookie_pair(&mut pairs, "_t", cookies.t_token.as_deref());
     push_cookie_pair(
@@ -90,13 +142,73 @@ fn push_cookie_pair(pairs: &mut Vec<String>, name: &str, value: Option<&str>) {
     pairs.push(format!("{name}={value}"));
 }
 
-fn parse_set_cookie(value: &str) -> Option<(&str, &str)> {
-    let first = value.split(';').next()?.trim();
-    let (name, value) = first.split_once('=')?;
-    let value = if value.is_empty() || value == "del" {
-        ""
-    } else {
-        value
+fn cookie_matches_url(cookie: &fire_models::PlatformCookie, base_url: &Url, request_url: &Url) -> bool {
+    if request_url.scheme() != base_url.scheme() {
+        return false;
+    }
+
+    let Some(request_host) = request_url.host_str().map(|value| value.to_ascii_lowercase()) else {
+        return false;
     };
-    Some((name.trim(), value))
+    let base_host = base_url.host_str().map(|value| value.to_ascii_lowercase());
+    let cookie_domain = cookie
+        .domain
+        .as_deref()
+        .map(|value| value.trim_start_matches('.').to_ascii_lowercase())
+        .or(base_host);
+
+    let Some(cookie_domain) = cookie_domain else {
+        return false;
+    };
+    if request_host != cookie_domain && !request_host.ends_with(&format!(".{cookie_domain}")) {
+        return false;
+    }
+
+    let request_path = request_url.path();
+    let cookie_path = cookie.path.as_deref().unwrap_or("/");
+    request_path.starts_with(cookie_path)
+}
+
+fn parse_set_cookie(value: &str, url: &Url) -> Option<fire_models::PlatformCookie> {
+    let mut parts = value.split(';');
+    let first = parts.next()?.trim();
+    let (name, value) = first.split_once('=')?;
+    let mut domain = url.host_str().map(ToOwned::to_owned);
+    let mut path = Some(default_cookie_path(url.path()));
+
+    for attribute in parts {
+        let attribute = attribute.trim();
+        if let Some((key, raw_value)) = attribute.split_once('=') {
+            let key = key.trim();
+            let raw_value = raw_value.trim();
+            if key.eq_ignore_ascii_case("domain") && !raw_value.is_empty() {
+                domain = Some(raw_value.trim_start_matches('.').to_ascii_lowercase());
+            } else if key.eq_ignore_ascii_case("path") && !raw_value.is_empty() {
+                path = Some(raw_value.to_string());
+            }
+        }
+    }
+
+    let value = if value.trim().is_empty() || value.eq_ignore_ascii_case("del") {
+        String::new()
+    } else {
+        value.trim().to_string()
+    };
+
+    Some(fire_models::PlatformCookie {
+        name: name.trim().to_string(),
+        value,
+        domain,
+        path,
+    })
+}
+
+fn default_cookie_path(request_path: &str) -> String {
+    if request_path.is_empty() || request_path == "/" {
+        return "/".to_string();
+    }
+    match request_path.rsplit_once('/') {
+        Some(("", _)) | None => "/".to_string(),
+        Some((prefix, _)) => format!("{prefix}/"),
+    }
 }

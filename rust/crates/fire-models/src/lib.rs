@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use url::Url;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PlatformCookie {
@@ -14,6 +15,8 @@ pub struct CookieSnapshot {
     pub forum_session: Option<String>,
     pub cf_clearance: Option<String>,
     pub csrf_token: Option<String>,
+    #[serde(default)]
+    pub platform_cookies: Vec<PlatformCookie>,
 }
 
 impl CookieSnapshot {
@@ -42,6 +45,10 @@ impl CookieSnapshot {
         merge_string_patch(&mut self.forum_session, patch.forum_session.clone());
         merge_string_patch(&mut self.cf_clearance, patch.cf_clearance.clone());
         merge_string_patch(&mut self.csrf_token, patch.csrf_token.clone());
+        if !patch.platform_cookies.is_empty() {
+            merge_platform_cookie_batch(&mut self.platform_cookies, &patch.platform_cookies);
+            self.refresh_known_platform_cookie_fields();
+        }
     }
 
     pub fn merge_platform_cookies(&mut self, cookies: &[PlatformCookie]) {
@@ -57,12 +64,16 @@ impl CookieSnapshot {
             &mut self.cf_clearance,
             latest_non_empty_platform_cookie_value(cookies, "cf_clearance"),
         );
+        merge_platform_cookie_batch(&mut self.platform_cookies, cookies);
+        self.refresh_known_platform_cookie_fields();
     }
 
     pub fn apply_platform_cookies(&mut self, cookies: &[PlatformCookie]) {
         self.t_token = latest_non_empty_platform_cookie_value(cookies, "_t");
         self.forum_session = latest_non_empty_platform_cookie_value(cookies, "_forum_session");
         self.cf_clearance = latest_non_empty_platform_cookie_value(cookies, "cf_clearance");
+        self.platform_cookies = normalized_platform_cookies(cookies);
+        self.refresh_known_platform_cookie_fields();
     }
 
     pub fn clear_login_state(&mut self, preserve_cf_clearance: bool) {
@@ -72,6 +83,25 @@ impl CookieSnapshot {
         if !preserve_cf_clearance {
             self.cf_clearance = None;
         }
+        self.platform_cookies.retain(|cookie| {
+            let lower_name = cookie.name.to_ascii_lowercase();
+            if lower_name == "_t" || lower_name == "_forum_session" {
+                return false;
+            }
+            preserve_cf_clearance || lower_name != "cf_clearance"
+        });
+    }
+
+    pub fn refresh_known_platform_cookie_fields(&mut self) {
+        if self.platform_cookies.is_empty() {
+            return;
+        }
+
+        self.t_token = latest_non_empty_platform_cookie_value(&self.platform_cookies, "_t");
+        self.forum_session =
+            latest_non_empty_platform_cookie_value(&self.platform_cookies, "_forum_session");
+        self.cf_clearance =
+            latest_non_empty_platform_cookie_value(&self.platform_cookies, "cf_clearance");
     }
 }
 
@@ -219,6 +249,8 @@ pub struct LoginSyncInput {
     pub username: Option<String>,
     pub csrf_token: Option<String>,
     pub home_html: Option<String>,
+    #[serde(default)]
+    pub browser_user_agent: Option<String>,
     pub cookies: Vec<PlatformCookie>,
 }
 
@@ -226,6 +258,8 @@ pub struct LoginSyncInput {
 pub struct SessionSnapshot {
     pub cookies: CookieSnapshot,
     pub bootstrap: BootstrapArtifacts,
+    #[serde(default)]
+    pub browser_user_agent: Option<String>,
 }
 
 impl SessionSnapshot {
@@ -239,7 +273,9 @@ impl SessionSnapshot {
         let has_shared_session_key = is_non_empty(self.bootstrap.shared_session_key.as_deref());
         let can_read_authenticated_api = self.cookies.can_authenticate_requests();
         let can_write_authenticated_api = can_read_authenticated_api && has_csrf_token;
-        let can_open_message_bus = can_read_authenticated_api && has_shared_session_key;
+        let can_open_message_bus = can_read_authenticated_api
+            && (!message_bus_requires_shared_session_key(&self.bootstrap)
+                || has_shared_session_key);
 
         SessionReadiness {
             has_login_cookie,
@@ -1073,6 +1109,86 @@ fn is_non_empty(value: Option<&str>) -> bool {
     value.is_some_and(|value| !value.is_empty())
 }
 
+fn normalized_platform_cookies(cookies: &[PlatformCookie]) -> Vec<PlatformCookie> {
+    let mut merged = Vec::new();
+    merge_platform_cookie_batch(&mut merged, cookies);
+    merged
+}
+
+fn merge_platform_cookie_batch(current: &mut Vec<PlatformCookie>, incoming: &[PlatformCookie]) {
+    for cookie in incoming {
+        let Some((name, domain, path)) = normalized_platform_cookie_key(cookie) else {
+            continue;
+        };
+        current.retain(|existing| {
+            normalized_platform_cookie_key(existing)
+                .is_none_or(|existing_key| existing_key != (name.clone(), domain.clone(), path.clone()))
+        });
+        if is_deleted_cookie_value(&cookie.value) {
+            continue;
+        }
+        current.push(PlatformCookie {
+            name,
+            value: cookie.value.trim().to_string(),
+            domain,
+            path: Some(path),
+        });
+    }
+}
+
+fn normalized_platform_cookie_key(
+    cookie: &PlatformCookie,
+) -> Option<(String, Option<String>, String)> {
+    let name = cookie.name.trim();
+    if name.is_empty() {
+        return None;
+    }
+    let domain = cookie
+        .domain
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.trim_start_matches('.').to_ascii_lowercase());
+    let path = cookie
+        .path
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("/");
+    Some((name.to_string(), domain, path.to_string()))
+}
+
+fn is_deleted_cookie_value(value: &str) -> bool {
+    let value = value.trim();
+    value.is_empty() || value.eq_ignore_ascii_case("del")
+}
+
+fn message_bus_requires_shared_session_key(bootstrap: &BootstrapArtifacts) -> bool {
+    let Some(base_origin) = request_origin(&bootstrap.base_url) else {
+        return false;
+    };
+    let Some(long_polling_base_url) = bootstrap
+        .long_polling_base_url
+        .as_deref()
+        .filter(|value| !value.is_empty())
+    else {
+        return false;
+    };
+    let Some(poll_origin) = request_origin(long_polling_base_url) else {
+        return false;
+    };
+
+    base_origin != poll_origin
+}
+
+fn request_origin(value: &str) -> Option<String> {
+    let mut url = Url::parse(value).ok()?;
+    url.set_path("");
+    url.set_query(None);
+    url.set_fragment(None);
+    Some(url.as_str().trim_end_matches('/').to_string())
+}
+
 fn latest_non_empty_platform_cookie_value(
     cookies: &[PlatformCookie],
     name: &str,
@@ -1194,6 +1310,7 @@ mod tests {
             forum_session: Some("forum".into()),
             cf_clearance: Some("clearance".into()),
             csrf_token: None,
+            platform_cookies: Vec::new(),
         };
 
         cookies.merge_platform_cookies(&[
@@ -1251,6 +1368,7 @@ mod tests {
             forum_session: Some("stale-forum".into()),
             cf_clearance: Some("stale-clearance".into()),
             csrf_token: Some("csrf".into()),
+            platform_cookies: Vec::new(),
         };
 
         cookies.apply_platform_cookies(&[
@@ -1275,12 +1393,39 @@ mod tests {
     }
 
     #[test]
+    fn platform_cookie_apply_preserves_full_browser_cookie_batch() {
+        let mut cookies = CookieSnapshot::default();
+
+        cookies.apply_platform_cookies(&[
+            PlatformCookie {
+                name: "_t".into(),
+                value: "token".into(),
+                domain: Some("linux.do".into()),
+                path: Some("/".into()),
+            },
+            PlatformCookie {
+                name: "__cf_bm".into(),
+                value: "browser-context".into(),
+                domain: Some(".linux.do".into()),
+                path: Some("/".into()),
+            },
+        ]);
+
+        assert_eq!(cookies.platform_cookies.len(), 2);
+        assert!(cookies
+            .platform_cookies
+            .iter()
+            .any(|cookie| cookie.name == "__cf_bm" && cookie.value == "browser-context"));
+    }
+
+    #[test]
     fn empty_patch_clears_cookie_fields() {
         let mut cookies = CookieSnapshot {
             t_token: Some("token".into()),
             forum_session: Some("forum".into()),
             cf_clearance: Some("clearance".into()),
             csrf_token: Some("csrf".into()),
+            platform_cookies: Vec::new(),
         };
 
         cookies.merge_patch(&CookieSnapshot {
@@ -1293,6 +1438,55 @@ mod tests {
         assert_eq!(cookies.forum_session, None);
         assert_eq!(cookies.csrf_token, None);
         assert_eq!(cookies.cf_clearance.as_deref(), Some("clearance"));
+    }
+
+    #[test]
+    fn clear_login_state_keeps_non_auth_platform_cookies() {
+        let mut cookies = CookieSnapshot::default();
+        cookies.apply_platform_cookies(&[
+            PlatformCookie {
+                name: "_t".into(),
+                value: "token".into(),
+                domain: Some("linux.do".into()),
+                path: Some("/".into()),
+            },
+            PlatformCookie {
+                name: "_forum_session".into(),
+                value: "forum".into(),
+                domain: Some("linux.do".into()),
+                path: Some("/".into()),
+            },
+            PlatformCookie {
+                name: "cf_clearance".into(),
+                value: "clearance".into(),
+                domain: Some("linux.do".into()),
+                path: Some("/".into()),
+            },
+            PlatformCookie {
+                name: "__cf_bm".into(),
+                value: "browser-context".into(),
+                domain: Some(".linux.do".into()),
+                path: Some("/".into()),
+            },
+        ]);
+
+        cookies.clear_login_state(true);
+
+        assert_eq!(cookies.t_token, None);
+        assert_eq!(cookies.forum_session, None);
+        assert_eq!(cookies.cf_clearance.as_deref(), Some("clearance"));
+        assert!(cookies
+            .platform_cookies
+            .iter()
+            .all(|cookie| cookie.name != "_t" && cookie.name != "_forum_session"));
+        assert!(cookies
+            .platform_cookies
+            .iter()
+            .any(|cookie| cookie.name == "cf_clearance"));
+        assert!(cookies
+            .platform_cookies
+            .iter()
+            .any(|cookie| cookie.name == "__cf_bm"));
     }
 
     #[test]
@@ -1315,6 +1509,56 @@ mod tests {
     }
 
     #[test]
+    fn same_origin_message_bus_does_not_require_shared_session_key() {
+        let snapshot = SessionSnapshot {
+            cookies: CookieSnapshot {
+                t_token: Some("token".into()),
+                forum_session: Some("forum".into()),
+                ..CookieSnapshot::default()
+            },
+            bootstrap: BootstrapArtifacts {
+                base_url: "https://linux.do".into(),
+                long_polling_base_url: Some("https://linux.do".into()),
+                current_username: Some("alice".into()),
+                preloaded_json: Some("{\"currentUser\":{\"username\":\"alice\"}}".into()),
+                has_preloaded_data: true,
+                ..BootstrapArtifacts::default()
+            },
+            browser_user_agent: None,
+        };
+
+        let readiness = snapshot.readiness();
+
+        assert!(!readiness.has_shared_session_key);
+        assert!(readiness.can_open_message_bus);
+    }
+
+    #[test]
+    fn cross_origin_message_bus_requires_shared_session_key() {
+        let snapshot = SessionSnapshot {
+            cookies: CookieSnapshot {
+                t_token: Some("token".into()),
+                forum_session: Some("forum".into()),
+                ..CookieSnapshot::default()
+            },
+            bootstrap: BootstrapArtifacts {
+                base_url: "https://linux.do".into(),
+                long_polling_base_url: Some("https://poll.linux.do".into()),
+                current_username: Some("alice".into()),
+                preloaded_json: Some("{\"currentUser\":{\"username\":\"alice\"}}".into()),
+                has_preloaded_data: true,
+                ..BootstrapArtifacts::default()
+            },
+            browser_user_agent: None,
+        };
+
+        let readiness = snapshot.readiness();
+
+        assert!(!readiness.has_shared_session_key);
+        assert!(!readiness.can_open_message_bus);
+    }
+
+    #[test]
     fn clear_login_state_preserves_cf_when_requested() {
         let mut snapshot = SessionSnapshot {
             cookies: CookieSnapshot {
@@ -1322,6 +1566,7 @@ mod tests {
                 forum_session: Some("forum".into()),
                 cf_clearance: Some("clearance".into()),
                 csrf_token: Some("csrf".into()),
+                platform_cookies: Vec::new(),
             },
             bootstrap: BootstrapArtifacts {
                 base_url: "https://linux.do".into(),
@@ -1339,6 +1584,7 @@ mod tests {
                 enabled_reaction_ids: vec!["heart".into(), "clap".into()],
                 min_post_length: 20,
             },
+            browser_user_agent: None,
         };
 
         snapshot.clear_login_state(true);

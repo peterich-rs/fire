@@ -71,6 +71,7 @@ impl FireCore {
                 base_url: base_url.as_str().to_string(),
                 ..BootstrapArtifacts::default()
             },
+            browser_user_agent: None,
         };
         let session = Arc::new(RwLock::new(session));
         let cookie_jar = Arc::new(FireSessionCookieJar::new(base_url.clone(), session.clone()));

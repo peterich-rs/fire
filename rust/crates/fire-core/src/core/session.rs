@@ -115,6 +115,13 @@ impl FireCore {
             .map(|html| parse_home_state(self.base_url(), html));
         self.update_session(|session| {
             session.cookies.apply_platform_cookies(&input.cookies);
+            if let Some(browser_user_agent) = input
+                .browser_user_agent
+                .clone()
+                .filter(|value| !value.is_empty())
+            {
+                session.browser_user_agent = Some(browser_user_agent);
+            }
 
             if let Some(csrf_token) = input.csrf_token {
                 session.cookies.merge_patch(&CookieSnapshot {

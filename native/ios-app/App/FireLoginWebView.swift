@@ -122,6 +122,13 @@ struct FireLoginScreen: View {
                     dismiss()
                 }
 
+                if let errorMessage = viewModel.errorMessage {
+                    FireLoginErrorBanner(
+                        message: errorMessage,
+                        onDismiss: { viewModel.dismissError() }
+                    )
+                }
+
                 FireLoginBrowserFrame {
                     FireLoginWebView(
                         url: URL(string: "https://linux.do")!,
@@ -131,6 +138,7 @@ struct FireLoginScreen: View {
                 .frame(maxHeight: .infinity)
 
                 FireLoginBottomBar(
+                    viewModel: viewModel,
                     webViewBox: webViewBox,
                     onSync: {
                         guard let webView = webViewBox.webView else {
@@ -187,6 +195,7 @@ private struct FireLoginTopBar: View {
 }
 
 private struct FireLoginBottomBar: View {
+    @ObservedObject var viewModel: FireAppViewModel
     @ObservedObject var webViewBox: FireWebViewBox
     let onSync: () -> Void
 
@@ -219,13 +228,26 @@ private struct FireLoginBottomBar: View {
 
                     Spacer(minLength: 8)
 
-                    Button("Sync Session", action: onSync)
+                    Button(action: onSync) {
+                        HStack(spacing: 8) {
+                            if viewModel.isSyncingLoginSession {
+                                ProgressView()
+                                    .tint(.white)
+                                    .controlSize(.small)
+                            } else {
+                                Image(systemName: "arrow.triangle.2.circlepath")
+                            }
+                            Text(viewModel.isSyncingLoginSession ? "同步中…" : "Sync Session")
+                        }
+                    }
                         .buttonStyle(FirePrimaryButtonStyle())
-                        .disabled(webViewBox.webView == nil)
+                        .disabled(webViewBox.webView == nil || viewModel.isSyncingLoginSession)
                 }
 
                 Text(
-                    webViewBox.isLoading
+                    viewModel.isSyncingLoginSession
+                        ? "正在读取当前页面 HTML、Cookie 和 CSRF，并把登录态同步回共享 core。"
+                        : webViewBox.isLoading
                         ? "页面还在跳转或加载，等状态稳定后再同步会更稳。"
                         : "完成登录后点击 Sync Session，把 cookie、bootstrap 和 CSRF 同步回共享 core。"
                 )
@@ -234,6 +256,43 @@ private struct FireLoginBottomBar: View {
                 .fixedSize(horizontal: false, vertical: true)
             }
         }
+    }
+}
+
+private struct FireLoginErrorBanner: View {
+    let message: String
+    let onDismiss: () -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(FireTheme.warning)
+                .font(.subheadline)
+
+            Text(message)
+                .font(.footnote)
+                .foregroundStyle(FireTheme.ink)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Spacer(minLength: 0)
+
+            Button(action: onDismiss) {
+                Image(systemName: "xmark")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(FireTheme.tertiaryInk)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .background(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(FireTheme.softSurface)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .strokeBorder(FireTheme.warning.opacity(0.28), lineWidth: 1)
+                )
+        )
     }
 }
 

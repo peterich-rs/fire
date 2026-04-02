@@ -156,7 +156,8 @@ final class FireTopicPresentationTests: XCTestCase {
                 tToken: "token",
                 forumSession: "forum",
                 cfClearance: "clearance",
-                csrfToken: "csrf"
+                csrfToken: "csrf",
+                platformCookies: []
             ),
             bootstrap: makeBootstrap(
                 currentUsername: nil,
@@ -191,7 +192,8 @@ final class FireTopicPresentationTests: XCTestCase {
                 tToken: nil,
                 forumSession: nil,
                 cfClearance: nil,
-                csrfToken: nil
+                csrfToken: nil,
+                platformCookies: []
             ),
             bootstrap: makeBootstrap(
                 currentUsername: "alice",

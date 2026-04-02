@@ -12,9 +12,11 @@
 - 认证：匿名可用，登录后返回带当前用户信息的预加载数据
 - 关键请求头：
   - `Accept: text/html`
+  - `Accept-Language: zh-CN,zh;q=0.9,en;q=0.8`
+  - `User-Agent: <浏览器风格 UA>`
 - 关键 HTML 元信息：
   - `<meta name="csrf-token" content="...">`
-  - `<meta name="shared_session_key" content="...">`
+  - `<meta name="shared_session_key" content="...">`，仅跨域长轮询场景通常可见；同域 `linux.do` 站点常为空
   - `<meta name="discourse-base-uri" content="...">`
   - Cloudflare Turnstile 容器上的 `data-sitekey="..."`
   - `id="data-discourse-setup"` 元素上的：

@@ -581,7 +581,9 @@ async fn refresh_bootstrap_uses_browser_user_agent_and_full_platform_cookies() {
     assert_eq!(requests.len(), 1);
     let wire_request = requests[0].to_ascii_lowercase();
     assert!(wire_request.contains("user-agent: mozilla/5.0 exact wkwebview"));
-    assert!(wire_request.contains("cookie: _t=token; _forum_session=forum; __cf_bm=browser-context"));
+    assert!(
+        wire_request.contains("cookie: _t=token; _forum_session=forum; __cf_bm=browser-context")
+    );
 }
 
 #[tokio::test]

@@ -82,7 +82,8 @@ fn same_site_scope(base_url: &Url, request_url: &Url) -> bool {
 }
 
 fn hosts_share_base_domain(base_host: Option<&str>, request_host: Option<&str>) -> bool {
-    let Some(base_host) = base_host.map(|value| value.trim_start_matches('.').to_ascii_lowercase()) else {
+    let Some(base_host) = base_host.map(|value| value.trim_start_matches('.').to_ascii_lowercase())
+    else {
         return false;
     };
     let Some(request_host) =
@@ -142,12 +143,19 @@ fn push_cookie_pair(pairs: &mut Vec<String>, name: &str, value: Option<&str>) {
     pairs.push(format!("{name}={value}"));
 }
 
-fn cookie_matches_url(cookie: &fire_models::PlatformCookie, base_url: &Url, request_url: &Url) -> bool {
+fn cookie_matches_url(
+    cookie: &fire_models::PlatformCookie,
+    base_url: &Url,
+    request_url: &Url,
+) -> bool {
     if request_url.scheme() != base_url.scheme() {
         return false;
     }
 
-    let Some(request_host) = request_url.host_str().map(|value| value.to_ascii_lowercase()) else {
+    let Some(request_host) = request_url
+        .host_str()
+        .map(|value| value.to_ascii_lowercase())
+    else {
         return false;
     };
     let base_host = base_url.host_str().map(|value| value.to_ascii_lowercase());

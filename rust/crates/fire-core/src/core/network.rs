@@ -234,7 +234,9 @@ impl FireCore {
             .header("Accept", "text/html")
             .body(RequestBody::empty())
             .map_err(FireCoreError::RequestBuild)?;
-        request.extensions_mut().insert(FireRequestProfile::HomeHtml);
+        request
+            .extensions_mut()
+            .insert(FireRequestProfile::HomeHtml);
         let trace_id = self
             .diagnostics
             .prepare_request_trace(operation, &mut request);

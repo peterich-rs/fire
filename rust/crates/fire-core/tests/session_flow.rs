@@ -140,9 +140,10 @@ async fn refresh_bootstrap_if_needed_refreshes_when_cross_origin_shared_session_
 </html>
 "#
     );
-    let app_server = common::TestServer::spawn(vec![common::raw_text_response(200, &response_html)])
-        .await
-        .expect("app server");
+    let app_server =
+        common::TestServer::spawn(vec![common::raw_text_response(200, &response_html)])
+            .await
+            .expect("app server");
     let core = FireCore::new(FireCoreConfig {
         base_url: app_server.base_url(),
         workspace_path: None,

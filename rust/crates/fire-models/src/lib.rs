@@ -1121,8 +1121,9 @@ fn merge_platform_cookie_batch(current: &mut Vec<PlatformCookie>, incoming: &[Pl
             continue;
         };
         current.retain(|existing| {
-            normalized_platform_cookie_key(existing)
-                .is_none_or(|existing_key| existing_key != (name.clone(), domain.clone(), path.clone()))
+            normalized_platform_cookie_key(existing).is_none_or(|existing_key| {
+                existing_key != (name.clone(), domain.clone(), path.clone())
+            })
         });
         if is_deleted_cookie_value(&cookie.value) {
             continue;

@@ -58,10 +58,11 @@ class FireWebViewLoginCoordinator(
         )
 
         FireCapturedLoginState(
-            currentUrl = webView.url,
+            currentUrl = currentUrl,
             username = usernameJson.decodeJsonStringOrNull(),
             csrfToken = csrfJson.decodeJsonStringOrNull(),
             homeHtml = htmlJson.decodeJsonStringOrNull(),
+            browserUserAgent = webView.settings.userAgentString?.takeIf { it.isNotBlank() },
             cookies = CookieManager.getInstance()
                 .getCookie(currentUrl)
                 .orEmpty()
@@ -98,13 +99,8 @@ class FireWebViewLoginCoordinator(
                     return@mapNotNull null
                 }
 
-                val name = trimmed.substring(0, separator)
-                if (name !in setOf("_t", "_forum_session", "cf_clearance")) {
-                    return@mapNotNull null
-                }
-
                 PlatformCookieState(
-                    name = name,
+                    name = trimmed.substring(0, separator),
                     value = trimmed.substring(separator + 1),
                     domain = domain,
                     path = "/",

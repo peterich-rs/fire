@@ -57,6 +57,7 @@ class FireSessionStore(
                     username = captured.username,
                     csrfToken = captured.csrfToken,
                     homeHtml = captured.homeHtml,
+                    browserUserAgent = captured.browserUserAgent,
                     cookies = captured.cookies,
                 ),
             )
@@ -183,5 +184,6 @@ data class FireCapturedLoginState(
     val username: String?,
     val csrfToken: String?,
     val homeHtml: String?,
+    val browserUserAgent: String?,
     val cookies: List<PlatformCookieState>,
 )

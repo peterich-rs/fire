@@ -52,6 +52,7 @@ impl From<LegacyPersistedSessionSnapshot> for SessionSnapshot {
         Self {
             cookies: value.cookies.into(),
             bootstrap: value.bootstrap.into(),
+            browser_user_agent: None,
         }
     }
 }
@@ -75,6 +76,7 @@ impl From<LegacyCookieSnapshot> for CookieSnapshot {
             forum_session: value.forum_session,
             cf_clearance: value.cf_clearance,
             csrf_token: value.csrf_token,
+            platform_cookies: Vec::new(),
         }
     }
 }
@@ -135,6 +137,8 @@ pub(crate) fn sanitize_snapshot_for_restore(
     normalize_option(&mut snapshot.cookies.forum_session);
     normalize_option(&mut snapshot.cookies.cf_clearance);
     normalize_option(&mut snapshot.cookies.csrf_token);
+    snapshot.cookies.refresh_known_platform_cookie_fields();
+    normalize_option(&mut snapshot.browser_user_agent);
 
     normalize_option(&mut snapshot.bootstrap.discourse_base_uri);
     normalize_option(&mut snapshot.bootstrap.shared_session_key);
@@ -170,6 +174,7 @@ pub(crate) fn sanitize_snapshot_for_restore(
 
 pub(crate) fn sanitize_snapshot_for_persist(mut snapshot: SessionSnapshot) -> SessionSnapshot {
     snapshot.cookies.clear_login_state(false);
+    snapshot.cookies.platform_cookies.clear();
     snapshot
 }
 
@@ -233,12 +238,14 @@ mod tests {
                 forum_session: Some("forum".into()),
                 cf_clearance: Some("clearance".into()),
                 csrf_token: Some("csrf".into()),
+                platform_cookies: Vec::new(),
             },
             bootstrap: BootstrapArtifacts {
                 base_url: "https://linux.do/".into(),
                 current_username: Some("alice".into()),
                 ..BootstrapArtifacts::default()
             },
+            browser_user_agent: Some("Mozilla/5.0".into()),
         });
 
         assert_eq!(sanitized.cookies.t_token, None);

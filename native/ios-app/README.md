@@ -29,12 +29,14 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
   - lets Rust initialize shared logs under `Application Support/Fire/logs`
   - wraps `syncLoginContext`, async `refreshBootstrap`, async `refreshCsrfToken`, async topic fetches, and async logout
 - `FireAuthCookieKeychainStore.swift`
-  - stores `_t`, `_forum_session`, and `cf_clearance` in Keychain using a host-scoped generic-password entry
-  - preserves `cf_clearance` across explicit logout so Cloudflare challenge state stays aligned with the host shell
+  - stores the full same-site LinuxDo browser cookie batch in Keychain using a host-scoped generic-password entry
+  - preserves non-login browser context cookies, including `cf_clearance`, across explicit logout so Cloudflare challenge state stays aligned with the host shell
 - `FireWebViewLoginCoordinator.swift`
-  - reads `WKWebView` cookies, `current-username`, `csrf-token`, and page HTML
+  - reads `WKWebView` cookies, `current-username`, `csrf-token`, page HTML, and the live browser user agent
+  - prefers homepage HTML fetched through the current WebView browser context before falling back to the visible page HTML, so the first shared bootstrap sync stays as close as possible to the browser-authenticated session
   - converts them into `LoginSyncState`
   - completes login by syncing platform cookies into Keychain and Rust, then backfilling bootstrap whenever the captured page leaves username/session metadata incomplete
+  - if the follow-up Rust bootstrap refresh is challenged by Cloudflare again, it clears the partial native session and keeps the WebView login flow open so the user can finish the challenge and sync again
   - clears host-side LinuxDo auth cookies after a successful explicit logout while preserving `cf_clearance`
 - `App/FireLoginWebView.swift`
   - presents the login browser as a full-screen flow
@@ -103,7 +105,7 @@ Workspace note:
 - Rust also mirrors readable tracing output into `Application Support/Fire/diagnostics/fire-readable.log`.
 - Rust can resolve relative paths inside that workspace for shared file ownership such as logs, caches, or exports.
 - The current persisted session file remains `Application Support/Fire/session.json`, but iOS now writes it as a redacted cache.
-- iOS keeps `_t`, `_forum_session`, and `cf_clearance` in Keychain and re-injects them into Rust during cold start before any authenticated refresh path runs.
+- iOS keeps the full same-site LinuxDo browser cookie batch in Keychain and re-injects it into Rust during cold start before any authenticated refresh path runs.
 
 Current UX note:
 

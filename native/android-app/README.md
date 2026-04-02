@@ -22,7 +22,7 @@ Current host-side app wiring lives under `src/main/java/com/fire/app/` plus `src
   - keeps release Android `.so` packaging separate from host bindgen input so Linux CI is not broken by the workspace `strip = true` release profile
   - writes variant-specific generated sources and JNI libraries into the Gradle build directory
 - `FireWebViewLoginCoordinator.kt`
-  - reads `WebView` cookies, `current-username`, `csrf-token`, and page HTML
+  - reads the current `WebView` cookie batch, `current-username`, `csrf-token`, page HTML, and the live browser user agent
   - converts them into `LoginSyncState`
   - completes login by syncing into Rust and backfilling bootstrap if the page is not reusable
 - `TopicPresentation.kt`

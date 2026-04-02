@@ -9,6 +9,7 @@ public struct FireCapturedLoginState: Sendable {
     public let username: String?
     public let csrfToken: String?
     public let homeHTML: String?
+    public let browserUserAgent: String?
     public let cookies: [PlatformCookieState]
 
     public init(
@@ -16,12 +17,14 @@ public struct FireCapturedLoginState: Sendable {
         username: String?,
         csrfToken: String?,
         homeHTML: String?,
+        browserUserAgent: String?,
         cookies: [PlatformCookieState]
     ) {
         self.currentURL = currentURL
         self.username = username
         self.csrfToken = csrfToken
         self.homeHTML = homeHTML
+        self.browserUserAgent = browserUserAgent
         self.cookies = cookies
     }
 }
@@ -96,6 +99,7 @@ public actor FireSessionStore {
                 username: captured.username,
                 csrfToken: captured.csrfToken,
                 homeHtml: captured.homeHTML,
+                browserUserAgent: captured.browserUserAgent,
                 cookies: captured.cookies
             )
         )
@@ -107,6 +111,14 @@ public actor FireSessionStore {
     public func applyPlatformCookies(_ cookies: [PlatformCookieState]) throws -> SessionState {
         try authCookieStore.save(FireAuthCookieSecrets(platformCookies: cookies))
         let state = try core.applyPlatformCookies(cookies: cookies)
+        try persistCurrentSession()
+        return state
+    }
+
+    @discardableResult
+    public func logoutLocal(preserveCfClearance: Bool = true) throws -> SessionState {
+        let state = try core.logoutLocal(preserveCfClearance: preserveCfClearance)
+        try authCookieStore.clear(preserveCfClearance: preserveCfClearance)
         try persistCurrentSession()
         return state
     }

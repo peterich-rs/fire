@@ -66,6 +66,7 @@ final class FireSessionSecurityTests: XCTestCase {
                 username: "alice",
                 csrfToken: "csrf-token",
                 homeHTML: nil,
+                browserUserAgent: nil,
                 cookies: [
                     makePlatformCookie(name: "_t", value: "token"),
                     makePlatformCookie(name: "_forum_session", value: "forum"),
@@ -84,6 +85,49 @@ final class FireSessionSecurityTests: XCTestCase {
         XCTAssertFalse(persisted.contains("\"forum\""))
         XCTAssertFalse(persisted.contains("\"clearance\""))
         XCTAssertFalse(persisted.contains("\"csrf-token\""))
+    }
+
+    @MainActor
+    func testCompleteLoginRollsBackPartialSessionWhenBootstrapRefreshIsChallenged() async {
+        let store = MockLoginSessionStore(
+            syncResult: partialAuthenticatedSession(),
+            refreshResult: .failure(FireUniFfiError.CloudflareChallenge),
+            logoutLocalResult: SessionState.placeholder()
+        )
+        let coordinator = FireWebViewLoginCoordinator(loginSessionStore: store)
+
+        do {
+            _ = try await coordinator.completeLogin(sampleCapturedLoginState())
+            XCTFail("expected completeLogin to surface CloudflareChallenge")
+        } catch let error as FireUniFfiError {
+            XCTAssertEqual(error, .CloudflareChallenge)
+        } catch {
+            XCTFail("unexpected error: \(error)")
+        }
+
+        let calls = await store.calls()
+        XCTAssertEqual(calls.syncLoginContextCount, 1)
+        XCTAssertEqual(calls.refreshBootstrapIfNeededCount, 1)
+        XCTAssertEqual(calls.logoutLocalArguments, [true])
+    }
+
+    @MainActor
+    func testCompleteLoginReturnsRefreshedSessionWhenBootstrapRefreshSucceeds() async throws {
+        let refreshed = readySession(username: "alice")
+        let store = MockLoginSessionStore(
+            syncResult: partialAuthenticatedSession(),
+            refreshResult: .success(refreshed),
+            logoutLocalResult: SessionState.placeholder()
+        )
+        let coordinator = FireWebViewLoginCoordinator(loginSessionStore: store)
+
+        let result = try await coordinator.completeLogin(sampleCapturedLoginState())
+
+        XCTAssertEqual(result, refreshed)
+        let calls = await store.calls()
+        XCTAssertEqual(calls.syncLoginContextCount, 1)
+        XCTAssertEqual(calls.refreshBootstrapIfNeededCount, 1)
+        XCTAssertTrue(calls.logoutLocalArguments.isEmpty)
     }
 
     private func makeSessionFileURL(name: String) throws -> URL {
@@ -131,6 +175,108 @@ final class FireSessionSecurityTests: XCTestCase {
         }
         """
     }
+
+    private func sampleCapturedLoginState() -> FireCapturedLoginState {
+        FireCapturedLoginState(
+            currentURL: "https://linux.do",
+            username: nil,
+            csrfToken: nil,
+            homeHTML: nil,
+            browserUserAgent: "Mozilla/5.0 Test Browser",
+            cookies: [
+                makePlatformCookie(name: "_t", value: "token"),
+                makePlatformCookie(name: "_forum_session", value: "forum"),
+            ]
+        )
+    }
+
+    private func partialAuthenticatedSession() -> SessionState {
+        SessionState(
+            cookies: CookieState(
+                tToken: "token",
+                forumSession: "forum",
+                cfClearance: "clearance",
+                csrfToken: nil,
+                platformCookies: []
+            ),
+            bootstrap: BootstrapState(
+                baseUrl: "https://linux.do",
+                discourseBaseUri: "/",
+                sharedSessionKey: nil,
+                currentUsername: nil,
+                currentUserId: nil,
+                notificationChannelPosition: nil,
+                longPollingBaseUrl: nil,
+                turnstileSitekey: nil,
+                topicTrackingStateMeta: nil,
+                preloadedJson: nil,
+                hasPreloadedData: false,
+                categories: [],
+                enabledReactionIds: ["heart"],
+                minPostLength: 1
+            ),
+            readiness: SessionReadinessState(
+                hasLoginCookie: true,
+                hasForumSession: true,
+                hasCloudflareClearance: true,
+                hasCsrfToken: false,
+                hasCurrentUser: false,
+                hasPreloadedData: false,
+                hasSharedSessionKey: false,
+                canReadAuthenticatedApi: true,
+                canWriteAuthenticatedApi: false,
+                canOpenMessageBus: false
+            ),
+            loginPhase: .cookiesCaptured,
+            hasLoginSession: true,
+            profileDisplayName: "会话已连接",
+            loginPhaseLabel: "账号信息同步中"
+        )
+    }
+
+    private func readySession(username: String) -> SessionState {
+        SessionState(
+            cookies: CookieState(
+                tToken: "token",
+                forumSession: "forum",
+                cfClearance: "clearance",
+                csrfToken: "csrf-token",
+                platformCookies: []
+            ),
+            bootstrap: BootstrapState(
+                baseUrl: "https://linux.do",
+                discourseBaseUri: "/",
+                sharedSessionKey: nil,
+                currentUsername: username,
+                currentUserId: 1,
+                notificationChannelPosition: 42,
+                longPollingBaseUrl: "https://linux.do",
+                turnstileSitekey: nil,
+                topicTrackingStateMeta: "{\"message_bus_last_id\":42}",
+                preloadedJson: "{\"currentUser\":{\"id\":1,\"username\":\"alice\"}}",
+                hasPreloadedData: true,
+                categories: [],
+                enabledReactionIds: ["heart"],
+                minPostLength: 1
+            ),
+            readiness: SessionReadinessState(
+                hasLoginCookie: true,
+                hasForumSession: true,
+                hasCloudflareClearance: true,
+                hasCsrfToken: true,
+                hasCurrentUser: true,
+                hasPreloadedData: true,
+                hasSharedSessionKey: false,
+                canReadAuthenticatedApi: true,
+                canWriteAuthenticatedApi: true,
+                canOpenMessageBus: true
+            ),
+            loginPhase: .ready,
+            hasLoginSession: true,
+            profileDisplayName: username,
+            loginPhaseLabel: "已就绪"
+        )
+    }
 }
 
 private final class InMemoryAuthCookieSecureStore: FireAuthCookieSecureStore, @unchecked Sendable {
@@ -157,5 +303,59 @@ private final class InMemoryAuthCookieSecureStore: FireAuthCookieSecureStore, @u
         lock.lock()
         defer { lock.unlock() }
         secrets = preserveCfClearance ? secrets.preservingCfClearanceOnly() : FireAuthCookieSecrets()
+    }
+}
+
+private actor MockLoginSessionStore: FireLoginSessionStoring {
+    struct Calls {
+        var syncLoginContextCount = 0
+        var refreshBootstrapIfNeededCount = 0
+        var logoutLocalArguments: [Bool] = []
+    }
+
+    private var recordedCalls = Calls()
+    private let syncResult: Result<SessionState, Error>
+    private let refreshResult: Result<SessionState, Error>
+    private let logoutLocalResult: Result<SessionState, Error>
+
+    init(
+        syncResult: SessionState,
+        refreshResult: Result<SessionState, Error>,
+        logoutLocalResult: SessionState
+    ) {
+        self.syncResult = .success(syncResult)
+        self.refreshResult = refreshResult
+        self.logoutLocalResult = .success(logoutLocalResult)
+    }
+
+    func calls() -> Calls {
+        recordedCalls
+    }
+
+    func restorePersistedSessionIfAvailable() async throws -> SessionState? {
+        nil
+    }
+
+    func syncLoginContext(_ captured: FireCapturedLoginState) async throws -> SessionState {
+        recordedCalls.syncLoginContextCount += 1
+        return try syncResult.get()
+    }
+
+    func refreshBootstrapIfNeeded() async throws -> SessionState {
+        recordedCalls.refreshBootstrapIfNeededCount += 1
+        return try refreshResult.get()
+    }
+
+    func logout() async throws -> SessionState {
+        SessionState.placeholder()
+    }
+
+    func logoutLocal(preserveCfClearance: Bool) async throws -> SessionState {
+        recordedCalls.logoutLocalArguments.append(preserveCfClearance)
+        return try logoutLocalResult.get()
+    }
+
+    func applyPlatformCookies(_ cookies: [PlatformCookieState]) async throws -> SessionState {
+        SessionState.placeholder()
     }
 }

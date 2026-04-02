@@ -162,6 +162,7 @@ pub struct CookieState {
     pub forum_session: Option<String>,
     pub cf_clearance: Option<String>,
     pub csrf_token: Option<String>,
+    pub platform_cookies: Vec<PlatformCookieState>,
 }
 
 impl From<CookieSnapshot> for CookieState {
@@ -171,6 +172,7 @@ impl From<CookieSnapshot> for CookieState {
             forum_session: value.forum_session,
             cf_clearance: value.cf_clearance,
             csrf_token: value.csrf_token,
+            platform_cookies: value.platform_cookies.into_iter().map(Into::into).collect(),
         }
     }
 }
@@ -182,6 +184,7 @@ impl From<CookieState> for CookieSnapshot {
             forum_session: value.forum_session,
             cf_clearance: value.cf_clearance,
             csrf_token: value.csrf_token,
+            platform_cookies: value.platform_cookies.into_iter().map(Into::into).collect(),
         }
     }
 }
@@ -288,6 +291,7 @@ pub struct LoginSyncState {
     pub username: Option<String>,
     pub csrf_token: Option<String>,
     pub home_html: Option<String>,
+    pub browser_user_agent: Option<String>,
     pub cookies: Vec<PlatformCookieState>,
 }
 
@@ -298,6 +302,7 @@ impl From<LoginSyncInput> for LoginSyncState {
             username: value.username,
             csrf_token: value.csrf_token,
             home_html: value.home_html,
+            browser_user_agent: value.browser_user_agent,
             cookies: value.cookies.into_iter().map(Into::into).collect(),
         }
     }
@@ -310,6 +315,7 @@ impl From<LoginSyncState> for LoginSyncInput {
             username: value.username,
             csrf_token: value.csrf_token,
             home_html: value.home_html,
+            browser_user_agent: value.browser_user_agent,
             cookies: value.cookies.into_iter().map(Into::into).collect(),
         }
     }

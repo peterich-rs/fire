@@ -2,7 +2,7 @@ mod common;
 
 use common::{sample_home_html, temp_session_file, temp_workspace_dir};
 use fire_core::{FireCore, FireCoreConfig, FireCoreError};
-use fire_models::{LoginPhase, LoginSyncInput, PlatformCookie};
+use fire_models::{BootstrapArtifacts, CookieSnapshot, LoginPhase, LoginSyncInput, PlatformCookie};
 use serde_json::Value;
 
 #[test]
@@ -47,6 +47,7 @@ fn sync_login_context_merges_platform_cookies_and_html() {
         home_html: Some(sample_home_html()),
         csrf_token: None,
         current_url: Some("https://linux.do/".into()),
+        browser_user_agent: None,
         cookies: vec![
             PlatformCookie {
                 name: "_t".into(),
@@ -88,6 +89,94 @@ async fn refresh_bootstrap_if_needed_skips_for_unauthenticated_session() {
 }
 
 #[tokio::test]
+async fn refresh_bootstrap_if_needed_skips_same_origin_session_without_shared_session_key() {
+    let dormant_server = common::TestServer::spawn(Vec::new())
+        .await
+        .expect("dormant server");
+    let core = FireCore::new(FireCoreConfig {
+        base_url: dormant_server.base_url(),
+        workspace_path: None,
+    })
+    .expect("core");
+    let _ = core.apply_cookies(CookieSnapshot {
+        t_token: Some("token".into()),
+        forum_session: Some("forum".into()),
+        ..CookieSnapshot::default()
+    });
+    let expected = core.apply_bootstrap(BootstrapArtifacts {
+        base_url: dormant_server.base_url(),
+        current_username: Some("alice".into()),
+        preloaded_json: Some("{\"currentUser\":{\"username\":\"alice\"}}".into()),
+        has_preloaded_data: true,
+        ..BootstrapArtifacts::default()
+    });
+
+    let snapshot = core
+        .refresh_bootstrap_if_needed()
+        .await
+        .expect("same-origin bootstrap refresh should be skipped");
+    let _ = dormant_server.shutdown().await;
+
+    assert_eq!(snapshot, expected);
+    assert!(snapshot.readiness().can_open_message_bus);
+}
+
+#[tokio::test]
+async fn refresh_bootstrap_if_needed_refreshes_when_cross_origin_shared_session_key_is_missing() {
+    let poll_base_url = "https://poll.linux.do";
+    let response_html = format!(
+        r#"
+<!doctype html>
+<html>
+  <head>
+    <meta name="csrf-token" content="csrf-token">
+    <meta name="shared_session_key" content="shared-session">
+    <meta name="current-username" content="alice">
+    <meta name="discourse-base-uri" content="/">
+  </head>
+  <body>
+    <div id="data-discourse-setup" data-preloaded="{{&quot;currentUser&quot;:{{&quot;id&quot;:1,&quot;username&quot;:&quot;alice&quot;,&quot;notification_channel_position&quot;:42}},&quot;siteSettings&quot;:{{&quot;long_polling_base_url&quot;:&quot;{poll_base_url}&quot;}}}}"></div>
+  </body>
+</html>
+"#
+    );
+    let app_server =
+        common::TestServer::spawn(vec![common::raw_text_response(200, &response_html)])
+            .await
+            .expect("app server");
+    let core = FireCore::new(FireCoreConfig {
+        base_url: app_server.base_url(),
+        workspace_path: None,
+    })
+    .expect("core");
+    let _ = core.apply_cookies(CookieSnapshot {
+        t_token: Some("token".into()),
+        forum_session: Some("forum".into()),
+        ..CookieSnapshot::default()
+    });
+    let _ = core.apply_bootstrap(BootstrapArtifacts {
+        base_url: app_server.base_url(),
+        current_username: Some("alice".into()),
+        long_polling_base_url: Some(poll_base_url.into()),
+        preloaded_json: Some("{\"currentUser\":{\"username\":\"alice\"}}".into()),
+        has_preloaded_data: true,
+        ..BootstrapArtifacts::default()
+    });
+
+    let snapshot = core
+        .refresh_bootstrap_if_needed()
+        .await
+        .expect("cross-origin bootstrap refresh should run");
+    let _ = app_server.shutdown().await;
+
+    assert_eq!(
+        snapshot.bootstrap.shared_session_key.as_deref(),
+        Some("shared-session")
+    );
+    assert!(snapshot.readiness().can_open_message_bus);
+}
+
+#[tokio::test]
 async fn refresh_csrf_token_if_needed_skips_when_token_exists() {
     let core = FireCore::new(FireCoreConfig::default()).expect("core");
     let _ = core.sync_login_context(LoginSyncInput {
@@ -95,6 +184,7 @@ async fn refresh_csrf_token_if_needed_skips_when_token_exists() {
         home_html: None,
         csrf_token: Some("csrf-token".into()),
         current_url: Some("https://linux.do/".into()),
+        browser_user_agent: None,
         cookies: vec![
             PlatformCookie {
                 name: "_t".into(),
@@ -128,6 +218,7 @@ fn session_can_roundtrip_through_json_export_and_restore() {
         home_html: Some(sample_home_html()),
         csrf_token: None,
         current_url: Some("https://linux.do/".into()),
+        browser_user_agent: None,
         cookies: vec![
             PlatformCookie {
                 name: "_t".into(),
@@ -159,6 +250,7 @@ fn redacted_session_export_strips_auth_and_csrf_tokens() {
         home_html: Some(sample_home_html()),
         csrf_token: Some("csrf-token".into()),
         current_url: Some("https://linux.do/".into()),
+        browser_user_agent: None,
         cookies: vec![
             PlatformCookie {
                 name: "_t".into(),
@@ -377,6 +469,7 @@ fn session_can_roundtrip_through_file_persistence() {
         home_html: Some(sample_home_html()),
         csrf_token: Some("csrf-token".into()),
         current_url: Some("https://linux.do/".into()),
+        browser_user_agent: None,
         cookies: vec![
             PlatformCookie {
                 name: "_t".into(),
@@ -418,6 +511,7 @@ fn redacted_session_can_roundtrip_through_file_persistence() {
         home_html: Some(sample_home_html()),
         csrf_token: Some("csrf-token".into()),
         current_url: Some("https://linux.do/".into()),
+        browser_user_agent: None,
         cookies: vec![
             PlatformCookie {
                 name: "_t".into(),

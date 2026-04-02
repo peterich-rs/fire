@@ -8,7 +8,7 @@
 
 - 进入长轮询前，当前客户端通常会先从首页 `GET /` 提取：
   - `siteSettings.long_polling_base_url`
-  - HTML `<meta name="shared_session_key" ...>`
+  - HTML `<meta name="shared_session_key" ...>`，仅跨域长轮询场景需要；同域 `linux.do` 常为空
   - `topicTrackingStateMeta`
   - `currentUser.notification_channel_position`
 - 前台 `clientId` 是单例，并在上传、Presence、MessageBus 之间复用

@@ -470,6 +470,7 @@ async fn logout_remote_retries_after_bad_csrf() {
         home_html: Some(sample_home_html()),
         csrf_token: Some("stale-csrf".into()),
         current_url: Some(server.base_url()),
+        browser_user_agent: None,
         cookies: vec![
             PlatformCookie {
                 name: "_t".into(),
@@ -511,13 +512,78 @@ async fn refresh_bootstrap_fetches_home_html() {
     .expect("core");
 
     let snapshot = core.refresh_bootstrap().await.expect("bootstrap refresh");
-    let _ = server.shutdown().await;
+    let requests = server.shutdown_with_requests().await;
+    let trace = core.network_trace_detail(1).expect("network trace detail");
 
     assert_eq!(
         snapshot.bootstrap.current_username.as_deref(),
         Some("alice")
     );
     assert!(snapshot.bootstrap.has_preloaded_data);
+    assert_eq!(requests.len(), 1);
+
+    let wire_request = requests[0].to_ascii_lowercase();
+    assert!(wire_request.contains("get / http/1.1"));
+    assert!(wire_request.contains("accept: text/html"));
+    assert!(wire_request.contains("accept-language: zh-cn,zh;q=0.9,en;q=0.8"));
+    assert!(wire_request.contains("user-agent: mozilla/5.0"));
+
+    assert!(trace
+        .request_headers
+        .iter()
+        .any(|header| header.name == "user-agent" && header.value.starts_with("Mozilla/5.0")));
+    assert!(trace.request_headers.iter().any(|header| {
+        header.name == "accept-language" && header.value == "zh-CN,zh;q=0.9,en;q=0.8"
+    }));
+}
+
+#[tokio::test]
+async fn refresh_bootstrap_uses_browser_user_agent_and_full_platform_cookies() {
+    let responses = vec![raw_text_response(200, &sample_home_html())];
+    let server = TestServer::spawn(responses).await.expect("server");
+    let core = FireCore::new(FireCoreConfig {
+        base_url: server.base_url(),
+        workspace_path: None,
+    })
+    .expect("core");
+
+    let _ = core.sync_login_context(LoginSyncInput {
+        username: Some("alice".into()),
+        home_html: None,
+        csrf_token: None,
+        current_url: Some(server.base_url()),
+        browser_user_agent: Some("Mozilla/5.0 Exact WKWebView".into()),
+        cookies: vec![
+            PlatformCookie {
+                name: "_t".into(),
+                value: "token".into(),
+                domain: None,
+                path: Some("/".into()),
+            },
+            PlatformCookie {
+                name: "_forum_session".into(),
+                value: "forum".into(),
+                domain: None,
+                path: Some("/".into()),
+            },
+            PlatformCookie {
+                name: "__cf_bm".into(),
+                value: "browser-context".into(),
+                domain: None,
+                path: Some("/".into()),
+            },
+        ],
+    });
+
+    let _ = core.refresh_bootstrap().await.expect("bootstrap refresh");
+    let requests = server.shutdown_with_requests().await;
+
+    assert_eq!(requests.len(), 1);
+    let wire_request = requests[0].to_ascii_lowercase();
+    assert!(wire_request.contains("user-agent: mozilla/5.0 exact wkwebview"));
+    assert!(
+        wire_request.contains("cookie: _t=token; _forum_session=forum; __cf_bm=browser-context")
+    );
 }
 
 #[tokio::test]
@@ -566,6 +632,7 @@ async fn create_reply_refreshes_csrf_and_parses_wrapped_post_payload() {
         home_html: None,
         csrf_token: None,
         current_url: Some(server.base_url()),
+        browser_user_agent: None,
         cookies: vec![
             PlatformCookie {
                 name: "_t".into(),
@@ -627,6 +694,7 @@ async fn create_reply_surfaces_pending_review_state() {
         home_html: Some(sample_home_html()),
         csrf_token: Some("csrf-token".into()),
         current_url: Some(server.base_url()),
+        browser_user_agent: None,
         cookies: vec![
             PlatformCookie {
                 name: "_t".into(),
@@ -677,6 +745,7 @@ async fn create_reply_surfaces_cloudflare_challenge_error() {
         home_html: None,
         csrf_token: Some("csrf".into()),
         current_url: Some(server.base_url()),
+        browser_user_agent: None,
         cookies: vec![
             PlatformCookie {
                 name: "_t".into(),
@@ -736,6 +805,7 @@ async fn toggle_post_reaction_parses_reaction_update_payload() {
         home_html: Some(sample_home_html()),
         csrf_token: Some("csrf-token".into()),
         current_url: Some(server.base_url()),
+        browser_user_agent: None,
         cookies: vec![
             PlatformCookie {
                 name: "_t".into(),
@@ -810,6 +880,7 @@ async fn toggle_post_reaction_encodes_reaction_path_segment() {
         home_html: Some(sample_home_html()),
         csrf_token: Some("csrf-token".into()),
         current_url: Some(server.base_url()),
+        browser_user_agent: None,
         cookies: vec![
             PlatformCookie {
                 name: "_t".into(),
@@ -860,6 +931,7 @@ async fn like_post_uses_post_actions_endpoint() {
         home_html: Some(sample_home_html()),
         csrf_token: Some("csrf-token".into()),
         current_url: Some(server.base_url()),
+        browser_user_agent: None,
         cookies: vec![
             PlatformCookie {
                 name: "_t".into(),

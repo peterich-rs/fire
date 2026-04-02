@@ -356,6 +356,7 @@ private struct FireRequestTraceDetailView: View {
     let traceID: UInt64
 
     @State private var selectedTab: DetailTab = .overview
+    @State private var showCopiedToast = false
 
     enum DetailTab: String, CaseIterable {
         case overview = "概要"
@@ -394,6 +395,15 @@ private struct FireRequestTraceDetailView: View {
                         }
                     }
                 }
+                .toolbar {
+                    ToolbarItem(placement: .navigationBarTrailing) {
+                        Button {
+                            copyToClipboard(fullHTTPText(detail: detail))
+                        } label: {
+                            Label("复制全部", systemImage: "doc.on.doc")
+                        }
+                    }
+                }
             } else {
                 ProgressView("加载请求详情…")
                     .task {
@@ -403,6 +413,64 @@ private struct FireRequestTraceDetailView: View {
         }
         .navigationTitle("请求详情")
         .navigationBarTitleDisplayMode(.inline)
+        .overlay(alignment: .bottom) {
+            if showCopiedToast {
+                Text("已复制")
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 10)
+                    .background(Color(.label).opacity(0.85), in: Capsule())
+                    .padding(.bottom, 24)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .allowsHitTesting(false)
+            }
+        }
+        .animation(.spring(duration: 0.3), value: showCopiedToast)
+    }
+
+    // MARK: - Copy Helper
+
+    private func copyToClipboard(_ text: String) {
+        UIPasteboard.general.string = text
+        guard !showCopiedToast else { return }
+        withAnimation { showCopiedToast = true }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.8) {
+            withAnimation { showCopiedToast = false }
+        }
+    }
+
+    // MARK: - Full Request Copy
+
+    private func fullHTTPText(detail: NetworkTraceDetailState) -> String {
+        var lines: [String] = []
+
+        lines.append("\(detail.summary.method) \(detail.summary.url) HTTP/1.1")
+
+        if !detail.requestHeaders.isEmpty {
+            for h in detail.requestHeaders {
+                lines.append("\(h.name): \(h.value)")
+            }
+        }
+
+        lines.append("")
+
+        if let statusCode = detail.summary.statusCode {
+            lines.append("HTTP/1.1 \(statusCode)")
+        }
+
+        if !detail.responseHeaders.isEmpty {
+            for h in detail.responseHeaders {
+                lines.append("\(h.name): \(h.value)")
+            }
+        }
+
+        if let body = detail.responseBody, !body.isEmpty {
+            lines.append("")
+            lines.append(body)
+        }
+
+        return lines.joined(separator: "\n")
     }
 
     // MARK: - Summary Bar (always visible at top)
@@ -492,7 +560,16 @@ private struct FireRequestTraceDetailView: View {
 
     private func requestContent(detail: NetworkTraceDetailState) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            sectionHeader("Headers (\(detail.requestHeaders.count))")
+            sectionHeader(
+                "Headers (\(detail.requestHeaders.count))",
+                copyAction: detail.requestHeaders.isEmpty ? nil : {
+                    copyToClipboard(
+                        detail.requestHeaders
+                            .map { "\($0.name): \($0.value)" }
+                            .joined(separator: "\n")
+                    )
+                }
+            )
 
             if detail.requestHeaders.isEmpty {
                 emptyNote("无请求 headers")
@@ -510,7 +587,16 @@ private struct FireRequestTraceDetailView: View {
 
     private func responseContent(detail: NetworkTraceDetailState) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            sectionHeader("Headers (\(detail.responseHeaders.count))")
+            sectionHeader(
+                "Headers (\(detail.responseHeaders.count))",
+                copyAction: detail.responseHeaders.isEmpty ? nil : {
+                    copyToClipboard(
+                        detail.responseHeaders
+                            .map { "\($0.name): \($0.value)" }
+                            .joined(separator: "\n")
+                    )
+                }
+            )
 
             if detail.responseHeaders.isEmpty {
                 emptyNote("无响应 headers")
@@ -518,7 +604,13 @@ private struct FireRequestTraceDetailView: View {
                 headersBlock(detail.responseHeaders)
             }
 
-            sectionHeader("Body")
+            sectionHeader(
+                "Body",
+                copyAction: {
+                    guard let body = detail.responseBody, !body.isEmpty else { return }
+                    copyToClipboard(body)
+                }
+            )
 
             if let responseBody = detail.responseBody, !responseBody.isEmpty {
                 if detail.responseBodyTruncated {
@@ -626,6 +718,15 @@ private struct FireRequestTraceDetailView: View {
                 }
             }
             .padding(.vertical, 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+            .contextMenu {
+                Button {
+                    copyToClipboard(value)
+                } label: {
+                    Label("复制", systemImage: "doc.on.doc")
+                }
+            }
 
             Divider()
         }
@@ -634,16 +735,34 @@ private struct FireRequestTraceDetailView: View {
     private func headersBlock(_ headers: [NetworkTraceHeaderState]) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             ForEach(Array(headers.enumerated()), id: \.offset) { _, header in
-                Text("\(header.name): ")
+                (Text("\(header.name): ")
                     .font(.system(.caption, design: .monospaced, weight: .semibold))
                     .foregroundStyle(.secondary)
-                +
-                Text(header.value)
+                + Text(header.value)
                     .font(.system(.caption, design: .monospaced))
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(.primary))
+                .textSelection(.enabled)
+                .padding(.vertical, 3)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+                .contextMenu {
+                    Button {
+                        copyToClipboard("\(header.name): \(header.value)")
+                    } label: {
+                        Label("复制 Header", systemImage: "doc.on.doc")
+                    }
+                    Button {
+                        copyToClipboard(header.value)
+                    } label: {
+                        Label("复制值", systemImage: "doc.on.clipboard")
+                    }
+                    Button {
+                        copyToClipboard(header.name)
+                    } label: {
+                        Label("复制名称", systemImage: "character.cursor.ibeam")
+                    }
+                }
             }
-            .textSelection(.enabled)
-            .padding(.vertical, 3)
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -651,12 +770,25 @@ private struct FireRequestTraceDetailView: View {
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 
-    private func sectionHeader(_ title: String) -> some View {
-        Text(title)
-            .font(.subheadline.weight(.semibold))
-            .foregroundStyle(.secondary)
-            .padding(.top, 16)
-            .padding(.bottom, 6)
+    private func sectionHeader(_ title: String, copyAction: (() -> Void)? = nil) -> some View {
+        HStack(alignment: .center) {
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.secondary)
+
+            Spacer()
+
+            if let copyAction {
+                Button(action: copyAction) {
+                    Image(systemName: "doc.on.doc")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.top, 16)
+        .padding(.bottom, 6)
     }
 
     private func emptyNote(_ text: String) -> some View {

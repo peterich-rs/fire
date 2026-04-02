@@ -4,6 +4,7 @@ use serde::Deserialize;
 use tracing::{debug, info, warn};
 
 use super::{
+    messagebus::message_bus_requires_shared_session_key,
     network::{classify_http_status_error, expect_success, header_value, is_bad_csrf_body},
     FireCore,
 };
@@ -19,9 +20,11 @@ impl FireCore {
     pub async fn refresh_bootstrap_if_needed(&self) -> Result<SessionSnapshot, FireCoreError> {
         let current = self.snapshot();
         let readiness = current.readiness();
+        let requires_shared_session_key =
+            message_bus_requires_shared_session_key(&self.base_url, &current.bootstrap)?;
         let needs_bootstrap_refresh = !current.bootstrap.has_preloaded_data
             || !readiness.has_current_user
-            || !readiness.has_shared_session_key;
+            || (requires_shared_session_key && !readiness.has_shared_session_key);
 
         if readiness.can_read_authenticated_api && needs_bootstrap_refresh {
             self.refresh_bootstrap().await

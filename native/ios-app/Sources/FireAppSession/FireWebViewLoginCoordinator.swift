@@ -1,12 +1,27 @@
 import Foundation
 import WebKit
 
+protocol FireLoginSessionStoring: Sendable {
+    func restorePersistedSessionIfAvailable() async throws -> SessionState?
+    func syncLoginContext(_ captured: FireCapturedLoginState) async throws -> SessionState
+    func refreshBootstrapIfNeeded() async throws -> SessionState
+    func logout() async throws -> SessionState
+    func logoutLocal(preserveCfClearance: Bool) async throws -> SessionState
+    func applyPlatformCookies(_ cookies: [PlatformCookieState]) async throws -> SessionState
+}
+
+extension FireSessionStore: FireLoginSessionStoring {}
+
 @MainActor
 public final class FireWebViewLoginCoordinator {
-    private let sessionStore: FireSessionStore
+    private let sessionStore: any FireLoginSessionStoring
 
     public init(sessionStore: FireSessionStore) {
         self.sessionStore = sessionStore
+    }
+
+    init(loginSessionStore: any FireLoginSessionStoring) {
+        self.sessionStore = loginSessionStore
     }
 
     public func restorePersistedSessionIfAvailable() async throws -> SessionState? {
@@ -15,8 +30,25 @@ public final class FireWebViewLoginCoordinator {
 
     public func completeLogin(from webView: WKWebView) async throws -> SessionState {
         let captured = try await captureLoginState(from: webView)
+        return try await completeLogin(captured)
+    }
+
+    func completeLogin(_ captured: FireCapturedLoginState) async throws -> SessionState {
         _ = try await sessionStore.syncLoginContext(captured)
-        return try await sessionStore.refreshBootstrapIfNeeded()
+
+        do {
+            return try await sessionStore.refreshBootstrapIfNeeded()
+        } catch {
+            guard case FireUniFfiError.CloudflareChallenge = error else {
+                throw error
+            }
+
+            // Don't keep a partially synced native session around when bootstrap
+            // refresh is still challenged. The WebView login flow remains open so
+            // the user can complete the challenge and retry Sync.
+            _ = try? await sessionStore.logoutLocal(preserveCfClearance: true)
+            throw error
+        }
     }
 
     public func logout() async throws -> SessionState {
@@ -47,22 +79,33 @@ public final class FireWebViewLoginCoordinator {
             """,
             in: webView
         )
-        async let html = readStringJavaScript(
+        async let currentPageHTML = readStringJavaScript(
             script: "document.documentElement.outerHTML",
+            in: webView
+        )
+        async let homeHTML = fetchHomeHTML(in: webView)
+        async let browserUserAgent = readStringJavaScript(
+            script: "navigator.userAgent",
             in: webView
         )
         async let cookies = relevantCookies(from: webView)
 
         let capturedUsername = try await username
         let capturedCsrfToken = try await csrfToken
-        let capturedHTML = try await html
+        let capturedCurrentPageHTML = try await currentPageHTML
+        let capturedHomeHTML = try await homeHTML
+        let capturedBrowserUserAgent = try await browserUserAgent
         let capturedCookies = try await cookies
 
         return FireCapturedLoginState(
             currentURL: currentURL,
             username: capturedUsername,
             csrfToken: capturedCsrfToken,
-            homeHTML: capturedHTML,
+            homeHTML: preferredBootstrapHTML(
+                browserFetchedHomeHTML: capturedHomeHTML,
+                currentPageHTML: capturedCurrentPageHTML
+            ),
+            browserUserAgent: capturedBrowserUserAgent,
             cookies: capturedCookies
         )
     }
@@ -81,7 +124,7 @@ public final class FireWebViewLoginCoordinator {
     private func relevantCookies(from store: WKHTTPCookieStore) async throws -> [PlatformCookieState] {
         let allCookies = try await httpCookies(from: store)
         return allCookies.compactMap { cookie in
-            guard ["_t", "_forum_session", "cf_clearance"].contains(cookie.name) else {
+            guard cookie.domain.range(of: "linux.do", options: .caseInsensitive) != nil else {
                 return nil
             }
 
@@ -92,6 +135,29 @@ public final class FireWebViewLoginCoordinator {
                 path: cookie.path
             )
         }
+    }
+
+    private func fetchHomeHTML(in webView: WKWebView) async throws -> String? {
+        let value = try await webView.callAsyncJavaScript(
+            """
+            const response = await fetch("/", {
+              method: "GET",
+              credentials: "include",
+              headers: { "Accept": "text/html" },
+              cache: "no-store",
+              redirect: "follow"
+            });
+            return await response.text();
+            """,
+            arguments: [:],
+            in: nil,
+            contentWorld: .page
+        )
+
+        guard let string = value as? String, !string.isEmpty, string != "null" else {
+            return nil
+        }
+        return string
     }
 
     private func httpCookies(from store: WKHTTPCookieStore) async throws -> [HTTPCookie] {
@@ -147,5 +213,42 @@ public final class FireWebViewLoginCoordinator {
             return nil
         }
         return string
+    }
+
+    private func preferredBootstrapHTML(
+        browserFetchedHomeHTML: String?,
+        currentPageHTML: String?
+    ) -> String? {
+        let homeScore = bootstrapHTMLScore(browserFetchedHomeHTML)
+        let currentScore = bootstrapHTMLScore(currentPageHTML)
+        if homeScore >= currentScore, let browserFetchedHomeHTML, !browserFetchedHomeHTML.isEmpty {
+            return browserFetchedHomeHTML
+        }
+        return currentPageHTML
+    }
+
+    private func bootstrapHTMLScore(_ html: String?) -> Int {
+        guard let html else {
+            return 0
+        }
+        let normalized = html.lowercased()
+        var score = 0
+        if normalized.contains("id=\"data-discourse-setup\"")
+            || normalized.contains("id='data-discourse-setup'")
+            || normalized.contains("data-preloaded")
+        {
+            score += 4
+        }
+        if normalized.contains("meta name=\"current-username\"")
+            || normalized.contains("meta name='current-username'")
+        {
+            score += 2
+        }
+        if normalized.contains("meta name=\"csrf-token\"")
+            || normalized.contains("meta name='csrf-token'")
+        {
+            score += 1
+        }
+        return score
     }
 }

@@ -974,7 +974,7 @@ fn message_bus_poll_base_url(
     }
 }
 
-fn message_bus_requires_shared_session_key(
+pub(crate) fn message_bus_requires_shared_session_key(
     base_url: &Url,
     bootstrap: &BootstrapArtifacts,
 ) -> Result<bool, FireCoreError> {

@@ -445,7 +445,13 @@ class MainActivity : AppCompatActivity() {
 
     private fun placeholderSession(): SessionState {
         return SessionState(
-            cookies = CookieState(null, null, null, null),
+            cookies = CookieState(
+                tToken = null,
+                forumSession = null,
+                cfClearance = null,
+                csrfToken = null,
+                platformCookies = emptyList(),
+            ),
             bootstrap = BootstrapState(
                 baseUrl = "https://linux.do",
                 discourseBaseUri = null,

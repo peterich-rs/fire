@@ -277,24 +277,48 @@ struct FireTopicDetailView: View {
             Text(topic.title)
                 .font(.title3.weight(.bold))
 
-            HStack(spacing: 6) {
+            FlowLayout(spacing: 6, fallbackWidth: max(UIScreen.main.bounds.width - 40, 200)) {
                 if let category {
                     let accent = Color(fireHex: category.colorHex) ?? FireTheme.accent
-                    FireTopicPill(
-                        label: category.displayName,
-                        backgroundColor: accent.opacity(0.12),
-                        foregroundColor: Color(fireHex: category.textColorHex) ?? accent
-                    )
+                    NavigationLink {
+                        FireFilteredTopicListView(
+                            viewModel: viewModel,
+                            title: category.displayName,
+                            categorySlug: category.slug,
+                            categoryId: category.id,
+                            parentCategorySlug: nil,
+                            tag: nil
+                        )
+                    } label: {
+                        FireTopicPill(
+                            label: category.displayName,
+                            backgroundColor: accent.opacity(0.12),
+                            foregroundColor: Color(fireHex: category.textColorHex) ?? accent
+                        )
+                    }
+                    .buttonStyle(.plain)
                 }
 
-                ForEach(row.tagNames, id: \.self) { tag in
-                    Text("#\(tag)")
-                        .font(.caption2.weight(.medium))
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 3)
-                        .background(Color(.tertiarySystemFill))
-                        .clipShape(Capsule())
+                ForEach(row.tagNames, id: \.self) { tagName in
+                    NavigationLink {
+                        FireFilteredTopicListView(
+                            viewModel: viewModel,
+                            title: "#\(tagName)",
+                            categorySlug: nil,
+                            categoryId: nil,
+                            parentCategorySlug: nil,
+                            tag: tagName
+                        )
+                    } label: {
+                        Text("#\(tagName)")
+                            .font(.caption2.weight(.medium))
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 3)
+                            .background(Color(.tertiarySystemFill))
+                            .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
                 }
 
                 ForEach(row.statusLabels, id: \.self) { label in

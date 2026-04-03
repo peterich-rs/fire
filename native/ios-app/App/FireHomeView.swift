@@ -3,6 +3,8 @@ import SwiftUI
 struct FireHomeView: View {
     @ObservedObject var viewModel: FireAppViewModel
     @Namespace private var feedSelectionNamespace
+    @State private var showCategoryBrowser = false
+    @State private var showTagPicker = false
 
     private var sessionTitle: String {
         viewModel.session.readiness.canReadAuthenticatedApi
@@ -10,10 +12,16 @@ struct FireHomeView: View {
             : "Fire"
     }
 
+    private var parentCategories: [FireTopicCategoryPresentation] {
+        viewModel.allCategories().filter { $0.parentCategoryId == nil }
+    }
+
     var body: some View {
         NavigationStack {
             List {
+                categoryTabSection
                 feedSelectorSection
+                tagChipsSection
 
                 if viewModel.isLoadingTopics && viewModel.topicRows.isEmpty {
                     loadingSection
@@ -37,7 +45,71 @@ struct FireHomeView: View {
             .refreshable {
                 await refreshTopics()
             }
+            .sheet(isPresented: $showCategoryBrowser) {
+                FireCategoryBrowserSheet(viewModel: viewModel)
+            }
+            .sheet(isPresented: $showTagPicker) {
+                FireTagPickerSheet(viewModel: viewModel)
+            }
         }
+    }
+
+    // MARK: - Category Tabs
+
+    private var categoryTabSection: some View {
+        Section {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    categoryTab(label: "全部", categoryId: nil, color: FireTheme.accent)
+
+                    ForEach(parentCategories, id: \.id) { category in
+                        categoryTab(
+                            label: category.displayName,
+                            categoryId: category.id,
+                            color: Color(fireHex: category.colorHex) ?? FireTheme.accent
+                        )
+                    }
+
+                    Button {
+                        showCategoryBrowser = true
+                    } label: {
+                        Image(systemName: "square.grid.2x2")
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(FireTheme.subtleInk)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 7)
+                            .background(
+                                Capsule().fill(Color(.tertiarySystemFill))
+                            )
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(.vertical, 2)
+            }
+        }
+        .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 4, trailing: 16))
+        .listRowSeparator(.hidden)
+        .listRowBackground(Color.clear)
+    }
+
+    private func categoryTab(label: String, categoryId: UInt64?, color: Color) -> some View {
+        let isSelected = viewModel.selectedHomeCategoryId == categoryId
+        return Button {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                viewModel.selectHomeCategory(categoryId)
+            }
+        } label: {
+            Text(label)
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(isSelected ? Color.white : Color(.label))
+                .padding(.horizontal, 14)
+                .padding(.vertical, 7)
+                .background(
+                    Capsule().fill(isSelected ? color : Color(.tertiarySystemFill))
+                )
+                .lineLimit(1)
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - Feed Selector
@@ -53,14 +125,14 @@ struct FireHomeView: View {
                             }
                         } label: {
                             Text(kind.title)
-                                .font(.subheadline.weight(.medium))
+                                .font(.caption.weight(.medium))
                                 .foregroundStyle(
                                     viewModel.selectedTopicKind == kind
                                         ? Color.white
-                                        : Color(.label)
+                                        : Color(.secondaryLabel)
                                 )
-                                .padding(.horizontal, 14)
-                                .padding(.vertical, 7)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 6)
                                 .background(
                                     Capsule()
                                         .fill(
@@ -76,9 +148,71 @@ struct FireHomeView: View {
                 .padding(.vertical, 2)
             }
         }
-        .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
+        .listRowInsets(EdgeInsets(top: 2, leading: 16, bottom: 4, trailing: 16))
         .listRowSeparator(.hidden)
         .listRowBackground(Color.clear)
+    }
+
+    // MARK: - Tag Chips
+
+    @ViewBuilder
+    private var tagChipsSection: some View {
+        if !viewModel.selectedHomeTags.isEmpty || !viewModel.topTags().isEmpty {
+            Section {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        ForEach(viewModel.selectedHomeTags, id: \.self) { tag in
+                            selectedTagChip(tag)
+                        }
+
+                        Button {
+                            showTagPicker = true
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "plus")
+                                    .font(.caption2.weight(.bold))
+                                Text("标签")
+                                    .font(.caption.weight(.medium))
+                            }
+                            .foregroundStyle(FireTheme.accent)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 5)
+                            .background(
+                                Capsule()
+                                    .strokeBorder(FireTheme.accent.opacity(0.3), lineWidth: 1)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(.vertical, 2)
+                }
+            }
+            .listRowInsets(EdgeInsets(top: 2, leading: 16, bottom: 6, trailing: 16))
+            .listRowSeparator(.hidden)
+            .listRowBackground(Color.clear)
+        }
+    }
+
+    private func selectedTagChip(_ tag: String) -> some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                viewModel.removeHomeTag(tag)
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Text("#\(tag)")
+                    .font(.caption.weight(.medium))
+                Image(systemName: "xmark")
+                    .font(.system(size: 8, weight: .bold))
+            }
+            .foregroundStyle(FireTheme.accent)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(
+                Capsule().fill(FireTheme.accent.opacity(0.12))
+            )
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - Topic List

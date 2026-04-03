@@ -119,7 +119,15 @@ pub struct BootstrapArtifacts {
     pub preloaded_json: Option<String>,
     pub has_preloaded_data: bool,
     #[serde(default)]
+    pub has_site_metadata: bool,
+    #[serde(default)]
+    pub top_tags: Vec<String>,
+    #[serde(default)]
+    pub can_tag_topics: bool,
+    #[serde(default)]
     pub categories: Vec<TopicCategory>,
+    #[serde(default)]
+    pub has_site_settings: bool,
     #[serde(default = "default_enabled_reaction_ids")]
     pub enabled_reaction_ids: Vec<String>,
     #[serde(default = "default_min_post_length")]
@@ -140,7 +148,11 @@ impl Default for BootstrapArtifacts {
             topic_tracking_state_meta: None,
             preloaded_json: None,
             has_preloaded_data: false,
+            has_site_metadata: false,
+            top_tags: Vec::new(),
+            can_tag_topics: false,
             categories: Vec::new(),
+            has_site_settings: false,
             enabled_reaction_ids: default_enabled_reaction_ids(),
             min_post_length: default_min_post_length(),
         }
@@ -185,23 +197,58 @@ impl BootstrapArtifacts {
             if preloaded_json.is_empty() {
                 self.preloaded_json = None;
                 self.has_preloaded_data = false;
+                self.has_site_metadata = false;
+                self.top_tags = Vec::new();
+                self.can_tag_topics = false;
                 self.categories = Vec::new();
+                self.has_site_settings = false;
                 self.enabled_reaction_ids = default_enabled_reaction_ids();
                 self.min_post_length = default_min_post_length();
             } else {
                 self.preloaded_json = Some(preloaded_json);
                 self.has_preloaded_data = true;
+                if patch.has_site_metadata {
+                    self.has_site_metadata = true;
+                    self.top_tags = normalized_top_tags(patch.top_tags.clone());
+                    self.can_tag_topics = patch.can_tag_topics;
+                    self.categories = patch.categories.clone();
+                }
+                if patch.has_site_settings {
+                    self.has_site_settings = true;
+                    self.enabled_reaction_ids =
+                        normalized_enabled_reaction_ids(patch.enabled_reaction_ids.clone());
+                    self.min_post_length = patch.min_post_length.max(1);
+                }
+            }
+        } else if patch.has_preloaded_data {
+            self.has_preloaded_data = true;
+            if patch.has_site_metadata {
+                self.has_site_metadata = true;
+                self.top_tags = normalized_top_tags(patch.top_tags.clone());
+                self.can_tag_topics = patch.can_tag_topics;
                 self.categories = patch.categories.clone();
+            }
+            if patch.has_site_settings {
+                self.has_site_settings = true;
                 self.enabled_reaction_ids =
                     normalized_enabled_reaction_ids(patch.enabled_reaction_ids.clone());
                 self.min_post_length = patch.min_post_length.max(1);
             }
-        } else if patch.has_preloaded_data {
-            self.has_preloaded_data = true;
-            self.categories = patch.categories.clone();
-            self.enabled_reaction_ids =
-                normalized_enabled_reaction_ids(patch.enabled_reaction_ids.clone());
-            self.min_post_length = patch.min_post_length.max(1);
+        }
+
+        if patch.preloaded_json.is_none() && !patch.has_preloaded_data {
+            if patch.has_site_metadata {
+                self.has_site_metadata = true;
+                self.top_tags = normalized_top_tags(patch.top_tags.clone());
+                self.can_tag_topics = patch.can_tag_topics;
+                self.categories = patch.categories.clone();
+            }
+            if patch.has_site_settings {
+                self.has_site_settings = true;
+                self.enabled_reaction_ids =
+                    normalized_enabled_reaction_ids(patch.enabled_reaction_ids.clone());
+                self.min_post_length = patch.min_post_length.max(1);
+            }
         }
     }
 
@@ -214,7 +261,11 @@ impl BootstrapArtifacts {
         self.topic_tracking_state_meta = None;
         self.preloaded_json = None;
         self.has_preloaded_data = false;
+        self.has_site_metadata = false;
+        self.top_tags = Vec::new();
+        self.can_tag_topics = false;
         self.categories = Vec::new();
+        self.has_site_settings = false;
         self.enabled_reaction_ids = default_enabled_reaction_ids();
         self.min_post_length = default_min_post_length();
     }
@@ -299,7 +350,11 @@ impl SessionSnapshot {
         if !readiness.can_read_authenticated_api || !readiness.has_current_user {
             return LoginPhase::CookiesCaptured;
         }
-        if !readiness.can_write_authenticated_api || !readiness.has_preloaded_data {
+        if !readiness.can_write_authenticated_api
+            || !readiness.has_preloaded_data
+            || !self.bootstrap.has_site_metadata
+            || !self.bootstrap.has_site_settings
+        {
             return LoginPhase::BootstrapCaptured;
         }
         LoginPhase::Ready
@@ -535,6 +590,17 @@ impl TopicListKind {
             Self::Top => "/top.json",
         }
     }
+
+    pub fn filter_name(self) -> &'static str {
+        match self {
+            Self::Latest => "latest",
+            Self::New => "new",
+            Self::Unread => "unread",
+            Self::Unseen => "unseen",
+            Self::Hot => "hot",
+            Self::Top => "top",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -544,6 +610,45 @@ pub struct TopicListQuery {
     pub topic_ids: Vec<u64>,
     pub order: Option<String>,
     pub ascending: Option<bool>,
+    pub category_slug: Option<String>,
+    pub category_id: Option<u64>,
+    pub parent_category_slug: Option<String>,
+    pub tag: Option<String>,
+    #[serde(default)]
+    pub additional_tags: Vec<String>,
+    #[serde(default)]
+    pub match_all_tags: bool,
+}
+
+impl TopicListQuery {
+    /// Builds the API path for this query.
+    /// Category scope: `/c/{slug}/{id}/l/{filter}.json` (with optional parent prefix)
+    /// Tag scope: `/tag/{tag}/l/{filter}.json`
+    /// Global: `/{filter}.json`
+    pub fn api_path(&self) -> String {
+        let filter = self.kind.filter_name();
+
+        if let Some(category_slug) = &self.category_slug {
+            if let Some(category_id) = self.category_id {
+                return if let Some(parent_slug) = &self.parent_category_slug {
+                    format!("/c/{parent_slug}/{category_slug}/{category_id}/l/{filter}.json")
+                } else {
+                    format!("/c/{category_slug}/{category_id}/l/{filter}.json")
+                };
+            }
+            return format!("/c/{category_slug}.json");
+        }
+
+        if let Some(tag) = &self.tag {
+            return format!("/tag/{tag}/l/{filter}.json");
+        }
+
+        if !self.topic_ids.is_empty() {
+            return TopicListKind::Latest.path().to_string();
+        }
+
+        self.kind.path().to_string()
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -1226,6 +1331,18 @@ fn normalized_enabled_reaction_ids(ids: Vec<String>) -> Vec<String> {
     }
 }
 
+fn normalized_top_tags(tags: Vec<String>) -> Vec<String> {
+    let mut normalized = Vec::new();
+    for tag in tags {
+        let trimmed = tag.trim();
+        if trimmed.is_empty() || normalized.iter().any(|existing| existing == trimmed) {
+            continue;
+        }
+        normalized.push(trimmed.to_string());
+    }
+    normalized
+}
+
 fn normalized_reply_target(reply_to_post_number: Option<u32>) -> Option<u32> {
     reply_to_post_number.filter(|post_number| *post_number > 0)
 }
@@ -1271,8 +1388,8 @@ fn flatten_thread_replies(
 #[cfg(test)]
 mod tests {
     use super::{
-        BootstrapArtifacts, CookieSnapshot, LoginPhase, PlatformCookie, SessionSnapshot, TopicPost,
-        TopicThread, TopicThreadFlatPost,
+        BootstrapArtifacts, CookieSnapshot, LoginPhase, PlatformCookie, SessionSnapshot,
+        TopicCategory, TopicListKind, TopicListQuery, TopicPost, TopicThread, TopicThreadFlatPost,
     };
 
     #[test]
@@ -1506,7 +1623,109 @@ mod tests {
         snapshot.bootstrap.preloaded_json =
             Some("{\"currentUser\":{\"username\":\"alice\"}}".into());
         snapshot.bootstrap.has_preloaded_data = true;
+        snapshot.bootstrap.has_site_metadata = true;
+        snapshot.bootstrap.has_site_settings = true;
         assert_eq!(snapshot.login_phase(), LoginPhase::Ready);
+    }
+
+    #[test]
+    fn merge_patch_keeps_existing_site_metadata_when_partial_preloaded_lacks_site() {
+        let mut bootstrap = BootstrapArtifacts {
+            preloaded_json: Some("{\"site\":{\"categories\":[{\"id\":2}]}}".into()),
+            has_preloaded_data: true,
+            has_site_metadata: true,
+            top_tags: vec!["swift".into()],
+            can_tag_topics: true,
+            categories: vec![TopicCategory {
+                id: 2,
+                name: "Rust".into(),
+                slug: "rust".into(),
+                parent_category_id: None,
+                color_hex: Some("FFFFFF".into()),
+                text_color_hex: Some("000000".into()),
+            }],
+            has_site_settings: true,
+            enabled_reaction_ids: vec!["heart".into(), "clap".into()],
+            min_post_length: 20,
+            ..BootstrapArtifacts::default()
+        };
+
+        bootstrap.merge_patch(&BootstrapArtifacts {
+            preloaded_json: Some("{\"currentUser\":{\"username\":\"alice\"}}".into()),
+            has_preloaded_data: true,
+            ..BootstrapArtifacts::default()
+        });
+
+        assert!(bootstrap.has_site_metadata);
+        assert_eq!(bootstrap.top_tags, vec!["swift"]);
+        assert!(bootstrap.can_tag_topics);
+        assert_eq!(bootstrap.categories.len(), 1);
+        assert!(bootstrap.has_site_settings);
+        assert_eq!(bootstrap.enabled_reaction_ids, vec!["heart", "clap"]);
+        assert_eq!(bootstrap.min_post_length, 20);
+    }
+
+    #[test]
+    fn merge_patch_updates_site_metadata_and_settings_when_present() {
+        let mut bootstrap = BootstrapArtifacts::default();
+
+        bootstrap.merge_patch(&BootstrapArtifacts {
+            preloaded_json: Some("{\"site\":{},\"siteSettings\":{}}".into()),
+            has_preloaded_data: true,
+            has_site_metadata: true,
+            top_tags: vec!["rust".into(), "swift".into(), "rust".into()],
+            can_tag_topics: true,
+            categories: vec![TopicCategory {
+                id: 2,
+                name: "Rust".into(),
+                slug: "rust".into(),
+                parent_category_id: None,
+                color_hex: None,
+                text_color_hex: None,
+            }],
+            has_site_settings: true,
+            enabled_reaction_ids: vec!["heart".into(), "clap".into(), "heart".into()],
+            min_post_length: 18,
+            ..BootstrapArtifacts::default()
+        });
+
+        assert!(bootstrap.has_site_metadata);
+        assert_eq!(bootstrap.top_tags, vec!["rust", "swift"]);
+        assert!(bootstrap.can_tag_topics);
+        assert_eq!(bootstrap.categories.len(), 1);
+        assert!(bootstrap.has_site_settings);
+        assert_eq!(bootstrap.enabled_reaction_ids, vec!["heart", "clap"]);
+        assert_eq!(bootstrap.min_post_length, 18);
+    }
+
+    #[test]
+    fn merge_patch_applies_site_metadata_without_preloaded_payload() {
+        let mut bootstrap = BootstrapArtifacts {
+            preloaded_json: Some("{\"currentUser\":{\"username\":\"alice\"}}".into()),
+            has_preloaded_data: true,
+            ..BootstrapArtifacts::default()
+        };
+
+        bootstrap.merge_patch(&BootstrapArtifacts {
+            has_site_metadata: true,
+            top_tags: vec!["rust".into(), "swift".into()],
+            can_tag_topics: true,
+            categories: vec![TopicCategory {
+                id: 2,
+                name: "Rust".into(),
+                slug: "rust".into(),
+                parent_category_id: None,
+                color_hex: None,
+                text_color_hex: None,
+            }],
+            ..BootstrapArtifacts::default()
+        });
+
+        assert!(bootstrap.has_site_metadata);
+        assert_eq!(bootstrap.top_tags, vec!["rust", "swift"]);
+        assert!(bootstrap.can_tag_topics);
+        assert_eq!(bootstrap.categories.len(), 1);
+        assert!(bootstrap.has_preloaded_data);
     }
 
     #[test]
@@ -1581,7 +1800,11 @@ mod tests {
                 topic_tracking_state_meta: Some("{\"seq\":1}".into()),
                 preloaded_json: Some("{\"ok\":true}".into()),
                 has_preloaded_data: true,
+                has_site_metadata: true,
+                top_tags: vec!["rust".into()],
+                can_tag_topics: true,
                 categories: Vec::new(),
+                has_site_settings: true,
                 enabled_reaction_ids: vec!["heart".into(), "clap".into()],
                 min_post_length: 20,
             },
@@ -1602,7 +1825,11 @@ mod tests {
             snapshot.bootstrap.turnstile_sitekey.as_deref(),
             Some("sitekey")
         );
+        assert!(!snapshot.bootstrap.has_site_metadata);
+        assert_eq!(snapshot.bootstrap.top_tags, Vec::<String>::new());
+        assert!(!snapshot.bootstrap.can_tag_topics);
         assert_eq!(snapshot.bootstrap.categories, Vec::new());
+        assert!(!snapshot.bootstrap.has_site_settings);
         assert_eq!(snapshot.bootstrap.enabled_reaction_ids, vec!["heart"]);
         assert_eq!(snapshot.bootstrap.min_post_length, 1);
     }
@@ -1678,6 +1905,74 @@ mod tests {
                 (6, 0, None, false, false),
             ]
         );
+    }
+
+    #[test]
+    fn topic_list_query_api_path_global() {
+        let query = TopicListQuery {
+            kind: TopicListKind::Latest,
+            ..Default::default()
+        };
+        assert_eq!(query.api_path(), "/latest.json");
+
+        let query = TopicListQuery {
+            kind: TopicListKind::Hot,
+            ..Default::default()
+        };
+        assert_eq!(query.api_path(), "/hot.json");
+    }
+
+    #[test]
+    fn topic_list_query_api_path_category() {
+        let query = TopicListQuery {
+            kind: TopicListKind::Latest,
+            category_slug: Some("dev".into()),
+            category_id: Some(42),
+            ..Default::default()
+        };
+        assert_eq!(query.api_path(), "/c/dev/42/l/latest.json");
+    }
+
+    #[test]
+    fn topic_list_query_api_path_subcategory() {
+        let query = TopicListQuery {
+            kind: TopicListKind::New,
+            category_slug: Some("rust".into()),
+            category_id: Some(99),
+            parent_category_slug: Some("dev".into()),
+            ..Default::default()
+        };
+        assert_eq!(query.api_path(), "/c/dev/rust/99/l/new.json");
+    }
+
+    #[test]
+    fn topic_list_query_api_path_tag() {
+        let query = TopicListQuery {
+            kind: TopicListKind::Top,
+            tag: Some("swift".into()),
+            ..Default::default()
+        };
+        assert_eq!(query.api_path(), "/tag/swift/l/top.json");
+    }
+
+    #[test]
+    fn topic_list_query_api_path_category_slug_only() {
+        let query = TopicListQuery {
+            kind: TopicListKind::Latest,
+            category_slug: Some("dev".into()),
+            ..Default::default()
+        };
+        assert_eq!(query.api_path(), "/c/dev.json");
+    }
+
+    #[test]
+    fn topic_list_query_api_path_topic_ids_override() {
+        let query = TopicListQuery {
+            kind: TopicListKind::New,
+            topic_ids: vec![1, 2, 3],
+            ..Default::default()
+        };
+        assert_eq!(query.api_path(), "/latest.json");
     }
 
     fn topic_post(post_number: u32, reply_to_post_number: Option<u32>) -> TopicPost {

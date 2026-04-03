@@ -83,9 +83,34 @@ pub(crate) fn hydrate_preloaded_fields(preloaded_json: &str, bootstrap: &mut Boo
         }
     }
 
-    bootstrap.categories = categories_from_preloaded(&preloaded);
-    bootstrap.enabled_reaction_ids = enabled_reaction_ids_from_preloaded(&preloaded);
-    bootstrap.min_post_length = min_post_length_from_preloaded(&preloaded);
+    hydrate_site_metadata_fields(&preloaded, bootstrap);
+    hydrate_site_settings_fields(&preloaded, bootstrap);
+}
+
+pub(crate) fn parse_site_metadata_json(base_url: &str, json: &str) -> BootstrapArtifacts {
+    let mut bootstrap = BootstrapArtifacts {
+        base_url: base_url.to_string(),
+        ..BootstrapArtifacts::default()
+    };
+    let Ok(value) = serde_json::from_str::<Value>(json) else {
+        warn!("failed to parse site.json payload");
+        return bootstrap;
+    };
+    hydrate_site_metadata_fields(&value, &mut bootstrap);
+    bootstrap
+}
+
+pub(crate) fn hydrate_site_metadata_fields(source: &Value, bootstrap: &mut BootstrapArtifacts) {
+    bootstrap.has_site_metadata = has_site_metadata(source);
+    bootstrap.top_tags = top_tags_from_preloaded(source);
+    bootstrap.can_tag_topics = can_tag_topics_from_preloaded(source).unwrap_or(false);
+    bootstrap.categories = categories_from_preloaded(source);
+}
+
+pub(crate) fn hydrate_site_settings_fields(source: &Value, bootstrap: &mut BootstrapArtifacts) {
+    bootstrap.has_site_settings = has_site_settings(source);
+    bootstrap.enabled_reaction_ids = enabled_reaction_ids_from_preloaded(source);
+    bootstrap.min_post_length = min_post_length_from_preloaded(source);
 }
 
 fn find_meta_content(html: &str, target_name: &str) -> Option<String> {
@@ -237,6 +262,32 @@ fn category_candidates(preloaded: &Value) -> impl Iterator<Item = &Value> {
     .flatten()
 }
 
+fn has_site_metadata(preloaded: &Value) -> bool {
+    category_candidates(preloaded).next().is_some()
+        || site_candidates(preloaded, "top_tags").next().is_some()
+        || site_candidates(preloaded, "can_tag_topics")
+            .next()
+            .is_some()
+}
+
+fn has_site_settings(preloaded: &Value) -> bool {
+    preloaded
+        .get("siteSettings")
+        .is_some_and(|value| value.is_object())
+}
+
+fn site_candidates<'a>(preloaded: &'a Value, key: &'static str) -> impl Iterator<Item = &'a Value> {
+    [
+        preloaded
+            .get("site")
+            .and_then(Value::as_object)
+            .and_then(|site| site.get(key)),
+        preloaded.get(key),
+    ]
+    .into_iter()
+    .flatten()
+}
+
 fn category_values_from_candidate(candidate: &Value) -> Option<&Vec<Value>> {
     if let Some(values) = candidate.as_array() {
         return Some(values);
@@ -264,6 +315,58 @@ fn topic_category_from_value(value: &Value) -> Option<TopicCategory> {
             .and_then(optional_scalar_string)
             .filter(|value| !value.is_empty()),
     })
+}
+
+fn top_tags_from_preloaded(preloaded: &Value) -> Vec<String> {
+    site_candidates(preloaded, "top_tags")
+        .find_map(top_tag_names_from_candidate)
+        .unwrap_or_default()
+}
+
+fn top_tag_names_from_candidate(candidate: &Value) -> Option<Vec<String>> {
+    let values = candidate.as_array()?;
+    Some(
+        values
+            .iter()
+            .filter_map(top_tag_name_from_value)
+            .collect::<Vec<_>>(),
+    )
+}
+
+fn top_tag_name_from_value(value: &Value) -> Option<String> {
+    match value {
+        Value::String(value) => {
+            let trimmed = value.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_string())
+            }
+        }
+        Value::Object(value) => value
+            .get("name")
+            .and_then(optional_scalar_string)
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty()),
+        _ => None,
+    }
+}
+
+fn can_tag_topics_from_preloaded(preloaded: &Value) -> Option<bool> {
+    site_candidates(preloaded, "can_tag_topics").find_map(can_tag_topics_from_value)
+}
+
+fn can_tag_topics_from_value(value: &Value) -> Option<bool> {
+    match value {
+        Value::Bool(value) => Some(*value),
+        Value::String(value) => match value.trim() {
+            "true" => Some(true),
+            "false" => Some(false),
+            _ => None,
+        },
+        Value::Number(value) => value.as_u64().map(|value| value > 0),
+        _ => None,
+    }
 }
 
 fn enabled_reaction_ids_from_preloaded(preloaded: &Value) -> Vec<String> {
@@ -319,7 +422,7 @@ fn scalar_string_or_empty(value: Option<&Value>) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{decode_html_entities, parse_home_state};
+    use super::{decode_html_entities, parse_home_state, parse_site_metadata_json};
 
     #[test]
     fn parse_home_state_skips_meta_tags_without_name() {
@@ -363,7 +466,7 @@ mod tests {
 <!doctype html>
 <html>
   <body>
-    <div data-preloaded="{&quot;siteSettings&quot;:{&quot;title&quot;:&quot;A &amp;amp; B&quot;,&quot;min_post_length&quot;:18,&quot;discourse_reactions_enabled_reactions&quot;:&quot;heart|clap&quot;},&quot;site&quot;:{&quot;categories&quot;:[{&quot;id&quot;:7,&quot;name&quot;:&quot;Rust&quot;,&quot;slug&quot;:&quot;rust&quot;,&quot;color&quot;:&quot;FFFFFF&quot;,&quot;text_color&quot;:&quot;000000&quot;}]}}"></div>
+    <div data-preloaded="{&quot;siteSettings&quot;:{&quot;title&quot;:&quot;A &amp;amp; B&quot;,&quot;min_post_length&quot;:18,&quot;discourse_reactions_enabled_reactions&quot;:&quot;heart|clap&quot;},&quot;site&quot;:{&quot;categories&quot;:[{&quot;id&quot;:7,&quot;name&quot;:&quot;Rust&quot;,&quot;slug&quot;:&quot;rust&quot;,&quot;color&quot;:&quot;FFFFFF&quot;,&quot;text_color&quot;:&quot;000000&quot;}],&quot;top_tags&quot;:[{&quot;name&quot;:&quot;swift&quot;},&quot;rust&quot;],&quot;can_tag_topics&quot;:true}}"></div>
   </body>
 </html>
 "#;
@@ -373,16 +476,61 @@ mod tests {
         assert_eq!(
             parsed.bootstrap_patch.preloaded_json.as_deref(),
             Some(
-                r#"{"siteSettings":{"title":"A &amp; B","min_post_length":18,"discourse_reactions_enabled_reactions":"heart|clap"},"site":{"categories":[{"id":7,"name":"Rust","slug":"rust","color":"FFFFFF","text_color":"000000"}]}}"#
+                r#"{"siteSettings":{"title":"A &amp; B","min_post_length":18,"discourse_reactions_enabled_reactions":"heart|clap"},"site":{"categories":[{"id":7,"name":"Rust","slug":"rust","color":"FFFFFF","text_color":"000000"}],"top_tags":[{"name":"swift"},"rust"],"can_tag_topics":true}}"#
             )
         );
+        assert!(parsed.bootstrap_patch.has_site_settings);
         assert_eq!(parsed.bootstrap_patch.min_post_length, 18);
         assert_eq!(
             parsed.bootstrap_patch.enabled_reaction_ids,
             vec!["heart", "clap"]
         );
+        assert!(parsed.bootstrap_patch.has_site_metadata);
+        assert_eq!(parsed.bootstrap_patch.top_tags, vec!["swift", "rust"]);
+        assert!(parsed.bootstrap_patch.can_tag_topics);
         assert_eq!(parsed.bootstrap_patch.categories.len(), 1);
         assert_eq!(parsed.bootstrap_patch.categories[0].id, 7);
+    }
+
+    #[test]
+    fn parse_home_state_marks_partial_preloaded_without_site_as_incomplete() {
+        let html = r#"
+<!doctype html>
+<html>
+  <body>
+    <div data-preloaded="{&quot;currentUser&quot;:{&quot;username&quot;:&quot;alice&quot;}}"></div>
+  </body>
+</html>
+"#;
+
+        let parsed = parse_home_state("https://linux.do/", html);
+
+        assert!(parsed.bootstrap_patch.has_preloaded_data);
+        assert!(!parsed.bootstrap_patch.has_site_metadata);
+        assert!(!parsed.bootstrap_patch.has_site_settings);
+        assert_eq!(parsed.bootstrap_patch.categories, Vec::new());
+        assert_eq!(parsed.bootstrap_patch.top_tags, Vec::<String>::new());
+        assert!(!parsed.bootstrap_patch.can_tag_topics);
+    }
+
+    #[test]
+    fn parse_site_metadata_json_reads_root_site_json_shape() {
+        let parsed = parse_site_metadata_json(
+            "https://linux.do/",
+            r#"{
+                "categories": [
+                    {"id": 7, "name": "Rust", "slug": "rust", "color": "FFFFFF", "text_color": "000000"}
+                ],
+                "top_tags": [{"name": "swift"}, "rust"],
+                "can_tag_topics": true
+            }"#,
+        );
+
+        assert!(parsed.has_site_metadata);
+        assert_eq!(parsed.categories.len(), 1);
+        assert_eq!(parsed.top_tags, vec!["swift", "rust"]);
+        assert!(parsed.can_tag_topics);
+        assert_eq!(parsed.base_url, "https://linux.do/");
     }
 
     #[test]

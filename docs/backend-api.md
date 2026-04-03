@@ -50,6 +50,8 @@
 
 1. `GET /`
    获取首页 HTML，提取 `csrf-token`、`data-preloaded`，以及跨域长轮询场景下可能存在的 `shared_session_key`
+   如果当前页 `data-preloaded` 缺少 `site` / `siteSettings` 这类站点级字段，继续回源 `GET /` 刷新到完整 bootstrap，而不要把局部 preloaded 直接当成初始化完成
+   当前 Fire 实现还会在 `site` 元数据仍缺失时自动补一次 `GET /site.json`
 2. 如需写操作，优先复用首页 HTML / 登录 WebView 中已有的 CSRF；缺失或收到 `BAD CSRF` 时再 `GET /session/csrf`
    获取最新 CSRF
 3. 使用 Cookie Session 调用主站 API

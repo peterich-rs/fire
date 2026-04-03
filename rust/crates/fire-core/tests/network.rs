@@ -30,10 +30,7 @@ async fn fetch_topic_list_parses_latest_payload() {
     let response = core
         .fetch_topic_list(TopicListQuery {
             kind: TopicListKind::Latest,
-            page: None,
-            topic_ids: Vec::new(),
-            order: None,
-            ascending: None,
+            ..TopicListQuery::default()
         })
         .await
         .expect("topic list");
@@ -117,10 +114,7 @@ async fn fetch_topic_list_tolerates_object_poster_metadata_fields() {
     let response = core
         .fetch_topic_list(TopicListQuery {
             kind: TopicListKind::Latest,
-            page: None,
-            topic_ids: Vec::new(),
-            order: None,
-            ascending: None,
+            ..TopicListQuery::default()
         })
         .await
         .expect("topic list");
@@ -153,10 +147,7 @@ async fn fetch_topic_list_tolerates_object_tags_and_null_counters() {
     let response = core
         .fetch_topic_list(TopicListQuery {
             kind: TopicListKind::Latest,
-            page: None,
-            topic_ids: Vec::new(),
-            order: None,
-            ascending: None,
+            ..TopicListQuery::default()
         })
         .await
         .expect("topic list");
@@ -201,10 +192,7 @@ async fn fetch_topic_list_builds_plain_text_excerpt_for_rows() {
     let response = core
         .fetch_topic_list(TopicListQuery {
             kind: TopicListKind::Latest,
-            page: None,
-            topic_ids: Vec::new(),
-            order: None,
-            ascending: None,
+            ..TopicListQuery::default()
         })
         .await
         .expect("topic list");
@@ -229,10 +217,7 @@ async fn fetch_topic_list_surfaces_cloudflare_challenge_error() {
     let error = core
         .fetch_topic_list(TopicListQuery {
             kind: TopicListKind::Latest,
-            page: None,
-            topic_ids: Vec::new(),
-            order: None,
-            ascending: None,
+            ..TopicListQuery::default()
         })
         .await
         .expect_err("cloudflare challenge should surface as an error");
@@ -535,6 +520,69 @@ async fn refresh_bootstrap_fetches_home_html() {
     assert!(trace.request_headers.iter().any(|header| {
         header.name == "accept-language" && header.value == "zh-CN,zh;q=0.9,en;q=0.8"
     }));
+}
+
+#[tokio::test]
+async fn refresh_bootstrap_falls_back_to_site_json_when_home_lacks_site_metadata() {
+    let home_html = r#"
+<!doctype html>
+<html>
+  <head>
+    <meta name="csrf-token" content="csrf-token">
+    <meta name="current-username" content="alice">
+    <meta name="discourse-base-uri" content="/">
+  </head>
+  <body>
+    <div id="data-discourse-setup" data-preloaded="{&quot;currentUser&quot;:{&quot;id&quot;:1,&quot;username&quot;:&quot;alice&quot;,&quot;notification_channel_position&quot;:42},&quot;siteSettings&quot;:{&quot;long_polling_base_url&quot;:&quot;https://linux.do&quot;,&quot;min_post_length&quot;:20,&quot;discourse_reactions_enabled_reactions&quot;:&quot;heart|clap|tada&quot;},&quot;topicTrackingStateMeta&quot;:{&quot;message_bus_last_id&quot;:42}}"></div>
+  </body>
+</html>
+"#;
+    let site_json = r#"{
+  "categories": [
+    {
+      "id": 2,
+      "name": "Rust",
+      "slug": "rust",
+      "parent_category_id": 1,
+      "color": "FFFFFF",
+      "text_color": "000000"
+    }
+  ],
+  "top_tags": [
+    {"name": "swift"},
+    "rust"
+  ],
+  "can_tag_topics": true
+}"#;
+    let responses = vec![
+        raw_text_response(200, home_html),
+        raw_json_response(200, "application/json", site_json),
+    ];
+    let server = TestServer::spawn(responses).await.expect("server");
+    let core = FireCore::new(FireCoreConfig {
+        base_url: server.base_url(),
+        workspace_path: None,
+    })
+    .expect("core");
+
+    let snapshot = core.refresh_bootstrap().await.expect("bootstrap refresh");
+    let requests = server.shutdown_with_requests().await;
+
+    assert_eq!(
+        snapshot.bootstrap.current_username.as_deref(),
+        Some("alice")
+    );
+    assert!(snapshot.bootstrap.has_preloaded_data);
+    assert!(snapshot.bootstrap.has_site_settings);
+    assert!(snapshot.bootstrap.has_site_metadata);
+    assert_eq!(snapshot.bootstrap.categories.len(), 1);
+    assert_eq!(snapshot.bootstrap.top_tags, vec!["swift", "rust"]);
+    assert!(snapshot.bootstrap.can_tag_topics);
+    assert_eq!(requests.len(), 2);
+    assert!(requests[0].to_ascii_lowercase().contains("get / http/1.1"));
+    assert!(requests[1]
+        .to_ascii_lowercase()
+        .contains("get /site.json http/1.1"));
 }
 
 #[tokio::test]

@@ -66,12 +66,7 @@ class FireSessionStore(
         }
 
     suspend fun refreshBootstrapIfNeeded(): SessionState = withContext(Dispatchers.IO) {
-        val current = core.snapshot()
-        if (current.bootstrap.hasPreloadedData) {
-            return@withContext current
-        }
-
-        val refreshed = core.refreshBootstrap()
+        val refreshed = core.refreshBootstrapIfNeeded()
         persistCurrentSession()
         refreshed
     }

@@ -238,7 +238,11 @@ pub struct BootstrapState {
     pub topic_tracking_state_meta: Option<String>,
     pub preloaded_json: Option<String>,
     pub has_preloaded_data: bool,
+    pub has_site_metadata: bool,
+    pub top_tags: Vec<String>,
+    pub can_tag_topics: bool,
     pub categories: Vec<TopicCategoryState>,
+    pub has_site_settings: bool,
     pub enabled_reaction_ids: Vec<String>,
     pub min_post_length: u32,
 }
@@ -257,7 +261,11 @@ impl From<BootstrapArtifacts> for BootstrapState {
             topic_tracking_state_meta: value.topic_tracking_state_meta,
             preloaded_json: value.preloaded_json,
             has_preloaded_data: value.has_preloaded_data,
+            has_site_metadata: value.has_site_metadata,
+            top_tags: value.top_tags,
+            can_tag_topics: value.can_tag_topics,
             categories: value.categories.into_iter().map(Into::into).collect(),
+            has_site_settings: value.has_site_settings,
             enabled_reaction_ids: value.enabled_reaction_ids,
             min_post_length: value.min_post_length,
         }
@@ -278,7 +286,11 @@ impl From<BootstrapState> for BootstrapArtifacts {
             topic_tracking_state_meta: value.topic_tracking_state_meta,
             preloaded_json: value.preloaded_json,
             has_preloaded_data: value.has_preloaded_data,
+            has_site_metadata: value.has_site_metadata,
+            top_tags: value.top_tags,
+            can_tag_topics: value.can_tag_topics,
             categories: value.categories.into_iter().map(Into::into).collect(),
+            has_site_settings: value.has_site_settings,
             enabled_reaction_ids: value.enabled_reaction_ids,
             min_post_length: value.min_post_length,
         }
@@ -832,6 +844,12 @@ pub struct TopicListQueryState {
     pub topic_ids: Vec<u64>,
     pub order: Option<String>,
     pub ascending: Option<bool>,
+    pub category_slug: Option<String>,
+    pub category_id: Option<u64>,
+    pub parent_category_slug: Option<String>,
+    pub tag: Option<String>,
+    pub additional_tags: Vec<String>,
+    pub match_all_tags: bool,
 }
 
 impl From<TopicListQuery> for TopicListQueryState {
@@ -842,6 +860,12 @@ impl From<TopicListQuery> for TopicListQueryState {
             topic_ids: value.topic_ids,
             order: value.order,
             ascending: value.ascending,
+            category_slug: value.category_slug,
+            category_id: value.category_id,
+            parent_category_slug: value.parent_category_slug,
+            tag: value.tag,
+            additional_tags: value.additional_tags,
+            match_all_tags: value.match_all_tags,
         }
     }
 }
@@ -854,6 +878,12 @@ impl From<TopicListQueryState> for TopicListQuery {
             topic_ids: value.topic_ids,
             order: value.order,
             ascending: value.ascending,
+            category_slug: value.category_slug,
+            category_id: value.category_id,
+            parent_category_slug: value.parent_category_slug,
+            tag: value.tag,
+            additional_tags: value.additional_tags,
+            match_all_tags: value.match_all_tags,
         }
     }
 }

@@ -143,6 +143,28 @@ struct FireProfileView: View {
                 }
             }
 
+            LabeledContent("站点元数据") {
+                HStack(spacing: 4) {
+                    Circle()
+                        .fill(viewModel.session.bootstrap.hasSiteMetadata ? Color.green : Color.orange)
+                        .frame(width: 8, height: 8)
+                    Text(viewModel.session.bootstrap.hasSiteMetadata ? "就绪" : "缺失")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            LabeledContent("站点设置") {
+                HStack(spacing: 4) {
+                    Circle()
+                        .fill(viewModel.session.bootstrap.hasSiteSettings ? Color.green : Color.orange)
+                        .frame(width: 8, height: 8)
+                    Text(viewModel.session.bootstrap.hasSiteSettings ? "就绪" : "缺失")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
             LabeledContent("CSRF") {
                 HStack(spacing: 4) {
                     Circle()

@@ -239,7 +239,11 @@ final class FireTopicPresentationTests: XCTestCase {
             topicTrackingStateMeta: "{\"message_bus_last_id\":42}",
             preloadedJson: preloadedJson,
             hasPreloadedData: hasPreloadedData,
+            hasSiteMetadata: hasPreloadedData,
+            topTags: [],
+            canTagTopics: false,
             categories: [],
+            hasSiteSettings: hasPreloadedData,
             enabledReactionIds: ["heart"],
             minPostLength: 1
         )

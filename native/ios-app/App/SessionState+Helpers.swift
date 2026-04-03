@@ -24,7 +24,11 @@ extension SessionState {
                 topicTrackingStateMeta: nil,
                 preloadedJson: nil,
                 hasPreloadedData: false,
+                hasSiteMetadata: false,
+                topTags: [],
+                canTagTopics: false,
                 categories: [],
+                hasSiteSettings: false,
                 enabledReactionIds: ["heart"],
                 minPostLength: 1
             ),

@@ -230,7 +230,13 @@ public actor FireSessionStore {
                 page: nil,
                 topicIds: [],
                 order: nil,
-                ascending: nil
+                ascending: nil,
+                categorySlug: nil,
+                categoryId: nil,
+                parentCategorySlug: nil,
+                tag: nil,
+                additionalTags: [],
+                matchAllTags: false
             )
         )
     }

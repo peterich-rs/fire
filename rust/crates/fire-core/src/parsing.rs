@@ -83,13 +83,34 @@ pub(crate) fn hydrate_preloaded_fields(preloaded_json: &str, bootstrap: &mut Boo
         }
     }
 
-    bootstrap.has_site_metadata = has_site_metadata(&preloaded);
-    bootstrap.top_tags = top_tags_from_preloaded(&preloaded);
-    bootstrap.can_tag_topics = can_tag_topics_from_preloaded(&preloaded).unwrap_or(false);
-    bootstrap.categories = categories_from_preloaded(&preloaded);
-    bootstrap.has_site_settings = has_site_settings(&preloaded);
-    bootstrap.enabled_reaction_ids = enabled_reaction_ids_from_preloaded(&preloaded);
-    bootstrap.min_post_length = min_post_length_from_preloaded(&preloaded);
+    hydrate_site_metadata_fields(&preloaded, bootstrap);
+    hydrate_site_settings_fields(&preloaded, bootstrap);
+}
+
+pub(crate) fn parse_site_metadata_json(base_url: &str, json: &str) -> BootstrapArtifacts {
+    let mut bootstrap = BootstrapArtifacts {
+        base_url: base_url.to_string(),
+        ..BootstrapArtifacts::default()
+    };
+    let Ok(value) = serde_json::from_str::<Value>(json) else {
+        warn!("failed to parse site.json payload");
+        return bootstrap;
+    };
+    hydrate_site_metadata_fields(&value, &mut bootstrap);
+    bootstrap
+}
+
+pub(crate) fn hydrate_site_metadata_fields(source: &Value, bootstrap: &mut BootstrapArtifacts) {
+    bootstrap.has_site_metadata = has_site_metadata(source);
+    bootstrap.top_tags = top_tags_from_preloaded(source);
+    bootstrap.can_tag_topics = can_tag_topics_from_preloaded(source).unwrap_or(false);
+    bootstrap.categories = categories_from_preloaded(source);
+}
+
+pub(crate) fn hydrate_site_settings_fields(source: &Value, bootstrap: &mut BootstrapArtifacts) {
+    bootstrap.has_site_settings = has_site_settings(source);
+    bootstrap.enabled_reaction_ids = enabled_reaction_ids_from_preloaded(source);
+    bootstrap.min_post_length = min_post_length_from_preloaded(source);
 }
 
 fn find_meta_content(html: &str, target_name: &str) -> Option<String> {
@@ -401,7 +422,7 @@ fn scalar_string_or_empty(value: Option<&Value>) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{decode_html_entities, parse_home_state};
+    use super::{decode_html_entities, parse_home_state, parse_site_metadata_json};
 
     #[test]
     fn parse_home_state_skips_meta_tags_without_name() {
@@ -490,6 +511,26 @@ mod tests {
         assert_eq!(parsed.bootstrap_patch.categories, Vec::new());
         assert_eq!(parsed.bootstrap_patch.top_tags, Vec::<String>::new());
         assert!(!parsed.bootstrap_patch.can_tag_topics);
+    }
+
+    #[test]
+    fn parse_site_metadata_json_reads_root_site_json_shape() {
+        let parsed = parse_site_metadata_json(
+            "https://linux.do/",
+            r#"{
+                "categories": [
+                    {"id": 7, "name": "Rust", "slug": "rust", "color": "FFFFFF", "text_color": "000000"}
+                ],
+                "top_tags": [{"name": "swift"}, "rust"],
+                "can_tag_topics": true
+            }"#,
+        );
+
+        assert!(parsed.has_site_metadata);
+        assert_eq!(parsed.categories.len(), 1);
+        assert_eq!(parsed.top_tags, vec!["swift", "rust"]);
+        assert!(parsed.can_tag_topics);
+        assert_eq!(parsed.base_url, "https://linux.do/");
     }
 
     #[test]

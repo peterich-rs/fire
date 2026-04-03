@@ -235,6 +235,21 @@ impl BootstrapArtifacts {
                 self.min_post_length = patch.min_post_length.max(1);
             }
         }
+
+        if patch.preloaded_json.is_none() && !patch.has_preloaded_data {
+            if patch.has_site_metadata {
+                self.has_site_metadata = true;
+                self.top_tags = normalized_top_tags(patch.top_tags.clone());
+                self.can_tag_topics = patch.can_tag_topics;
+                self.categories = patch.categories.clone();
+            }
+            if patch.has_site_settings {
+                self.has_site_settings = true;
+                self.enabled_reaction_ids =
+                    normalized_enabled_reaction_ids(patch.enabled_reaction_ids.clone());
+                self.min_post_length = patch.min_post_length.max(1);
+            }
+        }
     }
 
     pub fn clear_login_state(&mut self) {
@@ -1681,6 +1696,36 @@ mod tests {
         assert!(bootstrap.has_site_settings);
         assert_eq!(bootstrap.enabled_reaction_ids, vec!["heart", "clap"]);
         assert_eq!(bootstrap.min_post_length, 18);
+    }
+
+    #[test]
+    fn merge_patch_applies_site_metadata_without_preloaded_payload() {
+        let mut bootstrap = BootstrapArtifacts {
+            preloaded_json: Some("{\"currentUser\":{\"username\":\"alice\"}}".into()),
+            has_preloaded_data: true,
+            ..BootstrapArtifacts::default()
+        };
+
+        bootstrap.merge_patch(&BootstrapArtifacts {
+            has_site_metadata: true,
+            top_tags: vec!["rust".into(), "swift".into()],
+            can_tag_topics: true,
+            categories: vec![TopicCategory {
+                id: 2,
+                name: "Rust".into(),
+                slug: "rust".into(),
+                parent_category_id: None,
+                color_hex: None,
+                text_color_hex: None,
+            }],
+            ..BootstrapArtifacts::default()
+        });
+
+        assert!(bootstrap.has_site_metadata);
+        assert_eq!(bootstrap.top_tags, vec!["rust", "swift"]);
+        assert!(bootstrap.can_tag_topics);
+        assert_eq!(bootstrap.categories.len(), 1);
+        assert!(bootstrap.has_preloaded_data);
     }
 
     #[test]

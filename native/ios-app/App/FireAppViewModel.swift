@@ -84,6 +84,8 @@ final class FireAppViewModel: ObservableObject {
     // MARK: - Topic list
 
     @Published private(set) var selectedTopicKind: TopicListKindState = .latest
+    @Published private(set) var selectedHomeCategoryId: UInt64?
+    @Published private(set) var selectedHomeTags: [String] = []
     @Published private(set) var topicRows: [FireTopicRowPresentation] = []
     @Published private(set) var moreTopicsUrl: String?
     @Published private(set) var nextTopicsPage: UInt32?
@@ -262,6 +264,36 @@ final class FireAppViewModel: ObservableObject {
         }
         selectedTopicKind = kind
         refreshTopics()
+    }
+
+    func selectHomeCategory(_ categoryId: UInt64?) {
+        guard selectedHomeCategoryId != categoryId else { return }
+        selectedHomeCategoryId = categoryId
+        selectedHomeTags = []
+        refreshTopics()
+    }
+
+    func addHomeTag(_ tag: String) {
+        guard !selectedHomeTags.contains(tag) else { return }
+        selectedHomeTags.append(tag)
+        refreshTopics()
+    }
+
+    func removeHomeTag(_ tag: String) {
+        guard selectedHomeTags.contains(tag) else { return }
+        selectedHomeTags.removeAll { $0 == tag }
+        refreshTopics()
+    }
+
+    func clearHomeTags() {
+        guard !selectedHomeTags.isEmpty else { return }
+        selectedHomeTags = []
+        refreshTopics()
+    }
+
+    var selectedHomeCategoryPresentation: FireTopicCategoryPresentation? {
+        guard let id = selectedHomeCategoryId else { return nil }
+        return categoryPresentation(for: id)
     }
 
     func refreshTopics() {
@@ -982,6 +1014,17 @@ final class FireAppViewModel: ObservableObject {
             let sessionStore = try await sessionStoreValue()
             errorMessage = nil
             let requestedKind = selectedTopicKind
+            let categoryId = selectedHomeCategoryId
+            let categorySlug = categoryId.flatMap { categoryPresentation(for: $0)?.slug }
+            let parentSlug: String? = categoryId.flatMap { id in
+                guard let cat = categoryPresentation(for: id),
+                      let parentId = cat.parentCategoryId else { return nil }
+                return categoryPresentation(for: parentId)?.slug
+            }
+            let primaryTag = selectedHomeTags.first
+            let additionalTags = selectedHomeTags.count > 1
+                ? Array(selectedHomeTags.dropFirst())
+                : []
             let response = try await sessionStore.fetchTopicList(
                 query: TopicListQueryState(
                     kind: requestedKind,
@@ -989,12 +1032,12 @@ final class FireAppViewModel: ObservableObject {
                     topicIds: [],
                     order: nil,
                     ascending: nil,
-                    categorySlug: nil,
-                    categoryId: nil,
-                    parentCategorySlug: nil,
-                    tag: nil,
-                    additionalTags: [],
-                    matchAllTags: false
+                    categorySlug: categorySlug,
+                    categoryId: categoryId,
+                    parentCategorySlug: parentSlug,
+                    tag: primaryTag,
+                    additionalTags: additionalTags,
+                    matchAllTags: !additionalTags.isEmpty
                 )
             )
             let mergedTopicRows = reset
@@ -1029,6 +1072,8 @@ final class FireAppViewModel: ObservableObject {
         loadingTopicIDs = []
         submittingReplyTopicIDs = []
         mutatingPostIDs = []
+        selectedHomeCategoryId = nil
+        selectedHomeTags = []
     }
 
     private func clearNotificationState() {

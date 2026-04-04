@@ -52,7 +52,7 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
   - mirrors authenticated LinuxDo cookies into native `HTTPCookieStorage` so inline media/image requests can reuse the restored session
   - coordinates native reply, like, custom reaction, and topic-timing reporting on top of the shared Rust interaction APIs
   - now owns the foreground MessageBus lifecycle on iOS, including topic-detail reaction/presence subscriptions, shared notification-state sync, and reply-presence heartbeats while the quick composer is focused
-  - now treats Rust-owned `CloudflareChallenge` errors as the signal for cookie resync and login fallback
+  - now treats Rust-owned `CloudflareChallenge` errors as the signal to clear the local authenticated snapshot, return the shell to onboarding, and auto-present the login WebView so challenge recovery stays inside the browser flow
 - `App/FireSearchView.swift`
   - provides a native search workspace with keyword input, topic/post/user scope switching, paginated result loading, and topic-detail navigation reuse
 - `App/FireTopicDetailView.swift`

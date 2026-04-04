@@ -130,6 +130,60 @@ final class FireSessionSecurityTests: XCTestCase {
         XCTAssertTrue(calls.logoutLocalArguments.isEmpty)
     }
 
+    @MainActor
+    func testChallengeRecoveryClearsLocalSessionAndPresentsLogin() async {
+        let recoveryStore = MockChallengeRecoveryStore(
+            result: .success(challengedLoggedOutSession())
+        )
+        let viewModel = FireAppViewModel(
+            initialSession: authenticatedSession(),
+            challengeRecoveryStore: recoveryStore
+        )
+        viewModel.searchQuery = "rust"
+
+        let recovered = await viewModel.handleCloudflareChallengeIfNeeded(
+            FireUniFfiError.CloudflareChallenge
+        )
+
+        XCTAssertTrue(recovered)
+        XCTAssertTrue(viewModel.isPresentingLogin)
+        XCTAssertEqual(
+            viewModel.errorMessage,
+            "需要先完成 Cloudflare 验证。请在登录页完成验证后点 Sync，再重试。"
+        )
+        XCTAssertEqual(viewModel.searchQuery, "")
+        XCTAssertFalse(viewModel.session.hasLoginSession)
+        XCTAssertFalse(viewModel.session.readiness.canReadAuthenticatedApi)
+        XCTAssertTrue(viewModel.session.readiness.hasCloudflareClearance)
+        let calls = await recoveryStore.recordedCalls()
+        XCTAssertEqual(calls, [true])
+    }
+
+    @MainActor
+    func testNonChallengeErrorDoesNotTriggerRecovery() async {
+        let recoveryStore = MockChallengeRecoveryStore(
+            result: .success(challengedLoggedOutSession())
+        )
+        let viewModel = FireAppViewModel(
+            initialSession: authenticatedSession(),
+            challengeRecoveryStore: recoveryStore
+        )
+        viewModel.searchQuery = "rust"
+
+        let recovered = await viewModel.handleCloudflareChallengeIfNeeded(
+            FireUniFfiError.Network(details: "offline")
+        )
+
+        XCTAssertFalse(recovered)
+        XCTAssertFalse(viewModel.isPresentingLogin)
+        XCTAssertNil(viewModel.errorMessage)
+        XCTAssertEqual(viewModel.searchQuery, "rust")
+        XCTAssertTrue(viewModel.session.hasLoginSession)
+        XCTAssertTrue(viewModel.session.readiness.canReadAuthenticatedApi)
+        let calls = await recoveryStore.recordedCalls()
+        XCTAssertTrue(calls.isEmpty)
+    }
+
     private func makeSessionFileURL(name: String) throws -> URL {
         let workspacePath = try FireSessionStore.defaultWorkspacePath()
         let workspaceURL = URL(fileURLWithPath: workspacePath, isDirectory: true)
@@ -285,6 +339,102 @@ final class FireSessionSecurityTests: XCTestCase {
             loginPhaseLabel: "已就绪"
         )
     }
+
+    private func authenticatedSession() -> SessionState {
+        SessionState(
+            cookies: CookieState(
+                tToken: "token",
+                forumSession: "forum",
+                cfClearance: "clearance",
+                csrfToken: "csrf",
+                platformCookies: []
+            ),
+            bootstrap: BootstrapState(
+                baseUrl: "https://linux.do",
+                discourseBaseUri: "/",
+                sharedSessionKey: "shared",
+                currentUsername: "alice",
+                currentUserId: 1,
+                notificationChannelPosition: 42,
+                longPollingBaseUrl: "https://linux.do",
+                turnstileSitekey: nil,
+                topicTrackingStateMeta: nil,
+                preloadedJson: "{}",
+                hasPreloadedData: true,
+                hasSiteMetadata: true,
+                topTags: ["rust"],
+                canTagTopics: true,
+                categories: [],
+                hasSiteSettings: true,
+                enabledReactionIds: ["heart"],
+                minPostLength: 15
+            ),
+            readiness: SessionReadinessState(
+                hasLoginCookie: true,
+                hasForumSession: true,
+                hasCloudflareClearance: true,
+                hasCsrfToken: true,
+                hasCurrentUser: true,
+                hasPreloadedData: true,
+                hasSharedSessionKey: true,
+                canReadAuthenticatedApi: true,
+                canWriteAuthenticatedApi: true,
+                canOpenMessageBus: true
+            ),
+            loginPhase: .bootstrapCaptured,
+            hasLoginSession: true,
+            profileDisplayName: "alice",
+            loginPhaseLabel: "已登录"
+        )
+    }
+
+    private func challengedLoggedOutSession() -> SessionState {
+        SessionState(
+            cookies: CookieState(
+                tToken: nil,
+                forumSession: nil,
+                cfClearance: "clearance",
+                csrfToken: nil,
+                platformCookies: []
+            ),
+            bootstrap: BootstrapState(
+                baseUrl: "https://linux.do",
+                discourseBaseUri: "/",
+                sharedSessionKey: nil,
+                currentUsername: nil,
+                currentUserId: nil,
+                notificationChannelPosition: nil,
+                longPollingBaseUrl: nil,
+                turnstileSitekey: nil,
+                topicTrackingStateMeta: nil,
+                preloadedJson: nil,
+                hasPreloadedData: false,
+                hasSiteMetadata: false,
+                topTags: [],
+                canTagTopics: false,
+                categories: [],
+                hasSiteSettings: false,
+                enabledReactionIds: ["heart"],
+                minPostLength: 1
+            ),
+            readiness: SessionReadinessState(
+                hasLoginCookie: false,
+                hasForumSession: false,
+                hasCloudflareClearance: true,
+                hasCsrfToken: false,
+                hasCurrentUser: false,
+                hasPreloadedData: false,
+                hasSharedSessionKey: false,
+                canReadAuthenticatedApi: false,
+                canWriteAuthenticatedApi: false,
+                canOpenMessageBus: false
+            ),
+            loginPhase: .anonymous,
+            hasLoginSession: false,
+            profileDisplayName: "未登录",
+            loginPhaseLabel: "未登录"
+        )
+    }
 }
 
 private final class InMemoryAuthCookieSecureStore: FireAuthCookieSecureStore, @unchecked Sendable {
@@ -365,5 +515,23 @@ private actor MockLoginSessionStore: FireLoginSessionStoring {
 
     func applyPlatformCookies(_ cookies: [PlatformCookieState]) async throws -> SessionState {
         SessionState.placeholder()
+    }
+}
+
+private actor MockChallengeRecoveryStore: FireChallengeSessionRecovering {
+    private var calls: [Bool] = []
+    private let result: Result<SessionState, Error>
+
+    init(result: Result<SessionState, Error>) {
+        self.result = result
+    }
+
+    func logoutLocal(preserveCfClearance: Bool) async throws -> SessionState {
+        calls.append(preserveCfClearance)
+        return try result.get()
+    }
+
+    func recordedCalls() -> [Bool] {
+        calls
     }
 }

@@ -73,6 +73,12 @@ enum FireSearchScope: String, CaseIterable, Identifiable {
     }
 }
 
+protocol FireChallengeSessionRecovering: Sendable {
+    func logoutLocal(preserveCfClearance: Bool) async throws -> SessionState
+}
+
+extension FireSessionStore: FireChallengeSessionRecovering {}
+
 @MainActor
 final class FireAppViewModel: ObservableObject {
     private static let messageBusErrorPrefix = "实时同步连接失败："
@@ -131,6 +137,7 @@ final class FireAppViewModel: ObservableObject {
     private var loginCoordinator: FireWebViewLoginCoordinator?
     private var sessionStoreInitializationTask: Task<FireSessionStore, Error>?
     private let loginURL = URL(string: "https://linux.do")!
+    private let challengeRecoveryStore: (any FireChallengeSessionRecovering)?
 
     // MessageBus
     private var messageBusCoordinator: FireMessageBusCoordinator?
@@ -144,7 +151,13 @@ final class FireAppViewModel: ObservableObject {
     private var searchTask: Task<Void, Never>?
     private var latestSearchRequestID: UInt64 = 0
 
-    init() {}
+    init(
+        initialSession: SessionState = .placeholder(),
+        challengeRecoveryStore: (any FireChallengeSessionRecovering)? = nil
+    ) {
+        self.session = initialSession
+        self.challengeRecoveryStore = challengeRecoveryStore
+    }
 
     // MARK: - Lifecycle
 
@@ -157,6 +170,9 @@ final class FireAppViewModel: ObservableObject {
                 await refreshTopicsIfPossible(force: true)
                 await loadRecentNotifications(force: false)
             } catch {
+                if await handleCloudflareChallengeIfNeeded(error) {
+                    return
+                }
                 errorMessage = error.localizedDescription
             }
         }
@@ -171,6 +187,9 @@ final class FireAppViewModel: ObservableObject {
                 await applySession(try await sessionStore.refreshBootstrapIfNeeded())
                 await refreshTopicsIfPossible(force: false)
             } catch {
+                if await handleCloudflareChallengeIfNeeded(error) {
+                    return
+                }
                 errorMessage = error.localizedDescription
             }
         }
@@ -213,6 +232,9 @@ final class FireAppViewModel: ObservableObject {
                 isPresentingLogin = false
                 await refreshTopicsIfPossible(force: true)
             } catch {
+                if await handleCloudflareChallengeIfNeeded(error) {
+                    return
+                }
                 errorMessage = error.localizedDescription
             }
         }
@@ -226,6 +248,9 @@ final class FireAppViewModel: ObservableObject {
                 await applySession(try await sessionStore.refreshBootstrap())
                 await refreshTopicsIfPossible(force: false)
             } catch {
+                if await handleCloudflareChallengeIfNeeded(error) {
+                    return
+                }
                 errorMessage = error.localizedDescription
             }
         }
@@ -345,6 +370,9 @@ final class FireAppViewModel: ObservableObject {
             )
             topicDetails[topicId] = detail
         } catch {
+            if await handleCloudflareChallengeIfNeeded(error) {
+                return
+            }
             errorMessage = error.localizedDescription
         }
     }
@@ -605,6 +633,7 @@ final class FireAppViewModel: ObservableObject {
                 notificationUnreadCount = Int(state.counters.allUnread)
             }
         } catch {
+            _ = await handleCloudflareChallengeIfNeeded(error)
             // Silent: notification failures shouldn't interrupt UX
         }
     }
@@ -618,7 +647,9 @@ final class FireAppViewModel: ObservableObject {
                 if let idx = recentNotifications.firstIndex(where: { $0.id == id }) {
                     recentNotifications[idx].read = true
                 }
-            } catch {}
+            } catch {
+                _ = await self.handleCloudflareChallengeIfNeeded(error)
+            }
         }
     }
 
@@ -631,7 +662,9 @@ final class FireAppViewModel: ObservableObject {
                 recentNotifications = recentNotifications.map {
                     var n = $0; n.read = true; return n
                 }
-            } catch {}
+            } catch {
+                _ = await self.handleCloudflareChallengeIfNeeded(error)
+            }
         }
     }
 
@@ -714,7 +747,11 @@ final class FireAppViewModel: ObservableObject {
                 guard !Task.isCancelled, requestID == self.latestSearchRequestID else {
                     return
                 }
-                self.searchErrorMessage = error.localizedDescription
+                if await self.handleCloudflareChallengeIfNeeded(error) {
+                    self.searchErrorMessage = nil
+                } else {
+                    self.searchErrorMessage = error.localizedDescription
+                }
             }
 
             guard requestID == self.latestSearchRequestID else {
@@ -832,6 +869,9 @@ final class FireAppViewModel: ObservableObject {
             clearMessageBusError()
         } catch {
             messageBusCoordinator = nil
+            if await handleCloudflareChallengeIfNeeded(error) {
+                return
+            }
             errorMessage = Self.messageBusErrorPrefix + error.localizedDescription
             scheduleMessageBusRetry()
         }
@@ -1053,6 +1093,9 @@ final class FireAppViewModel: ObservableObject {
             topicDetails = topicDetails.filter { visibleTopicIDs.contains($0.key) }
             loadingTopicIDs = loadingTopicIDs.intersection(visibleTopicIDs)
         } catch {
+            if await handleCloudflareChallengeIfNeeded(error) {
+                return
+            }
             if reset {
                 topicRows = []
                 moreTopicsUrl = nil
@@ -1198,6 +1241,34 @@ final class FireAppViewModel: ObservableObject {
         }
     }
 
+    @discardableResult
+    func handleCloudflareChallengeIfNeeded(
+        _ error: Error,
+        message: String? = FireTopicInteractionError.requiresCloudflareVerification.errorDescription
+    ) async -> Bool {
+        guard case FireUniFfiError.CloudflareChallenge = error else {
+            return false
+        }
+
+        stopMessageBus()
+
+        do {
+            let recoveryStore = try await challengeRecoveryStoreValue()
+            let cleared = try await recoveryStore.logoutLocal(preserveCfClearance: true)
+            await applySession(cleared)
+        } catch {
+            await applySession(.placeholder(baseUrl: session.bootstrap.baseUrl))
+        }
+
+        selectedTopicKind = .latest
+        clearTopicState()
+        clearNotificationState()
+        clearSearchState(resetQuery: true)
+        errorMessage = message ?? error.localizedDescription
+        isPresentingLogin = true
+        return true
+    }
+
     private func syncPlatformCookiesFromWebViewStore() async throws {
         let loginCoordinator = try await loginCoordinatorValue()
         let session = try await loginCoordinator.refreshPlatformCookies()
@@ -1293,6 +1364,14 @@ final class FireAppViewModel: ObservableObject {
             sessionStoreInitializationTask = nil
             throw error
         }
+    }
+
+    private func challengeRecoveryStoreValue() async throws -> any FireChallengeSessionRecovering {
+        if let challengeRecoveryStore {
+            return challengeRecoveryStore
+        }
+
+        return try await sessionStoreValue()
     }
 
     private func loginCoordinatorValue() async throws -> FireWebViewLoginCoordinator {

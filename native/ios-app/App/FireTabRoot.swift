@@ -30,7 +30,11 @@ struct FireTabRoot: View {
                 }
                 .tint(FireTheme.accent)
             } else {
-                FireOnboardingView(viewModel: viewModel)
+                FireOnboardingView(
+                    viewModel: viewModel,
+                    isBootstrappingSession: viewModel.isBootstrappingSession,
+                    isStartupLoadingVisible: viewModel.isStartupLoadingVisible
+                )
             }
         }
         .animation(.easeInOut(duration: 0.3), value: isAuthenticated)

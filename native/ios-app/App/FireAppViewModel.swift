@@ -126,6 +126,8 @@ final class FireAppViewModel: ObservableObject {
     // MARK: - General UI state
 
     @Published var errorMessage: String?
+    @Published private(set) var isBootstrappingSession = false
+    @Published private(set) var isStartupLoadingVisible = false
     @Published var isPresentingLogin = false
     @Published var isPreparingLogin = false
     @Published var isSyncingLoginSession = false
@@ -136,6 +138,9 @@ final class FireAppViewModel: ObservableObject {
     private var sessionStore: FireSessionStore?
     private var loginCoordinator: FireWebViewLoginCoordinator?
     private var sessionStoreInitializationTask: Task<FireSessionStore, Error>?
+    private var initialStateTask: Task<Void, Never>?
+    private var initialStateLoadingDelayTask: Task<Void, Never>?
+    private var initialStateLoadGeneration: UInt64 = 0
     private let loginURL = URL(string: "https://linux.do")!
     private let challengeRecoveryStore: (any FireChallengeSessionRecovering)?
 
@@ -162,18 +167,50 @@ final class FireAppViewModel: ObservableObject {
     // MARK: - Lifecycle
 
     func loadInitialState() {
-        Task {
+        initialStateLoadGeneration &+= 1
+        let generation = initialStateLoadGeneration
+
+        initialStateTask?.cancel()
+        initialStateLoadingDelayTask?.cancel()
+        isBootstrappingSession = true
+        isStartupLoadingVisible = false
+
+        initialStateLoadingDelayTask = Task { [weak self] in
             do {
-                let sessionStore = try await sessionStoreValue()
-                errorMessage = nil
-                await applySession(try await sessionStore.restoreColdStartSession())
-                await refreshTopicsIfPossible(force: true)
-                await loadRecentNotifications(force: false)
+                try await Task.sleep(for: .milliseconds(500))
             } catch {
-                if await handleCloudflareChallengeIfNeeded(error) {
+                return
+            }
+
+            guard let self else { return }
+            guard self.initialStateLoadGeneration == generation else { return }
+            guard self.isBootstrappingSession else { return }
+            self.isStartupLoadingVisible = true
+        }
+
+        initialStateTask = Task { [weak self] in
+            guard let self else { return }
+            defer {
+                self.finishInitialStateLoading(generation: generation)
+            }
+
+            do {
+                let sessionStore = try await self.sessionStoreValue()
+                guard self.initialStateLoadGeneration == generation else { return }
+                self.errorMessage = nil
+                let restoredSession = try await sessionStore.restoreColdStartSession()
+                guard self.initialStateLoadGeneration == generation else { return }
+                await self.applySession(restoredSession)
+                guard self.initialStateLoadGeneration == generation else { return }
+                await self.refreshTopicsIfPossible(force: true)
+                guard self.initialStateLoadGeneration == generation else { return }
+                await self.loadRecentNotifications(force: false)
+            } catch {
+                guard self.initialStateLoadGeneration == generation else { return }
+                if await self.handleCloudflareChallengeIfNeeded(error) {
                     return
                 }
-                errorMessage = error.localizedDescription
+                self.errorMessage = error.localizedDescription
             }
         }
     }
@@ -1137,6 +1174,18 @@ final class FireAppViewModel: ObservableObject {
         isAppendingSearch = false
         searchErrorMessage = nil
         searchScope = .all
+    }
+
+    private func finishInitialStateLoading(generation: UInt64) {
+        guard initialStateLoadGeneration == generation else {
+            return
+        }
+
+        initialStateLoadingDelayTask?.cancel()
+        initialStateLoadingDelayTask = nil
+        isBootstrappingSession = false
+        isStartupLoadingVisible = false
+        initialStateTask = nil
     }
 
     private func applyTopicPresenceState(_ state: TopicPresenceState) {

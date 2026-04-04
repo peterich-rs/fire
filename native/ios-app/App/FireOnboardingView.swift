@@ -2,6 +2,8 @@ import SwiftUI
 
 struct FireOnboardingView: View {
     @ObservedObject var viewModel: FireAppViewModel
+    let isBootstrappingSession: Bool
+    let isStartupLoadingVisible: Bool
     @State private var copiedErrorMessage: String?
 
     var body: some View {
@@ -62,35 +64,50 @@ struct FireOnboardingView: View {
                         )
                     }
 
-                    Button {
-                        viewModel.openLogin()
-                    } label: {
+                    if isBootstrappingSession {
                         HStack(spacing: 8) {
-                            if viewModel.isPreparingLogin {
+                            if isStartupLoadingVisible {
                                 ProgressView()
-                                    .tint(.white)
+                                    .tint(FireTheme.accent)
                                     .controlSize(.small)
-                            } else {
-                                Image(systemName: "person.badge.key")
-                            }
-                            Text(viewModel.isPreparingLogin ? "准备中…" : "登录 LinuxDo")
-                        }
-                        .font(.headline)
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 14)
-                        .background(
-                            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .fill(FireTheme.accent)
-                        )
-                    }
-                    .disabled(viewModel.isPreparingLogin)
 
-                    Button("恢复已有会话") {
-                        viewModel.loadInitialState()
+                                Text("正在读取本地登录态…")
+                                    .font(.subheadline.weight(.medium))
+                                    .foregroundStyle(FireTheme.subtleInk)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, minHeight: 46)
+                    } else {
+                        Button {
+                            viewModel.openLogin()
+                        } label: {
+                            HStack(spacing: 8) {
+                                if viewModel.isPreparingLogin {
+                                    ProgressView()
+                                        .tint(.white)
+                                        .controlSize(.small)
+                                } else {
+                                    Image(systemName: "person.badge.key")
+                                }
+                                Text(viewModel.isPreparingLogin ? "准备中…" : "登录 LinuxDo")
+                            }
+                            .font(.headline)
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 14)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .fill(FireTheme.accent)
+                            )
+                        }
+                        .disabled(viewModel.isPreparingLogin)
+
+                        Button("恢复已有会话") {
+                            viewModel.loadInitialState()
+                        }
+                        .font(.subheadline)
+                        .foregroundStyle(FireTheme.accent)
                     }
-                    .font(.subheadline)
-                    .foregroundStyle(FireTheme.accent)
                 }
                 .padding(.horizontal, 24)
                 .padding(.bottom, 40)

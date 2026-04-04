@@ -47,6 +47,7 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
   - performs a lightweight network preflight before presenting the login browser
   - moves the first system-level network prompt, when one appears on-device, out of the login page itself
   - restores the redacted session cache, replays Keychain cookies through Rust on cold start, repairs incomplete authenticated session identity, and keeps the topic browser in sync with login state
+  - holds the onboarding screen in a bootstrap state while cold-start auto-login runs, hiding login actions during restore and only revealing a loading indicator if that bootstrap takes longer than 500ms
   - now builds `FireSessionStore` lazily on a detached task so Rust/logging initialization does not block the first SwiftUI render on the main actor
   - tracks paginated topic feed state and publishes Rust-backed bootstrap metadata plus Rust-generated topic-row view models into SwiftUI
   - mirrors authenticated LinuxDo cookies into native `HTTPCookieStorage` so inline media/image requests can reuse the restored session
@@ -80,6 +81,8 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
   - keeps diagnostics reachable without letting them dominate the main browsing surface
   - uses a shared semantic color system that adapts the workspace to both light and dark appearance
   - now reads the real generated Swift-facing contracts exported from `fire-uniffi`
+- `App/FireHomeView.swift`
+  - keeps the top bar title fixed to `首页` so the authenticated home shell does not echo the current profile name in the navigation chrome
 
 Expected integration flow:
 
@@ -110,6 +113,7 @@ Workspace note:
 Current UX note:
 
 - The app now opens login as a full-screen browser instead of a partial sheet.
+- The app now keeps the same onboarding page visible during cold-start auto-login, hiding login actions until restore fails and only showing loading if bootstrap takes longer than 500ms.
 - The login browser can navigate back from Google or other intermediate pages without forcing the user to close and reopen login.
 - The login shell and reading workspace now adapt to both light and dark system appearance while preserving the same hierarchy and contrast model.
 - The network preflight is a best-effort connectivity warm-up. iOS does not provide a generic "internet permission" API for arbitrary web access, so this only shifts the first prompt/request earlier; it does not create a separate permission flow.

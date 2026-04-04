@@ -6,12 +6,6 @@ struct FireHomeView: View {
     @State private var showCategoryBrowser = false
     @State private var showTagPicker = false
 
-    private var sessionTitle: String {
-        viewModel.session.readiness.canReadAuthenticatedApi
-            ? viewModel.session.profileDisplayName
-            : "Fire"
-    }
-
     private var parentCategories: [FireTopicCategoryPresentation] {
         viewModel.allCategories().filter { $0.parentCategoryId == nil }
     }
@@ -32,7 +26,7 @@ struct FireHomeView: View {
                 }
             }
             .listStyle(.plain)
-            .navigationTitle(sessionTitle)
+            .navigationTitle("首页")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     NavigationLink {

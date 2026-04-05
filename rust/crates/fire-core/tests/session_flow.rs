@@ -3,7 +3,7 @@ mod common;
 use common::{sample_home_html, temp_session_file, temp_workspace_dir};
 use fire_core::{FireCore, FireCoreConfig, FireCoreError};
 use fire_models::{BootstrapArtifacts, CookieSnapshot, LoginPhase, LoginSyncInput, PlatformCookie};
-use serde_json::Value;
+use serde_json::{json, Value};
 
 #[test]
 fn apply_home_html_extracts_bootstrap_and_readiness() {
@@ -105,6 +105,7 @@ async fn refresh_bootstrap_if_needed_skips_same_origin_session_without_shared_se
     let _ = core.apply_cookies(CookieSnapshot {
         t_token: Some("token".into()),
         forum_session: Some("forum".into()),
+        csrf_token: Some("csrf-token".into()),
         ..CookieSnapshot::default()
     });
     let expected = core.apply_bootstrap(BootstrapArtifacts {
@@ -167,6 +168,7 @@ async fn refresh_bootstrap_if_needed_refreshes_when_site_metadata_is_missing() {
     let _ = core.apply_cookies(CookieSnapshot {
         t_token: Some("token".into()),
         forum_session: Some("forum".into()),
+        csrf_token: Some("csrf-token".into()),
         ..CookieSnapshot::default()
     });
     let _ = core.apply_bootstrap(BootstrapArtifacts {
@@ -193,6 +195,68 @@ async fn refresh_bootstrap_if_needed_refreshes_when_site_metadata_is_missing() {
         vec!["heart", "clap"]
     );
     assert_eq!(snapshot.bootstrap.min_post_length, 18);
+}
+
+#[tokio::test]
+async fn refresh_bootstrap_if_needed_uses_site_json_without_home_refresh_when_only_site_metadata_is_missing(
+) {
+    let site_metadata_json = r#"{
+      "categories": [
+        { "id": 2, "name": "Rust", "slug": "rust", "color": "FFFFFF", "text_color": "000000" }
+      ],
+      "top_tags": ["rust", "swift"],
+      "can_tag_topics": true
+    }"#;
+    let server = common::TestServer::spawn(vec![common::raw_json_response(
+        200,
+        "application/json",
+        site_metadata_json,
+    )])
+    .await
+    .expect("server");
+    let core = FireCore::new(FireCoreConfig {
+        base_url: server.base_url(),
+        workspace_path: None,
+    })
+    .expect("core");
+    let _ = core.apply_cookies(CookieSnapshot {
+        t_token: Some("token".into()),
+        forum_session: Some("forum".into()),
+        csrf_token: Some("csrf-token".into()),
+        ..CookieSnapshot::default()
+    });
+    let _ = core.apply_bootstrap(BootstrapArtifacts {
+        base_url: server.base_url(),
+        current_username: Some("alice".into()),
+        current_user_id: Some(1),
+        preloaded_json: Some(
+            "{\"currentUser\":{\"id\":1,\"username\":\"alice\"},\"siteSettings\":{\"min_post_length\":18,\"discourse_reactions_enabled_reactions\":\"heart|clap\"}}".into()
+        ),
+        has_preloaded_data: true,
+        has_site_settings: true,
+        enabled_reaction_ids: vec!["heart".into(), "clap".into()],
+        min_post_length: 18,
+        ..BootstrapArtifacts::default()
+    });
+
+    let snapshot = core
+        .refresh_bootstrap_if_needed()
+        .await
+        .expect("site.json-only fallback should succeed");
+    let requests = server.shutdown_with_requests().await;
+
+    assert_eq!(requests.len(), 1);
+    assert!(requests[0].contains("GET /site.json"));
+    assert!(snapshot.bootstrap.has_site_metadata);
+    assert_eq!(snapshot.bootstrap.categories.len(), 1);
+    assert_eq!(snapshot.bootstrap.top_tags, vec!["rust", "swift"]);
+    assert!(snapshot.bootstrap.can_tag_topics);
+    assert!(snapshot.bootstrap.has_site_settings);
+    assert_eq!(
+        snapshot.bootstrap.enabled_reaction_ids,
+        vec!["heart", "clap"]
+    );
+    assert_eq!(snapshot.login_phase(), LoginPhase::Ready);
 }
 
 #[tokio::test]
@@ -247,6 +311,42 @@ async fn refresh_bootstrap_if_needed_refreshes_when_cross_origin_shared_session_
         snapshot.bootstrap.shared_session_key.as_deref(),
         Some("shared-session")
     );
+    assert!(snapshot.readiness().can_open_message_bus);
+}
+
+#[test]
+fn restore_session_json_rehydrates_stringified_preloaded_payloads() {
+    let core = FireCore::new(FireCoreConfig::default()).expect("core");
+    let payload = json!({
+        "cookies": {
+            "tToken": "token",
+            "forumSession": "forum"
+        },
+        "bootstrap": {
+            "baseUrl": "https://linux.do/",
+            "currentUsername": "alice",
+            "sharedSessionKey": "shared-session",
+            "preloadedJson": r#"{"currentUser":"{\"id\":341628,\"username\":\"alice\",\"notification_channel_position\":11}","siteSettings":"{\"long_polling_base_url\":\"https://ping.linux.do\",\"min_post_length\":18,\"discourse_reactions_enabled_reactions\":\"heart|clap\"}","site":"{\"categories\":[{\"id\":7,\"name\":\"Rust\",\"slug\":\"rust\"}],\"top_tags\":[\"swift\"],\"can_tag_topics\":true}","topicTrackingStateMeta":"{\"/latest\":42}"}"#,
+            "hasPreloadedData": true
+        }
+    });
+
+    let snapshot = core
+        .restore_session_json(payload.to_string())
+        .expect("restore session json");
+
+    assert_eq!(snapshot.bootstrap.current_user_id, Some(341628));
+    assert_eq!(snapshot.bootstrap.notification_channel_position, Some(11));
+    assert_eq!(
+        snapshot.bootstrap.long_polling_base_url.as_deref(),
+        Some("https://ping.linux.do")
+    );
+    assert_eq!(
+        snapshot.bootstrap.topic_tracking_state_meta.as_deref(),
+        Some(r#"{"/latest":42}"#)
+    );
+    assert!(snapshot.bootstrap.has_site_metadata);
+    assert!(snapshot.bootstrap.has_site_settings);
     assert!(snapshot.readiness().can_open_message_bus);
 }
 

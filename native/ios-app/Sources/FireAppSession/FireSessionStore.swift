@@ -35,6 +35,11 @@ public actor FireSessionStore {
     private let workspacePath: String
     private let sessionFilePath: String
     private let authCookieStore: any FireAuthCookieSecureStore
+    // Keep blocking log flush/list/read work off elevated Swift concurrency executors.
+    private let diagnosticsQueue = DispatchQueue(
+        label: "com.fire.session-store.diagnostics",
+        qos: .utility
+    )
 
     public init(
         baseURL: String? = nil,
@@ -73,6 +78,21 @@ public actor FireSessionStore {
 
     @discardableResult
     public func restoreColdStartSession() async throws -> SessionState {
+        try await restoreColdStartSession(
+            refreshBootstrapIfNeeded: {
+                try await self.refreshBootstrapIfNeeded()
+            },
+            refreshCsrfTokenIfNeeded: {
+                try await self.refreshCsrfTokenIfNeeded()
+            }
+        )
+    }
+
+    @discardableResult
+    func restoreColdStartSession(
+        refreshBootstrapIfNeeded: () async throws -> SessionState,
+        refreshCsrfTokenIfNeeded: () async throws -> SessionState
+    ) async throws -> SessionState {
         _ = try restorePersistedSessionIfAvailable()
         let secureSecrets = try authCookieStore.load()
 
@@ -87,7 +107,12 @@ public actor FireSessionStore {
             return cleared
         }
 
-        return try await refreshBootstrapIfNeeded()
+        let restored = try await refreshBootstrapIfNeeded()
+        if shouldRefreshCsrfAfterColdStartRestore(restored) {
+            return try await refreshCsrfTokenIfNeeded()
+        }
+
+        return restored
     }
 
     @discardableResult
@@ -158,12 +183,24 @@ public actor FireSessionStore {
         workspacePath
     }
 
-    public func listLogFiles() throws -> [LogFileSummaryState] {
-        try core.listLogFiles()
+    public func listLogFiles() async throws -> [LogFileSummaryState] {
+        let core = self.core
+        let diagnosticsQueue = self.diagnosticsQueue
+        return try await withCheckedThrowingContinuation { continuation in
+            diagnosticsQueue.async {
+                continuation.resume(with: Result { try core.listLogFiles() })
+            }
+        }
     }
 
-    public func readLogFile(relativePath: String) throws -> LogFileDetailState {
-        try core.readLogFile(relativePath: relativePath)
+    public func readLogFile(relativePath: String) async throws -> LogFileDetailState {
+        let core = self.core
+        let diagnosticsQueue = self.diagnosticsQueue
+        return try await withCheckedThrowingContinuation { continuation in
+            diagnosticsQueue.async {
+                continuation.resume(with: Result { try core.readLogFile(relativePath: relativePath) })
+            }
+        }
     }
 
     public func listNetworkTraces(limit: UInt64 = 200) throws -> [NetworkTraceSummaryState] {
@@ -407,6 +444,17 @@ public actor FireSessionStore {
         session.readiness.hasCurrentUser
             || session.readiness.hasPreloadedData
             || session.readiness.hasSharedSessionKey
+    }
+
+    private func shouldRefreshCsrfAfterColdStartRestore(_ session: SessionState) -> Bool {
+        // iOS persists a redacted session cache, so a cold-start restore may only be
+        // missing CSRF even though bootstrap/user state is otherwise ready.
+        session.readiness.canReadAuthenticatedApi
+            && session.readiness.hasCurrentUser
+            && session.bootstrap.hasPreloadedData
+            && session.bootstrap.hasSiteMetadata
+            && session.bootstrap.hasSiteSettings
+            && !session.readiness.hasCsrfToken
     }
 
     private func persistedSessionJSON() throws -> String {

@@ -3,7 +3,7 @@ import XCTest
 @testable import Fire
 
 final class FireSessionSecurityTests: XCTestCase {
-    func testRestoreColdStartReappliesSecureStoreCookiesToRedactedSession() async throws {
+    func testRestoreColdStartReappliesSecureStoreCookiesAndRepairsRedactedCsrf() async throws {
         let sessionFileURL = try makeSessionFileURL(name: "restore-cold-start-redacted")
         try redactedSessionJSON().write(to: sessionFileURL, atomically: true, encoding: .utf8)
         let secureStore = InMemoryAuthCookieSecureStore(
@@ -18,15 +18,30 @@ final class FireSessionSecurityTests: XCTestCase {
             sessionFilePath: sessionFileURL.path,
             authCookieStore: secureStore
         )
+        let recorder = ColdStartRefreshRecorder()
 
-        let session = try await store.restoreColdStartSession()
+        let session = try await store.restoreColdStartSession(
+            refreshBootstrapIfNeeded: {
+                await recorder.recordBootstrapRefresh()
+                return self.bootstrapCapturedSession(username: "alice")
+            },
+            refreshCsrfTokenIfNeeded: {
+                await recorder.recordCsrfRefresh()
+                return self.readySession(username: "alice")
+            }
+        )
         let persisted = try String(contentsOf: sessionFileURL, encoding: .utf8)
+        let counts = await recorder.snapshot()
+        let debugSession = "\(session)"
 
-        XCTAssertTrue(session.readiness.canReadAuthenticatedApi)
-        XCTAssertTrue(session.readiness.hasCurrentUser)
-        XCTAssertTrue(session.readiness.hasSharedSessionKey)
-        XCTAssertTrue(session.readiness.canOpenMessageBus)
-        XCTAssertEqual(session.loginPhase, .bootstrapCaptured)
+        XCTAssertTrue(session.readiness.canReadAuthenticatedApi, debugSession)
+        XCTAssertTrue(session.readiness.canWriteAuthenticatedApi, debugSession)
+        XCTAssertTrue(session.readiness.hasCurrentUser, debugSession)
+        XCTAssertTrue(session.readiness.hasSharedSessionKey, debugSession)
+        XCTAssertTrue(session.readiness.canOpenMessageBus, debugSession)
+        XCTAssertEqual(session.loginPhase, .ready, debugSession)
+        XCTAssertEqual(counts.bootstrapRefreshCount, 1)
+        XCTAssertEqual(counts.csrfRefreshCount, 1)
         XCTAssertFalse(persisted.contains("\"token\""))
         XCTAssertFalse(persisted.contains("\"forum\""))
         XCTAssertFalse(persisted.contains("\"clearance\""))
@@ -49,6 +64,41 @@ final class FireSessionSecurityTests: XCTestCase {
         XCTAssertFalse(session.readiness.hasSharedSessionKey)
         XCTAssertNil(session.bootstrap.currentUsername)
         XCTAssertEqual(session.profileDisplayName, "未登录")
+    }
+
+    func testRestoreColdStartSkipsCsrfRepairWhenBootstrapStillIncomplete() async throws {
+        let sessionFileURL = try makeSessionFileURL(name: "restore-cold-start-no-csrf-repair")
+        try redactedSessionJSON().write(to: sessionFileURL, atomically: true, encoding: .utf8)
+        let secureStore = InMemoryAuthCookieSecureStore(
+            secrets: FireAuthCookieSecrets(
+                tToken: "token",
+                forumSession: "forum",
+                cfClearance: "clearance"
+            )
+        )
+        let store = try FireSessionStore(
+            workspacePath: try FireSessionStore.defaultWorkspacePath(),
+            sessionFilePath: sessionFileURL.path,
+            authCookieStore: secureStore
+        )
+        let recorder = ColdStartRefreshRecorder()
+
+        let session = try await store.restoreColdStartSession(
+            refreshBootstrapIfNeeded: {
+                await recorder.recordBootstrapRefresh()
+                return self.partialAuthenticatedSession()
+            },
+            refreshCsrfTokenIfNeeded: {
+                await recorder.recordCsrfRefresh()
+                return self.readySession(username: "alice")
+            }
+        )
+        let counts = await recorder.snapshot()
+
+        XCTAssertFalse(session.readiness.canWriteAuthenticatedApi)
+        XCTAssertEqual(session.loginPhase, .cookiesCaptured)
+        XCTAssertEqual(counts.bootstrapRefreshCount, 1)
+        XCTAssertEqual(counts.csrfRefreshCount, 0)
     }
 
     func testSyncLoginContextStoresCookiesInSecureStoreAndPersistsRedactedSession() async throws {
@@ -128,6 +178,67 @@ final class FireSessionSecurityTests: XCTestCase {
         XCTAssertEqual(calls.syncLoginContextCount, 1)
         XCTAssertEqual(calls.refreshBootstrapIfNeededCount, 1)
         XCTAssertTrue(calls.logoutLocalArguments.isEmpty)
+    }
+
+    func testBootstrapHTMLHeuristicsPreferCurrentPageWhenFetchedHomeHTMLIsPartial() {
+        let browserFetchedHomeHTML = """
+        <!doctype html>
+        <html>
+          <head>
+            <meta name="current-username" content="alice">
+            <meta name="csrf-token" content="csrf-token">
+          </head>
+          <body>
+            <div id="data-discourse-setup" data-preloaded="{&quot;currentUser&quot;:{&quot;username&quot;:&quot;alice&quot;},&quot;siteSettings&quot;:{&quot;min_post_length&quot;:20}}"></div>
+          </body>
+        </html>
+        """
+        let currentPageHTML = """
+        <!doctype html>
+        <html>
+          <head>
+            <meta name="shared_session_key" content="shared-session">
+            <meta name="current-username" content="alice">
+            <meta name="csrf-token" content="csrf-token">
+          </head>
+          <body>
+            <div id="data-discourse-setup" data-preloaded="{&quot;currentUser&quot;:{&quot;id&quot;:1,&quot;username&quot;:&quot;alice&quot;,&quot;notification_channel_position&quot;:42},&quot;siteSettings&quot;:{&quot;long_polling_base_url&quot;:&quot;https://ping.linux.do&quot;,&quot;min_post_length&quot;:20},&quot;topicTrackingStateMeta&quot;:{&quot;/notification/1&quot;:42},&quot;site&quot;:{&quot;categories&quot;:[{&quot;id&quot;:2,&quot;name&quot;:&quot;Rust&quot;,&quot;slug&quot;:&quot;rust&quot;}],&quot;top_tags&quot;:[&quot;rust&quot;],&quot;can_tag_topics&quot;:true}}"></div>
+          </body>
+        </html>
+        """
+
+        XCTAssertEqual(
+            FireBootstrapHTMLHeuristics.preferredHTML(
+                browserFetchedHomeHTML: browserFetchedHomeHTML,
+                currentPageHTML: currentPageHTML
+            ),
+            currentPageHTML
+        )
+    }
+
+    func testBootstrapHTMLHeuristicsKeepFetchedHomeWhenCurrentPageHasNoBootstrap() {
+        let browserFetchedHomeHTML = """
+        <!doctype html>
+        <html>
+          <head>
+            <meta name="shared_session_key" content="shared-session">
+            <meta name="current-username" content="alice">
+            <meta name="csrf-token" content="csrf-token">
+          </head>
+          <body>
+            <div id="data-discourse-setup" data-preloaded="{&quot;currentUser&quot;:{&quot;id&quot;:1,&quot;username&quot;:&quot;alice&quot;,&quot;notification_channel_position&quot;:42},&quot;siteSettings&quot;:{&quot;long_polling_base_url&quot;:&quot;https://ping.linux.do&quot;,&quot;min_post_length&quot;:20},&quot;site&quot;:{&quot;categories&quot;:[{&quot;id&quot;:2,&quot;name&quot;:&quot;Rust&quot;,&quot;slug&quot;:&quot;rust&quot;}],&quot;top_tags&quot;:[&quot;rust&quot;],&quot;can_tag_topics&quot;:true}}"></div>
+          </body>
+        </html>
+        """
+        let currentPageHTML = "<html><body>Sync complete</body></html>"
+
+        XCTAssertEqual(
+            FireBootstrapHTMLHeuristics.preferredHTML(
+                browserFetchedHomeHTML: browserFetchedHomeHTML,
+                currentPageHTML: currentPageHTML
+            ),
+            browserFetchedHomeHTML
+        )
     }
 
     @MainActor
@@ -292,6 +403,54 @@ final class FireSessionSecurityTests: XCTestCase {
         )
     }
 
+    private func bootstrapCapturedSession(username: String) -> SessionState {
+        SessionState(
+            cookies: CookieState(
+                tToken: "token",
+                forumSession: "forum",
+                cfClearance: "clearance",
+                csrfToken: nil,
+                platformCookies: []
+            ),
+            bootstrap: BootstrapState(
+                baseUrl: "https://linux.do",
+                discourseBaseUri: "/",
+                sharedSessionKey: "shared",
+                currentUsername: username,
+                currentUserId: 1,
+                notificationChannelPosition: 42,
+                longPollingBaseUrl: "https://linux.do",
+                turnstileSitekey: nil,
+                topicTrackingStateMeta: "{\"message_bus_last_id\":42}",
+                preloadedJson: "{\"currentUser\":{\"id\":1,\"username\":\"alice\"},\"siteSettings\":{\"min_post_length\":18,\"discourse_reactions_enabled_reactions\":\"heart|clap\"},\"site\":{\"categories\":[{\"id\":2,\"name\":\"Rust\",\"slug\":\"rust\"}],\"top_tags\":[\"rust\"],\"can_tag_topics\":true}}",
+                hasPreloadedData: true,
+                hasSiteMetadata: true,
+                topTags: ["rust"],
+                canTagTopics: true,
+                categories: [],
+                hasSiteSettings: true,
+                enabledReactionIds: ["heart"],
+                minPostLength: 1
+            ),
+            readiness: SessionReadinessState(
+                hasLoginCookie: true,
+                hasForumSession: true,
+                hasCloudflareClearance: true,
+                hasCsrfToken: false,
+                hasCurrentUser: true,
+                hasPreloadedData: true,
+                hasSharedSessionKey: true,
+                canReadAuthenticatedApi: true,
+                canWriteAuthenticatedApi: false,
+                canOpenMessageBus: true
+            ),
+            loginPhase: .bootstrapCaptured,
+            hasLoginSession: true,
+            profileDisplayName: username,
+            loginPhaseLabel: "会话初始化中"
+        )
+    }
+
     private func readySession(username: String) -> SessionState {
         SessionState(
             cookies: CookieState(
@@ -304,7 +463,7 @@ final class FireSessionSecurityTests: XCTestCase {
             bootstrap: BootstrapState(
                 baseUrl: "https://linux.do",
                 discourseBaseUri: "/",
-                sharedSessionKey: nil,
+                sharedSessionKey: "shared",
                 currentUsername: username,
                 currentUserId: 1,
                 notificationChannelPosition: 42,
@@ -328,7 +487,7 @@ final class FireSessionSecurityTests: XCTestCase {
                 hasCsrfToken: true,
                 hasCurrentUser: true,
                 hasPreloadedData: true,
-                hasSharedSessionKey: false,
+                hasSharedSessionKey: true,
                 canReadAuthenticatedApi: true,
                 canWriteAuthenticatedApi: true,
                 canOpenMessageBus: true
@@ -433,6 +592,31 @@ final class FireSessionSecurityTests: XCTestCase {
             hasLoginSession: false,
             profileDisplayName: "未登录",
             loginPhaseLabel: "未登录"
+        )
+    }
+}
+
+private actor ColdStartRefreshRecorder {
+    struct Snapshot {
+        let bootstrapRefreshCount: Int
+        let csrfRefreshCount: Int
+    }
+
+    private var bootstrapRefreshCount = 0
+    private var csrfRefreshCount = 0
+
+    func recordBootstrapRefresh() {
+        bootstrapRefreshCount += 1
+    }
+
+    func recordCsrfRefresh() {
+        csrfRefreshCount += 1
+    }
+
+    func snapshot() -> Snapshot {
+        Snapshot(
+            bootstrapRefreshCount: bootstrapRefreshCount,
+            csrfRefreshCount: csrfRefreshCount
         )
     }
 }

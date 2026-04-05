@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import UIKit
 
 @MainActor
 final class FireDiagnosticsViewModel: ObservableObject {
@@ -872,37 +873,43 @@ private struct FireDiagnosticsLogView: View {
     var body: some View {
         Group {
             if let logFile = viewModel.logFile(relativePath: relativePath) {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 12) {
-                        HStack {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(logFile.fileName)
-                                    .font(.headline)
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(logFile.fileName)
+                                .font(.headline)
 
-                                Text(FireDiagnosticsPresentation.byteSize(logFile.sizeBytes))
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-
-                            Spacer()
-
-                            if logFile.isTruncated {
-                                Label("已截断", systemImage: "scissors")
-                                    .font(.caption)
-                                    .foregroundStyle(.orange)
-                            }
+                            Text(FireDiagnosticsPresentation.byteSize(logFile.sizeBytes))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
                         }
 
-                        Text(logFile.contents.isEmpty ? "暂无日志内容。" : logFile.contents)
+                        Spacer()
+
+                        if logFile.isTruncated {
+                            Label("已截断", systemImage: "scissors")
+                                .font(.caption)
+                                .foregroundStyle(.orange)
+                        }
+                    }
+
+                    if logFile.contents.isEmpty {
+                        Text("暂无日志内容。")
                             .font(.system(.caption, design: .monospaced))
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .textSelection(.enabled)
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                             .padding(12)
                             .background(Color(.tertiarySystemGroupedBackground))
                             .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    } else {
+                        FireDiagnosticsLogTextView(text: logFile.contents)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .background(Color(.tertiarySystemGroupedBackground))
+                            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                     }
-                    .padding(16)
                 }
+                .padding(16)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             } else {
                 ProgressView("加载日志…")
                     .task {
@@ -912,6 +919,36 @@ private struct FireDiagnosticsLogView: View {
         }
         .navigationTitle("日志")
         .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+private struct FireDiagnosticsLogTextView: UIViewRepresentable {
+    let text: String
+
+    func makeUIView(context: Context) -> UITextView {
+        let textView = UITextView()
+        textView.isEditable = false
+        textView.isSelectable = true
+        textView.isScrollEnabled = true
+        textView.alwaysBounceVertical = true
+        textView.showsVerticalScrollIndicator = true
+        textView.backgroundColor = .clear
+        textView.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
+        textView.textColor = .label
+        textView.textContainerInset = UIEdgeInsets(top: 12, left: 12, bottom: 12, right: 12)
+        textView.textContainer.lineFragmentPadding = 0
+        textView.textContainer.widthTracksTextView = true
+        textView.adjustsFontForContentSizeCategory = true
+        textView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        textView.text = text
+        return textView
+    }
+
+    func updateUIView(_ uiView: UITextView, context: Context) {
+        if uiView.text != text {
+            uiView.text = text
+            uiView.setContentOffset(.zero, animated: false)
+        }
     }
 }
 

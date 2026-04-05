@@ -97,7 +97,7 @@ The intended native integration order is:
 5. On cold start, restore the snapshot through `restore_session_json` or `load_session_from_path`.
 6. Before any authenticated request, hosts that keep browser cookies outside `session.json` must re-inject that platform cookie batch into Rust.
 7. If homepage HTML is unavailable or stale, or the restored authenticated snapshot is missing username/preloaded bootstrap fields, call `refresh_bootstrap_if_needed`. When homepage bootstrap still lacks site metadata such as categories/top tags, the shared Rust layer now falls back to `/site.json`. Only treat `shared_session_key` as required when MessageBus uses a cross-origin long-polling host.
-8. If write APIs need a newer token, call `refresh_csrf_token_if_needed`.
+8. If the restored session is otherwise ready but the host persisted a redacted cache without CSRF, call `refresh_csrf_token_if_needed` before surfacing a fully ready authenticated session. The iOS `restoreColdStartSession()` path now performs this repair automatically. Write APIs can reuse the same helper whenever they need a newer token.
 9. Use `fetch_topic_list` (global, category-scoped, or tag-scoped via `TopicListQuery`) and `fetch_topic_detail` for the first authenticated read path.
 10. On explicit logout, prefer `logout_remote`, then fall back to `logout_local`, clear the persisted session, and remove host-side WebView auth cookies so the native shell and platform browser state agree.
 11. Use `notification_state`, `fetch_recent_notifications`, `fetch_notifications`, `mark_notification_read`, and `mark_all_notifications_read` for the shared in-app notification data path; keep OS-level/system notification presentation on the hosts.

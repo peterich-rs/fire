@@ -46,7 +46,7 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
 - `App/FireAppViewModel.swift`
   - performs a lightweight network preflight before presenting the login browser
   - moves the first system-level network prompt, when one appears on-device, out of the login page itself
-  - restores the redacted session cache, replays Keychain cookies through Rust on cold start, repairs incomplete authenticated session identity, and keeps the topic browser in sync with login state
+  - restores the redacted session cache, replays Keychain cookies through Rust on cold start, repairs incomplete authenticated session identity, refreshes CSRF when the redacted cache is otherwise ready, and keeps the topic browser in sync with login state
   - holds the onboarding screen in a bootstrap state while cold-start auto-login runs, hiding login actions during restore and only revealing a loading indicator if that bootstrap takes longer than 500ms
   - now builds `FireSessionStore` lazily on a detached task so Rust/logging initialization does not block the first SwiftUI render on the main actor
   - tracks paginated topic feed state and publishes Rust-backed bootstrap metadata plus Rust-generated topic-row view models into SwiftUI

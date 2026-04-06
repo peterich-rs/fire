@@ -140,6 +140,13 @@ struct FireTopicDetailView: View {
         return topic.replyCount
     }
 
+    private var loadedReplyCount: Int {
+        guard let detail else {
+            return 0
+        }
+        return max(detail.postStream.posts.count - 1, 0)
+    }
+
     private var displayedLikeCount: UInt32 {
         detail?.likeCount ?? topic.likeCount
     }
@@ -381,8 +388,14 @@ struct FireTopicDetailView: View {
                     .font(.headline)
                 Spacer()
                 if let detail {
-                    Text("\(max(detail.postStream.posts.count - 1, 0)) 条 · \(displayedFloorCount) 楼")
-                        .foregroundStyle(.secondary)
+                    let totalReplyCount = max(Int(detail.postsCount) - 1, 0)
+                    if loadedReplyCount < totalReplyCount {
+                        Text("已加载 \(loadedReplyCount) / \(totalReplyCount) 条")
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text("\(totalReplyCount) 条 · \(displayedFloorCount) 楼")
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
 
@@ -390,11 +403,23 @@ struct FireTopicDetailView: View {
                 let displayPosts = replyPosts
 
                 if displayPosts.isEmpty {
-                    Text("还没有回复")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .center)
-                        .padding(.vertical, 24)
+                    if viewModel.hasMoreTopicPosts(topicId: topic.id) {
+                        FireTopicPostsLoadingFooter()
+                            .padding(.vertical, 16)
+                            .onAppear {
+                                viewModel.preloadTopicPostsIfNeeded(
+                                    topicId: topic.id,
+                                    visibleReplyIndex: 0,
+                                    totalReplyCount: 1
+                                )
+                            }
+                    } else {
+                        Text("还没有回复")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .center)
+                            .padding(.vertical, 24)
+                    }
                 } else {
                     VStack(spacing: 0) {
                         ForEach(Array(displayPosts.enumerated()), id: \.element.post.id) { index, flatPost in
@@ -414,11 +439,33 @@ struct FireTopicDetailView: View {
                                 }
                             )
                             .background(FireVisiblePostFrameReporter(postNumber: flatPost.post.postNumber))
+                            .onAppear {
+                                viewModel.preloadTopicPostsIfNeeded(
+                                    topicId: topic.id,
+                                    visibleReplyIndex: index,
+                                    totalReplyCount: displayPosts.count
+                                )
+                            }
 
                             if index != displayPosts.count - 1 {
                                 Divider()
                             }
                         }
+                    }
+
+                    if viewModel.isLoadingMoreTopicPosts(topicId: topic.id) {
+                        FireTopicPostsLoadingFooter()
+                            .padding(.top, 12)
+                    } else if viewModel.hasMoreTopicPosts(topicId: topic.id) {
+                        Color.clear
+                            .frame(height: 1)
+                            .onAppear {
+                                viewModel.preloadTopicPostsIfNeeded(
+                                    topicId: topic.id,
+                                    visibleReplyIndex: max(displayPosts.count - 1, 0),
+                                    totalReplyCount: displayPosts.count
+                                )
+                            }
                     }
                 }
             } else if viewModel.isLoadingTopic(topicId: topic.id) {
@@ -778,6 +825,21 @@ private struct FireTypingPresenceStrip: View {
             Spacer()
         }
         .padding(.horizontal, 4)
+    }
+}
+
+private struct FireTopicPostsLoadingFooter: View {
+    var body: some View {
+        HStack(spacing: 10) {
+            ProgressView()
+                .controlSize(.small)
+            Text("正在加载后续评论…")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Spacer()
+        }
+        .padding(.horizontal, 4)
+        .padding(.vertical, 10)
     }
 }
 

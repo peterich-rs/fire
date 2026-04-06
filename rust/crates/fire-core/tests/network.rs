@@ -294,6 +294,184 @@ async fn fetch_topic_detail_parses_detail_payload() {
 }
 
 #[tokio::test]
+async fn fetch_topic_detail_hydrates_missing_posts_from_stream() {
+    let mut detail_payload: Value =
+        serde_json::from_str(&sample_topic_detail_json()).expect("detail fixture json");
+    let object = detail_payload
+        .as_object_mut()
+        .expect("detail fixture object");
+    object.insert("posts_count".into(), json!(3));
+    object
+        .get_mut("post_stream")
+        .and_then(Value::as_object_mut)
+        .expect("post stream object")
+        .insert("stream".into(), json!([9001, 9002, 9003]));
+
+    let extra_posts_payload = json!({
+        "post_stream": {
+            "posts": [
+                {
+                    "id": 9003,
+                    "username": "carol",
+                    "cooked": "<p>Nested reply</p>",
+                    "post_number": 3,
+                    "reply_to_post_number": 2
+                },
+                {
+                    "id": 9002,
+                    "username": "bob",
+                    "cooked": "<p>First reply</p>",
+                    "post_number": 2,
+                    "reply_to_post_number": 1
+                }
+            ],
+            "stream": [9002, 9003]
+        }
+    })
+    .to_string();
+
+    let responses = vec![
+        raw_json_response(200, "application/json", &detail_payload.to_string()),
+        raw_json_response(200, "application/json", &extra_posts_payload),
+    ];
+    let server = TestServer::spawn(responses).await.expect("server");
+    let core = FireCore::new(FireCoreConfig {
+        base_url: server.base_url(),
+        workspace_path: None,
+    })
+    .expect("core");
+
+    let detail = core
+        .fetch_topic_detail(TopicDetailQuery {
+            topic_id: 123,
+            post_number: None,
+            track_visit: false,
+            filter: None,
+            username_filters: None,
+            filter_top_level_replies: false,
+        })
+        .await
+        .expect("detail");
+    let requests = server.shutdown_with_requests().await;
+
+    assert_eq!(detail.post_stream.stream, vec![9001, 9002, 9003]);
+    assert_eq!(
+        detail
+            .post_stream
+            .posts
+            .iter()
+            .map(|post| post.post_number)
+            .collect::<Vec<_>>(),
+        vec![1, 2, 3]
+    );
+    assert_eq!(
+        detail
+            .flat_posts
+            .iter()
+            .map(|post| post.post.post_number)
+            .collect::<Vec<_>>(),
+        vec![1, 2, 3]
+    );
+    assert_eq!(detail.flat_posts[1].depth, 0);
+    assert_eq!(detail.flat_posts[2].depth, 1);
+    assert_eq!(detail.flat_posts[2].parent_post_number, Some(2));
+    assert_eq!(requests.len(), 2);
+    assert!(requests[0].contains("GET /t/123.json HTTP/1.1"));
+    assert!(requests[1]
+        .contains("GET /t/123/posts.json?post_ids%5B%5D=9002&post_ids%5B%5D=9003 HTTP/1.1"));
+}
+
+#[tokio::test]
+async fn fetch_topic_detail_initial_keeps_partial_post_stream() {
+    let mut detail_payload: Value =
+        serde_json::from_str(&sample_topic_detail_json()).expect("detail fixture json");
+    detail_payload
+        .as_object_mut()
+        .expect("detail fixture object")
+        .get_mut("post_stream")
+        .and_then(Value::as_object_mut)
+        .expect("post stream object")
+        .insert("stream".into(), json!([9001, 9002, 9003]));
+
+    let responses = vec![raw_json_response(
+        200,
+        "application/json",
+        &detail_payload.to_string(),
+    )];
+    let server = TestServer::spawn(responses).await.expect("server");
+    let core = FireCore::new(FireCoreConfig {
+        base_url: server.base_url(),
+        workspace_path: None,
+    })
+    .expect("core");
+
+    let detail = core
+        .fetch_topic_detail_initial(TopicDetailQuery {
+            topic_id: 123,
+            post_number: None,
+            track_visit: false,
+            filter: None,
+            username_filters: None,
+            filter_top_level_replies: false,
+        })
+        .await
+        .expect("detail");
+    let requests = server.shutdown_with_requests().await;
+
+    assert_eq!(detail.post_stream.posts.len(), 1);
+    assert_eq!(detail.post_stream.stream, vec![9001, 9002, 9003]);
+    assert_eq!(requests.len(), 1);
+    assert!(requests[0].contains("GET /t/123.json HTTP/1.1"));
+}
+
+#[tokio::test]
+async fn fetch_topic_posts_parses_batch_response() {
+    let payload = json!({
+        "post_stream": {
+            "posts": [
+                {
+                    "id": 9003,
+                    "username": "carol",
+                    "cooked": "<p>Nested reply</p>",
+                    "post_number": 3,
+                    "reply_to_post_number": 2
+                },
+                {
+                    "id": 9002,
+                    "username": "bob",
+                    "cooked": "<p>First reply</p>",
+                    "post_number": 2,
+                    "reply_to_post_number": 1
+                }
+            ],
+            "stream": [9002, 9003]
+        }
+    })
+    .to_string();
+
+    let responses = vec![raw_json_response(200, "application/json", &payload)];
+    let server = TestServer::spawn(responses).await.expect("server");
+    let core = FireCore::new(FireCoreConfig {
+        base_url: server.base_url(),
+        workspace_path: None,
+    })
+    .expect("core");
+
+    let posts = core
+        .fetch_topic_posts(123, vec![9002, 9003])
+        .await
+        .expect("posts");
+    let requests = server.shutdown_with_requests().await;
+
+    assert_eq!(posts.len(), 2);
+    assert_eq!(posts[0].id, 9003);
+    assert_eq!(posts[1].reply_to_post_number, Some(1));
+    assert_eq!(requests.len(), 1);
+    assert!(requests[0]
+        .contains("GET /t/123/posts.json?post_ids%5B%5D=9002&post_ids%5B%5D=9003 HTTP/1.1"));
+}
+
+#[tokio::test]
 async fn fetch_topic_detail_tolerates_object_bookmarks_and_accepted_answer_metadata() {
     let mut payload: Value =
         serde_json::from_str(&sample_topic_detail_json()).expect("detail fixture json");

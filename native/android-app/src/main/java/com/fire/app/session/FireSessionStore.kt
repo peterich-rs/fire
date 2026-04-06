@@ -18,6 +18,7 @@ import uniffi.fire_uniffi.TopicDetailQueryState
 import uniffi.fire_uniffi.TopicDetailState
 import uniffi.fire_uniffi.TopicListQueryState
 import uniffi.fire_uniffi.TopicListState
+import uniffi.fire_uniffi.TopicPostState
 
 class FireSessionStore(
     context: Context,
@@ -157,6 +158,14 @@ class FireSessionStore(
 
     suspend fun fetchTopicDetail(query: TopicDetailQueryState): TopicDetailState = withContext(Dispatchers.IO) {
         core.fetchTopicDetail(query)
+    }
+
+    suspend fun fetchTopicDetailInitial(query: TopicDetailQueryState): TopicDetailState = withContext(Dispatchers.IO) {
+        core.fetchTopicDetailInitial(query)
+    }
+
+    suspend fun fetchTopicPosts(topicId: ULong, postIds: List<ULong>): List<TopicPostState> = withContext(Dispatchers.IO) {
+        core.fetchTopicPosts(topicId, postIds)
     }
 
     suspend fun clearPersistedSession() = withContext(Dispatchers.IO) {

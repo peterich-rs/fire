@@ -150,6 +150,41 @@ final class FireTopicPresentationTests: XCTestCase {
         XCTAssertTrue(flatPosts[0].isOriginalPost)
     }
 
+    func testMergeTopicPostsRespectsStreamOrderAndPrefersIncomingValues() {
+        let merged = FireTopicPresentation.mergeTopicPosts(
+            existing: [
+                makePost(postNumber: 3, replyToPostNumber: 2, username: "old-nested"),
+                makePost(postNumber: 1, replyToPostNumber: nil, username: "author"),
+            ],
+            incoming: [
+                makePost(postNumber: 2, replyToPostNumber: 1, username: "reply"),
+                makePost(postNumber: 3, replyToPostNumber: 2, username: "new-nested"),
+            ],
+            orderedPostIDs: [1, 2, 3]
+        )
+
+        XCTAssertEqual(merged.map(\.postNumber), [1, 2, 3])
+        XCTAssertEqual(merged[2].username, "new-nested")
+    }
+
+    func testRecomposedDetailRebuildsThreadFromLoadedPosts() {
+        let detail = makeTopicDetail(
+            posts: [
+                makePost(postNumber: 3, replyToPostNumber: 2, username: "nested"),
+                makePost(postNumber: 1, replyToPostNumber: nil, username: "author"),
+                makePost(postNumber: 2, replyToPostNumber: 1, username: "reply"),
+            ],
+            stream: [1, 2, 3]
+        )
+
+        let recomposed = FireTopicPresentation.recomposedDetail(detail)
+
+        XCTAssertEqual(recomposed.postStream.posts.map(\.postNumber), [1, 2, 3])
+        XCTAssertEqual(recomposed.flatPosts.map(\.post.postNumber), [1, 2, 3])
+        XCTAssertEqual(recomposed.flatPosts.map(\.depth), [0, 0, 1])
+        XCTAssertEqual(recomposed.flatPosts[2].parentPostNumber, 2)
+    }
+
     func testProfileDisplayNameAvoidsAnonymousCopyWhenAuthenticatedIdentityIsMissing() {
         let session = SessionState(
             cookies: CookieState(
@@ -276,6 +311,38 @@ final class FireTopicPresentationTests: XCTestCase {
             canDelete: false,
             canRecover: false,
             hidden: false
+        )
+    }
+
+    private func makeTopicDetail(
+        posts: [TopicPostState],
+        stream: [UInt64]
+    ) -> TopicDetailState {
+        TopicDetailState(
+            id: 42,
+            title: "Fire Native",
+            slug: "fire-native",
+            postsCount: UInt32(max(stream.count, posts.count)),
+            categoryId: 7,
+            tags: [],
+            views: 128,
+            likeCount: 9,
+            createdAt: "2026-03-28T10:00:00Z",
+            lastReadPostNumber: nil,
+            bookmarks: [],
+            acceptedAnswer: false,
+            hasAcceptedAnswer: false,
+            canVote: false,
+            voteCount: 0,
+            userVoted: false,
+            summarizable: false,
+            hasCachedSummary: false,
+            hasSummary: false,
+            archetype: "regular",
+            postStream: TopicPostStreamState(posts: posts, stream: stream),
+            thread: TopicThreadState(originalPostNumber: nil, replySections: []),
+            flatPosts: [],
+            details: TopicDetailMetaState(notificationLevel: nil, canEdit: false, createdBy: nil)
         )
     }
 }

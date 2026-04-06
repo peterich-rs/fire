@@ -2432,6 +2432,33 @@ impl FireCoreHandle {
         Ok(response.into())
     }
 
+    pub async fn fetch_topic_detail_initial(
+        &self,
+        query: TopicDetailQueryState,
+    ) -> Result<TopicDetailState, FireUniFfiError> {
+        let inner = Arc::clone(&self.inner);
+        let panic_state = Arc::clone(&self.panic_state);
+        let response = run_on_ffi_runtime("fetch_topic_detail_initial", panic_state, async move {
+            inner.fetch_topic_detail_initial(query.into()).await
+        })
+        .await?;
+        Ok(response.into())
+    }
+
+    pub async fn fetch_topic_posts(
+        &self,
+        topic_id: u64,
+        post_ids: Vec<u64>,
+    ) -> Result<Vec<TopicPostState>, FireUniFfiError> {
+        let inner = Arc::clone(&self.inner);
+        let panic_state = Arc::clone(&self.panic_state);
+        let response = run_on_ffi_runtime("fetch_topic_posts", panic_state, async move {
+            inner.fetch_topic_posts(topic_id, post_ids).await
+        })
+        .await?;
+        Ok(response.into_iter().map(Into::into).collect())
+    }
+
     pub async fn create_reply(
         &self,
         input: TopicReplyRequestState,

@@ -126,6 +126,9 @@
 - 补充说明：
   - `filter_top_level_replies=true` 时，服务端返回可能不包含主贴
   - 当前客户端会在必要时额外请求 `GET /posts/by_number/{topicId}/1` 补回首贴
+  - 当前代码同时保留两种消费方式：
+    - 共享 Rust Core 的“完整详情”路径会继续按缺失的 `post_ids[]` 调用 `GET /t/{topicId}/posts.json`，补齐整条评论流
+    - iOS 帖子详情页的滚动列表路径会先消费首屏 `post_stream.posts`，再依据 `post_stream.stream` 自动分批请求 `GET /t/{topicId}/posts.json?post_ids[]=` 续载后续评论
   - 进入“只看顶层回复”模式后，后续翻页依赖 `post_stream.stream` 和 `GET /t/{topicId}/posts.json?post_ids[]=`，不是继续用 `post_number + asc`
 
 ### `GET /t/{slug}.json`

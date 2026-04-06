@@ -38,8 +38,7 @@ pub(crate) fn parse_home_state(base_url: &str, html: &str) -> ParsedHomeState {
 }
 
 pub(crate) fn hydrate_preloaded_fields(preloaded_json: &str, bootstrap: &mut BootstrapArtifacts) {
-    let Ok(preloaded) = serde_json::from_str::<Value>(preloaded_json) else {
-        warn!("failed to parse data-preloaded json");
+    let Some(preloaded) = parse_preloaded_payload(preloaded_json) else {
         return;
     };
 
@@ -85,6 +84,48 @@ pub(crate) fn hydrate_preloaded_fields(preloaded_json: &str, bootstrap: &mut Boo
 
     hydrate_site_metadata_fields(&preloaded, bootstrap);
     hydrate_site_settings_fields(&preloaded, bootstrap);
+}
+
+pub(crate) fn parse_preloaded_payload(preloaded_json: &str) -> Option<Value> {
+    let Ok(preloaded) = serde_json::from_str::<Value>(preloaded_json) else {
+        warn!("failed to parse data-preloaded json");
+        return None;
+    };
+    Some(normalize_preloaded_payload(&preloaded))
+}
+
+fn normalize_preloaded_payload(preloaded: &Value) -> Value {
+    let Some(object) = preloaded.as_object() else {
+        return preloaded.clone();
+    };
+
+    let mut normalized = object.clone();
+    for key in [
+        "currentUser",
+        "siteSettings",
+        "site",
+        "topicTrackingStateMeta",
+        "topicTrackingStates",
+    ] {
+        let Some(value) = normalized.get(key).cloned() else {
+            continue;
+        };
+        let Some(decoded) = decode_embedded_json_payload(&value) else {
+            continue;
+        };
+        normalized.insert(key.to_string(), decoded);
+    }
+
+    Value::Object(normalized)
+}
+
+fn decode_embedded_json_payload(value: &Value) -> Option<Value> {
+    let raw = value.as_str()?.trim();
+    let first = raw.chars().next()?;
+    if first != '{' && first != '[' {
+        return None;
+    }
+    serde_json::from_str(raw).ok()
 }
 
 pub(crate) fn parse_site_metadata_json(base_url: &str, json: &str) -> BootstrapArtifacts {
@@ -422,7 +463,11 @@ fn scalar_string_or_empty(value: Option<&Value>) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{decode_html_entities, parse_home_state, parse_site_metadata_json};
+    use fire_models::BootstrapArtifacts;
+
+    use super::{
+        decode_html_entities, hydrate_preloaded_fields, parse_home_state, parse_site_metadata_json,
+    };
 
     #[test]
     fn parse_home_state_skips_meta_tags_without_name() {
@@ -511,6 +556,40 @@ mod tests {
         assert_eq!(parsed.bootstrap_patch.categories, Vec::new());
         assert_eq!(parsed.bootstrap_patch.top_tags, Vec::<String>::new());
         assert!(!parsed.bootstrap_patch.can_tag_topics);
+    }
+
+    #[test]
+    fn hydrate_preloaded_fields_unwraps_stringified_root_payloads() {
+        let mut bootstrap = BootstrapArtifacts::default();
+        hydrate_preloaded_fields(
+            r#"{
+  "currentUser":"{\"id\":341628,\"username\":\"alice\",\"notification_channel_position\":11}",
+  "siteSettings":"{\"long_polling_base_url\":\"https://ping.linux.do\",\"min_post_length\":18,\"discourse_reactions_enabled_reactions\":\"heart|clap\"}",
+  "site":"{\"categories\":[{\"id\":7,\"name\":\"Rust\",\"slug\":\"rust\",\"color\":\"FFFFFF\",\"text_color\":\"000000\"}],\"top_tags\":[{\"name\":\"swift\"},\"rust\"],\"can_tag_topics\":true}",
+  "topicTrackingStateMeta":"{\"/latest\":42,\"/new\":8}"
+}"#,
+            &mut bootstrap,
+        );
+
+        assert_eq!(bootstrap.current_username.as_deref(), Some("alice"));
+        assert_eq!(bootstrap.current_user_id, Some(341628));
+        assert_eq!(bootstrap.notification_channel_position, Some(11));
+        assert_eq!(
+            bootstrap.long_polling_base_url.as_deref(),
+            Some("https://ping.linux.do")
+        );
+        assert_eq!(
+            bootstrap.topic_tracking_state_meta.as_deref(),
+            Some(r#"{"/latest":42,"/new":8}"#)
+        );
+        assert!(bootstrap.has_site_metadata);
+        assert_eq!(bootstrap.top_tags, vec!["swift", "rust"]);
+        assert!(bootstrap.can_tag_topics);
+        assert_eq!(bootstrap.categories.len(), 1);
+        assert_eq!(bootstrap.categories[0].id, 7);
+        assert!(bootstrap.has_site_settings);
+        assert_eq!(bootstrap.enabled_reaction_ids, vec!["heart", "clap"]);
+        assert_eq!(bootstrap.min_post_length, 18);
     }
 
     #[test]

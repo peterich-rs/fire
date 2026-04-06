@@ -19,6 +19,7 @@ use crate::{
     notification_payloads::{
         parse_notification_item_value, parse_notification_list_response_value,
     },
+    parsing::parse_preloaded_payload,
 };
 
 const DEFAULT_RECENT_LIMIT: u32 = 30;
@@ -508,7 +509,7 @@ fn notification_counters_from_snapshot(snapshot: &SessionSnapshot) -> Notificati
     let Some(preloaded_json) = snapshot.bootstrap.preloaded_json.as_deref() else {
         return NotificationCounters::default();
     };
-    let Ok(value) = serde_json::from_str::<Value>(preloaded_json) else {
+    let Some(value) = parse_preloaded_payload(preloaded_json) else {
         return NotificationCounters::default();
     };
     let Some(current_user) = value.get("currentUser") else {

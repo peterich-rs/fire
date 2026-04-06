@@ -242,6 +242,27 @@ async fn logout_clears_notification_runtime_state() {
     assert_eq!(after_logout.counters.high_priority, 0);
 }
 
+#[test]
+fn notification_state_reads_counters_from_stringified_current_user_payload() {
+    let core = authenticated_core("https://linux.do");
+    let _ = core.apply_bootstrap(BootstrapArtifacts {
+        base_url: "https://linux.do".into(),
+        current_username: Some("alice".into()),
+        preloaded_json: Some(
+            r#"{"currentUser":"{\"id\":1,\"username\":\"alice\",\"all_unread_notifications_count\":5,\"unread_notifications\":4,\"unread_high_priority_notifications\":2}"}"#
+                .to_string(),
+        ),
+        has_preloaded_data: true,
+        ..BootstrapArtifacts::default()
+    });
+
+    let state = core.notification_state();
+
+    assert_eq!(state.counters.all_unread, 5);
+    assert_eq!(state.counters.unread, 4);
+    assert_eq!(state.counters.high_priority, 2);
+}
+
 fn authenticated_core(base_url: &str) -> FireCore {
     let core = FireCore::new(FireCoreConfig {
         base_url: base_url.to_string(),

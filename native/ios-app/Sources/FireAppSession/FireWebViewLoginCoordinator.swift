@@ -1,6 +1,87 @@
 import Foundation
 import WebKit
 
+enum FireBootstrapHTMLHeuristics {
+    static func preferredHTML(
+        browserFetchedHomeHTML: String?,
+        currentPageHTML: String?
+    ) -> String? {
+        let homeScore = score(browserFetchedHomeHTML)
+        let currentScore = score(currentPageHTML)
+
+        if homeScore > currentScore, let browserFetchedHomeHTML = nonEmpty(browserFetchedHomeHTML) {
+            return browserFetchedHomeHTML
+        }
+
+        if let currentPageHTML = nonEmpty(currentPageHTML) {
+            return currentPageHTML
+        }
+
+        return nonEmpty(browserFetchedHomeHTML)
+    }
+
+    static func score(_ html: String?) -> Int {
+        guard let html else {
+            return 0
+        }
+
+        let normalized = html.lowercased()
+        var score = 0
+
+        if normalized.contains("id=\"data-discourse-setup\"")
+            || normalized.contains("id='data-discourse-setup'")
+            || normalized.contains("data-preloaded")
+        {
+            score += 8
+        }
+        if normalized.contains("meta name=\"shared_session_key\"")
+            || normalized.contains("meta name='shared_session_key'")
+        {
+            score += 4
+        }
+        if normalized.contains("\"long_polling_base_url\"") {
+            score += 6
+        }
+        if normalized.contains("\"topictrackingstatemeta\"") {
+            score += 5
+        }
+        if normalized.contains("\"notification_channel_position\"") {
+            score += 4
+        }
+        if normalized.contains("\"categories\":") {
+            score += 3
+        }
+        if normalized.contains("\"top_tags\":") {
+            score += 3
+        }
+        if normalized.contains("\"can_tag_topics\"") {
+            score += 2
+        }
+        if normalized.contains("\"sitesettings\":") {
+            score += 2
+        }
+        if normalized.contains("meta name=\"current-username\"")
+            || normalized.contains("meta name='current-username'")
+        {
+            score += 2
+        }
+        if normalized.contains("meta name=\"csrf-token\"")
+            || normalized.contains("meta name='csrf-token'")
+        {
+            score += 1
+        }
+
+        return score
+    }
+
+    private static func nonEmpty(_ html: String?) -> String? {
+        guard let html, !html.isEmpty else {
+            return nil
+        }
+        return html
+    }
+}
+
 protocol FireLoginSessionStoring: Sendable {
     func restorePersistedSessionIfAvailable() async throws -> SessionState?
     func syncLoginContext(_ captured: FireCapturedLoginState) async throws -> SessionState
@@ -219,36 +300,9 @@ public final class FireWebViewLoginCoordinator {
         browserFetchedHomeHTML: String?,
         currentPageHTML: String?
     ) -> String? {
-        let homeScore = bootstrapHTMLScore(browserFetchedHomeHTML)
-        let currentScore = bootstrapHTMLScore(currentPageHTML)
-        if homeScore >= currentScore, let browserFetchedHomeHTML, !browserFetchedHomeHTML.isEmpty {
-            return browserFetchedHomeHTML
-        }
-        return currentPageHTML
-    }
-
-    private func bootstrapHTMLScore(_ html: String?) -> Int {
-        guard let html else {
-            return 0
-        }
-        let normalized = html.lowercased()
-        var score = 0
-        if normalized.contains("id=\"data-discourse-setup\"")
-            || normalized.contains("id='data-discourse-setup'")
-            || normalized.contains("data-preloaded")
-        {
-            score += 4
-        }
-        if normalized.contains("meta name=\"current-username\"")
-            || normalized.contains("meta name='current-username'")
-        {
-            score += 2
-        }
-        if normalized.contains("meta name=\"csrf-token\"")
-            || normalized.contains("meta name='csrf-token'")
-        {
-            score += 1
-        }
-        return score
+        FireBootstrapHTMLHeuristics.preferredHTML(
+            browserFetchedHomeHTML: browserFetchedHomeHTML,
+            currentPageHTML: currentPageHTML
+        )
     }
 }

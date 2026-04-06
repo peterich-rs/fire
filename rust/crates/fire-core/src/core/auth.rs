@@ -23,13 +23,32 @@ impl FireCore {
         let readiness = current.readiness();
         let requires_shared_session_key =
             message_bus_requires_shared_session_key(&self.base_url, &current.bootstrap)?;
+        let needs_site_metadata = !current.bootstrap.has_site_metadata;
         let needs_bootstrap_refresh = !current.bootstrap.has_preloaded_data
-            || !current.bootstrap.has_site_metadata
             || !current.bootstrap.has_site_settings
             || !readiness.has_current_user
             || (requires_shared_session_key && !readiness.has_shared_session_key);
 
-        if readiness.can_read_authenticated_api && needs_bootstrap_refresh {
+        if !readiness.can_read_authenticated_api {
+            return Ok(current);
+        }
+
+        if needs_site_metadata && !needs_bootstrap_refresh {
+            if let Some(site_metadata_patch) = self.fetch_site_metadata_fallback().await {
+                return Ok(self.update_session(|session| {
+                    session.bootstrap.merge_patch(&site_metadata_patch);
+                    debug!(
+                        phase = ?session.login_phase(),
+                        readiness = ?session.readiness(),
+                        "applied site metadata fallback without home refresh"
+                    );
+                }));
+            }
+
+            return self.refresh_bootstrap().await;
+        }
+
+        if needs_bootstrap_refresh {
             self.refresh_bootstrap().await
         } else {
             Ok(current)

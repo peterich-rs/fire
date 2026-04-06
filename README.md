@@ -1,5 +1,7 @@
 # Fire
 
+> Fire 是面向 [Linux.do](https://linux.do/) 社区的非官方第三方原生客户端，与 Linux.do 官方无直接关联。
+
 Fire 是一个全新的原生客户端工作区，目标栈为 `Swift + Kotlin + Rust + UniFFI`。
 
 当前仓库根目录只承载 Fire 自己的实现骨架：
@@ -15,6 +17,57 @@ Fire 是一个全新的原生客户端工作区，目标栈为 `Swift + Kotlin +
 - Fire 与旧 `fluxdo` 项目已经解耦。
 - `references/fluxdo` 仅作为行为参考和逆向资料来源，不再是当前项目本体。
 - 当前主线开发方向是原生平台登录 + Rust 共享核心，而不是继续扩展旧 Flutter 架构。
+
+## 功能预览
+
+### 明暗主题
+
+界面已适配深色与浅色主题，下面两张图分别展示深色帖子详情和浅色首页。
+
+<table>
+  <tr>
+    <td align="center">
+      <img src="native/ios-app/screenshoot/Simulator%20Screenshot%20-%20iPhone%2017%20Pro%20-%202026-04-06%20at%2019.53.54.png" alt="深色主题帖子详情" width="260" />
+      <br />
+      <sub>深色主题</sub>
+    </td>
+    <td align="center">
+      <img src="native/ios-app/screenshoot/Simulator%20Screenshot%20-%20iPhone%2017%20Pro%20-%202026-04-06%20at%2019.55.06.png" alt="浅色主题帖子详情" width="260" />
+      <br />
+      <sub>浅色主题</sub>
+    </td>
+  </tr>
+</table>
+
+### 首页
+
+首页展示话题流、作者信息、浏览量和点赞数，整体布局保持了原生列表的阅读效率。
+
+<img src="native/ios-app/screenshoot/Simulator%20Screenshot%20-%20iPhone%2017%20Pro%20-%202026-04-06%20at%2019.54.37.png" alt="首页" width="320" />
+
+### 帖子详情
+
+帖子详情页支持楼层回复、表情反应、统计信息和媒体内容展示。
+
+<table>
+  <tr>
+    <td align="center">
+      <img src="native/ios-app/screenshoot/Simulator%20Screenshot%20-%20iPhone%2017%20Pro%20-%202026-04-06%20at%2019.55.38.png" alt="帖子详情含媒体" width="260" />
+    </td>
+  </tr>
+</table>
+
+### 通知
+
+通知页展示社区消息、系统通知和私信列表，便于快速查看未读动态。
+
+<img src="native/ios-app/screenshoot/Simulator%20Screenshot%20-%20iPhone%2017%20Pro%20-%202026-04-06%20at%2019.54.05.png" alt="通知页" width="320" />
+
+### 网络请求查看
+
+内置网络请求查看页用于观察接口调用、状态码和耗时，方便调试登录、消息和列表加载流程。
+
+<img src="native/ios-app/screenshoot/Simulator%20Screenshot%20-%20iPhone%2017%20Pro%20-%202026-04-06%20at%2019.54.16.png" alt="网络请求查看" width="320" />
 
 ## 目录
 

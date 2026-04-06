@@ -282,6 +282,10 @@ public actor FireSessionStore {
         try await core.fetchTopicDetail(query: query)
     }
 
+    public func fetchTopicDetailInitial(query: TopicDetailQueryState) async throws -> TopicDetailState {
+        try await core.fetchTopicDetailInitial(query: query)
+    }
+
     public func fetchTopicDetail(topicID: UInt64, trackVisit: Bool = true) async throws -> TopicDetailState {
         try await fetchTopicDetail(
             query: TopicDetailQueryState(
@@ -293,6 +297,10 @@ public actor FireSessionStore {
                 filterTopLevelReplies: false
             )
         )
+    }
+
+    public func fetchTopicPosts(topicID: UInt64, postIDs: [UInt64]) async throws -> [TopicPostState] {
+        try await core.fetchTopicPosts(topicId: topicID, postIds: postIDs)
     }
 
     public func createReply(

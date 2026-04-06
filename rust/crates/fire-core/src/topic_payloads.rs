@@ -406,6 +406,18 @@ pub(crate) fn parse_topic_post_value(value: Value) -> Result<TopicPost, serde_js
     RawTopicPost::deserialize(value).map(Into::into)
 }
 
+pub(crate) fn parse_topic_post_stream_value(
+    value: Value,
+) -> Result<TopicPostStream, serde_json::Error> {
+    let value = match value {
+        Value::Object(mut object) => object
+            .remove("post_stream")
+            .unwrap_or(Value::Object(object)),
+        value => value,
+    };
+    RawTopicPostStream::deserialize(value).map(Into::into)
+}
+
 pub(crate) fn parse_post_reaction_update_value(
     value: Value,
 ) -> Result<PostReactionUpdate, serde_json::Error> {

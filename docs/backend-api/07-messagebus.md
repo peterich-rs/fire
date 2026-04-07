@@ -45,6 +45,9 @@
 - 当前客户端会把响应按 `|` 分段处理，不是只收一个完整 JSON 数组
 - 还需要特殊处理控制消息：
   - `channel="/__status"` 时，`data` 里的 `channel -> last_message_id` 映射要回写到本地订阅位点
+- Fire 当前实现维持单个前台轮询任务；订阅变更不会再为每个 `subscribe/unsubscribe` 直接重建 task，而是唤醒已有轮询并在 `150ms` 的最小重启间隔后合并到下一次 poll
+- Fire 当前在本地运行时按 `channel -> owner_token[]` 跟踪订阅归属；同一频道可以被多个页面/生命周期共同持有，只有最后一个 owner 释放时才真正从下一次 poll 中移除
+- `MESSAGE_BUS_CALL_TIMEOUT=75s` 触发的非连接超时会被视为一次正常长轮询周期结束，不累计失败退避；`429/502/503/504` 仍记录为服务端侧异常并进入退避
 
 ```json
 [

@@ -27,7 +27,7 @@ use crate::{
         NetworkTraceDetail, NetworkTraceSummary,
     },
     error::FireCoreError,
-    logging::logger_runtime_for_workspace,
+    logging::{log_host_message, logger_runtime_for_workspace, FireHostLogLevel},
     sync_utils::{read_rwlock, write_rwlock},
     workspace::{normalize_workspace_path, validate_workspace_relative_path},
 };
@@ -120,6 +120,18 @@ impl FireCore {
                 runtime.flush(sync);
             }
         }
+    }
+
+    pub fn log_host(
+        &self,
+        level: FireHostLogLevel,
+        target: impl AsRef<str>,
+        message: impl AsRef<str>,
+    ) {
+        if let Some(workspace_path) = self.workspace_path() {
+            let _ = logger_runtime_for_workspace(workspace_path);
+        }
+        log_host_message(level, target.as_ref(), message.as_ref());
     }
 
     pub fn snapshot(&self) -> SessionSnapshot {

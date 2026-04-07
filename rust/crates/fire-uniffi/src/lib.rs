@@ -13,8 +13,8 @@ use fire_core::{
     monogram_for_username as shared_monogram_for_username,
     plain_text_from_html as shared_plain_text_from_html,
     preview_text_from_html as shared_preview_text_from_html, FireCore, FireCoreConfig,
-    FireCoreError, FireLogFileDetail, FireLogFileSummary, NetworkTraceDetail, NetworkTraceEvent,
-    NetworkTraceHeader, NetworkTraceOutcome, NetworkTraceSummary,
+    FireCoreError, FireHostLogLevel, FireLogFileDetail, FireLogFileSummary, NetworkTraceDetail,
+    NetworkTraceEvent, NetworkTraceHeader, NetworkTraceOutcome, NetworkTraceSummary,
 };
 use fire_models::{
     BootstrapArtifacts, CookieSnapshot, GroupedSearchResult, LoginPhase, LoginSyncInput,
@@ -460,6 +460,7 @@ impl From<MessageBusSubscriptionScopeState> for MessageBusSubscriptionScope {
 
 #[derive(uniffi::Record, Debug, Clone)]
 pub struct MessageBusSubscriptionState {
+    pub owner_token: String,
     pub channel: String,
     pub last_message_id: Option<i64>,
     pub scope: MessageBusSubscriptionScopeState,
@@ -468,6 +469,7 @@ pub struct MessageBusSubscriptionState {
 impl From<MessageBusSubscription> for MessageBusSubscriptionState {
     fn from(value: MessageBusSubscription) -> Self {
         Self {
+            owner_token: value.owner_token,
             channel: value.channel,
             last_message_id: value.last_message_id,
             scope: value.scope.into(),
@@ -478,6 +480,7 @@ impl From<MessageBusSubscription> for MessageBusSubscriptionState {
 impl From<MessageBusSubscriptionState> for MessageBusSubscription {
     fn from(value: MessageBusSubscriptionState) -> Self {
         Self {
+            owner_token: value.owner_token,
             channel: value.channel,
             last_message_id: value.last_message_id,
             scope: value.scope.into(),
@@ -1802,6 +1805,25 @@ impl From<FireLogFileDetail> for LogFileDetailState {
 }
 
 #[derive(uniffi::Enum, Debug, Clone, Copy)]
+pub enum HostLogLevelState {
+    Debug,
+    Info,
+    Warn,
+    Error,
+}
+
+impl From<HostLogLevelState> for FireHostLogLevel {
+    fn from(value: HostLogLevelState) -> Self {
+        match value {
+            HostLogLevelState::Debug => Self::Debug,
+            HostLogLevelState::Info => Self::Info,
+            HostLogLevelState::Warn => Self::Warn,
+            HostLogLevelState::Error => Self::Error,
+        }
+    }
+}
+
+#[derive(uniffi::Enum, Debug, Clone, Copy)]
 pub enum NetworkTraceOutcomeState {
     InProgress,
     Succeeded,
@@ -2122,6 +2144,17 @@ impl FireCoreHandle {
         self.run_infallible("flush_logs", move |inner| inner.flush_logs(sync))
     }
 
+    pub fn log_host(
+        &self,
+        level: HostLogLevelState,
+        target: String,
+        message: String,
+    ) -> Result<(), FireUniFfiError> {
+        self.run_infallible("log_host", move |inner| {
+            inner.log_host(level.into(), target, message)
+        })
+    }
+
     pub fn list_log_files(&self) -> Result<Vec<LogFileSummaryState>, FireUniFfiError> {
         self.run_fallible("list_log_files", |inner| {
             inner
@@ -2225,9 +2258,13 @@ impl FireCoreHandle {
         })
     }
 
-    pub fn unsubscribe_channel(&self, channel: String) -> Result<(), FireUniFfiError> {
+    pub fn unsubscribe_channel(
+        &self,
+        owner_token: String,
+        channel: String,
+    ) -> Result<(), FireUniFfiError> {
         self.run_fallible("unsubscribe_channel", move |inner| {
-            inner.unsubscribe_message_bus_channel(channel)
+            inner.unsubscribe_message_bus_channel(owner_token, channel)
         })
     }
 
@@ -2271,12 +2308,15 @@ impl FireCoreHandle {
     pub async fn bootstrap_topic_reply_presence(
         &self,
         topic_id: u64,
+        owner_token: String,
     ) -> Result<TopicPresenceState, FireUniFfiError> {
         let inner = Arc::clone(&self.inner);
         let panic_state = Arc::clone(&self.panic_state);
         let presence =
             run_on_ffi_runtime("bootstrap_topic_reply_presence", panic_state, async move {
-                inner.bootstrap_topic_reply_presence(topic_id).await
+                inner
+                    .bootstrap_topic_reply_presence(topic_id, owner_token)
+                    .await
             })
             .await?;
         Ok(presence.into())

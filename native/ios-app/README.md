@@ -106,6 +106,7 @@ Workspace note:
 - The iOS host now passes `Application Support/Fire` into Rust as the workspace root.
 - Rust now initializes shared logging under `Application Support/Fire/logs` and keeps xlog cache files under `Application Support/Fire/cache/xlog`.
 - Rust also mirrors readable tracing output into `Application Support/Fire/diagnostics/fire-readable.log`.
+- Swift host-side logs can now write back into that same Rust-owned logging pipeline, so native lifecycle/debug messages land in the shared xlog and readable-log artifacts instead of a separate `OSLog` stream.
 - Rust can resolve relative paths inside that workspace for shared file ownership such as logs, caches, or exports.
 - The current persisted session file remains `Application Support/Fire/session.json`, but iOS now writes it as a redacted cache.
 - iOS keeps the full same-site LinuxDo browser cookie batch in Keychain and re-injects it into Rust during cold start before any authenticated refresh path runs.

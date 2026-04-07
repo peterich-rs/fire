@@ -14,10 +14,15 @@ use fire_models::{
 };
 use http::{Method, Request, Response};
 use http_body_util::BodyExt;
-use openwire::{RequestBody, ResponseBody};
+use openwire::{RequestBody, ResponseBody, WireErrorKind};
 use serde::Deserialize;
 use serde_json::Value;
-use tokio::{runtime::Handle, sync::mpsc::UnboundedSender, task::JoinHandle, time::sleep};
+use tokio::{
+    runtime::Handle,
+    sync::{mpsc::UnboundedSender, watch},
+    task::JoinHandle,
+    time::{sleep, Instant},
+};
 use tracing::{debug, info, warn};
 use url::{form_urlencoded::Serializer, Url};
 
@@ -40,6 +45,9 @@ use crate::{
 const MESSAGE_BUS_OPERATION: &str = "message bus poll";
 const INITIAL_MESSAGE_ID: i64 = -1;
 const MAX_BACKOFF_DELAY: Duration = Duration::from_secs(30);
+const MESSAGE_BUS_MIN_RESTART_INTERVAL: Duration = Duration::from_millis(150);
+const BOOTSTRAP_TRACKING_OWNER_TOKEN: &str = "__bootstrap_tracking__";
+const BOOTSTRAP_NOTIFICATION_OWNER_TOKEN: &str = "__bootstrap_notification__";
 
 static FOREGROUND_CLIENT_COUNTER: AtomicU64 = AtomicU64::new(1);
 
@@ -51,12 +59,20 @@ pub(crate) struct FireMessageBusRuntime {
     runtime_handle: Option<Handle>,
     event_sender: Option<UnboundedSender<MessageBusEvent>>,
     subscriptions: BTreeMap<String, RuntimeSubscription>,
+    subscription_revision: u64,
+    subscription_updates: Option<watch::Sender<u64>>,
+    poll_task_token: u64,
     poll_task: Option<JoinHandle<()>>,
 }
 
 #[derive(Debug, Clone)]
 struct RuntimeSubscription {
     last_message_id: i64,
+    owners: BTreeMap<String, RuntimeSubscriptionOwner>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct RuntimeSubscriptionOwner {
     scope: MessageBusSubscriptionScope,
 }
 
@@ -71,6 +87,13 @@ struct MessageBusPollContext {
     topic_presence: Arc<Mutex<FireTopicPresenceRuntime>>,
     event_sender: UnboundedSender<MessageBusEvent>,
     client_id: String,
+    task_token: u64,
+}
+
+enum PollIterationResult {
+    Continue,
+    Stop,
+    Restart,
 }
 
 #[derive(Debug, Deserialize)]
@@ -91,33 +114,40 @@ impl FireCore {
             .message_bus
             .lock()
             .expect("message bus runtime lock poisoned");
-        ensure_bootstrap_subscriptions(&snapshot.bootstrap, &mut runtime);
+        let mut changed = ensure_bootstrap_subscriptions(&snapshot.bootstrap, &mut runtime);
 
         let last_message_id = subscription.last_message_id.unwrap_or_else(|| {
             bootstrap_message_id_for_channel(&snapshot.bootstrap, &subscription.channel)
                 .unwrap_or(INITIAL_MESSAGE_ID)
         });
-        let entry = runtime
-            .subscriptions
-            .entry(subscription.channel)
-            .or_insert_with(|| RuntimeSubscription {
-                last_message_id,
-                scope: subscription.scope,
-            });
-        entry.last_message_id = entry.last_message_id.max(last_message_id);
-        entry.scope = merge_subscription_scopes(entry.scope, subscription.scope);
+        changed |= upsert_runtime_subscription_owner(
+            &mut runtime,
+            subscription.owner_token,
+            subscription.channel,
+            last_message_id,
+            subscription.scope,
+        );
 
-        restart_poll_task(self, &mut runtime)?;
+        if changed {
+            mark_subscriptions_changed(&mut runtime);
+            ensure_poll_task_running(self, &mut runtime)?;
+        }
         Ok(())
     }
 
-    pub fn unsubscribe_message_bus_channel(&self, channel: String) -> Result<(), FireCoreError> {
+    pub fn unsubscribe_message_bus_channel(
+        &self,
+        owner_token: String,
+        channel: String,
+    ) -> Result<(), FireCoreError> {
         let mut runtime = self
             .message_bus
             .lock()
             .expect("message bus runtime lock poisoned");
-        runtime.subscriptions.remove(&channel);
-        restart_poll_task(self, &mut runtime)?;
+        if remove_runtime_subscription_owner(&mut runtime, &owner_token, &channel) {
+            mark_subscriptions_changed(&mut runtime);
+            ensure_poll_task_running(self, &mut runtime)?;
+        }
         Ok(())
     }
 
@@ -141,7 +171,10 @@ impl FireCore {
             .message_bus
             .lock()
             .expect("message bus runtime lock poisoned");
-        ensure_bootstrap_subscriptions(&snapshot.bootstrap, &mut runtime);
+        let bootstrap_changed = ensure_bootstrap_subscriptions(&snapshot.bootstrap, &mut runtime);
+        if bootstrap_changed {
+            mark_subscriptions_changed(&mut runtime);
+        }
 
         stop_poll_task_locked(&mut runtime);
         runtime.active_mode = Some(mode);
@@ -151,22 +184,13 @@ impl FireCore {
         let client_id = client_id_for_mode(&mut runtime, mode);
         runtime.active_client_id = Some(client_id.clone());
 
-        if runtime.subscriptions.is_empty() {
-            info!(
-                client_id = %client_id,
-                mode = ?mode,
-                subscriptions = 0,
-                "message bus started idle without subscriptions"
-            );
-            return Ok(client_id);
-        }
-
-        runtime.poll_task = Some(spawn_poll_task(self, &runtime, client_id.clone())?);
+        runtime.poll_task = Some(spawn_poll_task(self, &mut runtime, client_id.clone())?);
 
         info!(
             client_id = %client_id,
             mode = ?mode,
             subscriptions = runtime.subscriptions.len(),
+            idle = runtime.subscriptions.is_empty(),
             "message bus started"
         );
         Ok(client_id)
@@ -253,23 +277,21 @@ impl FireCore {
     }
 }
 
-fn restart_poll_task(
+fn ensure_poll_task_running(
     core: &FireCore,
     runtime: &mut FireMessageBusRuntime,
 ) -> Result<(), FireCoreError> {
-    if runtime.active_mode.is_none() {
+    if runtime.active_mode.is_none() || runtime.poll_task.is_some() {
         return Ok(());
     }
-    if runtime.subscriptions.is_empty() {
-        stop_poll_task_locked(runtime);
-        runtime.active_client_id = None;
-        return Ok(());
-    }
-
-    stop_poll_task_locked(runtime);
     let client_id = runtime
-        .active_mode
-        .map(|mode| client_id_for_mode(runtime, mode))
+        .active_client_id
+        .clone()
+        .or_else(|| {
+            runtime
+                .active_mode
+                .map(|mode| client_id_for_mode(runtime, mode))
+        })
         .expect("message bus active mode should exist");
     runtime.active_client_id = Some(client_id.clone());
     runtime.poll_task = Some(spawn_poll_task(core, runtime, client_id)?);
@@ -284,7 +306,7 @@ fn stop_poll_task_locked(runtime: &mut FireMessageBusRuntime) {
 
 fn spawn_poll_task(
     core: &FireCore,
-    runtime: &FireMessageBusRuntime,
+    runtime: &mut FireMessageBusRuntime,
     client_id: String,
 ) -> Result<JoinHandle<()>, FireCoreError> {
     let runtime_handle = runtime
@@ -295,6 +317,9 @@ fn spawn_poll_task(
         .event_sender
         .clone()
         .ok_or(FireCoreError::MessageBusNotStarted)?;
+    let subscription_updates = subscription_updates_receiver(runtime);
+    runtime.poll_task_token = runtime.poll_task_token.saturating_add(1);
+    let task_token = runtime.poll_task_token;
     let context = MessageBusPollContext {
         base_url: core.base_url.clone(),
         network: core.network.clone(),
@@ -305,50 +330,156 @@ fn spawn_poll_task(
         topic_presence: Arc::clone(&core.topic_presence),
         event_sender,
         client_id,
+        task_token,
     };
     Ok(runtime_handle.spawn(async move {
-        run_message_bus_poll_loop(context).await;
+        run_message_bus_poll_loop(context, subscription_updates).await;
     }))
 }
 
-async fn run_message_bus_poll_loop(context: MessageBusPollContext) {
+async fn run_message_bus_poll_loop(
+    context: MessageBusPollContext,
+    mut subscription_updates: watch::Receiver<u64>,
+) {
     let mut failure_count = 0_u32;
 
     loop {
-        let subscriptions = {
+        let (subscriptions, subscription_revision) = {
             let runtime = context
                 .runtime
                 .lock()
                 .expect("message bus runtime lock poisoned");
             if runtime.active_client_id.as_deref() != Some(context.client_id.as_str()) {
-                return;
+                break;
             }
-            if runtime.subscriptions.is_empty() {
-                return;
-            }
-            runtime
-                .subscriptions
-                .iter()
-                .map(|(channel, entry)| (channel.clone(), entry.last_message_id))
-                .collect::<Vec<_>>()
+            (
+                runtime
+                    .subscriptions
+                    .iter()
+                    .map(|(channel, entry)| (channel.clone(), entry.last_message_id))
+                    .collect::<Vec<_>>(),
+                runtime.subscription_revision,
+            )
         };
 
-        match execute_poll_once(&context, &subscriptions).await {
-            Ok(keep_running) => {
-                failure_count = 0;
-                if !keep_running {
-                    return;
-                }
+        if subscriptions.is_empty() {
+            if !wait_for_subscription_change(&context, &mut subscription_updates).await {
+                break;
             }
+            continue;
+        }
+
+        match execute_poll_once_with_subscription_changes(
+            &context,
+            &mut subscription_updates,
+            &subscriptions,
+            subscription_revision,
+        )
+        .await
+        {
+            Ok(PollIterationResult::Continue) => {
+                failure_count = 0;
+            }
+            Ok(PollIterationResult::Restart) => {
+                failure_count = 0;
+            }
+            Ok(PollIterationResult::Stop) => break,
             Err(error) => {
-                warn!(
-                    client_id = %context.client_id,
-                    error = %error,
-                    "message bus poll iteration failed"
-                );
+                if is_expected_long_poll_timeout(&error) {
+                    debug!(
+                        client_id = %context.client_id,
+                        error = %error,
+                        "message bus poll timed out; continuing without backoff"
+                    );
+                    failure_count = 0;
+                    continue;
+                }
+
+                log_message_bus_poll_failure(&context.client_id, &error);
                 failure_count = failure_count.saturating_add(1);
                 let delay = backoff_delay(failure_count);
                 sleep(delay).await;
+            }
+        }
+    }
+
+    clear_poll_task_on_exit(&context.runtime, &context.client_id, context.task_token);
+}
+
+async fn wait_for_subscription_change(
+    context: &MessageBusPollContext,
+    subscription_updates: &mut watch::Receiver<u64>,
+) -> bool {
+    match subscription_updates.changed().await {
+        Ok(_) => {
+            context
+                .runtime
+                .lock()
+                .expect("message bus runtime lock poisoned")
+                .active_client_id
+                .as_deref()
+                == Some(context.client_id.as_str())
+        }
+        Err(_) => false,
+    }
+}
+
+async fn execute_poll_once_with_subscription_changes(
+    context: &MessageBusPollContext,
+    subscription_updates: &mut watch::Receiver<u64>,
+    subscriptions: &[(String, i64)],
+    subscription_revision: u64,
+) -> Result<PollIterationResult, FireCoreError> {
+    let poll_started_at = Instant::now();
+    let poll = execute_poll_once(context, subscriptions);
+    tokio::pin!(poll);
+    let mut pending_restart = false;
+
+    loop {
+        if pending_restart {
+            let remaining =
+                MESSAGE_BUS_MIN_RESTART_INTERVAL.saturating_sub(poll_started_at.elapsed());
+            if remaining.is_zero() {
+                return Ok(PollIterationResult::Restart);
+            }
+
+            tokio::select! {
+                result = &mut poll => {
+                    return result.map(|keep_running| {
+                        if keep_running {
+                            PollIterationResult::Continue
+                        } else {
+                            PollIterationResult::Stop
+                        }
+                    });
+                }
+                changed = subscription_updates.changed() => {
+                    if changed.is_err() {
+                        return Ok(PollIterationResult::Stop);
+                    }
+                    pending_restart |= *subscription_updates.borrow() != subscription_revision;
+                }
+                _ = sleep(remaining) => {
+                    return Ok(PollIterationResult::Restart);
+                }
+            }
+        } else {
+            tokio::select! {
+                result = &mut poll => {
+                    return result.map(|keep_running| {
+                        if keep_running {
+                            PollIterationResult::Continue
+                        } else {
+                            PollIterationResult::Stop
+                        }
+                    });
+                }
+                changed = subscription_updates.changed() => {
+                    if changed.is_err() {
+                        return Ok(PollIterationResult::Stop);
+                    }
+                    pending_restart = *subscription_updates.borrow() != subscription_revision;
+                }
             }
         }
     }
@@ -832,34 +963,33 @@ fn notification_alert_from_raw(message: &RawMessageBusMessage) -> NotificationAl
 fn ensure_bootstrap_subscriptions(
     bootstrap: &BootstrapArtifacts,
     runtime: &mut FireMessageBusRuntime,
-) {
+) -> bool {
+    let mut changed = false;
+
     for (channel, last_message_id) in bootstrap_tracking_subscriptions(bootstrap) {
-        let entry = runtime
-            .subscriptions
-            .entry(channel)
-            .or_insert_with(|| RuntimeSubscription {
-                last_message_id,
-                scope: MessageBusSubscriptionScope::Durable,
-            });
-        entry.last_message_id = entry.last_message_id.max(last_message_id);
-        entry.scope = merge_subscription_scopes(entry.scope, MessageBusSubscriptionScope::Durable);
+        changed |= upsert_runtime_subscription_owner(
+            runtime,
+            BOOTSTRAP_TRACKING_OWNER_TOKEN.to_string(),
+            channel,
+            last_message_id,
+            MessageBusSubscriptionScope::Durable,
+        );
     }
 
     if let (Some(user_id), Some(last_message_id)) = (
         bootstrap.current_user_id,
         bootstrap.notification_channel_position,
     ) {
-        let channel = format!("/notification/{user_id}");
-        let entry = runtime
-            .subscriptions
-            .entry(channel)
-            .or_insert_with(|| RuntimeSubscription {
-                last_message_id,
-                scope: MessageBusSubscriptionScope::Durable,
-            });
-        entry.last_message_id = entry.last_message_id.max(last_message_id);
-        entry.scope = merge_subscription_scopes(entry.scope, MessageBusSubscriptionScope::Durable);
+        changed |= upsert_runtime_subscription_owner(
+            runtime,
+            BOOTSTRAP_NOTIFICATION_OWNER_TOKEN.to_string(),
+            format!("/notification/{user_id}"),
+            last_message_id,
+            MessageBusSubscriptionScope::Durable,
+        );
     }
+
+    changed
 }
 
 fn bootstrap_tracking_subscriptions(bootstrap: &BootstrapArtifacts) -> Vec<(String, i64)> {
@@ -950,15 +1080,112 @@ fn backoff_delay(failure_count: u32) -> Duration {
     Duration::from_millis(delay_ms).min(MAX_BACKOFF_DELAY)
 }
 
-fn merge_subscription_scopes(
-    current: MessageBusSubscriptionScope,
-    incoming: MessageBusSubscriptionScope,
-) -> MessageBusSubscriptionScope {
-    match (current, incoming) {
-        (MessageBusSubscriptionScope::Durable, _) | (_, MessageBusSubscriptionScope::Durable) => {
-            MessageBusSubscriptionScope::Durable
+fn upsert_runtime_subscription_owner(
+    runtime: &mut FireMessageBusRuntime,
+    owner_token: String,
+    channel: String,
+    last_message_id: i64,
+    scope: MessageBusSubscriptionScope,
+) -> bool {
+    let owner_key = owner_token;
+    let mut is_new_channel = false;
+    let entry = runtime.subscriptions.entry(channel).or_insert_with(|| {
+        is_new_channel = true;
+        RuntimeSubscription {
+            last_message_id,
+            owners: BTreeMap::new(),
         }
-        _ => MessageBusSubscriptionScope::Transient,
+    });
+    let previous_last_message_id = entry.last_message_id;
+    entry.last_message_id = entry.last_message_id.max(last_message_id);
+    entry
+        .owners
+        .insert(owner_key.clone(), RuntimeSubscriptionOwner { scope });
+    is_new_channel || entry.last_message_id != previous_last_message_id
+}
+
+fn remove_runtime_subscription_owner(
+    runtime: &mut FireMessageBusRuntime,
+    owner_token: &str,
+    channel: &str,
+) -> bool {
+    let Some(entry) = runtime.subscriptions.get_mut(channel) else {
+        return false;
+    };
+
+    let removed = entry.owners.remove(owner_token).is_some();
+    if !removed {
+        return false;
+    }
+
+    if entry.owners.is_empty() {
+        runtime.subscriptions.remove(channel);
+        return true;
+    }
+
+    false
+}
+
+fn mark_subscriptions_changed(runtime: &mut FireMessageBusRuntime) {
+    runtime.subscription_revision = runtime.subscription_revision.saturating_add(1);
+    if let Some(sender) = &runtime.subscription_updates {
+        let _ = sender.send(runtime.subscription_revision);
+    }
+}
+
+fn subscription_updates_receiver(runtime: &mut FireMessageBusRuntime) -> watch::Receiver<u64> {
+    if let Some(sender) = &runtime.subscription_updates {
+        sender.subscribe()
+    } else {
+        let (sender, receiver) = watch::channel(runtime.subscription_revision);
+        runtime.subscription_updates = Some(sender);
+        receiver
+    }
+}
+
+fn is_expected_long_poll_timeout(error: &FireCoreError) -> bool {
+    matches!(
+        error,
+        FireCoreError::Network { source }
+            if source.kind() == WireErrorKind::Timeout && !source.is_connect_timeout()
+    )
+}
+
+fn log_message_bus_poll_failure(client_id: &str, error: &FireCoreError) {
+    match error {
+        FireCoreError::HttpStatus { status, .. } if matches!(status, 429 | 502 | 503 | 504) => {
+            let category = match status {
+                429 => "rate_limited",
+                _ => "server_unavailable",
+            };
+            warn!(
+                client_id = %client_id,
+                status = *status,
+                category,
+                error = %error,
+                "message bus poll iteration failed"
+            );
+        }
+        _ => {
+            warn!(
+                client_id = %client_id,
+                error = %error,
+                "message bus poll iteration failed"
+            );
+        }
+    }
+}
+
+fn clear_poll_task_on_exit(
+    runtime: &Arc<Mutex<FireMessageBusRuntime>>,
+    client_id: &str,
+    task_token: u64,
+) {
+    let mut runtime = runtime.lock().expect("message bus runtime lock poisoned");
+    if runtime.active_client_id.as_deref() == Some(client_id)
+        && runtime.poll_task_token == task_token
+    {
+        runtime.poll_task = None;
     }
 }
 
@@ -1050,4 +1277,29 @@ pub(crate) fn active_message_bus_client_id(
         .expect("message bus runtime lock poisoned")
         .active_client_id
         .clone()
+}
+
+#[cfg(test)]
+mod tests {
+    use openwire::WireError;
+
+    use super::*;
+
+    #[test]
+    fn call_timeout_is_treated_as_expected_long_poll_timeout() {
+        let error = FireCoreError::Network {
+            source: WireError::timeout("call timed out after 75s"),
+        };
+
+        assert!(is_expected_long_poll_timeout(&error));
+    }
+
+    #[test]
+    fn connect_timeout_is_not_treated_as_expected_long_poll_timeout() {
+        let error = FireCoreError::Network {
+            source: WireError::connect_timeout("connect timed out after 10s"),
+        };
+
+        assert!(!is_expected_long_poll_timeout(&error));
+    }
 }

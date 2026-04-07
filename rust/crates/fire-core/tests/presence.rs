@@ -36,7 +36,7 @@ async fn bootstrap_topic_reply_presence_updates_state_and_poll_checkpoint() {
     let core = authenticated_core(&server.base_url());
 
     let presence = core
-        .bootstrap_topic_reply_presence(123)
+        .bootstrap_topic_reply_presence(123, "presence-bootstrap-owner".into())
         .await
         .expect("bootstrap topic reply presence");
     assert_eq!(presence.topic_id, 123);
@@ -94,18 +94,21 @@ async fn message_bus_presence_reactions_and_alerts_emit_expected_event_kinds() {
     let core = authenticated_core(&server.base_url());
 
     core.subscribe_message_bus_channel(MessageBusSubscription {
+        owner_token: "reaction-owner".into(),
         channel: "/topic/123/reactions".into(),
         last_message_id: Some(-1),
         scope: MessageBusSubscriptionScope::Transient,
     })
     .expect("subscribe reactions");
     core.subscribe_message_bus_channel(MessageBusSubscription {
+        owner_token: "presence-owner".into(),
         channel: "/presence/discourse-presence/reply/123".into(),
         last_message_id: Some(-1),
         scope: MessageBusSubscriptionScope::Transient,
     })
     .expect("subscribe presence");
     core.subscribe_message_bus_channel(MessageBusSubscription {
+        owner_token: "alert-owner".into(),
         channel: "/notification-alert/1".into(),
         last_message_id: Some(-1),
         scope: MessageBusSubscriptionScope::Transient,

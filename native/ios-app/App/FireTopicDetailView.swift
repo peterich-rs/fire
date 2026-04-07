@@ -40,12 +40,14 @@ struct FireTopicDetailView: View {
     @State private var composerNotice: String?
     @State private var quickReplyError: String?
     @State private var timingTracker: FireTopicTimingTracker
+    @State private var detailOwnerToken: String
     @FocusState private var isReplyFieldFocused: Bool
 
     init(viewModel: FireAppViewModel, row: FireTopicRowPresentation) {
         self.viewModel = viewModel
         self.row = row
         _timingTracker = State(initialValue: FireTopicTimingTracker(topicId: row.topic.id))
+        _detailOwnerToken = State(initialValue: Self.makeDetailOwnerToken(topicId: row.topic.id))
     }
 
     private var topic: TopicSummaryState {
@@ -187,8 +189,9 @@ struct FireTopicDetailView: View {
     var body: some View {
         GeometryReader { geometry in
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 18) {
+                LazyVStack(alignment: .leading, spacing: 0) {
                     topicHeaderSection
+                        .padding(.bottom, 18)
                     postsSection
                 }
                 .padding(.horizontal, 16)
@@ -197,10 +200,7 @@ struct FireTopicDetailView: View {
             }
             .coordinateSpace(name: Self.scrollCoordinateSpaceName)
             .onPreferenceChange(FireVisiblePostFramePreferenceKey.self) { frames in
-                let visiblePostNumbers = frames.compactMap { postNumber, frame in
-                    frame.maxY > 0 && frame.minY < geometry.size.height ? postNumber : nil
-                }
-                timingTracker.updateVisiblePostNumbers(Set(visiblePostNumbers))
+                updateVisiblePostFrames(frames, viewportHeight: geometry.size.height)
             }
         }
         .navigationTitle("话题")
@@ -228,6 +228,9 @@ struct FireTopicDetailView: View {
             timingTracker.recordInteraction()
             await viewModel.loadTopicDetail(topicId: topic.id, force: true)
         }
+        .onAppear {
+            viewModel.beginTopicDetailLifecycle(topicId: topic.id, ownerToken: detailOwnerToken)
+        }
         .task(id: topic.id) {
             timingTracker.start { topicId, topicTimeMs, timings in
                 await viewModel.reportTopicTimings(
@@ -240,7 +243,10 @@ struct FireTopicDetailView: View {
             await viewModel.loadTopicDetail(topicId: topic.id)
         }
         .task(id: messageBusSubscriptionTaskID) {
-            await viewModel.maintainTopicDetailSubscription(topicId: topic.id)
+            await viewModel.maintainTopicDetailSubscription(
+                topicId: topic.id,
+                ownerToken: detailOwnerToken
+            )
         }
         .onChange(of: scenePhase) { _, phase in
             Task {
@@ -257,6 +263,7 @@ struct FireTopicDetailView: View {
             }
         }
         .onDisappear {
+            viewModel.endTopicDetailLifecycle(topicId: topic.id, ownerToken: detailOwnerToken)
             Task {
                 await timingTracker.stop()
                 await viewModel.endTopicReplyPresence(topicId: topic.id)
@@ -277,6 +284,10 @@ struct FireTopicDetailView: View {
             timingTracker.recordInteraction()
             dismissKeyboard()
         })
+    }
+
+    private static func makeDetailOwnerToken(topicId: UInt64) -> String {
+        "ios.topic-detail.\(topicId).\(UUID().uuidString.lowercased())"
     }
 
     private var topicHeaderSection: some View {
@@ -381,132 +392,147 @@ struct FireTopicDetailView: View {
         .frame(maxWidth: .infinity)
     }
 
-    private var postsSection: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack {
-                Text("回复")
-                    .font(.headline)
-                Spacer()
-                if let detail {
-                    let totalReplyCount = max(Int(detail.postsCount) - 1, 0)
-                    if loadedReplyCount < totalReplyCount {
-                        Text("已加载 \(loadedReplyCount) / \(totalReplyCount) 条")
-                            .foregroundStyle(.secondary)
-                    } else {
-                        Text("\(totalReplyCount) 条 · \(displayedFloorCount) 楼")
-                            .foregroundStyle(.secondary)
-                    }
+    private var postsSectionHeader: some View {
+        HStack {
+            Text("回复")
+                .font(.headline)
+            Spacer()
+            if let detail {
+                let totalReplyCount = max(Int(detail.postsCount) - 1, 0)
+                if loadedReplyCount < totalReplyCount {
+                    Text("已加载 \(loadedReplyCount) / \(totalReplyCount) 条")
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text("\(totalReplyCount) 条 · \(displayedFloorCount) 楼")
+                        .foregroundStyle(.secondary)
                 }
             }
+        }
+    }
 
-            if detail != nil {
-                let displayPosts = replyPosts
+    @ViewBuilder
+    private var postsSection: some View {
+        postsSectionHeader
+            .padding(.bottom, 14)
 
-                if displayPosts.isEmpty {
-                    if viewModel.hasMoreTopicPosts(topicId: topic.id) {
-                        FireTopicPostsLoadingFooter()
-                            .padding(.vertical, 16)
-                            .onAppear {
-                                viewModel.preloadTopicPostsIfNeeded(
-                                    topicId: topic.id,
-                                    visibleReplyIndex: 0,
-                                    totalReplyCount: 1
-                                )
-                            }
-                    } else {
-                        Text("还没有回复")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                            .frame(maxWidth: .infinity, alignment: .center)
-                            .padding(.vertical, 24)
-                    }
-                } else {
-                    VStack(spacing: 0) {
-                        ForEach(Array(displayPosts.enumerated()), id: \.element.post.id) { index, flatPost in
-                            FirePostRow(
-                                post: flatPost.post,
-                                depth: Int(flatPost.depth),
-                                replyContext: flatPost.parentPostNumber.map { "回复 #\($0)" },
-                                showsThreadLine: flatPost.showsThreadLine,
-                                baseURLString: baseURLString,
-                                reactionOptions: reactionOptions,
-                                canWriteInteractions: canWriteInteractions,
-                                isMutating: viewModel.isMutatingPost(postId: flatPost.post.id),
-                                onReply: { openComposer(replyToPost: $0) },
-                                onToggleLike: { toggleLike(for: $0) },
-                                onSelectReaction: { post, reactionId in
-                                    toggleReaction(reactionId, for: post)
-                                }
+        if detail != nil {
+            let displayPosts = replyPosts
+
+            if displayPosts.isEmpty {
+                if viewModel.hasMoreTopicPosts(topicId: topic.id) {
+                    FireTopicPostsLoadingFooter()
+                        .padding(.vertical, 16)
+                        .task(id: topic.id) {
+                            viewModel.preloadTopicPostsIfNeeded(
+                                topicId: topic.id,
+                                visibleReplyIndex: 0,
+                                totalReplyCount: 1
                             )
-                            .background(FireVisiblePostFrameReporter(postNumber: flatPost.post.postNumber))
-                            .onAppear {
-                                viewModel.preloadTopicPostsIfNeeded(
-                                    topicId: topic.id,
-                                    visibleReplyIndex: index,
-                                    totalReplyCount: displayPosts.count
-                                )
-                            }
-
-                            if index != displayPosts.count - 1 {
-                                Divider()
-                            }
                         }
-                    }
+                } else {
+                    Text("还没有回复")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .padding(.vertical, 24)
+                }
+            } else {
+                replyPostRows(displayPosts)
 
-                    if viewModel.isLoadingMoreTopicPosts(topicId: topic.id) {
-                        FireTopicPostsLoadingFooter()
-                            .padding(.top, 12)
-                    } else if viewModel.hasMoreTopicPosts(topicId: topic.id) {
-                        Color.clear
-                            .frame(height: 1)
-                            .onAppear {
-                                viewModel.preloadTopicPostsIfNeeded(
-                                    topicId: topic.id,
-                                    visibleReplyIndex: max(displayPosts.count - 1, 0),
-                                    totalReplyCount: displayPosts.count
-                                )
-                            }
-                    }
+                if viewModel.isLoadingMoreTopicPosts(topicId: topic.id) {
+                    FireTopicPostsLoadingFooter()
+                        .padding(.top, 12)
                 }
-            } else if viewModel.isLoadingTopic(topicId: topic.id) {
-                HStack {
-                    Spacer()
-                    VStack(spacing: 8) {
-                        ProgressView()
-                        Text("加载中…")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    .padding(.vertical, 30)
-                    Spacer()
-                }
-            } else if let detailError {
+            }
+        } else if viewModel.isLoadingTopic(topicId: topic.id) {
+            HStack {
+                Spacer()
                 VStack(spacing: 8) {
-                    Text(detailError)
+                    ProgressView()
+                    Text("加载中…")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-
-                    Button("重试") {
-                        Task {
-                            await viewModel.loadTopicDetail(topicId: topic.id, force: true)
-                        }
-                    }
-                    .buttonStyle(.bordered)
-                    .tint(FireTheme.accent)
                 }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 20)
-            } else {
-                Button("加载帖子") {
+                .padding(.vertical, 30)
+                Spacer()
+            }
+        } else if let detailError {
+            VStack(spacing: 8) {
+                Text(detailError)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+
+                Button("重试") {
                     Task {
                         await viewModel.loadTopicDetail(topicId: topic.id, force: true)
                     }
                 }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 20)
+                .buttonStyle(.bordered)
+                .tint(FireTheme.accent)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 20)
+        } else {
+            Button("加载帖子") {
+                Task {
+                    await viewModel.loadTopicDetail(topicId: topic.id, force: true)
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 20)
+        }
+    }
+
+    @ViewBuilder
+    private func replyPostRows(_ displayPosts: [FireTopicFlatPostPresentation]) -> some View {
+        ForEach(Array(displayPosts.enumerated()), id: \.element.post.id) { index, flatPost in
+            FirePostRow(
+                post: flatPost.post,
+                depth: Int(flatPost.depth),
+                replyContext: flatPost.parentPostNumber.map { "回复 #\($0)" },
+                showsThreadLine: flatPost.showsThreadLine,
+                baseURLString: baseURLString,
+                reactionOptions: reactionOptions,
+                canWriteInteractions: canWriteInteractions,
+                isMutating: viewModel.isMutatingPost(postId: flatPost.post.id),
+                onReply: { openComposer(replyToPost: $0) },
+                onToggleLike: { toggleLike(for: $0) },
+                onSelectReaction: { post, reactionId in
+                    toggleReaction(reactionId, for: post)
+                }
+            )
+            .background(FireVisiblePostFrameReporter(postNumber: flatPost.post.postNumber))
+
+            if index != displayPosts.count - 1 {
+                Divider()
             }
         }
+    }
+
+    private func updateVisiblePostFrames(
+        _ frames: [UInt32: CGRect],
+        viewportHeight: CGFloat
+    ) {
+        let visiblePostNumbers = Set(
+            frames.compactMap { postNumber, frame in
+                frame.maxY > 0 && frame.minY < viewportHeight ? postNumber : nil
+            }
+        )
+        timingTracker.updateVisiblePostNumbers(visiblePostNumbers)
+
+        let replyIndexByPostNumber = Dictionary(
+            uniqueKeysWithValues: replyPosts.enumerated().map { ($1.post.postNumber, $0) }
+        )
+        guard let visibleReplyIndex = visiblePostNumbers.compactMap({ replyIndexByPostNumber[$0] }).max() else {
+            return
+        }
+
+        viewModel.preloadTopicPostsIfNeeded(
+            topicId: topic.id,
+            visibleReplyIndex: visibleReplyIndex,
+            totalReplyCount: replyPosts.count
+        )
     }
 
     private var quickReplyBar: some View {

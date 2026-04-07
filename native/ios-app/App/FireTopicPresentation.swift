@@ -237,14 +237,31 @@ enum FireTopicPresentation {
             return loadedPosts.count
         }
 
-        let indexByID = Dictionary(uniqueKeysWithValues: orderedPostIDs.enumerated().map { ($1, $0) })
-        var maxLoadedIndex = -1
-        for post in loadedPosts {
-            if let index = indexByID[post.id] {
-                maxLoadedIndex = max(maxLoadedIndex, index)
+        let loadedPostIDs = Set(loadedPosts.map(\.id))
+        var loadedWindowCount = 0
+        for postID in orderedPostIDs {
+            guard loadedPostIDs.contains(postID) else {
+                break
             }
+            loadedWindowCount += 1
         }
-        return maxLoadedIndex + 1
+        return loadedWindowCount
+    }
+
+    static func missingPostIDs(
+        orderedPostIDs: [UInt64],
+        loadedPostIDs: Set<UInt64>,
+        upTo targetLoadedCount: Int,
+        excluding exhaustedPostIDs: Set<UInt64> = []
+    ) -> [UInt64] {
+        let targetCount = max(0, min(targetLoadedCount, orderedPostIDs.count))
+        guard targetCount > 0 else {
+            return []
+        }
+
+        return orderedPostIDs.prefix(targetCount).filter { postID in
+            !loadedPostIDs.contains(postID) && !exhaustedPostIDs.contains(postID)
+        }
     }
 
     static func missingPostIDs(
@@ -252,15 +269,12 @@ enum FireTopicPresentation {
         upTo targetLoadedCount: Int,
         excluding exhaustedPostIDs: Set<UInt64> = []
     ) -> [UInt64] {
-        let targetCount = max(0, min(targetLoadedCount, detail.postStream.stream.count))
-        guard targetCount > 0 else {
-            return []
-        }
-
-        let loadedIDs = Set(detail.postStream.posts.map(\.id))
-        return detail.postStream.stream.prefix(targetCount).filter { postID in
-            !loadedIDs.contains(postID) && !exhaustedPostIDs.contains(postID)
-        }
+        missingPostIDs(
+            orderedPostIDs: detail.postStream.stream,
+            loadedPostIDs: Set(detail.postStream.posts.map(\.id)),
+            upTo: targetLoadedCount,
+            excluding: exhaustedPostIDs
+        )
     }
 
     private static func compactCount(_ value: UInt64) -> String {

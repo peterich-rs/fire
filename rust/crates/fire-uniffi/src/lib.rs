@@ -2485,24 +2485,30 @@ impl FireCoreHandle {
         Ok(())
     }
 
-    pub async fn like_post(&self, post_id: u64) -> Result<(), FireUniFfiError> {
+    pub async fn like_post(
+        &self,
+        post_id: u64,
+    ) -> Result<Option<PostReactionUpdateState>, FireUniFfiError> {
         let inner = Arc::clone(&self.inner);
         let panic_state = Arc::clone(&self.panic_state);
-        run_on_ffi_runtime("like_post", panic_state, async move {
+        let response = run_on_ffi_runtime("like_post", panic_state, async move {
             inner.like_post(post_id).await
         })
         .await?;
-        Ok(())
+        Ok(response.map(Into::into))
     }
 
-    pub async fn unlike_post(&self, post_id: u64) -> Result<(), FireUniFfiError> {
+    pub async fn unlike_post(
+        &self,
+        post_id: u64,
+    ) -> Result<Option<PostReactionUpdateState>, FireUniFfiError> {
         let inner = Arc::clone(&self.inner);
         let panic_state = Arc::clone(&self.panic_state);
-        run_on_ffi_runtime("unlike_post", panic_state, async move {
+        let response = run_on_ffi_runtime("unlike_post", panic_state, async move {
             inner.unlike_post(post_id).await
         })
         .await?;
-        Ok(())
+        Ok(response.map(Into::into))
     }
 
     pub async fn toggle_post_reaction(

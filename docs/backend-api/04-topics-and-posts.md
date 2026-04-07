@@ -404,6 +404,11 @@
 }
 ```
 
+- 成功响应：
+  - 线上实测服务端可能直接返回完整 `Post` 对象，而不是空体
+  - 该对象里会带更新后的 `reactions`、`current_user_reaction`，以及 `actions_summary` 中对应操作的 `acted/can_undo`
+  - 客户端如果拿到了这些字段，不应该直接丢弃
+
 - 用途 2：举报
 - `Content-Type`: `application/x-www-form-urlencoded`
 - Body：

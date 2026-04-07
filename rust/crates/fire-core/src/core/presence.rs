@@ -68,9 +68,11 @@ impl FireCore {
     pub async fn bootstrap_topic_reply_presence(
         &self,
         topic_id: u64,
+        owner_token: String,
     ) -> Result<TopicPresence, FireCoreError> {
         let channel = message_bus_presence_channel_for_topic(topic_id);
         self.subscribe_message_bus_channel(fire_models::MessageBusSubscription {
+            owner_token: owner_token.clone(),
             channel,
             last_message_id: Some(-1),
             scope: fire_models::MessageBusSubscriptionScope::Transient,
@@ -78,6 +80,7 @@ impl FireCore {
 
         let presence = self.fetch_topic_reply_presence(topic_id).await?;
         self.subscribe_message_bus_channel(fire_models::MessageBusSubscription {
+            owner_token,
             channel: message_bus_presence_channel_for_topic(topic_id),
             last_message_id: Some(presence.message_id),
             scope: fire_models::MessageBusSubscriptionScope::Transient,

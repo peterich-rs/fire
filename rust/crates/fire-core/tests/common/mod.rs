@@ -8,6 +8,7 @@ use std::{
         atomic::{AtomicUsize, Ordering},
         Arc, Mutex,
     },
+    time::Duration,
 };
 
 use tokio::{
@@ -262,17 +263,47 @@ pub(crate) struct TestServer {
     handle: JoinHandle<()>,
 }
 
+#[derive(Clone)]
+pub(crate) struct TestServerStep {
+    response: String,
+    delay_before_write: Duration,
+}
+
+impl TestServerStep {
+    pub(crate) fn immediate(response: String) -> Self {
+        Self {
+            response,
+            delay_before_write: Duration::ZERO,
+        }
+    }
+
+    pub(crate) fn delayed(response: String, delay_before_write: Duration) -> Self {
+        Self {
+            response,
+            delay_before_write,
+        }
+    }
+}
+
 impl TestServer {
     pub(crate) async fn spawn(responses: Vec<String>) -> io::Result<Self> {
+        let steps = responses
+            .into_iter()
+            .map(TestServerStep::immediate)
+            .collect::<Vec<_>>();
+        Self::spawn_scripted(steps).await
+    }
+
+    pub(crate) async fn spawn_scripted(steps: Vec<TestServerStep>) -> io::Result<Self> {
         let listener = TcpListener::bind("127.0.0.1:0").await?;
         let addr = listener.local_addr()?;
         let requests = Arc::new(AtomicUsize::new(0));
         let captured_requests = Arc::new(Mutex::new(Vec::new()));
         let requests_handle = requests.clone();
         let captured_requests_handle = captured_requests.clone();
-        let responses = Arc::new(responses);
         let handle = tokio::spawn(async move {
-            for response in responses.iter() {
+            let mut writers = Vec::new();
+            for step in steps {
                 let Ok((mut stream, _)) = listener.accept().await else {
                     return;
                 };
@@ -284,8 +315,17 @@ impl TestServer {
                         captured_requests.push(request);
                     }
                 }
-                let _ = stream.write_all(response.as_bytes()).await;
-                let _ = stream.shutdown().await;
+                writers.push(tokio::spawn(async move {
+                    if !step.delay_before_write.is_zero() {
+                        tokio::time::sleep(step.delay_before_write).await;
+                    }
+                    let _ = stream.write_all(step.response.as_bytes()).await;
+                    let _ = stream.shutdown().await;
+                }));
+            }
+
+            for writer in writers {
+                let _ = writer.await;
             }
         });
 

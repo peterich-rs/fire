@@ -73,6 +73,7 @@ fire/
 - Regular API traffic uses the client's default execution policy.
 - MessageBus foreground polls and background notification-alert polls use per-call overrides on that same client.
 - MessageBus `clientId` remains a Discourse protocol/runtime identity used by subscriptions, presence, and background alert flows; it is not transport ownership.
+- Fire’s local MessageBus runtime separately tracks subscription ownership with per-subscriber owner tokens so overlapping native lifecycles can share one polled channel set without tearing each other down.
 - Transport-level HTTP/2 keep-alive is a shared client policy, not a per-request toggle.
 
 ## Shared Surface
@@ -85,6 +86,7 @@ fire/
   - exports the shared async API surface, notification list/state APIs, MessageBus callback interface, and error model to Swift/Kotlin
 - `native/ios-app` and `native/android-app`
   - host WebView login, cookie capture, native UI state, the current topic browser/detail shells, and thin notification-store wrappers over the shared Rust notification APIs
+  - iOS topic-detail state is retained by per-view owner tokens while a detail screen is active, so background homepage refreshes can no longer evict an on-screen topic detail cache
 
 The intended native integration order is:
 

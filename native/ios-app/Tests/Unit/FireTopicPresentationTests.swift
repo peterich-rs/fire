@@ -185,6 +185,29 @@ final class FireTopicPresentationTests: XCTestCase {
         XCTAssertEqual(recomposed.flatPosts[2].parentPostNumber, 2)
     }
 
+    func testLoadedWindowCountStopsAtFirstGap() {
+        let loadedWindowCount = FireTopicPresentation.loadedWindowCount(
+            orderedPostIDs: [1, 2, 3, 4, 5],
+            loadedPosts: [
+                makePost(postNumber: 1, replyToPostNumber: nil, username: "author"),
+                makePost(postNumber: 5, replyToPostNumber: 4, username: "late-reply"),
+            ]
+        )
+
+        XCTAssertEqual(loadedWindowCount, 1)
+    }
+
+    func testMissingPostIDsSkipsLoadedAndExhaustedHoles() {
+        let missingPostIDs = FireTopicPresentation.missingPostIDs(
+            orderedPostIDs: [1, 2, 3, 4, 5],
+            loadedPostIDs: [1, 5],
+            upTo: 5,
+            excluding: [2]
+        )
+
+        XCTAssertEqual(missingPostIDs, [3, 4])
+    }
+
     func testProfileDisplayNameAvoidsAnonymousCopyWhenAuthenticatedIdentityIsMissing() {
         let session = SessionState(
             cookies: CookieState(
@@ -255,6 +278,29 @@ final class FireTopicPresentationTests: XCTestCase {
 
         XCTAssertEqual(session.profileDisplayName, "alice")
         XCTAssertEqual(session.profileStatusTitle, "已就绪")
+    }
+
+    @MainActor
+    func testActiveTopicDetailOwnersRetainTopicIDsUntilLastOwnerLeaves() {
+        let viewModel = FireAppViewModel()
+        let visibleTopicIDs: Set<UInt64> = [1, 2]
+
+        viewModel.beginTopicDetailLifecycle(topicId: 42, ownerToken: "owner-a")
+        viewModel.beginTopicDetailLifecycle(topicId: 42, ownerToken: "owner-b")
+
+        XCTAssertEqual(
+            viewModel.retainedTopicDetailIDs(visibleTopicIDs: visibleTopicIDs),
+            Set<UInt64>([1, 2, 42])
+        )
+
+        viewModel.endTopicDetailLifecycle(topicId: 42, ownerToken: "owner-a")
+        XCTAssertEqual(
+            viewModel.retainedTopicDetailIDs(visibleTopicIDs: visibleTopicIDs),
+            Set<UInt64>([1, 2, 42])
+        )
+
+        viewModel.endTopicDetailLifecycle(topicId: 42, ownerToken: "owner-b")
+        XCTAssertEqual(viewModel.retainedTopicDetailIDs(visibleTopicIDs: visibleTopicIDs), visibleTopicIDs)
     }
 
     private func makeBootstrap(

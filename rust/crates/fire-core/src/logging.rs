@@ -18,6 +18,15 @@ const FIRE_LOG_CACHE_PARENT_DIR: &str = "cache";
 const FIRE_LOG_CACHE_DIR_NAME: &str = "xlog";
 const FIRE_DIAGNOSTICS_DIR_NAME: &str = "diagnostics";
 const FIRE_READABLE_LOG_FILE_NAME: &str = "fire-readable.log";
+const FIRE_HOST_LOG_TARGET: &str = "fire.host";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FireHostLogLevel {
+    Debug,
+    Info,
+    Warn,
+    Error,
+}
 
 #[derive(Debug, Clone)]
 pub struct FireLoggerConfig {
@@ -161,6 +170,29 @@ fn level_filter_for(level: LogLevel) -> LevelFilter {
         LogLevel::Warn => LevelFilter::WARN,
         LogLevel::Error | LogLevel::Fatal => LevelFilter::ERROR,
         LogLevel::None => LevelFilter::OFF,
+    }
+}
+
+pub fn log_host_message(level: FireHostLogLevel, target: &str, message: &str) {
+    let host_target = if target.trim().is_empty() {
+        FIRE_LOGGER_NAME_PREFIX
+    } else {
+        target
+    };
+
+    match level {
+        FireHostLogLevel::Debug => {
+            tracing::debug!(target: FIRE_HOST_LOG_TARGET, host_target = host_target, "{}", message);
+        }
+        FireHostLogLevel::Info => {
+            tracing::info!(target: FIRE_HOST_LOG_TARGET, host_target = host_target, "{}", message);
+        }
+        FireHostLogLevel::Warn => {
+            tracing::warn!(target: FIRE_HOST_LOG_TARGET, host_target = host_target, "{}", message);
+        }
+        FireHostLogLevel::Error => {
+            tracing::error!(target: FIRE_HOST_LOG_TARGET, host_target = host_target, "{}", message);
+        }
     }
 }
 

@@ -29,8 +29,41 @@ public struct FireCapturedLoginState: Sendable {
     }
 }
 
+public struct FireHostLogger: Sendable {
+    private let target: String
+    private let writeEntry: @Sendable (HostLogLevelState, String, String) -> Void
+
+    fileprivate init(
+        target: String,
+        writeEntry: @escaping @Sendable (HostLogLevelState, String, String) -> Void
+    ) {
+        self.target = target
+        self.writeEntry = writeEntry
+    }
+
+    public func debug(_ message: @autoclosure () -> String) {
+        writeEntry(.debug, target, message())
+    }
+
+    public func info(_ message: @autoclosure () -> String) {
+        writeEntry(.info, target, message())
+    }
+
+    public func notice(_ message: @autoclosure () -> String) {
+        writeEntry(.info, target, message())
+    }
+
+    public func warning(_ message: @autoclosure () -> String) {
+        writeEntry(.warn, target, message())
+    }
+
+    public func error(_ message: @autoclosure () -> String) {
+        writeEntry(.error, target, message())
+    }
+}
+
 public actor FireSessionStore {
-    private let core: FireCoreHandle
+    nonisolated private let core: FireCoreHandle
     private let baseURL: URL
     private let workspacePath: String
     private let sessionFilePath: String
@@ -181,6 +214,17 @@ public actor FireSessionStore {
 
     public func workspacePathValue() -> String {
         workspacePath
+    }
+
+    public nonisolated func logHost(level: HostLogLevelState, target: String, message: String) {
+        try? core.logHost(level: level, target: target, message: message)
+    }
+
+    public nonisolated func makeLogger(target: String) -> FireHostLogger {
+        let core = self.core
+        return FireHostLogger(target: target) { level, target, message in
+            try? core.logHost(level: level, target: target, message: message)
+        }
     }
 
     public func listLogFiles() async throws -> [LogFileSummaryState] {
@@ -360,9 +404,10 @@ public actor FireSessionStore {
         try core.stopMessageBus(clearSubscriptions: clearSubscriptions)
     }
 
-    public func subscribeTopicDetailChannel(topicId: UInt64) throws {
+    public func subscribeTopicDetailChannel(topicId: UInt64, ownerToken: String) throws {
         try core.subscribeChannel(
             subscription: MessageBusSubscriptionState(
+                ownerToken: ownerToken,
                 channel: "/topic/\(topicId)",
                 lastMessageId: nil,
                 scope: .transient
@@ -370,13 +415,14 @@ public actor FireSessionStore {
         )
     }
 
-    public func unsubscribeTopicDetailChannel(topicId: UInt64) throws {
-        try core.unsubscribeChannel(channel: "/topic/\(topicId)")
+    public func unsubscribeTopicDetailChannel(topicId: UInt64, ownerToken: String) throws {
+        try core.unsubscribeChannel(ownerToken: ownerToken, channel: "/topic/\(topicId)")
     }
 
-    public func subscribeTopicReactionChannel(topicId: UInt64) throws {
+    public func subscribeTopicReactionChannel(topicId: UInt64, ownerToken: String) throws {
         try core.subscribeChannel(
             subscription: MessageBusSubscriptionState(
+                ownerToken: ownerToken,
                 channel: "/topic/\(topicId)/reactions",
                 lastMessageId: nil,
                 scope: .transient
@@ -384,20 +430,26 @@ public actor FireSessionStore {
         )
     }
 
-    public func unsubscribeTopicReactionChannel(topicId: UInt64) throws {
-        try core.unsubscribeChannel(channel: "/topic/\(topicId)/reactions")
+    public func unsubscribeTopicReactionChannel(topicId: UInt64, ownerToken: String) throws {
+        try core.unsubscribeChannel(ownerToken: ownerToken, channel: "/topic/\(topicId)/reactions")
     }
 
     public func topicReplyPresenceState(topicId: UInt64) throws -> TopicPresenceState {
         try core.topicReplyPresenceState(topicId: topicId)
     }
 
-    public func bootstrapTopicReplyPresence(topicId: UInt64) async throws -> TopicPresenceState {
-        try await core.bootstrapTopicReplyPresence(topicId: topicId)
+    public func bootstrapTopicReplyPresence(
+        topicId: UInt64,
+        ownerToken: String
+    ) async throws -> TopicPresenceState {
+        try await core.bootstrapTopicReplyPresence(topicId: topicId, ownerToken: ownerToken)
     }
 
-    public func unsubscribeTopicReplyPresenceChannel(topicId: UInt64) throws {
-        try core.unsubscribeChannel(channel: "/presence/discourse-presence/reply/\(topicId)")
+    public func unsubscribeTopicReplyPresenceChannel(topicId: UInt64, ownerToken: String) throws {
+        try core.unsubscribeChannel(
+            ownerToken: ownerToken,
+            channel: "/presence/discourse-presence/reply/\(topicId)"
+        )
     }
 
     public func updateTopicReplyPresence(topicId: UInt64, active: Bool) async throws {

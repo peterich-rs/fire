@@ -420,6 +420,7 @@ pub enum MessageBusSubscriptionScope {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MessageBusSubscription {
+    pub owner_token: String,
     pub channel: String,
     pub last_message_id: Option<i64>,
     pub scope: MessageBusSubscriptionScope,

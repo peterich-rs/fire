@@ -2,7 +2,7 @@ mod common;
 
 use std::time::Duration;
 
-use common::{raw_json_response, TestServer};
+use common::{raw_json_response, TestServer, TestServerStep};
 use fire_core::{FireCore, FireCoreConfig};
 use fire_models::{
     BootstrapArtifacts, CookieSnapshot, MessageBusClientMode, MessageBusEventKind,
@@ -162,6 +162,7 @@ async fn start_message_bus_without_subscriptions_waits_for_later_subscribe() {
         .expect("start idle message bus");
 
     core.subscribe_message_bus_channel(MessageBusSubscription {
+        owner_token: "test-topic-detail-owner".into(),
         channel: "/topic/123".into(),
         last_message_id: Some(-1),
         scope: MessageBusSubscriptionScope::Transient,
@@ -187,6 +188,173 @@ async fn start_message_bus_without_subscriptions_waits_for_later_subscribe() {
     let first = requests[0].to_ascii_lowercase();
     assert!(first.contains(&format!("post /message-bus/{client_id}/poll")));
     assert!(first.contains("%2ftopic%2f123=-1"));
+}
+
+#[tokio::test]
+async fn active_message_bus_coalesces_subscription_changes_into_single_restart() {
+    let server = TestServer::spawn_scripted(vec![
+        TestServerStep::delayed(
+            raw_json_response(200, "application/json", "[]"),
+            Duration::from_secs(1),
+        ),
+        TestServerStep::delayed(
+            raw_json_response(200, "application/json", "[]"),
+            Duration::from_secs(1),
+        ),
+    ])
+    .await
+    .expect("server");
+    let core = FireCore::new(FireCoreConfig {
+        base_url: server.base_url(),
+        workspace_path: None,
+    })
+    .expect("core");
+
+    let _ = core.apply_cookies(CookieSnapshot {
+        t_token: Some("token".into()),
+        forum_session: Some("forum".into()),
+        ..CookieSnapshot::default()
+    });
+    let _ = core.apply_bootstrap(BootstrapArtifacts {
+        base_url: server.base_url(),
+        current_username: Some("alice".into()),
+        current_user_id: Some(1),
+        topic_tracking_state_meta: Some(r#"{"/latest":-1}"#.to_string()),
+        ..BootstrapArtifacts::default()
+    });
+
+    let (sender, _receiver) = unbounded_channel();
+    let client_id = core
+        .start_message_bus(MessageBusClientMode::Foreground, sender)
+        .await
+        .expect("start message bus");
+
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    core.subscribe_message_bus_channel(MessageBusSubscription {
+        owner_token: "test-topic-detail-owner".into(),
+        channel: "/topic/123".into(),
+        last_message_id: Some(-1),
+        scope: MessageBusSubscriptionScope::Transient,
+    })
+    .expect("subscribe topic detail");
+    core.subscribe_message_bus_channel(MessageBusSubscription {
+        owner_token: "test-topic-reaction-owner".into(),
+        channel: "/topic/123/reactions".into(),
+        last_message_id: Some(-1),
+        scope: MessageBusSubscriptionScope::Transient,
+    })
+    .expect("subscribe topic reactions");
+    core.subscribe_message_bus_channel(MessageBusSubscription {
+        owner_token: "test-topic-presence-owner".into(),
+        channel: "/presence/discourse-presence/reply/123".into(),
+        last_message_id: Some(-1),
+        scope: MessageBusSubscriptionScope::Transient,
+    })
+    .expect("subscribe topic presence");
+
+    tokio::time::sleep(Duration::from_millis(400)).await;
+    core.stop_message_bus(true);
+
+    let requests = server.shutdown_with_requests().await;
+    assert_eq!(
+        requests.len(),
+        2,
+        "expected a single coalesced restart, got {requests:?}"
+    );
+
+    let first = requests[0].to_ascii_lowercase();
+    assert!(first.contains(&format!("post /message-bus/{client_id}/poll")));
+    assert!(first.contains("%2flatest=-1"));
+    assert!(!first.contains("%2ftopic%2f123=-1"));
+
+    let second = requests[1].to_ascii_lowercase();
+    assert!(second.contains("%2flatest=-1"));
+    assert!(second.contains("%2ftopic%2f123=-1"));
+    assert!(second.contains("%2ftopic%2f123%2freactions=-1"));
+    assert!(second.contains("%2fpresence%2fdiscourse-presence%2freply%2f123=-1"));
+}
+
+#[tokio::test]
+async fn overlapping_subscription_owners_do_not_remove_shared_channel_until_last_owner_leaves() {
+    let server = TestServer::spawn_scripted(vec![
+        TestServerStep::delayed(
+            raw_json_response(200, "application/json", "[]"),
+            Duration::from_secs(1),
+        ),
+        TestServerStep::delayed(
+            raw_json_response(200, "application/json", "[]"),
+            Duration::from_secs(1),
+        ),
+    ])
+    .await
+    .expect("server");
+    let core = FireCore::new(FireCoreConfig {
+        base_url: server.base_url(),
+        workspace_path: None,
+    })
+    .expect("core");
+
+    let _ = core.apply_cookies(CookieSnapshot {
+        t_token: Some("token".into()),
+        forum_session: Some("forum".into()),
+        ..CookieSnapshot::default()
+    });
+    let _ = core.apply_bootstrap(BootstrapArtifacts {
+        base_url: server.base_url(),
+        current_username: Some("alice".into()),
+        current_user_id: Some(1),
+        topic_tracking_state_meta: Some(r#"{"/latest":-1}"#.to_string()),
+        ..BootstrapArtifacts::default()
+    });
+
+    core.subscribe_message_bus_channel(MessageBusSubscription {
+        owner_token: "owner-a".into(),
+        channel: "/topic/123".into(),
+        last_message_id: Some(-1),
+        scope: MessageBusSubscriptionScope::Transient,
+    })
+    .expect("subscribe owner a");
+
+    let (sender, _receiver) = unbounded_channel();
+    let client_id = core
+        .start_message_bus(MessageBusClientMode::Foreground, sender)
+        .await
+        .expect("start message bus");
+
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    core.subscribe_message_bus_channel(MessageBusSubscription {
+        owner_token: "owner-b".into(),
+        channel: "/topic/123".into(),
+        last_message_id: Some(-1),
+        scope: MessageBusSubscriptionScope::Transient,
+    })
+    .expect("subscribe owner b");
+    core.unsubscribe_message_bus_channel("owner-a".into(), "/topic/123".into())
+        .expect("unsubscribe owner a");
+    tokio::time::sleep(Duration::from_millis(250)).await;
+    core.unsubscribe_message_bus_channel("owner-b".into(), "/topic/123".into())
+        .expect("unsubscribe owner b");
+
+    tokio::time::sleep(Duration::from_millis(250)).await;
+    core.stop_message_bus(true);
+
+    let requests = server.shutdown_with_requests().await;
+    assert_eq!(
+        requests.len(),
+        2,
+        "expected only the final owner removal to change poll inputs: {requests:?}"
+    );
+
+    let first = requests[0].to_ascii_lowercase();
+    assert!(first.contains(&format!("post /message-bus/{client_id}/poll")));
+    assert!(first.contains("%2flatest=-1"));
+    assert!(first.contains("%2ftopic%2f123=-1"));
+
+    let second = requests[1].to_ascii_lowercase();
+    assert!(second.contains("%2flatest=-1"));
+    assert!(!second.contains("%2ftopic%2f123=-1"));
 }
 
 #[tokio::test]

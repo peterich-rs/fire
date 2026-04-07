@@ -89,6 +89,7 @@ final class FireAppViewModel: ObservableObject {
     private static let messageBusErrorPrefix = "实时同步连接失败："
     private static let topicPostPageSize = 30
     private static let topicPostPrefetchThreshold = 6
+    private static let topicDetailLogTarget = "ios.topic-detail"
 
     // MARK: - Session
 
@@ -161,7 +162,9 @@ final class FireAppViewModel: ObservableObject {
     private var pendingTopicDetailRefreshTasks: [UInt64: Task<Void, Never>] = [:]
     private var pendingNotificationStateRefreshTask: Task<Void, Never>?
     private var topicPresenceHeartbeatTasks: [UInt64: Task<Void, Never>] = [:]
+    private var topicPostPreloadTasks: [UInt64: Task<Void, Never>] = [:]
     private var topicPostPaginationStates: [UInt64: FireTopicPostPaginationState] = [:]
+    private var activeTopicDetailOwnerTokens: [UInt64: Set<String>] = [:]
     private var searchTask: Task<Void, Never>?
     private var latestSearchRequestID: UInt64 = 0
 
@@ -399,6 +402,10 @@ final class FireAppViewModel: ObservableObject {
             return
         }
 
+        let hadCachedDetail = topicDetails[topicId] != nil
+        topicDetailLogger()?.debug(
+            "loading topic detail topic_id=\(topicId) force=\(force) had_cache=\(hadCachedDetail)"
+        )
         loadingTopicIDs.insert(topicId)
         defer { loadingTopicIDs.remove(topicId) }
 
@@ -415,7 +422,13 @@ final class FireAppViewModel: ObservableObject {
                 )
             )
             applyTopicDetail(detail, topicId: topicId)
+            topicDetailLogger()?.debug(
+                "loaded topic detail topic_id=\(topicId) loaded_posts=\(detail.postStream.posts.count) stream_posts=\(detail.postStream.stream.count)"
+            )
         } catch {
+            topicDetailLogger()?.error(
+                "topic detail load failed topic_id=\(topicId) error=\(error.localizedDescription)"
+            )
             if await handleCloudflareChallengeIfNeeded(error) {
                 return
             }
@@ -444,8 +457,14 @@ final class FireAppViewModel: ObservableObject {
             return false
         }
         let loadedWindowCount = FireTopicPresentation.loadedWindowCount(detail: detail)
-        let targetLoadedCount = topicPostPaginationStates[topicId]?.targetLoadedCount ?? loadedWindowCount
-        return max(loadedWindowCount, targetLoadedCount) < detail.postStream.stream.count
+        let pagination = topicPostPaginationStates[topicId]
+        let targetLoadedCount = max(pagination?.targetLoadedCount ?? loadedWindowCount, loadedWindowCount)
+        let unresolvedPostIDs = FireTopicPresentation.missingPostIDs(
+            in: detail,
+            upTo: targetLoadedCount,
+            excluding: pagination?.exhaustedPostIDs ?? Set<UInt64>()
+        )
+        return !unresolvedPostIDs.isEmpty || targetLoadedCount < detail.postStream.stream.count
     }
 
     func preloadTopicPostsIfNeeded(
@@ -456,29 +475,77 @@ final class FireAppViewModel: ObservableObject {
         guard totalReplyCount > 0 else { return }
         let triggerIndex = max(totalReplyCount - Self.topicPostPrefetchThreshold, 0)
         guard visibleReplyIndex >= triggerIndex else { return }
+        guard hasMoreTopicPosts(topicId: topicId) else { return }
+        guard !loadingMoreTopicPostIDs.contains(topicId) else { return }
+        guard topicPostPreloadTasks[topicId] == nil else { return }
 
-        Task {
-            await loadMoreTopicPostsIfNeeded(topicId: topicId)
+        topicPostPreloadTasks[topicId] = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { self.topicPostPreloadTasks[topicId] = nil }
+            await self.loadMoreTopicPostsIfNeeded(topicId: topicId)
         }
+    }
+
+    // MARK: - Topic detail lifecycle
+
+    func beginTopicDetailLifecycle(topicId: UInt64, ownerToken: String) {
+        var owners = activeTopicDetailOwnerTokens[topicId] ?? []
+        let inserted = owners.insert(ownerToken).inserted
+        activeTopicDetailOwnerTokens[topicId] = owners
+        guard inserted else { return }
+
+        topicDetailLogger()?.debug(
+            "registered topic detail lifecycle topic_id=\(topicId) owner_token=\(ownerToken) owner_count=\(owners.count)"
+        )
+    }
+
+    func endTopicDetailLifecycle(topicId: UInt64, ownerToken: String) {
+        guard var owners = activeTopicDetailOwnerTokens[topicId] else { return }
+        guard owners.remove(ownerToken) != nil else { return }
+
+        if owners.isEmpty {
+            activeTopicDetailOwnerTokens.removeValue(forKey: topicId)
+        } else {
+            activeTopicDetailOwnerTokens[topicId] = owners
+        }
+
+        topicDetailLogger()?.debug(
+            "released topic detail lifecycle topic_id=\(topicId) owner_token=\(ownerToken) owner_count=\(owners.count)"
+        )
+
+        guard owners.isEmpty else { return }
+        let visibleTopicIDs = Set(topicRows.map(\.topic.id))
+        guard !visibleTopicIDs.contains(topicId) else { return }
+        evictTopicDetailState(topicId: topicId, reason: "detail view disappeared")
+    }
+
+    func retainedTopicDetailIDs(visibleTopicIDs: Set<UInt64>) -> Set<UInt64> {
+        let activeTopicIDs = activeTopicDetailOwnerTokens.compactMap { topicId, owners in
+            owners.isEmpty ? nil : topicId
+        }
+        return visibleTopicIDs.union(activeTopicIDs)
     }
 
     // MARK: - Topic detail MessageBus subscription
 
-    func maintainTopicDetailSubscription(topicId: UInt64) async {
+    func maintainTopicDetailSubscription(topicId: UInt64, ownerToken: String) async {
         guard session.readiness.canOpenMessageBus else { return }
         guard let store = sessionStore else { return }
 
         do {
-            try await store.subscribeTopicDetailChannel(topicId: topicId)
-            try await store.subscribeTopicReactionChannel(topicId: topicId)
+            try await store.subscribeTopicDetailChannel(topicId: topicId, ownerToken: ownerToken)
+            try await store.subscribeTopicReactionChannel(topicId: topicId, ownerToken: ownerToken)
         } catch {
-            try? await store.unsubscribeTopicReactionChannel(topicId: topicId)
-            try? await store.unsubscribeTopicDetailChannel(topicId: topicId)
+            try? await store.unsubscribeTopicReactionChannel(topicId: topicId, ownerToken: ownerToken)
+            try? await store.unsubscribeTopicDetailChannel(topicId: topicId, ownerToken: ownerToken)
             return
         }
 
         do {
-            let presence = try await store.bootstrapTopicReplyPresence(topicId: topicId)
+            let presence = try await store.bootstrapTopicReplyPresence(
+                topicId: topicId,
+                ownerToken: ownerToken
+            )
             applyTopicPresenceState(presence)
         } catch {
             topicPresenceUsersByTopic[topicId] = []
@@ -488,9 +555,9 @@ final class FireAppViewModel: ObservableObject {
             Task {
                 await self.endTopicReplyPresence(topicId: topicId)
                 self.topicPresenceUsersByTopic[topicId] = []
-                try? await store.unsubscribeTopicReplyPresenceChannel(topicId: topicId)
-                try? await store.unsubscribeTopicReactionChannel(topicId: topicId)
-                try? await store.unsubscribeTopicDetailChannel(topicId: topicId)
+                try? await store.unsubscribeTopicReplyPresenceChannel(topicId: topicId, ownerToken: ownerToken)
+                try? await store.unsubscribeTopicReactionChannel(topicId: topicId, ownerToken: ownerToken)
+                try? await store.unsubscribeTopicDetailChannel(topicId: topicId, ownerToken: ownerToken)
             }
         }
 
@@ -1181,10 +1248,8 @@ final class FireAppViewModel: ObservableObject {
             topicRows = mergedTopicRows
             moreTopicsUrl = response.moreTopicsUrl
             nextTopicsPage = response.nextPage
-            topicDetails = topicDetails.filter { visibleTopicIDs.contains($0.key) }
-            topicPostPaginationStates = topicPostPaginationStates.filter { visibleTopicIDs.contains($0.key) }
-            loadingTopicIDs = loadingTopicIDs.intersection(visibleTopicIDs)
-            loadingMoreTopicPostIDs = loadingMoreTopicPostIDs.intersection(visibleTopicIDs)
+            let retainedTopicIDs = retainedTopicDetailIDs(visibleTopicIDs: visibleTopicIDs)
+            pruneInactiveTopicDetailState(retaining: retainedTopicIDs)
         } catch {
             if await handleCloudflareChallengeIfNeeded(error) {
                 return
@@ -1199,11 +1264,21 @@ final class FireAppViewModel: ObservableObject {
     }
 
     private func clearTopicState() {
+        pendingTopicDetailRefreshTasks.values.forEach { $0.cancel() }
+        pendingTopicDetailRefreshTasks = [:]
+        topicPresenceHeartbeatTasks.values.forEach { $0.cancel() }
+        topicPresenceHeartbeatTasks = [:]
+        for task in topicPostPreloadTasks.values {
+            task.cancel()
+        }
+        activeTopicDetailOwnerTokens = [:]
+        topicPostPreloadTasks = [:]
         topicRows = []
         moreTopicsUrl = nil
         nextTopicsPage = nil
         topicDetails = [:]
         topicPostPaginationStates = [:]
+        topicPresenceUsersByTopic = [:]
         isLoadingTopics = false
         isAppendingTopics = false
         loadingTopicIDs = []
@@ -1376,10 +1451,72 @@ final class FireAppViewModel: ObservableObject {
         return true
     }
 
+    private func evictTopicDetailState(topicId: UInt64, reason: String) {
+        let removedDetail = topicDetails.removeValue(forKey: topicId) != nil
+        let removedPagination = topicPostPaginationStates.removeValue(forKey: topicId) != nil
+        let removedPresence = topicPresenceUsersByTopic.removeValue(forKey: topicId) != nil
+        let removedLoadingTopic = loadingTopicIDs.remove(topicId) != nil
+        let removedLoadingMore = loadingMoreTopicPostIDs.remove(topicId) != nil
+        let refreshTask = pendingTopicDetailRefreshTasks.removeValue(forKey: topicId)
+        let presenceTask = topicPresenceHeartbeatTasks.removeValue(forKey: topicId)
+        let preloadTask = topicPostPreloadTasks.removeValue(forKey: topicId)
+        refreshTask?.cancel()
+        presenceTask?.cancel()
+        preloadTask?.cancel()
+
+        guard removedDetail
+            || removedPagination
+            || removedPresence
+            || removedLoadingTopic
+            || removedLoadingMore
+            || refreshTask != nil
+            || presenceTask != nil
+            || preloadTask != nil
+        else {
+            return
+        }
+
+        topicDetailLogger()?.notice(
+            "evicted topic detail state topic_id=\(topicId) reason=\(reason)"
+        )
+    }
+
+    private func pruneInactiveTopicDetailState(retaining retainedTopicIDs: Set<UInt64>) {
+        let trackedTopicIDs = Set(topicDetails.keys)
+            .union(topicPostPaginationStates.keys)
+            .union(topicPresenceUsersByTopic.keys)
+            .union(loadingTopicIDs)
+            .union(loadingMoreTopicPostIDs)
+            .union(topicPostPreloadTasks.keys)
+            .union(pendingTopicDetailRefreshTasks.keys)
+            .union(topicPresenceHeartbeatTasks.keys)
+        let inactiveTopicIDs = trackedTopicIDs.subtracting(retainedTopicIDs)
+        guard !inactiveTopicIDs.isEmpty else {
+            return
+        }
+
+        let activeTopicIDs = retainedTopicIDs.subtracting(Set(topicRows.map(\.topic.id)))
+        topicDetailLogger()?.notice(
+            "pruning inactive topic detail state retained_active_topic_ids=\(Self.formattedTopicIDs(activeTopicIDs)) pruned_topic_ids=\(Self.formattedTopicIDs(inactiveTopicIDs))"
+        )
+
+        for topicId in inactiveTopicIDs.sorted() {
+            evictTopicDetailState(topicId: topicId, reason: "topic list refresh pruned inactive detail")
+        }
+    }
+
+    private static func formattedTopicIDs(_ topicIDs: Set<UInt64>) -> String {
+        topicIDs.sorted().map(String.init).joined(separator: ",")
+    }
+
     private func syncPlatformCookiesFromWebViewStore() async throws {
         let loginCoordinator = try await loginCoordinatorValue()
         let session = try await loginCoordinator.refreshPlatformCookies()
         await applySession(session)
+    }
+
+    private func topicDetailLogger() -> FireHostLogger? {
+        sessionStore?.makeLogger(target: Self.topicDetailLogTarget)
     }
 
     private func applyTopicDetail(_ incomingDetail: TopicDetailState, topicId: UInt64) {
@@ -1462,26 +1599,42 @@ final class FireAppViewModel: ObservableObject {
               let detail = topicDetails[topicId] else {
             return
         }
+        guard !Task.isCancelled else {
+            return
+        }
         guard !loadingMoreTopicPostIDs.contains(topicId) else {
             return
         }
 
         let loadedWindowCount = FireTopicPresentation.loadedWindowCount(detail: detail)
-        let currentTargetLoadedCount = max(pagination.targetLoadedCount, loadedWindowCount)
-        guard currentTargetLoadedCount < detail.postStream.stream.count else {
+        let currentTargetLoadedCount = min(
+            max(pagination.targetLoadedCount, loadedWindowCount),
+            detail.postStream.stream.count
+        )
+        let missingPostIDs = FireTopicPresentation.missingPostIDs(
+            in: detail,
+            upTo: currentTargetLoadedCount,
+            excluding: pagination.exhaustedPostIDs
+        )
+        guard !missingPostIDs.isEmpty || currentTargetLoadedCount < detail.postStream.stream.count else {
             return
         }
 
-        pagination.targetLoadedCount = min(
-            currentTargetLoadedCount + Self.topicPostPageSize,
-            detail.postStream.stream.count
-        )
-        topicPostPaginationStates[topicId] = pagination
+        if currentTargetLoadedCount < detail.postStream.stream.count {
+            pagination.targetLoadedCount = min(
+                currentTargetLoadedCount + Self.topicPostPageSize,
+                detail.postStream.stream.count
+            )
+            topicPostPaginationStates[topicId] = pagination
+        }
         await hydrateTopicPostsToTargetIfNeeded(topicId: topicId)
     }
 
     private func hydrateTopicPostsToTargetIfNeeded(topicId: UInt64) async {
         guard let sessionStore else {
+            return
+        }
+        guard !Task.isCancelled else {
             return
         }
         guard !loadingMoreTopicPostIDs.contains(topicId) else {
@@ -1491,18 +1644,28 @@ final class FireAppViewModel: ObservableObject {
         loadingMoreTopicPostIDs.insert(topicId)
         defer { loadingMoreTopicPostIDs.remove(topicId) }
 
-        while true {
+        var hydratedPosts: [TopicPostState] = []
+        var hydratedPostIDs: Set<UInt64> = []
+        var exhaustedPostIDs: Set<UInt64> = []
+
+        while !Task.isCancelled {
             guard let detail = topicDetails[topicId],
                   let pagination = topicPostPaginationStates[topicId] else {
                 return
             }
 
             let missingPostIDs = FireTopicPresentation.missingPostIDs(
-                in: detail,
+                orderedPostIDs: detail.postStream.stream,
+                loadedPostIDs: Set(detail.postStream.posts.map(\.id)).union(hydratedPostIDs),
                 upTo: pagination.targetLoadedCount,
-                excluding: pagination.exhaustedPostIDs
+                excluding: pagination.exhaustedPostIDs.union(exhaustedPostIDs)
             )
             guard !missingPostIDs.isEmpty else {
+                applyHydratedTopicPostsIfNeeded(
+                    topicId: topicId,
+                    posts: hydratedPosts,
+                    exhaustedPostIDs: exhaustedPostIDs
+                )
                 return
             }
 
@@ -1513,31 +1676,58 @@ final class FireAppViewModel: ObservableObject {
                     topicID: topicId,
                     postIDs: batchPostIDs
                 )
-
-                guard var currentDetail = topicDetails[topicId],
-                      var currentPagination = topicPostPaginationStates[topicId] else {
-                    return
-                }
-
                 let returnedPostIDs = Set(fetchedPosts.map(\.id))
-                currentPagination.exhaustedPostIDs.formUnion(
+                exhaustedPostIDs.formUnion(
                     batchPostIDs.filter { !returnedPostIDs.contains($0) }
                 )
-                currentDetail.postStream.posts = FireTopicPresentation.mergeTopicPosts(
-                    existing: currentDetail.postStream.posts,
-                    incoming: fetchedPosts,
-                    orderedPostIDs: currentDetail.postStream.stream
-                )
-                currentDetail = FireTopicPresentation.recomposedDetail(currentDetail)
-                topicDetails[topicId] = currentDetail
-                topicPostPaginationStates[topicId] = currentPagination
+                hydratedPosts.append(contentsOf: fetchedPosts)
+                hydratedPostIDs.formUnion(returnedPostIDs)
             } catch {
+                applyHydratedTopicPostsIfNeeded(
+                    topicId: topicId,
+                    posts: hydratedPosts,
+                    exhaustedPostIDs: exhaustedPostIDs
+                )
                 if await handleCloudflareChallengeIfNeeded(error) {
                     return
                 }
                 return
             }
         }
+
+        applyHydratedTopicPostsIfNeeded(
+            topicId: topicId,
+            posts: hydratedPosts,
+            exhaustedPostIDs: exhaustedPostIDs
+        )
+    }
+
+    private func applyHydratedTopicPostsIfNeeded(
+        topicId: UInt64,
+        posts: [TopicPostState],
+        exhaustedPostIDs: Set<UInt64>
+    ) {
+        guard !posts.isEmpty || !exhaustedPostIDs.isEmpty else {
+            return
+        }
+        guard var currentDetail = topicDetails[topicId],
+              var currentPagination = topicPostPaginationStates[topicId] else {
+            return
+        }
+
+        currentPagination.exhaustedPostIDs.formUnion(exhaustedPostIDs)
+        topicPostPaginationStates[topicId] = currentPagination
+
+        guard !posts.isEmpty else {
+            return
+        }
+
+        currentDetail.postStream.posts = FireTopicPresentation.mergeTopicPosts(
+            existing: currentDetail.postStream.posts,
+            incoming: posts,
+            orderedPostIDs: currentDetail.postStream.stream
+        )
+        topicDetails[topicId] = FireTopicPresentation.recomposedDetail(currentDetail)
     }
 
     private func applyPostReactionUpdate(

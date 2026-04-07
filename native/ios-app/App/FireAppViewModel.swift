@@ -604,7 +604,7 @@ final class FireAppViewModel: ObservableObject {
 
         do {
             errorMessage = nil
-            try await performWriteWithCloudflareRetry {
+            let update = try await performWriteWithCloudflareRetry {
                 if liked {
                     try await sessionStore.likePost(postID: postId)
                 } else {
@@ -614,7 +614,11 @@ final class FireAppViewModel: ObservableObject {
             if let snapshot = try? await sessionStore.snapshot() {
                 await applySession(snapshot)
             }
-            try? await refreshTopicDetailAfterMutation(topicId: topicId, sessionStore: sessionStore)
+            if let update {
+                applyPostReactionUpdate(topicId: topicId, postId: postId, update: update)
+            } else {
+                try? await refreshTopicDetailAfterMutation(topicId: topicId, sessionStore: sessionStore)
+            }
         } catch {
             errorMessage = error.localizedDescription
             throw error
@@ -1032,7 +1036,11 @@ final class FireAppViewModel: ObservableObject {
                     )
                 )
                 self.applyTopicDetail(detail, topicId: topicId)
-            } catch {}
+            } catch {
+                if await self.handleCloudflareChallengeIfNeeded(error) {
+                    return
+                }
+            }
         }
     }
 
@@ -1386,8 +1394,8 @@ final class FireAppViewModel: ObservableObject {
         var detail = incomingDetail
         if let previousDetail {
             detail.postStream.posts = FireTopicPresentation.mergeTopicPosts(
-                existing: detail.postStream.posts,
-                incoming: previousDetail.postStream.posts,
+                existing: previousDetail.postStream.posts,
+                incoming: detail.postStream.posts,
                 orderedPostIDs: detail.postStream.stream
             )
         }

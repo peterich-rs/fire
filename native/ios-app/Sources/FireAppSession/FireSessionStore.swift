@@ -323,11 +323,11 @@ public actor FireSessionStore {
         try await core.reportTopicTimings(input: input)
     }
 
-    public func likePost(postID: UInt64) async throws {
+    public func likePost(postID: UInt64) async throws -> PostReactionUpdateState? {
         try await core.likePost(postId: postID)
     }
 
-    public func unlikePost(postID: UInt64) async throws {
+    public func unlikePost(postID: UInt64) async throws -> PostReactionUpdateState? {
         try await core.unlikePost(postId: postID)
     }
 

@@ -1,7 +1,7 @@
 use std::io;
 
 use fire_models::{PostReactionUpdate, TopicPost, TopicReplyRequest, TopicTimingsRequest};
-use http::Method;
+use http::{Method, Response};
 use serde_json::Value;
 use tracing::{info, warn};
 use url::form_urlencoded::byte_serialize;
@@ -58,7 +58,10 @@ impl FireCore {
         result
     }
 
-    pub async fn like_post(&self, post_id: u64) -> Result<(), FireCoreError> {
+    pub async fn like_post(
+        &self,
+        post_id: u64,
+    ) -> Result<Option<PostReactionUpdate>, FireCoreError> {
         info!(post_id, "liking post");
 
         let fields = vec![
@@ -77,12 +80,21 @@ impl FireCore {
             })
             .await?;
         let response = expect_success(self, "like post", trace_id, response).await?;
-        let _ = self.read_response_text(trace_id, response).await?;
-        info!(post_id, "post liked successfully");
-        Ok(())
+        let update = self
+            .read_optional_post_reaction_update("like post", trace_id, response)
+            .await?;
+        info!(
+            post_id,
+            has_update = update.is_some(),
+            "post liked successfully"
+        );
+        Ok(update)
     }
 
-    pub async fn unlike_post(&self, post_id: u64) -> Result<(), FireCoreError> {
+    pub async fn unlike_post(
+        &self,
+        post_id: u64,
+    ) -> Result<Option<PostReactionUpdate>, FireCoreError> {
         info!(post_id, "unliking post");
 
         let path = format!("/post_actions/{post_id}?post_action_type_id=2");
@@ -92,9 +104,15 @@ impl FireCore {
             })
             .await?;
         let response = expect_success(self, "unlike post", trace_id, response).await?;
-        let _ = self.read_response_text(trace_id, response).await?;
-        info!(post_id, "post unliked successfully");
-        Ok(())
+        let update = self
+            .read_optional_post_reaction_update("unlike post", trace_id, response)
+            .await?;
+        info!(
+            post_id,
+            has_update = update.is_some(),
+            "post unliked successfully"
+        );
+        Ok(update)
     }
 
     pub async fn toggle_post_reaction(
@@ -179,6 +197,35 @@ impl FireCore {
         );
         Ok(())
     }
+
+    async fn read_optional_post_reaction_update(
+        &self,
+        operation: &'static str,
+        trace_id: u64,
+        response: Response<openwire::ResponseBody>,
+    ) -> Result<Option<PostReactionUpdate>, FireCoreError> {
+        let body = self.read_response_text(trace_id, response).await?;
+        let trimmed = body.trim();
+        if trimmed.is_empty() {
+            return Ok(None);
+        }
+
+        let value: Value = match serde_json::from_str(trimmed) {
+            Ok(value) => value,
+            Err(error) => {
+                warn!(
+                    operation,
+                    trace_id,
+                    error = %error,
+                    body_prefix = %trimmed.chars().take(200).collect::<String>(),
+                    "post action response did not contain parseable JSON"
+                );
+                return Ok(None);
+            }
+        };
+
+        parse_optional_post_reaction_update(operation, value)
+    }
 }
 
 fn encode_path_segment(value: &str) -> String {
@@ -249,6 +296,23 @@ fn parse_toggle_reaction_response(value: Value) -> Result<PostReactionUpdate, Fi
         operation: "toggle post reaction",
         source,
     })
+}
+
+fn parse_optional_post_reaction_update(
+    operation: &'static str,
+    value: Value,
+) -> Result<Option<PostReactionUpdate>, FireCoreError> {
+    let Value::Object(object) = &value else {
+        return Ok(None);
+    };
+
+    if !object.contains_key("reactions") && !object.contains_key("current_user_reaction") {
+        return Ok(None);
+    }
+
+    parse_post_reaction_update_value(value)
+        .map(Some)
+        .map_err(|source| FireCoreError::ResponseDeserialize { operation, source })
 }
 
 fn pending_count_from(value: Option<&Value>) -> u32 {

@@ -1174,13 +1174,86 @@ async fn like_post_uses_post_actions_endpoint() {
         ],
     });
 
-    core.like_post(9001).await.expect("like post");
+    let update = core.like_post(9001).await.expect("like post");
     let requests = server.shutdown_with_requests().await;
 
+    assert!(update.is_none());
     assert_eq!(requests.len(), 1);
     assert!(requests[0].contains("POST /post_actions HTTP/1.1"));
     assert!(requests[0]
         .to_ascii_lowercase()
         .contains("x-csrf-token: csrf-token"));
     assert!(requests[0].contains("id=9001&post_action_type_id=2"));
+}
+
+#[tokio::test]
+async fn like_post_parses_reaction_update_when_response_includes_reaction_fields() {
+    let responses = vec![raw_json_response(
+        200,
+        "application/json",
+        r#"{
+          "id": 9001,
+          "post_number": 1,
+          "like_count": 15,
+          "reactions": [
+            { "id": "heart", "type": "emoji", "count": 15 }
+          ],
+          "current_user_reaction": { "id": "heart", "type": "emoji", "count": 15, "can_undo": true }
+        }"#,
+    )];
+    let server = TestServer::spawn(responses).await.expect("server");
+    let core = FireCore::new(FireCoreConfig {
+        base_url: server.base_url(),
+        workspace_path: None,
+    })
+    .expect("core");
+
+    let _ = core.sync_login_context(LoginSyncInput {
+        username: Some("alice".into()),
+        home_html: Some(sample_home_html()),
+        csrf_token: Some("csrf-token".into()),
+        current_url: Some(server.base_url()),
+        browser_user_agent: None,
+        cookies: vec![
+            PlatformCookie {
+                name: "_t".into(),
+                value: "token".into(),
+                domain: None,
+                path: None,
+            },
+            PlatformCookie {
+                name: "_forum_session".into(),
+                value: "forum".into(),
+                domain: None,
+                path: None,
+            },
+        ],
+    });
+
+    let update = core
+        .like_post(9001)
+        .await
+        .expect("like post")
+        .expect("reaction update");
+    let requests = server.shutdown_with_requests().await;
+
+    assert_eq!(update.reactions.len(), 1);
+    assert_eq!(update.reactions[0].id, "heart");
+    assert_eq!(update.reactions[0].count, 15);
+    assert_eq!(
+        update
+            .current_user_reaction
+            .as_ref()
+            .map(|reaction| reaction.id.as_str()),
+        Some("heart")
+    );
+    assert_eq!(
+        update
+            .current_user_reaction
+            .as_ref()
+            .and_then(|reaction| reaction.can_undo),
+        Some(true)
+    );
+    assert_eq!(requests.len(), 1);
+    assert!(requests[0].contains("POST /post_actions HTTP/1.1"));
 }

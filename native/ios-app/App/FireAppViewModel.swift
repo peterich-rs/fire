@@ -90,6 +90,7 @@ final class FireAppViewModel: ObservableObject {
     private static let topicPostPageSize = 30
     private static let topicPostPrefetchThreshold = 6
     private static let topicDetailLogTarget = "ios.topic-detail"
+    private static let topicListRefreshLoadingPollInterval: Duration = .milliseconds(250)
 
     // MARK: - Session
 
@@ -152,6 +153,7 @@ final class FireAppViewModel: ObservableObject {
     private var initialStateLoadGeneration: UInt64 = 0
     private let loginURL = URL(string: "https://linux.do")!
     private let challengeRecoveryStore: (any FireChallengeSessionRecovering)?
+    private let topicListRefreshClock = ContinuousClock()
 
     // MessageBus
     private var messageBusCoordinator: FireMessageBusCoordinator?
@@ -159,6 +161,7 @@ final class FireAppViewModel: ObservableObject {
     private var messageBusStartRetryCount = 0
     private var messageBusRetryTask: Task<Void, Never>?
     private var pendingTopicListRefreshTask: Task<Void, Never>?
+    private var topicListMessageBusRefreshController = FireTopicListMessageBusRefreshController()
     private var pendingTopicDetailRefreshTasks: [UInt64: Task<Void, Never>] = [:]
     private var pendingNotificationStateRefreshTask: Task<Void, Never>?
     private var topicPresenceHeartbeatTasks: [UInt64: Task<Void, Never>] = [:]
@@ -167,6 +170,7 @@ final class FireAppViewModel: ObservableObject {
     private var activeTopicDetailOwnerTokens: [UInt64: Set<String>] = [:]
     private var searchTask: Task<Void, Never>?
     private var latestSearchRequestID: UInt64 = 0
+    private var filterChangeRefreshTask: Task<Void, Never>?
 
     init(
         initialSession: SessionState = .placeholder(),
@@ -337,32 +341,42 @@ final class FireAppViewModel: ObservableObject {
             return
         }
         selectedTopicKind = kind
-        refreshTopics()
+        scheduleDebouncedRefresh()
     }
 
     func selectHomeCategory(_ categoryId: UInt64?) {
         guard selectedHomeCategoryId != categoryId else { return }
         selectedHomeCategoryId = categoryId
         selectedHomeTags = []
-        refreshTopics()
+        scheduleDebouncedRefresh()
     }
 
     func addHomeTag(_ tag: String) {
         guard !selectedHomeTags.contains(tag) else { return }
         selectedHomeTags.append(tag)
-        refreshTopics()
+        scheduleDebouncedRefresh()
     }
 
     func removeHomeTag(_ tag: String) {
         guard selectedHomeTags.contains(tag) else { return }
         selectedHomeTags.removeAll { $0 == tag }
-        refreshTopics()
+        scheduleDebouncedRefresh()
     }
 
     func clearHomeTags() {
         guard !selectedHomeTags.isEmpty else { return }
         selectedHomeTags = []
-        refreshTopics()
+        scheduleDebouncedRefresh()
+    }
+
+    private func scheduleDebouncedRefresh() {
+        cancelPendingTopicListRefresh()
+        filterChangeRefreshTask?.cancel()
+        filterChangeRefreshTask = Task {
+            try? await Task.sleep(for: .milliseconds(300))
+            guard !Task.isCancelled else { return }
+            await refreshTopicsIfPossible(force: true)
+        }
     }
 
     var selectedHomeCategoryPresentation: FireTopicCategoryPresentation? {
@@ -374,6 +388,10 @@ final class FireAppViewModel: ObservableObject {
         Task {
             await refreshTopicsIfPossible(force: true)
         }
+    }
+
+    func refreshTopicsAsync() async {
+        await refreshTopicsIfPossible(force: true)
     }
 
     func loadMoreTopics() {
@@ -749,14 +767,14 @@ final class FireAppViewModel: ObservableObject {
         guard !timingEntries.isEmpty else { return true }
 
         do {
-            try await sessionStore.reportTopicTimings(
+            let accepted = try await sessionStore.reportTopicTimings(
                 input: TopicTimingsRequestState(
                     topicId: topicId,
                     topicTimeMs: topicTimeMs,
                     timings: timingEntries
                 )
             )
-            return true
+            return accepted
         } catch {
             return false
         }
@@ -1032,6 +1050,7 @@ final class FireAppViewModel: ObservableObject {
         guard isMessageBusActive else { return }
         pendingTopicListRefreshTask?.cancel()
         pendingTopicListRefreshTask = nil
+        topicListMessageBusRefreshController.reset()
         pendingTopicDetailRefreshTasks.values.forEach { $0.cancel() }
         pendingTopicDetailRefreshTasks = [:]
         topicPresenceHeartbeatTasks.values.forEach { $0.cancel() }
@@ -1046,8 +1065,7 @@ final class FireAppViewModel: ObservableObject {
     private func handleMessageBusEvent(_ event: MessageBusEventState) {
         switch event.kind {
         case .topicList:
-            guard let kind = event.topicListKind else { return }
-            scheduleTopicListRefresh(for: kind)
+            scheduleTopicListRefresh(for: event)
 
         case .topicDetail:
             guard let topicId = event.topicId else { return }
@@ -1074,13 +1092,53 @@ final class FireAppViewModel: ObservableObject {
         }
     }
 
-    private func scheduleTopicListRefresh(for busKind: TopicListKindState) {
-        guard busKind == selectedTopicKind else { return }
+    private var currentTopicListRefreshScope: FireTopicListRefreshScope {
+        FireTopicListRefreshScope(
+            kind: selectedTopicKind,
+            categoryId: selectedHomeCategoryId,
+            tags: selectedHomeTags
+        )
+    }
+
+    private func scheduleTopicListRefresh(for event: MessageBusEventState) {
+        guard let busKind = event.topicListKind else { return }
+        let scope = currentTopicListRefreshScope
+        guard busKind == scope.kind else { return }
+
+        let allowIncremental = scope.supportsIncrementalMessageBusRefresh && !topicRows.isEmpty
+        guard let delay = topicListMessageBusRefreshController.register(
+            event: event,
+            for: scope,
+            now: topicListRefreshClock.now,
+            allowIncremental: allowIncremental
+        ) else {
+            return
+        }
+
         pendingTopicListRefreshTask?.cancel()
-        pendingTopicListRefreshTask = Task {
-            try? await Task.sleep(for: .seconds(1.5))
-            guard !Task.isCancelled else { return }
-            await refreshTopicsIfPossible(force: true)
+        pendingTopicListRefreshTask = Task { [weak self] in
+            do {
+                try await Task.sleep(for: delay)
+            } catch {
+                return
+            }
+
+            guard let self else { return }
+
+            while self.isLoadingTopics {
+                do {
+                    try await Task.sleep(for: Self.topicListRefreshLoadingPollInterval)
+                } catch {
+                    return
+                }
+            }
+
+            let scope = self.currentTopicListRefreshScope
+            let refreshMode = self.topicListMessageBusRefreshController.takePendingRefresh(for: scope)
+            self.pendingTopicListRefreshTask = nil
+
+            guard let refreshMode else { return }
+            await self.refreshTopicsFromMessageBus(refreshMode)
         }
     }
 
@@ -1153,7 +1211,7 @@ final class FireAppViewModel: ObservableObject {
                 guard self.topicPresenceHeartbeatTasks[topicId] != nil else { return }
 
                 do {
-                    try await Task.sleep(for: .seconds(25))
+                    try await Task.sleep(for: .seconds(30))
                 } catch {
                     return
                 }
@@ -1186,19 +1244,30 @@ final class FireAppViewModel: ObservableObject {
     }
 
     private func refreshTopicsIfPossible(force: Bool) async {
-        await loadTopics(page: nil, reset: true, force: force)
+        cancelPendingTopicListRefresh()
+        await loadTopics(page: nil, reset: true, force: force, refreshMode: .full)
     }
 
-    private func loadTopics(page: UInt32?, reset: Bool, force: Bool) async {
+    private func refreshTopicsFromMessageBus(_ refreshMode: FireTopicListMessageBusRefreshMode) async {
+        await loadTopics(page: nil, reset: true, force: true, refreshMode: refreshMode)
+    }
+
+    @discardableResult
+    private func loadTopics(
+        page: UInt32?,
+        reset: Bool,
+        force: Bool,
+        refreshMode: FireTopicListMessageBusRefreshMode = .full
+    ) async -> Bool {
         if !session.readiness.canReadAuthenticatedApi {
             clearTopicState()
-            return
+            return false
         }
         if isLoadingTopics {
-            return
+            return false
         }
         if reset && !force && !topicRows.isEmpty {
-            return
+            return false
         }
 
         isLoadingTopics = true
@@ -1213,21 +1282,39 @@ final class FireAppViewModel: ObservableObject {
             errorMessage = nil
             let requestedKind = selectedTopicKind
             let categoryId = selectedHomeCategoryId
+            let requestedTags = selectedHomeTags
+            let requestedScope = FireTopicListRefreshScope(
+                kind: requestedKind,
+                categoryId: categoryId,
+                tags: requestedTags
+            )
             let categorySlug = categoryId.flatMap { categoryPresentation(for: $0)?.slug }
             let parentSlug: String? = categoryId.flatMap { id in
                 guard let cat = categoryPresentation(for: id),
                       let parentId = cat.parentCategoryId else { return nil }
                 return categoryPresentation(for: parentId)?.slug
             }
-            let primaryTag = selectedHomeTags.first
-            let additionalTags = selectedHomeTags.count > 1
-                ? Array(selectedHomeTags.dropFirst())
+            let primaryTag = requestedTags.first
+            let additionalTags = requestedTags.count > 1
+                ? Array(requestedTags.dropFirst())
                 : []
+            let incrementalTopicIDs: [UInt64]
+            switch refreshMode {
+            case .full:
+                incrementalTopicIDs = []
+            case .incremental(let topicIDs):
+                incrementalTopicIDs = topicIDs
+            }
+            let usesIncrementalRefresh = page == nil
+                && reset
+                && !incrementalTopicIDs.isEmpty
+                && requestedScope.supportsIncrementalMessageBusRefresh
+                && !topicRows.isEmpty
             let response = try await sessionStore.fetchTopicList(
                 query: TopicListQueryState(
                     kind: requestedKind,
                     page: page,
-                    topicIds: [],
+                    topicIds: usesIncrementalRefresh ? incrementalTopicIDs : [],
                     order: nil,
                     ascending: nil,
                     categorySlug: categorySlug,
@@ -1238,32 +1325,52 @@ final class FireAppViewModel: ObservableObject {
                     matchAllTags: !additionalTags.isEmpty
                 )
             )
-            let mergedTopicRows = reset
-                ? response.rows
-                : mergeItemsByID(topicRows, response.rows, keyPath: \.topic.id)
-            let visibleTopicIDs = Set(mergedTopicRows.map(\.topic.id))
-            guard requestedKind == selectedTopicKind else {
-                return
+            guard requestedScope == currentTopicListRefreshScope else {
+                return false
             }
+            let mergedTopicRows = if reset {
+                if usesIncrementalRefresh {
+                    FireTopicListMessageBusRefreshMerger.merge(
+                        existing: topicRows,
+                        incoming: response.rows
+                    )
+                } else {
+                    response.rows
+                }
+            } else {
+                mergeItemsByID(topicRows, response.rows, keyPath: \.topic.id)
+            }
+            let visibleTopicIDs = Set(mergedTopicRows.map(\.topic.id))
             topicRows = mergedTopicRows
-            moreTopicsUrl = response.moreTopicsUrl
-            nextTopicsPage = response.nextPage
+            if !usesIncrementalRefresh {
+                moreTopicsUrl = response.moreTopicsUrl
+                nextTopicsPage = response.nextPage
+            }
             let retainedTopicIDs = retainedTopicDetailIDs(visibleTopicIDs: visibleTopicIDs)
             pruneInactiveTopicDetailState(retaining: retainedTopicIDs)
+            if reset && page == nil {
+                topicListMessageBusRefreshController.markRefreshCompleted(
+                    for: requestedScope,
+                    at: topicListRefreshClock.now
+                )
+            }
+            return true
         } catch {
             if await handleCloudflareChallengeIfNeeded(error) {
-                return
+                return false
             }
-            if reset {
+            if reset, case .full = refreshMode {
                 topicRows = []
                 moreTopicsUrl = nil
                 nextTopicsPage = nil
             }
             errorMessage = error.localizedDescription
+            return false
         }
     }
 
     private func clearTopicState() {
+        cancelPendingTopicListRefresh()
         pendingTopicDetailRefreshTasks.values.forEach { $0.cancel() }
         pendingTopicDetailRefreshTasks = [:]
         topicPresenceHeartbeatTasks.values.forEach { $0.cancel() }
@@ -1287,6 +1394,14 @@ final class FireAppViewModel: ObservableObject {
         mutatingPostIDs = []
         selectedHomeCategoryId = nil
         selectedHomeTags = []
+    }
+
+    private func cancelPendingTopicListRefresh() {
+        pendingTopicListRefreshTask?.cancel()
+        pendingTopicListRefreshTask = nil
+
+        let scope = currentTopicListRefreshScope
+        topicListMessageBusRefreshController.clearPending(for: scope)
     }
 
     private func clearNotificationState() {

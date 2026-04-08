@@ -1,5 +1,7 @@
 mod common;
 
+use std::time::Duration;
+
 use common::{raw_json_response, TestServer};
 use fire_core::{FireCore, FireCoreConfig};
 use fire_models::{CookieSnapshot, TopicTimingEntry, TopicTimingsRequest};
@@ -11,22 +13,24 @@ async fn report_topic_timings_posts_form_payload_with_background_headers() {
         .expect("server");
     let core = authenticated_core(&server.base_url());
 
-    core.report_topic_timings(TopicTimingsRequest {
-        topic_id: 123,
-        topic_time_ms: 15_000,
-        timings: vec![
-            TopicTimingEntry {
-                post_number: 1,
-                milliseconds: 5_000,
-            },
-            TopicTimingEntry {
-                post_number: 2,
-                milliseconds: 10_000,
-            },
-        ],
-    })
-    .await
-    .expect("report timings");
+    let accepted = core
+        .report_topic_timings(TopicTimingsRequest {
+            topic_id: 123,
+            topic_time_ms: 15_000,
+            timings: vec![
+                TopicTimingEntry {
+                    post_number: 1,
+                    milliseconds: 5_000,
+                },
+                TopicTimingEntry {
+                    post_number: 2,
+                    milliseconds: 10_000,
+                },
+            ],
+        })
+        .await
+        .expect("report timings");
+    assert!(accepted);
 
     let requests = server.shutdown_with_requests().await;
     let request = requests[0].to_ascii_lowercase();
@@ -38,6 +42,67 @@ async fn report_topic_timings_posts_form_payload_with_background_headers() {
     assert!(request.contains("topic_time=15000"));
     assert!(request.contains("timings%5b1%5d=5000"));
     assert!(request.contains("timings%5b2%5d=10000"));
+}
+
+#[tokio::test]
+async fn report_topic_timings_returns_false_on_429_and_respects_cooldown() {
+    let server = TestServer::spawn(vec![
+        raw_json_response(
+            429,
+            "application/json",
+            r#"{"errors":"You have performed this action too many times.","extras":{"wait_seconds":0.05}}"#,
+        ),
+        raw_json_response(200, "application/json", "{}"),
+    ])
+    .await
+    .expect("server");
+    let core = authenticated_core(&server.base_url());
+
+    let first = core
+        .report_topic_timings(TopicTimingsRequest {
+            topic_id: 123,
+            topic_time_ms: 15_000,
+            timings: vec![TopicTimingEntry {
+                post_number: 1,
+                milliseconds: 5_000,
+            }],
+        })
+        .await
+        .expect("first report");
+    assert!(!first);
+
+    let second = core
+        .report_topic_timings(TopicTimingsRequest {
+            topic_id: 123,
+            topic_time_ms: 15_000,
+            timings: vec![TopicTimingEntry {
+                post_number: 1,
+                milliseconds: 5_000,
+            }],
+        })
+        .await
+        .expect("cooldown report");
+    assert!(!second);
+
+    tokio::time::sleep(Duration::from_millis(70)).await;
+
+    let third = core
+        .report_topic_timings(TopicTimingsRequest {
+            topic_id: 123,
+            topic_time_ms: 15_000,
+            timings: vec![TopicTimingEntry {
+                post_number: 1,
+                milliseconds: 5_000,
+            }],
+        })
+        .await
+        .expect("post-cooldown report");
+    assert!(third);
+
+    let requests = server.shutdown_with_requests().await;
+    assert_eq!(requests.len(), 2);
+    assert!(requests[0].contains("POST /topics/timings"));
+    assert!(requests[1].contains("POST /topics/timings"));
 }
 
 fn authenticated_core(base_url: &str) -> FireCore {

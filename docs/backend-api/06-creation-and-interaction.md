@@ -190,6 +190,12 @@
 }
 ```
 
+- 限流响应与 `POST /presence/update` 一致，服务端会通过 `extras.wait_seconds`（兼容 `time_left`）返回建议冷却时长
+- Fire 当前实现约束：
+  - Rust 共享层持有 `/topics/timings` 的限流冷却窗口；冷却期内会直接跳过请求，避免继续撞 429
+  - `429` 对 `/topics/timings` 也是“软失败”；Rust 返回“本次未上报”给宿主层，iOS 会保留待发送时长，等下一次 flush 周期重试
+  - 如果响应里没有可解析的等待时长，客户端回退到一个短默认冷却时间再恢复请求
+
 ### `GET /presence/get`
 
 - 用途：获取“正在输入/正在回复”的用户列表
@@ -245,6 +251,25 @@
 
 - `client_id` 说明：
   - 当前客户端复用 MessageBus 的单例 `clientId`
+- Fire 当前实现约束：
+  - 宿主层在 quick composer 获得焦点时会立即触发一次 `present_channels[]` 更新
+  - 已处于 reply-presence 活跃状态的同一 topic，Rust 共享层仍会把重复 `present_channels[]` 限制到至少 `30s` 一次，避免宿主层重复触发
+  - 对已经本地判定为非活跃的 topic，重复 `leave_channels[]` 会在客户端被直接丢弃，避免重复打点
+- 限流响应：
+
+```json
+{
+  "errors": "You’ve performed this action too many times, please try again later.",
+  "extras": {
+    "wait_seconds": 8.72
+  }
+}
+```
+
+- 限流处理：
+  - `429` 对 presence 更新是“软失败”；Fire 会读取 `extras.wait_seconds`（兼容 `time_left`），进入冷却窗口
+  - 冷却窗口内后续 `POST /presence/update` 不再继续请求服务端，避免把 typing/presence 心跳错误冒泡给宿主层
+  - 如果响应里没有可解析的等待时长，客户端回退到一个短默认冷却时间再恢复请求
 
 ## 草稿
 

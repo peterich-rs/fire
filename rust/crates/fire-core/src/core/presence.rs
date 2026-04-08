@@ -1,6 +1,7 @@
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     sync::{Arc, Mutex},
+    time::{Duration, Instant},
 };
 
 use fire_models::{SessionSnapshot, TopicPresence, TopicPresenceUser};
@@ -11,17 +12,21 @@ use tracing::{debug, info};
 use super::{
     messagebus::{active_message_bus_client_id, message_bus_presence_channel_for_topic},
     network::expect_success,
-    FireCore,
+    rate_limit, FireCore,
 };
 use crate::error::FireCoreError;
 
 const FETCH_TOPIC_PRESENCE_OPERATION: &str = "fetch topic presence";
 const UPDATE_TOPIC_REPLY_PRESENCE_OPERATION: &str = "update topic reply presence";
+const MIN_TOPIC_REPLY_PRESENCE_HEARTBEAT_INTERVAL: Duration = Duration::from_secs(30);
 
 #[derive(Default)]
 pub(crate) struct FireTopicPresenceRuntime {
     user_id: Option<u64>,
     topics: BTreeMap<u64, TopicPresence>,
+    active_reply_topics: BTreeSet<u64>,
+    last_present_update_at: BTreeMap<u64, Instant>,
+    update_cooldown_until: Option<Instant>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -135,6 +140,16 @@ impl FireCore {
         active: bool,
     ) -> Result<(), FireCoreError> {
         ensure_presence_session(self)?;
+        if should_skip_topic_reply_presence_update(&self.topic_presence, topic_id, active) {
+            if !active {
+                remove_current_user_from_topic_presence(
+                    &self.topic_presence,
+                    topic_id,
+                    self.snapshot().bootstrap.current_user_id,
+                );
+            }
+            return Ok(());
+        }
         let client_id = active_message_bus_client_id(&self.message_bus)
             .ok_or(FireCoreError::MessageBusNotStarted)?;
         let channel = discourse_presence_channel_for_topic(topic_id);
@@ -158,14 +173,45 @@ impl FireCore {
             true,
         )?;
         let (trace_id, response) = self.execute_request(traced).await?;
-        let response = expect_success(
+        let response = match expect_success(
             self,
             UPDATE_TOPIC_REPLY_PRESENCE_OPERATION,
             trace_id,
             response,
         )
-        .await?;
+        .await
+        {
+            Ok(response) => response,
+            Err(FireCoreError::HttpStatus {
+                status: 429, body, ..
+            }) => {
+                let cooldown = rate_limit::parse_rate_limit_cooldown(&body)
+                    .unwrap_or(rate_limit::RATE_LIMIT_FALLBACK_COOLDOWN);
+                apply_topic_reply_presence_rate_limit(
+                    &self.topic_presence,
+                    topic_id,
+                    active,
+                    cooldown,
+                );
+                info!(
+                    topic_id,
+                    active,
+                    cooldown_ms = cooldown.as_millis() as u64,
+                    "presence update rate limited; deferring subsequent updates"
+                );
+                if !active {
+                    remove_current_user_from_topic_presence(
+                        &self.topic_presence,
+                        topic_id,
+                        self.snapshot().bootstrap.current_user_id,
+                    );
+                }
+                return Ok(());
+            }
+            Err(error) => return Err(error),
+        };
         let _ = self.read_response_text(trace_id, response).await?;
+        record_topic_reply_presence_update_success(&self.topic_presence, topic_id, active);
 
         if !active {
             remove_current_user_from_topic_presence(
@@ -309,6 +355,81 @@ fn apply_topic_presence_snapshot(
         .lock()
         .expect("topic presence runtime lock poisoned");
     runtime.topics.insert(presence.topic_id, presence);
+}
+
+fn should_skip_topic_reply_presence_update(
+    runtime: &Arc<Mutex<FireTopicPresenceRuntime>>,
+    topic_id: u64,
+    active: bool,
+) -> bool {
+    let now = Instant::now();
+    let mut runtime = runtime
+        .lock()
+        .expect("topic presence runtime lock poisoned");
+
+    if let Some(cooldown_until) = runtime.update_cooldown_until {
+        if cooldown_until > now {
+            if !active {
+                clear_topic_reply_presence_update_state(&mut runtime, topic_id);
+            }
+            return true;
+        }
+        runtime.update_cooldown_until = None;
+    }
+
+    if active {
+        return runtime.active_reply_topics.contains(&topic_id)
+            && runtime
+                .last_present_update_at
+                .get(&topic_id)
+                .is_some_and(|last_update| {
+                    now.duration_since(*last_update) < MIN_TOPIC_REPLY_PRESENCE_HEARTBEAT_INTERVAL
+                });
+    }
+
+    if !runtime.active_reply_topics.contains(&topic_id) {
+        return true;
+    }
+
+    false
+}
+
+fn record_topic_reply_presence_update_success(
+    runtime: &Arc<Mutex<FireTopicPresenceRuntime>>,
+    topic_id: u64,
+    active: bool,
+) {
+    let mut runtime = runtime
+        .lock()
+        .expect("topic presence runtime lock poisoned");
+    if active {
+        runtime.active_reply_topics.insert(topic_id);
+        runtime
+            .last_present_update_at
+            .insert(topic_id, Instant::now());
+    } else {
+        clear_topic_reply_presence_update_state(&mut runtime, topic_id);
+    }
+}
+
+fn apply_topic_reply_presence_rate_limit(
+    runtime: &Arc<Mutex<FireTopicPresenceRuntime>>,
+    topic_id: u64,
+    active: bool,
+    cooldown: Duration,
+) {
+    let mut runtime = runtime
+        .lock()
+        .expect("topic presence runtime lock poisoned");
+    runtime.update_cooldown_until = Some(Instant::now() + cooldown);
+    if !active {
+        clear_topic_reply_presence_update_state(&mut runtime, topic_id);
+    }
+}
+
+fn clear_topic_reply_presence_update_state(runtime: &mut FireTopicPresenceRuntime, topic_id: u64) {
+    runtime.active_reply_topics.remove(&topic_id);
+    runtime.last_present_update_at.remove(&topic_id);
 }
 
 fn remove_current_user_from_topic_presence(

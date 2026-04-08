@@ -5,6 +5,13 @@ struct FireHomeView: View {
     @Namespace private var feedSelectionNamespace
     @State private var showCategoryBrowser = false
     @State private var showTagPicker = false
+    @State private var didPrefetchToFillViewport = false
+
+    private struct TopicListScrollMetrics: Equatable {
+        let remainingDistanceToBottom: CGFloat
+        let contentHeight: CGFloat
+        let visibleHeight: CGFloat
+    }
 
     private var parentCategories: [FireTopicCategoryPresentation] {
         viewModel.allCategories().filter { $0.parentCategoryId == nil }
@@ -12,39 +19,68 @@ struct FireHomeView: View {
 
     var body: some View {
         NavigationStack {
-            List {
-                categoryTabSection
-                feedSelectorSection
-                tagChipsSection
+            homeList
+        }
+    }
 
-                if viewModel.isLoadingTopics && viewModel.topicRows.isEmpty {
-                    loadingSection
-                } else if viewModel.topicRows.isEmpty {
-                    emptySection
-                } else {
-                    topicListSection
+    @ViewBuilder
+    private var homeList: some View {
+        if #available(iOS 18.0, *) {
+            baseList
+                .onScrollGeometryChange(
+                    for: TopicListScrollMetrics.self,
+                    of: topicListScrollMetrics(from:)
+                ) { oldValue, newValue in
+                    handleTopicListScrollMetricsChange(oldValue: oldValue, newValue: newValue)
+                }
+        } else {
+            baseList
+        }
+    }
+
+    private var baseList: some View {
+        List {
+            categoryTabSection
+            feedSelectorSection
+            tagChipsSection
+
+            if viewModel.isLoadingTopics && viewModel.topicRows.isEmpty {
+                loadingSection
+            } else if viewModel.topicRows.isEmpty {
+                emptySection
+            } else {
+                topicListSection
+            }
+        }
+        .listStyle(.plain)
+        .navigationTitle("首页")
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                NavigationLink {
+                    FireSearchView(viewModel: viewModel)
+                } label: {
+                    Image(systemName: "magnifyingglass")
                 }
             }
-            .listStyle(.plain)
-            .navigationTitle("首页")
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    NavigationLink {
-                        FireSearchView(viewModel: viewModel)
-                    } label: {
-                        Image(systemName: "magnifyingglass")
-                    }
-                }
-            }
-            .refreshable {
-                await refreshTopics()
-            }
-            .sheet(isPresented: $showCategoryBrowser) {
-                FireCategoryBrowserSheet(viewModel: viewModel)
-            }
-            .sheet(isPresented: $showTagPicker) {
-                FireTagPickerSheet(viewModel: viewModel)
-            }
+        }
+        .refreshable {
+            didPrefetchToFillViewport = false
+            await refreshTopics()
+        }
+        .onChange(of: viewModel.selectedTopicKind) { _, _ in
+            didPrefetchToFillViewport = false
+        }
+        .onChange(of: viewModel.selectedHomeCategoryId) { _, _ in
+            didPrefetchToFillViewport = false
+        }
+        .onChange(of: viewModel.selectedHomeTags) { _, _ in
+            didPrefetchToFillViewport = false
+        }
+        .sheet(isPresented: $showCategoryBrowser) {
+            FireCategoryBrowserSheet(viewModel: viewModel)
+        }
+        .sheet(isPresented: $showTagPicker) {
+            FireTagPickerSheet(viewModel: viewModel)
         }
     }
 
@@ -211,9 +247,12 @@ struct FireHomeView: View {
 
     // MARK: - Topic List
 
+    private static let paginationPrefetchDistance: CGFloat = 480
+    private static let legacyPaginationPrefetchThreshold = 5
+
     private var topicListSection: some View {
         Section {
-            ForEach(viewModel.topicRows, id: \.topic.id) { topicRow in
+            ForEach(Array(viewModel.topicRows.enumerated()), id: \.element.topic.id) { index, topicRow in
                 NavigationLink {
                     FireTopicDetailView(viewModel: viewModel, row: topicRow)
                 } label: {
@@ -222,36 +261,24 @@ struct FireHomeView: View {
                         category: viewModel.categoryPresentation(for: topicRow.topic.categoryId)
                     )
                 }
+                .onAppear {
+                    if #unavailable(iOS 18.0) {
+                        prefetchLegacyTopicsPageIfNeeded(currentIndex: index)
+                    }
+                }
             }
 
-            if let _ = viewModel.nextTopicsPage {
-                loadMoreRow
-            }
-        }
-    }
-
-    private var loadMoreRow: some View {
-        Button {
-            viewModel.loadMoreTopics()
-        } label: {
-            HStack {
-                Spacer()
-
-                if viewModel.isAppendingTopics {
+            if viewModel.nextTopicsPage != nil && viewModel.isAppendingTopics {
+                HStack {
+                    Spacer()
                     ProgressView()
                         .controlSize(.small)
-                } else {
-                    Label("加载更多", systemImage: "arrow.down.circle")
-                        .font(.subheadline.weight(.medium))
-                        .foregroundStyle(FireTheme.accent)
+                    Spacer()
                 }
-
-                Spacer()
+                .padding(.vertical, 8)
+                .listRowSeparator(.hidden)
             }
-            .padding(.vertical, 8)
         }
-        .disabled(viewModel.isLoadingTopics)
-        .listRowSeparator(.hidden)
     }
 
     // MARK: - Loading & Empty
@@ -307,7 +334,42 @@ struct FireHomeView: View {
 
     @Sendable
     private func refreshTopics() async {
-        viewModel.refreshTopics()
-        try? await Task.sleep(for: .seconds(1))
+        await viewModel.refreshTopicsAsync()
+    }
+
+    @available(iOS 18.0, *)
+    private func topicListScrollMetrics(from geometry: ScrollGeometry) -> TopicListScrollMetrics {
+        TopicListScrollMetrics(
+            remainingDistanceToBottom: max(0, geometry.contentSize.height - geometry.visibleRect.maxY),
+            contentHeight: geometry.contentSize.height,
+            visibleHeight: geometry.visibleRect.height
+        )
+    }
+
+    private func handleTopicListScrollMetricsChange(
+        oldValue: TopicListScrollMetrics,
+        newValue: TopicListScrollMetrics
+    ) {
+        guard viewModel.nextTopicsPage != nil else { return }
+        guard !viewModel.isLoadingTopics else { return }
+
+        let contentFitsViewport = newValue.contentHeight <= newValue.visibleHeight + 1
+        if contentFitsViewport && !didPrefetchToFillViewport {
+            didPrefetchToFillViewport = true
+            viewModel.loadMoreTopics()
+            return
+        }
+
+        guard oldValue.remainingDistanceToBottom > Self.paginationPrefetchDistance else { return }
+        guard newValue.remainingDistanceToBottom <= Self.paginationPrefetchDistance else { return }
+        viewModel.loadMoreTopics()
+    }
+
+    private func prefetchLegacyTopicsPageIfNeeded(currentIndex: Int) {
+        guard viewModel.nextTopicsPage != nil else { return }
+        guard !viewModel.isLoadingTopics else { return }
+        let triggerIndex = max(0, viewModel.topicRows.count - Self.legacyPaginationPrefetchThreshold)
+        guard currentIndex >= triggerIndex else { return }
+        viewModel.loadMoreTopics()
     }
 }

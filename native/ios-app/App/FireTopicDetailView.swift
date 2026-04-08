@@ -33,6 +33,7 @@ struct FireTopicDetailView: View {
 
     @ObservedObject var viewModel: FireAppViewModel
     let row: FireTopicRowPresentation
+    let scrollToPostNumber: UInt32?
 
     @Environment(\.scenePhase) private var scenePhase
     @State private var composerContext: FireReplyComposerContext?
@@ -41,11 +42,13 @@ struct FireTopicDetailView: View {
     @State private var quickReplyError: String?
     @State private var timingTracker: FireTopicTimingTracker
     @State private var detailOwnerToken: String
+    @State private var hasScrolledToTarget = false
     @FocusState private var isReplyFieldFocused: Bool
 
-    init(viewModel: FireAppViewModel, row: FireTopicRowPresentation) {
+    init(viewModel: FireAppViewModel, row: FireTopicRowPresentation, scrollToPostNumber: UInt32? = nil) {
         self.viewModel = viewModel
         self.row = row
+        self.scrollToPostNumber = scrollToPostNumber
         _timingTracker = State(initialValue: FireTopicTimingTracker(topicId: row.topic.id))
         _detailOwnerToken = State(initialValue: Self.makeDetailOwnerToken(topicId: row.topic.id))
     }
@@ -188,19 +191,24 @@ struct FireTopicDetailView: View {
 
     var body: some View {
         GeometryReader { geometry in
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    topicHeaderSection
-                        .padding(.bottom, 18)
-                    postsSection
+            ScrollViewReader { scrollProxy in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        topicHeaderSection
+                            .padding(.bottom, 18)
+                        postsSection
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 12)
+                    .padding(.bottom, 24)
                 }
-                .padding(.horizontal, 16)
-                .padding(.top, 12)
-                .padding(.bottom, 24)
-            }
-            .coordinateSpace(name: Self.scrollCoordinateSpaceName)
-            .onPreferenceChange(FireVisiblePostFramePreferenceKey.self) { frames in
-                updateVisiblePostFrames(frames, viewportHeight: geometry.size.height)
+                .coordinateSpace(name: Self.scrollCoordinateSpaceName)
+                .onPreferenceChange(FireVisiblePostFramePreferenceKey.self) { frames in
+                    updateVisiblePostFrames(frames, viewportHeight: geometry.size.height)
+                }
+                .onChange(of: detail?.postStream.posts.count) { _, _ in
+                    scrollToTargetPostIfNeeded(proxy: scrollProxy)
+                }
             }
         }
         .navigationTitle("话题")
@@ -226,6 +234,7 @@ struct FireTopicDetailView: View {
         }
         .refreshable {
             timingTracker.recordInteraction()
+            viewModel.clearTopicDetailAnchor(topicId: topic.id)
             await viewModel.loadTopicDetail(topicId: topic.id, force: true)
         }
         .onAppear {
@@ -240,7 +249,7 @@ struct FireTopicDetailView: View {
                 )
             }
             await timingTracker.setSceneActive(scenePhase == .active)
-            await viewModel.loadTopicDetail(topicId: topic.id)
+            await viewModel.loadTopicDetail(topicId: topic.id, targetPostNumber: scrollToPostNumber)
         }
         .task(id: messageBusSubscriptionTaskID) {
             await viewModel.maintainTopicDetailSubscription(
@@ -288,6 +297,17 @@ struct FireTopicDetailView: View {
 
     private static func makeDetailOwnerToken(topicId: UInt64) -> String {
         "ios.topic-detail.\(topicId).\(UUID().uuidString.lowercased())"
+    }
+
+    private func scrollToTargetPostIfNeeded(proxy: ScrollViewProxy) {
+        guard let scrollToPostNumber, !hasScrolledToTarget else { return }
+        guard detail != nil else { return }
+        hasScrolledToTarget = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+            withAnimation(.easeInOut(duration: 0.3)) {
+                proxy.scrollTo(scrollToPostNumber, anchor: .top)
+            }
+        }
     }
 
     private var topicHeaderSection: some View {
@@ -360,6 +380,7 @@ struct FireTopicDetailView: View {
                         toggleReaction(reactionId, for: post)
                     }
                 )
+                .id(originalPost.postNumber)
                 .background(FireVisiblePostFrameReporter(postNumber: originalPost.postNumber))
             } else if let excerpt = row.excerptText {
                 Text(excerpt)
@@ -502,6 +523,7 @@ struct FireTopicDetailView: View {
                     toggleReaction(reactionId, for: post)
                 }
             )
+            .id(flatPost.post.postNumber)
             .background(FireVisiblePostFrameReporter(postNumber: flatPost.post.postNumber))
 
             if index != displayPosts.count - 1 {

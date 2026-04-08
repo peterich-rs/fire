@@ -2,6 +2,7 @@ import SwiftUI
 
 struct FireTabRoot: View {
     @Environment(\.scenePhase) private var scenePhase
+    @EnvironmentObject private var navigationState: FireNavigationState
     @StateObject private var viewModel = FireAppViewModel()
 
     private var isAuthenticated: Bool {
@@ -11,22 +12,25 @@ struct FireTabRoot: View {
     var body: some View {
         Group {
             if isAuthenticated {
-                TabView {
+                TabView(selection: $navigationState.selectedTab) {
                     FireHomeView(viewModel: viewModel)
                         .tabItem {
                             Label("首页", systemImage: "house")
                         }
+                        .tag(0)
 
                     FireNotificationsView(viewModel: viewModel)
                         .tabItem {
                             Label("通知", systemImage: "bell")
                         }
                         .badge(viewModel.notificationUnreadCount)
+                        .tag(1)
 
                     FireProfileView(viewModel: viewModel)
                         .tabItem {
                             Label("我的", systemImage: "person")
                         }
+                        .tag(2)
                 }
                 .tint(FireTheme.accent)
             } else {
@@ -71,5 +75,32 @@ struct FireTabRoot: View {
                 break
             }
         }
+        .onChange(of: navigationState.pendingDeepLink) { _, deepLink in
+            consumeDeepLinkIfReady(deepLink)
+        }
+        .onChange(of: isAuthenticated) { _, authenticated in
+            if authenticated, let deepLink = navigationState.pendingDeepLink {
+                consumeDeepLinkIfReady(deepLink)
+            }
+        }
     }
+
+    private func consumeDeepLinkIfReady(_ deepLink: FireDeepLink?) {
+        guard let deepLink, isAuthenticated else { return }
+        navigationState.selectedTab = 1
+        navigationState.pendingDeepLink = nil
+
+        NotificationCenter.default.post(
+            name: .fireNotificationDeepLink,
+            object: nil,
+            userInfo: [
+                "topicId": deepLink.topicId,
+                "postNumber": deepLink.postNumber as Any
+            ]
+        )
+    }
+}
+
+extension Notification.Name {
+    static let fireNotificationDeepLink = Notification.Name("fireNotificationDeepLink")
 }

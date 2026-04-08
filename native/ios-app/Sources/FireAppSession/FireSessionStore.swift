@@ -363,7 +363,7 @@ public actor FireSessionStore {
 
     public func reportTopicTimings(
         input: TopicTimingsRequestState
-    ) async throws {
+    ) async throws -> Bool {
         try await core.reportTopicTimings(input: input)
     }
 

@@ -5,6 +5,7 @@ mod network;
 mod notifications;
 mod persistence;
 mod presence;
+mod rate_limit;
 mod search;
 mod session;
 mod topics;
@@ -12,6 +13,7 @@ mod topics;
 use std::{
     path::{Path, PathBuf},
     sync::{Arc, Mutex, RwLock},
+    time::Duration,
 };
 
 use fire_models::{BootstrapArtifacts, CookieSnapshot, SessionSnapshot};
@@ -31,7 +33,6 @@ use crate::{
     sync_utils::{read_rwlock, write_rwlock},
     workspace::{normalize_workspace_path, validate_workspace_relative_path},
 };
-use std::time::Duration;
 
 const NETWORK_CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 const NETWORK_CALL_TIMEOUT: Duration = Duration::from_secs(30);
@@ -50,6 +51,7 @@ pub struct FireCore {
     message_bus: Arc<Mutex<messagebus::FireMessageBusRuntime>>,
     notifications: Arc<Mutex<notifications::FireNotificationRuntime>>,
     topic_presence: Arc<Mutex<presence::FireTopicPresenceRuntime>>,
+    topic_timing: Arc<Mutex<interactions::FireTopicTimingRuntime>>,
 }
 
 impl FireCore {
@@ -92,6 +94,7 @@ impl FireCore {
             message_bus: Arc::new(Mutex::new(messagebus::FireMessageBusRuntime::default())),
             notifications: Arc::new(Mutex::new(notifications::FireNotificationRuntime::default())),
             topic_presence: Arc::new(Mutex::new(presence::FireTopicPresenceRuntime::default())),
+            topic_timing: Arc::new(Mutex::new(interactions::FireTopicTimingRuntime::default())),
         })
     }
 

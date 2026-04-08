@@ -205,6 +205,103 @@ async fn update_topic_reply_presence_reuses_active_message_bus_client_id() {
         .all(|request| request.contains(&format!("client_id={client_id}"))));
 }
 
+#[tokio::test]
+async fn update_topic_reply_presence_throttles_duplicate_active_heartbeats() {
+    let app_server = TestServer::spawn(vec![raw_json_response(200, "application/json", "{}")])
+        .await
+        .expect("app server");
+    let poll_server = TestServer::spawn(vec![raw_json_response(200, "application/json", "[]")])
+        .await
+        .expect("poll server");
+    let core = authenticated_core(&app_server.base_url());
+    let _ = core.apply_bootstrap(BootstrapArtifacts {
+        base_url: app_server.base_url(),
+        current_username: Some("alice".into()),
+        shared_session_key: Some("shared-session".into()),
+        long_polling_base_url: Some(poll_server.base_url()),
+        topic_tracking_state_meta: Some(r#"{"/latest":-1}"#.to_string()),
+        ..BootstrapArtifacts::default()
+    });
+
+    let (sender, _receiver) = unbounded_channel();
+    core.start_message_bus(MessageBusClientMode::Foreground, sender)
+        .await
+        .expect("start message bus");
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    core.update_topic_reply_presence(123, true)
+        .await
+        .expect("first active heartbeat");
+    core.update_topic_reply_presence(123, true)
+        .await
+        .expect("duplicate active heartbeat");
+    core.stop_message_bus(true);
+
+    let _ = poll_server.shutdown().await;
+    let app_requests = app_server.shutdown_with_requests().await;
+    assert_eq!(
+        app_requests
+            .iter()
+            .filter(|request| request.contains("POST /presence/update"))
+            .count(),
+        1
+    );
+}
+
+#[tokio::test]
+async fn update_topic_reply_presence_uses_rate_limit_wait_seconds_for_cooldown() {
+    let app_server = TestServer::spawn(vec![
+        raw_json_response(
+            429,
+            "application/json",
+            r#"{"errors":"You have performed this action too many times.","extras":{"wait_seconds":0.05}}"#,
+        ),
+        raw_json_response(200, "application/json", "{}"),
+    ])
+    .await
+    .expect("app server");
+    let poll_server = TestServer::spawn(vec![raw_json_response(200, "application/json", "[]")])
+        .await
+        .expect("poll server");
+    let core = authenticated_core(&app_server.base_url());
+    let _ = core.apply_bootstrap(BootstrapArtifacts {
+        base_url: app_server.base_url(),
+        current_username: Some("alice".into()),
+        shared_session_key: Some("shared-session".into()),
+        long_polling_base_url: Some(poll_server.base_url()),
+        topic_tracking_state_meta: Some(r#"{"/latest":-1}"#.to_string()),
+        ..BootstrapArtifacts::default()
+    });
+
+    let (sender, _receiver) = unbounded_channel();
+    core.start_message_bus(MessageBusClientMode::Foreground, sender)
+        .await
+        .expect("start message bus");
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    core.update_topic_reply_presence(123, true)
+        .await
+        .expect("rate-limited active heartbeat should be swallowed");
+    core.update_topic_reply_presence(123, true)
+        .await
+        .expect("cooldown should suppress immediate retry");
+    tokio::time::sleep(Duration::from_millis(70)).await;
+    core.update_topic_reply_presence(123, true)
+        .await
+        .expect("post-cooldown active heartbeat");
+    core.stop_message_bus(true);
+
+    let _ = poll_server.shutdown().await;
+    let app_requests = app_server.shutdown_with_requests().await;
+    assert_eq!(
+        app_requests
+            .iter()
+            .filter(|request| request.contains("POST /presence/update"))
+            .count(),
+        2
+    );
+}
+
 fn authenticated_core(base_url: &str) -> FireCore {
     let core = FireCore::new(FireCoreConfig {
         base_url: base_url.to_string(),

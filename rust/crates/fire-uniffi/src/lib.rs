@@ -2515,14 +2515,14 @@ impl FireCoreHandle {
     pub async fn report_topic_timings(
         &self,
         input: TopicTimingsRequestState,
-    ) -> Result<(), FireUniFfiError> {
+    ) -> Result<bool, FireUniFfiError> {
         let inner = Arc::clone(&self.inner);
         let panic_state = Arc::clone(&self.panic_state);
-        run_on_ffi_runtime("report_topic_timings", panic_state, async move {
+        let accepted = run_on_ffi_runtime("report_topic_timings", panic_state, async move {
             inner.report_topic_timings(input.into()).await
         })
         .await?;
-        Ok(())
+        Ok(accepted)
     }
 
     pub async fn like_post(

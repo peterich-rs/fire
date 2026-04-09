@@ -1194,15 +1194,16 @@ pub struct TopicDetail {
 
 impl TopicDetail {
     pub fn interaction_count(&self) -> u32 {
-        self.like_count
-            .saturating_add(
-                self.post_stream
-                    .posts
-                    .iter()
-                    .flat_map(|post| post.reactions.iter())
-                    .filter(|reaction| !reaction.id.eq_ignore_ascii_case("heart"))
-                    .fold(0_u32, |total, reaction| total.saturating_add(reaction.count)),
-            )
+        self.like_count.saturating_add(
+            self.post_stream
+                .posts
+                .iter()
+                .flat_map(|post| post.reactions.iter())
+                .filter(|reaction| !reaction.id.eq_ignore_ascii_case("heart"))
+                .fold(0_u32, |total, reaction| {
+                    total.saturating_add(reaction.count)
+                }),
+        )
     }
 }
 
@@ -1896,13 +1897,11 @@ mod tests {
                         ..TopicPost::default()
                     },
                     TopicPost {
-                        reactions: vec![
-                            TopicReaction {
-                                id: "TADA".into(),
-                                count: 3,
-                                ..TopicReaction::default()
-                            },
-                        ],
+                        reactions: vec![TopicReaction {
+                            id: "TADA".into(),
+                            count: 3,
+                            ..TopicReaction::default()
+                        }],
                         ..TopicPost::default()
                     },
                 ],

@@ -1998,4 +1998,29 @@ final class FireAppViewModel: ObservableObject {
         self.loginCoordinator = loginCoordinator
         return loginCoordinator
     }
+
+    // MARK: - Profile API
+
+    func fetchUserProfile(username: String) async throws -> UserProfileState {
+        let sessionStore = try await sessionStoreValue()
+        return try await sessionStore.fetchUserProfile(username: username)
+    }
+
+    func fetchUserSummary(username: String) async throws -> UserSummaryState {
+        let sessionStore = try await sessionStoreValue()
+        return try await sessionStore.fetchUserSummary(username: username)
+    }
+
+    func fetchUserActions(
+        username: String,
+        offset: UInt32?,
+        filter: String?
+    ) async throws -> [UserActionState] {
+        let sessionStore = try await sessionStoreValue()
+        return try await sessionStore.fetchUserActions(
+            username: username,
+            offset: offset,
+            filter: filter
+        )
+    }
 }

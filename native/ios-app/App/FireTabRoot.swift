@@ -4,6 +4,13 @@ struct FireTabRoot: View {
     @Environment(\.scenePhase) private var scenePhase
     @EnvironmentObject private var navigationState: FireNavigationState
     @StateObject private var viewModel = FireAppViewModel()
+    @StateObject private var profileViewModel: FireProfileViewModel
+
+    init() {
+        let vm = FireAppViewModel()
+        _viewModel = StateObject(wrappedValue: vm)
+        _profileViewModel = StateObject(wrappedValue: FireProfileViewModel(appViewModel: vm))
+    }
 
     private var isAuthenticated: Bool {
         viewModel.session.readiness.canReadAuthenticatedApi
@@ -26,7 +33,7 @@ struct FireTabRoot: View {
                         .badge(viewModel.notificationUnreadCount)
                         .tag(1)
 
-                    FireProfileView(viewModel: viewModel)
+                    FireProfileView(viewModel: viewModel, profileViewModel: profileViewModel)
                         .tabItem {
                             Label("我的", systemImage: "person")
                         }

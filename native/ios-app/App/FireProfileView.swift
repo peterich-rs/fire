@@ -3,11 +3,10 @@ import UIKit
 
 struct FireProfileView: View {
     @ObservedObject var viewModel: FireAppViewModel
+    @ObservedObject var profileViewModel: FireProfileViewModel
     @State private var copiedErrorMessage = false
-
-    private var username: String {
-        viewModel.session.profileDisplayName
-    }
+    @State private var showLogoutConfirmation = false
+    @State private var showComingSoonToast = false
 
     private var isLoggedIn: Bool {
         viewModel.session.readiness.canReadAuthenticatedApi
@@ -17,254 +16,342 @@ struct FireProfileView: View {
         viewModel.session.hasLoginSession || isLoggedIn
     }
 
-    private var sessionStatusColor: Color {
-        if viewModel.session.readiness.hasCurrentUser {
-            return .green
-        }
-        if isLoggedIn {
-            return .orange
-        }
-        return .red
-    }
-
     var body: some View {
         NavigationStack {
-            List {
-                if let errorMessage = viewModel.errorMessage {
-                    errorSection(message: errorMessage)
-                }
+            ScrollView {
+                VStack(spacing: 0) {
+                    if let errorMessage = profileViewModel.errorMessage ?? viewModel.errorMessage {
+                        errorBanner(message: errorMessage)
+                    }
 
-                if isLoggedIn {
-                    userHeaderSection
-                    statsSection
+                    profileHeader
+                    statsRow
+                    badgesSection
+                    activitySection
+                    settingsSection
                 }
-
-                sessionSection
-                actionsSection
             }
-            .listStyle(.insetGrouped)
+            .background(FireTheme.canvasTop)
             .navigationTitle("我的")
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Image(systemName: "gearshape")
+                        .foregroundStyle(FireTheme.subtleInk)
+                }
+            }
+            .task(id: profileViewModel.currentUsername) {
+                profileViewModel.syncWithCurrentSession()
+            }
+            .overlay {
+                if showComingSoonToast {
+                    comingSoonToast
+                }
+            }
         }
     }
 
-    // MARK: - User Header
+    // MARK: - Profile Header
 
-    private var userHeaderSection: some View {
-        Section {
-            HStack(spacing: 14) {
-                FireAvatarView(
-                    avatarTemplate: nil,
-                    username: username,
-                    size: 54
-                )
+    private var profileHeader: some View {
+        VStack(spacing: 12) {
+            LinearGradient(
+                colors: [FireTheme.accent.opacity(0.3), FireTheme.canvasTop],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .frame(height: 60)
+            .overlay(alignment: .bottom) {
+                headerContent
+                    .offset(y: 36)
+            }
 
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(username)
+            Spacer()
+                .frame(height: 40)
+        }
+    }
+
+    private var headerContent: some View {
+        VStack(spacing: 8) {
+            FireAvatarView(
+                avatarTemplate: profileViewModel.profile?.avatarTemplate,
+                username: profileViewModel.currentUsername ?? viewModel.session.profileDisplayName,
+                size: 72
+            )
+
+            VStack(spacing: 4) {
+                if let name = profileViewModel.profile?.name, !name.isEmpty {
+                    Text(name)
                         .font(.title3.weight(.semibold))
+                        .foregroundStyle(FireTheme.ink)
+                }
 
-                    HStack(spacing: 6) {
-                        Circle()
-                            .fill(sessionStatusColor)
-                            .frame(width: 8, height: 8)
+                HStack(spacing: 6) {
+                    Text("@\(profileViewModel.currentUsername ?? viewModel.session.profileDisplayName)")
+                        .font(.subheadline)
+                        .foregroundStyle(FireTheme.subtleInk)
 
-                        Text(viewModel.session.profileStatusTitle)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                    if let profile = profileViewModel.profile {
+                        FireProfileTrustLevelPill(trustLevel: profile.trustLevel)
                     }
                 }
 
-                Spacer()
-            }
-            .padding(.vertical, 4)
-        }
-    }
-
-    // MARK: - Stats
-
-    private var statsSection: some View {
-        Section {
-            HStack(spacing: 0) {
-                statItem(value: "\(viewModel.topicRows.count)", label: "已加载话题")
-                Divider()
-                    .frame(height: 30)
-                statItem(
-                    value: "\(viewModel.topicRows.reduce(0) { $0 + Int($1.topic.unreadPosts) })",
-                    label: "未读帖子"
-                )
-                Divider()
-                    .frame(height: 30)
-                statItem(
-                    value: "\(viewModel.topicRows.filter(\.hasAcceptedAnswer).count)",
-                    label: "已解决"
-                )
-            }
-            .padding(.vertical, 4)
-        }
-    }
-
-    private func statItem(value: String, label: String) -> some View {
-        VStack(spacing: 4) {
-            Text(value)
-                .font(.title3.monospacedDigit().weight(.semibold))
-            Text(label)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity)
-    }
-
-    // MARK: - Session Info
-
-    private var sessionSection: some View {
-        Section("会话信息") {
-            LabeledContent("账号") {
-                HStack(spacing: 4) {
-                    Circle()
-                        .fill(sessionStatusColor)
-                        .frame(width: 8, height: 8)
-                    Text(viewModel.session.bootstrap.currentUsername ?? (isLoggedIn ? "等待同步" : "未登录"))
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            LabeledContent("登录阶段", value: viewModel.session.profileStatusTitle)
-
-            LabeledContent("Base URL", value: viewModel.session.bootstrap.baseUrl)
-
-            LabeledContent("Bootstrap") {
-                HStack(spacing: 4) {
-                    Circle()
-                        .fill(viewModel.session.bootstrap.hasPreloadedData ? Color.green : Color.orange)
-                        .frame(width: 8, height: 8)
-                    Text(viewModel.session.bootstrap.hasPreloadedData ? "就绪" : "等待中")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            LabeledContent("站点元数据") {
-                HStack(spacing: 4) {
-                    Circle()
-                        .fill(viewModel.session.bootstrap.hasSiteMetadata ? Color.green : Color.orange)
-                        .frame(width: 8, height: 8)
-                    Text(viewModel.session.bootstrap.hasSiteMetadata ? "就绪" : "缺失")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            LabeledContent("站点设置") {
-                HStack(spacing: 4) {
-                    Circle()
-                        .fill(viewModel.session.bootstrap.hasSiteSettings ? Color.green : Color.orange)
-                        .frame(width: 8, height: 8)
-                    Text(viewModel.session.bootstrap.hasSiteSettings ? "就绪" : "缺失")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            LabeledContent("CSRF") {
-                HStack(spacing: 4) {
-                    Circle()
-                        .fill(viewModel.session.cookies.csrfToken != nil ? Color.green : Color.orange)
-                        .frame(width: 8, height: 8)
-                    Text(viewModel.session.cookies.csrfToken != nil ? "就绪" : "缺失")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            LabeledContent("API 权限") {
-                HStack(spacing: 4) {
-                    Circle()
-                        .fill(viewModel.session.readiness.canReadAuthenticatedApi ? Color.green : Color.red)
-                        .frame(width: 8, height: 8)
-                    Text(viewModel.session.readiness.canReadAuthenticatedApi ? "可用" : "不可用")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                if let bioCooked = profileViewModel.profile?.bioCooked, !bioCooked.isEmpty {
+                    Text(plainTextFromHtml(rawHtml: bioCooked))
+                        .font(.caption)
+                        .foregroundStyle(FireTheme.subtleInk)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 32)
+                        .padding(.top, 2)
                 }
             }
         }
     }
 
-    // MARK: - Actions
+    // MARK: - Stats Row
 
-    private var actionsSection: some View {
-        Section {
-            NavigationLink {
-                FireDiagnosticsView(viewModel: viewModel)
-            } label: {
-                Label("诊断工具", systemImage: "ant")
-            }
+    private var statsRow: some View {
+        let following = profileViewModel.profile?.totalFollowing ?? 0
+        let followers = profileViewModel.profile?.totalFollowers ?? 0
+        let likes = profileViewModel.summary?.stats.likesReceived ?? 0
+        let daysVisited = profileViewModel.summary?.stats.daysVisited ?? 0
 
-            Button {
-                viewModel.refreshBootstrap()
-            } label: {
-                Label("刷新 Bootstrap", systemImage: "arrow.triangle.2.circlepath")
-            }
-            .disabled(viewModel.isLoggingOut)
+        return FireProfileStatsRow(items: [
+            (value: formatNumber(UInt32(following)), label: "关注"),
+            (value: formatNumber(UInt32(followers)), label: "粉丝"),
+            (value: formatNumber(likes), label: "获赞"),
+            (value: formatNumber(daysVisited), label: "访问天数"),
+        ])
+        .padding(.horizontal, 16)
+        .padding(.top, 8)
+    }
 
-            Button {
-                viewModel.loadInitialState()
-            } label: {
-                Label("恢复会话", systemImage: "arrow.counterclockwise")
-            }
-            .disabled(viewModel.isLoggingOut)
+    // MARK: - Badges Section
 
-            if canLogout {
-                Button(role: .destructive) {
-                    viewModel.logout()
-                } label: {
-                    HStack(spacing: 12) {
-                        Label(
-                            viewModel.isLoggingOut ? "退出中…" : "退出登录",
-                            systemImage: "rectangle.portrait.and.arrow.right"
-                        )
+    @ViewBuilder
+    private var badgesSection: some View {
+        if let badges = profileViewModel.summary?.badges, !badges.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Text("勋章")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(FireTheme.ink)
+                    Spacer()
+                    Text("查看全部 >")
+                        .font(.caption)
+                        .foregroundStyle(FireTheme.subtleInk)
+                }
+                .padding(.horizontal, 16)
 
-                        Spacer()
-
-                        if viewModel.isLoggingOut {
-                            ProgressView()
-                                .controlSize(.small)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(badges, id: \.id) { badge in
+                            FireProfileBadgeChip(badge: badge)
                         }
                     }
+                    .padding(.horizontal, 16)
                 }
-                .disabled(viewModel.isLoggingOut)
-            } else {
-                Button {
-                    viewModel.openLogin()
-                } label: {
-                    Label(
-                        viewModel.isPreparingLogin ? "准备登录中…" : "登录 LinuxDo",
-                        systemImage: "person.badge.key"
-                    )
+            }
+            .padding(.top, 16)
+        }
+    }
+
+    // MARK: - Activity Section
+
+    private var activitySection: some View {
+        VStack(spacing: 0) {
+            Picker("Activity", selection: Binding(
+                get: { profileViewModel.selectedTab },
+                set: { profileViewModel.selectTab($0) }
+            )) {
+                ForEach(FireProfileViewModel.ProfileTab.allCases, id: \.self) { tab in
+                    Text(tab.title).tag(tab)
                 }
-                .disabled(viewModel.isPreparingLogin || viewModel.isLoggingOut)
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal, 16)
+            .padding(.top, 20)
+            .padding(.bottom, 8)
+
+            LazyVStack(spacing: 0) {
+                ForEach(Array(profileViewModel.actions.enumerated()), id: \.offset) { index, action in
+                    FireProfileActivityRow(action: action) {
+                    }
+                    .padding(.horizontal, 16)
+
+                    if index < profileViewModel.actions.count - 1 {
+                        Divider()
+                            .padding(.leading, 52)
+                    }
+
+                    if index == profileViewModel.actions.count - 3 {
+                        Color.clear
+                            .frame(height: 1)
+                            .onAppear {
+                                profileViewModel.loadActions(reset: false)
+                            }
+                    }
+                }
+
+                if profileViewModel.isLoadingActions {
+                    ProgressView()
+                        .padding(.vertical, 16)
+                }
+
+                if profileViewModel.actions.isEmpty && !profileViewModel.isLoadingActions && !profileViewModel.isLoadingProfile {
+                    Text("暂无动态")
+                        .font(.subheadline)
+                        .foregroundStyle(FireTheme.tertiaryInk)
+                        .padding(.vertical, 32)
+                }
             }
         }
     }
 
-    private func errorSection(message: String) -> some View {
-        Section {
-            FireErrorBanner(
-                message: message,
-                copied: copiedErrorMessage,
-                onCopy: {
-                    UIPasteboard.general.string = message
-                    copiedErrorMessage = true
+    // MARK: - Settings Section
+
+    private var settingsSection: some View {
+        VStack(spacing: 0) {
+            Divider()
+                .padding(.top, 16)
+
+            VStack(spacing: 0) {
+                settingsRow(icon: "bookmark", title: "我的书签", showChevron: true) {
+                    showComingSoonToast = true
                     Task { @MainActor in
-                        try? await Task.sleep(for: .seconds(1.2))
-                        copiedErrorMessage = false
+                        try? await Task.sleep(for: .seconds(1.5))
+                        showComingSoonToast = false
                     }
-                },
-                onDismiss: viewModel.dismissError
-            )
-            .padding(.vertical, 4)
+                }
+
+                Divider()
+                    .padding(.leading, 44)
+
+                NavigationLink {
+                    FireDeveloperToolsView(viewModel: viewModel)
+                } label: {
+                    settingsRowContent(icon: "wrench.and.screwdriver", title: "开发者工具", showChevron: true)
+                }
+                .buttonStyle(.plain)
+
+                Divider()
+                    .padding(.leading, 44)
+
+                if canLogout {
+                    settingsRow(
+                        icon: "rectangle.portrait.and.arrow.right",
+                        title: viewModel.isLoggingOut ? "退出中…" : "退出登录",
+                        isDestructive: true,
+                        showChevron: false
+                    ) {
+                        showLogoutConfirmation = true
+                    }
+                    .disabled(viewModel.isLoggingOut)
+                    .alert("确认退出", isPresented: $showLogoutConfirmation) {
+                        Button("取消", role: .cancel) {}
+                        Button("退出登录", role: .destructive) {
+                            viewModel.logout()
+                        }
+                    } message: {
+                        Text("确定要退出当前账号吗？")
+                    }
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
         }
-        .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
-        .listRowBackground(Color.clear)
-        .listRowSeparator(.hidden)
+        .padding(.bottom, 32)
+    }
+
+    private func settingsRow(
+        icon: String,
+        title: String,
+        isDestructive: Bool = false,
+        showChevron: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            settingsRowContent(icon: icon, title: title, isDestructive: isDestructive, showChevron: showChevron)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func settingsRowContent(
+        icon: String,
+        title: String,
+        isDestructive: Bool = false,
+        showChevron: Bool
+    ) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon)
+                .font(.subheadline)
+                .foregroundStyle(isDestructive ? .red : FireTheme.subtleInk)
+                .frame(width: 24)
+
+            Text(title)
+                .font(.subheadline)
+                .foregroundStyle(isDestructive ? .red : FireTheme.ink)
+
+            Spacer()
+
+            if showChevron {
+                Image(systemName: "chevron.right")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(FireTheme.tertiaryInk)
+            }
+        }
+        .padding(.vertical, 12)
+        .contentShape(Rectangle())
+    }
+
+    // MARK: - Error Banner
+
+    private func errorBanner(message: String) -> some View {
+        FireErrorBanner(
+            message: message,
+            copied: copiedErrorMessage,
+            onCopy: {
+                UIPasteboard.general.string = message
+                copiedErrorMessage = true
+                Task { @MainActor in
+                    try? await Task.sleep(for: .seconds(1.2))
+                    copiedErrorMessage = false
+                }
+            },
+            onDismiss: {
+                profileViewModel.errorMessage = nil
+                viewModel.dismissError()
+            }
+        )
+        .padding(.horizontal, 16)
+        .padding(.top, 8)
+    }
+
+    // MARK: - Coming Soon Toast
+
+    private var comingSoonToast: some View {
+        VStack {
+            Spacer()
+            Text("即将推出")
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 10)
+                .background(.black.opacity(0.75), in: Capsule())
+                .padding(.bottom, 32)
+        }
+        .transition(.opacity.combined(with: .move(edge: .bottom)))
+        .animation(.easeInOut(duration: 0.3), value: showComingSoonToast)
+    }
+
+    // MARK: - Helpers
+
+    private func formatNumber(_ value: UInt32) -> String {
+        if value >= 10000 {
+            return String(format: "%.1fw", Double(value) / 10000.0)
+        } else if value >= 1000 {
+            return String(format: "%.1fK", Double(value) / 1000.0)
+        }
+        return "\(value)"
     }
 }

@@ -382,6 +382,22 @@ public actor FireSessionStore {
         try await core.togglePostReaction(postId: postID, reactionId: reactionID)
     }
 
+    public func fetchUserProfile(username: String) async throws -> UserProfileState {
+        try await core.fetchUserProfile(username: username)
+    }
+
+    public func fetchUserSummary(username: String) async throws -> UserSummaryState {
+        try await core.fetchUserSummary(username: username)
+    }
+
+    public func fetchUserActions(
+        username: String,
+        offset: UInt32?,
+        filter: String?
+    ) async throws -> [UserActionState] {
+        try await core.fetchUserActions(username: username, offset: offset, filter: filter)
+    }
+
     @discardableResult
     public func restoreSessionJSON(_ json: String) throws -> SessionState {
         let state = try core.restoreSessionJson(json: json)

@@ -61,6 +61,7 @@ class RequestTraceDetailActivity : AppCompatActivity() {
                                 uniffi.fire_uniffi.NetworkTraceOutcomeState.IN_PROGRESS -> "In Progress"
                                 uniffi.fire_uniffi.NetworkTraceOutcomeState.SUCCEEDED -> "Succeeded"
                                 uniffi.fire_uniffi.NetworkTraceOutcomeState.FAILED -> "Failed"
+                                uniffi.fire_uniffi.NetworkTraceOutcomeState.CANCELLED -> "Cancelled"
                             }
                         }",
                     )

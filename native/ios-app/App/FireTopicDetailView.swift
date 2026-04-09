@@ -375,10 +375,8 @@ struct FireTopicDetailView: View {
                         replyContext: nil,
                         showsThreadLine: false,
                         baseURLString: baseURLString,
-                        reactionOptions: reactionOptions,
                         canWriteInteractions: canWriteInteractions,
                         isMutating: viewModel.isMutatingPost(postId: originalPost.id),
-                        onReply: { openComposer(replyToPost: $0) },
                         onToggleLike: { toggleLike(for: $0) },
                         onSelectReaction: { post, reactionId in
                             toggleReaction(reactionId, for: post)
@@ -399,7 +397,7 @@ struct FireTopicDetailView: View {
             HStack(spacing: 20) {
                 statLabel(value: "\(displayedReplyCount)", label: "回复")
                 statLabel(value: "\(displayedViewsCount)", label: "浏览")
-                statLabel(value: "\(displayedLikeCount)", label: "赞")
+                statLabel(value: "\(displayedLikeCount)", label: "互动")
             }
             .padding(.vertical, 4)
         }
@@ -522,10 +520,8 @@ struct FireTopicDetailView: View {
                     replyContext: flatPost.parentPostNumber.map { "回复 #\($0)" },
                     showsThreadLine: flatPost.showsThreadLine,
                     baseURLString: baseURLString,
-                    reactionOptions: reactionOptions,
                     canWriteInteractions: canWriteInteractions,
                     isMutating: viewModel.isMutatingPost(postId: flatPost.post.id),
-                    onReply: { openComposer(replyToPost: $0) },
                     onToggleLike: { toggleLike(for: $0) },
                     onSelectReaction: { post, reactionId in
                         toggleReaction(reactionId, for: post)
@@ -904,10 +900,8 @@ private struct FirePostRow: View {
     let replyContext: String?
     let showsThreadLine: Bool
     let baseURLString: String
-    let reactionOptions: [FireReactionOption]
     let canWriteInteractions: Bool
     let isMutating: Bool
-    let onReply: (TopicPostState) -> Void
     let onToggleLike: (TopicPostState) -> Void
     let onSelectReaction: (TopicPostState, String) -> Void
 
@@ -919,28 +913,6 @@ private struct FirePostRow: View {
 
     private var imageAttachments: [FireCookedImage] {
         FireTopicPresentation.imageAttachments(from: post.cooked, baseURLString: baseURLString)
-    }
-
-    private var currentReactionOption: FireReactionOption? {
-        guard let currentReaction = post.currentUserReaction, currentReaction.id != "heart" else {
-            return nil
-        }
-        return FireTopicPresentation.reactionOption(for: currentReaction.id)
-    }
-
-    private var nonHeartReactionOptions: [FireReactionOption] {
-        reactionOptions.filter { $0.id != "heart" }
-    }
-
-    private var isHeartSelected: Bool {
-        post.currentUserReaction?.id == "heart"
-    }
-
-    private var totalReactionCount: UInt32 {
-        let total = post.reactions.reduce(UInt32(0)) { partialResult, reaction in
-            partialResult + reaction.count
-        }
-        return total > 0 ? total : post.likeCount
     }
 
     private var canChangeReaction: Bool {
@@ -1050,80 +1022,9 @@ private struct FirePostRow: View {
                         }
                     }
                 }
-
-                HStack(spacing: 12) {
-                    if canWriteInteractions {
-                        Button {
-                            onToggleLike(post)
-                        } label: {
-                            FirePostMetaAction(
-                                systemImage: isHeartSelected ? "heart.fill" : "heart",
-                                value: totalReactionCount > 0 ? "\(totalReactionCount)" : nil,
-                                tint: isHeartSelected ? .red : FireTheme.tertiaryInk
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(!canChangeReaction)
-
-                        if !nonHeartReactionOptions.isEmpty {
-                            Menu {
-                                ForEach(nonHeartReactionOptions) { option in
-                                    Button("\(option.symbol) \(option.label)") {
-                                        onSelectReaction(post, option.id)
-                                    }
-                                }
-                            } label: {
-                                FirePostMetaAction(
-                                    systemImage: "face.smiling",
-                                    value: currentReactionOption.map { "\($0.symbol)" },
-                                    tint: currentReactionOption == nil ? FireTheme.tertiaryInk : FireTheme.accent
-                                )
-                            }
-                            .disabled(!canChangeReaction)
-                        }
-
-                        Button {
-                            onReply(post)
-                        } label: {
-                            FirePostMetaAction(
-                                systemImage: "arrowshape.turn.up.left",
-                                value: post.replyCount > 0 ? "\(post.replyCount)" : nil,
-                                tint: FireTheme.tertiaryInk
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(isMutating)
-                    } else if post.replyCount > 0 {
-                        FirePostMetaAction(
-                            systemImage: "arrowshape.turn.up.left",
-                            value: "\(post.replyCount)",
-                            tint: FireTheme.tertiaryInk
-                        )
-                    }
-
-                    Spacer()
-                }
             }
             .padding(.vertical, 8)
         }
-    }
-}
-
-private struct FirePostMetaAction: View {
-    let systemImage: String
-    let value: String?
-    let tint: Color
-
-    var body: some View {
-        HStack(spacing: 4) {
-            Image(systemName: systemImage)
-            if let value {
-                Text(value)
-                    .font(.caption.monospacedDigit())
-            }
-        }
-        .font(.caption2)
-        .foregroundStyle(tint)
     }
 }
 

@@ -3,7 +3,7 @@ mod common;
 use std::time::Duration;
 
 use common::{raw_json_response, TestServer, TestServerStep};
-use fire_core::{FireCore, FireCoreConfig};
+use fire_core::{FireCore, FireCoreConfig, NetworkTraceOutcome};
 use fire_models::{
     BootstrapArtifacts, CookieSnapshot, MessageBusClientMode, MessageBusEventKind,
     MessageBusSubscription, MessageBusSubscriptionScope,
@@ -255,6 +255,22 @@ async fn active_message_bus_coalesces_subscription_changes_into_single_restart()
 
     tokio::time::sleep(Duration::from_millis(400)).await;
     core.stop_message_bus(true);
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    let traces = core.list_network_traces(10);
+    assert!(
+        traces
+            .iter()
+            .filter(|trace| trace.operation == "message bus poll")
+            .all(|trace| trace.outcome != NetworkTraceOutcome::InProgress),
+        "expected restarted/stopped poll traces to reach a terminal state: {traces:?}"
+    );
+    assert!(
+        traces
+            .iter()
+            .any(|trace| trace.outcome == NetworkTraceOutcome::Cancelled),
+        "expected at least one cancelled message bus trace after restart: {traces:?}"
+    );
 
     let requests = server.shutdown_with_requests().await;
     assert_eq!(

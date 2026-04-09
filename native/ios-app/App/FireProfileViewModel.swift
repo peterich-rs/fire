@@ -168,6 +168,23 @@ final class FireProfileViewModel: ObservableObject {
         loadActions(reset: true)
     }
 
+    func refreshProfile() async {
+        guard let username = normalizedCurrentUsername(), loadedUsername == username else { return }
+
+        do {
+            async let profileResult = appViewModel.fetchUserProfile(username: username)
+            async let summaryResult = appViewModel.fetchUserSummary(username: username)
+            let (fetchedProfile, fetchedSummary) = try await (profileResult, summaryResult)
+            guard loadedUsername == username else { return }
+            self.profile = fetchedProfile
+            self.summary = fetchedSummary
+            self.errorMessage = nil
+        } catch is CancellationError {
+        } catch {
+            self.errorMessage = error.localizedDescription
+        }
+    }
+
     func retry() {
         loadProfile(force: true)
     }

@@ -31,6 +31,9 @@ struct FireProfileView: View {
                     settingsSection
                 }
             }
+            .refreshable {
+                await profileViewModel.refreshProfile()
+            }
             .background(FireTheme.canvasTop)
             .navigationTitle("我的")
             .toolbar {

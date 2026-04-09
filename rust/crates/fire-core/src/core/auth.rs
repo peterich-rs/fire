@@ -111,7 +111,9 @@ impl FireCore {
             self.build_api_request("refresh csrf token", Method::GET, "/session/csrf", false)?;
         let (trace_id, response) = self.execute_request(traced).await?;
         let response = expect_success(self, "refresh csrf token", trace_id, response).await?;
-        let payload: CsrfResponse = self.read_response_json_direct(trace_id, response).await?;
+        let payload: CsrfResponse = self
+            .read_response_json("refresh csrf token", trace_id, response)
+            .await?;
         if payload.csrf.is_empty() {
             self.diagnostics.record_parse_error(
                 trace_id,

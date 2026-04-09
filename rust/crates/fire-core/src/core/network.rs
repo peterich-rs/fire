@@ -424,20 +424,6 @@ impl FireCore {
         Ok(text)
     }
 
-    pub(crate) async fn read_response_json_direct<T>(
-        &self,
-        trace_id: u64,
-        response: Response<ResponseBody>,
-    ) -> Result<T, FireCoreError>
-    where
-        T: DeserializeOwned,
-    {
-        response.into_body().json().await.map_err(|source| {
-            self.diagnostics.record_call_failed(trace_id, &source);
-            FireCoreError::Network { source }
-        })
-    }
-
     pub(crate) async fn execute_api_request_with_csrf_retry<F>(
         &self,
         operation: &'static str,

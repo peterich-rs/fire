@@ -4,6 +4,8 @@ import UIKit
 
 @MainActor
 final class FireDiagnosticsViewModel: ObservableObject {
+    private static let traceAutoRefreshInterval: Duration = .seconds(1)
+
     @Published private(set) var logFiles: [LogFileSummaryState] = []
     @Published private(set) var logFileDetails: [String: LogFileDetailState] = [:]
     @Published private(set) var requestTraces: [NetworkTraceSummaryState] = []
@@ -12,9 +14,16 @@ final class FireDiagnosticsViewModel: ObservableObject {
     @Published var errorMessage: String?
 
     private let appViewModel: FireAppViewModel
+    private var traceAutoRefreshTask: Task<Void, Never>?
+    private var isRefreshingTraces = false
+    private var loadingTraceDetailIDs: Set<UInt64> = []
 
     init(appViewModel: FireAppViewModel) {
         self.appViewModel = appViewModel
+    }
+
+    deinit {
+        traceAutoRefreshTask?.cancel()
     }
 
     func refresh() {
@@ -30,12 +39,33 @@ final class FireDiagnosticsViewModel: ObservableObject {
                 errorMessage = nil
                 async let files = appViewModel.listLogFiles()
                 async let traces = appViewModel.listNetworkTraces(limit: 200)
+                let latestTraces = try await traces
                 logFiles = try await files
-                requestTraces = try await traces
+                applyTraceSummaries(latestTraces)
+                await refreshCachedTraceDetails(using: latestTraces)
             } catch {
                 errorMessage = error.localizedDescription
             }
         }
+    }
+
+    func startTraceAutoRefresh() {
+        guard traceAutoRefreshTask == nil else {
+            return
+        }
+
+        traceAutoRefreshTask = Task { [weak self] in
+            guard let self else { return }
+            while !Task.isCancelled {
+                await self.refreshTracesIfNeeded()
+                try? await Task.sleep(for: Self.traceAutoRefreshInterval)
+            }
+        }
+    }
+
+    func stopTraceAutoRefresh() {
+        traceAutoRefreshTask?.cancel()
+        traceAutoRefreshTask = nil
     }
 
     func loadLogFile(relativePath: String) {
@@ -57,12 +87,17 @@ final class FireDiagnosticsViewModel: ObservableObject {
         logFileDetails[relativePath]
     }
 
-    func loadTraceDetail(traceID: UInt64) {
-        guard requestTraceDetails[traceID] == nil else {
+    func loadTraceDetail(traceID: UInt64, force: Bool = false) {
+        if !force, requestTraceDetails[traceID] != nil {
+            return
+        }
+        guard !loadingTraceDetailIDs.contains(traceID) else {
             return
         }
 
         Task {
+            loadingTraceDetailIDs.insert(traceID)
+            defer { loadingTraceDetailIDs.remove(traceID) }
             do {
                 errorMessage = nil
                 requestTraceDetails[traceID] = try await appViewModel.networkTraceDetail(traceID: traceID)
@@ -98,6 +133,66 @@ final class FireDiagnosticsViewModel: ObservableObject {
 
     var totalLogSizeBytes: UInt64 {
         logFiles.reduce(0) { $0 + $1.sizeBytes }
+    }
+
+    private func refreshTracesIfNeeded() async {
+        guard !isRefreshingTraces, !isLoading else {
+            return
+        }
+
+        isRefreshingTraces = true
+        defer { isRefreshingTraces = false }
+
+        do {
+            let traces = try await appViewModel.listNetworkTraces(limit: 200)
+            errorMessage = nil
+            applyTraceSummaries(traces)
+            await refreshCachedTraceDetails(using: traces)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func applyTraceSummaries(_ traces: [NetworkTraceSummaryState]) {
+        requestTraces = traces
+    }
+
+    private func refreshCachedTraceDetails(using traces: [NetworkTraceSummaryState]) async {
+        guard !requestTraceDetails.isEmpty else {
+            return
+        }
+
+        let latestByID = Dictionary(uniqueKeysWithValues: traces.map { ($0.id, $0) })
+        let traceIDsToRefresh: [UInt64] = requestTraceDetails.compactMap { entry in
+            let (traceID, detail) = entry
+            guard let latest = latestByID[traceID] else {
+                return nil
+            }
+            return traceDetailNeedsRefresh(cached: detail.summary, latest: latest) ? traceID : nil
+        }
+
+        guard !traceIDsToRefresh.isEmpty else {
+            return
+        }
+
+        for traceID in traceIDsToRefresh {
+            guard !Task.isCancelled else {
+                return
+            }
+            loadTraceDetail(traceID: traceID, force: true)
+        }
+    }
+
+    private func traceDetailNeedsRefresh(
+        cached: NetworkTraceSummaryState,
+        latest: NetworkTraceSummaryState
+    ) -> Bool {
+        cached.outcome == .inProgress
+            || cached.outcome != latest.outcome
+            || cached.finishedAtUnixMs != latest.finishedAtUnixMs
+            || cached.durationMs != latest.durationMs
+            || cached.statusCode != latest.statusCode
+            || cached.responseContentType != latest.responseContentType
     }
 }
 
@@ -140,6 +235,9 @@ struct FireDiagnosticsView: View {
         }
         .listStyle(.plain)
         .navigationTitle("诊断工具")
+        .onAppear {
+            diagnosticsViewModel.startTraceAutoRefresh()
+        }
         .task {
             diagnosticsViewModel.refresh()
         }

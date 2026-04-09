@@ -19,7 +19,10 @@ use super::{
 };
 use crate::{
     cookies::FireSessionCookieJar,
-    diagnostics::{FireDiagnosticsStore, FireNetworkTraceEventListenerFactory},
+    diagnostics::{
+        FireDiagnosticsStore, FireNetworkTraceCancellationGuard,
+        FireNetworkTraceEventListenerFactory,
+    },
     error::FireCoreError,
     sync_utils::read_rwlock,
 };
@@ -59,6 +62,7 @@ pub(crate) enum FireCallProfile {
 #[derive(Clone)]
 pub(crate) struct FireNetworkLayer {
     client: Client,
+    diagnostics: Arc<FireDiagnosticsStore>,
 }
 
 #[derive(Clone)]
@@ -162,13 +166,18 @@ impl FireNetworkLayer {
             .pool_max_idle_per_host(CLIENT_POOL_MAX_IDLE_PER_HOST)
             .http2_keep_alive_interval(MESSAGE_BUS_HTTP2_KEEP_ALIVE_INTERVAL)
             .http2_keep_alive_while_idle(true)
-            .event_listener_factory(FireNetworkTraceEventListenerFactory::new(diagnostics));
+            .event_listener_factory(FireNetworkTraceEventListenerFactory::new(Arc::clone(
+                &diagnostics,
+            )));
         #[cfg(debug_assertions)]
         let builder = builder.use_system_proxy(true);
         let client = builder
             .build()
             .map_err(|source| FireCoreError::ClientBuild { source })?;
-        Ok(Self { client })
+        Ok(Self {
+            client,
+            diagnostics,
+        })
     }
 
     pub(crate) fn client(&self) -> Client {
@@ -180,33 +189,53 @@ impl FireNetworkLayer {
         traced: TracedRequest,
         profile: FireCallProfile,
     ) -> Result<(u64, Response<ResponseBody>), FireCoreError> {
+        let trace_id = traced.trace_id;
         debug!(
-            trace_id = traced.trace_id,
+            trace_id,
             method = %traced.request.method(),
             uri = %traced.request.uri(),
             profile = ?profile,
             "executing HTTP request"
         );
-        let response = apply_call_profile(self.client.new_call(traced.request), profile)
+        let trace_guard = self.diagnostics.cancellation_guard(
+            trace_id,
+            "Request cancelled",
+            "Future dropped before the trace reached a terminal state",
+        );
+        let mut response = match apply_call_profile(self.client.new_call(traced.request), profile)
             .execute()
             .await
-            .map_err(|source| {
+        {
+            Ok(response) => response,
+            Err(source) => {
+                self.diagnostics
+                    .record_call_failed_if_in_progress(trace_id, &source);
                 warn!(
-                    trace_id = traced.trace_id,
+                    trace_id,
                     error = %source,
                     profile = ?profile,
                     "HTTP request failed"
                 );
-                FireCoreError::Network { source }
-            })?;
+                return Err(FireCoreError::Network { source });
+            }
+        };
+        response.extensions_mut().insert(trace_guard);
         debug!(
-            trace_id = traced.trace_id,
+            trace_id,
             status = response.status().as_u16(),
             profile = ?profile,
             "HTTP response received"
         );
-        Ok((traced.trace_id, response))
+        Ok((trace_id, response))
     }
+}
+
+pub(crate) fn take_trace_cancellation_guard(
+    response: &mut Response<ResponseBody>,
+) -> Option<FireNetworkTraceCancellationGuard> {
+    response
+        .extensions_mut()
+        .remove::<FireNetworkTraceCancellationGuard>()
 }
 
 fn apply_call_profile(call: Call, profile: FireCallProfile) -> Call {
@@ -414,11 +443,22 @@ impl FireCore {
         trace_id: u64,
         response: Response<ResponseBody>,
     ) -> Result<String, FireCoreError> {
+        let mut response = response;
+        let _trace_guard = take_trace_cancellation_guard(&mut response).unwrap_or_else(|| {
+            self.diagnostics.cancellation_guard(
+                trace_id,
+                "Request cancelled",
+                "Future dropped while reading the response body",
+            )
+        });
         let content_type = header_value(response.headers(), "content-type");
-        let text = response.into_body().text().await.map_err(|source| {
-            self.diagnostics.record_call_failed(trace_id, &source);
-            FireCoreError::Network { source }
-        })?;
+        let text = match response.into_body().text().await {
+            Ok(text) => text,
+            Err(source) => {
+                self.diagnostics.record_call_failed(trace_id, &source);
+                return Err(FireCoreError::Network { source });
+            }
+        };
         self.diagnostics
             .record_response_body_text(trace_id, &text, content_type.as_deref());
         Ok(text)
@@ -528,7 +568,15 @@ pub(crate) async fn expect_success(
         return Ok(response);
     }
 
+    let mut response = response;
     let status = response.status().as_u16();
+    let _trace_guard = take_trace_cancellation_guard(&mut response).unwrap_or_else(|| {
+        core.diagnostics.cancellation_guard(
+            trace_id,
+            "Request cancelled",
+            "Future dropped while reading the error response body",
+        )
+    });
     let body = response
         .into_body()
         .text()

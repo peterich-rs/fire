@@ -373,10 +373,15 @@ private struct FireRequestTraceRow: View {
 
     private var statusColor: Color {
         if trace.outcome == .failed { return .red }
+        if trace.outcome == .cancelled { return .secondary }
         guard let code = trace.statusCode else { return .secondary }
         if code < 300 { return .green }
         if code < 400 { return .orange }
         return .red
+    }
+
+    private var errorColor: Color {
+        trace.outcome == .cancelled ? .secondary : .red
     }
 
     private var methodColor: Color {
@@ -423,7 +428,7 @@ private struct FireRequestTraceRow: View {
             if let errorMessage = trace.errorMessage {
                 Text(errorMessage)
                     .font(.caption2)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(errorColor)
                     .lineLimit(1)
             }
         }
@@ -439,6 +444,9 @@ private struct FireRequestTraceRow: View {
             case .failed:
                 Image(systemName: "xmark.circle.fill")
                     .foregroundStyle(.red)
+            case .cancelled:
+                Image(systemName: "minus.circle.fill")
+                    .foregroundStyle(.secondary)
             case .inProgress:
                 ProgressView()
                     .controlSize(.mini)
@@ -1089,6 +1097,8 @@ private enum FireDiagnosticsPresentation {
             return "成功"
         case .failed:
             return "失败"
+        case .cancelled:
+            return "已取消"
         }
     }
 }

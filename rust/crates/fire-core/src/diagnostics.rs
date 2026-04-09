@@ -143,6 +143,16 @@ impl NetworkTraceRecord {
             .map(|finished| finished.saturating_sub(self.started_at_unix_ms))
     }
 
+    fn mark_succeeded(&mut self) {
+        if self.outcome != NetworkTraceOutcome::Failed {
+            self.outcome = NetworkTraceOutcome::Succeeded;
+            self.error_message = None;
+        }
+        if self.finished_at_unix_ms.is_none() {
+            self.finished_at_unix_ms = Some(now_unix_ms());
+        }
+    }
+
     fn push_event(&mut self, phase: &str, summary: String, details: Option<String>) {
         let sequence = self.events.len() as u32 + 1;
         self.events.push(NetworkTraceEvent {
@@ -351,6 +361,7 @@ impl FireDiagnosticsStore {
     pub(crate) fn record_response_body_bytes(&self, trace_id: u64, bytes_read: u64) {
         self.with_trace(trace_id, |trace| {
             trace.response_body_bytes = Some(bytes_read);
+            trace.mark_succeeded();
             trace.push_event(
                 "response_body_end",
                 format!("Read {bytes_read} response bytes"),
@@ -381,11 +392,7 @@ impl FireDiagnosticsStore {
             if let Some(content_type) = response_content_type {
                 trace.response_content_type = Some(content_type.to_string());
             }
-            if trace.outcome != NetworkTraceOutcome::Failed {
-                trace.outcome = NetworkTraceOutcome::Succeeded;
-                trace.error_message = None;
-            }
-            trace.finished_at_unix_ms = Some(now_unix_ms());
+            trace.mark_succeeded();
             trace.push_event(
                 "response_body_captured",
                 if truncated {
@@ -1217,5 +1224,24 @@ mod tests {
             .response_body
             .expect("body")
             .ends_with("<... truncated ...>"));
+    }
+
+    #[test]
+    fn response_body_end_marks_trace_as_succeeded_without_preview() {
+        let store = FireDiagnosticsStore::new();
+        let mut request = Request::builder()
+            .method("GET")
+            .uri("https://linux.do/session/csrf")
+            .body(RequestBody::empty())
+            .expect("request");
+        let trace_id = store.prepare_request_trace("refresh csrf token", &mut request);
+
+        store.record_response_body_bytes(trace_id, 97);
+
+        let detail = store.detail(trace_id).expect("detail");
+        assert_eq!(detail.outcome, NetworkTraceOutcome::Succeeded);
+        assert_eq!(detail.response_body_bytes, Some(97));
+        assert!(detail.finished_at_unix_ms.is_some());
+        assert_eq!(detail.response_body, None);
     }
 }

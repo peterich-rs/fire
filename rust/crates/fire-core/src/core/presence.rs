@@ -108,8 +108,9 @@ impl FireCore {
         let (trace_id, response) = self.execute_request(traced).await?;
         let response =
             expect_success(self, FETCH_TOPIC_PRESENCE_OPERATION, trace_id, response).await?;
-        let value: BTreeMap<String, RawTopicPresenceChannel> =
-            self.read_response_json_direct(trace_id, response).await?;
+        let value: BTreeMap<String, RawTopicPresenceChannel> = self
+            .read_response_json(FETCH_TOPIC_PRESENCE_OPERATION, trace_id, response)
+            .await?;
 
         let presence = value
             .get(&discourse_presence_channel_for_topic(topic_id))

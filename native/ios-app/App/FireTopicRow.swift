@@ -4,6 +4,8 @@ struct FireTopicRow: View {
     let row: FireTopicRowPresentation
     let category: FireTopicCategoryPresentation?
 
+    @Environment(\.colorScheme) private var colorScheme
+
     private var accentColor: Color {
         Color(fireHex: category?.colorHex) ?? FireTheme.accent
     }
@@ -126,10 +128,10 @@ struct FireTopicRow: View {
     private func categoryChip(_ category: FireTopicCategoryPresentation) -> some View {
         Text(category.displayName)
             .font(.caption2.weight(.medium))
-            .foregroundStyle(Color(fireHex: category.textColorHex) ?? accentColor)
+            .foregroundStyle(accentColor)
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
-            .background(accentColor.opacity(0.12))
+            .background(FireTheme.categoryChipBackground(accent: accentColor, isDark: colorScheme == .dark))
             .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
             .lineLimit(1)
             .truncationMode(.tail)
@@ -138,10 +140,10 @@ struct FireTopicRow: View {
     private func tagChip(_ tagName: String) -> some View {
         Text("#\(tagName)")
             .font(.caption2)
-            .foregroundStyle(FireTheme.subtleInk)
+            .foregroundStyle(FireTheme.tagChipForeground)
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
-            .background(Color(.tertiarySystemFill))
+            .background(FireTheme.tagChipBackground)
             .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
             .lineLimit(1)
             .truncationMode(.tail)

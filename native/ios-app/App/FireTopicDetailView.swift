@@ -36,6 +36,7 @@ struct FireTopicDetailView: View {
     let scrollToPostNumber: UInt32?
 
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.colorScheme) private var colorScheme
     @State private var composerContext: FireReplyComposerContext?
     @State private var replyDraft = ""
     @State private var composerNotice: String?
@@ -330,8 +331,8 @@ struct FireTopicDetailView: View {
                     } label: {
                         FireTopicPill(
                             label: category.displayName,
-                            backgroundColor: accent.opacity(0.12),
-                            foregroundColor: Color(fireHex: category.textColorHex) ?? accent
+                            backgroundColor: FireTheme.categoryChipBackground(accent: accent, isDark: colorScheme == .dark),
+                            foregroundColor: accent
                         )
                     }
                     .buttonStyle(.plain)
@@ -350,10 +351,10 @@ struct FireTopicDetailView: View {
                     } label: {
                         Text("#\(tagName)")
                             .font(.caption2.weight(.medium))
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(FireTheme.tagChipForeground)
                             .padding(.horizontal, 6)
                             .padding(.vertical, 3)
-                            .background(Color(.tertiarySystemFill))
+                            .background(FireTheme.tagChipBackground)
                             .clipShape(Capsule())
                     }
                     .buttonStyle(.plain)

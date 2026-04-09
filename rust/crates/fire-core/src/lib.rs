@@ -12,6 +12,7 @@ mod search_payloads;
 mod session_store;
 mod sync_utils;
 mod topic_payloads;
+mod user_payloads;
 mod workspace;
 
 pub use config::FireCoreConfig;

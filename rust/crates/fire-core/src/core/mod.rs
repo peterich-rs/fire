@@ -9,6 +9,7 @@ mod rate_limit;
 mod search;
 mod session;
 mod topics;
+mod users;
 
 use std::{
     path::{Path, PathBuf},

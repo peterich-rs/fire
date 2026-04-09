@@ -185,6 +185,35 @@ final class FireTopicPresentationTests: XCTestCase {
         XCTAssertEqual(recomposed.flatPosts[2].parentPostNumber, 2)
     }
 
+    func testRecomposedDetailRecomputesInteractionCountFromNonHeartReactions() {
+        let detail = makeTopicDetail(
+            posts: [
+                makePost(
+                    postNumber: 1,
+                    replyToPostNumber: nil,
+                    username: "author",
+                    reactions: [
+                        TopicReactionState(id: "heart", kind: "emoji", count: 4, canUndo: nil),
+                        TopicReactionState(id: "clap", kind: "emoji", count: 2, canUndo: nil),
+                    ]
+                ),
+                makePost(
+                    postNumber: 2,
+                    replyToPostNumber: 1,
+                    username: "reply",
+                    reactions: [
+                        TopicReactionState(id: "TADA", kind: "emoji", count: 1, canUndo: nil),
+                    ]
+                ),
+            ],
+            stream: [1, 2]
+        )
+
+        let recomposed = FireTopicPresentation.recomposedDetail(detail)
+
+        XCTAssertEqual(recomposed.interactionCount, 12)
+    }
+
     func testLoadedWindowCountStopsAtFirstGap() {
         let loadedWindowCount = FireTopicPresentation.loadedWindowCount(
             orderedPostIDs: [1, 2, 3, 4, 5],
@@ -333,7 +362,9 @@ final class FireTopicPresentationTests: XCTestCase {
     private func makePost(
         postNumber: UInt32,
         replyToPostNumber: UInt32?,
-        username: String
+        username: String,
+        likeCount: UInt32 = 0,
+        reactions: [TopicReactionState] = []
     ) -> TopicPostState {
         TopicPostState(
             id: UInt64(postNumber),
@@ -345,12 +376,12 @@ final class FireTopicPresentationTests: XCTestCase {
             postType: 1,
             createdAt: "2026-03-28T10:00:00Z",
             updatedAt: "2026-03-28T10:00:00Z",
-            likeCount: 0,
+            likeCount: likeCount,
             replyCount: 0,
             replyToPostNumber: replyToPostNumber,
             bookmarked: false,
             bookmarkId: nil,
-            reactions: [],
+            reactions: reactions,
             currentUserReaction: nil,
             acceptedAnswer: false,
             canEdit: false,
@@ -373,6 +404,7 @@ final class FireTopicPresentationTests: XCTestCase {
             tags: [],
             views: 128,
             likeCount: 9,
+            interactionCount: 9,
             createdAt: "2026-03-28T10:00:00Z",
             lastReadPostNumber: nil,
             bookmarks: [],

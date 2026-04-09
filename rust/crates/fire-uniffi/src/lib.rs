@@ -1715,6 +1715,7 @@ pub struct TopicDetailState {
     pub tags: Vec<TopicTagState>,
     pub views: u32,
     pub like_count: u32,
+    pub interaction_count: u32,
     pub created_at: Option<String>,
     pub last_read_post_number: Option<u32>,
     pub bookmarks: Vec<u64>,
@@ -1735,6 +1736,7 @@ pub struct TopicDetailState {
 
 impl From<TopicDetail> for TopicDetailState {
     fn from(value: TopicDetail) -> Self {
+        let interaction_count = value.interaction_count();
         Self {
             id: value.id,
             title: value.title,
@@ -1744,6 +1746,7 @@ impl From<TopicDetail> for TopicDetailState {
             tags: value.tags.into_iter().map(Into::into).collect(),
             views: value.views,
             like_count: value.like_count,
+            interaction_count,
             created_at: value.created_at,
             last_read_post_number: value.last_read_post_number,
             bookmarks: value.bookmarks,
@@ -3109,6 +3112,27 @@ mod tests {
             FireUniFfiError::Storage { details }
                 if details.contains("/tmp/session.json") && details.contains("denied")
         ));
+    }
+
+    #[test]
+    fn topic_detail_state_carries_interaction_count() {
+        let state = TopicDetailState::from(TopicDetail {
+            like_count: 8,
+            post_stream: TopicPostStream {
+                posts: vec![TopicPost {
+                    reactions: vec![TopicReaction {
+                        id: "clap".into(),
+                        count: 2,
+                        ..TopicReaction::default()
+                    }],
+                    ..TopicPost::default()
+                }],
+                ..TopicPostStream::default()
+            },
+            ..TopicDetail::default()
+        });
+
+        assert_eq!(state.interaction_count, 10);
     }
 
     #[test]

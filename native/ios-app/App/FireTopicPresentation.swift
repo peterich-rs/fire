@@ -219,7 +219,22 @@ enum FireTopicPresentation {
         let composition = composeThread(posts: detail.postStream.posts)
         detail.thread = composition.thread
         detail.flatPosts = composition.flatPosts
+        detail.interactionCount = interactionCount(for: detail)
         return detail
+    }
+
+    static func interactionCount(for detail: TopicDetailState) -> UInt32 {
+        let extraReactionCount = detail.postStream.posts
+            .flatMap(\.reactions)
+            .filter { $0.id.caseInsensitiveCompare("heart") != .orderedSame }
+            .reduce(0 as UInt32) { partialResult, reaction in
+                partialResult > UInt32.max - reaction.count
+                    ? UInt32.max
+                    : partialResult + reaction.count
+            }
+        return detail.likeCount > UInt32.max - extraReactionCount
+            ? UInt32.max
+            : detail.likeCount + extraReactionCount
     }
 
     static func loadedWindowCount(detail: TopicDetailState) -> Int {

@@ -153,8 +153,8 @@ struct FireTopicDetailView: View {
         return max(detail.postStream.posts.count - 1, 0)
     }
 
-    private var displayedLikeCount: UInt32 {
-        detail?.likeCount ?? topic.likeCount
+    private var displayedInteractionCount: UInt32? {
+        detail?.interactionCount
     }
 
     private var displayedViewsCount: UInt32 {
@@ -397,7 +397,7 @@ struct FireTopicDetailView: View {
             HStack(spacing: 20) {
                 statLabel(value: "\(displayedReplyCount)", label: "回复")
                 statLabel(value: "\(displayedViewsCount)", label: "浏览")
-                statLabel(value: "\(displayedLikeCount)", label: "互动")
+                statLabel(value: displayedInteractionCount.map(String.init) ?? "…", label: "互动")
             }
             .padding(.vertical, 4)
         }

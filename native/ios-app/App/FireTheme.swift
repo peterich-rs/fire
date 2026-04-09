@@ -112,6 +112,21 @@ enum FireTheme {
         UIColor(white: 1, alpha: 0.10)
     )
 
+    // MARK: - Chips
+
+    static let tagChipBackground = adaptive(
+        UIColor(red: 0.46, green: 0.46, blue: 0.50, alpha: 0.08),
+        UIColor(white: 1, alpha: 0.10)
+    )
+    static let tagChipForeground = adaptive(
+        UIColor(red: 0.30, green: 0.30, blue: 0.33, alpha: 1),
+        UIColor(red: 0.85, green: 0.84, blue: 0.82, alpha: 1)
+    )
+
+    static func categoryChipBackground(accent: Color, isDark: Bool) -> Color {
+        accent.opacity(isDark ? 0.22 : 0.14)
+    }
+
     // MARK: - Tab Bar
 
     static let tabBarBackground = adaptive(

@@ -36,6 +36,7 @@ struct FireTopicDetailView: View {
     let scrollToPostNumber: UInt32?
 
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.colorScheme) private var colorScheme
     @State private var composerContext: FireReplyComposerContext?
     @State private var replyDraft = ""
     @State private var composerNotice: String?
@@ -152,8 +153,8 @@ struct FireTopicDetailView: View {
         return max(detail.postStream.posts.count - 1, 0)
     }
 
-    private var displayedLikeCount: UInt32 {
-        detail?.likeCount ?? topic.likeCount
+    private var displayedInteractionCount: UInt32? {
+        detail?.interactionCount
     }
 
     private var displayedViewsCount: UInt32 {
@@ -330,8 +331,8 @@ struct FireTopicDetailView: View {
                     } label: {
                         FireTopicPill(
                             label: category.displayName,
-                            backgroundColor: accent.opacity(0.12),
-                            foregroundColor: Color(fireHex: category.textColorHex) ?? accent
+                            backgroundColor: FireTheme.categoryChipBackground(accent: accent, isDark: colorScheme == .dark),
+                            foregroundColor: accent
                         )
                     }
                     .buttonStyle(.plain)
@@ -350,10 +351,10 @@ struct FireTopicDetailView: View {
                     } label: {
                         Text("#\(tagName)")
                             .font(.caption2.weight(.medium))
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(FireTheme.tagChipForeground)
                             .padding(.horizontal, 6)
                             .padding(.vertical, 3)
-                            .background(Color(.tertiarySystemFill))
+                            .background(FireTheme.tagChipBackground)
                             .clipShape(Capsule())
                     }
                     .buttonStyle(.plain)
@@ -365,21 +366,23 @@ struct FireTopicDetailView: View {
             }
 
             if let originalPost {
-                FirePostRow(
-                    post: originalPost,
-                    depth: 0,
-                    replyContext: nil,
-                    showsThreadLine: false,
-                    baseURLString: baseURLString,
-                    reactionOptions: reactionOptions,
-                    canWriteInteractions: canWriteInteractions,
-                    isMutating: viewModel.isMutatingPost(postId: originalPost.id),
-                    onReply: { openComposer(replyToPost: $0) },
-                    onToggleLike: { toggleLike(for: $0) },
-                    onSelectReaction: { post, reactionId in
-                        toggleReaction(reactionId, for: post)
-                    }
-                )
+                FireSwipeToReplyContainer(enabled: canWriteInteractions) {
+                    openComposer(replyToPost: originalPost)
+                } content: {
+                    FirePostRow(
+                        post: originalPost,
+                        depth: 0,
+                        replyContext: nil,
+                        showsThreadLine: false,
+                        baseURLString: baseURLString,
+                        canWriteInteractions: canWriteInteractions,
+                        isMutating: viewModel.isMutatingPost(postId: originalPost.id),
+                        onToggleLike: { toggleLike(for: $0) },
+                        onSelectReaction: { post, reactionId in
+                            toggleReaction(reactionId, for: post)
+                        }
+                    )
+                }
                 .id(originalPost.postNumber)
                 .background(FireVisiblePostFrameReporter(postNumber: originalPost.postNumber))
             } else if let excerpt = row.excerptText {
@@ -394,7 +397,7 @@ struct FireTopicDetailView: View {
             HStack(spacing: 20) {
                 statLabel(value: "\(displayedReplyCount)", label: "回复")
                 statLabel(value: "\(displayedViewsCount)", label: "浏览")
-                statLabel(value: "\(displayedLikeCount)", label: "赞")
+                statLabel(value: displayedInteractionCount.map(String.init) ?? "…", label: "互动")
             }
             .padding(.vertical, 4)
         }
@@ -508,21 +511,23 @@ struct FireTopicDetailView: View {
     @ViewBuilder
     private func replyPostRows(_ displayPosts: [FireTopicFlatPostPresentation]) -> some View {
         ForEach(Array(displayPosts.enumerated()), id: \.element.post.id) { index, flatPost in
-            FirePostRow(
-                post: flatPost.post,
-                depth: Int(flatPost.depth),
-                replyContext: flatPost.parentPostNumber.map { "回复 #\($0)" },
-                showsThreadLine: flatPost.showsThreadLine,
-                baseURLString: baseURLString,
-                reactionOptions: reactionOptions,
-                canWriteInteractions: canWriteInteractions,
-                isMutating: viewModel.isMutatingPost(postId: flatPost.post.id),
-                onReply: { openComposer(replyToPost: $0) },
-                onToggleLike: { toggleLike(for: $0) },
-                onSelectReaction: { post, reactionId in
-                    toggleReaction(reactionId, for: post)
-                }
-            )
+            FireSwipeToReplyContainer(enabled: canWriteInteractions) {
+                openComposer(replyToPost: flatPost.post)
+            } content: {
+                FirePostRow(
+                    post: flatPost.post,
+                    depth: Int(flatPost.depth),
+                    replyContext: flatPost.parentPostNumber.map { "回复 #\($0)" },
+                    showsThreadLine: flatPost.showsThreadLine,
+                    baseURLString: baseURLString,
+                    canWriteInteractions: canWriteInteractions,
+                    isMutating: viewModel.isMutatingPost(postId: flatPost.post.id),
+                    onToggleLike: { toggleLike(for: $0) },
+                    onSelectReaction: { post, reactionId in
+                        toggleReaction(reactionId, for: post)
+                    }
+                )
+            }
             .id(flatPost.post.postNumber)
             .background(FireVisiblePostFrameReporter(postNumber: flatPost.post.postNumber))
 
@@ -568,25 +573,23 @@ struct FireTopicDetailView: View {
 
             if let composerContext, let targetPost = composerTargetPost {
                 let canChangeTargetReaction = canChangeReaction(for: targetPost)
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
+                FlowLayout(spacing: 8, fallbackWidth: max(UIScreen.main.bounds.width - 32, 200)) {
+                    Button {
+                        toggleLike(for: targetPost)
+                    } label: {
+                        composerReactionPill(symbol: "❤️", label: "赞")
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!canChangeTargetReaction)
+
+                    ForEach(nonHeartReactionOptions) { option in
                         Button {
-                            toggleLike(for: targetPost)
+                            toggleReaction(option.id, for: targetPost)
                         } label: {
-                            composerReactionPill(symbol: "❤️", label: "赞")
+                            composerReactionPill(symbol: option.symbol, label: option.label)
                         }
                         .buttonStyle(.plain)
                         .disabled(!canChangeTargetReaction)
-
-                        ForEach(nonHeartReactionOptions) { option in
-                            Button {
-                                toggleReaction(option.id, for: targetPost)
-                            } label: {
-                                composerReactionPill(symbol: option.symbol, label: option.label)
-                            }
-                            .buttonStyle(.plain)
-                            .disabled(!canChangeTargetReaction)
-                        }
                     }
                 }
 
@@ -897,10 +900,8 @@ private struct FirePostRow: View {
     let replyContext: String?
     let showsThreadLine: Bool
     let baseURLString: String
-    let reactionOptions: [FireReactionOption]
     let canWriteInteractions: Bool
     let isMutating: Bool
-    let onReply: (TopicPostState) -> Void
     let onToggleLike: (TopicPostState) -> Void
     let onSelectReaction: (TopicPostState, String) -> Void
 
@@ -912,28 +913,6 @@ private struct FirePostRow: View {
 
     private var imageAttachments: [FireCookedImage] {
         FireTopicPresentation.imageAttachments(from: post.cooked, baseURLString: baseURLString)
-    }
-
-    private var currentReactionOption: FireReactionOption? {
-        guard let currentReaction = post.currentUserReaction, currentReaction.id != "heart" else {
-            return nil
-        }
-        return FireTopicPresentation.reactionOption(for: currentReaction.id)
-    }
-
-    private var nonHeartReactionOptions: [FireReactionOption] {
-        reactionOptions.filter { $0.id != "heart" }
-    }
-
-    private var isHeartSelected: Bool {
-        post.currentUserReaction?.id == "heart"
-    }
-
-    private var totalReactionCount: UInt32 {
-        let total = post.reactions.reduce(UInt32(0)) { partialResult, reaction in
-            partialResult + reaction.count
-        }
-        return total > 0 ? total : post.likeCount
     }
 
     private var canChangeReaction: Bool {
@@ -1043,80 +1022,91 @@ private struct FirePostRow: View {
                         }
                     }
                 }
-
-                HStack(spacing: 12) {
-                    if canWriteInteractions {
-                        Button {
-                            onToggleLike(post)
-                        } label: {
-                            FirePostMetaAction(
-                                systemImage: isHeartSelected ? "heart.fill" : "heart",
-                                value: totalReactionCount > 0 ? "\(totalReactionCount)" : nil,
-                                tint: isHeartSelected ? .red : FireTheme.tertiaryInk
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(!canChangeReaction)
-
-                        if !nonHeartReactionOptions.isEmpty {
-                            Menu {
-                                ForEach(nonHeartReactionOptions) { option in
-                                    Button("\(option.symbol) \(option.label)") {
-                                        onSelectReaction(post, option.id)
-                                    }
-                                }
-                            } label: {
-                                FirePostMetaAction(
-                                    systemImage: "face.smiling",
-                                    value: currentReactionOption.map { "\($0.symbol)" },
-                                    tint: currentReactionOption == nil ? FireTheme.tertiaryInk : FireTheme.accent
-                                )
-                            }
-                            .disabled(!canChangeReaction)
-                        }
-
-                        Button {
-                            onReply(post)
-                        } label: {
-                            FirePostMetaAction(
-                                systemImage: "arrowshape.turn.up.left",
-                                value: post.replyCount > 0 ? "\(post.replyCount)" : nil,
-                                tint: FireTheme.tertiaryInk
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(isMutating)
-                    } else if post.replyCount > 0 {
-                        FirePostMetaAction(
-                            systemImage: "arrowshape.turn.up.left",
-                            value: "\(post.replyCount)",
-                            tint: FireTheme.tertiaryInk
-                        )
-                    }
-
-                    Spacer()
-                }
             }
             .padding(.vertical, 8)
         }
     }
 }
 
-private struct FirePostMetaAction: View {
-    let systemImage: String
-    let value: String?
-    let tint: Color
+private struct FireSwipeToReplyContainer<Content: View>: View {
+    let enabled: Bool
+    let onSwipeReply: () -> Void
+    @ViewBuilder let content: () -> Content
+
+    @State private var offset: CGFloat = 0
+    @State private var gestureDirection: GestureAxis? = nil
+    @State private var replyTriggered = false
+
+    private enum GestureAxis { case horizontal, vertical }
+
+    private let triggerThreshold: CGFloat = 55
+    private let maxOffset: CGFloat = 75
 
     var body: some View {
-        HStack(spacing: 4) {
-            Image(systemName: systemImage)
-            if let value {
-                Text(value)
-                    .font(.caption.monospacedDigit())
-            }
+        if enabled {
+            swipeableContent
+        } else {
+            content()
         }
-        .font(.caption2)
-        .foregroundStyle(tint)
+    }
+
+    private var swipeableContent: some View {
+        content()
+            .offset(x: offset)
+            .background(alignment: .leading) {
+                if offset > 4 {
+                    replyIndicator
+                }
+            }
+            .clipped()
+            .contentShape(Rectangle())
+            .simultaneousGesture(swipeGesture)
+    }
+
+    private var replyIndicator: some View {
+        Image(systemName: "arrowshape.turn.up.left.fill")
+            .font(.system(size: 18, weight: .medium))
+            .foregroundStyle(replyTriggered ? FireTheme.accent : FireTheme.tertiaryInk)
+            .scaleEffect(min(offset / triggerThreshold, 1.0))
+            .opacity(Double(min(offset / (triggerThreshold * 0.5), 1.0)))
+            .frame(width: 32, height: 32)
+            .padding(.leading, 4)
+    }
+
+    private var swipeGesture: some Gesture {
+        DragGesture(minimumDistance: 18)
+            .onChanged { value in
+                let dx = value.translation.width
+                let dy = value.translation.height
+
+                if gestureDirection == nil {
+                    gestureDirection = abs(dx) > abs(dy) * 1.2 ? .horizontal : .vertical
+                }
+
+                guard gestureDirection == .horizontal, dx > 0 else { return }
+
+                let dampened = dx > triggerThreshold
+                    ? triggerThreshold + (dx - triggerThreshold) * 0.25
+                    : dx
+                withAnimation(.interactiveSpring()) {
+                    offset = min(dampened, maxOffset)
+                }
+
+                if offset >= triggerThreshold && !replyTriggered {
+                    replyTriggered = true
+                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                }
+            }
+            .onEnded { _ in
+                if replyTriggered {
+                    onSwipeReply()
+                }
+                withAnimation(.spring(response: 0.25, dampingFraction: 0.7)) {
+                    offset = 0
+                }
+                gestureDirection = nil
+                replyTriggered = false
+            }
     }
 }
 

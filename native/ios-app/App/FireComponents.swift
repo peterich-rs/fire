@@ -550,6 +550,7 @@ struct FlowLayout: Layout {
         cache: inout ()
     ) -> CGSize {
         let maxWidth = resolvedMaxWidth(for: proposal)
+        let hasExplicitWidth = proposal.width.map { $0.isFinite && $0 > 0 } ?? false
         var lineWidth: CGFloat = 0
         var lineHeight: CGFloat = 0
         var totalHeight: CGFloat = 0
@@ -571,7 +572,8 @@ struct FlowLayout: Layout {
         totalHeight += lineHeight
         maxLineWidth = max(maxLineWidth, lineWidth)
 
-        return CGSize(width: maxLineWidth, height: totalHeight)
+        let reportedWidth = hasExplicitWidth ? maxWidth : maxLineWidth
+        return CGSize(width: reportedWidth, height: totalHeight)
     }
 
     func placeSubviews(

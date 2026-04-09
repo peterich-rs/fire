@@ -1192,6 +1192,21 @@ pub struct TopicDetail {
     pub details: TopicDetailMeta,
 }
 
+impl TopicDetail {
+    pub fn interaction_count(&self) -> u32 {
+        self.like_count.saturating_add(
+            self.post_stream
+                .posts
+                .iter()
+                .flat_map(|post| post.reactions.iter())
+                .filter(|reaction| !reaction.id.eq_ignore_ascii_case("heart"))
+                .fold(0_u32, |total, reaction| {
+                    total.saturating_add(reaction.count)
+                }),
+        )
+    }
+}
+
 fn merge_string_patch(slot: &mut Option<String>, patch: Option<String>) {
     if let Some(value) = patch {
         if value.is_empty() {
@@ -1520,7 +1535,8 @@ pub struct UserActionResponse {
 mod tests {
     use super::{
         BootstrapArtifacts, CookieSnapshot, LoginPhase, PlatformCookie, SessionSnapshot,
-        TopicCategory, TopicListKind, TopicListQuery, TopicPost, TopicThread, TopicThreadFlatPost,
+        TopicCategory, TopicDetail, TopicListKind, TopicListQuery, TopicPost, TopicPostStream,
+        TopicReaction, TopicThread, TopicThreadFlatPost,
     };
 
     #[test]
@@ -1857,6 +1873,44 @@ mod tests {
         assert!(bootstrap.can_tag_topics);
         assert_eq!(bootstrap.categories.len(), 1);
         assert!(bootstrap.has_preloaded_data);
+    }
+
+    #[test]
+    fn topic_detail_interaction_count_adds_non_heart_reactions_to_topic_likes() {
+        let detail = TopicDetail {
+            like_count: 21,
+            post_stream: TopicPostStream {
+                posts: vec![
+                    TopicPost {
+                        reactions: vec![
+                            TopicReaction {
+                                id: "heart".into(),
+                                count: 5,
+                                ..TopicReaction::default()
+                            },
+                            TopicReaction {
+                                id: "clap".into(),
+                                count: 2,
+                                ..TopicReaction::default()
+                            },
+                        ],
+                        ..TopicPost::default()
+                    },
+                    TopicPost {
+                        reactions: vec![TopicReaction {
+                            id: "TADA".into(),
+                            count: 3,
+                            ..TopicReaction::default()
+                        }],
+                        ..TopicPost::default()
+                    },
+                ],
+                ..TopicPostStream::default()
+            },
+            ..TopicDetail::default()
+        };
+
+        assert_eq!(detail.interaction_count(), 26);
     }
 
     #[test]

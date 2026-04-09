@@ -48,7 +48,6 @@ struct FireTopicRow: View {
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .fixedSize(horizontal: false, vertical: true)
 
                 HStack(alignment: .center, spacing: 6) {
                     Text(displayUsername)

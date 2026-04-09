@@ -122,6 +122,10 @@ final class FireAppViewModel: ObservableObject {
     @Published private(set) var notificationUnreadCount: Int = 0
     @Published private(set) var recentNotifications: [NotificationItemState] = []
     @Published private(set) var isLoadingNotifications = false
+    @Published private(set) var notificationFullList: [NotificationItemState] = []
+    @Published private(set) var notificationFullNextOffset: UInt32?
+    @Published private(set) var isLoadingNotificationFullPage = false
+    @Published private(set) var hasMoreNotificationFull = false
 
     // MARK: - Search
 
@@ -167,6 +171,7 @@ final class FireAppViewModel: ObservableObject {
     private var topicPresenceHeartbeatTasks: [UInt64: Task<Void, Never>] = [:]
     private var topicPostPreloadTasks: [UInt64: Task<Void, Never>] = [:]
     private var topicPostPaginationStates: [UInt64: FireTopicPostPaginationState] = [:]
+    private var topicDetailTargetPostNumbers: [UInt64: UInt32] = [:]
     private var activeTopicDetailOwnerTokens: [UInt64: Set<String>] = [:]
     private var searchTask: Task<Void, Never>?
     private var latestSearchRequestID: UInt64 = 0
@@ -404,7 +409,11 @@ final class FireAppViewModel: ObservableObject {
         }
     }
 
-    func loadTopicDetail(topicId: UInt64, force: Bool = false) async {
+    func loadTopicDetail(
+        topicId: UInt64,
+        targetPostNumber: UInt32? = nil,
+        force: Bool = false
+    ) async {
         guard let sessionStore else {
             return
         }
@@ -420,9 +429,13 @@ final class FireAppViewModel: ObservableObject {
             return
         }
 
+        if let targetPostNumber {
+            topicDetailTargetPostNumbers[topicId] = targetPostNumber
+        }
+
         let hadCachedDetail = topicDetails[topicId] != nil
         topicDetailLogger()?.debug(
-            "loading topic detail topic_id=\(topicId) force=\(force) had_cache=\(hadCachedDetail)"
+            "loading topic detail topic_id=\(topicId) force=\(force) had_cache=\(hadCachedDetail) target_post=\(String(describing: targetPostNumber))"
         )
         loadingTopicIDs.insert(topicId)
         defer { loadingTopicIDs.remove(topicId) }
@@ -432,7 +445,7 @@ final class FireAppViewModel: ObservableObject {
             let detail = try await sessionStore.fetchTopicDetailInitial(
                 query: TopicDetailQueryState(
                     topicId: topicId,
-                    postNumber: nil,
+                    postNumber: targetPostNumber,
                     trackVisit: true,
                     filter: nil,
                     usernameFilters: nil,
@@ -452,6 +465,10 @@ final class FireAppViewModel: ObservableObject {
             }
             errorMessage = error.localizedDescription
         }
+    }
+
+    func clearTopicDetailAnchor(topicId: UInt64) {
+        topicDetailTargetPostNumbers.removeValue(forKey: topicId)
     }
 
     func topicDetail(for topicId: UInt64) -> TopicDetailState? {
@@ -532,6 +549,7 @@ final class FireAppViewModel: ObservableObject {
         )
 
         guard owners.isEmpty else { return }
+        topicDetailTargetPostNumbers.removeValue(forKey: topicId)
         let visibleTopicIDs = Set(topicRows.map(\.topic.id))
         guard !visibleTopicIDs.contains(topicId) else { return }
         evictTopicDetailState(topicId: topicId, reason: "detail view disappeared")
@@ -810,6 +828,9 @@ final class FireAppViewModel: ObservableObject {
                 if let idx = recentNotifications.firstIndex(where: { $0.id == id }) {
                     recentNotifications[idx].read = true
                 }
+                if state.hasLoadedFull {
+                    notificationFullList = state.full
+                }
             } catch {
                 _ = await self.handleCloudflareChallengeIfNeeded(error)
             }
@@ -825,9 +846,31 @@ final class FireAppViewModel: ObservableObject {
                 recentNotifications = recentNotifications.map {
                     var n = $0; n.read = true; return n
                 }
+                if state.hasLoadedFull {
+                    notificationFullList = state.full
+                }
             } catch {
                 _ = await self.handleCloudflareChallengeIfNeeded(error)
             }
+        }
+    }
+
+    func loadNotificationFullPage(offset: UInt32?) async {
+        guard let sessionStore else { return }
+        guard session.readiness.canReadAuthenticatedApi else { return }
+        guard !isLoadingNotificationFullPage else { return }
+
+        isLoadingNotificationFullPage = true
+        defer { isLoadingNotificationFullPage = false }
+        do {
+            _ = try await sessionStore.fetchNotifications(limit: nil, offset: offset)
+            let state = try await sessionStore.notificationState()
+            notificationFullList = state.full
+            notificationFullNextOffset = state.fullNextOffset
+            hasMoreNotificationFull = state.fullNextOffset != nil
+            notificationUnreadCount = Int(state.counters.allUnread)
+        } catch {
+            _ = await handleCloudflareChallengeIfNeeded(error)
         }
     }
 
@@ -1149,11 +1192,12 @@ final class FireAppViewModel: ObservableObject {
             guard !Task.isCancelled else { return }
             guard let self, let store = self.sessionStore else { return }
             guard self.topicDetails[topicId] != nil else { return }
+            let anchorPostNumber = self.topicDetailTargetPostNumbers[topicId]
             do {
                 let detail = try await store.fetchTopicDetailInitial(
                     query: TopicDetailQueryState(
                         topicId: topicId,
-                        postNumber: nil,
+                        postNumber: anchorPostNumber,
                         trackVisit: false,
                         filter: nil,
                         usernameFilters: nil,

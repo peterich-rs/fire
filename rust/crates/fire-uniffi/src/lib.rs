@@ -17,20 +17,21 @@ use fire_core::{
     NetworkTraceEvent, NetworkTraceHeader, NetworkTraceOutcome, NetworkTraceSummary,
 };
 use fire_models::{
-    BootstrapArtifacts, CookieSnapshot, GroupedSearchResult, LoginPhase, LoginSyncInput,
+    Badge, BootstrapArtifacts, CookieSnapshot, GroupedSearchResult, LoginPhase, LoginSyncInput,
     MessageBusClientMode, MessageBusEvent, MessageBusEventKind, MessageBusSubscription,
     MessageBusSubscriptionScope, NotificationAlert, NotificationAlertPollResult,
     NotificationCounters, NotificationData, NotificationItem, NotificationListResponse,
-    NotificationState, PlatformCookie, PostReactionUpdate, RequiredTagGroup, SearchPost,
-    SearchQuery, SearchResult, SearchTopic, SearchTypeFilter, SearchUser, SessionReadiness,
-    SessionSnapshot, TagSearchItem, TagSearchQuery, TagSearchResult, TopicCategory, TopicDetail,
-    TopicDetailCreatedBy, TopicDetailMeta, TopicDetailQuery, TopicListKind, TopicListQuery,
-    TopicListResponse, TopicPost, TopicPostStream, TopicPoster, TopicPresence, TopicPresenceUser,
-    TopicReaction, TopicReplyRequest, TopicRow, TopicSummary, TopicTag, TopicThread,
-    TopicThreadFlatPost, TopicThreadReply, TopicThreadSection, TopicTimingEntry,
-    TopicTimingsRequest, TopicUser, UserMentionGroup, UserMentionQuery, UserMentionResult,
-    UserMentionUser, Badge, ProfileSummaryReply, ProfileSummaryTopic, ProfileSummaryTopCategory,
-    ProfileSummaryUserReference, UserAction, UserProfile, UserSummaryResponse, UserSummaryStats,
+    NotificationState, PlatformCookie, PostReactionUpdate, ProfileSummaryReply,
+    ProfileSummaryTopCategory, ProfileSummaryTopic, ProfileSummaryUserReference, RequiredTagGroup,
+    SearchPost, SearchQuery, SearchResult, SearchTopic, SearchTypeFilter, SearchUser,
+    SessionReadiness, SessionSnapshot, TagSearchItem, TagSearchQuery, TagSearchResult,
+    TopicCategory, TopicDetail, TopicDetailCreatedBy, TopicDetailMeta, TopicDetailQuery,
+    TopicListKind, TopicListQuery, TopicListResponse, TopicPost, TopicPostStream, TopicPoster,
+    TopicPresence, TopicPresenceUser, TopicReaction, TopicReplyRequest, TopicRow, TopicSummary,
+    TopicTag, TopicThread, TopicThreadFlatPost, TopicThreadReply, TopicThreadSection,
+    TopicTimingEntry, TopicTimingsRequest, TopicUser, UserAction, UserMentionGroup,
+    UserMentionQuery, UserMentionResult, UserMentionUser, UserProfile, UserSummaryResponse,
+    UserSummaryStats,
 };
 use futures_util::FutureExt;
 use tokio::runtime::{Builder, Runtime};
@@ -2012,7 +2013,7 @@ fn trust_level_label(level: u32) -> String {
         2 => "成员".to_string(),
         3 => "老手".to_string(),
         4 => "领导者".to_string(),
-        _ => format!("TL{}", level),
+        _ => format!("TL{level}"),
     }
 }
 
@@ -2167,7 +2168,11 @@ impl From<UserSummaryResponse> for UserSummaryState {
             top_topics: value.top_topics.into_iter().map(Into::into).collect(),
             top_replies: value.top_replies.into_iter().map(Into::into).collect(),
             top_categories: value.top_categories.into_iter().map(Into::into).collect(),
-            most_liked_by_users: value.most_liked_by_users.into_iter().map(Into::into).collect(),
+            most_liked_by_users: value
+                .most_liked_by_users
+                .into_iter()
+                .map(Into::into)
+                .collect(),
             badges: value.badges.into_iter().map(Into::into).collect(),
         }
     }

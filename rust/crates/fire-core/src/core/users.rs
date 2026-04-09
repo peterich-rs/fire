@@ -9,16 +9,12 @@ use crate::{
 };
 
 impl FireCore {
-    pub async fn fetch_user_profile(
-        &self,
-        username: &str,
-    ) -> Result<UserProfile, FireCoreError> {
+    pub async fn fetch_user_profile(&self, username: &str) -> Result<UserProfile, FireCoreError> {
         info!(username, "fetching user profile");
-        let path = format!("/u/{}.json", username);
+        let path = format!("/u/{username}.json");
         let traced = self.build_json_get_request("fetch user profile", &path, vec![], &[])?;
         let (trace_id, response) = self.execute_request(traced).await?;
-        let response =
-            expect_success(self, "fetch user profile", trace_id, response).await?;
+        let response = expect_success(self, "fetch user profile", trace_id, response).await?;
         let value: Value = self
             .read_response_json("fetch user profile", trace_id, response)
             .await?;
@@ -28,7 +24,11 @@ impl FireCore {
                 source,
             }
         })?;
-        info!(username, user_id = profile.id, "user profile fetched successfully");
+        info!(
+            username,
+            user_id = profile.id,
+            "user profile fetched successfully"
+        );
         Ok(profile)
     }
 
@@ -37,11 +37,10 @@ impl FireCore {
         username: &str,
     ) -> Result<UserSummaryResponse, FireCoreError> {
         info!(username, "fetching user summary");
-        let path = format!("/u/{}/summary.json", username);
+        let path = format!("/u/{username}/summary.json");
         let traced = self.build_json_get_request("fetch user summary", &path, vec![], &[])?;
         let (trace_id, response) = self.execute_request(traced).await?;
-        let response =
-            expect_success(self, "fetch user summary", trace_id, response).await?;
+        let response = expect_success(self, "fetch user summary", trace_id, response).await?;
         let value: Value = self
             .read_response_json("fetch user summary", trace_id, response)
             .await?;
@@ -74,15 +73,10 @@ impl FireCore {
         if let Some(filter) = filter {
             params.push(("filter", filter.to_string()));
         }
-        let traced = self.build_json_get_request(
-            "fetch user actions",
-            "/user_actions.json",
-            params,
-            &[],
-        )?;
+        let traced =
+            self.build_json_get_request("fetch user actions", "/user_actions.json", params, &[])?;
         let (trace_id, response) = self.execute_request(traced).await?;
-        let response =
-            expect_success(self, "fetch user actions", trace_id, response).await?;
+        let response = expect_success(self, "fetch user actions", trace_id, response).await?;
         let value: Value = self
             .read_response_json("fetch user actions", trace_id, response)
             .await?;
@@ -92,7 +86,11 @@ impl FireCore {
                 source,
             }
         })?;
-        info!(username, action_count = actions.len(), "user actions fetched successfully");
+        info!(
+            username,
+            action_count = actions.len(),
+            "user actions fetched successfully"
+        );
         Ok(actions)
     }
 }

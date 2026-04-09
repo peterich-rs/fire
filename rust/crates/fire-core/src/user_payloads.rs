@@ -1,14 +1,11 @@
 use fire_models::{
-    Badge, ProfileSummaryLink, ProfileSummaryReply, ProfileSummaryTopic,
-    ProfileSummaryTopCategory, ProfileSummaryUserReference, UserAction, UserProfile,
-    UserSummaryResponse, UserSummaryStats,
+    Badge, ProfileSummaryLink, ProfileSummaryReply, ProfileSummaryTopCategory, ProfileSummaryTopic,
+    ProfileSummaryUserReference, UserAction, UserProfile, UserSummaryResponse, UserSummaryStats,
 };
 use serde::Deserialize;
 use serde_json::Value;
 
-pub(crate) fn parse_user_profile_value(
-    value: Value,
-) -> Result<UserProfile, serde_json::Error> {
+pub(crate) fn parse_user_profile_value(value: Value) -> Result<UserProfile, serde_json::Error> {
     let user_value = match value {
         Value::Object(ref obj) if obj.contains_key("user") => {
             obj.get("user").cloned().unwrap_or(value.clone())
@@ -96,13 +93,12 @@ pub(crate) fn parse_user_summary_value(
     })
 }
 
-pub(crate) fn parse_user_actions_value(
-    value: Value,
-) -> Result<Vec<UserAction>, serde_json::Error> {
+pub(crate) fn parse_user_actions_value(value: Value) -> Result<Vec<UserAction>, serde_json::Error> {
     let actions_value = match value {
-        Value::Object(ref obj) if obj.contains_key("user_actions") => {
-            obj.get("user_actions").cloned().unwrap_or(Value::Array(Vec::new()))
-        }
+        Value::Object(ref obj) if obj.contains_key("user_actions") => obj
+            .get("user_actions")
+            .cloned()
+            .unwrap_or(Value::Array(Vec::new())),
         Value::Array(_) => value,
         _ => Value::Array(Vec::new()),
     };

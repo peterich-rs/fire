@@ -1,0 +1,3 @@
+// Copy to Fire-Local-Debug.xcconfig for ignored local device signing overrides.
+FIRE_DEVELOPMENT_TEAM = YOUR_DEVELOPMENT_TEAM_ID
+FIRE_PRODUCT_BUNDLE_IDENTIFIER = com.example.fire.dev

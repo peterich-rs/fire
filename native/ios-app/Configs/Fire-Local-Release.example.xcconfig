@@ -1,0 +1,5 @@
+// Copy to Fire-Local-Release.xcconfig for ignored local archive/release signing overrides.
+FIRE_DEVELOPMENT_TEAM = YOUR_DEVELOPMENT_TEAM_ID
+// Optional: switch to Manual when you need explicit local archive signing.
+// FIRE_CODE_SIGN_STYLE = Manual
+// FIRE_PROVISIONING_PROFILE_SPECIFIER = Your Provisioning Profile Name

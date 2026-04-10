@@ -100,9 +100,24 @@ Expected integration flow:
 Xcode project generation rules:
 
 - `native/ios-app/project.yml` is the source of truth for `Fire.xcodeproj`.
+- Signing now flows through `native/ios-app/Configs/Fire-*.xcconfig` so local developer-account overrides do not need to touch the generated project.
 - New Swift files placed under existing source roots such as `App/` or `Sources/FireAppSession/` do not require a `project.yml` edit, but they do require rerunning `xcodegen generate --spec native/ios-app/project.yml` and committing the regenerated `Fire.xcodeproj`.
 - Changes that introduce a new source/resource directory, framework dependency, build script, target, or Xcode build setting must update `project.yml` first, then regenerate `Fire.xcodeproj`.
 - CI regenerates `Fire.xcodeproj` from `project.yml` before building and now fails if the checked-in project differs from the generated result. This catches local project drift where source files exist on disk but the committed Xcode project was not regenerated.
+
+Local signing overrides:
+
+- Default signing values live in `native/ios-app/Configs/Fire-Shared.xcconfig`.
+- `Debug` loads `native/ios-app/Configs/Fire-Local-Debug.xcconfig` if it exists.
+- `Release` loads `native/ios-app/Configs/Fire-Local-Release.xcconfig` if it exists.
+- The two `Fire-Local-*.xcconfig` files are ignored by git; use the matching `.example.xcconfig` file as the template.
+- Recommended local-device setup:
+  1. Copy `native/ios-app/Configs/Fire-Local-Debug.example.xcconfig` to `native/ios-app/Configs/Fire-Local-Debug.xcconfig`.
+  2. Set `FIRE_DEVELOPMENT_TEAM` to your Apple Developer team ID.
+  3. If your personal/team signing requires a separate app id, set `FIRE_PRODUCT_BUNDLE_IDENTIFIER` to a local-only bundle identifier.
+  4. Run `xcodegen generate --spec native/ios-app/project.yml` after any `project.yml` or `Configs/` change.
+- If you need a local archive/export setup later, create `native/ios-app/Configs/Fire-Local-Release.xcconfig` from the example instead of editing Xcode Signing UI values in the generated project.
+- Avoid changing signing values directly inside Xcode's generated project settings for routine local work. Those edits dirty `Fire.xcodeproj/project.pbxproj` and will be overwritten the next time `xcodegen` runs.
 
 Workspace note:
 

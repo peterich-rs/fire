@@ -1192,7 +1192,7 @@ pub(crate) fn read_log_file(
     let (contents, is_truncated) = truncate_text(&decoded, MAX_LOG_CONTENT_BYTES);
 
     Ok(FireLogFileDetail {
-        relative_path: relative_path.to_string_lossy().to_string(),
+        relative_path: workspace_relative_path_string(relative_path),
         file_name: resolved_path
             .file_name()
             .and_then(|value| value.to_str())
@@ -1238,7 +1238,7 @@ pub(crate) fn read_log_file_page(
     );
 
     Ok(FireLogFilePage {
-        relative_path: relative_path.to_string_lossy().to_string(),
+        relative_path: workspace_relative_path_string(relative_path),
         file_name: resolved_path
             .file_name()
             .and_then(|value| value.to_str())
@@ -1340,7 +1340,7 @@ pub(crate) fn export_support_bundle(
 
     Ok(FireSupportBundleExport {
         file_name,
-        relative_path: relative_path.to_string_lossy().to_string(),
+        relative_path: workspace_relative_path_string(&relative_path),
         absolute_path: absolute_path.display().to_string(),
         size_bytes,
         created_at_unix_ms: generated_at_unix_ms,
@@ -1381,8 +1381,8 @@ fn visit_log_files(
                 source,
             })?;
         let relative_path = path.strip_prefix(workspace_path).map_or_else(
-            |_| path.to_string_lossy().to_string(),
-            |value| value.to_string_lossy().to_string(),
+            |_| workspace_relative_path_string(&path),
+            workspace_relative_path_string,
         );
 
         out.push(FireLogFileSummary {
@@ -1678,6 +1678,16 @@ fn is_support_bundle_path(workspace_path: &Path, path: &Path) -> bool {
         .is_some_and(|relative_path| relative_path.starts_with(&support_bundle_root))
 }
 
+fn workspace_relative_path_string(path: &Path) -> String {
+    path.iter()
+        .filter_map(|component| {
+            let component = component.to_string_lossy();
+            (!component.is_empty() && component != ".").then(|| component.into_owned())
+        })
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
 fn support_bundle_log_json(page: &FireLogFilePage) -> Value {
     json!({
         "relative_path": page.relative_path,
@@ -1818,7 +1828,7 @@ fn new_diagnostic_session_id() -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::{env, fs, sync::Arc};
+    use std::{env, fs, path::Path, sync::Arc};
 
     use serde_json::Value;
 
@@ -2133,7 +2143,13 @@ mod tests {
         )
         .expect("export support bundle");
 
-        assert!(export.absolute_path.ends_with(&export.relative_path));
+        assert_eq!(
+            Path::new(&export.absolute_path),
+            workspace_dir.join(Path::new(&export.relative_path))
+        );
+        assert!(export
+            .relative_path
+            .starts_with("diagnostics/support-bundles/"));
 
         let payload: Value =
             serde_json::from_slice(&fs::read(&export.absolute_path).expect("support bundle file"))
@@ -2170,6 +2186,7 @@ mod tests {
         );
 
         let listed_logs = super::list_log_files(&workspace_dir).expect("list logs");
+        assert_eq!(listed_logs[0].relative_path, "diagnostics/fire-readable.log");
         assert!(listed_logs.iter().all(|file| {
             !file
                 .relative_path

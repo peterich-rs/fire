@@ -8,19 +8,20 @@ struct FireProfileStatsRow: View {
             ForEach(Array(items.enumerated()), id: \.offset) { index, item in
                 if index > 0 {
                     Divider()
-                        .frame(height: 30)
+                        .frame(height: 22)
                 }
                 VStack(spacing: 4) {
                     Text(item.value)
-                        .font(.title3.monospacedDigit().weight(.semibold))
+                        .font(.headline.monospacedDigit().weight(.semibold))
                         .foregroundStyle(FireTheme.ink)
+                        .contentTransition(.numericText())
                     Text(item.label)
-                        .font(.caption2)
+                        .font(.caption)
                         .foregroundStyle(FireTheme.subtleInk)
                 }
                 .frame(maxWidth: .infinity)
             }
         }
-        .padding(.vertical, 8)
+        .padding(.vertical, 6)
     }
 }

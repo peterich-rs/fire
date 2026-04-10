@@ -17,6 +17,7 @@
 		428170833590DCF14AEEA64C /* FireTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8FFC5F5EA7CD05C23FBEB9A2 /* FireTheme.swift */; };
 		48C404692D8F5FA7471852BF /* FireSearchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A08AB12E53EB29136A0946A /* FireSearchView.swift */; };
 		5A95F9C29909968BF4B17AD7 /* FireAuthCookieKeychainStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C313FFDD8D569FA6D9B1C0E0 /* FireAuthCookieKeychainStore.swift */; };
+		5FA66113E53795C8DC6D0563 /* FireProfileActivityTimelineView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35E67F65FB748821001726D /* FireProfileActivityTimelineView.swift */; };
 		6A8BA8AACC4ED45E311894CE /* FireTopicDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 67647993BFF688FB02B71DBB /* FireTopicDetailView.swift */; };
 		6A93EC6F3D79F51A9CB66A58 /* FireAppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 300B5894E4B597FC94E645D3 /* FireAppDelegate.swift */; };
 		72EF4FD238A8072A48B7948E /* FireTopicRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D1C4D30FB92D47F801B64D4 /* FireTopicRow.swift */; };
@@ -99,6 +100,7 @@
 		C810E3D0B2CF415495A3D5C4 /* FireFilteredTopicListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireFilteredTopicListView.swift; sourceTree = "<group>"; };
 		CC6840B06FC02F67318B0991 /* FireSessionSecurityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireSessionSecurityTests.swift; sourceTree = "<group>"; };
 		CEBEB262C9A5B9B7348537B8 /* FireNavigationState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireNavigationState.swift; sourceTree = "<group>"; };
+		D35E67F65FB748821001726D /* FireProfileActivityTimelineView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireProfileActivityTimelineView.swift; sourceTree = "<group>"; };
 		DD9004CEFFCDDBE2E50D71B0 /* FireOnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireOnboardingView.swift; sourceTree = "<group>"; };
 		E2A86A280EED500EF3126038 /* FireNotificationsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireNotificationsView.swift; sourceTree = "<group>"; };
 		E69013450F80AEC210D5512D /* Security.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Security.framework; path = System/Library/Frameworks/Security.framework; sourceTree = SDKROOT; };
@@ -165,6 +167,7 @@
 				E2A86A280EED500EF3126038 /* FireNotificationsView.swift */,
 				DD9004CEFFCDDBE2E50D71B0 /* FireOnboardingView.swift */,
 				292A9A11D19C39A02BC00B38 /* FireProfileActivityRow.swift */,
+				D35E67F65FB748821001726D /* FireProfileActivityTimelineView.swift */,
 				BABD32407FB273553E9394B3 /* FireProfileBadgeChip.swift */,
 				6210541C2E8219CE500CFC04 /* FireProfileStatsRow.swift */,
 				F02D3C136EFF0589DC131FB9 /* FireProfileTrustLevelPill.swift */,
@@ -369,6 +372,7 @@
 				9D5F82625F6960B6A6ED10B9 /* FireNotificationsView.swift in Sources */,
 				792980AB2D2B5BF56221DF47 /* FireOnboardingView.swift in Sources */,
 				8D3E53867C1B21D940FB765A /* FireProfileActivityRow.swift in Sources */,
+				5FA66113E53795C8DC6D0563 /* FireProfileActivityTimelineView.swift in Sources */,
 				E56F67E343C97A5F77A3068E /* FireProfileBadgeChip.swift in Sources */,
 				8F10E1B26BE2D5FC5F2D6C1B /* FireProfileStatsRow.swift in Sources */,
 				B21E0A6B519EA414B836E4BE /* FireProfileTrustLevelPill.swift in Sources */,

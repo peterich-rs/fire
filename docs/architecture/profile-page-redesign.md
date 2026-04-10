@@ -4,6 +4,16 @@
 
 This redesign replaces the current `FireProfileView` diagnostic-oriented layout with a product-grade user profile. The existing session-info section and diagnostic actions move into a "developer tools" sub-page, preserving all current debug capabilities while removing them from the primary UX surface.
 
+## Current Implementation Snapshot
+
+The shipped iOS implementation now differs from the earliest proposal in a few important ways:
+
+- The main profile tab is a grouped `List`-based overview page, not a single long `ScrollView` with a decorative gradient banner.
+- Bookmarks moved above the activity feed so they remain visible without scrolling through long activity history.
+- The profile tab shows only a short recent-activity preview. Full activity browsing moved into a dedicated `FireProfileActivityTimelineView` screen with segmented filtering.
+- Developer tools and logout live behind the top-right gear menu instead of occupying permanent space at the bottom of the main profile page.
+- Pull-to-refresh now reloads both profile/summary data and the user-action feed via `FireProfileViewModel.refreshAll()`.
+
 ## Feasibility Assessment
 
 The Discourse backend already exposes all required data through well-documented endpoints: `GET /u/{username}.json` (identity, bio, trust level, flair, follow stats), `GET /u/{username}/summary.json` (activity stats, top topics/replies, badges), and `GET /user_actions.json` (activity feed). The Fluxdo Flutter reference client (`references/fluxdo/lib/models/user.dart`, `references/fluxdo/lib/pages/user_profile_page.dart`) proves these endpoints are stable and sufficient for a rich profile experience. The existing `FireTheme` design system provides a complete color palette and constant set. The Rust shared core (`fire-models`) currently lacks profile/badge types but adding them is straightforward serde work with no blockers.
@@ -12,7 +22,8 @@ Crate layering is clear: new API orchestration goes in `fire-core/src/core/users
 
 ## Current Surface Inventory
 
-- **`native/ios-app/App/FireProfileView.swift`** -- The sole "我的" tab view. Contains: error banner, user header (avatar+name+status dot), local topic-list stats (loaded topics, unread posts, solved), session info section (7 readiness indicators), actions section (diagnostics link, refresh bootstrap, restore session, logout/login).
+- **`native/ios-app/App/FireProfileView.swift`** -- The main "我的" overview page. Contains: error banner, profile identity header, social stats, bookmark shortcut, summary metric grid, badge preview, recent activity preview, and navigation into the full activity timeline.
+- **`native/ios-app/App/FireProfileActivityTimelineView.swift`** -- Dedicated full activity screen. Hosts segmented filters (全部/话题/回复/被赞), pagination, error banner handling, and navigation into topic detail.
 - **`native/ios-app/App/FireAppViewModel.swift`** -- Shared ViewModel. Exposes `session: SessionState`, `topicRows`, `errorMessage`, session lifecycle methods. `sessionStore: FireSessionStore?` and `sessionStoreValue()` are **private** (lines 152, 1956). No user-profile-specific API calls exist.
 - **`native/ios-app/Sources/FireAppSession/FireSessionStore.swift`** -- The `actor` wrapping `FireCoreHandle` that is the iOS-side Rust entry point (line 65). All Rust API calls from the app go through this actor. New profile API methods will be added here.
 - **`native/ios-app/App/SessionState+Helpers.swift`** -- Convenience extensions: `profileStatusTitle`, `profileDisplayName`, cookie mirroring.
@@ -37,35 +48,35 @@ Crate layering is clear: new API orchestration goes in `fire-core/src/core/users
    - Rejected alternative B: Making `sessionStore` public or injecting a shared `FireSessionStore` at `FireTabRoot` level. This would break the current ownership model where `FireAppViewModel` is the single session mediator.
    - Why: Adding narrow wrapper methods to `FireAppViewModel` (e.g. `fetchUserProfile`, `fetchUserSummary`, `fetchUserActions`) keeps the existing architecture intact while enabling the new ViewModel. The methods are thin: they resolve the session store, call the Rust method, and return the result.
 
-2. **Scrollable header with collapsible banner rather than `List` with `insetGrouped`.**
-   - Chosen: `ScrollView` with a custom header region (avatar, background, stats) followed by section cards in a `LazyVStack`.
-   - Rejected: Keeping `.listStyle(.insetGrouped)` with section rows.
-   - Why: A product profile page needs visual hierarchy: a hero header with the user's avatar, trust-level pill, bio snippet, and stats row, followed by content sections. `List` with grouped sections creates a settings-app aesthetic that doesn't convey identity or community engagement.
+2. **Grouped overview page rather than a decorative banner layout.**
+   - Chosen: A grouped `List` with a clean identity block, shortcut row, metric grid, badge preview, and recent-activity preview.
+   - Rejected: A long `ScrollView` with a decorative banner or hero treatment above the avatar.
+   - Why: The GitHub Mobile-inspired direction values clarity over ornament. The grouped overview keeps the page flatter, denser, and easier to scan on both small and large phones.
 
 3. **Trust level as a prominent visual element.**
    - Chosen: A colored pill/badge next to the username showing the trust level with a Discourse-aligned label (e.g. "领导者" for TL4, "老手" for TL3, "成员" for TL2, "基本" for TL1, "新人" for TL0).
    - Rejected: Hiding trust level in a detail sub-page.
    - Why: Trust level is the primary progression indicator on LinuxDo and a key motivator for community engagement. Making it visible on the profile reinforces the gamification loop.
 
-4. **Session/debug info moves to a "Developer Tools" sub-page rather than being removed entirely.**
-   - Chosen: A "Developer Tools" entry at the bottom of profile, leading to a page that contains the current session section + diagnostics.
-   - Rejected: Removing session info entirely, or keeping it inline.
-   - Why: The debug info is valuable for development and support, but pollutes the user-facing profile. Moving it preserves capability while cleaning the UX.
+4. **Session/debug info moves behind the gear menu instead of living in the main scroll body.**
+   - Chosen: The top-right gear menu surfaces "Developer Tools" and logout actions while the main profile body remains user-facing.
+   - Rejected: Removing session info entirely, or keeping it as a persistent bottom section in the main profile page.
+   - Why: The debug info is valuable for development and support, but it should not compete with bookmarks, badges, or activity on the primary page.
 
 5. **Phased data loading: bootstrap-local first, then network fetch.**
    - Chosen: On initial render, show what we already know from `SessionState` (username, user ID) in the header immediately, then fetch `/u/{username}.json` and `/u/{username}/summary.json` concurrently for full profile data. No offline cache is introduced in this phase; if the network fetch fails, the page shows the bootstrap-derived header with an error banner and a retry action.
    - Rejected: Blocking the whole page on network fetch.
    - Why: The profile tab is a frequent navigation target. Showing the cached identity immediately with a shimmer placeholder for stats/badges provides a responsive feel.
 
-6. **Badges displayed as a horizontal scrollable chip row, not a grid.**
-   - Chosen: A horizontally scrolling row of badge chips (icon + name) below stats. Tapping a badge chip is a no-op in v1 (future: badge detail page). "View All" link is a no-op in v1 (future: full badge list page).
-   - Rejected: A full grid on the profile page.
-   - Why: Most users earn 5-15 badges; a horizontal scroll is compact and invites exploration without dominating the page.
+6. **Badges displayed as a wrapped preview section, not a horizontal strip.**
+   - Chosen: A wrapped `FlowLayout` preview showing the first several badges plus a compact overflow count.
+   - Rejected: A long horizontal strip that competes with the activity preview for vertical space.
+   - Why: The overview page should stay scannable. Wrapping a bounded badge preview keeps recognition high without forcing horizontal exploration.
 
-7. **Activity sections via segmented tabs within the profile page.**
-   - Chosen: A tabbed content area (All Activity / Topics / Replies / Liked) within the profile scroll view, matching Fluxdo's 6-tab approach but scoped to 4 tabs for v1.
-   - Rejected: Separate navigation destinations for each activity type.
-   - Why: Users expect to browse their activity inline without deep navigation. Tabs keep context while organizing dense content.
+7. **Activity separated into preview + dedicated timeline screen.**
+   - Chosen: The main profile page shows only a short recent-activity preview, while `FireProfileActivityTimelineView` owns full filtering and pagination.
+   - Rejected: Embedding the entire segmented activity timeline directly in the main profile page.
+   - Why: Long activity lists were burying bookmarks and account actions. Splitting the experience restores first-screen clarity while still preserving full activity browsing.
 
 8. **API response envelope parsing with dedicated raw types, not direct serde into shared models.**
    - Chosen: Each endpoint gets a raw/envelope parser in `fire-core/src/user_payloads.rs` that unwraps the response structure (e.g. `data["user"]` for `/u/{username}.json`, `data["user_summary"]` + top-level sideloads for `/summary.json`) before converting to `fire-models` types.
@@ -83,33 +94,27 @@ Crate layering is clear: new API orchestration goes in `fire-core/src/core/users
 +--------------------------------------------------+
 |  Nav Bar: "我的"                          [gear]  |
 +--------------------------------------------------+
+|  [Avatar]  Display Name   [TL3]                  |
+|            @username                              |
+|            short bio                              |
 |                                                    |
-|  [===== Gradient / Profile Background =====]       |
+|  粉丝 / 关注 / 获赞                                |
+|  加入时间 / 最近活跃 / 阅读时长 / 活跃分            |
 |                                                    |
-|       +--------+                                   |
-|       | Avatar |   Display Name                    |
-|       | 72x72  |   @username  [TL3 老手]           |
-|       +--------+                                   |
+|  [我的书签]                                        |
 |                                                    |
-|  "A short bio snippet goes here..."                |
+|  --- 概览 ---                                      |
+|  [话题] [帖子]                                    |
+|  [书签] [访问天数]                                 |
 |                                                    |
-|  +----------+----------+----------+----------+     |
-|  | 关注      | 粉丝     | 获赞     | 访问天数  |     |
-|  | 128       | 256      | 1.2K    | 365      |     |
-|  +----------+----------+----------+----------+     |
+|  --- 勋章 ---                                      |
+|  [Badge1] [Badge2] [Badge3] [还有 N 枚]            |
 |                                                    |
-|  --- 勋章 ---                      查看全部 >      |
-|  [Badge1] [Badge2] [Badge3] [Badge4] ...  ->       |
-|                                                    |
-|  [全部] [话题] [回复] [被赞]                         |
-|  +-------------------------------------------------+
-|  | Activity content based on selected tab          |
-|  +-------------------------------------------------+
-|                                                    |
-|  --- 设置与工具 ---                                 |
-|  [我的书签]              (v1: placeholder, no-op)   |
-|  [开发者工具]                                       |
-|  [退出登录]                                         |
+|  --- 最近动态 ---                                  |
+|  [Activity 1]                                      |
+|  [Activity 2]                                      |
+|  [Activity 3]                                      |
+|  [查看全部动态] -> dedicated timeline              |
 +--------------------------------------------------+
 ```
 
@@ -645,17 +650,15 @@ These methods are intentionally thin: they don't modify any `@Published` state o
 ### Phase 6: Redesign FireProfileView
 
 **File: `native/ios-app/App/FireProfileView.swift`** (rewrite)
-- Replace entire body with a `NavigationStack` containing a `ScrollView`.
-- **Profile Header**: gradient or themed background region at top. `FireAvatarView` at 72pt size using `profile.avatarTemplate`. `FireAvatarView` already handles `{size}` resolution and relative URLs (confirmed at `native/ios-app/App/FireComponents.swift:619`); no avatar component changes needed. Display name, `@username`, trust level pill using `FireProfileTrustLevelPill`.
-- **Bio snippet**: if `profile.bioCooked` exists, render a 2-line truncated plain text version with a "more" disclosure.
-- **Stats Row**: 4-column horizontal stat display: 关注 (total_following), 粉丝 (total_followers), 获赞 (likes_received from summary stats), 访问天数 (days_visited from summary stats). Use `FireTheme.accent` for values, `FireTheme.subtleInk` for labels.
-- **Badges Row**: horizontal `ScrollView(.horizontal)` of badge chips from `summary.badges`. Each chip: badge icon/image + name. Gold/Silver/Bronze tint based on `badge_type_id`. "查看全部 >" trailing button (no-op in v1).
-- **Activity Tabs**: `Picker` with `.segmented` style for 全部/话题/回复/被赞. Content below switches based on selection.
-- **Activity Tab Content**: `LazyVStack` of `UserActionState` items with infinite scroll (trigger `loadActions(reset: false)` near bottom).
-- **Settings Section**: at bottom of scroll, a grouped section with "我的书签" (disabled with "coming soon" label), "开发者工具" (NavigationLink to `FireDeveloperToolsView`), "退出登录" button.
-- **Error handling**: `FireErrorBanner` at top of scroll if error exists, plus retry button.
-- **Loading states**: shimmer/placeholder views while `isLoadingProfile` is true.
-- Toolbar `.navigationBarTrailing`: gear icon (no-op in v1).
+- Replace the body with a `NavigationStack` containing a grouped `List`.
+- **Profile Header**: plain identity block with avatar, display name, `@username`, trust-level pill, bio, social stats, and compact metadata pills for joined date / last active / reading time / gamification score.
+- **Primary shortcut**: surface "我的书签" directly beneath the header so it is reachable without scrolling through activity history.
+- **Overview Section**: a 2x2 metric grid using `FireMetricTile` for 话题 / 帖子 / 书签 / 访问天数.
+- **Badges Preview**: wrapped `FlowLayout` preview of badges with an overflow-count pill.
+- **Recent Activity Preview**: only the first few action rows render on the main page. A trailing `NavigationLink` opens `FireProfileActivityTimelineView` for the complete activity history.
+- **Toolbar menu**: the top-right gear now opens developer tools and logout actions.
+- **Error handling**: `FireErrorBanner` remains at the top when profile or action requests fail.
+- **Refresh behavior**: pull-to-refresh calls `refreshAll()` so summary and activity stay in sync.
 
 **File: `native/ios-app/App/FireProfileTrustLevelPill.swift`** (new file)
 - A small SwiftUI component: rounded capsule with trust level label and color.
@@ -672,8 +675,12 @@ These methods are intentionally thin: they don't modify any `@Published` state o
 - Sized to content with `FireTheme.smallCornerRadius` rounding.
 
 **File: `native/ios-app/App/FireProfileActivityRow.swift`** (new file)
-- Renders a single `UserActionState`: action icon, title, excerpt snippet, relative time, category color dot.
-- Tappable to navigate to topic detail.
+- Renders a single `UserActionState`: action icon, event label, title, excerpt snippet, and relative time.
+- Used both in the overview-page preview and the dedicated full timeline screen.
+
+**File: `native/ios-app/App/FireProfileActivityTimelineView.swift`** (new file)
+- Hosts the full segmented activity experience.
+- Owns the segmented filter UI, infinite scroll pagination, and navigation into topic detail.
 
 ### Phase 7: Extract Developer Tools View
 
@@ -739,12 +746,13 @@ These methods are intentionally thin: they don't modify any `@Published` state o
 - `rust/crates/fire-uniffi/src/lib.rs` -- Add `UserProfileState`, `UserSummaryState`, `UserSummaryStatsState`, `ProfileSummaryTopicState`, `ProfileSummaryReplyState`, `ProfileSummaryTopCategoryState`, `ProfileSummaryUserReferenceState`, `BadgeState`, `UserActionState` records, `From` impls, and `FireCoreHandle` methods
 - `native/ios-app/Sources/FireAppSession/FireSessionStore.swift` -- Add `fetchUserProfile`, `fetchUserSummary`, `fetchUserActions` public methods
 - `native/ios-app/App/FireAppViewModel.swift` -- Add three thin public wrapper methods for profile API calls (no changes to existing published state or lifecycle)
-- `native/ios-app/App/FireProfileView.swift` -- Full rewrite: scrollable profile with header, stats, badges, activity tabs, settings section
+- `native/ios-app/App/FireProfileView.swift` -- Full rewrite: grouped overview page with header, bookmark shortcut, metric grid, badge preview, and recent activity preview
 - `native/ios-app/App/FireProfileViewModel.swift` -- New file: dedicated profile ViewModel with profile/summary/actions state management, holds `FireAppViewModel` reference
 - `native/ios-app/App/FireProfileTrustLevelPill.swift` -- New file: trust level capsule badge component
 - `native/ios-app/App/FireProfileStatsRow.swift` -- New file: 4-column stats display component
 - `native/ios-app/App/FireProfileBadgeChip.swift` -- New file: single badge chip component with tier tinting
 - `native/ios-app/App/FireProfileActivityRow.swift` -- New file: user action list row component
+- `native/ios-app/App/FireProfileActivityTimelineView.swift` -- New file: dedicated full activity timeline screen
 - `native/ios-app/App/FireDeveloperToolsView.swift` -- New file: extracted session info and diagnostic actions from old profile view
 - `native/ios-app/App/FireTabRoot.swift` -- Instantiate `FireProfileViewModel`, pass to `FireProfileView`, trigger load on appear
 - `rust/crates/fire-core/src/session_store.rs` -- Unchanged (persistence helper only; API orchestration goes in `core/users.rs`)

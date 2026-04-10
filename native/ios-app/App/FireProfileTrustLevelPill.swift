@@ -28,9 +28,9 @@ struct FireProfileTrustLevelPill: View {
     var body: some View {
         Text(label)
             .font(.caption2.weight(.semibold))
-            .foregroundStyle(.white)
+            .foregroundStyle(color)
             .padding(.horizontal, 8)
-            .padding(.vertical, 3)
-            .background(color, in: Capsule())
+            .padding(.vertical, 4)
+            .background(color.opacity(0.14), in: Capsule())
     }
 }

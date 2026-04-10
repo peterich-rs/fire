@@ -168,7 +168,7 @@ final class FireProfileViewModel: ObservableObject {
         loadActions(reset: true)
     }
 
-    func refreshProfile() async {
+    func refreshAll() async {
         guard let username = normalizedCurrentUsername(), loadedUsername == username else { return }
 
         do {
@@ -179,6 +179,7 @@ final class FireProfileViewModel: ObservableObject {
             self.profile = fetchedProfile
             self.summary = fetchedSummary
             self.errorMessage = nil
+            loadActions(reset: true)
         } catch is CancellationError {
         } catch {
             self.errorMessage = error.localizedDescription

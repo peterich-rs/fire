@@ -2186,7 +2186,10 @@ mod tests {
         );
 
         let listed_logs = super::list_log_files(&workspace_dir).expect("list logs");
-        assert_eq!(listed_logs[0].relative_path, "diagnostics/fire-readable.log");
+        assert_eq!(
+            listed_logs[0].relative_path,
+            "diagnostics/fire-readable.log"
+        );
         assert!(listed_logs.iter().all(|file| {
             !file
                 .relative_path

@@ -1,6 +1,8 @@
 name: Fire
 options:
   minimumXcodeGenVersion: 2.45.3
+fileGroups:
+  - Configs
 schemes:
   Fire:
     build:
@@ -17,12 +19,14 @@ schemes:
 settings:
   base:
     SWIFT_VERSION: "5.10"
-    CODE_SIGN_STYLE: Automatic
 targets:
   Fire:
     type: application
     platform: iOS
     deploymentTarget: "17.0"
+    configFiles:
+      Debug: Configs/Fire-Debug.xcconfig
+      Release: Configs/Fire-Release.xcconfig
     sources:
       - path: App
       - path: Sources/FireAppSession
@@ -36,7 +40,10 @@ targets:
       - sdk: libiconv.tbd
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.fire.app.ios
+        CODE_SIGN_STYLE: $(FIRE_CODE_SIGN_STYLE)
+        DEVELOPMENT_TEAM: $(FIRE_DEVELOPMENT_TEAM)
+        PRODUCT_BUNDLE_IDENTIFIER: $(FIRE_PRODUCT_BUNDLE_IDENTIFIER)
+        PROVISIONING_PROFILE_SPECIFIER: $(FIRE_PROVISIONING_PROFILE_SPECIFIER)
         PRODUCT_NAME: Fire
         TARGETED_DEVICE_FAMILY: "1,2"
         GENERATE_INFOPLIST_FILE: YES

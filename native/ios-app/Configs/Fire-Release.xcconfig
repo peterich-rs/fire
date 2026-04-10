@@ -1,0 +1,2 @@
+#include "Fire-Shared.xcconfig"
+#include? "Fire-Local-Release.xcconfig"

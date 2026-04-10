@@ -10,3 +10,5 @@
 /rust/target/
 **/*.xcodeproj/xcuserdata/
 **/*.xcworkspace/xcuserdata/
+native/ios-app/Configs/Fire-Local-Debug.xcconfig
+native/ios-app/Configs/Fire-Local-Release.xcconfig

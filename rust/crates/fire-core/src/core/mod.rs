@@ -26,8 +26,10 @@ use crate::{
     config::FireCoreConfig,
     cookies::FireSessionCookieJar,
     diagnostics::{
-        list_log_files, read_log_file, FireDiagnosticsStore, FireLogFileDetail, FireLogFileSummary,
-        NetworkTraceDetail, NetworkTraceSummary,
+        export_support_bundle, list_log_files, read_log_file, read_log_file_page,
+        DiagnosticsPageDirection, FireDiagnosticsStore, FireLogFileDetail, FireLogFilePage,
+        FireLogFileSummary, FireSupportBundleExport, FireSupportBundleHostContext,
+        NetworkTraceBodyPage, NetworkTraceDetail, NetworkTraceSummary,
     },
     error::FireCoreError,
     logging::{log_host_message, logger_runtime_for_workspace, FireHostLogLevel},
@@ -59,10 +61,12 @@ impl FireCore {
     pub fn new(config: FireCoreConfig) -> Result<Self, FireCoreError> {
         let base_url = Url::parse(&config.base_url)?;
         let workspace_path = normalize_workspace_path(config.workspace_path);
+        let diagnostics = Arc::new(FireDiagnosticsStore::new());
         if let Some(workspace_path) = workspace_path.as_deref() {
             let logger = logger_runtime_for_workspace(workspace_path)?;
             info!(
                 workspace_path = %workspace_path.display(),
+                diagnostic_session_id = %diagnostics.diagnostic_session_id(),
                 log_dir = %logger.log_dir.display(),
                 cache_dir = %logger.cache_dir.display(),
                 "initialized fire workspace logging"
@@ -78,7 +82,6 @@ impl FireCore {
         };
         let session = Arc::new(RwLock::new(session));
         let cookie_jar = Arc::new(FireSessionCookieJar::new(base_url.clone(), session.clone()));
-        let diagnostics = Arc::new(FireDiagnosticsStore::new());
         let network = network::FireNetworkLayer::new(
             &base_url,
             Arc::clone(&session),
@@ -126,6 +129,10 @@ impl FireCore {
         }
     }
 
+    pub fn diagnostic_session_id(&self) -> String {
+        self.diagnostics.diagnostic_session_id().to_string()
+    }
+
     pub fn log_host(
         &self,
         level: FireHostLogLevel,
@@ -135,7 +142,12 @@ impl FireCore {
         if let Some(workspace_path) = self.workspace_path() {
             let _ = logger_runtime_for_workspace(workspace_path);
         }
-        log_host_message(level, target.as_ref(), message.as_ref());
+        log_host_message(
+            level,
+            target.as_ref(),
+            message.as_ref(),
+            Some(self.diagnostics.diagnostic_session_id()),
+        );
     }
 
     pub fn snapshot(&self) -> SessionSnapshot {
@@ -165,12 +177,54 @@ impl FireCore {
         read_log_file(workspace_path, relative_path)
     }
 
+    pub fn read_log_file_page(
+        &self,
+        relative_path: impl AsRef<Path>,
+        cursor: Option<u64>,
+        max_bytes: usize,
+        direction: DiagnosticsPageDirection,
+    ) -> Result<FireLogFilePage, FireCoreError> {
+        self.flush_logs(true);
+        let workspace_path = self
+            .workspace_path()
+            .ok_or(FireCoreError::MissingWorkspacePath)?;
+        read_log_file_page(workspace_path, relative_path, cursor, max_bytes, direction)
+    }
+
     pub fn list_network_traces(&self, limit: usize) -> Vec<NetworkTraceSummary> {
         self.diagnostics.summaries(limit)
     }
 
     pub fn network_trace_detail(&self, trace_id: u64) -> Option<NetworkTraceDetail> {
         self.diagnostics.detail(trace_id)
+    }
+
+    pub fn network_trace_body_page(
+        &self,
+        trace_id: u64,
+        cursor: Option<u64>,
+        max_bytes: usize,
+        direction: DiagnosticsPageDirection,
+    ) -> Option<NetworkTraceBodyPage> {
+        self.diagnostics
+            .network_trace_body_page(trace_id, cursor, max_bytes, direction)
+    }
+
+    pub fn export_support_bundle(
+        &self,
+        host_context: FireSupportBundleHostContext,
+    ) -> Result<FireSupportBundleExport, FireCoreError> {
+        self.flush_logs(true);
+        let workspace_path = self
+            .workspace_path()
+            .ok_or(FireCoreError::MissingWorkspacePath)?;
+        let session_json = self.export_redacted_session_json()?;
+        export_support_bundle(
+            workspace_path,
+            &self.diagnostics,
+            &session_json,
+            &host_context,
+        )
     }
 
     pub(crate) fn update_session<F>(&self, mutate: F) -> SessionSnapshot

@@ -2,21 +2,152 @@ import Foundation
 import SwiftUI
 import UIKit
 
+struct FireDiagnosticsTextWindow: Equatable {
+    let text: String
+    let startOffset: UInt64
+    let endOffset: UInt64
+    let totalBytes: UInt64
+    let hasMoreOlder: Bool
+    let hasMoreNewer: Bool
+    let isHeadAligned: Bool
+    let isTailAligned: Bool
+
+    init(page: DiagnosticsTextPageState) {
+        self.text = page.text
+        self.startOffset = page.startOffset
+        self.endOffset = page.endOffset
+        self.totalBytes = page.totalBytes
+        self.hasMoreOlder = page.hasMoreOlder
+        self.hasMoreNewer = page.hasMoreNewer
+        self.isHeadAligned = page.isHeadAligned
+        self.isTailAligned = page.isTailAligned
+    }
+
+    init(
+        text: String,
+        startOffset: UInt64,
+        endOffset: UInt64,
+        totalBytes: UInt64,
+        hasMoreOlder: Bool,
+        hasMoreNewer: Bool,
+        isHeadAligned: Bool,
+        isTailAligned: Bool
+    ) {
+        self.text = text
+        self.startOffset = startOffset
+        self.endOffset = endOffset
+        self.totalBytes = totalBytes
+        self.hasMoreOlder = hasMoreOlder
+        self.hasMoreNewer = hasMoreNewer
+        self.isHeadAligned = isHeadAligned
+        self.isTailAligned = isTailAligned
+    }
+}
+
+struct FireDiagnosticsPagedTextDocument: Equatable {
+    let newestFirst: Bool
+    private(set) var windows: [FireDiagnosticsTextWindow]
+
+    init(newestFirst: Bool, windows: [FireDiagnosticsTextWindow]) {
+        self.newestFirst = newestFirst
+        self.windows = windows.sorted { $0.startOffset < $1.startOffset }
+    }
+
+    var totalBytes: UInt64 {
+        windows.last?.totalBytes ?? 0
+    }
+
+    var olderCursor: UInt64? {
+        guard let first = windows.first, first.hasMoreOlder else {
+            return nil
+        }
+        return first.startOffset
+    }
+
+    var newerCursor: UInt64? {
+        guard let last = windows.last, last.hasMoreNewer else {
+            return nil
+        }
+        return last.endOffset
+    }
+
+    var hasLoadedAdditionalPages: Bool {
+        windows.count > 1 || !(windows.first?.isHeadAligned ?? true)
+    }
+
+    var hasMultipleWindows: Bool {
+        windows.count > 1
+    }
+
+    var loadedBytes: UInt64 {
+        guard let first = windows.first, let last = windows.last else {
+            return 0
+        }
+        return last.endOffset >= first.startOffset
+            ? last.endOffset - first.startOffset
+            : 0
+    }
+
+    var renderedText: String {
+        let combined = windows
+            .sorted { $0.startOffset < $1.startOffset }
+            .map(\.text)
+            .joined()
+        guard newestFirst else {
+            return combined
+        }
+
+        var lines = combined.components(separatedBy: .newlines)
+        if lines.last == "" {
+            lines.removeLast()
+        }
+        return lines.reversed().joined(separator: "\n")
+    }
+
+    var renderedLines: [String] {
+        var lines = renderedText.components(separatedBy: .newlines)
+        if lines.last == "" {
+            lines.removeLast()
+        }
+        return lines.isEmpty ? [""] : lines
+    }
+
+    mutating func replace(with window: FireDiagnosticsTextWindow) {
+        windows = [window]
+    }
+
+    mutating func merge(with window: FireDiagnosticsTextWindow) {
+        guard !windows.contains(where: { $0.startOffset == window.startOffset && $0.endOffset == window.endOffset }) else {
+            return
+        }
+        windows.append(window)
+        windows.sort { $0.startOffset < $1.startOffset }
+    }
+}
+
 @MainActor
 final class FireDiagnosticsViewModel: ObservableObject {
     private static let traceAutoRefreshInterval: Duration = .seconds(1)
+    private static let logPageBytes: UInt64 = 128 * 1024
+    private static let traceBodyPageBytes: UInt64 = 32 * 1024
 
+    @Published private(set) var diagnosticSessionID: String?
     @Published private(set) var logFiles: [LogFileSummaryState] = []
-    @Published private(set) var logFileDetails: [String: LogFileDetailState] = [:]
+    @Published private(set) var logDocuments: [String: FireDiagnosticsPagedTextDocument] = [:]
     @Published private(set) var requestTraces: [NetworkTraceSummaryState] = []
     @Published private(set) var requestTraceDetails: [UInt64: NetworkTraceDetailState] = [:]
+    @Published private(set) var traceBodyDocuments: [UInt64: FireDiagnosticsPagedTextDocument] = [:]
+    @Published private(set) var latestSupportBundle: SupportBundleExportState?
+    @Published private(set) var isExportingSupportBundle = false
     @Published private(set) var isLoading = false
     @Published var errorMessage: String?
 
     private let appViewModel: FireAppViewModel
     private var traceAutoRefreshTask: Task<Void, Never>?
     private var isRefreshingTraces = false
+    private var loadingLogPagePaths: Set<String> = []
     private var loadingTraceDetailIDs: Set<UInt64> = []
+    private var loadingTraceBodyPageIDs: Set<UInt64> = []
 
     init(appViewModel: FireAppViewModel) {
         self.appViewModel = appViewModel
@@ -37,9 +168,11 @@ final class FireDiagnosticsViewModel: ObservableObject {
 
             do {
                 errorMessage = nil
+                async let diagnosticSessionID = appViewModel.diagnosticSessionID()
                 async let files = appViewModel.listLogFiles()
                 async let traces = appViewModel.listNetworkTraces(limit: 200)
                 let latestTraces = try await traces
+                self.diagnosticSessionID = try await diagnosticSessionID
                 logFiles = try await files
                 applyTraceSummaries(latestTraces)
                 await refreshCachedTraceDetails(using: latestTraces)
@@ -69,22 +202,79 @@ final class FireDiagnosticsViewModel: ObservableObject {
     }
 
     func loadLogFile(relativePath: String) {
-        guard logFileDetails[relativePath] == nil else {
+        if logDocuments[relativePath] != nil {
             return
         }
+        loadLogFile(relativePath: relativePath, force: false)
+    }
 
+    func loadLogFile(relativePath: String, force: Bool) {
+        guard !loadingLogPagePaths.contains(relativePath) else {
+            return
+        }
         Task {
+            if force {
+                logDocuments.removeValue(forKey: relativePath)
+            }
+            loadingLogPagePaths.insert(relativePath)
+            defer { loadingLogPagePaths.remove(relativePath) }
             do {
                 errorMessage = nil
-                logFileDetails[relativePath] = try await appViewModel.readLogFile(relativePath: relativePath)
+                let page = try await appViewModel.readLogFilePage(
+                    relativePath: relativePath,
+                    cursor: nil,
+                    maxBytes: Self.logPageBytes,
+                    direction: .older
+                )
+                logDocuments[relativePath] = FireDiagnosticsPagedTextDocument(
+                    newestFirst: true,
+                    windows: [FireDiagnosticsTextWindow(page: page.page)]
+                )
             } catch {
                 errorMessage = error.localizedDescription
             }
         }
     }
 
-    func logFile(relativePath: String) -> LogFileDetailState? {
-        logFileDetails[relativePath]
+    func resetLogFile(relativePath: String) {
+        loadLogFile(relativePath: relativePath, force: true)
+    }
+
+    func loadOlderLogPage(relativePath: String) {
+        guard let cursor = logDocuments[relativePath]?.olderCursor else {
+            return
+        }
+        guard !loadingLogPagePaths.contains(relativePath) else {
+            return
+        }
+
+        Task {
+            loadingLogPagePaths.insert(relativePath)
+            defer { loadingLogPagePaths.remove(relativePath) }
+            do {
+                errorMessage = nil
+                let page = try await appViewModel.readLogFilePage(
+                    relativePath: relativePath,
+                    cursor: cursor,
+                    maxBytes: Self.logPageBytes,
+                    direction: .older
+                )
+                var document = logDocuments[relativePath]
+                    ?? FireDiagnosticsPagedTextDocument(newestFirst: true, windows: [])
+                document.merge(with: FireDiagnosticsTextWindow(page: page.page))
+                logDocuments[relativePath] = document
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    func isLoadingLogPage(relativePath: String) -> Bool {
+        loadingLogPagePaths.contains(relativePath)
+    }
+
+    func logDocument(relativePath: String) -> FireDiagnosticsPagedTextDocument? {
+        logDocuments[relativePath]
     }
 
     func loadTraceDetail(traceID: UInt64, force: Bool = false) {
@@ -100,7 +290,12 @@ final class FireDiagnosticsViewModel: ObservableObject {
             defer { loadingTraceDetailIDs.remove(traceID) }
             do {
                 errorMessage = nil
-                requestTraceDetails[traceID] = try await appViewModel.networkTraceDetail(traceID: traceID)
+                let detail = try await appViewModel.networkTraceDetail(traceID: traceID)
+                requestTraceDetails[traceID] = detail
+                seedTraceBodyDocumentIfNeeded(
+                    from: detail,
+                    replaceInlinePreview: force && !(traceBodyDocuments[traceID]?.hasLoadedAdditionalPages ?? false)
+                )
             } catch {
                 errorMessage = error.localizedDescription
             }
@@ -109,6 +304,149 @@ final class FireDiagnosticsViewModel: ObservableObject {
 
     func requestTraceDetail(traceID: UInt64) -> NetworkTraceDetailState? {
         requestTraceDetails[traceID]
+    }
+
+    func traceBodyDocument(traceID: UInt64) -> FireDiagnosticsPagedTextDocument? {
+        traceBodyDocuments[traceID]
+    }
+
+    func isLoadingTraceBodyPage(traceID: UInt64) -> Bool {
+        loadingTraceBodyPageIDs.contains(traceID)
+    }
+
+    func loadNewerTraceBodyPage(traceID: UInt64) {
+        guard let cursor = traceBodyDocuments[traceID]?.newerCursor else {
+            return
+        }
+        loadTraceBodyPage(
+            traceID: traceID,
+            cursor: cursor,
+            direction: .newer,
+            replaceExisting: false
+        )
+    }
+
+    func loadOlderTraceBodyPage(traceID: UInt64) {
+        guard let cursor = traceBodyDocuments[traceID]?.olderCursor else {
+            return
+        }
+        loadTraceBodyPage(
+            traceID: traceID,
+            cursor: cursor,
+            direction: .older,
+            replaceExisting: false
+        )
+    }
+
+    func showTraceBodyTail(traceID: UInt64) {
+        loadTraceBodyPage(
+            traceID: traceID,
+            cursor: nil,
+            direction: .older,
+            replaceExisting: true
+        )
+    }
+
+    func resetTraceBodyPreview(traceID: UInt64) {
+        guard let detail = requestTraceDetails[traceID] else {
+            loadTraceDetail(traceID: traceID, force: true)
+            return
+        }
+        seedTraceBodyDocumentIfNeeded(from: detail, replaceInlinePreview: true)
+    }
+
+    func exportSupportBundle(scenePhase: String) {
+        guard !isExportingSupportBundle else {
+            return
+        }
+
+        Task {
+            isExportingSupportBundle = true
+            defer { isExportingSupportBundle = false }
+            do {
+                errorMessage = nil
+                latestSupportBundle = try await appViewModel.exportSupportBundle(scenePhase: scenePhase)
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    func supportBundleURL() -> URL? {
+        latestSupportBundle.map { URL(fileURLWithPath: $0.absolutePath) }
+    }
+
+    private func loadTraceBodyPage(
+        traceID: UInt64,
+        cursor: UInt64?,
+        direction: DiagnosticsPageDirectionState,
+        replaceExisting: Bool
+    ) {
+        guard !loadingTraceBodyPageIDs.contains(traceID) else {
+            return
+        }
+
+        Task {
+            loadingTraceBodyPageIDs.insert(traceID)
+            defer { loadingTraceBodyPageIDs.remove(traceID) }
+            do {
+                errorMessage = nil
+                guard let page = try await appViewModel.networkTraceBodyPage(
+                    traceID: traceID,
+                    cursor: cursor,
+                    maxBytes: Self.traceBodyPageBytes,
+                    direction: direction
+                ) else {
+                    return
+                }
+
+                let window = FireDiagnosticsTextWindow(page: page.page)
+                var document = traceBodyDocuments[traceID]
+                    ?? FireDiagnosticsPagedTextDocument(newestFirst: false, windows: [])
+                if replaceExisting {
+                    document.replace(with: window)
+                } else {
+                    document.merge(with: window)
+                }
+                traceBodyDocuments[traceID] = document
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    private func seedTraceBodyDocumentIfNeeded(
+        from detail: NetworkTraceDetailState,
+        replaceInlinePreview: Bool
+    ) {
+        guard let responseBody = detail.responseBody, !responseBody.isEmpty else {
+            if replaceInlinePreview {
+                traceBodyDocuments.removeValue(forKey: detail.summary.id)
+            }
+            return
+        }
+
+        if traceBodyDocuments[detail.summary.id] != nil, !replaceInlinePreview {
+            return
+        }
+
+        let inlineBytes = UInt64(responseBody.lengthOfBytes(using: .utf8))
+        let totalBytes = detail.responseBodyStoredBytes ?? inlineBytes
+        traceBodyDocuments[detail.summary.id] = FireDiagnosticsPagedTextDocument(
+            newestFirst: false,
+            windows: [
+                FireDiagnosticsTextWindow(
+                    text: responseBody,
+                    startOffset: 0,
+                    endOffset: inlineBytes,
+                    totalBytes: totalBytes,
+                    hasMoreOlder: false,
+                    hasMoreNewer: detail.responseBodyPageAvailable,
+                    isHeadAligned: true,
+                    isTailAligned: !detail.responseBodyPageAvailable
+                )
+            ]
+        )
     }
 
     // MARK: - Computed Stats
@@ -199,6 +537,7 @@ final class FireDiagnosticsViewModel: ObservableObject {
 // MARK: - Dashboard (Entry Point)
 
 struct FireDiagnosticsView: View {
+    @Environment(\.scenePhase) private var scenePhase
     @StateObject private var diagnosticsViewModel: FireDiagnosticsViewModel
 
     init(viewModel: FireAppViewModel) {
@@ -229,6 +568,8 @@ struct FireDiagnosticsView: View {
                 } label: {
                     logCard
                 }
+
+                supportBundleCard
             }
             .listRowSeparator(.hidden)
             .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
@@ -237,6 +578,9 @@ struct FireDiagnosticsView: View {
         .navigationTitle("诊断工具")
         .onAppear {
             diagnosticsViewModel.startTraceAutoRefresh()
+        }
+        .onDisappear {
+            diagnosticsViewModel.stopTraceAutoRefresh()
         }
         .task {
             diagnosticsViewModel.refresh()
@@ -324,6 +668,76 @@ struct FireDiagnosticsView: View {
         )
     }
 
+    private var supportBundleCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("诊断包", systemImage: "square.and.arrow.up")
+                .font(.headline)
+
+            Text("导出最近日志窗口、网络请求摘要和已脱敏会话快照，便于本地留档或分享排障。")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            if let diagnosticSessionID = diagnosticsViewModel.diagnosticSessionID {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Session ID")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+
+                    Text(diagnosticSessionID)
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                }
+            }
+
+            HStack(spacing: 10) {
+                Button {
+                    diagnosticsViewModel.exportSupportBundle(
+                        scenePhase: scenePhaseLabel(scenePhase)
+                    )
+                } label: {
+                    Label(
+                        diagnosticsViewModel.isExportingSupportBundle ? "导出中…" : "导出诊断包",
+                        systemImage: "tray.and.arrow.down"
+                    )
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(diagnosticsViewModel.isExportingSupportBundle)
+
+                if let bundleURL = diagnosticsViewModel.supportBundleURL() {
+                    ShareLink(item: bundleURL) {
+                        Label("分享", systemImage: "square.and.arrow.up")
+                    }
+                    .buttonStyle(.bordered)
+                }
+
+                if diagnosticsViewModel.isExportingSupportBundle {
+                    ProgressView()
+                        .controlSize(.small)
+                }
+            }
+
+            if let export = diagnosticsViewModel.latestSupportBundle {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("\(export.fileName) · \(FireDiagnosticsPresentation.byteSize(export.sizeBytes))")
+                        .font(.caption.monospaced())
+                    Text(FireDiagnosticsPresentation.timestamp(export.createdAtUnixMs))
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                    Text(export.relativePath)
+                        .font(.caption2.monospaced())
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                }
+            }
+        }
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color(.secondarySystemGroupedBackground))
+        )
+    }
+
     private func miniStat(value: String, label: String, color: Color) -> some View {
         VStack(spacing: 2) {
             Text(value)
@@ -334,6 +748,19 @@ struct FireDiagnosticsView: View {
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity)
+    }
+
+    private func scenePhaseLabel(_ phase: ScenePhase) -> String {
+        switch phase {
+        case .active:
+            return "active"
+        case .inactive:
+            return "inactive"
+        case .background:
+            return "background"
+        @unknown default:
+            return "unknown"
+        }
     }
 }
 
@@ -472,6 +899,10 @@ private struct FireRequestTraceDetailView: View {
         case timeline = "Timeline"
     }
 
+    private var bodyDocument: FireDiagnosticsPagedTextDocument? {
+        viewModel.traceBodyDocument(traceID: traceID)
+    }
+
     var body: some View {
         Group {
             if let detail = viewModel.requestTraceDetail(traceID: traceID) {
@@ -505,7 +936,12 @@ private struct FireRequestTraceDetailView: View {
                 .toolbar {
                     ToolbarItem(placement: .navigationBarTrailing) {
                         Button {
-                            copyToClipboard(fullHTTPText(detail: detail))
+                            copyToClipboard(
+                                fullHTTPText(
+                                    detail: detail,
+                                    bodyText: bodyDocument?.renderedText ?? detail.responseBody
+                                )
+                            )
                         } label: {
                             Label("复制全部", systemImage: "doc.on.doc")
                         }
@@ -549,7 +985,10 @@ private struct FireRequestTraceDetailView: View {
 
     // MARK: - Full Request Copy
 
-    private func fullHTTPText(detail: NetworkTraceDetailState) -> String {
+    private func fullHTTPText(
+        detail: NetworkTraceDetailState,
+        bodyText: String?
+    ) -> String {
         var lines: [String] = []
 
         lines.append("\(detail.summary.method) \(detail.summary.url) HTTP/1.1")
@@ -572,9 +1011,9 @@ private struct FireRequestTraceDetailView: View {
             }
         }
 
-        if let body = detail.responseBody, !body.isEmpty {
+        if let bodyText, !bodyText.isEmpty {
             lines.append("")
-            lines.append(body)
+            lines.append(bodyText)
         }
 
         return lines.joined(separator: "\n")
@@ -648,6 +1087,10 @@ private struct FireRequestTraceDetailView: View {
                 kvRow("Body Size", FireDiagnosticsPresentation.byteSize(responseBodyBytes))
             }
 
+            if let storedBytes = detail.responseBodyStoredBytes {
+                kvRow("Preview Cache", FireDiagnosticsPresentation.byteSize(storedBytes))
+            }
+
             if let contentType = detail.summary.responseContentType {
                 kvRow("Content-Type", contentType)
             }
@@ -714,26 +1157,77 @@ private struct FireRequestTraceDetailView: View {
             sectionHeader(
                 "Body",
                 copyAction: {
-                    guard let body = detail.responseBody, !body.isEmpty else { return }
+                    guard let body = bodyDocument?.renderedText ?? detail.responseBody, !body.isEmpty else { return }
                     copyToClipboard(body)
                 }
             )
 
-            if let responseBody = detail.responseBody, !responseBody.isEmpty {
-                if detail.responseBodyTruncated {
-                    Label("已截断至 256 KB", systemImage: "scissors")
-                        .font(.caption)
-                        .foregroundStyle(.orange)
-                        .padding(.bottom, 4)
-                }
+            if let document = bodyDocument {
+                VStack(alignment: .leading, spacing: 8) {
+                    if detail.responseBodyStorageTruncated {
+                        Label("响应 body 仅保留前 256 KB 缓存预览，无法回看原始尾部。", systemImage: "scissors")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                    } else if detail.responseBodyPageAvailable {
+                        Label("当前仅内联首屏预览，可继续按需加载。", systemImage: "text.append")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
 
-                Text(responseBody)
-                    .font(.system(.caption, design: .monospaced))
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(12)
-                    .background(Color(.tertiarySystemGroupedBackground))
-                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    HStack(spacing: 8) {
+                        if let storedBytes = detail.responseBodyStoredBytes {
+                            Text("已加载 \(FireDiagnosticsPresentation.byteSize(document.loadedBytes)) / \(FireDiagnosticsPresentation.byteSize(storedBytes))")
+                                .font(.caption2.monospacedDigit())
+                                .foregroundStyle(.secondary)
+                        }
+
+                        Spacer()
+
+                        if bodyDocument?.hasLoadedAdditionalPages == true {
+                            Button("回到首屏") {
+                                viewModel.resetTraceBodyPreview(traceID: traceID)
+                            }
+                            .font(.caption)
+                            .buttonStyle(.borderless)
+                        }
+                    }
+
+                    HStack(spacing: 8) {
+                        if document.newerCursor != nil {
+                            Button("加载更多") {
+                                viewModel.loadNewerTraceBodyPage(traceID: traceID)
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                        }
+
+                        if detail.responseBodyPageAvailable || detail.responseBodyStorageTruncated {
+                            Button(detail.responseBodyStorageTruncated ? "查看缓存尾部" : "查看尾部") {
+                                viewModel.showTraceBodyTail(traceID: traceID)
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                        }
+
+                        if document.olderCursor != nil {
+                            Button("向前加载") {
+                                viewModel.loadOlderTraceBodyPage(traceID: traceID)
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                        }
+
+                        if viewModel.isLoadingTraceBodyPage(traceID: traceID) {
+                            ProgressView()
+                                .controlSize(.small)
+                        }
+                    }
+
+                    FireDiagnosticsTextView(text: document.renderedText)
+                        .frame(minHeight: 220, maxHeight: 360)
+                        .background(Color(.tertiarySystemGroupedBackground))
+                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                }
             } else {
                 emptyNote("未捕获到响应 body")
             }
@@ -976,30 +1470,42 @@ private struct FireDiagnosticsLogView: View {
     @ObservedObject var viewModel: FireDiagnosticsViewModel
     let relativePath: String
 
+    private var fileSummary: LogFileSummaryState? {
+        viewModel.logFiles.first { $0.relativePath == relativePath }
+    }
+
     var body: some View {
         Group {
-            if let logFile = viewModel.logFile(relativePath: relativePath) {
+            if let document = viewModel.logDocument(relativePath: relativePath) {
                 VStack(alignment: .leading, spacing: 12) {
                     HStack {
                         VStack(alignment: .leading, spacing: 4) {
-                            Text(logFile.fileName)
+                            Text(fileSummary?.fileName ?? relativePath)
                                 .font(.headline)
 
-                            Text(FireDiagnosticsPresentation.byteSize(logFile.sizeBytes))
+                            if let fileSummary {
+                                Text(FireDiagnosticsPresentation.byteSize(fileSummary.sizeBytes))
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+
+                            Text("最新在上，滚动到底部自动加载更早内容")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
 
                         Spacer()
 
-                        if logFile.isTruncated {
-                            Label("已截断", systemImage: "scissors")
-                                .font(.caption)
-                                .foregroundStyle(.orange)
+                        if document.hasMultipleWindows {
+                            Button("回到最新") {
+                                viewModel.resetLogFile(relativePath: relativePath)
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
                         }
                     }
 
-                    if logFile.contents.isEmpty {
+                    if document.renderedLines == [""] {
                         Text("暂无日志内容。")
                             .font(.system(.caption, design: .monospaced))
                             .foregroundStyle(.secondary)
@@ -1008,7 +1514,32 @@ private struct FireDiagnosticsLogView: View {
                             .background(Color(.tertiarySystemGroupedBackground))
                             .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                     } else {
-                        FireDiagnosticsLogTextView(text: logFile.contents)
+                        Text("已加载 \(FireDiagnosticsPresentation.byteSize(document.loadedBytes)) / \(FireDiagnosticsPresentation.byteSize(document.totalBytes))")
+                            .font(.caption2.monospacedDigit())
+                            .foregroundStyle(.secondary)
+
+                        ScrollView {
+                            LazyVStack(alignment: .leading, spacing: 6) {
+                                ForEach(Array(document.renderedLines.enumerated()), id: \.offset) { _, line in
+                                    Text(line.isEmpty ? " " : line)
+                                        .font(.system(.caption, design: .monospaced))
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                }
+
+                                if viewModel.isLoadingLogPage(relativePath: relativePath) {
+                                    ProgressView()
+                                        .padding(.vertical, 8)
+                                } else if document.olderCursor != nil {
+                                    Color.clear
+                                        .frame(height: 1)
+                                        .onAppear {
+                                            viewModel.loadOlderLogPage(relativePath: relativePath)
+                                        }
+                                }
+                            }
+                            .padding(12)
+                            .textSelection(.enabled)
+                        }
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                             .background(Color(.tertiarySystemGroupedBackground))
                             .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
@@ -1028,7 +1559,7 @@ private struct FireDiagnosticsLogView: View {
     }
 }
 
-private struct FireDiagnosticsLogTextView: UIViewRepresentable {
+private struct FireDiagnosticsTextView: UIViewRepresentable {
     let text: String
 
     func makeUIView(context: Context) -> UITextView {

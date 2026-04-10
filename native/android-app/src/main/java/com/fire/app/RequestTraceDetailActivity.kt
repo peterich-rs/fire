@@ -74,6 +74,9 @@ class RequestTraceDetailActivity : AppCompatActivity() {
                     detail.responseBodyBytes?.let {
                         appendLine("Body Size: ${DiagnosticsPresentation.formatBytes(it)}")
                     }
+                    detail.responseBodyStoredBytes?.let {
+                        appendLine("Cached Preview: ${DiagnosticsPresentation.formatBytes(it)}")
+                    }
                     detail.summary.errorMessage?.let {
                         appendLine("Error: $it")
                     }
@@ -84,10 +87,14 @@ class RequestTraceDetailActivity : AppCompatActivity() {
                 responseHeadersText.text =
                     DiagnosticsPresentation.renderHeaders(detail.responseHeaders)
                 responseBodyText.text = detail.responseBody?.let { body ->
-                    if (detail.responseBodyTruncated) {
-                        "$body\n\n<response body truncated to first 64 KB>"
-                    } else {
-                        body
+                    buildString {
+                        append(body)
+                        when {
+                            detail.responseBodyStorageTruncated ->
+                                append("\n\n<stored preview truncated to the first 256 KB>")
+                            detail.responseBodyPageAvailable ->
+                                append("\n\n<additional cached body content available>")
+                        }
                     }
                 } ?: getString(R.string.diagnostics_trace_response_empty)
                 executionChainText.text = if (detail.events.isEmpty()) {

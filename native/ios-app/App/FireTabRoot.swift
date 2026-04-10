@@ -63,6 +63,10 @@ struct FireTabRoot: View {
             }
         }
         .onChange(of: scenePhase) { _, phase in
+            viewModel.handleDiagnosticsScenePhaseChange(
+                scenePhaseLabel(phase),
+                isAuthenticated: isAuthenticated
+            )
             switch phase {
             case .active:
                 if isAuthenticated {
@@ -105,6 +109,19 @@ struct FireTabRoot: View {
                 "postNumber": deepLink.postNumber as Any
             ]
         )
+    }
+
+    private func scenePhaseLabel(_ phase: ScenePhase) -> String {
+        switch phase {
+        case .active:
+            return "active"
+        case .inactive:
+            return "inactive"
+        case .background:
+            return "background"
+        @unknown default:
+            return "unknown"
+        }
     }
 }
 

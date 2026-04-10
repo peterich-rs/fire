@@ -114,6 +114,7 @@ File ownership convention:
 - The current Rust-owned file layout inside that workspace is:
   - `logs/` for Mars Xlog output
   - `diagnostics/fire-readable.log` for a plaintext tracing mirror
+  - `diagnostics/support-bundles/` for locally exported redacted diagnostics bundles
   - `cache/xlog/` for Xlog cache and mmap spill files
   - `session.json` for the persisted session snapshot triggered by the host shell
 - `session.json` remains host-triggered persistence under that workspace root.

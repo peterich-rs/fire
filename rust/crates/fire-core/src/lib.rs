@@ -18,8 +18,10 @@ mod workspace;
 pub use config::FireCoreConfig;
 pub use core::FireCore;
 pub use diagnostics::{
-    FireLogFileDetail, FireLogFileSummary, NetworkTraceDetail, NetworkTraceEvent,
-    NetworkTraceHeader, NetworkTraceOutcome, NetworkTraceSummary,
+    DiagnosticsPageDirection, DiagnosticsTextPage, FireLogFileDetail, FireLogFilePage,
+    FireLogFileSummary, FireSupportBundleExport, FireSupportBundleHostContext,
+    NetworkTraceBodyPage, NetworkTraceDetail, NetworkTraceEvent, NetworkTraceHeader,
+    NetworkTraceOutcome, NetworkTraceSummary,
 };
 pub use error::FireCoreError;
 pub use logging::{FireHostLogLevel, FireLogger, FireLoggerConfig};

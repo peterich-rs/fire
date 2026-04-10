@@ -23,12 +23,23 @@ use openwire::{
     CallContext, ConnectionId, EventListener, EventListenerFactory, RequestBody, ResponseBody,
     WireError,
 };
+use serde_json::{json, Value};
 
-use crate::{error::FireCoreError, workspace::validate_workspace_relative_path};
+use crate::{
+    error::FireCoreError, session_store::write_atomic, workspace::validate_workspace_relative_path,
+};
 
 const MAX_NETWORK_TRACES: usize = 200;
 const MAX_RESPONSE_BODY_BYTES: usize = 256 * 1024;
+const MAX_RESPONSE_BODY_INLINE_BYTES: usize = 16 * 1024;
 const MAX_LOG_CONTENT_BYTES: usize = 512 * 1024;
+const DEFAULT_LOG_PAGE_BYTES: usize = 128 * 1024;
+const DEFAULT_TRACE_BODY_PAGE_BYTES: usize = 32 * 1024;
+const SUPPORT_BUNDLE_LOG_FILE_LIMIT: usize = 4;
+const SUPPORT_BUNDLE_TRACE_LIMIT: usize = 20;
+const SUPPORT_BUNDLE_LOG_PAGE_BYTES: usize = 96 * 1024;
+const SUPPORT_BUNDLE_TRACE_BODY_BYTES: usize = 32 * 1024;
+const SUPPORT_BUNDLE_DIR_NAME: &str = "support-bundles";
 const REDACTED_HEADER_VALUE: &str = "<redacted>";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -37,6 +48,25 @@ pub enum NetworkTraceOutcome {
     Succeeded,
     Failed,
     Cancelled,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DiagnosticsPageDirection {
+    Older,
+    Newer,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DiagnosticsTextPage {
+    pub text: String,
+    pub start_offset: u64,
+    pub end_offset: u64,
+    pub total_bytes: u64,
+    pub next_cursor: Option<u64>,
+    pub has_more_older: bool,
+    pub has_more_newer: bool,
+    pub is_head_aligned: bool,
+    pub is_tail_aligned: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -89,6 +119,9 @@ pub struct NetworkTraceDetail {
     pub response_content_type: Option<String>,
     pub response_body: Option<String>,
     pub response_body_truncated: bool,
+    pub response_body_storage_truncated: bool,
+    pub response_body_stored_bytes: Option<u64>,
+    pub response_body_page_available: bool,
     pub response_body_bytes: Option<u64>,
     pub events: Vec<NetworkTraceEvent>,
 }
@@ -109,6 +142,42 @@ pub struct FireLogFileDetail {
     pub modified_at_unix_ms: u64,
     pub contents: String,
     pub is_truncated: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FireLogFilePage {
+    pub relative_path: String,
+    pub file_name: String,
+    pub size_bytes: u64,
+    pub modified_at_unix_ms: u64,
+    pub page: DiagnosticsTextPage,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NetworkTraceBodyPage {
+    pub trace_id: u64,
+    pub response_content_type: Option<String>,
+    pub response_body_storage_truncated: bool,
+    pub response_body_stored_bytes: Option<u64>,
+    pub page: DiagnosticsTextPage,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FireSupportBundleHostContext {
+    pub platform: String,
+    pub app_version: Option<String>,
+    pub build_number: Option<String>,
+    pub scene_phase: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FireSupportBundleExport {
+    pub file_name: String,
+    pub relative_path: String,
+    pub absolute_path: String,
+    pub size_bytes: u64,
+    pub created_at_unix_ms: u64,
+    pub diagnostic_session_id: String,
 }
 
 #[derive(Debug, Clone)]
@@ -133,7 +202,7 @@ struct NetworkTraceRecord {
     response_headers: Vec<NetworkTraceHeader>,
     response_content_type: Option<String>,
     response_body: Option<String>,
-    response_body_truncated: bool,
+    response_body_storage_truncated: bool,
     response_body_bytes: Option<u64>,
     events: Vec<NetworkTraceEvent>,
 }
@@ -182,11 +251,25 @@ impl NetworkTraceRecord {
             status_code: self.status_code,
             error_message: self.error_message.clone(),
             response_content_type: self.response_content_type.clone(),
-            response_body_truncated: self.response_body_truncated,
+            response_body_truncated: self.response_body_storage_truncated,
         }
     }
 
     fn to_detail(&self) -> NetworkTraceDetail {
+        let response_body_page = self.response_body.as_deref().map(|body| {
+            paginate_text(
+                body,
+                None,
+                MAX_RESPONSE_BODY_INLINE_BYTES,
+                DiagnosticsPageDirection::Newer,
+            )
+        });
+        let response_body_page_available = response_body_page
+            .as_ref()
+            .is_some_and(|page| page.has_more_newer);
+        let response_body_truncated =
+            self.response_body_storage_truncated || response_body_page_available;
+
         NetworkTraceDetail {
             id: self.id,
             call_id: self.call_id,
@@ -202,8 +285,11 @@ impl NetworkTraceRecord {
             request_headers: self.request_headers.clone(),
             response_headers: self.response_headers.clone(),
             response_content_type: self.response_content_type.clone(),
-            response_body: self.response_body.clone(),
-            response_body_truncated: self.response_body_truncated,
+            response_body: response_body_page.as_ref().map(|page| page.text.clone()),
+            response_body_truncated,
+            response_body_storage_truncated: self.response_body_storage_truncated,
+            response_body_stored_bytes: self.response_body.as_ref().map(|body| body.len() as u64),
+            response_body_page_available,
             response_body_bytes: self.response_body_bytes,
             events: self.events.clone(),
         }
@@ -217,6 +303,7 @@ struct FireDiagnosticsState {
 }
 
 pub(crate) struct FireDiagnosticsStore {
+    diagnostic_session_id: String,
     next_trace_id: AtomicU64,
     inner: Mutex<FireDiagnosticsState>,
 }
@@ -264,9 +351,14 @@ impl Default for FireDiagnosticsStore {
 impl FireDiagnosticsStore {
     pub(crate) fn new() -> Self {
         Self {
+            diagnostic_session_id: new_diagnostic_session_id(),
             next_trace_id: AtomicU64::new(1),
             inner: Mutex::new(FireDiagnosticsState::default()),
         }
+    }
+
+    pub(crate) fn diagnostic_session_id(&self) -> &str {
+        &self.diagnostic_session_id
     }
 
     pub(crate) fn prepare_request_trace(
@@ -290,7 +382,7 @@ impl FireDiagnosticsStore {
             response_headers: Vec::new(),
             response_content_type: None,
             response_body: None,
-            response_body_truncated: false,
+            response_body_storage_truncated: false,
             response_body_bytes: None,
             events: Vec::new(),
         };
@@ -329,6 +421,31 @@ impl FireDiagnosticsStore {
             .traces
             .get(&trace_id)
             .map(NetworkTraceRecord::to_detail)
+    }
+
+    pub(crate) fn network_trace_body_page(
+        &self,
+        trace_id: u64,
+        cursor: Option<u64>,
+        max_bytes: usize,
+        direction: DiagnosticsPageDirection,
+    ) -> Option<NetworkTraceBodyPage> {
+        let state = self.inner.lock().expect("diagnostics store poisoned");
+        let trace = state.traces.get(&trace_id)?;
+        let body = trace.response_body.as_deref()?;
+        let page = paginate_text(
+            body,
+            cursor,
+            normalized_page_bytes(max_bytes, DEFAULT_TRACE_BODY_PAGE_BYTES),
+            direction,
+        );
+        Some(NetworkTraceBodyPage {
+            trace_id,
+            response_content_type: trace.response_content_type.clone(),
+            response_body_storage_truncated: trace.response_body_storage_truncated,
+            response_body_stored_bytes: Some(body.len() as u64),
+            page,
+        })
     }
 
     pub(crate) fn cancellation_guard(
@@ -450,9 +567,9 @@ impl FireDiagnosticsStore {
         response_content_type: Option<&str>,
     ) {
         self.with_trace(trace_id, |trace| {
-            let (stored, truncated) = truncate_text(body, MAX_RESPONSE_BODY_BYTES);
+            let (stored, truncated) = truncate_text_prefix(body, MAX_RESPONSE_BODY_BYTES);
             trace.response_body = Some(stored);
-            trace.response_body_truncated = truncated;
+            trace.response_body_storage_truncated = truncated;
             if let Some(content_type) = response_content_type {
                 trace.response_content_type = Some(content_type.to_string());
             }
@@ -478,9 +595,9 @@ impl FireDiagnosticsStore {
             trace.status_code = Some(status);
             trace.error_message = Some(format!("HTTP {status}"));
             trace.finished_at_unix_ms = Some(now_unix_ms());
-            let (stored, truncated) = truncate_text(body, MAX_RESPONSE_BODY_BYTES);
+            let (stored, truncated) = truncate_text_prefix(body, MAX_RESPONSE_BODY_BYTES);
             trace.response_body = Some(stored);
-            trace.response_body_truncated = truncated;
+            trace.response_body_storage_truncated = truncated;
             trace.push_event(
                 "http_error",
                 format!("Request failed with HTTP {status}"),
@@ -1093,6 +1210,144 @@ pub(crate) fn read_log_file(
     })
 }
 
+pub(crate) fn read_log_file_page(
+    workspace_path: &Path,
+    relative_path: impl AsRef<Path>,
+    cursor: Option<u64>,
+    max_bytes: usize,
+    direction: DiagnosticsPageDirection,
+) -> Result<FireLogFilePage, FireCoreError> {
+    let relative_path = relative_path.as_ref();
+    validate_workspace_relative_path(relative_path)?;
+
+    let resolved_path = workspace_path.join(relative_path);
+    let metadata = fs::metadata(&resolved_path).map_err(|source| FireCoreError::WorkspaceIo {
+        path: resolved_path.clone(),
+        source,
+    })?;
+    let bytes = fs::read(&resolved_path).map_err(|source| FireCoreError::WorkspaceIo {
+        path: resolved_path.clone(),
+        source,
+    })?;
+    let decoded = decode_log_file_contents(&resolved_path, &bytes);
+    let page = paginate_log_text(
+        &decoded,
+        cursor,
+        normalized_page_bytes(max_bytes, DEFAULT_LOG_PAGE_BYTES),
+        direction,
+    );
+
+    Ok(FireLogFilePage {
+        relative_path: relative_path.to_string_lossy().to_string(),
+        file_name: resolved_path
+            .file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or_default()
+            .to_string(),
+        size_bytes: metadata.len(),
+        modified_at_unix_ms: metadata
+            .modified()
+            .ok()
+            .and_then(|value| value.duration_since(UNIX_EPOCH).ok())
+            .map(|value| value.as_millis().min(u64::MAX as u128) as u64)
+            .unwrap_or_default(),
+        page,
+    })
+}
+
+pub(crate) fn export_support_bundle(
+    workspace_path: &Path,
+    diagnostics: &FireDiagnosticsStore,
+    redacted_session_json: &str,
+    host_context: &FireSupportBundleHostContext,
+) -> Result<FireSupportBundleExport, FireCoreError> {
+    let generated_at_unix_ms = now_unix_ms();
+    let file_name = format!("fire-support-{generated_at_unix_ms}.json");
+    let relative_path = Path::new("diagnostics")
+        .join("support-bundles")
+        .join(&file_name);
+    let absolute_path = workspace_path.join(&relative_path);
+    let parent = absolute_path
+        .parent()
+        .expect("support bundle path should have a parent");
+    fs::create_dir_all(parent).map_err(|source| FireCoreError::DiagnosticsIo {
+        path: parent.to_path_buf(),
+        source,
+    })?;
+
+    let session: Value = serde_json::from_str(redacted_session_json)
+        .map_err(FireCoreError::DiagnosticsDeserialize)?;
+    let log_files = list_log_files(workspace_path)?;
+    let log_pages = log_files
+        .iter()
+        .take(SUPPORT_BUNDLE_LOG_FILE_LIMIT)
+        .map(|file| {
+            read_log_file_page(
+                workspace_path,
+                &file.relative_path,
+                None,
+                SUPPORT_BUNDLE_LOG_PAGE_BYTES,
+                DiagnosticsPageDirection::Older,
+            )
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let trace_summaries = diagnostics.summaries(SUPPORT_BUNDLE_TRACE_LIMIT);
+    let trace_payloads = trace_summaries
+        .iter()
+        .map(|summary| {
+            let detail = diagnostics.detail(summary.id).ok_or_else(|| {
+                FireCoreError::DiagnosticsTraceNotFound {
+                    trace_id: summary.id.to_string(),
+                }
+            })?;
+            let body_page = diagnostics.network_trace_body_page(
+                summary.id,
+                None,
+                SUPPORT_BUNDLE_TRACE_BODY_BYTES,
+                DiagnosticsPageDirection::Newer,
+            );
+            Ok(support_bundle_trace_json(&detail, body_page.as_ref()))
+        })
+        .collect::<Result<Vec<_>, FireCoreError>>()?;
+
+    let payload = json!({
+        "version": 1,
+        "generated_at_unix_ms": generated_at_unix_ms,
+        "diagnostic_session_id": diagnostics.diagnostic_session_id(),
+        "host": {
+            "platform": host_context.platform,
+            "app_version": host_context.app_version,
+            "build_number": host_context.build_number,
+            "scene_phase": host_context.scene_phase,
+        },
+        "session": session,
+        "logs": log_pages.iter().map(support_bundle_log_json).collect::<Vec<_>>(),
+        "network_traces": trace_payloads,
+    });
+
+    let contents =
+        serde_json::to_vec_pretty(&payload).map_err(FireCoreError::DiagnosticsSerialize)?;
+    write_atomic(&absolute_path, &contents).map_err(|source| FireCoreError::DiagnosticsIo {
+        path: absolute_path.clone(),
+        source,
+    })?;
+    let size_bytes = fs::metadata(&absolute_path)
+        .map_err(|source| FireCoreError::DiagnosticsIo {
+            path: absolute_path.clone(),
+            source,
+        })?
+        .len();
+
+    Ok(FireSupportBundleExport {
+        file_name,
+        relative_path: relative_path.to_string_lossy().to_string(),
+        absolute_path: absolute_path.display().to_string(),
+        size_bytes,
+        created_at_unix_ms: generated_at_unix_ms,
+        diagnostic_session_id: diagnostics.diagnostic_session_id().to_string(),
+    })
+}
+
 fn visit_log_files(
     workspace_path: &Path,
     dir: &Path,
@@ -1108,7 +1363,14 @@ fn visit_log_files(
         })?;
         let path = entry.path();
         if path.is_dir() {
+            if is_support_bundle_path(workspace_path, &path) {
+                continue;
+            }
             visit_log_files(workspace_path, &path, out)?;
+            continue;
+        }
+
+        if is_support_bundle_path(workspace_path, &path) {
             continue;
         }
 
@@ -1262,6 +1524,256 @@ fn decode_block_payload(header: &LogHeader, payload: &[u8]) -> Result<Vec<u8>, S
     }
 }
 
+fn paginate_log_text(
+    text: &str,
+    cursor: Option<u64>,
+    max_bytes: usize,
+    direction: DiagnosticsPageDirection,
+) -> DiagnosticsTextPage {
+    if text.is_empty() {
+        return paginate_text(text, cursor, max_bytes, direction);
+    }
+
+    let total_bytes = text.len();
+    let max_bytes = max_bytes.max(1);
+
+    let (start, end, next_cursor) = match direction {
+        DiagnosticsPageDirection::Older => {
+            let end = previous_char_boundary(text, cursor.unwrap_or(total_bytes as u64) as usize);
+            let raw_start = end.saturating_sub(max_bytes);
+            let start = if raw_start == 0 {
+                0
+            } else {
+                line_start_at_or_before(text, raw_start)
+            };
+            let next_cursor = (start > 0).then_some(start as u64);
+            (start, end, next_cursor)
+        }
+        DiagnosticsPageDirection::Newer => {
+            let start = next_char_boundary(text, cursor.unwrap_or(0) as usize);
+            let raw_end = start.saturating_add(max_bytes).min(total_bytes);
+            let end = if raw_end >= total_bytes {
+                total_bytes
+            } else {
+                line_end_at_or_after(text, raw_end)
+            };
+            let next_cursor = (end < total_bytes).then_some(end as u64);
+            (start, end, next_cursor)
+        }
+    };
+
+    DiagnosticsTextPage {
+        text: text[start..end].to_string(),
+        start_offset: start as u64,
+        end_offset: end as u64,
+        total_bytes: total_bytes as u64,
+        next_cursor,
+        has_more_older: start > 0,
+        has_more_newer: end < total_bytes,
+        is_head_aligned: start == 0,
+        is_tail_aligned: end == total_bytes,
+    }
+}
+
+fn paginate_text(
+    text: &str,
+    cursor: Option<u64>,
+    max_bytes: usize,
+    direction: DiagnosticsPageDirection,
+) -> DiagnosticsTextPage {
+    let total_bytes = text.len();
+    let max_bytes = max_bytes.max(1);
+
+    if text.is_empty() {
+        return DiagnosticsTextPage {
+            text: String::new(),
+            start_offset: 0,
+            end_offset: 0,
+            total_bytes: 0,
+            next_cursor: None,
+            has_more_older: false,
+            has_more_newer: false,
+            is_head_aligned: true,
+            is_tail_aligned: true,
+        };
+    }
+
+    let (start, end, next_cursor) = match direction {
+        DiagnosticsPageDirection::Older => {
+            let end = previous_char_boundary(text, cursor.unwrap_or(total_bytes as u64) as usize);
+            let mut start = next_char_boundary(text, end.saturating_sub(max_bytes));
+            if start == end && end > 0 {
+                start = previous_char_boundary(text, end.saturating_sub(1));
+            }
+            let next_cursor = (start > 0).then_some(start as u64);
+            (start, end, next_cursor)
+        }
+        DiagnosticsPageDirection::Newer => {
+            let start = next_char_boundary(text, cursor.unwrap_or(0) as usize);
+            let mut end = previous_char_boundary(text, start.saturating_add(max_bytes));
+            if end == start && start < total_bytes {
+                end = next_char_boundary(text, start.saturating_add(1));
+            }
+            let next_cursor = (end < total_bytes).then_some(end as u64);
+            (start, end, next_cursor)
+        }
+    };
+
+    DiagnosticsTextPage {
+        text: text[start..end].to_string(),
+        start_offset: start as u64,
+        end_offset: end as u64,
+        total_bytes: total_bytes as u64,
+        next_cursor,
+        has_more_older: start > 0,
+        has_more_newer: end < total_bytes,
+        is_head_aligned: start == 0,
+        is_tail_aligned: end == total_bytes,
+    }
+}
+
+fn line_start_at_or_before(text: &str, offset: usize) -> usize {
+    let offset = previous_char_boundary(text, offset);
+    match text[..offset].rfind('\n') {
+        Some(index) => index + 1,
+        None => 0,
+    }
+}
+
+fn line_end_at_or_after(text: &str, offset: usize) -> usize {
+    let offset = next_char_boundary(text, offset);
+    match text[offset..].find('\n') {
+        Some(index) => offset + index + 1,
+        None => text.len(),
+    }
+}
+
+fn previous_char_boundary(text: &str, offset: usize) -> usize {
+    let mut offset = offset.min(text.len());
+    while offset > 0 && !text.is_char_boundary(offset) {
+        offset -= 1;
+    }
+    offset
+}
+
+fn next_char_boundary(text: &str, offset: usize) -> usize {
+    let mut offset = offset.min(text.len());
+    while offset < text.len() && !text.is_char_boundary(offset) {
+        offset += 1;
+    }
+    offset
+}
+
+fn normalized_page_bytes(requested: usize, fallback: usize) -> usize {
+    match requested {
+        0 => fallback,
+        value => value,
+    }
+}
+
+fn is_support_bundle_path(workspace_path: &Path, path: &Path) -> bool {
+    let support_bundle_root = Path::new("diagnostics").join(SUPPORT_BUNDLE_DIR_NAME);
+    path.strip_prefix(workspace_path)
+        .ok()
+        .is_some_and(|relative_path| relative_path.starts_with(&support_bundle_root))
+}
+
+fn support_bundle_log_json(page: &FireLogFilePage) -> Value {
+    json!({
+        "relative_path": page.relative_path,
+        "file_name": page.file_name,
+        "size_bytes": page.size_bytes,
+        "modified_at_unix_ms": page.modified_at_unix_ms,
+        "window": diagnostics_text_page_json(&page.page),
+    })
+}
+
+fn support_bundle_trace_json(
+    detail: &NetworkTraceDetail,
+    body_page: Option<&NetworkTraceBodyPage>,
+) -> Value {
+    json!({
+        "summary": {
+            "id": detail.id,
+            "call_id": detail.call_id,
+            "operation": detail.operation,
+            "method": detail.method,
+            "url": detail.url,
+            "started_at_unix_ms": detail.started_at_unix_ms,
+            "finished_at_unix_ms": detail.finished_at_unix_ms,
+            "duration_ms": detail.duration_ms,
+            "outcome": support_bundle_trace_outcome(detail.outcome),
+            "status_code": detail.status_code,
+            "error_message": detail.error_message,
+            "response_content_type": detail.response_content_type,
+            "response_body_truncated": detail.response_body_truncated,
+            "response_body_storage_truncated": detail.response_body_storage_truncated,
+            "response_body_stored_bytes": detail.response_body_stored_bytes,
+            "response_body_page_available": detail.response_body_page_available,
+            "response_body_bytes": detail.response_body_bytes,
+        },
+        "request_headers": detail
+            .request_headers
+            .iter()
+            .map(support_bundle_header_json)
+            .collect::<Vec<_>>(),
+        "response_headers": detail
+            .response_headers
+            .iter()
+            .map(support_bundle_header_json)
+            .collect::<Vec<_>>(),
+        "events": detail.events.iter().map(support_bundle_event_json).collect::<Vec<_>>(),
+        "body_page": body_page.map(|page| {
+            json!({
+                "response_content_type": page.response_content_type,
+                "response_body_storage_truncated": page.response_body_storage_truncated,
+                "response_body_stored_bytes": page.response_body_stored_bytes,
+                "window": diagnostics_text_page_json(&page.page),
+            })
+        }),
+    })
+}
+
+fn diagnostics_text_page_json(page: &DiagnosticsTextPage) -> Value {
+    json!({
+        "text": page.text,
+        "start_offset": page.start_offset,
+        "end_offset": page.end_offset,
+        "total_bytes": page.total_bytes,
+        "next_cursor": page.next_cursor,
+        "has_more_older": page.has_more_older,
+        "has_more_newer": page.has_more_newer,
+        "is_head_aligned": page.is_head_aligned,
+        "is_tail_aligned": page.is_tail_aligned,
+    })
+}
+
+fn support_bundle_header_json(header: &NetworkTraceHeader) -> Value {
+    json!({
+        "name": header.name,
+        "value": header.value,
+    })
+}
+
+fn support_bundle_event_json(event: &NetworkTraceEvent) -> Value {
+    json!({
+        "sequence": event.sequence,
+        "timestamp_unix_ms": event.timestamp_unix_ms,
+        "phase": event.phase,
+        "summary": event.summary,
+        "details": event.details,
+    })
+}
+
+fn support_bundle_trace_outcome(outcome: NetworkTraceOutcome) -> &'static str {
+    match outcome {
+        NetworkTraceOutcome::InProgress => "in_progress",
+        NetworkTraceOutcome::Succeeded => "succeeded",
+        NetworkTraceOutcome::Failed => "failed",
+        NetworkTraceOutcome::Cancelled => "cancelled",
+    }
+}
+
 fn truncate_text(text: &str, max_bytes: usize) -> (String, bool) {
     if text.len() <= max_bytes {
         return (text.to_string(), false);
@@ -1277,6 +1789,19 @@ fn truncate_text(text: &str, max_bytes: usize) -> (String, bool) {
     (out, true)
 }
 
+fn truncate_text_prefix(text: &str, max_bytes: usize) -> (String, bool) {
+    if text.len() <= max_bytes {
+        return (text.to_string(), false);
+    }
+
+    let mut end = max_bytes;
+    while end > 0 && !text.is_char_boundary(end) {
+        end -= 1;
+    }
+
+    (text[..end].to_string(), true)
+}
+
 fn now_unix_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -1285,11 +1810,23 @@ fn now_unix_ms() -> u64 {
         })
 }
 
+fn new_diagnostic_session_id() -> String {
+    static NEXT_DIAGNOSTIC_SESSION: AtomicU64 = AtomicU64::new(1);
+    let counter = NEXT_DIAGNOSTIC_SESSION.fetch_add(1, Ordering::Relaxed);
+    format!("diag-{}-{counter}", now_unix_ms())
+}
+
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
+    use std::{env, fs, sync::Arc};
 
-    use super::{FireDiagnosticsStore, NetworkTraceOutcome, Request, RequestBody};
+    use serde_json::Value;
+
+    use super::{
+        export_support_bundle, read_log_file_page, DiagnosticsPageDirection, FireDiagnosticsStore,
+        FireSupportBundleHostContext, NetworkTraceOutcome, Request, RequestBody, Response,
+        ResponseBody,
+    };
 
     #[test]
     fn summaries_are_returned_in_reverse_creation_order() {
@@ -1331,10 +1868,26 @@ mod tests {
 
         let detail = store.detail(trace_id).expect("detail");
         assert!(detail.response_body_truncated);
-        assert!(detail
-            .response_body
-            .expect("body")
-            .ends_with("<... truncated ...>"));
+        assert!(detail.response_body_storage_truncated);
+        assert!(detail.response_body_page_available);
+        assert_eq!(
+            detail.response_body.expect("body").len(),
+            super::MAX_RESPONSE_BODY_INLINE_BYTES
+        );
+        assert_eq!(
+            detail.response_body_stored_bytes,
+            Some(super::MAX_RESPONSE_BODY_BYTES as u64)
+        );
+
+        let tail_page = store
+            .network_trace_body_page(trace_id, None, 512, DiagnosticsPageDirection::Older)
+            .expect("tail page");
+        assert!(tail_page.page.is_tail_aligned);
+        assert_eq!(
+            tail_page.response_body_stored_bytes,
+            Some(super::MAX_RESPONSE_BODY_BYTES as u64)
+        );
+        assert!(!tail_page.page.text.contains("<... truncated ...>"));
     }
 
     #[test]
@@ -1430,5 +1983,206 @@ mod tests {
         let detail = store.detail(trace_id).expect("detail");
         assert_eq!(detail.outcome, NetworkTraceOutcome::Cancelled);
         assert_eq!(detail.events.last().expect("event").phase, "cancelled");
+    }
+
+    #[test]
+    fn network_trace_detail_only_inlines_first_body_preview_page() {
+        let store = FireDiagnosticsStore::new();
+        let mut request = Request::builder()
+            .method("GET")
+            .uri("https://linux.do/latest.json")
+            .body(RequestBody::empty())
+            .expect("request");
+        let trace_id = store.prepare_request_trace("fetch", &mut request);
+        let body = "abcd".repeat((super::MAX_RESPONSE_BODY_INLINE_BYTES / 4) + 256);
+
+        store.record_response_body_text(trace_id, &body, Some("application/json"));
+
+        let detail = store.detail(trace_id).expect("detail");
+        let inline_preview = detail.response_body.expect("inline preview");
+        assert_eq!(inline_preview.len(), super::MAX_RESPONSE_BODY_INLINE_BYTES);
+        assert!(detail.response_body_page_available);
+        assert_eq!(
+            detail.response_body_stored_bytes,
+            Some(body.len().min(super::MAX_RESPONSE_BODY_BYTES) as u64)
+        );
+        assert!(!detail.response_body_storage_truncated);
+
+        let next_page = store
+            .network_trace_body_page(
+                trace_id,
+                Some(inline_preview.len() as u64),
+                super::MAX_RESPONSE_BODY_INLINE_BYTES,
+                DiagnosticsPageDirection::Newer,
+            )
+            .expect("body page");
+        assert_eq!(next_page.page.start_offset, inline_preview.len() as u64);
+        assert_eq!(
+            next_page.page.text,
+            body[inline_preview.len()..next_page.page.end_offset as usize]
+        );
+    }
+
+    #[test]
+    fn log_file_pages_default_to_tail_and_can_load_older_windows() {
+        let workspace_dir = temp_workspace_dir("diagnostics-log-page-tail");
+        let log_path = workspace_dir.join("diagnostics").join("tail.log");
+        fs::create_dir_all(log_path.parent().expect("parent")).expect("log dir");
+        fs::write(&log_path, "line-01\nline-02\nline-03\nline-04\nline-05\n").expect("log file");
+
+        let latest_page = read_log_file_page(
+            &workspace_dir,
+            "diagnostics/tail.log",
+            None,
+            14,
+            DiagnosticsPageDirection::Older,
+        )
+        .expect("latest page");
+
+        assert!(latest_page.page.is_tail_aligned);
+        assert!(latest_page.page.has_more_older);
+        assert_eq!(latest_page.page.text, "line-04\nline-05\n");
+
+        let older_page = read_log_file_page(
+            &workspace_dir,
+            "diagnostics/tail.log",
+            Some(latest_page.page.start_offset),
+            14,
+            DiagnosticsPageDirection::Older,
+        )
+        .expect("older page");
+
+        assert_eq!(older_page.page.text, "line-02\nline-03\n");
+        assert!(older_page.page.has_more_older);
+        assert!(older_page.page.has_more_newer);
+    }
+
+    #[test]
+    fn log_file_pages_respect_utf8_boundaries() {
+        let workspace_dir = temp_workspace_dir("diagnostics-log-page-utf8");
+        let log_path = workspace_dir.join("diagnostics").join("utf8.log");
+        fs::create_dir_all(log_path.parent().expect("parent")).expect("log dir");
+        fs::write(&log_path, "🙂🙂🙂").expect("log file");
+
+        let latest_page = read_log_file_page(
+            &workspace_dir,
+            "diagnostics/utf8.log",
+            None,
+            5,
+            DiagnosticsPageDirection::Older,
+        )
+        .expect("latest page");
+
+        assert_eq!(latest_page.page.text, "🙂🙂🙂");
+        assert_eq!(latest_page.page.text.chars().count(), 3);
+        assert!(latest_page.page.is_tail_aligned);
+    }
+
+    #[test]
+    fn support_bundle_export_contains_recent_windows_and_skips_bundle_dir() {
+        let workspace_dir = temp_workspace_dir("diagnostics-support-bundle");
+        let diagnostics_dir = workspace_dir.join("diagnostics");
+        let logs_dir = workspace_dir.join("logs");
+        fs::create_dir_all(&diagnostics_dir).expect("diagnostics dir");
+        fs::create_dir_all(&logs_dir).expect("logs dir");
+        fs::create_dir_all(diagnostics_dir.join(super::SUPPORT_BUNDLE_DIR_NAME))
+            .expect("support bundle dir");
+
+        fs::write(
+            diagnostics_dir.join("fire-readable.log"),
+            "line-01\nline-02\nline-03\nline-04\n",
+        )
+        .expect("readable log");
+        fs::write(
+            diagnostics_dir
+                .join(super::SUPPORT_BUNDLE_DIR_NAME)
+                .join("old-export.json"),
+            "{}",
+        )
+        .expect("old support bundle");
+
+        let store = FireDiagnosticsStore::new();
+        let mut request = Request::builder()
+            .method("GET")
+            .uri("https://linux.do/latest.json")
+            .header("cookie", "session=secret")
+            .body(RequestBody::empty())
+            .expect("request");
+        let trace_id = store.prepare_request_trace("fetch latest", &mut request);
+        store.record_request_headers_snapshot(trace_id, &request, 1);
+
+        let response = Response::builder()
+            .status(200)
+            .header("content-type", "application/json")
+            .header("set-cookie", "session=secret")
+            .body(ResponseBody::empty())
+            .expect("response");
+        store.record_response_headers(trace_id, &response);
+        store.record_response_body_text(trace_id, "{\"ok\":true}", Some("application/json"));
+
+        let export = export_support_bundle(
+            &workspace_dir,
+            &store,
+            r#"{"cookies":{"forum_session":"<redacted>"}}"#,
+            &FireSupportBundleHostContext {
+                platform: "ios".to_string(),
+                app_version: Some("1.0".to_string()),
+                build_number: Some("100".to_string()),
+                scene_phase: Some("active".to_string()),
+            },
+        )
+        .expect("export support bundle");
+
+        assert!(export.absolute_path.ends_with(&export.relative_path));
+
+        let payload: Value =
+            serde_json::from_slice(&fs::read(&export.absolute_path).expect("support bundle file"))
+                .expect("support bundle json");
+
+        assert_eq!(payload["host"]["platform"], "ios");
+        assert_eq!(
+            payload["diagnostic_session_id"],
+            export.diagnostic_session_id
+        );
+        assert_eq!(
+            payload["logs"][0]["relative_path"],
+            Value::String("diagnostics/fire-readable.log".to_string())
+        );
+        let request_headers = payload["network_traces"][0]["request_headers"]
+            .as_array()
+            .expect("request headers");
+        let response_headers = payload["network_traces"][0]["response_headers"]
+            .as_array()
+            .expect("response headers");
+        assert_eq!(
+            request_headers
+                .iter()
+                .find(|header| header["name"] == "cookie")
+                .expect("cookie header")["value"],
+            super::REDACTED_HEADER_VALUE
+        );
+        assert_eq!(
+            response_headers
+                .iter()
+                .find(|header| header["name"] == "set-cookie")
+                .expect("set-cookie header")["value"],
+            super::REDACTED_HEADER_VALUE
+        );
+
+        let listed_logs = super::list_log_files(&workspace_dir).expect("list logs");
+        assert!(listed_logs.iter().all(|file| {
+            !file
+                .relative_path
+                .starts_with("diagnostics/support-bundles/")
+        }));
+    }
+
+    fn temp_workspace_dir(name: &str) -> std::path::PathBuf {
+        let mut path = env::temp_dir();
+        path.push(format!("fire-diagnostics-tests-{}", std::process::id()));
+        path.push(name);
+        let _ = fs::remove_dir_all(&path);
+        fs::create_dir_all(&path).expect("temp workspace dir");
+        path
     }
 }

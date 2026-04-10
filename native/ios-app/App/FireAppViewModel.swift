@@ -90,6 +90,7 @@ final class FireAppViewModel: ObservableObject {
     private static let topicPostPageSize = 30
     private static let topicPostPrefetchThreshold = 6
     private static let topicDetailLogTarget = "ios.topic-detail"
+    private static let diagnosticsLifecycleLogTarget = "ios.lifecycle"
     private static let topicListRefreshLoadingPollInterval: Duration = .milliseconds(250)
 
     // MARK: - Session
@@ -1036,6 +1037,21 @@ final class FireAppViewModel: ObservableObject {
         return try await sessionStore.readLogFile(relativePath: relativePath)
     }
 
+    func readLogFilePage(
+        relativePath: String,
+        cursor: UInt64? = nil,
+        maxBytes: UInt64? = nil,
+        direction: DiagnosticsPageDirectionState
+    ) async throws -> LogFilePageState {
+        let sessionStore = try await sessionStoreValue()
+        return try await sessionStore.readLogFilePage(
+            relativePath: relativePath,
+            cursor: cursor,
+            maxBytes: maxBytes,
+            direction: direction
+        )
+    }
+
     func listNetworkTraces(limit: UInt64 = 200) async throws -> [NetworkTraceSummaryState] {
         let sessionStore = try await sessionStoreValue()
         return try await sessionStore.listNetworkTraces(limit: limit)
@@ -1047,6 +1063,52 @@ final class FireAppViewModel: ObservableObject {
             throw FireDiagnosticsAccessError.traceNotFound
         }
         return detail
+    }
+
+    func networkTraceBodyPage(
+        traceID: UInt64,
+        cursor: UInt64? = nil,
+        maxBytes: UInt64? = nil,
+        direction: DiagnosticsPageDirectionState
+    ) async throws -> NetworkTraceBodyPageState? {
+        let sessionStore = try await sessionStoreValue()
+        return try await sessionStore.networkTraceBodyPage(
+            traceID: traceID,
+            cursor: cursor,
+            maxBytes: maxBytes,
+            direction: direction
+        )
+    }
+
+    func diagnosticSessionID() async throws -> String {
+        let sessionStore = try await sessionStoreValue()
+        return try await sessionStore.diagnosticSessionID()
+    }
+
+    func exportSupportBundle(scenePhase: String?) async throws -> SupportBundleExportState {
+        let sessionStore = try await sessionStoreValue()
+        return try await sessionStore.exportSupportBundle(
+            platform: "ios",
+            appVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String,
+            buildNumber: Bundle.main.object(forInfoDictionaryKey: kCFBundleVersionKey as String) as? String,
+            scenePhase: scenePhase
+        )
+    }
+
+    func flushDiagnosticsLogs(sync: Bool = true) async throws {
+        let sessionStore = try await sessionStoreValue()
+        try await sessionStore.flushLogs(sync: sync)
+    }
+
+    func handleDiagnosticsScenePhaseChange(_ phase: String, isAuthenticated: Bool) {
+        Task {
+            guard let sessionStore else { return }
+            let logger = sessionStore.makeLogger(target: Self.diagnosticsLifecycleLogTarget)
+            logger.info("scene phase changed to \(phase), authenticated=\(isAuthenticated)")
+            if phase == "background" || phase == "inactive" {
+                try? await sessionStore.flushLogs(sync: phase == "background")
+            }
+        }
     }
 
     func dismissError() {

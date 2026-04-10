@@ -68,7 +68,10 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
 - `App/FireDiagnosticsView.swift`
   - renders a native diagnostics screen on top of the shared Rust diagnostics APIs
   - lists workspace log files plus reverse-chronological network request traces
-  - opens dedicated detail pages for log content and per-request execution chains
+  - opens tail-first log pages, preview-first network body viewers, and per-request execution chains without pushing full diagnostic text across the UniFFI boundary by default
+  - exports local support bundles containing redacted session state, recent log windows, and recent trace summaries for share-sheet based escalation
+- `App/FireTabRoot.swift`
+  - forwards scene-phase transitions into shared diagnostics lifecycle logging and flushes logs before `inactive` / `background` so exported diagnostics stay durable
 - `App/FireTopicPresentation.swift`
   - normalizes topic/post timestamps for native presentation
   - extracts inline cooked-image attachments plus enabled reaction options from bootstrap/topic HTML so the native detail view can render media and interaction affordances without a WebView
@@ -106,6 +109,7 @@ Workspace note:
 - The iOS host now passes `Application Support/Fire` into Rust as the workspace root.
 - Rust now initializes shared logging under `Application Support/Fire/logs` and keeps xlog cache files under `Application Support/Fire/cache/xlog`.
 - Rust also mirrors readable tracing output into `Application Support/Fire/diagnostics/fire-readable.log`.
+- Rust now writes locally shareable support bundles into `Application Support/Fire/diagnostics/support-bundles/`.
 - Swift host-side logs can now write back into that same Rust-owned logging pipeline, so native lifecycle/debug messages land in the shared xlog and readable-log artifacts instead of a separate `OSLog` stream.
 - Rust can resolve relative paths inside that workspace for shared file ownership such as logs, caches, or exports.
 - The current persisted session file remains `Application Support/Fire/session.json`, but iOS now writes it as a redacted cache.
@@ -134,7 +138,7 @@ Current UX note:
 - Topic posts now render normalized native text plus inline image attachments in the detail screen, while more complex cooked modules still fall back to the lightweight native presentation instead of a full HTML/WebView renderer.
 - The app now keeps the in-app notification list synchronized from Rust-owned notification runtime state when MessageBus notification events arrive, instead of only updating the unread badge count.
 - iOS now schedules background refresh work for `/notification-alert/{userId}` and presents host-owned local notifications from a dedicated one-shot Rust MessageBus poll path.
-- The app now exposes a diagnostics screen for readable logs and Rust-owned request trace inspection.
+- The app now exposes a diagnostics screen for tail-first log inspection, preview-first request-trace body paging, and local support-bundle export.
 - The profile screen now consumes Rust-derived session display labels, so authenticated recovery states are described consistently across hosts instead of being inferred separately in Swift.
 
 Build prerequisites:

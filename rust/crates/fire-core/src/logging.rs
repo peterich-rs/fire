@@ -19,6 +19,8 @@ const FIRE_LOG_CACHE_DIR_NAME: &str = "xlog";
 const FIRE_DIAGNOSTICS_DIR_NAME: &str = "diagnostics";
 const FIRE_READABLE_LOG_FILE_NAME: &str = "fire-readable.log";
 const FIRE_HOST_LOG_TARGET: &str = "fire.host";
+const FIRE_LOG_MAX_FILE_SIZE_BYTES: i64 = 8 * 1024 * 1024;
+const FIRE_LOG_MAX_ALIVE_SECONDS: i64 = 7 * 24 * 60 * 60;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FireHostLogLevel {
@@ -104,6 +106,8 @@ impl FireLoggerRuntime {
             name_prefix: FIRE_LOGGER_NAME_PREFIX.to_string(),
             level,
         })?;
+        logger.inner.set_max_file_size(FIRE_LOG_MAX_FILE_SIZE_BYTES);
+        logger.inner.set_max_alive_time(FIRE_LOG_MAX_ALIVE_SECONDS);
         logger.set_console_log_open(cfg!(debug_assertions));
         init_tracing(
             logger.inner.clone(),
@@ -173,25 +177,55 @@ fn level_filter_for(level: LogLevel) -> LevelFilter {
     }
 }
 
-pub fn log_host_message(level: FireHostLogLevel, target: &str, message: &str) {
+pub fn log_host_message(
+    level: FireHostLogLevel,
+    target: &str,
+    message: &str,
+    diagnostic_session_id: Option<&str>,
+) {
     let host_target = if target.trim().is_empty() {
         FIRE_LOGGER_NAME_PREFIX
     } else {
         target
     };
+    let diagnostic_session_id = diagnostic_session_id.unwrap_or("unknown");
 
     match level {
         FireHostLogLevel::Debug => {
-            tracing::debug!(target: FIRE_HOST_LOG_TARGET, host_target = host_target, "{}", message);
+            tracing::debug!(
+                target: FIRE_HOST_LOG_TARGET,
+                host_target = host_target,
+                diagnostic_session_id = diagnostic_session_id,
+                "{}",
+                message
+            );
         }
         FireHostLogLevel::Info => {
-            tracing::info!(target: FIRE_HOST_LOG_TARGET, host_target = host_target, "{}", message);
+            tracing::info!(
+                target: FIRE_HOST_LOG_TARGET,
+                host_target = host_target,
+                diagnostic_session_id = diagnostic_session_id,
+                "{}",
+                message
+            );
         }
         FireHostLogLevel::Warn => {
-            tracing::warn!(target: FIRE_HOST_LOG_TARGET, host_target = host_target, "{}", message);
+            tracing::warn!(
+                target: FIRE_HOST_LOG_TARGET,
+                host_target = host_target,
+                diagnostic_session_id = diagnostic_session_id,
+                "{}",
+                message
+            );
         }
         FireHostLogLevel::Error => {
-            tracing::error!(target: FIRE_HOST_LOG_TARGET, host_target = host_target, "{}", message);
+            tracing::error!(
+                target: FIRE_HOST_LOG_TARGET,
+                host_target = host_target,
+                diagnostic_session_id = diagnostic_session_id,
+                "{}",
+                message
+            );
         }
     }
 }

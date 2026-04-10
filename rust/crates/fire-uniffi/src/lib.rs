@@ -1833,6 +1833,7 @@ pub enum NetworkTraceOutcomeState {
     InProgress,
     Succeeded,
     Failed,
+    Cancelled,
 }
 
 impl From<NetworkTraceOutcome> for NetworkTraceOutcomeState {
@@ -1841,6 +1842,7 @@ impl From<NetworkTraceOutcome> for NetworkTraceOutcomeState {
             NetworkTraceOutcome::InProgress => Self::InProgress,
             NetworkTraceOutcome::Succeeded => Self::Succeeded,
             NetworkTraceOutcome::Failed => Self::Failed,
+            NetworkTraceOutcome::Cancelled => Self::Cancelled,
         }
     }
 }

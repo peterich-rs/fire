@@ -28,8 +28,8 @@ use url::{form_urlencoded::Serializer, Url};
 
 use super::{
     network::{
-        classify_http_status_error, header_value, request_origin, FireCallProfile,
-        FireNetworkLayer, FireRequestProfile, TracedRequest,
+        classify_http_status_error, header_value, request_origin, take_trace_cancellation_guard,
+        FireCallProfile, FireNetworkLayer, FireRequestProfile, TracedRequest,
     },
     notifications::{merge_notification_event_data, FireNotificationRuntime},
     presence::{merge_topic_presence_event_data, FireTopicPresenceRuntime},
@@ -581,11 +581,22 @@ async fn read_message_bus_error_response_for_diagnostics(
     trace_id: u64,
     response: Response<ResponseBody>,
 ) -> Result<bool, FireCoreError> {
+    let mut response = response;
+    let _trace_guard = take_trace_cancellation_guard(&mut response).unwrap_or_else(|| {
+        diagnostics.cancellation_guard(
+            trace_id,
+            "Request cancelled",
+            "Future dropped while reading the message bus error response body",
+        )
+    });
     let status = response.status().as_u16();
-    let body = response.into_body().text().await.map_err(|source| {
-        diagnostics.record_call_failed(trace_id, &source);
-        FireCoreError::Network { source }
-    })?;
+    let body = match response.into_body().text().await {
+        Ok(body) => body,
+        Err(source) => {
+            diagnostics.record_call_failed(trace_id, &source);
+            return Err(FireCoreError::Network { source });
+        }
+    };
     diagnostics.record_http_status_error(trace_id, status, &body);
     Err(classify_http_status_error(
         MESSAGE_BUS_OPERATION,
@@ -599,16 +610,27 @@ async fn read_message_bus_success_response(
     trace_id: u64,
     response: Response<ResponseBody>,
 ) -> Result<bool, FireCoreError> {
+    let mut response = response;
+    let _trace_guard = take_trace_cancellation_guard(&mut response).unwrap_or_else(|| {
+        context.diagnostics.cancellation_guard(
+            trace_id,
+            "Request cancelled",
+            "Future dropped while processing the message bus response body",
+        )
+    });
     let content_type = header_value(response.headers(), "content-type");
     let mut body = response.into_body();
     let mut response_text = String::new();
     let mut chunk_buffer = String::new();
 
     while let Some(frame) = body.frame().await {
-        let frame = frame.map_err(|source| {
-            context.diagnostics.record_call_failed(trace_id, &source);
-            FireCoreError::Network { source }
-        })?;
+        let frame = match frame {
+            Ok(frame) => frame,
+            Err(source) => {
+                context.diagnostics.record_call_failed(trace_id, &source);
+                return Err(FireCoreError::Network { source });
+            }
+        };
         let Ok(bytes) = frame.into_data() else {
             continue;
         };
@@ -656,6 +678,14 @@ async fn read_notification_alert_success_response(
     channel: &str,
     initial_last_message_id: i64,
 ) -> Result<NotificationAlertPollResult, FireCoreError> {
+    let mut response = response;
+    let _trace_guard = take_trace_cancellation_guard(&mut response).unwrap_or_else(|| {
+        diagnostics.cancellation_guard(
+            trace_id,
+            "Request cancelled",
+            "Future dropped while processing the notification alert response body",
+        )
+    });
     let content_type = header_value(response.headers(), "content-type");
     let mut body = response.into_body();
     let mut response_text = String::new();
@@ -668,10 +698,13 @@ async fn read_notification_alert_success_response(
     };
 
     while let Some(frame) = body.frame().await {
-        let frame = frame.map_err(|source| {
-            diagnostics.record_call_failed(trace_id, &source);
-            FireCoreError::Network { source }
-        })?;
+        let frame = match frame {
+            Ok(frame) => frame,
+            Err(source) => {
+                diagnostics.record_call_failed(trace_id, &source);
+                return Err(FireCoreError::Network { source });
+            }
+        };
         let Ok(bytes) = frame.into_data() else {
             continue;
         };

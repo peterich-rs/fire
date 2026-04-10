@@ -36,6 +36,7 @@ pub enum NetworkTraceOutcome {
     InProgress,
     Succeeded,
     Failed,
+    Cancelled,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -144,7 +145,10 @@ impl NetworkTraceRecord {
     }
 
     fn mark_succeeded(&mut self) {
-        if self.outcome != NetworkTraceOutcome::Failed {
+        if !matches!(
+            self.outcome,
+            NetworkTraceOutcome::Failed | NetworkTraceOutcome::Cancelled
+        ) {
             self.outcome = NetworkTraceOutcome::Succeeded;
             self.error_message = None;
         }
@@ -215,6 +219,40 @@ struct FireDiagnosticsState {
 pub(crate) struct FireDiagnosticsStore {
     next_trace_id: AtomicU64,
     inner: Mutex<FireDiagnosticsState>,
+}
+
+pub(crate) struct FireNetworkTraceCancellationGuard {
+    inner: Arc<FireNetworkTraceCancellationGuardInner>,
+}
+
+struct FireNetworkTraceCancellationGuardInner {
+    diagnostics: Arc<FireDiagnosticsStore>,
+    trace_id: u64,
+    summary: String,
+    details: String,
+    armed: std::sync::atomic::AtomicBool,
+}
+
+impl Drop for FireNetworkTraceCancellationGuard {
+    fn drop(&mut self) {
+        if !self.inner.armed.swap(false, Ordering::AcqRel) {
+            return;
+        }
+
+        self.inner.diagnostics.record_cancelled_if_in_progress(
+            self.inner.trace_id,
+            &self.inner.summary,
+            Some(&self.inner.details),
+        );
+    }
+}
+
+impl Clone for FireNetworkTraceCancellationGuard {
+    fn clone(&self) -> Self {
+        Self {
+            inner: Arc::clone(&self.inner),
+        }
+    }
 }
 
 impl Default for FireDiagnosticsStore {
@@ -293,6 +331,23 @@ impl FireDiagnosticsStore {
             .map(NetworkTraceRecord::to_detail)
     }
 
+    pub(crate) fn cancellation_guard(
+        self: &Arc<Self>,
+        trace_id: u64,
+        summary: impl Into<String>,
+        details: impl Into<String>,
+    ) -> FireNetworkTraceCancellationGuard {
+        FireNetworkTraceCancellationGuard {
+            inner: Arc::new(FireNetworkTraceCancellationGuardInner {
+                diagnostics: Arc::clone(self),
+                trace_id,
+                summary: summary.into(),
+                details: details.into(),
+                armed: std::sync::atomic::AtomicBool::new(true),
+            }),
+        }
+    }
+
     pub(crate) fn record_call_start(&self, trace_id: u64, ctx: &CallContext) {
         self.with_trace(trace_id, |trace| {
             trace.call_id = Some(ctx.call_id().as_u64());
@@ -324,14 +379,23 @@ impl FireDiagnosticsStore {
         self.with_trace(trace_id, |trace| {
             trace.push_event(
                 "call_end",
-                format!("Call completed with HTTP {}", response.status().as_u16()),
-                None,
+                format!("Transport returned HTTP {}", response.status().as_u16()),
+                Some("response body may still be in progress".to_string()),
             );
         });
     }
 
     pub(crate) fn record_call_failed(&self, trace_id: u64, error: &WireError) {
         self.record_failure(
+            trace_id,
+            "call_failed",
+            "Call failed".to_string(),
+            error.to_string(),
+        );
+    }
+
+    pub(crate) fn record_call_failed_if_in_progress(&self, trace_id: u64, error: &WireError) {
+        self.record_failure_if_in_progress(
             trace_id,
             "call_failed",
             "Call failed".to_string(),
@@ -407,6 +471,9 @@ impl FireDiagnosticsStore {
 
     pub(crate) fn record_http_status_error(&self, trace_id: u64, status: u16, body: &str) {
         self.with_trace(trace_id, |trace| {
+            if trace.outcome == NetworkTraceOutcome::Cancelled {
+                return;
+            }
             trace.outcome = NetworkTraceOutcome::Failed;
             trace.status_code = Some(status);
             trace.error_message = Some(format!("HTTP {status}"));
@@ -674,8 +741,50 @@ impl FireDiagnosticsStore {
         }
     }
 
+    fn record_failure_if_in_progress(
+        &self,
+        trace_id: u64,
+        phase: &str,
+        summary: String,
+        details: String,
+    ) {
+        self.with_trace(trace_id, |trace| {
+            if trace.outcome != NetworkTraceOutcome::InProgress {
+                return;
+            }
+            trace.outcome = NetworkTraceOutcome::Failed;
+            trace.error_message = Some(details.clone());
+            trace.finished_at_unix_ms = Some(now_unix_ms());
+            trace.push_event(phase, summary, Some(details));
+        });
+    }
+
+    pub(crate) fn record_cancelled_if_in_progress(
+        &self,
+        trace_id: u64,
+        summary: &str,
+        details: Option<&str>,
+    ) {
+        self.with_trace(trace_id, |trace| {
+            if trace.outcome != NetworkTraceOutcome::InProgress {
+                return;
+            }
+            trace.outcome = NetworkTraceOutcome::Cancelled;
+            trace.error_message = None;
+            trace.finished_at_unix_ms = Some(now_unix_ms());
+            trace.push_event(
+                "cancelled",
+                summary.to_string(),
+                details.map(ToOwned::to_owned),
+            );
+        });
+    }
+
     fn record_failure(&self, trace_id: u64, phase: &str, summary: String, details: String) {
         self.with_trace(trace_id, |trace| {
+            if trace.outcome == NetworkTraceOutcome::Cancelled {
+                return;
+            }
             trace.outcome = NetworkTraceOutcome::Failed;
             trace.error_message = Some(details.clone());
             trace.finished_at_unix_ms = Some(now_unix_ms());
@@ -1178,6 +1287,8 @@ fn now_unix_ms() -> u64 {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::{FireDiagnosticsStore, NetworkTraceOutcome, Request, RequestBody};
 
     #[test]
@@ -1243,5 +1354,81 @@ mod tests {
         assert_eq!(detail.response_body_bytes, Some(97));
         assert!(detail.finished_at_unix_ms.is_some());
         assert_eq!(detail.response_body, None);
+    }
+
+    #[test]
+    fn cancellation_guard_marks_in_progress_trace_as_cancelled() {
+        let store = Arc::new(FireDiagnosticsStore::new());
+        let mut request = Request::builder()
+            .method("GET")
+            .uri("https://linux.do/message-bus/1/poll")
+            .body(RequestBody::empty())
+            .expect("request");
+        let trace_id = store.prepare_request_trace("message bus poll", &mut request);
+
+        {
+            let _guard = store.cancellation_guard(
+                trace_id,
+                "Request cancelled",
+                "Future dropped before the trace reached a terminal state",
+            );
+        }
+
+        let detail = store.detail(trace_id).expect("detail");
+        assert_eq!(detail.outcome, NetworkTraceOutcome::Cancelled);
+        assert!(detail.finished_at_unix_ms.is_some());
+        assert_eq!(detail.error_message, None);
+        assert_eq!(detail.events.last().expect("event").phase, "cancelled");
+    }
+
+    #[test]
+    fn cancellation_guard_does_not_override_succeeded_trace() {
+        let store = Arc::new(FireDiagnosticsStore::new());
+        let mut request = Request::builder()
+            .method("GET")
+            .uri("https://linux.do/latest.json")
+            .body(RequestBody::empty())
+            .expect("request");
+        let trace_id = store.prepare_request_trace("fetch", &mut request);
+
+        {
+            let _guard = store.cancellation_guard(
+                trace_id,
+                "Request cancelled",
+                "Future dropped before the trace reached a terminal state",
+            );
+            store.record_response_body_text(trace_id, "{\"ok\":true}", Some("application/json"));
+        }
+
+        let detail = store.detail(trace_id).expect("detail");
+        assert_eq!(detail.outcome, NetworkTraceOutcome::Succeeded);
+    }
+
+    #[test]
+    fn failure_events_do_not_override_cancelled_trace() {
+        let store = Arc::new(FireDiagnosticsStore::new());
+        let mut request = Request::builder()
+            .method("GET")
+            .uri("https://linux.do/latest.json")
+            .body(RequestBody::empty())
+            .expect("request");
+        let trace_id = store.prepare_request_trace("fetch", &mut request);
+
+        {
+            let _guard = store.cancellation_guard(
+                trace_id,
+                "Request cancelled",
+                "Future dropped before the trace reached a terminal state",
+            );
+        }
+        store.record_parse_error(
+            trace_id,
+            "Failed to parse response".to_string(),
+            "unexpected payload".to_string(),
+        );
+
+        let detail = store.detail(trace_id).expect("detail");
+        assert_eq!(detail.outcome, NetworkTraceOutcome::Cancelled);
+        assert_eq!(detail.events.last().expect("event").phase, "cancelled");
     }
 }

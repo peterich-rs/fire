@@ -82,6 +82,7 @@ fire/
   - defines the shared login/session snapshot, notification models, and topic-facing models
 - `fire-core`
   - owns session sync, bootstrap parsing, auth refresh/logout, persistence, diagnostics, one shared `openwire` client for API and MessageBus transport, topic list/detail reads (including category and tag scoped lists), the current reply/reaction write path, the Rust MessageBus poll/subscription runtime, notification fetch/state/mark-read reconciliation, topic-reply presence, and `/topics/timings` request shaping
+  - finalizes network traces in Rust with terminal outcomes (`Succeeded`, `Failed`, or `Cancelled`); hosts should treat timeline events as intermediate diagnostics instead of completion signals
 - `fire-uniffi`
   - exports the shared async API surface, notification list/state APIs, MessageBus callback interface, and error model to Swift/Kotlin
 - `native/ios-app` and `native/android-app`

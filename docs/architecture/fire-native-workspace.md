@@ -25,6 +25,7 @@ fire/
     backend-api/
     architecture/
       fire-native-workspace.md
+      ios-beta-delivery-plan.md
   native/
     ios-app/
     android-app/
@@ -74,6 +75,11 @@ fire/
 - The current integration baseline must keep `third_party/openwire` and `third_party/xlog-rs` initialized, clean, and pinned to reviewed commits.
 - CI and local verification should fail fast when those required submodules are missing local checkout state, have local modifications, or have uncommitted pointer drift in the superproject.
 - When a feature branch needs a newer infrastructure revision, update the submodule pointer on the clean integration line first, verify Rust and native builds there, and only then branch feature work from that green baseline.
+
+## Active Delivery Plans
+
+- [iOS Beta Delivery Plan](ios-beta-delivery-plan.md)
+  - tracks the current iOS beta delivery line, including the long-lived `feature/ios-beta` branch, the `refactor/openwire-upgrade` integration line, stage status, commit slicing, and verification gates
 
 ## Shared Networking Model
 

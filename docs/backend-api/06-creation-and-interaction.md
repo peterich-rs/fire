@@ -219,6 +219,7 @@
   - Rust 共享层持有 `/topics/timings` 的限流冷却窗口；冷却期内会直接跳过请求，避免继续撞 429
   - `429` 对 `/topics/timings` 也是“软失败”；Rust 返回“本次未上报”给宿主层，iOS 会保留待发送时长，等下一次 flush 周期重试
   - 如果响应里没有可解析的等待时长，客户端回退到一个短默认冷却时间再恢复请求
+  - 若前面某个普通响应已经附带 `discourse-logged-out: 1` 或 `Set-Cookie: _t=; Max-Age=0`，`/topics/timings` 往往只是第一个暴露出来的写接口；根因通常是更早一步会话已被服务端判定失效
 
 ### `GET /presence/get`
 

@@ -272,6 +272,76 @@ async fn fetch_topic_list_surfaces_cloudflare_challenge_error() {
 }
 
 #[tokio::test]
+async fn fetch_topic_list_surfaces_login_required_when_success_response_invalidates_auth() {
+    let body = sample_latest_json();
+    let response = format!(
+        "HTTP/1.1 200 TEST\r\nContent-Type: application/json\r\nContent-Length: {}\r\nDiscourse-Logged-Out: 1\r\nSet-Cookie: _t=; path=/; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax\r\nConnection: close\r\n\r\n{body}",
+        body.len()
+    );
+    let server = TestServer::spawn(vec![response]).await.expect("server");
+    let core = FireCore::new(FireCoreConfig {
+        base_url: server.base_url(),
+        workspace_path: None,
+    })
+    .expect("core");
+
+    let _ = core.sync_login_context(LoginSyncInput {
+        username: Some("alice".into()),
+        home_html: Some(sample_home_html()),
+        csrf_token: Some("csrf-token".into()),
+        current_url: Some(server.base_url()),
+        browser_user_agent: None,
+        cookies: vec![
+            PlatformCookie {
+                name: "_t".into(),
+                value: "token".into(),
+                domain: None,
+                path: None,
+                expires_at_unix_ms: None,
+            },
+            PlatformCookie {
+                name: "_forum_session".into(),
+                value: "forum".into(),
+                domain: None,
+                path: None,
+                expires_at_unix_ms: None,
+            },
+            PlatformCookie {
+                name: "cf_clearance".into(),
+                value: "clearance".into(),
+                domain: None,
+                path: None,
+                expires_at_unix_ms: None,
+            },
+        ],
+    });
+
+    let error = core
+        .fetch_topic_list(TopicListQuery {
+            kind: TopicListKind::Latest,
+            page: Some(1),
+            ..TopicListQuery::default()
+        })
+        .await
+        .expect_err("auth invalidation should surface");
+    let _ = server.shutdown().await;
+
+    assert!(matches!(
+        error,
+        FireCoreError::LoginRequired { message, .. }
+            if message == "登录状态已失效，请重新登录。"
+    ));
+
+    let snapshot = core.snapshot();
+    assert_eq!(snapshot.cookies.t_token, None);
+    assert_eq!(snapshot.cookies.forum_session, None);
+    assert_eq!(snapshot.cookies.csrf_token, None);
+    assert_eq!(snapshot.cookies.cf_clearance.as_deref(), Some("clearance"));
+    assert_eq!(snapshot.bootstrap.current_username, None);
+    assert!(!snapshot.bootstrap.has_preloaded_data);
+}
+
+#[tokio::test]
 async fn fetch_topic_detail_parses_detail_payload() {
     let responses = vec![raw_json_response(
         200,

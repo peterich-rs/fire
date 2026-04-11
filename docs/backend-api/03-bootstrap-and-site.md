@@ -71,6 +71,15 @@
   - 任意主站响应头 `x-discourse-username`
   - 首页 `data-preloaded.currentUser.username`
 
+### 会话失效信号
+
+- Linux.do/Discourse 不一定等写接口才暴露“登录已失效”
+- 当前观测里，普通成功响应也可能直接宣告登录态失效，例如：
+  - `discourse-logged-out: 1`
+  - `Set-Cookie: _t=; path=/; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT`
+- 客户端不要继续把这种响应后的会话当作“仍可写入”；应立即清掉本地登录态并提示重新登录
+- 否则后续最常见的表现是：前面的列表、详情等匿名可读请求仍然成功，但稍后的 `/topics/timings`、点赞、回复等写请求才返回 `403` / `error_type=not_logged_in`
+
 ### `GET /challenge`
 
 - 用途：打开 Cloudflare 挑战页面，通常在 WebView 中人工完成

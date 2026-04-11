@@ -88,6 +88,7 @@ extension FireSessionStore: FireChallengeSessionRecovering {}
 final class FireAppViewModel: ObservableObject {
     private static let messageBusErrorPrefix = "实时同步连接失败："
     private static let loginRequiredMessage = "登录状态已失效，请重新登录。"
+    private static let authDiagnosticsLogTarget = "ios.auth"
     private static let topicPostPageSize = 30
     private static let topicPostPrefetchThreshold = 6
     private static let topicDetailLogTarget = "ios.topic-detail"
@@ -1951,6 +1952,9 @@ final class FireAppViewModel: ObservableObject {
             return false
         }
 
+        await logLoginInvalidationDiagnostics(
+            message: message.isEmpty ? Self.loginRequiredMessage : message
+        )
         await resetSessionAndPresentLogin(
             message: message.isEmpty ? Self.loginRequiredMessage : message
         )
@@ -1998,6 +2002,119 @@ final class FireAppViewModel: ObservableObject {
         clearSearchState(resetQuery: true)
         errorMessage = message
         isPresentingLogin = true
+    }
+
+    private func logLoginInvalidationDiagnostics(message: String) async {
+        let logger = await authDiagnosticsLogger()
+        guard let logger else { return }
+
+        let rustSummary = summarizeSessionAuthCookies(session)
+        let sharedSummary = summarizeHTTPCookies(
+            HTTPCookieStorage.shared.cookies ?? [],
+            source: "http-cookie-storage"
+        )
+        let webKitSummary = summarizeHTTPCookies(
+            await currentWebKitCookies(),
+            source: "wk-cookie-store"
+        )
+
+        logger.warning(
+            "login invalidation diagnostics message=\(message) rust=\(rustSummary) shared=\(sharedSummary) webkit=\(webKitSummary)"
+        )
+    }
+
+    private func authDiagnosticsLogger() async -> FireHostLogger? {
+        if let sessionStore {
+            return sessionStore.makeLogger(target: Self.authDiagnosticsLogTarget)
+        }
+        guard let sessionStore = try? await sessionStoreValue() else {
+            return nil
+        }
+        return sessionStore.makeLogger(target: Self.authDiagnosticsLogTarget)
+    }
+
+    private func currentWebKitCookies() async -> [HTTPCookie] {
+        await withCheckedContinuation { continuation in
+            WKWebsiteDataStore.default().httpCookieStore.getAllCookies { cookies in
+                continuation.resume(returning: cookies)
+            }
+        }
+    }
+
+    private func summarizeSessionAuthCookies(_ session: SessionState) -> String {
+        let platformCookieSummary = session.cookies.platformCookies
+            .filter { Self.isCriticalCookieName($0.name) }
+            .map { cookie in
+                sessionCookieDescriptor(
+                    name: cookie.name,
+                    domain: cookie.domain,
+                    path: cookie.path,
+                    expiresAtUnixMs: cookie.expiresAtUnixMs,
+                    value: cookie.value
+                )
+            }
+            .joined(separator: ",")
+
+        let scalarSummary = [
+            sessionScalarCookieDescriptor(name: "_t", value: session.cookies.tToken),
+            sessionScalarCookieDescriptor(name: "_forum_session", value: session.cookies.forumSession),
+            sessionScalarCookieDescriptor(name: "cf_clearance", value: session.cookies.cfClearance),
+            sessionScalarCookieDescriptor(name: "csrf", value: session.cookies.csrfToken)
+        ].joined(separator: ",")
+
+        return "scalar[\(scalarSummary)] platform_count=\(session.cookies.platformCookies.count) critical_platform[\(platformCookieSummary)] readiness[login=\(session.readiness.hasLoginCookie),forum=\(session.readiness.hasForumSession),csrf=\(session.readiness.hasCsrfToken),user=\(session.readiness.hasCurrentUser)]"
+    }
+
+    private func summarizeHTTPCookies(_ cookies: [HTTPCookie], source: String) -> String {
+        let relevant = cookies
+            .filter { Self.isCriticalCookieName($0.name) }
+            .sorted {
+                if $0.name != $1.name {
+                    return $0.name < $1.name
+                }
+                if $0.domain != $1.domain {
+                    return $0.domain < $1.domain
+                }
+                return $0.path < $1.path
+            }
+
+        if relevant.isEmpty {
+            return "\(source)[none]"
+        }
+
+        let descriptors = relevant.map { cookie in
+            sessionCookieDescriptor(
+                name: cookie.name,
+                domain: cookie.domain,
+                path: cookie.path,
+                expiresAtUnixMs: cookie.expiresDate.map { Int64($0.timeIntervalSince1970 * 1000) },
+                value: cookie.value
+            )
+        }
+        return "\(source)[\(descriptors.joined(separator: ","))]"
+    }
+
+    private func sessionScalarCookieDescriptor(name: String, value: String?) -> String {
+        let length = value?.count ?? 0
+        return "\(name):len=\(length)"
+    }
+
+    private func sessionCookieDescriptor(
+        name: String,
+        domain: String?,
+        path: String?,
+        expiresAtUnixMs: Int64?,
+        value: String
+    ) -> String {
+        let normalizedDomain = domain?.isEmpty == false ? domain! : "?"
+        let normalizedPath = path?.isEmpty == false ? path! : "/"
+        let scope = normalizedDomain.hasPrefix(".") ? "domain" : "host"
+        let expiry = expiresAtUnixMs.map(String.init) ?? "session"
+        return "\(name)@\(normalizedDomain)\(normalizedPath){\(scope),len=\(value.count),exp=\(expiry)}"
+    }
+
+    private static func isCriticalCookieName(_ name: String) -> Bool {
+        ["_t", "_forum_session", "cf_clearance"].contains(name)
     }
 
     private func evictTopicDetailState(topicId: UInt64, reason: String) {

@@ -2578,6 +2578,8 @@ pub enum FireUniFfiError {
     Validation { details: String },
     #[error("authentication error: {details}")]
     Authentication { details: String },
+    #[error("login required: {message}")]
+    LoginRequired { message: String },
     #[error("network error: {details}")]
     Network { details: String },
     #[error("request requires Cloudflare challenge verification")]
@@ -2615,6 +2617,7 @@ impl From<FireCoreError> for FireUniFfiError {
             FireCoreError::Logger(source) => Self::Configuration {
                 details: source.to_string(),
             },
+            FireCoreError::LoginRequired { message, .. } => Self::LoginRequired { message },
             FireCoreError::CloudflareChallenge { .. } => Self::CloudflareChallenge,
             FireCoreError::HttpStatus {
                 operation,
@@ -3701,6 +3704,20 @@ mod tests {
         });
 
         assert!(matches!(error, FireUniFfiError::CloudflareChallenge));
+    }
+
+    #[test]
+    fn maps_login_required_errors_to_dedicated_variant() {
+        let error = FireUniFfiError::from(FireCoreError::LoginRequired {
+            operation: "report topic timings",
+            message: "您需要登录才能执行此操作。".to_string(),
+        });
+
+        assert!(matches!(
+            error,
+            FireUniFfiError::LoginRequired { message }
+                if message == "您需要登录才能执行此操作。"
+        ));
     }
 
     #[test]

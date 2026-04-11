@@ -87,6 +87,7 @@ extension FireSessionStore: FireChallengeSessionRecovering {}
 @MainActor
 final class FireAppViewModel: ObservableObject {
     private static let messageBusErrorPrefix = "实时同步连接失败："
+    private static let loginRequiredMessage = "登录状态已失效，请重新登录。"
     private static let topicPostPageSize = 30
     private static let topicPostPrefetchThreshold = 6
     private static let topicDetailLogTarget = "ios.topic-detail"
@@ -229,7 +230,7 @@ final class FireAppViewModel: ObservableObject {
                 await self.loadRecentNotifications(force: false)
             } catch {
                 guard self.initialStateLoadGeneration == generation else { return }
-                if await self.handleCloudflareChallengeIfNeeded(error) {
+                if await self.handleRecoverableSessionErrorIfNeeded(error) {
                     return
                 }
                 self.errorMessage = error.localizedDescription
@@ -246,7 +247,7 @@ final class FireAppViewModel: ObservableObject {
                 await applySession(try await sessionStore.refreshBootstrapIfNeeded())
                 await refreshTopicsIfPossible(force: false)
             } catch {
-                if await handleCloudflareChallengeIfNeeded(error) {
+                if await handleRecoverableSessionErrorIfNeeded(error) {
                     return
                 }
                 errorMessage = error.localizedDescription
@@ -291,7 +292,7 @@ final class FireAppViewModel: ObservableObject {
                 isPresentingLogin = false
                 await refreshTopicsIfPossible(force: true)
             } catch {
-                if await handleCloudflareChallengeIfNeeded(error) {
+                if await handleRecoverableSessionErrorIfNeeded(error) {
                     return
                 }
                 errorMessage = error.localizedDescription
@@ -307,7 +308,7 @@ final class FireAppViewModel: ObservableObject {
                 await applySession(try await sessionStore.refreshBootstrap())
                 await refreshTopicsIfPossible(force: false)
             } catch {
-                if await handleCloudflareChallengeIfNeeded(error) {
+                if await handleRecoverableSessionErrorIfNeeded(error) {
                     return
                 }
                 errorMessage = error.localizedDescription
@@ -461,7 +462,7 @@ final class FireAppViewModel: ObservableObject {
             topicDetailLogger()?.error(
                 "topic detail load failed topic_id=\(topicId) error=\(error.localizedDescription)"
             )
-            if await handleCloudflareChallengeIfNeeded(error) {
+            if await handleRecoverableSessionErrorIfNeeded(error) {
                 return
             }
             errorMessage = error.localizedDescription
@@ -896,6 +897,7 @@ final class FireAppViewModel: ObservableObject {
             )
             return accepted
         } catch {
+            _ = await handleLoginRequiredIfNeeded(error)
             return false
         }
     }
@@ -916,7 +918,7 @@ final class FireAppViewModel: ObservableObject {
                 notificationUnreadCount = Int(state.counters.allUnread)
             }
         } catch {
-            _ = await handleCloudflareChallengeIfNeeded(error)
+            _ = await handleRecoverableSessionErrorIfNeeded(error)
             // Silent: notification failures shouldn't interrupt UX
         }
     }
@@ -934,7 +936,7 @@ final class FireAppViewModel: ObservableObject {
                     notificationFullList = state.full
                 }
             } catch {
-                _ = await self.handleCloudflareChallengeIfNeeded(error)
+                _ = await self.handleRecoverableSessionErrorIfNeeded(error)
             }
         }
     }
@@ -952,7 +954,7 @@ final class FireAppViewModel: ObservableObject {
                     notificationFullList = state.full
                 }
             } catch {
-                _ = await self.handleCloudflareChallengeIfNeeded(error)
+                _ = await self.handleRecoverableSessionErrorIfNeeded(error)
             }
         }
     }
@@ -972,7 +974,7 @@ final class FireAppViewModel: ObservableObject {
             hasMoreNotificationFull = state.fullNextOffset != nil
             notificationUnreadCount = Int(state.counters.allUnread)
         } catch {
-            _ = await handleCloudflareChallengeIfNeeded(error)
+            _ = await handleRecoverableSessionErrorIfNeeded(error)
         }
     }
 
@@ -1055,7 +1057,7 @@ final class FireAppViewModel: ObservableObject {
                 guard !Task.isCancelled, requestID == self.latestSearchRequestID else {
                     return
                 }
-                if await self.handleCloudflareChallengeIfNeeded(error) {
+                if await self.handleRecoverableSessionErrorIfNeeded(error) {
                     self.searchErrorMessage = nil
                 } else {
                     self.searchErrorMessage = error.localizedDescription
@@ -1238,7 +1240,7 @@ final class FireAppViewModel: ObservableObject {
             clearMessageBusError()
         } catch {
             messageBusCoordinator = nil
-            if await handleCloudflareChallengeIfNeeded(error) {
+            if await handleRecoverableSessionErrorIfNeeded(error) {
                 return
             }
             errorMessage = Self.messageBusErrorPrefix + error.localizedDescription
@@ -1369,7 +1371,7 @@ final class FireAppViewModel: ObservableObject {
                 )
                 self.applyTopicDetail(detail, topicId: topicId)
             } catch {
-                if await self.handleCloudflareChallengeIfNeeded(error) {
+                if await self.handleRecoverableSessionErrorIfNeeded(error) {
                     return
                 }
             }
@@ -1563,7 +1565,7 @@ final class FireAppViewModel: ObservableObject {
             }
             return true
         } catch {
-            if await handleCloudflareChallengeIfNeeded(error) {
+            if await handleRecoverableSessionErrorIfNeeded(error) {
                 return false
             }
             if reset, case .full = refreshMode {
@@ -1746,6 +1748,26 @@ final class FireAppViewModel: ObservableObject {
     }
 
     @discardableResult
+    private func handleRecoverableSessionErrorIfNeeded(_ error: Error) async -> Bool {
+        if await handleLoginRequiredIfNeeded(error) {
+            return true
+        }
+        return await handleCloudflareChallengeIfNeeded(error)
+    }
+
+    @discardableResult
+    private func handleLoginRequiredIfNeeded(_ error: Error) async -> Bool {
+        guard case let FireUniFfiError.LoginRequired(message) = error else {
+            return false
+        }
+
+        await resetSessionAndPresentLogin(
+            message: message.isEmpty ? Self.loginRequiredMessage : message
+        )
+        return true
+    }
+
+    @discardableResult
     func handleCloudflareChallengeIfNeeded(
         _ error: Error,
         message: String? = FireTopicInteractionError.requiresCloudflareVerification.errorDescription
@@ -1754,6 +1776,13 @@ final class FireAppViewModel: ObservableObject {
             return false
         }
 
+        await resetSessionAndPresentLogin(
+            message: message ?? error.localizedDescription
+        )
+        return true
+    }
+
+    private func resetSessionAndPresentLogin(message: String) async {
         stopMessageBus()
 
         do {
@@ -1768,9 +1797,8 @@ final class FireAppViewModel: ObservableObject {
         clearTopicState()
         clearNotificationState()
         clearSearchState(resetQuery: true)
-        errorMessage = message ?? error.localizedDescription
+        errorMessage = message
         isPresentingLogin = true
-        return true
     }
 
     private func evictTopicDetailState(topicId: UInt64, reason: String) {
@@ -2010,7 +2038,7 @@ final class FireAppViewModel: ObservableObject {
                     posts: hydratedPosts,
                     exhaustedPostIDs: exhaustedPostIDs
                 )
-                if await handleCloudflareChallengeIfNeeded(error) {
+                if await handleRecoverableSessionErrorIfNeeded(error) {
                     return
                 }
                 return

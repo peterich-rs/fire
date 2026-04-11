@@ -3,7 +3,7 @@ mod common;
 use std::time::Duration;
 
 use common::{raw_json_response, TestServer};
-use fire_core::{FireCore, FireCoreConfig};
+use fire_core::{FireCore, FireCoreConfig, FireCoreError};
 use fire_models::{CookieSnapshot, DraftData, TopicCreateRequest, TopicTimingEntry, TopicTimingsRequest};
 
 #[tokio::test]
@@ -103,6 +103,37 @@ async fn report_topic_timings_returns_false_on_429_and_respects_cooldown() {
     assert_eq!(requests.len(), 2);
     assert!(requests[0].contains("POST /topics/timings"));
     assert!(requests[1].contains("POST /topics/timings"));
+}
+
+#[tokio::test]
+async fn report_topic_timings_surfaces_login_required_when_server_session_is_invalid() {
+    let server = TestServer::spawn(vec![raw_json_response(
+        403,
+        "application/json",
+        r#"{"errors":["您需要登录才能执行此操作。"],"error_type":"not_logged_in"}"#,
+    )])
+    .await
+    .expect("server");
+    let core = authenticated_core(&server.base_url());
+
+    let error = core
+        .report_topic_timings(TopicTimingsRequest {
+            topic_id: 123,
+            topic_time_ms: 15_000,
+            timings: vec![TopicTimingEntry {
+                post_number: 1,
+                milliseconds: 5_000,
+            }],
+        })
+        .await
+        .expect_err("login invalidation should surface");
+    let _ = server.shutdown().await;
+
+    assert!(matches!(
+        error,
+        FireCoreError::LoginRequired { message, .. }
+            if message == "您需要登录才能执行此操作。"
+    ));
 }
 
 #[tokio::test]

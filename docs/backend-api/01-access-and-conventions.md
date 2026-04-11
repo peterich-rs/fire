@@ -69,6 +69,20 @@ Discourse-Present: true
 | `text/html` | 首页预加载、Cloudflare 验证页 |
 | `application/json` 流式/文本 | MessageBus 长轮询 |
 
+## 常见认证失败回包
+
+- Discourse 不一定用 `401` 表达登录失效；部分已认证接口会返回 `403`，Body 仍然是 JSON 错误包
+- 当前在 `linux.do` 上已经观察到这类格式：
+
+```json
+{
+  "errors": ["您需要登录才能执行此操作。"],
+  "error_type": "not_logged_in"
+}
+```
+
+- Fire 共享层把 `error_type == "not_logged_in"` 视为登录态失效信号，不按普通 `HttpStatus` 处理；宿主层应清理本地会话并拉起重新登录
+
 ## 推荐调用顺序
 
 如果你要在其他技术栈复现 Fire 的主要能力，推荐的最小调用链路如下：

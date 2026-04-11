@@ -10,7 +10,7 @@ use openwire::{
     BoxFuture, Call, CallOptions, Client, Exchange, Interceptor, Next, RequestBody, ResponseBody,
     WireError,
 };
-use serde::de::DeserializeOwned;
+use serde::{de::DeserializeOwned, Deserialize};
 use tracing::{debug, info, warn};
 use url::Url;
 
@@ -46,6 +46,34 @@ const FIRE_USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) A
 const FIRE_USER_AGENT: &str = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 const FIRE_ACCEPT_LANGUAGE: &str = "zh-CN,zh;q=0.9,en;q=0.8";
 const FIRE_JSON_ACCEPT: &str = "application/json;q=0.9, text/plain;q=0.8, */*;q=0.5";
+
+#[derive(Debug, Deserialize)]
+struct DiscourseErrorEnvelope {
+    #[serde(default)]
+    errors: Option<DiscourseErrorMessages>,
+    #[serde(default)]
+    error_type: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum DiscourseErrorMessages {
+    One(String),
+    Many(Vec<String>),
+}
+
+impl DiscourseErrorEnvelope {
+    fn first_error_message(&self) -> Option<&str> {
+        match &self.errors {
+            Some(DiscourseErrorMessages::One(message)) => Some(message.as_str()),
+            Some(DiscourseErrorMessages::Many(messages)) => messages
+                .iter()
+                .map(String::as_str)
+                .find(|message| !message.trim().is_empty()),
+            None => None,
+        }
+    }
+}
 
 #[derive(Clone, Copy)]
 pub(crate) enum FireRequestProfile {
@@ -616,6 +644,8 @@ pub(crate) fn classify_http_status_error(
 ) -> FireCoreError {
     if status == StatusCode::FORBIDDEN.as_u16() && is_cloudflare_challenge_body(&body) {
         FireCoreError::CloudflareChallenge { operation }
+    } else if let Some(message) = not_logged_in_message(status, &body) {
+        FireCoreError::LoginRequired { operation, message }
     } else {
         FireCoreError::HttpStatus {
             operation,
@@ -623,6 +653,24 @@ pub(crate) fn classify_http_status_error(
             body,
         }
     }
+}
+
+fn not_logged_in_message(status: u16, body: &str) -> Option<String> {
+    if status != StatusCode::UNAUTHORIZED.as_u16() && status != StatusCode::FORBIDDEN.as_u16() {
+        return None;
+    }
+
+    let envelope: DiscourseErrorEnvelope = serde_json::from_str(body).ok()?;
+    if envelope.error_type.as_deref() != Some("not_logged_in") {
+        return None;
+    }
+
+    Some(
+        envelope
+            .first_error_message()
+            .unwrap_or("需要登录才能执行此操作。")
+            .to_string(),
+    )
 }
 
 pub(crate) fn is_cloudflare_challenge_body(body: &str) -> bool {

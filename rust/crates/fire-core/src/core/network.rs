@@ -4,9 +4,11 @@ use http::{
     header::{HeaderMap, HeaderValue, ACCEPT_LANGUAGE, ORIGIN, REFERER, USER_AGENT},
     Method, Request, Response, StatusCode,
 };
+#[cfg(debug_assertions)]
+use openwire::ProxyRules;
 use openwire::{
-    BoxFuture, Call, CallOptions, Client, Exchange, Interceptor, Next, ProxyRules, RequestBody,
-    ResponseBody, WireError,
+    BoxFuture, Call, CallOptions, Client, Exchange, Interceptor, Next, RequestBody, ResponseBody,
+    WireError,
 };
 use serde::de::DeserializeOwned;
 use tracing::{debug, info, warn};

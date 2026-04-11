@@ -125,7 +125,7 @@ struct FireComposerView: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var title = ""
-    @State private var body = ""
+    @State private var bodyText = ""
     @State private var selectedCategoryID: UInt64?
     @State private var selectedTags: [String] = []
     @State private var bodySelection = NSRange(location: 0, length: 0)
@@ -174,7 +174,7 @@ struct FireComposerView: View {
     }
 
     private var trimmedBody: String {
-        body.trimmingCharacters(in: .whitespacesAndNewlines)
+        bodyText.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private var minimumTitleLength: Int {
@@ -227,7 +227,7 @@ struct FireComposerView: View {
     }
 
     private var markdownImages: [FireComposerMarkdownImage] {
-        extractMarkdownImages(from: body)
+        extractMarkdownImages(from: bodyText)
     }
 
     var body: some View {
@@ -305,7 +305,7 @@ struct FireComposerView: View {
             errorMessage = nil
             scheduleAutosave()
         }
-        .onChange(of: body) { _, _ in
+        .onChange(of: bodyText) { _, _ in
             errorMessage = nil
             updateMentionSearch()
             scheduleAutosave()
@@ -478,7 +478,7 @@ struct FireComposerView: View {
     private var editorContent: some View {
         VStack(alignment: .leading, spacing: 12) {
             FireComposerTextView(
-                text: $body,
+                text: $bodyText,
                 selectedRange: $bodySelection,
                 isFirstResponder: $isBodyFocused
             )
@@ -748,10 +748,10 @@ struct FireComposerView: View {
         guard !trimmedBody.isEmpty else {
             return nil
         }
-        if let attributed = try? AttributedString(markdown: body) {
+        if let attributed = try? AttributedString(markdown: bodyText) {
             return attributed
         }
-        return AttributedString(body)
+        return AttributedString(bodyText)
     }
 
     private func categoryDisplayName(for category: FireTopicCategoryPresentation) -> String {
@@ -774,7 +774,7 @@ struct FireComposerView: View {
 
     private func updateMentionSearch() {
         mentionSearchTask?.cancel()
-        mentionContext = mentionContext(in: body, selection: bodySelection)
+        mentionContext = mentionContext(in: bodyText, selection: bodySelection)
         guard let mentionContext, !mentionContext.term.isEmpty else {
             mentionUsers = []
             mentionGroups = []
@@ -853,8 +853,8 @@ struct FireComposerView: View {
                 selectedTags = initialTags
             }
             applyDefaultCategoryIfNeeded()
-        } else if let initialBody, body.isEmpty {
-            body = initialBody
+        } else if let initialBody, bodyText.isEmpty {
+            bodyText = initialBody
         }
 
         isLoadingDraft = true
@@ -868,11 +868,11 @@ struct FireComposerView: View {
                 draftSequence = draft.sequence
                 if case .createTopic = route.kind {
                     title = draft.data.title ?? title
-                    body = draft.data.reply ?? body
+                    bodyText = draft.data.reply ?? bodyText
                     selectedCategoryID = draft.data.categoryId ?? selectedCategoryID
                     selectedTags = draft.data.tags
                 } else {
-                    body = draft.data.reply ?? body
+                    bodyText = draft.data.reply ?? bodyText
                 }
                 if draft.data.reply != nil || draft.data.title != nil {
                     noticeMessage = "已恢复草稿"
@@ -909,8 +909,8 @@ struct FireComposerView: View {
             return
         }
 
-        if trimmedBody.isEmpty || body == lastInjectedTemplate {
-            body = template
+        if trimmedBody.isEmpty || bodyText == lastInjectedTemplate {
+            bodyText = template
             lastInjectedTemplate = template
             bodySelection = NSRange(location: (template as NSString).length, length: 0)
         }
@@ -942,7 +942,7 @@ struct FireComposerView: View {
         }
 
         let draftData = DraftDataState(
-            reply: body,
+            reply: bodyText,
             title: route.kind == .createTopic ? title : nil,
             categoryId: route.kind == .createTopic ? selectedCategoryID : nil,
             tags: route.kind == .createTopic ? selectedTags : [],
@@ -1070,12 +1070,12 @@ struct FireComposerView: View {
     }
 
     private func replaceText(in range: NSRange, with replacement: String) {
-        let source = body as NSString
+        let source = bodyText as NSString
         let safeRange = NSRange(
             location: min(max(range.location, 0), source.length),
             length: min(max(range.length, 0), max(0, source.length - range.location))
         )
-        body = source.replacingCharacters(in: safeRange, with: replacement)
+        bodyText = source.replacingCharacters(in: safeRange, with: replacement)
         bodySelection = NSRange(
             location: safeRange.location + (replacement as NSString).length,
             length: 0

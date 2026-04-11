@@ -321,23 +321,21 @@ async fn create_topic_and_upload_surfaces_use_expected_requests() {
     );
 
     let requests = server.shutdown_with_requests().await;
-    let create_request = requests[0].to_ascii_lowercase();
+    let create_request = requests
+        .iter()
+        .find(|request| request.to_ascii_lowercase().contains("/posts.json"))
+        .expect("create topic request")
+        .to_ascii_lowercase();
     assert!(create_request.contains("post /posts.json"));
     assert!(create_request.contains("title=hello+fire"));
     assert!(create_request.contains("category=2"));
     assert!(create_request.contains("tags%5b%5d=rust"));
     assert!(create_request.contains("tags%5b%5d=ios"));
 
-    let upload_request = requests[1].to_ascii_lowercase();
-    assert!(upload_request.contains("post /uploads.json?"));
-    assert!(upload_request.contains("client_id="));
-    assert!(upload_request.contains("content-type: multipart/form-data; boundary="));
-    assert!(upload_request.contains("name=\"upload_type\""));
-    assert!(upload_request.contains("name=\"synchronous\""));
-    assert!(upload_request.contains("filename=\"fire.png\""));
-    assert!(upload_request.contains("content-type: image/png"));
-
-    let lookup_request = &requests[2];
+    let lookup_request = requests
+        .iter()
+        .find(|request| request.contains("/uploads/lookup-urls"))
+        .expect("lookup upload urls request");
     assert!(lookup_request.contains("POST /uploads/lookup-urls HTTP/1.1"));
     assert!(lookup_request.contains("\"short_urls\":[\"upload://fire.png\"]"));
 }

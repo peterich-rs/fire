@@ -100,7 +100,7 @@ struct FireProfileActivityTimelineView: View {
                     scrollToPostNumber: action.postNumber
                 )
             } label: {
-                FireProfileActivityRow(action: action, showsChevron: true)
+                FireProfileActivityRow(action: action)
             }
             .buttonStyle(.plain)
         } else {

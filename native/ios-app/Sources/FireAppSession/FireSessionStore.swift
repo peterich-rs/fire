@@ -370,6 +370,43 @@ public actor FireSessionStore {
         try await core.markAllNotificationsRead()
     }
 
+    public func fetchBookmarks(
+        username: String,
+        page: UInt32? = nil
+    ) async throws -> TopicListState {
+        try await core.fetchBookmarks(username: username, page: page)
+    }
+
+    public func fetchReadHistory(page: UInt32? = nil) async throws -> TopicListState {
+        try await core.fetchReadHistory(page: page)
+    }
+
+    public func fetchDrafts(
+        offset: UInt32? = nil,
+        limit: UInt32? = nil
+    ) async throws -> DraftListResponseState {
+        try await core.fetchDrafts(offset: offset, limit: limit)
+    }
+
+    public func fetchDraft(draftKey: String) async throws -> DraftState? {
+        try await core.fetchDraft(draftKey: draftKey)
+    }
+
+    public func saveDraft(
+        draftKey: String,
+        data: DraftDataState,
+        sequence: UInt32
+    ) async throws -> UInt32 {
+        try await core.saveDraft(draftKey: draftKey, data: data, sequence: sequence)
+    }
+
+    public func deleteDraft(
+        draftKey: String,
+        sequence: UInt32? = nil
+    ) async throws {
+        try await core.deleteDraft(draftKey: draftKey, sequence: sequence)
+    }
+
     public func pollNotificationAlertOnce(
         lastMessageId: Int64
     ) async throws -> NotificationAlertPollResultState {
@@ -435,6 +472,10 @@ public actor FireSessionStore {
         try await core.fetchTopicPosts(topicId: topicID, postIds: postIDs)
     }
 
+    public func fetchPost(postID: UInt64) async throws -> TopicPostState {
+        try await core.fetchPost(postId: postID)
+    }
+
     public func createReply(
         topicID: UInt64,
         raw: String,
@@ -447,6 +488,70 @@ public actor FireSessionStore {
                 replyToPostNumber: replyToPostNumber
             )
         )
+    }
+
+    public func updatePost(
+        postID: UInt64,
+        raw: String,
+        editReason: String? = nil
+    ) async throws -> TopicPostState {
+        try await core.updatePost(
+            input: PostUpdateRequestState(
+                postId: postID,
+                raw: raw,
+                editReason: editReason
+            )
+        )
+    }
+
+    public func createTopic(
+        title: String,
+        raw: String,
+        categoryID: UInt64,
+        tags: [String]
+    ) async throws -> UInt64 {
+        try await core.createTopic(
+            input: TopicCreateRequestState(
+                title: title,
+                raw: raw,
+                categoryId: categoryID,
+                tags: tags
+            )
+        )
+    }
+
+    public func updateTopic(
+        topicID: UInt64,
+        title: String,
+        categoryID: UInt64,
+        tags: [String]
+    ) async throws {
+        try await core.updateTopic(
+            input: TopicUpdateRequestState(
+                topicId: topicID,
+                title: title,
+                categoryId: categoryID,
+                tags: tags
+            )
+        )
+    }
+
+    public func uploadImage(
+        fileName: String,
+        mimeType: String?,
+        bytes: Data
+    ) async throws -> UploadResultState {
+        try await core.uploadImage(
+            input: UploadImageRequestState(
+                fileName: fileName,
+                mimeType: mimeType,
+                bytes: bytes
+            )
+        )
+    }
+
+    public func lookupUploadUrls(shortUrls: [String]) async throws -> [ResolvedUploadUrlState] {
+        try await core.lookupUploadUrls(shortUrls: shortUrls)
     }
 
     public func reportTopicTimings(
@@ -470,6 +575,77 @@ public actor FireSessionStore {
         try await core.togglePostReaction(postId: postID, reactionId: reactionID)
     }
 
+    public func votePoll(
+        postID: UInt64,
+        pollName: String,
+        options: [String]
+    ) async throws -> PollState {
+        try await core.votePoll(postId: postID, pollName: pollName, options: options)
+    }
+
+    public func unvotePoll(
+        postID: UInt64,
+        pollName: String
+    ) async throws -> PollState {
+        try await core.unvotePoll(postId: postID, pollName: pollName)
+    }
+
+    public func voteTopic(topicID: UInt64) async throws -> VoteResponseState {
+        try await core.voteTopic(topicId: topicID)
+    }
+
+    public func unvoteTopic(topicID: UInt64) async throws -> VoteResponseState {
+        try await core.unvoteTopic(topicId: topicID)
+    }
+
+    public func fetchTopicVoters(topicID: UInt64) async throws -> [VotedUserState] {
+        try await core.fetchTopicVoters(topicId: topicID)
+    }
+
+    public func createBookmark(
+        bookmarkableID: UInt64,
+        bookmarkableType: String,
+        name: String? = nil,
+        reminderAt: String? = nil,
+        autoDeletePreference: Int32? = nil
+    ) async throws -> UInt64 {
+        try await core.createBookmark(
+            bookmarkableId: bookmarkableID,
+            bookmarkableType: bookmarkableType,
+            name: name,
+            reminderAt: reminderAt,
+            autoDeletePreference: autoDeletePreference
+        )
+    }
+
+    public func updateBookmark(
+        bookmarkID: UInt64,
+        name: String? = nil,
+        reminderAt: String? = nil,
+        autoDeletePreference: Int32? = nil
+    ) async throws {
+        try await core.updateBookmark(
+            bookmarkId: bookmarkID,
+            name: name,
+            reminderAt: reminderAt,
+            autoDeletePreference: autoDeletePreference
+        )
+    }
+
+    public func deleteBookmark(bookmarkID: UInt64) async throws {
+        try await core.deleteBookmark(bookmarkId: bookmarkID)
+    }
+
+    public func setTopicNotificationLevel(
+        topicID: UInt64,
+        notificationLevel: Int32
+    ) async throws {
+        try await core.setTopicNotificationLevel(
+            topicId: topicID,
+            notificationLevel: notificationLevel
+        )
+    }
+
     public func fetchUserProfile(username: String) async throws -> UserProfileState {
         try await core.fetchUserProfile(username: username)
     }
@@ -484,6 +660,46 @@ public actor FireSessionStore {
         filter: String?
     ) async throws -> [UserActionState] {
         try await core.fetchUserActions(username: username, offset: offset, filter: filter)
+    }
+
+    public func fetchFollowing(username: String) async throws -> [FollowUserState] {
+        try await core.fetchFollowing(username: username)
+    }
+
+    public func fetchFollowers(username: String) async throws -> [FollowUserState] {
+        try await core.fetchFollowers(username: username)
+    }
+
+    public func followUser(username: String) async throws {
+        try await core.followUser(username: username)
+    }
+
+    public func unfollowUser(username: String) async throws {
+        try await core.unfollowUser(username: username)
+    }
+
+    public func fetchPendingInvites(username: String) async throws -> [InviteLinkState] {
+        try await core.fetchPendingInvites(username: username)
+    }
+
+    public func createInviteLink(
+        maxRedemptionsAllowed: UInt32,
+        expiresAt: String? = nil,
+        description: String? = nil,
+        email: String? = nil
+    ) async throws -> InviteLinkState {
+        try await core.createInviteLink(
+            input: InviteCreateRequestState(
+                maxRedemptionsAllowed: maxRedemptionsAllowed,
+                expiresAt: expiresAt,
+                description: description,
+                email: email
+            )
+        )
+    }
+
+    public func fetchBadgeDetail(badgeID: UInt64) async throws -> BadgeState {
+        try await core.fetchBadgeDetail(badgeId: badgeID)
     }
 
     @discardableResult

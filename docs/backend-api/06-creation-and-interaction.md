@@ -41,6 +41,10 @@
 - `client_id` 说明：
   - 当前客户端会复用与 MessageBus / Presence 相同的单例 `clientId`
   - 独立实现时也建议把上传、Presence、长轮询绑定到同一个前台 `clientId`
+- 当前 Fire iOS 行为：
+  - 宿主层负责图片选择与 `Data` 读取
+  - Rust 共享层负责 multipart 上传
+  - 上传成功后 iOS composer 会把返回的 `short_url` 直接插入正文 Markdown
 
 - 成功响应关键字段：
 
@@ -80,6 +84,10 @@
 ]
 ```
 
+- 当前 Fire iOS 行为：
+  - 仅在 composer 预览阶段解析 `upload://`
+  - 解析后的真实 URL 不会回写正文，正文仍保留 `upload://...`
+
 ### `GET <任意图片 URL>`
 
 - 用途：下载图片二进制
@@ -115,6 +123,10 @@
 - 补充说明：
   - 协议层应支持重复提交 `options[]` 表单字段来表达多选
   - 当前客户端代码存在多选实现偏差，实际更可靠的是单值 `options[]`
+  - 当前 Fire iOS 会从 `posts[].polls` + `posts[].polls_votes` 渲染原生 poll 卡片：
+    - `type="regular"` 按单选处理
+    - `type` 含 `multiple` 按多选处理
+  - 提交成功后会刷新当前 topic detail
 
 ### `DELETE /polls/vote`
 
@@ -137,6 +149,10 @@
 }
 ```
 
+- 当前客户端行为：
+  - iOS 在已投票的 poll 卡片上提供“撤销投票”
+  - 撤销后会刷新当前 topic detail
+
 ### `POST /voting/vote`
 
 - 用途：话题投票插件投票
@@ -150,6 +166,9 @@
 ```
 
 - 响应：`VoteResponse`
+- 当前客户端行为：
+  - iOS 在 topic detail header 提供原生话题投票面板
+  - 成功后会刷新当前 topic detail
 
 ### `POST /voting/unvote`
 
@@ -164,6 +183,9 @@
 ```
 
 - 响应：`VoteResponse`
+- 当前客户端行为：
+  - iOS 在已投票状态下显示“取消投票”
+  - 成功后会刷新当前 topic detail
 
 ### `GET /voting/who`
 
@@ -171,6 +193,8 @@
 - Query：
   - `topic_id: integer`
 - 响应：`VotedUser[]`
+- 当前客户端行为：
+  - iOS 在 topic detail vote panel 提供 voters sheet
 
 ### `POST /topics/timings`
 
@@ -296,6 +320,11 @@
   - `new_private_message`
   - `topic_{topicId}`
   - `topic_{topicId}_post_{postNumber}`
+- 当前 Fire iOS 行为：
+  - create-topic composer 使用 `new_topic`
+  - advanced reply 使用：
+    - 回复话题：`topic_{topicId}`
+    - 回复指定楼层：`topic_{topicId}_post_{postNumber}`
 - 成功响应：
 
 ```json
@@ -330,6 +359,11 @@
 ```
 
 - `409 Conflict` 表示序列号冲突，响应中可能返回新的 `draft_sequence`
+- 当前 Fire iOS 行为：
+  - composer 输入变更后会防抖自动保存
+  - 关闭 composer 时：
+    - 有内容则立即 flush 一次草稿
+    - 无内容则删除草稿
 
 ### `DELETE /drafts/{draftKey}.json`
 
@@ -340,6 +374,69 @@
 - 补充说明：
   - `DELETE` 应尽量带最新的 `draft_sequence`
   - 当前客户端会等待进行中的保存完成，再用最新 sequence 删除，避免并发冲突
+
+## 创建话题与完整回复
+
+### `POST /posts.json`
+
+- 用途 1：创建新话题
+- `Content-Type`: `application/x-www-form-urlencoded`
+- Body：
+
+```json
+{
+  "title": "话题标题",
+  "raw": "正文 Markdown",
+  "category": 2,
+  "archetype": "regular",
+  "tags[]": ["rust", "ios"]
+}
+```
+
+- 成功响应常见形态：
+
+```json
+{
+  "post": {
+    "topic_id": 123
+  }
+}
+```
+
+或：
+
+```json
+{
+  "topic_id": 123
+}
+```
+
+- Fire 当前实现约束：
+  - iOS 使用独立原生 full-screen composer，而不是首页内联弹层
+  - create-topic 入口当前在首页 toolbar
+  - advanced reply 入口当前在 topic detail 的 quick reply bar
+  - mention autocomplete 当前在正文编辑器里跟随 `@term` 原生弹出建议，走 `GET /u/search/users`
+  - tag autocomplete 当前在 create-topic 的标签输入框里原生弹出建议，走 `GET /tags/filter/search`
+  - 预览阶段会异步解析 `upload://`，但正文不会被替换成真实 URL
+  - 成功后 create-topic 会刷新首页话题流；advanced reply 直接复用现有 reply 提交流程刷新当前 detail
+
+### `POST /posts.json`
+
+- 用途 2：完整回复话题 / 回复指定楼层
+- `Content-Type`: `application/x-www-form-urlencoded`
+- Body：
+
+```json
+{
+  "topic_id": 123,
+  "raw": "回复 Markdown",
+  "reply_to_post_number": 2
+}
+```
+
+- 补充说明：
+  - `reply_to_post_number` 可选；省略时表示回复话题本身
+  - Fire 当前保留了 quick reply，同时新增 full composer 作为升级路径
 
 ## 模板
 

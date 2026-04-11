@@ -80,6 +80,11 @@ final class FireTopicPresentationTests: XCTestCase {
                 newPosts: 1,
                 lastReadPostNumber: nil,
                 highestPostNumber: 18,
+                bookmarkedPostNumber: nil,
+                bookmarkId: nil,
+                bookmarkName: nil,
+                bookmarkReminderAt: nil,
+                bookmarkableType: nil,
                 hasAcceptedAnswer: false,
                 canHaveAnswer: true
             ),
@@ -355,7 +360,10 @@ final class FireTopicPresentationTests: XCTestCase {
             categories: [],
             hasSiteSettings: hasPreloadedData,
             enabledReactionIds: ["heart"],
-            minPostLength: 1
+            minPostLength: 1,
+            minTopicTitleLength: 15,
+            minFirstPostLength: 20,
+            defaultComposerCategory: nil
         )
     }
 
@@ -372,6 +380,7 @@ final class FireTopicPresentationTests: XCTestCase {
             name: nil,
             avatarTemplate: nil,
             cooked: "<p>\(username)</p>",
+            raw: nil,
             postNumber: postNumber,
             postType: 1,
             createdAt: "2026-03-28T10:00:00Z",
@@ -381,8 +390,11 @@ final class FireTopicPresentationTests: XCTestCase {
             replyToPostNumber: replyToPostNumber,
             bookmarked: false,
             bookmarkId: nil,
+            bookmarkName: nil,
+            bookmarkReminderAt: nil,
             reactions: reactions,
             currentUserReaction: nil,
+            polls: [],
             acceptedAnswer: false,
             canEdit: false,
             canDelete: false,
@@ -408,6 +420,10 @@ final class FireTopicPresentationTests: XCTestCase {
             createdAt: "2026-03-28T10:00:00Z",
             lastReadPostNumber: nil,
             bookmarks: [],
+            bookmarked: false,
+            bookmarkId: nil,
+            bookmarkName: nil,
+            bookmarkReminderAt: nil,
             acceptedAnswer: false,
             hasAcceptedAnswer: false,
             canVote: false,

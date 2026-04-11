@@ -130,6 +130,7 @@
     - 共享 Rust Core 的“完整详情”路径会继续按缺失的 `post_ids[]` 调用 `GET /t/{topicId}/posts.json`，补齐整条评论流
     - iOS 帖子详情页的滚动列表路径会先消费首屏 `post_stream.posts`，再依据 `post_stream.stream` 自动分批请求 `GET /t/{topicId}/posts.json?post_ids[]=` 续载后续评论
   - 进入“只看顶层回复”模式后，后续翻页依赖 `post_stream.stream` 和 `GET /t/{topicId}/posts.json?post_ids[]=`，不是继续用 `post_number + asc`
+  - 当前 iOS 还会消费 `post_stream.posts[].polls` 和 `post_stream.posts[].polls_votes`，用于在 topic detail 渲染原生 poll 卡片并恢复当前用户的已选项
 
 ### `GET /t/{slug}.json`
 
@@ -265,6 +266,12 @@
 }
 ```
 
+- 当前客户端映射：
+  - `0`: muted
+  - `1`: regular
+  - `2`: tracking
+  - `3`: watching
+
 ### `PUT /t/-/{topicId}.json`
 
 - 用途：编辑话题标题、分类、标签
@@ -278,6 +285,10 @@
   "tags[]": ["tag-a", "tag-b"]
 }
 ```
+
+- 当前客户端行为：
+  - iOS 在 topic detail 顶栏 menu 提供原生 topic editor
+  - 成功后会刷新当前 topic detail，并触发首页话题流同步刷新
 
 ### `GET /discourse-ai/summarization/t/{topicId}`
 
@@ -331,6 +342,7 @@
   - `raw`
   - `post_number`
   - `topic_id`
+  - `cooked` 仅作为客户端在 `raw` 缺失时的降级回退
 - 响应：`Post`
 
 ### `PUT /posts/{postId}.json`
@@ -353,6 +365,11 @@
   "post": Post
 }
 ```
+
+- 当前客户端行为：
+  - iOS 在可编辑帖子右上角 menu 提供原生 post editor
+  - `edit_reason` 为可选字段
+  - 成功后会刷新当前 topic detail
 
 ### `DELETE /posts/{postId}.json`
 
@@ -527,6 +544,10 @@
   "auto_delete_preference": 1
 }
 ```
+
+- 当前客户端约束：
+  - 若未设置提醒，则会直接省略 `reminder_at`
+  - `auto_delete_preference` 当前仅透传数值，不在宿主层做额外枚举扩展
 
 ### `PUT /bookmarks/bulk.json`
 

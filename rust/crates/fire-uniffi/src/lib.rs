@@ -19,21 +19,23 @@ use fire_core::{
     NetworkTraceHeader, NetworkTraceOutcome, NetworkTraceSummary,
 };
 use fire_models::{
-    Badge, BootstrapArtifacts, CookieSnapshot, GroupedSearchResult, LoginPhase, LoginSyncInput,
-    MessageBusClientMode, MessageBusEvent, MessageBusEventKind, MessageBusSubscription,
-    MessageBusSubscriptionScope, NotificationAlert, NotificationAlertPollResult,
-    NotificationCounters, NotificationData, NotificationItem, NotificationListResponse,
-    NotificationState, PlatformCookie, PostReactionUpdate, ProfileSummaryReply,
-    ProfileSummaryTopCategory, ProfileSummaryTopic, ProfileSummaryUserReference, RequiredTagGroup,
+    Badge, BootstrapArtifacts, CookieSnapshot, Draft, DraftData, DraftListResponse, FollowUser,
+    GroupedSearchResult, InviteCreateRequest, InviteLink, InviteLinkDetails, LoginPhase,
+    LoginSyncInput, MessageBusClientMode, MessageBusEvent, MessageBusEventKind,
+    MessageBusSubscription, MessageBusSubscriptionScope, NotificationAlert,
+    NotificationAlertPollResult, NotificationCounters, NotificationData, NotificationItem,
+    NotificationListResponse, NotificationState, PlatformCookie, Poll, PollOption,
+    PostReactionUpdate, PostUpdateRequest, ProfileSummaryReply, ProfileSummaryTopCategory,
+    ProfileSummaryTopic, ProfileSummaryUserReference, RequiredTagGroup, ResolvedUploadUrl,
     SearchPost, SearchQuery, SearchResult, SearchTopic, SearchTypeFilter, SearchUser,
     SessionReadiness, SessionSnapshot, TagSearchItem, TagSearchQuery, TagSearchResult,
-    TopicCategory, TopicDetail, TopicDetailCreatedBy, TopicDetailMeta, TopicDetailQuery,
-    TopicListKind, TopicListQuery, TopicListResponse, TopicPost, TopicPostStream, TopicPoster,
-    TopicPresence, TopicPresenceUser, TopicReaction, TopicReplyRequest, TopicRow, TopicSummary,
-    TopicTag, TopicThread, TopicThreadFlatPost, TopicThreadReply, TopicThreadSection,
-    TopicTimingEntry, TopicTimingsRequest, TopicUser, UserAction, UserMentionGroup,
-    UserMentionQuery, UserMentionResult, UserMentionUser, UserProfile, UserSummaryResponse,
-    UserSummaryStats,
+    TopicCategory, TopicCreateRequest, TopicDetail, TopicDetailCreatedBy, TopicDetailMeta,
+    TopicDetailQuery, TopicListKind, TopicListQuery, TopicListResponse, TopicPost, TopicPostStream,
+    TopicPoster, TopicPresence, TopicPresenceUser, TopicReaction, TopicReplyRequest, TopicRow,
+    TopicSummary, TopicTag, TopicThread, TopicThreadFlatPost, TopicThreadReply, TopicThreadSection,
+    TopicTimingEntry, TopicTimingsRequest, TopicUpdateRequest, TopicUser, UploadResult, UserAction,
+    UserMentionGroup, UserMentionQuery, UserMentionResult, UserMentionUser, UserProfile,
+    UserSummaryResponse, UserSummaryStats, VoteResponse, VotedUser,
 };
 use futures_util::FutureExt;
 use tokio::runtime::{Builder, Runtime};
@@ -201,6 +203,11 @@ pub struct TopicCategoryState {
     pub parent_category_id: Option<u64>,
     pub color_hex: Option<String>,
     pub text_color_hex: Option<String>,
+    pub topic_template: Option<String>,
+    pub minimum_required_tags: u32,
+    pub required_tag_groups: Vec<RequiredTagGroupState>,
+    pub allowed_tags: Vec<String>,
+    pub permission: Option<u32>,
 }
 
 impl From<TopicCategory> for TopicCategoryState {
@@ -212,6 +219,15 @@ impl From<TopicCategory> for TopicCategoryState {
             parent_category_id: value.parent_category_id,
             color_hex: value.color_hex,
             text_color_hex: value.text_color_hex,
+            topic_template: value.topic_template,
+            minimum_required_tags: value.minimum_required_tags,
+            required_tag_groups: value
+                .required_tag_groups
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+            allowed_tags: value.allowed_tags,
+            permission: value.permission,
         }
     }
 }
@@ -225,6 +241,15 @@ impl From<TopicCategoryState> for TopicCategory {
             parent_category_id: value.parent_category_id,
             color_hex: value.color_hex,
             text_color_hex: value.text_color_hex,
+            topic_template: value.topic_template,
+            minimum_required_tags: value.minimum_required_tags,
+            required_tag_groups: value
+                .required_tag_groups
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+            allowed_tags: value.allowed_tags,
+            permission: value.permission,
         }
     }
 }
@@ -249,6 +274,9 @@ pub struct BootstrapState {
     pub has_site_settings: bool,
     pub enabled_reaction_ids: Vec<String>,
     pub min_post_length: u32,
+    pub min_topic_title_length: u32,
+    pub min_first_post_length: u32,
+    pub default_composer_category: Option<u64>,
 }
 
 impl From<BootstrapArtifacts> for BootstrapState {
@@ -272,6 +300,9 @@ impl From<BootstrapArtifacts> for BootstrapState {
             has_site_settings: value.has_site_settings,
             enabled_reaction_ids: value.enabled_reaction_ids,
             min_post_length: value.min_post_length,
+            min_topic_title_length: value.min_topic_title_length,
+            min_first_post_length: value.min_first_post_length,
+            default_composer_category: value.default_composer_category,
         }
     }
 }
@@ -297,6 +328,9 @@ impl From<BootstrapState> for BootstrapArtifacts {
             has_site_settings: value.has_site_settings,
             enabled_reaction_ids: value.enabled_reaction_ids,
             min_post_length: value.min_post_length,
+            min_topic_title_length: value.min_topic_title_length,
+            min_first_post_length: value.min_first_post_length,
+            default_composer_category: value.default_composer_category,
         }
     }
 }
@@ -971,6 +1005,11 @@ pub struct TopicSummaryState {
     pub new_posts: u32,
     pub last_read_post_number: Option<u32>,
     pub highest_post_number: u32,
+    pub bookmarked_post_number: Option<u32>,
+    pub bookmark_id: Option<u64>,
+    pub bookmark_name: Option<String>,
+    pub bookmark_reminder_at: Option<String>,
+    pub bookmarkable_type: Option<String>,
     pub has_accepted_answer: bool,
     pub can_have_answer: bool,
 }
@@ -1001,6 +1040,11 @@ impl From<TopicSummary> for TopicSummaryState {
             new_posts: value.new_posts,
             last_read_post_number: value.last_read_post_number,
             highest_post_number: value.highest_post_number,
+            bookmarked_post_number: value.bookmarked_post_number,
+            bookmark_id: value.bookmark_id,
+            bookmark_name: value.bookmark_name,
+            bookmark_reminder_at: value.bookmark_reminder_at,
+            bookmarkable_type: value.bookmarkable_type,
             has_accepted_answer: value.has_accepted_answer,
             can_have_answer: value.can_have_answer,
         }
@@ -1313,6 +1357,15 @@ impl From<RequiredTagGroup> for RequiredTagGroupState {
     }
 }
 
+impl From<RequiredTagGroupState> for RequiredTagGroup {
+    fn from(value: RequiredTagGroupState) -> Self {
+        Self {
+            name: value.name,
+            min_count: value.min_count,
+        }
+    }
+}
+
 #[derive(uniffi::Record, Debug, Clone)]
 pub struct TagSearchResultState {
     pub results: Vec<TagSearchItemState>,
@@ -1474,6 +1527,50 @@ impl From<TopicReaction> for TopicReactionState {
 }
 
 #[derive(uniffi::Record, Debug, Clone)]
+pub struct PollOptionState {
+    pub id: String,
+    pub html: String,
+    pub votes: u32,
+}
+
+impl From<PollOption> for PollOptionState {
+    fn from(value: PollOption) -> Self {
+        Self {
+            id: value.id,
+            html: value.html,
+            votes: value.votes,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct PollState {
+    pub id: u64,
+    pub name: String,
+    pub kind: String,
+    pub status: String,
+    pub results: String,
+    pub options: Vec<PollOptionState>,
+    pub voters: u32,
+    pub user_votes: Vec<String>,
+}
+
+impl From<Poll> for PollState {
+    fn from(value: Poll) -> Self {
+        Self {
+            id: value.id,
+            name: value.name,
+            kind: value.kind,
+            status: value.status,
+            results: value.results,
+            options: value.options.into_iter().map(Into::into).collect(),
+            voters: value.voters,
+            user_votes: value.user_votes,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
 pub struct TopicReplyRequestState {
     pub topic_id: u64,
     pub raw: String,
@@ -1486,6 +1583,221 @@ impl From<TopicReplyRequestState> for TopicReplyRequest {
             topic_id: value.topic_id,
             raw: value.raw,
             reply_to_post_number: value.reply_to_post_number,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct TopicCreateRequestState {
+    pub title: String,
+    pub raw: String,
+    pub category_id: u64,
+    pub tags: Vec<String>,
+}
+
+impl From<TopicCreateRequestState> for TopicCreateRequest {
+    fn from(value: TopicCreateRequestState) -> Self {
+        Self {
+            title: value.title,
+            raw: value.raw,
+            category_id: value.category_id,
+            tags: value.tags,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct TopicUpdateRequestState {
+    pub topic_id: u64,
+    pub title: String,
+    pub category_id: u64,
+    pub tags: Vec<String>,
+}
+
+impl From<TopicUpdateRequestState> for TopicUpdateRequest {
+    fn from(value: TopicUpdateRequestState) -> Self {
+        Self {
+            topic_id: value.topic_id,
+            title: value.title,
+            category_id: value.category_id,
+            tags: value.tags,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct PostUpdateRequestState {
+    pub post_id: u64,
+    pub raw: String,
+    pub edit_reason: Option<String>,
+}
+
+impl From<PostUpdateRequestState> for PostUpdateRequest {
+    fn from(value: PostUpdateRequestState) -> Self {
+        Self {
+            post_id: value.post_id,
+            raw: value.raw,
+            edit_reason: value.edit_reason,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct InviteCreateRequestState {
+    pub max_redemptions_allowed: u32,
+    pub expires_at: Option<String>,
+    pub description: Option<String>,
+    pub email: Option<String>,
+}
+
+impl From<InviteCreateRequestState> for InviteCreateRequest {
+    fn from(value: InviteCreateRequestState) -> Self {
+        Self {
+            max_redemptions_allowed: value.max_redemptions_allowed,
+            expires_at: value.expires_at,
+            description: value.description,
+            email: value.email,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct DraftDataState {
+    pub reply: Option<String>,
+    pub title: Option<String>,
+    pub category_id: Option<u64>,
+    pub tags: Vec<String>,
+    pub reply_to_post_number: Option<u32>,
+    pub action: Option<String>,
+    pub recipients: Vec<String>,
+    pub archetype_id: Option<String>,
+    pub composer_time: Option<u32>,
+    pub typing_time: Option<u32>,
+}
+
+impl From<DraftData> for DraftDataState {
+    fn from(value: DraftData) -> Self {
+        Self {
+            reply: value.reply,
+            title: value.title,
+            category_id: value.category_id,
+            tags: value.tags,
+            reply_to_post_number: value.reply_to_post_number,
+            action: value.action,
+            recipients: value.recipients,
+            archetype_id: value.archetype_id,
+            composer_time: value.composer_time,
+            typing_time: value.typing_time,
+        }
+    }
+}
+
+impl From<DraftDataState> for DraftData {
+    fn from(value: DraftDataState) -> Self {
+        Self {
+            reply: value.reply,
+            title: value.title,
+            category_id: value.category_id,
+            tags: value.tags,
+            reply_to_post_number: value.reply_to_post_number,
+            action: value.action,
+            recipients: value.recipients,
+            archetype_id: value.archetype_id,
+            composer_time: value.composer_time,
+            typing_time: value.typing_time,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct DraftState {
+    pub draft_key: String,
+    pub data: DraftDataState,
+    pub sequence: u32,
+    pub title: Option<String>,
+    pub excerpt: Option<String>,
+    pub updated_at: Option<String>,
+    pub username: Option<String>,
+    pub avatar_template: Option<String>,
+    pub topic_id: Option<u64>,
+}
+
+impl From<Draft> for DraftState {
+    fn from(value: Draft) -> Self {
+        Self {
+            draft_key: value.draft_key,
+            data: value.data.into(),
+            sequence: value.sequence,
+            title: value.title,
+            excerpt: value.excerpt,
+            updated_at: value.updated_at,
+            username: value.username,
+            avatar_template: value.avatar_template,
+            topic_id: value.topic_id,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct DraftListResponseState {
+    pub drafts: Vec<DraftState>,
+    pub has_more: bool,
+}
+
+impl From<DraftListResponse> for DraftListResponseState {
+    fn from(value: DraftListResponse) -> Self {
+        Self {
+            drafts: value.drafts.into_iter().map(Into::into).collect(),
+            has_more: value.has_more,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct UploadImageRequestState {
+    pub file_name: String,
+    pub mime_type: Option<String>,
+    pub bytes: Vec<u8>,
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct UploadResultState {
+    pub short_url: String,
+    pub url: Option<String>,
+    pub original_filename: Option<String>,
+    pub width: Option<u32>,
+    pub height: Option<u32>,
+    pub thumbnail_width: Option<u32>,
+    pub thumbnail_height: Option<u32>,
+}
+
+impl From<UploadResult> for UploadResultState {
+    fn from(value: UploadResult) -> Self {
+        Self {
+            short_url: value.short_url,
+            url: value.url,
+            original_filename: value.original_filename,
+            width: value.width,
+            height: value.height,
+            thumbnail_width: value.thumbnail_width,
+            thumbnail_height: value.thumbnail_height,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct ResolvedUploadUrlState {
+    pub short_url: String,
+    pub short_path: Option<String>,
+    pub url: Option<String>,
+}
+
+impl From<ResolvedUploadUrl> for ResolvedUploadUrlState {
+    fn from(value: ResolvedUploadUrl) -> Self {
+        Self {
+            short_url: value.short_url,
+            short_path: value.short_path,
+            url: value.url,
         }
     }
 }
@@ -1544,6 +1856,7 @@ pub struct TopicPostState {
     pub name: Option<String>,
     pub avatar_template: Option<String>,
     pub cooked: String,
+    pub raw: Option<String>,
     pub post_number: u32,
     pub post_type: i32,
     pub created_at: Option<String>,
@@ -1553,8 +1866,11 @@ pub struct TopicPostState {
     pub reply_to_post_number: Option<u32>,
     pub bookmarked: bool,
     pub bookmark_id: Option<u64>,
+    pub bookmark_name: Option<String>,
+    pub bookmark_reminder_at: Option<String>,
     pub reactions: Vec<TopicReactionState>,
     pub current_user_reaction: Option<TopicReactionState>,
+    pub polls: Vec<PollState>,
     pub accepted_answer: bool,
     pub can_edit: bool,
     pub can_delete: bool,
@@ -1570,6 +1886,7 @@ impl From<TopicPost> for TopicPostState {
             name: value.name,
             avatar_template: value.avatar_template,
             cooked: value.cooked,
+            raw: value.raw,
             post_number: value.post_number,
             post_type: value.post_type,
             created_at: value.created_at,
@@ -1579,8 +1896,11 @@ impl From<TopicPost> for TopicPostState {
             reply_to_post_number: value.reply_to_post_number,
             bookmarked: value.bookmarked,
             bookmark_id: value.bookmark_id,
+            bookmark_name: value.bookmark_name,
+            bookmark_reminder_at: value.bookmark_reminder_at,
             reactions: value.reactions.into_iter().map(Into::into).collect(),
             current_user_reaction: value.current_user_reaction.map(Into::into),
+            polls: value.polls.into_iter().map(Into::into).collect(),
             accepted_answer: value.accepted_answer,
             can_edit: value.can_edit,
             can_delete: value.can_delete,
@@ -1721,6 +2041,10 @@ pub struct TopicDetailState {
     pub created_at: Option<String>,
     pub last_read_post_number: Option<u32>,
     pub bookmarks: Vec<u64>,
+    pub bookmarked: bool,
+    pub bookmark_id: Option<u64>,
+    pub bookmark_name: Option<String>,
+    pub bookmark_reminder_at: Option<String>,
     pub accepted_answer: bool,
     pub has_accepted_answer: bool,
     pub can_vote: bool,
@@ -1752,6 +2076,10 @@ impl From<TopicDetail> for TopicDetailState {
             created_at: value.created_at,
             last_read_post_number: value.last_read_post_number,
             bookmarks: value.bookmarks,
+            bookmarked: value.bookmarked,
+            bookmark_id: value.bookmark_id,
+            bookmark_name: value.bookmark_name,
+            bookmark_reminder_at: value.bookmark_reminder_at,
             accepted_answer: value.accepted_answer,
             has_accepted_answer: value.has_accepted_answer,
             can_vote: value.can_vote,
@@ -2115,6 +2443,8 @@ pub struct UserProfileState {
     pub profile_background_url: Option<String>,
     pub total_followers: u32,
     pub total_following: u32,
+    pub can_follow: bool,
+    pub is_followed: bool,
     pub gamification_score: Option<u32>,
     pub trust_level_label: String,
 }
@@ -2141,6 +2471,8 @@ impl From<UserProfile> for UserProfileState {
                 .or(value.card_background_upload_url),
             total_followers: value.total_followers.unwrap_or(0),
             total_following: value.total_following.unwrap_or(0),
+            can_follow: value.can_follow.unwrap_or(false),
+            is_followed: value.is_followed.unwrap_or(false),
             gamification_score: value.gamification_score,
             trust_level_label: trust_level_label(trust_level),
         }
@@ -2276,6 +2608,8 @@ pub struct BadgeState {
     pub icon: Option<String>,
     pub image_url: Option<String>,
     pub slug: Option<String>,
+    pub grant_count: u32,
+    pub long_description: Option<String>,
 }
 
 impl From<Badge> for BadgeState {
@@ -2288,6 +2622,8 @@ impl From<Badge> for BadgeState {
             icon: value.icon,
             image_url: value.image_url,
             slug: value.slug,
+            grant_count: value.grant_count,
+            long_description: value.long_description,
         }
     }
 }
@@ -2350,6 +2686,107 @@ impl From<UserAction> for UserActionState {
     }
 }
 
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct FollowUserState {
+    pub id: u64,
+    pub username: String,
+    pub name: Option<String>,
+    pub avatar_template: Option<String>,
+}
+
+impl From<FollowUser> for FollowUserState {
+    fn from(value: FollowUser) -> Self {
+        Self {
+            id: value.id,
+            username: value.username,
+            name: value.name,
+            avatar_template: value.avatar_template,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct InviteLinkDetailsState {
+    pub id: Option<u64>,
+    pub invite_key: Option<String>,
+    pub max_redemptions_allowed: Option<u32>,
+    pub redemption_count: Option<u32>,
+    pub expired: Option<bool>,
+    pub created_at: Option<String>,
+    pub expires_at: Option<String>,
+}
+
+impl From<InviteLinkDetails> for InviteLinkDetailsState {
+    fn from(value: InviteLinkDetails) -> Self {
+        Self {
+            id: value.id,
+            invite_key: value.invite_key,
+            max_redemptions_allowed: value.max_redemptions_allowed,
+            redemption_count: value.redemption_count,
+            expired: value.expired,
+            created_at: value.created_at,
+            expires_at: value.expires_at,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct InviteLinkState {
+    pub invite_link: String,
+    pub invite: Option<InviteLinkDetailsState>,
+}
+
+impl From<InviteLink> for InviteLinkState {
+    fn from(value: InviteLink) -> Self {
+        Self {
+            invite_link: value.invite_link,
+            invite: value.invite.map(Into::into),
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct VotedUserState {
+    pub id: u64,
+    pub username: String,
+    pub name: Option<String>,
+    pub avatar_template: Option<String>,
+}
+
+impl From<VotedUser> for VotedUserState {
+    fn from(value: VotedUser) -> Self {
+        Self {
+            id: value.id,
+            username: value.username,
+            name: value.name,
+            avatar_template: value.avatar_template,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct VoteResponseState {
+    pub can_vote: bool,
+    pub vote_limit: u32,
+    pub vote_count: i32,
+    pub votes_left: i32,
+    pub alert: bool,
+    pub who_voted: Vec<VotedUserState>,
+}
+
+impl From<VoteResponse> for VoteResponseState {
+    fn from(value: VoteResponse) -> Self {
+        Self {
+            can_vote: value.can_vote,
+            vote_limit: value.vote_limit,
+            vote_count: value.vote_count,
+            votes_left: value.votes_left,
+            alert: value.alert,
+            who_voted: value.who_voted.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
 #[derive(uniffi::Error, thiserror::Error, Debug)]
 pub enum FireUniFfiError {
     #[error("configuration error: {details}")]
@@ -2358,6 +2795,8 @@ pub enum FireUniFfiError {
     Validation { details: String },
     #[error("authentication error: {details}")]
     Authentication { details: String },
+    #[error("login required: {details}")]
+    LoginRequired { details: String },
     #[error("network error: {details}")]
     Network { details: String },
     #[error("request requires Cloudflare challenge verification")]
@@ -2395,6 +2834,9 @@ impl From<FireCoreError> for FireUniFfiError {
             FireCoreError::Logger(source) => Self::Configuration {
                 details: source.to_string(),
             },
+            FireCoreError::LoginRequired { message, .. } => {
+                Self::LoginRequired { details: message }
+            }
             FireCoreError::CloudflareChallenge { .. } => Self::CloudflareChallenge,
             FireCoreError::HttpStatus {
                 operation,
@@ -2864,6 +3306,87 @@ impl FireCoreHandle {
         Ok(response.into())
     }
 
+    pub async fn fetch_bookmarks(
+        &self,
+        username: String,
+        page: Option<u32>,
+    ) -> Result<TopicListState, FireUniFfiError> {
+        let inner = Arc::clone(&self.inner);
+        let panic_state = Arc::clone(&self.panic_state);
+        let response = run_on_ffi_runtime("fetch_bookmarks", panic_state, async move {
+            inner.fetch_bookmarks(&username, page).await
+        })
+        .await?;
+        Ok(response.into())
+    }
+
+    pub async fn fetch_read_history(
+        &self,
+        page: Option<u32>,
+    ) -> Result<TopicListState, FireUniFfiError> {
+        let inner = Arc::clone(&self.inner);
+        let panic_state = Arc::clone(&self.panic_state);
+        let response = run_on_ffi_runtime("fetch_read_history", panic_state, async move {
+            inner.fetch_read_history(page).await
+        })
+        .await?;
+        Ok(response.into())
+    }
+
+    pub async fn fetch_drafts(
+        &self,
+        offset: Option<u32>,
+        limit: Option<u32>,
+    ) -> Result<DraftListResponseState, FireUniFfiError> {
+        let inner = Arc::clone(&self.inner);
+        let panic_state = Arc::clone(&self.panic_state);
+        let response = run_on_ffi_runtime("fetch_drafts", panic_state, async move {
+            inner.fetch_drafts(offset, limit).await
+        })
+        .await?;
+        Ok(response.into())
+    }
+
+    pub async fn fetch_draft(
+        &self,
+        draft_key: String,
+    ) -> Result<Option<DraftState>, FireUniFfiError> {
+        let inner = Arc::clone(&self.inner);
+        let panic_state = Arc::clone(&self.panic_state);
+        let response = run_on_ffi_runtime("fetch_draft", panic_state, async move {
+            inner.fetch_draft(&draft_key).await
+        })
+        .await?;
+        Ok(response.map(Into::into))
+    }
+
+    pub async fn save_draft(
+        &self,
+        draft_key: String,
+        data: DraftDataState,
+        sequence: u32,
+    ) -> Result<u32, FireUniFfiError> {
+        let inner = Arc::clone(&self.inner);
+        let panic_state = Arc::clone(&self.panic_state);
+        run_on_ffi_runtime("save_draft", panic_state, async move {
+            inner.save_draft(&draft_key, data.into(), sequence).await
+        })
+        .await
+    }
+
+    pub async fn delete_draft(
+        &self,
+        draft_key: String,
+        sequence: Option<u32>,
+    ) -> Result<(), FireUniFfiError> {
+        let inner = Arc::clone(&self.inner);
+        let panic_state = Arc::clone(&self.panic_state);
+        run_on_ffi_runtime("delete_draft", panic_state, async move {
+            inner.delete_draft(&draft_key, sequence).await
+        })
+        .await
+    }
+
     pub async fn fetch_topic_list(
         &self,
         query: TopicListQueryState,
@@ -2969,6 +3492,81 @@ impl FireCoreHandle {
         Ok(response.into())
     }
 
+    pub async fn fetch_post(&self, post_id: u64) -> Result<TopicPostState, FireUniFfiError> {
+        let inner = Arc::clone(&self.inner);
+        let panic_state = Arc::clone(&self.panic_state);
+        let response = run_on_ffi_runtime("fetch_post", panic_state, async move {
+            inner.fetch_post(post_id).await
+        })
+        .await?;
+        Ok(response.into())
+    }
+
+    pub async fn update_post(
+        &self,
+        input: PostUpdateRequestState,
+    ) -> Result<TopicPostState, FireUniFfiError> {
+        let inner = Arc::clone(&self.inner);
+        let panic_state = Arc::clone(&self.panic_state);
+        let response = run_on_ffi_runtime("update_post", panic_state, async move {
+            inner.update_post(input.into()).await
+        })
+        .await?;
+        Ok(response.into())
+    }
+
+    pub async fn create_topic(
+        &self,
+        input: TopicCreateRequestState,
+    ) -> Result<u64, FireUniFfiError> {
+        let inner = Arc::clone(&self.inner);
+        let panic_state = Arc::clone(&self.panic_state);
+        run_on_ffi_runtime("create_topic", panic_state, async move {
+            inner.create_topic(input.into()).await
+        })
+        .await
+    }
+
+    pub async fn update_topic(
+        &self,
+        input: TopicUpdateRequestState,
+    ) -> Result<(), FireUniFfiError> {
+        let inner = Arc::clone(&self.inner);
+        let panic_state = Arc::clone(&self.panic_state);
+        run_on_ffi_runtime("update_topic", panic_state, async move {
+            inner.update_topic(input.into()).await
+        })
+        .await
+    }
+
+    pub async fn upload_image(
+        &self,
+        input: UploadImageRequestState,
+    ) -> Result<UploadResultState, FireUniFfiError> {
+        let inner = Arc::clone(&self.inner);
+        let panic_state = Arc::clone(&self.panic_state);
+        let response = run_on_ffi_runtime("upload_image", panic_state, async move {
+            inner
+                .upload_image(&input.file_name, input.mime_type.as_deref(), input.bytes)
+                .await
+        })
+        .await?;
+        Ok(response.into())
+    }
+
+    pub async fn lookup_upload_urls(
+        &self,
+        short_urls: Vec<String>,
+    ) -> Result<Vec<ResolvedUploadUrlState>, FireUniFfiError> {
+        let inner = Arc::clone(&self.inner);
+        let panic_state = Arc::clone(&self.panic_state);
+        let response = run_on_ffi_runtime("lookup_upload_urls", panic_state, async move {
+            inner.lookup_upload_urls(short_urls).await
+        })
+        .await?;
+        Ok(response.into_iter().map(Into::into).collect())
+    }
+
     pub async fn report_topic_timings(
         &self,
         input: TopicTimingsRequestState,
@@ -3020,6 +3618,133 @@ impl FireCoreHandle {
         })
         .await?;
         Ok(response.into())
+    }
+
+    pub async fn vote_poll(
+        &self,
+        post_id: u64,
+        poll_name: String,
+        options: Vec<String>,
+    ) -> Result<PollState, FireUniFfiError> {
+        let inner = Arc::clone(&self.inner);
+        let panic_state = Arc::clone(&self.panic_state);
+        let response = run_on_ffi_runtime("vote_poll", panic_state, async move {
+            inner.vote_poll(post_id, &poll_name, options).await
+        })
+        .await?;
+        Ok(response.into())
+    }
+
+    pub async fn unvote_poll(
+        &self,
+        post_id: u64,
+        poll_name: String,
+    ) -> Result<PollState, FireUniFfiError> {
+        let inner = Arc::clone(&self.inner);
+        let panic_state = Arc::clone(&self.panic_state);
+        let response = run_on_ffi_runtime("unvote_poll", panic_state, async move {
+            inner.unvote_poll(post_id, &poll_name).await
+        })
+        .await?;
+        Ok(response.into())
+    }
+
+    pub async fn vote_topic(&self, topic_id: u64) -> Result<VoteResponseState, FireUniFfiError> {
+        let inner = Arc::clone(&self.inner);
+        let panic_state = Arc::clone(&self.panic_state);
+        let response = run_on_ffi_runtime("vote_topic", panic_state, async move {
+            inner.vote_topic(topic_id).await
+        })
+        .await?;
+        Ok(response.into())
+    }
+
+    pub async fn unvote_topic(&self, topic_id: u64) -> Result<VoteResponseState, FireUniFfiError> {
+        let inner = Arc::clone(&self.inner);
+        let panic_state = Arc::clone(&self.panic_state);
+        let response = run_on_ffi_runtime("unvote_topic", panic_state, async move {
+            inner.unvote_topic(topic_id).await
+        })
+        .await?;
+        Ok(response.into())
+    }
+
+    pub async fn fetch_topic_voters(
+        &self,
+        topic_id: u64,
+    ) -> Result<Vec<VotedUserState>, FireUniFfiError> {
+        let inner = Arc::clone(&self.inner);
+        let panic_state = Arc::clone(&self.panic_state);
+        let response = run_on_ffi_runtime("fetch_topic_voters", panic_state, async move {
+            inner.fetch_topic_voters(topic_id).await
+        })
+        .await?;
+        Ok(response.into_iter().map(Into::into).collect())
+    }
+
+    pub async fn create_bookmark(
+        &self,
+        bookmarkable_id: u64,
+        bookmarkable_type: String,
+        name: Option<String>,
+        reminder_at: Option<String>,
+        auto_delete_preference: Option<i32>,
+    ) -> Result<u64, FireUniFfiError> {
+        let inner = Arc::clone(&self.inner);
+        let panic_state = Arc::clone(&self.panic_state);
+        run_on_ffi_runtime("create_bookmark", panic_state, async move {
+            inner
+                .create_bookmark(
+                    bookmarkable_id,
+                    &bookmarkable_type,
+                    name.as_deref(),
+                    reminder_at.as_deref(),
+                    auto_delete_preference,
+                )
+                .await
+        })
+        .await
+    }
+
+    pub async fn update_bookmark(
+        &self,
+        bookmark_id: u64,
+        name: Option<String>,
+        reminder_at: Option<String>,
+        auto_delete_preference: Option<i32>,
+    ) -> Result<(), FireUniFfiError> {
+        let inner = Arc::clone(&self.inner);
+        let panic_state = Arc::clone(&self.panic_state);
+        run_on_ffi_runtime("update_bookmark", panic_state, async move {
+            inner
+                .update_bookmark(bookmark_id, name, reminder_at, auto_delete_preference)
+                .await
+        })
+        .await
+    }
+
+    pub async fn delete_bookmark(&self, bookmark_id: u64) -> Result<(), FireUniFfiError> {
+        let inner = Arc::clone(&self.inner);
+        let panic_state = Arc::clone(&self.panic_state);
+        run_on_ffi_runtime("delete_bookmark", panic_state, async move {
+            inner.delete_bookmark(bookmark_id).await
+        })
+        .await
+    }
+
+    pub async fn set_topic_notification_level(
+        &self,
+        topic_id: u64,
+        notification_level: i32,
+    ) -> Result<(), FireUniFfiError> {
+        let inner = Arc::clone(&self.inner);
+        let panic_state = Arc::clone(&self.panic_state);
+        run_on_ffi_runtime("set_topic_notification_level", panic_state, async move {
+            inner
+                .set_topic_notification_level(topic_id, notification_level)
+                .await
+        })
+        .await
     }
 
     pub fn apply_cookies(&self, cookies: CookieState) -> Result<SessionState, FireUniFfiError> {
@@ -3175,6 +3900,60 @@ impl FireCoreHandle {
         Ok(summary.into())
     }
 
+    pub async fn fetch_following(
+        &self,
+        username: String,
+    ) -> Result<Vec<FollowUserState>, FireUniFfiError> {
+        let inner = Arc::clone(&self.inner);
+        let panic_state = Arc::clone(&self.panic_state);
+        let users = run_on_ffi_runtime("fetch_following", panic_state, async move {
+            inner.fetch_following(&username).await
+        })
+        .await?;
+        Ok(users.into_iter().map(Into::into).collect())
+    }
+
+    pub async fn fetch_followers(
+        &self,
+        username: String,
+    ) -> Result<Vec<FollowUserState>, FireUniFfiError> {
+        let inner = Arc::clone(&self.inner);
+        let panic_state = Arc::clone(&self.panic_state);
+        let users = run_on_ffi_runtime("fetch_followers", panic_state, async move {
+            inner.fetch_followers(&username).await
+        })
+        .await?;
+        Ok(users.into_iter().map(Into::into).collect())
+    }
+
+    pub async fn follow_user(&self, username: String) -> Result<(), FireUniFfiError> {
+        let inner = Arc::clone(&self.inner);
+        let panic_state = Arc::clone(&self.panic_state);
+        run_on_ffi_runtime("follow_user", panic_state, async move {
+            inner.follow_user(&username).await
+        })
+        .await
+    }
+
+    pub async fn unfollow_user(&self, username: String) -> Result<(), FireUniFfiError> {
+        let inner = Arc::clone(&self.inner);
+        let panic_state = Arc::clone(&self.panic_state);
+        run_on_ffi_runtime("unfollow_user", panic_state, async move {
+            inner.unfollow_user(&username).await
+        })
+        .await
+    }
+
+    pub async fn fetch_badge_detail(&self, badge_id: u64) -> Result<BadgeState, FireUniFfiError> {
+        let inner = Arc::clone(&self.inner);
+        let panic_state = Arc::clone(&self.panic_state);
+        let badge = run_on_ffi_runtime("fetch_badge_detail", panic_state, async move {
+            inner.fetch_badge_detail(badge_id).await
+        })
+        .await?;
+        Ok(badge.into())
+    }
+
     pub async fn fetch_user_actions(
         &self,
         username: String,
@@ -3190,6 +3969,32 @@ impl FireCoreHandle {
         })
         .await?;
         Ok(actions.into_iter().map(Into::into).collect())
+    }
+
+    pub async fn fetch_pending_invites(
+        &self,
+        username: String,
+    ) -> Result<Vec<InviteLinkState>, FireUniFfiError> {
+        let inner = Arc::clone(&self.inner);
+        let panic_state = Arc::clone(&self.panic_state);
+        let invites = run_on_ffi_runtime("fetch_pending_invites", panic_state, async move {
+            inner.fetch_pending_invites(&username).await
+        })
+        .await?;
+        Ok(invites.into_iter().map(Into::into).collect())
+    }
+
+    pub async fn create_invite_link(
+        &self,
+        input: InviteCreateRequestState,
+    ) -> Result<InviteLinkState, FireUniFfiError> {
+        let inner = Arc::clone(&self.inner);
+        let panic_state = Arc::clone(&self.panic_state);
+        let invite = run_on_ffi_runtime("create_invite_link", panic_state, async move {
+            inner.create_invite_link(input.into()).await
+        })
+        .await?;
+        Ok(invite.into())
     }
 }
 
@@ -3295,6 +4100,20 @@ mod tests {
         });
 
         assert!(matches!(error, FireUniFfiError::CloudflareChallenge));
+    }
+
+    #[test]
+    fn maps_login_required_errors_to_dedicated_variant() {
+        let error = FireUniFfiError::from(FireCoreError::LoginRequired {
+            operation: "report topic timings",
+            message: "您需要登录才能执行此操作。".to_string(),
+        });
+
+        assert!(matches!(
+            error,
+            FireUniFfiError::LoginRequired { details }
+                if details == "您需要登录才能执行此操作。"
+        ));
     }
 
     #[test]

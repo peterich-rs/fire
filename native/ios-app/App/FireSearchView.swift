@@ -338,6 +338,11 @@ struct FireSearchView: View {
                 newPosts: 0,
                 lastReadPostNumber: nil,
                 highestPostNumber: max(topic.postsCount, 1),
+                bookmarkedPostNumber: nil,
+                bookmarkId: nil,
+                bookmarkName: nil,
+                bookmarkReminderAt: nil,
+                bookmarkableType: nil,
                 hasAcceptedAnswer: false,
                 canHaveAnswer: false
             ),

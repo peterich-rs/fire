@@ -5,6 +5,7 @@ struct FireHomeView: View {
     @Namespace private var feedSelectionNamespace
     @State private var showCategoryBrowser = false
     @State private var showTagPicker = false
+    @State private var showCreateTopicComposer = false
     @State private var didPrefetchToFillViewport = false
 
     private struct TopicListScrollMetrics: Equatable {
@@ -56,10 +57,18 @@ struct FireHomeView: View {
         .navigationTitle("首页")
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                NavigationLink {
-                    FireSearchView(viewModel: viewModel)
-                } label: {
-                    Image(systemName: "magnifyingglass")
+                HStack(spacing: 14) {
+                    Button {
+                        showCreateTopicComposer = true
+                    } label: {
+                        Image(systemName: "square.and.pencil")
+                    }
+
+                    NavigationLink {
+                        FireSearchView(viewModel: viewModel)
+                    } label: {
+                        Image(systemName: "magnifyingglass")
+                    }
                 }
             }
         }
@@ -81,6 +90,19 @@ struct FireHomeView: View {
         }
         .sheet(isPresented: $showTagPicker) {
             FireTagPickerSheet(viewModel: viewModel)
+        }
+        .fullScreenCover(isPresented: $showCreateTopicComposer) {
+            NavigationStack {
+                FireComposerView(
+                    viewModel: viewModel,
+                    route: FireComposerRoute(kind: .createTopic),
+                    initialCategoryID: viewModel.selectedHomeCategoryId,
+                    initialTags: viewModel.selectedHomeTags,
+                    onTopicCreated: { _ in
+                        showCreateTopicComposer = false
+                    }
+                )
+            }
         }
     }
 

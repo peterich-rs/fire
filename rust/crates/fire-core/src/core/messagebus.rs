@@ -1312,6 +1312,14 @@ pub(crate) fn active_message_bus_client_id(
         .clone()
 }
 
+pub(crate) fn upload_client_id(runtime: &Arc<Mutex<FireMessageBusRuntime>>) -> String {
+    let mut runtime = runtime.lock().expect("message bus runtime lock poisoned");
+    runtime
+        .active_client_id
+        .clone()
+        .unwrap_or_else(|| client_id_for_mode(&mut runtime, MessageBusClientMode::Foreground))
+}
+
 #[cfg(test)]
 mod tests {
     use openwire::WireError;

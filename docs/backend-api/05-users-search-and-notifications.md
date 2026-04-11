@@ -73,6 +73,10 @@
 
 - 用途：获取关注列表
 - 响应：`FollowUser[]`
+- 当前客户端行为：
+  - iOS 在公开用户页和“我的”页都提供 following / followers 原生列表
+  - 列表项会跳转到公开用户页
+  - 当前共享层兼容数组根节点和简单 wrapper 结构
 
 ### `GET /u/{username}/follow/followers`
 
@@ -82,6 +86,9 @@
 ### `PUT /follow/{username}`
 
 - 用途：关注用户
+- 当前客户端行为：
+  - iOS 在公开用户页 header 提供 follow / unfollow 原生按钮
+  - 成功后会刷新当前 profile 数据
 
 ### `DELETE /follow/{username}`
 
@@ -106,6 +113,9 @@
 - Query：
   - `page?: integer`
 - 响应：`TopicListResponse`
+- 当前客户端行为：
+  - iOS 在“我的”页提供浏览历史列表
+  - 列表项进入 topic detail 时，会优先用 `last_read_post_number` 接续上次阅读位置
 
 ### `GET /u/{username}/bookmarks.json`
 
@@ -117,6 +127,15 @@
 - Query：
   - `page?: integer`
 - 响应：`TopicListResponse`
+- 当前客户端额外依赖的 `topic_list.topics[]` 字段：
+  - `bookmarked_post_number`
+  - `bookmark_id`
+  - `bookmark_name`
+  - `bookmark_reminder_at`
+  - `bookmarkable_type`
+- 用途补充：
+  - `bookmarked_post_number` 优先用于“从书签跳回指定楼层”
+  - `bookmark_id` / `bookmark_name` / `bookmark_reminder_at` 用于原地编辑或删除书签
 
 ### `GET /topics/created-by/{username}.json`
 
@@ -135,6 +154,15 @@
 ### `GET /badges/{badgeId}.json`
 
 - 用途：获取单个徽章信息
+- 当前客户端常用字段：
+  - `badge.id`
+  - `badge.name`
+  - `badge.slug`
+  - `badge.description`
+  - `badge.long_description`
+  - `badge.grant_count`
+  - `badge.icon`
+  - `badge.image_url`
 - 响应：
 
 ```json
@@ -173,6 +201,10 @@
 ]
 ```
 
+- 当前客户端行为：
+  - iOS 在“我的”页提供 invite links 管理页
+  - 当前共享层兼容数组根节点、`pending_invites` / `invites` wrapper，以及单条 invite payload
+
 ### `POST /invites`
 
 - 用途：创建邀请链接
@@ -192,7 +224,8 @@
 - 补充说明：
   - 成功响应可能直接给 `invite_link`
   - 也可能只返回 `invite_key` / `invite_url` / `url` / `link`
-  - 当前客户端在拿不到完整链接时，会回查 `GET /u/{username}/invited/pending`
+  - 当前 iOS 客户端优先使用响应里的 `invite_link`
+  - 如果只有 `invite_key`，则按 `base_url/invites/{invite_key}` 本地补全分享链接
 
 ## 搜索
 
@@ -361,10 +394,19 @@
   - `notifications[].fancy_title`
   - `notifications[].acting_user_avatar_template`
   - `notifications[].data.*`
+- 当前客户端额外用到的 `notifications[].data` 字段：
+  - `display_username`
+  - `username`
+  - `original_username`
+  - `badge_id`
+  - `badge_slug`
+  - `badge_name`
 - 补充说明：
   - 当前未读角标和 recent 同步不只依赖该接口
   - 首次计数来自 `currentUser`
   - 实时增量依赖 MessageBus `/notification/{userId}`，详见 [07. MessageBus 长轮询](07-messagebus.md)
+  - `inviteeAccepted` / `following` 当前会跳转到公开用户页，用户名优先取 `display_username`，否则回退 `username` / `original_username`
+  - `grantedBadge` 当前会跳转到徽章详情页，主键取 `data.badge_id`，`data.badge_slug` 仅作为附加展示信息
 
 ### `PUT /notifications/mark-read`
 

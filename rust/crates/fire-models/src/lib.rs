@@ -132,6 +132,11 @@ pub struct BootstrapArtifacts {
     pub enabled_reaction_ids: Vec<String>,
     #[serde(default = "default_min_post_length")]
     pub min_post_length: u32,
+    #[serde(default = "default_min_topic_title_length")]
+    pub min_topic_title_length: u32,
+    #[serde(default = "default_min_first_post_length")]
+    pub min_first_post_length: u32,
+    pub default_composer_category: Option<u64>,
 }
 
 impl Default for BootstrapArtifacts {
@@ -155,6 +160,9 @@ impl Default for BootstrapArtifacts {
             has_site_settings: false,
             enabled_reaction_ids: default_enabled_reaction_ids(),
             min_post_length: default_min_post_length(),
+            min_topic_title_length: default_min_topic_title_length(),
+            min_first_post_length: default_min_first_post_length(),
+            default_composer_category: None,
         }
     }
 }
@@ -204,6 +212,9 @@ impl BootstrapArtifacts {
                 self.has_site_settings = false;
                 self.enabled_reaction_ids = default_enabled_reaction_ids();
                 self.min_post_length = default_min_post_length();
+                self.min_topic_title_length = default_min_topic_title_length();
+                self.min_first_post_length = default_min_first_post_length();
+                self.default_composer_category = None;
             } else {
                 self.preloaded_json = Some(preloaded_json);
                 self.has_preloaded_data = true;
@@ -218,6 +229,9 @@ impl BootstrapArtifacts {
                     self.enabled_reaction_ids =
                         normalized_enabled_reaction_ids(patch.enabled_reaction_ids.clone());
                     self.min_post_length = patch.min_post_length.max(1);
+                    self.min_topic_title_length = patch.min_topic_title_length.max(1);
+                    self.min_first_post_length = patch.min_first_post_length.max(1);
+                    self.default_composer_category = patch.default_composer_category;
                 }
             }
         } else if patch.has_preloaded_data {
@@ -233,6 +247,9 @@ impl BootstrapArtifacts {
                 self.enabled_reaction_ids =
                     normalized_enabled_reaction_ids(patch.enabled_reaction_ids.clone());
                 self.min_post_length = patch.min_post_length.max(1);
+                self.min_topic_title_length = patch.min_topic_title_length.max(1);
+                self.min_first_post_length = patch.min_first_post_length.max(1);
+                self.default_composer_category = patch.default_composer_category;
             }
         }
 
@@ -248,6 +265,9 @@ impl BootstrapArtifacts {
                 self.enabled_reaction_ids =
                     normalized_enabled_reaction_ids(patch.enabled_reaction_ids.clone());
                 self.min_post_length = patch.min_post_length.max(1);
+                self.min_topic_title_length = patch.min_topic_title_length.max(1);
+                self.min_first_post_length = patch.min_first_post_length.max(1);
+                self.default_composer_category = patch.default_composer_category;
             }
         }
     }
@@ -268,6 +288,9 @@ impl BootstrapArtifacts {
         self.has_site_settings = false;
         self.enabled_reaction_ids = default_enabled_reaction_ids();
         self.min_post_length = default_min_post_length();
+        self.min_topic_title_length = default_min_topic_title_length();
+        self.min_first_post_length = default_min_first_post_length();
+        self.default_composer_category = None;
     }
 }
 
@@ -681,6 +704,13 @@ pub struct TopicCategory {
     pub parent_category_id: Option<u64>,
     pub color_hex: Option<String>,
     pub text_color_hex: Option<String>,
+    pub topic_template: Option<String>,
+    pub minimum_required_tags: u32,
+    #[serde(default)]
+    pub required_tag_groups: Vec<RequiredTagGroup>,
+    #[serde(default)]
+    pub allowed_tags: Vec<String>,
+    pub permission: Option<u32>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -708,6 +738,11 @@ pub struct TopicSummary {
     pub new_posts: u32,
     pub last_read_post_number: Option<u32>,
     pub highest_post_number: u32,
+    pub bookmarked_post_number: Option<u32>,
+    pub bookmark_id: Option<u64>,
+    pub bookmark_name: Option<String>,
+    pub bookmark_reminder_at: Option<String>,
+    pub bookmarkable_type: Option<String>,
     pub has_accepted_answer: bool,
     pub can_have_answer: bool,
 }
@@ -916,10 +951,131 @@ pub struct TopicReaction {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PollOption {
+    pub id: String,
+    pub html: String,
+    pub votes: u32,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Poll {
+    pub id: u64,
+    pub name: String,
+    #[serde(default, alias = "type")]
+    pub kind: String,
+    pub status: String,
+    pub results: String,
+    #[serde(default)]
+    pub options: Vec<PollOption>,
+    pub voters: u32,
+    #[serde(default)]
+    pub user_votes: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TopicReplyRequest {
     pub topic_id: u64,
     pub raw: String,
     pub reply_to_post_number: Option<u32>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TopicCreateRequest {
+    pub title: String,
+    pub raw: String,
+    pub category_id: u64,
+    #[serde(default)]
+    pub tags: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TopicUpdateRequest {
+    pub topic_id: u64,
+    pub title: String,
+    pub category_id: u64,
+    #[serde(default)]
+    pub tags: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PostUpdateRequest {
+    pub post_id: u64,
+    pub raw: String,
+    pub edit_reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InviteCreateRequest {
+    pub max_redemptions_allowed: u32,
+    pub expires_at: Option<String>,
+    pub description: Option<String>,
+    pub email: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DraftData {
+    pub reply: Option<String>,
+    pub title: Option<String>,
+    #[serde(rename = "categoryId", alias = "category_id")]
+    pub category_id: Option<u64>,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(rename = "replyToPostNumber", alias = "reply_to_post_number")]
+    pub reply_to_post_number: Option<u32>,
+    pub action: Option<String>,
+    #[serde(default)]
+    pub recipients: Vec<String>,
+    #[serde(rename = "archetypeId", alias = "archetype_id")]
+    pub archetype_id: Option<String>,
+    #[serde(rename = "composerTime", alias = "composer_time")]
+    pub composer_time: Option<u32>,
+    #[serde(rename = "typingTime", alias = "typing_time")]
+    pub typing_time: Option<u32>,
+}
+
+impl DraftData {
+    pub fn has_content(&self) -> bool {
+        is_non_empty(self.reply.as_deref()) || is_non_empty(self.title.as_deref())
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Draft {
+    pub draft_key: String,
+    pub data: DraftData,
+    pub sequence: u32,
+    pub title: Option<String>,
+    pub excerpt: Option<String>,
+    pub updated_at: Option<String>,
+    pub username: Option<String>,
+    pub avatar_template: Option<String>,
+    pub topic_id: Option<u64>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DraftListResponse {
+    #[serde(default)]
+    pub drafts: Vec<Draft>,
+    #[serde(default)]
+    pub has_more: bool,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UploadResult {
+    pub short_url: String,
+    pub url: Option<String>,
+    pub original_filename: Option<String>,
+    pub width: Option<u32>,
+    pub height: Option<u32>,
+    pub thumbnail_width: Option<u32>,
+    pub thumbnail_height: Option<u32>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResolvedUploadUrl {
+    pub short_url: String,
+    pub short_path: Option<String>,
+    pub url: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -948,6 +1104,7 @@ pub struct TopicPost {
     pub name: Option<String>,
     pub avatar_template: Option<String>,
     pub cooked: String,
+    pub raw: Option<String>,
     pub post_number: u32,
     pub post_type: i32,
     pub created_at: Option<String>,
@@ -957,8 +1114,11 @@ pub struct TopicPost {
     pub reply_to_post_number: Option<u32>,
     pub bookmarked: bool,
     pub bookmark_id: Option<u64>,
+    pub bookmark_name: Option<String>,
+    pub bookmark_reminder_at: Option<String>,
     pub reactions: Vec<TopicReaction>,
     pub current_user_reaction: Option<TopicReaction>,
+    pub polls: Vec<Poll>,
     pub accepted_answer: bool,
     pub can_edit: bool,
     pub can_delete: bool,
@@ -1175,6 +1335,10 @@ pub struct TopicDetail {
     pub created_at: Option<String>,
     pub last_read_post_number: Option<u32>,
     pub bookmarks: Vec<u64>,
+    pub bookmarked: bool,
+    pub bookmark_id: Option<u64>,
+    pub bookmark_name: Option<String>,
+    pub bookmark_reminder_at: Option<String>,
     pub accepted_answer: bool,
     pub has_accepted_answer: bool,
     pub can_vote: bool,
@@ -1328,6 +1492,14 @@ fn default_enabled_reaction_ids() -> Vec<String> {
 
 fn default_min_post_length() -> u32 {
     1
+}
+
+fn default_min_topic_title_length() -> u32 {
+    15
+}
+
+fn default_min_first_post_length() -> u32 {
+    20
 }
 
 fn normalized_enabled_reaction_ids(ids: Vec<String>) -> Vec<String> {
@@ -1529,6 +1701,50 @@ pub struct UserAction {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct UserActionResponse {
     pub user_actions: Vec<UserAction>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FollowUser {
+    pub id: u64,
+    pub username: String,
+    pub name: Option<String>,
+    pub avatar_template: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InviteLinkDetails {
+    pub id: Option<u64>,
+    pub invite_key: Option<String>,
+    pub max_redemptions_allowed: Option<u32>,
+    pub redemption_count: Option<u32>,
+    pub expired: Option<bool>,
+    pub created_at: Option<String>,
+    pub expires_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InviteLink {
+    pub invite_link: String,
+    pub invite: Option<InviteLinkDetails>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VotedUser {
+    pub id: u64,
+    pub username: String,
+    pub name: Option<String>,
+    pub avatar_template: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VoteResponse {
+    pub can_vote: bool,
+    pub vote_limit: u32,
+    pub vote_count: i32,
+    pub votes_left: i32,
+    pub alert: bool,
+    #[serde(default)]
+    pub who_voted: Vec<VotedUser>,
 }
 
 #[cfg(test)]
@@ -1790,10 +2006,14 @@ mod tests {
                 parent_category_id: None,
                 color_hex: Some("FFFFFF".into()),
                 text_color_hex: Some("000000".into()),
+                ..TopicCategory::default()
             }],
             has_site_settings: true,
             enabled_reaction_ids: vec!["heart".into(), "clap".into()],
             min_post_length: 20,
+            min_topic_title_length: 15,
+            min_first_post_length: 20,
+            default_composer_category: Some(2),
             ..BootstrapArtifacts::default()
         };
 
@@ -1810,6 +2030,9 @@ mod tests {
         assert!(bootstrap.has_site_settings);
         assert_eq!(bootstrap.enabled_reaction_ids, vec!["heart", "clap"]);
         assert_eq!(bootstrap.min_post_length, 20);
+        assert_eq!(bootstrap.min_topic_title_length, 15);
+        assert_eq!(bootstrap.min_first_post_length, 20);
+        assert_eq!(bootstrap.default_composer_category, Some(2));
     }
 
     #[test]
@@ -1829,10 +2052,14 @@ mod tests {
                 parent_category_id: None,
                 color_hex: None,
                 text_color_hex: None,
+                ..TopicCategory::default()
             }],
             has_site_settings: true,
             enabled_reaction_ids: vec!["heart".into(), "clap".into(), "heart".into()],
             min_post_length: 18,
+            min_topic_title_length: 16,
+            min_first_post_length: 24,
+            default_composer_category: Some(2),
             ..BootstrapArtifacts::default()
         });
 
@@ -1843,6 +2070,9 @@ mod tests {
         assert!(bootstrap.has_site_settings);
         assert_eq!(bootstrap.enabled_reaction_ids, vec!["heart", "clap"]);
         assert_eq!(bootstrap.min_post_length, 18);
+        assert_eq!(bootstrap.min_topic_title_length, 16);
+        assert_eq!(bootstrap.min_first_post_length, 24);
+        assert_eq!(bootstrap.default_composer_category, Some(2));
     }
 
     #[test]
@@ -1864,6 +2094,7 @@ mod tests {
                 parent_category_id: None,
                 color_hex: None,
                 text_color_hex: None,
+                ..TopicCategory::default()
             }],
             ..BootstrapArtifacts::default()
         });
@@ -1992,6 +2223,9 @@ mod tests {
                 has_site_settings: true,
                 enabled_reaction_ids: vec!["heart".into(), "clap".into()],
                 min_post_length: 20,
+                min_topic_title_length: 15,
+                min_first_post_length: 20,
+                default_composer_category: Some(2),
             },
             browser_user_agent: None,
         };
@@ -2017,6 +2251,9 @@ mod tests {
         assert!(!snapshot.bootstrap.has_site_settings);
         assert_eq!(snapshot.bootstrap.enabled_reaction_ids, vec!["heart"]);
         assert_eq!(snapshot.bootstrap.min_post_length, 1);
+        assert_eq!(snapshot.bootstrap.min_topic_title_length, 15);
+        assert_eq!(snapshot.bootstrap.min_first_post_length, 20);
+        assert_eq!(snapshot.bootstrap.default_composer_category, None);
     }
 
     #[test]
@@ -2167,6 +2404,7 @@ mod tests {
             name: None,
             avatar_template: None,
             cooked: format!("<p>{post_number}</p>"),
+            raw: None,
             post_number,
             post_type: 1,
             created_at: None,
@@ -2176,8 +2414,11 @@ mod tests {
             reply_to_post_number,
             bookmarked: false,
             bookmark_id: None,
+            bookmark_name: None,
+            bookmark_reminder_at: None,
             reactions: Vec::new(),
             current_user_reaction: None,
+            polls: Vec::new(),
             accepted_answer: false,
             can_edit: false,
             can_delete: false,

@@ -131,6 +131,11 @@ final class FireTopicListMessageBusRefreshTests: XCTestCase {
                 newPosts: 0,
                 lastReadPostNumber: nil,
                 highestPostNumber: 1,
+                bookmarkedPostNumber: nil,
+                bookmarkId: nil,
+                bookmarkName: nil,
+                bookmarkReminderAt: nil,
+                bookmarkableType: nil,
                 hasAcceptedAnswer: false,
                 canHaveAnswer: false
             ),

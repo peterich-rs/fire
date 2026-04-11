@@ -1,6 +1,6 @@
 use std::sync::OnceLock;
 
-use fire_models::{BootstrapArtifacts, CookieSnapshot, TopicCategory};
+use fire_models::{BootstrapArtifacts, CookieSnapshot, RequiredTagGroup, TopicCategory};
 use regex::Regex;
 use serde_json::Value;
 use tracing::warn;
@@ -152,6 +152,9 @@ pub(crate) fn hydrate_site_settings_fields(source: &Value, bootstrap: &mut Boots
     bootstrap.has_site_settings = has_site_settings(source);
     bootstrap.enabled_reaction_ids = enabled_reaction_ids_from_preloaded(source);
     bootstrap.min_post_length = min_post_length_from_preloaded(source);
+    bootstrap.min_topic_title_length = min_topic_title_length_from_preloaded(source);
+    bootstrap.min_first_post_length = min_first_post_length_from_preloaded(source);
+    bootstrap.default_composer_category = default_composer_category_from_preloaded(source);
 }
 
 fn find_meta_content(html: &str, target_name: &str) -> Option<String> {
@@ -355,6 +358,14 @@ fn topic_category_from_value(value: &Value) -> Option<TopicCategory> {
             .get("text_color")
             .and_then(optional_scalar_string)
             .filter(|value| !value.is_empty()),
+        topic_template: object
+            .get("topic_template")
+            .and_then(optional_scalar_string)
+            .filter(|value| !value.is_empty()),
+        minimum_required_tags: positive_u32(object.get("minimum_required_tags")).unwrap_or(0),
+        required_tag_groups: required_tag_groups_from_value(object.get("required_tag_groups")),
+        allowed_tags: string_array_from_value(object.get("allowed_tags")),
+        permission: positive_u32(object.get("permission")),
     })
 }
 
@@ -440,12 +451,72 @@ fn enabled_reaction_ids_from_preloaded(preloaded: &Value) -> Vec<String> {
 }
 
 fn min_post_length_from_preloaded(preloaded: &Value) -> u32 {
+    site_setting_u32(preloaded, "min_post_length").unwrap_or(1)
+}
+
+fn min_topic_title_length_from_preloaded(preloaded: &Value) -> u32 {
+    site_setting_u32(preloaded, "min_topic_title_length").unwrap_or(15)
+}
+
+fn min_first_post_length_from_preloaded(preloaded: &Value) -> u32 {
+    site_setting_u32(preloaded, "min_first_post_length")
+        .or_else(|| site_setting_u32(preloaded, "min_post_length"))
+        .unwrap_or(20)
+}
+
+fn default_composer_category_from_preloaded(preloaded: &Value) -> Option<u64> {
     preloaded
         .get("siteSettings")
         .and_then(Value::as_object)
-        .and_then(|settings| settings.get("min_post_length"))
+        .and_then(|settings| settings.get("default_composer_category"))
+        .and_then(|value| positive_u64(Some(value)))
+}
+
+fn site_setting_u32(preloaded: &Value, key: &str) -> Option<u32> {
+    preloaded
+        .get("siteSettings")
+        .and_then(Value::as_object)
+        .and_then(|settings| settings.get(key))
         .and_then(|value| positive_u32(Some(value)))
-        .unwrap_or(1)
+}
+
+fn string_array_from_value(value: Option<&Value>) -> Vec<String> {
+    value
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(optional_scalar_string)
+                .map(|item| item.trim().to_string())
+                .filter(|item| !item.is_empty())
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default()
+}
+
+fn required_tag_groups_from_value(value: Option<&Value>) -> Vec<RequiredTagGroup> {
+    value
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(required_tag_group_from_value)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default()
+}
+
+fn required_tag_group_from_value(value: &Value) -> Option<RequiredTagGroup> {
+    let object = value.as_object()?;
+    let name = object
+        .get("name")
+        .and_then(optional_scalar_string)
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())?;
+    Some(RequiredTagGroup {
+        name,
+        min_count: positive_u32(object.get("min_count")).unwrap_or(0),
+    })
 }
 
 fn optional_scalar_string(value: &Value) -> Option<String> {
@@ -511,7 +582,7 @@ mod tests {
 <!doctype html>
 <html>
   <body>
-    <div data-preloaded="{&quot;siteSettings&quot;:{&quot;title&quot;:&quot;A &amp;amp; B&quot;,&quot;min_post_length&quot;:18,&quot;discourse_reactions_enabled_reactions&quot;:&quot;heart|clap&quot;},&quot;site&quot;:{&quot;categories&quot;:[{&quot;id&quot;:7,&quot;name&quot;:&quot;Rust&quot;,&quot;slug&quot;:&quot;rust&quot;,&quot;color&quot;:&quot;FFFFFF&quot;,&quot;text_color&quot;:&quot;000000&quot;}],&quot;top_tags&quot;:[{&quot;name&quot;:&quot;swift&quot;},&quot;rust&quot;],&quot;can_tag_topics&quot;:true}}"></div>
+    <div data-preloaded="{&quot;siteSettings&quot;:{&quot;title&quot;:&quot;A &amp;amp; B&quot;,&quot;min_post_length&quot;:18,&quot;min_topic_title_length&quot;:15,&quot;min_first_post_length&quot;:24,&quot;default_composer_category&quot;:7,&quot;discourse_reactions_enabled_reactions&quot;:&quot;heart|clap&quot;},&quot;site&quot;:{&quot;categories&quot;:[{&quot;id&quot;:7,&quot;name&quot;:&quot;Rust&quot;,&quot;slug&quot;:&quot;rust&quot;,&quot;color&quot;:&quot;FFFFFF&quot;,&quot;text_color&quot;:&quot;000000&quot;,&quot;topic_template&quot;:&quot;## Template&quot;,&quot;minimum_required_tags&quot;:2,&quot;required_tag_groups&quot;:[{&quot;name&quot;:&quot;platform&quot;,&quot;min_count&quot;:1}],&quot;allowed_tags&quot;:[&quot;swift&quot;,&quot;rust&quot;],&quot;permission&quot;:1}],&quot;top_tags&quot;:[{&quot;name&quot;:&quot;swift&quot;},&quot;rust&quot;],&quot;can_tag_topics&quot;:true}}"></div>
   </body>
 </html>
 "#;
@@ -521,11 +592,14 @@ mod tests {
         assert_eq!(
             parsed.bootstrap_patch.preloaded_json.as_deref(),
             Some(
-                r#"{"siteSettings":{"title":"A &amp; B","min_post_length":18,"discourse_reactions_enabled_reactions":"heart|clap"},"site":{"categories":[{"id":7,"name":"Rust","slug":"rust","color":"FFFFFF","text_color":"000000"}],"top_tags":[{"name":"swift"},"rust"],"can_tag_topics":true}}"#
+                r###"{"siteSettings":{"title":"A &amp; B","min_post_length":18,"min_topic_title_length":15,"min_first_post_length":24,"default_composer_category":7,"discourse_reactions_enabled_reactions":"heart|clap"},"site":{"categories":[{"id":7,"name":"Rust","slug":"rust","color":"FFFFFF","text_color":"000000","topic_template":"## Template","minimum_required_tags":2,"required_tag_groups":[{"name":"platform","min_count":1}],"allowed_tags":["swift","rust"],"permission":1}],"top_tags":[{"name":"swift"},"rust"],"can_tag_topics":true}}"###
             )
         );
         assert!(parsed.bootstrap_patch.has_site_settings);
         assert_eq!(parsed.bootstrap_patch.min_post_length, 18);
+        assert_eq!(parsed.bootstrap_patch.min_topic_title_length, 15);
+        assert_eq!(parsed.bootstrap_patch.min_first_post_length, 24);
+        assert_eq!(parsed.bootstrap_patch.default_composer_category, Some(7));
         assert_eq!(
             parsed.bootstrap_patch.enabled_reaction_ids,
             vec!["heart", "clap"]
@@ -535,6 +609,27 @@ mod tests {
         assert!(parsed.bootstrap_patch.can_tag_topics);
         assert_eq!(parsed.bootstrap_patch.categories.len(), 1);
         assert_eq!(parsed.bootstrap_patch.categories[0].id, 7);
+        assert_eq!(
+            parsed.bootstrap_patch.categories[0]
+                .topic_template
+                .as_deref(),
+            Some("## Template")
+        );
+        assert_eq!(
+            parsed.bootstrap_patch.categories[0].minimum_required_tags,
+            2
+        );
+        assert_eq!(
+            parsed.bootstrap_patch.categories[0]
+                .required_tag_groups
+                .len(),
+            1
+        );
+        assert_eq!(
+            parsed.bootstrap_patch.categories[0].allowed_tags,
+            vec!["swift", "rust"]
+        );
+        assert_eq!(parsed.bootstrap_patch.categories[0].permission, Some(1));
     }
 
     #[test]
@@ -562,12 +657,12 @@ mod tests {
     fn hydrate_preloaded_fields_unwraps_stringified_root_payloads() {
         let mut bootstrap = BootstrapArtifacts::default();
         hydrate_preloaded_fields(
-            r#"{
+            r###"{
   "currentUser":"{\"id\":341628,\"username\":\"alice\",\"notification_channel_position\":11}",
-  "siteSettings":"{\"long_polling_base_url\":\"https://ping.linux.do\",\"min_post_length\":18,\"discourse_reactions_enabled_reactions\":\"heart|clap\"}",
-  "site":"{\"categories\":[{\"id\":7,\"name\":\"Rust\",\"slug\":\"rust\",\"color\":\"FFFFFF\",\"text_color\":\"000000\"}],\"top_tags\":[{\"name\":\"swift\"},\"rust\"],\"can_tag_topics\":true}",
+  "siteSettings":"{\"long_polling_base_url\":\"https://ping.linux.do\",\"min_post_length\":18,\"min_topic_title_length\":15,\"min_first_post_length\":24,\"default_composer_category\":7,\"discourse_reactions_enabled_reactions\":\"heart|clap\"}",
+  "site":"{\"categories\":[{\"id\":7,\"name\":\"Rust\",\"slug\":\"rust\",\"color\":\"FFFFFF\",\"text_color\":\"000000\",\"topic_template\":\"## Template\",\"minimum_required_tags\":2,\"required_tag_groups\":[{\"name\":\"platform\",\"min_count\":1}],\"allowed_tags\":[\"swift\",\"rust\"],\"permission\":1}],\"top_tags\":[{\"name\":\"swift\"},\"rust\"],\"can_tag_topics\":true}",
   "topicTrackingStateMeta":"{\"/latest\":42,\"/new\":8}"
-}"#,
+}"###,
             &mut bootstrap,
         );
 
@@ -590,6 +685,11 @@ mod tests {
         assert!(bootstrap.has_site_settings);
         assert_eq!(bootstrap.enabled_reaction_ids, vec!["heart", "clap"]);
         assert_eq!(bootstrap.min_post_length, 18);
+        assert_eq!(bootstrap.min_topic_title_length, 15);
+        assert_eq!(bootstrap.min_first_post_length, 24);
+        assert_eq!(bootstrap.default_composer_category, Some(7));
+        assert_eq!(bootstrap.categories[0].minimum_required_tags, 2);
+        assert_eq!(bootstrap.categories[0].permission, Some(1));
     }
 
     #[test]

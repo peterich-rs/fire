@@ -6,10 +6,7 @@ struct FireProfileView: View {
     @ObservedObject var profileViewModel: FireProfileViewModel
     @State private var copiedErrorMessage = false
     @State private var showLogoutConfirmation = false
-    @State private var showComingSoonToast = false
     @State private var showDeveloperTools = false
-
-    private static let badgePreviewLimit = 8
     private static let recentActivityPreviewLimit = 3
 
     private var isLoggedIn: Bool {
@@ -33,29 +30,67 @@ struct FireProfileView: View {
         profileViewModel.summary?.stats.bookmarkCount ?? 0
     }
 
-    private var bookmarkSubtitle: String {
-        if bookmarkCount > 0 {
-            return "已保存 \(formatNumber(bookmarkCount)) 条内容，后续会提供统一管理。"
-        }
-        return "把想回看的内容收进来，后续会统一管理。"
+    private var badgeCount: UInt32 {
+        UInt32(profileViewModel.summary?.badges.count ?? 0)
     }
 
-    private var socialStats: [(value: String, label: String)] {
+    private var bookmarkSubtitle: String {
+        bookmarkCount > 0
+            ? "已保存 \(formatNumber(bookmarkCount)) 条内容，可继续编辑或跳回原楼层。"
+            : "把想回看的内容收进来，后面可以统一整理。"
+    }
+
+    private var historySubtitle: String {
+        "继续上次读到的位置，补回最近看过的话题。"
+    }
+
+    private var draftsSubtitle: String {
+        "管理未发出的新话题和完整回复。"
+    }
+
+    private var badgesSubtitle: String {
+        badgeCount > 0
+            ? "累计获得 \(formatNumber(badgeCount)) 枚徽章。"
+            : "查看已获得的徽章档案。"
+    }
+
+    private var inviteSubtitle: String {
+        "生成和整理待使用的邀请码链接。"
+    }
+
+    private var followingSubtitle: String {
+        "当前关注 \(formatNumber(profileViewModel.profile?.totalFollowing ?? 0)) 位用户。"
+    }
+
+    private var followersSubtitle: String {
+        "当前有 \(formatNumber(profileViewModel.profile?.totalFollowers ?? 0)) 位粉丝。"
+    }
+
+    private var profileHighlights: [(value: String, label: String)] {
         [
             (formatNumber(profileViewModel.profile?.totalFollowers ?? 0), "粉丝"),
-            (formatNumber(profileViewModel.profile?.totalFollowing ?? 0), "关注"),
             (formatNumber(profileViewModel.summary?.stats.likesReceived ?? 0), "获赞"),
+            (formatNumber(profileViewModel.profile?.totalFollowing ?? 0), "关注"),
         ]
     }
 
-    private var overviewMetrics: [(label: String, value: String)] {
-        let stats = profileViewModel.summary?.stats
-        return [
-            ("话题", formatNumber(stats?.topicCount ?? 0)),
-            ("帖子", formatNumber(stats?.postCount ?? 0)),
-            ("书签", formatNumber(stats?.bookmarkCount ?? 0)),
-            ("访问天数", formatNumber(stats?.daysVisited ?? 0)),
-        ]
+    private var profileMetaEntries: [(symbol: String, label: String, value: String, tint: Color)] {
+        var entries: [(String, String, String, Color)] = []
+
+        if let joinedDateText {
+            entries.append(("calendar", "加入时间", joinedDateText, FireTheme.subtleInk))
+        }
+        if let lastSeenText {
+            entries.append(("clock.arrow.circlepath", "最近活跃", lastSeenText, FireTheme.success))
+        }
+        if let readTimeText {
+            entries.append(("book.closed", "阅读时长", readTimeText, FireTheme.accent))
+        }
+        if let gamificationText {
+            entries.append(("bolt.fill", "活跃分", gamificationText, FireTheme.accent))
+        }
+
+        return entries
     }
 
     private var recentActions: [UserActionState] {
@@ -64,10 +99,6 @@ struct FireProfileView: View {
 
     private var recentActivityTitle: String {
         profileViewModel.selectedTab == .all ? "最近动态" : "最近\(profileViewModel.selectedTab.title)"
-    }
-
-    private var pageBackground: Color {
-        Color(uiColor: .systemGroupedBackground)
     }
 
     var body: some View {
@@ -82,40 +113,91 @@ struct FireProfileView: View {
                 Section {
                     profileHeader
                 }
-                .listRowSeparator(.hidden)
 
                 Section {
-                    shortcutRow(
-                        icon: "bookmark.fill",
-                        tint: FireTheme.accent,
-                        title: "我的书签",
-                        subtitle: bookmarkSubtitle
-                    ) {
-                        showComingSoonToast = true
-                        Task { @MainActor in
-                            try? await Task.sleep(for: .seconds(1.5))
-                            showComingSoonToast = false
-                        }
+                    NavigationLink {
+                        FireBookmarksView(viewModel: viewModel, username: displayUsername)
+                    } label: {
+                        shortcutRowContent(
+                            icon: "bookmark.fill",
+                            tint: FireTheme.accent,
+                            title: "我的书签",
+                            subtitle: bookmarkSubtitle
+                        )
                     }
-                }
 
-                Section {
-                    overviewSection
-                } header: {
-                    Text("概览")
-                }
+                    NavigationLink {
+                        FireReadHistoryView(viewModel: viewModel)
+                    } label: {
+                        shortcutRowContent(
+                            icon: "clock.arrow.trianglehead.counterclockwise.rotate.90",
+                            tint: .blue,
+                            title: "浏览历史",
+                            subtitle: historySubtitle
+                        )
+                    }
 
-                if let badges = profileViewModel.summary?.badges, !badges.isEmpty {
-                    Section {
-                        badgePreviewSection(badges)
-                    } header: {
-                        HStack {
-                            Text("勋章")
-                            Spacer()
-                            Text("\(badges.count) 枚")
-                                .font(.caption)
-                                .foregroundStyle(FireTheme.tertiaryInk)
-                        }
+                    NavigationLink {
+                        FireDraftsView(viewModel: viewModel)
+                    } label: {
+                        shortcutRowContent(
+                            icon: "tray.full.fill",
+                            tint: .orange,
+                            title: "草稿箱",
+                            subtitle: draftsSubtitle
+                        )
+                    }
+
+                    NavigationLink {
+                        FireMyBadgesView(badges: profileViewModel.summary?.badges ?? [])
+                    } label: {
+                        shortcutRowContent(
+                            icon: "rosette",
+                            tint: .yellow,
+                            title: "我的勋章",
+                            subtitle: badgesSubtitle
+                        )
+                    }
+
+                    NavigationLink {
+                        FireInviteLinksView(viewModel: viewModel, username: displayUsername)
+                    } label: {
+                        shortcutRowContent(
+                            icon: "ticket.fill",
+                            tint: .green,
+                            title: "邀请链接",
+                            subtitle: inviteSubtitle
+                        )
+                    }
+
+                    NavigationLink {
+                        FireFollowListView(
+                            viewModel: viewModel,
+                            username: displayUsername,
+                            kind: .following
+                        )
+                    } label: {
+                        shortcutRowContent(
+                            icon: "person.2",
+                            tint: FireTheme.accent,
+                            title: "关注列表",
+                            subtitle: followingSubtitle
+                        )
+                    }
+
+                    NavigationLink {
+                        FireFollowListView(
+                            viewModel: viewModel,
+                            username: displayUsername,
+                            kind: .followers
+                        )
+                    } label: {
+                        shortcutRowContent(
+                            icon: "person.2.fill",
+                            tint: .pink,
+                            title: "粉丝列表",
+                            subtitle: followersSubtitle
+                        )
                     }
                 }
 
@@ -163,7 +245,7 @@ struct FireProfileView: View {
             }
             .listStyle(.insetGrouped)
             .scrollContentBackground(.hidden)
-            .background(pageBackground)
+            .background(FireTheme.canvasTop)
             .navigationTitle("我的")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -201,11 +283,6 @@ struct FireProfileView: View {
             .task(id: profileViewModel.currentUsername) {
                 profileViewModel.syncWithCurrentSession()
             }
-            .overlay {
-                if showComingSoonToast {
-                    comingSoonToast
-                }
-            }
             .alert("确认退出", isPresented: $showLogoutConfirmation) {
                 Button("取消", role: .cancel) {}
                 Button("退出登录", role: .destructive) {
@@ -218,102 +295,71 @@ struct FireProfileView: View {
     }
 
     private var profileHeader: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack(alignment: .top, spacing: 16) {
-                FireAvatarView(
-                    avatarTemplate: profileViewModel.profile?.avatarTemplate,
-                    username: displayUsername,
-                    size: 84
-                )
-                .overlay {
-                    Circle()
-                        .strokeBorder(Color.white.opacity(0.7), lineWidth: 1)
-                }
+        FireProfileHeaderCard {
+            VStack(alignment: .leading, spacing: 16) {
+                HStack(alignment: .top, spacing: 16) {
+                    FireAvatarView(
+                        avatarTemplate: profileViewModel.profile?.avatarTemplate,
+                        username: displayUsername,
+                        size: 86
+                    )
+                    .overlay {
+                        Circle()
+                            .strokeBorder(Color.white.opacity(0.7), lineWidth: 1)
+                    }
 
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack(alignment: .center, spacing: 8) {
-                        Text(displayName)
-                            .font(.title3.weight(.bold))
-                            .foregroundStyle(FireTheme.ink)
-                            .lineLimit(2)
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(alignment: .center, spacing: 8) {
+                            Text(displayName)
+                                .font(.title3.weight(.bold))
+                                .foregroundStyle(FireTheme.ink)
+                                .lineLimit(2)
 
-                        if let profile = profileViewModel.profile {
-                            FireProfileTrustLevelPill(trustLevel: profile.trustLevel)
+                            if let profile = profileViewModel.profile {
+                                FireProfileTrustLevelPill(trustLevel: profile.trustLevel)
+                            }
+                        }
+
+                        Text("@\(displayUsername)")
+                            .font(.subheadline)
+                            .foregroundStyle(FireTheme.subtleInk)
+
+                        if let bioCooked = profileViewModel.profile?.bioCooked, !bioCooked.isEmpty {
+                            Text(plainTextFromHtml(rawHtml: bioCooked))
+                                .font(.footnote)
+                                .foregroundStyle(FireTheme.subtleInk)
+                                .fixedSize(horizontal: false, vertical: true)
                         }
                     }
-
-                    Text("@\(displayUsername)")
-                        .font(.subheadline)
-                        .foregroundStyle(FireTheme.subtleInk)
-
-                    if let bioCooked = profileViewModel.profile?.bioCooked, !bioCooked.isEmpty {
-                        Text(plainTextFromHtml(rawHtml: bioCooked))
-                            .font(.footnote)
-                            .foregroundStyle(FireTheme.subtleInk)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
                 }
-            }
 
-            FireProfileStatsRow(items: socialStats)
+                VStack(alignment: .leading, spacing: 12) {
+                    FireProfileStatsRow(items: profileHighlights)
 
-            if hasProfileMeta {
-                FlowLayout(
-                    spacing: 8,
-                    fallbackWidth: max(UIScreen.main.bounds.width - 72, 220)
-                ) {
-                    if let joinedDateText {
-                        profileMetaPill(symbol: "calendar", text: "加入于 \(joinedDateText)")
-                    }
-                    if let lastSeenText {
-                        profileMetaPill(symbol: "clock", text: lastSeenText)
-                    }
-                    if let readTimeText {
-                        profileMetaPill(symbol: "book.closed", text: readTimeText)
-                    }
-                    if let gamificationText {
-                        profileMetaPill(symbol: "bolt.fill", text: gamificationText, tint: FireTheme.accent)
+                    if hasProfileMeta {
+                        Divider()
+                            .overlay(FireTheme.divider)
+
+                        LazyVGrid(
+                            columns: [
+                                GridItem(.flexible(), spacing: 16),
+                                GridItem(.flexible(), spacing: 16),
+                            ],
+                            spacing: 14
+                        ) {
+                            ForEach(Array(profileMetaEntries.enumerated()), id: \.offset) { _, item in
+                                FireProfileMetaEntryView(
+                                    symbol: item.symbol,
+                                    label: item.label,
+                                    value: item.value,
+                                    tint: item.tint
+                                )
+                            }
+                        }
                     }
                 }
             }
         }
-        .padding(.vertical, 4)
-    }
-
-    private var overviewSection: some View {
-        LazyVGrid(
-            columns: [
-                GridItem(.flexible(), spacing: 12),
-                GridItem(.flexible(), spacing: 12),
-            ],
-            spacing: 12
-        ) {
-            ForEach(Array(overviewMetrics.enumerated()), id: \.offset) { _, item in
-                FireMetricTile(label: item.label, value: item.value)
-            }
-        }
-        .padding(.vertical, 4)
-    }
-
-    private func badgePreviewSection(_ badges: [BadgeState]) -> some View {
-        FlowLayout(
-            spacing: 8,
-            fallbackWidth: max(UIScreen.main.bounds.width - 72, 220)
-        ) {
-            ForEach(Array(badges.prefix(Self.badgePreviewLimit)), id: \.id) { badge in
-                FireProfileBadgeChip(badge: badge)
-            }
-
-            if badges.count > Self.badgePreviewLimit {
-                Text("还有 \(badges.count - Self.badgePreviewLimit) 枚")
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(FireTheme.subtleInk)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 7)
-                    .background(FireTheme.softSurface, in: Capsule())
-            }
-        }
-        .padding(.vertical, 4)
     }
 
     @ViewBuilder
@@ -326,7 +372,7 @@ struct FireProfileView: View {
                     scrollToPostNumber: action.postNumber
                 )
             } label: {
-                FireProfileActivityRow(action: action, showsChevron: true)
+                FireProfileActivityRow(action: action)
             }
             .buttonStyle(.plain)
         } else {
@@ -352,54 +398,37 @@ struct FireProfileView: View {
         )
     }
 
-    private func shortcutRow(
+    private func shortcutRowContent(
         icon: String,
         tint: Color,
         title: String,
-        subtitle: String,
-        action: @escaping () -> Void
+        subtitle: String
     ) -> some View {
-        Button(action: action) {
-            HStack(spacing: 12) {
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(tint.opacity(0.12))
-                    .frame(width: 36, height: 36)
-                    .overlay {
-                        Image(systemName: icon)
-                            .font(.footnote.weight(.semibold))
-                            .foregroundStyle(tint)
-                    }
-
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(title)
-                        .font(.subheadline.weight(.medium))
-                        .foregroundStyle(FireTheme.ink)
-
-                    Text(subtitle)
-                        .font(.caption)
-                        .foregroundStyle(FireTheme.subtleInk)
-                        .fixedSize(horizontal: false, vertical: true)
+        HStack(spacing: 12) {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(tint.opacity(0.12))
+                .frame(width: 36, height: 36)
+                .overlay {
+                    Image(systemName: icon)
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(tint)
                 }
 
-                Spacer(minLength: 12)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(FireTheme.ink)
 
-                Image(systemName: "chevron.right")
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(FireTheme.tertiaryInk)
+                Text(subtitle)
+                    .font(.caption)
+                    .foregroundStyle(FireTheme.subtleInk)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            .padding(.vertical, 4)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-    }
 
-    private func profileMetaPill(symbol: String, text: String, tint: Color = FireTheme.subtleInk) -> some View {
-        Label(text, systemImage: symbol)
-            .font(.caption)
-            .foregroundStyle(tint)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(FireTheme.softSurface, in: Capsule())
+            Spacer(minLength: 12)
+        }
+        .padding(.vertical, 4)
+        .contentShape(Rectangle())
     }
 
     private func errorBanner(message: String) -> some View {
@@ -422,23 +451,8 @@ struct FireProfileView: View {
         .padding(.vertical, 2)
     }
 
-    private var comingSoonToast: some View {
-        VStack {
-            Spacer()
-            Text("即将推出")
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(.white)
-                .padding(.horizontal, 20)
-                .padding(.vertical, 10)
-                .background(.black.opacity(0.75), in: Capsule())
-                .padding(.bottom, 32)
-        }
-        .transition(.opacity.combined(with: .move(edge: .bottom)))
-        .animation(.easeInOut(duration: 0.3), value: showComingSoonToast)
-    }
-
     private var hasProfileMeta: Bool {
-        joinedDateText != nil || lastSeenText != nil || readTimeText != nil || gamificationText != nil
+        !profileMetaEntries.isEmpty
     }
 
     private var joinedDateText: String? {
@@ -450,7 +464,7 @@ struct FireProfileView: View {
             return nil
         }
 
-        return "最近活跃 \(relativeTimeString(lastSeen))"
+        return relativeTimeString(lastSeen)
     }
 
     private var readTimeText: String? {
@@ -459,7 +473,7 @@ struct FireProfileView: View {
             return nil
         }
 
-        return "已阅读 \(formatReadTime(seconds))"
+        return formatReadTime(seconds)
     }
 
     private var gamificationText: String? {
@@ -467,7 +481,7 @@ struct FireProfileView: View {
             return nil
         }
 
-        return "\(formatNumber(score)) 活跃分"
+        return formatNumber(score)
     }
 
     private func formatNumber(_ value: UInt32) -> String {

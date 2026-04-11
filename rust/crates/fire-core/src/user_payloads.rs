@@ -1,9 +1,12 @@
 use fire_models::{
-    Badge, ProfileSummaryLink, ProfileSummaryReply, ProfileSummaryTopCategory, ProfileSummaryTopic,
-    ProfileSummaryUserReference, UserAction, UserProfile, UserSummaryResponse, UserSummaryStats,
+    Badge, FollowUser, InviteLink, InviteLinkDetails, ProfileSummaryLink, ProfileSummaryReply,
+    ProfileSummaryTopCategory, ProfileSummaryTopic, ProfileSummaryUserReference, UserAction,
+    UserProfile, UserSummaryResponse, UserSummaryStats,
 };
 use serde::Deserialize;
 use serde_json::Value;
+
+use crate::json_helpers::{boolean, integer_u32, integer_u64, invalid_json, scalar_string};
 
 pub(crate) fn parse_user_profile_value(value: Value) -> Result<UserProfile, serde_json::Error> {
     let user_value = match value {
@@ -103,6 +106,108 @@ pub(crate) fn parse_user_actions_value(value: Value) -> Result<Vec<UserAction>, 
         _ => Value::Array(Vec::new()),
     };
     Vec::<UserAction>::deserialize(actions_value)
+}
+
+pub(crate) fn parse_badge_value(value: Value) -> Result<Badge, serde_json::Error> {
+    let badge_value = match value {
+        Value::Object(ref obj) if obj.contains_key("badge") => {
+            obj.get("badge").cloned().unwrap_or(value.clone())
+        }
+        other => other,
+    };
+    Badge::deserialize(badge_value)
+}
+
+pub(crate) fn parse_follow_users_value(value: Value) -> Result<Vec<FollowUser>, serde_json::Error> {
+    let list_value = match value {
+        Value::Array(_) => value,
+        Value::Object(ref obj) => obj
+            .get("users")
+            .or_else(|| obj.get("following"))
+            .or_else(|| obj.get("followers"))
+            .cloned()
+            .unwrap_or(Value::Array(Vec::new())),
+        _ => Value::Array(Vec::new()),
+    };
+    Vec::<FollowUser>::deserialize(list_value)
+}
+
+pub(crate) fn parse_invite_links_value(value: Value) -> Result<Vec<InviteLink>, serde_json::Error> {
+    let mut items = Vec::new();
+    match value {
+        Value::Array(values) => items.extend(values),
+        Value::Object(object) => {
+            let invites = object
+                .get("invites")
+                .or_else(|| object.get("pending_invites"))
+                .or_else(|| object.get("invited"))
+                .or_else(|| object.get("pending"))
+                .cloned();
+            if let Some(Value::Array(values)) = invites {
+                items.extend(values);
+            } else if object.contains_key("invite")
+                || object.contains_key("invite_link")
+                || object.contains_key("invite_key")
+                || object.contains_key("invite_url")
+                || object.contains_key("url")
+                || object.contains_key("link")
+            {
+                items.push(Value::Object(object));
+            }
+        }
+        _ => {}
+    }
+
+    items
+        .into_iter()
+        .map(parse_invite_link_value)
+        .collect::<Result<Vec<_>, _>>()
+}
+
+pub(crate) fn parse_invite_link_value(value: Value) -> Result<InviteLink, serde_json::Error> {
+    let Value::Object(mut object) = value else {
+        return Err(invalid_json("invite link response root was not an object"));
+    };
+
+    let invite_link = scalar_string(object.get("invite_link"))
+        .or_else(|| scalar_string(object.get("invite_url")))
+        .or_else(|| scalar_string(object.get("url")))
+        .or_else(|| scalar_string(object.get("link")))
+        .unwrap_or_default();
+
+    let invite = match object.remove("invite") {
+        Some(Value::Object(invite_object)) => {
+            Some(parse_invite_link_details_object(&invite_object))
+        }
+        Some(_) => None,
+        None => {
+            if object.contains_key("invite_key")
+                || object.contains_key("expires_at")
+                || object.contains_key("max_redemptions_allowed")
+            {
+                Some(parse_invite_link_details_object(&object))
+            } else {
+                None
+            }
+        }
+    };
+
+    Ok(InviteLink {
+        invite_link,
+        invite,
+    })
+}
+
+fn parse_invite_link_details_object(object: &serde_json::Map<String, Value>) -> InviteLinkDetails {
+    InviteLinkDetails {
+        id: integer_u64(object.get("id")),
+        invite_key: scalar_string(object.get("invite_key")),
+        max_redemptions_allowed: integer_u32(object.get("max_redemptions_allowed")),
+        redemption_count: integer_u32(object.get("redemption_count")),
+        expired: object.get("expired").map(|value| boolean(Some(value))),
+        created_at: scalar_string(object.get("created_at")),
+        expires_at: scalar_string(object.get("expires_at")),
+    }
 }
 
 #[cfg(test)]
@@ -216,5 +321,82 @@ mod tests {
         assert_eq!(actions[0].action_type, Some(4));
         assert_eq!(actions[0].title.as_deref(), Some("My Topic"));
         assert_eq!(actions[1].action_type, Some(5));
+    }
+
+    #[test]
+    fn test_parse_badge_value_unwraps_badge_envelope() {
+        let value = json!({
+            "badge": {
+                "id": 7,
+                "name": "Great Reply",
+                "badge_type_id": 1,
+                "grant_count": 12,
+                "long_description": "<p>Detailed</p>"
+            }
+        });
+        let badge = parse_badge_value(value).unwrap();
+        assert_eq!(badge.id, 7);
+        assert_eq!(badge.name, "Great Reply");
+        assert_eq!(badge.badge_type_id, 1);
+        assert_eq!(badge.grant_count, 12);
+        assert_eq!(badge.long_description.as_deref(), Some("<p>Detailed</p>"));
+    }
+
+    #[test]
+    fn test_parse_follow_users_value_accepts_array_payload() {
+        let value = json!([
+            {
+                "id": 1,
+                "username": "alice",
+                "name": "Alice",
+                "avatar_template": "/user_avatar/linux.do/alice/{size}/1_2.png"
+            }
+        ]);
+        let users = parse_follow_users_value(value).unwrap();
+        assert_eq!(users.len(), 1);
+        assert_eq!(users[0].username, "alice");
+    }
+
+    #[test]
+    fn test_parse_invite_links_value_accepts_pending_wrapper() {
+        let value = json!({
+            "pending_invites": [
+                {
+                    "invite_url": "https://linux.do/invites/fire",
+                    "invite": {
+                        "id": 9,
+                        "invite_key": "fire",
+                        "max_redemptions_allowed": 5,
+                        "redemption_count": 1,
+                        "expired": false
+                    }
+                }
+            ]
+        });
+        let invites = parse_invite_links_value(value).unwrap();
+        assert_eq!(invites.len(), 1);
+        assert_eq!(invites[0].invite_link, "https://linux.do/invites/fire");
+        assert_eq!(
+            invites[0].invite.as_ref().and_then(|invite| invite.id),
+            Some(9)
+        );
+    }
+
+    #[test]
+    fn test_parse_invite_link_value_promotes_flat_payload() {
+        let value = json!({
+            "invite_key": "fire",
+            "max_redemptions_allowed": 3,
+            "redemption_count": 0
+        });
+        let invite = parse_invite_link_value(value).unwrap();
+        assert_eq!(invite.invite_link, "");
+        assert_eq!(
+            invite
+                .invite
+                .as_ref()
+                .and_then(|details| details.invite_key.as_deref()),
+            Some("fire")
+        );
     }
 }

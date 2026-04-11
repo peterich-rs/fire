@@ -38,18 +38,20 @@ final class FireProfileViewModel: ObservableObject {
     }
 
     private let appViewModel: FireAppViewModel
+    private let fixedUsername: String?
     private var loadedUsername: String?
     private var profileTask: Task<Void, Never>?
     private var actionsTask: Task<Void, Never>?
     private var profileRequestID: UInt64 = 0
     private var actionsRequestID: UInt64 = 0
 
-    init(appViewModel: FireAppViewModel) {
+    init(appViewModel: FireAppViewModel, fixedUsername: String? = nil) {
         self.appViewModel = appViewModel
+        self.fixedUsername = fixedUsername?.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     var currentUsername: String? {
-        appViewModel.session.bootstrap.currentUsername
+        fixedUsername ?? appViewModel.session.bootstrap.currentUsername
     }
 
     deinit {

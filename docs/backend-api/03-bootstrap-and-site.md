@@ -36,6 +36,16 @@
   - 某些 LinuxDo 页面里，`data-preloaded.currentUser`、`siteSettings`、`site`、`topicTrackingStateMeta` 本身不是对象，而是“JSON 字符串”；客户端在提取字段前需要先解包这层字符串
   - 在把 bootstrap 视为“已就绪”前，应该确认至少拿到了当前用户、站点级 `site` 元数据（分类/标签能力）和 `siteSettings`（最小长度、reactions、长轮询域等）；缺失时继续回源 `GET /` 刷新，而不要仅凭 `hasPreloadedData=true` 就跳过
   - 当前 Fire 实现还会在首页 bootstrap 仍缺少 `site` 元数据时自动补一次 `GET /site.json`，用于回填 `categories`、`top_tags`、`can_tag_topics`
+  - 当前 Fire 还会从 `siteSettings` 提取 composer 约束：
+    - `min_topic_title_length`
+    - `min_first_post_length`
+    - `default_composer_category`
+  - 当前 Fire 还会从 `site.categories[]` 提取 create-topic 所需的分类约束：
+    - `topic_template`
+    - `minimum_required_tags`
+    - `required_tag_groups`
+    - `allowed_tags`
+    - `permission`
 
 ### `GET /session/csrf`
 
@@ -103,6 +113,12 @@
   - `categories`
   - `top_tags`
   - `can_tag_topics`
+- 当前客户端额外消费的 `categories[]` 字段：
+  - `topic_template`
+  - `minimum_required_tags`
+  - `required_tag_groups`
+  - `allowed_tags`
+  - `permission`
 - 补充说明：
   - 当前举报/Flag 流程优先使用首页 `data-preloaded.site.post_action_types`
   - 分类/热门标签能力也可参考 FluxDo 的做法：优先使用首页 `data-preloaded.site`，缺失时再回退到 `/site.json`

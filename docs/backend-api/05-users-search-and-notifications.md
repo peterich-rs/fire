@@ -117,6 +117,15 @@
 - Query：
   - `page?: integer`
 - 响应：`TopicListResponse`
+- 当前客户端额外依赖的 `topic_list.topics[]` 字段：
+  - `bookmarked_post_number`
+  - `bookmark_id`
+  - `bookmark_name`
+  - `bookmark_reminder_at`
+  - `bookmarkable_type`
+- 用途补充：
+  - `bookmarked_post_number` 优先用于“从书签跳回指定楼层”
+  - `bookmark_id` / `bookmark_name` / `bookmark_reminder_at` 用于原地编辑或删除书签
 
 ### `GET /topics/created-by/{username}.json`
 
@@ -135,6 +144,15 @@
 ### `GET /badges/{badgeId}.json`
 
 - 用途：获取单个徽章信息
+- 当前客户端常用字段：
+  - `badge.id`
+  - `badge.name`
+  - `badge.slug`
+  - `badge.description`
+  - `badge.long_description`
+  - `badge.grant_count`
+  - `badge.icon`
+  - `badge.image_url`
 - 响应：
 
 ```json
@@ -361,10 +379,19 @@
   - `notifications[].fancy_title`
   - `notifications[].acting_user_avatar_template`
   - `notifications[].data.*`
+- 当前客户端额外用到的 `notifications[].data` 字段：
+  - `display_username`
+  - `username`
+  - `original_username`
+  - `badge_id`
+  - `badge_slug`
+  - `badge_name`
 - 补充说明：
   - 当前未读角标和 recent 同步不只依赖该接口
   - 首次计数来自 `currentUser`
   - 实时增量依赖 MessageBus `/notification/{userId}`，详见 [07. MessageBus 长轮询](07-messagebus.md)
+  - `inviteeAccepted` / `following` 当前会跳转到公开用户页，用户名优先取 `display_username`，否则回退 `username` / `original_username`
+  - `grantedBadge` 当前会跳转到徽章详情页，主键取 `data.badge_id`，`data.badge_slug` 仅作为附加展示信息
 
 ### `PUT /notifications/mark-read`
 

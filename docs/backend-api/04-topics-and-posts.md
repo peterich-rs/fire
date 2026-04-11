@@ -265,6 +265,12 @@
 }
 ```
 
+- 当前客户端映射：
+  - `0`: muted
+  - `1`: regular
+  - `2`: tracking
+  - `3`: watching
+
 ### `PUT /t/-/{topicId}.json`
 
 - 用途：编辑话题标题、分类、标签
@@ -527,6 +533,10 @@
   "auto_delete_preference": 1
 }
 ```
+
+- 当前客户端约束：
+  - 若未设置提醒，则会直接省略 `reminder_at`
+  - `auto_delete_preference` 当前仅透传数值，不在宿主层做额外枚举扩展
 
 ### `PUT /bookmarks/bulk.json`
 

@@ -24,6 +24,12 @@
 - `topic_list.topics[].tags`: LinuxDo 当前 `latest` 负载里常见为 `TopicTag[]` 对象数组；旧格式也可能仍是字符串数组，客户端需要兼容两种形态
 - `topic_list.topics[].unread_posts` / `new_posts` / `last_read_post_number`: 实际返回里可能为 `null`
 - `topic_list.topics[].can_have_answer`: 实际返回里可能为 `null`
+- 书签列表、搜索等派生列表里，`topic_list.topics[]` 还可能带：
+  - `bookmarked_post_number`
+  - `bookmark_id`
+  - `bookmark_name`
+  - `bookmark_reminder_at`
+  - `bookmarkable_type`
 
 ## TopicTag
 
@@ -80,6 +86,10 @@
 客户端实际关心的补充字段：
 
 - `bookmarks`
+- `bookmarked`
+- `bookmark_id`
+- `bookmark_name`
+- `bookmark_reminder_at`
 - `accepted_answer`
 - `has_accepted_answer`
 - `can_vote`
@@ -92,6 +102,7 @@
 - `tags` 在不同接口/站点版本中可能返回 `TopicTag[]` 或旧的字符串数组
 - `accepted_answer` 在 topic detail 里常见为对象 `{ post_number, username, ... }`，未采纳时才可能是 `false`
 - `bookmarks` 实际是书签对象数组，不是单纯的 ID 列表；常见字段包括 `id`、`bookmarkable_type`、`bookmarkable_id`、`name`、`reminder_at`
+- 当前客户端会把顶层 `bookmarks[]` 里的首个对象拍平到 `bookmarked` / `bookmark_id` / `bookmark_name` / `bookmark_reminder_at`，同时也会把帖子级书签信息注入各个 `Post`
 - `details` 可能为 `null`
 - `category_id`、`notification_level`、`vote_count` 以及帖子内多数字段在实际返回里都应按“可空/可字符串化标量”容错，而不要假设总是稳定的 JSON 标量类型
 
@@ -112,6 +123,8 @@
   "reply_to_post_number": 0,
   "bookmarked": false,
   "bookmark_id": null,
+  "bookmark_name": null,
+  "bookmark_reminder_at": null,
   "reactions": [],
   "current_user_reaction": null,
   "polls": [],
@@ -126,6 +139,7 @@
 补充说明：
 
 - `username`、`cooked`、`like_count`、`reply_count`、`bookmarked`、`accepted_answer`、`can_edit`、`can_delete`、`can_recover`、`hidden` 在实际负载里都应按可空字段容错
+- `bookmark_name`、`bookmark_reminder_at` 在未设置提醒/备注时通常为 `null`
 - `reactions` 可能为 `null` 或空数组
 
 ## User

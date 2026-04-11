@@ -40,9 +40,29 @@ struct FireProfileView: View {
 
     private var bookmarkSubtitle: String {
         if bookmarkCount > 0 {
-            return "已保存 \(formatNumber(bookmarkCount)) 条内容，后续会提供统一管理。"
+            return "已保存 \(formatNumber(bookmarkCount)) 条内容，可以继续编辑或跳回原楼层。"
         }
-        return "把想回看的内容收进来，后续会统一管理。"
+        return "把想回看的内容收进来，后面可以统一整理。"
+    }
+
+    private var historySubtitle: String {
+        "继续上次读到的位置，补回最近看过的话题。"
+    }
+
+    private var draftsSubtitle: String {
+        "管理未发出的新话题和完整回复。"
+    }
+
+    private var inviteSubtitle: String {
+        "生成和整理待使用的邀请码链接。"
+    }
+
+    private var followingSubtitle: String {
+        "当前关注 \(formatNumber(profileViewModel.profile?.totalFollowing ?? 0)) 位用户。"
+    }
+
+    private var followersSubtitle: String {
+        "当前有 \(formatNumber(profileViewModel.profile?.totalFollowers ?? 0)) 位粉丝。"
     }
 
     private var socialStats: [(value: String, label: String)] {
@@ -98,6 +118,69 @@ struct FireProfileView: View {
                             tint: FireTheme.accent,
                             title: "我的书签",
                             subtitle: bookmarkSubtitle
+                        )
+                    }
+
+                    NavigationLink {
+                        FireReadHistoryView(viewModel: viewModel)
+                    } label: {
+                        shortcutRowContent(
+                            icon: "clock.arrow.trianglehead.counterclockwise.rotate.90",
+                            tint: .blue,
+                            title: "浏览历史",
+                            subtitle: historySubtitle
+                        )
+                    }
+
+                    NavigationLink {
+                        FireDraftsView(viewModel: viewModel)
+                    } label: {
+                        shortcutRowContent(
+                            icon: "tray.full.fill",
+                            tint: .orange,
+                            title: "草稿箱",
+                            subtitle: draftsSubtitle
+                        )
+                    }
+
+                    NavigationLink {
+                        FireInviteLinksView(viewModel: viewModel, username: displayUsername)
+                    } label: {
+                        shortcutRowContent(
+                            icon: "ticket.fill",
+                            tint: .green,
+                            title: "邀请链接",
+                            subtitle: inviteSubtitle
+                        )
+                    }
+
+                    NavigationLink {
+                        FireFollowListView(
+                            viewModel: viewModel,
+                            username: displayUsername,
+                            kind: .following
+                        )
+                    } label: {
+                        shortcutRowContent(
+                            icon: "person.2",
+                            tint: FireTheme.accent,
+                            title: "我的关注",
+                            subtitle: followingSubtitle
+                        )
+                    }
+
+                    NavigationLink {
+                        FireFollowListView(
+                            viewModel: viewModel,
+                            username: displayUsername,
+                            kind: .followers
+                        )
+                    } label: {
+                        shortcutRowContent(
+                            icon: "person.2.fill",
+                            tint: .pink,
+                            title: "我的粉丝",
+                            subtitle: followersSubtitle
                         )
                     }
                 }

@@ -12,6 +12,7 @@ struct FirePublicProfileView: View {
 
     @StateObject private var profileViewModel: FireProfileViewModel
     @State private var selectedBadge: FireSelectedBadge?
+    @State private var isUpdatingFollow = false
 
     init(viewModel: FireAppViewModel, username: String) {
         self.viewModel = viewModel
@@ -52,6 +53,15 @@ struct FirePublicProfileView: View {
         Array(profileViewModel.actions.prefix(4))
     }
 
+    private var isOwnProfile: Bool {
+        let current = viewModel.session.bootstrap.currentUsername?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return current?.caseInsensitiveCompare(displayUsername) == .orderedSame
+    }
+
+    private var canFollow: Bool {
+        !isOwnProfile && (profileViewModel.profile?.canFollow ?? false)
+    }
+
     var body: some View {
         List {
             if let errorMessage = profileViewModel.errorMessage ?? viewModel.errorMessage {
@@ -74,6 +84,38 @@ struct FirePublicProfileView: View {
                 profileHeader
             }
             .listRowSeparator(.hidden)
+
+            Section {
+                NavigationLink {
+                    FireFollowListView(
+                        viewModel: viewModel,
+                        username: displayUsername,
+                        kind: .following
+                    )
+                } label: {
+                    socialShortcutRow(
+                        icon: "person.2",
+                        tint: FireTheme.accent,
+                        title: "关注",
+                        value: profileViewModel.profile?.totalFollowing ?? 0
+                    )
+                }
+
+                NavigationLink {
+                    FireFollowListView(
+                        viewModel: viewModel,
+                        username: displayUsername,
+                        kind: .followers
+                    )
+                } label: {
+                    socialShortcutRow(
+                        icon: "person.2.fill",
+                        tint: .pink,
+                        title: "粉丝",
+                        value: profileViewModel.profile?.totalFollowers ?? 0
+                    )
+                }
+            }
 
             Section {
                 LazyVGrid(
@@ -200,6 +242,30 @@ struct FirePublicProfileView: View {
                             .foregroundStyle(FireTheme.subtleInk)
                             .fixedSize(horizontal: false, vertical: true)
                     }
+
+                    if canFollow {
+                        Button {
+                            Task { await toggleFollow() }
+                        } label: {
+                            HStack(spacing: 8) {
+                                if isUpdatingFollow {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                }
+                                Text(profileViewModel.profile?.isFollowed == true ? "取消关注" : "关注")
+                                    .font(.caption.weight(.semibold))
+                            }
+                            .foregroundStyle(profileViewModel.profile?.isFollowed == true ? FireTheme.subtleInk : .white)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(
+                                (profileViewModel.profile?.isFollowed == true ? FireTheme.softSurface : FireTheme.accent),
+                                in: Capsule()
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(isUpdatingFollow)
+                    }
                 }
             }
 
@@ -252,5 +318,57 @@ struct FirePublicProfileView: View {
             return String(format: "%.1fK", Double(value) / 1000.0)
         }
         return "\(value)"
+    }
+
+    private func socialShortcutRow(
+        icon: String,
+        tint: Color,
+        title: String,
+        value: UInt32
+    ) -> some View {
+        HStack(spacing: 12) {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(tint.opacity(0.12))
+                .frame(width: 36, height: 36)
+                .overlay {
+                    Image(systemName: icon)
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(tint)
+                }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(FireTheme.ink)
+                Text("\(formatNumber(value)) 人")
+                    .font(.caption)
+                    .foregroundStyle(FireTheme.subtleInk)
+            }
+
+            Spacer(minLength: 12)
+
+            Image(systemName: "chevron.right")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(FireTheme.tertiaryInk)
+        }
+        .padding(.vertical, 4)
+        .contentShape(Rectangle())
+    }
+
+    private func toggleFollow() async {
+        guard !isUpdatingFollow else { return }
+        isUpdatingFollow = true
+        defer { isUpdatingFollow = false }
+
+        do {
+            if profileViewModel.profile?.isFollowed == true {
+                try await viewModel.unfollowUser(username: username)
+            } else {
+                try await viewModel.followUser(username: username)
+            }
+            await profileViewModel.refreshAll()
+        } catch {
+            profileViewModel.errorMessage = error.localizedDescription
+        }
     }
 }

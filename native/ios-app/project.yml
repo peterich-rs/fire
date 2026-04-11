@@ -2,7 +2,11 @@ name: Fire
 options:
   minimumXcodeGenVersion: 2.45.3
 fileGroups:
-  - Configs
+  - Configs/Fire-Debug.xcconfig
+  - Configs/Fire-Local-Debug.example.xcconfig
+  - Configs/Fire-Local-Release.example.xcconfig
+  - Configs/Fire-Release.xcconfig
+  - Configs/Fire-Shared.xcconfig
 schemes:
   Fire:
     build:

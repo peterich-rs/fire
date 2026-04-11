@@ -7,8 +7,8 @@ use http::{
 #[cfg(debug_assertions)]
 use openwire::ProxyRules;
 use openwire::{
-    BoxFuture, Call, CallOptions, Client, Exchange, Interceptor, Next, RequestBody, ResponseBody,
-    WireError,
+    BoxFuture, Call, CallOptions, Client, Exchange, Interceptor, Next, ProxyRules, RequestBody,
+    ResponseBody, WireError,
 };
 use serde::de::DeserializeOwned;
 use tracing::{debug, info, warn};

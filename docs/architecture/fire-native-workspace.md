@@ -25,7 +25,6 @@ fire/
     backend-api/
     architecture/
       fire-native-workspace.md
-      ios-beta-delivery-plan.md
   native/
     ios-app/
     android-app/
@@ -76,11 +75,6 @@ fire/
 - The current mainline baseline must keep `third_party/openwire` and `third_party/xlog-rs` initialized, clean, and pinned to reviewed commits.
 - CI and local verification should fail fast when those required submodules are missing local checkout state, have local modifications, or have uncommitted pointer drift in the superproject.
 - Before integrating a long-lived feature branch back to main, first sync it with the latest `main`, then validate the final result from a clean `main` worktree.
-
-## Active Delivery Plans
-
-- [iOS Beta Delivery Plan](ios-beta-delivery-plan.md)
-  - tracks the current iOS beta delivery line, including the long-lived `feature/ios-beta` branch, the latest-`main` baseline strategy, stage status, commit slicing, and verification gates
 
 ## Shared Networking Model
 

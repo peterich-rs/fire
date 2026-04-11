@@ -486,7 +486,7 @@ fn string_array_from_value(value: Option<&Value>) -> Vec<String> {
         .map(|items| {
             items
                 .iter()
-                .filter_map(|item| optional_scalar_string(item))
+                .filter_map(optional_scalar_string)
                 .map(|item| item.trim().to_string())
                 .filter(|item| !item.is_empty())
                 .collect::<Vec<_>>()

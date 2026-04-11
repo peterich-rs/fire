@@ -22,7 +22,7 @@ Crate layering is clear: new API orchestration goes in `fire-core/src/core/users
 
 ## Current Surface Inventory
 
-- **`native/ios-app/App/FireProfileView.swift`** -- The main "我的" overview page. Contains: error banner, profile identity header, social stats, bookmark shortcut, summary metric grid, badge preview, recent activity preview, and navigation into the full activity timeline.
+- **`native/ios-app/App/FireProfileView.swift`** -- The main "我的" overview page. Contains: error banner, profile identity header, account shortcut rows, recent activity preview, and navigation into the full activity timeline.
 - **`native/ios-app/App/FireProfileActivityTimelineView.swift`** -- Dedicated full activity screen. Hosts segmented filters (全部/话题/回复/被赞), pagination, error banner handling, and navigation into topic detail.
 - **`native/ios-app/App/FireAppViewModel.swift`** -- Shared ViewModel. Exposes `session: SessionState`, `topicRows`, `errorMessage`, session lifecycle methods. `sessionStore: FireSessionStore?` and `sessionStoreValue()` are **private** (lines 152, 1956). No user-profile-specific API calls exist.
 - **`native/ios-app/Sources/FireAppSession/FireSessionStore.swift`** -- The `actor` wrapping `FireCoreHandle` that is the iOS-side Rust entry point (line 65). All Rust API calls from the app go through this actor. New profile API methods will be added here.
@@ -49,7 +49,7 @@ Crate layering is clear: new API orchestration goes in `fire-core/src/core/users
    - Why: Adding narrow wrapper methods to `FireAppViewModel` (e.g. `fetchUserProfile`, `fetchUserSummary`, `fetchUserActions`) keeps the existing architecture intact while enabling the new ViewModel. The methods are thin: they resolve the session store, call the Rust method, and return the result.
 
 2. **Grouped overview page rather than a decorative banner layout.**
-   - Chosen: A grouped `List` with a clean identity block, shortcut row, metric grid, badge preview, and recent-activity preview.
+   - Chosen: A grouped `List` with a clean identity block, account shortcut rows, and a recent-activity preview.
    - Rejected: A long `ScrollView` with a decorative banner or hero treatment above the avatar.
    - Why: The GitHub Mobile-inspired direction values clarity over ornament. The grouped overview keeps the page flatter, denser, and easier to scan on both small and large phones.
 
@@ -68,10 +68,10 @@ Crate layering is clear: new API orchestration goes in `fire-core/src/core/users
    - Rejected: Blocking the whole page on network fetch.
    - Why: The profile tab is a frequent navigation target. Showing the cached identity immediately with a shimmer placeholder for stats/badges provides a responsive feel.
 
-6. **Badges displayed as a wrapped preview section, not a horizontal strip.**
-   - Chosen: A wrapped `FlowLayout` preview showing the first several badges plus a compact overflow count.
-   - Rejected: A long horizontal strip that competes with the activity preview for vertical space.
-   - Why: The overview page should stay scannable. Wrapping a bounded badge preview keeps recognition high without forcing horizontal exploration.
+6. **Keep the self-profile overview action-oriented.**
+   - Chosen: The main "我的" page exposes badges as a direct shortcut alongside bookmarks, history, drafts, invite links, and social lists. Public profiles still keep a wrapped badge section where the badges belong to the viewed user.
+   - Rejected: Keeping a dedicated badge preview block on the self-profile overview.
+   - Why: The self-profile overview is primarily an account hub. Surfacing badges as a first-level destination preserves reachability without competing with recent activity for vertical space.
 
 7. **Activity separated into preview + dedicated timeline screen.**
    - Chosen: The main profile page shows only a short recent-activity preview, while `FireProfileActivityTimelineView` owns full filtering and pagination.
@@ -101,14 +101,8 @@ Crate layering is clear: new API orchestration goes in `fire-core/src/core/users
 |  粉丝 / 关注 / 获赞                                |
 |  加入时间 / 最近活跃 / 阅读时长 / 活跃分            |
 |                                                    |
-|  [我的书签]                                        |
-|                                                    |
-|  --- 概览 ---                                      |
-|  [话题] [帖子]                                    |
-|  [书签] [访问天数]                                 |
-|                                                    |
-|  --- 勋章 ---                                      |
-|  [Badge1] [Badge2] [Badge3] [还有 N 枚]            |
+|  [我的书签] [浏览历史] [草稿箱] [我的勋章]          |
+|  [邀请链接] [关注列表] [粉丝列表]                  |
 |                                                    |
 |  --- 最近动态 ---                                  |
 |  [Activity 1]                                      |
@@ -651,10 +645,8 @@ These methods are intentionally thin: they don't modify any `@Published` state o
 
 **File: `native/ios-app/App/FireProfileView.swift`** (rewrite)
 - Replace the body with a `NavigationStack` containing a grouped `List`.
-- **Profile Header**: plain identity block with avatar, display name, `@username`, trust-level pill, bio, social stats, and compact metadata pills for joined date / last active / reading time / gamification score.
-- **Primary shortcut**: surface "我的书签" directly beneath the header so it is reachable without scrolling through activity history.
-- **Overview Section**: a 2x2 metric grid using `FireMetricTile` for 话题 / 帖子 / 书签 / 访问天数.
-- **Badges Preview**: wrapped `FlowLayout` preview of badges with an overflow-count pill.
+- **Profile Header**: plain identity block with avatar, display name, `@username`, trust-level pill, bio, social stats, and metadata entries for joined date / last active / reading time / gamification score.
+- **Account shortcuts**: keep key destinations directly under the header, including bookmarks, history, drafts, badges, invite links, following, and followers.
 - **Recent Activity Preview**: only the first few action rows render on the main page. A trailing `NavigationLink` opens `FireProfileActivityTimelineView` for the complete activity history.
 - **Toolbar menu**: the top-right gear now opens developer tools and logout actions.
 - **Error handling**: `FireErrorBanner` remains at the top when profile or action requests fail.
@@ -665,7 +657,7 @@ These methods are intentionally thin: they don't modify any `@Published` state o
 - Accepts `trustLevel: UInt32`, maps to label string and `FireTheme` color per the design decision table.
 
 **File: `native/ios-app/App/FireProfileStatsRow.swift`** (new file)
-- Reusable 4-column stats display component.
+- Reusable 3-column stats display component.
 - Accepts an array of `(value: String, label: String)` tuples.
 - Uses `FireTheme.ink` for values, `FireTheme.subtleInk` for labels, `FireTheme.divider` between columns.
 
@@ -746,10 +738,10 @@ These methods are intentionally thin: they don't modify any `@Published` state o
 - `rust/crates/fire-uniffi/src/lib.rs` -- Add `UserProfileState`, `UserSummaryState`, `UserSummaryStatsState`, `ProfileSummaryTopicState`, `ProfileSummaryReplyState`, `ProfileSummaryTopCategoryState`, `ProfileSummaryUserReferenceState`, `BadgeState`, `UserActionState` records, `From` impls, and `FireCoreHandle` methods
 - `native/ios-app/Sources/FireAppSession/FireSessionStore.swift` -- Add `fetchUserProfile`, `fetchUserSummary`, `fetchUserActions` public methods
 - `native/ios-app/App/FireAppViewModel.swift` -- Add three thin public wrapper methods for profile API calls (no changes to existing published state or lifecycle)
-- `native/ios-app/App/FireProfileView.swift` -- Full rewrite: grouped overview page with header, bookmark shortcut, metric grid, badge preview, and recent activity preview
+- `native/ios-app/App/FireProfileView.swift` -- Full rewrite: grouped overview page with header, account shortcut rows, and recent activity preview
 - `native/ios-app/App/FireProfileViewModel.swift` -- New file: dedicated profile ViewModel with profile/summary/actions state management, holds `FireAppViewModel` reference
 - `native/ios-app/App/FireProfileTrustLevelPill.swift` -- New file: trust level capsule badge component
-- `native/ios-app/App/FireProfileStatsRow.swift` -- New file: 4-column stats display component
+- `native/ios-app/App/FireProfileStatsRow.swift` -- New file: 3-column stats display component
 - `native/ios-app/App/FireProfileBadgeChip.swift` -- New file: single badge chip component with tier tinting
 - `native/ios-app/App/FireProfileActivityRow.swift` -- New file: user action list row component
 - `native/ios-app/App/FireProfileActivityTimelineView.swift` -- New file: dedicated full activity timeline screen

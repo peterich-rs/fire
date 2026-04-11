@@ -364,10 +364,7 @@ fn multipart_upload_body(
     mime_type: &str,
     bytes: &[u8],
 ) -> Vec<u8> {
-    let sanitized_file_name = file_name
-        .replace('"', "_")
-        .replace('\r', "_")
-        .replace('\n', "_");
+    let sanitized_file_name = file_name.replace(['"', '\r', '\n'], "_");
     let mut body = Vec::new();
     body.extend_from_slice(format!("--{boundary}\r\n").as_bytes());
     body.extend_from_slice(b"Content-Disposition: form-data; name=\"upload_type\"\r\n\r\n");

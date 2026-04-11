@@ -4,24 +4,27 @@ struct FireProfileStatsRow: View {
     let items: [(value: String, label: String)]
 
     var body: some View {
-        HStack(spacing: 0) {
+        HStack(alignment: .top, spacing: 14) {
             ForEach(Array(items.enumerated()), id: \.offset) { index, item in
                 if index > 0 {
-                    Divider()
-                        .frame(height: 22)
+                    Rectangle()
+                        .fill(FireTheme.divider)
+                        .frame(width: 1, height: 30)
                 }
-                VStack(spacing: 4) {
+
+                VStack(spacing: 6) {
                     Text(item.value)
-                        .font(.headline.monospacedDigit().weight(.semibold))
+                        .font(.title3.monospacedDigit().weight(.semibold))
                         .foregroundStyle(FireTheme.ink)
                         .contentTransition(.numericText())
+
                     Text(item.label)
-                        .font(.caption)
-                        .foregroundStyle(FireTheme.subtleInk)
+                        .font(.caption2)
+                        .foregroundStyle(FireTheme.tertiaryInk)
                 }
                 .frame(maxWidth: .infinity)
             }
         }
-        .padding(.vertical, 6)
+        .padding(.vertical, 2)
     }
 }

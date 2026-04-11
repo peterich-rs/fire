@@ -31,21 +31,11 @@ struct FirePublicProfileView: View {
         return trimmed.isEmpty ? displayUsername : trimmed
     }
 
-    private var socialStats: [(value: String, label: String)] {
+    private var profileHighlights: [(value: String, label: String)] {
         [
             (formatNumber(profileViewModel.profile?.totalFollowers ?? 0), "粉丝"),
-            (formatNumber(profileViewModel.profile?.totalFollowing ?? 0), "关注"),
             (formatNumber(profileViewModel.summary?.stats.likesReceived ?? 0), "获赞"),
-        ]
-    }
-
-    private var overviewMetrics: [(label: String, value: String)] {
-        let stats = profileViewModel.summary?.stats
-        return [
-            ("话题", formatNumber(stats?.topicCount ?? 0)),
-            ("帖子", formatNumber(stats?.postCount ?? 0)),
-            ("书签", formatNumber(stats?.bookmarkCount ?? 0)),
-            ("访问天数", formatNumber(stats?.daysVisited ?? 0)),
+            (formatNumber(profileViewModel.profile?.totalFollowing ?? 0), "关注"),
         ]
     }
 
@@ -60,6 +50,25 @@ struct FirePublicProfileView: View {
 
     private var canFollow: Bool {
         !isOwnProfile && (profileViewModel.profile?.canFollow ?? false)
+    }
+
+    private var profileMetaEntries: [(symbol: String, label: String, value: String, tint: Color)] {
+        var entries: [(String, String, String, Color)] = []
+
+        if let joinedDateText {
+            entries.append(("calendar", "加入时间", joinedDateText, FireTheme.subtleInk))
+        }
+        if let lastSeenText {
+            entries.append(("clock.arrow.circlepath", "最近活跃", lastSeenText, FireTheme.success))
+        }
+        if let readTimeText {
+            entries.append(("book.closed", "阅读时长", readTimeText, FireTheme.accent))
+        }
+        if let gamificationText {
+            entries.append(("bolt.fill", "活跃分", gamificationText, FireTheme.accent))
+        }
+
+        return entries
     }
 
     var body: some View {
@@ -83,7 +92,6 @@ struct FirePublicProfileView: View {
             Section {
                 profileHeader
             }
-            .listRowSeparator(.hidden)
 
             Section {
                 NavigationLink {
@@ -115,23 +123,6 @@ struct FirePublicProfileView: View {
                         value: profileViewModel.profile?.totalFollowers ?? 0
                     )
                 }
-            }
-
-            Section {
-                LazyVGrid(
-                    columns: [
-                        GridItem(.flexible(), spacing: 12),
-                        GridItem(.flexible(), spacing: 12),
-                    ],
-                    spacing: 12
-                ) {
-                    ForEach(Array(overviewMetrics.enumerated()), id: \.offset) { _, item in
-                        FireMetricTile(label: item.label, value: item.value)
-                    }
-                }
-                .padding(.vertical, 4)
-            } header: {
-                Text("概览")
             }
 
             if let badges = profileViewModel.summary?.badges, !badges.isEmpty {
@@ -213,65 +204,95 @@ struct FirePublicProfileView: View {
     }
 
     private var profileHeader: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack(alignment: .top, spacing: 16) {
-                FireAvatarView(
-                    avatarTemplate: profileViewModel.profile?.avatarTemplate,
-                    username: displayUsername,
-                    size: 84
-                )
-
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack(alignment: .center, spacing: 8) {
-                        Text(displayName)
-                            .font(.title3.weight(.bold))
-                            .foregroundStyle(FireTheme.ink)
-
-                        if let profile = profileViewModel.profile {
-                            FireProfileTrustLevelPill(trustLevel: profile.trustLevel)
-                        }
+        FireProfileHeaderCard {
+            VStack(alignment: .leading, spacing: 16) {
+                HStack(alignment: .top, spacing: 16) {
+                    FireAvatarView(
+                        avatarTemplate: profileViewModel.profile?.avatarTemplate,
+                        username: displayUsername,
+                        size: 86
+                    )
+                    .overlay {
+                        Circle()
+                            .strokeBorder(Color.white.opacity(0.7), lineWidth: 1)
                     }
 
-                    Text("@\(displayUsername)")
-                        .font(.subheadline)
-                        .foregroundStyle(FireTheme.subtleInk)
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(alignment: .center, spacing: 8) {
+                            Text(displayName)
+                                .font(.title3.weight(.bold))
+                                .foregroundStyle(FireTheme.ink)
+                                .lineLimit(2)
 
-                    if let bioCooked = profileViewModel.profile?.bioCooked, !bioCooked.isEmpty {
-                        Text(plainTextFromHtml(rawHtml: bioCooked))
-                            .font(.footnote)
-                            .foregroundStyle(FireTheme.subtleInk)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-
-                    if canFollow {
-                        Button {
-                            Task { await toggleFollow() }
-                        } label: {
-                            HStack(spacing: 8) {
-                                if isUpdatingFollow {
-                                    ProgressView()
-                                        .controlSize(.small)
-                                }
-                                Text(profileViewModel.profile?.isFollowed == true ? "取消关注" : "关注")
-                                    .font(.caption.weight(.semibold))
+                            if let profile = profileViewModel.profile {
+                                FireProfileTrustLevelPill(trustLevel: profile.trustLevel)
                             }
-                            .foregroundStyle(profileViewModel.profile?.isFollowed == true ? FireTheme.subtleInk : .white)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                            .background(
-                                (profileViewModel.profile?.isFollowed == true ? FireTheme.softSurface : FireTheme.accent),
-                                in: Capsule()
-                            )
                         }
-                        .buttonStyle(.plain)
-                        .disabled(isUpdatingFollow)
+
+                        Text("@\(displayUsername)")
+                            .font(.subheadline)
+                            .foregroundStyle(FireTheme.subtleInk)
+
+                        if let bioCooked = profileViewModel.profile?.bioCooked, !bioCooked.isEmpty {
+                            Text(plainTextFromHtml(rawHtml: bioCooked))
+                                .font(.footnote)
+                                .foregroundStyle(FireTheme.subtleInk)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+
+                        if canFollow {
+                            Button {
+                                Task { await toggleFollow() }
+                            } label: {
+                                HStack(spacing: 8) {
+                                    if isUpdatingFollow {
+                                        ProgressView()
+                                            .controlSize(.small)
+                                    }
+                                    Text(profileViewModel.profile?.isFollowed == true ? "取消关注" : "关注")
+                                        .font(.caption.weight(.semibold))
+                                }
+                                .foregroundStyle(profileViewModel.profile?.isFollowed == true ? FireTheme.subtleInk : .white)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 8)
+                                .background(
+                                    (profileViewModel.profile?.isFollowed == true ? FireTheme.softSurface : FireTheme.accent),
+                                    in: Capsule()
+                                )
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(isUpdatingFollow)
+                        }
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 12) {
+                    FireProfileStatsRow(items: profileHighlights)
+
+                    if hasProfileMeta {
+                        Divider()
+                            .overlay(FireTheme.divider)
+
+                        LazyVGrid(
+                            columns: [
+                                GridItem(.flexible(), spacing: 16),
+                                GridItem(.flexible(), spacing: 16),
+                            ],
+                            spacing: 14
+                        ) {
+                            ForEach(Array(profileMetaEntries.enumerated()), id: \.offset) { _, item in
+                                FireProfileMetaEntryView(
+                                    symbol: item.symbol,
+                                    label: item.label,
+                                    value: item.value,
+                                    tint: item.tint
+                                )
+                            }
+                        }
                     }
                 }
             }
-
-            FireProfileStatsRow(items: socialStats)
         }
-        .padding(.vertical, 4)
     }
 
     @ViewBuilder
@@ -284,7 +305,7 @@ struct FirePublicProfileView: View {
                     scrollToPostNumber: action.postNumber
                 )
             } label: {
-                FireProfileActivityRow(action: action, showsChevron: true)
+                FireProfileActivityRow(action: action)
             }
             .buttonStyle(.plain)
         } else {
@@ -320,6 +341,39 @@ struct FirePublicProfileView: View {
         return "\(value)"
     }
 
+    private var hasProfileMeta: Bool {
+        !profileMetaEntries.isEmpty
+    }
+
+    private var joinedDateText: String? {
+        formattedDate(profileViewModel.profile?.createdAt)
+    }
+
+    private var lastSeenText: String? {
+        guard let lastSeen = profileViewModel.profile?.lastSeenAt else {
+            return nil
+        }
+
+        return relativeTimeString(lastSeen)
+    }
+
+    private var readTimeText: String? {
+        let seconds = profileViewModel.summary?.stats.timeReadSeconds ?? 0
+        guard seconds > 0 else {
+            return nil
+        }
+
+        return formatReadTime(seconds)
+    }
+
+    private var gamificationText: String? {
+        guard let score = profileViewModel.profile?.gamificationScore, score > 0 else {
+            return nil
+        }
+
+        return formatNumber(score)
+    }
+
     private func socialShortcutRow(
         icon: String,
         tint: Color,
@@ -346,13 +400,64 @@ struct FirePublicProfileView: View {
             }
 
             Spacer(minLength: 12)
-
-            Image(systemName: "chevron.right")
-                .font(.caption2.weight(.semibold))
-                .foregroundStyle(FireTheme.tertiaryInk)
         }
         .padding(.vertical, 4)
         .contentShape(Rectangle())
+    }
+
+    private func formatReadTime(_ seconds: UInt64) -> String {
+        let hours = seconds / 3600
+        let minutes = (seconds % 3600) / 60
+
+        if hours > 0 {
+            return minutes > 0 ? "\(hours) 小时 \(minutes) 分钟" : "\(hours) 小时"
+        }
+        if minutes > 0 {
+            return "\(minutes) 分钟"
+        }
+        return "不到 1 分钟"
+    }
+
+    private func formattedDate(_ isoDate: String?) -> String? {
+        guard let isoDate else {
+            return nil
+        }
+
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+
+        let date: Date?
+        if let parsed = formatter.date(from: isoDate) {
+            date = parsed
+        } else {
+            formatter.formatOptions = [.withInternetDateTime]
+            date = formatter.date(from: isoDate)
+        }
+
+        guard let date else {
+            return nil
+        }
+
+        return DateFormatter.localizedString(from: date, dateStyle: .medium, timeStyle: .none)
+    }
+
+    private func relativeTimeString(_ isoDate: String) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+
+        let date: Date?
+        if let parsed = formatter.date(from: isoDate) {
+            date = parsed
+        } else {
+            formatter.formatOptions = [.withInternetDateTime]
+            date = formatter.date(from: isoDate)
+        }
+
+        guard let date else {
+            return isoDate
+        }
+
+        return RelativeDateTimeFormatter().localizedString(for: date, relativeTo: Date())
     }
 
     private func toggleFollow() async {

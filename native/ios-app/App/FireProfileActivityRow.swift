@@ -2,7 +2,6 @@ import SwiftUI
 
 struct FireProfileActivityRow: View {
     let action: UserActionState
-    var showsChevron = false
 
     private var actionIcon: String {
         switch action.actionType {
@@ -95,12 +94,6 @@ struct FireProfileActivityRow: View {
                 }
             }
 
-            if showsChevron {
-                Image(systemName: "chevron.right")
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(FireTheme.tertiaryInk)
-                    .padding(.top, 2)
-            }
         }
         .padding(.vertical, 12)
         .contentShape(Rectangle())

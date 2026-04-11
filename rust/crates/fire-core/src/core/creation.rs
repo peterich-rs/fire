@@ -38,7 +38,9 @@ impl FireCore {
         let traced = self.build_json_get_request("fetch drafts", "/drafts.json", params, &[])?;
         let (trace_id, response) = self.execute_request(traced).await?;
         let response = expect_success(self, "fetch drafts", trace_id, response).await?;
-        let raw: Value = self.read_response_json("fetch drafts", trace_id, response).await?;
+        let raw: Value = self
+            .read_response_json("fetch drafts", trace_id, response)
+            .await?;
         parse_draft_list_response_value(raw).map_err(|source| FireCoreError::ResponseDeserialize {
             operation: "fetch drafts",
             source,
@@ -57,7 +59,9 @@ impl FireCore {
         }
 
         let response = expect_success(self, "fetch draft", trace_id, response).await?;
-        let raw: Value = self.read_response_json("fetch draft", trace_id, response).await?;
+        let raw: Value = self
+            .read_response_json("fetch draft", trace_id, response)
+            .await?;
         parse_draft_detail_response_value(raw, draft_key).map_err(|source| {
             FireCoreError::ResponseDeserialize {
                 operation: "fetch draft",
@@ -79,8 +83,7 @@ impl FireCore {
             "saving draft"
         );
 
-        let payload = serde_json::to_string(&data)
-            .map_err(FireCoreError::DiagnosticsSerialize)?;
+        let payload = serde_json::to_string(&data).map_err(FireCoreError::DiagnosticsSerialize)?;
         let fields = vec![
             ("draft_key", draft_key.to_string()),
             ("data", payload),
@@ -88,21 +91,35 @@ impl FireCore {
         ];
         let (trace_id, response) = self
             .execute_api_request_with_csrf_retry("save draft", || {
-                self.build_form_request("save draft", Method::POST, "/drafts.json", fields.clone(), true)
+                self.build_form_request(
+                    "save draft",
+                    Method::POST,
+                    "/drafts.json",
+                    fields.clone(),
+                    true,
+                )
             })
             .await?;
         if response.status() == StatusCode::CONFLICT {
-            let raw: Value = self.read_response_json("save draft", trace_id, response).await?;
-            return Ok(
-                integer_u32(raw.as_object().and_then(|object| object.get("draft_sequence")))
-                    .unwrap_or(sequence),
-            );
+            let raw: Value = self
+                .read_response_json("save draft", trace_id, response)
+                .await?;
+            return Ok(integer_u32(
+                raw.as_object()
+                    .and_then(|object| object.get("draft_sequence")),
+            )
+            .unwrap_or(sequence));
         }
 
         let response = expect_success(self, "save draft", trace_id, response).await?;
-        let raw: Value = self.read_response_json("save draft", trace_id, response).await?;
-        Ok(integer_u32(raw.as_object().and_then(|object| object.get("draft_sequence")))
-            .unwrap_or(sequence.saturating_add(1)))
+        let raw: Value = self
+            .read_response_json("save draft", trace_id, response)
+            .await?;
+        Ok(integer_u32(
+            raw.as_object()
+                .and_then(|object| object.get("draft_sequence")),
+        )
+        .unwrap_or(sequence.saturating_add(1)))
     }
 
     pub async fn delete_draft(
@@ -113,7 +130,10 @@ impl FireCore {
         info!(draft_key, sequence = ?sequence, "deleting draft");
 
         let path = if let Some(sequence) = sequence {
-            format!("/drafts/{}.json?sequence={sequence}", encode_path_segment(draft_key))
+            format!(
+                "/drafts/{}.json?sequence={sequence}",
+                encode_path_segment(draft_key)
+            )
         } else {
             format!("/drafts/{}.json", encode_path_segment(draft_key))
         };
@@ -140,7 +160,10 @@ impl FireCore {
             return Ok(Vec::new());
         }
 
-        info!(short_urls_count = short_urls.len(), "looking up upload urls");
+        info!(
+            short_urls_count = short_urls.len(),
+            "looking up upload urls"
+        );
 
         let body = json!({ "short_urls": short_urls }).to_string();
         let (trace_id, response) = self
@@ -202,7 +225,9 @@ impl FireCore {
             })
             .await?;
         let response = expect_success(self, "upload image", trace_id, response).await?;
-        let raw: Value = self.read_response_json("upload image", trace_id, response).await?;
+        let raw: Value = self
+            .read_response_json("upload image", trace_id, response)
+            .await?;
         parse_upload_result_value(raw).map_err(|source| FireCoreError::ResponseDeserialize {
             operation: "upload image",
             source,
@@ -224,7 +249,11 @@ impl FireCore {
             ("category", input.category_id.to_string()),
             ("archetype", "regular".to_string()),
         ];
-        for tag in input.tags.into_iter().filter(|value| !value.trim().is_empty()) {
+        for tag in input
+            .tags
+            .into_iter()
+            .filter(|value| !value.trim().is_empty())
+        {
             fields.push(("tags[]", tag));
         }
 
@@ -240,7 +269,9 @@ impl FireCore {
             })
             .await?;
         let response = expect_success(self, "create topic", trace_id, response).await?;
-        let raw: Value = self.read_response_json("create topic", trace_id, response).await?;
+        let raw: Value = self
+            .read_response_json("create topic", trace_id, response)
+            .await?;
         let result = parse_create_topic_response(raw);
         match &result {
             Ok(topic_id) => info!(topic_id, "topic created successfully"),

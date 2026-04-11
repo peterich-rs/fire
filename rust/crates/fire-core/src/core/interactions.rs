@@ -4,7 +4,10 @@ use std::{
     time::{Duration, Instant},
 };
 
-use fire_models::{PostReactionUpdate, TopicPost, TopicReplyRequest, TopicTimingsRequest};
+use fire_models::{
+    Poll, PostReactionUpdate, PostUpdateRequest, TopicPost, TopicReplyRequest, TopicTimingsRequest,
+    TopicUpdateRequest, VoteResponse, VotedUser,
+};
 use http::{Method, Response};
 use serde_json::json;
 use serde_json::Value;
@@ -14,7 +17,10 @@ use url::form_urlencoded::byte_serialize;
 use super::{network::expect_success, rate_limit, FireCore};
 use crate::{
     error::FireCoreError,
-    topic_payloads::{parse_post_reaction_update_value, parse_topic_post_value},
+    topic_payloads::{
+        parse_poll_response_value, parse_post_reaction_update_value, parse_topic_post_value,
+        parse_vote_response_value, parse_voted_users_value,
+    },
 };
 
 #[derive(Default)]
@@ -50,10 +56,7 @@ impl FireCore {
             fields.push(("reminder_at", reminder_at.to_string()));
         }
         if let Some(auto_delete_preference) = auto_delete_preference {
-            fields.push((
-                "auto_delete_preference",
-                auto_delete_preference.to_string(),
-            ));
+            fields.push(("auto_delete_preference", auto_delete_preference.to_string()));
         }
 
         let (trace_id, response) = self
@@ -94,10 +97,11 @@ impl FireCore {
             "reminder_at": reminder_at,
             "auto_delete_preference": auto_delete_preference,
         });
-        let body = serde_json::to_vec(&body).map_err(|source| FireCoreError::ResponseDeserialize {
-            operation: "update bookmark",
-            source,
-        })?;
+        let body =
+            serde_json::to_vec(&body).map_err(|source| FireCoreError::ResponseDeserialize {
+                operation: "update bookmark",
+                source,
+            })?;
         let (trace_id, response) = self
             .execute_api_request_with_csrf_retry("update bookmark", || {
                 self.build_api_request_with_body(
@@ -133,7 +137,10 @@ impl FireCore {
         topic_id: u64,
         notification_level: i32,
     ) -> Result<(), FireCoreError> {
-        info!(topic_id, notification_level, "setting topic notification level");
+        info!(
+            topic_id,
+            notification_level, "setting topic notification level"
+        );
         let path = format!("/t/{topic_id}/notifications");
         let fields = vec![("notification_level", notification_level.to_string())];
         let (trace_id, response) = self
@@ -196,6 +203,218 @@ impl FireCore {
             ),
         }
         result
+    }
+
+    pub async fn fetch_post(&self, post_id: u64) -> Result<TopicPost, FireCoreError> {
+        info!(post_id, "fetching post");
+        let path = format!("/posts/{post_id}.json");
+        let traced = self.build_json_get_request("fetch post", &path, vec![], &[])?;
+        let (trace_id, response) = self.execute_request(traced).await?;
+        let response = expect_success(self, "fetch post", trace_id, response).await?;
+        let value: Value = self
+            .read_response_json("fetch post", trace_id, response)
+            .await?;
+        parse_topic_post_value(value).map_err(|source| FireCoreError::ResponseDeserialize {
+            operation: "fetch post",
+            source,
+        })
+    }
+
+    pub async fn update_post(&self, input: PostUpdateRequest) -> Result<TopicPost, FireCoreError> {
+        info!(
+            post_id = input.post_id,
+            raw_len = input.raw.len(),
+            has_edit_reason = input.edit_reason.is_some(),
+            "updating post"
+        );
+
+        let path = format!("/posts/{}.json", input.post_id);
+        let mut fields = vec![("post[raw]", input.raw)];
+        if let Some(edit_reason) = input.edit_reason.filter(|value| !value.trim().is_empty()) {
+            fields.push(("post[edit_reason]", edit_reason));
+        }
+
+        let (trace_id, response) = self
+            .execute_api_request_with_csrf_retry("update post", || {
+                self.build_form_request("update post", Method::PUT, &path, fields.clone(), true)
+            })
+            .await?;
+        let response = expect_success(self, "update post", trace_id, response).await?;
+        let value: Value = self
+            .read_response_json("update post", trace_id, response)
+            .await?;
+        parse_topic_post_value(value).map_err(|source| FireCoreError::ResponseDeserialize {
+            operation: "update post",
+            source,
+        })
+    }
+
+    pub async fn update_topic(&self, input: TopicUpdateRequest) -> Result<(), FireCoreError> {
+        info!(
+            topic_id = input.topic_id,
+            category_id = input.category_id,
+            tags_count = input.tags.len(),
+            title_len = input.title.len(),
+            "updating topic"
+        );
+
+        let path = format!("/t/-/{}.json", input.topic_id);
+        let mut fields = vec![
+            ("title", input.title),
+            ("category_id", input.category_id.to_string()),
+        ];
+        for tag in input
+            .tags
+            .into_iter()
+            .filter(|value| !value.trim().is_empty())
+        {
+            fields.push(("tags[]", tag));
+        }
+
+        let (trace_id, response) = self
+            .execute_api_request_with_csrf_retry("update topic", || {
+                self.build_form_request("update topic", Method::PUT, &path, fields.clone(), true)
+            })
+            .await?;
+        let response = expect_success(self, "update topic", trace_id, response).await?;
+        let _ = self.read_response_text(trace_id, response).await?;
+        Ok(())
+    }
+
+    pub async fn vote_poll(
+        &self,
+        post_id: u64,
+        poll_name: &str,
+        options: Vec<String>,
+    ) -> Result<Poll, FireCoreError> {
+        info!(
+            post_id,
+            poll_name,
+            options_count = options.len(),
+            "voting in poll"
+        );
+        let mut fields = vec![
+            ("post_id", post_id.to_string()),
+            ("poll_name", poll_name.to_string()),
+        ];
+        for option in options.into_iter().filter(|value| !value.trim().is_empty()) {
+            fields.push(("options[]", option));
+        }
+
+        let (trace_id, response) = self
+            .execute_api_request_with_csrf_retry("vote poll", || {
+                self.build_form_request(
+                    "vote poll",
+                    Method::PUT,
+                    "/polls/vote",
+                    fields.clone(),
+                    true,
+                )
+            })
+            .await?;
+        let response = expect_success(self, "vote poll", trace_id, response).await?;
+        let value: Value = self
+            .read_response_json("vote poll", trace_id, response)
+            .await?;
+        parse_poll_response_value(value).map_err(|source| FireCoreError::ResponseDeserialize {
+            operation: "vote poll",
+            source,
+        })
+    }
+
+    pub async fn unvote_poll(&self, post_id: u64, poll_name: &str) -> Result<Poll, FireCoreError> {
+        info!(post_id, poll_name, "removing poll vote");
+        let fields = vec![
+            ("post_id", post_id.to_string()),
+            ("poll_name", poll_name.to_string()),
+        ];
+
+        let (trace_id, response) = self
+            .execute_api_request_with_csrf_retry("unvote poll", || {
+                self.build_form_request(
+                    "unvote poll",
+                    Method::DELETE,
+                    "/polls/vote",
+                    fields.clone(),
+                    true,
+                )
+            })
+            .await?;
+        let response = expect_success(self, "unvote poll", trace_id, response).await?;
+        let value: Value = self
+            .read_response_json("unvote poll", trace_id, response)
+            .await?;
+        parse_poll_response_value(value).map_err(|source| FireCoreError::ResponseDeserialize {
+            operation: "unvote poll",
+            source,
+        })
+    }
+
+    pub async fn vote_topic(&self, topic_id: u64) -> Result<VoteResponse, FireCoreError> {
+        info!(topic_id, "voting topic");
+        let fields = vec![("topic_id", topic_id.to_string())];
+        let (trace_id, response) = self
+            .execute_api_request_with_csrf_retry("vote topic", || {
+                self.build_form_request(
+                    "vote topic",
+                    Method::POST,
+                    "/voting/vote",
+                    fields.clone(),
+                    true,
+                )
+            })
+            .await?;
+        let response = expect_success(self, "vote topic", trace_id, response).await?;
+        let value: Value = self
+            .read_response_json("vote topic", trace_id, response)
+            .await?;
+        parse_vote_response_value(value).map_err(|source| FireCoreError::ResponseDeserialize {
+            operation: "vote topic",
+            source,
+        })
+    }
+
+    pub async fn unvote_topic(&self, topic_id: u64) -> Result<VoteResponse, FireCoreError> {
+        info!(topic_id, "removing topic vote");
+        let fields = vec![("topic_id", topic_id.to_string())];
+        let (trace_id, response) = self
+            .execute_api_request_with_csrf_retry("unvote topic", || {
+                self.build_form_request(
+                    "unvote topic",
+                    Method::POST,
+                    "/voting/unvote",
+                    fields.clone(),
+                    true,
+                )
+            })
+            .await?;
+        let response = expect_success(self, "unvote topic", trace_id, response).await?;
+        let value: Value = self
+            .read_response_json("unvote topic", trace_id, response)
+            .await?;
+        parse_vote_response_value(value).map_err(|source| FireCoreError::ResponseDeserialize {
+            operation: "unvote topic",
+            source,
+        })
+    }
+
+    pub async fn fetch_topic_voters(&self, topic_id: u64) -> Result<Vec<VotedUser>, FireCoreError> {
+        info!(topic_id, "fetching topic voters");
+        let traced = self.build_json_get_request(
+            "fetch topic voters",
+            "/voting/who",
+            vec![("topic_id", topic_id.to_string())],
+            &[],
+        )?;
+        let (trace_id, response) = self.execute_request(traced).await?;
+        let response = expect_success(self, "fetch topic voters", trace_id, response).await?;
+        let value: Value = self
+            .read_response_json("fetch topic voters", trace_id, response)
+            .await?;
+        parse_voted_users_value(value).map_err(|source| FireCoreError::ResponseDeserialize {
+            operation: "fetch topic voters",
+            source,
+        })
     }
 
     pub async fn like_post(

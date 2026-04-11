@@ -4,7 +4,10 @@ use std::time::Duration;
 
 use common::{raw_json_response, TestServer};
 use fire_core::{FireCore, FireCoreConfig, FireCoreError};
-use fire_models::{CookieSnapshot, DraftData, TopicCreateRequest, TopicTimingEntry, TopicTimingsRequest};
+use fire_models::{
+    CookieSnapshot, DraftData, InviteCreateRequest, PostUpdateRequest, TopicCreateRequest,
+    TopicTimingEntry, TopicTimingsRequest, TopicUpdateRequest,
+};
 
 #[tokio::test]
 async fn report_topic_timings_posts_form_payload_with_background_headers() {
@@ -245,7 +248,10 @@ async fn draft_apis_parse_payloads_and_handle_sequence_updates() {
     .expect("server");
     let core = authenticated_core(&server.base_url());
 
-    let list = core.fetch_drafts(Some(0), Some(20)).await.expect("draft list");
+    let list = core
+        .fetch_drafts(Some(0), Some(20))
+        .await
+        .expect("draft list");
     assert_eq!(list.drafts.len(), 1);
     assert_eq!(list.drafts[0].draft_key, "topic_123_post_2");
     assert_eq!(list.drafts[0].data.reply.as_deref(), Some("hello"));
@@ -290,13 +296,283 @@ async fn draft_apis_parse_payloads_and_handle_sequence_updates() {
 }
 
 #[tokio::test]
-async fn create_topic_and_upload_surfaces_use_expected_requests() {
+async fn stage3_edit_vote_and_poll_surfaces_use_expected_requests() {
     let server = TestServer::spawn(vec![
         raw_json_response(
             200,
             "application/json",
-            r#"{"post":{"topic_id":321}}"#,
+            r#"{
+              "post": {
+                "id": 9001,
+                "username": "alice",
+                "cooked": "<p>Hello</p>",
+                "raw": "Hello",
+                "post_number": 1,
+                "post_type": 1,
+                "created_at": "2026-04-11T00:00:00Z",
+                "updated_at": "2026-04-11T00:00:00Z",
+                "like_count": 1,
+                "reply_count": 0,
+                "reactions": [],
+                "polls": [],
+                "accepted_answer": false,
+                "can_edit": true,
+                "can_delete": true,
+                "can_recover": false,
+                "hidden": false
+              }
+            }"#,
         ),
+        raw_json_response(
+            200,
+            "application/json",
+            r#"{
+              "post": {
+                "id": 9001,
+                "username": "alice",
+                "cooked": "<p>Updated</p>",
+                "raw": "Updated",
+                "post_number": 1,
+                "post_type": 1,
+                "created_at": "2026-04-11T00:00:00Z",
+                "updated_at": "2026-04-11T00:10:00Z",
+                "like_count": 1,
+                "reply_count": 0,
+                "reactions": [],
+                "polls": [],
+                "accepted_answer": false,
+                "can_edit": true,
+                "can_delete": true,
+                "can_recover": false,
+                "hidden": false
+              }
+            }"#,
+        ),
+        raw_json_response(200, "application/json", "{}"),
+        raw_json_response(
+            200,
+            "application/json",
+            r#"{
+              "poll": {
+                "id": 1,
+                "name": "poll",
+                "type": "regular",
+                "status": "open",
+                "results": "always",
+                "options": [{"id": "1", "html": "<p>Rust</p>", "votes": 3}],
+                "voters": 3
+              }
+            }"#,
+        ),
+        raw_json_response(
+            200,
+            "application/json",
+            r#"{
+              "poll": {
+                "id": 1,
+                "name": "poll",
+                "type": "regular",
+                "status": "open",
+                "results": "always",
+                "options": [{"id": "1", "html": "<p>Rust</p>", "votes": 2}],
+                "voters": 2
+              }
+            }"#,
+        ),
+        raw_json_response(
+            200,
+            "application/json",
+            r#"{"can_vote":true,"vote_limit":10,"vote_count":5,"votes_left":4,"alert":false}"#,
+        ),
+        raw_json_response(
+            200,
+            "application/json",
+            r#"{"can_vote":true,"vote_limit":10,"vote_count":4,"votes_left":5,"alert":false}"#,
+        ),
+        raw_json_response(
+            200,
+            "application/json",
+            r#"[{"id":1,"username":"alice","avatar_template":"/user_avatar/linux.do/alice/{size}/1_2.png"}]"#,
+        ),
+    ])
+    .await
+    .expect("server");
+    let core = authenticated_core(&server.base_url());
+
+    let post = core.fetch_post(9001).await.expect("fetch post");
+    assert_eq!(post.raw.as_deref(), Some("Hello"));
+
+    let updated_post = core
+        .update_post(PostUpdateRequest {
+            post_id: 9001,
+            raw: "Updated".into(),
+            edit_reason: Some("clarify".into()),
+        })
+        .await
+        .expect("update post");
+    assert_eq!(updated_post.raw.as_deref(), Some("Updated"));
+
+    core.update_topic(TopicUpdateRequest {
+        topic_id: 123,
+        title: "Fire topic".into(),
+        category_id: 2,
+        tags: vec!["rust".into(), "ios".into()],
+    })
+    .await
+    .expect("update topic");
+
+    let poll = core
+        .vote_poll(9001, "poll", vec!["1".into()])
+        .await
+        .expect("vote poll");
+    assert_eq!(poll.options[0].votes, 3);
+
+    let removed_poll = core.unvote_poll(9001, "poll").await.expect("unvote poll");
+    assert_eq!(removed_poll.voters, 2);
+
+    let vote_response = core.vote_topic(123).await.expect("vote topic");
+    assert_eq!(vote_response.vote_count, 5);
+
+    let unvote_response = core.unvote_topic(123).await.expect("unvote topic");
+    assert_eq!(unvote_response.votes_left, 5);
+
+    let voters = core.fetch_topic_voters(123).await.expect("fetch voters");
+    assert_eq!(voters.len(), 1);
+    assert_eq!(voters[0].username, "alice");
+
+    let requests = server.shutdown_with_requests().await;
+    assert_eq!(requests.len(), 8);
+    assert!(requests[0].contains("GET /posts/9001.json HTTP/1.1"));
+    assert!(requests[1].contains("PUT /posts/9001.json HTTP/1.1"));
+    assert!(requests[1].contains("post%5Braw%5D=Updated"));
+    assert!(requests[1].contains("post%5Bedit_reason%5D=clarify"));
+    assert!(requests[2].contains("PUT /t/-/123.json HTTP/1.1"));
+    assert!(requests[2].contains("title=Fire+topic"));
+    assert!(requests[2].contains("category_id=2"));
+    assert!(requests[2].contains("tags%5B%5D=rust"));
+    assert!(requests[2].contains("tags%5B%5D=ios"));
+    assert!(requests[3].contains("PUT /polls/vote HTTP/1.1"));
+    assert!(requests[3].contains("post_id=9001"));
+    assert!(requests[3].contains("poll_name=poll"));
+    assert!(requests[3].contains("options%5B%5D=1"));
+    assert!(requests[4].contains("DELETE /polls/vote HTTP/1.1"));
+    assert!(requests[5].contains("POST /voting/vote HTTP/1.1"));
+    assert!(requests[5].contains("topic_id=123"));
+    assert!(requests[6].contains("POST /voting/unvote HTTP/1.1"));
+    assert!(requests[7].contains("GET /voting/who?topic_id=123 HTTP/1.1"));
+}
+
+#[tokio::test]
+async fn stage3_history_follow_and_invite_surfaces_parse_payloads() {
+    let server = TestServer::spawn(vec![
+        raw_json_response(
+            200,
+            "application/json",
+            r#"{
+              "topic_list": {
+                "topics": [{
+                  "id": 123,
+                  "title": "History topic",
+                  "slug": "history-topic",
+                  "posts_count": 2,
+                  "reply_count": 1,
+                  "views": 10,
+                  "like_count": 1,
+                  "category_id": 2,
+                  "created_at": "2026-04-11T00:00:00Z",
+                  "last_posted_at": "2026-04-11T00:10:00Z",
+                  "posters": [],
+                  "tags": []
+                }],
+                "more_topics_url": "/read?page=2"
+              },
+              "users": []
+            }"#,
+        ),
+        raw_json_response(
+            200,
+            "application/json",
+            r#"[{"id":1,"username":"alice","name":"Alice","avatar_template":"/user_avatar/linux.do/alice/{size}/1_2.png"}]"#,
+        ),
+        raw_json_response(
+            200,
+            "application/json",
+            r#"{
+              "pending_invites": [{
+                "invite_url": "https://linux.do/invites/fire",
+                "invite": {
+                  "id": 9,
+                  "invite_key": "fire",
+                  "max_redemptions_allowed": 5,
+                  "redemption_count": 1,
+                  "expired": false
+                }
+              }]
+            }"#,
+        ),
+        raw_json_response(
+            200,
+            "application/json",
+            r#"{"invite_key":"fresh","max_redemptions_allowed":3,"redemption_count":0}"#,
+        ),
+        raw_json_response(200, "application/json", "{}"),
+        raw_json_response(200, "application/json", "{}"),
+    ])
+    .await
+    .expect("server");
+    let core = authenticated_core(&server.base_url());
+
+    let history = core
+        .fetch_read_history(Some(2))
+        .await
+        .expect("read history");
+    assert_eq!(history.topics.len(), 1);
+    assert_eq!(history.next_page, Some(2));
+
+    let following = core.fetch_following("alice").await.expect("following");
+    assert_eq!(following[0].username, "alice");
+
+    let invites = core
+        .fetch_pending_invites("alice")
+        .await
+        .expect("pending invites");
+    assert_eq!(invites[0].invite_link, "https://linux.do/invites/fire");
+
+    let created = core
+        .create_invite_link(InviteCreateRequest {
+            max_redemptions_allowed: 3,
+            expires_at: None,
+            description: Some("beta".into()),
+            email: None,
+        })
+        .await
+        .expect("create invite");
+    assert_eq!(
+        created
+            .invite
+            .as_ref()
+            .and_then(|invite| invite.invite_key.as_deref()),
+        Some("fresh")
+    );
+
+    core.follow_user("bob").await.expect("follow user");
+    core.unfollow_user("bob").await.expect("unfollow user");
+
+    let requests = server.shutdown_with_requests().await;
+    assert_eq!(requests.len(), 6);
+    assert!(requests[0].contains("GET /read.json?page=2 HTTP/1.1"));
+    assert!(requests[1].contains("GET /u/alice/follow/following HTTP/1.1"));
+    assert!(requests[2].contains("GET /u/alice/invited/pending HTTP/1.1"));
+    assert!(requests[3].contains("POST /invites HTTP/1.1"));
+    assert!(requests[3].contains("\"max_redemptions_allowed\":3"));
+    assert!(requests[4].contains("PUT /follow/bob HTTP/1.1"));
+    assert!(requests[5].contains("DELETE /follow/bob HTTP/1.1"));
+}
+
+#[tokio::test]
+async fn create_topic_and_upload_surfaces_use_expected_requests() {
+    let server = TestServer::spawn(vec![
+        raw_json_response(200, "application/json", r#"{"post":{"topic_id":321}}"#),
         raw_json_response(
             200,
             "application/json",

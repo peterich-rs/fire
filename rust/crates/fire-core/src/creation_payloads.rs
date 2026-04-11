@@ -14,7 +14,8 @@ pub(crate) fn parse_draft_list_response_value(
         .get("drafts")
         .and_then(Value::as_array)
         .map(|items| {
-            items.iter()
+            items
+                .iter()
                 .cloned()
                 .map(parse_draft_item_value)
                 .collect::<Result<Vec<_>, _>>()
@@ -56,13 +57,16 @@ pub(crate) fn parse_draft_detail_response_value(
             .or_else(|| scalar_string(object.get("created_at"))),
         username: scalar_string(object.get("username")),
         avatar_template: scalar_string(object.get("avatar_template")),
-        topic_id: integer_u64(object.get("topic_id")).or_else(|| topic_id_from_draft_key(draft_key)),
+        topic_id: integer_u64(object.get("topic_id"))
+            .or_else(|| topic_id_from_draft_key(draft_key)),
     }))
 }
 
 pub(crate) fn parse_upload_result_value(value: Value) -> Result<UploadResult, serde_json::Error> {
     let Value::Object(object) = value else {
-        return Err(invalid_json("upload result response root was not an object"));
+        return Err(invalid_json(
+            "upload result response root was not an object",
+        ));
     };
 
     let short_url = scalar_string(object.get("short_url"))
@@ -89,7 +93,8 @@ pub(crate) fn parse_resolved_upload_urls_value(
         ));
     };
 
-    items.into_iter()
+    items
+        .into_iter()
         .map(parse_resolved_upload_url_value)
         .collect::<Result<Vec<_>, _>>()
 }
@@ -118,7 +123,8 @@ fn parse_draft_item_value(value: Value) -> Result<Draft, serde_json::Error> {
             .or_else(|| scalar_string(object.get("created_at"))),
         username: scalar_string(object.get("username")),
         avatar_template: scalar_string(object.get("avatar_template")),
-        topic_id: integer_u64(object.get("topic_id")).or_else(|| topic_id_from_draft_key(&draft_key)),
+        topic_id: integer_u64(object.get("topic_id"))
+            .or_else(|| topic_id_from_draft_key(&draft_key)),
     })
 }
 
@@ -131,7 +137,9 @@ fn parse_draft_data_value(value: &Value) -> Result<DraftData, serde_json::Error>
             serde_json::from_str::<DraftData>(raw)
         }
         Value::Object(object) => serde_json::from_value::<DraftData>(Value::Object(object.clone())),
-        _ => Err(invalid_json("draft data was neither a JSON string nor an object")),
+        _ => Err(invalid_json(
+            "draft data was neither a JSON string nor an object",
+        )),
     }
 }
 

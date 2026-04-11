@@ -951,6 +951,28 @@ pub struct TopicReaction {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PollOption {
+    pub id: String,
+    pub html: String,
+    pub votes: u32,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Poll {
+    pub id: u64,
+    pub name: String,
+    #[serde(default, alias = "type")]
+    pub kind: String,
+    pub status: String,
+    pub results: String,
+    #[serde(default)]
+    pub options: Vec<PollOption>,
+    pub voters: u32,
+    #[serde(default)]
+    pub user_votes: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TopicReplyRequest {
     pub topic_id: u64,
     pub raw: String,
@@ -964,6 +986,30 @@ pub struct TopicCreateRequest {
     pub category_id: u64,
     #[serde(default)]
     pub tags: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TopicUpdateRequest {
+    pub topic_id: u64,
+    pub title: String,
+    pub category_id: u64,
+    #[serde(default)]
+    pub tags: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PostUpdateRequest {
+    pub post_id: u64,
+    pub raw: String,
+    pub edit_reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InviteCreateRequest {
+    pub max_redemptions_allowed: u32,
+    pub expires_at: Option<String>,
+    pub description: Option<String>,
+    pub email: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -1058,6 +1104,7 @@ pub struct TopicPost {
     pub name: Option<String>,
     pub avatar_template: Option<String>,
     pub cooked: String,
+    pub raw: Option<String>,
     pub post_number: u32,
     pub post_type: i32,
     pub created_at: Option<String>,
@@ -1071,6 +1118,7 @@ pub struct TopicPost {
     pub bookmark_reminder_at: Option<String>,
     pub reactions: Vec<TopicReaction>,
     pub current_user_reaction: Option<TopicReaction>,
+    pub polls: Vec<Poll>,
     pub accepted_answer: bool,
     pub can_edit: bool,
     pub can_delete: bool,
@@ -1653,6 +1701,50 @@ pub struct UserAction {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct UserActionResponse {
     pub user_actions: Vec<UserAction>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FollowUser {
+    pub id: u64,
+    pub username: String,
+    pub name: Option<String>,
+    pub avatar_template: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InviteLinkDetails {
+    pub id: Option<u64>,
+    pub invite_key: Option<String>,
+    pub max_redemptions_allowed: Option<u32>,
+    pub redemption_count: Option<u32>,
+    pub expired: Option<bool>,
+    pub created_at: Option<String>,
+    pub expires_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InviteLink {
+    pub invite_link: String,
+    pub invite: Option<InviteLinkDetails>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VotedUser {
+    pub id: u64,
+    pub username: String,
+    pub name: Option<String>,
+    pub avatar_template: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VoteResponse {
+    pub can_vote: bool,
+    pub vote_limit: u32,
+    pub vote_count: i32,
+    pub votes_left: i32,
+    pub alert: bool,
+    #[serde(default)]
+    pub who_voted: Vec<VotedUser>,
 }
 
 #[cfg(test)]
@@ -2312,6 +2404,7 @@ mod tests {
             name: None,
             avatar_template: None,
             cooked: format!("<p>{post_number}</p>"),
+            raw: None,
             post_number,
             post_type: 1,
             created_at: None,
@@ -2325,6 +2418,7 @@ mod tests {
             bookmark_reminder_at: None,
             reactions: Vec::new(),
             current_user_reaction: None,
+            polls: Vec::new(),
             accepted_answer: false,
             can_edit: false,
             can_delete: false,

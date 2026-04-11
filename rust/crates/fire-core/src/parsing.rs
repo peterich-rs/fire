@@ -610,12 +610,25 @@ mod tests {
         assert_eq!(parsed.bootstrap_patch.categories.len(), 1);
         assert_eq!(parsed.bootstrap_patch.categories[0].id, 7);
         assert_eq!(
-            parsed.bootstrap_patch.categories[0].topic_template.as_deref(),
+            parsed.bootstrap_patch.categories[0]
+                .topic_template
+                .as_deref(),
             Some("## Template")
         );
-        assert_eq!(parsed.bootstrap_patch.categories[0].minimum_required_tags, 2);
-        assert_eq!(parsed.bootstrap_patch.categories[0].required_tag_groups.len(), 1);
-        assert_eq!(parsed.bootstrap_patch.categories[0].allowed_tags, vec!["swift", "rust"]);
+        assert_eq!(
+            parsed.bootstrap_patch.categories[0].minimum_required_tags,
+            2
+        );
+        assert_eq!(
+            parsed.bootstrap_patch.categories[0]
+                .required_tag_groups
+                .len(),
+            1
+        );
+        assert_eq!(
+            parsed.bootstrap_patch.categories[0].allowed_tags,
+            vec!["swift", "rust"]
+        );
         assert_eq!(parsed.bootstrap_patch.categories[0].permission, Some(1));
     }
 

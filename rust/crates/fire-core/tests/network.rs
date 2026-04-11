@@ -225,12 +225,18 @@ async fn fetch_bookmarks_parses_bookmark_metadata_fields() {
     assert_eq!(response.topics.len(), 1);
     assert_eq!(response.topics[0].bookmarked_post_number, Some(7));
     assert_eq!(response.topics[0].bookmark_id, Some(901));
-    assert_eq!(response.topics[0].bookmark_name.as_deref(), Some("稍后细读"));
+    assert_eq!(
+        response.topics[0].bookmark_name.as_deref(),
+        Some("稍后细读")
+    );
     assert_eq!(
         response.topics[0].bookmark_reminder_at.as_deref(),
         Some("2026-03-29T09:00:00Z")
     );
-    assert_eq!(response.topics[0].bookmarkable_type.as_deref(), Some("Post"));
+    assert_eq!(
+        response.topics[0].bookmarkable_type.as_deref(),
+        Some("Post")
+    );
     assert_eq!(requests.len(), 1);
     assert!(requests[0].contains("GET /u/alice/bookmarks.json?page=2 HTTP/1.1"));
 }

@@ -166,12 +166,14 @@ Build prerequisites:
 
 Verified local commands:
 
+- `./scripts/check_clean_submodules.sh`
 - `xcodegen generate --spec native/ios-app/project.yml`
 - `xcodebuild -project native/ios-app/Fire.xcodeproj -scheme Fire -destination 'generic/platform=iOS Simulator' build`
 - `xcodebuild -project native/ios-app/Fire.xcodeproj -scheme Fire -destination 'platform=iOS Simulator,OS=18.2,name=iPhone 16' -derivedDataPath /tmp/fire-ios-ui CODE_SIGNING_ALLOWED=NO test`
 
 Current build note:
 
+- The clean verification baseline requires `third_party/openwire` and `third_party/xlog-rs` to be initialized and free of local modifications. Run `./scripts/check_clean_submodules.sh` from the repository root before trusting local build/test results.
 - The simulator/unit-test path above is verified locally after the diagnostics addition.
 - The device `Release` Xcode path is also verified locally.
 - The UniFFI pre-build script now sanitizes host and iOS-target cargo environments separately: host cargo invocations keep the macOS SDK and library search path, while iOS target cargo invocations keep the macOS `SDKROOT` needed for host build scripts without leaking the macOS `LIBRARY_PATH` into iPhoneOS/iPhoneSimulator links.

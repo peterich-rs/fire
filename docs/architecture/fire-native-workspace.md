@@ -67,6 +67,14 @@ fire/
 - `third_party/` stores build dependencies as submodules so the superproject can be pushed cleanly to GitHub.
 - The root Cargo workspace owns only the local Fire crates.
 
+## Clean Worktree Workflow
+
+- The repository root may temporarily carry owner-only `openwire` experiments; do not treat that state as the delivery baseline.
+- Standard feature work should start from a clean secondary worktree under `../fire-worktrees/`.
+- The current integration baseline must keep `third_party/openwire` and `third_party/xlog-rs` initialized, clean, and pinned to reviewed commits.
+- CI and local verification should fail fast when those required submodules are missing local checkout state, have local modifications, or have uncommitted pointer drift in the superproject.
+- When a feature branch needs a newer infrastructure revision, update the submodule pointer on the clean integration line first, verify Rust and native builds there, and only then branch feature work from that green baseline.
+
 ## Shared Networking Model
 
 - `fire-core` owns one shared `openwire` client per `FireCore` instance.

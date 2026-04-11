@@ -123,6 +123,10 @@
 - 补充说明：
   - 协议层应支持重复提交 `options[]` 表单字段来表达多选
   - 当前客户端代码存在多选实现偏差，实际更可靠的是单值 `options[]`
+  - 当前 Fire iOS 会从 `posts[].polls` + `posts[].polls_votes` 渲染原生 poll 卡片：
+    - `type="regular"` 按单选处理
+    - `type` 含 `multiple` 按多选处理
+  - 提交成功后会刷新当前 topic detail
 
 ### `DELETE /polls/vote`
 
@@ -145,6 +149,10 @@
 }
 ```
 
+- 当前客户端行为：
+  - iOS 在已投票的 poll 卡片上提供“撤销投票”
+  - 撤销后会刷新当前 topic detail
+
 ### `POST /voting/vote`
 
 - 用途：话题投票插件投票
@@ -158,6 +166,9 @@
 ```
 
 - 响应：`VoteResponse`
+- 当前客户端行为：
+  - iOS 在 topic detail header 提供原生话题投票面板
+  - 成功后会刷新当前 topic detail
 
 ### `POST /voting/unvote`
 
@@ -172,6 +183,9 @@
 ```
 
 - 响应：`VoteResponse`
+- 当前客户端行为：
+  - iOS 在已投票状态下显示“取消投票”
+  - 成功后会刷新当前 topic detail
 
 ### `GET /voting/who`
 
@@ -179,6 +193,8 @@
 - Query：
   - `topic_id: integer`
 - 响应：`VotedUser[]`
+- 当前客户端行为：
+  - iOS 在 topic detail vote panel 提供 voters sheet
 
 ### `POST /topics/timings`
 

@@ -73,6 +73,10 @@
 
 - 用途：获取关注列表
 - 响应：`FollowUser[]`
+- 当前客户端行为：
+  - iOS 在公开用户页和“我的”页都提供 following / followers 原生列表
+  - 列表项会跳转到公开用户页
+  - 当前共享层兼容数组根节点和简单 wrapper 结构
 
 ### `GET /u/{username}/follow/followers`
 
@@ -82,6 +86,9 @@
 ### `PUT /follow/{username}`
 
 - 用途：关注用户
+- 当前客户端行为：
+  - iOS 在公开用户页 header 提供 follow / unfollow 原生按钮
+  - 成功后会刷新当前 profile 数据
 
 ### `DELETE /follow/{username}`
 
@@ -106,6 +113,9 @@
 - Query：
   - `page?: integer`
 - 响应：`TopicListResponse`
+- 当前客户端行为：
+  - iOS 在“我的”页提供浏览历史列表
+  - 列表项进入 topic detail 时，会优先用 `last_read_post_number` 接续上次阅读位置
 
 ### `GET /u/{username}/bookmarks.json`
 
@@ -191,6 +201,10 @@
 ]
 ```
 
+- 当前客户端行为：
+  - iOS 在“我的”页提供 invite links 管理页
+  - 当前共享层兼容数组根节点、`pending_invites` / `invites` wrapper，以及单条 invite payload
+
 ### `POST /invites`
 
 - 用途：创建邀请链接
@@ -210,7 +224,8 @@
 - 补充说明：
   - 成功响应可能直接给 `invite_link`
   - 也可能只返回 `invite_key` / `invite_url` / `url` / `link`
-  - 当前客户端在拿不到完整链接时，会回查 `GET /u/{username}/invited/pending`
+  - 当前 iOS 客户端优先使用响应里的 `invite_link`
+  - 如果只有 `invite_key`，则按 `base_url/invites/{invite_key}` 本地补全分享链接
 
 ## 搜索
 

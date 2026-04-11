@@ -477,6 +477,9 @@ class MainActivity : AppCompatActivity() {
                 hasSiteSettings = false,
                 enabledReactionIds = listOf("heart"),
                 minPostLength = 1u,
+                minTopicTitleLength = 15u,
+                minFirstPostLength = 20u,
+                defaultComposerCategory = null,
             ),
             readiness = SessionReadinessState(
                 hasLoginCookie = false,

@@ -2795,8 +2795,8 @@ pub enum FireUniFfiError {
     Validation { details: String },
     #[error("authentication error: {details}")]
     Authentication { details: String },
-    #[error("login required: {message}")]
-    LoginRequired { message: String },
+    #[error("login required: {details}")]
+    LoginRequired { details: String },
     #[error("network error: {details}")]
     Network { details: String },
     #[error("request requires Cloudflare challenge verification")]
@@ -2834,7 +2834,9 @@ impl From<FireCoreError> for FireUniFfiError {
             FireCoreError::Logger(source) => Self::Configuration {
                 details: source.to_string(),
             },
-            FireCoreError::LoginRequired { message, .. } => Self::LoginRequired { message },
+            FireCoreError::LoginRequired { message, .. } => {
+                Self::LoginRequired { details: message }
+            }
             FireCoreError::CloudflareChallenge { .. } => Self::CloudflareChallenge,
             FireCoreError::HttpStatus {
                 operation,
@@ -4109,8 +4111,8 @@ mod tests {
 
         assert!(matches!(
             error,
-            FireUniFfiError::LoginRequired { message }
-                if message == "您需要登录才能执行此操作。"
+            FireUniFfiError::LoginRequired { details }
+                if details == "您需要登录才能执行此操作。"
         ));
     }
 

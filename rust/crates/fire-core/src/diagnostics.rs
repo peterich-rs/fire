@@ -492,12 +492,12 @@ impl FireDiagnosticsStore {
         });
     }
 
-    pub(crate) fn record_call_end(&self, trace_id: u64, response: &Response<ResponseBody>) {
+    pub(crate) fn record_call_end(&self, trace_id: u64) {
         self.with_trace(trace_id, |trace| {
             trace.push_event(
                 "call_end",
-                format!("Transport returned HTTP {}", response.status().as_u16()),
-                Some("response body may still be in progress".to_string()),
+                "Call completed".to_string(),
+                Some("response body lifecycle already finished".to_string()),
             );
         });
     }
@@ -959,8 +959,8 @@ impl EventListener for FireNetworkTraceEventListener {
         self.with_trace(|diagnostics, trace_id| diagnostics.record_call_start(trace_id, ctx));
     }
 
-    fn call_end(&self, _ctx: &CallContext, response: &Response<ResponseBody>) {
-        self.with_trace(|diagnostics, trace_id| diagnostics.record_call_end(trace_id, response));
+    fn call_end(&self, _ctx: &CallContext) {
+        self.with_trace(|diagnostics, trace_id| diagnostics.record_call_end(trace_id));
     }
 
     fn call_failed(&self, _ctx: &CallContext, error: &WireError) {

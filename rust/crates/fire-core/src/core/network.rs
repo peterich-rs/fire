@@ -5,8 +5,8 @@ use http::{
     Method, Request, Response, StatusCode,
 };
 use openwire::{
-    BoxFuture, Call, CallOptions, Client, Exchange, Interceptor, Next, RequestBody, ResponseBody,
-    WireError,
+    BoxFuture, Call, CallOptions, Client, Exchange, Interceptor, Next, ProxyRules, RequestBody,
+    ResponseBody, WireError,
 };
 use serde::de::DeserializeOwned;
 use tracing::{debug, info, warn};
@@ -170,7 +170,7 @@ impl FireNetworkLayer {
                 &diagnostics,
             )));
         #[cfg(debug_assertions)]
-        let builder = builder.use_system_proxy(true);
+        let builder = builder.proxy_selector(ProxyRules::new().use_system_proxy(true));
         let client = builder
             .build()
             .map_err(|source| FireCoreError::ClientBuild { source })?;

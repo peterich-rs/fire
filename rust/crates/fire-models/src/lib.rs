@@ -1,3 +1,5 @@
+use std::time::{SystemTime, UNIX_EPOCH};
+
 use serde::{Deserialize, Serialize};
 use url::Url;
 
@@ -7,6 +9,18 @@ pub struct PlatformCookie {
     pub value: String,
     pub domain: Option<String>,
     pub path: Option<String>,
+    pub expires_at_unix_ms: Option<i64>,
+}
+
+impl PlatformCookie {
+    pub fn is_expired_at(&self, now_unix_ms: i64) -> bool {
+        self.expires_at_unix_ms
+            .is_some_and(|expires_at_unix_ms| expires_at_unix_ms <= now_unix_ms)
+    }
+
+    pub fn is_expired_now(&self) -> bool {
+        self.is_expired_at(current_unix_ms())
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -21,15 +35,28 @@ pub struct CookieSnapshot {
 
 impl CookieSnapshot {
     pub fn has_login_session(&self) -> bool {
-        is_non_empty(self.t_token.as_deref())
+        if self.platform_cookies.is_empty() {
+            is_non_empty(self.t_token.as_deref())
+        } else {
+            latest_non_empty_platform_cookie_value(&self.platform_cookies, "_t").is_some()
+        }
     }
 
     pub fn has_forum_session(&self) -> bool {
-        is_non_empty(self.forum_session.as_deref())
+        if self.platform_cookies.is_empty() {
+            is_non_empty(self.forum_session.as_deref())
+        } else {
+            latest_non_empty_platform_cookie_value(&self.platform_cookies, "_forum_session")
+                .is_some()
+        }
     }
 
     pub fn has_cloudflare_clearance(&self) -> bool {
-        is_non_empty(self.cf_clearance.as_deref())
+        if self.platform_cookies.is_empty() {
+            is_non_empty(self.cf_clearance.as_deref())
+        } else {
+            latest_non_empty_platform_cookie_value(&self.platform_cookies, "cf_clearance").is_some()
+        }
     }
 
     pub fn has_csrf_token(&self) -> bool {
@@ -93,7 +120,14 @@ impl CookieSnapshot {
     }
 
     pub fn refresh_known_platform_cookie_fields(&mut self) {
+        let had_platform_cookies = !self.platform_cookies.is_empty();
+        self.platform_cookies = normalized_platform_cookies(&self.platform_cookies);
         if self.platform_cookies.is_empty() {
+            if had_platform_cookies {
+                self.t_token = None;
+                self.forum_session = None;
+                self.cf_clearance = None;
+            }
             return;
         }
 
@@ -1401,6 +1435,8 @@ fn normalized_platform_cookies(cookies: &[PlatformCookie]) -> Vec<PlatformCookie
 }
 
 fn merge_platform_cookie_batch(current: &mut Vec<PlatformCookie>, incoming: &[PlatformCookie]) {
+    let now_unix_ms = current_unix_ms();
+    current.retain(|cookie| !cookie.is_expired_at(now_unix_ms));
     for cookie in incoming {
         let Some((name, domain, path)) = normalized_platform_cookie_key(cookie) else {
             continue;
@@ -1410,7 +1446,7 @@ fn merge_platform_cookie_batch(current: &mut Vec<PlatformCookie>, incoming: &[Pl
                 existing_key != (name.clone(), domain.clone(), path.clone())
             })
         });
-        if is_deleted_cookie_value(&cookie.value) {
+        if is_deleted_cookie_value(&cookie.value) || cookie.is_expired_at(now_unix_ms) {
             continue;
         }
         current.push(PlatformCookie {
@@ -1418,6 +1454,7 @@ fn merge_platform_cookie_batch(current: &mut Vec<PlatformCookie>, incoming: &[Pl
             value: cookie.value.trim().to_string(),
             domain,
             path: Some(path),
+            expires_at_unix_ms: cookie.expires_at_unix_ms,
         });
     }
 }
@@ -1434,7 +1471,7 @@ fn normalized_platform_cookie_key(
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .map(|value| value.trim_start_matches('.').to_ascii_lowercase());
+        .map(|value| value.to_ascii_lowercase());
     let path = cookie
         .path
         .as_deref()
@@ -1479,11 +1516,20 @@ fn latest_non_empty_platform_cookie_value(
     cookies: &[PlatformCookie],
     name: &str,
 ) -> Option<String> {
+    let now_unix_ms = current_unix_ms();
     cookies
         .iter()
         .rev()
-        .find(|cookie| cookie.name == name && !cookie.value.is_empty())
+        .find(|cookie| {
+            cookie.name == name && !cookie.value.is_empty() && !cookie.is_expired_at(now_unix_ms)
+        })
         .map(|cookie| cookie.value.clone())
+}
+
+fn current_unix_ms() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |duration| duration.as_millis() as i64)
 }
 
 fn default_enabled_reaction_ids() -> Vec<String> {
@@ -1764,18 +1810,21 @@ mod tests {
                 value: "token".into(),
                 domain: None,
                 path: None,
+                expires_at_unix_ms: None,
             },
             PlatformCookie {
                 name: "_forum_session".into(),
                 value: "forum".into(),
                 domain: None,
                 path: None,
+                expires_at_unix_ms: None,
             },
             PlatformCookie {
                 name: "cf_clearance".into(),
                 value: "clearance".into(),
                 domain: None,
                 path: None,
+                expires_at_unix_ms: None,
             },
         ]);
 
@@ -1800,12 +1849,14 @@ mod tests {
                 value: String::new(),
                 domain: None,
                 path: None,
+                expires_at_unix_ms: None,
             },
             PlatformCookie {
                 name: "_forum_session".into(),
                 value: String::new(),
                 domain: None,
                 path: None,
+                expires_at_unix_ms: None,
             },
         ]);
 
@@ -1824,18 +1875,21 @@ mod tests {
                 value: "stale".into(),
                 domain: None,
                 path: None,
+                expires_at_unix_ms: None,
             },
             PlatformCookie {
                 name: "_t".into(),
                 value: String::new(),
                 domain: None,
                 path: None,
+                expires_at_unix_ms: None,
             },
             PlatformCookie {
                 name: "_t".into(),
                 value: "fresh".into(),
                 domain: None,
                 path: None,
+                expires_at_unix_ms: None,
             },
         ]);
 
@@ -1858,12 +1912,14 @@ mod tests {
                 value: "fresh-token".into(),
                 domain: None,
                 path: None,
+                expires_at_unix_ms: None,
             },
             PlatformCookie {
                 name: "cf_clearance".into(),
                 value: "fresh-clearance".into(),
                 domain: None,
                 path: None,
+                expires_at_unix_ms: None,
             },
         ]);
 
@@ -1883,12 +1939,14 @@ mod tests {
                 value: "token".into(),
                 domain: Some("linux.do".into()),
                 path: Some("/".into()),
+                expires_at_unix_ms: None,
             },
             PlatformCookie {
                 name: "__cf_bm".into(),
                 value: "browser-context".into(),
                 domain: Some(".linux.do".into()),
                 path: Some("/".into()),
+                expires_at_unix_ms: None,
             },
         ]);
 
@@ -1930,24 +1988,28 @@ mod tests {
                 value: "token".into(),
                 domain: Some("linux.do".into()),
                 path: Some("/".into()),
+                expires_at_unix_ms: None,
             },
             PlatformCookie {
                 name: "_forum_session".into(),
                 value: "forum".into(),
                 domain: Some("linux.do".into()),
                 path: Some("/".into()),
+                expires_at_unix_ms: None,
             },
             PlatformCookie {
                 name: "cf_clearance".into(),
                 value: "clearance".into(),
                 domain: Some("linux.do".into()),
                 path: Some("/".into()),
+                expires_at_unix_ms: None,
             },
             PlatformCookie {
                 name: "__cf_bm".into(),
                 value: "browser-context".into(),
                 domain: Some(".linux.do".into()),
                 path: Some("/".into()),
+                expires_at_unix_ms: None,
             },
         ]);
 
@@ -1968,6 +2030,105 @@ mod tests {
             .platform_cookies
             .iter()
             .any(|cookie| cookie.name == "__cf_bm"));
+    }
+
+    #[test]
+    fn platform_cookie_apply_drops_expired_cookie_entries() {
+        let mut cookies = CookieSnapshot::default();
+
+        cookies.apply_platform_cookies(&[
+            PlatformCookie {
+                name: "_t".into(),
+                value: "expired-token".into(),
+                domain: Some("linux.do".into()),
+                path: Some("/".into()),
+                expires_at_unix_ms: Some(1),
+            },
+            PlatformCookie {
+                name: "_forum_session".into(),
+                value: "forum".into(),
+                domain: Some("linux.do".into()),
+                path: Some("/".into()),
+                expires_at_unix_ms: None,
+            },
+        ]);
+
+        assert_eq!(cookies.t_token, None);
+        assert_eq!(cookies.forum_session.as_deref(), Some("forum"));
+        assert_eq!(cookies.platform_cookies.len(), 1);
+        assert_eq!(cookies.platform_cookies[0].name, "_forum_session");
+    }
+
+    #[test]
+    fn platform_cookie_apply_keeps_host_and_domain_variants_separate() {
+        let mut cookies = CookieSnapshot::default();
+
+        cookies.apply_platform_cookies(&[
+            PlatformCookie {
+                name: "_t".into(),
+                value: "host-only".into(),
+                domain: Some("linux.do".into()),
+                path: Some("/".into()),
+                expires_at_unix_ms: None,
+            },
+            PlatformCookie {
+                name: "_t".into(),
+                value: "domain-scope".into(),
+                domain: Some(".linux.do".into()),
+                path: Some("/".into()),
+                expires_at_unix_ms: None,
+            },
+        ]);
+
+        assert_eq!(cookies.platform_cookies.len(), 2);
+        assert!(cookies
+            .platform_cookies
+            .iter()
+            .any(|cookie| cookie.domain.as_deref() == Some("linux.do")
+                && cookie.value == "host-only"));
+        assert!(cookies
+            .platform_cookies
+            .iter()
+            .any(|cookie| cookie.domain.as_deref() == Some(".linux.do")
+                && cookie.value == "domain-scope"));
+    }
+
+    #[test]
+    fn readiness_ignores_expired_platform_auth_cookies() {
+        let cookies = CookieSnapshot {
+            t_token: Some("stale-token".into()),
+            forum_session: Some("stale-forum".into()),
+            cf_clearance: Some("stale-clearance".into()),
+            csrf_token: None,
+            platform_cookies: vec![
+                PlatformCookie {
+                    name: "_t".into(),
+                    value: "expired-token".into(),
+                    domain: Some("linux.do".into()),
+                    path: Some("/".into()),
+                    expires_at_unix_ms: Some(1),
+                },
+                PlatformCookie {
+                    name: "_forum_session".into(),
+                    value: "expired-forum".into(),
+                    domain: Some("linux.do".into()),
+                    path: Some("/".into()),
+                    expires_at_unix_ms: Some(1),
+                },
+                PlatformCookie {
+                    name: "cf_clearance".into(),
+                    value: "expired-clearance".into(),
+                    domain: Some("linux.do".into()),
+                    path: Some("/".into()),
+                    expires_at_unix_ms: Some(1),
+                },
+            ],
+        };
+
+        assert!(!cookies.has_login_session());
+        assert!(!cookies.has_forum_session());
+        assert!(!cookies.has_cloudflare_clearance());
+        assert!(!cookies.can_authenticate_requests());
     }
 
     #[test]

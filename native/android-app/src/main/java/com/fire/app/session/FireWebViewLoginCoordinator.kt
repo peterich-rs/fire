@@ -104,6 +104,7 @@ class FireWebViewLoginCoordinator(
                     value = trimmed.substring(separator + 1),
                     domain = domain,
                     path = "/",
+                    expiresAtUnixMs = null,
                 )
             }
     }

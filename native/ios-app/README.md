@@ -25,11 +25,11 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
   - passes the platform workspace root (`Application Support/Fire`) into Rust during initialization
   - restores the redacted persisted session snapshot on cold start, then re-injects Keychain cookies before authenticated requests
   - delegates platform-cookie apply semantics plus bootstrap/CSRF refresh decisions to Rust instead of reimplementing them in Swift
-  - persists the latest Rust session snapshot as a redacted `Application Support/Fire/session.json`
+  - persists the latest Rust session snapshot as a redacted `Application Support/Fire/session.json` and mirrors the current Rust-owned auth cookie batch back into Keychain whenever it changes
   - lets Rust initialize shared logs under `Application Support/Fire/logs`
   - wraps `syncLoginContext`, async `refreshBootstrap`, async `refreshCsrfToken`, async topic fetches, and async logout
 - `FireAuthCookieKeychainStore.swift`
-  - stores the full same-site LinuxDo browser cookie batch in Keychain using a host-scoped generic-password entry
+  - stores the full same-site LinuxDo browser cookie batch in Keychain using a host-scoped generic-password entry, preserving domain variants and cookie expiry
   - preserves non-login browser context cookies, including `cf_clearance`, across explicit logout so Cloudflare challenge state stays aligned with the host shell
 - `FireWebViewLoginCoordinator.swift`
   - reads `WKWebView` cookies, `current-username`, `csrf-token`, page HTML, and the live browser user agent
@@ -128,7 +128,7 @@ Workspace note:
 - Swift host-side logs can now write back into that same Rust-owned logging pipeline, so native lifecycle/debug messages land in the shared xlog and readable-log artifacts instead of a separate `OSLog` stream.
 - Rust can resolve relative paths inside that workspace for shared file ownership such as logs, caches, or exports.
 - The current persisted session file remains `Application Support/Fire/session.json`, but iOS now writes it as a redacted cache.
-- iOS keeps the full same-site LinuxDo browser cookie batch in Keychain and re-injects it into Rust during cold start before any authenticated refresh path runs.
+- iOS keeps the full same-site LinuxDo browser cookie batch in Keychain, including expiry metadata and distinct host/domain variants, re-injects it into Rust during cold start before any authenticated refresh path runs, and refreshes the Keychain copy when Rust receives newer auth cookies from the network.
 
 Current UX note:
 

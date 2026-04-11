@@ -29,6 +29,10 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Verify required submodules are initialized and clean
+        shell: bash
+        run: ./scripts/check_clean_submodules.sh
+
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
@@ -95,6 +99,10 @@ jobs:
       - uses: actions/checkout@v5
         with:
           submodules: recursive
+
+      - name: Verify required submodules are initialized and clean
+        shell: bash
+        run: ./scripts/check_clean_submodules.sh
 
       - name: Install Rust toolchain and iOS targets
         shell: bash

@@ -19,19 +19,20 @@ use fire_core::{
     NetworkTraceHeader, NetworkTraceOutcome, NetworkTraceSummary,
 };
 use fire_models::{
-    Badge, BootstrapArtifacts, CookieSnapshot, GroupedSearchResult, LoginPhase, LoginSyncInput,
-    MessageBusClientMode, MessageBusEvent, MessageBusEventKind, MessageBusSubscription,
-    MessageBusSubscriptionScope, NotificationAlert, NotificationAlertPollResult,
-    NotificationCounters, NotificationData, NotificationItem, NotificationListResponse,
-    NotificationState, PlatformCookie, PostReactionUpdate, ProfileSummaryReply,
-    ProfileSummaryTopCategory, ProfileSummaryTopic, ProfileSummaryUserReference, RequiredTagGroup,
-    SearchPost, SearchQuery, SearchResult, SearchTopic, SearchTypeFilter, SearchUser,
-    SessionReadiness, SessionSnapshot, TagSearchItem, TagSearchQuery, TagSearchResult,
-    TopicCategory, TopicDetail, TopicDetailCreatedBy, TopicDetailMeta, TopicDetailQuery,
-    TopicListKind, TopicListQuery, TopicListResponse, TopicPost, TopicPostStream, TopicPoster,
-    TopicPresence, TopicPresenceUser, TopicReaction, TopicReplyRequest, TopicRow, TopicSummary,
-    TopicTag, TopicThread, TopicThreadFlatPost, TopicThreadReply, TopicThreadSection,
-    TopicTimingEntry, TopicTimingsRequest, TopicUser, UserAction, UserMentionGroup,
+    Badge, BootstrapArtifacts, CookieSnapshot, Draft, DraftData, DraftListResponse,
+    GroupedSearchResult, LoginPhase, LoginSyncInput, MessageBusClientMode, MessageBusEvent,
+    MessageBusEventKind, MessageBusSubscription, MessageBusSubscriptionScope, NotificationAlert,
+    NotificationAlertPollResult, NotificationCounters, NotificationData, NotificationItem,
+    NotificationListResponse, NotificationState, PlatformCookie, PostReactionUpdate,
+    ProfileSummaryReply, ProfileSummaryTopCategory, ProfileSummaryTopic,
+    ProfileSummaryUserReference, RequiredTagGroup, ResolvedUploadUrl, SearchPost, SearchQuery,
+    SearchResult, SearchTopic, SearchTypeFilter, SearchUser, SessionReadiness, SessionSnapshot,
+    TagSearchItem, TagSearchQuery, TagSearchResult, TopicCategory, TopicCreateRequest,
+    TopicDetail, TopicDetailCreatedBy, TopicDetailMeta, TopicDetailQuery, TopicListKind,
+    TopicListQuery, TopicListResponse, TopicPost, TopicPostStream, TopicPoster, TopicPresence,
+    TopicPresenceUser, TopicReaction, TopicReplyRequest, TopicRow, TopicSummary, TopicTag,
+    TopicThread, TopicThreadFlatPost, TopicThreadReply, TopicThreadSection, TopicTimingEntry,
+    TopicTimingsRequest, TopicUser, UploadResult, UserAction, UserMentionGroup,
     UserMentionQuery, UserMentionResult, UserMentionUser, UserProfile, UserSummaryResponse,
     UserSummaryStats,
 };
@@ -201,6 +202,11 @@ pub struct TopicCategoryState {
     pub parent_category_id: Option<u64>,
     pub color_hex: Option<String>,
     pub text_color_hex: Option<String>,
+    pub topic_template: Option<String>,
+    pub minimum_required_tags: u32,
+    pub required_tag_groups: Vec<RequiredTagGroupState>,
+    pub allowed_tags: Vec<String>,
+    pub permission: Option<u32>,
 }
 
 impl From<TopicCategory> for TopicCategoryState {
@@ -212,6 +218,11 @@ impl From<TopicCategory> for TopicCategoryState {
             parent_category_id: value.parent_category_id,
             color_hex: value.color_hex,
             text_color_hex: value.text_color_hex,
+            topic_template: value.topic_template,
+            minimum_required_tags: value.minimum_required_tags,
+            required_tag_groups: value.required_tag_groups.into_iter().map(Into::into).collect(),
+            allowed_tags: value.allowed_tags,
+            permission: value.permission,
         }
     }
 }
@@ -225,6 +236,11 @@ impl From<TopicCategoryState> for TopicCategory {
             parent_category_id: value.parent_category_id,
             color_hex: value.color_hex,
             text_color_hex: value.text_color_hex,
+            topic_template: value.topic_template,
+            minimum_required_tags: value.minimum_required_tags,
+            required_tag_groups: value.required_tag_groups.into_iter().map(Into::into).collect(),
+            allowed_tags: value.allowed_tags,
+            permission: value.permission,
         }
     }
 }
@@ -249,6 +265,9 @@ pub struct BootstrapState {
     pub has_site_settings: bool,
     pub enabled_reaction_ids: Vec<String>,
     pub min_post_length: u32,
+    pub min_topic_title_length: u32,
+    pub min_first_post_length: u32,
+    pub default_composer_category: Option<u64>,
 }
 
 impl From<BootstrapArtifacts> for BootstrapState {
@@ -272,6 +291,9 @@ impl From<BootstrapArtifacts> for BootstrapState {
             has_site_settings: value.has_site_settings,
             enabled_reaction_ids: value.enabled_reaction_ids,
             min_post_length: value.min_post_length,
+            min_topic_title_length: value.min_topic_title_length,
+            min_first_post_length: value.min_first_post_length,
+            default_composer_category: value.default_composer_category,
         }
     }
 }
@@ -297,6 +319,9 @@ impl From<BootstrapState> for BootstrapArtifacts {
             has_site_settings: value.has_site_settings,
             enabled_reaction_ids: value.enabled_reaction_ids,
             min_post_length: value.min_post_length,
+            min_topic_title_length: value.min_topic_title_length,
+            min_first_post_length: value.min_first_post_length,
+            default_composer_category: value.default_composer_category,
         }
     }
 }
@@ -1323,6 +1348,15 @@ impl From<RequiredTagGroup> for RequiredTagGroupState {
     }
 }
 
+impl From<RequiredTagGroupState> for RequiredTagGroup {
+    fn from(value: RequiredTagGroupState) -> Self {
+        Self {
+            name: value.name,
+            min_count: value.min_count,
+        }
+    }
+}
+
 #[derive(uniffi::Record, Debug, Clone)]
 pub struct TagSearchResultState {
     pub results: Vec<TagSearchItemState>,
@@ -1496,6 +1530,166 @@ impl From<TopicReplyRequestState> for TopicReplyRequest {
             topic_id: value.topic_id,
             raw: value.raw,
             reply_to_post_number: value.reply_to_post_number,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct TopicCreateRequestState {
+    pub title: String,
+    pub raw: String,
+    pub category_id: u64,
+    pub tags: Vec<String>,
+}
+
+impl From<TopicCreateRequestState> for TopicCreateRequest {
+    fn from(value: TopicCreateRequestState) -> Self {
+        Self {
+            title: value.title,
+            raw: value.raw,
+            category_id: value.category_id,
+            tags: value.tags,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct DraftDataState {
+    pub reply: Option<String>,
+    pub title: Option<String>,
+    pub category_id: Option<u64>,
+    pub tags: Vec<String>,
+    pub reply_to_post_number: Option<u32>,
+    pub action: Option<String>,
+    pub recipients: Vec<String>,
+    pub archetype_id: Option<String>,
+    pub composer_time: Option<u32>,
+    pub typing_time: Option<u32>,
+}
+
+impl From<DraftData> for DraftDataState {
+    fn from(value: DraftData) -> Self {
+        Self {
+            reply: value.reply,
+            title: value.title,
+            category_id: value.category_id,
+            tags: value.tags,
+            reply_to_post_number: value.reply_to_post_number,
+            action: value.action,
+            recipients: value.recipients,
+            archetype_id: value.archetype_id,
+            composer_time: value.composer_time,
+            typing_time: value.typing_time,
+        }
+    }
+}
+
+impl From<DraftDataState> for DraftData {
+    fn from(value: DraftDataState) -> Self {
+        Self {
+            reply: value.reply,
+            title: value.title,
+            category_id: value.category_id,
+            tags: value.tags,
+            reply_to_post_number: value.reply_to_post_number,
+            action: value.action,
+            recipients: value.recipients,
+            archetype_id: value.archetype_id,
+            composer_time: value.composer_time,
+            typing_time: value.typing_time,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct DraftState {
+    pub draft_key: String,
+    pub data: DraftDataState,
+    pub sequence: u32,
+    pub title: Option<String>,
+    pub excerpt: Option<String>,
+    pub updated_at: Option<String>,
+    pub username: Option<String>,
+    pub avatar_template: Option<String>,
+    pub topic_id: Option<u64>,
+}
+
+impl From<Draft> for DraftState {
+    fn from(value: Draft) -> Self {
+        Self {
+            draft_key: value.draft_key,
+            data: value.data.into(),
+            sequence: value.sequence,
+            title: value.title,
+            excerpt: value.excerpt,
+            updated_at: value.updated_at,
+            username: value.username,
+            avatar_template: value.avatar_template,
+            topic_id: value.topic_id,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct DraftListResponseState {
+    pub drafts: Vec<DraftState>,
+    pub has_more: bool,
+}
+
+impl From<DraftListResponse> for DraftListResponseState {
+    fn from(value: DraftListResponse) -> Self {
+        Self {
+            drafts: value.drafts.into_iter().map(Into::into).collect(),
+            has_more: value.has_more,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct UploadImageRequestState {
+    pub file_name: String,
+    pub mime_type: Option<String>,
+    pub bytes: Vec<u8>,
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct UploadResultState {
+    pub short_url: String,
+    pub url: Option<String>,
+    pub original_filename: Option<String>,
+    pub width: Option<u32>,
+    pub height: Option<u32>,
+    pub thumbnail_width: Option<u32>,
+    pub thumbnail_height: Option<u32>,
+}
+
+impl From<UploadResult> for UploadResultState {
+    fn from(value: UploadResult) -> Self {
+        Self {
+            short_url: value.short_url,
+            url: value.url,
+            original_filename: value.original_filename,
+            width: value.width,
+            height: value.height,
+            thumbnail_width: value.thumbnail_width,
+            thumbnail_height: value.thumbnail_height,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct ResolvedUploadUrlState {
+    pub short_url: String,
+    pub short_path: Option<String>,
+    pub url: Option<String>,
+}
+
+impl From<ResolvedUploadUrl> for ResolvedUploadUrlState {
+    fn from(value: ResolvedUploadUrl) -> Self {
+        Self {
+            short_url: value.short_url,
+            short_path: value.short_path,
+            url: value.url,
         }
     }
 }
@@ -2904,6 +3098,60 @@ impl FireCoreHandle {
         Ok(response.into())
     }
 
+    pub async fn fetch_drafts(
+        &self,
+        offset: Option<u32>,
+        limit: Option<u32>,
+    ) -> Result<DraftListResponseState, FireUniFfiError> {
+        let inner = Arc::clone(&self.inner);
+        let panic_state = Arc::clone(&self.panic_state);
+        let response = run_on_ffi_runtime("fetch_drafts", panic_state, async move {
+            inner.fetch_drafts(offset, limit).await
+        })
+        .await?;
+        Ok(response.into())
+    }
+
+    pub async fn fetch_draft(
+        &self,
+        draft_key: String,
+    ) -> Result<Option<DraftState>, FireUniFfiError> {
+        let inner = Arc::clone(&self.inner);
+        let panic_state = Arc::clone(&self.panic_state);
+        let response = run_on_ffi_runtime("fetch_draft", panic_state, async move {
+            inner.fetch_draft(&draft_key).await
+        })
+        .await?;
+        Ok(response.map(Into::into))
+    }
+
+    pub async fn save_draft(
+        &self,
+        draft_key: String,
+        data: DraftDataState,
+        sequence: u32,
+    ) -> Result<u32, FireUniFfiError> {
+        let inner = Arc::clone(&self.inner);
+        let panic_state = Arc::clone(&self.panic_state);
+        run_on_ffi_runtime("save_draft", panic_state, async move {
+            inner.save_draft(&draft_key, data.into(), sequence).await
+        })
+        .await
+    }
+
+    pub async fn delete_draft(
+        &self,
+        draft_key: String,
+        sequence: Option<u32>,
+    ) -> Result<(), FireUniFfiError> {
+        let inner = Arc::clone(&self.inner);
+        let panic_state = Arc::clone(&self.panic_state);
+        run_on_ffi_runtime("delete_draft", panic_state, async move {
+            inner.delete_draft(&draft_key, sequence).await
+        })
+        .await
+    }
+
     pub async fn fetch_topic_list(
         &self,
         query: TopicListQueryState,
@@ -3007,6 +3255,46 @@ impl FireCoreHandle {
         })
         .await?;
         Ok(response.into())
+    }
+
+    pub async fn create_topic(
+        &self,
+        input: TopicCreateRequestState,
+    ) -> Result<u64, FireUniFfiError> {
+        let inner = Arc::clone(&self.inner);
+        let panic_state = Arc::clone(&self.panic_state);
+        run_on_ffi_runtime("create_topic", panic_state, async move {
+            inner.create_topic(input.into()).await
+        })
+        .await
+    }
+
+    pub async fn upload_image(
+        &self,
+        input: UploadImageRequestState,
+    ) -> Result<UploadResultState, FireUniFfiError> {
+        let inner = Arc::clone(&self.inner);
+        let panic_state = Arc::clone(&self.panic_state);
+        let response = run_on_ffi_runtime("upload_image", panic_state, async move {
+            inner
+                .upload_image(&input.file_name, input.mime_type.as_deref(), input.bytes)
+                .await
+        })
+        .await?;
+        Ok(response.into())
+    }
+
+    pub async fn lookup_upload_urls(
+        &self,
+        short_urls: Vec<String>,
+    ) -> Result<Vec<ResolvedUploadUrlState>, FireUniFfiError> {
+        let inner = Arc::clone(&self.inner);
+        let panic_state = Arc::clone(&self.panic_state);
+        let response = run_on_ffi_runtime("lookup_upload_urls", panic_state, async move {
+            inner.lookup_upload_urls(short_urls).await
+        })
+        .await?;
+        Ok(response.into_iter().map(Into::into).collect())
     }
 
     pub async fn report_topic_timings(

@@ -382,7 +382,10 @@ final class FireSessionSecurityTests: XCTestCase {
                 categories: [],
                 hasSiteSettings: false,
                 enabledReactionIds: ["heart"],
-                minPostLength: 1
+                minPostLength: 1,
+                minTopicTitleLength: 15,
+                minFirstPostLength: 20,
+                defaultComposerCategory: nil
             ),
             readiness: SessionReadinessState(
                 hasLoginCookie: true,
@@ -430,7 +433,10 @@ final class FireSessionSecurityTests: XCTestCase {
                 categories: [],
                 hasSiteSettings: true,
                 enabledReactionIds: ["heart"],
-                minPostLength: 1
+                minPostLength: 1,
+                minTopicTitleLength: 15,
+                minFirstPostLength: 20,
+                defaultComposerCategory: nil
             ),
             readiness: SessionReadinessState(
                 hasLoginCookie: true,
@@ -478,7 +484,10 @@ final class FireSessionSecurityTests: XCTestCase {
                 categories: [],
                 hasSiteSettings: true,
                 enabledReactionIds: ["heart"],
-                minPostLength: 1
+                minPostLength: 1,
+                minTopicTitleLength: 15,
+                minFirstPostLength: 20,
+                defaultComposerCategory: nil
             ),
             readiness: SessionReadinessState(
                 hasLoginCookie: true,
@@ -526,7 +535,10 @@ final class FireSessionSecurityTests: XCTestCase {
                 categories: [],
                 hasSiteSettings: true,
                 enabledReactionIds: ["heart"],
-                minPostLength: 15
+                minPostLength: 15,
+                minTopicTitleLength: 15,
+                minFirstPostLength: 20,
+                defaultComposerCategory: nil
             ),
             readiness: SessionReadinessState(
                 hasLoginCookie: true,
@@ -574,7 +586,10 @@ final class FireSessionSecurityTests: XCTestCase {
                 categories: [],
                 hasSiteSettings: false,
                 enabledReactionIds: ["heart"],
-                minPostLength: 1
+                minPostLength: 1,
+                minTopicTitleLength: 15,
+                minFirstPostLength: 20,
+                defaultComposerCategory: nil
             ),
             readiness: SessionReadinessState(
                 hasLoginCookie: false,

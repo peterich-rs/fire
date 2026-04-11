@@ -377,6 +377,32 @@ public actor FireSessionStore {
         try await core.fetchBookmarks(username: username, page: page)
     }
 
+    public func fetchDrafts(
+        offset: UInt32? = nil,
+        limit: UInt32? = nil
+    ) async throws -> DraftListResponseState {
+        try await core.fetchDrafts(offset: offset, limit: limit)
+    }
+
+    public func fetchDraft(draftKey: String) async throws -> DraftState? {
+        try await core.fetchDraft(draftKey: draftKey)
+    }
+
+    public func saveDraft(
+        draftKey: String,
+        data: DraftDataState,
+        sequence: UInt32
+    ) async throws -> UInt32 {
+        try await core.saveDraft(draftKey: draftKey, data: data, sequence: sequence)
+    }
+
+    public func deleteDraft(
+        draftKey: String,
+        sequence: UInt32? = nil
+    ) async throws {
+        try await core.deleteDraft(draftKey: draftKey, sequence: sequence)
+    }
+
     public func pollNotificationAlertOnce(
         lastMessageId: Int64
     ) async throws -> NotificationAlertPollResultState {
@@ -454,6 +480,40 @@ public actor FireSessionStore {
                 replyToPostNumber: replyToPostNumber
             )
         )
+    }
+
+    public func createTopic(
+        title: String,
+        raw: String,
+        categoryID: UInt64,
+        tags: [String]
+    ) async throws -> UInt64 {
+        try await core.createTopic(
+            input: TopicCreateRequestState(
+                title: title,
+                raw: raw,
+                categoryId: categoryID,
+                tags: tags
+            )
+        )
+    }
+
+    public func uploadImage(
+        fileName: String,
+        mimeType: String?,
+        bytes: Data
+    ) async throws -> UploadResultState {
+        try await core.uploadImage(
+            input: UploadImageRequestState(
+                fileName: fileName,
+                mimeType: mimeType,
+                bytes: bytes
+            )
+        )
+    }
+
+    public func lookupUploadUrls(shortUrls: [String]) async throws -> [ResolvedUploadUrlState] {
+        try await core.lookupUploadUrls(shortUrls: shortUrls)
     }
 
     public func reportTopicTimings(

@@ -30,7 +30,10 @@ extension SessionState {
                 categories: [],
                 hasSiteSettings: false,
                 enabledReactionIds: ["heart"],
-                minPostLength: 1
+                minPostLength: 1,
+                minTopicTitleLength: 15,
+                minFirstPostLength: 20,
+                defaultComposerCategory: nil
             ),
             readiness: SessionReadinessState(
                 hasLoginCookie: false,

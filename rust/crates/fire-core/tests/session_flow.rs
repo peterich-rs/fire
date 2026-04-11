@@ -125,10 +125,13 @@ async fn refresh_bootstrap_if_needed_skips_same_origin_session_without_shared_se
             parent_category_id: None,
             color_hex: None,
             text_color_hex: None,
+            ..fire_models::TopicCategory::default()
         }],
         has_site_settings: true,
         enabled_reaction_ids: vec!["heart".into(), "clap".into()],
         min_post_length: 18,
+        min_topic_title_length: 15,
+        min_first_post_length: 18,
         ..BootstrapArtifacts::default()
     });
 

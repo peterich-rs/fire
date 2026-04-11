@@ -360,7 +360,10 @@ final class FireTopicPresentationTests: XCTestCase {
             categories: [],
             hasSiteSettings: hasPreloadedData,
             enabledReactionIds: ["heart"],
-            minPostLength: 1
+            minPostLength: 1,
+            minTopicTitleLength: 15,
+            minFirstPostLength: 20,
+            defaultComposerCategory: nil
         )
     }
 

@@ -690,6 +690,107 @@ final class FireAppViewModel: ObservableObject {
         }
     }
 
+    func createTopic(
+        title: String,
+        raw: String,
+        categoryID: UInt64,
+        tags: [String]
+    ) async throws -> UInt64 {
+        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedRaw = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedTitle.isEmpty else {
+            throw FireTopicInteractionError.emptyReply
+        }
+        guard !trimmedRaw.isEmpty else {
+            throw FireTopicInteractionError.emptyReply
+        }
+
+        let sessionStore = try await sessionStoreValue()
+        guard session.readiness.canWriteAuthenticatedApi else {
+            throw FireTopicInteractionError.requiresAuthenticatedWrite
+        }
+
+        do {
+            errorMessage = nil
+            let topicID = try await performWriteWithCloudflareRetry {
+                try await sessionStore.createTopic(
+                    title: trimmedTitle,
+                    raw: trimmedRaw,
+                    categoryID: categoryID,
+                    tags: tags
+                )
+            }
+            if let snapshot = try? await sessionStore.snapshot() {
+                await applySession(snapshot)
+            }
+            await refreshTopicsIfPossible(force: true)
+            return topicID
+        } catch {
+            errorMessage = error.localizedDescription
+            throw error
+        }
+    }
+
+    func fetchDrafts(
+        offset: UInt32? = nil,
+        limit: UInt32? = nil
+    ) async throws -> DraftListResponseState {
+        let sessionStore = try await sessionStoreValue()
+        return try await sessionStore.fetchDrafts(offset: offset, limit: limit)
+    }
+
+    func fetchDraft(draftKey: String) async throws -> DraftState? {
+        let sessionStore = try await sessionStoreValue()
+        return try await sessionStore.fetchDraft(draftKey: draftKey)
+    }
+
+    func saveDraft(
+        draftKey: String,
+        data: DraftDataState,
+        sequence: UInt32
+    ) async throws -> UInt32 {
+        let sessionStore = try await sessionStoreValue()
+        return try await performWriteWithCloudflareRetry {
+            try await sessionStore.saveDraft(
+                draftKey: draftKey,
+                data: data,
+                sequence: sequence
+            )
+        }
+    }
+
+    func deleteDraft(
+        draftKey: String,
+        sequence: UInt32? = nil
+    ) async throws {
+        let sessionStore = try await sessionStoreValue()
+        try await performWriteWithCloudflareRetry {
+            try await sessionStore.deleteDraft(draftKey: draftKey, sequence: sequence)
+        }
+    }
+
+    func uploadImage(
+        fileName: String,
+        mimeType: String?,
+        bytes: Data
+    ) async throws -> UploadResultState {
+        let sessionStore = try await sessionStoreValue()
+        return try await performWriteWithCloudflareRetry {
+            try await sessionStore.uploadImage(
+                fileName: fileName,
+                mimeType: mimeType,
+                bytes: bytes
+            )
+        }
+    }
+
+    func lookupUploadUrls(shortUrls: [String]) async throws -> [ResolvedUploadUrlState] {
+        let sessionStore = try await sessionStoreValue()
+        return try await performWriteWithCloudflareRetry {
+            try await sessionStore.lookupUploadUrls(shortUrls: shortUrls)
+        }
+    }
+
     func setPostLiked(
         topicId: UInt64,
         postId: UInt64,

@@ -131,6 +131,7 @@
     - iOS 帖子详情页的滚动列表路径会先消费首屏 `post_stream.posts`，再依据 `post_stream.stream` 自动分批请求 `GET /t/{topicId}/posts.json?post_ids[]=` 续载后续评论
   - 进入“只看顶层回复”模式后，后续翻页依赖 `post_stream.stream` 和 `GET /t/{topicId}/posts.json?post_ids[]=`，不是继续用 `post_number + asc`
   - 当前 iOS 还会消费 `post_stream.posts[].polls` 和 `post_stream.posts[].polls_votes`，用于在 topic detail 渲染原生 poll 卡片并恢复当前用户的已选项
+  - `details.created_by`、`post_stream.posts[].current_user_reaction` 这类可选嵌套对象如果类型漂移，Fire 会将其按缺失处理，而不是让整个详情解析失败
 
 ### `GET /t/{slug}.json`
 
@@ -461,6 +462,9 @@
   "current_user_reaction": PostReaction
 }
 ```
+
+- 兼容性说明：
+  - `current_user_reaction` 如果不是对象，Fire 会按未设置处理；`reactions[]` 里的单个坏项会被跳过
 
 ### `GET /discourse-reactions/posts/{postId}/reactions-users.json`
 

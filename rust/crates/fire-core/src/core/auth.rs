@@ -1,6 +1,5 @@
 use fire_models::{BootstrapArtifacts, CookieSnapshot, SessionSnapshot};
 use http::{Method, StatusCode};
-use serde::Deserialize;
 use serde_json::Value;
 use tracing::{debug, info, warn};
 
@@ -9,13 +8,11 @@ use super::{
     network::{classify_http_status_error, expect_success, header_value, is_bad_csrf_body},
     FireCore,
 };
-use crate::error::FireCoreError;
 use crate::parsing::{parse_home_state, parse_site_metadata_json};
-
-#[derive(Debug, Deserialize)]
-struct CsrfResponse {
-    csrf: String,
-}
+use crate::{
+    error::FireCoreError,
+    json_helpers::{invalid_json, scalar_string},
+};
 
 impl FireCore {
     pub async fn refresh_bootstrap_if_needed(&self) -> Result<SessionSnapshot, FireCoreError> {
@@ -111,10 +108,16 @@ impl FireCore {
             self.build_api_request("refresh csrf token", Method::GET, "/session/csrf", false)?;
         let (trace_id, response) = self.execute_request(traced).await?;
         let response = expect_success(self, "refresh csrf token", trace_id, response).await?;
-        let payload: CsrfResponse = self
+        let payload: Value = self
             .read_response_json("refresh csrf token", trace_id, response)
             .await?;
-        if payload.csrf.is_empty() {
+        let csrf = parse_csrf_token_response(&payload).map_err(|source| {
+            FireCoreError::ResponseDeserialize {
+                operation: "refresh csrf token",
+                source,
+            }
+        })?;
+        if csrf.is_empty() {
             self.diagnostics.record_parse_error(
                 trace_id,
                 "CSRF response did not contain a usable token".to_string(),
@@ -125,7 +128,7 @@ impl FireCore {
 
         let result = self.update_session(|session| {
             session.cookies.merge_patch(&CookieSnapshot {
-                csrf_token: Some(payload.csrf.clone()),
+                csrf_token: Some(csrf.clone()),
                 ..CookieSnapshot::default()
             });
             debug!(
@@ -238,4 +241,11 @@ impl FireCore {
         }
         Some(patch)
     }
+}
+
+fn parse_csrf_token_response(value: &Value) -> Result<String, serde_json::Error> {
+    let object = value
+        .as_object()
+        .ok_or_else(|| invalid_json("csrf response root was not an object"))?;
+    Ok(scalar_string(object.get("csrf")).unwrap_or_default())
 }

@@ -15,7 +15,6 @@ use fire_models::{
 use http::{Method, Request, Response};
 use http_body_util::BodyExt;
 use openwire::{RequestBody, ResponseBody, WireErrorKind};
-use serde::Deserialize;
 use serde_json::Value;
 use tokio::{
     runtime::Handle,
@@ -38,7 +37,7 @@ use super::{
 use crate::{
     diagnostics::FireDiagnosticsStore,
     error::FireCoreError,
-    json_helpers::{boolean, integer_i64, integer_u32, positive_u64},
+    json_helpers::{boolean, integer_i64, integer_u32, positive_u64, scalar_string},
     sync_utils::read_rwlock,
 };
 
@@ -96,11 +95,10 @@ enum PollIterationResult {
     Restart,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug)]
 struct RawMessageBusMessage {
     channel: String,
     message_id: i64,
-    #[serde(default)]
     data: Value,
 }
 
@@ -735,17 +733,10 @@ fn process_notification_alert_chunk(
     client_id: &str,
     chunk: &str,
 ) {
-    let messages: Vec<RawMessageBusMessage> = match serde_json::from_str(chunk) {
-        Ok(messages) => messages,
-        Err(error) => {
-            warn!(
-                client_id = %client_id,
-                error = %error,
-                chunk = %chunk,
-                "failed to parse background notification-alert chunk"
-            );
-            return;
-        }
+    let Some(messages) =
+        parse_message_bus_messages(chunk, client_id, "background notification-alert")
+    else {
+        return;
     };
 
     for message in messages {
@@ -770,17 +761,9 @@ fn process_notification_alert_chunk(
 }
 
 fn process_chunk(context: &MessageBusPollContext, chunk: &str) -> Result<bool, FireCoreError> {
-    let messages: Vec<RawMessageBusMessage> = match serde_json::from_str(chunk) {
-        Ok(messages) => messages,
-        Err(error) => {
-            warn!(
-                client_id = %context.client_id,
-                error = %error,
-                chunk = %chunk,
-                "failed to parse message bus chunk"
-            );
-            return Ok(true);
-        }
+    let Some(messages) = parse_message_bus_messages(chunk, &context.client_id, "message bus")
+    else {
+        return Ok(true);
     };
 
     for message in messages {
@@ -809,6 +792,66 @@ fn process_chunk(context: &MessageBusPollContext, chunk: &str) -> Result<bool, F
     }
 
     Ok(true)
+}
+
+fn parse_message_bus_messages(
+    chunk: &str,
+    client_id: &str,
+    chunk_kind: &str,
+) -> Option<Vec<RawMessageBusMessage>> {
+    let value: Value = match serde_json::from_str(chunk) {
+        Ok(value) => value,
+        Err(error) => {
+            warn!(
+                client_id = %client_id,
+                error = %error,
+                chunk = %chunk,
+                chunk_kind,
+                "failed to parse message bus chunk"
+            );
+            return None;
+        }
+    };
+
+    let Some(messages) = value.as_array() else {
+        warn!(
+            client_id = %client_id,
+            chunk = %chunk,
+            chunk_kind,
+            "message bus chunk root was not an array"
+        );
+        return None;
+    };
+
+    let mut parsed = Vec::with_capacity(messages.len());
+    for (index, value) in messages.iter().enumerate() {
+        let Some(message) = raw_message_bus_message_from_value(value) else {
+            warn!(
+                client_id = %client_id,
+                chunk_kind,
+                index,
+                message = %value,
+                "skipping malformed message bus item"
+            );
+            continue;
+        };
+        parsed.push(message);
+    }
+    Some(parsed)
+}
+
+fn raw_message_bus_message_from_value(value: &Value) -> Option<RawMessageBusMessage> {
+    let object = value.as_object()?;
+    let channel = scalar_string(object.get("channel"))?.trim().to_string();
+    if channel.is_empty() {
+        return None;
+    }
+
+    Some(RawMessageBusMessage {
+        channel,
+        message_id: integer_i64(object.get("message_id"))?,
+        data: object.get("data").cloned().unwrap_or(Value::Null),
+    })
 }
 
 fn apply_status_message(runtime: &Arc<Mutex<FireMessageBusRuntime>>, data: &Value) {

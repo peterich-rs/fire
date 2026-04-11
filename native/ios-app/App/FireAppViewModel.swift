@@ -1851,8 +1851,12 @@ final class FireAppViewModel: ObservableObject {
     }
 
     private func applySession(_ session: SessionState) async {
+        let shouldMirrorCookies = session.cookies != self.session.cookies
+            || session.bootstrap.baseUrl != self.session.bootstrap.baseUrl
         self.session = session
-        session.mirrorCookiesToNativeStorage()
+        if shouldMirrorCookies {
+            await session.mirrorCookiesToNativeStorage()
+        }
         topicCategories = Dictionary(uniqueKeysWithValues: session.bootstrap.categories.map { ($0.id, $0) })
 
         // Sync notification badge from in-memory state when available

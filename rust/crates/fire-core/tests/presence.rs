@@ -129,6 +129,97 @@ async fn fetch_topic_reply_presence_treats_null_channel_as_empty_presence() {
 }
 
 #[tokio::test]
+async fn fetch_topic_reply_presence_tolerates_nullable_message_ids_and_malformed_users() {
+    let server = TestServer::spawn(vec![raw_json_response(
+        200,
+        "application/json",
+        r#"{
+  "/discourse-presence/reply/123": {
+    "users": [
+      {
+        "id": "2",
+        "username": "bob",
+        "avatar_template": "/user_avatar/linux.do/bob/{size}/1_2.png"
+      },
+      {
+        "id": 0,
+        "username": "nobody"
+      },
+      {
+        "id": 3,
+        "username": "   "
+      },
+      {
+        "id": "oops",
+        "username": "bad"
+      }
+    ],
+    "last_message_id": null
+  }
+}"#,
+    )])
+    .await
+    .expect("server");
+    let core = authenticated_core(&server.base_url());
+
+    let presence = core
+        .fetch_topic_reply_presence(123)
+        .await
+        .expect("fetch topic reply presence");
+
+    assert_eq!(presence.topic_id, 123);
+    assert_eq!(presence.message_id, -1);
+    assert_eq!(presence.users.len(), 1);
+    assert_eq!(presence.users[0].id, 2);
+    assert_eq!(presence.users[0].username, "bob");
+    assert_eq!(
+        presence.users[0].avatar_template.as_deref(),
+        Some("/user_avatar/linux.do/bob/{size}/1_2.png")
+    );
+}
+
+#[tokio::test]
+async fn bootstrap_topic_reply_presence_accepts_string_last_message_id() {
+    let server = TestServer::spawn(vec![
+        raw_json_response(
+            200,
+            "application/json",
+            r#"{
+  "/discourse-presence/reply/123": {
+    "users": [
+      {
+        "id": 2,
+        "username": "bob"
+      }
+    ],
+    "last_message_id": "1000"
+  }
+}"#,
+        ),
+        raw_json_response(200, "application/json", "[]"),
+    ])
+    .await
+    .expect("server");
+    let core = authenticated_core(&server.base_url());
+
+    let presence = core
+        .bootstrap_topic_reply_presence(123, "presence-bootstrap-owner".into())
+        .await
+        .expect("bootstrap topic reply presence");
+    assert_eq!(presence.message_id, 1000);
+
+    let (sender, _receiver) = unbounded_channel();
+    core.start_message_bus(MessageBusClientMode::Foreground, sender)
+        .await
+        .expect("start message bus");
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    core.stop_message_bus(true);
+
+    let requests = server.shutdown_with_requests().await;
+    assert!(requests[1].contains("%2Fpresence%2Fdiscourse-presence%2Freply%2F123=1000"));
+}
+
+#[tokio::test]
 async fn message_bus_presence_reactions_and_alerts_emit_expected_event_kinds() {
     let server = TestServer::spawn(vec![raw_json_response(
         200,

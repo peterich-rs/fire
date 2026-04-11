@@ -3,6 +3,115 @@ import XCTest
 @testable import Fire
 
 final class FireSessionSecurityTests: XCTestCase {
+    @MainActor
+    func testMirrorCookiesToNativeStorageSynchronizesWebKitStore() async throws {
+        let freshExpiry = Int64(Date().timeIntervalSince1970 * 1000) + 60_000
+        let store = InMemoryMirroredCookieStore()
+        let session = SessionState(
+            cookies: CookieState(
+                tToken: "fresh-token",
+                forumSession: "fresh-forum",
+                cfClearance: "fresh-clearance",
+                csrfToken: nil,
+                platformCookies: [
+                    makePlatformCookie(
+                        name: "_t",
+                        value: "fresh-token",
+                        domain: "linux.do",
+                        expiresAtUnixMs: freshExpiry
+                    ),
+                    makePlatformCookie(
+                        name: "_forum_session",
+                        value: "fresh-forum",
+                        domain: "linux.do"
+                    ),
+                    makePlatformCookie(
+                        name: "cf_clearance",
+                        value: "fresh-clearance",
+                        domain: ".linux.do",
+                        expiresAtUnixMs: freshExpiry
+                    ),
+                ]
+            ),
+            bootstrap: BootstrapState(
+                baseUrl: "https://linux.do",
+                discourseBaseUri: nil,
+                sharedSessionKey: nil,
+                currentUsername: nil,
+                currentUserId: nil,
+                notificationChannelPosition: nil,
+                longPollingBaseUrl: nil,
+                turnstileSitekey: nil,
+                topicTrackingStateMeta: nil,
+                preloadedJson: nil,
+                hasPreloadedData: false,
+                hasSiteMetadata: false,
+                topTags: [],
+                canTagTopics: false,
+                categories: [],
+                hasSiteSettings: false,
+                enabledReactionIds: ["heart"],
+                minPostLength: 1,
+                minTopicTitleLength: 15,
+                minFirstPostLength: 20,
+                defaultComposerCategory: nil
+            ),
+            readiness: SessionReadinessState(
+                hasLoginCookie: true,
+                hasForumSession: true,
+                hasCloudflareClearance: true,
+                hasCsrfToken: false,
+                hasCurrentUser: false,
+                hasPreloadedData: false,
+                hasSharedSessionKey: false,
+                canReadAuthenticatedApi: true,
+                canWriteAuthenticatedApi: false,
+                canOpenMessageBus: false
+            ),
+            loginPhase: .cookiesCaptured,
+            hasLoginSession: true,
+            profileDisplayName: "会话已连接",
+            loginPhaseLabel: "账号信息同步中"
+        )
+
+        let previousFactory = MirroredCookieStoreFactory.makeWebKitStore
+        MirroredCookieStoreFactory.makeWebKitStore = { store }
+        defer {
+            MirroredCookieStoreFactory.makeWebKitStore = previousFactory
+        }
+
+        clearMirroredCookiesFromSharedStorage()
+        await clearMirroredCookiesFromWebKitStore(store)
+
+        let staleToken = try XCTUnwrap(
+            makeHTTPCookie(name: "_t", value: "stale-token", domain: "linux.do")
+        )
+        HTTPCookieStorage.shared.setCookie(staleToken)
+        await store.setCookie(staleToken)
+
+        await session.mirrorCookiesToNativeStorage()
+
+        let sharedCookies = mirroredSharedCookies()
+        XCTAssertEqual(sharedCookies.count, 3)
+        XCTAssertEqual(sharedCookies.first(where: { $0.name == "_t" })?.value, "fresh-token")
+        XCTAssertEqual(
+            sharedCookies.first(where: { $0.name == "cf_clearance" })?.value,
+            "fresh-clearance"
+        )
+
+        let webKitCookies = await mirroredWebKitCookies(store)
+        XCTAssertEqual(webKitCookies.count, 3)
+        XCTAssertEqual(webKitCookies.first(where: { $0.name == "_t" })?.value, "fresh-token")
+        XCTAssertEqual(
+            webKitCookies.first(where: { $0.name == "cf_clearance" })?.value,
+            "fresh-clearance"
+        )
+        XCTAssertFalse(webKitCookies.contains(where: { $0.value == "stale-token" }))
+
+        clearMirroredCookiesFromSharedStorage()
+        await clearMirroredCookiesFromWebKitStore(store)
+    }
+
     func testRestoreColdStartReappliesSecureStoreCookiesAndRepairsLegacyRedactedCsrf() async throws {
         let sessionFileURL = try makeSessionFileURL(name: "restore-cold-start-redacted")
         try redactedSessionJSON().write(to: sessionFileURL, atomically: true, encoding: .utf8)
@@ -534,6 +643,113 @@ final class FireSessionSecurityTests: XCTestCase {
             path: path,
             expiresAtUnixMs: expiresAtUnixMs
         )
+    }
+
+    private func makeHTTPCookie(
+        name: String,
+        value: String,
+        domain: String,
+        path: String = "/"
+    ) -> HTTPCookie? {
+        HTTPCookie(properties: [
+            .name: name,
+            .value: value,
+            .domain: domain,
+            .path: path,
+            .originURL: URL(string: "https://linux.do")!,
+            .secure: true,
+        ])
+    }
+
+    private func mirroredSharedCookies() -> [HTTPCookie] {
+        let host = "linux.do"
+        return (HTTPCookieStorage.shared.cookies ?? [])
+            .filter { mirroredCookieNames.contains($0.name) }
+            .filter {
+                let normalizedDomain = normalizeCookieDomain($0.domain)
+                return normalizedDomain == host || normalizedDomain.hasSuffix(".\(host)")
+            }
+            .sorted {
+                if $0.name != $1.name {
+                    return $0.name < $1.name
+                }
+                return $0.domain < $1.domain
+            }
+    }
+
+    private func clearMirroredCookiesFromSharedStorage() {
+        for cookie in mirroredSharedCookies() {
+            HTTPCookieStorage.shared.deleteCookie(cookie)
+        }
+    }
+
+    private func mirroredWebKitCookies(_ store: any MirroredCookieStore) async -> [HTTPCookie] {
+        let host = "linux.do"
+        let cookies = await store.getAllCookies()
+        return cookies
+            .filter { mirroredCookieNames.contains($0.name) }
+            .filter {
+                let normalizedDomain = normalizeCookieDomain($0.domain)
+                return normalizedDomain == host || normalizedDomain.hasSuffix(".\(host)")
+            }
+            .sorted {
+                if $0.name != $1.name {
+                    return $0.name < $1.name
+                }
+                return $0.domain < $1.domain
+            }
+    }
+
+    private func clearMirroredCookiesFromWebKitStore(_ store: any MirroredCookieStore) async {
+        for cookie in await mirroredWebKitCookies(store) {
+            await store.deleteCookie(cookie)
+        }
+    }
+
+    private var mirroredCookieNames: Set<String> {
+        ["_t", "_forum_session", "cf_clearance"]
+    }
+
+    private func normalizeCookieDomain(_ domain: String) -> String {
+        let normalized = domain.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if normalized.hasPrefix(".") {
+            return String(normalized.dropFirst())
+        }
+        return normalized
+    }
+
+    @MainActor
+    private final class InMemoryMirroredCookieStore: MirroredCookieStore {
+        private var cookies: [HTTPCookie] = []
+
+        func getAllCookies() async -> [HTTPCookie] {
+            cookies
+        }
+
+        func setCookie(_ cookie: HTTPCookie) async {
+            cookies.removeAll {
+                $0.name == cookie.name
+                    && Self.normalizeDomain($0.domain) == Self.normalizeDomain(cookie.domain)
+                    && $0.path == cookie.path
+            }
+            cookies.append(cookie)
+        }
+
+        func deleteCookie(_ cookie: HTTPCookie) async {
+            cookies.removeAll {
+                $0.name == cookie.name
+                    && Self.normalizeDomain($0.domain) == Self.normalizeDomain(cookie.domain)
+                    && $0.path == cookie.path
+            }
+        }
+
+        private static func normalizeDomain(_ domain: String) -> String {
+            let normalized = domain.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            if normalized.hasPrefix(".") {
+                return String(normalized.dropFirst())
+            }
+            return normalized
+        }
     }
 
     private func redactedSessionJSON() -> String {

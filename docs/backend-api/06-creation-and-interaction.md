@@ -84,6 +84,9 @@
 ]
 ```
 
+- 兼容性说明：
+  - 数组里的单个坏项会被跳过，不再让整次短链解析失败
+
 - 当前 Fire iOS 行为：
   - 仅在 composer 预览阶段解析 `upload://`
   - 解析后的真实 URL 不会回写正文，正文仍保留 `upload://...`
@@ -169,6 +172,7 @@
 - 当前客户端行为：
   - iOS 在 topic detail header 提供原生话题投票面板
   - 成功后会刷新当前 topic detail
+  - `VoteResponse.who_voted[]` 中单个坏项会被跳过
 
 ### `POST /voting/unvote`
 
@@ -186,6 +190,7 @@
 - 当前客户端行为：
   - iOS 在已投票状态下显示“取消投票”
   - 成功后会刷新当前 topic detail
+  - `VoteResponse.who_voted[]` 中单个坏项会被跳过
 
 ### `GET /voting/who`
 
@@ -195,6 +200,7 @@
 - 响应：`VotedUser[]`
 - 当前客户端行为：
   - iOS 在 topic detail vote panel 提供 voters sheet
+  - `VotedUser[]` 中单个坏项会被跳过
 
 ### `POST /topics/timings`
 
@@ -260,6 +266,8 @@
   - 线上真实回包当前使用 `last_message_id`
   - Fire 共享层兼容历史样例里的 `message_id`
   - 服务端也可能返回 `"/discourse-presence/reply/{topicId}": null`；Fire 会将其视为空 Presence 快照，按 `users = []`、`message_id = -1` 处理，而不是把它当成解析错误
+  - 若 `last_message_id` / `message_id` 缺失、为 `null` 或是字符串数字，Fire 共享层会尽量解析；无法解析时回退为 `-1`
+  - `users[]` 中单个成员如果缺少可用 `id` / `username`，Fire 会跳过坏项，不让整次 Presence bootstrap 失败
   - 宿主层不要在“话题详情首次加载尚未确认成功”之前抢先 bootstrap Presence。对不存在、不可见或无权限的话题，Linux.do 观测上可能在 `GET /presence/get` 返回 `null` 快照的同时附带 `discourse-logged-out: 1` 和 `Set-Cookie: _t=; Max-Age=0`，从而把当前登录态清掉
 
 ### `POST /presence/update`
@@ -318,6 +326,9 @@
 }
 ```
 
+- 兼容性说明：
+  - `drafts[]` 中单个坏项会被跳过
+
 ### `GET /drafts/{draftKey}.json`
 
 - 用途：获取单个草稿
@@ -341,6 +352,8 @@
 ```
 
 - 404 表示草稿不存在
+- 兼容性说明：
+  - `draft.data` 当前按宽松规则解析；字符串化 JSON 损坏或字段类型漂移时，Fire 会回退为空 `DraftData`，避免整个读取失败
 
 ### `POST /drafts.json`
 

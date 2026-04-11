@@ -43,6 +43,7 @@
 
 - 响应是一个流式或文本分段结果，最终内容可解析为 `MessageBusMessage[]`
 - 当前客户端会把响应按 `|` 分段处理，不是只收一个完整 JSON 数组
+- Fire 当前对单条 MessageBus item 做容错解析：`message_id` 支持数字或字符串数字；若某条 item 本身缺字段、为 `null` 或类型不对，只会跳过该条，不会把整个 chunk 判成失败
 - 还需要特殊处理控制消息：
   - `channel="/__status"` 时，`data` 里的 `channel -> last_message_id` 映射要回写到本地订阅位点
 - Fire 当前实现维持单个前台轮询任务；订阅变更不会再为每个 `subscribe/unsubscribe` 直接重建 task，而是唤醒已有轮询并在 `150ms` 的最小重启间隔后合并到下一次 poll

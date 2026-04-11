@@ -352,6 +352,7 @@ impl From<RawTopicReaction> for TopicReaction {
 struct RawPostReactionUpdate {
     #[serde(default, deserialize_with = "deserialize_default_sequence")]
     reactions: Vec<RawTopicReaction>,
+    #[serde(default, deserialize_with = "deserialize_optional_record")]
     current_user_reaction: Option<RawTopicReaction>,
 }
 
@@ -482,6 +483,7 @@ struct RawTopicPost {
     bookmark_reminder_at: Option<String>,
     #[serde(default, deserialize_with = "deserialize_default_sequence")]
     reactions: Vec<RawTopicReaction>,
+    #[serde(default, deserialize_with = "deserialize_optional_record")]
     current_user_reaction: Option<RawTopicReaction>,
     #[serde(default, deserialize_with = "deserialize_default_sequence")]
     polls: Vec<RawPoll>,
@@ -588,13 +590,10 @@ pub(crate) fn parse_vote_response_value(value: Value) -> Result<VoteResponse, se
         .get("who_voted")
         .and_then(Value::as_array)
         .map(|items| {
-            items
-                .iter()
-                .cloned()
-                .map(parse_voted_user_value)
-                .collect::<Result<Vec<_>, _>>()
+            crate::json_helpers::parse_array_items_lossy(items, "voted user entry", |item| {
+                parse_voted_user_value(item.clone())
+            })
         })
-        .transpose()?
         .unwrap_or_default();
 
     Ok(VoteResponse {
@@ -618,10 +617,11 @@ pub(crate) fn parse_voted_users_value(value: Value) -> Result<Vec<VotedUser>, se
         _ => Vec::new(),
     };
 
-    items
-        .into_iter()
-        .map(parse_voted_user_value)
-        .collect::<Result<Vec<_>, _>>()
+    Ok(crate::json_helpers::parse_array_items_lossy(
+        &items,
+        "voted user entry",
+        |item| parse_voted_user_value(item.clone()),
+    ))
 }
 
 fn parse_voted_user_value(value: Value) -> Result<VotedUser, serde_json::Error> {
@@ -680,6 +680,7 @@ struct RawTopicDetailMeta {
     notification_level: Option<i32>,
     #[serde(default, deserialize_with = "deserialize_default_bool")]
     can_edit: bool,
+    #[serde(default, deserialize_with = "deserialize_optional_record")]
     created_by: Option<RawTopicDetailCreatedBy>,
 }
 
@@ -873,6 +874,28 @@ where
     match value {
         None | Some(Value::Null) => Ok(T::default()),
         Some(value) => T::deserialize(value).map_err(D::Error::custom),
+    }
+}
+
+fn deserialize_optional_record<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: DeserializeOwned,
+{
+    let value = Option::<Value>::deserialize(deserializer)?;
+    match value {
+        None | Some(Value::Null) => Ok(None),
+        Some(value) => match T::deserialize(value) {
+            Ok(record) => Ok(Some(record)),
+            Err(error) => {
+                warn!(
+                    record_type = type_name::<T>(),
+                    error = %error,
+                    "dropping malformed optional record while deserializing topic payload"
+                );
+                Ok(None)
+            }
+        },
     }
 }
 

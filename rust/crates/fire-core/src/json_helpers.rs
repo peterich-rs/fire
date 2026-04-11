@@ -1,6 +1,7 @@
 use std::io;
 
 use serde_json::Value;
+use tracing::warn;
 
 pub(crate) fn object_field<'a>(value: &'a Value, key: &str) -> Option<&'a Value> {
     value.as_object()?.get(key)
@@ -61,6 +62,38 @@ pub(crate) fn boolean(value: Option<&Value>) -> bool {
         Some(Value::String(value)) => matches!(value.trim(), "true" | "1"),
         _ => false,
     }
+}
+
+pub(crate) fn optional_boolean(value: Option<&Value>) -> Option<bool> {
+    match value {
+        Some(Value::Bool(value)) => Some(*value),
+        Some(Value::Number(value)) => value.as_i64().map(|value| value != 0),
+        Some(Value::String(value)) => Some(matches!(value.trim(), "true" | "1")),
+        _ => None,
+    }
+}
+
+pub(crate) fn parse_array_items_lossy<T, F>(
+    items: &[Value],
+    item_kind: &'static str,
+    mut parse: F,
+) -> Vec<T>
+where
+    F: FnMut(&Value) -> Result<T, serde_json::Error>,
+{
+    let mut parsed = Vec::with_capacity(items.len());
+    for (index, value) in items.iter().enumerate() {
+        match parse(value) {
+            Ok(item) => parsed.push(item),
+            Err(error) => warn!(
+                item_kind,
+                index,
+                error = %error,
+                "dropping malformed array item"
+            ),
+        }
+    }
+    parsed
 }
 
 pub(crate) fn invalid_json(details: impl Into<String>) -> serde_json::Error {

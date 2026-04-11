@@ -1,7 +1,10 @@
 use fire_models::{Draft, DraftData, DraftListResponse, ResolvedUploadUrl, UploadResult};
 use serde_json::Value;
+use tracing::warn;
 
-use crate::json_helpers::{boolean, integer_u32, integer_u64, invalid_json, scalar_string};
+use crate::json_helpers::{
+    boolean, integer_u32, integer_u64, invalid_json, parse_array_items_lossy, scalar_string,
+};
 
 pub(crate) fn parse_draft_list_response_value(
     value: Value,
@@ -14,13 +17,10 @@ pub(crate) fn parse_draft_list_response_value(
         .get("drafts")
         .and_then(Value::as_array)
         .map(|items| {
-            items
-                .iter()
-                .cloned()
-                .map(parse_draft_item_value)
-                .collect::<Result<Vec<_>, _>>()
+            parse_array_items_lossy(items, "draft list item", |item| {
+                parse_draft_item_value(item.clone())
+            })
         })
-        .transpose()?
         .unwrap_or_default();
 
     Ok(DraftListResponse {
@@ -93,10 +93,11 @@ pub(crate) fn parse_resolved_upload_urls_value(
         ));
     };
 
-    items
-        .into_iter()
-        .map(parse_resolved_upload_url_value)
-        .collect::<Result<Vec<_>, _>>()
+    Ok(parse_array_items_lossy(
+        &items,
+        "resolved upload url item",
+        |item| parse_resolved_upload_url_value(item.clone()),
+    ))
 }
 
 fn parse_draft_item_value(value: Value) -> Result<Draft, serde_json::Error> {
@@ -134,12 +135,20 @@ fn parse_draft_data_value(value: &Value) -> Result<DraftData, serde_json::Error>
             if raw.trim().is_empty() {
                 return Ok(DraftData::default());
             }
-            serde_json::from_str::<DraftData>(raw)
+            match serde_json::from_str::<Value>(raw) {
+                Ok(value) => parse_draft_data_value(&value),
+                Err(error) => {
+                    warn!(
+                        error = %error,
+                        "failed to decode draft data JSON string; defaulting to empty draft data"
+                    );
+                    Ok(DraftData::default())
+                }
+            }
         }
-        Value::Object(object) => serde_json::from_value::<DraftData>(Value::Object(object.clone())),
-        _ => Err(invalid_json(
-            "draft data was neither a JSON string nor an object",
-        )),
+        Value::Object(object) => Ok(parse_draft_data_object(object)),
+        Value::Null => Ok(DraftData::default()),
+        _ => Ok(DraftData::default()),
     }
 }
 
@@ -160,4 +169,101 @@ fn topic_id_from_draft_key(draft_key: &str) -> Option<u64> {
     let topic_key = trimmed.strip_prefix("topic_")?;
     let topic_id = topic_key.split("_post_").next()?;
     topic_id.parse::<u64>().ok()
+}
+
+fn parse_draft_data_object(object: &serde_json::Map<String, Value>) -> DraftData {
+    DraftData {
+        reply: scalar_string(object.get("reply")),
+        title: scalar_string(object.get("title")),
+        category_id: integer_u64(object.get("categoryId"))
+            .or_else(|| integer_u64(object.get("category_id"))),
+        tags: scalar_array(object.get("tags")),
+        reply_to_post_number: integer_u32(object.get("replyToPostNumber"))
+            .or_else(|| integer_u32(object.get("reply_to_post_number"))),
+        action: scalar_string(object.get("action")),
+        recipients: scalar_array(object.get("recipients")),
+        archetype_id: scalar_string(object.get("archetypeId"))
+            .or_else(|| scalar_string(object.get("archetype_id"))),
+        composer_time: integer_u32(object.get("composerTime"))
+            .or_else(|| integer_u32(object.get("composer_time"))),
+        typing_time: integer_u32(object.get("typingTime"))
+            .or_else(|| integer_u32(object.get("typing_time"))),
+    }
+}
+
+fn scalar_array(value: Option<&Value>) -> Vec<String> {
+    match value {
+        Some(Value::Array(items)) => items
+            .iter()
+            .filter_map(|item| scalar_string(Some(item)))
+            .collect(),
+        Some(value) => scalar_string(Some(value)).into_iter().collect(),
+        None => Vec::new(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn parse_draft_list_response_skips_malformed_items_and_coerces_data() {
+        let value = json!({
+            "drafts": [
+                1,
+                {
+                    "draft_key": "topic_123_post_2",
+                    "data": {
+                        "reply": "hello",
+                        "replyToPostNumber": "2",
+                        "categoryId": "3",
+                        "tags": ["rust", 1]
+                    },
+                    "draft_sequence": "4"
+                }
+            ],
+            "has_more": "1"
+        });
+
+        let drafts = parse_draft_list_response_value(value).unwrap();
+        assert_eq!(drafts.drafts.len(), 1);
+        assert_eq!(drafts.drafts[0].draft_key, "topic_123_post_2");
+        assert_eq!(drafts.drafts[0].sequence, 4);
+        assert_eq!(drafts.drafts[0].data.reply.as_deref(), Some("hello"));
+        assert_eq!(drafts.drafts[0].data.reply_to_post_number, Some(2));
+        assert_eq!(drafts.drafts[0].data.category_id, Some(3));
+        assert_eq!(drafts.drafts[0].data.tags, vec!["rust", "1"]);
+        assert!(drafts.has_more);
+    }
+
+    #[test]
+    fn parse_draft_detail_response_tolerates_malformed_draft_data_string() {
+        let value = json!({
+            "draft": "{not-json",
+            "draft_sequence": 6
+        });
+
+        let draft = parse_draft_detail_response_value(value, "topic_123_post_2")
+            .unwrap()
+            .expect("draft");
+        assert_eq!(draft.sequence, 6);
+        assert_eq!(draft.topic_id, Some(123));
+        assert_eq!(draft.data, DraftData::default());
+    }
+
+    #[test]
+    fn parse_resolved_upload_urls_value_skips_malformed_items() {
+        let value = json!([
+            1,
+            {
+                "short_url": "upload://fire.png",
+                "url": "/uploads/default/original/1X/fire.png"
+            }
+        ]);
+
+        let urls = parse_resolved_upload_urls_value(value).unwrap();
+        assert_eq!(urls.len(), 1);
+        assert_eq!(urls[0].short_url, "upload://fire.png");
+    }
 }

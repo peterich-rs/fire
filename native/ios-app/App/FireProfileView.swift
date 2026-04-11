@@ -1,13 +1,18 @@
 import SwiftUI
 import UIKit
 
+private struct FireProfileSelectedBadge: Identifiable, Hashable {
+    let badge: BadgeState
+    var id: UInt64 { badge.id }
+}
+
 struct FireProfileView: View {
     @ObservedObject var viewModel: FireAppViewModel
     @ObservedObject var profileViewModel: FireProfileViewModel
     @State private var copiedErrorMessage = false
     @State private var showLogoutConfirmation = false
-    @State private var showComingSoonToast = false
     @State private var showDeveloperTools = false
+    @State private var selectedBadge: FireProfileSelectedBadge?
 
     private static let badgePreviewLimit = 8
     private static let recentActivityPreviewLimit = 3
@@ -85,17 +90,15 @@ struct FireProfileView: View {
                 .listRowSeparator(.hidden)
 
                 Section {
-                    shortcutRow(
-                        icon: "bookmark.fill",
-                        tint: FireTheme.accent,
-                        title: "我的书签",
-                        subtitle: bookmarkSubtitle
-                    ) {
-                        showComingSoonToast = true
-                        Task { @MainActor in
-                            try? await Task.sleep(for: .seconds(1.5))
-                            showComingSoonToast = false
-                        }
+                    NavigationLink {
+                        FireBookmarksView(viewModel: viewModel, username: displayUsername)
+                    } label: {
+                        shortcutRowContent(
+                            icon: "bookmark.fill",
+                            tint: FireTheme.accent,
+                            title: "我的书签",
+                            subtitle: bookmarkSubtitle
+                        )
                     }
                 }
 
@@ -195,16 +198,18 @@ struct FireProfileView: View {
             .navigationDestination(isPresented: $showDeveloperTools) {
                 FireDeveloperToolsView(viewModel: viewModel)
             }
+            .navigationDestination(item: $selectedBadge) { item in
+                FireBadgeDetailView(
+                    viewModel: viewModel,
+                    badgeID: item.badge.id,
+                    initialBadge: item.badge
+                )
+            }
             .refreshable {
                 await profileViewModel.refreshAll()
             }
             .task(id: profileViewModel.currentUsername) {
                 profileViewModel.syncWithCurrentSession()
-            }
-            .overlay {
-                if showComingSoonToast {
-                    comingSoonToast
-                }
             }
             .alert("确认退出", isPresented: $showLogoutConfirmation) {
                 Button("取消", role: .cancel) {}
@@ -301,7 +306,12 @@ struct FireProfileView: View {
             fallbackWidth: max(UIScreen.main.bounds.width - 72, 220)
         ) {
             ForEach(Array(badges.prefix(Self.badgePreviewLimit)), id: \.id) { badge in
-                FireProfileBadgeChip(badge: badge)
+                Button {
+                    selectedBadge = FireProfileSelectedBadge(badge: badge)
+                } label: {
+                    FireProfileBadgeChip(badge: badge)
+                }
+                .buttonStyle(.plain)
             }
 
             if badges.count > Self.badgePreviewLimit {
@@ -352,45 +362,41 @@ struct FireProfileView: View {
         )
     }
 
-    private func shortcutRow(
+    private func shortcutRowContent(
         icon: String,
         tint: Color,
         title: String,
-        subtitle: String,
-        action: @escaping () -> Void
+        subtitle: String
     ) -> some View {
-        Button(action: action) {
-            HStack(spacing: 12) {
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(tint.opacity(0.12))
-                    .frame(width: 36, height: 36)
-                    .overlay {
-                        Image(systemName: icon)
-                            .font(.footnote.weight(.semibold))
-                            .foregroundStyle(tint)
-                    }
-
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(title)
-                        .font(.subheadline.weight(.medium))
-                        .foregroundStyle(FireTheme.ink)
-
-                    Text(subtitle)
-                        .font(.caption)
-                        .foregroundStyle(FireTheme.subtleInk)
-                        .fixedSize(horizontal: false, vertical: true)
+        HStack(spacing: 12) {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(tint.opacity(0.12))
+                .frame(width: 36, height: 36)
+                .overlay {
+                    Image(systemName: icon)
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(tint)
                 }
 
-                Spacer(minLength: 12)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(FireTheme.ink)
 
-                Image(systemName: "chevron.right")
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(FireTheme.tertiaryInk)
+                Text(subtitle)
+                    .font(.caption)
+                    .foregroundStyle(FireTheme.subtleInk)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            .padding(.vertical, 4)
-            .contentShape(Rectangle())
+
+            Spacer(minLength: 12)
+
+            Image(systemName: "chevron.right")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(FireTheme.tertiaryInk)
         }
-        .buttonStyle(.plain)
+        .padding(.vertical, 4)
+        .contentShape(Rectangle())
     }
 
     private func profileMetaPill(symbol: String, text: String, tint: Color = FireTheme.subtleInk) -> some View {
@@ -420,21 +426,6 @@ struct FireProfileView: View {
             }
         )
         .padding(.vertical, 2)
-    }
-
-    private var comingSoonToast: some View {
-        VStack {
-            Spacer()
-            Text("即将推出")
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(.white)
-                .padding(.horizontal, 20)
-                .padding(.vertical, 10)
-                .background(.black.opacity(0.75), in: Capsule())
-                .padding(.bottom, 32)
-        }
-        .transition(.opacity.combined(with: .move(edge: .bottom)))
-        .animation(.easeInOut(duration: 0.3), value: showComingSoonToast)
     }
 
     private var hasProfileMeta: Bool {

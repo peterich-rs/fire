@@ -105,6 +105,74 @@ async fn report_topic_timings_returns_false_on_429_and_respects_cooldown() {
     assert!(requests[1].contains("POST /topics/timings"));
 }
 
+#[tokio::test]
+async fn create_bookmark_posts_form_payload() {
+    let server = TestServer::spawn(vec![raw_json_response(
+        200,
+        "application/json",
+        r#"{"id": 901}"#,
+    )])
+    .await
+    .expect("server");
+    let core = authenticated_core(&server.base_url());
+
+    let bookmark_id = core
+        .create_bookmark(
+            123,
+            "Topic",
+            Some("稍后细读"),
+            Some("2026-03-29T09:00:00Z"),
+            Some(0),
+        )
+        .await
+        .expect("bookmark");
+    assert_eq!(bookmark_id, 901);
+
+    let requests = server.shutdown_with_requests().await;
+    let request = requests[0].to_ascii_lowercase();
+    assert!(request.contains("post /bookmarks.json"));
+    assert!(request.contains("x-csrf-token: csrf-token"));
+    assert!(request.contains("bookmarkable_id=123"));
+    assert!(request.contains("bookmarkable_type=topic"));
+    assert!(request.contains("%e7%a8%8d%e5%90%8e%e7%bb%86%e8%af%bb"));
+    assert!(request.contains("reminder_at=2026-03-29t09%3a00%3a00z"));
+}
+
+#[tokio::test]
+async fn update_and_delete_bookmark_and_topic_notification_level_use_expected_endpoints() {
+    let server = TestServer::spawn(vec![
+        raw_json_response(200, "application/json", "{}"),
+        raw_json_response(200, "application/json", "{}"),
+        raw_json_response(200, "application/json", "{}"),
+    ])
+    .await
+    .expect("server");
+    let core = authenticated_core(&server.base_url());
+
+    core.update_bookmark(
+        901,
+        Some("新的备注".into()),
+        Some("2026-03-30T10:00:00Z".into()),
+        Some(1),
+    )
+    .await
+    .expect("update bookmark");
+    core.delete_bookmark(901).await.expect("delete bookmark");
+    core.set_topic_notification_level(123, 3)
+        .await
+        .expect("set topic notification level");
+
+    let requests = server.shutdown_with_requests().await;
+    assert_eq!(requests.len(), 3);
+    assert!(requests[0].contains("PUT /bookmarks/901.json HTTP/1.1"));
+    assert!(requests[0].contains("\"name\":\"新的备注\""));
+    assert!(requests[0].contains("\"auto_delete_preference\":1"));
+    assert!(requests[1].contains("DELETE /bookmarks/901.json HTTP/1.1"));
+    let third = requests[2].to_ascii_lowercase();
+    assert!(third.contains("post /t/123/notifications"));
+    assert!(third.contains("notification_level=3"));
+}
+
 fn authenticated_core(base_url: &str) -> FireCore {
     let core = FireCore::new(FireCoreConfig {
         base_url: base_url.to_string(),

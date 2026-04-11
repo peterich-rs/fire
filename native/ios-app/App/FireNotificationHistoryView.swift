@@ -3,7 +3,8 @@ import SwiftUI
 struct FireNotificationHistoryView: View {
     @ObservedObject var viewModel: FireAppViewModel
     @State private var topicNavigation: FireHistoryTopicNavigation?
-    @State private var deferredFeatureToast: String?
+    @State private var profileNavigation: FireHistoryProfileNavigation?
+    @State private var badgeNavigation: FireHistoryBadgeNavigation?
 
     private var baseURLString: String {
         let trimmed = viewModel.session.bootstrap.baseUrl.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -45,27 +46,15 @@ struct FireNotificationHistoryView: View {
                 scrollToPostNumber: nav.postNumber
             )
         }
+        .navigationDestination(item: $profileNavigation) { nav in
+            FirePublicProfileView(viewModel: viewModel, username: nav.username)
+        }
+        .navigationDestination(item: $badgeNavigation) { nav in
+            FireBadgeDetailView(viewModel: viewModel, badgeID: nav.badgeID)
+        }
         .task {
             await viewModel.loadNotificationFullPage(offset: nil)
         }
-        .overlay(alignment: .bottom) {
-            if let toast = deferredFeatureToast {
-                Text(toast)
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 12)
-                    .background(Capsule().fill(Color(.darkGray)))
-                    .padding(.bottom, 16)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-                    .onAppear {
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-                            withAnimation { deferredFeatureToast = nil }
-                        }
-                    }
-            }
-        }
-        .animation(.easeInOut(duration: 0.25), value: deferredFeatureToast)
     }
 
     private var notificationList: some View {
@@ -142,10 +131,13 @@ struct FireNotificationHistoryView: View {
                 row: row,
                 postNumber: postNumber
             )
-        case .deferredProfile:
-            withAnimation { deferredFeatureToast = "个人主页功能即将上线" }
-        case .deferredBadge:
-            withAnimation { deferredFeatureToast = "徽章详情功能即将上线" }
+        case .profile(let username):
+            profileNavigation = FireHistoryProfileNavigation(username: username)
+        case .badge(let badgeID, let badgeSlug):
+            badgeNavigation = FireHistoryBadgeNavigation(
+                badgeID: badgeID,
+                badgeSlug: badgeSlug
+            )
         case .noAction:
             break
         }
@@ -166,4 +158,15 @@ private struct FireHistoryTopicNavigation: Identifiable, Hashable {
     static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.row.topic.id == rhs.row.topic.id && lhs.postNumber == rhs.postNumber
     }
+}
+
+private struct FireHistoryProfileNavigation: Identifiable, Hashable {
+    let username: String
+    var id: String { username.lowercased() }
+}
+
+private struct FireHistoryBadgeNavigation: Identifiable, Hashable {
+    let badgeID: UInt64
+    let badgeSlug: String?
+    var id: UInt64 { badgeID }
 }

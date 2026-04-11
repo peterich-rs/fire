@@ -34,8 +34,8 @@ enum DiscourseNotificationType: Int {
 
 enum NotificationTapDestination {
     case topic(topicId: UInt64, postNumber: UInt32?, slug: String, title: String)
-    case deferredProfile
-    case deferredBadge
+    case profile(username: String)
+    case badge(id: UInt64, badgeSlug: String?)
     case noAction
 }
 
@@ -105,9 +105,11 @@ extension NotificationItemState {
     var tapDestination: NotificationTapDestination {
         switch discourseType {
         case .inviteeAccepted, .following:
-            return .deferredProfile
+            guard let username = resolvedUsername else { return .noAction }
+            return .profile(username: username)
         case .grantedBadge:
-            return .deferredBadge
+            guard let badgeID = data.badgeId else { return .noAction }
+            return .badge(id: badgeID, badgeSlug: data.badgeSlug)
         case .membershipRequestAccepted:
             return .noAction
         default:
@@ -222,6 +224,11 @@ extension TopicRowState {
                 newPosts: 0,
                 lastReadPostNumber: nil,
                 highestPostNumber: 0,
+                bookmarkedPostNumber: nil,
+                bookmarkId: nil,
+                bookmarkName: nil,
+                bookmarkReminderAt: nil,
+                bookmarkableType: nil,
                 hasAcceptedAnswer: false,
                 canHaveAnswer: false
             ),
@@ -247,7 +254,8 @@ extension TopicRowState {
 struct FireNotificationsView: View {
     @ObservedObject var viewModel: FireAppViewModel
     @State private var topicNavigation: FireNotificationTopicNavigation?
-    @State private var deferredFeatureToast: String?
+    @State private var profileNavigation: FireNotificationProfileNavigation?
+    @State private var badgeNavigation: FireNotificationBadgeNavigation?
 
     private var baseURLString: String {
         let trimmed = viewModel.session.bootstrap.baseUrl.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -287,6 +295,12 @@ struct FireNotificationsView: View {
                     scrollToPostNumber: nav.postNumber
                 )
             }
+            .navigationDestination(item: $profileNavigation) { nav in
+                FirePublicProfileView(viewModel: viewModel, username: nav.username)
+            }
+            .navigationDestination(item: $badgeNavigation) { nav in
+                FireBadgeDetailView(viewModel: viewModel, badgeID: nav.badgeID)
+            }
         }
         .task {
             await viewModel.loadRecentNotifications(force: false)
@@ -297,18 +311,6 @@ struct FireNotificationsView: View {
             let row = TopicRowState.stub(topicId: topicId, title: "", slug: "", categoryId: nil)
             topicNavigation = FireNotificationTopicNavigation(row: row, postNumber: postNumber)
         }
-        .overlay(alignment: .bottom) {
-            if let toast = deferredFeatureToast {
-                FireDeferredFeatureToast(message: toast)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-                    .onAppear {
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-                            withAnimation { deferredFeatureToast = nil }
-                        }
-                    }
-            }
-        }
-        .animation(.easeInOut(duration: 0.25), value: deferredFeatureToast)
     }
 
     // MARK: - Notification list
@@ -371,10 +373,13 @@ struct FireNotificationsView: View {
                 row: row,
                 postNumber: postNumber
             )
-        case .deferredProfile:
-            withAnimation { deferredFeatureToast = "个人主页功能即将上线" }
-        case .deferredBadge:
-            withAnimation { deferredFeatureToast = "徽章详情功能即将上线" }
+        case .profile(let username):
+            profileNavigation = FireNotificationProfileNavigation(username: username)
+        case .badge(let badgeID, let badgeSlug):
+            badgeNavigation = FireNotificationBadgeNavigation(
+                badgeID: badgeID,
+                badgeSlug: badgeSlug
+            )
         case .noAction:
             break
         }
@@ -467,21 +472,15 @@ private struct FireNotificationTopicNavigation: Identifiable, Hashable {
     }
 }
 
-private struct FireDeferredFeatureToast: View {
-    let message: String
+private struct FireNotificationProfileNavigation: Identifiable, Hashable {
+    let username: String
+    var id: String { username.lowercased() }
+}
 
-    var body: some View {
-        Text(message)
-            .font(.subheadline.weight(.medium))
-            .foregroundStyle(.white)
-            .padding(.horizontal, 20)
-            .padding(.vertical, 12)
-            .background(
-                Capsule()
-                    .fill(Color(.darkGray))
-            )
-            .padding(.bottom, 16)
-    }
+private struct FireNotificationBadgeNavigation: Identifiable, Hashable {
+    let badgeID: UInt64
+    let badgeSlug: String?
+    var id: UInt64 { badgeID }
 }
 
 // MARK: - Shared notification row

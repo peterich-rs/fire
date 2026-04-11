@@ -202,6 +202,40 @@ async fn fetch_topic_list_builds_plain_text_excerpt_for_rows() {
 }
 
 #[tokio::test]
+async fn fetch_bookmarks_parses_bookmark_metadata_fields() {
+    let payload = sample_latest_json()
+        .replace(
+            r#""highest_post_number": 12,"#,
+            r#""highest_post_number": 12, "_bookmarked_post_number": 7, "_bookmark_id": 901, "_bookmark_name": "稍后细读", "_bookmark_reminder_at": "2026-03-29T09:00:00Z", "_bookmarkable_type": "Post","#,
+        );
+    let responses = vec![raw_json_response(200, "application/json", &payload)];
+    let server = TestServer::spawn(responses).await.expect("server");
+    let core = FireCore::new(FireCoreConfig {
+        base_url: server.base_url(),
+        workspace_path: None,
+    })
+    .expect("core");
+
+    let response = core
+        .fetch_bookmarks("alice", Some(2))
+        .await
+        .expect("bookmarks");
+    let requests = server.shutdown_with_requests().await;
+
+    assert_eq!(response.topics.len(), 1);
+    assert_eq!(response.topics[0].bookmarked_post_number, Some(7));
+    assert_eq!(response.topics[0].bookmark_id, Some(901));
+    assert_eq!(response.topics[0].bookmark_name.as_deref(), Some("稍后细读"));
+    assert_eq!(
+        response.topics[0].bookmark_reminder_at.as_deref(),
+        Some("2026-03-29T09:00:00Z")
+    );
+    assert_eq!(response.topics[0].bookmarkable_type.as_deref(), Some("Post"));
+    assert_eq!(requests.len(), 1);
+    assert!(requests[0].contains("GET /u/alice/bookmarks.json?page=2 HTTP/1.1"));
+}
+
+#[tokio::test]
 async fn fetch_topic_list_surfaces_cloudflare_challenge_error() {
     let responses = vec![raw_text_response(
         403,
@@ -523,8 +557,44 @@ async fn fetch_topic_detail_tolerates_object_bookmarks_and_accepted_answer_metad
     let _ = server.shutdown().await;
 
     assert_eq!(detail.bookmarks, vec![1240, 1241]);
+    assert!(detail.bookmarked);
+    assert_eq!(detail.bookmark_id, Some(1240));
+    assert!(detail.post_stream.posts[0].bookmarked);
+    assert_eq!(detail.post_stream.posts[0].bookmark_id, Some(1241));
     assert!(detail.accepted_answer);
     assert!(detail.has_accepted_answer);
+}
+
+#[tokio::test]
+async fn fetch_badge_detail_parses_badge_envelope() {
+    let payload = r#"{
+      "badge": {
+        "id": 7,
+        "name": "Great Reply",
+        "description": "<p>Short</p>",
+        "badge_type_id": 1,
+        "grant_count": 12,
+        "long_description": "<p>Long</p>",
+        "slug": "great-reply"
+      }
+    }"#;
+    let responses = vec![raw_json_response(200, "application/json", payload)];
+    let server = TestServer::spawn(responses).await.expect("server");
+    let core = FireCore::new(FireCoreConfig {
+        base_url: server.base_url(),
+        workspace_path: None,
+    })
+    .expect("core");
+
+    let badge = core.fetch_badge_detail(7).await.expect("badge detail");
+    let requests = server.shutdown_with_requests().await;
+
+    assert_eq!(badge.id, 7);
+    assert_eq!(badge.name, "Great Reply");
+    assert_eq!(badge.grant_count, 12);
+    assert_eq!(badge.long_description.as_deref(), Some("<p>Long</p>"));
+    assert_eq!(requests.len(), 1);
+    assert!(requests[0].contains("GET /badges/7.json HTTP/1.1"));
 }
 
 #[tokio::test]

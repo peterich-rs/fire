@@ -370,6 +370,13 @@ public actor FireSessionStore {
         try await core.markAllNotificationsRead()
     }
 
+    public func fetchBookmarks(
+        username: String,
+        page: UInt32? = nil
+    ) async throws -> TopicListState {
+        try await core.fetchBookmarks(username: username, page: page)
+    }
+
     public func pollNotificationAlertOnce(
         lastMessageId: Int64
     ) async throws -> NotificationAlertPollResultState {
@@ -470,6 +477,50 @@ public actor FireSessionStore {
         try await core.togglePostReaction(postId: postID, reactionId: reactionID)
     }
 
+    public func createBookmark(
+        bookmarkableID: UInt64,
+        bookmarkableType: String,
+        name: String? = nil,
+        reminderAt: String? = nil,
+        autoDeletePreference: Int32? = nil
+    ) async throws -> UInt64 {
+        try await core.createBookmark(
+            bookmarkableId: bookmarkableID,
+            bookmarkableType: bookmarkableType,
+            name: name,
+            reminderAt: reminderAt,
+            autoDeletePreference: autoDeletePreference
+        )
+    }
+
+    public func updateBookmark(
+        bookmarkID: UInt64,
+        name: String? = nil,
+        reminderAt: String? = nil,
+        autoDeletePreference: Int32? = nil
+    ) async throws {
+        try await core.updateBookmark(
+            bookmarkId: bookmarkID,
+            name: name,
+            reminderAt: reminderAt,
+            autoDeletePreference: autoDeletePreference
+        )
+    }
+
+    public func deleteBookmark(bookmarkID: UInt64) async throws {
+        try await core.deleteBookmark(bookmarkId: bookmarkID)
+    }
+
+    public func setTopicNotificationLevel(
+        topicID: UInt64,
+        notificationLevel: Int32
+    ) async throws {
+        try await core.setTopicNotificationLevel(
+            topicId: topicID,
+            notificationLevel: notificationLevel
+        )
+    }
+
     public func fetchUserProfile(username: String) async throws -> UserProfileState {
         try await core.fetchUserProfile(username: username)
     }
@@ -484,6 +535,10 @@ public actor FireSessionStore {
         filter: String?
     ) async throws -> [UserActionState] {
         try await core.fetchUserActions(username: username, offset: offset, filter: filter)
+    }
+
+    public func fetchBadgeDetail(badgeID: UInt64) async throws -> BadgeState {
+        try await core.fetchBadgeDetail(badgeId: badgeID)
     }
 
     @discardableResult

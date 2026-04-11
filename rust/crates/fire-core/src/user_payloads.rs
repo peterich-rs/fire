@@ -105,6 +105,16 @@ pub(crate) fn parse_user_actions_value(value: Value) -> Result<Vec<UserAction>, 
     Vec::<UserAction>::deserialize(actions_value)
 }
 
+pub(crate) fn parse_badge_value(value: Value) -> Result<Badge, serde_json::Error> {
+    let badge_value = match value {
+        Value::Object(ref obj) if obj.contains_key("badge") => {
+            obj.get("badge").cloned().unwrap_or(value.clone())
+        }
+        other => other,
+    };
+    Badge::deserialize(badge_value)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -216,5 +226,24 @@ mod tests {
         assert_eq!(actions[0].action_type, Some(4));
         assert_eq!(actions[0].title.as_deref(), Some("My Topic"));
         assert_eq!(actions[1].action_type, Some(5));
+    }
+
+    #[test]
+    fn test_parse_badge_value_unwraps_badge_envelope() {
+        let value = json!({
+            "badge": {
+                "id": 7,
+                "name": "Great Reply",
+                "badge_type_id": 1,
+                "grant_count": 12,
+                "long_description": "<p>Detailed</p>"
+            }
+        });
+        let badge = parse_badge_value(value).unwrap();
+        assert_eq!(badge.id, 7);
+        assert_eq!(badge.name, "Great Reply");
+        assert_eq!(badge.badge_type_id, 1);
+        assert_eq!(badge.grant_count, 12);
+        assert_eq!(badge.long_description.as_deref(), Some("<p>Detailed</p>"));
     }
 }

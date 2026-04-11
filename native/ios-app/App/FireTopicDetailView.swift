@@ -28,6 +28,24 @@ private struct FireReplyComposerContext: Identifiable, Equatable {
     }
 }
 
+private enum FireTopicNotificationLevelOption: Int32, CaseIterable, Identifiable {
+    case muted = 0
+    case regular = 1
+    case tracking = 2
+    case watching = 3
+
+    var id: Int32 { rawValue }
+
+    var title: String {
+        switch self {
+        case .muted: "静音"
+        case .regular: "普通"
+        case .tracking: "跟踪"
+        case .watching: "关注"
+        }
+    }
+}
+
 struct FireTopicDetailView: View {
     fileprivate static let scrollCoordinateSpaceName = "fire-topic-detail-scroll"
 
@@ -44,6 +62,8 @@ struct FireTopicDetailView: View {
     @State private var timingTracker: FireTopicTimingTracker
     @State private var detailOwnerToken: String
     @State private var hasScrolledToTarget = false
+    @State private var bookmarkEditorContext: FireBookmarkEditorContext?
+    @State private var selectedImage: FireCookedImage?
     @FocusState private var isReplyFieldFocused: Bool
 
     init(viewModel: FireAppViewModel, row: FireTopicRowPresentation, scrollToPostNumber: UInt32? = nil) {
@@ -135,6 +155,27 @@ struct FireTopicDetailView: View {
         viewModel.session.readiness.canWriteAuthenticatedApi
     }
 
+    private var topicShareURL: URL? {
+        let trimmedSlug = topic.slug.trimmingCharacters(in: .whitespacesAndNewlines)
+        return URL(string: "\(baseURLString)/t/\(trimmedSlug.isEmpty ? "topic-\(topic.id)" : trimmedSlug)/\(topic.id)")
+    }
+
+    private var currentTopicNotificationLevel: FireTopicNotificationLevelOption {
+        FireTopicNotificationLevelOption(rawValue: Int32(detail?.details.notificationLevel ?? 1)) ?? .regular
+    }
+
+    private var topicBookmarkContext: FireBookmarkEditorContext {
+        FireBookmarkEditorContext(
+            bookmarkID: detail?.bookmarkId,
+            bookmarkableID: topic.id,
+            bookmarkableType: "Topic",
+            title: topic.title,
+            initialName: detail?.bookmarkName,
+            initialReminderAt: detail?.bookmarkReminderAt,
+            allowsDelete: detail?.bookmarkId != nil
+        )
+    }
+
     private var messageBusSubscriptionTaskID: String {
         "\(topic.id)-\(viewModel.session.readiness.canOpenMessageBus)"
     }
@@ -215,10 +256,81 @@ struct FireTopicDetailView: View {
         .navigationTitle("话题")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.hidden, for: .tabBar)
+        .toolbar {
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                if let topicShareURL {
+                    ShareLink(item: topicShareURL) {
+                        Image(systemName: "square.and.arrow.up")
+                    }
+                }
+
+                Menu {
+                    Button {
+                        bookmarkEditorContext = topicBookmarkContext
+                    } label: {
+                        Label(
+                            detail?.bookmarked == true ? "编辑书签" : "添加书签",
+                            systemImage: detail?.bookmarked == true ? "bookmark.fill" : "bookmark"
+                        )
+                    }
+                    .disabled(!canWriteInteractions)
+
+                    Divider()
+
+                    ForEach(FireTopicNotificationLevelOption.allCases) { option in
+                        Button {
+                            Task {
+                                await updateTopicNotificationLevel(option)
+                            }
+                        } label: {
+                            if option == currentTopicNotificationLevel {
+                                Label(option.title, systemImage: "checkmark")
+                            } else {
+                                Text(option.title)
+                            }
+                        }
+                    }
+                    .disabled(!canWriteInteractions)
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                }
+            }
+        }
         .safeAreaInset(edge: .bottom) {
             if canWriteInteractions {
                 quickReplyBar
             }
+        }
+        .sheet(item: $bookmarkEditorContext) { context in
+            FireBookmarkEditorSheet(
+                context: context,
+                onSave: { name, reminderAt in
+                    if let bookmarkID = context.bookmarkID {
+                        try await viewModel.updateBookmark(
+                            bookmarkID: bookmarkID,
+                            name: name,
+                            reminderAt: reminderAt
+                        )
+                    } else {
+                        _ = try await viewModel.createBookmark(
+                            bookmarkableID: context.bookmarkableID,
+                            bookmarkableType: context.bookmarkableType,
+                            name: name,
+                            reminderAt: reminderAt
+                        )
+                    }
+                    await viewModel.loadTopicDetail(topicId: topic.id, force: true)
+                },
+                onDelete: context.bookmarkID.map { bookmarkID in
+                    {
+                        try await viewModel.deleteBookmark(bookmarkID: bookmarkID)
+                        await viewModel.loadTopicDetail(topicId: topic.id, force: true)
+                    }
+                }
+            )
+        }
+        .fullScreenCover(item: $selectedImage) { image in
+            FireTopicImageViewer(image: image)
         }
         .scrollDismissesKeyboard(.interactively)
         .alert("提示", isPresented: Binding(
@@ -377,6 +489,7 @@ struct FireTopicDetailView: View {
                         baseURLString: baseURLString,
                         canWriteInteractions: canWriteInteractions,
                         isMutating: viewModel.isMutatingPost(postId: originalPost.id),
+                        onOpenImage: { selectedImage = $0 },
                         onToggleLike: { toggleLike(for: $0) },
                         onSelectReaction: { post, reactionId in
                             toggleReaction(reactionId, for: post)
@@ -522,6 +635,7 @@ struct FireTopicDetailView: View {
                     baseURLString: baseURLString,
                     canWriteInteractions: canWriteInteractions,
                     isMutating: viewModel.isMutatingPost(postId: flatPost.post.id),
+                    onOpenImage: { selectedImage = $0 },
                     onToggleLike: { toggleLike(for: $0) },
                     onSelectReaction: { post, reactionId in
                         toggleReaction(reactionId, for: post)
@@ -814,6 +928,18 @@ struct FireTopicDetailView: View {
             )
         }
     }
+
+    private func updateTopicNotificationLevel(_ option: FireTopicNotificationLevelOption) async {
+        do {
+            try await viewModel.setTopicNotificationLevel(
+                topicID: topic.id,
+                notificationLevel: option.rawValue
+            )
+            await viewModel.loadTopicDetail(topicId: topic.id, force: true)
+        } catch {
+            composerNotice = error.localizedDescription
+        }
+    }
 }
 
 private struct FireVisiblePostFrameReporter: View {
@@ -902,6 +1028,7 @@ private struct FirePostRow: View {
     let baseURLString: String
     let canWriteInteractions: Bool
     let isMutating: Bool
+    let onOpenImage: (FireCookedImage) -> Void
     let onToggleLike: (TopicPostState) -> Void
     let onSelectReaction: (TopicPostState, String) -> Void
 
@@ -980,7 +1107,9 @@ private struct FirePostRow: View {
                 if !imageAttachments.isEmpty {
                     VStack(spacing: 10) {
                         ForEach(imageAttachments) { attachment in
-                            Link(destination: attachment.url) {
+                            Button {
+                                onOpenImage(attachment)
+                            } label: {
                                 FireCookedImageCard(image: attachment)
                             }
                             .buttonStyle(.plain)
@@ -1024,6 +1153,50 @@ private struct FirePostRow: View {
                 }
             }
             .padding(.vertical, 8)
+        }
+    }
+}
+
+private struct FireTopicImageViewer: View {
+    let image: FireCookedImage
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        ZStack(alignment: .topTrailing) {
+            Color.black.ignoresSafeArea()
+
+            AsyncImage(url: image.url) { phase in
+                switch phase {
+                case .empty:
+                    ProgressView()
+                        .tint(.white)
+                case .success(let loadedImage):
+                    loadedImage
+                        .resizable()
+                        .scaledToFit()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .padding(16)
+                case .failure:
+                    VStack(spacing: 12) {
+                        Image(systemName: "photo")
+                            .font(.largeTitle)
+                        Text("图片加载失败")
+                            .font(.subheadline)
+                    }
+                    .foregroundStyle(.white)
+                @unknown default:
+                    EmptyView()
+                }
+            }
+
+            Button {
+                dismiss()
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.system(size: 28))
+                    .foregroundStyle(.white.opacity(0.92))
+                    .padding(20)
+            }
         }
     }
 }

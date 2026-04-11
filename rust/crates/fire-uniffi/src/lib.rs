@@ -971,6 +971,11 @@ pub struct TopicSummaryState {
     pub new_posts: u32,
     pub last_read_post_number: Option<u32>,
     pub highest_post_number: u32,
+    pub bookmarked_post_number: Option<u32>,
+    pub bookmark_id: Option<u64>,
+    pub bookmark_name: Option<String>,
+    pub bookmark_reminder_at: Option<String>,
+    pub bookmarkable_type: Option<String>,
     pub has_accepted_answer: bool,
     pub can_have_answer: bool,
 }
@@ -1001,6 +1006,11 @@ impl From<TopicSummary> for TopicSummaryState {
             new_posts: value.new_posts,
             last_read_post_number: value.last_read_post_number,
             highest_post_number: value.highest_post_number,
+            bookmarked_post_number: value.bookmarked_post_number,
+            bookmark_id: value.bookmark_id,
+            bookmark_name: value.bookmark_name,
+            bookmark_reminder_at: value.bookmark_reminder_at,
+            bookmarkable_type: value.bookmarkable_type,
             has_accepted_answer: value.has_accepted_answer,
             can_have_answer: value.can_have_answer,
         }
@@ -1553,6 +1563,8 @@ pub struct TopicPostState {
     pub reply_to_post_number: Option<u32>,
     pub bookmarked: bool,
     pub bookmark_id: Option<u64>,
+    pub bookmark_name: Option<String>,
+    pub bookmark_reminder_at: Option<String>,
     pub reactions: Vec<TopicReactionState>,
     pub current_user_reaction: Option<TopicReactionState>,
     pub accepted_answer: bool,
@@ -1579,6 +1591,8 @@ impl From<TopicPost> for TopicPostState {
             reply_to_post_number: value.reply_to_post_number,
             bookmarked: value.bookmarked,
             bookmark_id: value.bookmark_id,
+            bookmark_name: value.bookmark_name,
+            bookmark_reminder_at: value.bookmark_reminder_at,
             reactions: value.reactions.into_iter().map(Into::into).collect(),
             current_user_reaction: value.current_user_reaction.map(Into::into),
             accepted_answer: value.accepted_answer,
@@ -1721,6 +1735,10 @@ pub struct TopicDetailState {
     pub created_at: Option<String>,
     pub last_read_post_number: Option<u32>,
     pub bookmarks: Vec<u64>,
+    pub bookmarked: bool,
+    pub bookmark_id: Option<u64>,
+    pub bookmark_name: Option<String>,
+    pub bookmark_reminder_at: Option<String>,
     pub accepted_answer: bool,
     pub has_accepted_answer: bool,
     pub can_vote: bool,
@@ -1752,6 +1770,10 @@ impl From<TopicDetail> for TopicDetailState {
             created_at: value.created_at,
             last_read_post_number: value.last_read_post_number,
             bookmarks: value.bookmarks,
+            bookmarked: value.bookmarked,
+            bookmark_id: value.bookmark_id,
+            bookmark_name: value.bookmark_name,
+            bookmark_reminder_at: value.bookmark_reminder_at,
             accepted_answer: value.accepted_answer,
             has_accepted_answer: value.has_accepted_answer,
             can_vote: value.can_vote,
@@ -2276,6 +2298,8 @@ pub struct BadgeState {
     pub icon: Option<String>,
     pub image_url: Option<String>,
     pub slug: Option<String>,
+    pub grant_count: u32,
+    pub long_description: Option<String>,
 }
 
 impl From<Badge> for BadgeState {
@@ -2288,6 +2312,8 @@ impl From<Badge> for BadgeState {
             icon: value.icon,
             image_url: value.image_url,
             slug: value.slug,
+            grant_count: value.grant_count,
+            long_description: value.long_description,
         }
     }
 }
@@ -2864,6 +2890,20 @@ impl FireCoreHandle {
         Ok(response.into())
     }
 
+    pub async fn fetch_bookmarks(
+        &self,
+        username: String,
+        page: Option<u32>,
+    ) -> Result<TopicListState, FireUniFfiError> {
+        let inner = Arc::clone(&self.inner);
+        let panic_state = Arc::clone(&self.panic_state);
+        let response = run_on_ffi_runtime("fetch_bookmarks", panic_state, async move {
+            inner.fetch_bookmarks(&username, page).await
+        })
+        .await?;
+        Ok(response.into())
+    }
+
     pub async fn fetch_topic_list(
         &self,
         query: TopicListQueryState,
@@ -3022,6 +3062,71 @@ impl FireCoreHandle {
         Ok(response.into())
     }
 
+    pub async fn create_bookmark(
+        &self,
+        bookmarkable_id: u64,
+        bookmarkable_type: String,
+        name: Option<String>,
+        reminder_at: Option<String>,
+        auto_delete_preference: Option<i32>,
+    ) -> Result<u64, FireUniFfiError> {
+        let inner = Arc::clone(&self.inner);
+        let panic_state = Arc::clone(&self.panic_state);
+        run_on_ffi_runtime("create_bookmark", panic_state, async move {
+            inner
+                .create_bookmark(
+                    bookmarkable_id,
+                    &bookmarkable_type,
+                    name.as_deref(),
+                    reminder_at.as_deref(),
+                    auto_delete_preference,
+                )
+                .await
+        })
+        .await
+    }
+
+    pub async fn update_bookmark(
+        &self,
+        bookmark_id: u64,
+        name: Option<String>,
+        reminder_at: Option<String>,
+        auto_delete_preference: Option<i32>,
+    ) -> Result<(), FireUniFfiError> {
+        let inner = Arc::clone(&self.inner);
+        let panic_state = Arc::clone(&self.panic_state);
+        run_on_ffi_runtime("update_bookmark", panic_state, async move {
+            inner
+                .update_bookmark(bookmark_id, name, reminder_at, auto_delete_preference)
+                .await
+        })
+        .await
+    }
+
+    pub async fn delete_bookmark(&self, bookmark_id: u64) -> Result<(), FireUniFfiError> {
+        let inner = Arc::clone(&self.inner);
+        let panic_state = Arc::clone(&self.panic_state);
+        run_on_ffi_runtime("delete_bookmark", panic_state, async move {
+            inner.delete_bookmark(bookmark_id).await
+        })
+        .await
+    }
+
+    pub async fn set_topic_notification_level(
+        &self,
+        topic_id: u64,
+        notification_level: i32,
+    ) -> Result<(), FireUniFfiError> {
+        let inner = Arc::clone(&self.inner);
+        let panic_state = Arc::clone(&self.panic_state);
+        run_on_ffi_runtime("set_topic_notification_level", panic_state, async move {
+            inner
+                .set_topic_notification_level(topic_id, notification_level)
+                .await
+        })
+        .await
+    }
+
     pub fn apply_cookies(&self, cookies: CookieState) -> Result<SessionState, FireUniFfiError> {
         self.run_infallible("apply_cookies", move |inner| {
             SessionState::from_snapshot(inner.apply_cookies(cookies.into()))
@@ -3173,6 +3278,19 @@ impl FireCoreHandle {
         })
         .await?;
         Ok(summary.into())
+    }
+
+    pub async fn fetch_badge_detail(
+        &self,
+        badge_id: u64,
+    ) -> Result<BadgeState, FireUniFfiError> {
+        let inner = Arc::clone(&self.inner);
+        let panic_state = Arc::clone(&self.panic_state);
+        let badge = run_on_ffi_runtime("fetch_badge_detail", panic_state, async move {
+            inner.fetch_badge_detail(badge_id).await
+        })
+        .await?;
+        Ok(badge.into())
     }
 
     pub async fn fetch_user_actions(

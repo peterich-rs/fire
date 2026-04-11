@@ -2085,4 +2085,73 @@ final class FireAppViewModel: ObservableObject {
             filter: filter
         )
     }
+
+    func fetchBookmarks(
+        username: String,
+        page: UInt32? = nil
+    ) async throws -> TopicListState {
+        let sessionStore = try await sessionStoreValue()
+        return try await sessionStore.fetchBookmarks(username: username, page: page)
+    }
+
+    func fetchBadgeDetail(badgeID: UInt64) async throws -> BadgeState {
+        let sessionStore = try await sessionStoreValue()
+        return try await sessionStore.fetchBadgeDetail(badgeID: badgeID)
+    }
+
+    func createBookmark(
+        bookmarkableID: UInt64,
+        bookmarkableType: String,
+        name: String? = nil,
+        reminderAt: String? = nil,
+        autoDeletePreference: Int32? = nil
+    ) async throws -> UInt64 {
+        let sessionStore = try await sessionStoreValue()
+        return try await performWriteWithCloudflareRetry {
+            try await sessionStore.createBookmark(
+                bookmarkableID: bookmarkableID,
+                bookmarkableType: bookmarkableType,
+                name: name,
+                reminderAt: reminderAt,
+                autoDeletePreference: autoDeletePreference
+            )
+        }
+    }
+
+    func updateBookmark(
+        bookmarkID: UInt64,
+        name: String? = nil,
+        reminderAt: String? = nil,
+        autoDeletePreference: Int32? = nil
+    ) async throws {
+        let sessionStore = try await sessionStoreValue()
+        try await performWriteWithCloudflareRetry {
+            try await sessionStore.updateBookmark(
+                bookmarkID: bookmarkID,
+                name: name,
+                reminderAt: reminderAt,
+                autoDeletePreference: autoDeletePreference
+            )
+        }
+    }
+
+    func deleteBookmark(bookmarkID: UInt64) async throws {
+        let sessionStore = try await sessionStoreValue()
+        try await performWriteWithCloudflareRetry {
+            try await sessionStore.deleteBookmark(bookmarkID: bookmarkID)
+        }
+    }
+
+    func setTopicNotificationLevel(
+        topicID: UInt64,
+        notificationLevel: Int32
+    ) async throws {
+        let sessionStore = try await sessionStoreValue()
+        try await performWriteWithCloudflareRetry {
+            try await sessionStore.setTopicNotificationLevel(
+                topicID: topicID,
+                notificationLevel: notificationLevel
+            )
+        }
+    }
 }

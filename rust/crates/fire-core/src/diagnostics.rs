@@ -40,7 +40,6 @@ const SUPPORT_BUNDLE_TRACE_LIMIT: usize = 20;
 const SUPPORT_BUNDLE_LOG_PAGE_BYTES: usize = 96 * 1024;
 const SUPPORT_BUNDLE_TRACE_BODY_BYTES: usize = 32 * 1024;
 const SUPPORT_BUNDLE_DIR_NAME: &str = "support-bundles";
-const REDACTED_HEADER_VALUE: &str = "<redacted>";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NetworkTraceOutcome {
@@ -1258,7 +1257,7 @@ pub(crate) fn read_log_file_page(
 pub(crate) fn export_support_bundle(
     workspace_path: &Path,
     diagnostics: &FireDiagnosticsStore,
-    redacted_session_json: &str,
+    session_json: &str,
     host_context: &FireSupportBundleHostContext,
 ) -> Result<FireSupportBundleExport, FireCoreError> {
     let generated_at_unix_ms = now_unix_ms();
@@ -1275,8 +1274,8 @@ pub(crate) fn export_support_bundle(
         source,
     })?;
 
-    let session: Value = serde_json::from_str(redacted_session_json)
-        .map_err(FireCoreError::DiagnosticsDeserialize)?;
+    let session: Value =
+        serde_json::from_str(session_json).map_err(FireCoreError::DiagnosticsDeserialize)?;
     let log_files = list_log_files(workspace_path)?;
     let log_pages = log_files
         .iter()
@@ -1416,25 +1415,11 @@ fn trim_oldest_traces(state: &mut FireDiagnosticsState) {
 fn sanitize_headers(headers: &HeaderMap) -> Vec<NetworkTraceHeader> {
     headers
         .iter()
-        .map(|(name, value)| {
-            let value = if is_sensitive_header(name.as_str()) {
-                REDACTED_HEADER_VALUE.to_string()
-            } else {
-                value.to_str().unwrap_or("<non-utf8>").to_string()
-            };
-            NetworkTraceHeader {
-                name: name.as_str().to_string(),
-                value,
-            }
+        .map(|(name, value)| NetworkTraceHeader {
+            name: name.as_str().to_string(),
+            value: value.to_str().unwrap_or("<non-utf8>").to_string(),
         })
         .collect()
-}
-
-fn is_sensitive_header(name: &str) -> bool {
-    matches!(
-        name.to_ascii_lowercase().as_str(),
-        "authorization" | "cookie" | "set-cookie" | "x-csrf-token"
-    )
 }
 
 fn header_value(headers: &HeaderMap, name: &str) -> Option<String> {
@@ -2133,7 +2118,7 @@ mod tests {
         let export = export_support_bundle(
             &workspace_dir,
             &store,
-            r#"{"cookies":{"forum_session":"<redacted>"}}"#,
+            r#"{"cookies":{"forum_session":"forum"}}"#,
             &FireSupportBundleHostContext {
                 platform: "ios".to_string(),
                 app_version: Some("1.0".to_string()),
@@ -2175,14 +2160,14 @@ mod tests {
                 .iter()
                 .find(|header| header["name"] == "cookie")
                 .expect("cookie header")["value"],
-            super::REDACTED_HEADER_VALUE
+            "session=secret"
         );
         assert_eq!(
             response_headers
                 .iter()
                 .find(|header| header["name"] == "set-cookie")
                 .expect("set-cookie header")["value"],
-            super::REDACTED_HEADER_VALUE
+            "session=secret"
         );
 
         let listed_logs = super::list_log_files(&workspace_dir).expect("list logs");

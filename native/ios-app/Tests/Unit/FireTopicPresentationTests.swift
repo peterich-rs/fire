@@ -114,6 +114,21 @@ final class FireTopicPresentationTests: XCTestCase {
         XCTAssertNotNil(timestamp)
     }
 
+    func testTopicDetailSubscriptionTaskIDChangesWhenDetailLoads() {
+        let beforeLoad = FireTopicDetailView.topicDetailSubscriptionTaskID(
+            topicId: 42,
+            canOpenMessageBus: true,
+            hasLoadedDetail: false
+        )
+        let afterLoad = FireTopicDetailView.topicDetailSubscriptionTaskID(
+            topicId: 42,
+            canOpenMessageBus: true,
+            hasLoadedDetail: true
+        )
+
+        XCTAssertNotEqual(beforeLoad, afterLoad)
+    }
+
     func testTopicThreadFlatPostStateCarriesRustDisplayMetadata() {
         let flatPosts = [
             TopicThreadFlatPostState(

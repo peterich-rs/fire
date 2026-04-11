@@ -568,6 +568,15 @@ final class FireAppViewModel: ObservableObject {
 
     func maintainTopicDetailSubscription(topicId: UInt64, ownerToken: String) async {
         guard session.readiness.canOpenMessageBus else { return }
+        // Hidden/private topics can 404 while the detail view is already alive. Waiting
+        // for a successful detail load avoids bootstrapping presence on a topic we
+        // cannot read, which can cause Linux.do to clear the auth cookie.
+        guard topicDetails[topicId] != nil else {
+            topicDetailLogger()?.debug(
+                "skipping topic detail subscription bootstrap topic_id=\(topicId) reason=detail not loaded"
+            )
+            return
+        }
         guard let store = sessionStore else { return }
 
         do {
@@ -686,7 +695,7 @@ final class FireAppViewModel: ObservableObject {
             applyCreatedReply(createdReply, topicId: topicId)
             try? await refreshTopicDetailAfterMutation(topicId: topicId, sessionStore: sessionStore)
         } catch {
-            errorMessage = error.localizedDescription
+            _ = await handleInteractionError(error)
             throw error
         }
     }
@@ -727,7 +736,7 @@ final class FireAppViewModel: ObservableObject {
             await refreshTopicsIfPossible(force: true)
             return topicID
         } catch {
-            errorMessage = error.localizedDescription
+            _ = await handleInteractionError(error)
             throw error
         }
     }
@@ -764,7 +773,7 @@ final class FireAppViewModel: ObservableObject {
             await refreshTopicsIfPossible(force: true)
             try? await refreshTopicDetailAfterMutation(topicId: topicID, sessionStore: sessionStore)
         } catch {
-            errorMessage = error.localizedDescription
+            _ = await handleInteractionError(error)
             throw error
         }
     }
@@ -812,7 +821,7 @@ final class FireAppViewModel: ObservableObject {
             await refreshTopicsIfPossible(force: false)
             return updatedPost
         } catch {
-            errorMessage = error.localizedDescription
+            _ = await handleInteractionError(error)
             throw error
         }
     }
@@ -916,7 +925,7 @@ final class FireAppViewModel: ObservableObject {
                 try? await refreshTopicDetailAfterMutation(topicId: topicId, sessionStore: sessionStore)
             }
         } catch {
-            errorMessage = error.localizedDescription
+            _ = await handleInteractionError(error)
             throw error
         }
     }
@@ -952,7 +961,7 @@ final class FireAppViewModel: ObservableObject {
             }
             applyPostReactionUpdate(topicId: topicId, postId: postId, update: update)
         } catch {
-            errorMessage = error.localizedDescription
+            _ = await handleInteractionError(error)
             throw error
         }
     }
@@ -986,7 +995,7 @@ final class FireAppViewModel: ObservableObject {
             try? await refreshTopicDetailAfterMutation(topicId: topicID, sessionStore: sessionStore)
             return poll
         } catch {
-            errorMessage = error.localizedDescription
+            _ = await handleInteractionError(error)
             throw error
         }
     }
@@ -1015,7 +1024,7 @@ final class FireAppViewModel: ObservableObject {
             try? await refreshTopicDetailAfterMutation(topicId: topicID, sessionStore: sessionStore)
             return poll
         } catch {
-            errorMessage = error.localizedDescription
+            _ = await handleInteractionError(error)
             throw error
         }
     }
@@ -1038,7 +1047,7 @@ final class FireAppViewModel: ObservableObject {
             try? await refreshTopicDetailAfterMutation(topicId: topicID, sessionStore: sessionStore)
             return response
         } catch {
-            errorMessage = error.localizedDescription
+            _ = await handleInteractionError(error)
             throw error
         }
     }
@@ -1937,7 +1946,7 @@ final class FireAppViewModel: ObservableObject {
     }
 
     @discardableResult
-    private func handleLoginRequiredIfNeeded(_ error: Error) async -> Bool {
+    func handleLoginRequiredIfNeeded(_ error: Error) async -> Bool {
         guard case let FireUniFfiError.LoginRequired(message) = error else {
             return false
         }
@@ -1946,6 +1955,15 @@ final class FireAppViewModel: ObservableObject {
             message: message.isEmpty ? Self.loginRequiredMessage : message
         )
         return true
+    }
+
+    @discardableResult
+    private func handleInteractionError(_ error: Error) async -> Bool {
+        if await handleRecoverableSessionErrorIfNeeded(error) {
+            return true
+        }
+        errorMessage = error.localizedDescription
+        return false
     }
 
     @discardableResult

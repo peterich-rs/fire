@@ -25,7 +25,7 @@ async fn bootstrap_topic_reply_presence_updates_state_and_poll_checkpoint() {
         "avatar_template": "/user_avatar/linux.do/bob/{size}/1_2.png"
       }
     ],
-    "message_id": 1000
+    "last_message_id": 1000
   }
 }"#,
         ),
@@ -56,6 +56,76 @@ async fn bootstrap_topic_reply_presence_updates_state_and_poll_checkpoint() {
         .contains("GET /presence/get?channels%5B%5D=%2Fdiscourse-presence%2Freply%2F123"));
     assert!(requests[1].contains("POST /message-bus/"));
     assert!(requests[1].contains("%2Fpresence%2Fdiscourse-presence%2Freply%2F123=1000"));
+}
+
+#[tokio::test]
+async fn bootstrap_topic_reply_presence_accepts_legacy_message_id_field() {
+    let server = TestServer::spawn(vec![
+        raw_json_response(
+            200,
+            "application/json",
+            r#"{
+  "/discourse-presence/reply/123": {
+    "users": [
+      {
+        "id": 2,
+        "username": "bob"
+      }
+    ],
+    "message_id": 1000
+  }
+}"#,
+        ),
+        raw_json_response(200, "application/json", "[]"),
+    ])
+    .await
+    .expect("server");
+    let core = authenticated_core(&server.base_url());
+
+    let presence = core
+        .bootstrap_topic_reply_presence(123, "presence-bootstrap-owner".into())
+        .await
+        .expect("bootstrap topic reply presence");
+    assert_eq!(presence.message_id, 1000);
+
+    let (sender, _receiver) = unbounded_channel();
+    core.start_message_bus(MessageBusClientMode::Foreground, sender)
+        .await
+        .expect("start message bus");
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    core.stop_message_bus(true);
+
+    let requests = server.shutdown_with_requests().await;
+    assert!(requests[1].contains("%2Fpresence%2Fdiscourse-presence%2Freply%2F123=1000"));
+}
+
+#[tokio::test]
+async fn fetch_topic_reply_presence_treats_null_channel_as_empty_presence() {
+    let server = TestServer::spawn(vec![raw_json_response(
+        200,
+        "application/json",
+        r#"{
+  "/discourse-presence/reply/123": null
+}"#,
+    )])
+    .await
+    .expect("server");
+    let core = authenticated_core(&server.base_url());
+
+    let presence = core
+        .fetch_topic_reply_presence(123)
+        .await
+        .expect("fetch topic reply presence");
+
+    assert_eq!(presence.topic_id, 123);
+    assert_eq!(presence.message_id, -1);
+    assert!(presence.users.is_empty());
+    assert_eq!(core.topic_reply_presence_state(123), presence);
+
+    let requests = server.shutdown_with_requests().await;
+    assert_eq!(requests.len(), 1);
+    assert!(requests[0]
+        .contains("GET /presence/get?channels%5B%5D=%2Fdiscourse-presence%2Freply%2F123"));
 }
 
 #[tokio::test]

@@ -215,6 +215,27 @@ cp "$tmp_dir/bindings/fire_uniffi.swift" "$swift_out_dir/fire_uniffi.swift"
 cp "$tmp_dir/bindings/fire_uniffiFFI.h" "$ffi_out_dir/fire_uniffiFFI.h"
 cp "$tmp_dir/bindings/fire_uniffiFFI.modulemap" "$ffi_out_dir/module.modulemap"
 
+python3 - <<'PY' "$swift_out_dir/fire_uniffi.swift"
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+text = path.read_text()
+replacements = {
+    '            if result == nil {\n                print("Uniffi callback interface MessageBusEventHandler: handle missing in uniffiFree")\n            }\n':
+    '            if result == nil {\n                #if DEBUG\n                print("Uniffi callback interface MessageBusEventHandler: handle missing in uniffiFree")\n                #endif\n            }\n',
+    '    } else {\n        print("uniffiFutureContinuationCallback invalid handle")\n    }\n':
+    '    } else {\n        #if DEBUG\n        print("uniffiFutureContinuationCallback invalid handle")\n        #endif\n    }\n',
+}
+
+updated = text
+for before, after in replacements.items():
+    updated = updated.replace(before, after)
+
+if updated != text:
+    path.write_text(updated)
+PY
+
 declare -a built_libraries=()
 
 for rust_target in "${rust_targets[@]}"; do

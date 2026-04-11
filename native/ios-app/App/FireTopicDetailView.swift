@@ -56,6 +56,14 @@ private enum FireTopicNotificationLevelOption: Int32, CaseIterable, Identifiable
 struct FireTopicDetailView: View {
     fileprivate static let scrollCoordinateSpaceName = "fire-topic-detail-scroll"
 
+    static func topicDetailSubscriptionTaskID(
+        topicId: UInt64,
+        canOpenMessageBus: Bool,
+        hasLoadedDetail: Bool
+    ) -> String {
+        "\(topicId)-\(canOpenMessageBus)-\(hasLoadedDetail)"
+    }
+
     @ObservedObject var viewModel: FireAppViewModel
     let row: FireTopicRowPresentation
     let scrollToPostNumber: UInt32?
@@ -190,7 +198,11 @@ struct FireTopicDetailView: View {
     }
 
     private var messageBusSubscriptionTaskID: String {
-        "\(topic.id)-\(viewModel.session.readiness.canOpenMessageBus)"
+        Self.topicDetailSubscriptionTaskID(
+            topicId: topic.id,
+            canOpenMessageBus: viewModel.session.readiness.canOpenMessageBus,
+            hasLoadedDetail: detail != nil
+        )
     }
 
     private var displayedReplyCount: UInt32 {

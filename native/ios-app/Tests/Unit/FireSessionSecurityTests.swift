@@ -3,7 +3,7 @@ import XCTest
 @testable import Fire
 
 final class FireSessionSecurityTests: XCTestCase {
-    func testRestoreColdStartReappliesSecureStoreCookiesAndRepairsRedactedCsrf() async throws {
+    func testRestoreColdStartReappliesSecureStoreCookiesAndRepairsLegacyRedactedCsrf() async throws {
         let sessionFileURL = try makeSessionFileURL(name: "restore-cold-start-redacted")
         try redactedSessionJSON().write(to: sessionFileURL, atomically: true, encoding: .utf8)
         let secureStore = InMemoryAuthCookieSecureStore(
@@ -42,9 +42,9 @@ final class FireSessionSecurityTests: XCTestCase {
         XCTAssertEqual(session.loginPhase, .ready, debugSession)
         XCTAssertEqual(counts.bootstrapRefreshCount, 1)
         XCTAssertEqual(counts.csrfRefreshCount, 1)
-        XCTAssertFalse(persisted.contains("\"token\""))
-        XCTAssertFalse(persisted.contains("\"forum\""))
-        XCTAssertFalse(persisted.contains("\"clearance\""))
+        XCTAssertTrue(persisted.contains("\"token\""))
+        XCTAssertTrue(persisted.contains("\"forum\""))
+        XCTAssertTrue(persisted.contains("\"clearance\""))
     }
 
     func testRestoreColdStartClearsStaleBootstrapWhenSecureStoreIsMissing() async throws {
@@ -101,7 +101,7 @@ final class FireSessionSecurityTests: XCTestCase {
         XCTAssertEqual(counts.csrfRefreshCount, 0)
     }
 
-    func testSyncLoginContextStoresCookiesInSecureStoreAndPersistsRedactedSession() async throws {
+    func testSyncLoginContextStoresCookiesInSecureStoreAndPersistsFullSession() async throws {
         let sessionFileURL = try makeSessionFileURL(name: "sync-login-context-stores-secure-cookies")
         let secureStore = InMemoryAuthCookieSecureStore()
         let store = try FireSessionStore(
@@ -131,10 +131,10 @@ final class FireSessionSecurityTests: XCTestCase {
         XCTAssertEqual(secrets.tToken, "token")
         XCTAssertEqual(secrets.forumSession, "forum")
         XCTAssertEqual(secrets.cfClearance, "clearance")
-        XCTAssertFalse(persisted.contains("\"token\""))
-        XCTAssertFalse(persisted.contains("\"forum\""))
-        XCTAssertFalse(persisted.contains("\"clearance\""))
-        XCTAssertFalse(persisted.contains("\"csrf-token\""))
+        XCTAssertTrue(persisted.contains("\"token\""))
+        XCTAssertTrue(persisted.contains("\"forum\""))
+        XCTAssertTrue(persisted.contains("\"clearance\""))
+        XCTAssertTrue(persisted.contains("\"csrf-token\""))
     }
 
     func testPersistCurrentSessionRewritesSecureStoreFromCurrentSnapshot() async throws {
@@ -453,6 +453,32 @@ final class FireSessionSecurityTests: XCTestCase {
             viewModel.errorMessage,
             "需要先完成 Cloudflare 验证。请在登录页完成验证后点 Sync，再重试。"
         )
+        XCTAssertEqual(viewModel.searchQuery, "")
+        XCTAssertFalse(viewModel.session.hasLoginSession)
+        XCTAssertFalse(viewModel.session.readiness.canReadAuthenticatedApi)
+        XCTAssertTrue(viewModel.session.readiness.hasCloudflareClearance)
+        let calls = await recoveryStore.recordedCalls()
+        XCTAssertEqual(calls, [true])
+    }
+
+    @MainActor
+    func testLoginRequiredRecoveryClearsLocalSessionAndPresentsLogin() async {
+        let recoveryStore = MockChallengeRecoveryStore(
+            result: .success(challengedLoggedOutSession())
+        )
+        let viewModel = FireAppViewModel(
+            initialSession: authenticatedSession(),
+            challengeRecoveryStore: recoveryStore
+        )
+        viewModel.searchQuery = "rust"
+
+        let recovered = await viewModel.handleLoginRequiredIfNeeded(
+            FireUniFfiError.LoginRequired(details: "您需要登录才能执行此操作。")
+        )
+
+        XCTAssertTrue(recovered)
+        XCTAssertTrue(viewModel.isPresentingLogin)
+        XCTAssertEqual(viewModel.errorMessage, "您需要登录才能执行此操作。")
         XCTAssertEqual(viewModel.searchQuery, "")
         XCTAssertFalse(viewModel.session.hasLoginSession)
         XCTAssertFalse(viewModel.session.readiness.canReadAuthenticatedApi)

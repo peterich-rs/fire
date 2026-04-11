@@ -63,7 +63,7 @@ public struct FireHostLogger: Sendable {
 }
 
 private struct FirePersistedSessionArtifacts: Equatable {
-    let redactedSessionJSON: String
+    let sessionJSON: String
     let secureSecrets: FireAuthCookieSecrets
 }
 
@@ -213,7 +213,7 @@ public actor FireSessionStore {
 
     public func persistCurrentSession() throws {
         try persistCurrentAuthCookies()
-        try persistRedactedSessionFile()
+        try persistSessionFile()
     }
 
     public func workspacePathValue() -> String {
@@ -348,7 +348,7 @@ public actor FireSessionStore {
     }
 
     public func exportSessionJSON() throws -> String {
-        try core.exportRedactedSessionJson()
+        try core.exportSessionJson()
     }
 
     public func notificationState() throws -> NotificationCenterState {
@@ -929,8 +929,8 @@ public actor FireSessionStore {
     }
 
     private func shouldRefreshCsrfAfterColdStartRestore(_ session: SessionState) -> Bool {
-        // iOS persists a redacted session cache, so a cold-start restore may only be
-        // missing CSRF even though bootstrap/user state is otherwise ready.
+        // A cold-start restore can still come back without a usable CSRF token even
+        // when cookie/bootstrap state is otherwise ready.
         session.readiness.canReadAuthenticatedApi
             && session.readiness.hasCurrentUser
             && session.bootstrap.hasPreloadedData
@@ -941,7 +941,7 @@ public actor FireSessionStore {
 
     private func persistedSessionArtifacts() throws -> FirePersistedSessionArtifacts {
         FirePersistedSessionArtifacts(
-            redactedSessionJSON: try core.exportRedactedSessionJson(),
+            sessionJSON: try core.exportSessionJson(),
             secureSecrets: FireAuthCookieSecrets(cookieState: try core.snapshot().cookies)
         )
     }
@@ -950,8 +950,8 @@ public actor FireSessionStore {
         try authCookieStore.save(FireAuthCookieSecrets(cookieState: try core.snapshot().cookies))
     }
 
-    private func persistRedactedSessionFile() throws {
-        try core.saveRedactedSessionToPath(path: sessionFilePath)
+    private func persistSessionFile() throws {
+        try core.saveSessionToPath(path: sessionFilePath)
     }
 
     private func runPersistingSessionChanges<T>(

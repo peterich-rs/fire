@@ -30,15 +30,6 @@ impl PersistedSessionEnvelope {
             snapshot,
         }
     }
-
-    pub(crate) fn new_redacted(snapshot: SessionSnapshot) -> Self {
-        Self {
-            version: Self::REDACTED_SNAPSHOT_VERSION,
-            saved_at_unix_ms: now_unix_ms(),
-            auth_cookies_redacted: true,
-            snapshot,
-        }
-    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -172,12 +163,6 @@ pub(crate) fn sanitize_snapshot_for_restore(
     snapshot
 }
 
-pub(crate) fn sanitize_snapshot_for_persist(mut snapshot: SessionSnapshot) -> SessionSnapshot {
-    snapshot.cookies.clear_login_state(false);
-    snapshot.cookies.platform_cookies.clear();
-    snapshot
-}
-
 fn normalize_option(slot: &mut Option<String>) {
     if slot.as_ref().is_some_and(|value| value.is_empty()) {
         *slot = None;
@@ -215,9 +200,7 @@ fn now_unix_ms() -> u64 {
 mod tests {
     use std::{env, fs, path::PathBuf};
 
-    use fire_models::{BootstrapArtifacts, CookieSnapshot, SessionSnapshot};
-
-    use super::{sanitize_snapshot_for_persist, write_atomic};
+    use super::write_atomic;
 
     #[test]
     fn write_atomic_replaces_existing_file_contents() {
@@ -229,35 +212,6 @@ mod tests {
         assert_eq!(fs::read(&path).expect("read file"), b"after");
         let _ = fs::remove_file(path);
     }
-
-    #[test]
-    fn sanitize_snapshot_for_persist_strips_auth_and_csrf_tokens() {
-        let sanitized = sanitize_snapshot_for_persist(SessionSnapshot {
-            cookies: CookieSnapshot {
-                t_token: Some("token".into()),
-                forum_session: Some("forum".into()),
-                cf_clearance: Some("clearance".into()),
-                csrf_token: Some("csrf".into()),
-                platform_cookies: Vec::new(),
-            },
-            bootstrap: BootstrapArtifacts {
-                base_url: "https://linux.do/".into(),
-                current_username: Some("alice".into()),
-                ..BootstrapArtifacts::default()
-            },
-            browser_user_agent: Some("Mozilla/5.0".into()),
-        });
-
-        assert_eq!(sanitized.cookies.t_token, None);
-        assert_eq!(sanitized.cookies.forum_session, None);
-        assert_eq!(sanitized.cookies.cf_clearance, None);
-        assert_eq!(sanitized.cookies.csrf_token, None);
-        assert_eq!(
-            sanitized.bootstrap.current_username.as_deref(),
-            Some("alice")
-        );
-    }
-
     fn temp_path(file_name: &str) -> PathBuf {
         let mut path = env::temp_dir();
         path.push(format!("fire-core-{file_name}-{}", std::process::id()));

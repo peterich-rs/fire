@@ -246,7 +246,7 @@
         "avatar_template": "/user_avatar/linux.do/alice/{size}/1_2.png"
       }
     ],
-    "message_id": 1000
+    "last_message_id": 1000
   }
 }
 ```
@@ -254,7 +254,12 @@
 - 当前客户端 bootstrap 顺序：
   1. 先订阅 `/presence/discourse-presence/reply/{topicId}`
   2. 再调用 `GET /presence/get`
-  3. 最后用响应里的 `message_id` 重新订阅，避免在初始化窗口期丢事件
+  3. 最后用响应里的 `last_message_id` 重新订阅，避免在初始化窗口期丢事件
+- 兼容性说明：
+  - 线上真实回包当前使用 `last_message_id`
+  - Fire 共享层兼容历史样例里的 `message_id`
+  - 服务端也可能返回 `"/discourse-presence/reply/{topicId}": null`；Fire 会将其视为空 Presence 快照，按 `users = []`、`message_id = -1` 处理，而不是把它当成解析错误
+  - 宿主层不要在“话题详情首次加载尚未确认成功”之前抢先 bootstrap Presence。对不存在、不可见或无权限的话题，Linux.do 观测上可能在 `GET /presence/get` 返回 `null` 快照的同时附带 `discourse-logged-out: 1` 和 `Set-Cookie: _t=; Max-Age=0`，从而把当前登录态清掉
 
 ### `POST /presence/update`
 

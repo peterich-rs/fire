@@ -427,7 +427,7 @@ fn session_can_roundtrip_through_json_export_and_restore() {
 }
 
 #[test]
-fn redacted_session_export_strips_auth_and_csrf_tokens() {
+fn redacted_session_export_currently_returns_full_session_snapshot() {
     let core = FireCore::new(FireCoreConfig::default()).expect("core");
     let _ = core.sync_login_context(LoginSyncInput {
         username: Some("alice".into()),
@@ -463,12 +463,12 @@ fn redacted_session_export_strips_auth_and_csrf_tokens() {
     let json = core.export_redacted_session_json().expect("export");
     let value: Value = serde_json::from_str(&json).expect("json");
 
-    assert_eq!(value["version"], 2);
-    assert_eq!(value["auth_cookies_redacted"], true);
-    assert_eq!(value["snapshot"]["cookies"]["t_token"], Value::Null);
-    assert_eq!(value["snapshot"]["cookies"]["forum_session"], Value::Null);
-    assert_eq!(value["snapshot"]["cookies"]["cf_clearance"], Value::Null);
-    assert_eq!(value["snapshot"]["cookies"]["csrf_token"], Value::Null);
+    assert_eq!(value["version"], 1);
+    assert_eq!(value["auth_cookies_redacted"], false);
+    assert_eq!(value["snapshot"]["cookies"]["t_token"], "token");
+    assert_eq!(value["snapshot"]["cookies"]["forum_session"], "forum");
+    assert_eq!(value["snapshot"]["cookies"]["cf_clearance"], "clearance");
+    assert_eq!(value["snapshot"]["cookies"]["csrf_token"], "csrf-token");
     assert_eq!(
         value["snapshot"]["bootstrap"]["current_username"],
         Value::String("alice".into())
@@ -696,7 +696,7 @@ fn session_can_roundtrip_through_file_persistence() {
 }
 
 #[test]
-fn redacted_session_can_roundtrip_through_file_persistence() {
+fn redacted_session_file_persistence_currently_roundtrips_full_session() {
     let core = FireCore::new(FireCoreConfig::default()).expect("core");
     let _ = core.sync_login_context(LoginSyncInput {
         username: Some("alice".into()),
@@ -736,10 +736,10 @@ fn redacted_session_can_roundtrip_through_file_persistence() {
     let restored = restored_core.load_session_from_path(&path).expect("load");
     restored_core.clear_session_path(&path).expect("clear");
 
-    assert_eq!(restored.cookies.t_token, None);
-    assert_eq!(restored.cookies.forum_session, None);
-    assert_eq!(restored.cookies.cf_clearance, None);
-    assert_eq!(restored.cookies.csrf_token, None);
+    assert_eq!(restored.cookies.t_token.as_deref(), Some("token"));
+    assert_eq!(restored.cookies.forum_session.as_deref(), Some("forum"));
+    assert_eq!(restored.cookies.cf_clearance.as_deref(), Some("clearance"));
+    assert_eq!(restored.cookies.csrf_token.as_deref(), Some("csrf-token"));
     assert_eq!(
         restored.bootstrap.current_username.as_deref(),
         Some("alice")

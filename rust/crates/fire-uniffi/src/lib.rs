@@ -115,10 +115,12 @@ impl CapturedPanic {
             backtrace = %self.backtrace,
             "caught panic across fire-uniffi boundary"
         );
-        eprintln!(
-            "fire-uniffi caught panic in {}: {}\nbacktrace:\n{}",
-            self.operation, self.message, self.backtrace
-        );
+        if cfg!(debug_assertions) {
+            eprintln!(
+                "fire-uniffi caught panic in {}: {}\nbacktrace:\n{}",
+                self.operation, self.message, self.backtrace
+            );
+        }
     }
 }
 

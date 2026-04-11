@@ -41,7 +41,7 @@ struct RawTopicPresenceUser {
 struct RawTopicPresenceChannel {
     #[serde(default)]
     users: Vec<RawTopicPresenceUser>,
-    #[serde(default = "default_message_id")]
+    #[serde(default = "default_message_id", alias = "last_message_id")]
     message_id: i64,
 }
 
@@ -108,12 +108,13 @@ impl FireCore {
         let (trace_id, response) = self.execute_request(traced).await?;
         let response =
             expect_success(self, FETCH_TOPIC_PRESENCE_OPERATION, trace_id, response).await?;
-        let value: BTreeMap<String, RawTopicPresenceChannel> = self
+        let value: BTreeMap<String, Option<RawTopicPresenceChannel>> = self
             .read_response_json(FETCH_TOPIC_PRESENCE_OPERATION, trace_id, response)
             .await?;
 
         let presence = value
             .get(&discourse_presence_channel_for_topic(topic_id))
+            .and_then(|channel| channel.as_ref())
             .map(|channel| TopicPresence {
                 topic_id,
                 message_id: channel.message_id,

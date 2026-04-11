@@ -98,7 +98,7 @@
 
 - `/presence/discourse-presence/reply/{topicId}`
   - 正在输入/Presence 推送
-  - 通常要先订阅，再 `GET /presence/get`，最后用响应里的 `message_id` 重新订阅
+  - 通常要先订阅，再 `GET /presence/get`，最后用响应里的 `last_message_id` 重新订阅
 
 ### 通知
 

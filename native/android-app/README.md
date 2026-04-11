@@ -61,6 +61,7 @@ Workspace note:
 - The Android host now passes `filesDir/fire` into Rust as the workspace root.
 - Rust now initializes shared logging under `filesDir/fire/logs` and keeps xlog cache files under `filesDir/fire/cache/xlog`.
 - Rust also mirrors tracing output into `filesDir/fire/diagnostics/fire-readable.log`.
+- Debug builds may also mirror that shared pipeline into Logcat, while release builds keep the shared logs in Xlog/readable-log files only.
 - Rust can resolve relative paths inside that workspace for shared file ownership such as logs, caches, or exports.
 - The current persisted session file remains `filesDir/fire/session.json`.
 

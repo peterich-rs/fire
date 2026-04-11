@@ -32,7 +32,7 @@ Crate layering is clear: new API orchestration goes in `fire-core/src/core/users
 - **`native/ios-app/App/FireDiagnosticsView.swift`** -- Diagnostic sub-page pushed from profile actions section.
 - **`native/ios-app/App/FireTabRoot.swift`** -- TabView with 3 tabs; profile is tab index 2.
 - **`rust/crates/fire-core/src/core/mod.rs`** -- `FireCore` aggregate. API orchestration lives in `core/topics.rs`, `core/notifications.rs`, `core/search.rs`, etc. New user profile orchestration goes in `core/users.rs` following the same pattern.
-- **`rust/crates/fire-core/src/session_store.rs`** -- **Persistence helper only**: `PersistedSessionEnvelope`, `sanitize_snapshot_for_restore`, `sanitize_snapshot_for_persist`, `write_atomic`. Not an API layer; must not receive profile fetch logic.
+- **`rust/crates/fire-core/src/session_store.rs`** -- **Persistence helper only**: `PersistedSessionEnvelope`, `sanitize_snapshot_for_restore`, `write_atomic`. Not an API layer; must not receive profile fetch logic.
 - **`rust/crates/fire-models/src/lib.rs`** -- Shared models. Has `TopicUser`, `SearchUser`, `TopicPost` etc. No `UserProfile`, `UserSummary`, `Badge`, or `UserAction` types.
 - **`rust/crates/fire-uniffi/src/lib.rs`** -- UniFFI bridge. Holds `FireCoreHandle` wrapping `Arc<FireCore>`. Converts `fire_models` to `*State` records via `From` impls. All async methods follow the `run_on_ffi_runtime` pattern (line 2410+).
 - **`docs/backend-api/05-users-search-and-notifications.md`** -- Documents user profile endpoints. `GET /u/{username}.json` returns `{ "user": User }` envelope (line 33).

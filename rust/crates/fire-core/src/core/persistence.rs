@@ -6,8 +6,8 @@ use super::FireCore;
 use crate::{
     error::FireCoreError,
     session_store::{
-        sanitize_snapshot_for_persist, sanitize_snapshot_for_restore, write_atomic,
-        LegacyPersistedSessionSnapshot, PersistedSessionEnvelope,
+        sanitize_snapshot_for_restore, write_atomic, LegacyPersistedSessionSnapshot,
+        PersistedSessionEnvelope,
     },
 };
 
@@ -18,9 +18,7 @@ impl FireCore {
     }
 
     pub fn export_redacted_session_json(&self) -> Result<String, FireCoreError> {
-        let envelope =
-            PersistedSessionEnvelope::new_redacted(sanitize_snapshot_for_persist(self.snapshot()));
-        serde_json::to_string_pretty(&envelope).map_err(FireCoreError::PersistSerialize)
+        self.export_session_json()
     }
 
     pub fn restore_session_json(
@@ -53,12 +51,7 @@ impl FireCore {
         &self,
         path: impl AsRef<Path>,
     ) -> Result<(), FireCoreError> {
-        let path = path.as_ref();
-        let payload = self.export_redacted_session_json()?;
-        write_atomic(path, payload.as_bytes()).map_err(|source| FireCoreError::PersistIo {
-            path: path.to_path_buf(),
-            source,
-        })
+        self.save_session_to_path(path)
     }
 
     pub fn load_session_from_path(

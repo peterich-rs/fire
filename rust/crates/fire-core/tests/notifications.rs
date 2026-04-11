@@ -101,6 +101,49 @@ async fn fetch_notifications_reconciles_full_list_with_recent_list() {
 }
 
 #[tokio::test]
+async fn fetch_recent_notifications_skips_malformed_items() {
+    let server = TestServer::spawn(vec![raw_json_response(
+        200,
+        "application/json",
+        r#"{
+  "notifications": [
+    1,
+    {"fancy_title": "missing id"},
+    {
+      "id": "100",
+      "user_id": "1",
+      "notification_type": "5",
+      "read": "0",
+      "high_priority": "1",
+      "created_at": "2026-03-30T00:00:00Z",
+      "topic_id": "200",
+      "fancy_title": "Topic A",
+      "data": {"topic_title": "Topic A"}
+    }
+  ],
+  "total_rows_notifications": "1",
+  "seen_notification_id": "100"
+}"#,
+    )])
+    .await
+    .expect("server");
+    let core = authenticated_core(&server.base_url());
+
+    let page = core
+        .fetch_recent_notifications(None)
+        .await
+        .expect("fetch recent notifications");
+
+    let _ = server.shutdown().await;
+    assert_eq!(page.notifications.len(), 1);
+    assert_eq!(page.notifications[0].id, 100);
+    assert!(!page.notifications[0].read);
+    assert!(page.notifications[0].high_priority);
+    assert_eq!(page.total_rows_notifications, 1);
+    assert_eq!(page.seen_notification_id, Some(100));
+}
+
+#[tokio::test]
 async fn mark_notification_read_and_message_bus_merge_update_shared_state() {
     let app_server = TestServer::spawn(vec![
         raw_json_response(

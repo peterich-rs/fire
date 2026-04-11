@@ -272,6 +272,76 @@ async fn fetch_topic_list_surfaces_cloudflare_challenge_error() {
 }
 
 #[tokio::test]
+async fn fetch_topic_list_surfaces_login_required_when_success_response_invalidates_auth() {
+    let body = sample_latest_json();
+    let response = format!(
+        "HTTP/1.1 200 TEST\r\nContent-Type: application/json\r\nContent-Length: {}\r\nDiscourse-Logged-Out: 1\r\nSet-Cookie: _t=; path=/; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax\r\nConnection: close\r\n\r\n{body}",
+        body.len()
+    );
+    let server = TestServer::spawn(vec![response]).await.expect("server");
+    let core = FireCore::new(FireCoreConfig {
+        base_url: server.base_url(),
+        workspace_path: None,
+    })
+    .expect("core");
+
+    let _ = core.sync_login_context(LoginSyncInput {
+        username: Some("alice".into()),
+        home_html: Some(sample_home_html()),
+        csrf_token: Some("csrf-token".into()),
+        current_url: Some(server.base_url()),
+        browser_user_agent: None,
+        cookies: vec![
+            PlatformCookie {
+                name: "_t".into(),
+                value: "token".into(),
+                domain: None,
+                path: None,
+                expires_at_unix_ms: None,
+            },
+            PlatformCookie {
+                name: "_forum_session".into(),
+                value: "forum".into(),
+                domain: None,
+                path: None,
+                expires_at_unix_ms: None,
+            },
+            PlatformCookie {
+                name: "cf_clearance".into(),
+                value: "clearance".into(),
+                domain: None,
+                path: None,
+                expires_at_unix_ms: None,
+            },
+        ],
+    });
+
+    let error = core
+        .fetch_topic_list(TopicListQuery {
+            kind: TopicListKind::Latest,
+            page: Some(1),
+            ..TopicListQuery::default()
+        })
+        .await
+        .expect_err("auth invalidation should surface");
+    let _ = server.shutdown().await;
+
+    assert!(matches!(
+        error,
+        FireCoreError::LoginRequired { message, .. }
+            if message == "登录状态已失效，请重新登录。"
+    ));
+
+    let snapshot = core.snapshot();
+    assert_eq!(snapshot.cookies.t_token, None);
+    assert_eq!(snapshot.cookies.forum_session, None);
+    assert_eq!(snapshot.cookies.csrf_token, None);
+    assert_eq!(snapshot.cookies.cf_clearance.as_deref(), Some("clearance"));
+    assert_eq!(snapshot.bootstrap.current_username, None);
+    assert!(!snapshot.bootstrap.has_preloaded_data);
+}
+
+#[tokio::test]
 async fn fetch_topic_detail_parses_detail_payload() {
     let responses = vec![raw_json_response(
         200,
@@ -671,6 +741,64 @@ async fn fetch_topic_detail_tolerates_null_scalars_and_null_details() {
 }
 
 #[tokio::test]
+async fn fetch_topic_detail_tolerates_malformed_optional_nested_records() {
+    let mut payload: Value =
+        serde_json::from_str(&sample_topic_detail_json()).expect("detail payload json");
+    let object = payload.as_object_mut().expect("detail fixture object");
+    object.insert(
+        "details".into(),
+        json!({
+            "notification_level": "1",
+            "can_edit": "1",
+            "created_by": "unexpected"
+        }),
+    );
+
+    let post = object
+        .get_mut("post_stream")
+        .and_then(Value::as_object_mut)
+        .and_then(|stream| stream.get_mut("posts"))
+        .and_then(Value::as_array_mut)
+        .and_then(|posts| posts.first_mut())
+        .and_then(Value::as_object_mut)
+        .expect("first post");
+    post.insert(
+        "current_user_reaction".into(),
+        Value::String("unexpected".into()),
+    );
+
+    let responses = vec![raw_json_response(
+        200,
+        "application/json",
+        &payload.to_string(),
+    )];
+    let server = TestServer::spawn(responses).await.expect("server");
+    let core = FireCore::new(FireCoreConfig {
+        base_url: server.base_url(),
+        workspace_path: None,
+    })
+    .expect("core");
+
+    let detail = core
+        .fetch_topic_detail(TopicDetailQuery {
+            topic_id: 123,
+            post_number: None,
+            track_visit: true,
+            filter: None,
+            username_filters: None,
+            filter_top_level_replies: false,
+        })
+        .await
+        .expect("detail");
+    let _ = server.shutdown().await;
+
+    assert_eq!(detail.details.notification_level, Some(1));
+    assert!(detail.details.can_edit);
+    assert_eq!(detail.details.created_by, None);
+    assert_eq!(detail.post_stream.posts[0].current_user_reaction, None);
+}
+
+#[tokio::test]
 async fn refresh_csrf_token_updates_session_from_network() {
     let responses = vec![raw_json_response(
         200,
@@ -688,6 +816,26 @@ async fn refresh_csrf_token_updates_session_from_network() {
     server.shutdown().await;
 
     assert_eq!(snapshot.cookies.csrf_token.as_deref(), Some("fresh-csrf"));
+}
+
+#[tokio::test]
+async fn refresh_csrf_token_accepts_scalar_tokens() {
+    let responses = vec![raw_json_response(
+        200,
+        "application/json",
+        r#"{"csrf":12345}"#,
+    )];
+    let server = TestServer::spawn(responses).await.expect("server");
+    let core = FireCore::new(FireCoreConfig {
+        base_url: server.base_url(),
+        workspace_path: None,
+    })
+    .expect("core");
+
+    let snapshot = core.refresh_csrf_token().await.expect("csrf refresh");
+    server.shutdown().await;
+
+    assert_eq!(snapshot.cookies.csrf_token.as_deref(), Some("12345"));
 }
 
 #[tokio::test]
@@ -1174,6 +1322,59 @@ async fn toggle_post_reaction_parses_reaction_update_payload() {
     assert!(requests[0]
         .to_ascii_lowercase()
         .contains("content-length: 0"));
+}
+
+#[tokio::test]
+async fn toggle_post_reaction_tolerates_malformed_current_user_reaction() {
+    let responses = vec![raw_json_response(
+        200,
+        "application/json",
+        r#"{
+          "reactions": [
+            { "id": "heart", "type": "emoji", "count": 4 }
+          ],
+          "current_user_reaction": "unexpected"
+        }"#,
+    )];
+    let server = TestServer::spawn(responses).await.expect("server");
+    let core = FireCore::new(FireCoreConfig {
+        base_url: server.base_url(),
+        workspace_path: None,
+    })
+    .expect("core");
+
+    let _ = core.sync_login_context(LoginSyncInput {
+        username: Some("alice".into()),
+        home_html: Some(sample_home_html()),
+        csrf_token: Some("csrf-token".into()),
+        current_url: Some(server.base_url()),
+        browser_user_agent: None,
+        cookies: vec![
+            PlatformCookie {
+                name: "_t".into(),
+                value: "token".into(),
+                domain: None,
+                path: None,
+                expires_at_unix_ms: None,
+            },
+            PlatformCookie {
+                name: "_forum_session".into(),
+                value: "forum".into(),
+                domain: None,
+                path: None,
+                expires_at_unix_ms: None,
+            },
+        ],
+    });
+
+    let update = core
+        .toggle_post_reaction(9001, "laughing".into())
+        .await
+        .expect("toggle post reaction");
+
+    let _ = server.shutdown().await;
+    assert_eq!(update.reactions.len(), 1);
+    assert_eq!(update.current_user_reaction, None);
 }
 
 #[tokio::test]

@@ -463,6 +463,34 @@ async fn stage3_edit_vote_and_poll_surfaces_use_expected_requests() {
 }
 
 #[tokio::test]
+async fn vote_endpoints_skip_malformed_voter_items() {
+    let server = TestServer::spawn(vec![
+        raw_json_response(
+            200,
+            "application/json",
+            r#"{"can_vote":true,"who_voted":[1,{"id":"1","username":"alice","avatar_template":"/user_avatar/linux.do/alice/{size}/1_2.png"}]}"#,
+        ),
+        raw_json_response(
+            200,
+            "application/json",
+            r#"[1,{"id":"2","username":"bob","avatar_template":"/user_avatar/linux.do/bob/{size}/1_2.png"}]"#,
+        ),
+    ])
+    .await
+    .expect("server");
+    let core = authenticated_core(&server.base_url());
+
+    let vote_response = core.vote_topic(123).await.expect("vote topic");
+    let voters = core.fetch_topic_voters(123).await.expect("fetch voters");
+
+    let _ = server.shutdown().await;
+    assert_eq!(vote_response.who_voted.len(), 1);
+    assert_eq!(vote_response.who_voted[0].username, "alice");
+    assert_eq!(voters.len(), 1);
+    assert_eq!(voters[0].username, "bob");
+}
+
+#[tokio::test]
 async fn stage3_history_follow_and_invite_surfaces_parse_payloads() {
     let server = TestServer::spawn(vec![
         raw_json_response(

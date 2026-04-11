@@ -406,6 +406,95 @@ async fn poll_notification_alert_once_returns_alerts_and_checkpoint() {
     assert!(request.contains("discourse-background: true"));
 }
 
+#[tokio::test]
+async fn message_bus_skips_malformed_items_without_dropping_valid_messages() {
+    let server = TestServer::spawn(vec![
+        raw_json_response(
+            200,
+            "application/json",
+            r#"[
+  {"channel":"/topic/123","message_id":"9","data":{"type":"append","reload_topic":true}},
+  {"channel":"/topic/123/reactions","message_id":null,"data":{"post_id":9001}},
+  {"channel":"/presence/discourse-presence/reply/123","message_id":13,"data":{"users":[{"id":"2","username":"bob"}]}}
+]"#,
+        ),
+        raw_json_response(200, "application/json", "[]"),
+    ])
+    .await
+    .expect("server");
+    let core = authenticated_core(&server.base_url());
+
+    core.subscribe_message_bus_channel(MessageBusSubscription {
+        owner_token: "topic-owner".into(),
+        channel: "/topic/123".into(),
+        last_message_id: Some(-1),
+        scope: MessageBusSubscriptionScope::Transient,
+    })
+    .expect("subscribe topic");
+    core.subscribe_message_bus_channel(MessageBusSubscription {
+        owner_token: "presence-owner".into(),
+        channel: "/presence/discourse-presence/reply/123".into(),
+        last_message_id: Some(-1),
+        scope: MessageBusSubscriptionScope::Transient,
+    })
+    .expect("subscribe presence");
+
+    let (sender, mut receiver) = unbounded_channel();
+    core.start_message_bus(MessageBusClientMode::Foreground, sender)
+        .await
+        .expect("start message bus");
+
+    let topic_event = timeout(Duration::from_secs(2), receiver.recv())
+        .await
+        .expect("topic event timeout")
+        .expect("topic event missing");
+    let presence_event = timeout(Duration::from_secs(2), receiver.recv())
+        .await
+        .expect("presence event timeout")
+        .expect("presence event missing");
+
+    assert_eq!(topic_event.kind, MessageBusEventKind::TopicDetail);
+    assert_eq!(topic_event.message_id, 9);
+    assert_eq!(presence_event.kind, MessageBusEventKind::Presence);
+    assert_eq!(presence_event.message_id, 13);
+
+    let merged_presence = core.topic_reply_presence_state(123);
+    assert_eq!(merged_presence.message_id, 13);
+    assert_eq!(merged_presence.users.len(), 1);
+    assert_eq!(merged_presence.users[0].username, "bob");
+
+    core.stop_message_bus(true);
+    let _ = server.shutdown().await;
+}
+
+#[tokio::test]
+async fn poll_notification_alert_once_skips_malformed_items_and_accepts_string_checkpoints() {
+    let server = TestServer::spawn(vec![raw_json_response(
+        200,
+        "application/json",
+        r#"[
+  {"channel":"/notification-alert/1","message_id":null,"data":{"notification_type":2}},
+  {"channel":"/notification-alert/1","message_id":"15","data":{"notification_type":2,"topic_id":123,"post_number":4,"topic_title":"Fire alert","excerpt":"New reply","username":"bob","post_url":"/t/fire/123/4"}},
+  {"channel":"/__status","message_id":0,"data":{"/notification-alert/1":"16"}}
+]"#,
+    )])
+    .await
+    .expect("server");
+    let core = authenticated_core(&server.base_url());
+
+    let result = core
+        .poll_notification_alert_once(10)
+        .await
+        .expect("poll notification alert");
+
+    assert_eq!(result.last_message_id, 16);
+    assert_eq!(result.alerts.len(), 1);
+    assert_eq!(result.alerts[0].message_id, 15);
+    assert_eq!(result.alerts[0].topic_id, Some(123));
+
+    let _ = server.shutdown().await;
+}
+
 fn authenticated_core(base_url: &str) -> FireCore {
     let core = FireCore::new(FireCoreConfig {
         base_url: base_url.to_string(),

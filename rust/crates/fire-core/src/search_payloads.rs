@@ -4,40 +4,24 @@ use fire_models::{
 };
 use serde_json::Value;
 use time::{format_description::well_known::Rfc3339, OffsetDateTime};
+use tracing::warn;
 
 use crate::json_helpers::{
-    boolean, integer_u32, integer_u64, invalid_json, object_field, scalar_string,
+    boolean, integer_u32, integer_u64, invalid_json, object_field, parse_array_items_lossy,
+    scalar_string,
 };
 
 pub(crate) fn parse_search_result_value(value: Value) -> Result<SearchResult, serde_json::Error> {
     require_object(&value, "search response root was not an object")?;
 
-    let topics = optional_array_field(&value, "topics")?
-        .map(|items| {
-            items
-                .iter()
-                .map(parse_search_topic)
-                .collect::<Result<Vec<_>, _>>()
-        })
-        .transpose()?
+    let topics = optional_array_field(&value, "topics")
+        .map(|items| parse_array_items_lossy(items, "search topic item", parse_search_topic))
         .unwrap_or_default();
-    let posts = optional_array_field(&value, "posts")?
-        .map(|items| {
-            items
-                .iter()
-                .map(parse_search_post)
-                .collect::<Result<Vec<_>, _>>()
-        })
-        .transpose()?
+    let posts = optional_array_field(&value, "posts")
+        .map(|items| parse_array_items_lossy(items, "search post item", parse_search_post))
         .unwrap_or_default();
-    let users = optional_array_field(&value, "users")?
-        .map(|items| {
-            items
-                .iter()
-                .map(parse_search_user)
-                .collect::<Result<Vec<_>, _>>()
-        })
-        .transpose()?
+    let users = optional_array_field(&value, "users")
+        .map(|items| parse_array_items_lossy(items, "search user item", parse_search_user))
         .unwrap_or_default();
     let grouped_result =
         parse_grouped_search_result(required_object_field(&value, "grouped_search_result")?)?;
@@ -55,16 +39,10 @@ pub(crate) fn parse_tag_search_result_value(
 ) -> Result<TagSearchResult, serde_json::Error> {
     require_object(&value, "tag search response root was not an object")?;
 
-    let results = optional_array_field(&value, "results")?
-        .map(|items| {
-            items
-                .iter()
-                .map(parse_tag_search_item)
-                .collect::<Result<Vec<_>, _>>()
-        })
-        .transpose()?
+    let results = optional_array_field(&value, "results")
+        .map(|items| parse_array_items_lossy(items, "tag search item", parse_tag_search_item))
         .unwrap_or_default();
-    let required_tag_group = optional_object_field(&value, "required_tag_group")?
+    let required_tag_group = optional_object_field(&value, "required_tag_group")
         .map(parse_required_tag_group)
         .transpose()?;
 
@@ -79,23 +57,15 @@ pub(crate) fn parse_user_mention_result_value(
 ) -> Result<UserMentionResult, serde_json::Error> {
     require_object(&value, "user mention response root was not an object")?;
 
-    let users = optional_array_field(&value, "users")?
+    let users = optional_array_field(&value, "users")
         .map(|items| {
-            items
-                .iter()
-                .map(parse_user_mention_user)
-                .collect::<Result<Vec<_>, _>>()
+            parse_array_items_lossy(items, "user mention user item", parse_user_mention_user)
         })
-        .transpose()?
         .unwrap_or_default();
-    let groups = optional_array_field(&value, "groups")?
+    let groups = optional_array_field(&value, "groups")
         .map(|items| {
-            items
-                .iter()
-                .map(parse_user_mention_group)
-                .collect::<Result<Vec<_>, _>>()
+            parse_array_items_lossy(items, "user mention group item", parse_user_mention_group)
         })
-        .transpose()?
         .unwrap_or_default();
 
     Ok(UserMentionResult { users, groups })
@@ -109,7 +79,7 @@ fn parse_search_topic(value: &Value) -> Result<SearchTopic, serde_json::Error> {
         title: scalar_string(object_field(value, "title")).unwrap_or_default(),
         slug: scalar_string(object_field(value, "slug")).unwrap_or_default(),
         category_id: integer_u64(object_field(value, "category_id")),
-        tags: optional_array_field(value, "tags")?
+        tags: optional_array_field(value, "tags")
             .map(|items| items.iter().filter_map(tag_name).collect())
             .unwrap_or_default(),
         posts_count: integer_u32(object_field(value, "posts_count")).unwrap_or_default(),
@@ -252,34 +222,36 @@ fn require_object(value: &Value, details: impl Into<String>) -> Result<(), serde
     }
 }
 
-fn optional_array_field<'a>(
-    value: &'a Value,
-    key: &str,
-) -> Result<Option<&'a [Value]>, serde_json::Error> {
+fn optional_array_field<'a>(value: &'a Value, key: &str) -> Option<&'a [Value]> {
     match object_field(value, key) {
-        Some(Value::Array(items)) => Ok(Some(items.as_slice())),
-        Some(_) => Err(invalid_json(format!(
-            "search payload field `{key}` was not an array"
-        ))),
-        None => Ok(None),
+        Some(Value::Array(items)) => Some(items.as_slice()),
+        Some(_) => {
+            warn!(
+                key,
+                "search payload field was not an array; treating as empty"
+            );
+            None
+        }
+        None => None,
     }
 }
 
-fn optional_object_field<'a>(
-    value: &'a Value,
-    key: &str,
-) -> Result<Option<&'a Value>, serde_json::Error> {
+fn optional_object_field<'a>(value: &'a Value, key: &str) -> Option<&'a Value> {
     match object_field(value, key) {
-        Some(Value::Object(_)) => Ok(object_field(value, key)),
-        Some(_) => Err(invalid_json(format!(
-            "search payload field `{key}` was not an object"
-        ))),
-        None => Ok(None),
+        Some(Value::Object(_)) => object_field(value, key),
+        Some(_) => {
+            warn!(
+                key,
+                "search payload field was not an object; treating as absent"
+            );
+            None
+        }
+        None => None,
     }
 }
 
 fn required_object_field<'a>(value: &'a Value, key: &str) -> Result<&'a Value, serde_json::Error> {
-    optional_object_field(value, key)?.ok_or_else(|| {
+    optional_object_field(value, key).ok_or_else(|| {
         invalid_json(format!(
             "search payload did not contain required object field `{key}`"
         ))

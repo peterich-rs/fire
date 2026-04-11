@@ -6,7 +6,7 @@ use std::{
 
 use fire_models::{SessionSnapshot, TopicPresence, TopicPresenceUser};
 use http::Method;
-use serde::Deserialize;
+use serde_json::Value;
 use tracing::{debug, info};
 
 use super::{
@@ -14,7 +14,10 @@ use super::{
     network::expect_success,
     rate_limit, FireCore,
 };
-use crate::error::FireCoreError;
+use crate::{
+    error::FireCoreError,
+    json_helpers::{integer_i64, invalid_json, scalar_string},
+};
 
 const FETCH_TOPIC_PRESENCE_OPERATION: &str = "fetch topic presence";
 const UPDATE_TOPIC_REPLY_PRESENCE_OPERATION: &str = "update topic reply presence";
@@ -27,22 +30,6 @@ pub(crate) struct FireTopicPresenceRuntime {
     active_reply_topics: BTreeSet<u64>,
     last_present_update_at: BTreeMap<u64, Instant>,
     update_cooldown_until: Option<Instant>,
-}
-
-#[derive(Debug, Deserialize)]
-struct RawTopicPresenceUser {
-    id: u64,
-    username: String,
-    #[serde(default)]
-    avatar_template: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-struct RawTopicPresenceChannel {
-    #[serde(default)]
-    users: Vec<RawTopicPresenceUser>,
-    #[serde(default = "default_message_id")]
-    message_id: i64,
 }
 
 fn default_message_id() -> i64 {
@@ -108,22 +95,15 @@ impl FireCore {
         let (trace_id, response) = self.execute_request(traced).await?;
         let response =
             expect_success(self, FETCH_TOPIC_PRESENCE_OPERATION, trace_id, response).await?;
-        let value: BTreeMap<String, RawTopicPresenceChannel> = self
+        let value: Value = self
             .read_response_json(FETCH_TOPIC_PRESENCE_OPERATION, trace_id, response)
             .await?;
-
-        let presence = value
-            .get(&discourse_presence_channel_for_topic(topic_id))
-            .map(|channel| TopicPresence {
-                topic_id,
-                message_id: channel.message_id,
-                users: channel
-                    .users
-                    .iter()
-                    .filter_map(topic_presence_user_from_raw)
-                    .collect(),
-            })
-            .unwrap_or_else(|| TopicPresence::empty(topic_id));
+        let presence = parse_topic_presence_response_value(topic_id, &value).map_err(|source| {
+            FireCoreError::ResponseDeserialize {
+                operation: FETCH_TOPIC_PRESENCE_OPERATION,
+                source,
+            }
+        })?;
 
         apply_topic_presence_snapshot(&self.topic_presence, presence.clone());
         debug!(
@@ -314,15 +294,48 @@ fn discourse_presence_channel_for_topic(topic_id: u64) -> String {
     format!("/discourse-presence/reply/{topic_id}")
 }
 
-fn topic_presence_user_from_raw(value: &RawTopicPresenceUser) -> Option<TopicPresenceUser> {
-    if value.id == 0 || value.username.trim().is_empty() {
-        return None;
+fn parse_topic_presence_response_value(
+    topic_id: u64,
+    value: &Value,
+) -> Result<TopicPresence, serde_json::Error> {
+    let Some(object) = value.as_object() else {
+        return Err(invalid_json(
+            "topic presence response root was not an object",
+        ));
+    };
+
+    let channel_key = discourse_presence_channel_for_topic(topic_id);
+    let Some(channel_value) = object.get(&channel_key) else {
+        return Ok(TopicPresence::empty(topic_id));
+    };
+
+    if channel_value.is_null() {
+        return Ok(TopicPresence::empty(topic_id));
     }
 
-    Some(TopicPresenceUser {
-        id: value.id,
-        username: value.username.clone(),
-        avatar_template: value.avatar_template.clone(),
+    let Some(channel) = channel_value.as_object() else {
+        debug!(
+            topic_id,
+            "topic presence snapshot channel was not an object; treating as empty"
+        );
+        return Ok(TopicPresence::empty(topic_id));
+    };
+
+    Ok(TopicPresence {
+        topic_id,
+        message_id: integer_i64(channel.get("last_message_id"))
+            .or_else(|| integer_i64(channel.get("message_id")))
+            .unwrap_or_else(default_message_id),
+        users: channel
+            .get("users")
+            .and_then(Value::as_array)
+            .map(|users| {
+                users
+                    .iter()
+                    .filter_map(topic_presence_user_from_value)
+                    .collect()
+            })
+            .unwrap_or_default(),
     })
 }
 
@@ -331,7 +344,7 @@ fn topic_presence_user_from_value(value: &serde_json::Value) -> Option<TopicPres
     let id = crate::json_helpers::positive_u64(object.get("id"))?;
     let username = object
         .get("username")
-        .and_then(serde_json::Value::as_str)?
+        .and_then(|value| scalar_string(Some(value)))?
         .trim()
         .to_string();
     if username.is_empty() {
@@ -343,8 +356,7 @@ fn topic_presence_user_from_value(value: &serde_json::Value) -> Option<TopicPres
         username,
         avatar_template: object
             .get("avatar_template")
-            .and_then(serde_json::Value::as_str)
-            .map(ToOwned::to_owned),
+            .and_then(|value| scalar_string(Some(value))),
     })
 }
 

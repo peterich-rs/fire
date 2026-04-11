@@ -93,11 +93,8 @@ impl FireLoggerRuntime {
             source,
         })?;
 
-        let level = if cfg!(debug_assertions) {
-            LogLevel::Debug
-        } else {
-            LogLevel::Info
-        };
+        // Development phase: keep full-fidelity file logs in release packages too.
+        let level = LogLevel::Debug;
         let readable_log_writer =
             Arc::new(Mutex::new(FileBackedMakeWriter::new(&readable_log_path)?));
         let logger = FireLogger::init(FireLoggerConfig {

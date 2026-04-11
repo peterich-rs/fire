@@ -219,7 +219,7 @@ impl FireCore {
         let workspace_path = self
             .workspace_path()
             .ok_or(FireCoreError::MissingWorkspacePath)?;
-        let session_json = self.export_redacted_session_json()?;
+        let session_json = self.export_session_json()?;
         export_support_bundle(
             workspace_path,
             &self.diagnostics,

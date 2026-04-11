@@ -369,11 +369,11 @@ async fn search_tags_returns_deserialize_error_for_invalid_root_shape() {
 }
 
 #[tokio::test]
-async fn search_users_returns_deserialize_error_for_invalid_group_item() {
+async fn search_users_skips_malformed_group_item() {
     let responses = vec![raw_json_response(
         200,
         "application/json",
-        r#"{"users":[],"groups":[1]}"#,
+        r#"{"users":[{"username":"alice","priority_group":"1"}],"groups":[1,{"name":"staff","user_count":"3"}]}"#,
     )];
     let server = TestServer::spawn(responses).await.expect("server");
     let core = FireCore::new(FireCoreConfig {
@@ -382,7 +382,7 @@ async fn search_users_returns_deserialize_error_for_invalid_group_item() {
     })
     .expect("core");
 
-    let error = core
+    let response = core
         .search_users(UserMentionQuery {
             term: "ali".into(),
             include_groups: true,
@@ -391,15 +391,51 @@ async fn search_users_returns_deserialize_error_for_invalid_group_item() {
             category_id: None,
         })
         .await
-        .expect_err("user search should fail");
+        .expect("user search");
 
     server.shutdown_with_requests().await;
 
-    match error {
-        FireCoreError::ResponseDeserialize { operation, source } => {
-            assert_eq!(operation, "search users");
-            assert!(source.to_string().contains("user mention group item"));
-        }
-        other => panic!("unexpected error: {other:?}"),
-    }
+    assert_eq!(response.users.len(), 1);
+    assert_eq!(response.users[0].username, "alice");
+    assert_eq!(response.groups.len(), 1);
+    assert_eq!(response.groups[0].name, "staff");
+    assert_eq!(response.groups[0].user_count, Some(3));
+}
+
+#[tokio::test]
+async fn search_skips_malformed_items() {
+    let responses = vec![raw_json_response(
+        200,
+        "application/json",
+        r#"{
+  "posts": [1, {"id":"9001","username":"alice","post_number":"1","topic_id":"123"}],
+  "topics": [1, {"id":"123","title":"Fire topic","tags":["rust"]}],
+  "users": [1, {"id":"1","username":"alice"}],
+  "grouped_search_result": {"term":"fire"}
+}"#,
+    )];
+    let server = TestServer::spawn(responses).await.expect("server");
+    let core = FireCore::new(FireCoreConfig {
+        base_url: server.base_url(),
+        workspace_path: None,
+    })
+    .expect("core");
+
+    let response = core
+        .search(SearchQuery {
+            q: "fire".into(),
+            page: Some(1),
+            type_filter: None,
+        })
+        .await
+        .expect("search");
+
+    server.shutdown_with_requests().await;
+
+    assert_eq!(response.posts.len(), 1);
+    assert_eq!(response.posts[0].id, 9001);
+    assert_eq!(response.topics.len(), 1);
+    assert_eq!(response.topics[0].id, 123);
+    assert_eq!(response.users.len(), 1);
+    assert_eq!(response.users[0].id, 1);
 }

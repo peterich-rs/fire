@@ -36,6 +36,9 @@
 }
 ```
 
+- 兼容性说明：
+  - Fire 共享层对 `user` 里的数值/布尔标量做宽松解析，兼容字符串数字和 `"0"` / `"1"`
+
 ### `GET /u/{username}/summary.json`
 
 - 用途：获取用户摘要统计
@@ -48,6 +51,9 @@
   - `most_liked_users`
   - `top_categories`
 - 响应：`UserSummary`
+- 兼容性说明：
+  - Fire 共享层对 summary 统计字段做宽松解析
+  - `topics` / `replies` / `links` / `top_categories` / `most_*_users` / `badges` 中单个坏项会被跳过，不再让整页 summary 失败或整组结果清空
 
 ### `GET /user_actions.json`
 
@@ -60,6 +66,8 @@
   - `user_actions`
   - `topics`
   - `users`
+- 兼容性说明：
+  - `user_actions[]` 中单个坏项会被跳过
 
 ### `GET /discourse-reactions/posts/reactions.json`
 
@@ -77,6 +85,7 @@
   - iOS 在公开用户页和“我的”页都提供 following / followers 原生列表
   - 列表项会跳转到公开用户页
   - 当前共享层兼容数组根节点和简单 wrapper 结构
+  - `FollowUser[]` 中单个坏项会被跳过
 
 ### `GET /u/{username}/follow/followers`
 
@@ -204,6 +213,7 @@
 - 当前客户端行为：
   - iOS 在“我的”页提供 invite links 管理页
   - 当前共享层兼容数组根节点、`pending_invites` / `invites` wrapper，以及单条 invite payload
+  - `InviteLink[]` 中单个坏项会被跳过
 
 ### `POST /invites`
 
@@ -226,6 +236,7 @@
   - 也可能只返回 `invite_key` / `invite_url` / `url` / `link`
   - 当前 iOS 客户端优先使用响应里的 `invite_link`
   - 如果只有 `invite_key`，则按 `base_url/invites/{invite_key}` 本地补全分享链接
+  - Fire 共享层对详情字段做宽松解析，兼容字符串数字
 
 ## 搜索
 
@@ -263,6 +274,9 @@
   - `topics[].closed`
   - `topics[].archived`
 - 响应：`SearchResult`
+- 兼容性说明：
+  - `posts[]` / `topics[]` / `users[]` 中单个坏项会被跳过
+  - `grouped_search_result` 仍是必需字段；根节点或该字段本身严重缺失时仍会报解析错误
 
 ### `GET /discourse-ai/embeddings/semantic-search`
 
@@ -316,6 +330,10 @@
 }
 ```
 
+- 兼容性说明：
+  - `results[]` 中单个坏项会被跳过
+  - `required_tag_group` 不是对象时会按缺失处理
+
 ### `GET /u/search/users`
 
 - 用途：`@` 提及自动补全
@@ -333,6 +351,9 @@
   "groups": [UserMentionGroup]
 }
 ```
+
+- 兼容性说明：
+  - `users[]` / `groups[]` 中单个坏项会被跳过
 
 ### `GET /composer/mentions`
 
@@ -407,6 +428,7 @@
   - 实时增量依赖 MessageBus `/notification/{userId}`，详见 [07. MessageBus 长轮询](07-messagebus.md)
   - `inviteeAccepted` / `following` 当前会跳转到公开用户页，用户名优先取 `display_username`，否则回退 `username` / `original_username`
   - `grantedBadge` 当前会跳转到徽章详情页，主键取 `data.badge_id`，`data.badge_slug` 仅作为附加展示信息
+  - `notifications[]` 中单个坏项会被跳过，而不是让整页 recent/full 通知失败
 
 ### `PUT /notifications/mark-read`
 

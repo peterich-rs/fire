@@ -4,7 +4,8 @@ use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 use url::Url;
 
 use crate::json_helpers::{
-    boolean, integer_i32, integer_u32, integer_u64, invalid_json, scalar_string,
+    boolean, integer_i32, integer_u32, integer_u64, invalid_json, parse_array_items_lossy,
+    scalar_string,
 };
 
 pub(crate) fn parse_notification_list_response_value(
@@ -20,13 +21,10 @@ pub(crate) fn parse_notification_list_response_value(
         .get("notifications")
         .and_then(Value::as_array)
         .map(|items| {
-            items
-                .iter()
-                .cloned()
-                .map(parse_notification_item_value)
-                .collect::<Result<Vec<_>, _>>()
+            parse_array_items_lossy(items, "notification item", |item| {
+                parse_notification_item_value(item.clone())
+            })
         })
-        .transpose()?
         .unwrap_or_default();
 
     let load_more_notifications = scalar_string(object.get("load_more_notifications"));

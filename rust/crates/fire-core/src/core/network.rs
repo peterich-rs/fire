@@ -46,6 +46,7 @@ const FIRE_USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) A
 const FIRE_USER_AGENT: &str = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 const FIRE_ACCEPT_LANGUAGE: &str = "zh-CN,zh;q=0.9,en;q=0.8";
 const FIRE_JSON_ACCEPT: &str = "application/json;q=0.9, text/plain;q=0.8, */*;q=0.5";
+const LOGIN_INVALIDATED_MESSAGE: &str = "登录状态已失效，请重新登录。";
 
 #[derive(Debug, Deserialize)]
 struct DiscourseErrorEnvelope {
@@ -595,6 +596,30 @@ pub(crate) async fn expect_success(
     response: Response<ResponseBody>,
 ) -> Result<Response<ResponseBody>, FireCoreError> {
     if response.status().is_success() {
+        if operation != "logout" {
+            let invalidation = response_login_invalidation_signal(response.headers());
+            let has_local_login = {
+                let snapshot = core.snapshot();
+                snapshot.cookies.has_login_session() || snapshot.cookies.has_forum_session()
+            };
+            if has_local_login && invalidation.any() {
+                let body = core.read_response_text(trace_id, response).await?;
+                warn!(
+                    operation,
+                    trace_id,
+                    discourse_logged_out = invalidation.discourse_logged_out,
+                    cleared_t_cookie = invalidation.cleared_t_cookie,
+                    cleared_forum_session = invalidation.cleared_forum_session,
+                    body_prefix = %body.chars().take(200).collect::<String>(),
+                    "successful response invalidated login session"
+                );
+                let _ = core.logout_local(true);
+                return Err(FireCoreError::LoginRequired {
+                    operation,
+                    message: LOGIN_INVALIDATED_MESSAGE.to_string(),
+                });
+            }
+        }
         return Ok(response);
     }
 
@@ -671,6 +696,57 @@ fn not_logged_in_message(status: u16, body: &str) -> Option<String> {
             .unwrap_or("需要登录才能执行此操作。")
             .to_string(),
     )
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+struct LoginInvalidationSignal {
+    discourse_logged_out: bool,
+    cleared_t_cookie: bool,
+    cleared_forum_session: bool,
+}
+
+impl LoginInvalidationSignal {
+    fn any(self) -> bool {
+        self.discourse_logged_out || self.cleared_t_cookie || self.cleared_forum_session
+    }
+}
+
+fn response_login_invalidation_signal(headers: &HeaderMap) -> LoginInvalidationSignal {
+    let discourse_logged_out = header_value(headers, "discourse-logged-out").is_some();
+    let mut cleared_t_cookie = false;
+    let mut cleared_forum_session = false;
+
+    for value in headers.get_all("set-cookie") {
+        let Ok(value) = value.to_str() else {
+            continue;
+        };
+        cleared_t_cookie |= clears_cookie(value, "_t");
+        cleared_forum_session |= clears_cookie(value, "_forum_session");
+    }
+
+    LoginInvalidationSignal {
+        discourse_logged_out,
+        cleared_t_cookie,
+        cleared_forum_session,
+    }
+}
+
+fn clears_cookie(set_cookie_header: &str, name: &str) -> bool {
+    let lower = set_cookie_header.trim().to_ascii_lowercase();
+    let prefix = format!("{}=", name.to_ascii_lowercase());
+    if !lower.starts_with(&prefix) {
+        return false;
+    }
+
+    let Some((_, rest)) = lower.split_once('=') else {
+        return false;
+    };
+    let value = rest.split(';').next().map(str::trim).unwrap_or_default();
+    if !value.is_empty() && value != "del" {
+        return false;
+    }
+
+    lower.contains("max-age=0") || lower.contains("expires=thu, 01 jan 1970 00:00:00 gmt")
 }
 
 pub(crate) fn is_cloudflare_challenge_body(body: &str) -> bool {

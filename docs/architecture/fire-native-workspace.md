@@ -104,12 +104,12 @@ The intended native integration order is:
 2. After login or Cloudflare verification, read the platform cookie store, the current page HTML/meta, and the live WebView/browser user agent.
 3. Call `sync_login_context` in Rust with the full same-site browser cookie batch, optional username, CSRF, the preferred homepage HTML captured through the browser context, and the WebView/browser user agent.
 4. Persist the latest session snapshot through the host-appropriate session policy:
-   - iOS writes a redacted `session.json` through `export_redacted_session_json` or `save_redacted_session_to_path`, keeps the full same-site browser cookie batch in Keychain with expiry metadata and distinct host/domain variants, and refreshes that Keychain copy when Rust receives newer auth cookies from the network.
-   - Android currently still uses `export_session_json` or `save_session_to_path` until Keystore-backed parity lands.
+   - iOS currently writes the full `session.json` snapshot during the active diagnostics-heavy development phase, keeps the full same-site browser cookie batch in Keychain with expiry metadata and distinct host/domain variants, and refreshes that Keychain copy when Rust receives newer auth cookies from the network.
+   - Android currently uses `export_session_json` or `save_session_to_path` until Keystore-backed parity lands.
 5. On cold start, restore the snapshot through `restore_session_json` or `load_session_from_path`.
 6. Before any authenticated request, hosts that keep browser cookies outside `session.json` must re-inject that platform cookie batch into Rust.
 7. If homepage HTML is unavailable or stale, or the restored authenticated snapshot is missing username/preloaded bootstrap fields, call `refresh_bootstrap_if_needed`. When homepage bootstrap still lacks site metadata such as categories/top tags, the shared Rust layer now falls back to `/site.json`. Only treat `shared_session_key` as required when MessageBus uses a cross-origin long-polling host.
-8. If the restored session is otherwise ready but the host persisted a redacted cache without CSRF, call `refresh_csrf_token_if_needed` before surfacing a fully ready authenticated session. The iOS `restoreColdStartSession()` path now performs this repair automatically. Write APIs can reuse the same helper whenever they need a newer token.
+8. If the restored session is otherwise ready but the local snapshot still lacks CSRF, call `refresh_csrf_token_if_needed` before surfacing a fully ready authenticated session. The iOS `restoreColdStartSession()` path now performs this repair automatically. Write APIs can reuse the same helper whenever they need a newer token.
 9. Use `fetch_topic_list` (global, category-scoped, or tag-scoped via `TopicListQuery`) and `fetch_topic_detail` for the first authenticated read path.
 10. On explicit logout, prefer `logout_remote`, then fall back to `logout_local`, clear the persisted session, and remove host-side WebView auth cookies so the native shell and platform browser state agree.
 11. Use `notification_state`, `fetch_recent_notifications`, `fetch_notifications`, `mark_notification_read`, and `mark_all_notifications_read` for the shared in-app notification data path; keep OS-level/system notification presentation on the hosts.
@@ -123,9 +123,10 @@ File ownership convention:
 - The current Rust-owned file layout inside that workspace is:
   - `logs/` for Mars Xlog output
   - `diagnostics/fire-readable.log` for a plaintext tracing mirror
-  - `diagnostics/support-bundles/` for locally exported redacted diagnostics bundles
+  - `diagnostics/support-bundles/` for locally exported diagnostics bundles
   - `cache/xlog/` for Xlog cache and mmap spill files
   - `session.json` for the persisted session snapshot triggered by the host shell
+- Debug builds may also mirror shared logs into the platform console for local development, but release builds keep shared logging file-only through Xlog/readable-log artifacts.
 - `session.json` remains host-triggered persistence under that workspace root.
-- iOS now treats `session.json` as a redacted cache and stores the full same-site browser cookie batch in Keychain, including expiry metadata and refreshed auth-cookie state observed by Rust.
+- iOS currently treats `session.json` as a full-fidelity development cache and stores the same-site browser cookie batch in Keychain, including expiry metadata and refreshed auth-cookie state observed by Rust.
 - Android currently still restores the full snapshot from `session.json` until its secure-cookie migration lands.

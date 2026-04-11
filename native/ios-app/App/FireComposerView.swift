@@ -446,9 +446,10 @@ struct FireComposerView: View {
     }
 
     private var composerToolbar: some View {
-        HStack(spacing: 12) {
+        let uploadButtonTitle = isUploadingImage ? "上传中" : "图片"
+        return HStack(spacing: 12) {
             PhotosPicker(selection: $selectedPhoto, matching: .images) {
-                Label(isUploadingImage ? "上传中" : "图片", systemImage: "photo")
+                Label(uploadButtonTitle, systemImage: "photo")
                     .font(.subheadline.weight(.semibold))
             }
             .disabled(isUploadingImage || isSubmitting)
@@ -1100,7 +1101,7 @@ struct FireComposerView: View {
                 let result = try await viewModel.uploadImage(
                     fileName: fileName,
                     mimeType: mimeType,
-                    bytes: Array(bytes)
+                    bytes: bytes
                 )
                 let markdown = markdownForUpload(result)
                 let prefix = bodySelection.location == 0 ? "" : "\n"

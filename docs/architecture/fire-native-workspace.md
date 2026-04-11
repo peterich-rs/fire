@@ -89,12 +89,12 @@ fire/
 - `fire-models`
   - defines the shared login/session snapshot, notification models, and topic-facing models
 - `fire-core`
-  - owns session sync, bootstrap parsing, auth refresh/logout, persistence, diagnostics, one shared `openwire` client for API and MessageBus transport, topic list/detail reads (including category and tag scoped lists), the current reply/reaction write path, the Rust MessageBus poll/subscription runtime, notification fetch/state/mark-read reconciliation, topic-reply presence, and `/topics/timings` request shaping
+  - owns session sync, bootstrap parsing, auth refresh/logout, persistence, diagnostics, one shared `openwire` client for API and MessageBus transport, topic list/detail reads (including category and tag scoped lists), reply/reaction/topic write paths, draft APIs, upload APIs, the Rust MessageBus poll/subscription runtime, notification fetch/state/mark-read reconciliation, topic-reply presence, and `/topics/timings` request shaping
   - finalizes network traces in Rust with terminal outcomes (`Succeeded`, `Failed`, or `Cancelled`); hosts should treat timeline events as intermediate diagnostics instead of completion signals
 - `fire-uniffi`
   - exports the shared async API surface, notification list/state APIs, MessageBus callback interface, and error model to Swift/Kotlin
 - `native/ios-app` and `native/android-app`
-  - host WebView login, cookie capture, native UI state, the current topic browser/detail shells, and thin notification-store wrappers over the shared Rust notification APIs
+  - host WebView login, cookie capture, native UI state, the current topic browser/detail shells, native composer UX, and thin notification-store wrappers over the shared Rust notification APIs
   - iOS topic-detail state is retained by per-view owner tokens while a detail screen is active, so background homepage refreshes can no longer evict an on-screen topic detail cache
 
 The intended native integration order is:

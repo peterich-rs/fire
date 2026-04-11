@@ -139,7 +139,7 @@ Current UX note:
 - The network preflight is a best-effort connectivity warm-up. iOS does not provide a generic "internet permission" API for arbitrary web access, so this only shifts the first prompt/request earlier; it does not create a separate permission flow.
 - The current topic browser now runs against the real shared Rust core through generated UniFFI Swift bindings.
 - The app now includes a native search screen for topic/post/user discovery on top of the shared Rust `/search.json` API.
-- The shared search layer also exposes tag search and user mention endpoints for upcoming composer/autocomplete flows.
+- The shared search layer now powers the native composer’s tag search and `@mention` autocomplete flows.
 - Network-backed UniFFI APIs now surface to Swift as native `async/await` methods instead of a synchronous wrapper.
 - The UniFFI boundary now returns exported host interactions as Swift `throws`; if Rust panics, the boundary logs the panic, throws an `Internal` UniFFI error instead of tripping generated `try!` call sites, and poisons the current `FireCoreHandle` so the host can recreate it.
 - The app now enters through a branded session gate when authenticated topic reads are not ready, instead of exposing raw readiness/debug state as the primary UI.
@@ -147,6 +147,7 @@ Current UX note:
 - Topic rows now come across the UniFFI boundary as Rust-generated row models that already resolve original-poster identity, status labels, plain-text excerpts, trimmed tag names, and Unix-millisecond timestamps from the topic-list payload, while Swift only formats timestamps and renders the native row layout.
 - The homepage `latest` feed now coalesces MessageBus topic-list updates on iOS, enforces a 30-second minimum refresh interval, and batches `/latest.json?topic_ids=...` incremental reloads while the active view is the unfiltered latest list.
 - Topic detail now consumes Rust-generated flat thread posts and shared text helpers, hides the tab bar as a dedicated reading page, promotes the original post into the topic header as the main body, and exposes a persistent quick-reply bar at the bottom instead of a modal composer sheet.
+- The app now also exposes a full-screen native composer for create-topic and advanced-reply flows, with server-backed draft restore/save, image uploads, upload URL resolution, tag search, and `@mention` autocomplete on top of shared Rust APIs.
 - Topic detail now supports per-post reply targeting, post likes, and custom emoji reactions through the shared Rust write APIs.
 - Topic detail now also reports native visible-post reading timings through the shared Rust `/topics/timings` API instead of keeping that reporting path host-specific.
 - Topic detail now also listens to the shared MessageBus reaction/presence channels, refreshes live post state from Rust on matching events, and shows shared reply-presence users in the quick-reply area.

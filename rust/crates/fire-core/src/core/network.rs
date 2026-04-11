@@ -4,6 +4,8 @@ use http::{
     header::{HeaderMap, HeaderValue, ACCEPT_LANGUAGE, ORIGIN, REFERER, USER_AGENT},
     Method, Request, Response, StatusCode,
 };
+#[cfg(debug_assertions)]
+use openwire::ProxyRules;
 use openwire::{
     BoxFuture, Call, CallOptions, Client, Exchange, Interceptor, Next, RequestBody, ResponseBody,
     WireError,
@@ -170,7 +172,7 @@ impl FireNetworkLayer {
                 &diagnostics,
             )));
         #[cfg(debug_assertions)]
-        let builder = builder.use_system_proxy(true);
+        let builder = builder.proxy_selector(ProxyRules::new().use_system_proxy(true));
         let client = builder
             .build()
             .map_err(|source| FireCoreError::ClientBuild { source })?;

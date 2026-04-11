@@ -56,6 +56,7 @@ struct FireTopicDetailView: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.colorScheme) private var colorScheme
     @State private var composerContext: FireReplyComposerContext?
+    @State private var advancedComposerContext: FireReplyComposerContext?
     @State private var replyDraft = ""
     @State private var composerNotice: String?
     @State private var quickReplyError: String?
@@ -328,6 +329,31 @@ struct FireTopicDetailView: View {
                     }
                 }
             )
+        }
+        .fullScreenCover(item: $advancedComposerContext) { context in
+            NavigationStack {
+                FireComposerView(
+                    viewModel: viewModel,
+                    route: FireComposerRoute(
+                        kind: .advancedReply(
+                            topicID: topic.id,
+                            topicTitle: topic.title,
+                            categoryID: topic.categoryId,
+                            replyToPostNumber: context.replyToPostNumber,
+                            replyToUsername: context.replyToUsername
+                        )
+                    ),
+                    initialBody: replyDraft,
+                    onReplySubmitted: {
+                        replyDraft = ""
+                        composerContext = nil
+                        quickReplyError = nil
+                        Task {
+                            await viewModel.loadTopicDetail(topicId: topic.id, force: true)
+                        }
+                    }
+                )
+            }
         }
         .fullScreenCover(item: $selectedImage) { image in
             FireTopicImageViewer(image: image)
@@ -726,6 +752,20 @@ struct FireTopicDetailView: View {
             }
 
             HStack(alignment: .bottom, spacing: 10) {
+                Button {
+                    openAdvancedComposer()
+                } label: {
+                    Image(systemName: "square.and.pencil")
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundStyle(FireTheme.accent)
+                        .frame(width: 34, height: 34)
+                        .background(
+                            Circle()
+                                .fill(Color(.secondarySystemBackground))
+                        )
+                }
+                .buttonStyle(.plain)
+
                 TextField(replyPrompt, text: $replyDraft, axis: .vertical)
                     .textFieldStyle(.plain)
                     .font(.body)
@@ -803,6 +843,17 @@ struct FireTopicDetailView: View {
 
     private func clearComposerTarget() {
         composerContext = nil
+    }
+
+    private func openAdvancedComposer() {
+        advancedComposerContext = composerContext
+            ?? FireReplyComposerContext(
+                topicId: topic.id,
+                postId: nil,
+                replyToPostNumber: nil,
+                replyToUsername: nil
+            )
+        dismissKeyboard()
     }
 
     private func dismissKeyboard() {

@@ -213,7 +213,8 @@ public final class FireWebViewLoginCoordinator {
                 name: cookie.name,
                 value: cookie.value,
                 domain: cookie.domain,
-                path: cookie.path
+                path: cookie.path,
+                expiresAtUnixMs: cookie.expiresDate.map { Int64($0.timeIntervalSince1970 * 1000) }
             )
         }
     }

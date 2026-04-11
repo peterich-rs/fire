@@ -104,7 +104,7 @@ The intended native integration order is:
 2. After login or Cloudflare verification, read the platform cookie store, the current page HTML/meta, and the live WebView/browser user agent.
 3. Call `sync_login_context` in Rust with the full same-site browser cookie batch, optional username, CSRF, the preferred homepage HTML captured through the browser context, and the WebView/browser user agent.
 4. Persist the latest session snapshot through the host-appropriate session policy:
-   - iOS writes a redacted `session.json` through `export_redacted_session_json` or `save_redacted_session_to_path` and keeps the full same-site browser cookie batch in Keychain so Rust can rebuild authenticated browser context on cold start.
+   - iOS writes a redacted `session.json` through `export_redacted_session_json` or `save_redacted_session_to_path`, keeps the full same-site browser cookie batch in Keychain with expiry metadata and distinct host/domain variants, and refreshes that Keychain copy when Rust receives newer auth cookies from the network.
    - Android currently still uses `export_session_json` or `save_session_to_path` until Keystore-backed parity lands.
 5. On cold start, restore the snapshot through `restore_session_json` or `load_session_from_path`.
 6. Before any authenticated request, hosts that keep browser cookies outside `session.json` must re-inject that platform cookie batch into Rust.
@@ -127,5 +127,5 @@ File ownership convention:
   - `cache/xlog/` for Xlog cache and mmap spill files
   - `session.json` for the persisted session snapshot triggered by the host shell
 - `session.json` remains host-triggered persistence under that workspace root.
-- iOS now treats `session.json` as a redacted cache and stores the full same-site browser cookie batch in Keychain.
+- iOS now treats `session.json` as a redacted cache and stores the full same-site browser cookie batch in Keychain, including expiry metadata and refreshed auth-cookie state observed by Rust.
 - Android currently still restores the full snapshot from `session.json` until its secure-cookie migration lands.

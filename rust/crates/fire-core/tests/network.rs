@@ -716,18 +716,21 @@ async fn logout_remote_retries_after_bad_csrf() {
                 value: "token".into(),
                 domain: None,
                 path: None,
+                expires_at_unix_ms: None,
             },
             PlatformCookie {
                 name: "_forum_session".into(),
                 value: "forum".into(),
                 domain: None,
                 path: None,
+                expires_at_unix_ms: None,
             },
             PlatformCookie {
                 name: "cf_clearance".into(),
                 value: "clearance".into(),
                 domain: None,
                 path: None,
+                expires_at_unix_ms: None,
             },
         ],
     });
@@ -861,18 +864,21 @@ async fn refresh_bootstrap_uses_browser_user_agent_and_full_platform_cookies() {
                 value: "token".into(),
                 domain: None,
                 path: Some("/".into()),
+                expires_at_unix_ms: None,
             },
             PlatformCookie {
                 name: "_forum_session".into(),
                 value: "forum".into(),
                 domain: None,
                 path: Some("/".into()),
+                expires_at_unix_ms: None,
             },
             PlatformCookie {
                 name: "__cf_bm".into(),
                 value: "browser-context".into(),
                 domain: None,
                 path: Some("/".into()),
+                expires_at_unix_ms: None,
             },
         ],
     });
@@ -883,9 +889,13 @@ async fn refresh_bootstrap_uses_browser_user_agent_and_full_platform_cookies() {
     assert_eq!(requests.len(), 1);
     let wire_request = requests[0].to_ascii_lowercase();
     assert!(wire_request.contains("user-agent: mozilla/5.0 exact wkwebview"));
-    assert!(
-        wire_request.contains("cookie: _t=token; _forum_session=forum; __cf_bm=browser-context")
-    );
+    let cookie_header = wire_request
+        .lines()
+        .find(|line| line.starts_with("cookie: "))
+        .expect("cookie header");
+    assert!(cookie_header.contains("_t=token"));
+    assert!(cookie_header.contains("_forum_session=forum"));
+    assert!(cookie_header.contains("__cf_bm=browser-context"));
 }
 
 #[tokio::test]
@@ -941,12 +951,14 @@ async fn create_reply_refreshes_csrf_and_parses_wrapped_post_payload() {
                 value: "token".into(),
                 domain: None,
                 path: None,
+                expires_at_unix_ms: None,
             },
             PlatformCookie {
                 name: "_forum_session".into(),
                 value: "forum".into(),
                 domain: None,
                 path: None,
+                expires_at_unix_ms: None,
             },
         ],
     });
@@ -1003,12 +1015,14 @@ async fn create_reply_surfaces_pending_review_state() {
                 value: "token".into(),
                 domain: None,
                 path: None,
+                expires_at_unix_ms: None,
             },
             PlatformCookie {
                 name: "_forum_session".into(),
                 value: "forum".into(),
                 domain: None,
                 path: None,
+                expires_at_unix_ms: None,
             },
         ],
     });
@@ -1054,12 +1068,14 @@ async fn create_reply_surfaces_cloudflare_challenge_error() {
                 value: "token".into(),
                 domain: None,
                 path: None,
+                expires_at_unix_ms: None,
             },
             PlatformCookie {
                 name: "_forum_session".into(),
                 value: "forum".into(),
                 domain: None,
                 path: None,
+                expires_at_unix_ms: None,
             },
         ],
     });
@@ -1114,12 +1130,14 @@ async fn toggle_post_reaction_parses_reaction_update_payload() {
                 value: "token".into(),
                 domain: None,
                 path: None,
+                expires_at_unix_ms: None,
             },
             PlatformCookie {
                 name: "_forum_session".into(),
                 value: "forum".into(),
                 domain: None,
                 path: None,
+                expires_at_unix_ms: None,
             },
         ],
     });
@@ -1189,12 +1207,14 @@ async fn toggle_post_reaction_encodes_reaction_path_segment() {
                 value: "token".into(),
                 domain: None,
                 path: None,
+                expires_at_unix_ms: None,
             },
             PlatformCookie {
                 name: "_forum_session".into(),
                 value: "forum".into(),
                 domain: None,
                 path: None,
+                expires_at_unix_ms: None,
             },
         ],
     });
@@ -1240,12 +1260,14 @@ async fn like_post_uses_post_actions_endpoint() {
                 value: "token".into(),
                 domain: None,
                 path: None,
+                expires_at_unix_ms: None,
             },
             PlatformCookie {
                 name: "_forum_session".into(),
                 value: "forum".into(),
                 domain: None,
                 path: None,
+                expires_at_unix_ms: None,
             },
         ],
     });
@@ -1296,12 +1318,14 @@ async fn like_post_parses_reaction_update_when_response_includes_reaction_fields
                 value: "token".into(),
                 domain: None,
                 path: None,
+                expires_at_unix_ms: None,
             },
             PlatformCookie {
                 name: "_forum_session".into(),
                 value: "forum".into(),
                 domain: None,
                 path: None,
+                expires_at_unix_ms: None,
             },
         ],
     });

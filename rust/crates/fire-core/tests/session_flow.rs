@@ -58,18 +58,21 @@ fn sync_login_context_merges_platform_cookies_and_html() {
                 value: "token".into(),
                 domain: None,
                 path: None,
+                expires_at_unix_ms: None,
             },
             PlatformCookie {
                 name: "_forum_session".into(),
                 value: "forum".into(),
                 domain: None,
                 path: None,
+                expires_at_unix_ms: None,
             },
             PlatformCookie {
                 name: "cf_clearance".into(),
                 value: "clearance".into(),
                 domain: None,
                 path: None,
+                expires_at_unix_ms: None,
             },
         ],
     });
@@ -368,12 +371,14 @@ async fn refresh_csrf_token_if_needed_skips_when_token_exists() {
                 value: "token".into(),
                 domain: None,
                 path: None,
+                expires_at_unix_ms: None,
             },
             PlatformCookie {
                 name: "_forum_session".into(),
                 value: "forum".into(),
                 domain: None,
                 path: None,
+                expires_at_unix_ms: None,
             },
         ],
     });
@@ -402,12 +407,14 @@ fn session_can_roundtrip_through_json_export_and_restore() {
                 value: "token".into(),
                 domain: None,
                 path: None,
+                expires_at_unix_ms: None,
             },
             PlatformCookie {
                 name: "_forum_session".into(),
                 value: "forum".into(),
                 domain: None,
                 path: None,
+                expires_at_unix_ms: None,
             },
         ],
     });
@@ -434,18 +441,21 @@ fn redacted_session_export_strips_auth_and_csrf_tokens() {
                 value: "token".into(),
                 domain: None,
                 path: None,
+                expires_at_unix_ms: None,
             },
             PlatformCookie {
                 name: "_forum_session".into(),
                 value: "forum".into(),
                 domain: None,
                 path: None,
+                expires_at_unix_ms: None,
             },
             PlatformCookie {
                 name: "cf_clearance".into(),
                 value: "clearance".into(),
                 domain: None,
                 path: None,
+                expires_at_unix_ms: None,
             },
         ],
     });
@@ -624,12 +634,14 @@ fn restore_preserves_bootstrap_when_auth_cookies_were_redacted() {
             value: "token".into(),
             domain: None,
             path: None,
+            expires_at_unix_ms: None,
         },
         PlatformCookie {
             name: "_forum_session".into(),
             value: "forum".into(),
             domain: None,
             path: None,
+            expires_at_unix_ms: None,
         },
     ]);
 
@@ -653,18 +665,21 @@ fn session_can_roundtrip_through_file_persistence() {
                 value: "token".into(),
                 domain: None,
                 path: None,
+                expires_at_unix_ms: None,
             },
             PlatformCookie {
                 name: "_forum_session".into(),
                 value: "forum".into(),
                 domain: None,
                 path: None,
+                expires_at_unix_ms: None,
             },
             PlatformCookie {
                 name: "cf_clearance".into(),
                 value: "clearance".into(),
                 domain: None,
                 path: None,
+                expires_at_unix_ms: None,
             },
         ],
     });
@@ -695,18 +710,21 @@ fn redacted_session_can_roundtrip_through_file_persistence() {
                 value: "token".into(),
                 domain: None,
                 path: None,
+                expires_at_unix_ms: None,
             },
             PlatformCookie {
                 name: "_forum_session".into(),
                 value: "forum".into(),
                 domain: None,
                 path: None,
+                expires_at_unix_ms: None,
             },
             PlatformCookie {
                 name: "cf_clearance".into(),
                 value: "clearance".into(),
                 domain: None,
                 path: None,
+                expires_at_unix_ms: None,
             },
         ],
     });

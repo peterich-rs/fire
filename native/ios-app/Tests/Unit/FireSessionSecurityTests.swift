@@ -137,6 +137,197 @@ final class FireSessionSecurityTests: XCTestCase {
         XCTAssertFalse(persisted.contains("\"csrf-token\""))
     }
 
+    func testPersistCurrentSessionRewritesSecureStoreFromCurrentSnapshot() async throws {
+        let sessionFileURL = try makeSessionFileURL(name: "persist-current-session-rewrites-secure-store")
+        let secureStore = InMemoryAuthCookieSecureStore()
+        let store = try FireSessionStore(
+            workspacePath: try FireSessionStore.defaultWorkspacePath(),
+            sessionFilePath: sessionFileURL.path,
+            authCookieStore: secureStore
+        )
+        let freshExpiry = Int64(Date().timeIntervalSince1970 * 1000) + 60_000
+
+        _ = try await store.syncLoginContext(
+            FireCapturedLoginState(
+                currentURL: "https://linux.do",
+                username: "alice",
+                csrfToken: "csrf-token",
+                homeHTML: nil,
+                browserUserAgent: nil,
+                cookies: [
+                    makePlatformCookie(
+                        name: "_t",
+                        value: "fresh-token",
+                        domain: "linux.do",
+                        expiresAtUnixMs: freshExpiry
+                    ),
+                    makePlatformCookie(
+                        name: "_forum_session",
+                        value: "fresh-forum",
+                        domain: ".linux.do",
+                        expiresAtUnixMs: freshExpiry
+                    ),
+                ]
+            )
+        )
+
+        try secureStore.save(
+            FireAuthCookieSecrets(
+                platformCookies: [
+                    makePlatformCookie(
+                        name: "_t",
+                        value: "stale-token",
+                        domain: "linux.do"
+                    ),
+                    makePlatformCookie(
+                        name: "_forum_session",
+                        value: "stale-forum",
+                        domain: ".linux.do"
+                    ),
+                ]
+            )
+        )
+
+        try await store.persistCurrentSession()
+
+        let secrets = try secureStore.load()
+
+        XCTAssertEqual(secrets.tToken, "fresh-token")
+        XCTAssertEqual(secrets.forumSession, "fresh-forum")
+        XCTAssertEqual(secrets.platformCookies.count, 2)
+        XCTAssertTrue(
+            secrets.platformCookies.contains { cookie in
+                cookie.name == "_t"
+                    && cookie.value == "fresh-token"
+                    && cookie.domain == "linux.do"
+                    && cookie.expiresAtUnixMs == freshExpiry
+            }
+        )
+        XCTAssertTrue(
+            secrets.platformCookies.contains { cookie in
+                cookie.name == "_forum_session"
+                    && cookie.value == "fresh-forum"
+                    && cookie.domain == ".linux.do"
+                    && cookie.expiresAtUnixMs == freshExpiry
+            }
+        )
+    }
+
+    func testAuthCookieSecretsPreserveExpiryAndDistinctDomainVariants() throws {
+        let futureExpiry = Int64(Date().timeIntervalSince1970 * 1000) + 60_000
+        let secrets = FireAuthCookieSecrets(
+            platformCookies: [
+                makePlatformCookie(
+                    name: "_t",
+                    value: "host-cookie",
+                    domain: "linux.do",
+                    expiresAtUnixMs: futureExpiry
+                ),
+                makePlatformCookie(
+                    name: "_t",
+                    value: "domain-cookie",
+                    domain: ".linux.do",
+                    expiresAtUnixMs: futureExpiry
+                ),
+            ]
+        )
+
+        let restored = secrets.platformCookies(baseURL: URL(string: "https://linux.do")!)
+
+        XCTAssertEqual(restored.count, 2)
+        XCTAssertTrue(
+            restored.contains { cookie in
+                cookie.domain == "linux.do"
+                    && cookie.value == "host-cookie"
+                    && cookie.expiresAtUnixMs == futureExpiry
+            }
+        )
+        XCTAssertTrue(
+            restored.contains { cookie in
+                cookie.domain == ".linux.do"
+                    && cookie.value == "domain-cookie"
+                    && cookie.expiresAtUnixMs == futureExpiry
+            }
+        )
+    }
+
+    func testAuthCookieSecretsFilterExpiredPlatformCookies() throws {
+        let futureExpiry = Int64(Date().timeIntervalSince1970 * 1000) + 60_000
+        let secrets = FireAuthCookieSecrets(
+            platformCookies: [
+                makePlatformCookie(
+                    name: "_t",
+                    value: "expired-token",
+                    domain: "linux.do",
+                    expiresAtUnixMs: 1
+                ),
+                makePlatformCookie(
+                    name: "_forum_session",
+                    value: "fresh-forum",
+                    domain: "linux.do",
+                    expiresAtUnixMs: futureExpiry
+                ),
+            ]
+        )
+
+        let restored = secrets.platformCookies(baseURL: URL(string: "https://linux.do")!)
+
+        XCTAssertEqual(restored.count, 1)
+        XCTAssertEqual(restored.first?.name, "_forum_session")
+        XCTAssertEqual(restored.first?.expiresAtUnixMs, futureExpiry)
+    }
+
+    func testAuthCookieSecretsNormalizedRecomputesScalarMirrorsFromActivePlatformCookies() throws {
+        let futureExpiry = Int64(Date().timeIntervalSince1970 * 1000) + 60_000
+        let normalized = FireAuthCookieSecrets(
+            tToken: "stale-token",
+            forumSession: "stale-forum",
+            cfClearance: "stale-clearance",
+            platformCookies: [
+                makePlatformCookie(
+                    name: "_t",
+                    value: "expired-token",
+                    domain: "linux.do",
+                    expiresAtUnixMs: 1
+                ),
+                makePlatformCookie(
+                    name: "_forum_session",
+                    value: "fresh-forum",
+                    domain: "linux.do",
+                    expiresAtUnixMs: futureExpiry
+                ),
+                makePlatformCookie(
+                    name: "cf_clearance",
+                    value: "fresh-clearance",
+                    domain: "linux.do",
+                    expiresAtUnixMs: futureExpiry
+                ),
+            ].map(FireStoredPlatformCookie.init)
+        ).normalized()
+
+        XCTAssertNil(normalized.tToken)
+        XCTAssertEqual(normalized.forumSession, "fresh-forum")
+        XCTAssertEqual(normalized.cfClearance, "fresh-clearance")
+        XCTAssertEqual(normalized.platformCookies.count, 2)
+        XCTAssertEqual(
+            normalized.platformCookies.map { $0.name }.sorted(),
+            ["_forum_session", "cf_clearance"]
+        )
+    }
+
+    func testAuthCookieSecretsNormalizedPreservesScalarOnlySecrets() throws {
+        let normalized = FireAuthCookieSecrets(
+            tToken: "token",
+            forumSession: "forum",
+            cfClearance: "clearance"
+        ).normalized()
+
+        XCTAssertEqual(normalized.tToken, "token")
+        XCTAssertEqual(normalized.forumSession, "forum")
+        XCTAssertEqual(normalized.cfClearance, "clearance")
+        XCTAssertTrue(normalized.platformCookies.isEmpty)
+    }
+
     @MainActor
     func testCompleteLoginRollsBackPartialSessionWhenBootstrapRefreshIsChallenged() async {
         let store = MockLoginSessionStore(
@@ -303,8 +494,20 @@ final class FireSessionSecurityTests: XCTestCase {
         return testsURL.appendingPathComponent("\(name)-\(UUID().uuidString).json", isDirectory: false)
     }
 
-    private func makePlatformCookie(name: String, value: String) -> PlatformCookieState {
-        PlatformCookieState(name: name, value: value, domain: "linux.do", path: "/")
+    private func makePlatformCookie(
+        name: String,
+        value: String,
+        domain: String = "linux.do",
+        path: String = "/",
+        expiresAtUnixMs: Int64? = nil
+    ) -> PlatformCookieState {
+        PlatformCookieState(
+            name: name,
+            value: value,
+            domain: domain,
+            path: path,
+            expiresAtUnixMs: expiresAtUnixMs
+        )
     }
 
     private func redactedSessionJSON() -> String {

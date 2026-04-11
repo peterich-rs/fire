@@ -62,6 +62,11 @@ public struct FireHostLogger: Sendable {
     }
 }
 
+private struct FirePersistedSessionArtifacts: Equatable {
+    let redactedSessionJSON: String
+    let secureSecrets: FireAuthCookieSecrets
+}
+
 public actor FireSessionStore {
     nonisolated private let core: FireCoreHandle
     private let baseURL: URL
@@ -150,7 +155,6 @@ public actor FireSessionStore {
 
     @discardableResult
     public func syncLoginContext(_ captured: FireCapturedLoginState) throws -> SessionState {
-        try authCookieStore.save(FireAuthCookieSecrets(platformCookies: captured.cookies))
         let state = try core.syncLoginContext(
             context: LoginSyncState(
                 currentUrl: captured.currentURL,
@@ -167,7 +171,6 @@ public actor FireSessionStore {
 
     @discardableResult
     public func applyPlatformCookies(_ cookies: [PlatformCookieState]) throws -> SessionState {
-        try authCookieStore.save(FireAuthCookieSecrets(platformCookies: cookies))
         let state = try core.applyPlatformCookies(cookies: cookies)
         try persistCurrentSession()
         return state
@@ -190,9 +193,9 @@ public actor FireSessionStore {
 
     @discardableResult
     public func refreshBootstrapIfNeeded() async throws -> SessionState {
-        let before = try persistedSessionJSON()
+        let before = try persistedSessionArtifacts()
         let refreshed = try await core.refreshBootstrapIfNeeded()
-        if try persistedSessionJSON() != before {
+        if try persistedSessionArtifacts() != before {
             try persistCurrentSession()
         }
         return refreshed
@@ -200,16 +203,17 @@ public actor FireSessionStore {
 
     @discardableResult
     public func refreshCsrfTokenIfNeeded() async throws -> SessionState {
-        let before = try persistedSessionJSON()
+        let before = try persistedSessionArtifacts()
         let refreshed = try await core.refreshCsrfTokenIfNeeded()
-        if try persistedSessionJSON() != before {
+        if try persistedSessionArtifacts() != before {
             try persistCurrentSession()
         }
         return refreshed
     }
 
     public func persistCurrentSession() throws {
-        try core.saveRedactedSessionToPath(path: sessionFilePath)
+        try persistCurrentAuthCookies()
+        try persistRedactedSessionFile()
     }
 
     public func workspacePathValue() -> String {
@@ -344,7 +348,7 @@ public actor FireSessionStore {
     }
 
     public func exportSessionJSON() throws -> String {
-        try persistedSessionJSON()
+        try core.exportRedactedSessionJson()
     }
 
     public func notificationState() throws -> NotificationCenterState {
@@ -352,44 +356,60 @@ public actor FireSessionStore {
     }
 
     public func fetchRecentNotifications(limit: UInt32? = nil) async throws -> NotificationListState {
-        try await core.fetchRecentNotifications(limit: limit)
+        try await runPersistingSessionChanges {
+            try await core.fetchRecentNotifications(limit: limit)
+        }
     }
 
     public func fetchNotifications(
         limit: UInt32? = nil,
         offset: UInt32? = nil
     ) async throws -> NotificationListState {
-        try await core.fetchNotifications(limit: limit, offset: offset)
+        try await runPersistingSessionChanges {
+            try await core.fetchNotifications(limit: limit, offset: offset)
+        }
     }
 
     public func markNotificationRead(id: UInt64) async throws -> NotificationCenterState {
-        try await core.markNotificationRead(notificationId: id)
+        try await runPersistingSessionChanges {
+            try await core.markNotificationRead(notificationId: id)
+        }
     }
 
     public func markAllNotificationsRead() async throws -> NotificationCenterState {
-        try await core.markAllNotificationsRead()
+        try await runPersistingSessionChanges {
+            try await core.markAllNotificationsRead()
+        }
     }
 
     public func fetchBookmarks(
         username: String,
         page: UInt32? = nil
     ) async throws -> TopicListState {
-        try await core.fetchBookmarks(username: username, page: page)
+        try await runPersistingSessionChanges {
+            try await core.fetchBookmarks(username: username, page: page)
+        }
     }
 
     public func fetchReadHistory(page: UInt32? = nil) async throws -> TopicListState {
-        try await core.fetchReadHistory(page: page)
+        try await runPersistingSessionChanges {
+            try await core.fetchReadHistory(page: page)
+        }
     }
 
     public func fetchDrafts(
         offset: UInt32? = nil,
         limit: UInt32? = nil
     ) async throws -> DraftListResponseState {
-        try await core.fetchDrafts(offset: offset, limit: limit)
+        try await runPersistingSessionChanges {
+            try await core.fetchDrafts(offset: offset, limit: limit)
+        }
     }
 
     public func fetchDraft(draftKey: String) async throws -> DraftState? {
-        try await core.fetchDraft(draftKey: draftKey)
+        try await runPersistingSessionChanges {
+            try await core.fetchDraft(draftKey: draftKey)
+        }
     }
 
     public func saveDraft(
@@ -397,36 +417,50 @@ public actor FireSessionStore {
         data: DraftDataState,
         sequence: UInt32
     ) async throws -> UInt32 {
-        try await core.saveDraft(draftKey: draftKey, data: data, sequence: sequence)
+        try await runPersistingSessionChanges {
+            try await core.saveDraft(draftKey: draftKey, data: data, sequence: sequence)
+        }
     }
 
     public func deleteDraft(
         draftKey: String,
         sequence: UInt32? = nil
     ) async throws {
-        try await core.deleteDraft(draftKey: draftKey, sequence: sequence)
+        try await runPersistingSessionChanges {
+            try await core.deleteDraft(draftKey: draftKey, sequence: sequence)
+        }
     }
 
     public func pollNotificationAlertOnce(
         lastMessageId: Int64
     ) async throws -> NotificationAlertPollResultState {
-        try await core.pollNotificationAlertOnce(lastMessageId: lastMessageId)
+        try await runPersistingSessionChanges {
+            try await core.pollNotificationAlertOnce(lastMessageId: lastMessageId)
+        }
     }
 
     public func search(query: SearchQueryState) async throws -> SearchResultState {
-        try await core.search(query: query)
+        try await runPersistingSessionChanges {
+            try await core.search(query: query)
+        }
     }
 
     public func searchTags(query: TagSearchQueryState) async throws -> TagSearchResultState {
-        try await core.searchTags(query: query)
+        try await runPersistingSessionChanges {
+            try await core.searchTags(query: query)
+        }
     }
 
     public func searchUsers(query: UserMentionQueryState) async throws -> UserMentionResultState {
-        try await core.searchUsers(query: query)
+        try await runPersistingSessionChanges {
+            try await core.searchUsers(query: query)
+        }
     }
 
     public func fetchTopicList(query: TopicListQueryState) async throws -> TopicListState {
-        try await core.fetchTopicList(query: query)
+        try await runPersistingSessionChanges {
+            try await core.fetchTopicList(query: query)
+        }
     }
 
     public func fetchTopicList(kind: TopicListKindState) async throws -> TopicListState {
@@ -448,11 +482,15 @@ public actor FireSessionStore {
     }
 
     public func fetchTopicDetail(query: TopicDetailQueryState) async throws -> TopicDetailState {
-        try await core.fetchTopicDetail(query: query)
+        try await runPersistingSessionChanges {
+            try await core.fetchTopicDetail(query: query)
+        }
     }
 
     public func fetchTopicDetailInitial(query: TopicDetailQueryState) async throws -> TopicDetailState {
-        try await core.fetchTopicDetailInitial(query: query)
+        try await runPersistingSessionChanges {
+            try await core.fetchTopicDetailInitial(query: query)
+        }
     }
 
     public func fetchTopicDetail(topicID: UInt64, trackVisit: Bool = true) async throws -> TopicDetailState {
@@ -469,11 +507,15 @@ public actor FireSessionStore {
     }
 
     public func fetchTopicPosts(topicID: UInt64, postIDs: [UInt64]) async throws -> [TopicPostState] {
-        try await core.fetchTopicPosts(topicId: topicID, postIds: postIDs)
+        try await runPersistingSessionChanges {
+            try await core.fetchTopicPosts(topicId: topicID, postIds: postIDs)
+        }
     }
 
     public func fetchPost(postID: UInt64) async throws -> TopicPostState {
-        try await core.fetchPost(postId: postID)
+        try await runPersistingSessionChanges {
+            try await core.fetchPost(postId: postID)
+        }
     }
 
     public func createReply(
@@ -481,13 +523,15 @@ public actor FireSessionStore {
         raw: String,
         replyToPostNumber: UInt32?
     ) async throws -> TopicPostState {
-        try await core.createReply(
-            input: TopicReplyRequestState(
-                topicId: topicID,
-                raw: raw,
-                replyToPostNumber: replyToPostNumber
+        try await runPersistingSessionChanges {
+            try await core.createReply(
+                input: TopicReplyRequestState(
+                    topicId: topicID,
+                    raw: raw,
+                    replyToPostNumber: replyToPostNumber
+                )
             )
-        )
+        }
     }
 
     public func updatePost(
@@ -495,13 +539,15 @@ public actor FireSessionStore {
         raw: String,
         editReason: String? = nil
     ) async throws -> TopicPostState {
-        try await core.updatePost(
-            input: PostUpdateRequestState(
-                postId: postID,
-                raw: raw,
-                editReason: editReason
+        try await runPersistingSessionChanges {
+            try await core.updatePost(
+                input: PostUpdateRequestState(
+                    postId: postID,
+                    raw: raw,
+                    editReason: editReason
+                )
             )
-        )
+        }
     }
 
     public func createTopic(
@@ -510,14 +556,16 @@ public actor FireSessionStore {
         categoryID: UInt64,
         tags: [String]
     ) async throws -> UInt64 {
-        try await core.createTopic(
-            input: TopicCreateRequestState(
-                title: title,
-                raw: raw,
-                categoryId: categoryID,
-                tags: tags
+        try await runPersistingSessionChanges {
+            try await core.createTopic(
+                input: TopicCreateRequestState(
+                    title: title,
+                    raw: raw,
+                    categoryId: categoryID,
+                    tags: tags
+                )
             )
-        )
+        }
     }
 
     public func updateTopic(
@@ -526,14 +574,16 @@ public actor FireSessionStore {
         categoryID: UInt64,
         tags: [String]
     ) async throws {
-        try await core.updateTopic(
-            input: TopicUpdateRequestState(
-                topicId: topicID,
-                title: title,
-                categoryId: categoryID,
-                tags: tags
+        try await runPersistingSessionChanges {
+            try await core.updateTopic(
+                input: TopicUpdateRequestState(
+                    topicId: topicID,
+                    title: title,
+                    categoryId: categoryID,
+                    tags: tags
+                )
             )
-        )
+        }
     }
 
     public func uploadImage(
@@ -541,38 +591,50 @@ public actor FireSessionStore {
         mimeType: String?,
         bytes: Data
     ) async throws -> UploadResultState {
-        try await core.uploadImage(
-            input: UploadImageRequestState(
-                fileName: fileName,
-                mimeType: mimeType,
-                bytes: bytes
+        try await runPersistingSessionChanges {
+            try await core.uploadImage(
+                input: UploadImageRequestState(
+                    fileName: fileName,
+                    mimeType: mimeType,
+                    bytes: bytes
+                )
             )
-        )
+        }
     }
 
     public func lookupUploadUrls(shortUrls: [String]) async throws -> [ResolvedUploadUrlState] {
-        try await core.lookupUploadUrls(shortUrls: shortUrls)
+        try await runPersistingSessionChanges {
+            try await core.lookupUploadUrls(shortUrls: shortUrls)
+        }
     }
 
     public func reportTopicTimings(
         input: TopicTimingsRequestState
     ) async throws -> Bool {
-        try await core.reportTopicTimings(input: input)
+        try await runPersistingSessionChanges {
+            try await core.reportTopicTimings(input: input)
+        }
     }
 
     public func likePost(postID: UInt64) async throws -> PostReactionUpdateState? {
-        try await core.likePost(postId: postID)
+        try await runPersistingSessionChanges {
+            try await core.likePost(postId: postID)
+        }
     }
 
     public func unlikePost(postID: UInt64) async throws -> PostReactionUpdateState? {
-        try await core.unlikePost(postId: postID)
+        try await runPersistingSessionChanges {
+            try await core.unlikePost(postId: postID)
+        }
     }
 
     public func togglePostReaction(
         postID: UInt64,
         reactionID: String
     ) async throws -> PostReactionUpdateState {
-        try await core.togglePostReaction(postId: postID, reactionId: reactionID)
+        try await runPersistingSessionChanges {
+            try await core.togglePostReaction(postId: postID, reactionId: reactionID)
+        }
     }
 
     public func votePoll(
@@ -580,26 +642,36 @@ public actor FireSessionStore {
         pollName: String,
         options: [String]
     ) async throws -> PollState {
-        try await core.votePoll(postId: postID, pollName: pollName, options: options)
+        try await runPersistingSessionChanges {
+            try await core.votePoll(postId: postID, pollName: pollName, options: options)
+        }
     }
 
     public func unvotePoll(
         postID: UInt64,
         pollName: String
     ) async throws -> PollState {
-        try await core.unvotePoll(postId: postID, pollName: pollName)
+        try await runPersistingSessionChanges {
+            try await core.unvotePoll(postId: postID, pollName: pollName)
+        }
     }
 
     public func voteTopic(topicID: UInt64) async throws -> VoteResponseState {
-        try await core.voteTopic(topicId: topicID)
+        try await runPersistingSessionChanges {
+            try await core.voteTopic(topicId: topicID)
+        }
     }
 
     public func unvoteTopic(topicID: UInt64) async throws -> VoteResponseState {
-        try await core.unvoteTopic(topicId: topicID)
+        try await runPersistingSessionChanges {
+            try await core.unvoteTopic(topicId: topicID)
+        }
     }
 
     public func fetchTopicVoters(topicID: UInt64) async throws -> [VotedUserState] {
-        try await core.fetchTopicVoters(topicId: topicID)
+        try await runPersistingSessionChanges {
+            try await core.fetchTopicVoters(topicId: topicID)
+        }
     }
 
     public func createBookmark(
@@ -609,13 +681,15 @@ public actor FireSessionStore {
         reminderAt: String? = nil,
         autoDeletePreference: Int32? = nil
     ) async throws -> UInt64 {
-        try await core.createBookmark(
-            bookmarkableId: bookmarkableID,
-            bookmarkableType: bookmarkableType,
-            name: name,
-            reminderAt: reminderAt,
-            autoDeletePreference: autoDeletePreference
-        )
+        try await runPersistingSessionChanges {
+            try await core.createBookmark(
+                bookmarkableId: bookmarkableID,
+                bookmarkableType: bookmarkableType,
+                name: name,
+                reminderAt: reminderAt,
+                autoDeletePreference: autoDeletePreference
+            )
+        }
     }
 
     public func updateBookmark(
@@ -624,34 +698,44 @@ public actor FireSessionStore {
         reminderAt: String? = nil,
         autoDeletePreference: Int32? = nil
     ) async throws {
-        try await core.updateBookmark(
-            bookmarkId: bookmarkID,
-            name: name,
-            reminderAt: reminderAt,
-            autoDeletePreference: autoDeletePreference
-        )
+        try await runPersistingSessionChanges {
+            try await core.updateBookmark(
+                bookmarkId: bookmarkID,
+                name: name,
+                reminderAt: reminderAt,
+                autoDeletePreference: autoDeletePreference
+            )
+        }
     }
 
     public func deleteBookmark(bookmarkID: UInt64) async throws {
-        try await core.deleteBookmark(bookmarkId: bookmarkID)
+        try await runPersistingSessionChanges {
+            try await core.deleteBookmark(bookmarkId: bookmarkID)
+        }
     }
 
     public func setTopicNotificationLevel(
         topicID: UInt64,
         notificationLevel: Int32
     ) async throws {
-        try await core.setTopicNotificationLevel(
-            topicId: topicID,
-            notificationLevel: notificationLevel
-        )
+        try await runPersistingSessionChanges {
+            try await core.setTopicNotificationLevel(
+                topicId: topicID,
+                notificationLevel: notificationLevel
+            )
+        }
     }
 
     public func fetchUserProfile(username: String) async throws -> UserProfileState {
-        try await core.fetchUserProfile(username: username)
+        try await runPersistingSessionChanges {
+            try await core.fetchUserProfile(username: username)
+        }
     }
 
     public func fetchUserSummary(username: String) async throws -> UserSummaryState {
-        try await core.fetchUserSummary(username: username)
+        try await runPersistingSessionChanges {
+            try await core.fetchUserSummary(username: username)
+        }
     }
 
     public func fetchUserActions(
@@ -659,27 +743,39 @@ public actor FireSessionStore {
         offset: UInt32?,
         filter: String?
     ) async throws -> [UserActionState] {
-        try await core.fetchUserActions(username: username, offset: offset, filter: filter)
+        try await runPersistingSessionChanges {
+            try await core.fetchUserActions(username: username, offset: offset, filter: filter)
+        }
     }
 
     public func fetchFollowing(username: String) async throws -> [FollowUserState] {
-        try await core.fetchFollowing(username: username)
+        try await runPersistingSessionChanges {
+            try await core.fetchFollowing(username: username)
+        }
     }
 
     public func fetchFollowers(username: String) async throws -> [FollowUserState] {
-        try await core.fetchFollowers(username: username)
+        try await runPersistingSessionChanges {
+            try await core.fetchFollowers(username: username)
+        }
     }
 
     public func followUser(username: String) async throws {
-        try await core.followUser(username: username)
+        try await runPersistingSessionChanges {
+            try await core.followUser(username: username)
+        }
     }
 
     public func unfollowUser(username: String) async throws {
-        try await core.unfollowUser(username: username)
+        try await runPersistingSessionChanges {
+            try await core.unfollowUser(username: username)
+        }
     }
 
     public func fetchPendingInvites(username: String) async throws -> [InviteLinkState] {
-        try await core.fetchPendingInvites(username: username)
+        try await runPersistingSessionChanges {
+            try await core.fetchPendingInvites(username: username)
+        }
     }
 
     public func createInviteLink(
@@ -688,27 +784,27 @@ public actor FireSessionStore {
         description: String? = nil,
         email: String? = nil
     ) async throws -> InviteLinkState {
-        try await core.createInviteLink(
-            input: InviteCreateRequestState(
-                maxRedemptionsAllowed: maxRedemptionsAllowed,
-                expiresAt: expiresAt,
-                description: description,
-                email: email
+        try await runPersistingSessionChanges {
+            try await core.createInviteLink(
+                input: InviteCreateRequestState(
+                    maxRedemptionsAllowed: maxRedemptionsAllowed,
+                    expiresAt: expiresAt,
+                    description: description,
+                    email: email
+                )
             )
-        )
+        }
     }
 
     public func fetchBadgeDetail(badgeID: UInt64) async throws -> BadgeState {
-        try await core.fetchBadgeDetail(badgeId: badgeID)
+        try await runPersistingSessionChanges {
+            try await core.fetchBadgeDetail(badgeId: badgeID)
+        }
     }
 
     @discardableResult
     public func restoreSessionJSON(_ json: String) throws -> SessionState {
         let state = try core.restoreSessionJson(json: json)
-        let restoredSecrets = FireAuthCookieSecrets(cookieState: state.cookies)
-        if !restoredSecrets.isEmpty {
-            try authCookieStore.save(restoredSecrets)
-        }
         try persistCurrentSession()
         return state
     }
@@ -717,7 +813,9 @@ public actor FireSessionStore {
 
     @discardableResult
     public func startMessageBus(handler: any MessageBusEventHandler) async throws -> String {
-        try await core.startMessageBus(mode: .foreground, handler: handler)
+        try await runPersistingSessionChanges {
+            try await core.startMessageBus(mode: .foreground, handler: handler)
+        }
     }
 
     public func stopMessageBus(clearSubscriptions: Bool = false) throws {
@@ -762,7 +860,9 @@ public actor FireSessionStore {
         topicId: UInt64,
         ownerToken: String
     ) async throws -> TopicPresenceState {
-        try await core.bootstrapTopicReplyPresence(topicId: topicId, ownerToken: ownerToken)
+        try await runPersistingSessionChanges {
+            try await core.bootstrapTopicReplyPresence(topicId: topicId, ownerToken: ownerToken)
+        }
     }
 
     public func unsubscribeTopicReplyPresenceChannel(topicId: UInt64, ownerToken: String) throws {
@@ -773,7 +873,9 @@ public actor FireSessionStore {
     }
 
     public func updateTopicReplyPresence(topicId: UInt64, active: Bool) async throws {
-        try await core.updateTopicReplyPresence(topicId: topicId, active: active)
+        try await runPersistingSessionChanges {
+            try await core.updateTopicReplyPresence(topicId: topicId, active: active)
+        }
     }
 
     // MARK: - Logout
@@ -837,7 +939,29 @@ public actor FireSessionStore {
             && !session.readiness.hasCsrfToken
     }
 
-    private func persistedSessionJSON() throws -> String {
-        try core.exportRedactedSessionJson()
+    private func persistedSessionArtifacts() throws -> FirePersistedSessionArtifacts {
+        FirePersistedSessionArtifacts(
+            redactedSessionJSON: try core.exportRedactedSessionJson(),
+            secureSecrets: FireAuthCookieSecrets(cookieState: try core.snapshot().cookies)
+        )
+    }
+
+    private func persistCurrentAuthCookies() throws {
+        try authCookieStore.save(FireAuthCookieSecrets(cookieState: try core.snapshot().cookies))
+    }
+
+    private func persistRedactedSessionFile() throws {
+        try core.saveRedactedSessionToPath(path: sessionFilePath)
+    }
+
+    private func runPersistingSessionChanges<T>(
+        _ operation: () async throws -> T
+    ) async throws -> T {
+        let before = try persistedSessionArtifacts()
+        let result = try await operation()
+        if try persistedSessionArtifacts() != before {
+            try persistCurrentSession()
+        }
+        return result
     }
 }

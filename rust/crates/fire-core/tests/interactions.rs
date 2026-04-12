@@ -5,8 +5,8 @@ use std::time::Duration;
 use common::{raw_json_response, TestServer};
 use fire_core::{FireCore, FireCoreConfig, FireCoreError};
 use fire_models::{
-    CookieSnapshot, DraftData, InviteCreateRequest, PostUpdateRequest, TopicCreateRequest,
-    TopicTimingEntry, TopicTimingsRequest, TopicUpdateRequest,
+    CookieSnapshot, DraftData, InviteCreateRequest, PostUpdateRequest, PrivateMessageCreateRequest,
+    TopicCreateRequest, TopicTimingEntry, TopicTimingsRequest, TopicUpdateRequest,
 };
 
 #[tokio::test]
@@ -673,6 +673,38 @@ async fn create_topic_and_upload_surfaces_use_expected_requests() {
         .expect("lookup upload urls request");
     assert!(lookup_request.contains("POST /uploads/lookup-urls HTTP/1.1"));
     assert!(lookup_request.contains("\"short_urls\":[\"upload://fire.png\"]"));
+}
+
+#[tokio::test]
+async fn create_private_message_posts_private_message_form_payload() {
+    let server = TestServer::spawn(vec![raw_json_response(
+        200,
+        "application/json",
+        r#"{"post":{"topic_id":654}}"#,
+    )])
+    .await
+    .expect("server");
+    let core = authenticated_core(&server.base_url());
+
+    let topic_id = core
+        .create_private_message(PrivateMessageCreateRequest {
+            title: "Hello Bob".into(),
+            raw: "Private body".into(),
+            target_recipients: vec!["alice".into(), "bob".into()],
+        })
+        .await
+        .expect("create private message");
+    assert_eq!(topic_id, 654);
+
+    let requests = server.shutdown_with_requests().await;
+    assert_eq!(requests.len(), 1);
+    let request = requests[0].to_ascii_lowercase();
+    assert!(request.contains("post /posts.json"));
+    assert!(request.contains("x-csrf-token: csrf-token"));
+    assert!(request.contains("title=hello+bob"));
+    assert!(request.contains("raw=private+body"));
+    assert!(request.contains("archetype=private_message"));
+    assert!(request.contains("target_recipients=alice%2cbob"));
 }
 
 fn authenticated_core(base_url: &str) -> FireCore {

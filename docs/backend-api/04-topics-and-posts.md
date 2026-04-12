@@ -131,6 +131,7 @@
     - iOS 帖子详情页的滚动列表路径会先消费首屏 `post_stream.posts`，再依据 `post_stream.stream` 自动分批请求 `GET /t/{topicId}/posts.json?post_ids[]=` 续载后续评论
   - 进入“只看顶层回复”模式后，后续翻页依赖 `post_stream.stream` 和 `GET /t/{topicId}/posts.json?post_ids[]=`，不是继续用 `post_number + asc`
   - 当前 iOS 还会消费 `post_stream.posts[].polls` 和 `post_stream.posts[].polls_votes`，用于在 topic detail 渲染原生 poll 卡片并恢复当前用户的已选项
+  - 当前 iOS 也会消费顶层 `archetype` 以及 `details.participants[]`，用于把 `private_message` 线程渲染成私信详情页，并在头部展示会话参与者
   - `details.created_by`、`post_stream.posts[].current_user_reaction` 这类可选嵌套对象如果类型漂移，Fire 会将其按缺失处理，而不是让整个详情解析失败
 
 ### `GET /t/{slug}.json`
@@ -272,6 +273,7 @@
   - `1`: regular
   - `2`: tracking
   - `3`: watching
+  - iOS 当前只在普通公开话题里暴露这个入口；`archetype = "private_message"` 的私信线程会隐藏话题通知级别设置
 
 ### `PUT /t/-/{topicId}.json`
 
@@ -290,6 +292,7 @@
 - 当前客户端行为：
   - iOS 在 topic detail 顶栏 menu 提供原生 topic editor
   - 成功后会刷新当前 topic detail，并触发首页话题流同步刷新
+  - iOS 当前不会对私信线程暴露这个编辑入口；`private_message` 仍复用详情页，但不允许走公开话题编辑能力
 
 ### `GET /discourse-ai/summarization/t/{topicId}`
 

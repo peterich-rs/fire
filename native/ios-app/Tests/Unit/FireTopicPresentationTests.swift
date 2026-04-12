@@ -75,6 +75,7 @@ final class FireTopicPresentationTests: XCTestCase {
                 archived: false,
                 tags: [TopicTagState(id: nil, name: "rust", slug: nil)],
                 posters: [TopicPosterState(userId: 9, description: nil, extras: nil)],
+                participants: [],
                 unseen: false,
                 unreadPosts: 3,
                 newPosts: 1,
@@ -378,6 +379,8 @@ final class FireTopicPresentationTests: XCTestCase {
             minPostLength: 1,
             minTopicTitleLength: 15,
             minFirstPostLength: 20,
+            minPersonalMessageTitleLength: 2,
+            minPersonalMessagePostLength: 10,
             defaultComposerCategory: nil
         )
     }
@@ -451,7 +454,12 @@ final class FireTopicPresentationTests: XCTestCase {
             postStream: TopicPostStreamState(posts: posts, stream: stream),
             thread: TopicThreadState(originalPostNumber: nil, replySections: []),
             flatPosts: [],
-            details: TopicDetailMetaState(notificationLevel: nil, canEdit: false, createdBy: nil)
+            details: TopicDetailMetaState(
+                notificationLevel: nil,
+                canEdit: false,
+                createdBy: nil,
+                participants: []
+            )
         )
     }
 }

@@ -170,6 +170,10 @@ pub struct BootstrapArtifacts {
     pub min_topic_title_length: u32,
     #[serde(default = "default_min_first_post_length")]
     pub min_first_post_length: u32,
+    #[serde(default = "default_min_personal_message_title_length")]
+    pub min_personal_message_title_length: u32,
+    #[serde(default = "default_min_personal_message_post_length")]
+    pub min_personal_message_post_length: u32,
     pub default_composer_category: Option<u64>,
 }
 
@@ -196,6 +200,8 @@ impl Default for BootstrapArtifacts {
             min_post_length: default_min_post_length(),
             min_topic_title_length: default_min_topic_title_length(),
             min_first_post_length: default_min_first_post_length(),
+            min_personal_message_title_length: default_min_personal_message_title_length(),
+            min_personal_message_post_length: default_min_personal_message_post_length(),
             default_composer_category: None,
         }
     }
@@ -248,6 +254,10 @@ impl BootstrapArtifacts {
                 self.min_post_length = default_min_post_length();
                 self.min_topic_title_length = default_min_topic_title_length();
                 self.min_first_post_length = default_min_first_post_length();
+                self.min_personal_message_title_length =
+                    default_min_personal_message_title_length();
+                self.min_personal_message_post_length =
+                    default_min_personal_message_post_length();
                 self.default_composer_category = None;
             } else {
                 self.preloaded_json = Some(preloaded_json);
@@ -265,6 +275,10 @@ impl BootstrapArtifacts {
                     self.min_post_length = patch.min_post_length.max(1);
                     self.min_topic_title_length = patch.min_topic_title_length.max(1);
                     self.min_first_post_length = patch.min_first_post_length.max(1);
+                    self.min_personal_message_title_length =
+                        patch.min_personal_message_title_length.max(1);
+                    self.min_personal_message_post_length =
+                        patch.min_personal_message_post_length.max(1);
                     self.default_composer_category = patch.default_composer_category;
                 }
             }
@@ -283,6 +297,10 @@ impl BootstrapArtifacts {
                 self.min_post_length = patch.min_post_length.max(1);
                 self.min_topic_title_length = patch.min_topic_title_length.max(1);
                 self.min_first_post_length = patch.min_first_post_length.max(1);
+                self.min_personal_message_title_length =
+                    patch.min_personal_message_title_length.max(1);
+                self.min_personal_message_post_length =
+                    patch.min_personal_message_post_length.max(1);
                 self.default_composer_category = patch.default_composer_category;
             }
         }
@@ -301,6 +319,10 @@ impl BootstrapArtifacts {
                 self.min_post_length = patch.min_post_length.max(1);
                 self.min_topic_title_length = patch.min_topic_title_length.max(1);
                 self.min_first_post_length = patch.min_first_post_length.max(1);
+                self.min_personal_message_title_length =
+                    patch.min_personal_message_title_length.max(1);
+                self.min_personal_message_post_length =
+                    patch.min_personal_message_post_length.max(1);
                 self.default_composer_category = patch.default_composer_category;
             }
         }
@@ -324,6 +346,8 @@ impl BootstrapArtifacts {
         self.min_post_length = default_min_post_length();
         self.min_topic_title_length = default_min_topic_title_length();
         self.min_first_post_length = default_min_first_post_length();
+        self.min_personal_message_title_length = default_min_personal_message_title_length();
+        self.min_personal_message_post_length = default_min_personal_message_post_length();
         self.default_composer_category = None;
     }
 }
@@ -635,6 +659,8 @@ pub enum TopicListKind {
     Unseen,
     Hot,
     Top,
+    PrivateMessagesInbox,
+    PrivateMessagesSent,
 }
 
 impl TopicListKind {
@@ -646,6 +672,8 @@ impl TopicListKind {
             Self::Unseen => "/unseen.json",
             Self::Hot => "/hot.json",
             Self::Top => "/top.json",
+            Self::PrivateMessagesInbox => "/topics/private-messages/{username}.json",
+            Self::PrivateMessagesSent => "/topics/private-messages-sent/{username}.json",
         }
     }
 
@@ -657,6 +685,8 @@ impl TopicListKind {
             Self::Unseen => "unseen",
             Self::Hot => "hot",
             Self::Top => "top",
+            Self::PrivateMessagesInbox => "private-messages",
+            Self::PrivateMessagesSent => "private-messages-sent",
         }
     }
 }
@@ -724,6 +754,14 @@ pub struct TopicPoster {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TopicParticipant {
+    pub user_id: u64,
+    pub username: Option<String>,
+    pub name: Option<String>,
+    pub avatar_template: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TopicTag {
     pub id: Option<u64>,
     pub name: String,
@@ -767,6 +805,8 @@ pub struct TopicSummary {
     pub archived: bool,
     pub tags: Vec<TopicTag>,
     pub posters: Vec<TopicPoster>,
+    #[serde(default)]
+    pub participants: Vec<TopicParticipant>,
     pub unseen: bool,
     pub unread_posts: u32,
     pub new_posts: u32,
@@ -1020,6 +1060,14 @@ pub struct TopicCreateRequest {
     pub category_id: u64,
     #[serde(default)]
     pub tags: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PrivateMessageCreateRequest {
+    pub title: String,
+    pub raw: String,
+    #[serde(default)]
+    pub target_recipients: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -1354,6 +1402,8 @@ pub struct TopicDetailMeta {
     pub notification_level: Option<i32>,
     pub can_edit: bool,
     pub created_by: Option<TopicDetailCreatedBy>,
+    #[serde(default)]
+    pub participants: Vec<TopicParticipant>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -1548,6 +1598,14 @@ fn default_min_first_post_length() -> u32 {
     20
 }
 
+fn default_min_personal_message_title_length() -> u32 {
+    2
+}
+
+fn default_min_personal_message_post_length() -> u32 {
+    10
+}
+
 fn normalized_enabled_reaction_ids(ids: Vec<String>) -> Vec<String> {
     let mut normalized = Vec::new();
     for id in ids {
@@ -1640,6 +1698,7 @@ pub struct UserProfile {
     pub total_following: Option<u32>,
     pub can_follow: Option<bool>,
     pub is_followed: Option<bool>,
+    pub can_send_private_message_to_user: Option<bool>,
     pub gamification_score: Option<u32>,
     pub suspended_till: Option<String>,
     pub silenced_till: Option<String>,
@@ -2386,6 +2445,8 @@ mod tests {
                 min_post_length: 20,
                 min_topic_title_length: 15,
                 min_first_post_length: 20,
+                min_personal_message_title_length: 2,
+                min_personal_message_post_length: 10,
                 default_composer_category: Some(2),
             },
             browser_user_agent: None,

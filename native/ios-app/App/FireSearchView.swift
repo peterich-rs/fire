@@ -353,6 +353,7 @@ struct FireSearchView: View {
                 archived: topic.archived,
                 tags: topic.tags.map { TopicTagState(id: nil, name: $0, slug: nil) },
                 posters: [],
+                participants: [],
                 unseen: false,
                 unreadPosts: 0,
                 newPosts: 0,

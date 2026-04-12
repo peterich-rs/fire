@@ -80,7 +80,6 @@ final class FireDraftsViewModel: ObservableObject {
 struct FireDraftsView: View {
     @ObservedObject var viewModel: FireAppViewModel
     @StateObject private var draftsViewModel: FireDraftsViewModel
-    @State private var unsupportedDraftMessage: String?
 
     init(viewModel: FireAppViewModel) {
         self.viewModel = viewModel
@@ -144,6 +143,9 @@ struct FireDraftsView: View {
                                     },
                                     onReplySubmitted: {
                                         Task { await draftsViewModel.refresh() }
+                                    },
+                                    onPrivateMessageCreated: { _ in
+                                        Task { await draftsViewModel.refresh() }
                                     }
                                 )
                             } label: {
@@ -159,20 +161,6 @@ struct FireDraftsView: View {
                             }
                             .task {
                                 await draftsViewModel.loadMoreIfNeeded(currentDraftKey: draft.draftKey)
-                            }
-                        } else {
-                            Button {
-                                unsupportedDraftMessage = "当前 beta 还不支持打开私信草稿。"
-                            } label: {
-                                draftRow(draft, supported: false)
-                            }
-                            .buttonStyle(.plain)
-                            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                                Button(role: .destructive) {
-                                    Task { await draftsViewModel.deleteDraft(draft) }
-                                } label: {
-                                    Label("删除", systemImage: "trash")
-                                }
                             }
                         }
                     }
@@ -200,21 +188,6 @@ struct FireDraftsView: View {
         .refreshable {
             await draftsViewModel.refresh()
         }
-        .alert(
-            "暂不支持",
-            isPresented: Binding(
-                get: { unsupportedDraftMessage != nil },
-                set: { presenting in
-                    if !presenting {
-                        unsupportedDraftMessage = nil
-                    }
-                }
-            )
-        ) {
-            Button("知道了", role: .cancel) {}
-        } message: {
-            Text(unsupportedDraftMessage ?? "")
-        }
     }
 
     private func composerRoute(for draft: DraftState) -> FireComposerRoute? {
@@ -222,8 +195,13 @@ struct FireDraftsView: View {
         if key == "new_topic" {
             return FireComposerRoute(kind: .createTopic)
         }
-        if key == "new_private_message" || draft.data.archetypeId == "private_message" {
-            return nil
+        if key == "new_private_message" {
+            return FireComposerRoute(
+                kind: .privateMessage(
+                    recipients: draft.data.recipients,
+                    title: draft.data.title
+                )
+            )
         }
         guard let topicID = draft.topicId else {
             return nil
@@ -235,7 +213,8 @@ struct FireDraftsView: View {
                 topicTitle: title,
                 categoryID: draft.data.categoryId,
                 replyToPostNumber: draft.data.replyToPostNumber,
-                replyToUsername: nil
+                replyToUsername: nil,
+                isPrivateMessage: draft.data.archetypeId == "private_message"
             )
         )
     }
@@ -296,6 +275,9 @@ struct FireDraftsView: View {
     private func draftTitle(for draft: DraftState) -> String {
         if draft.draftKey == "new_topic" {
             return draft.title?.ifEmpty("未命名新话题") ?? "未命名新话题"
+        }
+        if draft.draftKey == "new_private_message" {
+            return draft.title?.ifEmpty("未命名私信") ?? "未命名私信"
         }
         return draft.title?.ifEmpty("回复草稿") ?? "回复草稿"
     }

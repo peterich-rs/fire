@@ -37,9 +37,15 @@
   - 在把 bootstrap 视为“已就绪”前，应该确认至少拿到了当前用户、站点级 `site` 元数据（分类/标签能力）和 `siteSettings`（最小长度、reactions、长轮询域等）；缺失时继续回源 `GET /` 刷新，而不要仅凭 `hasPreloadedData=true` 就跳过
   - 当前 Fire 实现还会在首页 bootstrap 仍缺少 `site` 元数据时自动补一次 `GET /site.json`，用于回填 `categories`、`top_tags`、`can_tag_topics`
   - 当前 Fire 还会从 `siteSettings` 提取 composer 约束：
+    - `min_post_length`
     - `min_topic_title_length`
     - `min_first_post_length`
+    - `min_personal_message_title_length`
+    - `min_personal_message_post_length`
     - `default_composer_category`
+  - 如果站点首页 bootstrap 暂时没有返回私信最小长度，Fire 当前会回退到：
+    - `min_personal_message_title_length = 2`
+    - `min_personal_message_post_length = 10`
   - 当前 Fire 还会从 `site.categories[]` 提取 create-topic 所需的分类约束：
     - `topic_template`
     - `minimum_required_tags`

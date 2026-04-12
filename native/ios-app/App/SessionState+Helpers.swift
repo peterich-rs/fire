@@ -81,6 +81,8 @@ extension SessionState {
                 minPostLength: 1,
                 minTopicTitleLength: 15,
                 minFirstPostLength: 20,
+                minPersonalMessageTitleLength: 2,
+                minPersonalMessagePostLength: 10,
                 defaultComposerCategory: nil
             ),
             readiness: SessionReadinessState(
@@ -295,6 +297,10 @@ extension TopicListKindState {
             return "Hot"
         case .top:
             return "Top"
+        case .privateMessagesInbox:
+            return "收件箱"
+        case .privateMessagesSent:
+            return "已发送"
         }
     }
 }

@@ -13,6 +13,7 @@ struct FirePublicProfileView: View {
     @StateObject private var profileViewModel: FireProfileViewModel
     @State private var selectedBadge: FireSelectedBadge?
     @State private var isUpdatingFollow = false
+    @State private var showPrivateMessageComposer = false
 
     init(viewModel: FireAppViewModel, username: String) {
         self.viewModel = viewModel
@@ -50,6 +51,10 @@ struct FirePublicProfileView: View {
 
     private var canFollow: Bool {
         !isOwnProfile && (profileViewModel.profile?.canFollow ?? false)
+    }
+
+    private var canSendPrivateMessage: Bool {
+        !isOwnProfile && (profileViewModel.profile?.canSendPrivateMessageToUser ?? false)
     }
 
     private var profileMetaEntries: [(symbol: String, label: String, value: String, tint: Color)] {
@@ -197,6 +202,16 @@ struct FirePublicProfileView: View {
         .navigationDestination(item: $selectedBadge) { item in
             FireBadgeDetailView(viewModel: viewModel, badgeID: item.badge.id, initialBadge: item.badge)
         }
+        .fullScreenCover(isPresented: $showPrivateMessageComposer) {
+            NavigationStack {
+                FireComposerView(
+                    viewModel: viewModel,
+                    route: FireComposerRoute(
+                        kind: .privateMessage(recipients: [displayUsername], title: nil)
+                    )
+                )
+            }
+        }
         .refreshable {
             await profileViewModel.refreshAll()
         }
@@ -242,28 +257,46 @@ struct FirePublicProfileView: View {
                                 .fixedSize(horizontal: false, vertical: true)
                         }
 
-                        if canFollow {
-                            Button {
-                                Task { await toggleFollow() }
-                            } label: {
-                                HStack(spacing: 8) {
-                                    if isUpdatingFollow {
-                                        ProgressView()
-                                            .controlSize(.small)
+                        if canFollow || canSendPrivateMessage {
+                            HStack(spacing: 10) {
+                                if canFollow {
+                                    Button {
+                                        Task { await toggleFollow() }
+                                    } label: {
+                                        HStack(spacing: 8) {
+                                            if isUpdatingFollow {
+                                                ProgressView()
+                                                    .controlSize(.small)
+                                            }
+                                            Text(profileViewModel.profile?.isFollowed == true ? "取消关注" : "关注")
+                                                .font(.caption.weight(.semibold))
+                                        }
+                                        .foregroundStyle(profileViewModel.profile?.isFollowed == true ? FireTheme.subtleInk : .white)
+                                        .padding(.horizontal, 12)
+                                        .padding(.vertical, 8)
+                                        .background(
+                                            (profileViewModel.profile?.isFollowed == true ? FireTheme.softSurface : FireTheme.accent),
+                                            in: Capsule()
+                                        )
                                     }
-                                    Text(profileViewModel.profile?.isFollowed == true ? "取消关注" : "关注")
-                                        .font(.caption.weight(.semibold))
+                                    .buttonStyle(.plain)
+                                    .disabled(isUpdatingFollow)
                                 }
-                                .foregroundStyle(profileViewModel.profile?.isFollowed == true ? FireTheme.subtleInk : .white)
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 8)
-                                .background(
-                                    (profileViewModel.profile?.isFollowed == true ? FireTheme.softSurface : FireTheme.accent),
-                                    in: Capsule()
-                                )
+
+                                if canSendPrivateMessage {
+                                    Button {
+                                        showPrivateMessageComposer = true
+                                    } label: {
+                                        Label("私信", systemImage: "paperplane.fill")
+                                            .font(.caption.weight(.semibold))
+                                            .foregroundStyle(.white)
+                                            .padding(.horizontal, 12)
+                                            .padding(.vertical, 8)
+                                            .background(Color.indigo, in: Capsule())
+                                    }
+                                    .buttonStyle(.plain)
+                                }
                             }
-                            .buttonStyle(.plain)
-                            .disabled(isUpdatingFollow)
                         }
                     }
                 }

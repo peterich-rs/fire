@@ -154,6 +154,10 @@ pub(crate) fn hydrate_site_settings_fields(source: &Value, bootstrap: &mut Boots
     bootstrap.min_post_length = min_post_length_from_preloaded(source);
     bootstrap.min_topic_title_length = min_topic_title_length_from_preloaded(source);
     bootstrap.min_first_post_length = min_first_post_length_from_preloaded(source);
+    bootstrap.min_personal_message_title_length =
+        min_personal_message_title_length_from_preloaded(source);
+    bootstrap.min_personal_message_post_length =
+        min_personal_message_post_length_from_preloaded(source);
     bootstrap.default_composer_category = default_composer_category_from_preloaded(source);
 }
 
@@ -462,6 +466,14 @@ fn min_first_post_length_from_preloaded(preloaded: &Value) -> u32 {
     site_setting_u32(preloaded, "min_first_post_length")
         .or_else(|| site_setting_u32(preloaded, "min_post_length"))
         .unwrap_or(20)
+}
+
+fn min_personal_message_title_length_from_preloaded(preloaded: &Value) -> u32 {
+    site_setting_u32(preloaded, "min_personal_message_title_length").unwrap_or(2)
+}
+
+fn min_personal_message_post_length_from_preloaded(preloaded: &Value) -> u32 {
+    site_setting_u32(preloaded, "min_personal_message_post_length").unwrap_or(10)
 }
 
 fn default_composer_category_from_preloaded(preloaded: &Value) -> Option<u64> {

@@ -41,6 +41,9 @@ pub(crate) fn parse_user_profile_value(value: Value) -> Result<UserProfile, serd
         total_following: integer_u32(object.get("total_following")),
         can_follow: optional_boolean(object.get("can_follow")),
         is_followed: optional_boolean(object.get("is_followed")),
+        can_send_private_message_to_user: optional_boolean(
+            object.get("can_send_private_message_to_user"),
+        ),
         gamification_score: integer_u32(object.get("gamification_score")),
         suspended_till: scalar_string(object.get("suspended_till")),
         silenced_till: scalar_string(object.get("silenced_till")),

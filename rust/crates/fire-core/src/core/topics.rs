@@ -44,14 +44,38 @@ impl FireCore {
             "fetching topic list"
         );
 
-        if matches!(query.kind, TopicListKind::Unread | TopicListKind::Unseen)
-            && !self.snapshot().cookies.can_authenticate_requests()
+        if matches!(
+            query.kind,
+            TopicListKind::Unread
+                | TopicListKind::Unseen
+                | TopicListKind::PrivateMessagesInbox
+                | TopicListKind::PrivateMessagesSent
+        ) && !self.snapshot().cookies.can_authenticate_requests()
         {
             warn!(kind = ?query.kind, "topic list fetch rejected: missing login session");
             return Err(FireCoreError::MissingLoginSession);
         }
 
-        let path = query.api_path();
+        let path = match query.kind {
+            TopicListKind::PrivateMessagesInbox | TopicListKind::PrivateMessagesSent => {
+                let snapshot = self.snapshot();
+                let username = snapshot
+                    .bootstrap
+                    .current_username
+                    .filter(|value| !value.trim().is_empty())
+                    .ok_or(FireCoreError::MissingLoginSession)?;
+                match query.kind {
+                    TopicListKind::PrivateMessagesInbox => {
+                        format!("/topics/private-messages/{username}.json")
+                    }
+                    TopicListKind::PrivateMessagesSent => {
+                        format!("/topics/private-messages-sent/{username}.json")
+                    }
+                    _ => unreachable!(),
+                }
+            }
+            _ => query.api_path(),
+        };
 
         let mut params = Vec::new();
         if let Some(page) = query.page {

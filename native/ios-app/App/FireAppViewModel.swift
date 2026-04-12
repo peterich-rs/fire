@@ -668,6 +668,28 @@ final class FireAppViewModel: ObservableObject {
         return try await sessionStore.fetchTopicList(query: query)
     }
 
+    func fetchPrivateMessages(
+        kind: TopicListKindState,
+        page: UInt32? = nil
+    ) async throws -> TopicListState {
+        let sessionStore = try await sessionStoreValue()
+        return try await sessionStore.fetchTopicList(
+            query: TopicListQueryState(
+                kind: kind,
+                page: page,
+                topicIds: [],
+                order: nil,
+                ascending: nil,
+                categorySlug: nil,
+                categoryId: nil,
+                parentCategorySlug: nil,
+                tag: nil,
+                additionalTags: [],
+                matchAllTags: false
+            )
+        )
+    }
+
     func enabledReactionOptions() -> [FireReactionOption] {
         FireTopicPresentation.enabledReactionOptions(from: session.bootstrap.enabledReactionIds)
     }
@@ -755,6 +777,51 @@ final class FireAppViewModel: ObservableObject {
                 await applySession(snapshot)
             }
             await refreshTopicsIfPossible(force: true)
+            return topicID
+        } catch {
+            _ = await handleInteractionError(error)
+            throw error
+        }
+    }
+
+    func createPrivateMessage(
+        title: String,
+        raw: String,
+        targetRecipients: [String]
+    ) async throws -> UInt64 {
+        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedRaw = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let recipients = targetRecipients
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+
+        guard !trimmedTitle.isEmpty else {
+            throw FireTopicInteractionError.emptyReply
+        }
+        guard !trimmedRaw.isEmpty else {
+            throw FireTopicInteractionError.emptyReply
+        }
+        guard !recipients.isEmpty else {
+            throw FireTopicInteractionError.emptyReply
+        }
+
+        let sessionStore = try await sessionStoreValue()
+        guard session.readiness.canWriteAuthenticatedApi else {
+            throw FireTopicInteractionError.requiresAuthenticatedWrite
+        }
+
+        do {
+            errorMessage = nil
+            let topicID = try await performWriteWithCloudflareRetry {
+                try await sessionStore.createPrivateMessage(
+                    title: trimmedTitle,
+                    raw: trimmedRaw,
+                    targetRecipients: recipients
+                )
+            }
+            if let snapshot = try? await sessionStore.snapshot() {
+                await applySession(snapshot)
+            }
             return topicID
         } catch {
             _ = await handleInteractionError(error)

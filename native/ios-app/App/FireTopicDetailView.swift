@@ -219,10 +219,14 @@ struct FireTopicDetailView: View {
     }
 
     private var isPrivateMessageThread: Bool {
-        detail?.archetype == "private_message" || !displayedParticipants.isEmpty
+        FireTopicPresentation.isPrivateMessageArchetype(detail?.archetype)
     }
 
     private var displayedParticipants: [TopicParticipantState] {
+        guard isPrivateMessageThread else {
+            return []
+        }
+
         let source = !(detail?.details.participants.isEmpty ?? true)
             ? detail?.details.participants ?? []
             : topic.participants

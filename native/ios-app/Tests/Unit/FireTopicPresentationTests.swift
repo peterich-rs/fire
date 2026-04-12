@@ -54,6 +54,13 @@ final class FireTopicPresentationTests: XCTestCase {
         XCTAssertEqual(FireTopicPresentation.minimumReplyLength(from: 0), 1)
     }
 
+    func testPrivateMessageArchetypeRequiresPrivateMessageValue() {
+        XCTAssertTrue(FireTopicPresentation.isPrivateMessageArchetype("private_message"))
+        XCTAssertTrue(FireTopicPresentation.isPrivateMessageArchetype(" Private_Message "))
+        XCTAssertFalse(FireTopicPresentation.isPrivateMessageArchetype("regular"))
+        XCTAssertFalse(FireTopicPresentation.isPrivateMessageArchetype(nil))
+    }
+
     func testTopicRowStateCarriesRustStatusLabels() {
         let row = TopicRowState(
             topic: TopicSummaryState(
@@ -443,6 +450,67 @@ final class FireTopicPresentationTests: XCTestCase {
         XCTAssertEqual(viewModel.errorMessage, "offline")
     }
 
+    @MainActor
+    func testPrivateMessagesViewModelStopsWhenNextPageCannotBeResolved() async {
+        let loader = PrivateMessageMailboxLoader(
+            steps: [
+                .success(
+                    makePrivateMessageMailboxResponse(
+                        topicID: 101,
+                        username: "alice",
+                        moreTopicsUrl: "/topics/private-messages/alice",
+                        nextPage: nil
+                    )
+                )
+            ]
+        )
+        let viewModel = FirePrivateMessagesViewModel { kind, page in
+            try await loader.fetch(kind: kind, page: page)
+        }
+
+        await viewModel.refresh()
+        await viewModel.loadMoreIfNeeded(currentTopicID: 101)
+
+        let callCount = await loader.callCount()
+        XCTAssertEqual(callCount, 1)
+        XCTAssertEqual(viewModel.rows.map(\.topic.id), [101])
+    }
+
+    @MainActor
+    func testPrivateMessagesViewModelStopsAfterAppendReturnsNoFreshRows() async {
+        let loader = PrivateMessageMailboxLoader(
+            steps: [
+                .success(
+                    makePrivateMessageMailboxResponse(
+                        topicID: 101,
+                        username: "alice",
+                        moreTopicsUrl: "/topics/private-messages/alice?page=2",
+                        nextPage: 2
+                    )
+                ),
+                .success(
+                    makePrivateMessageMailboxResponse(
+                        topicID: 101,
+                        username: "alice",
+                        moreTopicsUrl: "/topics/private-messages/alice?page=3",
+                        nextPage: 3
+                    )
+                )
+            ]
+        )
+        let viewModel = FirePrivateMessagesViewModel { kind, page in
+            try await loader.fetch(kind: kind, page: page)
+        }
+
+        await viewModel.refresh()
+        await viewModel.loadMoreIfNeeded(currentTopicID: 101)
+        await viewModel.loadMoreIfNeeded(currentTopicID: 101)
+
+        let callCount = await loader.callCount()
+        XCTAssertEqual(callCount, 2)
+        XCTAssertEqual(viewModel.rows.map(\.topic.id), [101])
+    }
+
     private func makeBootstrap(
         currentUsername: String?,
         preloadedJson: String?,
@@ -555,7 +623,9 @@ final class FireTopicPresentationTests: XCTestCase {
 
     private func makePrivateMessageMailboxResponse(
         topicID: UInt64,
-        username: String
+        username: String,
+        moreTopicsUrl: String? = nil,
+        nextPage: UInt32? = nil
     ) -> TopicListState {
         let user = TopicUserState(id: topicID, username: username, avatarTemplate: nil)
         let participant = TopicParticipantState(
@@ -618,8 +688,8 @@ final class FireTopicPresentationTests: XCTestCase {
             topics: [topic],
             users: [user],
             rows: [row],
-            moreTopicsUrl: nil,
-            nextPage: nil
+            moreTopicsUrl: moreTopicsUrl,
+            nextPage: nextPage
         )
     }
 }

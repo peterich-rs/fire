@@ -29,6 +29,20 @@ final class FirePrivateMessagesViewModel: ObservableObject {
         self.fetchPrivateMessages = fetchPrivateMessages
     }
 
+    private func deduplicatedRows(_ rows: [TopicRowState]) -> [TopicRowState] {
+        var seenTopicIDs = Set<UInt64>()
+        return rows.filter { row in
+            seenTopicIDs.insert(row.topic.id).inserted
+        }
+    }
+
+    private func deduplicatedUsers(_ users: [TopicUserState]) -> [TopicUserState] {
+        var seenUserIDs = Set<UInt64>()
+        return users.filter { user in
+            seenUserIDs.insert(user.id).inserted
+        }
+    }
+
     func loadIfNeeded() async {
         guard rows.isEmpty, !isLoading else { return }
         await load(reset: true)
@@ -80,17 +94,39 @@ final class FirePrivateMessagesViewModel: ObservableObject {
             guard generation == loadGeneration, requestKind == selectedKind else {
                 return
             }
+
+            let uniqueRows = deduplicatedRows(response.rows)
+            let uniqueUsers = deduplicatedUsers(response.users)
+            let freshRows: [TopicRowState]
+            let freshUsers: [TopicUserState]
+
             if reset {
-                rows = response.rows
-                users = response.users
+                rows = uniqueRows
+                users = uniqueUsers
+                freshRows = uniqueRows
+                freshUsers = uniqueUsers
             } else {
                 let existingIDs = Set(rows.map(\.topic.id))
-                rows.append(contentsOf: response.rows.filter { !existingIDs.contains($0.topic.id) })
+                freshRows = uniqueRows.filter { !existingIDs.contains($0.topic.id) }
+                rows.append(contentsOf: freshRows)
                 let existingUserIDs = Set(users.map(\.id))
-                users.append(contentsOf: response.users.filter { !existingUserIDs.contains($0.id) })
+                freshUsers = uniqueUsers.filter { !existingUserIDs.contains($0.id) }
+                users.append(contentsOf: freshUsers)
             }
-            nextPage = response.nextPage
-            hasMore = response.nextPage != nil || response.moreTopicsUrl != nil
+
+            let resolvedNextPage: UInt32? = {
+                guard let candidate = response.nextPage else {
+                    return nil
+                }
+                guard let requestPage else {
+                    return candidate
+                }
+                return candidate > requestPage ? candidate : nil
+            }()
+
+            let receivedFreshContent = !freshRows.isEmpty || !freshUsers.isEmpty
+            nextPage = resolvedNextPage
+            hasMore = resolvedNextPage != nil && (reset || receivedFreshContent)
             errorMessage = nil
         } catch {
             guard generation == loadGeneration, requestKind == selectedKind else {
@@ -125,7 +161,9 @@ struct FirePrivateMessagesView: View {
     }
 
     private var usersByID: [UInt64: TopicUserState] {
-        Dictionary(uniqueKeysWithValues: mailboxViewModel.users.map { ($0.id, $0) })
+        mailboxViewModel.users.reduce(into: [:]) { partialResult, user in
+            partialResult[user.id] = user
+        }
     }
 
     var body: some View {

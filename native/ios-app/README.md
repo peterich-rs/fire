@@ -31,8 +31,8 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
 - `Sources/FireAppSession/APM/*`
   - owns the beta-phase iOS crash/APM runtime
   - installs `PLCrashReporter` at launch, harvests pending crash reports on next cold start, and persists raw `.plcrash` payloads under `Application Support/Fire/ios-apm/crashes`
-  - registers `MetricKit`, stores raw metric/diagnostic payload JSON under `Application Support/Fire/ios-apm/metrickit`, and keeps a durable `runtime-state.json` snapshot for route / scene / breadcrumb recovery
-  - samples foreground CPU / memory / thermal state, detects main-thread stalls, tracks host-owned route/span breadcrumbs, and exports shareable `.firesupportbundle` packages under `Application Support/Fire/ios-apm/exports`
+  - registers `MetricKit`, stores raw metric/diagnostic payload JSON under `Application Support/Fire/ios-apm/metrickit`, and keeps per-launch runtime-state snapshots under `Application Support/Fire/ios-apm/runtime-states` for route / scene / breadcrumb recovery
+  - samples foreground CPU / memory / thermal state, detects main-thread stalls, tracks host-owned route/span breadcrumbs, and exports shareable `.firesupportbundle` packages under `Application Support/Fire/ios-apm-exports`
 - `FireAuthCookieKeychainStore.swift`
   - stores the full same-site LinuxDo browser cookie batch in Keychain using a host-scoped generic-password entry, preserving domain variants and cookie expiry
   - preserves non-login browser context cookies, including `cf_clearance`, across explicit logout so Cloudflare challenge state stays aligned with the host shell
@@ -137,7 +137,7 @@ Workspace note:
 - Rust can resolve relative paths inside that workspace for shared file ownership such as logs, caches, or exports.
 - The current persisted session file remains `Application Support/Fire/session.json`, and iOS currently writes the full session snapshot there during the active diagnostics-heavy development phase.
 - iOS keeps the full same-site LinuxDo browser cookie batch in Keychain, including expiry metadata and distinct host/domain variants, re-injects it into Rust during cold start before any authenticated refresh path runs, and refreshes the Keychain copy when Rust receives newer auth cookies from the network.
-- iOS now also keeps host-owned beta crash/APM files under `Application Support/Fire/ios-apm/`. That tree is not Rust-owned and should be treated as native-only operational state.
+- iOS now also keeps host-owned beta crash/APM runtime state under `Application Support/Fire/ios-apm/` plus exported full APM bundles under `Application Support/Fire/ios-apm-exports/`. Those trees are not Rust-owned and should be treated as native-only operational state.
 
 Current UX note:
 

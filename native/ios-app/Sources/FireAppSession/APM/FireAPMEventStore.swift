@@ -7,6 +7,7 @@ actor FireAPMEventStore {
     }
 
     private let baseURL: URL
+    private let exportBaseURL: URL
     private let buildInfo: FireAPMBuildInfo
     private let fileManager: FileManager
     private let encoder: JSONEncoder
@@ -15,10 +16,13 @@ actor FireAPMEventStore {
     init(
         buildInfo: FireAPMBuildInfo,
         baseURL: URL? = nil,
+        exportBaseURL: URL? = nil,
         fileManager: FileManager = .default
     ) async throws {
         self.buildInfo = buildInfo
-        self.baseURL = try baseURL ?? Self.defaultBaseURL(fileManager: fileManager)
+        let resolvedBaseURL = try baseURL ?? Self.defaultBaseURL(fileManager: fileManager)
+        self.baseURL = resolvedBaseURL
+        self.exportBaseURL = exportBaseURL ?? Self.defaultExportBaseURL(baseURL: resolvedBaseURL)
         self.fileManager = fileManager
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
@@ -37,6 +41,12 @@ actor FireAPMEventStore {
         return supportURL
             .appendingPathComponent("Fire", isDirectory: true)
             .appendingPathComponent("ios-apm", isDirectory: true)
+    }
+
+    static func defaultExportBaseURL(baseURL: URL) -> URL {
+        baseURL
+            .deletingLastPathComponent()
+            .appendingPathComponent("ios-apm-exports", isDirectory: true)
     }
 
     func baseDirectoryURL() -> URL {
@@ -89,15 +99,27 @@ actor FireAPMEventStore {
     func updateRuntimeState(_ state: FireAPMRuntimeState) throws {
         try ensureDirectories()
         let data = try encoder.encode(state)
-        try data.write(to: runtimeStateURL(), options: .atomic)
+        try data.write(to: runtimeStateURL(launchID: state.launchID), options: .atomic)
     }
 
     func runtimeState(launchID: String) throws -> FireAPMRuntimeState {
-        let url = runtimeStateURL()
-        guard fileManager.fileExists(atPath: url.path) else {
-            return .empty(launchID: launchID)
+        if let state = try loadRuntimeState(forLaunchID: launchID) {
+            return state
         }
-        return try decoder.decode(FireAPMRuntimeState.self, from: Data(contentsOf: url))
+        if let state = try latestRuntimeState(excludingLaunchID: nil) {
+            return state
+        }
+        if let state = try legacyRuntimeState() {
+            return state
+        }
+        return .empty(launchID: launchID)
+    }
+
+    func previousRuntimeState(excludingLaunchID launchID: String) throws -> FireAPMRuntimeState? {
+        if let state = try latestRuntimeState(excludingLaunchID: launchID) {
+            return state
+        }
+        return try legacyRuntimeState()
     }
 
     func recentEvents(
@@ -143,8 +165,7 @@ actor FireAPMEventStore {
     ) throws -> FireAPMSupportBundleExport {
         let timestamp = FireAPMClock.nowUnixMs()
         let fileName = "fire-ios-apm-\(timestamp).firesupportbundle"
-        let exportURL = baseURL
-            .appendingPathComponent("exports", isDirectory: true)
+        let exportURL = exportBaseURL
             .appendingPathComponent(fileName, isDirectory: true)
 
         if fileManager.fileExists(atPath: exportURL.path) {
@@ -180,7 +201,6 @@ actor FireAPMEventStore {
         )
 
         let sizeBytes = try Self.directorySize(at: exportURL, fileManager: fileManager)
-        try pruneIfNeeded()
         return FireAPMSupportBundleExport(
             fileName: fileName,
             absoluteURL: exportURL,
@@ -243,6 +263,7 @@ actor FireAPMEventStore {
 
     private func pruneIfNeeded() throws {
         let expirationCutoff = Date().addingTimeInterval(-Constants.retentionWindow)
+        let legacyExportsURL = legacyExportsDirectoryURL().standardizedFileURL
         let enumerator = fileManager.enumerator(
             at: baseURL,
             includingPropertiesForKeys: [
@@ -255,7 +276,17 @@ actor FireAPMEventStore {
 
         var files: [URL] = []
         while let item = enumerator?.nextObject() as? URL {
-            let values = try item.resourceValues(forKeys: [.isRegularFileKey, .contentModificationDateKey])
+            let values = try item.resourceValues(
+                forKeys: [.isRegularFileKey, .isDirectoryKey, .contentModificationDateKey]
+            )
+            let standardizedItem = item.standardizedFileURL
+            if standardizedItem == legacyExportsURL
+                || standardizedItem.path.hasPrefix(legacyExportsURL.path + "/") {
+                if values.isDirectory == true {
+                    enumerator?.skipDescendants()
+                }
+                continue
+            }
             guard values.isRegularFile == true else { continue }
             if let modifiedAt = values.contentModificationDate, modifiedAt < expirationCutoff {
                 try? fileManager.removeItem(at: item)
@@ -284,16 +315,31 @@ actor FireAPMEventStore {
 
     private func ensureDirectories() throws {
         try fileManager.createDirectory(at: baseURL, withIntermediateDirectories: true)
-        for component in ["events", "crashes", "metrickit", "exports", "tmp"] {
+        for component in ["events", "crashes", "metrickit", "runtime-states", "tmp"] {
             try fileManager.createDirectory(
                 at: baseURL.appendingPathComponent(component, isDirectory: true),
                 withIntermediateDirectories: true
             )
         }
+        try fileManager.createDirectory(at: exportBaseURL, withIntermediateDirectories: true)
     }
 
-    private func runtimeStateURL() -> URL {
+    private func runtimeStatesDirectoryURL() -> URL {
+        baseURL.appendingPathComponent("runtime-states", isDirectory: true)
+    }
+
+    private func runtimeStateURL(launchID: String) -> URL {
+        runtimeStatesDirectoryURL()
+            .appendingPathComponent(launchID, isDirectory: false)
+            .appendingPathExtension("json")
+    }
+
+    private func legacyRuntimeStateURL() -> URL {
         baseURL.appendingPathComponent("runtime-state.json", isDirectory: false)
+    }
+
+    private func legacyExportsDirectoryURL() -> URL {
+        baseURL.appendingPathComponent("exports", isDirectory: true)
     }
 
     private func todayEventsURL() -> URL {
@@ -325,6 +371,47 @@ actor FireAPMEventStore {
     private static func fileSize(at url: URL, fileManager: FileManager) throws -> UInt64 {
         let values = try url.resourceValues(forKeys: [.fileSizeKey])
         return UInt64(values.fileSize ?? 0)
+    }
+
+    private func loadRuntimeState(forLaunchID launchID: String) throws -> FireAPMRuntimeState? {
+        let url = runtimeStateURL(launchID: launchID)
+        guard fileManager.fileExists(atPath: url.path) else { return nil }
+        return try loadRuntimeState(at: url)
+    }
+
+    private func latestRuntimeState(excludingLaunchID launchID: String?) throws -> FireAPMRuntimeState? {
+        let files = try fileManager.contentsOfDirectory(
+            at: runtimeStatesDirectoryURL(),
+            includingPropertiesForKeys: [.contentModificationDateKey],
+            options: [.skipsHiddenFiles]
+        )
+        .filter { $0.pathExtension == "json" }
+        .filter { launchID == nil || $0.deletingPathExtension().lastPathComponent != launchID }
+        .sorted { lhs, rhs in
+            let lhsDate = try? lhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
+            let rhsDate = try? rhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
+            if lhsDate != rhsDate {
+                return (lhsDate ?? .distantPast) > (rhsDate ?? .distantPast)
+            }
+            return lhs.lastPathComponent > rhs.lastPathComponent
+        }
+
+        for file in files {
+            if let state = try? loadRuntimeState(at: file) {
+                return state
+            }
+        }
+        return nil
+    }
+
+    private func legacyRuntimeState() throws -> FireAPMRuntimeState? {
+        let url = legacyRuntimeStateURL()
+        guard fileManager.fileExists(atPath: url.path) else { return nil }
+        return try loadRuntimeState(at: url)
+    }
+
+    private func loadRuntimeState(at url: URL) throws -> FireAPMRuntimeState {
+        try decoder.decode(FireAPMRuntimeState.self, from: Data(contentsOf: url))
     }
 
     private func recentEvents(

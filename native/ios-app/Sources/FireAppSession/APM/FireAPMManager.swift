@@ -62,6 +62,7 @@ final class FireAPMManager: NSObject {
     func start() {
         guard !started else { return }
         started = true
+        installCrashReporterIfNeeded()
 
         Task {
             await bootstrap()
@@ -177,14 +178,14 @@ final class FireAPMManager: NSObject {
     private func bootstrap() async {
         let previousState: FireAPMRuntimeState
         do {
-            previousState = try await storeValue().runtimeState(launchID: runtimeState.launchID)
+            previousState = try await storeValue().previousRuntimeState(
+                excludingLaunchID: runtimeState.launchID
+            ) ?? .empty(launchID: runtimeState.launchID)
         } catch {
             previousState = .empty(launchID: runtimeState.launchID)
         }
 
         await harvestPendingCrashReportIfNeeded(previousState: previousState)
-
-        runtimeState = .empty(launchID: UUID().uuidString.lowercased())
         await persistRuntimeState()
 
         registerObservers()
@@ -203,7 +204,6 @@ final class FireAPMManager: NSObject {
                 "git_sha": buildInfo.gitSha
             ]
         )
-        installCrashReporterIfNeeded()
     }
 
     private func beginSpan(

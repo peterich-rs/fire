@@ -1,0 +1,61 @@
+name: iOS Release Artifacts
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+  RUST_TOOLCHAIN: 1.88.0
+
+jobs:
+  archive:
+    name: Archive iOS Release Artifacts
+    runs-on: macos-15
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: recursive
+
+      - name: Install Rust toolchain and iOS targets
+        shell: bash
+        run: |
+          rustup toolchain install "${RUST_TOOLCHAIN}" --profile minimal
+          rustup default "${RUST_TOOLCHAIN}"
+          rustup target add aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: rust-${{ runner.os }}-${{ env.RUST_TOOLCHAIN }}
+          workspaces: |
+            . -> rust/target
+
+      - name: Install XcodeGen
+        shell: bash
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+          HOMEBREW_NO_INSTALL_CLEANUP: "1"
+        run: |
+          if command -v xcodegen >/dev/null 2>&1; then
+            xcodegen --version
+          else
+            brew install xcodegen
+          fi
+
+      - name: Generate archive and dSYM artifacts
+        shell: bash
+        env:
+          CODE_SIGNING_ALLOWED: "NO"
+          FIRE_GIT_SHA: ${{ github.sha }}
+          OUT_ROOT: ${{ github.workspace }}/artifacts/ios-release
+        run: ./scripts/ios/archive_release.sh
+
+      - name: Upload archive artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-release-artifacts
+          path: artifacts/ios-release
+          if-no-files-found: error

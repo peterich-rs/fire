@@ -189,20 +189,21 @@ extension NotificationItemState {
 // MARK: - View
 
 struct FireNotificationsView: View {
-    @ObservedObject var viewModel: FireAppViewModel
+    let appViewModel: FireAppViewModel
+    @ObservedObject var notificationStore: FireNotificationStore
     @State private var selectedRoute: FireAppRoute?
 
     private var baseURLString: String {
-        let trimmed = viewModel.session.bootstrap.baseUrl.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = appViewModel.session.bootstrap.baseUrl.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? "https://linux.do" : trimmed
     }
 
     var body: some View {
         NavigationStack {
             Group {
-                if viewModel.isLoadingNotifications && viewModel.recentNotifications.isEmpty {
+                if notificationStore.isLoadingRecent && notificationStore.recentNotifications.isEmpty {
                     loadingSkeleton
-                } else if viewModel.recentNotifications.isEmpty {
+                } else if notificationStore.recentNotifications.isEmpty {
                     emptyState
                 } else {
                     notificationList
@@ -210,10 +211,10 @@ struct FireNotificationsView: View {
             }
             .navigationTitle("通知")
             .toolbar {
-                if viewModel.notificationUnreadCount > 0 {
+                if notificationStore.unreadCount > 0 {
                     ToolbarItem(placement: .topBarTrailing) {
                         Button("全部已读") {
-                            viewModel.markAllNotificationsRead()
+                            notificationStore.markAllRead()
                         }
                         .font(.subheadline.weight(.medium))
                         .foregroundStyle(FireTheme.accent)
@@ -221,14 +222,14 @@ struct FireNotificationsView: View {
                 }
             }
             .refreshable {
-                await viewModel.loadRecentNotifications(force: true)
+                await notificationStore.loadRecent(force: true)
             }
             .navigationDestination(item: $selectedRoute) { route in
-                FireAppRouteDestinationView(viewModel: viewModel, route: route)
+                FireAppRouteDestinationView(viewModel: appViewModel, route: route)
             }
         }
         .task {
-            await viewModel.loadRecentNotifications(force: false)
+            await notificationStore.loadRecent(force: false)
         }
     }
 
@@ -236,7 +237,7 @@ struct FireNotificationsView: View {
 
     private var notificationList: some View {
         List {
-            ForEach(viewModel.recentNotifications, id: \.id) { item in
+            ForEach(notificationStore.recentNotifications, id: \.id) { item in
                 notificationRow(item)
                     .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
                     .listRowSeparator(.hidden)
@@ -244,7 +245,10 @@ struct FireNotificationsView: View {
             }
 
             NavigationLink {
-                FireNotificationHistoryView(viewModel: viewModel)
+                FireNotificationHistoryView(
+                    appViewModel: appViewModel,
+                    notificationStore: notificationStore
+                )
             } label: {
                 HStack {
                     Spacer()
@@ -277,7 +281,7 @@ struct FireNotificationsView: View {
 
     private func handleNotificationTap(_ item: NotificationItemState) {
         if !item.read {
-            viewModel.markNotificationRead(id: item.id)
+            notificationStore.markRead(id: item.id)
         }
 
         selectedRoute = item.appRoute
@@ -342,7 +346,7 @@ struct FireNotificationsView: View {
 
             Button("刷新") {
                 Task {
-                    await viewModel.loadRecentNotifications(force: true)
+                    await notificationStore.loadRecent(force: true)
                 }
             }
             .buttonStyle(FireSecondaryButtonStyle())

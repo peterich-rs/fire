@@ -122,14 +122,6 @@ final class FireAppViewModel: ObservableObject {
 
     // MARK: - Notifications
 
-    @Published private(set) var notificationUnreadCount: Int = 0
-    @Published private(set) var recentNotifications: [NotificationItemState] = []
-    @Published private(set) var isLoadingNotifications = false
-    @Published private(set) var notificationFullList: [NotificationItemState] = []
-    @Published private(set) var notificationFullNextOffset: UInt32?
-    @Published private(set) var isLoadingNotificationFullPage = false
-    @Published private(set) var hasMoreNotificationFull = false
-
     // MARK: - General UI state
 
     @Published var errorMessage: String?
@@ -160,7 +152,6 @@ final class FireAppViewModel: ObservableObject {
     private var pendingTopicListRefreshTask: Task<Void, Never>?
     private var topicListMessageBusRefreshController = FireTopicListMessageBusRefreshController()
     private var pendingTopicDetailRefreshTasks: [UInt64: Task<Void, Never>] = [:]
-    private var pendingNotificationStateRefreshTask: Task<Void, Never>?
     private var topicPresenceHeartbeatTasks: [UInt64: Task<Void, Never>] = [:]
     private var topicPostPreloadTasks: [UInt64: Task<Void, Never>] = [:]
     private var topicPostPaginationStates: [UInt64: FireTopicPostPaginationState] = [:]
@@ -168,6 +159,7 @@ final class FireAppViewModel: ObservableObject {
     private var activeTopicDetailOwnerTokens: [UInt64: Set<String>] = [:]
     private var filterChangeRefreshTask: Task<Void, Never>?
     private var topLevelAPMRoute = "session.onboarding"
+    private weak var notificationStore: FireNotificationStore?
 
     init(
         initialSession: SessionState = .placeholder(),
@@ -175,6 +167,10 @@ final class FireAppViewModel: ObservableObject {
     ) {
         self.session = initialSession
         self.challengeRecoveryStore = challengeRecoveryStore
+    }
+
+    func bindNotificationStore(_ store: FireNotificationStore) {
+        notificationStore = store
     }
 
     // MARK: - Lifecycle
@@ -218,7 +214,7 @@ final class FireAppViewModel: ObservableObject {
                     guard self.initialStateLoadGeneration == generation else { return }
                     await self.refreshTopicsIfPossible(force: true)
                     guard self.initialStateLoadGeneration == generation else { return }
-                    await self.loadRecentNotifications(force: false)
+                    await self.notificationStore?.loadRecent(force: false)
                 }
             } catch {
                 guard self.initialStateLoadGeneration == generation else { return }
@@ -329,7 +325,7 @@ final class FireAppViewModel: ObservableObject {
                 await applySession(try await loginCoordinator.logout())
                 selectedTopicKind = .latest
                 clearTopicState()
-                clearNotificationState()
+                notificationStore?.reset()
             } catch {
                 errorMessage = error.localizedDescription
             }
@@ -1167,82 +1163,34 @@ final class FireAppViewModel: ObservableObject {
         }
     }
 
-    // MARK: - Notifications
+    // MARK: - Notification helpers
 
-    func loadRecentNotifications(force: Bool = true) async {
-        guard let sessionStore else { return }
-        guard session.readiness.canReadAuthenticatedApi else { return }
-        guard !isLoadingNotifications || force else { return }
-
-        isLoadingNotifications = true
-        defer { isLoadingNotifications = false }
-        do {
-            try await FireAPMManager.shared.withSpan(.notificationsRefresh) {
-                let list = try await sessionStore.fetchRecentNotifications()
-                recentNotifications = list.notifications
-                if let state = try? await sessionStore.notificationState() {
-                    notificationUnreadCount = Int(state.counters.allUnread)
-                }
-            }
-        } catch {
-            _ = await handleRecoverableSessionErrorIfNeeded(error)
-            // Silent: notification failures shouldn't interrupt UX
-        }
+    func notificationCenterState() async throws -> NotificationCenterState {
+        let sessionStore = try await sessionStoreValue()
+        return try await sessionStore.notificationState()
     }
 
-    func markNotificationRead(id: UInt64) {
-        guard let sessionStore else { return }
-        Task {
-            do {
-                let state = try await sessionStore.markNotificationRead(id: id)
-                notificationUnreadCount = Int(state.counters.allUnread)
-                if let idx = recentNotifications.firstIndex(where: { $0.id == id }) {
-                    recentNotifications[idx].read = true
-                }
-                if state.hasLoadedFull {
-                    notificationFullList = state.full
-                }
-            } catch {
-                _ = await self.handleRecoverableSessionErrorIfNeeded(error)
-            }
-        }
+    func fetchRecentNotificationsData(limit: UInt32? = nil) async throws -> NotificationListState {
+        let sessionStore = try await sessionStoreValue()
+        return try await sessionStore.fetchRecentNotifications(limit: limit)
     }
 
-    func markAllNotificationsRead() {
-        guard let sessionStore else { return }
-        Task {
-            do {
-                let state = try await sessionStore.markAllNotificationsRead()
-                notificationUnreadCount = Int(state.counters.allUnread)
-                recentNotifications = recentNotifications.map {
-                    var n = $0; n.read = true; return n
-                }
-                if state.hasLoadedFull {
-                    notificationFullList = state.full
-                }
-            } catch {
-                _ = await self.handleRecoverableSessionErrorIfNeeded(error)
-            }
-        }
+    func fetchNotificationsData(
+        limit: UInt32? = nil,
+        offset: UInt32? = nil
+    ) async throws -> NotificationListState {
+        let sessionStore = try await sessionStoreValue()
+        return try await sessionStore.fetchNotifications(limit: limit, offset: offset)
     }
 
-    func loadNotificationFullPage(offset: UInt32?) async {
-        guard let sessionStore else { return }
-        guard session.readiness.canReadAuthenticatedApi else { return }
-        guard !isLoadingNotificationFullPage else { return }
+    func markNotificationReadState(id: UInt64) async throws -> NotificationCenterState {
+        let sessionStore = try await sessionStoreValue()
+        return try await sessionStore.markNotificationRead(id: id)
+    }
 
-        isLoadingNotificationFullPage = true
-        defer { isLoadingNotificationFullPage = false }
-        do {
-            _ = try await sessionStore.fetchNotifications(limit: nil, offset: offset)
-            let state = try await sessionStore.notificationState()
-            notificationFullList = state.full
-            notificationFullNextOffset = state.fullNextOffset
-            hasMoreNotificationFull = state.fullNextOffset != nil
-            notificationUnreadCount = Int(state.counters.allUnread)
-        } catch {
-            _ = await handleRecoverableSessionErrorIfNeeded(error)
-        }
+    func markAllNotificationsReadState() async throws -> NotificationCenterState {
+        let sessionStore = try await sessionStoreValue()
+        return try await sessionStore.markAllNotificationsRead()
     }
 
     // MARK: - Search helpers
@@ -1479,8 +1427,7 @@ final class FireAppViewModel: ObservableObject {
         messageBusRetryTask?.cancel()
         messageBusRetryTask = nil
         messageBusStartRetryCount = 0
-        pendingNotificationStateRefreshTask?.cancel()
-        pendingNotificationStateRefreshTask = nil
+        notificationStore?.cancelScheduledRefresh()
         clearMessageBusError()
         guard isMessageBusActive else { return }
         pendingTopicListRefreshTask?.cancel()
@@ -1517,7 +1464,7 @@ final class FireAppViewModel: ObservableObject {
             refreshTopicPresenceState(topicId: topicId)
 
         case .notification:
-            scheduleNotificationStateRefresh()
+            notificationStore?.scheduleStateRefresh()
 
         case .notificationAlert:
             break
@@ -1602,19 +1549,6 @@ final class FireAppViewModel: ObservableObject {
                     return
                 }
             }
-        }
-    }
-
-    private func scheduleNotificationStateRefresh() {
-        pendingNotificationStateRefreshTask?.cancel()
-        pendingNotificationStateRefreshTask = Task { [weak self] in
-            try? await Task.sleep(for: .milliseconds(150))
-            guard !Task.isCancelled else { return }
-            guard let self, let store = self.sessionStore else { return }
-            guard let state = try? await store.notificationState() else { return }
-            self.notificationUnreadCount = Int(state.counters.allUnread)
-            self.recentNotifications = state.recent
-            self.pendingNotificationStateRefreshTask = nil
         }
     }
 
@@ -1856,11 +1790,6 @@ final class FireAppViewModel: ObservableObject {
         topicListMessageBusRefreshController.clearPending(for: scope)
     }
 
-    private func clearNotificationState() {
-        notificationUnreadCount = 0
-        recentNotifications = []
-    }
-
     private func mergeItemsByID<Item>(
         _ existing: [Item],
         _ incoming: [Item],
@@ -1915,11 +1844,10 @@ final class FireAppViewModel: ObservableObject {
         }
         topicCategories = Dictionary(uniqueKeysWithValues: session.bootstrap.categories.map { ($0.id, $0) })
 
-        // Sync notification badge from in-memory state when available
-        if session.readiness.canReadAuthenticatedApi, let store = sessionStore {
-            if let state = try? await store.notificationState() {
-                notificationUnreadCount = Int(state.counters.allUnread)
-            }
+        if session.readiness.canReadAuthenticatedApi {
+            await notificationStore?.syncStateFromRuntimeIfAvailable()
+        } else {
+            notificationStore?.reset()
         }
 
         // Reconcile MessageBus lifecycle
@@ -2058,7 +1986,7 @@ final class FireAppViewModel: ObservableObject {
 
         selectedTopicKind = .latest
         clearTopicState()
-        clearNotificationState()
+        notificationStore?.reset()
         errorMessage = message
         isPresentingLogin = true
     }

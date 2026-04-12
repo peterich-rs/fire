@@ -69,9 +69,14 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
 - `App/Stores/FireSearchStore.swift`
   - owns the search screen's query, scope, result, paging, loading, and error state
   - keeps the actual `/search.json` call path on `FireAppViewModel` so session ownership and recoverable-auth handling stay centralized during the W2 split
+- `App/Stores/FireNotificationStore.swift`
+  - owns unread count, recent notifications, full-history paging, and notification-specific loading state
+  - keeps MessageBus-triggered runtime refresh and notification read mutations outside `FireAppViewModel`, while still delegating Rust calls and recoverable-auth handling back through the shared app/session facade
 - `App/FireSearchView.swift`
   - provides a native search workspace with keyword input, topic/post/user scope switching, paginated result loading, and typed route-based topic/profile navigation
   - now renders from `FireSearchStore`, so search input and pagination no longer invalidate unrelated authenticated tabs through `FireAppViewModel`
+- `App/FireNotificationsView.swift` and `App/FireNotificationHistoryView.swift`
+  - now render from `FireNotificationStore` instead of reading notification list state directly off `FireAppViewModel`
 - `App/FireComposerView.swift`
   - now supports native private-message compose alongside create-topic and advanced-reply flows, including recipient token editing, PM-specific draft restore/save, and PM-specific validation lengths from bootstrap
 - `App/FirePrivateMessagesView.swift`

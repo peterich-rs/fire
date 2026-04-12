@@ -5,12 +5,16 @@ struct FireTabRoot: View {
     @EnvironmentObject private var navigationState: FireNavigationState
     @StateObject private var viewModel = FireAppViewModel()
     @StateObject private var searchStore: FireSearchStore
+    @StateObject private var notificationStore: FireNotificationStore
     @StateObject private var profileViewModel: FireProfileViewModel
 
     init() {
         let vm = FireAppViewModel()
+        let notifications = FireNotificationStore(appViewModel: vm)
+        vm.bindNotificationStore(notifications)
         _viewModel = StateObject(wrappedValue: vm)
         _searchStore = StateObject(wrappedValue: FireSearchStore(appViewModel: vm))
+        _notificationStore = StateObject(wrappedValue: notifications)
         _profileViewModel = StateObject(wrappedValue: FireProfileViewModel(appViewModel: vm))
     }
 
@@ -28,12 +32,15 @@ struct FireTabRoot: View {
                         }
                         .tag(0)
 
-                    FireNotificationsView(viewModel: viewModel)
-                        .tabItem {
-                            Label("通知", systemImage: "bell")
-                        }
-                        .badge(viewModel.notificationUnreadCount)
-                        .tag(1)
+                    FireNotificationsView(
+                        appViewModel: viewModel,
+                        notificationStore: notificationStore
+                    )
+                    .tabItem {
+                        Label("通知", systemImage: "bell")
+                    }
+                    .badge(notificationStore.unreadCount)
+                    .tag(1)
 
                     FireProfileView(viewModel: viewModel, profileViewModel: profileViewModel)
                         .tabItem {
@@ -112,6 +119,7 @@ struct FireTabRoot: View {
         .onChange(of: isAuthenticated) { _, authenticated in
             if !authenticated {
                 searchStore.reset()
+                notificationStore.reset()
             }
             viewModel.updateTopLevelAPMRoute(
                 selectedTab: navigationState.selectedTab,

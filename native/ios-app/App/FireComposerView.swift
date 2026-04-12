@@ -3,6 +3,36 @@ import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
 
+func shouldRestorePrivateMessageDraft(
+    explicitRecipients: [String],
+    draftRecipients: [String]
+) -> Bool {
+    let normalizedExplicitRecipients = normalizedPrivateMessageRecipients(explicitRecipients)
+    guard !normalizedExplicitRecipients.isEmpty else {
+        return true
+    }
+    return normalizedPrivateMessageRecipients(draftRecipients) == normalizedExplicitRecipients
+}
+
+func normalizedPrivateMessageRecipients(_ recipients: [String]) -> [String] {
+    var normalized: [String] = []
+
+    for recipient in recipients {
+        let trimmed = recipient.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            continue
+        }
+
+        let stableRecipient = trimmed.lowercased()
+        if normalized.contains(stableRecipient) {
+            continue
+        }
+        normalized.append(stableRecipient)
+    }
+
+    return normalized.sorted()
+}
+
 struct FireComposerRoute: Identifiable, Equatable {
     enum Kind: Equatable {
         case createTopic
@@ -11,7 +41,12 @@ struct FireComposerRoute: Identifiable, Equatable {
             topicTitle: String,
             categoryID: UInt64?,
             replyToPostNumber: UInt32?,
-            replyToUsername: String?
+            replyToUsername: String?,
+            isPrivateMessage: Bool
+        )
+        case privateMessage(
+            recipients: [String],
+            title: String?
         )
     }
 
@@ -21,8 +56,13 @@ struct FireComposerRoute: Identifiable, Equatable {
         switch kind {
         case .createTopic:
             return "create-topic"
-        case .advancedReply(let topicID, _, _, let replyToPostNumber, _):
+        case .advancedReply(let topicID, _, _, let replyToPostNumber, _, let isPrivateMessage):
+            let suffix = isPrivateMessage ? "pm" : "topic"
             return "reply-\(topicID)-\(replyToPostNumber ?? 0)"
+                + "-\(suffix)"
+        case .privateMessage(let recipients, _):
+            let seed = recipients.isEmpty ? "new" : recipients.sorted().joined(separator: ",")
+            return "private-message-\(seed)"
         }
     }
 
@@ -30,8 +70,10 @@ struct FireComposerRoute: Identifiable, Equatable {
         switch kind {
         case .createTopic:
             return "新建话题"
-        case .advancedReply:
-            return "完整回复"
+        case .advancedReply(_, _, _, _, _, let isPrivateMessage):
+            return isPrivateMessage ? "完整私信回复" : "完整回复"
+        case .privateMessage:
+            return "新建私信"
         }
     }
 
@@ -39,7 +81,7 @@ struct FireComposerRoute: Identifiable, Equatable {
         switch kind {
         case .createTopic:
             return "发布"
-        case .advancedReply:
+        case .advancedReply, .privateMessage:
             return "发送"
         }
     }
@@ -48,8 +90,10 @@ struct FireComposerRoute: Identifiable, Equatable {
         switch kind {
         case .createTopic:
             return nil
-        case .advancedReply(let topicID, _, _, _, _):
+        case .advancedReply(let topicID, _, _, _, _, _):
             return topicID
+        case .privateMessage:
+            return nil
         }
     }
 
@@ -57,8 +101,10 @@ struct FireComposerRoute: Identifiable, Equatable {
         switch kind {
         case .createTopic:
             return nil
-        case .advancedReply(_, let topicTitle, _, _, _):
+        case .advancedReply(_, let topicTitle, _, _, _, _):
             return topicTitle
+        case .privateMessage(_, let title):
+            return title
         }
     }
 
@@ -66,8 +112,10 @@ struct FireComposerRoute: Identifiable, Equatable {
         switch kind {
         case .createTopic:
             return nil
-        case .advancedReply(_, _, _, let replyToPostNumber, _):
+        case .advancedReply(_, _, _, let replyToPostNumber, _, _):
             return replyToPostNumber
+        case .privateMessage:
+            return nil
         }
     }
 
@@ -75,8 +123,10 @@ struct FireComposerRoute: Identifiable, Equatable {
         switch kind {
         case .createTopic:
             return nil
-        case .advancedReply(_, _, _, _, let replyToUsername):
+        case .advancedReply(_, _, _, _, let replyToUsername, _):
             return replyToUsername
+        case .privateMessage:
+            return nil
         }
     }
 
@@ -84,8 +134,30 @@ struct FireComposerRoute: Identifiable, Equatable {
         switch kind {
         case .createTopic:
             return nil
-        case .advancedReply(_, _, let categoryID, _, _):
+        case .advancedReply(_, _, let categoryID, _, _, _):
             return categoryID
+        case .privateMessage:
+            return nil
+        }
+    }
+
+    var recipients: [String] {
+        switch kind {
+        case .privateMessage(let recipients, _):
+            return recipients
+        default:
+            return []
+        }
+    }
+
+    var isPrivateMessage: Bool {
+        switch kind {
+        case .privateMessage:
+            return true
+        case .advancedReply(_, _, _, _, _, let isPrivateMessage):
+            return isPrivateMessage
+        case .createTopic:
+            return false
         }
     }
 
@@ -93,11 +165,13 @@ struct FireComposerRoute: Identifiable, Equatable {
         switch kind {
         case .createTopic:
             return "new_topic"
-        case .advancedReply(let topicID, _, _, let replyToPostNumber, _):
+        case .advancedReply(let topicID, _, _, let replyToPostNumber, _, _):
             if let replyToPostNumber, replyToPostNumber > 0 {
                 return "topic_\(topicID)_post_\(replyToPostNumber)"
             }
             return "topic_\(topicID)"
+        case .privateMessage:
+            return "new_private_message"
         }
     }
 }
@@ -122,12 +196,16 @@ struct FireComposerView: View {
     var initialTags: [String] = []
     var onTopicCreated: ((UInt64) -> Void)?
     var onReplySubmitted: (() -> Void)?
+    var onPrivateMessageCreated: ((UInt64) -> Void)?
 
     @Environment(\.dismiss) private var dismiss
     @State private var title = ""
     @State private var bodyText = ""
     @State private var selectedCategoryID: UInt64?
     @State private var selectedTags: [String] = []
+    @State private var selectedRecipients: [String] = []
+    @State private var recipientQuery = ""
+    @State private var recipientResults: [UserMentionUserState] = []
     @State private var bodySelection = NSRange(location: 0, length: 0)
     @State private var isBodyFocused = false
     @State private var isLoadingDraft = false
@@ -137,6 +215,7 @@ struct FireComposerView: View {
     @State private var autosaveTask: Task<Void, Never>?
     @State private var tagSearchTask: Task<Void, Never>?
     @State private var mentionSearchTask: Task<Void, Never>?
+    @State private var recipientSearchTask: Task<Void, Never>?
     @State private var uploadResolutionTask: Task<Void, Never>?
     @State private var tagInput = ""
     @State private var tagResults: [TagSearchItemState] = []
@@ -178,15 +257,27 @@ struct FireComposerView: View {
     }
 
     private var minimumTitleLength: Int {
-        Int(max(viewModel.session.bootstrap.minTopicTitleLength, 1))
+        switch route.kind {
+        case .createTopic:
+            return Int(max(viewModel.session.bootstrap.minTopicTitleLength, 1))
+        case .privateMessage:
+            return Int(max(viewModel.session.bootstrap.minPersonalMessageTitleLength, 1))
+        case .advancedReply:
+            return 0
+        }
     }
 
     private var minimumBodyLength: Int {
         switch route.kind {
         case .createTopic:
             return Int(max(viewModel.session.bootstrap.minFirstPostLength, 1))
-        case .advancedReply:
+        case .advancedReply(_, _, _, _, _, let isPrivateMessage):
+            if isPrivateMessage {
+                return Int(max(viewModel.session.bootstrap.minPersonalMessagePostLength, 1))
+            }
             return Int(max(viewModel.session.bootstrap.minPostLength, 1))
+        case .privateMessage:
+            return Int(max(viewModel.session.bootstrap.minPersonalMessagePostLength, 1))
         }
     }
 
@@ -200,7 +291,7 @@ struct FireComposerView: View {
 
     private var hasDraftContent: Bool {
         switch route.kind {
-        case .createTopic:
+        case .createTopic, .privateMessage:
             return !trimmedTitle.isEmpty || !trimmedBody.isEmpty
         case .advancedReply:
             return !trimmedBody.isEmpty
@@ -221,6 +312,10 @@ struct FireComposerView: View {
                 && !trimmedBody.isEmpty
                 && selectedCategoryID != nil
                 && selectedTags.count >= selectedCategoryMinimumTags
+        case .privateMessage:
+            return !trimmedTitle.isEmpty
+                && !trimmedBody.isEmpty
+                && !selectedRecipients.isEmpty
         case .advancedReply:
             return !trimmedBody.isEmpty
         }
@@ -246,6 +341,10 @@ struct FireComposerView: View {
 
                 if case .createTopic = route.kind {
                     createTopicHeader
+                }
+
+                if case .privateMessage = route.kind {
+                    privateMessageHeader
                 }
 
                 composerToolbar
@@ -327,10 +426,14 @@ struct FireComposerView: View {
         .onChange(of: tagInput) { _, newValue in
             performTagSearch(query: newValue)
         }
+        .onChange(of: recipientQuery) { _, newValue in
+            performRecipientSearch(query: newValue)
+        }
         .onDisappear {
             autosaveTask?.cancel()
             tagSearchTask?.cancel()
             mentionSearchTask?.cancel()
+            recipientSearchTask?.cancel()
             uploadResolutionTask?.cancel()
             Task {
                 await persistDraftIfNeeded()
@@ -423,6 +526,28 @@ struct FireComposerView: View {
         }
     }
 
+    private var privateMessageHeader: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            FireRecipientTokenField(
+                recipients: selectedRecipients,
+                query: $recipientQuery,
+                results: recipientResults,
+                onRemoveRecipient: removeRecipient,
+                onAddRecipient: addRecipient
+            )
+
+            TextField("标题", text: $title)
+                .textFieldStyle(.roundedBorder)
+                .font(.title3.weight(.semibold))
+
+            if !selectedRecipients.isEmpty {
+                Text("将发送给：\(selectedRecipients.map { "@\($0)" }.joined(separator: "、"))")
+                    .font(.caption)
+                    .foregroundStyle(FireTheme.subtleInk)
+            }
+        }
+    }
+
     private var replyTargetCard: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(route.topicTitle ?? "回复话题")
@@ -464,7 +589,11 @@ struct FireComposerView: View {
 
             Spacer()
 
-            if route.kind == .createTopic {
+            if case .createTopic = route.kind {
+                Text("\(title.count)/\(minimumTitleLength)+")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else if case .privateMessage = route.kind {
                 Text("\(title.count)/\(minimumTitleLength)+")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -510,15 +639,24 @@ struct FireComposerView: View {
             if case .createTopic = route.kind {
                 Text(trimmedTitle.isEmpty ? "（无标题）" : trimmedTitle)
                     .font(.title2.weight(.bold))
+            } else if case .privateMessage = route.kind {
+                Text(trimmedTitle.isEmpty ? "（无标题）" : trimmedTitle)
+                    .font(.title2.weight(.bold))
             }
 
-            if let selectedCategory {
+            if case .privateMessage = route.kind, !selectedRecipients.isEmpty {
+                Text(selectedRecipients.map { "@\($0)" }.joined(separator: "、"))
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(FireTheme.accent)
+            }
+
+            if let selectedCategory, case .createTopic = route.kind {
                 Text(categoryDisplayName(for: selectedCategory))
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(FireTheme.accent)
             }
 
-            if !selectedTags.isEmpty {
+            if !selectedTags.isEmpty, case .createTopic = route.kind {
                 FlowLayout(spacing: 8, fallbackWidth: max(UIScreen.main.bounds.width - 32, 200)) {
                     ForEach(selectedTags, id: \.self) { tag in
                         Text("#\(tag)")
@@ -773,6 +911,23 @@ struct FireComposerView: View {
         tagResults = []
     }
 
+    private func addRecipient(_ user: UserMentionUserState) {
+        let trimmed = user.username.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        guard !selectedRecipients.contains(where: { $0.caseInsensitiveCompare(trimmed) == .orderedSame }) else {
+            recipientQuery = ""
+            recipientResults = []
+            return
+        }
+        selectedRecipients.append(trimmed)
+        recipientQuery = ""
+        recipientResults = []
+    }
+
+    private func removeRecipient(_ username: String) {
+        selectedRecipients.removeAll { $0.caseInsensitiveCompare(username) == .orderedSame }
+    }
+
     private func updateMentionSearch() {
         mentionSearchTask?.cancel()
         mentionContext = mentionContext(in: bodyText, selection: bodySelection)
@@ -788,7 +943,7 @@ struct FireComposerView: View {
                 guard !Task.isCancelled else { return }
                 let result = try await viewModel.searchUsers(
                     term: mentionContext.term,
-                    includeGroups: true,
+                    includeGroups: !route.isPrivateMessage,
                     limit: 8,
                     topicID: route.topicID,
                     categoryID: selectedCategoryID ?? route.fallbackCategoryID
@@ -803,6 +958,42 @@ struct FireComposerView: View {
                 await MainActor.run {
                     mentionUsers = []
                     mentionGroups = []
+                }
+            }
+        }
+    }
+
+    private func performRecipientSearch(query: String) {
+        recipientSearchTask?.cancel()
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            recipientResults = []
+            return
+        }
+
+        recipientSearchTask = Task {
+            do {
+                try await Task.sleep(for: .milliseconds(200))
+                guard !Task.isCancelled else { return }
+                let result = try await viewModel.searchUsers(
+                    term: trimmed,
+                    includeGroups: false,
+                    limit: 8,
+                    topicID: nil,
+                    categoryID: nil
+                )
+                guard !Task.isCancelled else { return }
+                await MainActor.run {
+                    recipientResults = result.users.filter { user in
+                        !selectedRecipients.contains {
+                            $0.caseInsensitiveCompare(user.username) == .orderedSame
+                        }
+                    }
+                }
+            } catch {
+                guard !Task.isCancelled else { return }
+                await MainActor.run {
+                    recipientResults = []
                 }
             }
         }
@@ -854,6 +1045,12 @@ struct FireComposerView: View {
                 selectedTags = initialTags
             }
             applyDefaultCategoryIfNeeded()
+        } else if case .privateMessage(let recipients, let initialTitle) = route.kind {
+            selectedRecipients = recipients
+            title = initialTitle ?? title
+            if let initialBody, bodyText.isEmpty {
+                bodyText = initialBody
+            }
         } else if let initialBody, bodyText.isEmpty {
             bodyText = initialBody
         }
@@ -866,16 +1063,29 @@ struct FireComposerView: View {
 
         do {
             if let draft = try await viewModel.fetchDraft(draftKey: route.draftKey) {
-                draftSequence = draft.sequence
                 if case .createTopic = route.kind {
+                    draftSequence = draft.sequence
                     title = draft.data.title ?? title
                     bodyText = draft.data.reply ?? bodyText
                     selectedCategoryID = draft.data.categoryId ?? selectedCategoryID
                     selectedTags = draft.data.tags
+                } else if case .privateMessage = route.kind {
+                    if shouldRestorePrivateMessageDraft(
+                        explicitRecipients: route.recipients,
+                        draftRecipients: draft.data.recipients
+                    ) {
+                        draftSequence = draft.sequence
+                        title = draft.data.title ?? title
+                        bodyText = draft.data.reply ?? bodyText
+                        if !draft.data.recipients.isEmpty {
+                            selectedRecipients = draft.data.recipients
+                        }
+                    }
                 } else {
+                    draftSequence = draft.sequence
                     bodyText = draft.data.reply ?? bodyText
                 }
-                if draft.data.reply != nil || draft.data.title != nil {
+                if draftSequence > 0, draft.data.reply != nil || draft.data.title != nil {
                     noticeMessage = "已恢复草稿"
                 }
             }
@@ -944,13 +1154,39 @@ struct FireComposerView: View {
 
         let draftData = DraftDataState(
             reply: bodyText,
-            title: route.kind == .createTopic ? title : nil,
-            categoryId: route.kind == .createTopic ? selectedCategoryID : nil,
-            tags: route.kind == .createTopic ? selectedTags : [],
+            title: {
+                switch route.kind {
+                case .createTopic, .privateMessage:
+                    return title
+                case .advancedReply:
+                    return nil
+                }
+            }(),
+            categoryId: {
+                if case .createTopic = route.kind {
+                    return selectedCategoryID
+                }
+                return nil
+            }(),
+            tags: {
+                if case .createTopic = route.kind {
+                    return selectedTags
+                }
+                return []
+            }(),
             replyToPostNumber: route.replyToPostNumber,
-            action: route.kind == .createTopic ? "create_topic" : "reply",
-            recipients: [],
-            archetypeId: "regular",
+            action: {
+                switch route.kind {
+                case .createTopic:
+                    return "create_topic"
+                case .privateMessage:
+                    return "private_message"
+                case .advancedReply:
+                    return "reply"
+                }
+            }(),
+            recipients: route.isPrivateMessage ? selectedRecipients : [],
+            archetypeId: route.isPrivateMessage ? "private_message" : "regular",
             composerTime: nil,
             typingTime: nil
         )
@@ -1024,7 +1260,55 @@ struct FireComposerView: View {
                 }
             }
 
-        case .advancedReply(let topicID, _, _, let replyToPostNumber, _):
+        case .privateMessage:
+            guard !trimmedTitle.isEmpty else {
+                errorMessage = "标题不能为空。"
+                return
+            }
+            guard trimmedTitle.count >= minimumTitleLength else {
+                errorMessage = "标题至少需要 \(minimumTitleLength) 个字。"
+                return
+            }
+            guard !trimmedBody.isEmpty else {
+                errorMessage = "正文不能为空。"
+                return
+            }
+            guard trimmedBody.count >= minimumBodyLength else {
+                errorMessage = "正文至少需要 \(minimumBodyLength) 个字。"
+                return
+            }
+            guard !selectedRecipients.isEmpty else {
+                errorMessage = "请至少添加一个收件人。"
+                return
+            }
+
+            isSubmitting = true
+            Task { @MainActor in
+                defer { isSubmitting = false }
+                do {
+                    let topicID = try await viewModel.createPrivateMessage(
+                        title: trimmedTitle,
+                        raw: trimmedBody,
+                        targetRecipients: selectedRecipients
+                    )
+                    try? await viewModel.deleteDraft(draftKey: route.draftKey, sequence: draftSequence)
+                    draftSequence = 0
+                    onPrivateMessageCreated?(topicID)
+                    dismiss()
+                } catch {
+                    let message = error.localizedDescription
+                    if message.localizedCaseInsensitiveContains("pending review") {
+                        try? await viewModel.deleteDraft(draftKey: route.draftKey, sequence: draftSequence)
+                        draftSequence = 0
+                        noticeMessage = "私信已提交，等待审核。"
+                        dismiss()
+                        return
+                    }
+                    errorMessage = message
+                }
+            }
+
+        case .advancedReply(let topicID, _, _, let replyToPostNumber, _, _):
             guard !trimmedBody.isEmpty else {
                 errorMessage = "回复内容不能为空。"
                 return

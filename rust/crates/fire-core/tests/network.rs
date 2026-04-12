@@ -96,6 +96,133 @@ async fn fetch_topic_list_parses_latest_payload() {
 }
 
 #[tokio::test]
+async fn fetch_private_message_mailboxes_use_username_routes_and_parse_participants() {
+    let payload = r#"{
+  "topic_list": {
+    "topics": [
+      {
+        "id": 456,
+        "title": "Fire private message",
+        "slug": "fire-private-message",
+        "posts_count": 3,
+        "reply_count": 2,
+        "views": 12,
+        "like_count": 1,
+        "excerpt": "hello from bob",
+        "created_at": "2026-04-11T00:00:00Z",
+        "last_posted_at": "2026-04-11T00:05:00Z",
+        "last_poster_username": "bob",
+        "pinned": false,
+        "visible": true,
+        "closed": false,
+        "archived": false,
+        "tags": [],
+        "posters": [],
+        "participants": [
+          {
+            "id": 1,
+            "username": "alice",
+            "name": "Alice",
+            "avatar_template": "/user_avatar/linux.do/alice/{size}/1_2.png"
+          },
+          {
+            "id": 2,
+            "username": "bob",
+            "name": "Bob",
+            "avatar_template": "/user_avatar/linux.do/bob/{size}/1_2.png"
+          }
+        ],
+        "unseen": false,
+        "unread_posts": 1,
+        "new_posts": 0,
+        "highest_post_number": 3
+      }
+    ],
+    "more_topics_url": "/topics/private-messages/alice?page=2"
+  },
+  "users": [
+    {
+      "id": 2,
+      "username": "bob",
+      "avatar_template": "/user_avatar/linux.do/bob/{size}/1_2.png"
+    }
+  ]
+}"#;
+    let server = TestServer::spawn(vec![
+        raw_json_response(200, "application/json", payload),
+        raw_json_response(200, "application/json", payload),
+    ])
+    .await
+    .expect("server");
+    let core = FireCore::new(FireCoreConfig {
+        base_url: server.base_url(),
+        workspace_path: None,
+    })
+    .expect("core");
+
+    let _ = core.sync_login_context(LoginSyncInput {
+        username: Some("alice".into()),
+        home_html: Some(sample_home_html()),
+        csrf_token: Some("csrf-token".into()),
+        current_url: Some(server.base_url()),
+        browser_user_agent: None,
+        cookies: vec![
+            PlatformCookie {
+                name: "_t".into(),
+                value: "token".into(),
+                domain: None,
+                path: None,
+                expires_at_unix_ms: None,
+            },
+            PlatformCookie {
+                name: "_forum_session".into(),
+                value: "forum".into(),
+                domain: None,
+                path: None,
+                expires_at_unix_ms: None,
+            },
+        ],
+    });
+
+    let inbox = core
+        .fetch_topic_list(TopicListQuery {
+            kind: TopicListKind::PrivateMessagesInbox,
+            page: Some(2),
+            ..TopicListQuery::default()
+        })
+        .await
+        .expect("pm inbox");
+    let sent = core
+        .fetch_topic_list(TopicListQuery {
+            kind: TopicListKind::PrivateMessagesSent,
+            page: Some(3),
+            ..TopicListQuery::default()
+        })
+        .await
+        .expect("pm sent");
+    let requests = server.shutdown_with_requests().await;
+
+    assert_eq!(inbox.topics.len(), 1);
+    assert_eq!(inbox.topics[0].participants.len(), 2);
+    assert_eq!(
+        inbox.topics[0].participants[0].username.as_deref(),
+        Some("alice")
+    );
+    assert_eq!(inbox.topics[0].participants[1].name.as_deref(), Some("Bob"));
+    assert_eq!(
+        inbox.rows[0].topic.participants[1]
+            .avatar_template
+            .as_deref(),
+        Some("/user_avatar/linux.do/bob/{size}/1_2.png")
+    );
+    assert_eq!(inbox.next_page, Some(2));
+    assert_eq!(sent.topics[0].id, 456);
+    assert_eq!(requests.len(), 2);
+    assert!(requests[0].contains("GET /topics/private-messages/alice.json?page=2 HTTP/1.1"));
+    assert!(requests[1].contains("GET /topics/private-messages-sent/alice.json?page=3 HTTP/1.1"));
+}
+
+#[tokio::test]
 async fn fetch_topic_list_tolerates_object_poster_metadata_fields() {
     let payload = sample_latest_json()
         .replace(
@@ -401,6 +528,68 @@ async fn fetch_topic_detail_parses_detail_payload() {
             .map(|value| value.username.as_str()),
         Some("alice")
     );
+}
+
+#[tokio::test]
+async fn fetch_private_message_detail_parses_detail_participants() {
+    let mut payload: Value =
+        serde_json::from_str(&sample_topic_detail_json()).expect("detail fixture json");
+    let object = payload.as_object_mut().expect("detail fixture object");
+    object.insert("archetype".into(), json!("private_message"));
+    object
+        .get_mut("details")
+        .and_then(Value::as_object_mut)
+        .expect("detail metadata")
+        .insert(
+            "participants".into(),
+            json!([
+                {
+                    "id": 1,
+                    "username": "alice",
+                    "name": "Alice",
+                    "avatar_template": "/user_avatar/linux.do/alice/{size}/1_2.png"
+                },
+                {
+                    "id": 2,
+                    "username": "bob",
+                    "name": "Bob",
+                    "avatar_template": "/user_avatar/linux.do/bob/{size}/1_2.png"
+                }
+            ]),
+        );
+
+    let responses = vec![raw_json_response(
+        200,
+        "application/json",
+        &payload.to_string(),
+    )];
+    let server = TestServer::spawn(responses).await.expect("server");
+    let core = FireCore::new(FireCoreConfig {
+        base_url: server.base_url(),
+        workspace_path: None,
+    })
+    .expect("core");
+
+    let detail = core
+        .fetch_topic_detail(TopicDetailQuery {
+            topic_id: 123,
+            post_number: None,
+            track_visit: false,
+            filter: None,
+            username_filters: None,
+            filter_top_level_replies: false,
+        })
+        .await
+        .expect("detail");
+    let _ = server.shutdown().await;
+
+    assert_eq!(detail.archetype.as_deref(), Some("private_message"));
+    assert_eq!(detail.details.participants.len(), 2);
+    assert_eq!(
+        detail.details.participants[1].username.as_deref(),
+        Some("bob")
+    );
+    assert_eq!(detail.details.participants[1].name.as_deref(), Some("Bob"));
 }
 
 #[tokio::test]

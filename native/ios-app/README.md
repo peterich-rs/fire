@@ -61,15 +61,23 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
   - tracks paginated topic feed state and publishes Rust-backed bootstrap metadata plus Rust-generated topic-row view models into SwiftUI
   - mirrors authenticated LinuxDo cookies into native `HTTPCookieStorage` so inline media/image requests can reuse the restored session
   - coordinates native reply, like, custom reaction, and topic-timing reporting on top of the shared Rust interaction APIs
+  - now also owns native private-message inbox/sent loading plus private-message creation on top of the shared Rust mailbox and `/posts.json` PM surfaces
   - now owns the foreground MessageBus lifecycle on iOS, including topic-detail reaction/presence subscriptions, shared notification-state sync, and reply-presence heartbeats while the quick composer is focused
   - now treats Rust-owned `CloudflareChallenge` errors as the signal to clear the local authenticated snapshot, return the shell to onboarding, and auto-present the login WebView so challenge recovery stays inside the browser flow
   - now also emits host-owned APM spans for cold-start restore, login sync, bootstrap refresh, latest-feed load, topic-detail load, reply submit, notification refresh, and MessageBus start
 - `App/FireSearchView.swift`
   - provides a native search workspace with keyword input, topic/post/user scope switching, paginated result loading, and typed route-based topic/profile navigation
+- `App/FireComposerView.swift`
+  - now supports native private-message compose alongside create-topic and advanced-reply flows, including recipient token editing, PM-specific draft restore/save, and PM-specific validation lengths from bootstrap
+- `App/FirePrivateMessagesView.swift`
+  - provides the native private-message workspace with inbox/sent switching, participant-aware rows, compose entry, and route handoff into topic detail after successful send
 - `App/FireTopicDetailView.swift`
   - subscribes the current topic's detail, reaction, and reply-presence channels through the shared Rust MessageBus surface
   - reports visible-post reading timings through a native viewport tracker that flushes into the shared Rust `/topics/timings` API
   - now shows live "typing" presence above the quick-reply bar while keeping the actual presence state and heartbeats in the shared layer
+  - now treats `private_message` threads as a distinct native surface, showing participant chips in the header and hiding topic-only controls that do not apply to PMs
+- `App/FirePublicProfileView.swift`
+  - now exposes a native private-message entry when the target profile allows direct messages, pre-filling the recipient into the shared PM composer flow
 - `App/FireBackgroundNotificationAlert.swift`
   - schedules iOS `BGAppRefreshTask` runs for `/notification-alert/{userId}` polling
   - restores the Rust session plus Keychain cookies in the background, performs a one-shot shared MessageBus alert poll, and turns the result into host-owned local notifications
@@ -166,16 +174,18 @@ Current UX note:
 - Topic rows now come across the UniFFI boundary as Rust-generated row models that already resolve original-poster identity, status labels, plain-text excerpts, trimmed tag names, and Unix-millisecond timestamps from the topic-list payload, while Swift only formats timestamps and renders the native row layout.
 - The homepage `latest` feed now coalesces MessageBus topic-list updates on iOS, enforces a 30-second minimum refresh interval, and batches `/latest.json?topic_ids=...` incremental reloads while the active view is the unfiltered latest list.
 - Topic detail now consumes Rust-generated flat thread posts and shared text helpers, hides the tab bar as a dedicated reading page, promotes the original post into the topic header as the main body, and exposes a persistent quick-reply bar at the bottom instead of a modal composer sheet.
-- The app now also exposes a full-screen native composer for create-topic and advanced-reply flows, with server-backed draft restore/save, image uploads, upload URL resolution, tag search, and `@mention` autocomplete on top of shared Rust APIs.
+- The app now also exposes a full-screen native composer for create-topic, private-message, and advanced-reply flows, with server-backed draft restore/save, recipient search, image uploads, upload URL resolution, tag search, and `@mention` autocomplete on top of shared Rust APIs.
 - Topic detail now supports per-post reply targeting, post likes, and custom emoji reactions through the shared Rust write APIs.
 - Topic detail now also reports native visible-post reading timings through the shared Rust `/topics/timings` API instead of keeping that reporting path host-specific.
 - Topic detail now also listens to the shared MessageBus reaction/presence channels, refreshes live post state from Rust on matching events, and shows shared reply-presence users in the quick-reply area.
+- Topic detail now also recognizes `private_message` threads, renders participant chips in the header, and hides public-topic-only controls such as vote panels, topic editing, category/tag navigation, and topic notification settings.
 - Topic posts now render normalized native text plus inline image attachments in the detail screen, while more complex cooked modules still fall back to the lightweight native presentation instead of a full HTML/WebView renderer.
 - The app now keeps the in-app notification list synchronized from Rust-owned notification runtime state when MessageBus notification events arrive, instead of only updating the unread badge count.
 - iOS now schedules background refresh work for `/notification-alert/{userId}` and presents host-owned local notifications from a dedicated one-shot Rust MessageBus poll path.
 - The authenticated shell now also requests APNs registration, caches the resulting device token locally, and exposes host-side registration diagnostics without attempting backend token upload yet.
 - The app now exposes a diagnostics screen for tail-first log inspection, preview-first request-trace body paging, and local support-bundle export.
 - The profile screen now consumes Rust-derived session display labels, so authenticated recovery states are described consistently across hosts instead of being inferred separately in Swift.
+- The profile area now includes a native private-message mailbox, and public profile headers can open a pre-addressed private-message composer when the viewed user allows PMs.
 
 Build prerequisites:
 

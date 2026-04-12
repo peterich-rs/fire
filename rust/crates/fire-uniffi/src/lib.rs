@@ -25,17 +25,18 @@ use fire_models::{
     MessageBusSubscription, MessageBusSubscriptionScope, NotificationAlert,
     NotificationAlertPollResult, NotificationCounters, NotificationData, NotificationItem,
     NotificationListResponse, NotificationState, PlatformCookie, Poll, PollOption,
-    PostReactionUpdate, PostUpdateRequest, ProfileSummaryReply, ProfileSummaryTopCategory,
-    ProfileSummaryTopic, ProfileSummaryUserReference, RequiredTagGroup, ResolvedUploadUrl,
-    SearchPost, SearchQuery, SearchResult, SearchTopic, SearchTypeFilter, SearchUser,
-    SessionReadiness, SessionSnapshot, TagSearchItem, TagSearchQuery, TagSearchResult,
+    PostReactionUpdate, PostUpdateRequest, PrivateMessageCreateRequest, ProfileSummaryReply,
+    ProfileSummaryTopCategory, ProfileSummaryTopic, ProfileSummaryUserReference, RequiredTagGroup,
+    ResolvedUploadUrl, SearchPost, SearchQuery, SearchResult, SearchTopic, SearchTypeFilter,
+    SearchUser, SessionReadiness, SessionSnapshot, TagSearchItem, TagSearchQuery, TagSearchResult,
     TopicCategory, TopicCreateRequest, TopicDetail, TopicDetailCreatedBy, TopicDetailMeta,
-    TopicDetailQuery, TopicListKind, TopicListQuery, TopicListResponse, TopicPost, TopicPostStream,
-    TopicPoster, TopicPresence, TopicPresenceUser, TopicReaction, TopicReplyRequest, TopicRow,
-    TopicSummary, TopicTag, TopicThread, TopicThreadFlatPost, TopicThreadReply, TopicThreadSection,
-    TopicTimingEntry, TopicTimingsRequest, TopicUpdateRequest, TopicUser, UploadResult, UserAction,
-    UserMentionGroup, UserMentionQuery, UserMentionResult, UserMentionUser, UserProfile,
-    UserSummaryResponse, UserSummaryStats, VoteResponse, VotedUser,
+    TopicDetailQuery, TopicListKind, TopicListQuery, TopicListResponse, TopicParticipant,
+    TopicPost, TopicPostStream, TopicPoster, TopicPresence, TopicPresenceUser, TopicReaction,
+    TopicReplyRequest, TopicRow, TopicSummary, TopicTag, TopicThread, TopicThreadFlatPost,
+    TopicThreadReply, TopicThreadSection, TopicTimingEntry, TopicTimingsRequest,
+    TopicUpdateRequest, TopicUser, UploadResult, UserAction, UserMentionGroup, UserMentionQuery,
+    UserMentionResult, UserMentionUser, UserProfile, UserSummaryResponse, UserSummaryStats,
+    VoteResponse, VotedUser,
 };
 use futures_util::FutureExt;
 use tokio::runtime::{Builder, Runtime};
@@ -281,6 +282,8 @@ pub struct BootstrapState {
     pub min_post_length: u32,
     pub min_topic_title_length: u32,
     pub min_first_post_length: u32,
+    pub min_personal_message_title_length: u32,
+    pub min_personal_message_post_length: u32,
     pub default_composer_category: Option<u64>,
 }
 
@@ -307,6 +310,8 @@ impl From<BootstrapArtifacts> for BootstrapState {
             min_post_length: value.min_post_length,
             min_topic_title_length: value.min_topic_title_length,
             min_first_post_length: value.min_first_post_length,
+            min_personal_message_title_length: value.min_personal_message_title_length,
+            min_personal_message_post_length: value.min_personal_message_post_length,
             default_composer_category: value.default_composer_category,
         }
     }
@@ -335,6 +340,8 @@ impl From<BootstrapState> for BootstrapArtifacts {
             min_post_length: value.min_post_length,
             min_topic_title_length: value.min_topic_title_length,
             min_first_post_length: value.min_first_post_length,
+            min_personal_message_title_length: value.min_personal_message_title_length,
+            min_personal_message_post_length: value.min_personal_message_post_length,
             default_composer_category: value.default_composer_category,
         }
     }
@@ -855,6 +862,8 @@ pub enum TopicListKindState {
     Unseen,
     Hot,
     Top,
+    PrivateMessagesInbox,
+    PrivateMessagesSent,
 }
 
 impl From<TopicListKind> for TopicListKindState {
@@ -866,6 +875,8 @@ impl From<TopicListKind> for TopicListKindState {
             TopicListKind::Unseen => Self::Unseen,
             TopicListKind::Hot => Self::Hot,
             TopicListKind::Top => Self::Top,
+            TopicListKind::PrivateMessagesInbox => Self::PrivateMessagesInbox,
+            TopicListKind::PrivateMessagesSent => Self::PrivateMessagesSent,
         }
     }
 }
@@ -879,6 +890,8 @@ impl From<TopicListKindState> for TopicListKind {
             TopicListKindState::Unseen => Self::Unseen,
             TopicListKindState::Hot => Self::Hot,
             TopicListKindState::Top => Self::Top,
+            TopicListKindState::PrivateMessagesInbox => Self::PrivateMessagesInbox,
+            TopicListKindState::PrivateMessagesSent => Self::PrivateMessagesSent,
         }
     }
 }
@@ -969,6 +982,25 @@ impl From<TopicPoster> for TopicPosterState {
 }
 
 #[derive(uniffi::Record, Debug, Clone)]
+pub struct TopicParticipantState {
+    pub user_id: u64,
+    pub username: Option<String>,
+    pub name: Option<String>,
+    pub avatar_template: Option<String>,
+}
+
+impl From<TopicParticipant> for TopicParticipantState {
+    fn from(value: TopicParticipant) -> Self {
+        Self {
+            user_id: value.user_id,
+            username: value.username,
+            name: value.name,
+            avatar_template: value.avatar_template,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
 pub struct TopicTagState {
     pub id: Option<u64>,
     pub name: String,
@@ -1005,6 +1037,7 @@ pub struct TopicSummaryState {
     pub archived: bool,
     pub tags: Vec<TopicTagState>,
     pub posters: Vec<TopicPosterState>,
+    pub participants: Vec<TopicParticipantState>,
     pub unseen: bool,
     pub unread_posts: u32,
     pub new_posts: u32,
@@ -1040,6 +1073,7 @@ impl From<TopicSummary> for TopicSummaryState {
             archived: value.archived,
             tags: value.tags.into_iter().map(Into::into).collect(),
             posters: value.posters.into_iter().map(Into::into).collect(),
+            participants: value.participants.into_iter().map(Into::into).collect(),
             unseen: value.unseen,
             unread_posts: value.unread_posts,
             new_posts: value.new_posts,
@@ -1612,6 +1646,23 @@ impl From<TopicCreateRequestState> for TopicCreateRequest {
 }
 
 #[derive(uniffi::Record, Debug, Clone)]
+pub struct PrivateMessageCreateRequestState {
+    pub title: String,
+    pub raw: String,
+    pub target_recipients: Vec<String>,
+}
+
+impl From<PrivateMessageCreateRequestState> for PrivateMessageCreateRequest {
+    fn from(value: PrivateMessageCreateRequestState) -> Self {
+        Self {
+            title: value.title,
+            raw: value.raw,
+            target_recipients: value.target_recipients,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
 pub struct TopicUpdateRequestState {
     pub topic_id: u64,
     pub title: String,
@@ -2020,6 +2071,7 @@ pub struct TopicDetailMetaState {
     pub notification_level: Option<i32>,
     pub can_edit: bool,
     pub created_by: Option<TopicDetailCreatedByState>,
+    pub participants: Vec<TopicParticipantState>,
 }
 
 impl From<TopicDetailMeta> for TopicDetailMetaState {
@@ -2028,6 +2080,7 @@ impl From<TopicDetailMeta> for TopicDetailMetaState {
             notification_level: value.notification_level,
             can_edit: value.can_edit,
             created_by: value.created_by.map(Into::into),
+            participants: value.participants.into_iter().map(Into::into).collect(),
         }
     }
 }
@@ -2450,6 +2503,7 @@ pub struct UserProfileState {
     pub total_following: u32,
     pub can_follow: bool,
     pub is_followed: bool,
+    pub can_send_private_message_to_user: bool,
     pub gamification_score: Option<u32>,
     pub trust_level_label: String,
 }
@@ -2478,6 +2532,9 @@ impl From<UserProfile> for UserProfileState {
             total_following: value.total_following.unwrap_or(0),
             can_follow: value.can_follow.unwrap_or(false),
             is_followed: value.is_followed.unwrap_or(false),
+            can_send_private_message_to_user: value
+                .can_send_private_message_to_user
+                .unwrap_or(false),
             gamification_score: value.gamification_score,
             trust_level_label: trust_level_label(trust_level),
         }
@@ -3528,6 +3585,18 @@ impl FireCoreHandle {
         let panic_state = Arc::clone(&self.panic_state);
         run_on_ffi_runtime("create_topic", panic_state, async move {
             inner.create_topic(input.into()).await
+        })
+        .await
+    }
+
+    pub async fn create_private_message(
+        &self,
+        input: PrivateMessageCreateRequestState,
+    ) -> Result<u64, FireUniFfiError> {
+        let inner = Arc::clone(&self.inner);
+        let panic_state = Arc::clone(&self.panic_state);
+        run_on_ffi_runtime("create_private_message", panic_state, async move {
+            inner.create_private_message(input.into()).await
         })
         .await
     }

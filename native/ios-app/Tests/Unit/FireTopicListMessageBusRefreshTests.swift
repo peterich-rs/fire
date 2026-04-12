@@ -126,6 +126,7 @@ final class FireTopicListMessageBusRefreshTests: XCTestCase {
                 archived: false,
                 tags: [],
                 posters: [],
+                participants: [],
                 unseen: false,
                 unreadPosts: 0,
                 newPosts: 0,

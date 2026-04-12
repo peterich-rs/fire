@@ -49,6 +49,7 @@ class TopicPresentationTest {
                 archived = true,
                 tags = emptyList(),
                 posters = listOf(TopicPosterState(userId = 9uL, description = null, extras = null)),
+                participants = emptyList(),
                 unseen = false,
                 unreadPosts = 2u,
                 newPosts = 1u,

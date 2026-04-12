@@ -1,7 +1,7 @@
 use fire_models::{
     Poll, PollOption, PostReactionUpdate, TopicDetail, TopicDetailCreatedBy, TopicDetailMeta,
-    TopicListResponse, TopicPost, TopicPostStream, TopicPoster, TopicReaction, TopicRow,
-    TopicSummary, TopicTag, TopicThread, TopicUser, VoteResponse, VotedUser,
+    TopicListResponse, TopicParticipant, TopicPost, TopicPostStream, TopicPoster, TopicReaction,
+    TopicRow, TopicSummary, TopicTag, TopicThread, TopicUser, VoteResponse, VotedUser,
 };
 use serde::{
     de::{DeserializeOwned, Error as DeError},
@@ -96,6 +96,34 @@ impl From<RawTopicPoster> for TopicPoster {
 }
 
 #[derive(Debug, Default, Deserialize)]
+struct RawTopicParticipant {
+    #[serde(
+        default,
+        alias = "id",
+        alias = "user_id",
+        deserialize_with = "deserialize_default_u64"
+    )]
+    user_id: u64,
+    #[serde(default, deserialize_with = "deserialize_optional_scalar_string")]
+    username: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_optional_scalar_string")]
+    name: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_optional_scalar_string")]
+    avatar_template: Option<String>,
+}
+
+impl From<RawTopicParticipant> for TopicParticipant {
+    fn from(value: RawTopicParticipant) -> Self {
+        Self {
+            user_id: value.user_id,
+            username: value.username,
+            name: value.name,
+            avatar_template: value.avatar_template,
+        }
+    }
+}
+
+#[derive(Debug, Default, Deserialize)]
 struct RawTopicSummary {
     #[serde(default, deserialize_with = "deserialize_default_u64")]
     id: u64,
@@ -136,6 +164,8 @@ struct RawTopicSummary {
     tags: Vec<TopicTag>,
     #[serde(default, deserialize_with = "deserialize_default_sequence")]
     posters: Vec<RawTopicPoster>,
+    #[serde(default, deserialize_with = "deserialize_default_sequence")]
+    participants: Vec<RawTopicParticipant>,
     #[serde(default, deserialize_with = "deserialize_default_bool")]
     unseen: bool,
     #[serde(default, deserialize_with = "deserialize_default_u32")]
@@ -203,6 +233,7 @@ impl From<RawTopicSummary> for TopicSummary {
             archived: value.archived,
             tags: value.tags,
             posters: value.posters.into_iter().map(Into::into).collect(),
+            participants: value.participants.into_iter().map(Into::into).collect(),
             unseen: value.unseen,
             unread_posts: value.unread_posts,
             new_posts: value.new_posts,
@@ -682,6 +713,8 @@ struct RawTopicDetailMeta {
     can_edit: bool,
     #[serde(default, deserialize_with = "deserialize_optional_record")]
     created_by: Option<RawTopicDetailCreatedBy>,
+    #[serde(default, deserialize_with = "deserialize_default_sequence")]
+    participants: Vec<RawTopicParticipant>,
 }
 
 impl From<RawTopicDetailMeta> for TopicDetailMeta {
@@ -690,6 +723,7 @@ impl From<RawTopicDetailMeta> for TopicDetailMeta {
             notification_level: value.notification_level,
             can_edit: value.can_edit,
             created_by: value.created_by.map(Into::into),
+            participants: value.participants.into_iter().map(Into::into).collect(),
         }
     }
 }

@@ -568,6 +568,22 @@ public actor FireSessionStore {
         }
     }
 
+    public func createPrivateMessage(
+        title: String,
+        raw: String,
+        targetRecipients: [String]
+    ) async throws -> UInt64 {
+        try await runPersistingSessionChanges {
+            try await core.createPrivateMessage(
+                input: PrivateMessageCreateRequestState(
+                    title: title,
+                    raw: raw,
+                    targetRecipients: targetRecipients
+                )
+            )
+        }
+    }
+
     public func updateTopic(
         topicID: UInt64,
         title: String,

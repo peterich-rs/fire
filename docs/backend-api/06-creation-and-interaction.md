@@ -339,9 +339,12 @@
   - `topic_{topicId}_post_{postNumber}`
 - 当前 Fire iOS 行为：
   - create-topic composer 使用 `new_topic`
+  - 新建私信 composer 使用 `new_private_message`
   - advanced reply 使用：
     - 回复话题：`topic_{topicId}`
     - 回复指定楼层：`topic_{topicId}_post_{postNumber}`
+  - 私信线程内的完整回复继续沿用 `topic_{topicId}` / `topic_{topicId}_post_{postNumber}`，不会改成 `new_private_message`
+  - `new_private_message` 草稿当前会恢复标题、正文和收件人列表；私信线程回复草稿则依赖 `draft.data.archetypeId = "private_message"` 区分
 - 成功响应：
 
 ```json
@@ -380,6 +383,10 @@
 - `409 Conflict` 表示序列号冲突，响应中可能返回新的 `draft_sequence`
 - 当前 Fire iOS 行为：
   - composer 输入变更后会防抖自动保存
+  - 私信 composer 保存草稿时会额外写入：
+    - `action = "private_message"`
+    - `archetypeId = "private_message"`
+    - `recipients = ["alice", "bob"]`
   - 关闭 composer 时：
     - 有内容则立即 flush 一次草稿
     - 无内容则删除草稿
@@ -517,3 +524,8 @@
 - 开发前置约束：
   - 当前客户端会先读取 `min_personal_message_title_length`
   - 以及 `min_personal_message_post_length`
+- 当前 Fire iOS 行为：
+  - 通过 profile 页“私信”入口或公开用户页 header 的“私信”按钮进入原生 full-screen composer
+  - `target_recipients` 由选中的用户名列表按逗号拼接，当前不支持群组收件人
+  - 收件人搜索走 `GET /u/search/users?include_groups=false`
+  - 发送成功后会刷新私信 mailbox，并直接跳入新建出的私信详情线程

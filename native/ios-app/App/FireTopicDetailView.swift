@@ -194,7 +194,10 @@ struct FireTopicDetailView: View {
     }
 
     private var minimumReplyLength: Int {
-        FireTopicPresentation.minimumReplyLength(from: viewModel.session.bootstrap.minPostLength)
+        let minLength = isPrivateMessageThread
+            ? viewModel.session.bootstrap.minPersonalMessagePostLength
+            : viewModel.session.bootstrap.minPostLength
+        return FireTopicPresentation.minimumReplyLength(from: minLength)
     }
 
     private var baseURLString: String {
@@ -213,6 +216,36 @@ struct FireTopicDetailView: View {
 
     private var currentTopicNotificationLevel: FireTopicNotificationLevelOption {
         FireTopicNotificationLevelOption(rawValue: Int32(detail?.details.notificationLevel ?? 1)) ?? .regular
+    }
+
+    private var isPrivateMessageThread: Bool {
+        detail?.archetype == "private_message" || !displayedParticipants.isEmpty
+    }
+
+    private var displayedParticipants: [TopicParticipantState] {
+        let source = !(detail?.details.participants.isEmpty ?? true)
+            ? detail?.details.participants ?? []
+            : topic.participants
+        var participants: [TopicParticipantState] = []
+        let currentUsername = viewModel.session.bootstrap.currentUsername?.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        for participant in source {
+            let normalizedUsername = participant.username?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if let currentUsername,
+               normalizedUsername?.caseInsensitiveCompare(currentUsername) == .orderedSame {
+                continue
+            }
+
+            let stableID = normalizedUsername?.lowercased() ?? "id:\(participant.userId)"
+            if participants.contains(where: {
+                ($0.username?.lowercased() ?? "id:\($0.userId)") == stableID
+            }) {
+                continue
+            }
+            participants.append(participant)
+        }
+        return participants
     }
 
     private var topicBookmarkContext: FireBookmarkEditorContext {
@@ -320,7 +353,7 @@ struct FireTopicDetailView: View {
                 }
 
                 Menu {
-                    if detail?.details.canEdit == true {
+                    if detail?.details.canEdit == true && !isPrivateMessageThread {
                         Button {
                             showingTopicEditor = true
                         } label: {
@@ -342,20 +375,22 @@ struct FireTopicDetailView: View {
 
                     Divider()
 
-                    ForEach(FireTopicNotificationLevelOption.allCases) { option in
-                        Button {
-                            Task {
-                                await updateTopicNotificationLevel(option)
+                    if !isPrivateMessageThread {
+                        ForEach(FireTopicNotificationLevelOption.allCases) { option in
+                            Button {
+                                Task {
+                                    await updateTopicNotificationLevel(option)
+                                }
+                            } label: {
+                                if option == currentTopicNotificationLevel {
+                                    Label(option.title, systemImage: "checkmark")
+                                } else {
+                                    Text(option.title)
+                                }
                             }
-                        } label: {
-                            if option == currentTopicNotificationLevel {
-                                Label(option.title, systemImage: "checkmark")
-                            } else {
-                                Text(option.title)
-                            }
+                            .disabled(!canWriteInteractions)
                         }
                     }
-                    .disabled(!canWriteInteractions)
                 } label: {
                     Image(systemName: "ellipsis.circle")
                 }
@@ -443,7 +478,8 @@ struct FireTopicDetailView: View {
                             topicTitle: displayedTopicTitle,
                             categoryID: displayedCategoryId,
                             replyToPostNumber: context.replyToPostNumber,
-                            replyToUsername: context.replyToUsername
+                            replyToUsername: context.replyToUsername,
+                            isPrivateMessage: isPrivateMessageThread
                         )
                     ),
                     initialBody: replyDraft,
@@ -560,51 +596,65 @@ struct FireTopicDetailView: View {
                 .font(.title3.weight(.bold))
 
             FlowLayout(spacing: 6, fallbackWidth: max(UIScreen.main.bounds.width - 40, 200)) {
-                if let displayedCategory {
-                    let accent = Color(fireHex: displayedCategory.colorHex) ?? FireTheme.accent
-                    NavigationLink {
-                        FireFilteredTopicListView(
-                            viewModel: viewModel,
-                            title: displayedCategory.displayName,
-                            categorySlug: displayedCategory.slug,
-                            categoryId: displayedCategory.id,
-                            parentCategorySlug: nil,
-                            tag: nil
-                        )
-                    } label: {
-                        FireTopicPill(
-                            label: displayedCategory.displayName,
-                            backgroundColor: FireTheme.categoryChipBackground(accent: accent, isDark: colorScheme == .dark),
-                            foregroundColor: accent
-                        )
-                    }
-                    .buttonStyle(.plain)
-                }
+                if isPrivateMessageThread {
+                    FireStatusChip(label: "私信", tone: .accent)
 
-                ForEach(displayedTagNames, id: \.self) { tagName in
-                    NavigationLink {
-                        FireFilteredTopicListView(
-                            viewModel: viewModel,
-                            title: "#\(tagName)",
-                            categorySlug: nil,
-                            categoryId: nil,
-                            parentCategorySlug: nil,
-                            tag: tagName
-                        )
-                    } label: {
-                        Text("#\(tagName)")
+                    ForEach(displayedParticipants, id: \.userId) { participant in
+                        let label = (participant.name ?? "").ifEmpty(participant.username ?? "用户 \(participant.userId)")
+                        Text("@\(label)")
                             .font(.caption2.weight(.medium))
-                            .foregroundStyle(FireTheme.tagChipForeground)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 3)
-                            .background(FireTheme.tagChipBackground)
-                            .clipShape(Capsule())
+                            .foregroundStyle(.indigo)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(Color.indigo.opacity(0.12), in: Capsule())
                     }
-                    .buttonStyle(.plain)
-                }
+                } else {
+                    if let displayedCategory {
+                        let accent = Color(fireHex: displayedCategory.colorHex) ?? FireTheme.accent
+                        NavigationLink {
+                            FireFilteredTopicListView(
+                                viewModel: viewModel,
+                                title: displayedCategory.displayName,
+                                categorySlug: displayedCategory.slug,
+                                categoryId: displayedCategory.id,
+                                parentCategorySlug: nil,
+                                tag: nil
+                            )
+                        } label: {
+                            FireTopicPill(
+                                label: displayedCategory.displayName,
+                                backgroundColor: FireTheme.categoryChipBackground(accent: accent, isDark: colorScheme == .dark),
+                                foregroundColor: accent
+                            )
+                        }
+                        .buttonStyle(.plain)
+                    }
 
-                ForEach(row.statusLabels, id: \.self) { label in
-                    FireStatusChip(label: label, tone: .accent)
+                    ForEach(displayedTagNames, id: \.self) { tagName in
+                        NavigationLink {
+                            FireFilteredTopicListView(
+                                viewModel: viewModel,
+                                title: "#\(tagName)",
+                                categorySlug: nil,
+                                categoryId: nil,
+                                parentCategorySlug: nil,
+                                tag: tagName
+                            )
+                        } label: {
+                            Text("#\(tagName)")
+                                .font(.caption2.weight(.medium))
+                                .foregroundStyle(FireTheme.tagChipForeground)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 3)
+                                .background(FireTheme.tagChipBackground)
+                                .clipShape(Capsule())
+                        }
+                        .buttonStyle(.plain)
+                    }
+
+                    ForEach(row.statusLabels, id: \.self) { label in
+                        FireStatusChip(label: label, tone: .accent)
+                    }
                 }
             }
 
@@ -653,6 +703,7 @@ struct FireTopicDetailView: View {
             .padding(.vertical, 4)
 
             if let detail,
+               !isPrivateMessageThread,
                detail.canVote || detail.userVoted || detail.voteCount > 0 {
                 topicVotePanel(detail)
             }

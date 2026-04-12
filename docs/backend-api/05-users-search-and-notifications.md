@@ -38,6 +38,8 @@
 
 - 兼容性说明：
   - Fire 共享层对 `user` 里的数值/布尔标量做宽松解析，兼容字符串数字和 `"0"` / `"1"`
+- 当前客户端行为：
+  - iOS 公开用户页会在 `user.can_send_private_message_to_user = true` 且不是本人资料页时显示“私信”入口，并以该用户名预填新私信 composer 的收件人
 
 ### `GET /u/{username}/summary.json`
 
@@ -152,6 +154,34 @@
 - Query：
   - `page?: integer`
 - 响应：`TopicListResponse`
+
+### `GET /topics/private-messages/{username}.json`
+
+- 用途：获取当前登录用户的私信收件箱
+- 认证：需要登录
+- Query：
+  - `page?: integer`
+- 响应：`TopicListResponse`
+- 当前客户端额外依赖的 `topic_list.topics[]` 字段：
+  - `participants[].id`
+  - `participants[].username`
+  - `participants[].name`
+  - `participants[].avatar_template`
+- 当前客户端行为：
+  - iOS 在“我的”页提供原生私信入口，进入后默认展示收件箱
+  - 列表行会结合 `topic_list.topics[].participants[]` 与响应侧载的 `users[]` 渲染对话对象头像/名称
+  - 点进列表项后直接复用原生 topic detail，按私信线程模式显示
+
+### `GET /topics/private-messages-sent/{username}.json`
+
+- 用途：获取当前登录用户已发送的私信
+- 认证：需要登录
+- Query：
+  - `page?: integer`
+- 响应：`TopicListResponse`
+- 当前客户端行为：
+  - iOS 私信页通过 segmented control 在 inbox / sent 之间切换
+  - sent 列表与 inbox 使用同一套 `TopicListResponse` / topic detail 渲染逻辑
 
 ### `GET /user-badges/{username}.json`
 
@@ -354,6 +384,10 @@
 
 - 兼容性说明：
   - `users[]` / `groups[]` 中单个坏项会被跳过
+- 当前客户端行为：
+  - 公开话题的 `@mention` 自动补全默认允许群组候选
+  - 私信 composer 的收件人搜索，以及私信线程内的 `@mention` 自动补全，都会强制 `include_groups=false`
+  - 当前 iOS 私信创建流只支持用户名收件人，不支持群组私信目标
 
 ### `GET /composer/mentions`
 

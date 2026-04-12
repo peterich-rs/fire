@@ -48,6 +48,10 @@ struct FireProfileView: View {
         "管理未发出的新话题和完整回复。"
     }
 
+    private var privateMessagesSubtitle: String {
+        "查看收件箱、已发送私信，并继续未完成的私信会话。"
+    }
+
     private var badgesSubtitle: String {
         badgeCount > 0
             ? "累计获得 \(formatNumber(badgeCount)) 枚徽章。"
@@ -145,6 +149,17 @@ struct FireProfileView: View {
                             tint: .orange,
                             title: "草稿箱",
                             subtitle: draftsSubtitle
+                        )
+                    }
+
+                    NavigationLink {
+                        FirePrivateMessagesView(viewModel: viewModel)
+                    } label: {
+                        shortcutRowContent(
+                            icon: "tray.2.fill",
+                            tint: .indigo,
+                            title: "私信",
+                            subtitle: privateMessagesSubtitle
                         )
                     }
 

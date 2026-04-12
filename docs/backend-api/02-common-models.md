@@ -21,6 +21,7 @@
 - `topic_list.topics`: 话题数组
 - `topic_list.more_topics_url`: 下一页 URL
 - `users`: 话题创建者/参与者侧载数据
+- `topic_list.topics[].participants`: 私信列表里常见的参与者数组，当前 Fire 会优先用它构建私信会话标题、副标题和头像
 - `topic_list.topics[].tags`: LinuxDo 当前 `latest` 负载里常见为 `TopicTag[]` 对象数组；旧格式也可能仍是字符串数组，客户端需要兼容两种形态
 - `topic_list.topics[].unread_posts` / `new_posts` / `last_read_post_number`: 实际返回里可能为 `null`
 - `topic_list.topics[].can_have_answer`: 实际返回里可能为 `null`
@@ -46,6 +47,23 @@
 - 当前 LinuxDo `latest` / topic detail 负载中，`tags` 常见为 `TopicTag[]`
 - 旧格式里 `tags` 也可能仍是 `["chatgpt", "flutter"]` 这样的字符串数组
 - 客户端共享模型建议统一收敛为结构化 `TopicTag`
+
+## TopicParticipant
+
+```json
+{
+  "id": 1,
+  "username": "alice",
+  "name": "Alice",
+  "avatar_template": "/user_avatar/linux.do/alice/{size}/1_2.png"
+}
+```
+
+补充说明：
+
+- 私信列表与私信详情里常见为 `participants[]`
+- Fire 共享层兼容 `id` / `user_id`
+- `username`、`name`、`avatar_template` 都按可空标量字段宽松解析
 
 ## TopicDetail
 
@@ -104,6 +122,7 @@
 - `bookmarks` 实际是书签对象数组，不是单纯的 ID 列表；常见字段包括 `id`、`bookmarkable_type`、`bookmarkable_id`、`name`、`reminder_at`
 - 当前客户端会把顶层 `bookmarks[]` 里的首个对象拍平到 `bookmarked` / `bookmark_id` / `bookmark_name` / `bookmark_reminder_at`，同时也会把帖子级书签信息注入各个 `Post`
 - `details` 可能为 `null`
+- 私信线程通常会带 `archetype = "private_message"`，并在 `details.participants[]` 里返回会话参与者
 - `category_id`、`notification_level`、`vote_count` 以及帖子内多数字段在实际返回里都应按“可空/可字符串化标量”容错，而不要假设总是稳定的 JSON 标量类型
 
 ## Post

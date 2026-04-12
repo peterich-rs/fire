@@ -54,6 +54,8 @@ final class FireSessionSecurityTests: XCTestCase {
                 minPostLength: 1,
                 minTopicTitleLength: 15,
                 minFirstPostLength: 20,
+                minPersonalMessageTitleLength: 2,
+                minPersonalMessagePostLength: 10,
                 defaultComposerCategory: nil
             ),
             readiness: SessionReadinessState(
@@ -830,6 +832,8 @@ final class FireSessionSecurityTests: XCTestCase {
                 minPostLength: 1,
                 minTopicTitleLength: 15,
                 minFirstPostLength: 20,
+                minPersonalMessageTitleLength: 2,
+                minPersonalMessagePostLength: 10,
                 defaultComposerCategory: nil
             ),
             readiness: SessionReadinessState(
@@ -881,6 +885,8 @@ final class FireSessionSecurityTests: XCTestCase {
                 minPostLength: 1,
                 minTopicTitleLength: 15,
                 minFirstPostLength: 20,
+                minPersonalMessageTitleLength: 2,
+                minPersonalMessagePostLength: 10,
                 defaultComposerCategory: nil
             ),
             readiness: SessionReadinessState(
@@ -932,6 +938,8 @@ final class FireSessionSecurityTests: XCTestCase {
                 minPostLength: 1,
                 minTopicTitleLength: 15,
                 minFirstPostLength: 20,
+                minPersonalMessageTitleLength: 2,
+                minPersonalMessagePostLength: 10,
                 defaultComposerCategory: nil
             ),
             readiness: SessionReadinessState(
@@ -983,6 +991,8 @@ final class FireSessionSecurityTests: XCTestCase {
                 minPostLength: 15,
                 minTopicTitleLength: 15,
                 minFirstPostLength: 20,
+                minPersonalMessageTitleLength: 2,
+                minPersonalMessagePostLength: 10,
                 defaultComposerCategory: nil
             ),
             readiness: SessionReadinessState(
@@ -1034,6 +1044,8 @@ final class FireSessionSecurityTests: XCTestCase {
                 minPostLength: 1,
                 minTopicTitleLength: 15,
                 minFirstPostLength: 20,
+                minPersonalMessageTitleLength: 2,
+                minPersonalMessagePostLength: 10,
                 defaultComposerCategory: nil
             ),
             readiness: SessionReadinessState(

@@ -22,7 +22,6 @@
 		3330A9C7E4C8BA80778F79EB /* FireAppRouteTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 299683BEDEC559B03C136C34 /* FireAppRouteTests.swift */; };
 		34DC539E6C32931D4743C75F /* FireBadgeDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 467E95A2109D81DB456F64A9 /* FireBadgeDetailView.swift */; };
 		390219653B0C0A96C81D8962 /* FireAPMEventStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 373861687BBCD8EB8E350DA4 /* FireAPMEventStore.swift */; };
-		3E86B05D0E10C74BB865A0F9 /* Nuke in Frameworks */ = {isa = PBXBuildFile; productRef = 3F5DB59F34DC2099A84C0F6F /* Nuke */; };
 		3F8B5F1239E17802675A013B /* FirePushRegistrationCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC77525391DD1C7EA7329451 /* FirePushRegistrationCoordinatorTests.swift */; };
 		428170833590DCF14AEEA64C /* FireTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8FFC5F5EA7CD05C23FBEB9A2 /* FireTheme.swift */; };
 		4291E89FC3D5D35AC9A06898 /* FireOrderedIDList.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00DA04AEF775D5BD01FC23AC /* FireOrderedIDList.swift */; };
@@ -93,7 +92,6 @@
 		E67F86DADDE88559438DE849 /* CoreFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 08F96260D49AF4E41AB4739C /* CoreFoundation.framework */; };
 		F171E34C843A4BD06FB50408 /* FireBookmarksView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3CE19EEF18F20BE710E4B7E4 /* FireBookmarksView.swift */; };
 		F31A70760B997F5ADFB7C489 /* FireListSectionModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFB6B1F10783D1D78B2D1F63 /* FireListSectionModel.swift */; };
-		F7AF0493553E46BB2FCAB4A5 /* SnapshotTesting in Frameworks */ = {isa = PBXBuildFile; productRef = A46FF58D4D7E79645FFA574A /* SnapshotTesting */; };
 		F8963543E87EACAD49C9B131 /* FireCollectionHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7CF84F1E6774BE411D4D2C2E /* FireCollectionHost.swift */; };
 		FA462FF0334E77051F227943 /* FirePublicProfileView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19F67B40FC02230AFEC2A562 /* FirePublicProfileView.swift */; };
 		FFCC342F97F349220632A787 /* FireTopicPresentationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9189433D7C9260885742A5BA /* FireTopicPresentationTests.swift */; };
@@ -225,15 +223,6 @@
 				E67F86DADDE88559438DE849 /* CoreFoundation.framework in Frameworks */,
 				9726B24BBA832290EA063E8F /* libiconv.tbd in Frameworks */,
 				A7657EA99808CEBE3F038176 /* CrashReporter in Frameworks */,
-				3E86B05D0E10C74BB865A0F9 /* Nuke in Frameworks */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		55C19647F463E787E7CD4750 /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				F7AF0493553E46BB2FCAB4A5 /* SnapshotTesting in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -473,7 +462,6 @@
 			buildConfigurationList = 45130E50B606D6C48CB508C5 /* Build configuration list for PBXNativeTarget "FireTests" */;
 			buildPhases = (
 				2FCCC820ECEB057462CC26A9 /* Sources */,
-				55C19647F463E787E7CD4750 /* Frameworks */,
 			);
 			buildRules = (
 			);
@@ -482,7 +470,6 @@
 			);
 			name = FireTests;
 			packageProductDependencies = (
-				A46FF58D4D7E79645FFA574A /* SnapshotTesting */,
 			);
 			productName = FireTests;
 			productReference = 0C933069DE6C026030AAB6EF /* FireTests.xctest */;
@@ -521,7 +508,6 @@
 			name = Fire;
 			packageProductDependencies = (
 				601B450FB4E87A5243FAE5F9 /* CrashReporter */,
-				3F5DB59F34DC2099A84C0F6F /* Nuke */,
 			);
 			productName = Fire;
 			productReference = 48CAB0E38556929FC140E25D /* Fire.app */;
@@ -556,8 +542,6 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				9F8D6D7CFB3643BCA8C9F545 /* XCRemoteSwiftPackageReference "plcrashreporter" */,
-				0B33AAACF1C3CFC774277ECB /* XCRemoteSwiftPackageReference "Nuke" */,
-				B82195B66E414BF6398F0197 /* XCRemoteSwiftPackageReference "swift-snapshot-testing" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 1D88C155B3075FF19641DF3E /* Products */;
@@ -1056,14 +1040,6 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
-		0B33AAACF1C3CFC774277ECB /* XCRemoteSwiftPackageReference "Nuke" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/kean/Nuke.git";
-			requirement = {
-				kind = exactVersion;
-				version = 13.0.1;
-			};
-		};
 		9F8D6D7CFB3643BCA8C9F545 /* XCRemoteSwiftPackageReference "plcrashreporter" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/microsoft/plcrashreporter.git";
@@ -1072,31 +1048,13 @@
 				version = 1.12.2;
 			};
 		};
-		B82195B66E414BF6398F0197 /* XCRemoteSwiftPackageReference "swift-snapshot-testing" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/pointfreeco/swift-snapshot-testing.git";
-			requirement = {
-				kind = exactVersion;
-				version = 1.19.2;
-			};
-		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		3F5DB59F34DC2099A84C0F6F /* Nuke */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 0B33AAACF1C3CFC774277ECB /* XCRemoteSwiftPackageReference "Nuke" */;
-			productName = Nuke;
-		};
 		601B450FB4E87A5243FAE5F9 /* CrashReporter */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 9F8D6D7CFB3643BCA8C9F545 /* XCRemoteSwiftPackageReference "plcrashreporter" */;
 			productName = CrashReporter;
-		};
-		A46FF58D4D7E79645FFA574A /* SnapshotTesting */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = B82195B66E414BF6398F0197 /* XCRemoteSwiftPackageReference "swift-snapshot-testing" */;
-			productName = SnapshotTesting;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

@@ -5,12 +5,6 @@ packages:
   CrashReporter:
     url: https://github.com/microsoft/plcrashreporter.git
     exactVersion: 1.12.2
-  Nuke:
-    url: https://github.com/kean/Nuke.git
-    exactVersion: 13.0.1
-  SnapshotTesting:
-    url: https://github.com/pointfreeco/swift-snapshot-testing.git
-    exactVersion: 1.19.2
 fileGroups:
   - Configs/Fire-Debug.xcconfig
   - Configs/Fire-Local-Debug.example.xcconfig
@@ -60,8 +54,6 @@ targets:
       - sdk: libiconv.tbd
       - package: CrashReporter
         product: CrashReporter
-      - package: Nuke
-        product: Nuke
     settings:
       base:
         CODE_SIGN_STYLE: $(FIRE_CODE_SIGN_STYLE)
@@ -119,8 +111,6 @@ targets:
       - path: Tests/Unit
     dependencies:
       - target: Fire
-      - package: SnapshotTesting
-        product: SnapshotTesting
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES

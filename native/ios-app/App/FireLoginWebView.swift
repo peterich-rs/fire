@@ -15,11 +15,30 @@ final class FireWebViewBox: ObservableObject {
     }
 
     func syncState(from webView: WKWebView) {
-        canGoBack = webView.canGoBack
-        canGoForward = webView.canGoForward
-        isLoading = webView.isLoading
-        pageTitle = webView.title ?? "LinuxDo Login"
-        currentURL = webView.url?.host ?? webView.url?.absoluteString
+        let nextCanGoBack = webView.canGoBack
+        if canGoBack != nextCanGoBack {
+            canGoBack = nextCanGoBack
+        }
+
+        let nextCanGoForward = webView.canGoForward
+        if canGoForward != nextCanGoForward {
+            canGoForward = nextCanGoForward
+        }
+
+        let nextIsLoading = webView.isLoading
+        if isLoading != nextIsLoading {
+            isLoading = nextIsLoading
+        }
+
+        let nextPageTitle = webView.title ?? "LinuxDo Login"
+        if pageTitle != nextPageTitle {
+            pageTitle = nextPageTitle
+        }
+
+        let nextCurrentURL = webView.url?.host ?? webView.url?.absoluteString
+        if currentURL != nextCurrentURL {
+            currentURL = nextCurrentURL
+        }
     }
 
     func goBack() {
@@ -42,20 +61,24 @@ final class FireWebViewBox: ObservableObject {
     }
 }
 
-final class FireLoginWebViewProbeBridge: NSObject, WKHTTPCookieStoreObserver {
+public final class FireLoginWebViewProbeBridge: NSObject, WKHTTPCookieStoreObserver {
+    private static let cookieProbeDebounceDelay: TimeInterval = 0.35
+
     private weak var observedWebView: WKWebView?
     private weak var observedCookieStore: WKHTTPCookieStore?
+    private var pendingProbeWorkItem: DispatchWorkItem?
     private let onProbeRequested: (WKWebView) -> Void
 
-    init(onProbeRequested: @escaping (WKWebView) -> Void) {
+    public init(onProbeRequested: @escaping (WKWebView) -> Void) {
         self.onProbeRequested = onProbeRequested
     }
 
     deinit {
+        pendingProbeWorkItem?.cancel()
         observedCookieStore?.remove(self)
     }
 
-    func attach(to webView: WKWebView) {
+    public func attach(to webView: WKWebView) {
         let cookieStore = webView.configuration.websiteDataStore.httpCookieStore
         if observedCookieStore !== cookieStore {
             observedCookieStore?.remove(self)
@@ -65,21 +88,42 @@ final class FireLoginWebViewProbeBridge: NSObject, WKHTTPCookieStoreObserver {
         observedWebView = webView
     }
 
-    func detach() {
+    public func detach() {
+        pendingProbeWorkItem?.cancel()
+        pendingProbeWorkItem = nil
         observedCookieStore?.remove(self)
         observedCookieStore = nil
         observedWebView = nil
     }
 
-    func requestProbe() {
+    public func requestProbe() {
+        requestProbe(after: 0)
+    }
+
+    private func requestProbe(after delay: TimeInterval) {
+        pendingProbeWorkItem?.cancel()
         guard let observedWebView else {
             return
         }
-        onProbeRequested(observedWebView)
+
+        let workItem = DispatchWorkItem { [weak self, weak observedWebView] in
+            guard self != nil, let observedWebView else {
+                return
+            }
+            self?.pendingProbeWorkItem = nil
+            self?.onProbeRequested(observedWebView)
+        }
+        pendingProbeWorkItem = workItem
+
+        if delay <= 0 {
+            DispatchQueue.main.async(execute: workItem)
+        } else {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
+        }
     }
 
-    func cookiesDidChange(in cookieStore: WKHTTPCookieStore) {
-        requestProbe()
+    public func cookiesDidChange(in cookieStore: WKHTTPCookieStore) {
+        requestProbe(after: Self.cookieProbeDebounceDelay)
     }
 }
 
@@ -116,16 +160,15 @@ struct FireLoginWebView: UIViewRepresentable {
     }
 
     final class Coordinator: NSObject, WKNavigationDelegate {
+        private let webViewBox: FireWebViewBox
         private let probeBridge: FireLoginWebViewProbeBridge
 
         init(
             webViewBox: FireWebViewBox,
             onNavigationStateChange: @escaping (WKWebView) -> Void
         ) {
-            self.probeBridge = FireLoginWebViewProbeBridge { webView in
-                webViewBox.syncState(from: webView)
-                onNavigationStateChange(webView)
-            }
+            self.webViewBox = webViewBox
+            self.probeBridge = FireLoginWebViewProbeBridge(onProbeRequested: onNavigationStateChange)
         }
 
         func attach(to webView: WKWebView) {
@@ -136,21 +179,26 @@ struct FireLoginWebView: UIViewRepresentable {
             probeBridge.detach()
         }
 
-        private func handleStateChange(for webView: WKWebView) {
+        private func syncBrowserState(from webView: WKWebView) {
+            webViewBox.syncState(from: webView)
+        }
+
+        private func handleTerminalStateChange(for webView: WKWebView) {
+            syncBrowserState(from: webView)
             probeBridge.attach(to: webView)
             probeBridge.requestProbe()
         }
 
         func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
-            handleStateChange(for: webView)
+            syncBrowserState(from: webView)
         }
 
         func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
-            handleStateChange(for: webView)
+            syncBrowserState(from: webView)
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-            handleStateChange(for: webView)
+            handleTerminalStateChange(for: webView)
         }
 
         func webView(
@@ -158,7 +206,7 @@ struct FireLoginWebView: UIViewRepresentable {
             didFail navigation: WKNavigation!,
             withError error: Error
         ) {
-            handleStateChange(for: webView)
+            handleTerminalStateChange(for: webView)
         }
 
         func webView(
@@ -166,11 +214,11 @@ struct FireLoginWebView: UIViewRepresentable {
             didFailProvisionalNavigation navigation: WKNavigation!,
             withError error: Error
         ) {
-            handleStateChange(for: webView)
+            handleTerminalStateChange(for: webView)
         }
 
         func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
-            handleStateChange(for: webView)
+            handleTerminalStateChange(for: webView)
         }
     }
 }
@@ -310,6 +358,7 @@ private struct FireLoginBottomBar: View {
                 .buttonStyle(FirePrimaryButtonStyle())
                 .disabled(
                     webViewBox.webView == nil
+                        || webViewBox.isLoading
                         || viewModel.isSyncingLoginSession
                         || !viewModel.canSyncLoginSession
                 )

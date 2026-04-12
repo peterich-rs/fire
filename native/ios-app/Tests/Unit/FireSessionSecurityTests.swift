@@ -544,6 +544,21 @@ final class FireSessionSecurityTests: XCTestCase {
         )
     }
 
+    func testBootstrapHTMLMetadataParserReadsMetaFallbackValues() {
+        let html = """
+        <!doctype html>
+        <html>
+          <head>
+            <meta content="alice" name="current-username">
+            <meta name="csrf-token" content="csrf-token">
+          </head>
+        </html>
+        """
+
+        XCTAssertEqual(FireBootstrapHTMLMetadataParser.currentUsername(from: html), "alice")
+        XCTAssertEqual(FireBootstrapHTMLMetadataParser.csrfToken(from: html), "csrf-token")
+    }
+
     @MainActor
     func testLoginSyncReadinessRequiresUsernameAuthCookiesAndBootstrapHTML() async {
         let store = MockLoginSessionStore(
@@ -631,6 +646,52 @@ final class FireSessionSecurityTests: XCTestCase {
     }
 
     @MainActor
+    func testOpenLoginPresentsLoginImmediatelyBeforeWarmupCompletes() async {
+        let gate = AsyncGate()
+        let viewModel = FireAppViewModel(
+            loginCoordinatorPreloader: {
+                await gate.wait()
+            },
+            loginNetworkWarmup: {}
+        )
+
+        viewModel.openLogin()
+
+        XCTAssertTrue(viewModel.isPresentingLogin)
+        XCTAssertTrue(viewModel.isPreparingLogin)
+
+        await gate.open()
+        let finishedPreparing = await waitUntil { !viewModel.isPreparingLogin }
+        XCTAssertTrue(finishedPreparing)
+        XCTAssertFalse(viewModel.isPreparingLogin)
+    }
+
+    @MainActor
+    func testOpenLoginKeepsPresentedWhenCoordinatorPreloadFails() async {
+        struct SampleLoginOpenError: LocalizedError {
+            var errorDescription: String? { "login init failed" }
+        }
+
+        let viewModel = FireAppViewModel(
+            loginCoordinatorPreloader: {
+                throw SampleLoginOpenError()
+            },
+            loginNetworkWarmup: {}
+        )
+
+        viewModel.openLogin()
+
+        XCTAssertTrue(viewModel.isPresentingLogin)
+
+        let finishedPreparing = await waitUntil { !viewModel.isPreparingLogin }
+        let surfacedError = await waitUntil { viewModel.errorMessage != nil }
+        XCTAssertTrue(finishedPreparing)
+        XCTAssertTrue(surfacedError)
+        XCTAssertFalse(viewModel.isPreparingLogin)
+        XCTAssertEqual(viewModel.errorMessage, "login init failed")
+    }
+
+    @MainActor
     func testChallengeRecoveryClearsLocalSessionAndPresentsLogin() async {
         let recoveryStore = MockChallengeRecoveryStore(
             result: .success(challengedLoggedOutSession())
@@ -705,35 +766,41 @@ final class FireSessionSecurityTests: XCTestCase {
     }
 
     @MainActor
-    func testLoginWebViewProbeBridgeRequestsProbeWhenCookiesChange() {
+    func testLoginWebViewProbeBridgeDebouncesCookieTriggeredProbes() {
         let expectation = expectation(description: "probe requested")
         let webView = WKWebView(frame: .zero)
         var probedWebView: WKWebView?
+        var probeCount = 0
         let bridge = FireLoginWebViewProbeBridge { webView in
+            probeCount += 1
             probedWebView = webView
             expectation.fulfill()
         }
 
         bridge.attach(to: webView)
         bridge.cookiesDidChange(in: webView.configuration.websiteDataStore.httpCookieStore)
+        bridge.cookiesDidChange(in: webView.configuration.websiteDataStore.httpCookieStore)
+        bridge.cookiesDidChange(in: webView.configuration.websiteDataStore.httpCookieStore)
 
         wait(for: [expectation], timeout: 1.0)
+        XCTAssertEqual(probeCount, 1)
         XCTAssertTrue(probedWebView === webView)
     }
 
     @MainActor
     func testLoginWebViewProbeBridgeStopsRequestingProbeAfterDetach() {
         let webView = WKWebView(frame: .zero)
-        var probeCount = 0
+        let expectation = expectation(description: "probe should not fire")
+        expectation.isInverted = true
         let bridge = FireLoginWebViewProbeBridge { _ in
-            probeCount += 1
+            expectation.fulfill()
         }
 
         bridge.attach(to: webView)
         bridge.detach()
         bridge.cookiesDidChange(in: webView.configuration.websiteDataStore.httpCookieStore)
 
-        XCTAssertEqual(probeCount, 0)
+        wait(for: [expectation], timeout: 0.5)
     }
 
     private func makeSessionFileURL(name: String) throws -> URL {
@@ -742,6 +809,22 @@ final class FireSessionSecurityTests: XCTestCase {
         let testsURL = workspaceURL.appendingPathComponent("Tests", isDirectory: true)
         try FileManager.default.createDirectory(at: testsURL, withIntermediateDirectories: true)
         return testsURL.appendingPathComponent("\(name)-\(UUID().uuidString).json", isDirectory: false)
+    }
+
+    @MainActor
+    private func waitUntil(
+        timeoutNanoseconds: UInt64 = 1_000_000_000,
+        condition: @escaping @MainActor () -> Bool
+    ) async -> Bool {
+        let deadline = DispatchTime.now().uptimeNanoseconds + timeoutNanoseconds
+        while DispatchTime.now().uptimeNanoseconds < deadline {
+            if condition() {
+                return true
+            }
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+
+        return condition()
     }
 
     private func makePlatformCookie(
@@ -1203,6 +1286,32 @@ private actor ColdStartRefreshRecorder {
             bootstrapRefreshCount: bootstrapRefreshCount,
             csrfRefreshCount: csrfRefreshCount
         )
+    }
+}
+
+private actor AsyncGate {
+    private var isOpen = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func wait() async {
+        guard !isOpen else {
+            return
+        }
+
+        await withCheckedContinuation { continuation in
+            waiters.append(continuation)
+        }
+    }
+
+    func open() {
+        guard !isOpen else {
+            return
+        }
+
+        isOpen = true
+        let pendingWaiters = waiters
+        waiters.removeAll()
+        pendingWaiters.forEach { $0.resume() }
     }
 }
 

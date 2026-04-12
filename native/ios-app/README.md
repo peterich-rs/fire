@@ -40,11 +40,11 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
 - `FireWebViewLoginCoordinator.swift`
   - reads `WKWebView` cookies, `current-username`, `csrf-token`, page HTML, and the live browser user agent
   - prefers homepage HTML fetched through the current WebView browser context before falling back to the visible page HTML, so the first shared bootstrap sync stays as close as possible to the browser-authenticated session
-  - continuously supports an “auto-detect, manual Sync” login flow: navigation, scene-activation, and WebKit cookie-store changes can all re-probe readiness, but the user-visible `完成登录` action remains the only commit point
+  - continuously supports an “auto-detect, manual Sync” login flow: navigation, scene-activation, and debounced WebKit cookie-store changes can all re-probe readiness, but the user-visible `完成登录` action remains the only commit point
   - only treats login as ready to sync once it can read `current-username`, same-site auth cookies, and reusable bootstrap HTML
   - converts them into `LoginSyncState`
   - refreshes platform cookies both before and after login sync so Rust always sees the latest WebKit `_t`, `_forum_session`, and `cf_clearance` values
-  - completes login by syncing platform cookies into Keychain and Rust, then backfilling bootstrap whenever the captured page leaves username/session metadata incomplete
+  - completes login by syncing platform cookies into Keychain and Rust, backfilling missing `current-username` / `csrf-token` from the preferred bootstrap HTML whenever the visible page leaves metadata incomplete
   - if the follow-up Rust bootstrap refresh is challenged by Cloudflare again, it clears the partial native session and keeps the WebView login flow open so the user can finish the challenge and sync again
   - clears host-side LinuxDo auth cookies after a successful explicit logout while preserving `cf_clearance`
 - `FireCfClearanceRefreshService.swift`
@@ -56,13 +56,14 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
   - now wraps the embedded `WKWebView` in a full-screen native browser shell with adaptive light/dark chrome, a compact top bar, and a bottom command dock
   - exposes back, forward, home, reload, and session sync controls so OAuth hops can return to LinuxDo without closing the flow
   - enables back/forward swipe gestures on the embedded `WKWebView`
+  - avoids mutating observed browser state from `UIViewRepresentable.updateUIView`, so SwiftUI updates do not loop back into `WKWebView` host state and freeze the login entry flow
 - `App/FireApp.swift`
   - owns app-level URL opening and routes both `fire://...` custom schemes and LinuxDo universal links into the shared typed in-app route model before SwiftUI screens load
 - `App/Routing/`
   - defines the typed `FireAppRoute` model, route parser, and shared destination view used by external URL opens, notification taps, and in-app search / notification navigation
 - `App/FireAppViewModel.swift`
-  - performs a lightweight network preflight before presenting the login browser
-  - moves the first system-level network prompt, when one appears on-device, out of the login page itself
+  - presents the login browser immediately, then runs a lightweight best-effort network warm-up in the background
+  - still tries to move the first system-level network prompt, when one appears on-device, out of the in-page login interaction itself, without blocking WebView presentation
   - restores the persisted session cache, replays Keychain cookies through Rust on cold start, repairs incomplete authenticated session identity, refreshes CSRF when the restored cache is otherwise ready, and keeps the topic browser in sync with login state
   - holds the onboarding screen in a bootstrap state while cold-start auto-login runs, hiding login actions during restore and only revealing a loading indicator if that bootstrap takes longer than 500ms
   - now builds `FireSessionStore` lazily on a detached task so Rust/logging initialization does not block the first SwiftUI render on the main actor
@@ -209,9 +210,9 @@ Current UX note:
 - The app now opens login as a full-screen browser instead of a partial sheet.
 - The app now keeps the same onboarding page visible during cold-start auto-login, hiding login actions until restore fails and only showing loading if bootstrap takes longer than 500ms.
 - The login browser can navigate back from Google or other intermediate pages without forcing the user to close and reopen login.
-- The login browser now auto-probes whether a manual Sync would actually succeed, re-checking on navigation, scene resume, and WebKit auth-cookie changes, and keeps `完成登录` disabled until username, auth cookies, and reusable bootstrap HTML are all present.
+- The login browser now auto-probes whether a manual Sync would actually succeed, re-checking on navigation, scene resume, and debounced WebKit auth-cookie changes, and keeps `完成登录` disabled until username, auth cookies, and reusable bootstrap HTML are all present.
 - The login shell and reading workspace now adapt to both light and dark system appearance while preserving the same hierarchy and contrast model.
-- The network preflight is a best-effort connectivity warm-up. iOS does not provide a generic "internet permission" API for arbitrary web access, so this only shifts the first prompt/request earlier; it does not create a separate permission flow.
+- The network warm-up is best-effort and no longer blocks login browser presentation. iOS does not provide a generic "internet permission" API for arbitrary web access, so this only tries to shift the first prompt/request earlier; it does not create a separate permission flow.
 - The current topic browser now runs against the real shared Rust core through generated UniFFI Swift bindings.
 - The app now includes a native search screen for topic/post/user discovery on top of the shared Rust `/search.json` API.
 - The app now uses one typed route model for supported custom URL opens, local-notification taps, and search / notification jumps to topic, profile, and badge destinations.

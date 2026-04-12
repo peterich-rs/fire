@@ -34,8 +34,8 @@
 - 客户端接入备注：
   - 登录回调页、用户页、话题页等“非首页” HTML 里也可能带 `data-preloaded`，但有时只包含 `currentUser` 等局部字段，不一定带完整的 `site` / `siteSettings`
   - 某些 LinuxDo 页面里，`data-preloaded.currentUser`、`siteSettings`、`site`、`topicTrackingStateMeta` 本身不是对象，而是“JSON 字符串”；客户端在提取字段前需要先解包这层字符串
-  - iOS 当前把登录页收口做成“自动探测、手动 Sync”：只有同时拿到 `current-username`、有效 `_t` / `_forum_session` Cookie，以及可复用的首页 bootstrap HTML 时，才允许用户点击“完成登录”
-  - iOS 当前在登录页优先通过浏览器上下文内的 `fetch("/")` 抓首页 HTML；只有这份首页 HTML 不够完整时，才回退到当前页面 `document.documentElement.outerHTML`
+  - iOS 当前把登录页收口做成“自动探测、手动 Sync”：实时探测会先轻量检查当前页的用户名 / bootstrap 标记与同站 auth Cookie，只在 auth Cookie 已就绪但当前页元数据仍不完整时，才补一次浏览器上下文内的首页 `fetch("/")`；只有最终同时拿到 `current-username`、有效 `_t` / `_forum_session` Cookie，以及可复用的首页 bootstrap HTML 时，才允许用户点击“完成登录”
+  - iOS 当前在真正提交登录时仍会优先通过浏览器上下文内的 `fetch("/")` 抓首页 HTML；只有这份首页 HTML 不够完整时，才回退到当前页面 `document.documentElement.outerHTML`，并会用优选后的 HTML 回填缺失的 `current-username` / `csrf-token`
   - 在把 bootstrap 视为“已就绪”前，应该确认至少拿到了当前用户、站点级 `site` 元数据（分类/标签能力）和 `siteSettings`（最小长度、reactions、长轮询域等）；缺失时继续回源 `GET /` 刷新，而不要仅凭 `hasPreloadedData=true` 就跳过
   - 当前 Fire 实现还会在首页 bootstrap 仍缺少 `site` 元数据时自动补一次 `GET /site.json`，用于回填 `categories`、`top_tags`、`can_tag_topics`
   - iOS 当前在真正提交登录前后都会先后各做一次平台 Cookie 刷新：先把 `WKHTTPCookieStore` 里的同站 Cookie 回灌到共享层，再执行 `sync_login_context` / bootstrap 刷新，最后再把浏览器最新 Cookie 状态回灌一次，确保 `_t`、`_forum_session`、`cf_clearance` 以浏览器为准

@@ -88,6 +88,9 @@ extension FireWebViewLoginCoordinator: FireChallengeSessionRecovering {}
 
 @MainActor
 final class FireAppViewModel: ObservableObject {
+    typealias LoginCoordinatorPreloader = @Sendable () async throws -> Void
+    typealias LoginNetworkWarmup = @Sendable () async -> Void
+
     private static let messageBusErrorPrefix = "实时同步连接失败："
     private static let loginRequiredMessage = "登录状态已失效，请重新登录。"
     private static let authDiagnosticsLogTarget = "ios.auth"
@@ -120,6 +123,8 @@ final class FireAppViewModel: ObservableObject {
     private var loginSyncReadinessTask: Task<Void, Never>?
     private let loginURL = URL(string: "https://linux.do")!
     private let challengeRecoveryStore: (any FireChallengeSessionRecovering)?
+    private let loginCoordinatorPreloader: LoginCoordinatorPreloader?
+    private let loginNetworkWarmup: LoginNetworkWarmup?
     // MessageBus
     private var messageBusCoordinator: FireMessageBusCoordinator?
     private var isMessageBusActive = false
@@ -132,10 +137,14 @@ final class FireAppViewModel: ObservableObject {
 
     init(
         initialSession: SessionState = .placeholder(),
-        challengeRecoveryStore: (any FireChallengeSessionRecovering)? = nil
+        challengeRecoveryStore: (any FireChallengeSessionRecovering)? = nil,
+        loginCoordinatorPreloader: LoginCoordinatorPreloader? = nil,
+        loginNetworkWarmup: LoginNetworkWarmup? = nil
     ) {
         self.session = initialSession
         self.challengeRecoveryStore = challengeRecoveryStore
+        self.loginCoordinatorPreloader = loginCoordinatorPreloader
+        self.loginNetworkWarmup = loginNetworkWarmup
     }
 
     func bindHomeFeedStore(_ store: FireHomeFeedStore) {
@@ -222,20 +231,23 @@ final class FireAppViewModel: ObservableObject {
 
     func openLogin() {
         guard !isPreparingLogin else {
+            if !isPresentingLogin {
+                isPresentingLogin = true
+            }
             return
         }
 
         errorMessage = nil
         canSyncLoginSession = false
+        isPresentingLogin = true
         isPreparingLogin = true
 
         Task {
             defer { isPreparingLogin = false }
 
             do {
-                _ = try await loginCoordinatorValue()
-                try await prepareLoginNetworkAccess()
-                isPresentingLogin = true
+                try await preloadLoginCoordinator()
+                await warmLoginNetworkAccess()
             } catch {
                 errorMessage = error.localizedDescription
             }
@@ -1172,6 +1184,32 @@ final class FireAppViewModel: ObservableObject {
         let (_, response) = try await session.data(for: request)
         guard response is HTTPURLResponse else {
             throw FireLoginPreparationError.invalidResponse
+        }
+    }
+
+    private func preloadLoginCoordinator() async throws {
+        if let loginCoordinatorPreloader {
+            try await loginCoordinatorPreloader()
+            return
+        }
+
+        _ = try await loginCoordinatorValue()
+    }
+
+    private func warmLoginNetworkAccess() async {
+        if let loginNetworkWarmup {
+            await loginNetworkWarmup()
+            return
+        }
+
+        do {
+            try await prepareLoginNetworkAccess()
+        } catch {
+            FireAPMManager.shared.recordBreadcrumb(
+                level: "warn",
+                target: "auth.login",
+                message: "login network warmup failed: \(error.localizedDescription)"
+            )
         }
     }
 

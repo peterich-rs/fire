@@ -118,10 +118,7 @@ impl FireTraceSnapshotInterceptor {
 }
 
 impl FireCommonHeaderInterceptor {
-    pub(crate) fn new(
-        base_url: Url,
-        session: Arc<RwLock<super::FireSessionRuntimeState>>,
-    ) -> Self {
+    pub(crate) fn new(base_url: Url, session: Arc<RwLock<super::FireSessionRuntimeState>>) -> Self {
         Self {
             origin: request_origin(&base_url),
             referer: request_referer(&base_url),

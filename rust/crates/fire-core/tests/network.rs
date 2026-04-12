@@ -686,7 +686,10 @@ async fn stale_response_auth_cookies_do_not_override_rotated_session() {
     assert_eq!(result.topics.len(), 1);
     let snapshot = core.snapshot();
     assert_eq!(snapshot.cookies.t_token.as_deref(), Some("fresh-token"));
-    assert_eq!(snapshot.cookies.forum_session.as_deref(), Some("fresh-forum"));
+    assert_eq!(
+        snapshot.cookies.forum_session.as_deref(),
+        Some("fresh-forum")
+    );
 }
 
 #[tokio::test]

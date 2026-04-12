@@ -271,7 +271,10 @@ impl FireCore {
             let after = auth_cookie_epoch_key(&session.snapshot);
             if before != after {
                 session.epoch = session.epoch.saturating_add(1);
-                info!(session_epoch = session.epoch, reason, "advanced session epoch");
+                info!(
+                    session_epoch = session.epoch,
+                    reason, "advanced session epoch"
+                );
             }
             session.snapshot.clone()
         };

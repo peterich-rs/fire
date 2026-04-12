@@ -7,6 +7,7 @@ fileGroups:
   - Configs/Fire-Local-Release.example.xcconfig
   - Configs/Fire-Release.xcconfig
   - Configs/Fire-Shared.xcconfig
+  - Fire.entitlements
 schemes:
   Fire:
     build:
@@ -48,6 +49,7 @@ targets:
         DEVELOPMENT_TEAM: $(FIRE_DEVELOPMENT_TEAM)
         PRODUCT_BUNDLE_IDENTIFIER: $(FIRE_PRODUCT_BUNDLE_IDENTIFIER)
         PROVISIONING_PROFILE_SPECIFIER: $(FIRE_PROVISIONING_PROFILE_SPECIFIER)
+        CODE_SIGN_ENTITLEMENTS: Fire.entitlements
         PRODUCT_NAME: Fire
         TARGETED_DEVICE_FAMILY: "1,2"
         GENERATE_INFOPLIST_FILE: YES

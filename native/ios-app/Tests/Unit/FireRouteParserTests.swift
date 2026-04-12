@@ -18,6 +18,22 @@ final class FireRouteParserTests: XCTestCase {
         XCTAssertEqual(route, .topic(topicId: 987, postNumber: 6))
     }
 
+    func testParseLinuxDoTopicRouteWithNumericSlug() throws {
+        let url = try XCTUnwrap(URL(string: "https://linux.do/t/123/987"))
+
+        let route = FireRouteParser.parse(url: url)
+
+        XCTAssertEqual(route, .topic(topicId: 987, postNumber: nil))
+    }
+
+    func testParseLinuxDoTopicRouteWithNumericSlugAndPostNumber() throws {
+        let url = try XCTUnwrap(URL(string: "https://linux.do/t/123/987/6"))
+
+        let route = FireRouteParser.parse(url: url)
+
+        XCTAssertEqual(route, .topic(topicId: 987, postNumber: 6))
+    }
+
     func testParseLinuxDoProfileRoute() throws {
         let url = try XCTUnwrap(URL(string: "https://linux.do/u/alice/summary"))
 
@@ -43,6 +59,31 @@ final class FireRouteParserTests: XCTestCase {
         )
 
         XCTAssertEqual(route, .topic(topicId: 321, postNumber: 9))
+    }
+
+    func testNotificationPayloadPreservesOptionalPreviewMetadata() {
+        let route = FireRouteParser.route(
+            fromNotificationUserInfo: [
+                "topicId": NSNumber(value: 321),
+                "postNumber": NSNumber(value: 9),
+                "topicTitle": "Fire Native",
+                "excerpt": "最新进展",
+            ]
+        )
+
+        XCTAssertEqual(
+            route,
+            .topic(
+                topicId: 321,
+                postNumber: 9,
+                preview: FireTopicRoutePreview(
+                    title: "Fire Native",
+                    slug: "",
+                    categoryId: nil,
+                    excerptText: "最新进展"
+                )
+            )
+        )
     }
 
     func testUnsupportedURLReturnsNil() throws {

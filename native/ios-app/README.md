@@ -44,7 +44,7 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
   - exposes back, forward, home, reload, and session sync controls so OAuth hops can return to LinuxDo without closing the flow
   - enables back/forward swipe gestures on the embedded `WKWebView`
 - `App/FireApp.swift`
-  - owns app-level custom URL opening and converts supported `fire://...` or LinuxDo URLs into typed in-app routes before SwiftUI screens load
+  - owns app-level URL opening and routes both `fire://...` custom schemes and LinuxDo universal links into the shared typed in-app route model before SwiftUI screens load
 - `App/Routing/`
   - defines the typed `FireAppRoute` model, route parser, and shared destination view used by external URL opens, notification taps, and in-app search / notification navigation
 - `App/FireAppViewModel.swift`
@@ -69,7 +69,7 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
   - restores the Rust session plus Keychain cookies in the background, performs a one-shot shared MessageBus alert poll, and turns the result into host-owned local notifications
 - `App/Push/FirePushRegistrationCoordinator.swift`
   - requests notification authorization when the authenticated shell becomes active
-  - registers for APNs, stores the latest device token locally, and keeps host-owned registration diagnostics available without uploading the token
+  - re-registers with APNs whenever authorization is available, stores the latest device token locally, and keeps host-owned registration diagnostics available without uploading the token
 - `App/FireAppDelegate.swift`
   - registers the background refresh task at launch, keeps `UNUserNotificationCenter` delegate ownership on the host side, routes notification taps through the typed route model, and records APNs registration callbacks
 - `App/FireDiagnosticsView.swift`

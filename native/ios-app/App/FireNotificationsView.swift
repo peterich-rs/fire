@@ -107,7 +107,15 @@ extension NotificationItemState {
             return nil
         default:
             guard let tid = topicId else { return nil }
-            return .topic(topicId: tid, postNumber: postNumber)
+            return .topic(
+                topicId: tid,
+                postNumber: postNumber,
+                preview: FireTopicRoutePreview.fromMetadata(
+                    title: fancyTitle ?? data.topicTitle,
+                    slug: slug,
+                    excerptText: data.excerpt
+                )
+            )
         }
     }
 

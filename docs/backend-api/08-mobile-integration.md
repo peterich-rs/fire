@@ -6,7 +6,7 @@
 
 ## 自定义 URL Scheme
 
-当前 iOS 壳层注册了 `fire://` URL scheme，并把支持的 URL 解析成统一的应用内 route 模型。
+当前 iOS 壳层注册了 `fire://` URL scheme，并为 `https://linux.do/...` 声明了 universal link / Associated Domains 入口，把支持的 URL 统一解析成应用内 route 模型。
 
 ### 支持的 URL 形式
 
@@ -18,7 +18,7 @@
 
 ### 兼容的 LinuxDo Web URL
 
-当前 iOS 也会直接解析以下 LinuxDo URL，并映射到同一套 route：
+当前 iOS 也会通过 universal link continuation 入口直接解析以下 LinuxDo URL，并映射到同一套 route：
 
 - `https://linux.do/t/{slug}/{topicId}`
 - `https://linux.do/t/{slug}/{topicId}/{postNumber}`
@@ -57,6 +57,12 @@
 - `postNumber`
   - `UInt32`
   - 可选；存在时按目标楼层打开话题
+- `topicTitle`
+  - `String`
+  - 可选；宿主本地通知会尽量附带，用于详情页首屏标题预览
+- `excerpt`
+  - `String`
+  - 可选；宿主本地通知会尽量附带，用于详情页首屏摘要预览
 - `messageId`
   - 当前仅用于通知 request identifier / 本地排重
   - iOS 当前不会把它映射成单独 route
@@ -73,7 +79,7 @@
 ### 当前已实现
 
 - 请求系统通知权限（`alert` / `badge` / `sound`）
-- 调用 `registerForRemoteNotifications`
+- 在已授权状态下每次进入宿主生命周期都会重新调用 `registerForRemoteNotifications`
 - 在宿主本地缓存最新 device token
 - 在诊断页暴露：
   - 通知权限状态
@@ -86,11 +92,11 @@
 - device token 上传
 - 后端 token 注册 / 解绑 API
 - APNs payload 到 LinuxDo 业务通知 ID 的回写对齐
-- universal links
 
 ### 约束说明
 
 - 当前 APNs token 只保存在宿主本地，用于诊断和后续生产化接入准备。
+- APNs device token 可能轮换，因此宿主需要在已授权时持续重新向 APNs 注册，而不是只依赖首次缓存结果。
 - 在 LinuxDo 或 Fire 自有后端提供 token 注册 API 之前，客户端不得假设“拿到 token 就能收到远程推送”。
 
 ## 后台通知回退

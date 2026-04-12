@@ -10,10 +10,13 @@ struct FireApp: App {
             FireTabRoot()
                 .environmentObject(navigationState)
                 .onOpenURL { url in
-                    guard let route = FireRouteParser.parse(url: url) else {
+                    navigationState.handleIncomingURL(url)
+                }
+                .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { userActivity in
+                    guard let url = userActivity.webpageURL else {
                         return
                     }
-                    navigationState.pendingRoute = route
+                    navigationState.handleIncomingURL(url)
                 }
         }
     }

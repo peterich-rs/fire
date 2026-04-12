@@ -149,11 +149,16 @@ struct FireSearchView: View {
             if !result.topics.isEmpty {
                 Section("话题") {
                     ForEach(result.topics, id: \.id) { topic in
+                        let row = topicRow(for: topic)
                         Button {
-                            selectedRoute = .topic(topicId: topic.id, postNumber: nil)
+                            selectedRoute = .topic(
+                                topicId: topic.id,
+                                postNumber: nil,
+                                preview: FireTopicRoutePreview(row: row)
+                            )
                         } label: {
                             FireTopicRow(
-                                row: topicRow(for: topic),
+                                row: row,
                                 category: viewModel.categoryPresentation(for: topic.categoryId)
                             )
                         }
@@ -169,7 +174,8 @@ struct FireSearchView: View {
                             Button {
                                 selectedRoute = .topic(
                                     topicId: row.topic.id,
-                                    postNumber: post.postNumber
+                                    postNumber: post.postNumber,
+                                    preview: FireTopicRoutePreview(row: row)
                                 )
                             } label: {
                                 FireSearchPostRow(post: post, row: row)

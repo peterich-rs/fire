@@ -121,6 +121,14 @@ enum FireSystemNotificationPresenter {
         if let postNumber = alert.postNumber {
             content.userInfo["postNumber"] = postNumber
         }
+        if let topicTitle = alert.topicTitle?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !topicTitle.isEmpty {
+            content.userInfo["topicTitle"] = topicTitle
+        }
+        if let excerpt = alert.excerpt?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !excerpt.isEmpty {
+            content.userInfo["excerpt"] = excerpt
+        }
         content.userInfo["messageId"] = alert.messageId
 
         let request = UNNotificationRequest(

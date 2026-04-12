@@ -84,32 +84,46 @@ final class FirePushRegistrationCoordinator: ObservableObject {
         static let lastUpdatedAtUnixMs = "fire.push.last-updated-at-unix-ms"
     }
 
-    private let center: UNUserNotificationCenter
     private let defaults: UserDefaults
+    private let loadAuthorizationStatus: () async -> UNAuthorizationStatus
+    private let requestAuthorization: () async throws -> Bool
     private let registerForRemoteNotifications: @MainActor () -> Void
     private var isRegistrationInFlight = false
 
     init(
         center: UNUserNotificationCenter = .current(),
         defaults: UserDefaults = .standard,
+        loadAuthorizationStatus: (() async -> UNAuthorizationStatus)? = nil,
+        requestAuthorization: (() async throws -> Bool)? = nil,
         registerForRemoteNotifications: @escaping @MainActor () -> Void = {
             UIApplication.shared.registerForRemoteNotifications()
         }
     ) {
-        self.center = center
         self.defaults = defaults
+        self.loadAuthorizationStatus = loadAuthorizationStatus ?? {
+            await center.notificationSettings().authorizationStatus
+        }
+        self.requestAuthorization = requestAuthorization ?? {
+            try await center.requestAuthorization(options: [.alert, .badge, .sound])
+        }
         self.registerForRemoteNotifications = registerForRemoteNotifications
         self.diagnostics = Self.loadDiagnostics(from: defaults)
     }
 
     func refreshAuthorizationStatus() async {
-        let settings = await center.notificationSettings()
-        await sync(with: settings, requestAuthorizationIfNeeded: false)
+        let authorizationStatus = await loadAuthorizationStatus()
+        await sync(
+            authorizationStatus: authorizationStatus,
+            requestAuthorizationIfNeeded: false
+        )
     }
 
     func ensurePushRegistration() async {
-        let settings = await center.notificationSettings()
-        await sync(with: settings, requestAuthorizationIfNeeded: true)
+        let authorizationStatus = await loadAuthorizationStatus()
+        await sync(
+            authorizationStatus: authorizationStatus,
+            requestAuthorizationIfNeeded: true
+        )
     }
 
     func handleRegisteredDeviceToken(_ deviceToken: Data) {
@@ -130,13 +144,13 @@ final class FirePushRegistrationCoordinator: ObservableObject {
     }
 
     private func sync(
-        with settings: UNNotificationSettings,
+        authorizationStatus: UNAuthorizationStatus,
         requestAuthorizationIfNeeded: Bool
     ) async {
-        diagnostics.authorizationStatusRawValue = settings.authorizationStatus.rawValue
+        diagnostics.authorizationStatusRawValue = authorizationStatus.rawValue
         diagnostics.lastUpdatedAtUnixMs = Self.currentTimestampUnixMs()
 
-        switch settings.authorizationStatus {
+        switch authorizationStatus {
         case .authorized, .provisional, .ephemeral:
             if diagnostics.deviceTokenHex != nil {
                 diagnostics.registrationStateRawValue = FirePushRegistrationDiagnostics.RegistrationState.registered.rawValue
@@ -154,9 +168,12 @@ final class FirePushRegistrationCoordinator: ObservableObject {
             persistDiagnostics()
 
             do {
-                _ = try await center.requestAuthorization(options: [.alert, .badge, .sound])
-                let refreshedSettings = await center.notificationSettings()
-                await sync(with: refreshedSettings, requestAuthorizationIfNeeded: false)
+                _ = try await requestAuthorization()
+                let refreshedAuthorizationStatus = await loadAuthorizationStatus()
+                await sync(
+                    authorizationStatus: refreshedAuthorizationStatus,
+                    requestAuthorizationIfNeeded: false
+                )
             } catch {
                 diagnostics.lastErrorMessage = error.localizedDescription
                 diagnostics.registrationStateRawValue = FirePushRegistrationDiagnostics.RegistrationState.failed.rawValue
@@ -174,9 +191,6 @@ final class FirePushRegistrationCoordinator: ObservableObject {
 
     private func registerForRemoteNotificationsIfNeeded() {
         guard !isRegistrationInFlight else {
-            return
-        }
-        guard diagnostics.registrationState != .registered || diagnostics.deviceTokenHex == nil else {
             return
         }
 

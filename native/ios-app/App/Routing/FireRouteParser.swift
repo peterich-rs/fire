@@ -1,6 +1,16 @@
 import Foundation
 
 enum FireRouteParser {
+    private enum TopicPathStyle {
+        case fireScheme
+        case linuxDoWeb
+    }
+
+    private struct ParsedTopicPath {
+        let topicId: UInt64
+        let postNumber: UInt32?
+    }
+
     static func parse(url: URL) -> FireAppRoute? {
         let scheme = url.scheme?.lowercased()
         let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
@@ -20,7 +30,12 @@ enum FireRouteParser {
             return nil
         }
         let postNumber = integerUInt32(from: userInfo["postNumber"])
-        return .topic(topicId: topicId, postNumber: postNumber)
+        let preview = FireTopicRoutePreview.fromMetadata(
+            title: stringValue(from: userInfo["topicTitle"]) ?? stringValue(from: userInfo["title"]),
+            slug: stringValue(from: userInfo["slug"]),
+            excerptText: stringValue(from: userInfo["excerpt"])
+        )
+        return .topic(topicId: topicId, postNumber: postNumber, preview: preview)
     }
 
     private static func parseFireURL(
@@ -38,7 +53,11 @@ enum FireRouteParser {
 
         switch head {
         case "topic":
-            return parseTopic(segments: Array(segments.dropFirst()), components: components)
+            return parseTopic(
+                segments: Array(segments.dropFirst()),
+                components: components,
+                style: .fireScheme
+            )
         case "user", "profile":
             return parseProfile(segments: Array(segments.dropFirst()))
         case "badge", "badges":
@@ -64,7 +83,11 @@ enum FireRouteParser {
 
         switch head {
         case "t":
-            return parseTopic(segments: Array(segments.dropFirst()), components: components)
+            return parseTopic(
+                segments: Array(segments.dropFirst()),
+                components: components,
+                style: .linuxDoWeb
+            )
         case "u":
             return parseProfile(segments: Array(segments.dropFirst()))
         case "badge", "badges":
@@ -76,11 +99,11 @@ enum FireRouteParser {
 
     private static func parseTopic(
         segments: [String],
-        components: URLComponents?
+        components: URLComponents?,
+        style: TopicPathStyle
     ) -> FireAppRoute? {
         let normalized = segments.compactMap(normalizedSegment)
-        guard let topicIndex = normalized.firstIndex(where: { UInt64($0) != nil }),
-              let topicId = UInt64(normalized[topicIndex]) else {
+        guard let topicPath = parseTopicPath(normalized, style: style) else {
             return nil
         }
 
@@ -88,14 +111,37 @@ enum FireRouteParser {
             $0.name.caseInsensitiveCompare("postNumber") == .orderedSame
         }?.value.flatMap(UInt32.init)
 
-        let postNumberFromPath: UInt32? = {
-            guard topicIndex + 1 < normalized.count else {
+        return .topic(topicId: topicPath.topicId, postNumber: postNumberFromQuery ?? topicPath.postNumber)
+    }
+
+    private static func parseTopicPath(
+        _ normalized: [String],
+        style: TopicPathStyle
+    ) -> ParsedTopicPath? {
+        switch style {
+        case .fireScheme:
+            guard let head = normalized.first,
+                  let topicId = UInt64(head) else {
                 return nil
             }
-            return UInt32(normalized[topicIndex + 1])
-        }()
+            let postNumber = normalized.dropFirst().first.flatMap(UInt32.init)
+            return ParsedTopicPath(topicId: topicId, postNumber: postNumber)
+        case .linuxDoWeb:
+            guard let tail = normalized.last else {
+                return nil
+            }
 
-        return .topic(topicId: topicId, postNumber: postNumberFromQuery ?? postNumberFromPath)
+            if normalized.count >= 3,
+               let postNumber = UInt32(tail),
+               let topicId = UInt64(normalized[normalized.count - 2]) {
+                return ParsedTopicPath(topicId: topicId, postNumber: postNumber)
+            }
+
+            guard let topicId = UInt64(tail) else {
+                return nil
+            }
+            return ParsedTopicPath(topicId: topicId, postNumber: nil)
+        }
     }
 
     private static func parseProfile(segments: [String]) -> FireAppRoute? {
@@ -174,6 +220,20 @@ enum FireRouteParser {
             return value.uint32Value
         case let value as String:
             return UInt32(value)
+        default:
+            return nil
+        }
+    }
+
+    private static func stringValue(from value: Any?) -> String? {
+        guard let value else {
+            return nil
+        }
+        switch value {
+        case let value as String:
+            return normalizedSegment(value)
+        case let value as NSString:
+            return normalizedSegment(value as String)
         default:
             return nil
         }

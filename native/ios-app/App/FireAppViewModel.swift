@@ -130,16 +130,6 @@ final class FireAppViewModel: ObservableObject {
     @Published private(set) var isLoadingNotificationFullPage = false
     @Published private(set) var hasMoreNotificationFull = false
 
-    // MARK: - Search
-
-    @Published var searchQuery = ""
-    @Published private(set) var searchScope: FireSearchScope = .all
-    @Published private(set) var searchResult: SearchResultState?
-    @Published private(set) var searchCurrentPage: UInt32 = 1
-    @Published private(set) var isSearching = false
-    @Published private(set) var isAppendingSearch = false
-    @Published private(set) var searchErrorMessage: String?
-
     // MARK: - General UI state
 
     @Published var errorMessage: String?
@@ -176,8 +166,6 @@ final class FireAppViewModel: ObservableObject {
     private var topicPostPaginationStates: [UInt64: FireTopicPostPaginationState] = [:]
     private var topicDetailTargetPostNumbers: [UInt64: UInt32] = [:]
     private var activeTopicDetailOwnerTokens: [UInt64: Set<String>] = [:]
-    private var searchTask: Task<Void, Never>?
-    private var latestSearchRequestID: UInt64 = 0
     private var filterChangeRefreshTask: Task<Void, Never>?
     private var topLevelAPMRoute = "session.onboarding"
 
@@ -342,7 +330,6 @@ final class FireAppViewModel: ObservableObject {
                 selectedTopicKind = .latest
                 clearTopicState()
                 clearNotificationState()
-                clearSearchState(resetQuery: true)
             } catch {
                 errorMessage = error.localizedDescription
             }
@@ -1258,100 +1245,7 @@ final class FireAppViewModel: ObservableObject {
         }
     }
 
-    // MARK: - Search
-
-    var canLoadMoreSearchResults: Bool {
-        guard let searchResult else { return false }
-        switch searchScope {
-        case .all:
-            return searchResult.groupedResult.moreFullPageResults
-                || searchResult.groupedResult.morePosts
-                || searchResult.groupedResult.moreUsers
-        case .topic, .post:
-            return searchResult.groupedResult.moreFullPageResults
-                || searchResult.groupedResult.morePosts
-        case .user:
-            return searchResult.groupedResult.moreUsers
-        }
-    }
-
-    func resetSearch() {
-        clearSearchState(resetQuery: true)
-    }
-
-    func setSearchScope(_ scope: FireSearchScope) {
-        guard searchScope != scope else {
-            return
-        }
-        searchScope = scope
-        guard searchResult != nil else {
-            return
-        }
-        submitSearch(reset: true)
-    }
-
-    func submitSearch(reset: Bool) {
-        let trimmedQuery = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedQuery.isEmpty else {
-            clearSearchState(resetQuery: false)
-            return
-        }
-        if !reset && (isSearching || isAppendingSearch) {
-            return
-        }
-
-        searchTask?.cancel()
-        let nextPage = reset ? UInt32(1) : searchCurrentPage + 1
-        let requestID = latestSearchRequestID &+ 1
-        latestSearchRequestID = requestID
-        let scope = searchScope
-
-        if reset {
-            isSearching = true
-            isAppendingSearch = false
-        } else {
-            isAppendingSearch = true
-        }
-
-        searchTask = Task { [weak self] in
-            guard let self else { return }
-
-            do {
-                let response = try await self.search(
-                    query: trimmedQuery,
-                    typeFilter: scope.typeFilter,
-                    page: nextPage
-                )
-                guard !Task.isCancelled, requestID == self.latestSearchRequestID else {
-                    return
-                }
-
-                self.searchErrorMessage = nil
-                self.searchCurrentPage = nextPage
-                self.searchResult = reset
-                    ? response
-                    : self.mergeSearchResult(existing: self.searchResult, incoming: response)
-            } catch is CancellationError {
-                return
-            } catch {
-                guard !Task.isCancelled, requestID == self.latestSearchRequestID else {
-                    return
-                }
-                if await self.handleRecoverableSessionErrorIfNeeded(error) {
-                    self.searchErrorMessage = nil
-                } else {
-                    self.searchErrorMessage = error.localizedDescription
-                }
-            }
-
-            guard requestID == self.latestSearchRequestID else {
-                return
-            }
-            self.isSearching = false
-            self.isAppendingSearch = false
-            self.searchTask = nil
-        }
-    }
+    // MARK: - Search helpers
 
     func search(
         query: String,
@@ -1967,19 +1861,23 @@ final class FireAppViewModel: ObservableObject {
         recentNotifications = []
     }
 
-    private func clearSearchState(resetQuery: Bool) {
-        searchTask?.cancel()
-        searchTask = nil
-        latestSearchRequestID = latestSearchRequestID &+ 1
-        if resetQuery {
-            searchQuery = ""
+    private func mergeItemsByID<Item>(
+        _ existing: [Item],
+        _ incoming: [Item],
+        keyPath: KeyPath<Item, UInt64>
+    ) -> [Item] {
+        var merged = Dictionary(uniqueKeysWithValues: existing.map { ($0[keyPath: keyPath], $0) })
+        var orderedIDs = existing.map { $0[keyPath: keyPath] }
+
+        for item in incoming {
+            let id = item[keyPath: keyPath]
+            if merged[id] == nil {
+                orderedIDs.append(id)
+            }
+            merged[id] = item
         }
-        searchResult = nil
-        searchCurrentPage = 1
-        isSearching = false
-        isAppendingSearch = false
-        searchErrorMessage = nil
-        searchScope = .all
+
+        return orderedIDs.compactMap { merged[$0] }
     }
 
     private func finishInitialStateLoading(generation: UInt64) {
@@ -2101,7 +1999,7 @@ final class FireAppViewModel: ObservableObject {
     }
 
     @discardableResult
-    private func handleRecoverableSessionErrorIfNeeded(_ error: Error) async -> Bool {
+    func handleRecoverableSessionErrorIfNeeded(_ error: Error) async -> Bool {
         if await handleLoginRequiredIfNeeded(error) {
             return true
         }
@@ -2161,7 +2059,6 @@ final class FireAppViewModel: ObservableObject {
         selectedTopicKind = .latest
         clearTopicState()
         clearNotificationState()
-        clearSearchState(resetQuery: true)
         errorMessage = message
         isPresentingLogin = true
     }
@@ -2585,41 +2482,6 @@ final class FireAppViewModel: ObservableObject {
 
         detail.postStream.posts[postIndex] = post
         topicDetails[topicId] = FireTopicPresentation.recomposedDetail(detail)
-    }
-
-    private func mergeSearchResult(
-        existing: SearchResultState?,
-        incoming: SearchResultState
-    ) -> SearchResultState {
-        guard let existing else {
-            return incoming
-        }
-
-        return SearchResultState(
-            posts: mergeItemsByID(existing.posts, incoming.posts, keyPath: \.id),
-            topics: mergeItemsByID(existing.topics, incoming.topics, keyPath: \.id),
-            users: mergeItemsByID(existing.users, incoming.users, keyPath: \.id),
-            groupedResult: incoming.groupedResult
-        )
-    }
-
-    private func mergeItemsByID<Item>(
-        _ existing: [Item],
-        _ incoming: [Item],
-        keyPath: KeyPath<Item, UInt64>
-    ) -> [Item] {
-        var merged = Dictionary(uniqueKeysWithValues: existing.map { ($0[keyPath: keyPath], $0) })
-        var orderedIDs = existing.map { $0[keyPath: keyPath] }
-
-        for item in incoming {
-            let id = item[keyPath: keyPath]
-            if merged[id] == nil {
-                orderedIDs.append(id)
-            }
-            merged[id] = item
-        }
-
-        return orderedIDs.compactMap { merged[$0] }
     }
 
     private func sessionStoreValue() async throws -> FireSessionStore {

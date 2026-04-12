@@ -3,6 +3,7 @@ import SwiftUI
 struct FireHomeView: View {
     @EnvironmentObject private var navigationState: FireNavigationState
     @ObservedObject var viewModel: FireAppViewModel
+    let searchStore: FireSearchStore
     @Namespace private var feedSelectionNamespace
     @State private var showCategoryBrowser = false
     @State private var showTagPicker = false
@@ -76,7 +77,7 @@ struct FireHomeView: View {
                     }
 
                     NavigationLink {
-                        FireSearchView(viewModel: viewModel)
+                        FireSearchView(appViewModel: viewModel, searchStore: searchStore)
                     } label: {
                         Image(systemName: "magnifyingglass")
                     }

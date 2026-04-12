@@ -62,11 +62,16 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
   - mirrors authenticated LinuxDo cookies into native `HTTPCookieStorage` so inline media/image requests can reuse the restored session
   - coordinates native reply, like, custom reaction, and topic-timing reporting on top of the shared Rust interaction APIs
   - now also owns native private-message inbox/sent loading plus private-message creation on top of the shared Rust mailbox and `/posts.json` PM surfaces
+  - now acts as a session and interaction facade for feature stores instead of also owning every screen's transient state directly
   - now owns the foreground MessageBus lifecycle on iOS, including topic-detail reaction/presence subscriptions, shared notification-state sync, and reply-presence heartbeats while the quick composer is focused
   - now treats Rust-owned `CloudflareChallenge` errors as the signal to clear the local authenticated snapshot, return the shell to onboarding, and auto-present the login WebView so challenge recovery stays inside the browser flow
   - now also emits host-owned APM spans for cold-start restore, login sync, bootstrap refresh, latest-feed load, topic-detail load, reply submit, notification refresh, and MessageBus start
+- `App/Stores/FireSearchStore.swift`
+  - owns the search screen's query, scope, result, paging, loading, and error state
+  - keeps the actual `/search.json` call path on `FireAppViewModel` so session ownership and recoverable-auth handling stay centralized during the W2 split
 - `App/FireSearchView.swift`
   - provides a native search workspace with keyword input, topic/post/user scope switching, paginated result loading, and typed route-based topic/profile navigation
+  - now renders from `FireSearchStore`, so search input and pagination no longer invalidate unrelated authenticated tabs through `FireAppViewModel`
 - `App/FireComposerView.swift`
   - now supports native private-message compose alongside create-topic and advanced-reply flows, including recipient token editing, PM-specific draft restore/save, and PM-specific validation lengths from bootstrap
 - `App/FirePrivateMessagesView.swift`

@@ -4,11 +4,13 @@ struct FireTabRoot: View {
     @Environment(\.scenePhase) private var scenePhase
     @EnvironmentObject private var navigationState: FireNavigationState
     @StateObject private var viewModel = FireAppViewModel()
+    @StateObject private var searchStore: FireSearchStore
     @StateObject private var profileViewModel: FireProfileViewModel
 
     init() {
         let vm = FireAppViewModel()
         _viewModel = StateObject(wrappedValue: vm)
+        _searchStore = StateObject(wrappedValue: FireSearchStore(appViewModel: vm))
         _profileViewModel = StateObject(wrappedValue: FireProfileViewModel(appViewModel: vm))
     }
 
@@ -20,7 +22,7 @@ struct FireTabRoot: View {
         Group {
             if isAuthenticated {
                 TabView(selection: $navigationState.selectedTab) {
-                    FireHomeView(viewModel: viewModel)
+                    FireHomeView(viewModel: viewModel, searchStore: searchStore)
                         .tabItem {
                             Label("首页", systemImage: "house")
                         }
@@ -108,6 +110,9 @@ struct FireTabRoot: View {
             )
         }
         .onChange(of: isAuthenticated) { _, authenticated in
+            if !authenticated {
+                searchStore.reset()
+            }
             viewModel.updateTopLevelAPMRoute(
                 selectedTab: navigationState.selectedTab,
                 isAuthenticated: authenticated

@@ -537,7 +537,7 @@
 					"com.fire.app.ios.notification-alert-refresh",
 				);
 				INFOPLIST_KEY_CFBundleDisplayName = Fire;
-				INFOPLIST_KEY_CFBundleURLTypes = "[[\"CFBundleURLName\": \"fire\", \"CFBundleURLSchemes\": [\"fire\"]]]";
+				INFOPLIST_KEY_CFBundleURLTypes = "[[\"CFBundleURLSchemes\": [\"fire\"], \"CFBundleURLName\": \"fire\"]]";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIBackgroundModes = (
 					fetch,
@@ -742,7 +742,7 @@
 					"com.fire.app.ios.notification-alert-refresh",
 				);
 				INFOPLIST_KEY_CFBundleDisplayName = Fire;
-				INFOPLIST_KEY_CFBundleURLTypes = "[[\"CFBundleURLName\": \"fire\", \"CFBundleURLSchemes\": [\"fire\"]]]";
+				INFOPLIST_KEY_CFBundleURLTypes = "[[\"CFBundleURLSchemes\": [\"fire\"], \"CFBundleURLName\": \"fire\"]]";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIBackgroundModes = (
 					fetch,

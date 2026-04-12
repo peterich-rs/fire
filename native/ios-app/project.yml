@@ -56,10 +56,7 @@ targets:
         INFOPLIST_KEY_CFBundleDisplayName: Fire
         INFOPLIST_KEY_BGTaskSchedulerPermittedIdentifiers:
           - com.fire.app.ios.notification-alert-refresh
-        INFOPLIST_KEY_CFBundleURLTypes:
-          - CFBundleURLName: fire
-            CFBundleURLSchemes:
-              - fire
+        INFOPLIST_KEY_CFBundleURLTypes: '[["CFBundleURLSchemes": ["fire"], "CFBundleURLName": "fire"]]'
         INFOPLIST_KEY_UIBackgroundModes:
           - fetch
           - remote-notification

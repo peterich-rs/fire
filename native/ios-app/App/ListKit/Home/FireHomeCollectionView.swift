@@ -21,6 +21,18 @@ private enum FireHomeCollectionItem: Hashable {
 struct FireHomeCollectionView: View {
     @EnvironmentObject private var homeFeedStore: FireHomeFeedStore
 
+    private struct FireHomeCollectionContentVersion: Hashable {
+        let allCategories: [FireTopicCategoryPresentation]
+        let topTags: [String]
+        let selectedTopicKind: TopicListKindState
+        let selectedHomeCategoryId: UInt64?
+        let selectedHomeTags: [String]
+        let topicRows: [FireTopicRowPresentation]
+        let nextTopicsPage: UInt32?
+        let isLoadingTopics: Bool
+        let isAppendingTopics: Bool
+    }
+
     let onShowCategoryBrowser: () -> Void
     let onShowTagPicker: () -> Void
     let onSelectTopic: (UInt64) -> Void
@@ -29,6 +41,20 @@ struct FireHomeCollectionView: View {
 
     private var parentCategories: [FireTopicCategoryPresentation] {
         homeFeedStore.allCategories.filter { $0.parentCategoryId == nil }
+    }
+
+    private var contentVersion: FireHomeCollectionContentVersion {
+        FireHomeCollectionContentVersion(
+            allCategories: homeFeedStore.allCategories,
+            topTags: homeFeedStore.topTags,
+            selectedTopicKind: homeFeedStore.selectedTopicKind,
+            selectedHomeCategoryId: homeFeedStore.selectedHomeCategoryId,
+            selectedHomeTags: homeFeedStore.selectedHomeTags,
+            topicRows: homeFeedStore.topicRows,
+            nextTopicsPage: homeFeedStore.nextTopicsPage,
+            isLoadingTopics: homeFeedStore.isLoadingTopics,
+            isAppendingTopics: homeFeedStore.isAppendingTopics
+        )
     }
 
     private var sections: [FireListSectionModel<FireHomeCollectionSection, FireHomeCollectionItem>] {
@@ -61,6 +87,7 @@ struct FireHomeCollectionView: View {
     var body: some View {
         FireCollectionHost(
             sections: sections,
+            contentVersion: contentVersion,
             backgroundColor: .systemBackground,
             animatingDifferences: true,
             onSelectItem: handleSelection(_:),
@@ -213,10 +240,6 @@ struct FireHomeCollectionView: View {
     private var tagChipsRow: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 6) {
-                ForEach(homeFeedStore.selectedHomeTags, id: \.self) { tag in
-                    selectedTagChip(tag)
-                }
-
                 Button(action: onShowTagPicker) {
                     HStack(spacing: 4) {
                         Image(systemName: "plus")
@@ -233,6 +256,10 @@ struct FireHomeCollectionView: View {
                     )
                 }
                 .buttonStyle(.plain)
+
+                ForEach(homeFeedStore.selectedHomeTags, id: \.self) { tag in
+                    selectedTagChip(tag)
+                }
             }
             .padding(.vertical, 2)
         }

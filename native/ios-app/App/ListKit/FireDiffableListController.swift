@@ -12,6 +12,47 @@ struct FireCollectionScrollAnchor<ItemID: Hashable>: Equatable {
     let offsetFromTop: CGFloat
 }
 
+enum FireCollectionScrollAnchorRestorePolicy {
+    case always
+    case never
+    case whenNotAnimatingDifferences
+
+    func shouldRestore(animatingDifferences: Bool) -> Bool {
+        switch self {
+        case .always:
+            return true
+        case .never:
+            return false
+        case .whenNotAnimatingDifferences:
+            return !animatingDifferences
+        }
+    }
+}
+
+func fireCollectionNeedsLayoutUpdate(
+    currentVersion: AnyHashable?,
+    incomingVersion: AnyHashable
+) -> Bool {
+    currentVersion != incomingVersion
+}
+
+func fireCollectionNeedsSectionUpdate<SectionID: Hashable, ItemID: Hashable>(
+    current: [FireListSectionModel<SectionID, ItemID>],
+    incoming: [FireListSectionModel<SectionID, ItemID>]
+) -> Bool {
+    current != incoming
+}
+
+func fireCollectionCommonItems<SectionID: Hashable, ItemID: Hashable>(
+    current: [FireListSectionModel<SectionID, ItemID>],
+    incoming: [FireListSectionModel<SectionID, ItemID>]
+) -> [ItemID] {
+    let existingItems = Set(current.flatMap(\.items))
+    return incoming
+        .flatMap(\.items)
+        .filter { existingItems.contains($0) }
+}
+
 @MainActor
 final class FireDiffableListController<SectionID: Hashable, ItemID: Hashable, RowContent: View>: UIViewController,
     UICollectionViewDelegate
@@ -22,18 +63,24 @@ final class FireDiffableListController<SectionID: Hashable, ItemID: Hashable, Ro
     private let onVisibleItemsChanged: (([ItemID]) -> Void)?
     private let onScrollMetricsChanged: ((FireCollectionScrollMetrics) -> Void)?
     private let onRefresh: (() async -> Void)?
+    private let scrollAnchorRestorePolicy: FireCollectionScrollAnchorRestorePolicy
     private var listLayout: UICollectionViewLayout
+    private var layoutVersion: AnyHashable
+    private var contentVersion: AnyHashable
     private var showsVerticalScrollIndicator: Bool
     private var backgroundColor: UIColor
 
     private var collectionView: UICollectionView?
     private var dataSource: UICollectionViewDiffableDataSource<SectionID, ItemID>?
+    private var currentSections: [FireListSectionModel<SectionID, ItemID>] = []
     private var lastVisibleItemIDs: [ItemID] = []
     private var lastScrollMetrics: FireCollectionScrollMetrics?
     private var isRefreshing = false
 
     init(
         layout: UICollectionViewLayout,
+        layoutVersion: AnyHashable = 0,
+        contentVersion: AnyHashable = 0,
         showsVerticalScrollIndicator: Bool = true,
         backgroundColor: UIColor = .clear,
         onSelectItem: ((ItemID) -> Void)? = nil,
@@ -41,9 +88,12 @@ final class FireDiffableListController<SectionID: Hashable, ItemID: Hashable, Ro
         onVisibleItemsChanged: (([ItemID]) -> Void)? = nil,
         onScrollMetricsChanged: ((FireCollectionScrollMetrics) -> Void)? = nil,
         onRefresh: (() async -> Void)? = nil,
+        scrollAnchorRestorePolicy: FireCollectionScrollAnchorRestorePolicy = .whenNotAnimatingDifferences,
         rowContent: @escaping (ItemID) -> RowContent
     ) {
         self.listLayout = layout
+        self.layoutVersion = layoutVersion
+        self.contentVersion = contentVersion
         self.showsVerticalScrollIndicator = showsVerticalScrollIndicator
         self.backgroundColor = backgroundColor
         self.onSelectItem = onSelectItem
@@ -51,6 +101,7 @@ final class FireDiffableListController<SectionID: Hashable, ItemID: Hashable, Ro
         self.onVisibleItemsChanged = onVisibleItemsChanged
         self.onScrollMetricsChanged = onScrollMetricsChanged
         self.onRefresh = onRefresh
+        self.scrollAnchorRestorePolicy = scrollAnchorRestorePolicy
         self.rowContent = rowContent
         super.init(nibName: nil, bundle: nil)
     }
@@ -109,7 +160,16 @@ final class FireDiffableListController<SectionID: Hashable, ItemID: Hashable, Ro
         }
     }
 
-    func updateLayout(_ layout: UICollectionViewLayout) {
+    func updateLayoutIfNeeded(
+        version: AnyHashable,
+        makeLayout: () -> UICollectionViewLayout
+    ) {
+        guard fireCollectionNeedsLayoutUpdate(currentVersion: layoutVersion, incomingVersion: version)
+        else {
+            return
+        }
+        layoutVersion = version
+        let layout = makeLayout()
         listLayout = layout
         collectionView?.setCollectionViewLayout(layout, animated: false)
     }
@@ -126,18 +186,41 @@ final class FireDiffableListController<SectionID: Hashable, ItemID: Hashable, Ro
 
     func setSections(
         _ sections: [FireListSectionModel<SectionID, ItemID>],
+        contentVersion: AnyHashable,
         animatingDifferences: Bool
     ) {
         guard let dataSource else { return }
+        let sectionsChanged = fireCollectionNeedsSectionUpdate(
+            current: currentSections,
+            incoming: sections
+        )
+        let contentChanged = self.contentVersion != contentVersion
+        guard sectionsChanged || contentChanged else {
+            return
+        }
+        let reconfiguredItems = contentChanged
+            ? fireCollectionCommonItems(current: currentSections, incoming: sections)
+            : []
+        currentSections = sections
+        self.contentVersion = contentVersion
 
-        let scrollAnchor = currentScrollAnchor()
+        // Animated diffable updates should keep UIKit's insertion/reorder animation intact.
+        // Restoring contentOffset after those animations turns local diffs into visible snaps.
+        let effectiveAnimatingDifferences = sectionsChanged && animatingDifferences
+        let shouldRestoreScrollAnchor = scrollAnchorRestorePolicy.shouldRestore(
+            animatingDifferences: effectiveAnimatingDifferences
+        )
+        let scrollAnchor = shouldRestoreScrollAnchor ? currentScrollAnchor() : nil
         var snapshot = NSDiffableDataSourceSnapshot<SectionID, ItemID>()
         for section in sections {
             snapshot.appendSections([section.id])
             snapshot.appendItems(section.items, toSection: section.id)
         }
+        if !reconfiguredItems.isEmpty {
+            snapshot.reconfigureItems(reconfiguredItems)
+        }
 
-        dataSource.apply(snapshot, animatingDifferences: animatingDifferences) { [weak self] in
+        dataSource.apply(snapshot, animatingDifferences: effectiveAnimatingDifferences) { [weak self] in
             guard let self else { return }
             self.restoreScrollAnchor(scrollAnchor)
             self.publishVisibleItems()

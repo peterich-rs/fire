@@ -481,6 +481,7 @@ struct FireTopicDetailView: View {
         }
         .onAppear {
             viewModel.beginTopicDetailLifecycle(topicId: topic.id, ownerToken: detailOwnerToken)
+            viewModel.setAPMRoute("topic.detail.\(topic.id)")
         }
         .task(id: topic.id) {
             timingTracker.start { topicId, topicTimeMs, timings in
@@ -515,6 +516,7 @@ struct FireTopicDetailView: View {
         }
         .onDisappear {
             viewModel.endTopicDetailLifecycle(topicId: topic.id, ownerToken: detailOwnerToken)
+            viewModel.restoreTopLevelAPMRoute()
             Task {
                 await timingTracker.stop()
                 await viewModel.endTopicReplyPresence(topicId: topic.id)

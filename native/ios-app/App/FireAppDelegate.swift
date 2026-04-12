@@ -7,6 +7,7 @@ final class FireAppDelegate: NSObject, UIApplicationDelegate, UNUserNotification
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
+        FireAPMManager.shared.start()
         UNUserNotificationCenter.current().delegate = self
         FireBackgroundNotificationAlertScheduler.registerBackgroundTask()
         Task { @MainActor in

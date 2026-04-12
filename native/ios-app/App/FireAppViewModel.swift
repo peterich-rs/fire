@@ -179,6 +179,7 @@ final class FireAppViewModel: ObservableObject {
     private var searchTask: Task<Void, Never>?
     private var latestSearchRequestID: UInt64 = 0
     private var filterChangeRefreshTask: Task<Void, Never>?
+    private var topLevelAPMRoute = "session.onboarding"
 
     init(
         initialSession: SessionState = .placeholder(),
@@ -219,16 +220,18 @@ final class FireAppViewModel: ObservableObject {
             }
 
             do {
-                let sessionStore = try await self.sessionStoreValue()
-                guard self.initialStateLoadGeneration == generation else { return }
-                self.errorMessage = nil
-                let restoredSession = try await sessionStore.restoreColdStartSession()
-                guard self.initialStateLoadGeneration == generation else { return }
-                await self.applySession(restoredSession)
-                guard self.initialStateLoadGeneration == generation else { return }
-                await self.refreshTopicsIfPossible(force: true)
-                guard self.initialStateLoadGeneration == generation else { return }
-                await self.loadRecentNotifications(force: false)
+                try await FireAPMManager.shared.withSpan(.appLaunchRestoreSession) {
+                    let sessionStore = try await self.sessionStoreValue()
+                    guard self.initialStateLoadGeneration == generation else { return }
+                    self.errorMessage = nil
+                    let restoredSession = try await sessionStore.restoreColdStartSession()
+                    guard self.initialStateLoadGeneration == generation else { return }
+                    await self.applySession(restoredSession)
+                    guard self.initialStateLoadGeneration == generation else { return }
+                    await self.refreshTopicsIfPossible(force: true)
+                    guard self.initialStateLoadGeneration == generation else { return }
+                    await self.loadRecentNotifications(force: false)
+                }
             } catch {
                 guard self.initialStateLoadGeneration == generation else { return }
                 if await self.handleRecoverableSessionErrorIfNeeded(error) {
@@ -287,11 +290,13 @@ final class FireAppViewModel: ObservableObject {
             defer { isSyncingLoginSession = false }
 
             do {
-                let loginCoordinator = try await loginCoordinatorValue()
-                errorMessage = nil
-                await applySession(try await loginCoordinator.completeLogin(from: webView))
-                isPresentingLogin = false
-                await refreshTopicsIfPossible(force: true)
+                try await FireAPMManager.shared.withSpan(.authLoginSync) {
+                    let loginCoordinator = try await loginCoordinatorValue()
+                    errorMessage = nil
+                    await applySession(try await loginCoordinator.completeLogin(from: webView))
+                    isPresentingLogin = false
+                    await refreshTopicsIfPossible(force: true)
+                }
             } catch {
                 if await handleRecoverableSessionErrorIfNeeded(error) {
                     return
@@ -304,10 +309,12 @@ final class FireAppViewModel: ObservableObject {
     func refreshBootstrap() {
         Task {
             do {
-                let sessionStore = try await sessionStoreValue()
-                errorMessage = nil
-                await applySession(try await sessionStore.refreshBootstrap())
-                await refreshTopicsIfPossible(force: false)
+                try await FireAPMManager.shared.withSpan(.bootstrapRefresh) {
+                    let sessionStore = try await sessionStoreValue()
+                    errorMessage = nil
+                    await applySession(try await sessionStore.refreshBootstrap())
+                    await refreshTopicsIfPossible(force: false)
+                }
             } catch {
                 if await handleRecoverableSessionErrorIfNeeded(error) {
                     return
@@ -445,16 +452,21 @@ final class FireAppViewModel: ObservableObject {
 
         do {
             errorMessage = nil
-            let detail = try await sessionStore.fetchTopicDetailInitial(
-                query: TopicDetailQueryState(
-                    topicId: topicId,
-                    postNumber: targetPostNumber,
-                    trackVisit: true,
-                    filter: nil,
-                    usernameFilters: nil,
-                    filterTopLevelReplies: false
+            let detail = try await FireAPMManager.shared.withSpan(
+                .topicDetailInitialLoad,
+                metadata: ["topic_id": String(topicId)]
+            ) {
+                try await sessionStore.fetchTopicDetailInitial(
+                    query: TopicDetailQueryState(
+                        topicId: topicId,
+                        postNumber: targetPostNumber,
+                        trackVisit: true,
+                        filter: nil,
+                        usernameFilters: nil,
+                        filterTopLevelReplies: false
+                    )
                 )
-            )
+            }
             applyTopicDetail(detail, topicId: topicId)
             topicDetailLogger()?.debug(
                 "loaded topic detail topic_id=\(topicId) loaded_posts=\(detail.postStream.posts.count) stream_posts=\(detail.postStream.stream.count)"
@@ -683,12 +695,20 @@ final class FireAppViewModel: ObservableObject {
 
         do {
             errorMessage = nil
-            let createdReply = try await performWriteWithCloudflareRetry {
-                try await sessionStore.createReply(
-                    topicID: topicId,
-                    raw: trimmed,
-                    replyToPostNumber: replyToPostNumber
-                )
+            let createdReply = try await FireAPMManager.shared.withSpan(
+                .topicReplySubmit,
+                metadata: [
+                    "topic_id": String(topicId),
+                    "reply_to_post_number": replyToPostNumber.map(String.init) ?? "root"
+                ]
+            ) {
+                try await performWriteWithCloudflareRetry {
+                    try await sessionStore.createReply(
+                        topicID: topicId,
+                        raw: trimmed,
+                        replyToPostNumber: replyToPostNumber
+                    )
+                }
             }
             if let snapshot = try? await sessionStore.snapshot() {
                 await applySession(snapshot)
@@ -1103,10 +1123,12 @@ final class FireAppViewModel: ObservableObject {
         isLoadingNotifications = true
         defer { isLoadingNotifications = false }
         do {
-            let list = try await sessionStore.fetchRecentNotifications()
-            recentNotifications = list.notifications
-            if let state = try? await sessionStore.notificationState() {
-                notificationUnreadCount = Int(state.counters.allUnread)
+            try await FireAPMManager.shared.withSpan(.notificationsRefresh) {
+                let list = try await sessionStore.fetchRecentNotifications()
+                recentNotifications = list.notifications
+                if let state = try? await sessionStore.notificationState() {
+                    notificationUnreadCount = Int(state.counters.allUnread)
+                }
             }
         } catch {
             _ = await handleRecoverableSessionErrorIfNeeded(error)
@@ -1389,6 +1411,29 @@ final class FireAppViewModel: ObservableObject {
         )
     }
 
+    func apmDiagnosticsSummary() async throws -> FireAPMDiagnosticsSummary {
+        try await FireAPMManager.shared.diagnosticsSummary()
+    }
+
+    func exportFullAPMSupportBundle(scenePhase: String?) async throws -> FireAPMSupportBundleExport {
+        let rustBundleURL: URL?
+        if let sessionStore = try? await sessionStoreValue() {
+            let rustBundle = try? await sessionStore.exportSupportBundle(
+                platform: "ios",
+                appVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String,
+                buildNumber: Bundle.main.object(forInfoDictionaryKey: kCFBundleVersionKey as String) as? String,
+                scenePhase: scenePhase
+            )
+            rustBundleURL = rustBundle.map { URL(fileURLWithPath: $0.absolutePath) }
+        } else {
+            rustBundleURL = nil
+        }
+        return try await FireAPMManager.shared.exportSupportBundle(
+            rustSupportBundleURL: rustBundleURL,
+            scenePhase: scenePhase
+        )
+    }
+
     func flushDiagnosticsLogs(sync: Bool = true) async throws {
         let sessionStore = try await sessionStoreValue()
         try await sessionStore.flushLogs(sync: sync)
@@ -1409,6 +1454,34 @@ final class FireAppViewModel: ObservableObject {
         errorMessage = nil
     }
 
+    func updateTopLevelAPMRoute(selectedTab: Int, isAuthenticated: Bool) {
+        let route: String
+        if !isAuthenticated {
+            route = "session.onboarding"
+        } else {
+            switch selectedTab {
+            case 0:
+                route = "tab.home"
+            case 1:
+                route = "tab.notifications"
+            case 2:
+                route = "tab.profile"
+            default:
+                route = "tab.unknown"
+            }
+        }
+        topLevelAPMRoute = route
+        FireAPMManager.shared.setCurrentRoute(route)
+    }
+
+    func restoreTopLevelAPMRoute() {
+        FireAPMManager.shared.setCurrentRoute(topLevelAPMRoute)
+    }
+
+    func setAPMRoute(_ route: String) {
+        FireAPMManager.shared.setCurrentRoute(route)
+    }
+
     // MARK: - MessageBus lifecycle
 
     private func startMessageBus() async {
@@ -1425,7 +1498,9 @@ final class FireAppViewModel: ObservableObject {
         messageBusCoordinator = coordinator
 
         do {
-            _ = try await sessionStore.startMessageBus(handler: coordinator)
+            _ = try await FireAPMManager.shared.withSpan(.messageBusStart) {
+                try await sessionStore.startMessageBus(handler: coordinator)
+            }
             isMessageBusActive = true
             messageBusStartRetryCount = 0
             clearMessageBusError()
@@ -1710,21 +1785,37 @@ final class FireAppViewModel: ObservableObject {
                 && !incrementalTopicIDs.isEmpty
                 && requestedScope.supportsIncrementalMessageBusRefresh
                 && !topicRows.isEmpty
-            let response = try await sessionStore.fetchTopicList(
-                query: TopicListQueryState(
-                    kind: requestedKind,
-                    page: page,
-                    topicIds: usesIncrementalRefresh ? incrementalTopicIDs : [],
-                    order: nil,
-                    ascending: nil,
-                    categorySlug: categorySlug,
-                    categoryId: categoryId,
-                    parentCategorySlug: parentSlug,
-                    tag: primaryTag,
-                    additionalTags: additionalTags,
-                    matchAllTags: !additionalTags.isEmpty
+            let fetch: () async throws -> TopicListState = {
+                try await sessionStore.fetchTopicList(
+                    query: TopicListQueryState(
+                        kind: requestedKind,
+                        page: page,
+                        topicIds: usesIncrementalRefresh ? incrementalTopicIDs : [],
+                        order: nil,
+                        ascending: nil,
+                        categorySlug: categorySlug,
+                        categoryId: categoryId,
+                        parentCategorySlug: parentSlug,
+                        tag: primaryTag,
+                        additionalTags: additionalTags,
+                        matchAllTags: !additionalTags.isEmpty
+                    )
                 )
-            )
+            }
+            let response: TopicListState
+            if reset && page == nil && requestedKind == .latest {
+                response = try await FireAPMManager.shared.withSpan(
+                    .feedLatestInitialLoad,
+                    metadata: [
+                        "category_id": categoryId.map(String.init) ?? "none",
+                        "tag": primaryTag ?? "none",
+                        "incremental": usesIncrementalRefresh ? "true" : "false"
+                    ],
+                    operation: fetch
+                )
+            } else {
+                response = try await fetch()
+            }
             guard requestedScope == currentTopicListRefreshScope else {
                 return false
             }
@@ -2472,6 +2563,7 @@ final class FireAppViewModel: ObservableObject {
         if let sessionStoreInitializationTask {
             let sessionStore = try await sessionStoreInitializationTask.value
             self.sessionStore = sessionStore
+            await FireAPMManager.shared.attachSessionStore(sessionStore)
             return sessionStore
         }
 
@@ -2484,6 +2576,7 @@ final class FireAppViewModel: ObservableObject {
             let sessionStore = try await initializationTask.value
             sessionStoreInitializationTask = nil
             self.sessionStore = sessionStore
+            await FireAPMManager.shared.attachSessionStore(sessionStore)
             return sessionStore
         } catch {
             sessionStoreInitializationTask = nil

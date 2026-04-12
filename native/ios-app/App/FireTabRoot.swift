@@ -54,6 +54,11 @@ struct FireTabRoot: View {
         }
         .task {
             viewModel.loadInitialState()
+            viewModel.updateTopLevelAPMRoute(
+                selectedTab: navigationState.selectedTab,
+                isAuthenticated: isAuthenticated
+            )
+            FireAPMManager.shared.setScenePhase(scenePhaseLabel(scenePhase))
         }
         .task(id: isAuthenticated) {
             if isAuthenticated {
@@ -62,8 +67,13 @@ struct FireTabRoot: View {
             } else {
                 FireBackgroundNotificationAlertScheduler.cancelRefresh()
             }
+            viewModel.updateTopLevelAPMRoute(
+                selectedTab: navigationState.selectedTab,
+                isAuthenticated: isAuthenticated
+            )
         }
         .onChange(of: scenePhase) { _, phase in
+            FireAPMManager.shared.setScenePhase(scenePhaseLabel(phase))
             viewModel.handleDiagnosticsScenePhaseChange(
                 scenePhaseLabel(phase),
                 isAuthenticated: isAuthenticated
@@ -91,7 +101,17 @@ struct FireTabRoot: View {
         .onChange(of: navigationState.pendingRoute) { _, route in
             selectTabForPendingRouteIfReady(route)
         }
+        .onChange(of: navigationState.selectedTab) { _, selectedTab in
+            viewModel.updateTopLevelAPMRoute(
+                selectedTab: selectedTab,
+                isAuthenticated: isAuthenticated
+            )
+        }
         .onChange(of: isAuthenticated) { _, authenticated in
+            viewModel.updateTopLevelAPMRoute(
+                selectedTab: navigationState.selectedTab,
+                isAuthenticated: authenticated
+            )
             if authenticated, let route = navigationState.pendingRoute {
                 selectTabForPendingRouteIfReady(route)
             }

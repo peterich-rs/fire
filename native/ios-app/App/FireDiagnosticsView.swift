@@ -143,8 +143,11 @@ final class FireDiagnosticsViewModel: ObservableObject {
     @Published private(set) var requestTraces: [NetworkTraceSummaryState] = []
     @Published private(set) var requestTraceDetails: [UInt64: NetworkTraceDetailState] = [:]
     @Published private(set) var traceBodyDocuments: [UInt64: FireDiagnosticsPagedTextDocument] = [:]
+    @Published private(set) var apmSummary: FireAPMDiagnosticsSummary = .empty
     @Published private(set) var latestSupportBundle: SupportBundleExportState?
+    @Published private(set) var latestFullAPMSupportBundle: FireAPMSupportBundleExport?
     @Published private(set) var isExportingSupportBundle = false
+    @Published private(set) var isExportingFullAPMSupportBundle = false
     @Published private(set) var isLoading = false
     @Published var errorMessage: String?
 
@@ -177,9 +180,11 @@ final class FireDiagnosticsViewModel: ObservableObject {
                 async let diagnosticSessionID = appViewModel.diagnosticSessionID()
                 async let files = appViewModel.listLogFiles()
                 async let traces = appViewModel.listNetworkTraces(limit: 200)
+                async let apmSummary = appViewModel.apmDiagnosticsSummary()
                 let latestTraces = try await traces
                 self.diagnosticSessionID = try await diagnosticSessionID
                 logFiles = try await files
+                self.apmSummary = try await apmSummary
                 applyTraceSummaries(latestTraces)
                 await refreshCachedTraceDetails(using: latestTraces)
             } catch {
@@ -382,6 +387,29 @@ final class FireDiagnosticsViewModel: ObservableObject {
         latestSupportBundle.map { URL(fileURLWithPath: $0.absolutePath) }
     }
 
+    func exportFullAPMSupportBundle(scenePhase: String) {
+        guard !isExportingFullAPMSupportBundle else {
+            return
+        }
+
+        Task {
+            isExportingFullAPMSupportBundle = true
+            defer { isExportingFullAPMSupportBundle = false }
+            do {
+                errorMessage = nil
+                latestFullAPMSupportBundle = try await appViewModel.exportFullAPMSupportBundle(
+                    scenePhase: scenePhase
+                )
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    func fullAPMSupportBundleURL() -> URL? {
+        latestFullAPMSupportBundle?.absoluteURL
+    }
+
     private func loadTraceBodyPage(
         traceID: UInt64,
         cursor: UInt64?,
@@ -576,6 +604,7 @@ struct FireDiagnosticsView: View {
                     logCard
                 }
 
+                apmCard
                 pushCard
                 supportBundleCard
             }
@@ -686,7 +715,7 @@ struct FireDiagnosticsView: View {
             Label("诊断包", systemImage: "square.and.arrow.up")
                 .font(.headline)
 
-            Text("导出最近日志窗口、网络请求摘要和已脱敏会话快照，便于本地留档或分享排障。")
+            Text("导出 Rust 诊断包，或附带本地 crash / MetricKit / route / span 工件的完整 APM 包，便于留档或分享排障。")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
@@ -730,6 +759,33 @@ struct FireDiagnosticsView: View {
                 }
             }
 
+            HStack(spacing: 10) {
+                Button {
+                    diagnosticsViewModel.exportFullAPMSupportBundle(
+                        scenePhase: scenePhaseLabel(scenePhase)
+                    )
+                } label: {
+                    Label(
+                        diagnosticsViewModel.isExportingFullAPMSupportBundle ? "导出中…" : "导出完整 APM 包",
+                        systemImage: "archivebox"
+                    )
+                }
+                .buttonStyle(.bordered)
+                .disabled(diagnosticsViewModel.isExportingFullAPMSupportBundle)
+
+                if let bundleURL = diagnosticsViewModel.fullAPMSupportBundleURL() {
+                    ShareLink(item: bundleURL) {
+                        Label("分享 APM 包", systemImage: "square.and.arrow.up")
+                    }
+                    .buttonStyle(.bordered)
+                }
+
+                if diagnosticsViewModel.isExportingFullAPMSupportBundle {
+                    ProgressView()
+                        .controlSize(.small)
+                }
+            }
+
             if let export = diagnosticsViewModel.latestSupportBundle {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("\(export.fileName) · \(FireDiagnosticsPresentation.byteSize(export.sizeBytes))")
@@ -742,6 +798,82 @@ struct FireDiagnosticsView: View {
                         .foregroundStyle(.secondary)
                         .textSelection(.enabled)
                 }
+            }
+
+            if let export = diagnosticsViewModel.latestFullAPMSupportBundle {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("\(export.fileName) · \(FireDiagnosticsPresentation.byteSize(export.sizeBytes))")
+                        .font(.caption.monospaced())
+                    Text(FireDiagnosticsPresentation.timestamp(export.createdAtUnixMs))
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                    Text(export.absoluteURL.path)
+                        .font(.caption2.monospaced())
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                }
+            }
+        }
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color(.secondarySystemGroupedBackground))
+        )
+    }
+
+    private var apmCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("APM 概览", systemImage: "waveform.path.ecg")
+                .font(.headline)
+
+            HStack(spacing: 0) {
+                miniStat(
+                    value: diagnosticsViewModel.apmSummary.currentSample?.cpuPercent.map {
+                        String(format: "%.1f%%", $0)
+                    } ?? "N/A",
+                    label: "CPU",
+                    color: .primary
+                )
+                miniStat(
+                    value: diagnosticsViewModel.apmSummary.currentSample?.physicalFootprintBytes.map {
+                        FireDiagnosticsPresentation.byteSize($0)
+                    } ?? "N/A",
+                    label: "Footprint",
+                    color: .secondary
+                )
+                miniStat(
+                    value: "\(diagnosticsViewModel.apmSummary.recentCrashes.count)",
+                    label: "Crash",
+                    color: diagnosticsViewModel.apmSummary.recentCrashes.isEmpty ? .secondary : .red
+                )
+                miniStat(
+                    value: "\(diagnosticsViewModel.apmSummary.recentStalls.count)",
+                    label: "卡顿",
+                    color: diagnosticsViewModel.apmSummary.recentStalls.isEmpty ? .secondary : .orange
+                )
+            }
+
+            if !diagnosticsViewModel.apmSummary.recentEvents.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(diagnosticsViewModel.apmSummary.recentEvents.prefix(4)) { event in
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(event.title)
+                                .font(.caption.weight(.semibold))
+                            if let subtitle = event.subtitle {
+                                Text(subtitle)
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Text(FireDiagnosticsPresentation.timestamp(event.timestampUnixMs))
+                                .font(.caption2.monospaced())
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            } else {
+                Text("暂无 APM 事件。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
         .padding(14)

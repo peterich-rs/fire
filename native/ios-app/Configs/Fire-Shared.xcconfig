@@ -1,2 +1,3 @@
 FIRE_CODE_SIGN_STYLE = Automatic
+FIRE_GIT_SHA = unknown
 FIRE_PRODUCT_BUNDLE_IDENTIFIER = com.fire.app.ios

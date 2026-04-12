@@ -46,6 +46,7 @@ fire/
   - WebView login
   - Cloudflare challenge completion
   - cookie extraction from platform stores
+  - crash capture and host-owned APM collection
   - native UI, files, media, notifications, keychain/keystore
 - Rust-owned:
   - session state
@@ -126,6 +127,7 @@ File ownership convention:
   - `diagnostics/support-bundles/` for locally exported diagnostics bundles
   - `cache/xlog/` for Xlog cache and mmap spill files
   - `session.json` for the persisted session snapshot triggered by the host shell
+- iOS now also owns `ios-apm/` under the same workspace root for beta crash/APM files. That directory is explicitly host-owned and must not be treated as shared Rust diagnostics state.
 - Debug builds may also mirror shared logs into the platform console for local development, but release builds keep shared logging file-only through Xlog/readable-log artifacts.
 - `session.json` remains host-triggered persistence under that workspace root.
 - iOS currently treats `session.json` as a full-fidelity development cache and stores the same-site browser cookie batch in Keychain, including expiry metadata and refreshed auth-cookie state observed by Rust.

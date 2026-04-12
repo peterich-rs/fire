@@ -28,6 +28,11 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
   - persists the latest Rust session snapshot as a full `Application Support/Fire/session.json` and mirrors the current Rust-owned auth cookie batch back into Keychain whenever it changes
   - lets Rust initialize shared logs under `Application Support/Fire/logs`
   - wraps `syncLoginContext`, async `refreshBootstrap`, async `refreshCsrfToken`, async topic fetches, and async logout
+- `Sources/FireAppSession/APM/*`
+  - owns the beta-phase iOS crash/APM runtime
+  - installs `PLCrashReporter` at launch, harvests pending crash reports on next cold start, and persists raw `.plcrash` payloads under `Application Support/Fire/ios-apm/crashes`
+  - registers `MetricKit`, stores raw metric/diagnostic payload JSON under `Application Support/Fire/ios-apm/metrickit`, and keeps per-launch runtime-state snapshots under `Application Support/Fire/ios-apm/runtime-states` for route / scene / breadcrumb recovery
+  - samples foreground CPU / memory / thermal state, detects main-thread stalls, tracks host-owned route/span breadcrumbs, and exports shareable `.firesupportbundle` packages under `Application Support/Fire/ios-apm-exports`
 - `FireAuthCookieKeychainStore.swift`
   - stores the full same-site LinuxDo browser cookie batch in Keychain using a host-scoped generic-password entry, preserving domain variants and cookie expiry
   - preserves non-login browser context cookies, including `cf_clearance`, across explicit logout so Cloudflare challenge state stays aligned with the host shell
@@ -58,6 +63,7 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
   - coordinates native reply, like, custom reaction, and topic-timing reporting on top of the shared Rust interaction APIs
   - now owns the foreground MessageBus lifecycle on iOS, including topic-detail reaction/presence subscriptions, shared notification-state sync, and reply-presence heartbeats while the quick composer is focused
   - now treats Rust-owned `CloudflareChallenge` errors as the signal to clear the local authenticated snapshot, return the shell to onboarding, and auto-present the login WebView so challenge recovery stays inside the browser flow
+  - now also emits host-owned APM spans for cold-start restore, login sync, bootstrap refresh, latest-feed load, topic-detail load, reply submit, notification refresh, and MessageBus start
 - `App/FireSearchView.swift`
   - provides a native search workspace with keyword input, topic/post/user scope switching, paginated result loading, and typed route-based topic/profile navigation
 - `App/FireTopicDetailView.swift`
@@ -71,15 +77,15 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
   - requests notification authorization when the authenticated shell becomes active
   - re-registers with APNs whenever authorization is available, stores the latest device token locally, and keeps host-owned registration diagnostics available without uploading the token
 - `App/FireAppDelegate.swift`
-  - registers the background refresh task at launch, keeps `UNUserNotificationCenter` delegate ownership on the host side, routes notification taps through the typed route model, and records APNs registration callbacks
+  - registers the background refresh task at launch, starts the host-owned APM runtime, keeps `UNUserNotificationCenter` delegate ownership on the host side, routes notification taps through the typed route model, and records APNs registration callbacks
 - `App/FireDiagnosticsView.swift`
   - renders a native diagnostics screen on top of the shared Rust diagnostics APIs
   - lists workspace log files plus reverse-chronological network request traces
   - opens tail-first log pages, preview-first network body viewers, and per-request execution chains without pushing full diagnostic text across the UniFFI boundary by default
   - exposes host-owned notification permission / APNs registration state and the locally cached device token for production-readiness checks
-  - exports local support bundles containing the full session state, recent log windows, and recent trace summaries for share-sheet based escalation during the current development phase
+  - exports both the Rust-owned diagnostics bundle and a host-owned full APM `.firesupportbundle` package containing local crash / MetricKit / route / span artifacts for share-sheet based escalation during beta
 - `App/FireTabRoot.swift`
-  - forwards scene-phase transitions into shared diagnostics lifecycle logging, re-syncs APNs registration state for authenticated sessions, and flushes logs before `inactive` / `background` so exported diagnostics stay durable
+  - forwards scene-phase transitions into shared diagnostics lifecycle logging, re-syncs APNs registration state for authenticated sessions, flushes logs before `inactive` / `background` so exported diagnostics stay durable, and keeps the current top-level route synchronized into the host-owned APM runtime
 - `App/FireTopicPresentation.swift`
   - normalizes topic/post timestamps for native presentation
   - extracts inline cooked-image attachments plus enabled reaction options from bootstrap/topic HTML so the native detail view can render media and interaction affordances without a WebView
@@ -140,6 +146,7 @@ Workspace note:
 - Rust can resolve relative paths inside that workspace for shared file ownership such as logs, caches, or exports.
 - The current persisted session file remains `Application Support/Fire/session.json`, and iOS currently writes the full session snapshot there during the active diagnostics-heavy development phase.
 - iOS keeps the full same-site LinuxDo browser cookie batch in Keychain, including expiry metadata and distinct host/domain variants, re-injects it into Rust during cold start before any authenticated refresh path runs, and refreshes the Keychain copy when Rust receives newer auth cookies from the network.
+- iOS now also keeps host-owned beta crash/APM runtime state under `Application Support/Fire/ios-apm/` plus exported full APM bundles under `Application Support/Fire/ios-apm-exports/`. Those trees are not Rust-owned and should be treated as native-only operational state.
 
 Current UX note:
 
@@ -184,6 +191,15 @@ Verified local commands:
 - `xcodegen generate --spec native/ios-app/project.yml`
 - `xcodebuild -project native/ios-app/Fire.xcodeproj -scheme Fire -destination 'generic/platform=iOS Simulator' build`
 - `xcodebuild -project native/ios-app/Fire.xcodeproj -scheme Fire -destination 'platform=iOS Simulator,OS=18.2,name=iPhone 16' -derivedDataPath /tmp/fire-ios-ui CODE_SIGNING_ALLOWED=NO test`
+
+Operational archive command:
+
+- `./scripts/ios/archive_release.sh`
+
+Release artifact note:
+
+- `native/ios-app/project.yml` now carries a user-defined `FIRE_GIT_SHA` build setting and writes it into the generated Info.plist as `FireGitSha`.
+- `.github/workflows/ios-release-artifacts.yml` produces an unsigned release archive, collected `dSYMs/`, and `build-metadata.json` for beta crash symbolication rehearsal.
 
 Current build note:
 

@@ -140,8 +140,8 @@ struct FireInviteLinksView: View {
                 }
             } else {
                 Section("待使用邀请") {
-                    ForEach(Array(invites.enumerated()), id: \.offset) { _, invite in
-                        inviteRow(invite)
+                    ForEach(fireIdentifiedValues(invites) { $0.fireStableBaseID }) { item in
+                        inviteRow(item.value)
                     }
                 }
             }

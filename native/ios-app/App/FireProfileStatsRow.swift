@@ -5,20 +5,20 @@ struct FireProfileStatsRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 14) {
-            ForEach(Array(items.enumerated()), id: \.offset) { index, item in
-                if index > 0 {
+            ForEach(fireIdentifiedValues(items) { $0.label }) { item in
+                if item.index > 0 {
                     Rectangle()
                         .fill(FireTheme.divider)
                         .frame(width: 1, height: 30)
                 }
 
                 VStack(spacing: 6) {
-                    Text(item.value)
+                    Text(item.value.value)
                         .font(.title3.monospacedDigit().weight(.semibold))
                         .foregroundStyle(FireTheme.ink)
                         .contentTransition(.numericText())
 
-                    Text(item.label)
+                    Text(item.value.label)
                         .font(.caption2)
                         .foregroundStyle(FireTheme.tertiaryInk)
                 }

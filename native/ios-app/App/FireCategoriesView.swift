@@ -3,19 +3,20 @@ import SwiftUI
 // MARK: - Category Browser Sheet (Home screen bottom sheet)
 
 struct FireCategoryBrowserSheet: View {
-    @ObservedObject var viewModel: FireAppViewModel
+    @EnvironmentObject private var homeFeedStore: FireHomeFeedStore
+    let viewModel: FireAppViewModel
     @Environment(\.dismiss) private var dismiss
 
     private var parentCategories: [FireTopicCategoryPresentation] {
-        viewModel.allCategories().filter { $0.parentCategoryId == nil }
+        homeFeedStore.allCategories.filter { $0.parentCategoryId == nil }
     }
 
     private var topTags: [String] {
-        viewModel.topTags()
+        homeFeedStore.topTags
     }
 
     private func subcategories(of parentID: UInt64) -> [FireTopicCategoryPresentation] {
-        viewModel.allCategories().filter { $0.parentCategoryId == parentID }
+        homeFeedStore.allCategories.filter { $0.parentCategoryId == parentID }
     }
 
     var body: some View {
@@ -88,10 +89,10 @@ struct FireCategoryBrowserSheet: View {
     }
 
     private func categoryGridItem(label: String, color: Color, categoryId: UInt64?) -> some View {
-        let isSelected = viewModel.selectedHomeCategoryId == categoryId
+        let isSelected = homeFeedStore.selectedHomeCategoryId == categoryId
         return Button {
             withAnimation(.easeInOut(duration: 0.2)) {
-                viewModel.selectHomeCategory(categoryId)
+                homeFeedStore.selectHomeCategory(categoryId)
             }
             dismiss()
         } label: {
@@ -130,7 +131,7 @@ struct FireCategoryBrowserSheet: View {
     ) -> some View {
         Menu {
             Button {
-                viewModel.selectHomeCategory(parent.id)
+                homeFeedStore.selectHomeCategory(parent.id)
                 dismiss()
             } label: {
                 Label(parent.displayName, systemImage: "folder")
@@ -140,15 +141,15 @@ struct FireCategoryBrowserSheet: View {
 
             ForEach(children, id: \.id) { child in
                 Button {
-                    viewModel.selectHomeCategory(child.id)
+                    homeFeedStore.selectHomeCategory(child.id)
                     dismiss()
                 } label: {
                     Text(child.displayName)
                 }
             }
         } label: {
-            let isSelected = viewModel.selectedHomeCategoryId == parent.id
-                || children.contains { viewModel.selectedHomeCategoryId == $0.id }
+            let isSelected = homeFeedStore.selectedHomeCategoryId == parent.id
+                || children.contains { homeFeedStore.selectedHomeCategoryId == $0.id }
             HStack(spacing: 8) {
                 RoundedRectangle(cornerRadius: 3, style: .continuous)
                     .fill(color)
@@ -184,13 +185,13 @@ struct FireCategoryBrowserSheet: View {
 
             FlowLayout(spacing: 8) {
                 ForEach(topTags, id: \.self) { tag in
-                    let isSelected = viewModel.selectedHomeTags.contains(tag)
+                    let isSelected = homeFeedStore.selectedHomeTags.contains(tag)
                     Button {
                         withAnimation(.easeInOut(duration: 0.2)) {
                             if isSelected {
-                                viewModel.removeHomeTag(tag)
+                                homeFeedStore.removeHomeTag(tag)
                             } else {
-                                viewModel.addHomeTag(tag)
+                                homeFeedStore.addHomeTag(tag)
                             }
                         }
                     } label: {
@@ -236,14 +237,15 @@ struct FireCategoryBrowserSheet: View {
 // MARK: - Legacy Categories View (pushed from topic detail navigation)
 
 struct FireCategoriesView: View {
-    @ObservedObject var viewModel: FireAppViewModel
+    @EnvironmentObject private var homeFeedStore: FireHomeFeedStore
+    let viewModel: FireAppViewModel
 
     private var parentCategories: [FireTopicCategoryPresentation] {
-        viewModel.allCategories().filter { $0.parentCategoryId == nil }
+        homeFeedStore.allCategories.filter { $0.parentCategoryId == nil }
     }
 
     private var topTags: [String] {
-        viewModel.topTags()
+        homeFeedStore.topTags
     }
 
     private var hasContent: Bool {
@@ -251,7 +253,7 @@ struct FireCategoriesView: View {
     }
 
     private func subcategories(of parentID: UInt64) -> [FireTopicCategoryPresentation] {
-        viewModel.allCategories().filter { $0.parentCategoryId == parentID }
+        homeFeedStore.allCategories.filter { $0.parentCategoryId == parentID }
     }
 
     var body: some View {

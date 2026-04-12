@@ -1,76 +1,139 @@
 # iOS Store Split
 
-This note records the early W2 extractions after private-message closure.
+This note records the completed W2 store split on
+`refactor/ios-store-split`.
 
-## Problem
+## Outcome
 
-`FireAppViewModel` currently owns session lifecycle plus home feed, topic
-detail, notifications, search, diagnostics hooks, and write-side transient
-state. That means isolated search input and pagination changes still emit
-`objectWillChange` from the app-wide root object.
+`FireAppViewModel` no longer owns home-feed and topic-detail feature state.
+The iOS host now follows a consistent split:
 
-## First extraction
+- `FireAppViewModel` is the session/runtime facade.
+- screen-level feature state lives in dedicated stores.
+- hot list state uses explicit entity indexing instead of implicit array-only
+  replacement.
 
-The first W2 slice moves search-screen state into
-`native/ios-app/App/Stores/FireSearchStore.swift`.
+The root wiring now happens in `FireTabRoot`:
 
-`FireSearchStore` now owns:
+- `FireHomeFeedStore`
+- `FireSearchStore`
+- `FireNotificationStore`
+- `FireTopicDetailStore`
+- `FireProfileViewModel`
 
-- query text
-- selected search scope
-- current `SearchResultState`
-- pagination cursor
-- loading / append-loading flags
-- search-screen error state
+Home and topic detail consume their store state directly through environment
+injection, while search and notifications continue to observe their existing
+dedicated stores.
 
-`FireAppViewModel` still owns:
+## Store Ownership
 
-- session bootstrap and authenticated-shell lifecycle
-- `FireSessionStore` initialization and shared Rust API access
-- recoverable auth handling (`LoginRequired`, Cloudflare challenge)
-- helper request methods used by feature stores, such as `search`, `searchTags`,
-  and `searchUsers`
+### `FireAppViewModel`
 
-## Why search first
+`FireAppViewModel` now retains only cross-cutting responsibilities:
 
-- The boundary is narrow and screen-local.
-- Search already has a dedicated screen.
-- It reduces one of the largest unrelated invalidation sources without touching
-  topic detail retention or MessageBus ownership yet.
-- It establishes the transitional pattern for later W2 stores: feature state
-  moves out first, while `FireAppViewModel` temporarily remains the shared
-  session facade.
+- `SessionState` publication
+- `FireSessionStore` initialization and access
+- login / logout / Cloudflare recovery
+- MessageBus transport lifecycle
+- diagnostics and APM route coordination
+- thin helper APIs used by stores and non-store screens
 
-## Second extraction
+It binds feature stores but no longer publishes home-list or topic-detail
+state itself.
 
-The second W2 slice moves notification-screen state into
-`native/ios-app/App/Stores/FireNotificationStore.swift`.
+### `FireHomeFeedStore`
 
-`FireNotificationStore` now owns:
+`native/ios-app/App/Stores/FireHomeFeedStore.swift` owns:
 
-- unread badge count
-- recent notification list state
-- full-history notification list state
-- full-history paging cursor
-- notification-specific loading flags
-- delayed MessageBus/runtime notification refresh scheduling
+- selected feed kind
+- selected home category and tags
+- home topic rows
+- paging metadata (`moreTopicsUrl`, `nextTopicsPage`)
+- category/tag bootstrap snapshots used by home/category/tag screens
+- home loading / append-loading flags
+- topic-list MessageBus refresh debounce and incremental merge behavior
 
-`FireAppViewModel` still owns:
+Home rows are backed internally by:
 
-- MessageBus transport lifecycle itself
-- notification API helper methods backed by `FireSessionStore`
-- recoverable auth handling used by the store when notification requests fail
+- `FireEntityIndex<UInt64, FireTopicRowPresentation>`
+- `FireOrderedIDList<UInt64>`
 
-This keeps the badge and notification list churn off the app-wide root
-`ObservableObject` while leaving the shared session/runtime ownership unchanged.
+That keeps entity patching and append order explicit while still exposing
+materialized rows to SwiftUI.
 
-## Follow-up order
+### `FireTopicDetailStore`
 
-The next W2 slices should keep the same pattern:
+`native/ios-app/App/Stores/FireTopicDetailStore.swift` owns:
 
-1. home feed filters, pagination, and list refresh ownership
-2. topic detail cache and presence/reaction lifecycle
-3. any remaining tab/profile-local state that still lives on `FireAppViewModel`
+- `TopicDetailState` cache by topic id
+- anchor post numbers for routed detail loads
+- active detail owner tokens
+- post hydration / pagination state
+- reply-presence users
+- detail loading flags
+- reply submission and post-mutation flags
+- topic-detail MessageBus refresh scheduling
 
-Only after those slices are stable should `FireAppViewModel` shrink further
-from "feature owner" to a mostly session-scoped coordinator.
+All detail-specific mutations now reconcile through this store:
+
+- quick reply
+- post edit refresh path
+- like / unlike
+- non-heart reaction toggles
+- detail refresh after topic vote / poll vote / topic edit
+
+### Existing W2 Stores
+
+The earlier W2 slices remain unchanged in role:
+
+- `FireSearchStore` owns query, scope, result state, pagination, and
+  search-screen errors.
+- `FireNotificationStore` owns unread count, recent/full notification state,
+  paging, and delayed runtime refresh.
+
+## Shared Primitives
+
+Two small shared state helpers now back entity-first list management:
+
+- `native/ios-app/App/Stores/Shared/FireEntityIndex.swift`
+- `native/ios-app/App/Stores/Shared/FireOrderedIDList.swift`
+
+They are intentionally minimal:
+
+- `FireEntityIndex` replaces/upserts payloads by stable business id.
+- `FireOrderedIDList` preserves first-seen order while deduplicating ids.
+
+W2 uses them first on the home feed, which is the highest-churn list that
+still needed stable incremental patching after search/notification extraction.
+
+## Scoped Observation Changes
+
+The following screens now observe feature stores instead of the app-wide root
+object for their primary state:
+
+- `FireHomeView`
+- `FireCategoryBrowserSheet`
+- `FireCategoriesView`
+- `FireTagPickerSheet`
+- `FireTopicDetailView`
+
+This means:
+
+- search input changes do not invalidate the home feed
+- notification badge/list churn does not invalidate topic detail
+- topic-detail post hydration and reaction changes do not invalidate the full
+  tab root through `FireAppViewModel`
+
+`FireAppViewModel` is still passed into many screens for session-aware helper
+methods, but those screens no longer depend on it for the extracted feature
+state.
+
+## Verification
+
+Verified on this branch with:
+
+- `xcodegen generate --spec native/ios-app/project.yml`
+- `xcodebuild -project native/ios-app/Fire.xcodeproj -scheme Fire -destination 'id=EF568FD9-DF26-4B62-B7AB-7C66851CF3D9' -derivedDataPath /tmp/fire-ios-w2 CODE_SIGNING_ALLOWED=NO test`
+
+The test run now includes the new entity-state coverage in
+`native/ios-app/Tests/Unit/FireEntityStateTests.swift`.

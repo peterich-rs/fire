@@ -1,7 +1,8 @@
 import SwiftUI
 
 struct FireTagPickerSheet: View {
-    @ObservedObject var viewModel: FireAppViewModel
+    @EnvironmentObject private var homeFeedStore: FireHomeFeedStore
+    let viewModel: FireAppViewModel
     @Environment(\.dismiss) private var dismiss
     @State private var searchText = ""
     @State private var searchResults: [TagSearchItemState] = []
@@ -9,7 +10,7 @@ struct FireTagPickerSheet: View {
     @State private var searchTask: Task<Void, Never>?
 
     private var topTags: [String] {
-        viewModel.topTags()
+        homeFeedStore.topTags
     }
 
     private var displayedTags: [String] {
@@ -65,13 +66,13 @@ struct FireTagPickerSheet: View {
 
     @ViewBuilder
     private var selectedTagsBar: some View {
-        if !viewModel.selectedHomeTags.isEmpty {
+        if !homeFeedStore.selectedHomeTags.isEmpty {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 6) {
-                    ForEach(viewModel.selectedHomeTags, id: \.self) { tag in
+                    ForEach(homeFeedStore.selectedHomeTags, id: \.self) { tag in
                         Button {
                             withAnimation(.easeInOut(duration: 0.2)) {
-                                viewModel.removeHomeTag(tag)
+                                homeFeedStore.removeHomeTag(tag)
                             }
                         } label: {
                             HStack(spacing: 4) {
@@ -100,13 +101,13 @@ struct FireTagPickerSheet: View {
     // MARK: - Tag Row
 
     private func tagRow(_ tag: String) -> some View {
-        let isSelected = viewModel.selectedHomeTags.contains(tag)
+        let isSelected = homeFeedStore.selectedHomeTags.contains(tag)
         return Button {
             withAnimation(.easeInOut(duration: 0.2)) {
                 if isSelected {
-                    viewModel.removeHomeTag(tag)
+                    homeFeedStore.removeHomeTag(tag)
                 } else {
-                    viewModel.addHomeTag(tag)
+                    homeFeedStore.addHomeTag(tag)
                 }
             }
         } label: {
@@ -171,8 +172,8 @@ struct FireTagPickerSheet: View {
                     query: trimmed,
                     filterForInput: true,
                     limit: 20,
-                    categoryID: viewModel.selectedHomeCategoryId,
-                    selectedTags: viewModel.selectedHomeTags
+                    categoryID: homeFeedStore.selectedHomeCategoryId,
+                    selectedTags: homeFeedStore.selectedHomeTags
                 )
                 guard !Task.isCancelled else { return }
 

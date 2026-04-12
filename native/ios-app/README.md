@@ -58,20 +58,26 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
   - restores the persisted session cache, replays Keychain cookies through Rust on cold start, repairs incomplete authenticated session identity, refreshes CSRF when the restored cache is otherwise ready, and keeps the topic browser in sync with login state
   - holds the onboarding screen in a bootstrap state while cold-start auto-login runs, hiding login actions during restore and only revealing a loading indicator if that bootstrap takes longer than 500ms
   - now builds `FireSessionStore` lazily on a detached task so Rust/logging initialization does not block the first SwiftUI render on the main actor
-  - tracks paginated topic feed state and publishes Rust-backed bootstrap metadata plus Rust-generated topic-row view models into SwiftUI
   - mirrors authenticated LinuxDo cookies into native `HTTPCookieStorage` so inline media/image requests can reuse the restored session
-  - coordinates native reply, like, custom reaction, and topic-timing reporting on top of the shared Rust interaction APIs
   - now also owns native private-message inbox/sent loading plus private-message creation on top of the shared Rust mailbox and `/posts.json` PM surfaces
-  - now acts as a session and interaction facade for feature stores instead of also owning every screen's transient state directly
-  - now owns the foreground MessageBus lifecycle on iOS, including topic-detail reaction/presence subscriptions, shared notification-state sync, and reply-presence heartbeats while the quick composer is focused
+  - now acts as a session/runtime facade for feature stores instead of also owning every screen's transient state directly
+  - now owns the foreground MessageBus transport lifecycle on iOS and forwards runtime refresh work into the bound feature stores instead of publishing home/topic-detail state itself
   - now treats Rust-owned `CloudflareChallenge` errors as the signal to clear the local authenticated snapshot, return the shell to onboarding, and auto-present the login WebView so challenge recovery stays inside the browser flow
   - now also emits host-owned APM spans for cold-start restore, login sync, bootstrap refresh, latest-feed load, topic-detail load, reply submit, notification refresh, and MessageBus start
+- `App/Stores/FireHomeFeedStore.swift`
+  - owns selected feed kind, selected category/tags, paginated home rows, and bootstrap-derived category/tag metadata for the authenticated home shell
+  - applies MessageBus-driven home refreshes with explicit entity patching and stable ordering instead of whole-array replacement
+- `App/Stores/FireTopicDetailStore.swift`
+  - owns topic-detail cache, anchor post numbers, post hydration/pagination, reply presence, and topic-detail mutation flags
+  - keeps topic-detail subscription, presence heartbeat, quick reply, reaction toggles, and post-edit refresh reconciliation out of `FireAppViewModel`
 - `App/Stores/FireSearchStore.swift`
   - owns the search screen's query, scope, result, paging, loading, and error state
   - keeps the actual `/search.json` call path on `FireAppViewModel` so session ownership and recoverable-auth handling stay centralized during the W2 split
 - `App/Stores/FireNotificationStore.swift`
   - owns unread count, recent notifications, full-history paging, and notification-specific loading state
   - keeps MessageBus-triggered runtime refresh and notification read mutations outside `FireAppViewModel`, while still delegating Rust calls and recoverable-auth handling back through the shared app/session facade
+- `App/Stores/Shared/FireEntityIndex.swift` and `App/Stores/Shared/FireOrderedIDList.swift`
+  - provide the minimal entity-by-id and stable-order primitives used by the home feed to support incremental list patching
 - `App/FireSearchView.swift`
   - provides a native search workspace with keyword input, topic/post/user scope switching, paginated result loading, and typed route-based topic/profile navigation
   - now renders from `FireSearchStore`, so search input and pagination no longer invalidate unrelated authenticated tabs through `FireAppViewModel`
@@ -103,13 +109,24 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
   - exposes host-owned notification permission / APNs registration state and the locally cached device token for production-readiness checks
   - exports both the Rust-owned diagnostics bundle and a host-owned full APM `.firesupportbundle` package containing local crash / MetricKit / route / span artifacts for share-sheet based escalation during beta
 - `App/FireTabRoot.swift`
+  - instantiates the authenticated-shell store graph (`FireHomeFeedStore`, `FireSearchStore`, `FireNotificationStore`, `FireTopicDetailStore`, `FireProfileViewModel`) around one shared `FireAppViewModel`
+  - injects home/topic-detail stores through the SwiftUI environment so those screens observe scoped feature state instead of the app-wide root object
   - forwards scene-phase transitions into shared diagnostics lifecycle logging, re-syncs APNs registration state for authenticated sessions, flushes logs before `inactive` / `background` so exported diagnostics stay durable, and keeps the current top-level route synchronized into the host-owned APM runtime
+- `App/ListKit/`
+  - now contains the W3 collection-host foundation built around `UICollectionView`, diffable data source snapshots, and `UIHostingConfiguration`
+  - `FireCollectionHost.swift` bridges SwiftUI into a reusable collection-backed host while `FireDiffableListController.swift` preserves the top visible item and relative offset across snapshot applies, forwards scroll metrics, and supports native pull-to-refresh
+  - `FireListSectionModel.swift` provides the section/item shape shared by later home/notification/topic-detail migrations
+  - `Home/FireHomeCollectionView.swift` is the first W3 migration slice and now drives the authenticated home feed through diffable collection snapshots instead of SwiftUI `List`
 - `App/FireTopicPresentation.swift`
   - normalizes topic/post timestamps for native presentation
   - extracts inline cooked-image attachments plus enabled reaction options from bootstrap/topic HTML so the native detail view can render media and interaction affordances without a WebView
   - now focuses on host-only presentation helpers after topic-row shaping, shared text helpers, and thread flattening moved into Rust
 - `Tests/Unit/FireTopicPresentationTests.swift`
   - covers the remaining Swift-owned presentation helpers plus the generated Rust-backed text and row/thread models consumed by SwiftUI
+- `Tests/Unit/FireEntityStateTests.swift`
+  - covers `FireEntityIndex` upsert behavior plus `FireOrderedIDList` deduplication and stable ordering for the W2 home-feed list state
+- `Tests/UI/FireSmokeUITests.swift`
+  - backs the new `FireUITests` target with a minimal launch smoke test so the W3 UI-test lane is present before deeper end-to-end coverage lands
 - `Tests/Unit/FireRouteParserTests.swift`
   - covers supported custom URL forms, LinuxDo route parsing, and notification-payload route mapping
 - `App/FireRootView.swift`
@@ -120,6 +137,12 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
   - now reads the real generated Swift-facing contracts exported from `fire-uniffi`
 - `App/FireHomeView.swift`
   - keeps the top bar title fixed to `首页` so the authenticated home shell does not echo the current profile name in the navigation chrome
+  - now renders its feed/category/tag state from `FireHomeFeedStore`, so home pagination and filter changes no longer flow through the app-wide root observable
+  - now routes the home feed through `FireHomeCollectionView`, keeping toolbar/sheet/navigation ownership in SwiftUI while moving the hot-path list mechanics to the W3 diffable collection host
+- `App/FireCategoriesView.swift` and `App/FireTagPickerSheet.swift`
+  - now read category/tag bootstrap metadata and selected home filters from `FireHomeFeedStore`
+- `App/FireTopicDetailView.swift`
+  - now renders from `FireTopicDetailStore`, keeping detail loading, reply state, post mutation flags, and presence updates scoped to the active topic screen
 
 Expected integration flow:
 
@@ -134,6 +157,10 @@ Expected integration flow:
 Xcode project generation rules:
 
 - `native/ios-app/project.yml` is the source of truth for `Fire.xcodeproj`.
+- `project.yml` now also pins the W3 foundation packages:
+  - `Nuke` for the upcoming production image pipeline
+  - `SnapshotTesting` for later renderer/list snapshot coverage
+  - `FireUITests` as the dedicated UI-test target
 - Signing now flows through `native/ios-app/Configs/Fire-*.xcconfig` so local developer-account overrides do not need to touch the generated project.
 - New Swift files placed under existing source roots such as `App/` or `Sources/FireAppSession/` do not require a `project.yml` edit, but they do require rerunning `xcodegen generate --spec native/ios-app/project.yml` and committing the regenerated `Fire.xcodeproj`.
 - Changes that introduce a new source/resource directory, framework dependency, build script, target, or Xcode build setting must update `project.yml` first, then regenerate `Fire.xcodeproj`.

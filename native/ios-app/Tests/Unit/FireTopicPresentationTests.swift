@@ -333,6 +333,8 @@ final class FireTopicPresentationTests: XCTestCase {
     @MainActor
     func testActiveTopicDetailOwnersRetainTopicIDsUntilLastOwnerLeaves() {
         let viewModel = FireAppViewModel()
+        let topicDetailStore = FireTopicDetailStore(appViewModel: viewModel)
+        viewModel.bindTopicDetailStore(topicDetailStore)
         let visibleTopicIDs: Set<UInt64> = [1, 2]
 
         viewModel.beginTopicDetailLifecycle(topicId: 42, ownerToken: "owner-a")

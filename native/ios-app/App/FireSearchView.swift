@@ -1,19 +1,16 @@
 import SwiftUI
 
 struct FireSearchView: View {
-    @ObservedObject var viewModel: FireAppViewModel
+    let appViewModel: FireAppViewModel
+    @ObservedObject var searchStore: FireSearchStore
     @FocusState private var isSearchFieldFocused: Bool
     @State private var hasAppeared = false
     @State private var selectedRoute: FireAppRoute?
 
-    private var trimmedQuery: String {
-        viewModel.searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
     private var scopeBinding: Binding<FireSearchScope> {
         Binding(
-            get: { viewModel.searchScope },
-            set: { viewModel.setSearchScope($0) }
+            get: { searchStore.scope },
+            set: { searchStore.setScope($0) }
         )
     }
 
@@ -26,12 +23,12 @@ struct FireSearchView: View {
         .navigationTitle("搜索")
         .navigationBarTitleDisplayMode(.inline)
         .navigationDestination(item: $selectedRoute) { route in
-            FireAppRouteDestinationView(viewModel: viewModel, route: route)
+            FireAppRouteDestinationView(viewModel: appViewModel, route: route)
         }
         .onAppear {
             guard !hasAppeared else { return }
             hasAppeared = true
-            viewModel.resetSearch()
+            searchStore.reset()
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                 isSearchFieldFocused = true
             }
@@ -46,19 +43,19 @@ struct FireSearchView: View {
                 Image(systemName: "magnifyingglass")
                     .foregroundStyle(FireTheme.tertiaryInk)
 
-                TextField("搜索话题、帖子、用户…", text: $viewModel.searchQuery)
+                TextField("搜索话题、帖子、用户…", text: $searchStore.query)
                     .focused($isSearchFieldFocused)
                     .textFieldStyle(.plain)
                     .submitLabel(.search)
                     .autocorrectionDisabled()
                     .textInputAutocapitalization(.never)
                     .onSubmit {
-                        viewModel.submitSearch(reset: true)
+                        searchStore.submit(reset: true)
                     }
 
-                if !viewModel.searchQuery.isEmpty {
+                if !searchStore.query.isEmpty {
                     Button {
-                        viewModel.resetSearch()
+                        searchStore.reset()
                         isSearchFieldFocused = true
                     } label: {
                         Image(systemName: "xmark.circle.fill")
@@ -92,7 +89,7 @@ struct FireSearchView: View {
 
     @ViewBuilder
     private var contentArea: some View {
-        if viewModel.isSearching && viewModel.searchResult == nil {
+        if searchStore.isSearching && searchStore.result == nil {
             VStack(spacing: 8) {
                 Spacer()
                 ProgressView()
@@ -103,9 +100,9 @@ struct FireSearchView: View {
                 Spacer()
             }
             .frame(maxWidth: .infinity)
-        } else if let result = viewModel.searchResult {
+        } else if let result = searchStore.result {
             resultList(result)
-        } else if let errorMessage = viewModel.searchErrorMessage {
+        } else if let errorMessage = searchStore.errorMessage {
             VStack(spacing: 12) {
                 Spacer()
                 Image(systemName: "exclamationmark.triangle")
@@ -117,7 +114,7 @@ struct FireSearchView: View {
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 32)
                 Button("重试") {
-                    viewModel.submitSearch(reset: true)
+                    searchStore.submit(reset: true)
                 }
                 .buttonStyle(.bordered)
                 .tint(FireTheme.accent)
@@ -138,7 +135,7 @@ struct FireSearchView: View {
         )
 
         return List {
-            if let errorMessage = viewModel.searchErrorMessage {
+            if let errorMessage = searchStore.errorMessage {
                 Section {
                     Label(errorMessage, systemImage: "exclamationmark.triangle")
                         .font(.footnote)
@@ -159,7 +156,7 @@ struct FireSearchView: View {
                         } label: {
                             FireTopicRow(
                                 row: row,
-                                category: viewModel.categoryPresentation(for: topic.categoryId)
+                                category: appViewModel.categoryPresentation(for: topic.categoryId)
                             )
                         }
                         .buttonStyle(.plain)
@@ -201,14 +198,14 @@ struct FireSearchView: View {
                 }
             }
 
-            if viewModel.canLoadMoreSearchResults {
+            if searchStore.canLoadMoreResults {
                 Section {
                     Button {
-                        viewModel.submitSearch(reset: false)
+                        searchStore.submit(reset: false)
                     } label: {
                         HStack {
                             Spacer()
-                            if viewModel.isAppendingSearch {
+                            if searchStore.isAppending {
                                 ProgressView()
                                     .controlSize(.small)
                             } else {
@@ -220,7 +217,7 @@ struct FireSearchView: View {
                         }
                         .padding(.vertical, 4)
                     }
-                    .disabled(viewModel.isSearching || viewModel.isAppendingSearch)
+                    .disabled(searchStore.isSearching || searchStore.isAppending)
                 }
             }
 

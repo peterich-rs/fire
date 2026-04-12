@@ -552,7 +552,6 @@ final class FireSessionSecurityTests: XCTestCase {
             initialSession: authenticatedSession(),
             challengeRecoveryStore: recoveryStore
         )
-        viewModel.searchQuery = "rust"
 
         let recovered = await viewModel.handleCloudflareChallengeIfNeeded(
             FireUniFfiError.CloudflareChallenge
@@ -564,7 +563,6 @@ final class FireSessionSecurityTests: XCTestCase {
             viewModel.errorMessage,
             "需要先完成 Cloudflare 验证。请在登录页完成验证后点 Sync，再重试。"
         )
-        XCTAssertEqual(viewModel.searchQuery, "")
         XCTAssertFalse(viewModel.session.hasLoginSession)
         XCTAssertFalse(viewModel.session.readiness.canReadAuthenticatedApi)
         XCTAssertTrue(viewModel.session.readiness.hasCloudflareClearance)
@@ -581,7 +579,6 @@ final class FireSessionSecurityTests: XCTestCase {
             initialSession: authenticatedSession(),
             challengeRecoveryStore: recoveryStore
         )
-        viewModel.searchQuery = "rust"
 
         let recovered = await viewModel.handleLoginRequiredIfNeeded(
             FireUniFfiError.LoginRequired(details: "您需要登录才能执行此操作。")
@@ -590,7 +587,6 @@ final class FireSessionSecurityTests: XCTestCase {
         XCTAssertTrue(recovered)
         XCTAssertTrue(viewModel.isPresentingLogin)
         XCTAssertEqual(viewModel.errorMessage, "您需要登录才能执行此操作。")
-        XCTAssertEqual(viewModel.searchQuery, "")
         XCTAssertFalse(viewModel.session.hasLoginSession)
         XCTAssertFalse(viewModel.session.readiness.canReadAuthenticatedApi)
         XCTAssertTrue(viewModel.session.readiness.hasCloudflareClearance)
@@ -607,7 +603,6 @@ final class FireSessionSecurityTests: XCTestCase {
             initialSession: authenticatedSession(),
             challengeRecoveryStore: recoveryStore
         )
-        viewModel.searchQuery = "rust"
 
         let recovered = await viewModel.handleCloudflareChallengeIfNeeded(
             FireUniFfiError.Network(details: "offline")
@@ -616,7 +611,6 @@ final class FireSessionSecurityTests: XCTestCase {
         XCTAssertFalse(recovered)
         XCTAssertFalse(viewModel.isPresentingLogin)
         XCTAssertNil(viewModel.errorMessage)
-        XCTAssertEqual(viewModel.searchQuery, "rust")
         XCTAssertTrue(viewModel.session.hasLoginSession)
         XCTAssertTrue(viewModel.session.readiness.canReadAuthenticatedApi)
         let calls = await recoveryStore.recordedCalls()

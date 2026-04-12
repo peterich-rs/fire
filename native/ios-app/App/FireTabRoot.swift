@@ -4,11 +4,25 @@ struct FireTabRoot: View {
     @Environment(\.scenePhase) private var scenePhase
     @EnvironmentObject private var navigationState: FireNavigationState
     @StateObject private var viewModel = FireAppViewModel()
+    @StateObject private var homeFeedStore: FireHomeFeedStore
+    @StateObject private var searchStore: FireSearchStore
+    @StateObject private var notificationStore: FireNotificationStore
+    @StateObject private var topicDetailStore: FireTopicDetailStore
     @StateObject private var profileViewModel: FireProfileViewModel
 
     init() {
         let vm = FireAppViewModel()
+        let homeFeed = FireHomeFeedStore(appViewModel: vm)
+        let notifications = FireNotificationStore(appViewModel: vm)
+        let topicDetails = FireTopicDetailStore(appViewModel: vm)
+        vm.bindHomeFeedStore(homeFeed)
+        vm.bindNotificationStore(notifications)
+        vm.bindTopicDetailStore(topicDetails)
         _viewModel = StateObject(wrappedValue: vm)
+        _homeFeedStore = StateObject(wrappedValue: homeFeed)
+        _searchStore = StateObject(wrappedValue: FireSearchStore(appViewModel: vm))
+        _notificationStore = StateObject(wrappedValue: notifications)
+        _topicDetailStore = StateObject(wrappedValue: topicDetails)
         _profileViewModel = StateObject(wrappedValue: FireProfileViewModel(appViewModel: vm))
     }
 
@@ -20,18 +34,21 @@ struct FireTabRoot: View {
         Group {
             if isAuthenticated {
                 TabView(selection: $navigationState.selectedTab) {
-                    FireHomeView(viewModel: viewModel)
+                    FireHomeView(viewModel: viewModel, searchStore: searchStore)
                         .tabItem {
                             Label("首页", systemImage: "house")
                         }
                         .tag(0)
 
-                    FireNotificationsView(viewModel: viewModel)
-                        .tabItem {
-                            Label("通知", systemImage: "bell")
-                        }
-                        .badge(viewModel.notificationUnreadCount)
-                        .tag(1)
+                    FireNotificationsView(
+                        appViewModel: viewModel,
+                        notificationStore: notificationStore
+                    )
+                    .tabItem {
+                        Label("通知", systemImage: "bell")
+                    }
+                    .badge(notificationStore.unreadCount)
+                    .tag(1)
 
                     FireProfileView(viewModel: viewModel, profileViewModel: profileViewModel)
                         .tabItem {
@@ -40,6 +57,8 @@ struct FireTabRoot: View {
                         .tag(2)
                 }
                 .tint(FireTheme.accent)
+                .environmentObject(homeFeedStore)
+                .environmentObject(topicDetailStore)
             } else {
                 FireOnboardingView(
                     viewModel: viewModel,
@@ -108,6 +127,12 @@ struct FireTabRoot: View {
             )
         }
         .onChange(of: isAuthenticated) { _, authenticated in
+            if !authenticated {
+                homeFeedStore.reset()
+                searchStore.reset()
+                notificationStore.reset()
+                topicDetailStore.reset()
+            }
             viewModel.updateTopLevelAPMRoute(
                 selectedTab: navigationState.selectedTab,
                 isAuthenticated: authenticated

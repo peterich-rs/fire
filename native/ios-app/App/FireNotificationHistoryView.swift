@@ -1,20 +1,21 @@
 import SwiftUI
 
 struct FireNotificationHistoryView: View {
-    @ObservedObject var viewModel: FireAppViewModel
+    let appViewModel: FireAppViewModel
+    @ObservedObject var notificationStore: FireNotificationStore
     @State private var selectedRoute: FireAppRoute?
 
     private var baseURLString: String {
-        let trimmed = viewModel.session.bootstrap.baseUrl.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = appViewModel.session.bootstrap.baseUrl.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? "https://linux.do" : trimmed
     }
 
     var body: some View {
         Group {
-            if viewModel.isLoadingNotificationFullPage && viewModel.notificationFullList.isEmpty {
+            if notificationStore.isLoadingFullPage && notificationStore.fullNotifications.isEmpty {
                 ProgressView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if viewModel.notificationFullList.isEmpty {
+            } else if notificationStore.fullNotifications.isEmpty {
                 emptyState
             } else {
                 notificationList
@@ -24,10 +25,10 @@ struct FireNotificationHistoryView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.hidden, for: .tabBar)
         .toolbar {
-            if viewModel.notificationUnreadCount > 0 {
+            if notificationStore.unreadCount > 0 {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("全部已读") {
-                        viewModel.markAllNotificationsRead()
+                        notificationStore.markAllRead()
                     }
                     .font(.subheadline.weight(.medium))
                     .foregroundStyle(FireTheme.accent)
@@ -35,19 +36,19 @@ struct FireNotificationHistoryView: View {
             }
         }
         .refreshable {
-            await viewModel.loadNotificationFullPage(offset: nil)
+            await notificationStore.loadFullPage(offset: nil)
         }
         .navigationDestination(item: $selectedRoute) { route in
-            FireAppRouteDestinationView(viewModel: viewModel, route: route)
+            FireAppRouteDestinationView(viewModel: appViewModel, route: route)
         }
         .task {
-            await viewModel.loadNotificationFullPage(offset: nil)
+            await notificationStore.loadFullPage(offset: nil)
         }
     }
 
     private var notificationList: some View {
         List {
-            ForEach(viewModel.notificationFullList, id: \.id) { item in
+            ForEach(notificationStore.fullNotifications, id: \.id) { item in
                 Button {
                     handleNotificationTap(item)
                 } label: {
@@ -62,7 +63,7 @@ struct FireNotificationHistoryView: View {
                 .listRowBackground(Color.clear)
             }
 
-            if viewModel.hasMoreNotificationFull {
+            if notificationStore.hasMoreFull {
                 HStack {
                     Spacer()
                     ProgressView()
@@ -72,8 +73,8 @@ struct FireNotificationHistoryView: View {
                 .listRowSeparator(.hidden)
                 .listRowBackground(Color.clear)
                 .task {
-                    await viewModel.loadNotificationFullPage(
-                        offset: viewModel.notificationFullNextOffset
+                    await notificationStore.loadFullPage(
+                        offset: notificationStore.fullNextOffset
                     )
                 }
             }
@@ -93,7 +94,7 @@ struct FireNotificationHistoryView: View {
 
             Button("刷新") {
                 Task {
-                    await viewModel.loadNotificationFullPage(offset: nil)
+                    await notificationStore.loadFullPage(offset: nil)
                 }
             }
             .buttonStyle(FireSecondaryButtonStyle())
@@ -104,7 +105,7 @@ struct FireNotificationHistoryView: View {
 
     private func handleNotificationTap(_ item: NotificationItemState) {
         if !item.read {
-            viewModel.markNotificationRead(id: item.id)
+            notificationStore.markRead(id: item.id)
         }
 
         selectedRoute = item.appRoute

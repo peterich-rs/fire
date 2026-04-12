@@ -64,7 +64,8 @@ struct FireTopicDetailView: View {
         "\(topicId)-\(canOpenMessageBus)-\(hasLoadedDetail)"
     }
 
-    @ObservedObject var viewModel: FireAppViewModel
+    @EnvironmentObject private var topicDetailStore: FireTopicDetailStore
+    let viewModel: FireAppViewModel
     let row: FireTopicRowPresentation
     let scrollToPostNumber: UInt32?
 
@@ -100,11 +101,11 @@ struct FireTopicDetailView: View {
     }
 
     private var detail: TopicDetailState? {
-        viewModel.topicDetail(for: topic.id)
+        topicDetailStore.topicDetail(for: topic.id)
     }
 
     private var detailError: String? {
-        viewModel.errorMessage
+        topicDetailStore.errorMessage
     }
 
     private var displayedTopicTitle: String {
@@ -186,7 +187,7 @@ struct FireTopicDetailView: View {
     }
 
     private var typingUsers: [TopicPresenceUserState] {
-        viewModel.topicPresenceUsers(for: topic.id)
+        topicDetailStore.topicPresenceUsers(for: topic.id)
     }
 
     private var nonHeartReactionOptions: [FireReactionOption] {
@@ -303,7 +304,7 @@ struct FireTopicDetailView: View {
     }
 
     private var isSubmittingReply: Bool {
-        viewModel.isSubmittingReply(topicId: topic.id)
+        topicDetailStore.isSubmittingReply(topicId: topic.id)
     }
 
     private var composerTargetPost: TopicPostState? {
@@ -319,7 +320,7 @@ struct FireTopicDetailView: View {
 
     private func canChangeReaction(for post: TopicPostState) -> Bool {
         canWriteInteractions
-            && !viewModel.isMutatingPost(postId: post.id)
+            && !topicDetailStore.isMutatingPost(postId: post.id)
             && (post.currentUserReaction?.canUndo ?? true)
     }
 
@@ -423,12 +424,12 @@ struct FireTopicDetailView: View {
                             reminderAt: reminderAt
                         )
                     }
-                    await viewModel.loadTopicDetail(topicId: topic.id, force: true)
+                    await topicDetailStore.loadTopicDetail(topicId: topic.id, force: true)
                 },
                 onDelete: context.bookmarkID.map { bookmarkID in
                     {
                         try await viewModel.deleteBookmark(bookmarkID: bookmarkID)
-                        await viewModel.loadTopicDetail(topicId: topic.id, force: true)
+                        await topicDetailStore.loadTopicDetail(topicId: topic.id, force: true)
                     }
                 }
             )
@@ -442,7 +443,7 @@ struct FireTopicDetailView: View {
                     postNumber: context.postNumber,
                     onSaved: {
                         Task {
-                            await viewModel.loadTopicDetail(topicId: topic.id, force: true)
+                            await topicDetailStore.loadTopicDetail(topicId: topic.id, force: true)
                         }
                     }
                 )
@@ -458,7 +459,7 @@ struct FireTopicDetailView: View {
                     initialTags: detail?.tags.map(\.name) ?? row.tagNames,
                     onSaved: {
                         Task {
-                            await viewModel.loadTopicDetail(topicId: topic.id, force: true)
+                            await topicDetailStore.loadTopicDetail(topicId: topic.id, force: true)
                         }
                     }
                 )
@@ -492,7 +493,7 @@ struct FireTopicDetailView: View {
                         composerContext = nil
                         quickReplyError = nil
                         Task {
-                            await viewModel.loadTopicDetail(topicId: topic.id, force: true)
+                            await topicDetailStore.loadTopicDetail(topicId: topic.id, force: true)
                         }
                     }
                 )
@@ -516,11 +517,11 @@ struct FireTopicDetailView: View {
         }
         .refreshable {
             timingTracker.recordInteraction()
-            viewModel.clearTopicDetailAnchor(topicId: topic.id)
-            await viewModel.loadTopicDetail(topicId: topic.id, force: true)
+            topicDetailStore.clearTopicDetailAnchor(topicId: topic.id)
+            await topicDetailStore.loadTopicDetail(topicId: topic.id, force: true)
         }
         .onAppear {
-            viewModel.beginTopicDetailLifecycle(topicId: topic.id, ownerToken: detailOwnerToken)
+            topicDetailStore.beginTopicDetailLifecycle(topicId: topic.id, ownerToken: detailOwnerToken)
             viewModel.setAPMRoute("topic.detail.\(topic.id)")
         }
         .task(id: topic.id) {
@@ -532,10 +533,13 @@ struct FireTopicDetailView: View {
                 )
             }
             await timingTracker.setSceneActive(scenePhase == .active)
-            await viewModel.loadTopicDetail(topicId: topic.id, targetPostNumber: scrollToPostNumber)
+            await topicDetailStore.loadTopicDetail(
+                topicId: topic.id,
+                targetPostNumber: scrollToPostNumber
+            )
         }
         .task(id: messageBusSubscriptionTaskID) {
-            await viewModel.maintainTopicDetailSubscription(
+            await topicDetailStore.maintainTopicDetailSubscription(
                 topicId: topic.id,
                 ownerToken: detailOwnerToken
             )
@@ -547,19 +551,23 @@ struct FireTopicDetailView: View {
         }
         .onChange(of: isReplyFieldFocused) { _, isFocused in
             if isFocused {
-                viewModel.beginTopicReplyPresence(topicId: topic.id)
+                topicDetailStore.beginTopicReplyPresence(topicId: topic.id)
             } else {
                 Task {
-                    await viewModel.endTopicReplyPresence(topicId: topic.id)
+                    await topicDetailStore.endTopicReplyPresence(topicId: topic.id)
                 }
             }
         }
         .onDisappear {
-            viewModel.endTopicDetailLifecycle(topicId: topic.id, ownerToken: detailOwnerToken)
+            topicDetailStore.endTopicDetailLifecycle(
+                topicId: topic.id,
+                ownerToken: detailOwnerToken,
+                visibleTopicIDs: viewModel.currentVisibleTopicIDs()
+            )
             viewModel.restoreTopLevelAPMRoute()
             Task {
                 await timingTracker.stop()
-                await viewModel.endTopicReplyPresence(topicId: topic.id)
+                await topicDetailStore.endTopicReplyPresence(topicId: topic.id)
             }
         }
         .onChange(of: replyDraft) { _, _ in
@@ -673,7 +681,7 @@ struct FireTopicDetailView: View {
                         showsThreadLine: false,
                         baseURLString: baseURLString,
                         canWriteInteractions: canWriteInteractions,
-                        isMutating: viewModel.isMutatingPost(postId: originalPost.id),
+                        isMutating: topicDetailStore.isMutatingPost(postId: originalPost.id),
                         onOpenImage: { selectedImage = $0 },
                         onToggleLike: { toggleLike(for: $0) },
                         onSelectReaction: { post, reactionId in
@@ -754,11 +762,11 @@ struct FireTopicDetailView: View {
             let displayPosts = replyPosts
 
             if displayPosts.isEmpty {
-                if viewModel.hasMoreTopicPosts(topicId: topic.id) {
+                if topicDetailStore.hasMoreTopicPosts(topicId: topic.id) {
                     FireTopicPostsLoadingFooter()
                         .padding(.vertical, 16)
                         .task(id: topic.id) {
-                            viewModel.preloadTopicPostsIfNeeded(
+                            topicDetailStore.preloadTopicPostsIfNeeded(
                                 topicId: topic.id,
                                 visibleReplyIndex: 0,
                                 totalReplyCount: 1
@@ -774,12 +782,12 @@ struct FireTopicDetailView: View {
             } else {
                 replyPostRows(displayPosts)
 
-                if viewModel.isLoadingMoreTopicPosts(topicId: topic.id) {
+                if topicDetailStore.isLoadingMoreTopicPosts(topicId: topic.id) {
                     FireTopicPostsLoadingFooter()
                         .padding(.top, 12)
                 }
             }
-        } else if viewModel.isLoadingTopic(topicId: topic.id) {
+        } else if topicDetailStore.isLoadingTopic(topicId: topic.id) {
             HStack {
                 Spacer()
                 VStack(spacing: 8) {
@@ -800,7 +808,7 @@ struct FireTopicDetailView: View {
 
                 Button("重试") {
                     Task {
-                        await viewModel.loadTopicDetail(topicId: topic.id, force: true)
+                        await topicDetailStore.loadTopicDetail(topicId: topic.id, force: true)
                     }
                 }
                 .buttonStyle(.bordered)
@@ -811,7 +819,7 @@ struct FireTopicDetailView: View {
         } else {
             Button("加载帖子") {
                 Task {
-                    await viewModel.loadTopicDetail(topicId: topic.id, force: true)
+                    await topicDetailStore.loadTopicDetail(topicId: topic.id, force: true)
                 }
             }
             .frame(maxWidth: .infinity)
@@ -832,7 +840,7 @@ struct FireTopicDetailView: View {
                     showsThreadLine: flatPost.showsThreadLine,
                     baseURLString: baseURLString,
                     canWriteInteractions: canWriteInteractions,
-                    isMutating: viewModel.isMutatingPost(postId: flatPost.post.id),
+                    isMutating: topicDetailStore.isMutatingPost(postId: flatPost.post.id),
                     onOpenImage: { selectedImage = $0 },
                     onToggleLike: { toggleLike(for: $0) },
                     onSelectReaction: { post, reactionId in
@@ -924,7 +932,7 @@ struct FireTopicDetailView: View {
             return
         }
 
-        viewModel.preloadTopicPostsIfNeeded(
+        topicDetailStore.preloadTopicPostsIfNeeded(
             topicId: topic.id,
             visibleReplyIndex: visibleReplyIndex,
             totalReplyCount: replyPosts.count
@@ -1106,7 +1114,7 @@ struct FireTopicDetailView: View {
 
         Task { @MainActor in
             do {
-                try await viewModel.submitReply(
+                try await topicDetailStore.submitReply(
                     topicId: topicId,
                     raw: trimmed,
                     replyToPostNumber: replyToPostNumber
@@ -1189,19 +1197,19 @@ struct FireTopicDetailView: View {
     ) async throws {
         switch (currentReactionID, desiredReactionID) {
         case (nil, "heart"):
-            try await viewModel.setPostLiked(
+            try await topicDetailStore.setPostLiked(
                 topicId: topic.id,
                 postId: postId,
                 liked: true
             )
         case ("heart", nil):
-            try await viewModel.setPostLiked(
+            try await topicDetailStore.setPostLiked(
                 topicId: topic.id,
                 postId: postId,
                 liked: false
             )
         default:
-            try await viewModel.togglePostReaction(
+            try await topicDetailStore.togglePostReaction(
                 topicId: topic.id,
                 postId: postId,
                 reactionId: toggledReactionId
@@ -1215,7 +1223,7 @@ struct FireTopicDetailView: View {
                 topicID: topic.id,
                 notificationLevel: option.rawValue
             )
-            await viewModel.loadTopicDetail(topicId: topic.id, force: true)
+            await topicDetailStore.loadTopicDetail(topicId: topic.id, force: true)
         } catch {
             composerNotice = error.localizedDescription
         }

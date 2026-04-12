@@ -1,12 +1,14 @@
 import SwiftUI
 
 struct FireHomeView: View {
+    @EnvironmentObject private var navigationState: FireNavigationState
     @ObservedObject var viewModel: FireAppViewModel
     @Namespace private var feedSelectionNamespace
     @State private var showCategoryBrowser = false
     @State private var showTagPicker = false
     @State private var showCreateTopicComposer = false
     @State private var didPrefetchToFillViewport = false
+    @State private var selectedRoute: FireAppRoute?
 
     private struct TopicListScrollMetrics: Equatable {
         let remainingDistanceToBottom: CGFloat
@@ -21,6 +23,15 @@ struct FireHomeView: View {
     var body: some View {
         NavigationStack {
             homeList
+                .navigationDestination(item: $selectedRoute) { route in
+                    FireAppRouteDestinationView(viewModel: viewModel, route: route)
+                }
+        }
+        .onAppear {
+            consumePendingRouteIfVisible(navigationState.pendingRoute)
+        }
+        .onChange(of: navigationState.pendingRoute) { _, route in
+            consumePendingRouteIfVisible(route)
         }
     }
 
@@ -393,5 +404,13 @@ struct FireHomeView: View {
         let triggerIndex = max(0, viewModel.topicRows.count - Self.legacyPaginationPrefetchThreshold)
         guard currentIndex >= triggerIndex else { return }
         viewModel.loadMoreTopics()
+    }
+
+    private func consumePendingRouteIfVisible(_ route: FireAppRoute?) {
+        guard navigationState.selectedTab == 0, let route else {
+            return
+        }
+        selectedRoute = route
+        navigationState.pendingRoute = nil
     }
 }

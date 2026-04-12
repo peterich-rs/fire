@@ -112,6 +112,12 @@ struct FireDiagnosticsPagedTextDocument: Equatable {
         return lines.isEmpty ? [""] : lines
     }
 
+    var identifiedRenderedLines: [FireIdentifiedValue<String>] {
+        fireIdentifiedValues(renderedLines) { line in
+            line.isEmpty ? "<empty-line>" : line
+        }
+    }
+
     mutating func replace(with window: FireDiagnosticsTextWindow) {
         windows = [window]
     }
@@ -539,6 +545,7 @@ final class FireDiagnosticsViewModel: ObservableObject {
 struct FireDiagnosticsView: View {
     @Environment(\.scenePhase) private var scenePhase
     @StateObject private var diagnosticsViewModel: FireDiagnosticsViewModel
+    @StateObject private var pushRegistrationCoordinator = FirePushRegistrationCoordinator.shared
 
     init(viewModel: FireAppViewModel) {
         _diagnosticsViewModel = StateObject(
@@ -569,6 +576,7 @@ struct FireDiagnosticsView: View {
                     logCard
                 }
 
+                pushCard
                 supportBundleCard
             }
             .listRowSeparator(.hidden)
@@ -578,15 +586,20 @@ struct FireDiagnosticsView: View {
         .navigationTitle("诊断工具")
         .onAppear {
             diagnosticsViewModel.startTraceAutoRefresh()
+            Task {
+                await pushRegistrationCoordinator.refreshAuthorizationStatus()
+            }
         }
         .onDisappear {
             diagnosticsViewModel.stopTraceAutoRefresh()
         }
         .task {
             diagnosticsViewModel.refresh()
+            await pushRegistrationCoordinator.refreshAuthorizationStatus()
         }
         .refreshable {
             diagnosticsViewModel.refresh()
+            await pushRegistrationCoordinator.refreshAuthorizationStatus()
         }
     }
 
@@ -738,6 +751,85 @@ struct FireDiagnosticsView: View {
         )
     }
 
+    private var pushCard: some View {
+        let diagnostics = pushRegistrationCoordinator.diagnostics
+
+        return VStack(alignment: .leading, spacing: 12) {
+            Label("远程通知注册", systemImage: "bell.badge")
+                .font(.headline)
+
+            Text("当前阶段只申请系统通知权限并在本地保存 APNs token；不会把 token 上传到 LinuxDo 后端。")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            HStack(spacing: 0) {
+                miniStat(
+                    value: diagnostics.authorizationStatusTitle,
+                    label: "权限",
+                    color: diagnostics.authorizationStatus == .denied ? .red : .primary
+                )
+                miniStat(
+                    value: diagnostics.registrationStateTitle,
+                    label: "注册状态",
+                    color: diagnostics.registrationState == .failed ? .red : .secondary
+                )
+            }
+
+            if let deviceToken = diagnostics.deviceTokenHex, !deviceToken.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Device Token")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+
+                    Text(deviceToken)
+                        .font(.caption.monospaced())
+                        .textSelection(.enabled)
+                }
+            }
+
+            if let errorMessage = diagnostics.lastErrorMessage, !errorMessage.isEmpty {
+                Text(errorMessage)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+            }
+
+            HStack(spacing: 10) {
+                Button {
+                    Task {
+                        await pushRegistrationCoordinator.ensurePushRegistration()
+                    }
+                } label: {
+                    Label(pushActionTitle(for: diagnostics), systemImage: "antenna.radiowaves.left.and.right")
+                }
+                .buttonStyle(.borderedProminent)
+
+                Button("刷新状态") {
+                    Task {
+                        await pushRegistrationCoordinator.refreshAuthorizationStatus()
+                    }
+                }
+                .buttonStyle(.bordered)
+            }
+
+            if diagnostics.authorizationStatus == .denied {
+                Text("如需继续验证 APNs 注册，请先在系统设置里重新开启通知权限。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            if let updatedAt = diagnostics.lastUpdatedAtUnixMs {
+                Text("最近更新：\(FireDiagnosticsPresentation.timestamp(updatedAt))")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color(.secondarySystemGroupedBackground))
+        )
+    }
+
     private func miniStat(value: String, label: String, color: Color) -> some View {
         VStack(spacing: 2) {
             Text(value)
@@ -748,6 +840,17 @@ struct FireDiagnosticsView: View {
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity)
+    }
+
+    private func pushActionTitle(for diagnostics: FirePushRegistrationDiagnostics) -> String {
+        switch diagnostics.authorizationStatus {
+        case .notDetermined:
+            return "请求权限"
+        case .denied:
+            return "重新检测"
+        default:
+            return "重新注册"
+        }
     }
 
     private func scenePhaseLabel(_ phase: ScenePhase) -> String {
@@ -1246,14 +1349,16 @@ private struct FireRequestTraceDetailView: View {
                     description: Text("该请求没有记录执行事件。")
                 )
             } else {
-                ForEach(Array(detail.events.enumerated()), id: \.offset) { index, event in
+                ForEach(
+                    fireIdentifiedValues(detail.events) { $0.fireStableBaseID }
+                ) { item in
                     HStack(alignment: .top, spacing: 12) {
                         VStack(spacing: 0) {
                             Circle()
-                                .fill(index == 0 ? Color.accentColor : Color(.tertiaryLabel))
+                                .fill(item.index == 0 ? Color.accentColor : Color(.tertiaryLabel))
                                 .frame(width: 8, height: 8)
 
-                            if index < detail.events.count - 1 {
+                            if item.index < detail.events.count - 1 {
                                 Rectangle()
                                     .fill(Color(.separator))
                                     .frame(width: 1)
@@ -1265,19 +1370,19 @@ private struct FireRequestTraceDetailView: View {
 
                         VStack(alignment: .leading, spacing: 4) {
                             HStack {
-                                Text(event.phase)
+                                Text(item.value.phase)
                                     .font(.caption.monospaced().weight(.semibold))
                                     .foregroundStyle(.secondary)
                                 Spacer()
-                                Text(FireDiagnosticsPresentation.timestamp(event.timestampUnixMs))
+                                Text(FireDiagnosticsPresentation.timestamp(item.value.timestampUnixMs))
                                     .font(.caption2)
                                     .foregroundStyle(.tertiary)
                             }
 
-                            Text(event.summary)
+                            Text(item.value.summary)
                                 .font(.subheadline)
 
-                            if let details = event.details, !details.isEmpty {
+                            if let details = item.value.details, !details.isEmpty {
                                 Text(details)
                                     .font(.caption.monospaced())
                                     .foregroundStyle(.secondary)
@@ -1287,7 +1392,7 @@ private struct FireRequestTraceDetailView: View {
                         .padding(.vertical, 8)
                     }
 
-                    if index < detail.events.count - 1 {
+                    if item.index < detail.events.count - 1 {
                         Divider()
                             .padding(.leading, 20)
                     }
@@ -1335,11 +1440,11 @@ private struct FireRequestTraceDetailView: View {
 
     private func headersBlock(_ headers: [NetworkTraceHeaderState]) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            ForEach(Array(headers.enumerated()), id: \.offset) { _, header in
-                (Text("\(header.name): ")
+            ForEach(fireIdentifiedValues(headers) { $0.fireStableBaseID }) { item in
+                (Text("\(item.value.name): ")
                     .font(.system(.caption, design: .monospaced, weight: .semibold))
                     .foregroundStyle(.secondary)
-                + Text(header.value)
+                + Text(item.value.value)
                     .font(.system(.caption, design: .monospaced))
                     .foregroundStyle(.primary))
                 .textSelection(.enabled)
@@ -1348,17 +1453,17 @@ private struct FireRequestTraceDetailView: View {
                 .contentShape(Rectangle())
                 .contextMenu {
                     Button {
-                        copyToClipboard("\(header.name): \(header.value)")
+                        copyToClipboard("\(item.value.name): \(item.value.value)")
                     } label: {
                         Label("复制 Header", systemImage: "doc.on.doc")
                     }
                     Button {
-                        copyToClipboard(header.value)
+                        copyToClipboard(item.value.value)
                     } label: {
                         Label("复制值", systemImage: "doc.on.clipboard")
                     }
                     Button {
-                        copyToClipboard(header.name)
+                        copyToClipboard(item.value.name)
                     } label: {
                         Label("复制名称", systemImage: "character.cursor.ibeam")
                     }
@@ -1520,8 +1625,8 @@ private struct FireDiagnosticsLogView: View {
 
                         ScrollView {
                             LazyVStack(alignment: .leading, spacing: 6) {
-                                ForEach(Array(document.renderedLines.enumerated()), id: \.offset) { _, line in
-                                    Text(line.isEmpty ? " " : line)
+                                ForEach(document.identifiedRenderedLines) { item in
+                                    Text(item.value.isEmpty ? " " : item.value)
                                         .font(.system(.caption, design: .monospaced))
                                         .frame(maxWidth: .infinity, alignment: .leading)
                                 }

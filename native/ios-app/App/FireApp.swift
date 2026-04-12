@@ -9,6 +9,12 @@ struct FireApp: App {
         WindowGroup {
             FireTabRoot()
                 .environmentObject(navigationState)
+                .onOpenURL { url in
+                    guard let route = FireRouteParser.parse(url: url) else {
+                        return
+                    }
+                    navigationState.pendingRoute = route
+                }
         }
     }
 }

@@ -57,7 +57,8 @@ struct FireTabRoot: View {
         }
         .task(id: isAuthenticated) {
             if isAuthenticated {
-                await FireBackgroundNotificationAlertScheduler.requestAuthorizationIfNeeded()
+                await FirePushRegistrationCoordinator.shared.ensurePushRegistration()
+                selectTabForPendingRouteIfReady(navigationState.pendingRoute)
             } else {
                 FireBackgroundNotificationAlertScheduler.cancelRefresh()
             }
@@ -71,7 +72,8 @@ struct FireTabRoot: View {
             case .active:
                 if isAuthenticated {
                     Task {
-                        await FireBackgroundNotificationAlertScheduler.requestAuthorizationIfNeeded()
+                        await FirePushRegistrationCoordinator.shared.refreshAuthorizationStatus()
+                        await FirePushRegistrationCoordinator.shared.ensurePushRegistration()
                     }
                 }
             case .background:
@@ -86,29 +88,19 @@ struct FireTabRoot: View {
                 break
             }
         }
-        .onChange(of: navigationState.pendingDeepLink) { _, deepLink in
-            consumeDeepLinkIfReady(deepLink)
+        .onChange(of: navigationState.pendingRoute) { _, route in
+            selectTabForPendingRouteIfReady(route)
         }
         .onChange(of: isAuthenticated) { _, authenticated in
-            if authenticated, let deepLink = navigationState.pendingDeepLink {
-                consumeDeepLinkIfReady(deepLink)
+            if authenticated, let route = navigationState.pendingRoute {
+                selectTabForPendingRouteIfReady(route)
             }
         }
     }
 
-    private func consumeDeepLinkIfReady(_ deepLink: FireDeepLink?) {
-        guard let deepLink, isAuthenticated else { return }
-        navigationState.selectedTab = 1
-        navigationState.pendingDeepLink = nil
-
-        NotificationCenter.default.post(
-            name: .fireNotificationDeepLink,
-            object: nil,
-            userInfo: [
-                "topicId": deepLink.topicId,
-                "postNumber": deepLink.postNumber as Any
-            ]
-        )
+    private func selectTabForPendingRouteIfReady(_ route: FireAppRoute?) {
+        guard route != nil, isAuthenticated else { return }
+        navigationState.selectedTab = 0
     }
 
     private func scenePhaseLabel(_ phase: ScenePhase) -> String {
@@ -123,8 +115,4 @@ struct FireTabRoot: View {
             return "unknown"
         }
     }
-}
-
-extension Notification.Name {
-    static let fireNotificationDeepLink = Notification.Name("fireNotificationDeepLink")
 }

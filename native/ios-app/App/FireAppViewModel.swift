@@ -246,9 +246,6 @@ final class FireAppViewModel: ObservableObject {
         guard !isSyncingLoginSession else {
             return
         }
-        guard canSyncLoginSession else {
-            return
-        }
 
         isSyncingLoginSession = true
         Task {

@@ -42,6 +42,47 @@ final class FireWebViewBox: ObservableObject {
     }
 }
 
+final class FireLoginWebViewProbeBridge: NSObject, WKHTTPCookieStoreObserver {
+    private weak var observedWebView: WKWebView?
+    private weak var observedCookieStore: WKHTTPCookieStore?
+    private let onProbeRequested: (WKWebView) -> Void
+
+    init(onProbeRequested: @escaping (WKWebView) -> Void) {
+        self.onProbeRequested = onProbeRequested
+    }
+
+    deinit {
+        observedCookieStore?.remove(self)
+    }
+
+    func attach(to webView: WKWebView) {
+        let cookieStore = webView.configuration.websiteDataStore.httpCookieStore
+        if observedCookieStore !== cookieStore {
+            observedCookieStore?.remove(self)
+            cookieStore.add(self)
+            observedCookieStore = cookieStore
+        }
+        observedWebView = webView
+    }
+
+    func detach() {
+        observedCookieStore?.remove(self)
+        observedCookieStore = nil
+        observedWebView = nil
+    }
+
+    func requestProbe() {
+        guard let observedWebView else {
+            return
+        }
+        onProbeRequested(observedWebView)
+    }
+
+    func cookiesDidChange(in cookieStore: WKHTTPCookieStore) {
+        requestProbe()
+    }
+}
+
 struct FireLoginWebView: UIViewRepresentable {
     let url: URL
     @ObservedObject var webViewBox: FireWebViewBox
@@ -50,6 +91,7 @@ struct FireLoginWebView: UIViewRepresentable {
     func makeUIView(context: Context) -> WKWebView {
         let webView = WKWebView(frame: .zero)
         webView.navigationDelegate = context.coordinator
+        context.coordinator.attach(to: webView)
         webView.allowsBackForwardNavigationGestures = true
         webView.load(URLRequest(url: url))
         webViewBox.attach(webView)
@@ -57,7 +99,13 @@ struct FireLoginWebView: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: WKWebView, context: Context) {
+        context.coordinator.attach(to: uiView)
         webViewBox.webView = uiView
+    }
+
+    static func dismantleUIView(_ uiView: WKWebView, coordinator: Coordinator) {
+        coordinator.detach()
+        uiView.navigationDelegate = nil
     }
 
     func makeCoordinator() -> Coordinator {
@@ -68,30 +116,41 @@ struct FireLoginWebView: UIViewRepresentable {
     }
 
     final class Coordinator: NSObject, WKNavigationDelegate {
-        private let webViewBox: FireWebViewBox
-        private let onNavigationStateChange: (WKWebView) -> Void
+        private let probeBridge: FireLoginWebViewProbeBridge
 
         init(
             webViewBox: FireWebViewBox,
             onNavigationStateChange: @escaping (WKWebView) -> Void
         ) {
-            self.webViewBox = webViewBox
-            self.onNavigationStateChange = onNavigationStateChange
+            self.probeBridge = FireLoginWebViewProbeBridge { webView in
+                webViewBox.syncState(from: webView)
+                onNavigationStateChange(webView)
+            }
+        }
+
+        func attach(to webView: WKWebView) {
+            probeBridge.attach(to: webView)
+        }
+
+        func detach() {
+            probeBridge.detach()
+        }
+
+        private func handleStateChange(for webView: WKWebView) {
+            probeBridge.attach(to: webView)
+            probeBridge.requestProbe()
         }
 
         func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
-            webViewBox.syncState(from: webView)
-            onNavigationStateChange(webView)
+            handleStateChange(for: webView)
         }
 
         func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
-            webViewBox.syncState(from: webView)
-            onNavigationStateChange(webView)
+            handleStateChange(for: webView)
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-            webViewBox.syncState(from: webView)
-            onNavigationStateChange(webView)
+            handleStateChange(for: webView)
         }
 
         func webView(
@@ -99,8 +158,7 @@ struct FireLoginWebView: UIViewRepresentable {
             didFail navigation: WKNavigation!,
             withError error: Error
         ) {
-            webViewBox.syncState(from: webView)
-            onNavigationStateChange(webView)
+            handleStateChange(for: webView)
         }
 
         func webView(
@@ -108,13 +166,11 @@ struct FireLoginWebView: UIViewRepresentable {
             didFailProvisionalNavigation navigation: WKNavigation!,
             withError error: Error
         ) {
-            webViewBox.syncState(from: webView)
-            onNavigationStateChange(webView)
+            handleStateChange(for: webView)
         }
 
         func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
-            webViewBox.syncState(from: webView)
-            onNavigationStateChange(webView)
+            handleStateChange(for: webView)
         }
     }
 }

@@ -40,7 +40,7 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
 - `FireWebViewLoginCoordinator.swift`
   - reads `WKWebView` cookies, `current-username`, `csrf-token`, page HTML, and the live browser user agent
   - prefers homepage HTML fetched through the current WebView browser context before falling back to the visible page HTML, so the first shared bootstrap sync stays as close as possible to the browser-authenticated session
-  - continuously supports an “auto-detect, manual Sync” login flow: navigation/scene changes can re-probe readiness, but the user-visible `完成登录` action remains the only commit point
+  - continuously supports an “auto-detect, manual Sync” login flow: navigation, scene-activation, and WebKit cookie-store changes can all re-probe readiness, but the user-visible `完成登录` action remains the only commit point
   - only treats login as ready to sync once it can read `current-username`, same-site auth cookies, and reusable bootstrap HTML
   - converts them into `LoginSyncState`
   - refreshes platform cookies both before and after login sync so Rust always sees the latest WebKit `_t`, `_forum_session`, and `cf_clearance` values
@@ -209,7 +209,7 @@ Current UX note:
 - The app now opens login as a full-screen browser instead of a partial sheet.
 - The app now keeps the same onboarding page visible during cold-start auto-login, hiding login actions until restore fails and only showing loading if bootstrap takes longer than 500ms.
 - The login browser can navigate back from Google or other intermediate pages without forcing the user to close and reopen login.
-- The login browser now auto-probes whether a manual Sync would actually succeed, and keeps `完成登录` disabled until username, auth cookies, and reusable bootstrap HTML are all present.
+- The login browser now auto-probes whether a manual Sync would actually succeed, re-checking on navigation, scene resume, and WebKit auth-cookie changes, and keeps `完成登录` disabled until username, auth cookies, and reusable bootstrap HTML are all present.
 - The login shell and reading workspace now adapt to both light and dark system appearance while preserving the same hierarchy and contrast model.
 - The network preflight is a best-effort connectivity warm-up. iOS does not provide a generic "internet permission" API for arbitrary web access, so this only shifts the first prompt/request earlier; it does not create a separate permission flow.
 - The current topic browser now runs against the real shared Rust core through generated UniFFI Swift bindings.

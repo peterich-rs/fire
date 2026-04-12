@@ -1,4 +1,5 @@
 import Foundation
+import WebKit
 import XCTest
 @testable import Fire
 
@@ -701,6 +702,38 @@ final class FireSessionSecurityTests: XCTestCase {
         XCTAssertTrue(viewModel.session.readiness.canReadAuthenticatedApi)
         let calls = await recoveryStore.recordedCalls()
         XCTAssertTrue(calls.isEmpty)
+    }
+
+    @MainActor
+    func testLoginWebViewProbeBridgeRequestsProbeWhenCookiesChange() {
+        let expectation = expectation(description: "probe requested")
+        let webView = WKWebView(frame: .zero)
+        var probedWebView: WKWebView?
+        let bridge = FireLoginWebViewProbeBridge { webView in
+            probedWebView = webView
+            expectation.fulfill()
+        }
+
+        bridge.attach(to: webView)
+        bridge.cookiesDidChange(in: webView.configuration.websiteDataStore.httpCookieStore)
+
+        wait(for: [expectation], timeout: 1.0)
+        XCTAssertTrue(probedWebView === webView)
+    }
+
+    @MainActor
+    func testLoginWebViewProbeBridgeStopsRequestingProbeAfterDetach() {
+        let webView = WKWebView(frame: .zero)
+        var probeCount = 0
+        let bridge = FireLoginWebViewProbeBridge { _ in
+            probeCount += 1
+        }
+
+        bridge.attach(to: webView)
+        bridge.detach()
+        bridge.cookiesDidChange(in: webView.configuration.websiteDataStore.httpCookieStore)
+
+        XCTAssertEqual(probeCount, 0)
     }
 
     private func makeSessionFileURL(name: String) throws -> URL {

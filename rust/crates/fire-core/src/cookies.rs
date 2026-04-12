@@ -1,24 +1,29 @@
 use std::collections::HashSet;
 use std::sync::{Arc, RwLock};
 
-use fire_models::{CookieSnapshot, SessionSnapshot};
+use fire_models::CookieSnapshot;
 use http::header::HeaderValue;
 use openwire::CookieJar;
 use time::{format_description::well_known::Rfc2822, OffsetDateTime};
 use url::Url;
 
+use crate::core::FireSessionRuntimeState;
 use crate::sync_utils::{read_rwlock, write_rwlock};
 
 #[derive(Clone)]
 pub(crate) struct FireSessionCookieJar {
     base_url: Url,
-    session: Arc<RwLock<SessionSnapshot>>,
+    session: Arc<RwLock<FireSessionRuntimeState>>,
 }
 
 impl FireSessionCookieJar {
-    pub(crate) fn new(base_url: Url, session: Arc<RwLock<SessionSnapshot>>) -> Self {
+    pub(crate) fn new(base_url: Url, session: Arc<RwLock<FireSessionRuntimeState>>) -> Self {
         Self { base_url, session }
     }
+}
+
+tokio::task_local! {
+    pub(crate) static FIRE_REQUEST_EPOCH: u64;
 }
 
 impl CookieJar for FireSessionCookieJar {
@@ -28,6 +33,7 @@ impl CookieJar for FireSessionCookieJar {
         }
 
         let mut patch = CookieSnapshot::default();
+        let request_epoch = FIRE_REQUEST_EPOCH.try_with(|epoch| *epoch).ok();
         for header in cookie_headers {
             let Ok(value) = header.to_str() else {
                 continue;
@@ -35,6 +41,10 @@ impl CookieJar for FireSessionCookieJar {
             let Some(cookie) = parse_set_cookie(value, url) else {
                 continue;
             };
+            let is_auth_cookie = matches!(cookie.name.as_str(), "_t" | "_forum_session");
+            if is_auth_cookie && is_stale_request_epoch(&self.session, request_epoch) {
+                continue;
+            }
 
             match cookie.name.as_str() {
                 "_t" => patch.t_token = Some(cookie.value.clone()),
@@ -50,12 +60,13 @@ impl CookieJar for FireSessionCookieJar {
         }
 
         let mut session = write_rwlock(&self.session, "session");
-        session.cookies.merge_patch(&patch);
+        session.snapshot.cookies.merge_patch(&patch);
     }
 
     fn cookies(&self, url: &Url) -> Option<HeaderValue> {
         let session = read_rwlock(&self.session, "session");
-        if session.cookies.platform_cookies.is_empty() {
+        let snapshot = &session.snapshot;
+        if snapshot.cookies.platform_cookies.is_empty() {
             if !same_origin_scope(&self.base_url, url) {
                 return None;
             }
@@ -63,7 +74,7 @@ impl CookieJar for FireSessionCookieJar {
             return None;
         }
 
-        let cookies = build_cookie_header(&session.cookies, &self.base_url, url);
+        let cookies = build_cookie_header(&snapshot.cookies, &self.base_url, url);
         if cookies.is_empty() {
             return None;
         }
@@ -163,6 +174,17 @@ fn push_cookie_pair(pairs: &mut Vec<String>, name: &str, value: Option<&str>) {
         return;
     };
     pairs.push(format!("{name}={value}"));
+}
+
+fn is_stale_request_epoch(
+    session: &Arc<RwLock<FireSessionRuntimeState>>,
+    request_epoch: Option<u64>,
+) -> bool {
+    let Some(request_epoch) = request_epoch else {
+        return false;
+    };
+    let current_epoch = read_rwlock(session, "session").epoch;
+    current_epoch != request_epoch
 }
 
 fn cookie_send_precedence(

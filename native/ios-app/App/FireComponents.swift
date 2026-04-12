@@ -497,6 +497,8 @@ struct FireToolbarIcon: View {
 // MARK: - Button Styles
 
 struct FirePrimaryButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
+
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.subheadline.weight(.semibold))
@@ -513,8 +515,10 @@ struct FirePrimaryButtonStyle: ButtonStyle {
                         )
                     )
             )
+            .opacity(isEnabled ? 1 : 0.55)
             .scaleEffect(configuration.isPressed ? 0.97 : 1)
             .animation(.easeOut(duration: 0.15), value: configuration.isPressed)
+            .animation(.easeOut(duration: 0.15), value: isEnabled)
     }
 }
 

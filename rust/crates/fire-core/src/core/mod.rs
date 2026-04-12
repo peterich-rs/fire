@@ -46,12 +46,18 @@ const CLIENT_POOL_MAX_IDLE_PER_HOST: usize = 4;
 const MESSAGE_BUS_HTTP2_KEEP_ALIVE_INTERVAL: Duration = Duration::from_secs(30);
 
 #[derive(Clone)]
+pub(crate) struct FireSessionRuntimeState {
+    pub(crate) snapshot: SessionSnapshot,
+    pub(crate) epoch: u64,
+}
+
+#[derive(Clone)]
 pub struct FireCore {
     base_url: Url,
     workspace_path: Option<PathBuf>,
     network: network::FireNetworkLayer,
     diagnostics: Arc<FireDiagnosticsStore>,
-    session: Arc<RwLock<SessionSnapshot>>,
+    session: Arc<RwLock<FireSessionRuntimeState>>,
     message_bus: Arc<Mutex<messagebus::FireMessageBusRuntime>>,
     notifications: Arc<Mutex<notifications::FireNotificationRuntime>>,
     topic_presence: Arc<Mutex<presence::FireTopicPresenceRuntime>>,
@@ -73,13 +79,16 @@ impl FireCore {
                 "initialized fire workspace logging"
             );
         }
-        let session = SessionSnapshot {
-            cookies: CookieSnapshot::default(),
-            bootstrap: BootstrapArtifacts {
-                base_url: base_url.as_str().to_string(),
-                ..BootstrapArtifacts::default()
+        let session = FireSessionRuntimeState {
+            snapshot: SessionSnapshot {
+                cookies: CookieSnapshot::default(),
+                bootstrap: BootstrapArtifacts {
+                    base_url: base_url.as_str().to_string(),
+                    ..BootstrapArtifacts::default()
+                },
+                browser_user_agent: None,
             },
-            browser_user_agent: None,
+            epoch: 1,
         };
         let session = Arc::new(RwLock::new(session));
         let cookie_jar = Arc::new(FireSessionCookieJar::new(base_url.clone(), session.clone()));
@@ -152,7 +161,12 @@ impl FireCore {
     }
 
     pub fn snapshot(&self) -> SessionSnapshot {
-        read_rwlock(&self.session, "session").clone()
+        read_rwlock(&self.session, "session").snapshot.clone()
+    }
+
+    pub(crate) fn snapshot_with_epoch(&self) -> (SessionSnapshot, u64) {
+        let state = read_rwlock(&self.session, "session");
+        (state.snapshot.clone(), state.epoch)
     }
 
     pub fn shared_client(&self) -> Client {
@@ -234,11 +248,45 @@ impl FireCore {
     {
         let snapshot = {
             let mut session = write_rwlock(&self.session, "session");
-            mutate(&mut session);
-            session.clone()
+            mutate(&mut session.snapshot);
+            session.snapshot.clone()
         };
         notifications::reconcile_notification_runtime(&self.notifications, &snapshot);
         presence::reconcile_topic_presence_runtime(&self.topic_presence, &snapshot);
         snapshot
     }
+
+    pub(crate) fn update_session_advancing_epoch_if_auth_changed<F>(
+        &self,
+        reason: &'static str,
+        mutate: F,
+    ) -> SessionSnapshot
+    where
+        F: FnOnce(&mut SessionSnapshot),
+    {
+        let snapshot = {
+            let mut session = write_rwlock(&self.session, "session");
+            let before = auth_cookie_epoch_key(&session.snapshot);
+            mutate(&mut session.snapshot);
+            let after = auth_cookie_epoch_key(&session.snapshot);
+            if before != after {
+                session.epoch = session.epoch.saturating_add(1);
+                info!(
+                    session_epoch = session.epoch,
+                    reason, "advanced session epoch"
+                );
+            }
+            session.snapshot.clone()
+        };
+        notifications::reconcile_notification_runtime(&self.notifications, &snapshot);
+        presence::reconcile_topic_presence_runtime(&self.topic_presence, &snapshot);
+        snapshot
+    }
+}
+
+fn auth_cookie_epoch_key(snapshot: &SessionSnapshot) -> (Option<String>, Option<String>) {
+    (
+        snapshot.cookies.t_token.clone(),
+        snapshot.cookies.forum_session.clone(),
+    )
 }

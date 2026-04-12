@@ -4,7 +4,7 @@ use std::sync::atomic::Ordering;
 
 use common::{
     raw_json_response, raw_text_response, sample_home_html, sample_latest_json,
-    sample_topic_detail_json, TestServer,
+    sample_topic_detail_json, TestServer, TestServerStep,
 };
 use fire_core::{FireCore, FireCoreConfig, FireCoreError};
 use fire_models::{
@@ -12,6 +12,7 @@ use fire_models::{
     TopicReplyRequest, TopicTag,
 };
 use serde_json::{json, Value};
+use tokio::time::{sleep, Duration};
 
 #[tokio::test]
 async fn fetch_topic_list_parses_latest_payload() {
@@ -466,6 +467,229 @@ async fn fetch_topic_list_surfaces_login_required_when_success_response_invalida
     assert_eq!(snapshot.cookies.cf_clearance.as_deref(), Some("clearance"));
     assert_eq!(snapshot.bootstrap.current_username, None);
     assert!(!snapshot.bootstrap.has_preloaded_data);
+}
+
+#[tokio::test]
+async fn fetch_topic_list_surfaces_login_required_and_clears_local_state_for_not_logged_in_error() {
+    let body = r#"{"errors":["需要登录才能执行此操作。"],"error_type":"not_logged_in"}"#;
+    let response = raw_json_response(403, "application/json", body);
+    let server = TestServer::spawn(vec![response]).await.expect("server");
+    let core = FireCore::new(FireCoreConfig {
+        base_url: server.base_url(),
+        workspace_path: None,
+    })
+    .expect("core");
+
+    let _ = core.sync_login_context(LoginSyncInput {
+        username: Some("alice".into()),
+        home_html: Some(sample_home_html()),
+        csrf_token: Some("csrf-token".into()),
+        current_url: Some(server.base_url()),
+        browser_user_agent: None,
+        cookies: vec![
+            PlatformCookie {
+                name: "_t".into(),
+                value: "token".into(),
+                domain: None,
+                path: None,
+                expires_at_unix_ms: None,
+            },
+            PlatformCookie {
+                name: "_forum_session".into(),
+                value: "forum".into(),
+                domain: None,
+                path: None,
+                expires_at_unix_ms: None,
+            },
+            PlatformCookie {
+                name: "cf_clearance".into(),
+                value: "clearance".into(),
+                domain: None,
+                path: None,
+                expires_at_unix_ms: None,
+            },
+        ],
+    });
+
+    let error = core
+        .fetch_topic_list(TopicListQuery {
+            kind: TopicListKind::Latest,
+            ..TopicListQuery::default()
+        })
+        .await
+        .expect_err("login-required error should surface");
+    let _ = server.shutdown().await;
+
+    assert!(matches!(
+        error,
+        FireCoreError::LoginRequired { message, .. }
+            if message == "需要登录才能执行此操作。"
+    ));
+
+    let snapshot = core.snapshot();
+    assert_eq!(snapshot.cookies.t_token, None);
+    assert_eq!(snapshot.cookies.forum_session, None);
+    assert_eq!(snapshot.cookies.csrf_token, None);
+    assert_eq!(snapshot.cookies.cf_clearance.as_deref(), Some("clearance"));
+    assert!(!snapshot.bootstrap.has_preloaded_data);
+}
+
+#[tokio::test]
+async fn stale_response_auth_cookies_do_not_restore_logged_out_session() {
+    let body = sample_latest_json();
+    let response = format!(
+        "HTTP/1.1 200 TEST\r\nContent-Type: application/json\r\nContent-Length: {}\r\nSet-Cookie: _t=stale-token; path=/; SameSite=Lax\r\nSet-Cookie: _forum_session=stale-forum; path=/; SameSite=Lax\r\nConnection: close\r\n\r\n{body}",
+        body.len()
+    );
+    let server = TestServer::spawn_scripted(vec![TestServerStep::delayed(
+        response,
+        Duration::from_millis(150),
+    )])
+    .await
+    .expect("server");
+    let core = FireCore::new(FireCoreConfig {
+        base_url: server.base_url(),
+        workspace_path: None,
+    })
+    .expect("core");
+
+    let _ = core.sync_login_context(LoginSyncInput {
+        username: Some("alice".into()),
+        home_html: Some(sample_home_html()),
+        csrf_token: Some("csrf-token".into()),
+        current_url: Some(server.base_url()),
+        browser_user_agent: None,
+        cookies: vec![
+            PlatformCookie {
+                name: "_t".into(),
+                value: "token".into(),
+                domain: None,
+                path: None,
+                expires_at_unix_ms: None,
+            },
+            PlatformCookie {
+                name: "_forum_session".into(),
+                value: "forum".into(),
+                domain: None,
+                path: None,
+                expires_at_unix_ms: None,
+            },
+        ],
+    });
+
+    let request_core = core.clone();
+    let task = tokio::spawn(async move {
+        request_core
+            .fetch_topic_list(TopicListQuery {
+                kind: TopicListKind::Latest,
+                ..TopicListQuery::default()
+            })
+            .await
+    });
+
+    sleep(Duration::from_millis(40)).await;
+    let cleared = core.logout_local(true);
+    assert!(!cleared.cookies.has_login_session());
+
+    let result = task.await.expect("task join").expect("topic list");
+    let _ = server.shutdown().await;
+
+    assert_eq!(result.topics.len(), 1);
+    let snapshot = core.snapshot();
+    assert_eq!(snapshot.cookies.t_token, None);
+    assert_eq!(snapshot.cookies.forum_session, None);
+    assert_eq!(snapshot.cookies.cf_clearance, None);
+}
+
+#[tokio::test]
+async fn stale_response_auth_cookies_do_not_override_rotated_session() {
+    let body = sample_latest_json();
+    let response = format!(
+        "HTTP/1.1 200 TEST\r\nContent-Type: application/json\r\nContent-Length: {}\r\nSet-Cookie: _t=stale-token; path=/; SameSite=Lax\r\nSet-Cookie: _forum_session=stale-forum; path=/; SameSite=Lax\r\nConnection: close\r\n\r\n{body}",
+        body.len()
+    );
+    let server = TestServer::spawn_scripted(vec![TestServerStep::delayed(
+        response,
+        Duration::from_millis(150),
+    )])
+    .await
+    .expect("server");
+    let core = FireCore::new(FireCoreConfig {
+        base_url: server.base_url(),
+        workspace_path: None,
+    })
+    .expect("core");
+
+    let _ = core.sync_login_context(LoginSyncInput {
+        username: Some("alice".into()),
+        home_html: Some(sample_home_html()),
+        csrf_token: Some("csrf-token".into()),
+        current_url: Some(server.base_url()),
+        browser_user_agent: None,
+        cookies: vec![
+            PlatformCookie {
+                name: "_t".into(),
+                value: "old-token".into(),
+                domain: None,
+                path: None,
+                expires_at_unix_ms: None,
+            },
+            PlatformCookie {
+                name: "_forum_session".into(),
+                value: "old-forum".into(),
+                domain: None,
+                path: None,
+                expires_at_unix_ms: None,
+            },
+        ],
+    });
+
+    let request_core = core.clone();
+    let task = tokio::spawn(async move {
+        request_core
+            .fetch_topic_list(TopicListQuery {
+                kind: TopicListKind::Latest,
+                ..TopicListQuery::default()
+            })
+            .await
+    });
+
+    sleep(Duration::from_millis(40)).await;
+    let rotated = core.sync_login_context(LoginSyncInput {
+        username: Some("alice".into()),
+        home_html: Some(sample_home_html()),
+        csrf_token: Some("csrf-token".into()),
+        current_url: Some(server.base_url()),
+        browser_user_agent: None,
+        cookies: vec![
+            PlatformCookie {
+                name: "_t".into(),
+                value: "fresh-token".into(),
+                domain: None,
+                path: None,
+                expires_at_unix_ms: None,
+            },
+            PlatformCookie {
+                name: "_forum_session".into(),
+                value: "fresh-forum".into(),
+                domain: None,
+                path: None,
+                expires_at_unix_ms: None,
+            },
+        ],
+    });
+    assert_eq!(rotated.cookies.t_token.as_deref(), Some("fresh-token"));
+
+    let result = task.await.expect("task join").expect("topic list");
+    let _ = server.shutdown().await;
+
+    assert_eq!(result.topics.len(), 1);
+    let snapshot = core.snapshot();
+    assert_eq!(snapshot.cookies.t_token.as_deref(), Some("fresh-token"));
+    assert_eq!(
+        snapshot.cookies.forum_session.as_deref(),
+        Some("fresh-forum")
+    );
 }
 
 #[tokio::test]

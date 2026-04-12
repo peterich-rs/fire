@@ -1,4 +1,5 @@
 import Foundation
+import WebKit
 import XCTest
 @testable import Fire
 
@@ -543,6 +544,153 @@ final class FireSessionSecurityTests: XCTestCase {
         )
     }
 
+    func testBootstrapHTMLMetadataParserReadsMetaFallbackValues() {
+        let html = """
+        <!doctype html>
+        <html>
+          <head>
+            <meta content="alice" name="current-username">
+            <meta name="csrf-token" content="csrf-token">
+          </head>
+        </html>
+        """
+
+        XCTAssertEqual(FireBootstrapHTMLMetadataParser.currentUsername(from: html), "alice")
+        XCTAssertEqual(FireBootstrapHTMLMetadataParser.csrfToken(from: html), "csrf-token")
+    }
+
+    @MainActor
+    func testLoginSyncReadinessRequiresUsernameAuthCookiesAndBootstrapHTML() async {
+        let store = MockLoginSessionStore(
+            syncResult: partialAuthenticatedSession(),
+            refreshResult: .success(readySession(username: "alice")),
+            logoutLocalResult: SessionState.placeholder()
+        )
+        let coordinator = FireWebViewLoginCoordinator(loginSessionStore: store)
+        let ready = coordinator.loginSyncReadiness(
+            for: FireCapturedLoginState(
+                currentURL: "https://linux.do",
+                username: "alice",
+                csrfToken: "csrf-token",
+                homeHTML: """
+                <!doctype html>
+                <html>
+                  <head><meta name="current-username" content="alice"></head>
+                  <body>
+                    <div id="data-discourse-setup" data-preloaded="{&quot;currentUser&quot;:{&quot;username&quot;:&quot;alice&quot;}}"></div>
+                  </body>
+                </html>
+                """,
+                browserUserAgent: "Mozilla/5.0",
+                cookies: [
+                    makePlatformCookie(name: "_t", value: "token"),
+                    makePlatformCookie(name: "_forum_session", value: "forum"),
+                ]
+            )
+        )
+        let missingBootstrap = coordinator.loginSyncReadiness(
+            for: FireCapturedLoginState(
+                currentURL: "https://linux.do",
+                username: "alice",
+                csrfToken: "csrf-token",
+                homeHTML: "<html><body>Done</body></html>",
+                browserUserAgent: "Mozilla/5.0",
+                cookies: [
+                    makePlatformCookie(name: "_t", value: "token"),
+                    makePlatformCookie(name: "_forum_session", value: "forum"),
+                ]
+            )
+        )
+        let missingCookies = coordinator.loginSyncReadiness(
+            for: FireCapturedLoginState(
+                currentURL: "https://linux.do",
+                username: "alice",
+                csrfToken: "csrf-token",
+                homeHTML: """
+                <!doctype html>
+                <html><body><div id="data-discourse-setup" data-preloaded="{}"></div></body></html>
+                """,
+                browserUserAgent: "Mozilla/5.0",
+                cookies: [makePlatformCookie(name: "_t", value: "token")]
+            )
+        )
+
+        XCTAssertTrue(ready.isReady)
+        XCTAssertTrue(ready.hasAuthCookies)
+        XCTAssertTrue(ready.hasBootstrapHTML)
+        XCTAssertFalse(missingBootstrap.isReady)
+        XCTAssertFalse(missingBootstrap.hasBootstrapHTML)
+        XCTAssertFalse(missingCookies.isReady)
+        XCTAssertFalse(missingCookies.hasAuthCookies)
+    }
+
+    func testCfClearanceRefreshServiceRequiresAuthenticatedSessionSceneAndSitekey() {
+        XCTAssertFalse(
+            FireCfClearanceRefreshService.shouldAutoRefresh(
+                session: authenticatedSession(),
+                sceneActive: true
+            )
+        )
+        XCTAssertFalse(
+            FireCfClearanceRefreshService.shouldAutoRefresh(
+                session: authenticatedSession(turnstileSitekey: "sitekey"),
+                sceneActive: false
+            )
+        )
+        XCTAssertTrue(
+            FireCfClearanceRefreshService.shouldAutoRefresh(
+                session: authenticatedSession(turnstileSitekey: "sitekey"),
+                sceneActive: true
+            )
+        )
+    }
+
+    @MainActor
+    func testOpenLoginPresentsLoginImmediatelyBeforeWarmupCompletes() async {
+        let gate = AsyncGate()
+        let viewModel = FireAppViewModel(
+            loginCoordinatorPreloader: {
+                await gate.wait()
+            },
+            loginNetworkWarmup: {}
+        )
+
+        viewModel.openLogin()
+
+        XCTAssertTrue(viewModel.isPresentingLogin)
+        XCTAssertTrue(viewModel.isPreparingLogin)
+
+        await gate.open()
+        let finishedPreparing = await waitUntil { !viewModel.isPreparingLogin }
+        XCTAssertTrue(finishedPreparing)
+        XCTAssertFalse(viewModel.isPreparingLogin)
+    }
+
+    @MainActor
+    func testOpenLoginKeepsPresentedWhenCoordinatorPreloadFails() async {
+        struct SampleLoginOpenError: LocalizedError {
+            var errorDescription: String? { "login init failed" }
+        }
+
+        let viewModel = FireAppViewModel(
+            loginCoordinatorPreloader: {
+                throw SampleLoginOpenError()
+            },
+            loginNetworkWarmup: {}
+        )
+
+        viewModel.openLogin()
+
+        XCTAssertTrue(viewModel.isPresentingLogin)
+
+        let finishedPreparing = await waitUntil { !viewModel.isPreparingLogin }
+        let surfacedError = await waitUntil { viewModel.errorMessage != nil }
+        XCTAssertTrue(finishedPreparing)
+        XCTAssertTrue(surfacedError)
+        XCTAssertFalse(viewModel.isPreparingLogin)
+        XCTAssertEqual(viewModel.errorMessage, "login init failed")
+    }
+
     @MainActor
     func testChallengeRecoveryClearsLocalSessionAndPresentsLogin() async {
         let recoveryStore = MockChallengeRecoveryStore(
@@ -617,12 +765,66 @@ final class FireSessionSecurityTests: XCTestCase {
         XCTAssertTrue(calls.isEmpty)
     }
 
+    @MainActor
+    func testLoginWebViewProbeBridgeDebouncesCookieTriggeredProbes() {
+        let expectation = expectation(description: "probe requested")
+        let webView = WKWebView(frame: .zero)
+        var probedWebView: WKWebView?
+        var probeCount = 0
+        let bridge = FireLoginWebViewProbeBridge { webView in
+            probeCount += 1
+            probedWebView = webView
+            expectation.fulfill()
+        }
+
+        bridge.attach(to: webView)
+        bridge.cookiesDidChange(in: webView.configuration.websiteDataStore.httpCookieStore)
+        bridge.cookiesDidChange(in: webView.configuration.websiteDataStore.httpCookieStore)
+        bridge.cookiesDidChange(in: webView.configuration.websiteDataStore.httpCookieStore)
+
+        wait(for: [expectation], timeout: 1.0)
+        XCTAssertEqual(probeCount, 1)
+        XCTAssertTrue(probedWebView === webView)
+    }
+
+    @MainActor
+    func testLoginWebViewProbeBridgeStopsRequestingProbeAfterDetach() {
+        let webView = WKWebView(frame: .zero)
+        let expectation = expectation(description: "probe should not fire")
+        expectation.isInverted = true
+        let bridge = FireLoginWebViewProbeBridge { _ in
+            expectation.fulfill()
+        }
+
+        bridge.attach(to: webView)
+        bridge.detach()
+        bridge.cookiesDidChange(in: webView.configuration.websiteDataStore.httpCookieStore)
+
+        wait(for: [expectation], timeout: 0.5)
+    }
+
     private func makeSessionFileURL(name: String) throws -> URL {
         let workspacePath = try FireSessionStore.defaultWorkspacePath()
         let workspaceURL = URL(fileURLWithPath: workspacePath, isDirectory: true)
         let testsURL = workspaceURL.appendingPathComponent("Tests", isDirectory: true)
         try FileManager.default.createDirectory(at: testsURL, withIntermediateDirectories: true)
         return testsURL.appendingPathComponent("\(name)-\(UUID().uuidString).json", isDirectory: false)
+    }
+
+    @MainActor
+    private func waitUntil(
+        timeoutNanoseconds: UInt64 = 1_000_000_000,
+        condition: @escaping @MainActor () -> Bool
+    ) async -> Bool {
+        let deadline = DispatchTime.now().uptimeNanoseconds + timeoutNanoseconds
+        while DispatchTime.now().uptimeNanoseconds < deadline {
+            if condition() {
+                return true
+            }
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+
+        return condition()
     }
 
     private func makePlatformCookie(
@@ -955,7 +1157,7 @@ final class FireSessionSecurityTests: XCTestCase {
         )
     }
 
-    private func authenticatedSession() -> SessionState {
+    private func authenticatedSession(turnstileSitekey: String? = nil) -> SessionState {
         SessionState(
             cookies: CookieState(
                 tToken: "token",
@@ -972,7 +1174,7 @@ final class FireSessionSecurityTests: XCTestCase {
                 currentUserId: 1,
                 notificationChannelPosition: 42,
                 longPollingBaseUrl: "https://linux.do",
-                turnstileSitekey: nil,
+                turnstileSitekey: turnstileSitekey,
                 topicTrackingStateMeta: nil,
                 preloadedJson: "{}",
                 hasPreloadedData: true,
@@ -1087,6 +1289,32 @@ private actor ColdStartRefreshRecorder {
     }
 }
 
+private actor AsyncGate {
+    private var isOpen = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func wait() async {
+        guard !isOpen else {
+            return
+        }
+
+        await withCheckedContinuation { continuation in
+            waiters.append(continuation)
+        }
+    }
+
+    func open() {
+        guard !isOpen else {
+            return
+        }
+
+        isOpen = true
+        let pendingWaiters = waiters
+        waiters.removeAll()
+        pendingWaiters.forEach { $0.resume() }
+    }
+}
+
 private final class InMemoryAuthCookieSecureStore: FireAuthCookieSecureStore, @unchecked Sendable {
     private let lock = NSLock()
     private var secrets: FireAuthCookieSecrets
@@ -1176,7 +1404,7 @@ private actor MockChallengeRecoveryStore: FireChallengeSessionRecovering {
         self.result = result
     }
 
-    func logoutLocal(preserveCfClearance: Bool) async throws -> SessionState {
+    func logoutLocalAndClearPlatformCookies(preserveCfClearance: Bool) async throws -> SessionState {
         calls.append(preserveCfClearance)
         return try result.get()
     }

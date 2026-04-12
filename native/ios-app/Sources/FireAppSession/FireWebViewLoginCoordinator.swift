@@ -74,11 +74,54 @@ enum FireBootstrapHTMLHeuristics {
         return score
     }
 
+    static func isReusableLoginBootstrap(_ html: String?) -> Bool {
+        score(html) >= 8
+    }
+
     private static func nonEmpty(_ html: String?) -> String? {
         guard let html, !html.isEmpty else {
             return nil
         }
         return html
+    }
+}
+
+public struct FireLoginSyncReadiness: Sendable, Equatable {
+    public let isReady: Bool
+    public let username: String?
+    public let hasAuthCookies: Bool
+    public let hasBootstrapHTML: Bool
+    public let preferredBootstrapScore: Int
+
+    public init(
+        isReady: Bool,
+        username: String?,
+        hasAuthCookies: Bool,
+        hasBootstrapHTML: Bool,
+        preferredBootstrapScore: Int
+    ) {
+        self.isReady = isReady
+        self.username = username
+        self.hasAuthCookies = hasAuthCookies
+        self.hasBootstrapHTML = hasBootstrapHTML
+        self.preferredBootstrapScore = preferredBootstrapScore
+    }
+}
+
+public enum FireWebViewLoginCoordinatorError: LocalizedError {
+    case loginSyncNotReady(FireLoginSyncReadiness)
+
+    public var errorDescription: String? {
+        switch self {
+        case let .loginSyncNotReady(readiness):
+            if !readiness.hasAuthCookies {
+                return "登录状态尚未写入站点 Cookie，请稍后再试。"
+            }
+            if !readiness.hasBootstrapHTML {
+                return "登录页还未拿到可用的站点引导数据，请稍后再试。"
+            }
+            return "登录状态尚未准备完成，请稍后再试。"
+        }
     }
 }
 
@@ -110,8 +153,14 @@ public final class FireWebViewLoginCoordinator {
     }
 
     public func completeLogin(from webView: WKWebView) async throws -> SessionState {
+        _ = try await refreshPlatformCookies()
         let captured = try await captureLoginState(from: webView)
-        return try await completeLogin(captured)
+        let readiness = loginSyncReadiness(for: captured)
+        guard readiness.isReady else {
+            throw FireWebViewLoginCoordinatorError.loginSyncNotReady(readiness)
+        }
+        _ = try await completeLogin(captured)
+        return try await refreshPlatformCookies()
     }
 
     func completeLogin(_ captured: FireCapturedLoginState) async throws -> SessionState {
@@ -128,6 +177,7 @@ public final class FireWebViewLoginCoordinator {
             // refresh is still challenged. The WebView login flow remains open so
             // the user can complete the challenge and retry Sync.
             _ = try? await sessionStore.logoutLocal(preserveCfClearance: true)
+            try? await clearPlatformLoginCookies(preserveCfClearance: true)
             throw error
         }
     }
@@ -196,6 +246,19 @@ public final class FireWebViewLoginCoordinator {
             from: WKWebsiteDataStore.default().httpCookieStore
         )
         return try await sessionStore.applyPlatformCookies(cookies)
+    }
+
+    public func probeLoginSyncReadiness(from webView: WKWebView) async throws -> FireLoginSyncReadiness {
+        let captured = try await captureLoginState(from: webView)
+        return loginSyncReadiness(for: captured)
+    }
+
+    public func logoutLocalAndClearPlatformCookies(
+        preserveCfClearance: Bool = true
+    ) async throws -> SessionState {
+        let state = try await sessionStore.logoutLocal(preserveCfClearance: preserveCfClearance)
+        try await clearPlatformLoginCookies(preserveCfClearance: preserveCfClearance)
+        return state
     }
 
     private func relevantCookies(from webView: WKWebView) async throws -> [PlatformCookieState] {
@@ -305,5 +368,34 @@ public final class FireWebViewLoginCoordinator {
             browserFetchedHomeHTML: browserFetchedHomeHTML,
             currentPageHTML: currentPageHTML
         )
+    }
+
+    func loginSyncReadiness(for captured: FireCapturedLoginState) -> FireLoginSyncReadiness {
+        let username = captured.username?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let hasUsername = !(username?.isEmpty ?? true)
+        let activeCookies = captured.cookies.filter { cookie in
+            let value = cookie.value.trimmingCharacters(in: .whitespacesAndNewlines)
+            return !value.isEmpty && !(cookie.expiresAtUnixMs.map { $0 <= currentUnixMs() } ?? false)
+        }
+        let hasAuthCookies =
+            activeCookies.contains(where: { $0.name == "_t" })
+            && activeCookies.contains(where: { $0.name == "_forum_session" })
+        let preferredHTML = preferredBootstrapHTML(
+            browserFetchedHomeHTML: captured.homeHTML,
+            currentPageHTML: nil
+        )
+        let preferredBootstrapScore = FireBootstrapHTMLHeuristics.score(preferredHTML)
+        let hasBootstrapHTML = FireBootstrapHTMLHeuristics.isReusableLoginBootstrap(preferredHTML)
+        return FireLoginSyncReadiness(
+            isReady: hasUsername && hasAuthCookies && hasBootstrapHTML,
+            username: username,
+            hasAuthCookies: hasAuthCookies,
+            hasBootstrapHTML: hasBootstrapHTML,
+            preferredBootstrapScore: preferredBootstrapScore
+        )
+    }
+
+    private func currentUnixMs() -> Int64 {
+        Int64(Date().timeIntervalSince1970 * 1000)
     }
 }

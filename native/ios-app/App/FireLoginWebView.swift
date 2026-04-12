@@ -45,6 +45,7 @@ final class FireWebViewBox: ObservableObject {
 struct FireLoginWebView: UIViewRepresentable {
     let url: URL
     @ObservedObject var webViewBox: FireWebViewBox
+    let onNavigationStateChange: (WKWebView) -> Void
 
     func makeUIView(context: Context) -> WKWebView {
         let webView = WKWebView(frame: .zero)
@@ -60,26 +61,37 @@ struct FireLoginWebView: UIViewRepresentable {
     }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(webViewBox: webViewBox)
+        Coordinator(
+            webViewBox: webViewBox,
+            onNavigationStateChange: onNavigationStateChange
+        )
     }
 
     final class Coordinator: NSObject, WKNavigationDelegate {
         private let webViewBox: FireWebViewBox
+        private let onNavigationStateChange: (WKWebView) -> Void
 
-        init(webViewBox: FireWebViewBox) {
+        init(
+            webViewBox: FireWebViewBox,
+            onNavigationStateChange: @escaping (WKWebView) -> Void
+        ) {
             self.webViewBox = webViewBox
+            self.onNavigationStateChange = onNavigationStateChange
         }
 
         func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
             webViewBox.syncState(from: webView)
+            onNavigationStateChange(webView)
         }
 
         func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
             webViewBox.syncState(from: webView)
+            onNavigationStateChange(webView)
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             webViewBox.syncState(from: webView)
+            onNavigationStateChange(webView)
         }
 
         func webView(
@@ -88,6 +100,7 @@ struct FireLoginWebView: UIViewRepresentable {
             withError error: Error
         ) {
             webViewBox.syncState(from: webView)
+            onNavigationStateChange(webView)
         }
 
         func webView(
@@ -96,16 +109,19 @@ struct FireLoginWebView: UIViewRepresentable {
             withError error: Error
         ) {
             webViewBox.syncState(from: webView)
+            onNavigationStateChange(webView)
         }
 
         func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
             webViewBox.syncState(from: webView)
+            onNavigationStateChange(webView)
         }
     }
 }
 
 struct FireLoginScreen: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
     @ObservedObject var viewModel: FireAppViewModel
     @StateObject private var webViewBox = FireWebViewBox()
 
@@ -129,7 +145,10 @@ struct FireLoginScreen: View {
 
                 FireLoginWebView(
                     url: URL(string: "https://linux.do")!,
-                    webViewBox: webViewBox
+                    webViewBox: webViewBox,
+                    onNavigationStateChange: { webView in
+                        viewModel.refreshLoginSyncReadiness(from: webView)
+                    }
                 )
                 .frame(maxHeight: .infinity)
             }
@@ -160,6 +179,12 @@ struct FireLoginScreen: View {
             }
             .onAppear {
                 viewModel.setAPMRoute("auth.login")
+            }
+            .onChange(of: scenePhase) { _, phase in
+                guard phase == .active, let webView = webViewBox.webView else {
+                    return
+                }
+                viewModel.refreshLoginSyncReadiness(from: webView)
             }
             .onDisappear {
                 viewModel.restoreTopLevelAPMRoute()
@@ -227,7 +252,11 @@ private struct FireLoginBottomBar: View {
                     }
                 }
                 .buttonStyle(FirePrimaryButtonStyle())
-                .disabled(webViewBox.webView == nil || viewModel.isSyncingLoginSession)
+                .disabled(
+                    webViewBox.webView == nil
+                        || viewModel.isSyncingLoginSession
+                        || !viewModel.canSyncLoginSession
+                )
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 10)

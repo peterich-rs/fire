@@ -78,11 +78,13 @@ enum FireSearchScope: String, CaseIterable, Identifiable {
     }
 }
 
-protocol FireChallengeSessionRecovering: Sendable {
-    func logoutLocal(preserveCfClearance: Bool) async throws -> SessionState
+protocol FireChallengeSessionRecovering {
+    func logoutLocalAndClearPlatformCookies(
+        preserveCfClearance: Bool
+    ) async throws -> SessionState
 }
 
-extension FireSessionStore: FireChallengeSessionRecovering {}
+extension FireWebViewLoginCoordinator: FireChallengeSessionRecovering {}
 
 @MainActor
 final class FireAppViewModel: ObservableObject {
@@ -104,6 +106,7 @@ final class FireAppViewModel: ObservableObject {
     @Published var isPresentingLogin = false
     @Published var isPreparingLogin = false
     @Published var isSyncingLoginSession = false
+    @Published private(set) var canSyncLoginSession = false
     @Published var isLoggingOut = false
 
     // MARK: - Private
@@ -114,6 +117,7 @@ final class FireAppViewModel: ObservableObject {
     private var initialStateTask: Task<Void, Never>?
     private var initialStateLoadingDelayTask: Task<Void, Never>?
     private var initialStateLoadGeneration: UInt64 = 0
+    private var loginSyncReadinessTask: Task<Void, Never>?
     private let loginURL = URL(string: "https://linux.do")!
     private let challengeRecoveryStore: (any FireChallengeSessionRecovering)?
     // MessageBus
@@ -222,6 +226,7 @@ final class FireAppViewModel: ObservableObject {
         }
 
         errorMessage = nil
+        canSyncLoginSession = false
         isPreparingLogin = true
 
         Task {
@@ -241,6 +246,9 @@ final class FireAppViewModel: ObservableObject {
         guard !isSyncingLoginSession else {
             return
         }
+        guard canSyncLoginSession else {
+            return
+        }
 
         isSyncingLoginSession = true
         Task {
@@ -253,6 +261,7 @@ final class FireAppViewModel: ObservableObject {
                     await applySession(try await loginCoordinator.completeLogin(from: webView))
                     isPresentingLogin = false
                     await refreshHomeFeedIfPossible(force: true)
+                    canSyncLoginSession = false
                 }
             } catch {
                 if await handleRecoverableSessionErrorIfNeeded(error) {
@@ -296,6 +305,7 @@ final class FireAppViewModel: ObservableObject {
                 stopMessageBus()
                 errorMessage = nil
                 await applySession(try await loginCoordinator.logout())
+                canSyncLoginSession = false
                 clearTopicState()
                 notificationStore?.reset()
             } catch {
@@ -1034,6 +1044,7 @@ final class FireAppViewModel: ObservableObject {
     }
 
     func handleDiagnosticsScenePhaseChange(_ phase: String, isAuthenticated: Bool) {
+        FireCfClearanceRefreshService.shared.setSceneActive(phase == "active")
         Task {
             guard let sessionStore else { return }
             let logger = sessionStore.makeLogger(target: Self.diagnosticsLifecycleLogTarget)
@@ -1212,6 +1223,38 @@ final class FireAppViewModel: ObservableObject {
         } else if !session.readiness.canOpenMessageBus {
             stopMessageBus()
         }
+
+        if let coordinator = try? await loginCoordinatorValue() {
+            FireCfClearanceRefreshService.shared.updateSession(
+                session,
+                loginCoordinator: coordinator
+            )
+        }
+    }
+
+    func refreshLoginSyncReadiness(from webView: WKWebView) {
+        loginSyncReadinessTask?.cancel()
+        loginSyncReadinessTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let coordinator = try await loginCoordinatorValue()
+                let readiness = try await coordinator.probeLoginSyncReadiness(from: webView)
+                guard !Task.isCancelled else { return }
+                let previous = canSyncLoginSession
+                canSyncLoginSession = readiness.isReady
+                if previous != readiness.isReady {
+                    FireAPMManager.shared.recordBreadcrumb(
+                        target: "auth.login",
+                        message: readiness.isReady
+                            ? "login sync readiness satisfied"
+                            : "login sync readiness cleared"
+                    )
+                }
+            } catch {
+                guard !Task.isCancelled else { return }
+                canSyncLoginSession = false
+            }
+        }
     }
 
     private func scheduleMessageBusRetry() {
@@ -1315,7 +1358,9 @@ final class FireAppViewModel: ObservableObject {
 
         do {
             let recoveryStore = try await challengeRecoveryStoreValue()
-            let cleared = try await recoveryStore.logoutLocal(preserveCfClearance: true)
+            let cleared = try await recoveryStore.logoutLocalAndClearPlatformCookies(
+                preserveCfClearance: true
+            )
             await applySession(cleared)
         } catch {
             await applySession(.placeholder(baseUrl: session.bootstrap.baseUrl))
@@ -1323,6 +1368,7 @@ final class FireAppViewModel: ObservableObject {
 
         clearTopicState()
         notificationStore?.reset()
+        canSyncLoginSession = false
         errorMessage = message
         isPresentingLogin = true
     }
@@ -1513,7 +1559,7 @@ final class FireAppViewModel: ObservableObject {
             return challengeRecoveryStore
         }
 
-        return try await sessionStoreValue()
+        return try await loginCoordinatorValue()
     }
 
     private func loginCoordinatorValue() async throws -> FireWebViewLoginCoordinator {

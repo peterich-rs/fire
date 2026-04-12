@@ -28,11 +28,11 @@ use url::{form_urlencoded::Serializer, Url};
 use super::{
     network::{
         classify_http_status_error, header_value, request_origin, take_trace_cancellation_guard,
-        FireCallProfile, FireNetworkLayer, FireRequestProfile, TracedRequest,
+        FireCallProfile, FireNetworkLayer, FireRequestEpoch, FireRequestProfile, TracedRequest,
     },
     notifications::{merge_notification_event_data, FireNotificationRuntime},
     presence::{merge_topic_presence_event_data, FireTopicPresenceRuntime},
-    FireCore,
+    FireCore, FireSessionRuntimeState,
 };
 use crate::{
     diagnostics::FireDiagnosticsStore,
@@ -80,7 +80,7 @@ struct MessageBusPollContext {
     base_url: Url,
     network: FireNetworkLayer,
     diagnostics: Arc<FireDiagnosticsStore>,
-    session: Arc<RwLock<SessionSnapshot>>,
+    session: Arc<RwLock<FireSessionRuntimeState>>,
     runtime: Arc<Mutex<FireMessageBusRuntime>>,
     notifications: Arc<Mutex<FireNotificationRuntime>>,
     topic_presence: Arc<Mutex<FireTopicPresenceRuntime>>,
@@ -234,6 +234,7 @@ impl FireCore {
             &self.diagnostics,
             &self.base_url,
             &snapshot,
+            self.snapshot_with_epoch().1,
             &client_id,
             &[(channel.clone(), last_message_id)],
         )?;
@@ -510,11 +511,12 @@ fn build_message_bus_poll_request(
     context: &MessageBusPollContext,
     subscriptions: &[(String, i64)],
 ) -> Result<TracedRequest, FireCoreError> {
-    let snapshot = read_rwlock(&context.session, "session").clone();
+    let state = read_rwlock(&context.session, "session");
     build_message_bus_poll_request_for_snapshot(
         &context.diagnostics,
         &context.base_url,
-        &snapshot,
+        &state.snapshot,
+        state.epoch,
         &context.client_id,
         subscriptions,
     )
@@ -524,6 +526,7 @@ fn build_message_bus_poll_request_for_snapshot(
     diagnostics: &Arc<FireDiagnosticsStore>,
     base_url: &Url,
     snapshot: &SessionSnapshot,
+    epoch: u64,
     client_id: &str,
     subscriptions: &[(String, i64)],
 ) -> Result<TracedRequest, FireCoreError> {
@@ -562,6 +565,7 @@ fn build_message_bus_poll_request_for_snapshot(
     request
         .extensions_mut()
         .insert(FireRequestProfile::MessageBusPoll);
+    request.extensions_mut().insert(FireRequestEpoch(epoch));
     let trace_id = diagnostics.prepare_request_trace(MESSAGE_BUS_OPERATION, &mut request);
     Ok(TracedRequest { trace_id, request })
 }

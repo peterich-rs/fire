@@ -20,7 +20,7 @@ use super::{
     NETWORK_CONNECT_TIMEOUT,
 };
 use crate::{
-    cookies::FireSessionCookieJar,
+    cookies::{FireSessionCookieJar, FIRE_REQUEST_EPOCH},
     diagnostics::{
         FireDiagnosticsStore, FireNetworkTraceCancellationGuard,
         FireNetworkTraceEventListenerFactory,
@@ -90,6 +90,9 @@ pub(crate) enum FireCallProfile {
     MessageBusPoll,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct FireRequestEpoch(pub(crate) u64);
+
 #[derive(Clone)]
 pub(crate) struct FireNetworkLayer {
     client: Client,
@@ -100,7 +103,7 @@ pub(crate) struct FireNetworkLayer {
 pub(crate) struct FireCommonHeaderInterceptor {
     origin: String,
     referer: String,
-    session: Arc<RwLock<fire_models::SessionSnapshot>>,
+    session: Arc<RwLock<super::FireSessionRuntimeState>>,
 }
 
 #[derive(Clone)]
@@ -115,7 +118,10 @@ impl FireTraceSnapshotInterceptor {
 }
 
 impl FireCommonHeaderInterceptor {
-    pub(crate) fn new(base_url: Url, session: Arc<RwLock<fire_models::SessionSnapshot>>) -> Self {
+    pub(crate) fn new(
+        base_url: Url,
+        session: Arc<RwLock<super::FireSessionRuntimeState>>,
+    ) -> Self {
         Self {
             origin: request_origin(&base_url),
             referer: request_referer(&base_url),
@@ -127,7 +133,7 @@ impl FireCommonHeaderInterceptor {
         let Some(profile) = request.extensions().get::<FireRequestProfile>().copied() else {
             return;
         };
-        let snapshot = read_rwlock(&self.session, "session").clone();
+        let snapshot = read_rwlock(&self.session, "session").snapshot.clone();
         apply_common_profile_headers(
             request.headers_mut(),
             profile,
@@ -183,7 +189,7 @@ pub(crate) struct TracedRequest {
 impl FireNetworkLayer {
     pub(crate) fn new(
         base_url: &Url,
-        session: Arc<RwLock<fire_models::SessionSnapshot>>,
+        session: Arc<RwLock<super::FireSessionRuntimeState>>,
         diagnostics: Arc<FireDiagnosticsStore>,
         cookie_jar: Arc<FireSessionCookieJar>,
     ) -> Result<Self, FireCoreError> {
@@ -221,6 +227,12 @@ impl FireNetworkLayer {
         profile: FireCallProfile,
     ) -> Result<(u64, Response<ResponseBody>), FireCoreError> {
         let trace_id = traced.trace_id;
+        let request_epoch = traced
+            .request
+            .extensions()
+            .get::<FireRequestEpoch>()
+            .copied()
+            .unwrap_or(FireRequestEpoch(0));
         debug!(
             trace_id,
             method = %traced.request.method(),
@@ -233,10 +245,8 @@ impl FireNetworkLayer {
             "Request cancelled",
             "Future dropped before the trace reached a terminal state",
         );
-        let mut response = match apply_call_profile(self.client.new_call(traced.request), profile)
-            .execute()
-            .await
-        {
+        let execute = apply_call_profile(self.client.new_call(traced.request), profile).execute();
+        let mut response = match FIRE_REQUEST_EPOCH.scope(request_epoch.0, execute).await {
             Ok(response) => response,
             Err(source) => {
                 self.diagnostics
@@ -288,6 +298,7 @@ impl FireCore {
         operation: &'static str,
     ) -> Result<TracedRequest, FireCoreError> {
         let uri = self.base_url.join("/")?;
+        let (_, epoch) = self.snapshot_with_epoch();
         let mut request = Request::builder()
             .method(Method::GET)
             .uri(uri.as_str())
@@ -297,6 +308,7 @@ impl FireCore {
         request
             .extensions_mut()
             .insert(FireRequestProfile::HomeHtml);
+        request.extensions_mut().insert(FireRequestEpoch(epoch));
         let trace_id = self
             .diagnostics
             .prepare_request_trace(operation, &mut request);
@@ -311,6 +323,7 @@ impl FireCore {
         extra_headers: &[(&str, String)],
     ) -> Result<TracedRequest, FireCoreError> {
         let mut uri = self.base_url.join(path)?;
+        let (_, epoch) = self.snapshot_with_epoch();
         if !query_params.is_empty() {
             let mut serializer = uri.query_pairs_mut();
             for (key, value) in query_params {
@@ -331,6 +344,7 @@ impl FireCore {
             .body(RequestBody::empty())
             .map_err(FireCoreError::RequestBuild)?;
         request.extensions_mut().insert(FireRequestProfile::JsonApi);
+        request.extensions_mut().insert(FireRequestEpoch(epoch));
         let trace_id = self
             .diagnostics
             .prepare_request_trace(operation, &mut request);
@@ -390,7 +404,7 @@ impl FireCore {
         }
 
         let uri = self.base_url.join(path)?;
-        let snapshot = self.snapshot();
+        let (snapshot, epoch) = self.snapshot_with_epoch();
 
         let mut builder = Request::builder()
             .method(method)
@@ -417,6 +431,7 @@ impl FireCore {
             .body(RequestBody::from(serializer.finish()))
             .map_err(FireCoreError::RequestBuild)?;
         request.extensions_mut().insert(FireRequestProfile::JsonApi);
+        request.extensions_mut().insert(FireRequestEpoch(epoch));
         let trace_id = self
             .diagnostics
             .prepare_request_trace(operation, &mut request);
@@ -433,7 +448,7 @@ impl FireCore {
         requires_csrf: bool,
     ) -> Result<TracedRequest, FireCoreError> {
         let uri = self.base_url.join(path)?;
-        let snapshot = self.snapshot();
+        let (snapshot, epoch) = self.snapshot_with_epoch();
 
         let mut builder = Request::builder()
             .method(method)
@@ -454,6 +469,7 @@ impl FireCore {
 
         let mut request = builder.body(body).map_err(FireCoreError::RequestBuild)?;
         request.extensions_mut().insert(FireRequestProfile::JsonApi);
+        request.extensions_mut().insert(FireRequestEpoch(epoch));
         let trace_id = self
             .diagnostics
             .prepare_request_trace(operation, &mut request);
@@ -518,9 +534,20 @@ impl FireCore {
             return Ok((trace_id, response));
         }
 
+        let invalidation = response_login_invalidation_signal(response.headers());
         let body = self.read_response_text(trace_id, response).await?;
         self.diagnostics
             .record_http_status_error(trace_id, StatusCode::FORBIDDEN.as_u16(), &body);
+        if let Some(error) = response_login_invalidation_error(
+            self,
+            operation,
+            trace_id,
+            StatusCode::FORBIDDEN,
+            invalidation,
+            &body,
+        ) {
+            return Err(error);
+        }
 
         if !is_bad_csrf_body(&body) {
             warn!(
@@ -597,34 +624,29 @@ pub(crate) async fn expect_success(
 ) -> Result<Response<ResponseBody>, FireCoreError> {
     if response.status().is_success() {
         if operation != "logout" {
+            let response_status = response.status();
             let invalidation = response_login_invalidation_signal(response.headers());
-            let has_local_login = {
-                let snapshot = core.snapshot();
-                snapshot.cookies.has_login_session() || snapshot.cookies.has_forum_session()
-            };
-            if has_local_login && invalidation.any() {
+            if invalidation.any() {
                 let body = core.read_response_text(trace_id, response).await?;
-                warn!(
+                let error = response_login_invalidation_error(
+                    core,
                     operation,
                     trace_id,
-                    discourse_logged_out = invalidation.discourse_logged_out,
-                    cleared_t_cookie = invalidation.cleared_t_cookie,
-                    cleared_forum_session = invalidation.cleared_forum_session,
-                    body_prefix = %body.chars().take(200).collect::<String>(),
-                    "successful response invalidated login session"
-                );
-                let _ = core.logout_local(true);
-                return Err(FireCoreError::LoginRequired {
-                    operation,
-                    message: LOGIN_INVALIDATED_MESSAGE.to_string(),
-                });
+                    response_status,
+                    invalidation,
+                    &body,
+                )
+                .expect("invalidation signal should always produce a login-required error");
+                return Err(error);
             }
         }
         return Ok(response);
     }
 
     let mut response = response;
-    let status = response.status().as_u16();
+    let response_status = response.status();
+    let status = response_status.as_u16();
+    let invalidation = response_login_invalidation_signal(response.headers());
     let _trace_guard = take_trace_cancellation_guard(&mut response).unwrap_or_else(|| {
         core.diagnostics.cancellation_guard(
             trace_id,
@@ -646,6 +668,16 @@ pub(crate) async fn expect_success(
     );
     core.diagnostics
         .record_http_status_error(trace_id, status, &body);
+    if let Some(error) = response_login_invalidation_error(
+        core,
+        operation,
+        trace_id,
+        response_status,
+        invalidation,
+        &body,
+    ) {
+        return Err(error);
+    }
     Err(classify_http_status_error(operation, status, body))
 }
 
@@ -747,6 +779,43 @@ fn clears_cookie(set_cookie_header: &str, name: &str) -> bool {
     }
 
     lower.contains("max-age=0") || lower.contains("expires=thu, 01 jan 1970 00:00:00 gmt")
+}
+
+fn response_login_invalidation_error(
+    core: &FireCore,
+    operation: &'static str,
+    trace_id: u64,
+    status: StatusCode,
+    invalidation: LoginInvalidationSignal,
+    body: &str,
+) -> Option<FireCoreError> {
+    let login_required_message = not_logged_in_message(status.as_u16(), body);
+    if !invalidation.any() && login_required_message.is_none() {
+        return None;
+    }
+
+    let has_local_login = {
+        let snapshot = core.snapshot();
+        snapshot.cookies.has_login_session() || snapshot.cookies.has_forum_session()
+    };
+
+    warn!(
+        operation,
+        trace_id,
+        status = status.as_u16(),
+        discourse_logged_out = invalidation.discourse_logged_out,
+        cleared_t_cookie = invalidation.cleared_t_cookie,
+        cleared_forum_session = invalidation.cleared_forum_session,
+        body_prefix = %body.chars().take(200).collect::<String>(),
+        "response invalidated login session"
+    );
+    if has_local_login {
+        let _ = core.logout_local(true);
+    }
+    Some(FireCoreError::LoginRequired {
+        operation,
+        message: login_required_message.unwrap_or_else(|| LOGIN_INVALIDATED_MESSAGE.to_string()),
+    })
 }
 
 pub(crate) fn is_cloudflare_challenge_body(body: &str) -> bool {

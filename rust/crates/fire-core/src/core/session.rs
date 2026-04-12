@@ -12,7 +12,7 @@ impl FireCore {
             cookie_count = cookies.len(),
             "merging platform cookies into session"
         );
-        self.update_session(|session| {
+        self.update_session_advancing_epoch_if_auth_changed("merge platform cookies", |session| {
             session.cookies.merge_platform_cookies(&cookies);
             debug!(
                 phase = ?session.login_phase(),
@@ -27,7 +27,7 @@ impl FireCore {
             cookie_count = cookies.len(),
             "applying platform cookies into session"
         );
-        self.update_session(|session| {
+        self.update_session_advancing_epoch_if_auth_changed("apply platform cookies", |session| {
             session.cookies.apply_platform_cookies(&cookies);
             debug!(
                 phase = ?session.login_phase(),
@@ -113,7 +113,7 @@ impl FireCore {
             .home_html
             .as_deref()
             .map(|html| parse_home_state(self.base_url(), html));
-        self.update_session(|session| {
+        self.update_session_advancing_epoch_if_auth_changed("sync login context", |session| {
             session.cookies.apply_platform_cookies(&input.cookies);
             if let Some(browser_user_agent) = input
                 .browser_user_agent
@@ -157,7 +157,7 @@ impl FireCore {
         self.stop_message_bus(true);
         self.clear_notification_state();
         self.clear_topic_presence_state();
-        self.update_session(|session| {
+        self.update_session_advancing_epoch_if_auth_changed("logout local", |session| {
             session.clear_login_state(preserve_cf_clearance);
             debug!(
                 phase = ?session.login_phase(),
@@ -170,6 +170,7 @@ impl FireCore {
 
     pub fn has_login_session(&self) -> bool {
         read_rwlock(&self.session, "session")
+            .snapshot
             .cookies
             .has_login_session()
     }

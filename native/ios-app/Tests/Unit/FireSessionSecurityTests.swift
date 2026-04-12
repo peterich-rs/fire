@@ -544,6 +544,92 @@ final class FireSessionSecurityTests: XCTestCase {
     }
 
     @MainActor
+    func testLoginSyncReadinessRequiresUsernameAuthCookiesAndBootstrapHTML() async {
+        let store = MockLoginSessionStore(
+            syncResult: partialAuthenticatedSession(),
+            refreshResult: .success(readySession(username: "alice")),
+            logoutLocalResult: SessionState.placeholder()
+        )
+        let coordinator = FireWebViewLoginCoordinator(loginSessionStore: store)
+        let ready = coordinator.loginSyncReadiness(
+            for: FireCapturedLoginState(
+                currentURL: "https://linux.do",
+                username: "alice",
+                csrfToken: "csrf-token",
+                homeHTML: """
+                <!doctype html>
+                <html>
+                  <head><meta name="current-username" content="alice"></head>
+                  <body>
+                    <div id="data-discourse-setup" data-preloaded="{&quot;currentUser&quot;:{&quot;username&quot;:&quot;alice&quot;}}"></div>
+                  </body>
+                </html>
+                """,
+                browserUserAgent: "Mozilla/5.0",
+                cookies: [
+                    makePlatformCookie(name: "_t", value: "token"),
+                    makePlatformCookie(name: "_forum_session", value: "forum"),
+                ]
+            )
+        )
+        let missingBootstrap = coordinator.loginSyncReadiness(
+            for: FireCapturedLoginState(
+                currentURL: "https://linux.do",
+                username: "alice",
+                csrfToken: "csrf-token",
+                homeHTML: "<html><body>Done</body></html>",
+                browserUserAgent: "Mozilla/5.0",
+                cookies: [
+                    makePlatformCookie(name: "_t", value: "token"),
+                    makePlatformCookie(name: "_forum_session", value: "forum"),
+                ]
+            )
+        )
+        let missingCookies = coordinator.loginSyncReadiness(
+            for: FireCapturedLoginState(
+                currentURL: "https://linux.do",
+                username: "alice",
+                csrfToken: "csrf-token",
+                homeHTML: """
+                <!doctype html>
+                <html><body><div id="data-discourse-setup" data-preloaded="{}"></div></body></html>
+                """,
+                browserUserAgent: "Mozilla/5.0",
+                cookies: [makePlatformCookie(name: "_t", value: "token")]
+            )
+        )
+
+        XCTAssertTrue(ready.isReady)
+        XCTAssertTrue(ready.hasAuthCookies)
+        XCTAssertTrue(ready.hasBootstrapHTML)
+        XCTAssertFalse(missingBootstrap.isReady)
+        XCTAssertFalse(missingBootstrap.hasBootstrapHTML)
+        XCTAssertFalse(missingCookies.isReady)
+        XCTAssertFalse(missingCookies.hasAuthCookies)
+    }
+
+    func testCfClearanceRefreshServiceRequiresAuthenticatedSessionSceneAndSitekey() {
+        XCTAssertFalse(
+            FireCfClearanceRefreshService.shouldAutoRefresh(
+                session: authenticatedSession(),
+                sceneActive: true
+            )
+        )
+        XCTAssertFalse(
+            FireCfClearanceRefreshService.shouldAutoRefresh(
+                session: authenticatedSession(turnstileSitekey: "sitekey"),
+                sceneActive: false
+            )
+        )
+        XCTAssertTrue(
+            FireCfClearanceRefreshService.shouldAutoRefresh(
+                session: authenticatedSession(turnstileSitekey: "sitekey"),
+                sceneActive: true
+            )
+        )
+    }
+
+    @MainActor
     func testChallengeRecoveryClearsLocalSessionAndPresentsLogin() async {
         let recoveryStore = MockChallengeRecoveryStore(
             result: .success(challengedLoggedOutSession())
@@ -955,7 +1041,7 @@ final class FireSessionSecurityTests: XCTestCase {
         )
     }
 
-    private func authenticatedSession() -> SessionState {
+    private func authenticatedSession(turnstileSitekey: String? = nil) -> SessionState {
         SessionState(
             cookies: CookieState(
                 tToken: "token",
@@ -972,7 +1058,7 @@ final class FireSessionSecurityTests: XCTestCase {
                 currentUserId: 1,
                 notificationChannelPosition: 42,
                 longPollingBaseUrl: "https://linux.do",
-                turnstileSitekey: nil,
+                turnstileSitekey: turnstileSitekey,
                 topicTrackingStateMeta: nil,
                 preloadedJson: "{}",
                 hasPreloadedData: true,
@@ -1176,7 +1262,7 @@ private actor MockChallengeRecoveryStore: FireChallengeSessionRecovering {
         self.result = result
     }
 
-    func logoutLocal(preserveCfClearance: Bool) async throws -> SessionState {
+    func logoutLocalAndClearPlatformCookies(preserveCfClearance: Bool) async throws -> SessionState {
         calls.append(preserveCfClearance)
         return try result.get()
     }

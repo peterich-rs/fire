@@ -34,8 +34,11 @@
 - 客户端接入备注：
   - 登录回调页、用户页、话题页等“非首页” HTML 里也可能带 `data-preloaded`，但有时只包含 `currentUser` 等局部字段，不一定带完整的 `site` / `siteSettings`
   - 某些 LinuxDo 页面里，`data-preloaded.currentUser`、`siteSettings`、`site`、`topicTrackingStateMeta` 本身不是对象，而是“JSON 字符串”；客户端在提取字段前需要先解包这层字符串
+  - iOS 当前把登录页收口做成“自动探测、手动 Sync”：只有同时拿到 `current-username`、有效 `_t` / `_forum_session` Cookie，以及可复用的首页 bootstrap HTML 时，才允许用户点击“完成登录”
+  - iOS 当前在登录页优先通过浏览器上下文内的 `fetch("/")` 抓首页 HTML；只有这份首页 HTML 不够完整时，才回退到当前页面 `document.documentElement.outerHTML`
   - 在把 bootstrap 视为“已就绪”前，应该确认至少拿到了当前用户、站点级 `site` 元数据（分类/标签能力）和 `siteSettings`（最小长度、reactions、长轮询域等）；缺失时继续回源 `GET /` 刷新，而不要仅凭 `hasPreloadedData=true` 就跳过
   - 当前 Fire 实现还会在首页 bootstrap 仍缺少 `site` 元数据时自动补一次 `GET /site.json`，用于回填 `categories`、`top_tags`、`can_tag_topics`
+  - iOS 当前在真正提交登录前后都会先后各做一次平台 Cookie 刷新：先把 `WKHTTPCookieStore` 里的同站 Cookie 回灌到共享层，再执行 `sync_login_context` / bootstrap 刷新，最后再把浏览器最新 Cookie 状态回灌一次，确保 `_t`、`_forum_session`、`cf_clearance` 以浏览器为准
   - 当前 Fire 还会从 `siteSettings` 提取 composer 约束：
     - `min_post_length`
     - `min_topic_title_length`
@@ -88,6 +91,9 @@
   - `discourse-logged-out: 1`
   - `Set-Cookie: _t=; path=/; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT`
 - 客户端不要继续把这种响应后的会话当作“仍可写入”；应立即清掉本地登录态并提示重新登录
+- Fire 共享层现在把 `discourse-logged-out`、清空 `_t` / `_forum_session` 的 `Set-Cookie`、`error_type=not_logged_in` 统一视为登录失效信号，并先推进内部 session epoch，再清掉本地登录态
+- Fire 共享层现在会在 `sync_login_context`、`apply_platform_cookies` 导致 auth Cookie 轮换时、显式登出、被动失效时推进 session epoch；晚到的旧请求响应仍可写入非认证 Cookie（例如 `cf_clearance`），但不得再覆盖 `_t` / `_forum_session`，也不得把旧会话“复活”
+- 当前 `BAD CSRF` 只触发一次性 CSRF 刷新与单次重试；如果同一请求同时已经暴露登录失效信号，则优先按登录失效收口，而不是继续保留本地登录态
 - 否则后续最常见的表现是：前面的列表、详情等匿名可读请求仍然成功，但稍后的 `/topics/timings`、点赞、回复等写请求才返回 `403` / `error_type=not_logged_in`
 
 ### `GET /challenge`
@@ -121,6 +127,8 @@
 - 备注：
   - 当前客户端没有把这一步当成独立业务接口暴露，而是视为 Cloudflare 内部续期流程
   - 当前客户端回放请求时未显式固定 `Content-Type` 为 `application/x-www-form-urlencoded`；拦截到的原始运行时请求体更接近 JSON 形态
+  - 当前 Fire iOS 一期没有直接在宿主里回放这条 `rc` 内部接口；iOS 改为在会话已连接、已有 `cf_clearance`、且首页 bootstrap 已暴露 Turnstile `sitekey` 时，启动一个离屏 `WKWebView` 定时加载首页，并把浏览器里更新后的 Cookie 再次同步回共享层
+  - 共享层仍会保留并发送 `cf_clearance`；挑战完成、平台 Cookie 读取、离屏 WebView 续期都仍属于宿主职责
 
 ## 站点信息、分类、标签、表情
 

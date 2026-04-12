@@ -2,6 +2,11 @@ import SwiftUI
 
 @MainActor
 final class FirePrivateMessagesViewModel: ObservableObject {
+    typealias FetchPrivateMessages = @MainActor (
+        TopicListKindState,
+        UInt32?
+    ) async throws -> TopicListState
+
     @Published var selectedKind: TopicListKindState = .privateMessagesInbox
     @Published private(set) var rows: [TopicRowState] = []
     @Published private(set) var users: [TopicUserState] = []
@@ -9,12 +14,19 @@ final class FirePrivateMessagesViewModel: ObservableObject {
     @Published private(set) var isLoadingMore = false
     @Published var errorMessage: String?
 
-    private let appViewModel: FireAppViewModel
+    private let fetchPrivateMessages: FetchPrivateMessages
     private var nextPage: UInt32?
     private var hasMore = true
+    private var loadGeneration: UInt64 = 0
 
     init(appViewModel: FireAppViewModel) {
-        self.appViewModel = appViewModel
+        self.fetchPrivateMessages = { kind, page in
+            try await appViewModel.fetchPrivateMessages(kind: kind, page: page)
+        }
+    }
+
+    init(fetchPrivateMessages: @escaping FetchPrivateMessages) {
+        self.fetchPrivateMessages = fetchPrivateMessages
     }
 
     func loadIfNeeded() async {
@@ -39,21 +51,35 @@ final class FirePrivateMessagesViewModel: ObservableObject {
     }
 
     private func load(reset: Bool) async {
+        let requestKind = selectedKind
+        let requestPage = reset ? nil : nextPage
+        loadGeneration &+= 1
+        let generation = loadGeneration
+
         if reset {
             isLoading = true
+            isLoadingMore = false
+            rows = []
+            users = []
+            nextPage = nil
+            hasMore = true
         } else {
             isLoadingMore = true
         }
+        errorMessage = nil
+
         defer {
-            isLoading = false
-            isLoadingMore = false
+            if generation == loadGeneration {
+                isLoading = false
+                isLoadingMore = false
+            }
         }
 
         do {
-            let response = try await appViewModel.fetchPrivateMessages(
-                kind: selectedKind,
-                page: reset ? nil : nextPage
-            )
+            let response = try await fetchPrivateMessages(requestKind, requestPage)
+            guard generation == loadGeneration, requestKind == selectedKind else {
+                return
+            }
             if reset {
                 rows = response.rows
                 users = response.users
@@ -67,9 +93,16 @@ final class FirePrivateMessagesViewModel: ObservableObject {
             hasMore = response.nextPage != nil || response.moreTopicsUrl != nil
             errorMessage = nil
         } catch {
-            if rows.isEmpty {
-                errorMessage = error.localizedDescription
+            guard generation == loadGeneration, requestKind == selectedKind else {
+                return
             }
+            if reset {
+                rows = []
+                users = []
+                nextPage = nil
+                hasMore = false
+            }
+            errorMessage = error.localizedDescription
         }
     }
 }

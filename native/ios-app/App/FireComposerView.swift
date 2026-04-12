@@ -3,6 +3,36 @@ import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
 
+func shouldRestorePrivateMessageDraft(
+    explicitRecipients: [String],
+    draftRecipients: [String]
+) -> Bool {
+    let normalizedExplicitRecipients = normalizedPrivateMessageRecipients(explicitRecipients)
+    guard !normalizedExplicitRecipients.isEmpty else {
+        return true
+    }
+    return normalizedPrivateMessageRecipients(draftRecipients) == normalizedExplicitRecipients
+}
+
+func normalizedPrivateMessageRecipients(_ recipients: [String]) -> [String] {
+    var normalized: [String] = []
+
+    for recipient in recipients {
+        let trimmed = recipient.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            continue
+        }
+
+        let stableRecipient = trimmed.lowercased()
+        if normalized.contains(stableRecipient) {
+            continue
+        }
+        normalized.append(stableRecipient)
+    }
+
+    return normalized.sorted()
+}
+
 struct FireComposerRoute: Identifiable, Equatable {
     enum Kind: Equatable {
         case createTopic
@@ -1033,22 +1063,29 @@ struct FireComposerView: View {
 
         do {
             if let draft = try await viewModel.fetchDraft(draftKey: route.draftKey) {
-                draftSequence = draft.sequence
                 if case .createTopic = route.kind {
+                    draftSequence = draft.sequence
                     title = draft.data.title ?? title
                     bodyText = draft.data.reply ?? bodyText
                     selectedCategoryID = draft.data.categoryId ?? selectedCategoryID
                     selectedTags = draft.data.tags
                 } else if case .privateMessage = route.kind {
-                    title = draft.data.title ?? title
-                    bodyText = draft.data.reply ?? bodyText
-                    if !draft.data.recipients.isEmpty {
-                        selectedRecipients = draft.data.recipients
+                    if shouldRestorePrivateMessageDraft(
+                        explicitRecipients: route.recipients,
+                        draftRecipients: draft.data.recipients
+                    ) {
+                        draftSequence = draft.sequence
+                        title = draft.data.title ?? title
+                        bodyText = draft.data.reply ?? bodyText
+                        if !draft.data.recipients.isEmpty {
+                            selectedRecipients = draft.data.recipients
+                        }
                     }
                 } else {
+                    draftSequence = draft.sequence
                     bodyText = draft.data.reply ?? bodyText
                 }
-                if draft.data.reply != nil || draft.data.title != nil {
+                if draftSequence > 0, draft.data.reply != nil || draft.data.title != nil {
                     noticeMessage = "已恢复草稿"
                 }
             }

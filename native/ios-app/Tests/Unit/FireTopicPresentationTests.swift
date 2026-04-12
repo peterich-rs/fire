@@ -353,6 +353,96 @@ final class FireTopicPresentationTests: XCTestCase {
         XCTAssertEqual(viewModel.retainedTopicDetailIDs(visibleTopicIDs: visibleTopicIDs), visibleTopicIDs)
     }
 
+    func testPrivateMessageDraftRestoreRequiresMatchingExplicitRecipients() {
+        XCTAssertTrue(
+            shouldRestorePrivateMessageDraft(
+                explicitRecipients: [],
+                draftRecipients: ["alice"]
+            )
+        )
+        XCTAssertTrue(
+            shouldRestorePrivateMessageDraft(
+                explicitRecipients: ["Bob", "alice"],
+                draftRecipients: ["alice", "bob", "bob"]
+            )
+        )
+        XCTAssertFalse(
+            shouldRestorePrivateMessageDraft(
+                explicitRecipients: ["bob"],
+                draftRecipients: ["alice"]
+            )
+        )
+        XCTAssertFalse(
+            shouldRestorePrivateMessageDraft(
+                explicitRecipients: ["bob"],
+                draftRecipients: []
+            )
+        )
+    }
+
+    @MainActor
+    func testPrivateMessagesViewModelIgnoresStaleMailboxResponses() async throws {
+        let loader = PrivateMessageMailboxLoader(
+            steps: [
+                .deferred,
+                .success(makePrivateMessageMailboxResponse(topicID: 202, username: "bob"))
+            ]
+        )
+        let viewModel = FirePrivateMessagesViewModel { kind, page in
+            try await loader.fetch(kind: kind, page: page)
+        }
+
+        let inboxTask = Task {
+            await viewModel.refresh()
+        }
+        while await loader.callCount() < 1 {
+            await Task.yield()
+        }
+
+        let sentTask = Task {
+            await viewModel.selectKind(.privateMessagesSent)
+        }
+        while await loader.callCount() < 2 {
+            await Task.yield()
+        }
+
+        await sentTask.value
+        XCTAssertEqual(viewModel.selectedKind, .privateMessagesSent)
+        XCTAssertEqual(viewModel.rows.map(\.topic.id), [202])
+
+        await loader.resumeDeferredResponse(
+            makePrivateMessageMailboxResponse(topicID: 101, username: "alice")
+        )
+        await inboxTask.value
+
+        XCTAssertEqual(viewModel.selectedKind, .privateMessagesSent)
+        XCTAssertEqual(viewModel.rows.map(\.topic.id), [202])
+        XCTAssertNil(viewModel.errorMessage)
+    }
+
+    @MainActor
+    func testPrivateMessagesViewModelClearsRowsWhenMailboxReloadFails() async {
+        let loader = PrivateMessageMailboxLoader(
+            steps: [
+                .success(makePrivateMessageMailboxResponse(topicID: 101, username: "alice")),
+                .failure("offline")
+            ]
+        )
+        let viewModel = FirePrivateMessagesViewModel { kind, page in
+            try await loader.fetch(kind: kind, page: page)
+        }
+
+        await viewModel.refresh()
+        XCTAssertEqual(viewModel.rows.map(\.topic.id), [101])
+
+        await viewModel.selectKind(.privateMessagesSent)
+
+        XCTAssertEqual(viewModel.selectedKind, .privateMessagesSent)
+        XCTAssertTrue(viewModel.rows.isEmpty)
+        XCTAssertTrue(viewModel.users.isEmpty)
+        XCTAssertEqual(viewModel.errorMessage, "offline")
+    }
+
     private func makeBootstrap(
         currentUsername: String?,
         preloadedJson: String?,
@@ -461,5 +551,124 @@ final class FireTopicPresentationTests: XCTestCase {
                 participants: []
             )
         )
+    }
+
+    private func makePrivateMessageMailboxResponse(
+        topicID: UInt64,
+        username: String
+    ) -> TopicListState {
+        let user = TopicUserState(id: topicID, username: username, avatarTemplate: nil)
+        let participant = TopicParticipantState(
+            userId: topicID,
+            username: username,
+            name: username.capitalized,
+            avatarTemplate: nil
+        )
+        let topic = TopicSummaryState(
+            id: topicID,
+            title: "PM \(topicID)",
+            slug: "pm-\(topicID)",
+            postsCount: 2,
+            replyCount: 1,
+            views: 10,
+            likeCount: 0,
+            excerpt: "hello",
+            createdAt: "2026-03-28T10:00:00Z",
+            lastPostedAt: "2026-03-28T10:05:00Z",
+            lastPosterUsername: username,
+            categoryId: nil,
+            pinned: false,
+            visible: true,
+            closed: false,
+            archived: false,
+            tags: [],
+            posters: [],
+            participants: [participant],
+            unseen: false,
+            unreadPosts: 0,
+            newPosts: 0,
+            lastReadPostNumber: nil,
+            highestPostNumber: 2,
+            bookmarkedPostNumber: nil,
+            bookmarkId: nil,
+            bookmarkName: nil,
+            bookmarkReminderAt: nil,
+            bookmarkableType: nil,
+            hasAcceptedAnswer: false,
+            canHaveAnswer: false
+        )
+        let row = TopicRowState(
+            topic: topic,
+            excerptText: "hello",
+            originalPosterUsername: username,
+            originalPosterAvatarTemplate: nil,
+            tagNames: [],
+            statusLabels: [],
+            isPinned: false,
+            isClosed: false,
+            isArchived: false,
+            hasAcceptedAnswer: false,
+            hasUnreadPosts: false,
+            createdTimestampUnixMs: 1_711_624_600_000,
+            activityTimestampUnixMs: 1_711_624_900_000,
+            lastPosterUsername: username
+        )
+
+        return TopicListState(
+            topics: [topic],
+            users: [user],
+            rows: [row],
+            moreTopicsUrl: nil,
+            nextPage: nil
+        )
+    }
+}
+
+private actor PrivateMessageMailboxLoader {
+    enum Step {
+        case deferred
+        case success(TopicListState)
+        case failure(String)
+    }
+
+    private let steps: [Step]
+    private var callCountValue = 0
+    private var deferredResponses: [CheckedContinuation<TopicListState, Error>] = []
+
+    init(steps: [Step]) {
+        self.steps = steps
+    }
+
+    func fetch(
+        kind: TopicListKindState,
+        page: UInt32?
+    ) async throws -> TopicListState {
+        let stepIndex = callCountValue
+        callCountValue += 1
+
+        switch steps[stepIndex] {
+        case .deferred:
+            return try await withCheckedThrowingContinuation { continuation in
+                deferredResponses.append(continuation)
+            }
+        case .success(let response):
+            return response
+        case .failure(let message):
+            throw NSError(
+                domain: "FireTests.PrivateMessageMailboxLoader",
+                code: stepIndex,
+                userInfo: [NSLocalizedDescriptionKey: message]
+            )
+        }
+    }
+
+    func callCount() -> Int {
+        callCountValue
+    }
+
+    func resumeDeferredResponse(_ response: TopicListState) {
+        guard !deferredResponses.isEmpty else { return }
+        let continuation = deferredResponses.removeFirst()
+        continuation.resume(returning: response)
     }
 }

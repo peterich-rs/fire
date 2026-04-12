@@ -479,6 +479,8 @@ class MainActivity : AppCompatActivity() {
                 minPostLength = 1u,
                 minTopicTitleLength = 15u,
                 minFirstPostLength = 20u,
+                minPersonalMessageTitleLength = 2u,
+                minPersonalMessagePostLength = 10u,
                 defaultComposerCategory = null,
             ),
             readiness = SessionReadinessState(
@@ -508,6 +510,12 @@ class MainActivity : AppCompatActivity() {
             TopicListKindState.UNSEEN -> getString(R.string.feed_unseen)
             TopicListKindState.HOT -> getString(R.string.feed_hot)
             TopicListKindState.TOP -> getString(R.string.feed_top)
+            TopicListKindState.PRIVATE_MESSAGES_INBOX -> {
+                getString(R.string.feed_private_messages_inbox)
+            }
+            TopicListKindState.PRIVATE_MESSAGES_SENT -> {
+                getString(R.string.feed_private_messages_sent)
+            }
         }
     }
 

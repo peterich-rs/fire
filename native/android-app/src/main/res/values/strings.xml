@@ -44,6 +44,8 @@
     <string name="feed_unseen">Unseen</string>
     <string name="feed_hot">Hot</string>
     <string name="feed_top">Top</string>
+    <string name="feed_private_messages_inbox">Messages</string>
+    <string name="feed_private_messages_sent">Sent Messages</string>
     <string name="topic_detail_error">Unable to load topic detail.</string>
     <string name="topic_detail_empty_posts">No posts available for this topic.</string>
     <string name="topic_detail_title_fallback">Topic #%1$s</string>

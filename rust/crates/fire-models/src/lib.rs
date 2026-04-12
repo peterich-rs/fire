@@ -256,8 +256,7 @@ impl BootstrapArtifacts {
                 self.min_first_post_length = default_min_first_post_length();
                 self.min_personal_message_title_length =
                     default_min_personal_message_title_length();
-                self.min_personal_message_post_length =
-                    default_min_personal_message_post_length();
+                self.min_personal_message_post_length = default_min_personal_message_post_length();
                 self.default_composer_category = None;
             } else {
                 self.preloaded_json = Some(preloaded_json);

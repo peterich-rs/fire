@@ -161,8 +161,10 @@ struct FirePublicProfileView: View {
                         .frame(maxWidth: .infinity, alignment: .center)
                         .padding(.vertical, 24)
                 } else {
-                    ForEach(Array(recentActions.enumerated()), id: \.offset) { _, action in
-                        activityRow(action)
+                    ForEach(
+                        fireIdentifiedValues(recentActions) { $0.fireStableBaseID }
+                    ) { item in
+                        activityRow(item.value)
                     }
 
                     NavigationLink {
@@ -280,12 +282,14 @@ struct FirePublicProfileView: View {
                             ],
                             spacing: 14
                         ) {
-                            ForEach(Array(profileMetaEntries.enumerated()), id: \.offset) { _, item in
+                            ForEach(
+                                fireIdentifiedValues(profileMetaEntries) { $0.label }
+                            ) { item in
                                 FireProfileMetaEntryView(
-                                    symbol: item.symbol,
-                                    label: item.label,
-                                    value: item.value,
-                                    tint: item.tint
+                                    symbol: item.value.symbol,
+                                    label: item.value.label,
+                                    value: item.value.value,
+                                    tint: item.value.tint
                                 )
                             }
                         }

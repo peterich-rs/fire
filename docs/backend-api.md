@@ -33,7 +33,8 @@
 | [05. 用户、搜索与通知](backend-api/05-users-search-and-notifications.md) | 用户资料、徽章、关注、邀请、搜索、通知 |
 | [06. 上传、草稿与互动能力](backend-api/06-creation-and-interaction.md) | 上传、投票、Presence、阅读时长、草稿、模板、私信 |
 | [07. MessageBus 长轮询](backend-api/07-messagebus.md) | 轮询入口、鉴权方式、订阅频道、事件类型 |
-| [08. 扩展服务与外部接口](backend-api/08-extensions-and-external-services.md) | LDC/CDK OAuth、打赏、GitHub Releases、SHA256、贴纸市场 |
+| [08. 移动端集成约定](backend-api/08-mobile-integration.md) | 自定义 URL scheme、通知 payload、APNs 注册壳层、后台轮询回退 |
+| [09. 扩展服务与外部接口](backend-api/09-extensions-and-external-services.md) | LDC/CDK OAuth、打赏、GitHub Releases、SHA256、贴纸市场 |
 
 ## 推荐阅读顺序
 
@@ -42,7 +43,8 @@
 3. 业务核心接口集中在 [04. 话题与帖子](backend-api/04-topics-and-posts.md) 和 [05. 用户、搜索与通知](backend-api/05-users-search-and-notifications.md)。
 4. 如果需要上传、草稿、投票或私信能力，再看 [06. 上传、草稿与互动能力](backend-api/06-creation-and-interaction.md)。
 5. 如果需要实时能力，再接 [07. MessageBus 长轮询](backend-api/07-messagebus.md)。
-6. Linux.do 扩展能力和辅助外部接口放在 [08. 扩展服务与外部接口](backend-api/08-extensions-and-external-services.md)。
+6. 如果要接原生壳层集成、通知跳转、APNs 注册壳层或后台通知回退，读 [08. 移动端集成约定](backend-api/08-mobile-integration.md)。
+7. Linux.do 扩展能力和辅助外部接口放在 [09. 扩展服务与外部接口](backend-api/09-extensions-and-external-services.md)。
 
 ## 最小调用链路
 

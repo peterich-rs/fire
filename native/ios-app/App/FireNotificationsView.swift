@@ -32,13 +32,6 @@ enum DiscourseNotificationType: Int {
     case circlesActivity = 900
 }
 
-enum NotificationTapDestination {
-    case topic(topicId: UInt64, postNumber: UInt32?, slug: String, title: String)
-    case profile(username: String)
-    case badge(id: UInt64, badgeSlug: String?)
-    case noAction
-}
-
 extension NotificationItemState {
     var discourseType: DiscourseNotificationType? {
         DiscourseNotificationType(rawValue: Int(notificationType))
@@ -102,24 +95,26 @@ extension NotificationItemState {
         }
     }
 
-    var tapDestination: NotificationTapDestination {
+    var appRoute: FireAppRoute? {
         switch discourseType {
         case .inviteeAccepted, .following:
-            guard let username = resolvedUsername else { return .noAction }
+            guard let username = resolvedUsername else { return nil }
             return .profile(username: username)
         case .grantedBadge:
-            guard let badgeID = data.badgeId else { return .noAction }
-            return .badge(id: badgeID, badgeSlug: data.badgeSlug)
+            guard let badgeID = data.badgeId else { return nil }
+            return .badge(id: badgeID, slug: data.badgeSlug)
         case .membershipRequestAccepted:
-            return .noAction
+            return nil
         default:
-            guard let tid = topicId else { return .noAction }
-            let t = fancyTitle ?? data.topicTitle ?? ""
+            guard let tid = topicId else { return nil }
             return .topic(
                 topicId: tid,
                 postNumber: postNumber,
-                slug: slug ?? "",
-                title: t
+                preview: FireTopicRoutePreview.fromMetadata(
+                    title: fancyTitle ?? data.topicTitle,
+                    slug: slug,
+                    excerptText: data.excerpt
+                )
             )
         }
     }
@@ -189,73 +184,13 @@ extension NotificationItemState {
             return FireTheme.tertiaryInk
         }
     }
-
-}
-
-extension TopicRowState {
-    static func stub(
-        topicId: UInt64,
-        title: String,
-        slug: String,
-        categoryId: UInt64?
-    ) -> TopicRowState {
-        TopicRowState(
-            topic: TopicSummaryState(
-                id: topicId,
-                title: title,
-                slug: slug,
-                postsCount: 0,
-                replyCount: 0,
-                views: 0,
-                likeCount: 0,
-                excerpt: nil,
-                createdAt: nil,
-                lastPostedAt: nil,
-                lastPosterUsername: nil,
-                categoryId: categoryId,
-                pinned: false,
-                visible: true,
-                closed: false,
-                archived: false,
-                tags: [],
-                posters: [],
-                unseen: false,
-                unreadPosts: 0,
-                newPosts: 0,
-                lastReadPostNumber: nil,
-                highestPostNumber: 0,
-                bookmarkedPostNumber: nil,
-                bookmarkId: nil,
-                bookmarkName: nil,
-                bookmarkReminderAt: nil,
-                bookmarkableType: nil,
-                hasAcceptedAnswer: false,
-                canHaveAnswer: false
-            ),
-            excerptText: nil,
-            originalPosterUsername: nil,
-            originalPosterAvatarTemplate: nil,
-            tagNames: [],
-            statusLabels: [],
-            isPinned: false,
-            isClosed: false,
-            isArchived: false,
-            hasAcceptedAnswer: false,
-            hasUnreadPosts: false,
-            createdTimestampUnixMs: nil,
-            activityTimestampUnixMs: nil,
-            lastPosterUsername: nil
-        )
-    }
 }
 
 // MARK: - View
 
 struct FireNotificationsView: View {
     @ObservedObject var viewModel: FireAppViewModel
-    @State private var topicNavigation: FireNotificationTopicNavigation?
-    @State private var profileNavigation: FireNotificationProfileNavigation?
-    @State private var badgeNavigation: FireNotificationBadgeNavigation?
+    @State private var selectedRoute: FireAppRoute?
 
     private var baseURLString: String {
         let trimmed = viewModel.session.bootstrap.baseUrl.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -288,28 +223,12 @@ struct FireNotificationsView: View {
             .refreshable {
                 await viewModel.loadRecentNotifications(force: true)
             }
-            .navigationDestination(item: $topicNavigation) { nav in
-                FireTopicDetailView(
-                    viewModel: viewModel,
-                    row: nav.row,
-                    scrollToPostNumber: nav.postNumber
-                )
-            }
-            .navigationDestination(item: $profileNavigation) { nav in
-                FirePublicProfileView(viewModel: viewModel, username: nav.username)
-            }
-            .navigationDestination(item: $badgeNavigation) { nav in
-                FireBadgeDetailView(viewModel: viewModel, badgeID: nav.badgeID)
+            .navigationDestination(item: $selectedRoute) { route in
+                FireAppRouteDestinationView(viewModel: viewModel, route: route)
             }
         }
         .task {
             await viewModel.loadRecentNotifications(force: false)
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .fireNotificationDeepLink)) { notification in
-            guard let topicId = notification.userInfo?["topicId"] as? UInt64 else { return }
-            let postNumber = notification.userInfo?["postNumber"] as? UInt32
-            let row = TopicRowState.stub(topicId: topicId, title: "", slug: "", categoryId: nil)
-            topicNavigation = FireNotificationTopicNavigation(row: row, postNumber: postNumber)
         }
     }
 
@@ -361,28 +280,7 @@ struct FireNotificationsView: View {
             viewModel.markNotificationRead(id: item.id)
         }
 
-        switch item.tapDestination {
-        case .topic(let topicId, let postNumber, let slug, let title):
-            let row = TopicRowState.stub(
-                topicId: topicId,
-                title: title,
-                slug: slug,
-                categoryId: nil
-            )
-            topicNavigation = FireNotificationTopicNavigation(
-                row: row,
-                postNumber: postNumber
-            )
-        case .profile(let username):
-            profileNavigation = FireNotificationProfileNavigation(username: username)
-        case .badge(let badgeID, let badgeSlug):
-            badgeNavigation = FireNotificationBadgeNavigation(
-                badgeID: badgeID,
-                badgeSlug: badgeSlug
-            )
-        case .noAction:
-            break
-        }
+        selectedRoute = item.appRoute
     }
 
     private func notificationRowContent(_ item: NotificationItemState) -> some View {
@@ -452,35 +350,6 @@ struct FireNotificationsView: View {
         .padding(.horizontal, 32)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
-}
-
-// MARK: - Supporting types
-
-private struct FireNotificationTopicNavigation: Identifiable, Hashable {
-    let row: TopicRowState
-    let postNumber: UInt32?
-
-    var id: UInt64 { row.topic.id }
-
-    func hash(into hasher: inout Hasher) {
-        hasher.combine(row.topic.id)
-        hasher.combine(postNumber)
-    }
-
-    static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.row.topic.id == rhs.row.topic.id && lhs.postNumber == rhs.postNumber
-    }
-}
-
-private struct FireNotificationProfileNavigation: Identifiable, Hashable {
-    let username: String
-    var id: String { username.lowercased() }
-}
-
-private struct FireNotificationBadgeNavigation: Identifiable, Hashable {
-    let badgeID: UInt64
-    let badgeSlug: String?
-    var id: UInt64 { badgeID }
 }
 
 // MARK: - Shared notification row

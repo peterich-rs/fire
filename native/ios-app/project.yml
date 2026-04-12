@@ -11,6 +11,7 @@ fileGroups:
   - Configs/Fire-Local-Release.example.xcconfig
   - Configs/Fire-Release.xcconfig
   - Configs/Fire-Shared.xcconfig
+  - Fire.entitlements
 schemes:
   Fire:
     build:
@@ -55,6 +56,7 @@ targets:
         FIRE_GIT_SHA: $(FIRE_GIT_SHA)
         PRODUCT_BUNDLE_IDENTIFIER: $(FIRE_PRODUCT_BUNDLE_IDENTIFIER)
         PROVISIONING_PROFILE_SPECIFIER: $(FIRE_PROVISIONING_PROFILE_SPECIFIER)
+        CODE_SIGN_ENTITLEMENTS: Fire.entitlements
         PRODUCT_NAME: Fire
         TARGETED_DEVICE_FAMILY: "1,2"
         GENERATE_INFOPLIST_FILE: YES
@@ -62,8 +64,10 @@ targets:
         INFOPLIST_KEY_FireGitSha: $(FIRE_GIT_SHA)
         INFOPLIST_KEY_BGTaskSchedulerPermittedIdentifiers:
           - com.fire.app.ios.notification-alert-refresh
+        INFOPLIST_KEY_CFBundleURLTypes: '[["CFBundleURLSchemes": ["fire"], "CFBundleURLName": "fire"]]'
         INFOPLIST_KEY_UIBackgroundModes:
           - fetch
+          - remote-notification
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
         LIBRARY_SEARCH_PATHS:

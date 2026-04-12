@@ -9,6 +9,15 @@ struct FireApp: App {
         WindowGroup {
             FireTabRoot()
                 .environmentObject(navigationState)
+                .onOpenURL { url in
+                    navigationState.handleIncomingURL(url)
+                }
+                .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { userActivity in
+                    guard let url = userActivity.webpageURL else {
+                        return
+                    }
+                    navigationState.handleIncomingURL(url)
+                }
         }
     }
 }

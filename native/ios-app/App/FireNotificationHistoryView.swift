@@ -2,9 +2,7 @@ import SwiftUI
 
 struct FireNotificationHistoryView: View {
     @ObservedObject var viewModel: FireAppViewModel
-    @State private var topicNavigation: FireHistoryTopicNavigation?
-    @State private var profileNavigation: FireHistoryProfileNavigation?
-    @State private var badgeNavigation: FireHistoryBadgeNavigation?
+    @State private var selectedRoute: FireAppRoute?
 
     private var baseURLString: String {
         let trimmed = viewModel.session.bootstrap.baseUrl.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -39,18 +37,8 @@ struct FireNotificationHistoryView: View {
         .refreshable {
             await viewModel.loadNotificationFullPage(offset: nil)
         }
-        .navigationDestination(item: $topicNavigation) { nav in
-            FireTopicDetailView(
-                viewModel: viewModel,
-                row: nav.row,
-                scrollToPostNumber: nav.postNumber
-            )
-        }
-        .navigationDestination(item: $profileNavigation) { nav in
-            FirePublicProfileView(viewModel: viewModel, username: nav.username)
-        }
-        .navigationDestination(item: $badgeNavigation) { nav in
-            FireBadgeDetailView(viewModel: viewModel, badgeID: nav.badgeID)
+        .navigationDestination(item: $selectedRoute) { route in
+            FireAppRouteDestinationView(viewModel: viewModel, route: route)
         }
         .task {
             await viewModel.loadNotificationFullPage(offset: nil)
@@ -119,54 +107,6 @@ struct FireNotificationHistoryView: View {
             viewModel.markNotificationRead(id: item.id)
         }
 
-        switch item.tapDestination {
-        case .topic(let topicId, let postNumber, let slug, let title):
-            let row = TopicRowState.stub(
-                topicId: topicId,
-                title: title,
-                slug: slug,
-                categoryId: nil
-            )
-            topicNavigation = FireHistoryTopicNavigation(
-                row: row,
-                postNumber: postNumber
-            )
-        case .profile(let username):
-            profileNavigation = FireHistoryProfileNavigation(username: username)
-        case .badge(let badgeID, let badgeSlug):
-            badgeNavigation = FireHistoryBadgeNavigation(
-                badgeID: badgeID,
-                badgeSlug: badgeSlug
-            )
-        case .noAction:
-            break
-        }
+        selectedRoute = item.appRoute
     }
-}
-
-private struct FireHistoryTopicNavigation: Identifiable, Hashable {
-    let row: TopicRowState
-    let postNumber: UInt32?
-
-    var id: UInt64 { row.topic.id }
-
-    func hash(into hasher: inout Hasher) {
-        hasher.combine(row.topic.id)
-        hasher.combine(postNumber)
-    }
-
-    static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.row.topic.id == rhs.row.topic.id && lhs.postNumber == rhs.postNumber
-    }
-}
-
-private struct FireHistoryProfileNavigation: Identifiable, Hashable {
-    let username: String
-    var id: String { username.lowercased() }
-}
-
-private struct FireHistoryBadgeNavigation: Identifiable, Hashable {
-    let badgeID: UInt64
-    let badgeSlug: String?
-    var id: UInt64 { badgeID }
 }

@@ -48,6 +48,10 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
   - now wraps the embedded `WKWebView` in a full-screen native browser shell with adaptive light/dark chrome, a compact top bar, and a bottom command dock
   - exposes back, forward, home, reload, and session sync controls so OAuth hops can return to LinuxDo without closing the flow
   - enables back/forward swipe gestures on the embedded `WKWebView`
+- `App/FireApp.swift`
+  - owns app-level URL opening and routes both `fire://...` custom schemes and LinuxDo universal links into the shared typed in-app route model before SwiftUI screens load
+- `App/Routing/`
+  - defines the typed `FireAppRoute` model, route parser, and shared destination view used by external URL opens, notification taps, and in-app search / notification navigation
 - `App/FireAppViewModel.swift`
   - performs a lightweight network preflight before presenting the login browser
   - moves the first system-level network prompt, when one appears on-device, out of the login page itself
@@ -61,7 +65,7 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
   - now treats Rust-owned `CloudflareChallenge` errors as the signal to clear the local authenticated snapshot, return the shell to onboarding, and auto-present the login WebView so challenge recovery stays inside the browser flow
   - now also emits host-owned APM spans for cold-start restore, login sync, bootstrap refresh, latest-feed load, topic-detail load, reply submit, notification refresh, and MessageBus start
 - `App/FireSearchView.swift`
-  - provides a native search workspace with keyword input, topic/post/user scope switching, paginated result loading, and topic-detail navigation reuse
+  - provides a native search workspace with keyword input, topic/post/user scope switching, paginated result loading, and typed route-based topic/profile navigation
 - `App/FireTopicDetailView.swift`
   - subscribes the current topic's detail, reaction, and reply-presence channels through the shared Rust MessageBus surface
   - reports visible-post reading timings through a native viewport tracker that flushes into the shared Rust `/topics/timings` API
@@ -69,22 +73,27 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
 - `App/FireBackgroundNotificationAlert.swift`
   - schedules iOS `BGAppRefreshTask` runs for `/notification-alert/{userId}` polling
   - restores the Rust session plus Keychain cookies in the background, performs a one-shot shared MessageBus alert poll, and turns the result into host-owned local notifications
+- `App/Push/FirePushRegistrationCoordinator.swift`
+  - requests notification authorization when the authenticated shell becomes active
+  - re-registers with APNs whenever authorization is available, stores the latest device token locally, and keeps host-owned registration diagnostics available without uploading the token
 - `App/FireAppDelegate.swift`
-  - registers the background refresh task at launch, starts the host-owned APM runtime, and keeps `UNUserNotificationCenter` delegate ownership on the host side
+  - registers the background refresh task at launch, starts the host-owned APM runtime, keeps `UNUserNotificationCenter` delegate ownership on the host side, routes notification taps through the typed route model, and records APNs registration callbacks
 - `App/FireDiagnosticsView.swift`
   - renders a native diagnostics screen on top of the shared Rust diagnostics APIs
   - lists workspace log files plus reverse-chronological network request traces
   - opens tail-first log pages, preview-first network body viewers, and per-request execution chains without pushing full diagnostic text across the UniFFI boundary by default
+  - exposes host-owned notification permission / APNs registration state and the locally cached device token for production-readiness checks
   - exports both the Rust-owned diagnostics bundle and a host-owned full APM `.firesupportbundle` package containing local crash / MetricKit / route / span artifacts for share-sheet based escalation during beta
 - `App/FireTabRoot.swift`
-  - forwards scene-phase transitions into shared diagnostics lifecycle logging and flushes logs before `inactive` / `background` so exported diagnostics stay durable
-  - keeps the current top-level route synchronized into the host-owned APM runtime
+  - forwards scene-phase transitions into shared diagnostics lifecycle logging, re-syncs APNs registration state for authenticated sessions, flushes logs before `inactive` / `background` so exported diagnostics stay durable, and keeps the current top-level route synchronized into the host-owned APM runtime
 - `App/FireTopicPresentation.swift`
   - normalizes topic/post timestamps for native presentation
   - extracts inline cooked-image attachments plus enabled reaction options from bootstrap/topic HTML so the native detail view can render media and interaction affordances without a WebView
   - now focuses on host-only presentation helpers after topic-row shaping, shared text helpers, and thread flattening moved into Rust
 - `Tests/Unit/FireTopicPresentationTests.swift`
   - covers the remaining Swift-owned presentation helpers plus the generated Rust-backed text and row/thread models consumed by SwiftUI
+- `Tests/Unit/FireRouteParserTests.swift`
+  - covers supported custom URL forms, LinuxDo route parsing, and notification-payload route mapping
 - `App/FireRootView.swift`
   - now replaces the earlier stacked-card list shell with a structured SwiftUI reading workspace that separates session gate, feed console, spotlight topics, and dense thread scanning
   - renders the first topic read path with featured-topic paging, feed filters, category-aware list rows, scroll-driven feed pagination, and dedicated topic detail navigation
@@ -148,6 +157,7 @@ Current UX note:
 - The network preflight is a best-effort connectivity warm-up. iOS does not provide a generic "internet permission" API for arbitrary web access, so this only shifts the first prompt/request earlier; it does not create a separate permission flow.
 - The current topic browser now runs against the real shared Rust core through generated UniFFI Swift bindings.
 - The app now includes a native search screen for topic/post/user discovery on top of the shared Rust `/search.json` API.
+- The app now uses one typed route model for supported custom URL opens, local-notification taps, and search / notification jumps to topic, profile, and badge destinations.
 - The shared search layer now powers the native composer’s tag search and `@mention` autocomplete flows.
 - Network-backed UniFFI APIs now surface to Swift as native `async/await` methods instead of a synchronous wrapper.
 - The UniFFI boundary now returns exported host interactions as Swift `throws`; if Rust panics, the boundary logs the panic, throws an `Internal` UniFFI error instead of tripping generated `try!` call sites, and poisons the current `FireCoreHandle` so the host can recreate it.
@@ -163,6 +173,7 @@ Current UX note:
 - Topic posts now render normalized native text plus inline image attachments in the detail screen, while more complex cooked modules still fall back to the lightweight native presentation instead of a full HTML/WebView renderer.
 - The app now keeps the in-app notification list synchronized from Rust-owned notification runtime state when MessageBus notification events arrive, instead of only updating the unread badge count.
 - iOS now schedules background refresh work for `/notification-alert/{userId}` and presents host-owned local notifications from a dedicated one-shot Rust MessageBus poll path.
+- The authenticated shell now also requests APNs registration, caches the resulting device token locally, and exposes host-side registration diagnostics without attempting backend token upload yet.
 - The app now exposes a diagnostics screen for tail-first log inspection, preview-first request-trace body paging, and local support-bundle export.
 - The profile screen now consumes Rust-derived session display labels, so authenticated recovery states are described consistently across hosts instead of being inferred separately in Swift.
 

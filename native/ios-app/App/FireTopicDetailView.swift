@@ -107,8 +107,38 @@ struct FireTopicDetailView: View {
         viewModel.errorMessage
     }
 
-    private var category: FireTopicCategoryPresentation? {
-        viewModel.categoryPresentation(for: topic.categoryId)
+    private var displayedTopicTitle: String {
+        let trimmedDetailTitle = detail?.title.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !trimmedDetailTitle.isEmpty {
+            return trimmedDetailTitle
+        }
+
+        let trimmedRowTitle = topic.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmedRowTitle.isEmpty ? "话题 \(topic.id)" : trimmedRowTitle
+    }
+
+    private var displayedTopicSlug: String {
+        let trimmedDetailSlug = detail?.slug.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !trimmedDetailSlug.isEmpty {
+            return trimmedDetailSlug
+        }
+        return topic.slug.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var displayedCategoryId: UInt64? {
+        detail?.categoryId ?? topic.categoryId
+    }
+
+    private var displayedCategory: FireTopicCategoryPresentation? {
+        viewModel.categoryPresentation(for: displayedCategoryId)
+    }
+
+    private var displayedTagNames: [String] {
+        let detailTags = detail?.tags
+            .map(\.name)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty } ?? []
+        return detailTags.isEmpty ? row.tagNames : detailTags
     }
 
     private var threadPresentation: FireTopicThreadPresentation? {
@@ -177,7 +207,7 @@ struct FireTopicDetailView: View {
     }
 
     private var topicShareURL: URL? {
-        let trimmedSlug = topic.slug.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedSlug = displayedTopicSlug
         return URL(string: "\(baseURLString)/t/\(trimmedSlug.isEmpty ? "topic-\(topic.id)" : trimmedSlug)/\(topic.id)")
     }
 
@@ -190,7 +220,7 @@ struct FireTopicDetailView: View {
             bookmarkID: detail?.bookmarkId,
             bookmarkableID: topic.id,
             bookmarkableType: "Topic",
-            title: topic.title,
+            title: displayedTopicTitle,
             initialName: detail?.bookmarkName,
             initialReminderAt: detail?.bookmarkReminderAt,
             allowsDelete: detail?.bookmarkId != nil
@@ -410,8 +440,8 @@ struct FireTopicDetailView: View {
                     route: FireComposerRoute(
                         kind: .advancedReply(
                             topicID: topic.id,
-                            topicTitle: topic.title,
-                            categoryID: topic.categoryId,
+                            topicTitle: displayedTopicTitle,
+                            categoryID: displayedCategoryId,
                             replyToPostNumber: context.replyToPostNumber,
                             replyToUsername: context.replyToUsername
                         )
@@ -526,24 +556,24 @@ struct FireTopicDetailView: View {
 
     private var topicHeaderSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(topic.title)
+            Text(displayedTopicTitle)
                 .font(.title3.weight(.bold))
 
             FlowLayout(spacing: 6, fallbackWidth: max(UIScreen.main.bounds.width - 40, 200)) {
-                if let category {
-                    let accent = Color(fireHex: category.colorHex) ?? FireTheme.accent
+                if let displayedCategory {
+                    let accent = Color(fireHex: displayedCategory.colorHex) ?? FireTheme.accent
                     NavigationLink {
                         FireFilteredTopicListView(
                             viewModel: viewModel,
-                            title: category.displayName,
-                            categorySlug: category.slug,
-                            categoryId: category.id,
+                            title: displayedCategory.displayName,
+                            categorySlug: displayedCategory.slug,
+                            categoryId: displayedCategory.id,
                             parentCategorySlug: nil,
                             tag: nil
                         )
                     } label: {
                         FireTopicPill(
-                            label: category.displayName,
+                            label: displayedCategory.displayName,
                             backgroundColor: FireTheme.categoryChipBackground(accent: accent, isDark: colorScheme == .dark),
                             foregroundColor: accent
                         )
@@ -551,7 +581,7 @@ struct FireTopicDetailView: View {
                     .buttonStyle(.plain)
                 }
 
-                ForEach(row.tagNames, id: \.self) { tagName in
+                ForEach(displayedTagNames, id: \.self) { tagName in
                     NavigationLink {
                         FireFilteredTopicListView(
                             viewModel: viewModel,

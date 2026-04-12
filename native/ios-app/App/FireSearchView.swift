@@ -4,6 +4,7 @@ struct FireSearchView: View {
     @ObservedObject var viewModel: FireAppViewModel
     @FocusState private var isSearchFieldFocused: Bool
     @State private var hasAppeared = false
+    @State private var selectedRoute: FireAppRoute?
 
     private var trimmedQuery: String {
         viewModel.searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -24,6 +25,9 @@ struct FireSearchView: View {
         }
         .navigationTitle("搜索")
         .navigationBarTitleDisplayMode(.inline)
+        .navigationDestination(item: $selectedRoute) { route in
+            FireAppRouteDestinationView(viewModel: viewModel, route: route)
+        }
         .onAppear {
             guard !hasAppeared else { return }
             hasAppeared = true
@@ -145,14 +149,20 @@ struct FireSearchView: View {
             if !result.topics.isEmpty {
                 Section("话题") {
                     ForEach(result.topics, id: \.id) { topic in
-                        NavigationLink {
-                            FireTopicDetailView(viewModel: viewModel, row: topicRow(for: topic))
+                        let row = topicRow(for: topic)
+                        Button {
+                            selectedRoute = .topic(
+                                topicId: topic.id,
+                                postNumber: nil,
+                                preview: FireTopicRoutePreview(row: row)
+                            )
                         } label: {
                             FireTopicRow(
-                                row: topicRow(for: topic),
+                                row: row,
                                 category: viewModel.categoryPresentation(for: topic.categoryId)
                             )
                         }
+                        .buttonStyle(.plain)
                     }
                 }
             }
@@ -161,11 +171,16 @@ struct FireSearchView: View {
                 Section("帖子") {
                     ForEach(result.posts, id: \.id) { post in
                         if let row = postRow(for: post, topicIndex: topicIndex) {
-                            NavigationLink {
-                                FireTopicDetailView(viewModel: viewModel, row: row)
+                            Button {
+                                selectedRoute = .topic(
+                                    topicId: row.topic.id,
+                                    postNumber: post.postNumber,
+                                    preview: FireTopicRoutePreview(row: row)
+                                )
                             } label: {
                                 FireSearchPostRow(post: post, row: row)
                             }
+                            .buttonStyle(.plain)
                         } else {
                             FireSearchPostRow(post: post, row: nil)
                         }
@@ -176,7 +191,12 @@ struct FireSearchView: View {
             if !result.users.isEmpty {
                 Section("用户") {
                     ForEach(result.users, id: \.id) { user in
-                        FireSearchUserRow(user: user)
+                        Button {
+                            selectedRoute = .profile(username: user.username)
+                        } label: {
+                            FireSearchUserRow(user: user)
+                        }
+                        .buttonStyle(.plain)
                     }
                 }
             }

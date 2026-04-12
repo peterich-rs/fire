@@ -54,10 +54,12 @@ struct FireProfileActivityTimelineView: View {
                         .frame(maxWidth: .infinity, alignment: .center)
                         .padding(.vertical, 24)
                 } else {
-                    ForEach(Array(profileViewModel.actions.enumerated()), id: \.offset) { index, action in
-                        activityRow(action)
+                    ForEach(
+                        fireIdentifiedValues(profileViewModel.actions) { $0.fireStableBaseID }
+                    ) { item in
+                        activityRow(item.value)
                             .onAppear {
-                                if index >= max(profileViewModel.actions.count - 3, 0) {
+                                if item.index >= max(profileViewModel.actions.count - 3, 0) {
                                     profileViewModel.loadActions(reset: false)
                                 }
                             }

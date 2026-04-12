@@ -158,6 +158,12 @@ struct FireLoginScreen: View {
                     }
                 )
             }
+            .onAppear {
+                viewModel.setAPMRoute("auth.login")
+            }
+            .onDisappear {
+                viewModel.restoreTopLevelAPMRoute()
+            }
         }
     }
 }

@@ -27,6 +27,8 @@ pub enum FireCoreError {
         operation: &'static str,
         message: String,
     },
+    #[error("{operation} response was discarded because the session changed")]
+    StaleSessionResponse { operation: &'static str },
     #[error("{operation} requires Cloudflare challenge verification")]
     CloudflareChallenge { operation: &'static str },
     #[error("failed to parse {operation} response: {source}")]

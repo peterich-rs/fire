@@ -50,6 +50,7 @@ fire/
   - native UI, files, media, notifications, keychain/keystore
 - Rust-owned:
   - session state
+  - session epoch invalidation for stale network responses and cookies
   - bootstrap parsing results
   - API orchestration
   - MessageBus

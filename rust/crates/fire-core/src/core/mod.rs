@@ -169,6 +169,10 @@ impl FireCore {
         (state.snapshot.clone(), state.epoch)
     }
 
+    pub(crate) fn current_session_epoch(&self) -> u64 {
+        read_rwlock(&self.session, "session").epoch
+    }
+
     pub fn shared_client(&self) -> Client {
         self.network.client()
     }

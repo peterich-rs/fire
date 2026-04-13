@@ -93,10 +93,17 @@ pub(crate) enum FireCallProfile {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct FireRequestEpoch(pub(crate) u64);
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct FireResponseEpochContext {
+    pub(crate) request_epoch: u64,
+    pub(crate) operation: &'static str,
+}
+
 #[derive(Clone)]
 pub(crate) struct FireNetworkLayer {
     client: Client,
     diagnostics: Arc<FireDiagnosticsStore>,
+    session: Arc<RwLock<super::FireSessionRuntimeState>>,
 }
 
 #[derive(Clone)]
@@ -180,6 +187,7 @@ impl Interceptor for FireTraceSnapshotInterceptor {
 
 pub(crate) struct TracedRequest {
     pub(crate) trace_id: u64,
+    pub(crate) operation: &'static str,
     pub(crate) request: Request<RequestBody>,
 }
 
@@ -192,7 +200,10 @@ impl FireNetworkLayer {
     ) -> Result<Self, FireCoreError> {
         let builder = Client::builder()
             .cookie_jar(cookie_jar)
-            .application_interceptor(FireCommonHeaderInterceptor::new(base_url.clone(), session))
+            .application_interceptor(FireCommonHeaderInterceptor::new(
+                base_url.clone(),
+                Arc::clone(&session),
+            ))
             .network_interceptor(FireTraceSnapshotInterceptor::new(Arc::clone(&diagnostics)))
             .connect_timeout(NETWORK_CONNECT_TIMEOUT)
             .call_timeout(NETWORK_CALL_TIMEOUT)
@@ -211,6 +222,7 @@ impl FireNetworkLayer {
         Ok(Self {
             client,
             diagnostics,
+            session,
         })
     }
 
@@ -224,6 +236,7 @@ impl FireNetworkLayer {
         profile: FireCallProfile,
     ) -> Result<(u64, Response<ResponseBody>), FireCoreError> {
         let trace_id = traced.trace_id;
+        let operation = traced.operation;
         let request_epoch = traced
             .request
             .extensions()
@@ -257,7 +270,22 @@ impl FireNetworkLayer {
                 return Err(FireCoreError::Network { source });
             }
         };
+        let current_epoch = self.current_epoch();
+        if current_epoch != request_epoch.0 {
+            trace_guard.cancel(
+                "Session superseded",
+                format!(
+                    "Discarded `{operation}` response after session epoch advanced from {} to {}",
+                    request_epoch.0, current_epoch
+                ),
+            );
+            return Err(FireCoreError::StaleSessionResponse { operation });
+        }
         response.extensions_mut().insert(trace_guard);
+        response.extensions_mut().insert(FireResponseEpochContext {
+            request_epoch: request_epoch.0,
+            operation,
+        });
         debug!(
             trace_id,
             status = response.status().as_u16(),
@@ -265,6 +293,10 @@ impl FireNetworkLayer {
             "HTTP response received"
         );
         Ok((trace_id, response))
+    }
+
+    fn current_epoch(&self) -> u64 {
+        read_rwlock(&self.session, "session").epoch
     }
 }
 
@@ -274,6 +306,37 @@ pub(crate) fn take_trace_cancellation_guard(
     response
         .extensions_mut()
         .remove::<FireNetworkTraceCancellationGuard>()
+}
+
+fn response_epoch_context(response: &Response<ResponseBody>) -> Option<FireResponseEpochContext> {
+    response
+        .extensions()
+        .get::<FireResponseEpochContext>()
+        .copied()
+}
+
+fn stale_response_error(
+    core: &FireCore,
+    diagnostics: &Arc<FireDiagnosticsStore>,
+    trace_id: u64,
+    context: FireResponseEpochContext,
+) -> Option<FireCoreError> {
+    let current_epoch = core.current_session_epoch();
+    if current_epoch == context.request_epoch {
+        return None;
+    }
+
+    diagnostics.record_cancelled_if_in_progress(
+        trace_id,
+        "Session superseded",
+        Some(&format!(
+            "Discarded `{}` response after session epoch advanced from {} to {}",
+            context.operation, context.request_epoch, current_epoch
+        )),
+    );
+    Some(FireCoreError::StaleSessionResponse {
+        operation: context.operation,
+    })
 }
 
 fn apply_call_profile(call: Call, profile: FireCallProfile) -> Call {
@@ -309,7 +372,11 @@ impl FireCore {
         let trace_id = self
             .diagnostics
             .prepare_request_trace(operation, &mut request);
-        Ok(TracedRequest { trace_id, request })
+        Ok(TracedRequest {
+            trace_id,
+            operation,
+            request,
+        })
     }
 
     pub(crate) fn build_json_get_request(
@@ -345,7 +412,11 @@ impl FireCore {
         let trace_id = self
             .diagnostics
             .prepare_request_trace(operation, &mut request);
-        Ok(TracedRequest { trace_id, request })
+        Ok(TracedRequest {
+            trace_id,
+            operation,
+            request,
+        })
     }
 
     pub(crate) fn build_api_request(
@@ -432,7 +503,11 @@ impl FireCore {
         let trace_id = self
             .diagnostics
             .prepare_request_trace(operation, &mut request);
-        Ok(TracedRequest { trace_id, request })
+        Ok(TracedRequest {
+            trace_id,
+            operation,
+            request,
+        })
     }
 
     pub(crate) fn build_api_request_with_body(
@@ -470,7 +545,11 @@ impl FireCore {
         let trace_id = self
             .diagnostics
             .prepare_request_trace(operation, &mut request);
-        Ok(TracedRequest { trace_id, request })
+        Ok(TracedRequest {
+            trace_id,
+            operation,
+            request,
+        })
     }
 
     pub(crate) async fn execute_request(
@@ -488,6 +567,7 @@ impl FireCore {
         response: Response<ResponseBody>,
     ) -> Result<String, FireCoreError> {
         let mut response = response;
+        let response_epoch = response_epoch_context(&response);
         let _trace_guard = take_trace_cancellation_guard(&mut response).unwrap_or_else(|| {
             self.diagnostics.cancellation_guard(
                 trace_id,
@@ -503,6 +583,11 @@ impl FireCore {
                 return Err(FireCoreError::Network { source });
             }
         };
+        if let Some(error) = response_epoch
+            .and_then(|context| stale_response_error(self, &self.diagnostics, trace_id, context))
+        {
+            return Err(error);
+        }
         self.diagnostics
             .record_response_body_text(trace_id, &text, content_type.as_deref());
         Ok(text)
@@ -644,6 +729,7 @@ pub(crate) async fn expect_success(
     let response_status = response.status();
     let status = response_status.as_u16();
     let invalidation = response_login_invalidation_signal(response.headers());
+    let response_epoch = response_epoch_context(&response);
     let _trace_guard = take_trace_cancellation_guard(&mut response).unwrap_or_else(|| {
         core.diagnostics.cancellation_guard(
             trace_id,
@@ -656,6 +742,11 @@ pub(crate) async fn expect_success(
         .text()
         .await
         .unwrap_or_else(|error| format!("<failed to read error body: {error}>"));
+    if let Some(error) = response_epoch
+        .and_then(|context| stale_response_error(core, &core.diagnostics, trace_id, context))
+    {
+        return Err(error);
+    }
     warn!(
         operation,
         trace_id,

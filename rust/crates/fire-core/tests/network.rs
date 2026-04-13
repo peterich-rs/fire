@@ -535,10 +535,10 @@ async fn fetch_topic_list_surfaces_login_required_and_clears_local_state_for_not
 }
 
 #[tokio::test]
-async fn stale_response_auth_cookies_do_not_restore_logged_out_session() {
+async fn stale_response_is_discarded_after_local_logout() {
     let body = sample_latest_json();
     let response = format!(
-        "HTTP/1.1 200 TEST\r\nContent-Type: application/json\r\nContent-Length: {}\r\nSet-Cookie: _t=stale-token; path=/; SameSite=Lax\r\nSet-Cookie: _forum_session=stale-forum; path=/; SameSite=Lax\r\nConnection: close\r\n\r\n{body}",
+        "HTTP/1.1 200 TEST\r\nContent-Type: application/json\r\nContent-Length: {}\r\nSet-Cookie: _t=stale-token; path=/; SameSite=Lax\r\nSet-Cookie: _forum_session=stale-forum; path=/; SameSite=Lax\r\nSet-Cookie: __cf_bm=stale-browser-context; path=/; SameSite=Lax\r\nConnection: close\r\n\r\n{body}",
         body.len()
     );
     let server = TestServer::spawn_scripted(vec![TestServerStep::delayed(
@@ -591,21 +591,34 @@ async fn stale_response_auth_cookies_do_not_restore_logged_out_session() {
     let cleared = core.logout_local(true);
     assert!(!cleared.cookies.has_login_session());
 
-    let result = task.await.expect("task join").expect("topic list");
+    let error = task
+        .await
+        .expect("task join")
+        .expect_err("stale response should be discarded");
     let _ = server.shutdown().await;
 
-    assert_eq!(result.topics.len(), 1);
+    assert!(matches!(
+        error,
+        FireCoreError::StaleSessionResponse {
+            operation: "fetch topic list"
+        }
+    ));
     let snapshot = core.snapshot();
     assert_eq!(snapshot.cookies.t_token, None);
     assert_eq!(snapshot.cookies.forum_session, None);
     assert_eq!(snapshot.cookies.cf_clearance, None);
+    assert!(!snapshot
+        .cookies
+        .platform_cookies
+        .iter()
+        .any(|cookie| cookie.name == "__cf_bm"));
 }
 
 #[tokio::test]
-async fn stale_response_auth_cookies_do_not_override_rotated_session() {
+async fn stale_response_is_discarded_after_session_rotation() {
     let body = sample_latest_json();
     let response = format!(
-        "HTTP/1.1 200 TEST\r\nContent-Type: application/json\r\nContent-Length: {}\r\nSet-Cookie: _t=stale-token; path=/; SameSite=Lax\r\nSet-Cookie: _forum_session=stale-forum; path=/; SameSite=Lax\r\nConnection: close\r\n\r\n{body}",
+        "HTTP/1.1 200 TEST\r\nContent-Type: application/json\r\nContent-Length: {}\r\nSet-Cookie: _t=stale-token; path=/; SameSite=Lax\r\nSet-Cookie: _forum_session=stale-forum; path=/; SameSite=Lax\r\nSet-Cookie: __cf_bm=stale-browser-context; path=/; SameSite=Lax\r\nConnection: close\r\n\r\n{body}",
         body.len()
     );
     let server = TestServer::spawn_scripted(vec![TestServerStep::delayed(
@@ -680,16 +693,29 @@ async fn stale_response_auth_cookies_do_not_override_rotated_session() {
     });
     assert_eq!(rotated.cookies.t_token.as_deref(), Some("fresh-token"));
 
-    let result = task.await.expect("task join").expect("topic list");
+    let error = task
+        .await
+        .expect("task join")
+        .expect_err("stale response should be discarded");
     let _ = server.shutdown().await;
 
-    assert_eq!(result.topics.len(), 1);
+    assert!(matches!(
+        error,
+        FireCoreError::StaleSessionResponse {
+            operation: "fetch topic list"
+        }
+    ));
     let snapshot = core.snapshot();
     assert_eq!(snapshot.cookies.t_token.as_deref(), Some("fresh-token"));
     assert_eq!(
         snapshot.cookies.forum_session.as_deref(),
         Some("fresh-forum")
     );
+    assert!(!snapshot
+        .cookies
+        .platform_cookies
+        .iter()
+        .any(|cookie| cookie.name == "__cf_bm"));
 }
 
 #[tokio::test]

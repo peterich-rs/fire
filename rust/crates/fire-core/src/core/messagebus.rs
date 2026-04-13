@@ -567,7 +567,11 @@ fn build_message_bus_poll_request_for_snapshot(
         .insert(FireRequestProfile::MessageBusPoll);
     request.extensions_mut().insert(FireRequestEpoch(epoch));
     let trace_id = diagnostics.prepare_request_trace(MESSAGE_BUS_OPERATION, &mut request);
-    Ok(TracedRequest { trace_id, request })
+    Ok(TracedRequest {
+        trace_id,
+        operation: MESSAGE_BUS_OPERATION,
+        request,
+    })
 }
 
 async fn read_message_bus_error_response(

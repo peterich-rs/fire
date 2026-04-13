@@ -138,7 +138,7 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
 - `Tests/Unit/FireEntityStateTests.swift`
   - covers `FireEntityIndex` upsert behavior plus `FireOrderedIDList` deduplication and stable ordering for the W2 home-feed list state
 - `Tests/UI/FireSmokeUITests.swift`
-  - backs the new `FireUITests` target with a minimal launch smoke test so the W3 UI-test lane is present before deeper end-to-end coverage lands
+  - keeps a minimal launch smoke test available for the dedicated `FireUITests` target; default PR CI runs only `FireTests`, while the smoke case stays on the slower main-branch validation path until deeper end-to-end coverage lands
 - `Tests/Unit/FireRouteParserTests.swift`
   - covers supported custom URL forms, LinuxDo route parsing, and notification-payload route mapping
 - `App/FireRootView.swift`
@@ -252,7 +252,8 @@ Verified local commands:
 - `./scripts/check_clean_submodules.sh`
 - `xcodegen generate --spec native/ios-app/project.yml`
 - `xcodebuild -project native/ios-app/Fire.xcodeproj -scheme Fire -destination 'generic/platform=iOS Simulator' build`
-- `xcodebuild -project native/ios-app/Fire.xcodeproj -scheme Fire -destination 'platform=iOS Simulator,OS=18.2,name=iPhone 16' -derivedDataPath /tmp/fire-ios-ui CODE_SIGNING_ALLOWED=NO test`
+- `xcodebuild -project native/ios-app/Fire.xcodeproj -scheme Fire -destination 'platform=iOS Simulator,OS=18.2,name=iPhone 16' -derivedDataPath /tmp/fire-ios-ui CODE_SIGNING_ALLOWED=NO -only-testing:FireTests test`
+- `xcodebuild -project native/ios-app/Fire.xcodeproj -scheme Fire -destination 'platform=iOS Simulator,OS=18.2,name=iPhone 16' -derivedDataPath /tmp/fire-ios-ui CODE_SIGNING_ALLOWED=NO -only-testing:FireUITests/FireSmokeUITests/testAppLaunches test`
 
 Operational archive command:
 

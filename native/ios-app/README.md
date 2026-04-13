@@ -186,8 +186,7 @@ Local signing overrides:
 - `Debug` loads `native/ios-app/Configs/Fire-Local-Debug.xcconfig` if it exists.
 - `Release` loads `native/ios-app/Configs/Fire-Local-Release.xcconfig` if it exists.
 - The two `Fire-Local-*.xcconfig` files are ignored by git; use the matching `.example.xcconfig` file as the template.
-- The generated project now also includes stable shared schemes `Fire Debug` and `Fire Release`. Use those to switch run mode instead of editing the shared `Fire` scheme in-place.
-- If you still want a personal-only scheme, duplicate any scheme in Xcode with `Shared` unchecked; Xcode stores that under `xcuserdata`, which is already ignored by git in this repo.
+- Only `Fire.xcscheme` should be committed. If you need a personal debug/release variant, duplicate a scheme in Xcode with `Shared` unchecked; Xcode stores that under `xcuserdata`, which is already ignored by git in this repo.
 - `FIRE_DISPLAY_NAME` can now be overridden from those local xcconfig files if you want `Debug` and `Release` installs to appear as separate app names on-device.
 - Recommended local-device setup:
   1. Copy `native/ios-app/Configs/Fire-Local-Debug.example.xcconfig` to `native/ios-app/Configs/Fire-Local-Debug.xcconfig`.

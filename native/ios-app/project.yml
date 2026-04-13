@@ -30,58 +30,6 @@ schemes:
         - name: FireUITests
           parallelizable: false
           randomExecutionOrder: false
-  Fire Debug:
-    build:
-      targets:
-        Fire: all
-        FireTests:
-          - test
-        FireUITests:
-          - test
-    run:
-      config: Debug
-    test:
-      config: Debug
-      gatherCoverageData: true
-      targets:
-        - name: FireTests
-          parallelizable: true
-          randomExecutionOrder: true
-        - name: FireUITests
-          parallelizable: false
-          randomExecutionOrder: false
-    analyze:
-      config: Debug
-    profile:
-      config: Release
-    archive:
-      config: Release
-  Fire Release:
-    build:
-      targets:
-        Fire: all
-        FireTests:
-          - test
-        FireUITests:
-          - test
-    run:
-      config: Release
-    test:
-      config: Debug
-      gatherCoverageData: true
-      targets:
-        - name: FireTests
-          parallelizable: true
-          randomExecutionOrder: true
-        - name: FireUITests
-          parallelizable: false
-          randomExecutionOrder: false
-    analyze:
-      config: Debug
-    profile:
-      config: Release
-    archive:
-      config: Release
 settings:
   base:
     SWIFT_VERSION: "5.10"

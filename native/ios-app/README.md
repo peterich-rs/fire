@@ -33,7 +33,7 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
   - owns the beta-phase iOS crash/APM runtime
   - installs `PLCrashReporter` at launch, harvests pending crash reports on next cold start, and persists raw `.plcrash` payloads under `Application Support/Fire/ios-apm/crashes`
   - registers `MetricKit`, stores raw metric/diagnostic payload JSON under `Application Support/Fire/ios-apm/metrickit`, and keeps per-launch runtime-state snapshots under `Application Support/Fire/ios-apm/runtime-states` for route / scene / breadcrumb recovery
-  - samples foreground CPU / memory / thermal state, detects main-thread stalls, tracks host-owned route/span breadcrumbs, and exports shareable `.firesupportbundle` packages under `Application Support/Fire/ios-apm-exports`
+  - samples foreground CPU / memory / thermal state, detects main-thread stalls, tracks host-owned route/span breadcrumbs, and exports shareable `.zip` archives under `Application Support/Fire/ios-apm-exports`
 - `FireAuthCookieKeychainStore.swift`
   - stores the full same-site LinuxDo browser cookie batch in Keychain using a host-scoped generic-password entry, preserving domain variants and cookie expiry
   - preserves non-login browser context cookies, including `cf_clearance`, across explicit logout so Cloudflare challenge state stays aligned with the host shell
@@ -120,7 +120,7 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
   - lists workspace log files plus reverse-chronological network request traces
   - opens tail-first log pages, preview-first network body viewers, and per-request execution chains without pushing full diagnostic text across the UniFFI boundary by default
   - exposes host-owned notification permission / APNs registration state and the locally cached device token for production-readiness checks
-  - exports both the Rust-owned diagnostics bundle and a host-owned full APM `.firesupportbundle` package containing local crash / MetricKit / route / span artifacts for share-sheet based escalation during beta
+  - exports both the Rust-owned diagnostics bundle and a host-owned full APM `.zip` archive containing local crash / MetricKit / route / span artifacts for share-sheet based escalation during beta, auto-presenting the share sheet after full APM export completes
 - `App/FireTabRoot.swift`
   - instantiates the authenticated-shell store graph (`FireHomeFeedStore`, `FireSearchStore`, `FireNotificationStore`, `FireTopicDetailStore`, `FireProfileViewModel`) around one shared `FireAppViewModel`
   - injects home/topic-detail stores through the SwiftUI environment so those screens observe scoped feature state instead of the app-wide root object
@@ -207,7 +207,8 @@ Workspace note:
 - Rust can resolve relative paths inside that workspace for shared file ownership such as logs, caches, or exports.
 - The current persisted session file remains `Application Support/Fire/session.json`, and iOS currently writes the full session snapshot there during the active diagnostics-heavy development phase.
 - iOS keeps the full same-site LinuxDo browser cookie batch in Keychain, including expiry metadata and distinct host/domain variants, re-injects it into Rust during cold start before any authenticated refresh path runs, and refreshes the Keychain copy when Rust receives newer auth cookies from the network.
-- iOS now also keeps host-owned beta crash/APM runtime state under `Application Support/Fire/ios-apm/` plus exported full APM bundles under `Application Support/Fire/ios-apm-exports/`. Those trees are not Rust-owned and should be treated as native-only operational state.
+- iOS now also keeps host-owned beta crash/APM runtime state under `Application Support/Fire/ios-apm/` plus exported full APM zip archives under `Application Support/Fire/ios-apm-exports/`. Those trees are not Rust-owned and should be treated as native-only operational state.
+- Full APM zip exports are auto-cleaned: the app keeps at most the latest 3 archives and expires older exports after 24 hours. Any temporary staging directory used during zipping is removed immediately after export.
 
 Current UX note:
 

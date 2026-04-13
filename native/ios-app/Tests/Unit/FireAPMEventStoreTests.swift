@@ -64,7 +64,7 @@ final class FireAPMEventStoreTests: XCTestCase {
         XCTAssertEqual(summary.currentSample?.physicalFootprintBytes, 2_048)
     }
 
-    func testEventStoreRoundTripsRuntimeStateAndExportsBundle() async throws {
+    func testEventStoreRoundTripsRuntimeStateAndExportsZipBundle() async throws {
         let fileManager = FileManager.default
         let sandboxURL = fileManager.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -104,6 +104,10 @@ final class FireAPMEventStoreTests: XCTestCase {
         XCTAssertGreaterThan(export.sizeBytes, 0)
         XCTAssertTrue(export.absoluteURL.path.hasPrefix(exportBaseURL.path + "/"))
         XCTAssertFalse(export.absoluteURL.path.hasPrefix(rootURL.path + "/"))
+        XCTAssertEqual(export.absoluteURL.pathExtension, "zip")
+
+        let entryNames = try zipEntryNames(at: export.absoluteURL)
+        XCTAssertTrue(entryNames.contains { $0.hasSuffix("/manifest.json") })
     }
 
     func testPreviousRuntimeStateSkipsCurrentLaunchState() async throws {
@@ -149,7 +153,7 @@ final class FireAPMEventStoreTests: XCTestCase {
         XCTAssertEqual(restoredPrevious.currentRoute, "tab.profile")
     }
 
-    func testExportBundleDoesNotPruneLiveDiagnosticsOrReturnedBundle() async throws {
+    func testExportBundleDoesNotPruneLiveDiagnosticsAndPackagesArtifactsIntoZip() async throws {
         let fileManager = FileManager.default
         let sandboxURL = fileManager.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -199,26 +203,76 @@ final class FireAPMEventStoreTests: XCTestCase {
 
         XCTAssertTrue(fileManager.fileExists(atPath: rootURL.appendingPathComponent("crashes/crash.plcrash").path))
         XCTAssertTrue(fileManager.fileExists(atPath: rootURL.appendingPathComponent("metrickit/metric.json").path))
-        XCTAssertTrue(
-            fileManager.fileExists(
-                atPath: export.absoluteURL.appendingPathComponent("crashes/crash.plcrash").path
-            )
+        XCTAssertEqual(export.absoluteURL.pathExtension, "zip")
+
+        let entryNames = try zipEntryNames(at: export.absoluteURL)
+        XCTAssertTrue(entryNames.contains { $0.hasSuffix("/crashes/crash.plcrash") })
+        XCTAssertTrue(entryNames.contains { $0.hasSuffix("/metrickit/metric.json") })
+        XCTAssertTrue(entryNames.contains { $0.hasSuffix("/\(rustBundleURL.lastPathComponent)") })
+        XCTAssertTrue(entryNames.contains { $0.hasSuffix("/manifest.json") })
+    }
+
+    func testExportBundlePrunesExpiredAndExcessArchives() async throws {
+        let fileManager = FileManager.default
+        let sandboxURL = fileManager.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? fileManager.removeItem(at: sandboxURL) }
+        let rootURL = sandboxURL.appendingPathComponent("ios-apm", isDirectory: true)
+        let exportBaseURL = sandboxURL.appendingPathComponent("ios-apm-exports", isDirectory: true)
+
+        let store = try await makeStore(
+            fileManager: fileManager,
+            baseURL: rootURL,
+            exportBaseURL: exportBaseURL
         )
-        XCTAssertTrue(
-            fileManager.fileExists(
-                atPath: export.absoluteURL.appendingPathComponent("metrickit/metric.json").path
+
+        let now = Date()
+        for index in 0..<4 {
+            let archiveURL = exportBaseURL.appendingPathComponent("recent-\(index).zip", isDirectory: false)
+            try Data("recent-\(index)".utf8).write(to: archiveURL, options: .atomic)
+            try fileManager.setAttributes(
+                [.modificationDate: now.addingTimeInterval(TimeInterval(-(index + 1) * 60))],
+                ofItemAtPath: archiveURL.path
             )
+        }
+
+        let expiredArchiveURL = exportBaseURL.appendingPathComponent("expired.zip", isDirectory: false)
+        try Data("expired".utf8).write(to: expiredArchiveURL, options: .atomic)
+        try fileManager.setAttributes(
+            [.modificationDate: now.addingTimeInterval(-(26 * 60 * 60))],
+            ofItemAtPath: expiredArchiveURL.path
         )
-        XCTAssertTrue(
-            fileManager.fileExists(
-                atPath: export.absoluteURL.appendingPathComponent(rustBundleURL.lastPathComponent).path
-            )
+
+        let legacyArchiveURL = rootURL
+            .appendingPathComponent("exports", isDirectory: true)
+            .appendingPathComponent("legacy.firesupportbundle", isDirectory: true)
+        try fileManager.createDirectory(at: legacyArchiveURL, withIntermediateDirectories: true)
+        let legacyManifestURL = legacyArchiveURL.appendingPathComponent("manifest.json", isDirectory: false)
+        try Data("{}".utf8).write(to: legacyManifestURL, options: .atomic)
+        try fileManager.setAttributes(
+            [.modificationDate: now.addingTimeInterval(-(26 * 60 * 60))],
+            ofItemAtPath: legacyArchiveURL.path
         )
-        XCTAssertTrue(
-            fileManager.fileExists(
-                atPath: export.absoluteURL.appendingPathComponent("manifest.json").path
-            )
+        try fileManager.setAttributes(
+            [.modificationDate: now.addingTimeInterval(-(26 * 60 * 60))],
+            ofItemAtPath: legacyManifestURL.path
         )
+
+        let export = try await store.exportBundle(
+            rustSupportBundleURL: nil,
+            runtimeState: nil,
+            scenePhase: "active"
+        )
+
+        let remainingExports = try fileManager.contentsOfDirectory(
+            at: exportBaseURL,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        )
+        XCTAssertEqual(remainingExports.count, 3)
+        XCTAssertTrue(remainingExports.contains(export.absoluteURL))
+        XCTAssertFalse(fileManager.fileExists(atPath: expiredArchiveURL.path))
+        XCTAssertFalse(fileManager.fileExists(atPath: legacyArchiveURL.path))
     }
 
     private func makeStore(
@@ -232,5 +286,49 @@ final class FireAPMEventStoreTests: XCTestCase {
             exportBaseURL: exportBaseURL,
             fileManager: fileManager
         )
+    }
+
+    private func zipEntryNames(at url: URL) throws -> [String] {
+        let data = try Data(contentsOf: url)
+        let endOfCentralDirectorySignature = Data([0x50, 0x4B, 0x05, 0x06])
+        guard let endRecordRange = data.range(
+            of: endOfCentralDirectorySignature,
+            options: .backwards
+        ) else {
+            XCTFail("Missing end of central directory record")
+            return []
+        }
+
+        let endRecordOffset = endRecordRange.lowerBound
+        let entryCount = Int(readUInt16LE(data, at: endRecordOffset + 10))
+        let centralDirectoryOffset = Int(readUInt32LE(data, at: endRecordOffset + 16))
+
+        var cursor = centralDirectoryOffset
+        var entryNames: [String] = []
+
+        for _ in 0..<entryCount {
+            XCTAssertEqual(readUInt32LE(data, at: cursor), 0x02014B50)
+            let nameLength = Int(readUInt16LE(data, at: cursor + 28))
+            let extraLength = Int(readUInt16LE(data, at: cursor + 30))
+            let commentLength = Int(readUInt16LE(data, at: cursor + 32))
+            let nameStart = cursor + 46
+            let nameEnd = nameStart + nameLength
+            let nameData = data.subdata(in: nameStart..<nameEnd)
+            entryNames.append(String(decoding: nameData, as: UTF8.self))
+            cursor = nameEnd + extraLength + commentLength
+        }
+
+        return entryNames
+    }
+
+    private func readUInt16LE(_ data: Data, at offset: Int) -> UInt16 {
+        UInt16(data[offset]) | (UInt16(data[offset + 1]) << 8)
+    }
+
+    private func readUInt32LE(_ data: Data, at offset: Int) -> UInt32 {
+        UInt32(data[offset])
+            | (UInt32(data[offset + 1]) << 8)
+            | (UInt32(data[offset + 2]) << 16)
+            | (UInt32(data[offset + 3]) << 24)
     }
 }

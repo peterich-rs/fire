@@ -131,6 +131,12 @@ struct FireDiagnosticsPagedTextDocument: Equatable {
     }
 }
 
+struct FireDiagnosticsShareRequest: Identifiable, Equatable {
+    let id = UUID()
+    let title: String
+    let url: URL
+}
+
 @MainActor
 final class FireDiagnosticsViewModel: ObservableObject {
     private static let traceAutoRefreshInterval: Duration = .seconds(1)
@@ -150,6 +156,7 @@ final class FireDiagnosticsViewModel: ObservableObject {
     @Published private(set) var isExportingFullAPMSupportBundle = false
     @Published private(set) var isLoading = false
     @Published var errorMessage: String?
+    @Published var shareRequest: FireDiagnosticsShareRequest?
 
     private let appViewModel: FireAppViewModel
     private var traceAutoRefreshTask: Task<Void, Never>?
@@ -387,6 +394,16 @@ final class FireDiagnosticsViewModel: ObservableObject {
         latestSupportBundle.map { URL(fileURLWithPath: $0.absolutePath) }
     }
 
+    func presentSupportBundleShare() {
+        guard let url = supportBundleURL() else {
+            return
+        }
+        shareRequest = FireDiagnosticsShareRequest(
+            title: "Fire Rust Diagnostics",
+            url: url
+        )
+    }
+
     func exportFullAPMSupportBundle(scenePhase: String) {
         guard !isExportingFullAPMSupportBundle else {
             return
@@ -397,8 +414,13 @@ final class FireDiagnosticsViewModel: ObservableObject {
             defer { isExportingFullAPMSupportBundle = false }
             do {
                 errorMessage = nil
-                latestFullAPMSupportBundle = try await appViewModel.exportFullAPMSupportBundle(
+                let export = try await appViewModel.exportFullAPMSupportBundle(
                     scenePhase: scenePhase
+                )
+                latestFullAPMSupportBundle = export
+                shareRequest = FireDiagnosticsShareRequest(
+                    title: "Fire Full APM Export",
+                    url: export.absoluteURL
                 )
             } catch {
                 errorMessage = error.localizedDescription
@@ -408,6 +430,20 @@ final class FireDiagnosticsViewModel: ObservableObject {
 
     func fullAPMSupportBundleURL() -> URL? {
         latestFullAPMSupportBundle?.absoluteURL
+    }
+
+    func presentFullAPMSupportBundleShare() {
+        guard let url = fullAPMSupportBundleURL() else {
+            return
+        }
+        shareRequest = FireDiagnosticsShareRequest(
+            title: "Fire Full APM Export",
+            url: url
+        )
+    }
+
+    func clearShareRequest() {
+        shareRequest = nil
     }
 
     private func loadTraceBodyPage(
@@ -613,6 +649,12 @@ struct FireDiagnosticsView: View {
         }
         .listStyle(.plain)
         .navigationTitle("诊断工具")
+        .sheet(item: $diagnosticsViewModel.shareRequest) { request in
+            FireActivityShareSheet(
+                activityItems: [request.url],
+                subject: request.title
+            )
+        }
         .onAppear {
             diagnosticsViewModel.startTraceAutoRefresh()
             Task {
@@ -711,13 +753,21 @@ struct FireDiagnosticsView: View {
     }
 
     private var supportBundleCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Label("诊断包", systemImage: "square.and.arrow.up")
-                .font(.headline)
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Label("导出与分享", systemImage: "square.and.arrow.up")
+                        .font(.headline)
 
-            Text("导出 Rust 诊断包，或附带本地 crash / MetricKit / route / span 工件的完整 APM 包，便于留档或分享排障。")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                    Text("Rust 诊断快照保持轻量；完整 APM 采集会把本地 crash、MetricKit 和 runtime 工件整理成单个 ZIP，生成后可直接分享。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer(minLength: 8)
+
+                exportFormatBadge("APM ZIP", color: .teal)
+            }
 
             if let diagnosticSessionID = diagnosticsViewModel.diagnosticSessionID {
                 VStack(alignment: .leading, spacing: 4) {
@@ -732,93 +782,105 @@ struct FireDiagnosticsView: View {
                 }
             }
 
-            HStack(spacing: 10) {
-                Button {
+            exportActionTile(
+                title: "Rust 诊断快照",
+                subtitle: "JSON，包含当前会话、最近日志和网络请求摘要，适合快速留档或单独转交。",
+                formatLabel: "JSON",
+                accent: .gray,
+                primaryProminent: false,
+                isBusy: diagnosticsViewModel.isExportingSupportBundle,
+                primaryTitle: diagnosticsViewModel.isExportingSupportBundle ? "导出中…" : "导出 JSON",
+                primarySystemImage: "doc.badge.arrow.up",
+                onPrimaryTap: {
                     diagnosticsViewModel.exportSupportBundle(
                         scenePhase: scenePhaseLabel(scenePhase)
                     )
-                } label: {
-                    Label(
-                        diagnosticsViewModel.isExportingSupportBundle ? "导出中…" : "导出诊断包",
-                        systemImage: "tray.and.arrow.down"
-                    )
+                },
+                secondaryTitle: diagnosticsViewModel.supportBundleURL() == nil ? nil : "分享上次导出",
+                onSecondaryTap: {
+                    diagnosticsViewModel.presentSupportBundleShare()
                 }
-                .buttonStyle(.borderedProminent)
-                .disabled(diagnosticsViewModel.isExportingSupportBundle)
-
-                if let bundleURL = diagnosticsViewModel.supportBundleURL() {
-                    ShareLink(item: bundleURL) {
-                        Label("分享", systemImage: "square.and.arrow.up")
-                    }
-                    .buttonStyle(.bordered)
-                }
-
-                if diagnosticsViewModel.isExportingSupportBundle {
-                    ProgressView()
-                        .controlSize(.small)
-                }
+            ) {
+                supportBundleMetadata
             }
 
-            HStack(spacing: 10) {
-                Button {
+            exportActionTile(
+                title: "完整 APM 采集包",
+                subtitle: "ZIP，附带 crash、MetricKit、runtime breadcrumbs 以及临时生成的 Rust 诊断快照，适合完整排障。",
+                formatLabel: "ZIP",
+                accent: .teal,
+                primaryProminent: true,
+                isBusy: diagnosticsViewModel.isExportingFullAPMSupportBundle,
+                primaryTitle: diagnosticsViewModel.isExportingFullAPMSupportBundle ? "生成中…" : "生成并分享 ZIP",
+                primarySystemImage: "archivebox",
+                onPrimaryTap: {
                     diagnosticsViewModel.exportFullAPMSupportBundle(
                         scenePhase: scenePhaseLabel(scenePhase)
                     )
-                } label: {
-                    Label(
-                        diagnosticsViewModel.isExportingFullAPMSupportBundle ? "导出中…" : "导出完整 APM 包",
-                        systemImage: "archivebox"
-                    )
+                },
+                secondaryTitle: diagnosticsViewModel.fullAPMSupportBundleURL() == nil ? nil : "再次分享",
+                onSecondaryTap: {
+                    diagnosticsViewModel.presentFullAPMSupportBundleShare()
                 }
-                .buttonStyle(.bordered)
-                .disabled(diagnosticsViewModel.isExportingFullAPMSupportBundle)
-
-                if let bundleURL = diagnosticsViewModel.fullAPMSupportBundleURL() {
-                    ShareLink(item: bundleURL) {
-                        Label("分享 APM 包", systemImage: "square.and.arrow.up")
-                    }
-                    .buttonStyle(.bordered)
-                }
-
-                if diagnosticsViewModel.isExportingFullAPMSupportBundle {
-                    ProgressView()
-                        .controlSize(.small)
-                }
+            ) {
+                fullAPMSupportBundleMetadata
             }
 
-            if let export = diagnosticsViewModel.latestSupportBundle {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("\(export.fileName) · \(FireDiagnosticsPresentation.byteSize(export.sizeBytes))")
-                        .font(.caption.monospaced())
-                    Text(FireDiagnosticsPresentation.timestamp(export.createdAtUnixMs))
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                    Text(export.relativePath)
-                        .font(.caption2.monospaced())
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
-                }
-            }
-
-            if let export = diagnosticsViewModel.latestFullAPMSupportBundle {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("\(export.fileName) · \(FireDiagnosticsPresentation.byteSize(export.sizeBytes))")
-                        .font(.caption.monospaced())
-                    Text(FireDiagnosticsPresentation.timestamp(export.createdAtUnixMs))
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                    Text(export.absoluteURL.path)
-                        .font(.caption2.monospaced())
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
-                }
-            }
+            Label("完整 APM ZIP 最多保留最近 3 份，并在 24 小时后自动过期清理；打包临时目录会在导出结束后立即删除。", systemImage: "trash.slash")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
         }
         .padding(14)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .fill(Color(.secondarySystemGroupedBackground))
         )
+    }
+
+    @ViewBuilder
+    private var supportBundleMetadata: some View {
+        if let export = diagnosticsViewModel.latestSupportBundle {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("最近导出：\(FireDiagnosticsPresentation.timestamp(export.createdAtUnixMs)) · \(FireDiagnosticsPresentation.byteSize(export.sizeBytes))")
+                    .font(.caption.weight(.medium))
+                Text(export.fileName)
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.primary)
+                Text(export.relativePath)
+                    .font(.caption2.monospaced())
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+            }
+        } else {
+            Text("输出单个 JSON 文件，不会触发额外的目录打包。")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    @ViewBuilder
+    private var fullAPMSupportBundleMetadata: some View {
+        if diagnosticsViewModel.isExportingFullAPMSupportBundle {
+            Text("正在汇总采集目录并生成 ZIP，完成后会直接拉起系统分享。")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        } else if let export = diagnosticsViewModel.latestFullAPMSupportBundle {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("ZIP 已就绪：\(FireDiagnosticsPresentation.timestamp(export.createdAtUnixMs)) · \(FireDiagnosticsPresentation.byteSize(export.sizeBytes))")
+                    .font(.caption.weight(.medium))
+                Text(export.fileName)
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.primary)
+                Text(export.absoluteURL.path)
+                    .font(.caption2.monospaced())
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+            }
+        } else {
+            Text("导出时会先临时组包，再写入单个 ZIP 文件；中间目录不会长期留在本地。")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
     }
 
     private var apmCard: some View {
@@ -972,6 +1034,88 @@ struct FireDiagnosticsView: View {
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity)
+    }
+
+    private func exportFormatBadge(_ text: String, color: Color) -> some View {
+        Text(text)
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(color)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(color.opacity(0.12))
+            )
+    }
+
+    private func exportActionTile<Metadata: View>(
+        title: String,
+        subtitle: String,
+        formatLabel: String,
+        accent: Color,
+        primaryProminent: Bool,
+        isBusy: Bool,
+        primaryTitle: String,
+        primarySystemImage: String,
+        onPrimaryTap: @escaping () -> Void,
+        secondaryTitle: String?,
+        onSecondaryTap: @escaping () -> Void = {},
+        @ViewBuilder metadata: () -> Metadata
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top, spacing: 10) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(title)
+                        .font(.subheadline.weight(.semibold))
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer(minLength: 8)
+
+                exportFormatBadge(formatLabel, color: accent)
+            }
+
+            HStack(spacing: 10) {
+                if primaryProminent {
+                    Button(action: onPrimaryTap) {
+                        Label(primaryTitle, systemImage: primarySystemImage)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(isBusy)
+                } else {
+                    Button(action: onPrimaryTap) {
+                        Label(primaryTitle, systemImage: primarySystemImage)
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(isBusy)
+                }
+
+                if let secondaryTitle {
+                    Button(action: onSecondaryTap) {
+                        Label(secondaryTitle, systemImage: "square.and.arrow.up")
+                    }
+                    .buttonStyle(.bordered)
+                }
+
+                if isBusy {
+                    ProgressView()
+                        .controlSize(.small)
+                }
+            }
+
+            metadata()
+        }
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(accent.opacity(0.08))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(accent.opacity(0.18), lineWidth: 1)
+        )
     }
 
     private func pushActionTitle(for diagnostics: FirePushRegistrationDiagnostics) -> String {
@@ -1869,4 +2013,20 @@ private enum FireDiagnosticsPresentation {
             return "已取消"
         }
     }
+}
+
+private struct FireActivityShareSheet: UIViewControllerRepresentable {
+    let activityItems: [Any]
+    let subject: String
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        let controller = UIActivityViewController(
+            activityItems: activityItems,
+            applicationActivities: nil
+        )
+        controller.setValue(subject, forKey: "subject")
+        return controller
+    }
+
+    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
 }

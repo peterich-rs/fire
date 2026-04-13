@@ -68,8 +68,11 @@ struct FireTabRoot: View {
             }
         }
         .animation(.easeInOut(duration: 0.3), value: isAuthenticated)
-        .fullScreenCover(isPresented: $viewModel.isPresentingLogin) {
-            FireLoginScreen(viewModel: viewModel)
+        .fullScreenCover(item: $viewModel.authPresentationState) { presentationState in
+            FireAuthScreen(
+                viewModel: viewModel,
+                presentationState: presentationState
+            )
         }
         .task {
             viewModel.loadInitialState()

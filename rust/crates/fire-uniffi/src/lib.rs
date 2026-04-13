@@ -2859,6 +2859,8 @@ pub enum FireUniFfiError {
     Authentication { details: String },
     #[error("login required: {details}")]
     LoginRequired { details: String },
+    #[error("stale session response discarded: {operation}")]
+    StaleSessionResponse { operation: String },
     #[error("network error: {details}")]
     Network { details: String },
     #[error("request requires Cloudflare challenge verification")]
@@ -2899,6 +2901,9 @@ impl From<FireCoreError> for FireUniFfiError {
             FireCoreError::LoginRequired { message, .. } => {
                 Self::LoginRequired { details: message }
             }
+            FireCoreError::StaleSessionResponse { operation } => Self::StaleSessionResponse {
+                operation: operation.to_string(),
+            },
             FireCoreError::CloudflareChallenge { .. } => Self::CloudflareChallenge,
             FireCoreError::HttpStatus {
                 operation,
@@ -4187,6 +4192,19 @@ mod tests {
             error,
             FireUniFfiError::LoginRequired { details }
                 if details == "您需要登录才能执行此操作。"
+        ));
+    }
+
+    #[test]
+    fn maps_stale_session_response_errors_to_dedicated_variant() {
+        let error = FireUniFfiError::from(FireCoreError::StaleSessionResponse {
+            operation: "fetch topic list",
+        });
+
+        assert!(matches!(
+            error,
+            FireUniFfiError::StaleSessionResponse { operation }
+                if operation == "fetch topic list"
         ));
     }
 

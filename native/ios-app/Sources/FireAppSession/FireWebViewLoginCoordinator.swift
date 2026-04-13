@@ -229,14 +229,14 @@ public final class FireWebViewLoginCoordinator {
             // refresh is still challenged. The WebView login flow remains open so
             // the user can complete the challenge and retry Sync.
             _ = try? await sessionStore.logoutLocal(preserveCfClearance: true)
-            try? await clearPlatformLoginCookies(preserveCfClearance: true)
+            try? await clearChallengeRecoveryCookies()
             throw error
         }
     }
 
     public func logout() async throws -> SessionState {
         let state = try await sessionStore.logout()
-        try await clearPlatformLoginCookies(preserveCfClearance: true)
+        try await clearSameSitePlatformCookies(preserving: ["cf_clearance"])
         return state
     }
 
@@ -343,7 +343,9 @@ public final class FireWebViewLoginCoordinator {
         preserveCfClearance: Bool = true
     ) async throws -> SessionState {
         let state = try await sessionStore.logoutLocal(preserveCfClearance: preserveCfClearance)
-        try await clearPlatformLoginCookies(preserveCfClearance: preserveCfClearance)
+        try await clearSameSitePlatformCookies(
+            preserving: preserveCfClearance ? ["cf_clearance"] : []
+        )
         return state
     }
 
@@ -403,25 +405,37 @@ public final class FireWebViewLoginCoordinator {
         }
     }
 
-    private func clearPlatformLoginCookies(preserveCfClearance: Bool) async throws {
-        let store = WKWebsiteDataStore.default().httpCookieStore
-        let cookies = try await httpCookies(from: store)
-
-        for cookie in cookies where shouldDelete(cookie, preserveCfClearance: preserveCfClearance) {
-            await deleteCookie(cookie, from: store)
+    private func clearSameSitePlatformCookies(
+        preserving preservedCookieNames: Set<String> = []
+    ) async throws {
+        try await clearPlatformCookies { cookie in
+            isSameSiteCookie(cookie) && !preservedCookieNames.contains(cookie.name)
         }
     }
 
-    private func shouldDelete(_ cookie: HTTPCookie, preserveCfClearance: Bool) -> Bool {
-        guard cookie.domain.range(of: "linux.do", options: .caseInsensitive) != nil else {
-            return false
+    private func clearChallengeRecoveryCookies() async throws {
+        let targetedNames: Set<String> = ["_t", "_forum_session"]
+        try await clearPlatformCookies { cookie in
+            isSameSiteCookie(cookie) && targetedNames.contains(cookie.name)
+        }
+    }
+
+    private func clearPlatformCookies(
+        matching shouldDelete: (HTTPCookie) -> Bool
+    ) async throws {
+        let webKitStore = WKWebsiteDataStore.default().httpCookieStore
+        let webKitCookies = try await httpCookies(from: webKitStore)
+        for cookie in webKitCookies where shouldDelete(cookie) {
+            await deleteCookie(cookie, from: webKitStore)
         }
 
-        if preserveCfClearance && cookie.name == "cf_clearance" {
-            return false
+        for cookie in HTTPCookieStorage.shared.cookies ?? [] where shouldDelete(cookie) {
+            HTTPCookieStorage.shared.deleteCookie(cookie)
         }
+    }
 
-        return ["_t", "_forum_session", "cf_clearance"].contains(cookie.name)
+    private func isSameSiteCookie(_ cookie: HTTPCookie) -> Bool {
+        cookie.domain.range(of: "linux.do", options: .caseInsensitive) != nil
     }
 
     private func deleteCookie(_ cookie: HTTPCookie, from store: WKHTTPCookieStore) async {

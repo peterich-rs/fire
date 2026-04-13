@@ -49,7 +49,7 @@ enum MirroredCookieStoreFactory {
 }
 
 extension SessionState {
-    private static let mirroredCookieNames: Set<String> = ["_t", "_forum_session", "cf_clearance"]
+    private static let scalarFallbackCookieNames: Set<String> = ["_t", "_forum_session", "cf_clearance"]
 
     static func placeholder(baseUrl: String = "https://linux.do") -> SessionState {
         SessionState(
@@ -115,18 +115,26 @@ extension SessionState {
     @MainActor
     func mirrorCookiesToNativeStorage() async {
         let host = baseURL.host ?? "linux.do"
-        let cookies = bridgedCookies(host: host)
+        let batch = bridgedCookieBatch(host: host)
 
-        mirrorCookiesToSharedStorage(cookies, host: host)
-        await mirrorCookiesToWebKitStorage(cookies, host: host)
+        mirrorCookiesToSharedStorage(batch.cookies, host: host, fullSameSiteScope: batch.usesFullSameSiteScope)
+        await mirrorCookiesToWebKitStorage(
+            batch.cookies,
+            host: host,
+            fullSameSiteScope: batch.usesFullSameSiteScope
+        )
     }
 
     @MainActor
-    private func mirrorCookiesToSharedStorage(_ cookies: [HTTPCookie], host: String) {
+    private func mirrorCookiesToSharedStorage(
+        _ cookies: [HTTPCookie],
+        host: String,
+        fullSameSiteScope: Bool
+    ) {
         let cookieStorage = HTTPCookieStorage.shared
 
         for existingCookie in cookieStorage.cookies ?? [] {
-            guard Self.shouldMirror(existingCookie, host: host) else {
+            guard Self.shouldMirror(existingCookie, host: host, fullSameSiteScope: fullSameSiteScope) else {
                 continue
             }
             cookieStorage.deleteCookie(existingCookie)
@@ -138,9 +146,17 @@ extension SessionState {
     }
 
     @MainActor
-    private func mirrorCookiesToWebKitStorage(_ cookies: [HTTPCookie], host: String) async {
+    private func mirrorCookiesToWebKitStorage(
+        _ cookies: [HTTPCookie],
+        host: String,
+        fullSameSiteScope: Bool
+    ) async {
         let store = MirroredCookieStoreFactory.makeWebKitStore()
-        let existingCookies = await currentWebKitMirroredCookies(host: host, from: store)
+        let existingCookies = await currentWebKitMirroredCookies(
+            host: host,
+            fullSameSiteScope: fullSameSiteScope,
+            from: store
+        )
         if Self.cookieDescriptors(existingCookies) == Self.cookieDescriptors(cookies) {
             return
         }
@@ -157,15 +173,18 @@ extension SessionState {
     @MainActor
     private func currentWebKitMirroredCookies(
         host: String,
+        fullSameSiteScope: Bool,
         from store: any MirroredCookieStore
     ) async -> [HTTPCookie] {
-        await store.getAllCookies().filter { Self.shouldMirror($0, host: host) }
+        await store.getAllCookies().filter {
+            Self.shouldMirror($0, host: host, fullSameSiteScope: fullSameSiteScope)
+        }
     }
 
-    private func bridgedCookies(host: String) -> [HTTPCookie] {
+    private func bridgedCookieBatch(host: String) -> MirroredCookieBatch {
         let secure = baseURL.scheme?.lowercased() == "https"
         let platformCookies = cookies.platformCookies
-            .filter { Self.mirroredCookieNames.contains($0.name) && !$0.value.isEmpty }
+            .filter { Self.shouldBridgePlatformCookie($0, host: host) }
             .compactMap { cookie in
                 Self.makeCookie(
                     name: cookie.name,
@@ -177,6 +196,7 @@ extension SessionState {
                     originURL: baseURL
                 )
             }
+        let usesFullSameSiteScope = !platformCookies.isEmpty
 
         let mirroredNames = Set(platformCookies.map(\.name))
         let scalarFallbackCandidates: [(String, String?)] = [
@@ -201,22 +221,54 @@ extension SessionState {
             )
         }
 
-        return (platformCookies + scalarFallback).sorted {
+        let sortedCookies = (platformCookies + scalarFallback).sorted {
             let lhs = Self.cookieDescriptor($0)
             let rhs = Self.cookieDescriptor($1)
             return lhs < rhs
         }
+
+        return MirroredCookieBatch(
+            cookies: sortedCookies,
+            usesFullSameSiteScope: usesFullSameSiteScope
+        )
     }
 
-    private static func shouldMirror(_ cookie: HTTPCookie, host: String) -> Bool {
-        guard mirroredCookieNames.contains(cookie.name) else {
+    private static func shouldBridgePlatformCookie(
+        _ cookie: PlatformCookieState,
+        host: String
+    ) -> Bool {
+        let normalizedValue = cookie.value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedValue.isEmpty else {
+            return false
+        }
+        if let expiresAtUnixMs = cookie.expiresAtUnixMs, expiresAtUnixMs <= currentUnixMs() {
             return false
         }
 
+        return sameSiteDomainMatches(cookie.domain ?? host, host: host)
+    }
+
+    private static func shouldMirror(
+        _ cookie: HTTPCookie,
+        host: String,
+        fullSameSiteScope: Bool
+    ) -> Bool {
+        if !fullSameSiteScope && !scalarFallbackCookieNames.contains(cookie.name) {
+            return false
+        }
+
+        return sameSiteDomainMatches(cookie.domain, host: host)
+    }
+
+    private static func sameSiteDomainMatches(_ domain: String, host: String) -> Bool {
         let normalizedHost = normalizeDomain(host)
-        let normalizedDomain = normalizeDomain(cookie.domain)
+        let normalizedDomain = normalizeDomain(domain)
         return normalizedDomain == normalizedHost
             || normalizedDomain.hasSuffix(".\(normalizedHost)")
+    }
+
+    private static func currentUnixMs() -> Int64 {
+        Int64(Date().timeIntervalSince1970 * 1000)
     }
 
     private static func normalizeDomain(_ domain: String) -> String {
@@ -271,6 +323,11 @@ extension SessionState {
     private func deleteCookie(_ cookie: HTTPCookie, from store: any MirroredCookieStore) async {
         await store.deleteCookie(cookie)
     }
+}
+
+private struct MirroredCookieBatch {
+    let cookies: [HTTPCookie]
+    let usesFullSameSiteScope: Bool
 }
 
 extension TopicListKindState {

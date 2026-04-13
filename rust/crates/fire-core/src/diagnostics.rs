@@ -341,6 +341,22 @@ impl Clone for FireNetworkTraceCancellationGuard {
     }
 }
 
+impl FireNetworkTraceCancellationGuard {
+    pub(crate) fn cancel(self, summary: impl Into<String>, details: impl Into<String>) {
+        let summary = summary.into();
+        let details = details.into();
+        if !self.inner.armed.swap(false, Ordering::AcqRel) {
+            return;
+        }
+
+        self.inner.diagnostics.record_cancelled_if_in_progress(
+            self.inner.trace_id,
+            &summary,
+            Some(&details),
+        );
+    }
+}
+
 impl Default for FireDiagnosticsStore {
     fn default() -> Self {
         Self::new()

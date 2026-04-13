@@ -32,8 +32,12 @@ impl CookieJar for FireSessionCookieJar {
             return;
         }
 
-        let mut patch = CookieSnapshot::default();
         let request_epoch = FIRE_REQUEST_EPOCH.try_with(|epoch| *epoch).ok();
+        if is_stale_request_epoch(&self.session, request_epoch) {
+            return;
+        }
+
+        let mut patch = CookieSnapshot::default();
         for header in cookie_headers {
             let Ok(value) = header.to_str() else {
                 continue;
@@ -41,10 +45,6 @@ impl CookieJar for FireSessionCookieJar {
             let Some(cookie) = parse_set_cookie(value, url) else {
                 continue;
             };
-            let is_auth_cookie = matches!(cookie.name.as_str(), "_t" | "_forum_session");
-            if is_auth_cookie && is_stale_request_epoch(&self.session, request_epoch) {
-                continue;
-            }
 
             match cookie.name.as_str() {
                 "_t" => patch.t_token = Some(cookie.value.clone()),

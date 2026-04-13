@@ -93,16 +93,20 @@ final class FireTopicDetailStore: ObservableObject {
                 .topicDetailInitialLoad,
                 metadata: ["topic_id": String(topicId)]
             ) {
-                try await sessionStore.fetchTopicDetailInitial(
-                    query: TopicDetailQueryState(
-                        topicId: topicId,
-                        postNumber: targetPostNumber,
-                        trackVisit: true,
-                        filter: nil,
-                        usernameFilters: nil,
-                        filterTopLevelReplies: false
+                try await appViewModel.performWithCloudflareRecovery(
+                    operation: "加载话题详情"
+                ) {
+                    try await sessionStore.fetchTopicDetailInitial(
+                        query: TopicDetailQueryState(
+                            topicId: topicId,
+                            postNumber: targetPostNumber,
+                            trackVisit: true,
+                            filter: nil,
+                            usernameFilters: nil,
+                            filterTopLevelReplies: false
+                        )
                     )
-                )
+                }
             }
             applyTopicDetail(detail, topicId: topicId)
             appViewModel.topicDetailLogger()?.debug(
@@ -503,16 +507,20 @@ final class FireTopicDetailStore: ObservableObject {
         topicId: UInt64,
         sessionStore: FireSessionStore
     ) async throws {
-        let detail = try await sessionStore.fetchTopicDetailInitial(
-            query: TopicDetailQueryState(
-                topicId: topicId,
-                postNumber: nil,
-                trackVisit: false,
-                filter: nil,
-                usernameFilters: nil,
-                filterTopLevelReplies: false
+        let detail = try await appViewModel.performWithCloudflareRecovery(
+            operation: "刷新话题详情"
+        ) {
+            try await sessionStore.fetchTopicDetailInitial(
+                query: TopicDetailQueryState(
+                    topicId: topicId,
+                    postNumber: nil,
+                    trackVisit: false,
+                    filter: nil,
+                    usernameFilters: nil,
+                    filterTopLevelReplies: false
+                )
             )
-        )
+        }
         applyTopicDetail(detail, topicId: topicId)
     }
 
@@ -525,16 +533,20 @@ final class FireTopicDetailStore: ObservableObject {
             guard self.topicDetails[topicId] != nil else { return }
             let anchorPostNumber = self.topicDetailTargetPostNumbers[topicId]
             do {
-                let detail = try await store.fetchTopicDetailInitial(
-                    query: TopicDetailQueryState(
-                        topicId: topicId,
-                        postNumber: anchorPostNumber,
-                        trackVisit: false,
-                        filter: nil,
-                        usernameFilters: nil,
-                        filterTopLevelReplies: false
+                let detail = try await self.appViewModel.performWithCloudflareRecovery(
+                    operation: "刷新话题详情"
+                ) {
+                    try await store.fetchTopicDetailInitial(
+                        query: TopicDetailQueryState(
+                            topicId: topicId,
+                            postNumber: anchorPostNumber,
+                            trackVisit: false,
+                            filter: nil,
+                            usernameFilters: nil,
+                            filterTopLevelReplies: false
+                        )
                     )
-                )
+                }
                 self.applyTopicDetail(detail, topicId: topicId)
             } catch {
                 _ = await self.appViewModel.handleRecoverableSessionErrorIfNeeded(error)
@@ -791,10 +803,14 @@ final class FireTopicDetailStore: ObservableObject {
             let batchPostIDs = Array(missingPostIDs.prefix(Self.topicPostPageSize))
 
             do {
-                let fetchedPosts = try await sessionStore.fetchTopicPosts(
-                    topicID: topicId,
-                    postIDs: batchPostIDs
-                )
+                let fetchedPosts = try await appViewModel.performWithCloudflareRecovery(
+                    operation: "加载更多帖子"
+                ) {
+                    try await sessionStore.fetchTopicPosts(
+                        topicID: topicId,
+                        postIDs: batchPostIDs
+                    )
+                }
                 let returnedPostIDs = Set(fetchedPosts.map(\.id))
                 exhaustedPostIDs.formUnion(
                     batchPostIDs.filter { !returnedPostIDs.contains($0) }

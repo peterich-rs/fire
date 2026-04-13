@@ -286,6 +286,15 @@ final class FireHomeFeedStore: ObservableObject {
                     )
                 )
             }
+            let operationDescription = (page == nil && reset)
+                ? "刷新首页话题列表"
+                : "加载更多首页话题"
+            let fetchWithRecovery: () async throws -> TopicListState = {
+                try await self.appViewModel.performWithCloudflareRecovery(
+                    operation: operationDescription,
+                    work: fetch
+                )
+            }
 
             let response: TopicListState
             if reset && page == nil && requestedKind == .latest {
@@ -296,10 +305,10 @@ final class FireHomeFeedStore: ObservableObject {
                         "tag": primaryTag ?? "none",
                         "incremental": usesIncrementalRefresh ? "true" : "false"
                     ],
-                    operation: fetch
+                    operation: fetchWithRecovery
                 )
             } else {
-                response = try await fetch()
+                response = try await fetchWithRecovery()
             }
 
             guard requestedScope == currentTopicListRefreshScope else {

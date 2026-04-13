@@ -50,6 +50,7 @@ fire/
   - native UI, files, media, notifications, keychain/keystore
 - Rust-owned:
   - session state
+  - session epoch invalidation for stale network responses and cookies
   - bootstrap parsing results
   - API orchestration
   - MessageBus
@@ -112,8 +113,9 @@ The intended native integration order is:
 7. If homepage HTML is unavailable or stale, or the restored authenticated snapshot is missing username/preloaded bootstrap fields, call `refresh_bootstrap_if_needed`. When homepage bootstrap still lacks site metadata such as categories/top tags, the shared Rust layer now falls back to `/site.json`. Only treat `shared_session_key` as required when MessageBus uses a cross-origin long-polling host.
 8. If the restored session is otherwise ready but the local snapshot still lacks CSRF, call `refresh_csrf_token_if_needed` before surfacing a fully ready authenticated session. The iOS `restoreColdStartSession()` path now performs this repair automatically. Write APIs can reuse the same helper whenever they need a newer token.
 9. Use `fetch_topic_list` (global, category-scoped, tag-scoped, or private-message mailbox variants via `TopicListQuery`) and `fetch_topic_detail` for the authenticated read paths.
-10. On explicit logout, prefer `logout_remote`, then fall back to `logout_local`, clear the persisted session, and remove host-side WebView auth cookies so the native shell and platform browser state agree.
-11. Use `notification_state`, `fetch_recent_notifications`, `fetch_notifications`, `mark_notification_read`, and `mark_all_notifications_read` for the shared in-app notification data path; keep OS-level/system notification presentation on the hosts.
+10. If Rust returns `CloudflareChallenge` for an authenticated operation, keep the current session snapshot, present `/challenge` in a host-owned auth WebView, re-sync the latest same-site browser cookie batch into Rust after verification, and then retry the blocked operation from the host.
+11. On explicit logout, prefer `logout_remote`, then fall back to `logout_local`, clear the persisted session, and remove host-side WebView auth cookies so the native shell and platform browser state agree.
+12. Use `notification_state`, `fetch_recent_notifications`, `fetch_notifications`, `mark_notification_read`, and `mark_all_notifications_read` for the shared in-app notification data path; keep OS-level/system notification presentation on the hosts.
 
 File ownership convention:
 

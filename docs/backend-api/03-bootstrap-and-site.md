@@ -92,7 +92,7 @@
   - `Set-Cookie: _t=; path=/; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT`
 - 客户端不要继续把这种响应后的会话当作“仍可写入”；应立即清掉本地登录态并提示重新登录
 - Fire 共享层现在把 `discourse-logged-out`、清空 `_t` / `_forum_session` 的 `Set-Cookie`、`error_type=not_logged_in` 统一视为登录失效信号，并先推进内部 session epoch，再清掉本地登录态
-- Fire 共享层现在会在 `sync_login_context`、`apply_platform_cookies` 导致 auth Cookie 轮换时、显式登出、被动失效时推进 session epoch；晚到的旧请求响应仍可写入非认证 Cookie（例如 `cf_clearance`），但不得再覆盖 `_t` / `_forum_session`，也不得把旧会话“复活”
+- Fire 共享层现在会在 `sync_login_context`、`apply_platform_cookies` 导致 auth Cookie 轮换时、显式登出、被动失效时推进 session epoch；晚到的旧请求响应会被整体视为 stale response：旧 payload 不再交付，`Set-Cookie` 也会整批丢弃，包括 `cf_clearance`、`__cf_bm` 等浏览器上下文 Cookie
 - 当前 `BAD CSRF` 只触发一次性 CSRF 刷新与单次重试；如果同一请求同时已经暴露登录失效信号，则优先按登录失效收口，而不是继续保留本地登录态
 - 否则后续最常见的表现是：前面的列表、详情等匿名可读请求仍然成功，但稍后的 `/topics/timings`、点赞、回复等写请求才返回 `403` / `error_type=not_logged_in`
 

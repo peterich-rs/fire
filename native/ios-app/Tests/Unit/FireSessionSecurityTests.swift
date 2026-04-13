@@ -32,6 +32,13 @@ final class FireSessionSecurityTests: XCTestCase {
                         domain: ".linux.do",
                         expiresAtUnixMs: freshExpiry
                     ),
+                    makePlatformCookie(
+                        name: "__cf_bm",
+                        value: "browser-context",
+                        domain: ".linux.do",
+                        path: "/cdn-cgi",
+                        expiresAtUnixMs: freshExpiry
+                    ),
                 ]
             ),
             bootstrap: BootstrapState(
@@ -95,19 +102,27 @@ final class FireSessionSecurityTests: XCTestCase {
         await session.mirrorCookiesToNativeStorage()
 
         let sharedCookies = mirroredSharedCookies()
-        XCTAssertEqual(sharedCookies.count, 3)
+        XCTAssertEqual(sharedCookies.count, 4)
         XCTAssertEqual(sharedCookies.first(where: { $0.name == "_t" })?.value, "fresh-token")
         XCTAssertEqual(
             sharedCookies.first(where: { $0.name == "cf_clearance" })?.value,
             "fresh-clearance"
         )
+        XCTAssertEqual(
+            sharedCookies.first(where: { $0.name == "__cf_bm" })?.value,
+            "browser-context"
+        )
 
         let webKitCookies = await mirroredWebKitCookies(store)
-        XCTAssertEqual(webKitCookies.count, 3)
+        XCTAssertEqual(webKitCookies.count, 4)
         XCTAssertEqual(webKitCookies.first(where: { $0.name == "_t" })?.value, "fresh-token")
         XCTAssertEqual(
             webKitCookies.first(where: { $0.name == "cf_clearance" })?.value,
             "fresh-clearance"
+        )
+        XCTAssertEqual(
+            webKitCookies.first(where: { $0.name == "__cf_bm" })?.value,
+            "browser-context"
         )
         XCTAssertFalse(webKitCookies.contains(where: { $0.value == "stale-token" }))
 
@@ -643,6 +658,13 @@ final class FireSessionSecurityTests: XCTestCase {
                 sceneActive: true
             )
         )
+        XCTAssertFalse(
+            FireCfClearanceRefreshService.shouldAutoRefresh(
+                session: authenticatedSession(turnstileSitekey: "sitekey"),
+                sceneActive: true,
+                interactiveRecoveryActive: true
+            )
+        )
     }
 
     @MainActor
@@ -692,14 +714,8 @@ final class FireSessionSecurityTests: XCTestCase {
     }
 
     @MainActor
-    func testChallengeRecoveryClearsLocalSessionAndPresentsLogin() async {
-        let recoveryStore = MockChallengeRecoveryStore(
-            result: .success(challengedLoggedOutSession())
-        )
-        let viewModel = FireAppViewModel(
-            initialSession: authenticatedSession(),
-            challengeRecoveryStore: recoveryStore
-        )
+    func testChallengeRecoveryPresentsInteractiveRecoveryWithoutClearingSession() async {
+        let viewModel = FireAppViewModel(initialSession: authenticatedSession())
 
         let recovered = await viewModel.handleCloudflareChallengeIfNeeded(
             FireUniFfiError.CloudflareChallenge
@@ -707,15 +723,34 @@ final class FireSessionSecurityTests: XCTestCase {
 
         XCTAssertTrue(recovered)
         XCTAssertTrue(viewModel.isPresentingLogin)
+        guard case let .cloudflareRecovery(context)? = viewModel.authPresentationState else {
+            return XCTFail("expected interactive Cloudflare recovery presentation")
+        }
+        XCTAssertEqual(context.preferredURL.absoluteString, "https://linux.do/challenge")
         XCTAssertEqual(
-            viewModel.errorMessage,
-            "需要先完成 Cloudflare 验证。请在登录页完成验证后点 Sync，再重试。"
+            context.message,
+            "需要先完成 Cloudflare 验证。请在验证页完成后重试。"
         )
-        XCTAssertFalse(viewModel.session.hasLoginSession)
-        XCTAssertFalse(viewModel.session.readiness.canReadAuthenticatedApi)
+        XCTAssertNil(viewModel.errorMessage)
+        XCTAssertTrue(viewModel.session.hasLoginSession)
+        XCTAssertTrue(viewModel.session.readiness.canReadAuthenticatedApi)
         XCTAssertTrue(viewModel.session.readiness.hasCloudflareClearance)
-        let calls = await recoveryStore.recordedCalls()
-        XCTAssertEqual(calls, [true])
+    }
+
+    @MainActor
+    func testStaleSessionResponseIsConsumedWithoutPresentingRecovery() async {
+        let viewModel = FireAppViewModel(initialSession: authenticatedSession())
+
+        let recovered = await viewModel.handleRecoverableSessionErrorIfNeeded(
+            FireUniFfiError.StaleSessionResponse(operation: "fetch topic list")
+        )
+
+        XCTAssertTrue(recovered)
+        XCTAssertFalse(viewModel.isPresentingLogin)
+        XCTAssertNil(viewModel.errorMessage)
+        XCTAssertTrue(viewModel.session.hasLoginSession)
+        XCTAssertTrue(viewModel.session.readiness.canReadAuthenticatedApi)
+        XCTAssertTrue(viewModel.session.readiness.hasCloudflareClearance)
     }
 
     @MainActor
@@ -763,6 +798,99 @@ final class FireSessionSecurityTests: XCTestCase {
         XCTAssertTrue(viewModel.session.readiness.canReadAuthenticatedApi)
         let calls = await recoveryStore.recordedCalls()
         XCTAssertTrue(calls.isEmpty)
+    }
+
+    @MainActor
+    func testPerformWithCloudflareRecoveryWaitsForInteractiveRecoveryAndRetries() async throws {
+        let viewModel = FireAppViewModel(
+            initialSession: authenticatedSession(),
+            cloudflareRecoveryCookieSync: {
+                self.authenticatedSession(turnstileSitekey: "sitekey")
+            }
+        )
+        var attempts = 0
+
+        let task = Task {
+            try await viewModel.performWithCloudflareRecovery(operation: "刷新首页话题列表") {
+                attempts += 1
+                if attempts < 3 {
+                    throw FireUniFfiError.CloudflareChallenge
+                }
+                return "ok"
+            }
+        }
+
+        let presentedRecovery = await waitUntil {
+            if case .cloudflareRecovery? = viewModel.authPresentationState {
+                return true
+            }
+            return false
+        }
+
+        XCTAssertTrue(presentedRecovery)
+        XCTAssertEqual(attempts, 2)
+
+        viewModel.completeCloudflareRecovery()
+
+        let dismissedRecovery = await waitUntil { viewModel.authPresentationState == nil }
+        XCTAssertTrue(dismissedRecovery)
+        let result = try await task.value
+        XCTAssertEqual(result, "ok")
+        XCTAssertEqual(attempts, 3)
+    }
+
+    @MainActor
+    func testPerformWithCloudflareRecoveryCancellationStopsWaitingTaskFromRetrying() async {
+        let viewModel = FireAppViewModel(
+            initialSession: authenticatedSession(),
+            cloudflareRecoveryCookieSync: {
+                self.authenticatedSession(turnstileSitekey: "sitekey")
+            }
+        )
+        var attempts = 0
+
+        let task = Task {
+            try await viewModel.performWithCloudflareRecovery(operation: "刷新首页话题列表") {
+                attempts += 1
+                if attempts < 3 {
+                    throw FireUniFfiError.CloudflareChallenge
+                }
+                return "ok"
+            }
+        }
+
+        let presentedRecovery = await waitUntil {
+            if case .cloudflareRecovery? = viewModel.authPresentationState {
+                return true
+            }
+            return false
+        }
+
+        XCTAssertTrue(presentedRecovery)
+        XCTAssertEqual(attempts, 2)
+
+        task.cancel()
+
+        let finished = expectation(description: "cancelled recovery task finished")
+        var completionError: Error?
+        Task { @MainActor in
+            do {
+                _ = try await task.value
+                XCTFail("Expected task cancellation while waiting for Cloudflare recovery")
+            } catch {
+                completionError = error
+            }
+            finished.fulfill()
+        }
+
+        await fulfillment(of: [finished], timeout: 1.0)
+        XCTAssertTrue(completionError is CancellationError)
+        XCTAssertEqual(attempts, 2)
+
+        viewModel.completeCloudflareRecovery()
+        let dismissedRecovery = await waitUntil { viewModel.authPresentationState == nil }
+        XCTAssertTrue(dismissedRecovery)
+        XCTAssertEqual(attempts, 2)
     }
 
     @MainActor
@@ -862,7 +990,6 @@ final class FireSessionSecurityTests: XCTestCase {
     private func mirroredSharedCookies() -> [HTTPCookie] {
         let host = "linux.do"
         return (HTTPCookieStorage.shared.cookies ?? [])
-            .filter { mirroredCookieNames.contains($0.name) }
             .filter {
                 let normalizedDomain = normalizeCookieDomain($0.domain)
                 return normalizedDomain == host || normalizedDomain.hasSuffix(".\(host)")
@@ -885,7 +1012,6 @@ final class FireSessionSecurityTests: XCTestCase {
         let host = "linux.do"
         let cookies = await store.getAllCookies()
         return cookies
-            .filter { mirroredCookieNames.contains($0.name) }
             .filter {
                 let normalizedDomain = normalizeCookieDomain($0.domain)
                 return normalizedDomain == host || normalizedDomain.hasSuffix(".\(host)")
@@ -902,10 +1028,6 @@ final class FireSessionSecurityTests: XCTestCase {
         for cookie in await mirroredWebKitCookies(store) {
             await store.deleteCookie(cookie)
         }
-    }
-
-    private var mirroredCookieNames: Set<String> {
-        ["_t", "_forum_session", "cf_clearance"]
     }
 
     private func normalizeCookieDomain(_ domain: String) -> String {

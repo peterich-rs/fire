@@ -50,11 +50,12 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
 - `FireCfClearanceRefreshService.swift`
   - owns an offscreen `WKWebView` that periodically reloads `https://linux.do/` once the shared session is authenticated, scene-active, and bootstrap has exposed a Turnstile sitekey
   - re-syncs WebKit cookies back into Rust after each refresh cycle so host-owned `cf_clearance` state stays warm without forcing the foreground login WebView open
-  - starts/stops automatically from session and scene-phase changes, and records APM breadcrumbs for refresh lifecycle and failures
+  - pauses that background refresh loop while an interactive `/challenge` recovery WebView is on-screen, then resumes automatically after the recovery flow is dismissed
+  - starts/stops automatically from session, scene-phase, and interactive-recovery changes, and records APM breadcrumbs for refresh lifecycle and failures
 - `App/FireLoginWebView.swift`
-  - presents the login browser as a full-screen flow
+  - presents the host-owned auth browser as a full-screen flow for both initial login and interactive Cloudflare recovery
   - now wraps the embedded `WKWebView` in a full-screen native browser shell with adaptive light/dark chrome, a compact top bar, and a bottom command dock
-  - exposes back, forward, home, reload, and session sync controls so OAuth hops can return to LinuxDo without closing the flow
+  - exposes back, forward, home, reload, and context-aware primary actions so OAuth hops can return to LinuxDo without closing the flow and challenge recovery can finish with an explicit `完成验证并重试`
   - enables back/forward swipe gestures on the embedded `WKWebView`
   - avoids mutating observed browser state from `UIViewRepresentable.updateUIView`, so SwiftUI updates do not loop back into `WKWebView` host state and freeze the login entry flow
 - `App/FireApp.swift`
@@ -71,7 +72,7 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
   - now also owns native private-message inbox/sent loading plus private-message creation on top of the shared Rust mailbox and `/posts.json` PM surfaces
   - now acts as a session/runtime facade for feature stores instead of also owning every screen's transient state directly
   - now owns the foreground MessageBus transport lifecycle on iOS and forwards runtime refresh work into the bound feature stores instead of publishing home/topic-detail state itself
-  - now treats Rust-owned `CloudflareChallenge` errors as the signal to clear the local authenticated snapshot, return the shell to onboarding, and auto-present the login WebView so challenge recovery stays inside the browser flow
+  - now treats Rust-owned `CloudflareChallenge` errors as the signal to present an interactive `/challenge` recovery WebView, re-sync the browser cookie batch back into Rust, and automatically retry the blocked read/write flow without tearing down the current authenticated snapshot
   - now also treats Rust-owned `LoginRequired` invalidation the same way, clearing host-side auth cookies while preserving `cf_clearance` so passive session loss, explicit logout, and bootstrap-challenged recovery all converge on one reset path
   - now probes login sync readiness from the embedded `WKWebView` and keeps the `完成登录` button disabled until the shared login prerequisites are actually satisfied
   - now also emits host-owned APM spans for cold-start restore, login sync, bootstrap refresh, latest-feed load, topic-detail load, reply submit, notification refresh, and MessageBus start

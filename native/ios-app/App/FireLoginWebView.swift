@@ -223,11 +223,38 @@ struct FireLoginWebView: UIViewRepresentable {
     }
 }
 
-struct FireLoginScreen: View {
-    @Environment(\.dismiss) private var dismiss
+struct FireAuthScreen: View {
     @Environment(\.scenePhase) private var scenePhase
     @ObservedObject var viewModel: FireAppViewModel
+    let presentationState: FireAuthPresentationState
     @StateObject private var webViewBox = FireWebViewBox()
+
+    private var title: String {
+        switch presentationState {
+        case .login:
+            return "登录 LinuxDo"
+        case .cloudflareRecovery:
+            return "完成安全验证"
+        }
+    }
+
+    private var url: URL {
+        switch presentationState {
+        case .login:
+            return URL(string: "https://linux.do")!
+        case let .cloudflareRecovery(context):
+            return context.preferredURL
+        }
+    }
+
+    private var route: String {
+        switch presentationState {
+        case .login:
+            return "auth.login"
+        case .cloudflareRecovery:
+            return "auth.cloudflare"
+        }
+    }
 
     var body: some View {
         NavigationStack {
@@ -247,21 +274,28 @@ struct FireLoginScreen: View {
                     )
                 }
 
+                if case let .cloudflareRecovery(context) = presentationState {
+                    FireAuthInfoBanner(message: context.message)
+                }
+
                 FireLoginWebView(
-                    url: URL(string: "https://linux.do")!,
+                    url: url,
                     webViewBox: webViewBox,
                     onNavigationStateChange: { webView in
+                        guard case .login = presentationState else {
+                            return
+                        }
                         viewModel.refreshLoginSyncReadiness(from: webView)
                     }
                 )
                 .frame(maxHeight: .infinity)
             }
             .background(Color(.systemBackground))
-            .navigationTitle("登录 LinuxDo")
+            .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("关闭") { dismiss() }
+                    Button("关闭") { viewModel.dismissAuthPresentation() }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
@@ -272,20 +306,27 @@ struct FireLoginScreen: View {
                 }
             }
             .safeAreaInset(edge: .bottom) {
-                FireLoginBottomBar(
+                FireAuthBottomBar(
                     viewModel: viewModel,
+                    presentationState: presentationState,
                     webViewBox: webViewBox,
-                    onSync: {
+                    onLoginSync: {
                         guard let webView = webViewBox.webView else { return }
                         viewModel.completeLogin(from: webView)
+                    },
+                    onCloudflareRecoveryComplete: {
+                        viewModel.completeCloudflareRecovery()
                     }
                 )
             }
             .onAppear {
-                viewModel.setAPMRoute("auth.login")
+                viewModel.setAPMRoute(route)
             }
             .onChange(of: scenePhase) { _, phase in
                 guard phase == .active, let webView = webViewBox.webView else {
+                    return
+                }
+                guard case .login = presentationState else {
                     return
                 }
                 viewModel.refreshLoginSyncReadiness(from: webView)
@@ -318,10 +359,49 @@ private struct FireLoginAddressBar: View {
     }
 }
 
-private struct FireLoginBottomBar: View {
+private struct FireAuthBottomBar: View {
     @ObservedObject var viewModel: FireAppViewModel
+    let presentationState: FireAuthPresentationState
     @ObservedObject var webViewBox: FireWebViewBox
-    let onSync: () -> Void
+    let onLoginSync: () -> Void
+    let onCloudflareRecoveryComplete: () -> Void
+
+    private var isRunningAction: Bool {
+        switch presentationState {
+        case .login:
+            return viewModel.isSyncingLoginSession
+        case .cloudflareRecovery:
+            return viewModel.isCompletingCloudflareChallenge
+        }
+    }
+
+    private var actionTitle: String {
+        switch presentationState {
+        case .login:
+            return viewModel.isSyncingLoginSession ? "同步中…" : "完成登录"
+        case .cloudflareRecovery:
+            return viewModel.isCompletingCloudflareChallenge ? "重试中…" : "完成验证并重试"
+        }
+    }
+
+    private var isActionEnabled: Bool {
+        guard webViewBox.webView != nil else {
+            return false
+        }
+        guard !webViewBox.isLoading else {
+            return false
+        }
+        guard !isRunningAction else {
+            return false
+        }
+
+        switch presentationState {
+        case .login:
+            return viewModel.canSyncLoginSession
+        case .cloudflareRecovery:
+            return true
+        }
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -345,27 +425,31 @@ private struct FireLoginBottomBar: View {
 
                 Spacer()
 
-                Button(action: onSync) {
+                Button(action: performPrimaryAction) {
                     HStack(spacing: 6) {
-                        if viewModel.isSyncingLoginSession {
+                        if isRunningAction {
                             ProgressView()
                                 .tint(.white)
                                 .controlSize(.small)
                         }
-                        Text(viewModel.isSyncingLoginSession ? "同步中…" : "完成登录")
+                        Text(actionTitle)
                     }
                 }
                 .buttonStyle(FirePrimaryButtonStyle())
-                .disabled(
-                    webViewBox.webView == nil
-                        || webViewBox.isLoading
-                        || viewModel.isSyncingLoginSession
-                        || !viewModel.canSyncLoginSession
-                )
+                .disabled(!isActionEnabled)
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
             .background(.bar)
+        }
+    }
+
+    private func performPrimaryAction() {
+        switch presentationState {
+        case .login:
+            onLoginSync()
+        case .cloudflareRecovery:
+            onCloudflareRecoveryComplete()
         }
     }
 }
@@ -393,6 +477,28 @@ private struct FireLoginErrorBanner: View {
                     .foregroundStyle(.tertiary)
             }
             .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(Color(.secondarySystemBackground))
+    }
+}
+
+private struct FireAuthInfoBanner: View {
+    let message: String
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "shield.lefthalf.filled")
+                .foregroundStyle(FireTheme.accent)
+                .font(.caption)
+
+            Text(message)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(3)
+
+            Spacer(minLength: 0)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)

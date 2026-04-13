@@ -11,6 +11,7 @@ final class FireCfClearanceRefreshService: NSObject, WKNavigationDelegate {
     private weak var loginCoordinator: FireWebViewLoginCoordinator?
     private var session: SessionState = .placeholder()
     private var sceneActive = false
+    private var interactiveRecoveryActive = false
     private var refreshTask: Task<Void, Never>?
     private var webView: WKWebView?
     private var loadContinuation: CheckedContinuation<Void, Error>?
@@ -29,18 +30,29 @@ final class FireCfClearanceRefreshService: NSObject, WKNavigationDelegate {
         reconfigureLoop(reason: active ? "scene_active" : "scene_inactive")
     }
 
+    func setInteractiveRecoveryActive(_ active: Bool) {
+        interactiveRecoveryActive = active
+        reconfigureLoop(reason: active ? "interactive_recovery_started" : "interactive_recovery_ended")
+    }
+
     nonisolated static func shouldAutoRefresh(
         session: SessionState,
-        sceneActive: Bool
+        sceneActive: Bool,
+        interactiveRecoveryActive: Bool = false
     ) -> Bool {
         sceneActive
+            && !interactiveRecoveryActive
             && session.readiness.canReadAuthenticatedApi
             && session.readiness.hasCloudflareClearance
             && !(session.bootstrap.turnstileSitekey?.isEmpty ?? true)
     }
 
     private var shouldRun: Bool {
-        Self.shouldAutoRefresh(session: session, sceneActive: sceneActive)
+        Self.shouldAutoRefresh(
+            session: session,
+            sceneActive: sceneActive,
+            interactiveRecoveryActive: interactiveRecoveryActive
+        )
     }
 
     private func reconfigureLoop(reason: String) {

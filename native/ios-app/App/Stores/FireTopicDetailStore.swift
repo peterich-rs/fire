@@ -284,7 +284,7 @@ final class FireTopicDetailStore: ObservableObject {
 
     func beginTopicReplyPresence(topicId: UInt64) {
         guard appViewModel.session.readiness.canOpenMessageBus else { return }
-        guard appViewModel.session.readiness.canWriteAuthenticatedApi else { return }
+        guard appViewModel.canStartAuthenticatedMutation else { return }
         guard topicPresenceHeartbeatTasks[topicId] == nil else { return }
         guard let store = appViewModel.currentSessionStore() else { return }
 
@@ -334,7 +334,7 @@ final class FireTopicDetailStore: ObservableObject {
         }
 
         let sessionStore = try await appViewModel.sessionStoreValue()
-        guard appViewModel.session.readiness.canWriteAuthenticatedApi else {
+        guard appViewModel.canStartAuthenticatedMutation else {
             throw FireTopicInteractionError.requiresAuthenticatedWrite
         }
         guard !submittingReplyTopicIDs.contains(topicId) else {
@@ -385,7 +385,7 @@ final class FireTopicDetailStore: ObservableObject {
         }
 
         let sessionStore = try await appViewModel.sessionStoreValue()
-        guard appViewModel.session.readiness.canWriteAuthenticatedApi else {
+        guard appViewModel.canStartAuthenticatedMutation else {
             throw FireTopicInteractionError.requiresAuthenticatedWrite
         }
         guard !mutatingPostIDs.contains(postID) else {
@@ -423,7 +423,7 @@ final class FireTopicDetailStore: ObservableObject {
         liked: Bool
     ) async throws {
         let sessionStore = try await appViewModel.sessionStoreValue()
-        guard appViewModel.session.readiness.canWriteAuthenticatedApi else {
+        guard appViewModel.canStartAuthenticatedMutation else {
             throw FireTopicInteractionError.requiresAuthenticatedWrite
         }
         guard !mutatingPostIDs.contains(postId) else {
@@ -468,7 +468,7 @@ final class FireTopicDetailStore: ObservableObject {
         }
 
         let sessionStore = try await appViewModel.sessionStoreValue()
-        guard appViewModel.session.readiness.canWriteAuthenticatedApi else {
+        guard appViewModel.canStartAuthenticatedMutation else {
             throw FireTopicInteractionError.requiresAuthenticatedWrite
         }
         guard !mutatingPostIDs.contains(postId) else {

@@ -367,6 +367,62 @@ async fn update_topic_reply_presence_reuses_active_message_bus_client_id() {
 }
 
 #[tokio::test]
+async fn update_topic_reply_presence_refreshes_csrf_when_missing() {
+    let app_server = TestServer::spawn(vec![
+        raw_json_response(200, "application/json", r#"{"csrf":"fresh-csrf"}"#),
+        raw_json_response(200, "application/json", "{}"),
+    ])
+    .await
+    .expect("app server");
+    let poll_server = TestServer::spawn(vec![raw_json_response(200, "application/json", "[]")])
+        .await
+        .expect("poll server");
+    let core = FireCore::new(FireCoreConfig {
+        base_url: app_server.base_url(),
+        workspace_path: None,
+    })
+    .expect("core");
+    let _ = core.apply_cookies(CookieSnapshot {
+        t_token: Some("token".into()),
+        forum_session: Some("forum".into()),
+        ..CookieSnapshot::default()
+    });
+    let _ = core.apply_bootstrap(BootstrapArtifacts {
+        base_url: app_server.base_url(),
+        current_username: Some("alice".into()),
+        current_user_id: Some(1),
+        shared_session_key: Some("shared-session".into()),
+        long_polling_base_url: Some(poll_server.base_url()),
+        topic_tracking_state_meta: Some(r#"{"/latest":-1}"#.to_string()),
+        ..BootstrapArtifacts::default()
+    });
+
+    let (sender, _receiver) = unbounded_channel();
+    core.start_message_bus(MessageBusClientMode::Foreground, sender)
+        .await
+        .expect("start message bus");
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    core.update_topic_reply_presence(123, true)
+        .await
+        .expect("presence heartbeat");
+    core.stop_message_bus(true);
+
+    let _ = poll_server.shutdown().await;
+    let app_requests = app_server.shutdown_with_requests().await;
+    assert_eq!(app_requests.len(), 2);
+    assert!(app_requests[0].contains("GET /session/csrf HTTP/1.1"));
+    assert!(app_requests[1].contains("POST /presence/update HTTP/1.1"));
+    assert!(app_requests[1]
+        .to_ascii_lowercase()
+        .contains("x-csrf-token: fresh-csrf"));
+    assert_eq!(
+        core.snapshot().cookies.csrf_token.as_deref(),
+        Some("fresh-csrf")
+    );
+}
+
+#[tokio::test]
 async fn update_topic_reply_presence_throttles_duplicate_active_heartbeats() {
     let app_server = TestServer::spawn(vec![raw_json_response(200, "application/json", "{}")])
         .await

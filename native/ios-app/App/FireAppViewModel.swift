@@ -37,7 +37,7 @@ enum FireTopicInteractionError: LocalizedError {
         case .unavailable:
             "互动能力暂时不可用。"
         case .requiresAuthenticatedWrite:
-            "当前会话还不能执行回复或表情回应。"
+            "当前登录会话还不能执行需要登录的写入操作。"
         case .emptyReply:
             "回复内容不能为空。"
         case .requiresCloudflareVerification:
@@ -548,6 +548,10 @@ final class FireAppViewModel: ObservableObject {
         homeFeedStore?.canTagTopics ?? session.bootstrap.canTagTopics
     }
 
+    var canStartAuthenticatedMutation: Bool {
+        session.readiness.canReadAuthenticatedApi
+    }
+
     func fetchFilteredTopicList(query: TopicListQueryState) async throws -> TopicListState {
         let sessionStore = try await sessionStoreValue()
         return try await sessionStore.fetchTopicList(query: query)
@@ -610,7 +614,7 @@ final class FireAppViewModel: ObservableObject {
         }
 
         let sessionStore = try await sessionStoreValue()
-        guard session.readiness.canWriteAuthenticatedApi else {
+        guard canStartAuthenticatedMutation else {
             throw FireTopicInteractionError.requiresAuthenticatedWrite
         }
 
@@ -655,7 +659,7 @@ final class FireAppViewModel: ObservableObject {
         }
 
         let sessionStore = try await sessionStoreValue()
-        guard session.readiness.canWriteAuthenticatedApi else {
+        guard canStartAuthenticatedMutation else {
             throw FireTopicInteractionError.requiresAuthenticatedWrite
         }
 
@@ -688,7 +692,7 @@ final class FireAppViewModel: ObservableObject {
         }
 
         let sessionStore = try await sessionStoreValue()
-        guard session.readiness.canWriteAuthenticatedApi else {
+        guard canStartAuthenticatedMutation else {
             throw FireTopicInteractionError.requiresAuthenticatedWrite
         }
 
@@ -835,7 +839,7 @@ final class FireAppViewModel: ObservableObject {
         options: [String]
     ) async throws -> PollState {
         let sessionStore = try await sessionStoreValue()
-        guard session.readiness.canWriteAuthenticatedApi else {
+        guard canStartAuthenticatedMutation else {
             throw FireTopicInteractionError.requiresAuthenticatedWrite
         }
         guard topicDetailStore?.isMutatingPost(postId: postID) != true else {
@@ -865,7 +869,7 @@ final class FireAppViewModel: ObservableObject {
         pollName: String
     ) async throws -> PollState {
         let sessionStore = try await sessionStoreValue()
-        guard session.readiness.canWriteAuthenticatedApi else {
+        guard canStartAuthenticatedMutation else {
             throw FireTopicInteractionError.requiresAuthenticatedWrite
         }
         guard topicDetailStore?.isMutatingPost(postId: postID) != true else {
@@ -887,7 +891,7 @@ final class FireAppViewModel: ObservableObject {
 
     func voteTopic(topicID: UInt64, voted: Bool) async throws -> VoteResponseState {
         let sessionStore = try await sessionStoreValue()
-        guard session.readiness.canWriteAuthenticatedApi else {
+        guard canStartAuthenticatedMutation else {
             throw FireTopicInteractionError.requiresAuthenticatedWrite
         }
 
@@ -919,7 +923,7 @@ final class FireAppViewModel: ObservableObject {
         timings: [UInt32: UInt32]
     ) async -> Bool {
         guard let sessionStore else { return false }
-        guard session.readiness.canWriteAuthenticatedApi else { return false }
+        guard canStartAuthenticatedMutation else { return false }
         guard topicTimeMs > 0 else { return true }
 
         let timingEntries = timings

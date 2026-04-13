@@ -188,6 +188,150 @@ private struct FireComposerMarkdownImage: Identifiable, Hashable {
     var id: String { urlString }
 }
 
+enum FireComposerValidation {
+    struct State: Equatable {
+        let canSubmit: Bool
+        let message: String?
+    }
+
+    static func submitState(
+        route: FireComposerRoute,
+        canStartAuthenticatedMutation: Bool,
+        isSubmitting: Bool,
+        trimmedTitle: String,
+        trimmedBody: String,
+        minimumTitleLength: Int,
+        minimumBodyLength: Int,
+        selectedCategoryID: UInt64?,
+        selectedTagCount: Int,
+        minimumRequiredTags: Int,
+        recipientCount: Int
+    ) -> State {
+        guard canStartAuthenticatedMutation else {
+            return State(
+                canSubmit: false,
+                message: "当前登录写入会话未就绪，请先完成登录同步。"
+            )
+        }
+        guard !isSubmitting else {
+            return State(canSubmit: false, message: nil)
+        }
+
+        switch route.kind {
+        case .createTopic:
+            guard trimmedTitle.count >= minimumTitleLength else {
+                return State(
+                    canSubmit: false,
+                    message: "标题至少需要 \(minimumTitleLength) 个字"
+                )
+            }
+            guard selectedCategoryID != nil else {
+                return State(canSubmit: false, message: "请选择分类")
+            }
+            guard trimmedBody.count >= minimumBodyLength else {
+                return State(
+                    canSubmit: false,
+                    message: "正文至少需要 \(minimumBodyLength) 个字"
+                )
+            }
+            guard selectedTagCount >= minimumRequiredTags else {
+                return State(
+                    canSubmit: false,
+                    message: "当前分类至少需要 \(minimumRequiredTags) 个标签"
+                )
+            }
+        case .privateMessage:
+            guard trimmedTitle.count >= minimumTitleLength else {
+                return State(
+                    canSubmit: false,
+                    message: "标题至少需要 \(minimumTitleLength) 个字"
+                )
+            }
+            guard trimmedBody.count >= minimumBodyLength else {
+                return State(
+                    canSubmit: false,
+                    message: "正文至少需要 \(minimumBodyLength) 个字"
+                )
+            }
+            guard recipientCount > 0 else {
+                return State(canSubmit: false, message: "请至少添加一个收件人")
+            }
+        case .advancedReply:
+            guard trimmedBody.count >= minimumBodyLength else {
+                return State(
+                    canSubmit: false,
+                    message: "回复至少需要 \(minimumBodyLength) 个字"
+                )
+            }
+        }
+
+        return State(canSubmit: true, message: nil)
+    }
+}
+
+enum FireComposerCategoryGuidance {
+    static func categorySheetSummary(for category: FireTopicCategoryPresentation) -> String? {
+        var parts: [String] = []
+
+        let minimumRequiredTags = Int(category.minimumRequiredTags)
+        if minimumRequiredTags > 0 {
+            parts.append("至少 \(minimumRequiredTags) 个标签")
+        }
+
+        for group in category.requiredTagGroups.prefix(2) {
+            let trimmedName = group.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmedName.isEmpty {
+                parts.append("标签组至少 \(group.minCount) 个")
+            } else {
+                parts.append("\(trimmedName) 至少 \(group.minCount) 个")
+            }
+        }
+
+        let template = category.topicTemplate?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !template.isEmpty {
+            parts.append("自带模板")
+        }
+
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    static func suggestedTags(
+        category: FireTopicCategoryPresentation?,
+        topTags: [String],
+        selectedTags: [String],
+        limit: Int = 8
+    ) -> [String] {
+        let selected = Set(
+            selectedTags
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+                .filter { !$0.isEmpty }
+        )
+        let source = (category?.allowedTags.isEmpty == false)
+            ? category?.allowedTags ?? []
+            : topTags
+
+        var suggestions: [String] = []
+        var seen: Set<String> = []
+
+        for candidate in source {
+            let trimmed = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
+            let normalized = trimmed.lowercased()
+            guard !trimmed.isEmpty else { continue }
+            guard !selected.contains(normalized) else { continue }
+            guard !seen.contains(normalized) else { continue }
+
+            seen.insert(normalized)
+            suggestions.append(trimmed)
+
+            if suggestions.count >= limit {
+                break
+            }
+        }
+
+        return suggestions
+    }
+}
+
 struct FireComposerView: View {
     @ObservedObject var viewModel: FireAppViewModel
     let route: FireComposerRoute
@@ -289,6 +433,25 @@ struct FireComposerView: View {
         Int(selectedCategory?.minimumRequiredTags ?? 0)
     }
 
+    private var selectedCategoryRequiredTagGroups: [RequiredTagGroupState] {
+        selectedCategory?.requiredTagGroups ?? []
+    }
+
+    private var suggestedTags: [String] {
+        guard selectedCategory != nil else { return [] }
+        return FireComposerCategoryGuidance.suggestedTags(
+            category: selectedCategory,
+            topTags: viewModel.topTags(),
+            selectedTags: selectedTags
+        )
+    }
+
+    private var selectedCategoryHasTemplate: Bool {
+        let template = selectedCategory?.topicTemplate?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return !template.isEmpty
+    }
+
     private var hasDraftContent: Bool {
         switch route.kind {
         case .createTopic, .privateMessage:
@@ -298,27 +461,29 @@ struct FireComposerView: View {
         }
     }
 
-    private var canSubmit: Bool {
-        guard viewModel.session.readiness.canWriteAuthenticatedApi else {
-            return false
-        }
-        guard !isSubmitting else {
-            return false
-        }
+    private var submitValidation: FireComposerValidation.State {
+        FireComposerValidation.submitState(
+            route: route,
+            canStartAuthenticatedMutation: viewModel.canStartAuthenticatedMutation,
+            isSubmitting: isSubmitting,
+            trimmedTitle: trimmedTitle,
+            trimmedBody: trimmedBody,
+            minimumTitleLength: minimumTitleLength,
+            minimumBodyLength: minimumBodyLength,
+            selectedCategoryID: selectedCategoryID,
+            selectedTagCount: selectedTags.count,
+            minimumRequiredTags: selectedCategoryMinimumTags,
+            recipientCount: selectedRecipients.count
+        )
+    }
 
-        switch route.kind {
-        case .createTopic:
-            return !trimmedTitle.isEmpty
-                && !trimmedBody.isEmpty
-                && selectedCategoryID != nil
-                && selectedTags.count >= selectedCategoryMinimumTags
-        case .privateMessage:
-            return !trimmedTitle.isEmpty
-                && !trimmedBody.isEmpty
-                && !selectedRecipients.isEmpty
-        case .advancedReply:
-            return !trimmedBody.isEmpty
-        }
+    private var canSubmit: Bool {
+        submitValidation.canSubmit
+    }
+
+    private var submitValidationMessage: String? {
+        guard !canSubmit else { return nil }
+        return submitValidation.message
     }
 
     private var markdownImages: [FireComposerMarkdownImage] {
@@ -471,7 +636,9 @@ struct FireComposerView: View {
                 .buttonStyle(.plain)
             }
 
-            if canTagTopics {
+            createTopicRequirementsCard
+
+            if canTagTopics || selectedCategoryMinimumTags > 0 {
                 VStack(alignment: .leading, spacing: 10) {
                     if !selectedTags.isEmpty {
                         FlowLayout(spacing: 8, fallbackWidth: max(UIScreen.main.bounds.width - 32, 200)) {
@@ -483,6 +650,19 @@ struct FireComposerView: View {
 
                     TextField("添加标签", text: $tagInput)
                         .textFieldStyle(.roundedBorder)
+
+                    if !suggestedTags.isEmpty {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("推荐标签")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(FireTheme.subtleInk)
+                            FlowLayout(spacing: 8, fallbackWidth: max(UIScreen.main.bounds.width - 32, 200)) {
+                                ForEach(suggestedTags, id: \.self) { tag in
+                                    suggestedTagChip(tag)
+                                }
+                            }
+                        }
+                    }
 
                     if !tagResults.isEmpty {
                         VStack(alignment: .leading, spacing: 0) {
@@ -524,6 +704,55 @@ struct FireComposerView: View {
                 }
             }
         }
+    }
+
+    private var createTopicRequirementsCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: selectedCategory == nil ? "info.circle.fill" : "checkmark.circle.fill")
+                    .foregroundStyle(selectedCategory == nil ? FireTheme.subtleInk : FireTheme.accent)
+                Text("发布要求")
+                    .font(.subheadline.weight(.semibold))
+            }
+
+            if let selectedCategory {
+                Text("当前分类：\(categoryDisplayName(for: selectedCategory))")
+                    .font(.caption)
+                    .foregroundStyle(.primary)
+
+                if selectedCategoryMinimumTags > 0 {
+                    Text("标签进度：\(selectedTags.count)/\(selectedCategoryMinimumTags)")
+                        .font(.caption)
+                        .foregroundStyle(
+                            selectedTags.count >= selectedCategoryMinimumTags
+                                ? FireTheme.accent
+                                : FireTheme.subtleInk
+                        )
+                }
+
+                ForEach(selectedCategoryRequiredTagGroups, id: \.self) { group in
+                    Text(requiredTagGroupRequirementText(group))
+                        .font(.caption)
+                        .foregroundStyle(FireTheme.subtleInk)
+                }
+
+                if selectedCategoryHasTemplate {
+                    Text("该分类会自动带出发帖模板。")
+                        .font(.caption)
+                        .foregroundStyle(FireTheme.subtleInk)
+                }
+            } else {
+                Text("先选择分类，系统才会显示该分类的模板和标签要求。")
+                    .font(.caption)
+                    .foregroundStyle(FireTheme.subtleInk)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color(.secondarySystemBackground))
+        )
     }
 
     private var privateMessageHeader: some View {
@@ -722,6 +951,13 @@ struct FireComposerView: View {
     private var bottomActionBar: some View {
         VStack(spacing: 10) {
             Divider()
+            if let submitValidationMessage, !submitValidationMessage.isEmpty {
+                Text(submitValidationMessage)
+                    .font(.caption)
+                    .foregroundStyle(FireTheme.subtleInk)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 16)
+            }
             HStack(spacing: 12) {
                 if draftSequence > 0 {
                     Button("清除草稿") {
@@ -795,6 +1031,26 @@ struct FireComposerView: View {
             .padding(.vertical, 6)
             .background(
                 Capsule().fill(FireTheme.accent.opacity(0.12))
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func suggestedTagChip(_ tag: String) -> some View {
+        Button {
+            addTag(tag)
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "plus")
+                    .font(.system(size: 9, weight: .bold))
+                Text("#\(tag)")
+                    .font(.caption.weight(.medium))
+            }
+            .foregroundStyle(FireTheme.subtleInk)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(
+                Capsule().fill(Color(.tertiarySystemFill))
             )
         }
         .buttonStyle(.plain)
@@ -900,6 +1156,14 @@ struct FireComposerView: View {
             return category.displayName
         }
         return "\(parent.displayName) / \(category.displayName)"
+    }
+
+    private func requiredTagGroupRequirementText(_ group: RequiredTagGroupState) -> String {
+        let trimmedName = group.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmedName.isEmpty {
+            return "需要从一个标签组里至少选择 \(group.minCount) 个标签。"
+        }
+        return "标签组「\(trimmedName)」至少需要 \(group.minCount) 个标签。"
     }
 
     private func addTag(_ tag: String) {
@@ -1485,8 +1749,15 @@ private struct FireComposerCategorySheet: View {
                 dismiss()
             } label: {
                 HStack {
-                    Text(categoryLabel(category))
-                        .foregroundStyle(.primary)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(categoryLabel(category))
+                            .foregroundStyle(.primary)
+                        if let summary = FireComposerCategoryGuidance.categorySheetSummary(for: category) {
+                            Text(summary)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
                     Spacer()
                     if selectedCategoryID == category.id {
                         Image(systemName: "checkmark")

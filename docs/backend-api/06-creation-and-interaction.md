@@ -293,6 +293,7 @@
   - 宿主层在 quick composer 获得焦点时会立即触发一次 `present_channels[]` 更新
   - 已处于 reply-presence 活跃状态的同一 topic，Rust 共享层仍会把重复 `present_channels[]` 限制到至少 `30s` 一次，避免宿主层重复触发
   - 对已经本地判定为非活跃的 topic，重复 `leave_channels[]` 会在客户端被直接丢弃，避免重复打点
+  - Rust 共享层会在 Presence 更新前自动补拿 `/session/csrf`；如果服务端返回 `["BAD CSRF"]`，会刷新 token 后自动重试一次
 - 限流响应：
 
 ```json

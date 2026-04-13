@@ -97,12 +97,13 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
   - now render from `FireNotificationStore` instead of reading notification list state directly off `FireAppViewModel`
 - `App/FireComposerView.swift`
   - now supports native private-message compose alongside create-topic and advanced-reply flows, including recipient token editing, PM-specific draft restore/save, and PM-specific validation lengths from bootstrap
+  - now keeps create-topic category/tag requirements visible inline, shows category-aware recommended tags, and surfaces the current disabled-submit reason directly above the submit bar
 - `App/FirePrivateMessagesView.swift`
   - provides the native private-message workspace with inbox/sent switching, participant-aware rows, compose entry, and route handoff into topic detail after successful send
 - `App/FireTopicDetailView.swift`
   - subscribes the current topic's detail, reaction, and reply-presence channels through the shared Rust MessageBus surface
   - reports visible-post reading timings through a native viewport tracker that flushes into the shared Rust `/topics/timings` API
-  - now shows live "typing" presence above the quick-reply bar while keeping the actual presence state and heartbeats in the shared layer
+  - now shows live "typing" presence above the quick-reply bar while keeping the actual presence state and heartbeats in the shared layer, and lets reply-presence heartbeats reuse the same CSRF auto-repair path as other authenticated writes
   - now treats `private_message` threads as a distinct native surface, showing participant chips in the header and hiding topic-only controls that do not apply to PMs
 - `App/FirePublicProfileView.swift`
   - now exposes a native private-message entry when the target profile allows direct messages, pre-filling the recipient into the shared PM composer flow

@@ -207,7 +207,7 @@ struct FireTopicDetailView: View {
     }
 
     private var canWriteInteractions: Bool {
-        viewModel.session.readiness.canWriteAuthenticatedApi
+        viewModel.canStartAuthenticatedMutation
     }
 
     private var topicShareURL: URL? {

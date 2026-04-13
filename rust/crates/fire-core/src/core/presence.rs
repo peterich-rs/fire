@@ -142,18 +142,22 @@ impl FireCore {
             fields.push(("leave_channels[]".to_string(), channel));
         }
 
-        let traced = self.build_form_request_with_headers(
-            UPDATE_TOPIC_REPLY_PRESENCE_OPERATION,
-            Method::POST,
-            "/presence/update",
-            fields,
-            vec![
-                ("X-SILENCE-LOGGER", "true".to_string()),
-                ("Discourse-Background", "true".to_string()),
-            ],
-            true,
-        )?;
-        let (trace_id, response) = self.execute_request(traced).await?;
+        let headers = vec![
+            ("X-SILENCE-LOGGER", "true".to_string()),
+            ("Discourse-Background", "true".to_string()),
+        ];
+        let (trace_id, response) = self
+            .execute_api_request_with_csrf_retry(UPDATE_TOPIC_REPLY_PRESENCE_OPERATION, || {
+                self.build_form_request_with_headers(
+                    UPDATE_TOPIC_REPLY_PRESENCE_OPERATION,
+                    Method::POST,
+                    "/presence/update",
+                    fields.clone(),
+                    headers.clone(),
+                    true,
+                )
+            })
+            .await?;
         let response = match expect_success(
             self,
             UPDATE_TOPIC_REPLY_PRESENCE_OPERATION,

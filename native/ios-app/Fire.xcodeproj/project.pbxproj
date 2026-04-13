@@ -735,7 +735,7 @@
 				INFOPLIST_KEY_BGTaskSchedulerPermittedIdentifiers = (
 					"com.fire.app.ios.notification-alert-refresh",
 				);
-				INFOPLIST_KEY_CFBundleDisplayName = Fire;
+				INFOPLIST_KEY_CFBundleDisplayName = "$(FIRE_DISPLAY_NAME)";
 				INFOPLIST_KEY_CFBundleURLTypes = "[[\"CFBundleURLSchemes\": [\"fire\"], \"CFBundleURLName\": \"fire\"]]";
 				INFOPLIST_KEY_FireGitSha = "$(FIRE_GIT_SHA)";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -959,7 +959,7 @@
 				INFOPLIST_KEY_BGTaskSchedulerPermittedIdentifiers = (
 					"com.fire.app.ios.notification-alert-refresh",
 				);
-				INFOPLIST_KEY_CFBundleDisplayName = Fire;
+				INFOPLIST_KEY_CFBundleDisplayName = "$(FIRE_DISPLAY_NAME)";
 				INFOPLIST_KEY_CFBundleURLTypes = "[[\"CFBundleURLSchemes\": [\"fire\"], \"CFBundleURLName\": \"fire\"]]";
 				INFOPLIST_KEY_FireGitSha = "$(FIRE_GIT_SHA)";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;

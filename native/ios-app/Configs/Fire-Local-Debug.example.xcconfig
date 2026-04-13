@@ -1,3 +1,5 @@
 // Copy to Fire-Local-Debug.xcconfig for ignored local device signing overrides.
 FIRE_DEVELOPMENT_TEAM = YOUR_DEVELOPMENT_TEAM_ID
 FIRE_PRODUCT_BUNDLE_IDENTIFIER = com.example.fire.dev
+// Optional: override the on-device app name so debug/release installs are easy to distinguish.
+// FIRE_DISPLAY_NAME = Fire Dev

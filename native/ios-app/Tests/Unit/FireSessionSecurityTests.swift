@@ -32,6 +32,13 @@ final class FireSessionSecurityTests: XCTestCase {
                         domain: ".linux.do",
                         expiresAtUnixMs: freshExpiry
                     ),
+                    makePlatformCookie(
+                        name: "__cf_bm",
+                        value: "browser-context",
+                        domain: ".linux.do",
+                        path: "/cdn-cgi",
+                        expiresAtUnixMs: freshExpiry
+                    ),
                 ]
             ),
             bootstrap: BootstrapState(
@@ -95,19 +102,27 @@ final class FireSessionSecurityTests: XCTestCase {
         await session.mirrorCookiesToNativeStorage()
 
         let sharedCookies = mirroredSharedCookies()
-        XCTAssertEqual(sharedCookies.count, 3)
+        XCTAssertEqual(sharedCookies.count, 4)
         XCTAssertEqual(sharedCookies.first(where: { $0.name == "_t" })?.value, "fresh-token")
         XCTAssertEqual(
             sharedCookies.first(where: { $0.name == "cf_clearance" })?.value,
             "fresh-clearance"
         )
+        XCTAssertEqual(
+            sharedCookies.first(where: { $0.name == "__cf_bm" })?.value,
+            "browser-context"
+        )
 
         let webKitCookies = await mirroredWebKitCookies(store)
-        XCTAssertEqual(webKitCookies.count, 3)
+        XCTAssertEqual(webKitCookies.count, 4)
         XCTAssertEqual(webKitCookies.first(where: { $0.name == "_t" })?.value, "fresh-token")
         XCTAssertEqual(
             webKitCookies.first(where: { $0.name == "cf_clearance" })?.value,
             "fresh-clearance"
+        )
+        XCTAssertEqual(
+            webKitCookies.first(where: { $0.name == "__cf_bm" })?.value,
+            "browser-context"
         )
         XCTAssertFalse(webKitCookies.contains(where: { $0.value == "stale-token" }))
 
@@ -723,6 +738,22 @@ final class FireSessionSecurityTests: XCTestCase {
     }
 
     @MainActor
+    func testStaleSessionResponseIsConsumedWithoutPresentingRecovery() async {
+        let viewModel = FireAppViewModel(initialSession: authenticatedSession())
+
+        let recovered = await viewModel.handleRecoverableSessionErrorIfNeeded(
+            FireUniFfiError.StaleSessionResponse(operation: "fetch topic list")
+        )
+
+        XCTAssertTrue(recovered)
+        XCTAssertFalse(viewModel.isPresentingLogin)
+        XCTAssertNil(viewModel.errorMessage)
+        XCTAssertTrue(viewModel.session.hasLoginSession)
+        XCTAssertTrue(viewModel.session.readiness.canReadAuthenticatedApi)
+        XCTAssertTrue(viewModel.session.readiness.hasCloudflareClearance)
+    }
+
+    @MainActor
     func testLoginRequiredRecoveryClearsLocalSessionAndPresentsLogin() async {
         let recoveryStore = MockChallengeRecoveryStore(
             result: .success(challengedLoggedOutSession())
@@ -959,7 +990,6 @@ final class FireSessionSecurityTests: XCTestCase {
     private func mirroredSharedCookies() -> [HTTPCookie] {
         let host = "linux.do"
         return (HTTPCookieStorage.shared.cookies ?? [])
-            .filter { mirroredCookieNames.contains($0.name) }
             .filter {
                 let normalizedDomain = normalizeCookieDomain($0.domain)
                 return normalizedDomain == host || normalizedDomain.hasSuffix(".\(host)")
@@ -982,7 +1012,6 @@ final class FireSessionSecurityTests: XCTestCase {
         let host = "linux.do"
         let cookies = await store.getAllCookies()
         return cookies
-            .filter { mirroredCookieNames.contains($0.name) }
             .filter {
                 let normalizedDomain = normalizeCookieDomain($0.domain)
                 return normalizedDomain == host || normalizedDomain.hasSuffix(".\(host)")
@@ -999,10 +1028,6 @@ final class FireSessionSecurityTests: XCTestCase {
         for cookie in await mirroredWebKitCookies(store) {
             await store.deleteCookie(cookie)
         }
-    }
-
-    private var mirroredCookieNames: Set<String> {
-        ["_t", "_forum_session", "cf_clearance"]
     }
 
     private func normalizeCookieDomain(_ domain: String) -> String {

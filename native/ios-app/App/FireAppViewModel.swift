@@ -943,7 +943,7 @@ final class FireAppViewModel: ObservableObject {
             )
             return accepted
         } catch {
-            _ = await handleLoginRequiredIfNeeded(error)
+            _ = await handleRecoverableSessionErrorIfNeeded(error)
             return false
         }
     }
@@ -1488,6 +1488,9 @@ final class FireAppViewModel: ObservableObject {
         if await handleLoginRequiredIfNeeded(error) {
             return true
         }
+        if await handleStaleSessionResponseIfNeeded(error) {
+            return true
+        }
         return await handleCloudflareChallengeIfNeeded(error)
     }
 
@@ -1502,6 +1505,19 @@ final class FireAppViewModel: ObservableObject {
         )
         await resetSessionAndPresentLogin(
             message: message.isEmpty ? Self.loginRequiredMessage : message
+        )
+        return true
+    }
+
+    @discardableResult
+    func handleStaleSessionResponseIfNeeded(_ error: Error) async -> Bool {
+        guard case let FireUniFfiError.StaleSessionResponse(operation) = error else {
+            return false
+        }
+
+        FireAPMManager.shared.recordBreadcrumb(
+            target: Self.authDiagnosticsLogTarget,
+            message: "discarded stale session response operation=\(operation)"
         )
         return true
     }

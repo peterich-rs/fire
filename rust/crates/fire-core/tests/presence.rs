@@ -416,7 +416,10 @@ async fn update_topic_reply_presence_refreshes_csrf_when_missing() {
     assert!(app_requests[1]
         .to_ascii_lowercase()
         .contains("x-csrf-token: fresh-csrf"));
-    assert_eq!(core.snapshot().cookies.csrf_token.as_deref(), Some("fresh-csrf"));
+    assert_eq!(
+        core.snapshot().cookies.csrf_token.as_deref(),
+        Some("fresh-csrf")
+    );
 }
 
 #[tokio::test]

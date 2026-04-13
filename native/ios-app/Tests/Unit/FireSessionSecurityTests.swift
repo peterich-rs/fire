@@ -462,7 +462,15 @@ final class FireSessionSecurityTests: XCTestCase {
             refreshResult: .failure(FireUniFfiError.CloudflareChallenge),
             logoutLocalResult: SessionState.placeholder()
         )
-        let coordinator = FireWebViewLoginCoordinator(loginSessionStore: store)
+        let clearedChallengeCookies = expectation(
+            description: "challenge recovery cookies cleared"
+        )
+        let coordinator = FireWebViewLoginCoordinator(
+            loginSessionStore: store,
+            challengeRecoveryCookieCleaner: {
+                clearedChallengeCookies.fulfill()
+            }
+        )
 
         do {
             _ = try await coordinator.completeLogin(sampleCapturedLoginState())
@@ -473,6 +481,7 @@ final class FireSessionSecurityTests: XCTestCase {
             XCTFail("unexpected error: \(error)")
         }
 
+        await fulfillment(of: [clearedChallengeCookies], timeout: 1.0)
         let calls = await store.calls()
         XCTAssertEqual(calls.syncLoginContextCount, 1)
         XCTAssertEqual(calls.refreshBootstrapIfNeededCount, 1)

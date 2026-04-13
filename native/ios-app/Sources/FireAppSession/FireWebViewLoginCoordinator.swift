@@ -190,14 +190,20 @@ extension FireSessionStore: FireLoginSessionStoring {}
 @MainActor
 public final class FireWebViewLoginCoordinator {
     private let sessionStore: any FireLoginSessionStoring
+    private let challengeRecoveryCookieCleaner: (@Sendable () async throws -> Void)?
     private var probeHomeFallbackCache: FireLoginProbeHomeFallbackCache?
 
     public init(sessionStore: FireSessionStore) {
         self.sessionStore = sessionStore
+        self.challengeRecoveryCookieCleaner = nil
     }
 
-    init(loginSessionStore: any FireLoginSessionStoring) {
+    init(
+        loginSessionStore: any FireLoginSessionStoring,
+        challengeRecoveryCookieCleaner: (@Sendable () async throws -> Void)? = nil
+    ) {
         self.sessionStore = loginSessionStore
+        self.challengeRecoveryCookieCleaner = challengeRecoveryCookieCleaner
     }
 
     public func restorePersistedSessionIfAvailable() async throws -> SessionState? {
@@ -229,7 +235,11 @@ public final class FireWebViewLoginCoordinator {
             // refresh is still challenged. The WebView login flow remains open so
             // the user can complete the challenge and retry Sync.
             _ = try? await sessionStore.logoutLocal(preserveCfClearance: true)
-            try? await clearChallengeRecoveryCookies()
+            if let challengeRecoveryCookieCleaner {
+                try? await challengeRecoveryCookieCleaner()
+            } else {
+                try? await clearChallengeRecoveryCookies()
+            }
             throw error
         }
     }

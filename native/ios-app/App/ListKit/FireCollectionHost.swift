@@ -5,6 +5,8 @@ struct FireCollectionHost<SectionID: Hashable, ItemID: Hashable, RowContent: Vie
     UIViewControllerRepresentable
 {
     let sections: [FireListSectionModel<SectionID, ItemID>]
+    let layoutVersion: AnyHashable
+    let contentVersion: AnyHashable
     let makeLayout: () -> UICollectionViewLayout
     let showsVerticalScrollIndicator: Bool
     let backgroundColor: UIColor
@@ -18,6 +20,8 @@ struct FireCollectionHost<SectionID: Hashable, ItemID: Hashable, RowContent: Vie
 
     init(
         sections: [FireListSectionModel<SectionID, ItemID>],
+        layoutVersion: AnyHashable = 0,
+        contentVersion: AnyHashable = 0,
         showsVerticalScrollIndicator: Bool = true,
         backgroundColor: UIColor = .clear,
         animatingDifferences: Bool = true,
@@ -30,6 +34,8 @@ struct FireCollectionHost<SectionID: Hashable, ItemID: Hashable, RowContent: Vie
         rowContent: @escaping (ItemID) -> RowContent
     ) {
         self.sections = sections
+        self.layoutVersion = layoutVersion
+        self.contentVersion = contentVersion
         self.showsVerticalScrollIndicator = showsVerticalScrollIndicator
         self.backgroundColor = backgroundColor
         self.animatingDifferences = animatingDifferences
@@ -48,6 +54,8 @@ struct FireCollectionHost<SectionID: Hashable, ItemID: Hashable, RowContent: Vie
         let controller: FireDiffableListController<SectionID, ItemID, RowContent> =
             FireDiffableListController(
                 layout: makeLayout(),
+                layoutVersion: layoutVersion,
+                contentVersion: contentVersion,
                 showsVerticalScrollIndicator: showsVerticalScrollIndicator,
                 backgroundColor: backgroundColor,
                 onSelectItem: onSelectItem,
@@ -64,13 +72,17 @@ struct FireCollectionHost<SectionID: Hashable, ItemID: Hashable, RowContent: Vie
         _ uiViewController: FireDiffableListController<SectionID, ItemID, RowContent>,
         context: Context
     ) {
-        uiViewController.updateLayout(makeLayout())
+        uiViewController.updateLayoutIfNeeded(
+            version: layoutVersion,
+            makeLayout: makeLayout
+        )
         uiViewController.updateAppearance(
             showsVerticalScrollIndicator: showsVerticalScrollIndicator,
             backgroundColor: backgroundColor
         )
         uiViewController.setSections(
             sections,
+            contentVersion: contentVersion,
             animatingDifferences: animatingDifferences
         )
     }

@@ -78,9 +78,35 @@ private enum FireCloudflareRecoveryError: LocalizedError {
     }
 }
 
+private final class PendingCloudflareRecoveryWaiters: @unchecked Sendable {
+    private let lock = NSLock()
+    private var waiters: [UUID: CheckedContinuation<Void, Error>] = [:]
+
+    func add(_ waiter: CheckedContinuation<Void, Error>, for id: UUID) {
+        lock.lock()
+        waiters[id] = waiter
+        lock.unlock()
+    }
+
+    func remove(_ id: UUID) -> CheckedContinuation<Void, Error>? {
+        lock.lock()
+        defer { lock.unlock() }
+        return waiters.removeValue(forKey: id)
+    }
+
+    func removeAll() -> [CheckedContinuation<Void, Error>] {
+        lock.lock()
+        defer {
+            waiters.removeAll()
+            lock.unlock()
+        }
+        return Array(waiters.values)
+    }
+}
+
 private struct PendingCloudflareRecovery {
     let context: FireCloudflareChallengeContext
-    var waiters: [UUID: CheckedContinuation<Void, Error>] = [:]
+    let waiters = PendingCloudflareRecoveryWaiters()
 }
 
 struct FireTopicPostPaginationState {
@@ -1469,20 +1495,23 @@ final class FireAppViewModel: ObservableObject {
             setAuthPresentationState(.cloudflareRecovery(context))
         }
 
+        guard let pendingCloudflareRecovery else {
+            throw FireCloudflareRecoveryError.cancelled
+        }
+
+        let waiters = pendingCloudflareRecovery.waiters
         let waiterID = UUID()
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation {
                 (continuation: CheckedContinuation<Void, Error>) in
-                guard var pendingCloudflareRecovery else {
-                    continuation.resume(throwing: FireCloudflareRecoveryError.cancelled)
-                    return
+                waiters.add(continuation, for: waiterID)
+                if Task.isCancelled, let waiter = waiters.remove(waiterID) {
+                    waiter.resume(throwing: CancellationError())
                 }
-                pendingCloudflareRecovery.waiters[waiterID] = continuation
-                self.pendingCloudflareRecovery = pendingCloudflareRecovery
             }
-        } onCancel: { [weak self] in
-            Task { @MainActor [weak self] in
-                self?.cancelPendingCloudflareRecoveryWaiter(waiterID)
+        } onCancel: {
+            if let waiter = waiters.remove(waiterID) {
+                waiter.resume(throwing: CancellationError())
             }
         }
     }
@@ -1744,21 +1773,9 @@ final class FireAppViewModel: ObservableObject {
             return
         }
 
-        let waiters = Array(pendingCloudflareRecovery.waiters.values)
+        let waiters = pendingCloudflareRecovery.waiters.removeAll()
         self.pendingCloudflareRecovery = nil
         waiters.forEach { $0.resume(with: result) }
-    }
-
-    private func cancelPendingCloudflareRecoveryWaiter(_ waiterID: UUID) {
-        guard var pendingCloudflareRecovery else {
-            return
-        }
-        guard let waiter = pendingCloudflareRecovery.waiters.removeValue(forKey: waiterID) else {
-            return
-        }
-
-        self.pendingCloudflareRecovery = pendingCloudflareRecovery
-        waiter.resume(throwing: CancellationError())
     }
 
     func topicDetailLogger() -> FireHostLogger? {

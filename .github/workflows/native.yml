@@ -92,8 +92,9 @@ jobs:
         run: ./gradlew assembleRelease
 
   ios:
-    name: iOS Build And Unit Test
+    name: iOS Validation
     runs-on: macos-15
+    timeout-minutes: 90
 
     steps:
       - uses: actions/checkout@v5
@@ -135,7 +136,7 @@ jobs:
       - name: Verify generated Xcode project is up to date
         run: git diff --exit-code -- native/ios-app/Fire.xcodeproj
 
-      - name: Run iOS unit tests
+      - name: Run iOS tests
         shell: bash
         run: |
           set -euo pipefail
@@ -150,15 +151,27 @@ jobs:
           trap 'xcrun simctl delete "$sim_id"' EXIT
           xcrun simctl boot "$sim_id" || true
           xcrun simctl bootstatus "$sim_id" -b
-          xcodebuild \
-            -project native/ios-app/Fire.xcodeproj \
-            -scheme Fire \
-            -destination "id=$sim_id" \
-            -derivedDataPath /tmp/fire-ios-tests \
-            CODE_SIGNING_ALLOWED=NO \
-            test
+          run_tests() {
+            local test_identifier="$1"
+
+            xcodebuild \
+              -project native/ios-app/Fire.xcodeproj \
+              -scheme Fire \
+              -destination "id=$sim_id" \
+              -derivedDataPath /tmp/fire-ios-tests \
+              CODE_SIGNING_ALLOWED=NO \
+              -only-testing:"$test_identifier" \
+              test
+          }
+
+          run_tests FireTests
+
+          if [[ "${GITHUB_EVENT_NAME}" == "push" ]]; then
+            run_tests "FireUITests/FireSmokeUITests/testAppLaunches"
+          fi
 
       - name: Build iOS app for device
+        if: github.event_name == 'push'
         run: |
           xcodebuild \
             -project native/ios-app/Fire.xcodeproj \

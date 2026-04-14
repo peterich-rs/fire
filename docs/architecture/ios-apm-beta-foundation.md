@@ -17,9 +17,10 @@ This document describes the iOS-only crash and APM runtime added for the beta ph
   - `events/` daily NDJSON event files
   - `crashes/` raw `.plcrash` payloads
   - `metrickit/` raw MetricKit JSON payloads
-  - `exports/` shareable `.firesupportbundle` directories
-  - `tmp/` PLCrashReporter temporary files
-  - `runtime-state.json` last durable route / scene / breadcrumb snapshot
+  - `runtime-states/` per-launch route / scene / breadcrumb snapshots
+  - `tmp/` PLCrashReporter and full-export staging files
+- Shareable full-export artifacts live under `Application Support/Fire/ios-apm-exports/` as `.zip` archives.
+- The app keeps at most the latest 3 full-export archives and expires archives older than 24 hours.
 
 ## Correlation model
 
@@ -31,12 +32,13 @@ This document describes the iOS-only crash and APM runtime added for the beta ph
 ## Export and release workflow
 
 - Standard diagnostics export still comes from Rust via `export_support_bundle`.
-- Full iOS APM export creates a `.firesupportbundle` package containing:
+- Full iOS APM export creates a `.zip` archive whose root folder preserves the `.firesupportbundle` layout and contains:
   - Rust support bundle copy, when available
   - iOS APM events
   - raw crash payloads
   - raw MetricKit payloads
   - APM manifest with build metadata
+- Export staging directories are removed immediately after zipping so only the final archive remains in `ios-apm-exports/`.
 - Release artifact generation is handled by `scripts/ios/archive_release.sh`.
 - CI/manual archive artifact generation is handled by `.github/workflows/ios-release-artifacts.yml`.
 - The archive script injects `FIRE_GIT_SHA`, archives the app, copies `dSYMs/`, and emits `build-metadata.json`.

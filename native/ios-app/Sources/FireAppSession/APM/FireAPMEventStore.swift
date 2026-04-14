@@ -4,6 +4,9 @@ actor FireAPMEventStore {
     private enum Constants {
         static let maxTotalBytes: UInt64 = 32 * 1024 * 1024
         static let retentionWindow: TimeInterval = 7 * 24 * 60 * 60
+        static let exportRetentionWindow: TimeInterval = 24 * 60 * 60
+        static let maxExportArchiveCount = 3
+        static let staleTemporaryExportWindow: TimeInterval = 6 * 60 * 60
     }
 
     private let baseURL: URL
@@ -29,6 +32,7 @@ actor FireAPMEventStore {
         self.encoder = encoder
         self.decoder = JSONDecoder()
         try ensureDirectories()
+        try pruneIfNeeded()
     }
 
     static func defaultBaseURL(fileManager: FileManager = .default) throws -> URL {
@@ -164,26 +168,36 @@ actor FireAPMEventStore {
         scenePhase: String?
     ) throws -> FireAPMSupportBundleExport {
         let timestamp = FireAPMClock.nowUnixMs()
-        let fileName = "fire-ios-apm-\(timestamp).firesupportbundle"
+        let archiveRootName = "fire-ios-apm-\(timestamp).firesupportbundle"
+        let fileName = "fire-ios-apm-\(timestamp).zip"
         let exportURL = exportBaseURL
-            .appendingPathComponent(fileName, isDirectory: true)
+            .appendingPathComponent(fileName, isDirectory: false)
+        let stagingURL = temporaryExportDirectoryURL(rootName: archiveRootName)
+
+        try pruneIfNeeded()
 
         if fileManager.fileExists(atPath: exportURL.path) {
             try fileManager.removeItem(at: exportURL)
         }
-        try fileManager.createDirectory(at: exportURL, withIntermediateDirectories: true)
+        if fileManager.fileExists(atPath: stagingURL.path) {
+            try fileManager.removeItem(at: stagingURL)
+        }
+        try fileManager.createDirectory(at: stagingURL, withIntermediateDirectories: true)
+        defer {
+            try? fileManager.removeItem(at: stagingURL)
+        }
 
         for component in ["events", "crashes", "metrickit"] {
             let source = baseURL.appendingPathComponent(component, isDirectory: true)
             guard fileManager.fileExists(atPath: source.path) else { continue }
-            let destination = exportURL.appendingPathComponent(component, isDirectory: true)
+            let destination = stagingURL.appendingPathComponent(component, isDirectory: true)
             try fileManager.copyItem(at: source, to: destination)
         }
 
         if let rustSupportBundleURL, fileManager.fileExists(atPath: rustSupportBundleURL.path) {
             try fileManager.copyItem(
                 at: rustSupportBundleURL,
-                to: exportURL.appendingPathComponent(rustSupportBundleURL.lastPathComponent)
+                to: stagingURL.appendingPathComponent(rustSupportBundleURL.lastPathComponent)
             )
         }
 
@@ -196,11 +210,24 @@ actor FireAPMEventStore {
         )
         let manifestData = try encoder.encode(manifest)
         try manifestData.write(
-            to: exportURL.appendingPathComponent("manifest.json"),
+            to: stagingURL.appendingPathComponent("manifest.json"),
             options: .atomic
         )
 
-        let sizeBytes = try Self.directorySize(at: exportURL, fileManager: fileManager)
+        try FireZipArchiveWriter.createArchive(
+            from: stagingURL,
+            to: exportURL,
+            fileManager: fileManager
+        )
+        if fileManager.fileExists(atPath: stagingURL.path) {
+            try? fileManager.removeItem(at: stagingURL)
+        }
+        try pruneExportArchivesIfNeeded(
+            at: exportBaseURL,
+            preserving: [exportURL.standardizedFileURL]
+        )
+        try pruneExportArchivesIfNeeded(at: legacyExportsDirectoryURL())
+        let sizeBytes = try Self.fileSize(at: exportURL, fileManager: fileManager)
         return FireAPMSupportBundleExport(
             fileName: fileName,
             absoluteURL: exportURL,
@@ -261,7 +288,17 @@ actor FireAPMEventStore {
         return events
     }
 
-    private func pruneIfNeeded() throws {
+    private func pruneIfNeeded(preservingExportURLs: Set<URL> = []) throws {
+        try pruneCapturedArtifactsIfNeeded()
+        try pruneTemporaryExportsIfNeeded()
+        try pruneExportArchivesIfNeeded(
+            at: exportBaseURL,
+            preserving: preservingExportURLs
+        )
+        try pruneExportArchivesIfNeeded(at: legacyExportsDirectoryURL())
+    }
+
+    private func pruneCapturedArtifactsIfNeeded() throws {
         let expirationCutoff = Date().addingTimeInterval(-Constants.retentionWindow)
         let legacyExportsURL = legacyExportsDirectoryURL().standardizedFileURL
         let enumerator = fileManager.enumerator(
@@ -313,6 +350,74 @@ actor FireAPMEventStore {
         }
     }
 
+    private func pruneTemporaryExportsIfNeeded() throws {
+        let tmpURL = baseURL.appendingPathComponent("tmp", isDirectory: true)
+        let expirationCutoff = Date().addingTimeInterval(-Constants.staleTemporaryExportWindow)
+        for item in try directoryContents(at: tmpURL) {
+            guard item.lastPathComponent.hasPrefix("fire-ios-apm-") else {
+                continue
+            }
+            let modifiedAt = try item.resourceValues(forKeys: [.contentModificationDateKey])
+                .contentModificationDate ?? .distantPast
+            if modifiedAt < expirationCutoff {
+                try? fileManager.removeItem(at: item)
+            }
+        }
+    }
+
+    private func pruneExportArchivesIfNeeded(
+        at directoryURL: URL,
+        preserving preservedURLs: Set<URL> = []
+    ) throws {
+        let preservedURLs = Set(preservedURLs.map(\.standardizedFileURL))
+        let expirationCutoff = Date().addingTimeInterval(-Constants.exportRetentionWindow)
+        let contents = try directoryContents(at: directoryURL)
+        if contents.isEmpty {
+            return
+        }
+
+        var candidates: [(url: URL, modifiedAt: Date)] = []
+        for item in contents {
+            let values = try item.resourceValues(
+                forKeys: [.contentModificationDateKey, .isRegularFileKey, .isDirectoryKey]
+            )
+            guard values.isRegularFile == true || values.isDirectory == true else {
+                continue
+            }
+
+            let standardizedURL = item.standardizedFileURL
+            let modifiedAt = values.contentModificationDate ?? .distantPast
+            if !preservedURLs.contains(standardizedURL), modifiedAt < expirationCutoff {
+                try? fileManager.removeItem(at: item)
+                continue
+            }
+
+            candidates.append((standardizedURL, modifiedAt))
+        }
+
+        let sorted = candidates.sorted { lhs, rhs in
+            if lhs.modifiedAt != rhs.modifiedAt {
+                return lhs.modifiedAt > rhs.modifiedAt
+            }
+            return lhs.url.lastPathComponent > rhs.url.lastPathComponent
+        }
+
+        var allowedURLs = preservedURLs
+        for candidate in sorted {
+            if allowedURLs.contains(candidate.url) {
+                continue
+            }
+            if allowedURLs.count >= Constants.maxExportArchiveCount {
+                break
+            }
+            allowedURLs.insert(candidate.url)
+        }
+
+        for candidate in sorted where !allowedURLs.contains(candidate.url) {
+            try? fileManager.removeItem(at: candidate.url)
+        }
+    }
+
     private func ensureDirectories() throws {
         try fileManager.createDirectory(at: baseURL, withIntermediateDirectories: true)
         for component in ["events", "crashes", "metrickit", "runtime-states", "tmp"] {
@@ -340,6 +445,12 @@ actor FireAPMEventStore {
 
     private func legacyExportsDirectoryURL() -> URL {
         baseURL.appendingPathComponent("exports", isDirectory: true)
+    }
+
+    private func temporaryExportDirectoryURL(rootName: String) -> URL {
+        baseURL
+            .appendingPathComponent("tmp", isDirectory: true)
+            .appendingPathComponent(rootName, isDirectory: true)
     }
 
     private func todayEventsURL() -> URL {
@@ -371,6 +482,18 @@ actor FireAPMEventStore {
     private static func fileSize(at url: URL, fileManager: FileManager) throws -> UInt64 {
         let values = try url.resourceValues(forKeys: [.fileSizeKey])
         return UInt64(values.fileSize ?? 0)
+    }
+
+    private func directoryContents(at url: URL) throws -> [URL] {
+        guard fileManager.fileExists(atPath: url.path) else {
+            return []
+        }
+
+        return try fileManager.contentsOfDirectory(
+            at: url,
+            includingPropertiesForKeys: [.contentModificationDateKey, .isRegularFileKey, .isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        )
     }
 
     private func loadRuntimeState(forLaunchID launchID: String) throws -> FireAPMRuntimeState? {
@@ -445,4 +568,212 @@ private struct FireAPMSupportBundleManifest: Codable {
     let buildInfo: FireAPMBuildInfo
     let runtimeState: FireAPMRuntimeState?
     let rustSupportBundleFileName: String?
+}
+
+private struct FireZipArchiveWriter {
+    private struct Entry {
+        let relativePath: String
+        let contents: Data
+        let modifiedAt: Date
+        let crc32: UInt32
+
+        var sizeBytes: UInt32 {
+            UInt32(contents.count)
+        }
+    }
+
+    private struct DOSTimestamp {
+        let time: UInt16
+        let date: UInt16
+    }
+
+    private enum ZipArchiveError: Error {
+        case unsupportedEntrySize(String)
+        case unsupportedEntryCount(Int)
+        case unsupportedArchiveSize
+    }
+
+    private static let utf8Flag: UInt16 = 1 << 11
+    private static let calendar = Calendar(identifier: .gregorian)
+    private static let crc32Table: [UInt32] = (0..<256).map { index in
+        var value = UInt32(index)
+        for _ in 0..<8 {
+            if value & 1 == 1 {
+                value = 0xEDB88320 ^ (value >> 1)
+            } else {
+                value >>= 1
+            }
+        }
+        return value
+    }
+
+    static func createArchive(
+        from directoryURL: URL,
+        to archiveURL: URL,
+        fileManager: FileManager
+    ) throws {
+        let entries = try makeEntries(from: directoryURL, fileManager: fileManager)
+        guard entries.count <= Int(UInt16.max) else {
+            throw ZipArchiveError.unsupportedEntryCount(entries.count)
+        }
+
+        if fileManager.fileExists(atPath: archiveURL.path) {
+            try fileManager.removeItem(at: archiveURL)
+        }
+        _ = fileManager.createFile(atPath: archiveURL.path, contents: nil)
+        guard let handle = try? FileHandle(forWritingTo: archiveURL) else {
+            throw CocoaError(.fileWriteUnknown)
+        }
+        defer { try? handle.close() }
+
+        var centralDirectory = Data()
+        var localHeaderOffset: UInt64 = 0
+
+        for entry in entries {
+            let fileNameData = Data(entry.relativePath.utf8)
+            let timestamp = dosTimestamp(for: entry.modifiedAt)
+
+            var localHeader = Data()
+            localHeader.appendLittleEndian(UInt32(0x04034B50))
+            localHeader.appendLittleEndian(UInt16(20))
+            localHeader.appendLittleEndian(utf8Flag)
+            localHeader.appendLittleEndian(UInt16(0))
+            localHeader.appendLittleEndian(timestamp.time)
+            localHeader.appendLittleEndian(timestamp.date)
+            localHeader.appendLittleEndian(entry.crc32)
+            localHeader.appendLittleEndian(entry.sizeBytes)
+            localHeader.appendLittleEndian(entry.sizeBytes)
+            localHeader.appendLittleEndian(UInt16(fileNameData.count))
+            localHeader.appendLittleEndian(UInt16(0))
+            localHeader.append(fileNameData)
+
+            try handle.write(contentsOf: localHeader)
+            try handle.write(contentsOf: entry.contents)
+
+            guard let storedOffset = UInt32(exactly: localHeaderOffset) else {
+                throw ZipArchiveError.unsupportedArchiveSize
+            }
+
+            var centralHeader = Data()
+            centralHeader.appendLittleEndian(UInt32(0x02014B50))
+            centralHeader.appendLittleEndian(UInt16(20))
+            centralHeader.appendLittleEndian(UInt16(20))
+            centralHeader.appendLittleEndian(utf8Flag)
+            centralHeader.appendLittleEndian(UInt16(0))
+            centralHeader.appendLittleEndian(timestamp.time)
+            centralHeader.appendLittleEndian(timestamp.date)
+            centralHeader.appendLittleEndian(entry.crc32)
+            centralHeader.appendLittleEndian(entry.sizeBytes)
+            centralHeader.appendLittleEndian(entry.sizeBytes)
+            centralHeader.appendLittleEndian(UInt16(fileNameData.count))
+            centralHeader.appendLittleEndian(UInt16(0))
+            centralHeader.appendLittleEndian(UInt16(0))
+            centralHeader.appendLittleEndian(UInt16(0))
+            centralHeader.appendLittleEndian(UInt16(0))
+            centralHeader.appendLittleEndian(UInt32(0))
+            centralHeader.appendLittleEndian(storedOffset)
+            centralHeader.append(fileNameData)
+            centralDirectory.append(centralHeader)
+
+            localHeaderOffset += UInt64(localHeader.count + entry.contents.count)
+        }
+
+        guard
+            let centralDirectoryOffset = UInt32(exactly: localHeaderOffset),
+            let centralDirectorySize = UInt32(exactly: centralDirectory.count)
+        else {
+            throw ZipArchiveError.unsupportedArchiveSize
+        }
+
+        try handle.write(contentsOf: centralDirectory)
+
+        var endOfCentralDirectory = Data()
+        endOfCentralDirectory.appendLittleEndian(UInt32(0x06054B50))
+        endOfCentralDirectory.appendLittleEndian(UInt16(0))
+        endOfCentralDirectory.appendLittleEndian(UInt16(0))
+        endOfCentralDirectory.appendLittleEndian(UInt16(entries.count))
+        endOfCentralDirectory.appendLittleEndian(UInt16(entries.count))
+        endOfCentralDirectory.appendLittleEndian(centralDirectorySize)
+        endOfCentralDirectory.appendLittleEndian(centralDirectoryOffset)
+        endOfCentralDirectory.appendLittleEndian(UInt16(0))
+        try handle.write(contentsOf: endOfCentralDirectory)
+    }
+
+    private static func makeEntries(
+        from directoryURL: URL,
+        fileManager: FileManager
+    ) throws -> [Entry] {
+        let rootName = directoryURL.lastPathComponent
+        let enumerator = fileManager.enumerator(
+            at: directoryURL,
+            includingPropertiesForKeys: [.isRegularFileKey, .contentModificationDateKey],
+            options: [.skipsHiddenFiles]
+        )
+
+        var entries: [Entry] = []
+        while let item = enumerator?.nextObject() as? URL {
+            let values = try item.resourceValues(
+                forKeys: [.isRegularFileKey, .contentModificationDateKey]
+            )
+            guard values.isRegularFile == true else {
+                continue
+            }
+
+            let relativeComponent = item.path.replacingOccurrences(
+                of: directoryURL.path + "/",
+                with: ""
+            )
+            let relativePath = "\(rootName)/\(relativeComponent)"
+            let contents = try Data(contentsOf: item)
+            guard UInt32(exactly: contents.count) != nil else {
+                throw ZipArchiveError.unsupportedEntrySize(relativePath)
+            }
+
+            entries.append(
+                Entry(
+                    relativePath: relativePath,
+                    contents: contents,
+                    modifiedAt: values.contentModificationDate ?? Date(),
+                    crc32: crc32(contents)
+                )
+            )
+        }
+
+        return entries.sorted { $0.relativePath < $1.relativePath }
+    }
+
+    private static func crc32(_ data: Data) -> UInt32 {
+        var crc: UInt32 = 0xFFFF_FFFF
+        for byte in data {
+            let index = Int((crc ^ UInt32(byte)) & 0xFF)
+            crc = crc32Table[index] ^ (crc >> 8)
+        }
+        return crc ^ 0xFFFF_FFFF
+    }
+
+    private static func dosTimestamp(for date: Date) -> DOSTimestamp {
+        let components = calendar.dateComponents(
+            in: TimeZone(secondsFromGMT: 0) ?? .current,
+            from: date
+        )
+        let year = max(1980, min(components.year ?? 1980, 2107))
+        let month = max(1, min(components.month ?? 1, 12))
+        let day = max(1, min(components.day ?? 1, 31))
+        let hour = max(0, min(components.hour ?? 0, 23))
+        let minute = max(0, min(components.minute ?? 0, 59))
+        let second = max(0, min(components.second ?? 0, 59))
+
+        let dosTime = UInt16((hour << 11) | (minute << 5) | (second / 2))
+        let dosDate = UInt16(((year - 1980) << 9) | (month << 5) | day)
+        return DOSTimestamp(time: dosTime, date: dosDate)
+    }
+}
+
+private extension Data {
+    mutating func appendLittleEndian<T: FixedWidthInteger>(_ value: T) {
+        var littleEndianValue = value.littleEndian
+        Swift.withUnsafeBytes(of: &littleEndianValue) { buffer in
+            append(contentsOf: buffer)
+        }
+    }
 }

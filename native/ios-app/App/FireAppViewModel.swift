@@ -1164,6 +1164,11 @@ final class FireAppViewModel: ObservableObject {
         } else {
             rustBundleURL = nil
         }
+        defer {
+            if let rustBundleURL {
+                try? FileManager.default.removeItem(at: rustBundleURL)
+            }
+        }
         return try await FireAPMManager.shared.exportSupportBundle(
             rustSupportBundleURL: rustBundleURL,
             scenePhase: scenePhase

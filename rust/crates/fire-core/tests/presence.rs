@@ -220,6 +220,63 @@ async fn bootstrap_topic_reply_presence_accepts_string_last_message_id() {
 }
 
 #[tokio::test]
+async fn unsubscribing_last_presence_owner_clears_cached_topic_snapshot() {
+    let server = TestServer::spawn(vec![raw_json_response(
+        200,
+        "application/json",
+        r#"{
+  "/discourse-presence/reply/123": {
+    "users": [
+      {
+        "id": 2,
+        "username": "bob"
+      }
+    ],
+    "last_message_id": 1000
+  }
+}"#,
+    )])
+    .await
+    .expect("server");
+    let core = authenticated_core(&server.base_url());
+
+    let presence = core
+        .bootstrap_topic_reply_presence(123, "presence-owner-a".into())
+        .await
+        .expect("bootstrap topic reply presence");
+    assert_eq!(presence.users.len(), 1);
+
+    core.subscribe_message_bus_channel(MessageBusSubscription {
+        owner_token: "presence-owner-b".into(),
+        channel: "/presence/discourse-presence/reply/123".into(),
+        last_message_id: Some(presence.message_id),
+        scope: MessageBusSubscriptionScope::Transient,
+    })
+    .expect("subscribe second presence owner");
+
+    core.unsubscribe_message_bus_channel(
+        "presence-owner-a".into(),
+        "/presence/discourse-presence/reply/123".into(),
+    )
+    .expect("unsubscribe first presence owner");
+    let retained_presence = core.topic_reply_presence_state(123);
+    assert_eq!(retained_presence.message_id, 1000);
+    assert_eq!(retained_presence.users.len(), 1);
+
+    core.unsubscribe_message_bus_channel(
+        "presence-owner-b".into(),
+        "/presence/discourse-presence/reply/123".into(),
+    )
+    .expect("unsubscribe last presence owner");
+    let cleared_presence = core.topic_reply_presence_state(123);
+    assert_eq!(cleared_presence.topic_id, 123);
+    assert_eq!(cleared_presence.message_id, -1);
+    assert!(cleared_presence.users.is_empty());
+
+    let _ = server.shutdown().await;
+}
+
+#[tokio::test]
 async fn message_bus_presence_reactions_and_alerts_emit_expected_event_kinds() {
     let server = TestServer::spawn(vec![raw_json_response(
         200,

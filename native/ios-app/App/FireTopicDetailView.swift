@@ -53,6 +53,20 @@ private enum FireTopicNotificationLevelOption: Int32, CaseIterable, Identifiable
     }
 }
 
+func replyIndexByPostNumber(posts: [FireTopicFlatPostPresentation]) -> [UInt32: Int] {
+    Dictionary(uniqueKeysWithValues: posts.enumerated().map { ($1.post.postNumber, $0) })
+}
+
+private struct FireReplyPostIndexCache {
+    let indexByPostNumber: [UInt32: Int]
+    let totalReplyCount: Int
+
+    init(posts: [FireTopicFlatPostPresentation]) {
+        totalReplyCount = posts.count
+        indexByPostNumber = replyIndexByPostNumber(posts: posts)
+    }
+}
+
 struct FireTopicDetailView: View {
     fileprivate static let scrollCoordinateSpaceName = "fire-topic-detail-scroll"
 
@@ -325,7 +339,8 @@ struct FireTopicDetailView: View {
     }
 
     var body: some View {
-        GeometryReader { geometry in
+        let replyPostIndexCache = FireReplyPostIndexCache(posts: replyPosts)
+        return GeometryReader { geometry in
             ScrollViewReader { scrollProxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0) {
@@ -339,7 +354,12 @@ struct FireTopicDetailView: View {
                 }
                 .coordinateSpace(name: Self.scrollCoordinateSpaceName)
                 .onPreferenceChange(FireVisiblePostFramePreferenceKey.self) { frames in
-                    updateVisiblePostFrames(frames, viewportHeight: geometry.size.height)
+                    updateVisiblePostFrames(
+                        frames,
+                        viewportHeight: geometry.size.height,
+                        replyIndexByPostNumber: replyPostIndexCache.indexByPostNumber,
+                        totalReplyCount: replyPostIndexCache.totalReplyCount
+                    )
                 }
                 .onChange(of: detail?.postStream.posts.count) { _, _ in
                     scrollToTargetPostIfNeeded(proxy: scrollProxy)
@@ -916,7 +936,9 @@ struct FireTopicDetailView: View {
 
     private func updateVisiblePostFrames(
         _ frames: [UInt32: CGRect],
-        viewportHeight: CGFloat
+        viewportHeight: CGFloat,
+        replyIndexByPostNumber: [UInt32: Int],
+        totalReplyCount: Int
     ) {
         let visiblePostNumbers = Set(
             frames.compactMap { postNumber, frame in
@@ -925,9 +947,6 @@ struct FireTopicDetailView: View {
         )
         timingTracker.updateVisiblePostNumbers(visiblePostNumbers)
 
-        let replyIndexByPostNumber = Dictionary(
-            uniqueKeysWithValues: replyPosts.enumerated().map { ($1.post.postNumber, $0) }
-        )
         guard let visibleReplyIndex = visiblePostNumbers.compactMap({ replyIndexByPostNumber[$0] }).max() else {
             return
         }
@@ -935,7 +954,7 @@ struct FireTopicDetailView: View {
         topicDetailStore.preloadTopicPostsIfNeeded(
             topicId: topic.id,
             visibleReplyIndex: visibleReplyIndex,
-            totalReplyCount: replyPosts.count
+            totalReplyCount: totalReplyCount
         )
     }
 

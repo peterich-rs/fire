@@ -237,6 +237,86 @@ async fn mark_notification_read_and_message_bus_merge_update_shared_state() {
 }
 
 #[tokio::test]
+async fn live_notification_merge_keeps_recent_cache_bounded_to_default_limit() {
+    let default_recent_limit: u32 = 30; // Mirrors notifications::DEFAULT_RECENT_LIMIT.
+    let initial_notifications = (1..=u64::from(default_recent_limit))
+        .rev()
+        .map(|id| notification_json(id, false, false, &format!("Topic {id}")))
+        .collect::<Vec<_>>();
+    let app_server = TestServer::spawn(vec![raw_json_response(
+        200,
+        "application/json",
+        &notification_page_json(
+            &initial_notifications,
+            default_recent_limit,
+            Some(u64::from(default_recent_limit)),
+            None,
+        ),
+    )])
+    .await
+    .expect("app server");
+    let poll_server = TestServer::spawn(vec![
+        raw_json_response(
+            200,
+            "application/json",
+            &format!(
+                r#"[{{"channel":"/notification/1","message_id":43,"data":{{"all_unread_notifications_count":31,"unread_notifications":31,"unread_high_priority_notifications":0,"last_notification":{{"notification":{}}}}}}}]"#,
+                notification_json(31, false, false, "Topic 31"),
+            ),
+        ),
+        raw_json_response(200, "application/json", "[]"),
+    ])
+    .await
+    .expect("poll server");
+
+    let core = authenticated_core(&app_server.base_url());
+    let _ = core.apply_bootstrap(BootstrapArtifacts {
+        base_url: app_server.base_url(),
+        current_username: Some("alice".into()),
+        current_user_id: Some(1),
+        notification_channel_position: Some(42),
+        shared_session_key: Some("shared-session".into()),
+        long_polling_base_url: Some(poll_server.base_url()),
+        ..BootstrapArtifacts::default()
+    });
+
+    let _ = core
+        .fetch_recent_notifications(None)
+        .await
+        .expect("fetch recent notifications");
+    assert_eq!(
+        core.notification_state().recent.len(),
+        default_recent_limit as usize
+    );
+
+    let (sender, mut receiver) = unbounded_channel();
+    let _client_id = core
+        .start_message_bus(MessageBusClientMode::Foreground, sender)
+        .await
+        .expect("start message bus");
+
+    let _ = timeout(Duration::from_secs(2), receiver.recv())
+        .await
+        .expect("message bus event should arrive")
+        .expect("message bus event should be present");
+    let merged_state = core.notification_state();
+
+    core.stop_message_bus(true);
+    let _ = app_server.shutdown().await;
+    let _ = poll_server.shutdown().await;
+
+    assert_eq!(merged_state.recent.len(), default_recent_limit as usize);
+    assert_eq!(merged_state.recent[0].id, 31);
+    assert_eq!(
+        merged_state
+            .recent
+            .last()
+            .map(|notification| notification.id),
+        Some(2)
+    );
+}
+
+#[tokio::test]
 async fn logout_clears_notification_runtime_state() {
     let server = TestServer::spawn(vec![raw_json_response(
         200,

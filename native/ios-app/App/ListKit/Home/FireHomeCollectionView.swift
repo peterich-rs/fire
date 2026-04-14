@@ -92,6 +92,7 @@ struct FireHomeCollectionView: View {
             animatingDifferences: true,
             onSelectItem: handleSelection(_:),
             canSelectItem: canSelect(_:),
+            onVisibleItemsChanged: handleVisibleItemsChanged(_:),
             onScrollMetricsChanged: onScrollMetricsChanged,
             onRefresh: onRefresh,
             makeLayout: Self.makeLayout,
@@ -116,6 +117,14 @@ struct FireHomeCollectionView: View {
     private func handleSelection(_ item: FireHomeCollectionItem) {
         guard case let .topic(topicID) = item else { return }
         onSelectTopic(topicID)
+    }
+
+    private func handleVisibleItemsChanged(_ items: [FireHomeCollectionItem]) {
+        let visibleTopicIDs: Set<UInt64> = Set(items.compactMap { item in
+            guard case let .topic(topicID) = item else { return nil }
+            return topicID
+        })
+        homeFeedStore.updateVisibleTopicIDs(visibleTopicIDs)
     }
 
     @ViewBuilder

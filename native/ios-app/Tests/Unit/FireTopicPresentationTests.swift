@@ -137,6 +137,36 @@ final class FireTopicPresentationTests: XCTestCase {
         XCTAssertNotEqual(beforeLoad, afterLoad)
     }
 
+    @MainActor
+    func testHomeFeedVisibleTopicSanitizerDropsUnloadedTopicIDs() {
+        let sanitized = FireHomeFeedStore.sanitizedVisibleTopicIDs(
+            currentTopicIDs: [11, 12, 13],
+            candidateVisibleTopicIDs: Set<UInt64>([10, 12, 14])
+        )
+
+        XCTAssertEqual(sanitized, Set<UInt64>([12]))
+    }
+
+    func testReplyIndexByPostNumberBuildsStableLookupForReplyPosts() {
+        let detail = FireTopicPresentation.recomposedDetail(
+            makeTopicDetail(
+                posts: [
+                    makePost(postNumber: 1, replyToPostNumber: nil, username: "author"),
+                    makePost(postNumber: 2, replyToPostNumber: 1, username: "reply-a"),
+                    makePost(postNumber: 3, replyToPostNumber: 2, username: "reply-b"),
+                ],
+                stream: [1, 2, 3]
+            )
+        )
+        let replyPosts = detail.flatPosts.filter { !$0.isOriginalPost }
+
+        let lookup = replyIndexByPostNumber(posts: replyPosts)
+
+        XCTAssertEqual(lookup[2], 0)
+        XCTAssertEqual(lookup[3], 1)
+        XCTAssertEqual(lookup.count, 2)
+    }
+
     func testTopicThreadFlatPostStateCarriesRustDisplayMetadata() {
         let flatPosts = [
             TopicThreadFlatPostState(

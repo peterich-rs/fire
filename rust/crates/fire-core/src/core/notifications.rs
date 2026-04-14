@@ -357,6 +357,7 @@ fn merge_live_notification(runtime: &mut FireNotificationRuntime, notification: 
 fn insert_recent_notification(list: &mut Vec<NotificationItem>, notification: NotificationItem) {
     if let Some(index) = list.iter().position(|item| item.id == notification.id) {
         list[index] = notification;
+        trim_recent_notifications(list);
         return;
     }
 
@@ -368,6 +369,11 @@ fn insert_recent_notification(list: &mut Vec<NotificationItem>, notification: No
             .unwrap_or(list.len())
     };
     list.insert(insert_index, notification);
+    trim_recent_notifications(list);
+}
+
+fn trim_recent_notifications(list: &mut Vec<NotificationItem>) {
+    list.truncate(DEFAULT_RECENT_LIMIT as usize);
 }
 
 fn upsert_notification(

@@ -31,7 +31,9 @@ use super::{
         FireCallProfile, FireNetworkLayer, FireRequestEpoch, FireRequestProfile, TracedRequest,
     },
     notifications::{merge_notification_event_data, FireNotificationRuntime},
-    presence::{merge_topic_presence_event_data, FireTopicPresenceRuntime},
+    presence::{
+        clear_topic_presence_snapshot, merge_topic_presence_event_data, FireTopicPresenceRuntime,
+    },
     FireCore, FireSessionRuntimeState,
 };
 use crate::{
@@ -143,8 +145,14 @@ impl FireCore {
             .lock()
             .expect("message bus runtime lock poisoned");
         if remove_runtime_subscription_owner(&mut runtime, &owner_token, &channel) {
+            let removed_presence_topic_id = presence_topic_id_from_channel(&channel);
             mark_subscriptions_changed(&mut runtime);
             ensure_poll_task_running(self, &mut runtime)?;
+            if let Some(topic_id) = removed_presence_topic_id {
+                // Keep the message bus lock until the cached snapshot is evicted so a
+                // concurrent re-subscribe cannot reintroduce the same topic between steps.
+                clear_topic_presence_snapshot(&self.topic_presence, topic_id);
+            }
         }
         Ok(())
     }

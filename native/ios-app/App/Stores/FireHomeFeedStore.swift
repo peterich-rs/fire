@@ -17,6 +17,7 @@ final class FireHomeFeedStore: ObservableObject {
     @Published private(set) var isLoadingTopics = false
     @Published private(set) var isAppendingTopics = false
 
+    private(set) var visibleTopicIDs: Set<UInt64> = []
     private let appViewModel: FireAppViewModel
     private let topicListRefreshClock = ContinuousClock()
     private var pendingTopicListRefreshTask: Task<Void, Never>?
@@ -35,8 +36,18 @@ final class FireHomeFeedStore: ObservableObject {
         return categoryPresentation(for: id)
     }
 
-    var visibleTopicIDs: Set<UInt64> {
-        Set(topicRows.map(\.topic.id))
+    static func sanitizedVisibleTopicIDs(
+        currentTopicIDs: [UInt64],
+        candidateVisibleTopicIDs: Set<UInt64>
+    ) -> Set<UInt64> {
+        candidateVisibleTopicIDs.intersection(currentTopicIDs)
+    }
+
+    func updateVisibleTopicIDs(_ topicIDs: Set<UInt64>) {
+        visibleTopicIDs = Self.sanitizedVisibleTopicIDs(
+            currentTopicIDs: topicRows.map(\.topic.id),
+            candidateVisibleTopicIDs: topicIDs
+        )
     }
 
     func applySession(_ session: SessionState) {
@@ -360,12 +371,17 @@ final class FireHomeFeedStore: ObservableObject {
         topicEntities.replaceAll(rows, id: \.topic.id)
         topicOrder.replace(with: rows.map(\.topic.id))
         topicRows = rows
+        visibleTopicIDs = Self.sanitizedVisibleTopicIDs(
+            currentTopicIDs: rows.map(\.topic.id),
+            candidateVisibleTopicIDs: visibleTopicIDs
+        )
     }
 
     private func clearTopicRows() {
         topicEntities.removeAll()
         topicOrder.removeAll()
         topicRows = []
+        visibleTopicIDs = []
         moreTopicsUrl = nil
         nextTopicsPage = nil
     }

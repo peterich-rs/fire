@@ -374,6 +374,17 @@ fn apply_topic_presence_snapshot(
     runtime.topics.insert(presence.topic_id, presence);
 }
 
+pub(crate) fn clear_topic_presence_snapshot(
+    runtime: &Arc<Mutex<FireTopicPresenceRuntime>>,
+    topic_id: u64,
+) {
+    let mut runtime = runtime
+        .lock()
+        .expect("topic presence runtime lock poisoned");
+    runtime.topics.remove(&topic_id);
+    clear_topic_reply_presence_update_state(&mut runtime, topic_id);
+}
+
 fn should_skip_topic_reply_presence_update(
     runtime: &Arc<Mutex<FireTopicPresenceRuntime>>,
     topic_id: u64,

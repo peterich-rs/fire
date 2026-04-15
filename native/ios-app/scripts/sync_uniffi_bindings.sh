@@ -129,6 +129,16 @@ dedupe_targets() {
 
 build_staticlib() {
   local rust_target="$1"
+  local output_lib="$repo_root/rust/target/$rust_target/$profile_dir/libfire_uniffi.a"
+
+  if [[ "${FIRE_SKIP_RUST_CROSS_BUILD:-}" == "1" ]]; then
+    if [[ ! -f "$output_lib" ]]; then
+      echo "FIRE_SKIP_RUST_CROSS_BUILD=1 but $output_lib not found" >&2
+      exit 1
+    fi
+    echo "skipping cargo build: using pre-built $output_lib"
+    return 0
+  fi
 
   if [[ "$profile_dir" == "release" ]]; then
     (

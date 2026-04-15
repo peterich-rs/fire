@@ -281,23 +281,27 @@ jobs:
           trap 'xcrun simctl delete "$sim_id"' EXIT
           xcrun simctl boot "$sim_id" || true
           xcrun simctl bootstatus "$sim_id" -b
-          run_tests() {
-            local test_identifier="$1"
+          run_xcodebuild() {
+            local scheme="$1"
+            local action="$2"
+            shift 2
 
             xcodebuild \
               -project native/ios-app/Fire.xcodeproj \
-              -scheme Fire \
+              -scheme "$scheme" \
               -destination "id=$sim_id" \
               -derivedDataPath /tmp/fire-ios-tests \
               CODE_SIGNING_ALLOWED=NO \
-              -only-testing:"$test_identifier" \
-              test
+              "$@" \
+              "$action"
           }
 
-          run_tests FireTests
-
           if [[ "${GITHUB_EVENT_NAME}" == "push" ]]; then
-            run_tests "FireUITests/FireSmokeUITests/testAppLaunches"
+            run_xcodebuild Fire build-for-testing
+            run_xcodebuild Fire test-without-building -only-testing:FireTests
+            run_xcodebuild Fire test-without-building -only-testing:FireUITests/FireSmokeUITests/testAppLaunches
+          else
+            run_xcodebuild FireUnitTests test
           fi
 
   native-android-test:

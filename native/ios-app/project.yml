@@ -22,11 +22,35 @@ schemes:
         FireUITests:
           - test
     test:
-      gatherCoverageData: true
+      gatherCoverageData: false
       targets:
         - name: FireTests
           parallelizable: true
           randomExecutionOrder: true
+        - name: FireUITests
+          parallelizable: false
+          randomExecutionOrder: false
+  FireUnitTests:
+    build:
+      targets:
+        Fire: all
+        FireTests:
+          - test
+    test:
+      gatherCoverageData: false
+      targets:
+        - name: FireTests
+          parallelizable: true
+          randomExecutionOrder: true
+  FireUISmoke:
+    build:
+      targets:
+        Fire: all
+        FireUITests:
+          - test
+    test:
+      gatherCoverageData: false
+      targets:
         - name: FireUITests
           parallelizable: false
           randomExecutionOrder: false

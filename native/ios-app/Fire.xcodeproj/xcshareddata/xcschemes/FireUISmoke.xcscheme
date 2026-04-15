@@ -29,20 +29,6 @@
             buildForAnalyzing = "NO">
             <BuildableReference
                BuildableIdentifier = "primary"
-               BlueprintIdentifier = "3ACA300207EBD80A07FC30BD"
-               BuildableName = "FireTests.xctest"
-               BlueprintName = "FireTests"
-               ReferencedContainer = "container:Fire.xcodeproj">
-            </BuildableReference>
-         </BuildActionEntry>
-         <BuildActionEntry
-            buildForTesting = "YES"
-            buildForRunning = "NO"
-            buildForProfiling = "NO"
-            buildForArchiving = "NO"
-            buildForAnalyzing = "NO">
-            <BuildableReference
-               BuildableIdentifier = "primary"
                BlueprintIdentifier = "80B98F4CA63C484FFADEB951"
                BuildableName = "FireUITests.xctest"
                BlueprintName = "FireUITests"
@@ -67,18 +53,6 @@
          </BuildableReference>
       </MacroExpansion>
       <Testables>
-         <TestableReference
-            skipped = "NO"
-            parallelizable = "YES"
-            testExecutionOrdering = "random">
-            <BuildableReference
-               BuildableIdentifier = "primary"
-               BlueprintIdentifier = "3ACA300207EBD80A07FC30BD"
-               BuildableName = "FireTests.xctest"
-               BlueprintName = "FireTests"
-               ReferencedContainer = "container:Fire.xcodeproj">
-            </BuildableReference>
-         </TestableReference>
          <TestableReference
             skipped = "NO"
             parallelizable = "NO">

@@ -827,7 +827,9 @@ struct LoginInvalidationSignal {
 
 impl LoginInvalidationSignal {
     fn any(self) -> bool {
-        self.discourse_logged_out || self.cleared_t_cookie || self.cleared_forum_session
+        // Deleted auth cookies are useful diagnostics, but only explicit server
+        // invalidation signals should force local logout.
+        self.discourse_logged_out
     }
 }
 

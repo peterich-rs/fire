@@ -147,7 +147,7 @@ if current_epoch != request_epoch.0 {
 **File: `rust/crates/fire-core/src/cookies.rs`**
 
 - Drop the entire `Set-Cookie` batch when the request epoch is stale.
-- Do not special-case only auth cookies anymore.
+- Post-implementation follow-up: stale-request batches are still dropped wholesale, but current-response `_t` / `_forum_session` delete directives are now treated as non-authoritative until a stronger invalidation signal arrives. See `docs/architecture/ios-auth-cookie-invalidation-fix.md`.
 
 **File: `rust/crates/fire-core/src/core/messagebus.rs`**
 

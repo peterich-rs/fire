@@ -1,10 +1,10 @@
 use fire_models::{
-    Draft, DraftData, DraftListResponse, InviteCreateRequest, Poll, PollOption,
-    PostReactionUpdate, PostUpdateRequest, PrivateMessageCreateRequest, ResolvedUploadUrl,
-    TopicCreateRequest, TopicDetail, TopicDetailCreatedBy, TopicDetailMeta, TopicDetailQuery,
-    TopicPost, TopicPostStream, TopicReaction, TopicReplyRequest, TopicThread,
-    TopicThreadFlatPost, TopicThreadReply, TopicThreadSection, TopicTimingEntry,
-    TopicTimingsRequest, TopicUpdateRequest, UploadResult,
+    Draft, DraftData, DraftListResponse, InviteCreateRequest, Poll, PollOption, PostReactionUpdate,
+    PostUpdateRequest, PrivateMessageCreateRequest, ResolvedUploadUrl, TopicCreateRequest,
+    TopicDetail, TopicDetailCreatedBy, TopicDetailMeta, TopicDetailQuery, TopicPost,
+    TopicPostStream, TopicReaction, TopicReplyRequest, TopicThread, TopicThreadFlatPost,
+    TopicThreadReply, TopicThreadSection, TopicTimingEntry, TopicTimingsRequest,
+    TopicUpdateRequest, UploadResult,
 };
 
 use crate::state_topic_list::{TopicParticipantState, TopicTagState};

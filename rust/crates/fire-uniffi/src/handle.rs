@@ -33,12 +33,11 @@ use crate::state_session::{
     BootstrapState, CookieState, LoginSyncState, PlatformCookieState, SessionState,
 };
 use crate::state_topic_detail::{
-    DraftDataState, DraftListResponseState, DraftState, InviteCreateRequestState,
-    PollState, PostReactionUpdateState, PostUpdateRequestState,
-    PrivateMessageCreateRequestState, ResolvedUploadUrlState, TopicCreateRequestState,
-    TopicDetailQueryState, TopicDetailState, TopicPostState, TopicReplyRequestState,
-    TopicTimingsRequestState, TopicUpdateRequestState, UploadImageRequestState,
-    UploadResultState,
+    DraftDataState, DraftListResponseState, DraftState, InviteCreateRequestState, PollState,
+    PostReactionUpdateState, PostUpdateRequestState, PrivateMessageCreateRequestState,
+    ResolvedUploadUrlState, TopicCreateRequestState, TopicDetailQueryState, TopicDetailState,
+    TopicPostState, TopicReplyRequestState, TopicTimingsRequestState, TopicUpdateRequestState,
+    UploadImageRequestState, UploadResultState,
 };
 use crate::state_topic_list::{TopicListQueryState, TopicListState};
 use crate::state_user::{
@@ -1136,7 +1135,11 @@ impl FireCoreHandle {
 }
 
 impl FireCoreHandle {
-    pub(crate) fn run_fallible<T, F>(&self, operation: &'static str, f: F) -> Result<T, FireUniFfiError>
+    pub(crate) fn run_fallible<T, F>(
+        &self,
+        operation: &'static str,
+        f: F,
+    ) -> Result<T, FireUniFfiError>
     where
         F: FnOnce(&FireCore) -> Result<T, FireCoreError>,
     {
@@ -1148,7 +1151,11 @@ impl FireCoreHandle {
         }
     }
 
-    pub(crate) fn run_infallible<T, F>(&self, operation: &'static str, f: F) -> Result<T, FireUniFfiError>
+    pub(crate) fn run_infallible<T, F>(
+        &self,
+        operation: &'static str,
+        f: F,
+    ) -> Result<T, FireUniFfiError>
     where
         F: FnOnce(&FireCore) -> T,
     {

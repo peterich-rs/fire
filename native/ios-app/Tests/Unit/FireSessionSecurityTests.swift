@@ -676,6 +676,37 @@ final class FireSessionSecurityTests: XCTestCase {
         )
     }
 
+    func testCfClearanceRefreshServiceTurnstileRuntimeIncludesRcBridge() {
+        let html = FireCfClearanceRefreshService.turnstileHTML(
+            sitekey: "sitekey",
+            runtimeToken: "runtime-token"
+        )
+
+        XCTAssertTrue(
+            FireCfClearanceRefreshService.fetchInterceptionUserScriptSource
+                .contains("onRcIntercepted")
+        )
+        XCTAssertTrue(
+            FireCfClearanceRefreshService.fetchInterceptionUserScriptSource
+                .contains("window._resolveRc")
+        )
+        XCTAssertTrue(html.contains("window.__fireCfRuntimeToken = \"runtime-token\""))
+        XCTAssertTrue(html.contains("'refresh-expired': 'auto'"))
+        XCTAssertTrue(html.contains("onTurnstileError"))
+    }
+
+    func testCfClearanceRefreshServiceBuildsRcEndpointURL() {
+        let url = FireCfClearanceRefreshService.rcEndpointURL(
+            baseURL: URL(string: "https://linux.do")!,
+            challengeID: "challenge-id"
+        )
+
+        XCTAssertEqual(
+            url?.absoluteString,
+            "https://linux.do/cdn-cgi/challenge-platform/h/g/rc/challenge-id"
+        )
+    }
+
     @MainActor
     func testOpenLoginPresentsLoginImmediatelyBeforeWarmupCompletes() async {
         let gate = AsyncGate()
@@ -784,6 +815,51 @@ final class FireSessionSecurityTests: XCTestCase {
         XCTAssertTrue(viewModel.session.readiness.hasCloudflareClearance)
         let calls = await recoveryStore.recordedCalls()
         XCTAssertEqual(calls, [true])
+    }
+
+    @MainActor
+    func testLoginRequiredRecoveryDeduplicatesConcurrentReset() async {
+        let enteredGate = AsyncGate()
+        let releaseGate = AsyncGate()
+        let recoveryStore = BlockingChallengeRecoveryStore(
+            enteredGate: enteredGate,
+            releaseGate: releaseGate,
+            result: .success(challengedLoggedOutSession())
+        )
+        let viewModel = FireAppViewModel(
+            initialSession: authenticatedSession(),
+            challengeRecoveryStore: recoveryStore
+        )
+
+        let firstTask = Task {
+            await viewModel.handleLoginRequiredIfNeeded(
+                FireUniFfiError.LoginRequired(details: "您需要登录才能执行此操作。")
+            )
+        }
+
+        await enteredGate.wait()
+
+        let secondTask = Task {
+            await viewModel.handleLoginRequiredIfNeeded(
+                FireUniFfiError.LoginRequired(details: "您需要登录才能执行此操作。")
+            )
+        }
+
+        let secondRecovered = await secondTask.value
+        let intermediateCalls = await recoveryStore.recordedCalls()
+        XCTAssertTrue(secondRecovered)
+        XCTAssertEqual(intermediateCalls, [true])
+
+        await releaseGate.open()
+
+        let firstRecovered = await firstTask.value
+        let finalCalls = await recoveryStore.recordedCalls()
+
+        XCTAssertTrue(firstRecovered)
+        XCTAssertTrue(viewModel.isPresentingLogin)
+        XCTAssertEqual(viewModel.errorMessage, "您需要登录才能执行此操作。")
+        XCTAssertFalse(viewModel.session.hasLoginSession)
+        XCTAssertEqual(finalCalls, [true])
     }
 
     @MainActor
@@ -1537,6 +1613,34 @@ private actor MockChallengeRecoveryStore: FireChallengeSessionRecovering {
 
     func logoutLocalAndClearPlatformCookies(preserveCfClearance: Bool) async throws -> SessionState {
         calls.append(preserveCfClearance)
+        return try result.get()
+    }
+
+    func recordedCalls() -> [Bool] {
+        calls
+    }
+}
+
+private actor BlockingChallengeRecoveryStore: FireChallengeSessionRecovering {
+    private let enteredGate: AsyncGate
+    private let releaseGate: AsyncGate
+    private let result: Result<SessionState, Error>
+    private var calls: [Bool] = []
+
+    init(
+        enteredGate: AsyncGate,
+        releaseGate: AsyncGate,
+        result: Result<SessionState, Error>
+    ) {
+        self.enteredGate = enteredGate
+        self.releaseGate = releaseGate
+        self.result = result
+    }
+
+    func logoutLocalAndClearPlatformCookies(preserveCfClearance: Bool) async throws -> SessionState {
+        calls.append(preserveCfClearance)
+        await enteredGate.open()
+        await releaseGate.wait()
         return try result.get()
     }
 

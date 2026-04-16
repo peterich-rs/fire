@@ -187,6 +187,7 @@ final class FireAppViewModel: ObservableObject {
     private var initialStateLoadGeneration: UInt64 = 0
     private var loginSyncReadinessTask: Task<Void, Never>?
     private var pendingCloudflareRecovery: PendingCloudflareRecovery?
+    private var isResettingSession = false
     private let loginURL = URL(string: "https://linux.do")!
     private let challengeRecoveryStore: (any FireChallengeSessionRecovering)?
     private let loginCoordinatorPreloader: LoginCoordinatorPreloader?
@@ -1390,9 +1391,17 @@ final class FireAppViewModel: ObservableObject {
         if let coordinator = try? await loginCoordinatorValue() {
             FireCfClearanceRefreshService.shared.updateSession(
                 session,
-                loginCoordinator: coordinator
+                loginCoordinator: coordinator,
+                onSessionRefreshed: { [weak self] updatedSession in
+                    guard let self else { return }
+                    await self.cfClearanceDidRefresh(updatedSession)
+                }
             )
         }
+    }
+
+    func cfClearanceDidRefresh(_ updatedSession: SessionState) async {
+        await applySession(updatedSession)
     }
 
     func refreshLoginSyncReadiness(from webView: WKWebView) {
@@ -1601,6 +1610,13 @@ final class FireAppViewModel: ObservableObject {
     }
 
     private func resetSessionAndPresentLogin(message: String) async {
+        guard !isResettingSession else {
+            return
+        }
+
+        isResettingSession = true
+        defer { isResettingSession = false }
+
         resolvePendingCloudflareRecovery(
             with: .failure(FireCloudflareRecoveryError.cancelled)
         )

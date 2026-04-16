@@ -127,7 +127,7 @@
 - 备注：
   - 当前客户端没有把这一步当成独立业务接口暴露，而是视为 Cloudflare 内部续期流程
   - 当前客户端回放请求时未显式固定 `Content-Type` 为 `application/x-www-form-urlencoded`；拦截到的原始运行时请求体更接近 JSON 形态
-  - 当前 Fire iOS 一期没有直接在宿主里回放这条 `rc` 内部接口；iOS 改为在会话已连接、已有 `cf_clearance`、且首页 bootstrap 已暴露 Turnstile `sitekey` 时，启动一个离屏 `WKWebView` 定时加载首页，并把浏览器里更新后的 Cookie 再次同步回共享层
+  - 当前 Fire iOS 会在会话已连接、已有 `cf_clearance`、且首页 bootstrap 已暴露 Turnstile `sitekey` 时，启动一个离屏 `WKWebView` 承载 Turnstile widget；宿主在 `api.js` 加载前注入 `fetch` 拦截脚本，捕获 `/cdn-cgi/challenge-platform/.../rc/...` 请求后由 `URLSession` 代发，再把真实响应回注到页面，最后把更新后的 Cookie 同步回共享层
   - 共享层仍会保留并发送 `cf_clearance`；挑战完成、平台 Cookie 读取、离屏 WebView 续期都仍属于宿主职责
 
 ## 站点信息、分类、标签、表情

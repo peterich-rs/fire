@@ -12,6 +12,8 @@ This change is fully achievable inside the current Fire architecture. The false-
 - `rust/crates/fire-core/src/core/network.rs::expect_success` -- converts successful responses into `LoginRequired` when the invalidation classifier says the response is authoritative.
 - `rust/crates/fire-core/src/core/network.rs::response_login_invalidation_error` -- performs local logout while preserving `cf_clearance`.
 - `rust/crates/fire-core/tests/network.rs` -- end-to-end coverage for successful invalidation, `not_logged_in`, and stale-response session races.
+- `native/ios-app/App/FireAppViewModel.swift` -- owns `LoginRequired` handling, login presentation, session application, and the host-side cookie mirroring path.
+- `native/ios-app/Sources/FireAppSession/FireCfClearanceRefreshService.swift` -- owns background `cf_clearance` maintenance and the offscreen WebKit runtime that keeps Cloudflare clearance warm.
 - `docs/architecture/ios-auth-alignment-plan.md` -- prior architecture plan that documents the stale-response guard and now needs a follow-up note for the current-response auth-cookie fix.
 
 ## Design
@@ -35,6 +37,9 @@ This change is fully achievable inside the current Fire architecture. The false-
 - A `200` response that only sends `Set-Cookie: _t=; Max-Age=0` or `Set-Cookie: _forum_session=; Max-Age=0` does not clear local login state and does not become `LoginRequired` on its own.
 - A response with `discourse-logged-out` still forces `logout_local(true)` and returns `LoginRequired`.
 - A `401` or `403` response whose body parses as `error_type: "not_logged_in"` still forces `logout_local(true)` and returns `LoginRequired`.
+- Multiple concurrent `LoginRequired` errors only clear/present the native login flow once on iOS.
+- Background `cf_clearance` refresh on iOS actively solves Turnstile refreshes by replaying `/cdn-cgi/challenge-platform/.../rc/...` through native networking instead of passively reloading the forum homepage.
+- A successful background Cloudflare refresh flows back through `FireAppViewModel.applySession`, so the refreshed cookie batch is mirrored back into `HTTPCookieStorage` and the shared `WKHTTPCookieStore`.
 - `cf_clearance` preservation and stale-response epoch invalidation remain unchanged.
 
 ## Phased Implementation
@@ -87,18 +92,49 @@ This change is fully achievable inside the current Fire architecture. The false-
 - Run `cargo test -p fire-core fetch_topic_list_surfaces_login_required -- --nocapture`.
 - Keep stale-response tests unchanged because this patch must not alter epoch behavior.
 
+## Follow-up Host Fixes On The Same Worktree
+
+## Phase 6: Deduplicate native login reset presentation
+
+**File: `native/ios-app/App/FireAppViewModel.swift`**
+
+- Add an `isResettingSession` guard around `resetSessionAndPresentLogin(message:)`.
+- Keep the implementation on `@MainActor` so concurrent `LoginRequired` surfaces serialize naturally without extra locks.
+- Rationale: Rust already avoids duplicate `logout_local(true)` side effects once the first logout clears auth cookies; the remaining duplicate behavior lives in Swift UI reset/presentation.
+
+## Phase 7: Replace passive Cloudflare refresh with Turnstile rc replay
+
+**File: `native/ios-app/Sources/FireAppSession/FireCfClearanceRefreshService.swift`**
+
+- Replace the timer-driven homepage reload loop with a long-lived offscreen `WKWebView` that hosts a Turnstile widget configured with `refresh-expired: 'auto'`.
+- Inject a `fetch` interceptor before `api.js` loads, capture `/cdn-cgi/challenge-platform/.../rc/...` calls, replay them through native `URLSession`, and return the real response to JavaScript through `window._resolveRc(...)`.
+- Keep the existing scene-active and interactive-recovery gating, and add runtime generation tokens, first-intercept timeout handling, and bounded retry/failure tracking so stale callbacks and repeated failures self-quiesce.
+
+## Phase 8: Push refreshed sessions back through the host cookie mirror
+
+**Files: `native/ios-app/Sources/FireAppSession/FireCfClearanceRefreshService.swift`, `native/ios-app/App/FireAppViewModel.swift`**
+
+- After a successful rc replay, call `loginCoordinator.refreshPlatformCookies()` to pull the refreshed cookie batch into Rust.
+- Feed that refreshed `SessionState` back into `FireAppViewModel.applySession` through a service callback.
+- Rationale: the WebKit cookie store is only fully reconciled when `applySession` runs and re-mirrors the updated platform cookie batch into host-owned storage.
+
 ## Architectural Notes
 
 - Semver impact: none; all changes are internal to `fire-core` behavior.
 - Cross-crate dependencies: none added or removed.
 - Side effects: auth-cookie delete headers are still visible in diagnostics, but they no longer clear local state or trigger `LoginRequired` by themselves.
-- Explicitly not changed: iOS `cf_clearance` auto-refresh, `WKHTTPCookieStoreObserver` debounce timing, platform-side logout de-duplication, and stale-response epoch invalidation.
+- Host follow-ups now implemented on the same worktree: iOS `LoginRequired` presentation deduplication, Turnstile-driven `cf_clearance` auto-refresh, and host-side reapplication of refreshed cookie batches.
+- Explicitly still not changed: `WKHTTPCookieStoreObserver` debounce timing and stale-response epoch invalidation.
 - The host can still clear auth state by supplying a full replacement platform-cookie batch through `apply_platform_cookies`; this fix only changes network `Set-Cookie` handling.
 
 ## File Change Summary
 
 - `docs/architecture/ios-auth-alignment-plan.md` -- annotate the earlier auth-alignment plan with the current-response auth-cookie invalidation follow-up.
-- `docs/architecture/ios-auth-cookie-invalidation-fix.md` -- capture the verified design and phased implementation for the false-positive login invalidation fix.
+- `docs/architecture/ios-auth-cookie-invalidation-fix.md` -- capture the verified design, the Rust-side fix, and the follow-up iOS host remediation that landed on the same worktree.
+- `docs/backend-api/03-bootstrap-and-site.md` -- document that Fire iOS now replays Cloudflare's internal `rc` refresh flow from an offscreen WebView runtime.
+- `native/ios-app/README.md` -- document the Turnstile-based offscreen refresh runtime and the apply-session callback used to mirror refreshed cookies back into native storage.
+- `native/ios-app/App/FireAppViewModel.swift` -- deduplicate concurrent login reset presentation and reapply refreshed Cloudflare sessions through the existing session mirror path.
+- `native/ios-app/Sources/FireAppSession/FireCfClearanceRefreshService.swift` -- replace the passive homepage reload loop with the Turnstile rc interception runtime.
 - `rust/crates/fire-core/src/core/network.rs` -- keep auth-cookie deletion signals for diagnostics while limiting strong invalidation to explicit server logout evidence.
 - `rust/crates/fire-core/src/cookies.rs` -- ignore network `_t` and `_forum_session` delete directives until a stronger invalidation path clears local auth state.
 - `rust/crates/fire-core/tests/network.rs` -- add an end-to-end regression test for successful responses that only clear auth cookies.

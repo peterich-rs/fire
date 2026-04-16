@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+if [[ "${FIRE_SKIP_UNIFFI_BINDGEN:-}" == "1" ]]; then
+  echo "FIRE_SKIP_UNIFFI_BINDGEN=1: skipping UniFFI binding generation (using pre-built artifacts)"
+  exit 0
+fi
+
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 project_root="${SRCROOT:-$(cd -- "$script_dir/.." && pwd)}"
 repo_root="$(cd -- "$project_root/../.." && pwd)"

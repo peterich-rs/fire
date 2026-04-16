@@ -92,6 +92,46 @@ jobs:
         run: cargo test -p fire-models -p fire-core -p fire-uniffi --all-targets
 
   # ──────────────────────────────────────────────
+  #  Rust UniFFI build (always, feeds native-ios-test)
+  # ──────────────────────────────────────────────
+  rust-ios-uniffi:
+    name: Rust iOS UniFFI
+    runs-on: macos-15
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: recursive
+
+      - name: Verify required submodules are initialized and clean
+        shell: bash
+        run: ./scripts/check_clean_submodules.sh
+
+      - name: Install Rust toolchain and iOS simulator targets
+        shell: bash
+        run: |
+          rustup toolchain install "${RUST_TOOLCHAIN}" --profile minimal
+          rustup default "${RUST_TOOLCHAIN}"
+          rustup target add aarch64-apple-ios-sim x86_64-apple-ios
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: rust-${{ runner.os }}-${{ env.RUST_TOOLCHAIN }}
+          workspaces: |
+            . -> rust/target
+
+      - name: Build UniFFI bindings and simulator static library
+        shell: bash
+        run: native/ios-app/scripts/sync_uniffi_bindings.sh
+
+      - name: Upload generated UniFFI artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-uniffi-generated
+          path: native/ios-app/Generated/
+          retention-days: 1
+
+  # ──────────────────────────────────────────────
   #  Rust cross-compilation (push only, upload artifacts)
   # ──────────────────────────────────────────────
   rust-ios-cross-build:
@@ -219,10 +259,11 @@ jobs:
           retention-days: 1
 
   # ──────────────────────────────────────────────
-  #  Native debug tests (always, no needs)
+  #  Native debug tests (use pre-built Rust artifacts)
   # ──────────────────────────────────────────────
   native-ios-test:
     name: iOS Test
+    needs: [rust-ios-uniffi]
     runs-on: macos-15
     timeout-minutes: 90
 
@@ -234,19 +275,6 @@ jobs:
       - name: Verify required submodules are initialized and clean
         shell: bash
         run: ./scripts/check_clean_submodules.sh
-
-      - name: Install Rust toolchain and iOS targets
-        shell: bash
-        run: |
-          rustup toolchain install "${RUST_TOOLCHAIN}" --profile minimal
-          rustup default "${RUST_TOOLCHAIN}"
-          rustup target add aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: rust-${{ runner.os }}-${{ env.RUST_TOOLCHAIN }}
-          workspaces: |
-            . -> rust/target
 
       - name: Install XcodeGen
         shell: bash
@@ -266,8 +294,16 @@ jobs:
       - name: Verify generated Xcode project is up to date
         run: git diff --exit-code -- native/ios-app/Fire.xcodeproj
 
+      - name: Download pre-built UniFFI artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: ios-uniffi-generated
+          path: native/ios-app/Generated/
+
       - name: Run iOS tests
         shell: bash
+        env:
+          FIRE_SKIP_UNIFFI_BINDGEN: "1"
         run: |
           set -euo pipefail
           sim_selection="$(
@@ -301,7 +337,7 @@ jobs:
             run_xcodebuild Fire test-without-building -only-testing:FireTests
             run_xcodebuild Fire test-without-building -only-testing:FireUITests/FireSmokeUITests/testAppLaunches
           else
-            run_xcodebuild FireUnitTests test
+            run_xcodebuild Fire test -only-testing:FireTests
           fi
 
   native-android-test:

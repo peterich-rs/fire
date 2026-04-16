@@ -100,6 +100,12 @@ final class FireRouteParserTests: XCTestCase {
         XCTAssertEqual(route, .topic(topicId: 987, postNumber: 6))
     }
 
+    func testParsePathWithSlugTopicIdPostNumberAndQuery() {
+        let route = FireRouteParser.parse(path: "/t/fire-native/987/6?u=alice")
+
+        XCTAssertEqual(route, .topic(topicId: 987, postNumber: 6))
+    }
+
     func testParsePathWithTopicIdOnly() {
         let route = FireRouteParser.parse(path: "/t/some-slug/123")
 
@@ -142,6 +148,29 @@ final class FireRouteParserTests: XCTestCase {
         )
     }
 
+    func testNotificationPayloadFallsBackToPostUrlWithRelativeQuery() {
+        let route = FireRouteParser.route(
+            fromNotificationUserInfo: [
+                "postUrl": "/t/fire-native/987/6?u=alice",
+                "topicTitle": "Fire Native",
+            ]
+        )
+
+        XCTAssertEqual(
+            route,
+            .topic(
+                topicId: 987,
+                postNumber: 6,
+                preview: FireTopicRoutePreview(
+                    title: "Fire Native",
+                    slug: "",
+                    categoryId: nil,
+                    excerptText: nil
+                )
+            )
+        )
+    }
+
     func testNotificationPayloadFallsBackToPostUrlAbsoluteURL() {
         let route = FireRouteParser.route(
             fromNotificationUserInfo: [
@@ -162,6 +191,17 @@ final class FireRouteParserTests: XCTestCase {
         )
 
         XCTAssertEqual(route, .topic(topicId: 321, postNumber: 9))
+    }
+
+    func testNotificationPayloadFallsBackToPostUrlWhenTopicIdIsNegativeNSNumber() {
+        let route = FireRouteParser.route(
+            fromNotificationUserInfo: [
+                "topicId": NSNumber(value: -1),
+                "postUrl": "/t/fire-native/987/6",
+            ]
+        )
+
+        XCTAssertEqual(route, .topic(topicId: 987, postNumber: 6))
     }
 
     func testNotificationPayloadReturnsNilWithoutTopicIdOrPostUrl() {

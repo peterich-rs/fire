@@ -39,7 +39,7 @@ enum FireRouteParser {
 
         if let rawURL = stringValue(from: userInfo["postUrl"]) ?? stringValue(from: userInfo["post_url"]) {
             // Absolute URL: parse directly via existing URL router.
-            if let url = URL(string: rawURL), url.host != nil, let route = parse(url: url) {
+            if let url = URL(string: rawURL), url.scheme != nil, let route = parse(url: url) {
                 return route.overlayPreview(preview)
             }
             // Relative path (e.g. "/t/slug/123/6"): extract path components and parse.
@@ -52,7 +52,11 @@ enum FireRouteParser {
     }
 
     static func parse(path: String) -> FireAppRoute? {
-        let segments = path
+        guard let components = URLComponents(string: path) else {
+            return nil
+        }
+
+        let segments = components.path
             .split(separator: "/", omittingEmptySubsequences: true)
             .map(String.init)
         guard let head = segments.first?.lowercased() else {
@@ -63,13 +67,13 @@ enum FireRouteParser {
         case "t":
             return parseTopic(
                 segments: Array(segments.dropFirst()),
-                components: nil,
+                components: components,
                 style: .linuxDoWeb
             )
         case "u":
             return parseProfile(segments: Array(segments.dropFirst()))
         case "badge", "badges":
-            return parseBadge(segments: Array(segments.dropFirst()), components: nil)
+            return parseBadge(segments: Array(segments.dropFirst()), components: components)
         default:
             return nil
         }
@@ -239,7 +243,8 @@ enum FireRouteParser {
         case let value as Int:
             return value >= 0 ? UInt64(value) : nil
         case let value as NSNumber:
-            return value.uint64Value
+            let integerValue = value.int64Value
+            return integerValue >= 0 ? UInt64(integerValue) : nil
         case let value as String:
             return UInt64(value)
         default:
@@ -254,7 +259,11 @@ enum FireRouteParser {
         case let value as Int:
             return value >= 0 ? UInt32(value) : nil
         case let value as NSNumber:
-            return value.uint32Value
+            let integerValue = value.int64Value
+            guard integerValue >= 0, integerValue <= Int64(UInt32.max) else {
+                return nil
+            }
+            return UInt32(integerValue)
         case let value as String:
             return UInt32(value)
         default:

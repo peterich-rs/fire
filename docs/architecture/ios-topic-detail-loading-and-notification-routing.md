@@ -301,7 +301,7 @@ Rationale: this is the cheapest executable proof that the new payload shape pres
 - Replace prefix-based `targetLoadedCount` math with range math over `post_stream.stream` indices.
 - Expand the requested range in both directions when the user reads near the top or bottom of the current window. Cap `requestedRange` at `FireTopicDetailWindowState.maxWindowSize` (200 indices); when the user scrolls past the window edge, shift the window rather than expanding it. Posts outside the active window remain in `loadedIndices` as warm cache but are not actively hydrated.
 - Preserve the active anchor for MessageBus refreshes and clear it only on explicit user refresh or lifecycle eviction.
-- Replace `recomposedDetail` calls in both `applyTopicDetail` and `applyHydratedTopicPostsIfNeeded` with a unified composition path: merge posts → call `FireTopicPresentation.rebuildTimelineEntries` → recompute `interactionCount`. Remove the current `composeThread` / `thread` / `flatPosts` assignments.
+- Keep `recomposedDetail` as the shared composition path for now, but ensure topic-detail hydration is driven by `requestedRange` instead of prefix counts. `composeThread` / `thread` / `flatPosts` remain temporarily for compatibility while the visible reply list migrates to `timelineRows`.
 - After hydration loop exits, check whether `pendingScrollTarget` refers to a post ID in `exhaustedPostIDs`; if so, clear the target and log a warning rather than retrying indefinitely.
 
 ```swift
@@ -324,10 +324,10 @@ Rationale: route/comment jumps must be able to reuse cache when valid and bypass
 
 - Remove `loadedWindowCount` and `missingPostIDs(upTo:)` as the store’s primary pagination helpers.
 - Add range-based helpers keyed by stream indices.
-- Replace `recomposedDetail` with a streamlined composition path that removes the `composeThread` call and its `thread`/`flatPosts` output. Keep the post merge and `interactionCount` computation. Add a call to `rebuildTimelineEntries` so timeline entries stay consistent after every post set mutation (initial apply, incremental hydration, MessageBus refresh).
+- Keep `recomposedDetail` as the shared composition path and continue rebuilding `timelineEntries` after every post set mutation (initial apply, incremental hydration, MessageBus refresh). The store should stop using the old prefix helpers as its primary pagination inputs.
 - Add `rebuildTimelineEntries` as the Swift-side counterpart to Rust’s `build_floor_timeline_entries`. This function is called after Swift-side incremental hydration to extend `timeline_entries` with newly loaded posts, using the same floor-order and best-effort depth logic. This is necessary because Swift-side hydration fetches individual posts via `fetchTopicPosts` and merges them locally — the Rust-side `rebuild_timeline_entries` only runs on the initial fetch path.
 - Add `timelineRows` mapper that joins `timeline_entries` with `post_stream.posts` into `[FireTopicTimelineRow]` for the view.
-- Remove the `FireTopicFlatPostPresentation`, `FireTopicReplyPresentation`, `FireTopicReplySectionPresentation`, and `FireTopicThreadPresentation` type aliases once all consumers are migrated.
+- Leave the old flat-post/thread type aliases in place until the last compatibility caller is gone; they are no longer the source of truth for topic-detail hydration.
 
 ```swift
 static func missingPostIDs(
@@ -345,7 +345,7 @@ static func rebuildTimelineEntries(
 ) -> [TopicTimelineEntryState]
 
 /// Join timeline entries with loaded posts into renderable rows.
-/// Posts not yet hydrated produce rows with `post == nil` (loading placeholder).
+/// Rows can surface `post == nil` when future hydration paths provide entry-only timeline data.
 static func timelineRows(
     entries: [TopicTimelineEntryState],
     posts: [TopicPostState]
@@ -361,10 +361,10 @@ Rationale: the view should no longer infer meaning from “how many posts from t
 
 **File: `native/ios-app/App/FireTopicDetailView.swift`**
 
-- Change the data source of `replyPostRows` from `[FireTopicFlatPostPresentation]` (alias for `TopicThreadFlatPostState`) to `[FireTopicTimelineRow]`. Each row accesses `row.post` for rendering content and `row.entry` for depth/parent metadata. Rows where `row.post == nil` render a compact loading placeholder (height-estimated skeleton matching the expected post layout).
+- Change the data source of `replyPostRows` from `[FireTopicFlatPostPresentation]` (alias for `TopicThreadFlatPostState`) to `[FireTopicTimelineRow]`. Each row accesses `row.post` for rendering content and `row.entry` for depth/parent metadata. Keep a compact placeholder path for future entry-only rows, but do not depend on it for the anchor-window migration.
 - Render replies from the new floor-ordered timeline entry list.
 - Replace `hasScrolledToTarget` with a pending-target state that retries while the target post is still absent, with an exhaustion-based termination condition.
-- Report the visible top and bottom post numbers back into the store so range expansion can be symmetric around an anchor.
+- Report visible post numbers back into the store so range expansion can react near both edges of the current requested window.
 - Keep the current reply composer, mutation, and image-viewer affordances unchanged.
 
 ```swift

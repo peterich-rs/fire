@@ -147,7 +147,7 @@ final class FireTopicPresentationTests: XCTestCase {
         XCTAssertEqual(sanitized, Set<UInt64>([12]))
     }
 
-    func testReplyIndexByPostNumberBuildsStableLookupForReplyPosts() {
+    func testTimelineRowsBuildStableLookupForReplyRows() {
         let detail = FireTopicPresentation.recomposedDetail(
             makeTopicDetail(
                 posts: [
@@ -158,9 +158,12 @@ final class FireTopicPresentationTests: XCTestCase {
                 stream: [1, 2, 3]
             )
         )
-        let replyPosts = detail.flatPosts.filter { !$0.isOriginalPost }
+        let replyRows = FireTopicPresentation.timelineRows(
+            entries: detail.timelineEntries,
+            posts: detail.postStream.posts
+        ).filter { !$0.entry.isOriginalPost }
 
-        let lookup = replyIndexByPostNumber(posts: replyPosts)
+        let lookup = Dictionary(uniqueKeysWithValues: replyRows.enumerated().map { ($1.entry.postNumber, $0) })
 
         XCTAssertEqual(lookup[2], 0)
         XCTAssertEqual(lookup[3], 1)

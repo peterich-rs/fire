@@ -109,11 +109,6 @@ private struct PendingCloudflareRecovery {
     let waiters = PendingCloudflareRecoveryWaiters()
 }
 
-struct FireTopicPostPaginationState {
-    var targetLoadedCount: Int
-    var exhaustedPostIDs: Set<UInt64> = []
-}
-
 struct FireTopicDetailWindowState {
     static let maxWindowSize = 200
 
@@ -532,13 +527,11 @@ final class FireAppViewModel: ObservableObject {
 
     func preloadTopicPostsIfNeeded(
         topicId: UInt64,
-        visibleReplyIndex: Int,
-        totalReplyCount: Int
+        visiblePostNumbers: Set<UInt32>
     ) {
         topicDetailStore?.preloadTopicPostsIfNeeded(
             topicId: topicId,
-            visibleReplyIndex: visibleReplyIndex,
-            totalReplyCount: totalReplyCount
+            visiblePostNumbers: visiblePostNumbers
         )
     }
 

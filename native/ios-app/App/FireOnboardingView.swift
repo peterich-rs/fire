@@ -115,7 +115,7 @@ struct FireOnboardingView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     NavigationLink {
-                        FireDiagnosticsView(viewModel: viewModel)
+                        FireDeveloperToolsView(viewModel: viewModel)
                     } label: {
                         Image(systemName: "ant")
                     }

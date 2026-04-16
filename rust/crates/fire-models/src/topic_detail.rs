@@ -513,9 +513,7 @@ fn compute_depth_walk(
     }
     match posts.iter().find(|p| p.post_number == parent_pn) {
         Some(p) => match normalized_reply_target(p.reply_to_post_number) {
-            Some(gp) if gp != parent_pn => {
-                compute_depth_walk(gp, posts, loaded, current_depth + 1)
-            }
+            Some(gp) if gp != parent_pn => compute_depth_walk(gp, posts, loaded, current_depth + 1),
             _ => current_depth,
         },
         None => current_depth,

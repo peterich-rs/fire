@@ -671,11 +671,7 @@ impl From<TopicDetail> for TopicDetailState {
             post_stream: value.post_stream.into(),
             thread: value.thread.into(),
             flat_posts: value.flat_posts.into_iter().map(Into::into).collect(),
-            timeline_entries: value
-                .timeline_entries
-                .into_iter()
-                .map(Into::into)
-                .collect(),
+            timeline_entries: value.timeline_entries.into_iter().map(Into::into).collect(),
             details: value.details.into(),
         }
     }

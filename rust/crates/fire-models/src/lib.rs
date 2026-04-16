@@ -838,7 +838,7 @@ mod tests {
         assert_eq!(detail.timeline_entries[0].depth, 1);
         assert_eq!(detail.timeline_entries[0].parent_post_number, Some(3));
         assert!(detail.timeline_entries[0].is_original_post); // min in partial set
-        // Post 6 replies to 5 (loaded) — depth is 2.
+                                                              // Post 6 replies to 5 (loaded) — depth is 2.
         assert_eq!(detail.timeline_entries[1].post_number, 6);
         assert_eq!(detail.timeline_entries[1].depth, 2);
         // Post 7 has no parent — depth is 0.
@@ -849,10 +849,7 @@ mod tests {
     #[test]
     fn timeline_entries_depth_self_corrects_after_hydration() {
         // First: partial set with missing parent.
-        let partial_posts = vec![
-            topic_post(5, Some(3)),
-            topic_post(6, Some(5)),
-        ];
+        let partial_posts = vec![topic_post(5, Some(3)), topic_post(6, Some(5))];
         let mut detail = TopicDetail {
             post_stream: TopicPostStream {
                 posts: partial_posts,

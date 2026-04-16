@@ -118,6 +118,17 @@ struct FireTopicDetailWindowState {
     var loadedPostNumbers: Set<UInt32> = []
     var exhaustedPostIDs: Set<UInt64> = []
     var pendingScrollTarget: UInt32?
+
+    var activeAnchorPostNumber: UInt32? {
+        pendingScrollTarget ?? anchorPostNumber
+    }
+
+    func clearingTransientAnchor() -> FireTopicDetailWindowState {
+        var window = self
+        window.anchorPostNumber = nil
+        window.pendingScrollTarget = nil
+        return window
+    }
 }
 
 struct FireTopicDetailRequest: Equatable {

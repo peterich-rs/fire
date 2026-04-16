@@ -2,19 +2,19 @@
 
 ## Feasibility Assessment
 
-The latest `main` already contains the hard parts needed for this slice: Rust `fetch_topic_detail_initial` in `rust/crates/fire-core/src/core/topics.rs` (line 19) already supports anchored `/t/{topicId}/{postNumber}.json` reads and intentionally keeps partial `post_stream` payloads (`rust/crates/fire-core/tests/network.rs`, lines 1001-1038), Swift topic-detail state is isolated in `native/ios-app/App/Stores/FireTopicDetailStore.swift` (lines 62, 527, 650, 764), and app-wide route delivery already flows through `native/ios-app/App/FireNavigationState.swift` (lines 7-10), `native/ios-app/App/Routing/FireRouteParser.swift` (line 28), and `native/ios-app/App/FireAppDelegate.swift` (line 31). MessageBus alert parsing already carries `post_url` in Rust and UniFFI (`rust/crates/fire-core/src/core/messagebus.rs`, line 1044; `rust/crates/fire-uniffi/src/state_messagebus.rs`, line 200), so reliable notification tap-through does not need a backend contract change. The work is local and mechanical: replace prefix-window assumptions with anchor-aware range state, collapse redundant topic-detail presentation shapes, and make target scrolling retry until the row is actually loaded. Fully feasible.
+The latest `main` already contains the hard parts needed for this slice: Rust `fetch_topic_detail_initial` in `rust/crates/fire-core/src/core/topics.rs` (line 19) already supports anchored `/t/{topicId}/{postNumber}.json` reads and intentionally keeps partial `post_stream` payloads (`rust/crates/fire-core/tests/network.rs`, lines 1001-1038), Swift topic-detail state is isolated in `native/ios-app/App/Stores/FireTopicDetailStore.swift` (lines 62, 527, 650, 764), and app-wide route delivery already flows through `native/ios-app/App/FireNavigationState.swift` (lines 7-10), `native/ios-app/App/Routing/FireRouteParser.swift` (line 28), and `native/ios-app/App/FireAppDelegate.swift` (line 31). MessageBus alert parsing already carries `post_url` in Rust and UniFFI (`rust/crates/fire-core/src/core/messagebus.rs`, line 1044; `rust/crates/fire-uniffi/src/state_messagebus.rs`, line 200), so reliable notification tap-through does not need a backend contract change. The work is local and mechanical: replace prefix-window assumptions with anchor-aware range state, treat route anchors as one-shot state instead of a long-lived refresh default, collapse redundant topic-detail presentation shapes, and make target scrolling retry until the row is actually loaded. Fully feasible.
 
 ## Current Surface Inventory
 
 - `native/ios-app/App/Stores/FireTopicDetailStore.swift` `loadTopicDetail` (line 62) -- topic-detail entry point; currently returns early on cached detail before capturing a new route anchor.
-- `native/ios-app/App/Stores/FireTopicDetailStore.swift` `clearTopicDetailAnchor` (line 126) -- clears the stored topic anchor only on explicit refresh.
+- `native/ios-app/App/Stores/FireTopicDetailStore.swift` `clearTopicDetailAnchor` (line 126) -- clears the transient route anchor and pending scroll target while preserving the active requested window.
 - `native/ios-app/App/Stores/FireTopicDetailStore.swift` `refreshTopicDetailAfterMutation` (line 506) -- mutation refresh path; currently always reloads from topic start.
-- `native/ios-app/App/Stores/FireTopicDetailStore.swift` `scheduleTopicDetailRefresh` (line 527) -- MessageBus refresh path; preserves the recorded anchor only if one was stored before the cache short-circuit.
+- `native/ios-app/App/Stores/FireTopicDetailStore.swift` `scheduleTopicDetailRefresh` (line 527) -- MessageBus refresh path; must only reuse an anchor while a route target is still unresolved.
 - `native/ios-app/App/Stores/FireTopicDetailStore.swift` `applyTopicDetail` (line 650) -- merges incoming detail, recomposes thread/flat copies in Swift, and seeds hydration state from a prefix count.
 - `native/ios-app/App/Stores/FireTopicDetailStore.swift` `hydrateTopicPostsToTargetIfNeeded` (line 764) -- incremental fetch loop; currently resolves missing posts against the start of `post_stream.stream`, not the anchored window the user is reading.
 - `native/ios-app/App/FireTopicPresentation.swift` `loadedWindowCount` / `missingPostIDs` (lines 248, 274) -- prefix-based hydration helpers that treat “loaded” as a contiguous stream head.
 - `native/ios-app/App/FireTopicDetailView.swift` `onPreferenceChange(FireVisiblePostFramePreferenceKey...)` (line 356) -- visible-post callback used to trigger preload.
-- `native/ios-app/App/FireTopicDetailView.swift` `scrollToTargetPostIfNeeded` (line 614) -- one-shot scroll attempt that can complete before the target row exists.
+- `native/ios-app/App/FireTopicDetailView.swift` `scrollToTargetPostIfNeeded` (line 614) -- scroll retry path; it must fire for cached targets too, not only when post counts change.
 - `native/ios-app/App/FireTopicDetailView.swift` `replyPostRows` (line 851) and `FireVisiblePostFrameReporter` (line 1310) -- row rendering and viewport reporting for long threads.
 - `rust/crates/fire-core/src/core/topics.rs` `fetch_topic_detail_initial` (line 19) -- anchored initial read that intentionally preserves a partial stream.
 - `rust/crates/fire-core/src/core/topics.rs` `hydrate_topic_detail_posts` (line 229) -- full missing-post hydration path used by the non-initial fetch.
@@ -50,10 +50,10 @@ The latest `main` already contains the hard parts needed for this slice: Rust `f
    Rejected: keep `loadedWindowCount` / `missingPostIDs(upTo:)` semantics.
    Why: anchored `/t/{topicId}/{postNumber}.json` payloads load a centered slice; a prefix counter cannot describe that slice and hydrates the wrong posts.
 
-3. **Capture route anchors before any cache reuse decision.**
-   Chosen: treat a route/comment jump as a `TopicDetailRequest` with an explicit anchor, record it immediately, then decide whether cached data already satisfies it.
+3. **Capture route anchors before any cache reuse decision, but release them as soon as the jump is resolved.**
+   Chosen: treat a route/comment jump as a `TopicDetailRequest` with an explicit one-shot anchor, record it immediately, then clear it once the target row is reached or proven unavailable.
    Rejected: the current `topicDetails[topicId] != nil && !force` short-circuit.
-   Why: latest main can silently drop a new notification anchor if the topic was already cached.
+   Why: latest main can silently drop a new notification anchor if the topic was already cached, while the current branch can accidentally keep reusing that anchor for later refreshes after the jump is already done.
 
 4. **Keep one lightweight presentation shape across Rust and Swift.**
    Chosen: remove `thread` and `flat_posts` from the bridged detail payload and replace them with a lightweight floor-ordered `timeline_entries` vector.
@@ -117,6 +117,10 @@ private struct FireTopicDetailWindowState {
     var loadedPostNumbers: Set<UInt32> = []
     var exhaustedPostIDs: Set<UInt64> = []
     var pendingScrollTarget: UInt32?
+
+    var activeAnchorPostNumber: UInt32? {
+        pendingScrollTarget ?? anchorPostNumber
+    }
 }
 
 struct FireTopicDetailRequest: Equatable {
@@ -159,13 +163,13 @@ await topicDetailStore.loadTopicDetail(
 )
 ```
 
-Usage example: MessageBus refresh preserving the current window
+Usage example: MessageBus refresh after the route jump has been satisfied
 
 ```swift
 await topicDetailStore.loadTopicDetail(
     topicId: topicId,
     request: FireTopicDetailRequest(
-        anchorPostNumber: window.anchorPostNumber,
+        anchorPostNumber: nil,
         reason: .messageBusRefresh,
         forceNetwork: true
     )
@@ -298,9 +302,10 @@ Rationale: this is the cheapest executable proof that the new payload shape pres
 - Change `loadTopicDetail` to accept `FireTopicDetailRequest` and record `anchorPostNumber` before any cache reuse.
 - If a cached detail already contains the target post, reuse it and set `pendingScrollTarget` without a network fetch.
 - If a cached detail does not contain the target post, force an anchored `fetchTopicDetailInitial` instead of returning early.
+- Clear the transient route anchor as soon as `pendingScrollTarget` is satisfied or exhausted so later refreshes fall back to unanchored `/t/{topicId}.json`.
 - Replace prefix-based `targetLoadedCount` math with range math over `post_stream.stream` indices.
 - Expand the requested range in both directions when the user reads near the top or bottom of the current window. Cap `requestedRange` at `FireTopicDetailWindowState.maxWindowSize` (200 indices); when the user scrolls past the window edge, shift the window rather than expanding it. Posts outside the active window remain in `loadedIndices` as warm cache but are not actively hydrated.
-- Preserve the active anchor for MessageBus refreshes and clear it only on explicit user refresh or lifecycle eviction.
+- Keep background refresh and force reload unanchored by default once the one-shot route target has been consumed.
 - Keep `recomposedDetail` as the shared composition path for now, but ensure topic-detail hydration is driven by `requestedRange` instead of prefix counts. `composeThread` / `thread` / `flatPosts` remain temporarily for compatibility while the visible reply list migrates to `timelineRows`.
 - After hydration loop exits, check whether `pendingScrollTarget` refers to a post ID in `exhaustedPostIDs`; if so, clear the target and log a warning rather than retrying indefinitely.
 
@@ -316,7 +321,7 @@ private func needsAnchoredReload(
 }
 ```
 
-`FireTopicDetailWindowState.loadedPostNumbers` is a `Set<UInt32>` maintained alongside `loadedIndices`, providing O(1) anchor-presence checks instead of a linear scan over `post_stream.posts`.
+`FireTopicDetailWindowState.loadedPostNumbers` is a `Set<UInt32>` maintained alongside `loadedIndices`, providing O(1) anchor-presence checks instead of a linear scan over `post_stream.posts`. Addressing review feedback: `pendingScrollTarget` is the durable source of truth for whether an anchor is still active; `anchorPostNumber` mirrors that transient state only while the jump is unresolved and must not leak into later refreshes.
 
 Rationale: route/comment jumps must be able to reuse cache when valid and bypass it when invalid. The sliding window cap ensures that even in long topics, active hydration stays bounded while already-loaded posts remain available as warm cache.
 
@@ -364,6 +369,7 @@ Rationale: the view should no longer infer meaning from “how many posts from t
 - Change the data source of `replyPostRows` from `[FireTopicFlatPostPresentation]` (alias for `TopicThreadFlatPostState`) to `[FireTopicTimelineRow]`. Each row accesses `row.post` for rendering content and `row.entry` for depth/parent metadata. Keep a compact placeholder path for future entry-only rows, but do not depend on it for the anchor-window migration.
 - Render replies from the new floor-ordered timeline entry list.
 - Replace `hasScrolledToTarget` with a pending-target state that retries while the target post is still absent, with an exhaustion-based termination condition.
+- Trigger the scroll retry when `pendingScrollTarget` changes, even if the loaded post count is unchanged because the target was already cached.
 - Report visible post numbers back into the store so range expansion can react near both edges of the current requested window.
 - Keep the current reply composer, mutation, and image-viewer affordances unchanged.
 
@@ -464,9 +470,10 @@ Rationale: avoid inventing a second notification-entry path.
 - Add cache/anchor regression tests:
   - cached detail + new route anchor forces an anchored reload when the target is absent from `loadedPostNumbers`
   - cached detail + already-loaded route anchor skips the network and only schedules pending scroll
+  - satisfying or exhausting the pending scroll target clears the transient anchor without resetting `requestedRange`
   - visible-range expansion requests older and newer missing post ids around the current anchor
   - `requestedRange` does not grow beyond `maxWindowSize` when scrolling continuously; instead the window slides
-  - MessageBus refresh preserves the active anchor window
+  - MessageBus refresh no longer reuses a consumed route anchor
   - pending scroll target for an exhausted post ID is cleared after hydration loop completes
   - `rebuildTimelineEntries` is called after `applyHydratedTopicPostsIfNeeded`, and the resulting entries cover newly hydrated posts
 
@@ -515,8 +522,8 @@ Manual verification matrix:
 
 - Open a reply notification for a long topic where the target post is outside the initial prefix; the topic view must land on the target comment.
 - Re-open the same topic from a different notification anchor while the old cache is retained; the second anchor must still win.
-- Trigger a topic-detail MessageBus refresh while reading an anchored window; the window must stay centered on the same target region.
-- Pull to refresh from topic detail; the explicit user refresh must clear the anchor and return to the topic-start window.
+- Trigger a topic-detail MessageBus refresh after the target row has already been reached; the view must preserve the currently rendered content and must not collapse back into an anchored partial payload.
+- Pull to refresh from topic detail after a routed jump; the refresh must not resurrect a stale route anchor once the jump has already been satisfied.
 - Deliver a background/system notification that only has a valid `post_url`; the app must still route into the correct topic/comment.
 - Open a reply notification targeting a post that has been deleted by a moderator; the app must land on the topic without hanging on a perpetual loading state (scroll target cleared after exhaustion).
 

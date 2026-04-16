@@ -2,8 +2,8 @@ import Foundation
 
 @MainActor
 final class FireTopicDetailStore: ObservableObject {
-    private static let topicPostPageSize = 30
-    private static let topicPostPrefetchThreshold = 6
+    nonisolated private static let topicPostPageSize = 30
+    nonisolated private static let topicPostPrefetchThreshold = 6
 
     @Published private(set) var topicDetails: [UInt64: TopicDetailState] = [:]
     @Published private(set) var topicPresenceUsersByTopic: [UInt64: [TopicPresenceUserState]] = [:]
@@ -76,8 +76,7 @@ final class FireTopicDetailStore: ObservableObject {
             topicDetailTargetPostNumbers[topicId] = targetPostNumber
         }
 
-        let anchorPostNumber = topicDetailTargetPostNumbers[topicId]
-            ?? topicWindowStates[topicId]?.anchorPostNumber
+        let anchorPostNumber = activeAnchorPostNumber(topicId: topicId)
 
         if !force,
            let cachedDetail = topicDetails[topicId],
@@ -145,9 +144,7 @@ final class FireTopicDetailStore: ObservableObject {
     }
 
     func clearTopicDetailAnchor(topicId: UInt64) {
-        topicDetailTargetPostNumbers.removeValue(forKey: topicId)
-        topicWindowStates[topicId]?.anchorPostNumber = nil
-        topicWindowStates[topicId]?.pendingScrollTarget = nil
+        clearTransientAnchor(topicId: topicId)
     }
 
     func pendingScrollTarget(topicId: UInt64) -> UInt32? {
@@ -171,7 +168,11 @@ final class FireTopicDetailStore: ObservableObject {
     }
 
     func markScrollTargetSatisfied(topicId: UInt64, postNumber: UInt32) {
-        topicWindowStates[topicId]?.pendingScrollTarget = nil
+        guard activeAnchorPostNumber(topicId: topicId) == postNumber
+            || topicDetailTargetPostNumbers[topicId] == postNumber else {
+            return
+        }
+        clearTransientAnchor(topicId: topicId)
     }
 
     func topicDetail(for topicId: UInt64) -> TopicDetailState? {
@@ -588,8 +589,7 @@ final class FireTopicDetailStore: ObservableObject {
             guard !Task.isCancelled else { return }
             guard let self, let store = self.appViewModel.currentSessionStore() else { return }
             guard self.topicDetails[topicId] != nil else { return }
-            let anchorPostNumber = self.topicWindowStates[topicId]?.anchorPostNumber
-                ?? self.topicDetailTargetPostNumbers[topicId]
+            let anchorPostNumber = self.activeAnchorPostNumber(topicId: topicId)
             do {
                 let detail = try await self.appViewModel.performWithCloudflareRecovery(
                     operation: "刷新话题详情"
@@ -675,6 +675,18 @@ final class FireTopicDetailStore: ObservableObject {
         topicIDs.sorted().map(String.init).joined(separator: ",")
     }
 
+    private func activeAnchorPostNumber(topicId: UInt64) -> UInt32? {
+        topicWindowStates[topicId]?.activeAnchorPostNumber
+            ?? topicDetailTargetPostNumbers[topicId]
+    }
+
+    private func clearTransientAnchor(topicId: UInt64) {
+        topicDetailTargetPostNumbers.removeValue(forKey: topicId)
+        if let window = topicWindowStates[topicId] {
+            topicWindowStates[topicId] = window.clearingTransientAnchor()
+        }
+    }
+
     private func evictTopicDetailState(topicId: UInt64, reason: String) {
         let removedDetail = topicDetails.removeValue(forKey: topicId) != nil
         let removedWindow = topicWindowStates.removeValue(forKey: topicId) != nil
@@ -720,8 +732,7 @@ final class FireTopicDetailStore: ObservableObject {
         refreshTopicWindowState(
             topicId: topicId,
             detail: detail,
-            anchorPostNumber: topicDetailTargetPostNumbers[topicId]
-                ?? topicWindowStates[topicId]?.anchorPostNumber,
+            anchorPostNumber: activeAnchorPostNumber(topicId: topicId),
             requestedRange: topicWindowStates[topicId]?.requestedRange,
             pendingScrollTarget: topicWindowStates[topicId]?.pendingScrollTarget
                 ?? topicDetailTargetPostNumbers[topicId]
@@ -770,7 +781,7 @@ final class FireTopicDetailStore: ObservableObject {
         refreshTopicWindowState(
             topicId: topicId,
             detail: detail,
-            anchorPostNumber: topicWindowStates[topicId]?.anchorPostNumber,
+            anchorPostNumber: activeAnchorPostNumber(topicId: topicId),
             requestedRange: requestedRange,
             pendingScrollTarget: topicWindowStates[topicId]?.pendingScrollTarget
         )
@@ -806,10 +817,7 @@ final class FireTopicDetailStore: ObservableObject {
                     totalCount: detail.postStream.stream.count,
                     expandBackward: shouldExpandBackward,
                     expandForward: shouldExpandForward,
-                    anchorIndex: streamIndex(
-                        forPostNumber: window.pendingScrollTarget ?? window.anchorPostNumber,
-                        in: detail
-                    )
+                    anchorIndex: streamIndex(forPostNumber: window.activeAnchorPostNumber, in: detail)
                 )
                 topicWindowStates[topicId] = window
             }
@@ -916,7 +924,7 @@ final class FireTopicDetailStore: ObservableObject {
         guard !posts.isEmpty else {
             if let target = topicWindowStates[topicId]?.pendingScrollTarget,
                isScrollTargetExhausted(topicId: topicId, postNumber: target) {
-                topicWindowStates[topicId]?.pendingScrollTarget = nil
+                markScrollTargetSatisfied(topicId: topicId, postNumber: target)
             }
             return
         }
@@ -932,14 +940,14 @@ final class FireTopicDetailStore: ObservableObject {
         refreshTopicWindowState(
             topicId: topicId,
             detail: recomposed,
-            anchorPostNumber: currentWindow.anchorPostNumber,
+            anchorPostNumber: currentWindow.activeAnchorPostNumber,
             requestedRange: currentWindow.requestedRange,
             pendingScrollTarget: currentWindow.pendingScrollTarget
         )
 
         if let target = topicWindowStates[topicId]?.pendingScrollTarget,
            isScrollTargetExhausted(topicId: topicId, postNumber: target) {
-            topicWindowStates[topicId]?.pendingScrollTarget = nil
+            markScrollTargetSatisfied(topicId: topicId, postNumber: target)
         }
     }
 
@@ -975,9 +983,9 @@ final class FireTopicDetailStore: ObservableObject {
         }
 
         let previousWindow = topicWindowStates[topicId]
-        let resolvedAnchor = anchorPostNumber ?? previousWindow?.anchorPostNumber
+        let resolvedAnchor = pendingScrollTarget ?? anchorPostNumber ?? previousWindow?.pendingScrollTarget
         let anchorIndex = streamIndex(forPostNumber: resolvedAnchor, in: detail)
-        let anchorChanged = resolvedAnchor != previousWindow?.anchorPostNumber
+        let anchorChanged = resolvedAnchor != previousWindow?.activeAnchorPostNumber
         let resolvedRequestedRange = resolveRequestedRange(
             requestedRange,
             previousWindow: previousWindow,
@@ -1075,7 +1083,7 @@ final class FireTopicDetailStore: ObservableObject {
         return detail.postStream.stream.firstIndex(of: postID)
     }
 
-    static func initialRequestedRange(
+    nonisolated static func initialRequestedRange(
         totalCount: Int,
         anchorIndex: Int?,
         loadedIndices: IndexSet
@@ -1101,7 +1109,7 @@ final class FireTopicDetailStore: ObservableObject {
         )
     }
 
-    static func expandedRequestedRange(
+    nonisolated static func expandedRequestedRange(
         current: Range<Int>,
         totalCount: Int,
         expandBackward: Bool,
@@ -1118,7 +1126,7 @@ final class FireTopicDetailStore: ObservableObject {
         )
     }
 
-    static func boundedRequestedRange(
+    nonisolated static func boundedRequestedRange(
         lowerBound: Int,
         upperBound: Int,
         totalCount: Int,

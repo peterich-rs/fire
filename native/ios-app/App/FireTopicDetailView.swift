@@ -182,6 +182,10 @@ struct FireTopicDetailView: View {
         topicDetailStore.topicPresenceUsers(for: topic.id)
     }
 
+    private var pendingScrollTarget: UInt32? {
+        topicDetailStore.pendingScrollTarget(topicId: topic.id)
+    }
+
     private var nonHeartReactionOptions: [FireReactionOption] {
         reactionOptions.filter { $0.id != "heart" }
     }
@@ -334,6 +338,9 @@ struct FireTopicDetailView: View {
                     )
                 }
                 .onChange(of: detail?.postStream.posts.count) { _, _ in
+                    scrollToTargetPostIfNeeded(proxy: scrollProxy)
+                }
+                .task(id: pendingScrollTarget) {
                     scrollToTargetPostIfNeeded(proxy: scrollProxy)
                 }
             }
@@ -584,7 +591,7 @@ struct FireTopicDetailView: View {
     }
 
     private func scrollToTargetPostIfNeeded(proxy: ScrollViewProxy) {
-        guard let target = topicDetailStore.pendingScrollTarget(topicId: topic.id) else {
+        guard let target = pendingScrollTarget else {
             return
         }
 

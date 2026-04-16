@@ -860,6 +860,7 @@ impl From<RawTopicDetail> for TopicDetail {
             post_stream,
             thread,
             flat_posts,
+            timeline_entries: Vec::new(),
             details: value.details.into(),
         }
     }

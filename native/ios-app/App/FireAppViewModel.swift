@@ -114,6 +114,31 @@ struct FireTopicPostPaginationState {
     var exhaustedPostIDs: Set<UInt64> = []
 }
 
+struct FireTopicDetailWindowState {
+    static let maxWindowSize = 200
+
+    var anchorPostNumber: UInt32?
+    var requestedRange: Range<Int>
+    var loadedIndices: IndexSet
+    var loadedPostNumbers: Set<UInt32> = []
+    var exhaustedPostIDs: Set<UInt64> = []
+    var pendingScrollTarget: UInt32?
+}
+
+struct FireTopicDetailRequest: Equatable {
+    enum Reason: Equatable {
+        case initialOpen
+        case routeAnchor
+        case visibleRangeExpansion
+        case userRefresh
+        case messageBusRefresh
+    }
+
+    var anchorPostNumber: UInt32?
+    var reason: Reason
+    var forceNetwork: Bool = false
+}
+
 enum FireSearchScope: String, CaseIterable, Identifiable {
     case all
     case topic

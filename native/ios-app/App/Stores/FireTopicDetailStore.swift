@@ -18,6 +18,7 @@ final class FireTopicDetailStore: ObservableObject {
     private var topicPresenceHeartbeatTasks: [UInt64: Task<Void, Never>] = [:]
     private var topicPostPreloadTasks: [UInt64: Task<Void, Never>] = [:]
     private var topicPostPaginationStates: [UInt64: FireTopicPostPaginationState] = [:]
+    private var topicWindowStates: [UInt64: FireTopicDetailWindowState] = [:]
     private var topicDetailTargetPostNumbers: [UInt64: UInt32] = [:]
     private var activeTopicDetailOwnerTokens: [UInt64: Set<String>] = [:]
 
@@ -50,6 +51,7 @@ final class FireTopicDetailStore: ObservableObject {
         activeTopicDetailOwnerTokens = [:]
         topicDetailTargetPostNumbers = [:]
         topicPostPaginationStates = [:]
+        topicWindowStates = [:]
         topicDetails = [:]
         topicPresenceUsersByTopic = [:]
         loadingMoreTopicPostIDs = []
@@ -125,6 +127,37 @@ final class FireTopicDetailStore: ObservableObject {
 
     func clearTopicDetailAnchor(topicId: UInt64) {
         topicDetailTargetPostNumbers.removeValue(forKey: topicId)
+        topicWindowStates[topicId]?.anchorPostNumber = nil
+        topicWindowStates[topicId]?.pendingScrollTarget = nil
+    }
+
+    func pendingScrollTarget(topicId: UInt64) -> UInt32? {
+        topicWindowStates[topicId]?.pendingScrollTarget
+    }
+
+    func isScrollTargetExhausted(topicId: UInt64, postNumber: UInt32) -> Bool {
+        guard let window = topicWindowStates[topicId],
+              let detail = topicDetails[topicId] else { return false }
+        let targetPostID = detail.postStream.stream.first { postID in
+            detail.timelineEntries.contains { $0.postId == postID && $0.postNumber == postNumber }
+        }
+        if let targetPostID {
+            return window.exhaustedPostIDs.contains(targetPostID)
+        }
+        // If the post number isn't in timeline entries, check if hydration is done
+        // (no more missing posts to load) — the target is unreachable.
+        let loadedPostIDs = Set(detail.postStream.posts.map(\.id))
+        let hasMissingInWindow = !FireTopicPresentation.missingPostIDs(
+            orderedPostIDs: detail.postStream.stream,
+            in: window.requestedRange,
+            loadedPostIDs: loadedPostIDs,
+            excluding: window.exhaustedPostIDs
+        ).isEmpty
+        return !hasMissingInWindow
+    }
+
+    func markScrollTargetSatisfied(topicId: UInt64, postNumber: UInt32) {
+        topicWindowStates[topicId]?.pendingScrollTarget = nil
     }
 
     func topicDetail(for topicId: UInt64) -> TopicDetailState? {
@@ -620,6 +653,7 @@ final class FireTopicDetailStore: ObservableObject {
     private func evictTopicDetailState(topicId: UInt64, reason: String) {
         let removedDetail = topicDetails.removeValue(forKey: topicId) != nil
         let removedPagination = topicPostPaginationStates.removeValue(forKey: topicId) != nil
+        topicWindowStates.removeValue(forKey: topicId)
         let removedPresence = topicPresenceUsersByTopic.removeValue(forKey: topicId) != nil
         let removedLoadingTopic = loadingTopicIDs.remove(topicId) != nil
         let removedLoadingMore = loadingMoreTopicPostIDs.remove(topicId) != nil
@@ -677,6 +711,30 @@ final class FireTopicDetailStore: ObservableObject {
         topicDetails[topicId] = detail
         topicPostPaginationStates[topicId] = FireTopicPostPaginationState(
             targetLoadedCount: targetLoadedCount
+        )
+
+        // Maintain window state for anchor-aware hydration.
+        let loadedPostNumbers = Set(detail.postStream.posts.map(\.postNumber))
+        let loadedPostIDs = Set(detail.postStream.posts.map(\.id))
+        var loadedIndices = IndexSet()
+        for (index, postID) in detail.postStream.stream.enumerated() {
+            if loadedPostIDs.contains(postID) {
+                loadedIndices.insert(index)
+            }
+        }
+
+        let anchorPostNumber = topicDetailTargetPostNumbers[topicId]
+            ?? topicWindowStates[topicId]?.anchorPostNumber
+        let requestedRange = topicWindowStates[topicId]?.requestedRange
+            ?? 0..<min(targetLoadedCount, detail.postStream.stream.count)
+
+        topicWindowStates[topicId] = FireTopicDetailWindowState(
+            anchorPostNumber: anchorPostNumber,
+            requestedRange: requestedRange,
+            loadedIndices: loadedIndices,
+            loadedPostNumbers: loadedPostNumbers,
+            exhaustedPostIDs: topicWindowStates[topicId]?.exhaustedPostIDs ?? [],
+            pendingScrollTarget: anchorPostNumber ?? topicWindowStates[topicId]?.pendingScrollTarget
         )
 
         let missingPostIDs = FireTopicPresentation.missingPostIDs(
@@ -854,7 +912,15 @@ final class FireTopicDetailStore: ObservableObject {
         currentPagination.exhaustedPostIDs.formUnion(exhaustedPostIDs)
         topicPostPaginationStates[topicId] = currentPagination
 
+        // Update window state with exhausted post IDs.
+        topicWindowStates[topicId]?.exhaustedPostIDs.formUnion(exhaustedPostIDs)
+
         guard !posts.isEmpty else {
+            // Check if pending scroll target is now exhausted.
+            if let target = topicWindowStates[topicId]?.pendingScrollTarget,
+               isScrollTargetExhausted(topicId: topicId, postNumber: target) {
+                topicWindowStates[topicId]?.pendingScrollTarget = nil
+            }
             return
         }
 
@@ -863,7 +929,26 @@ final class FireTopicDetailStore: ObservableObject {
             incoming: posts,
             orderedPostIDs: currentDetail.postStream.stream
         )
-        topicDetails[topicId] = FireTopicPresentation.recomposedDetail(currentDetail)
+        let recomposed = FireTopicPresentation.recomposedDetail(currentDetail)
+        topicDetails[topicId] = recomposed
+
+        // Update window state with newly loaded posts.
+        let loadedPostNumbers = Set(recomposed.postStream.posts.map(\.postNumber))
+        topicWindowStates[topicId]?.loadedPostNumbers = loadedPostNumbers
+        let loadedPostIDs = Set(recomposed.postStream.posts.map(\.id))
+        var loadedIndices = IndexSet()
+        for (index, postID) in recomposed.postStream.stream.enumerated() {
+            if loadedPostIDs.contains(postID) {
+                loadedIndices.insert(index)
+            }
+        }
+        topicWindowStates[topicId]?.loadedIndices = loadedIndices
+
+        // Check if pending scroll target is now exhausted.
+        if let target = topicWindowStates[topicId]?.pendingScrollTarget,
+           isScrollTargetExhausted(topicId: topicId, postNumber: target) {
+            topicWindowStates[topicId]?.pendingScrollTarget = nil
+        }
     }
 
     private func applyPostReactionUpdate(

@@ -612,6 +612,14 @@ struct FireTopicDetailView: View {
     }
 
     private func scrollToTargetPostIfNeeded(proxy: ScrollViewProxy) {
+        // Check for anchor-aware pending scroll target first.
+        if let target = topicDetailStore.pendingScrollTarget(topicId: topic.id) {
+            if topicDetailStore.isScrollTargetExhausted(topicId: topic.id, postNumber: target) {
+                topicDetailStore.markScrollTargetSatisfied(topicId: topic.id, postNumber: target)
+                return
+            }
+        }
+
         guard let scrollToPostNumber, !hasScrolledToTarget else { return }
         guard detail != nil else { return }
         hasScrolledToTarget = true
@@ -620,6 +628,7 @@ struct FireTopicDetailView: View {
                 proxy.scrollTo(scrollToPostNumber, anchor: .top)
             }
         }
+        topicDetailStore.markScrollTargetSatisfied(topicId: topic.id, postNumber: scrollToPostNumber)
     }
 
     private var topicHeaderSection: some View {

@@ -91,4 +91,86 @@ final class FireRouteParserTests: XCTestCase {
 
         XCTAssertNil(FireRouteParser.parse(url: url))
     }
+
+    // MARK: - parse(path:)
+
+    func testParsePathWithSlugTopicIdAndPostNumber() {
+        let route = FireRouteParser.parse(path: "/t/fire-native/987/6")
+
+        XCTAssertEqual(route, .topic(topicId: 987, postNumber: 6))
+    }
+
+    func testParsePathWithTopicIdOnly() {
+        let route = FireRouteParser.parse(path: "/t/some-slug/123")
+
+        XCTAssertEqual(route, .topic(topicId: 123, postNumber: nil))
+    }
+
+    func testParsePathReturnsNilForEmptyPath() {
+        XCTAssertNil(FireRouteParser.parse(path: "/"))
+    }
+
+    func testParsePathProfile() {
+        let route = FireRouteParser.parse(path: "/u/alice/summary")
+
+        XCTAssertEqual(route, .profile(username: "alice"))
+    }
+
+    // MARK: - postUrl fallback in notification payload
+
+    func testNotificationPayloadFallsBackToPostUrl() {
+        let route = FireRouteParser.route(
+            fromNotificationUserInfo: [
+                "postUrl": "/t/fire-native/987/6",
+                "topicTitle": "Fire Native",
+                "excerpt": "最新进展",
+            ]
+        )
+
+        XCTAssertEqual(
+            route,
+            .topic(
+                topicId: 987,
+                postNumber: 6,
+                preview: FireTopicRoutePreview(
+                    title: "Fire Native",
+                    slug: "",
+                    categoryId: nil,
+                    excerptText: "最新进展"
+                )
+            )
+        )
+    }
+
+    func testNotificationPayloadFallsBackToPostUrlAbsoluteURL() {
+        let route = FireRouteParser.route(
+            fromNotificationUserInfo: [
+                "postUrl": "https://linux.do/t/fire-native/987/6",
+            ]
+        )
+
+        XCTAssertEqual(route, .topic(topicId: 987, postNumber: 6))
+    }
+
+    func testNotificationPayloadPrefersTopicIdOverPostUrl() {
+        let route = FireRouteParser.route(
+            fromNotificationUserInfo: [
+                "topicId": NSNumber(value: 321),
+                "postNumber": NSNumber(value: 9),
+                "postUrl": "/t/fire-native/987/6",
+            ]
+        )
+
+        XCTAssertEqual(route, .topic(topicId: 321, postNumber: 9))
+    }
+
+    func testNotificationPayloadReturnsNilWithoutTopicIdOrPostUrl() {
+        let route = FireRouteParser.route(
+            fromNotificationUserInfo: [
+                "topicTitle": "Fire Native",
+            ]
+        )
+
+        XCTAssertNil(route)
+    }
 }

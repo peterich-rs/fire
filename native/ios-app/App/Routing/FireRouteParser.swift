@@ -26,16 +26,53 @@ enum FireRouteParser {
     }
 
     static func route(fromNotificationUserInfo userInfo: [AnyHashable: Any]) -> FireAppRoute? {
-        guard let topicId = integerUInt64(from: userInfo["topicId"]) else {
-            return nil
-        }
-        let postNumber = integerUInt32(from: userInfo["postNumber"])
         let preview = FireTopicRoutePreview.fromMetadata(
             title: stringValue(from: userInfo["topicTitle"]) ?? stringValue(from: userInfo["title"]),
             slug: stringValue(from: userInfo["slug"]),
             excerptText: stringValue(from: userInfo["excerpt"])
         )
-        return .topic(topicId: topicId, postNumber: postNumber, preview: preview)
+
+        if let topicId = integerUInt64(from: userInfo["topicId"]) {
+            let postNumber = integerUInt32(from: userInfo["postNumber"])
+            return .topic(topicId: topicId, postNumber: postNumber, preview: preview)
+        }
+
+        if let rawURL = stringValue(from: userInfo["postUrl"]) ?? stringValue(from: userInfo["post_url"]) {
+            // Absolute URL: parse directly via existing URL router.
+            if let url = URL(string: rawURL), url.host != nil, let route = parse(url: url) {
+                return route.overlayPreview(preview)
+            }
+            // Relative path (e.g. "/t/slug/123/6"): extract path components and parse.
+            if rawURL.hasPrefix("/"), let route = parse(path: rawURL) {
+                return route.overlayPreview(preview)
+            }
+        }
+
+        return nil
+    }
+
+    static func parse(path: String) -> FireAppRoute? {
+        let segments = path
+            .split(separator: "/", omittingEmptySubsequences: true)
+            .map(String.init)
+        guard let head = segments.first?.lowercased() else {
+            return nil
+        }
+
+        switch head {
+        case "t":
+            return parseTopic(
+                segments: Array(segments.dropFirst()),
+                components: nil,
+                style: .linuxDoWeb
+            )
+        case "u":
+            return parseProfile(segments: Array(segments.dropFirst()))
+        case "badge", "badges":
+            return parseBadge(segments: Array(segments.dropFirst()), components: nil)
+        default:
+            return nil
+        }
     }
 
     private static func parseFireURL(

@@ -3,8 +3,8 @@ use fire_models::{
     PostUpdateRequest, PrivateMessageCreateRequest, ResolvedUploadUrl, TopicCreateRequest,
     TopicDetail, TopicDetailCreatedBy, TopicDetailMeta, TopicDetailQuery, TopicPost,
     TopicPostStream, TopicReaction, TopicReplyRequest, TopicThread, TopicThreadFlatPost,
-    TopicThreadReply, TopicThreadSection, TopicTimingEntry, TopicTimingsRequest,
-    TopicUpdateRequest, UploadResult,
+    TopicThreadReply, TopicThreadSection, TopicTimelineEntry, TopicTimingEntry,
+    TopicTimingsRequest, TopicUpdateRequest, UploadResult,
 };
 
 use crate::state_topic_list::{TopicParticipantState, TopicTagState};
@@ -549,6 +549,27 @@ impl From<TopicThreadFlatPost> for TopicThreadFlatPostState {
 }
 
 #[derive(uniffi::Record, Debug, Clone)]
+pub struct TopicTimelineEntryState {
+    pub post_id: u64,
+    pub post_number: u32,
+    pub parent_post_number: Option<u32>,
+    pub depth: u32,
+    pub is_original_post: bool,
+}
+
+impl From<TopicTimelineEntry> for TopicTimelineEntryState {
+    fn from(value: TopicTimelineEntry) -> Self {
+        Self {
+            post_id: value.post_id,
+            post_number: value.post_number,
+            parent_post_number: value.parent_post_number,
+            depth: value.depth,
+            is_original_post: value.is_original_post,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
 pub struct TopicDetailCreatedByState {
     pub id: u64,
     pub username: String,
@@ -614,6 +635,7 @@ pub struct TopicDetailState {
     pub post_stream: TopicPostStreamState,
     pub thread: TopicThreadState,
     pub flat_posts: Vec<TopicThreadFlatPostState>,
+    pub timeline_entries: Vec<TopicTimelineEntryState>,
     pub details: TopicDetailMetaState,
 }
 
@@ -649,6 +671,11 @@ impl From<TopicDetail> for TopicDetailState {
             post_stream: value.post_stream.into(),
             thread: value.thread.into(),
             flat_posts: value.flat_posts.into_iter().map(Into::into).collect(),
+            timeline_entries: value
+                .timeline_entries
+                .into_iter()
+                .map(Into::into)
+                .collect(),
             details: value.details.into(),
         }
     }

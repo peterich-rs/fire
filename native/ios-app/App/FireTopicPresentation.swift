@@ -8,6 +8,13 @@ typealias FireTopicReplyPresentation = TopicThreadReplyState
 typealias FireTopicReplySectionPresentation = TopicThreadSectionState
 typealias FireTopicThreadPresentation = TopicThreadState
 
+struct FireTopicTimelineRow: Identifiable {
+    let entry: TopicTimelineEntryState
+    let post: TopicPostState?
+    var id: UInt64 { entry.postId }
+    var isLoaded: Bool { post != nil }
+}
+
 extension TopicCategoryState {
     var displayName: String {
         name.isEmpty ? "Category #\(id)" : name
@@ -227,8 +234,78 @@ enum FireTopicPresentation {
         let composition = composeThread(posts: detail.postStream.posts)
         detail.thread = composition.thread
         detail.flatPosts = composition.flatPosts
+        detail.timelineEntries = rebuildTimelineEntries(from: detail.postStream.posts)
         detail.interactionCount = interactionCount(for: detail)
         return detail
+    }
+
+    // MARK: - Timeline Entries
+
+    static func rebuildTimelineEntries(from posts: [TopicPostState]) -> [TopicTimelineEntryState] {
+        let postNumbers = Set(posts.map(\.postNumber))
+        let minPN = posts.map(\.postNumber).min() ?? 0
+        let sorted = posts.sorted(by: comparePosts(_:_:))
+
+        return sorted.map { post in
+            let parent = normalizedReplyTarget(post.replyToPostNumber)
+            let depth: UInt32
+            if let pn = parent, pn != post.postNumber {
+                depth = computeDepthWalk(
+                    parentPN: pn, posts: posts, loaded: postNumbers, currentDepth: 1
+                )
+            } else {
+                depth = 0
+            }
+            return TopicTimelineEntryState(
+                postId: post.id,
+                postNumber: post.postNumber,
+                parentPostNumber: parent,
+                depth: depth,
+                isOriginalPost: post.postNumber == minPN
+            )
+        }
+    }
+
+    static func timelineRows(
+        entries: [TopicTimelineEntryState],
+        posts: [TopicPostState]
+    ) -> [FireTopicTimelineRow] {
+        let postsByID = Dictionary(uniqueKeysWithValues: posts.map { ($0.id, $0) })
+        return entries.map { entry in
+            FireTopicTimelineRow(entry: entry, post: postsByID[entry.postId])
+        }
+    }
+
+    static func missingPostIDs(
+        orderedPostIDs: [UInt64],
+        in requestedRange: Range<Int>,
+        loadedPostIDs: Set<UInt64>,
+        excluding exhaustedPostIDs: Set<UInt64>
+    ) -> [UInt64] {
+        let clampedRange = requestedRange.clamped(to: 0..<orderedPostIDs.count)
+        guard !clampedRange.isEmpty else { return [] }
+
+        return orderedPostIDs[clampedRange].filter { postID in
+            !loadedPostIDs.contains(postID) && !exhaustedPostIDs.contains(postID)
+        }
+    }
+
+    private static func computeDepthWalk(
+        parentPN: UInt32,
+        posts: [TopicPostState],
+        loaded: Set<UInt32>,
+        currentDepth: UInt32
+    ) -> UInt32 {
+        guard loaded.contains(parentPN) else { return currentDepth }
+        guard let parentPost = posts.first(where: { $0.postNumber == parentPN }) else {
+            return currentDepth
+        }
+        if let gp = normalizedReplyTarget(parentPost.replyToPostNumber), gp != parentPN {
+            return computeDepthWalk(
+                parentPN: gp, posts: posts, loaded: loaded, currentDepth: currentDepth + 1
+            )
+        }
+        return currentDepth
     }
 
     static func interactionCount(for detail: TopicDetailState) -> UInt32 {

@@ -1,6 +1,10 @@
-# Implement Notification Tap-Through and Full Notification Experience
+# Superseded
 
-## Feasibility Assessment
+Use `docs/architecture/ios-topic-detail-loading-and-notification-routing.md` for the latest-main plan that replaces this note.
+
+---
+
+## Historical Snapshot
 
 All notification models (`NotificationItem`, `NotificationState`, etc.) and API methods
 (`fetchNotifications`, `markNotificationRead`, `pollNotificationAlertOnce`) are already

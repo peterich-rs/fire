@@ -575,6 +575,104 @@ final class FireTopicPresentationTests: XCTestCase {
         )
     }
 
+    // MARK: - Timeline Entries
+
+    func testRebuildTimelineEntriesFloorOrderWithFullPostSet() {
+        let posts = [
+            makePost(postNumber: 1, replyToPostNumber: nil, username: "author"),
+            makePost(postNumber: 2, replyToPostNumber: 1, username: "reply-a"),
+            makePost(postNumber: 3, replyToPostNumber: 2, username: "reply-b"),
+            makePost(postNumber: 4, replyToPostNumber: 1, username: "reply-c"),
+        ]
+
+        let entries = FireTopicPresentation.rebuildTimelineEntries(from: posts)
+
+        XCTAssertEqual(entries.count, 4)
+        XCTAssertEqual(entries[0].postNumber, 1)
+        XCTAssertEqual(entries[0].depth, 0)
+        XCTAssertTrue(entries[0].isOriginalPost)
+        XCTAssertEqual(entries[1].postNumber, 2)
+        XCTAssertEqual(entries[1].depth, 1)
+        XCTAssertEqual(entries[2].postNumber, 3)
+        XCTAssertEqual(entries[2].depth, 2)
+        XCTAssertEqual(entries[3].postNumber, 4)
+        XCTAssertEqual(entries[3].depth, 1)
+    }
+
+    func testRebuildTimelineEntriesPartialSetFallsBackDepth() {
+        // Simulate an anchored load where parent #3 is not loaded.
+        let posts = [
+            makePost(postNumber: 5, replyToPostNumber: 3, username: "reply-d"),
+            makePost(postNumber: 6, replyToPostNumber: 5, username: "reply-e"),
+            makePost(postNumber: 7, replyToPostNumber: nil, username: "standalone"),
+        ]
+
+        let entries = FireTopicPresentation.rebuildTimelineEntries(from: posts)
+
+        XCTAssertEqual(entries.count, 3)
+        // Post 5 replies to 3 (not loaded) — depth falls back to 1.
+        XCTAssertEqual(entries[0].depth, 1)
+        XCTAssertEqual(entries[0].parentPostNumber, 3)
+        // Post 6 replies to 5 (loaded) — depth is 2.
+        XCTAssertEqual(entries[1].depth, 2)
+        // Post 7 has no parent — depth is 0.
+        XCTAssertEqual(entries[2].depth, 0)
+    }
+
+    func testTimelineRowsJoinsEntriesWithPosts() {
+        let posts = [
+            makePost(postNumber: 1, replyToPostNumber: nil, username: "author"),
+            makePost(postNumber: 2, replyToPostNumber: 1, username: "reply"),
+        ]
+        let entries = [
+            TopicTimelineEntryState(
+                postId: 1, postNumber: 1, parentPostNumber: nil, depth: 0, isOriginalPost: true
+            ),
+            TopicTimelineEntryState(
+                postId: 2, postNumber: 2, parentPostNumber: 1, depth: 1, isOriginalPost: false
+            ),
+            TopicTimelineEntryState(
+                postId: 3, postNumber: 3, parentPostNumber: 2, depth: 2, isOriginalPost: false
+            ),
+        ]
+
+        let rows = FireTopicPresentation.timelineRows(entries: entries, posts: posts)
+
+        XCTAssertEqual(rows.count, 3)
+        XCTAssertTrue(rows[0].isLoaded)
+        XCTAssertTrue(rows[1].isLoaded)
+        XCTAssertFalse(rows[2].isLoaded) // Post 3 not loaded yet.
+        XCTAssertNil(rows[2].post)
+    }
+
+    func testRangeBasedMissingPostIDs() {
+        let orderedPostIDs: [UInt64] = [10, 20, 30, 40, 50]
+        let loadedPostIDs: Set<UInt64> = [10, 30, 50]
+
+        let missing = FireTopicPresentation.missingPostIDs(
+            orderedPostIDs: orderedPostIDs,
+            in: 1..<4,
+            loadedPostIDs: loadedPostIDs,
+            excluding: []
+        )
+
+        XCTAssertEqual(missing, [20, 40])
+    }
+
+    func testRangeBasedMissingPostIDsExcludesExhausted() {
+        let orderedPostIDs: [UInt64] = [10, 20, 30, 40, 50]
+        let loadedPostIDs: Set<UInt64> = [10, 30, 50]
+
+        let missing = FireTopicPresentation.missingPostIDs(
+            orderedPostIDs: orderedPostIDs,
+            in: 1..<4,
+            loadedPostIDs: loadedPostIDs,
+            excluding: [20]
+        )
+
+        XCTAssertEqual(missing, [40])
+    }
+
     private func makePost(
         postNumber: UInt32,
         replyToPostNumber: UInt32?,
@@ -644,6 +742,7 @@ final class FireTopicPresentationTests: XCTestCase {
             postStream: TopicPostStreamState(posts: posts, stream: stream),
             thread: TopicThreadState(originalPostNumber: nil, replySections: []),
             flatPosts: [],
+            timelineEntries: [],
             details: TopicDetailMetaState(
                 notificationLevel: nil,
                 canEdit: false,

@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use serde::{Deserialize, Serialize};
 
 use crate::cookie::is_non_empty;
@@ -241,6 +243,15 @@ pub struct TopicThreadFlatPost {
     pub is_original_post: bool,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TopicTimelineEntry {
+    pub post_id: u64,
+    pub post_number: u32,
+    pub parent_post_number: Option<u32>,
+    pub depth: u32,
+    pub is_original_post: bool,
+}
+
 impl TopicThread {
     pub fn from_posts(posts: &[TopicPost]) -> Self {
         let Some(original_post) = posts.iter().min_by_key(|post| post.post_number) else {
@@ -436,10 +447,16 @@ pub struct TopicDetail {
     pub thread: TopicThread,
     #[serde(default)]
     pub flat_posts: Vec<TopicThreadFlatPost>,
+    #[serde(default)]
+    pub timeline_entries: Vec<TopicTimelineEntry>,
     pub details: TopicDetailMeta,
 }
 
 impl TopicDetail {
+    pub fn rebuild_timeline_entries(&mut self) {
+        self.timeline_entries = build_floor_timeline_entries(&self.post_stream.posts);
+    }
+
     pub fn interaction_count(&self) -> u32 {
         self.like_count.saturating_add(
             self.post_stream
@@ -456,6 +473,53 @@ impl TopicDetail {
 
 fn normalized_reply_target(reply_to_post_number: Option<u32>) -> Option<u32> {
     reply_to_post_number.filter(|post_number| *post_number > 0)
+}
+
+fn build_floor_timeline_entries(posts: &[TopicPost]) -> Vec<TopicTimelineEntry> {
+    let post_numbers: HashSet<u32> = posts.iter().map(|p| p.post_number).collect();
+    let min_pn = posts.iter().map(|p| p.post_number).min().unwrap_or(0);
+    let mut sorted: Vec<&TopicPost> = posts.iter().collect();
+    sorted.sort_by_key(|p| (p.post_number, p.id));
+
+    sorted
+        .iter()
+        .map(|post| {
+            let parent = normalized_reply_target(post.reply_to_post_number);
+            let depth = match parent {
+                Some(pn) if pn != post.post_number => {
+                    compute_depth_walk(pn, posts, &post_numbers, 1)
+                }
+                _ => 0,
+            };
+            TopicTimelineEntry {
+                post_id: post.id,
+                post_number: post.post_number,
+                parent_post_number: parent,
+                depth,
+                is_original_post: post.post_number == min_pn,
+            }
+        })
+        .collect()
+}
+
+fn compute_depth_walk(
+    parent_pn: u32,
+    posts: &[TopicPost],
+    loaded: &HashSet<u32>,
+    current_depth: u32,
+) -> u32 {
+    if !loaded.contains(&parent_pn) {
+        return current_depth;
+    }
+    match posts.iter().find(|p| p.post_number == parent_pn) {
+        Some(p) => match normalized_reply_target(p.reply_to_post_number) {
+            Some(gp) if gp != parent_pn => {
+                compute_depth_walk(gp, posts, loaded, current_depth + 1)
+            }
+            _ => current_depth,
+        },
+        None => current_depth,
+    }
 }
 
 fn flatten_thread_replies(

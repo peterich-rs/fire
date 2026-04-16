@@ -46,6 +46,10 @@ impl CookieJar for FireSessionCookieJar {
                 continue;
             };
 
+            if should_ignore_network_auth_cookie_deletion(&cookie) {
+                continue;
+            }
+
             match cookie.name.as_str() {
                 "_t" => patch.t_token = Some(cookie.value.clone()),
                 "_forum_session" => patch.forum_session = Some(cookie.value.clone()),
@@ -81,6 +85,10 @@ impl CookieJar for FireSessionCookieJar {
 
         HeaderValue::from_str(&cookies).ok()
     }
+}
+
+fn should_ignore_network_auth_cookie_deletion(cookie: &fire_models::PlatformCookie) -> bool {
+    cookie.value.is_empty() && matches!(cookie.name.as_str(), "_t" | "_forum_session")
 }
 
 fn same_origin_scope(base_url: &Url, request_url: &Url) -> bool {

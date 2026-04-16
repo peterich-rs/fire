@@ -48,10 +48,10 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
   - if the follow-up Rust bootstrap refresh is challenged by Cloudflare again, it clears the partial native session and keeps the WebView login flow open so the user can finish the challenge and sync again
   - clears host-side LinuxDo auth cookies after a successful explicit logout while preserving `cf_clearance`
 - `FireCfClearanceRefreshService.swift`
-  - owns an offscreen `WKWebView` that periodically reloads `https://linux.do/` once the shared session is authenticated, scene-active, and bootstrap has exposed a Turnstile sitekey
-  - re-syncs WebKit cookies back into Rust after each refresh cycle so host-owned `cf_clearance` state stays warm without forcing the foreground login WebView open
-  - pauses that background refresh loop while an interactive `/challenge` recovery WebView is on-screen, then resumes automatically after the recovery flow is dismissed
-  - starts/stops automatically from session, scene-phase, and interactive-recovery changes, and records APM breadcrumbs for refresh lifecycle and failures
+  - owns an offscreen `WKWebView` that keeps a Turnstile widget alive once the shared session is authenticated, scene-active, and bootstrap has exposed a Turnstile sitekey
+  - injects a fetch interceptor before `api.js` loads, replays `/cdn-cgi/challenge-platform/.../rc/...` through native `URLSession`, and feeds the real response back into the page so `cf_clearance` can auto-renew without foreground UI
+  - re-syncs refreshed WebKit cookies back into Rust and then pushes the updated session back through `FireAppViewModel.applySession`, which mirrors the latest cookie batch into both `HTTPCookieStorage` and the shared `WKHTTPCookieStore`
+  - pauses that background Turnstile runtime while an interactive `/challenge` recovery WebView is on-screen, resumes automatically after recovery, and records APM breadcrumbs plus bounded retry failures
 - `App/FireLoginWebView.swift`
   - presents the host-owned auth browser as a full-screen flow for both initial login and interactive Cloudflare recovery
   - now wraps the embedded `WKWebView` in a full-screen native browser shell with adaptive light/dark chrome, a compact top bar, and a bottom command dock
@@ -242,7 +242,7 @@ Current UX note:
 - The app now keeps the in-app notification list synchronized from Rust-owned notification runtime state when MessageBus notification events arrive, instead of only updating the unread badge count.
 - iOS now schedules background refresh work for `/notification-alert/{userId}` and presents host-owned local notifications from a dedicated one-shot Rust MessageBus poll path.
 - The authenticated shell now also requests APNs registration, caches the resulting device token locally, and exposes host-side registration diagnostics without attempting backend token upload yet.
-- iOS now also runs a default-on offscreen Cloudflare cookie refresh loop for authenticated sessions that still expose a Turnstile sitekey in bootstrap, re-syncing refreshed WebKit cookies back into Rust while the scene stays active.
+- iOS now also runs a default-on offscreen Cloudflare Turnstile runtime for authenticated sessions that still expose a Turnstile sitekey in bootstrap, replaying the internal `/rc` refresh requests through native networking and re-syncing the refreshed cookie batch back into Rust and WebKit while the scene stays active.
 - The app now exposes a diagnostics screen for tail-first log inspection, preview-first request-trace body paging, and local support-bundle export.
 - The profile screen now consumes Rust-derived session display labels, so authenticated recovery states are described consistently across hosts instead of being inferred separately in Swift.
 - The profile area now includes a native private-message mailbox, and public profile headers can open a pre-addressed private-message composer when the viewed user allows PMs.

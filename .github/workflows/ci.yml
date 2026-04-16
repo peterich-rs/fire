@@ -337,7 +337,7 @@ jobs:
             run_xcodebuild Fire test-without-building -only-testing:FireTests
             run_xcodebuild Fire test-without-building -only-testing:FireUITests/FireSmokeUITests/testAppLaunches
           else
-            run_xcodebuild FireUnitTests test
+            run_xcodebuild Fire test -only-testing:FireTests
           fi
 
   native-android-test:

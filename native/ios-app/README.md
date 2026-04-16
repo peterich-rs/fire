@@ -139,7 +139,7 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
 - `Tests/Unit/FireEntityStateTests.swift`
   - covers `FireEntityIndex` upsert behavior plus `FireOrderedIDList` deduplication and stable ordering for the W2 home-feed list state
 - `Tests/UI/FireSmokeUITests.swift`
-  - keeps a minimal launch smoke test available for the dedicated `FireUITests` target; PR CI now runs the isolated `FireUnitTests` scheme, while push CI performs one shared `build-for-testing` pass before reusing those build products for both the unit suite and the smoke case
+  - keeps a minimal launch smoke test available for the dedicated `FireUITests` target; PR CI now runs the `Fire` scheme with `-only-testing:FireTests`, while push CI performs one shared `build-for-testing` pass before reusing those build products for both the unit suite and the smoke case
 - `Tests/Unit/FireRouteParserTests.swift`
   - covers supported custom URL forms, LinuxDo route parsing, and notification-payload route mapping
 - `App/FireRootView.swift`
@@ -260,7 +260,7 @@ Verified local commands:
 - `./scripts/check_clean_submodules.sh`
 - `xcodegen generate --spec native/ios-app/project.yml`
 - `xcodebuild -project native/ios-app/Fire.xcodeproj -scheme Fire -destination 'generic/platform=iOS Simulator' build`
-- `xcodebuild -project native/ios-app/Fire.xcodeproj -scheme FireUnitTests -destination 'platform=iOS Simulator,OS=18.2,name=iPhone 16' -derivedDataPath /tmp/fire-ios-ui CODE_SIGNING_ALLOWED=NO test`
+- `xcodebuild -project native/ios-app/Fire.xcodeproj -scheme Fire -destination 'platform=iOS Simulator,OS=18.2,name=iPhone 16' -derivedDataPath /tmp/fire-ios-ui CODE_SIGNING_ALLOWED=NO -only-testing:FireTests test`
 - `xcodebuild -project native/ios-app/Fire.xcodeproj -scheme Fire -destination 'platform=iOS Simulator,OS=18.2,name=iPhone 16' -derivedDataPath /tmp/fire-ios-ui CODE_SIGNING_ALLOWED=NO build-for-testing`
 - `xcodebuild -project native/ios-app/Fire.xcodeproj -scheme Fire -destination 'platform=iOS Simulator,OS=18.2,name=iPhone 16' -derivedDataPath /tmp/fire-ios-ui CODE_SIGNING_ALLOWED=NO -only-testing:FireTests test-without-building`
 - `xcodebuild -project native/ios-app/Fire.xcodeproj -scheme Fire -destination 'platform=iOS Simulator,OS=18.2,name=iPhone 16' -derivedDataPath /tmp/fire-ios-ui CODE_SIGNING_ALLOWED=NO -only-testing:FireUITests/FireSmokeUITests/testAppLaunches test-without-building`

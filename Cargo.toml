@@ -56,7 +56,7 @@ tokio-rustls = "0.26.4"
 tower = { version = "0.5.3", features = ["timeout", "util"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3.20", features = ["env-filter", "fmt"] }
-uniffi = "=0.29.4"
+uniffi = "=0.31.1"
 url = "2.5"
 
 [profile.release]

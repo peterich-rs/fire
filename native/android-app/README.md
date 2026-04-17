@@ -7,7 +7,7 @@ shared libraries for the app to load through JNA.
 Current host-side app wiring lives under `src/main/java/com/fire/app/` plus `src/main/java/com/fire/app/session/`:
 
 - `FireSessionStore.kt`
-  - owns `FireCoreHandle`
+  - owns `FireAppCore`
   - passes the platform workspace root (`filesDir/fire`) into Rust during initialization
   - restores persisted session snapshots on cold start
   - persists the latest Rust session snapshot to `filesDir/fire/session.json`
@@ -20,7 +20,7 @@ Current host-side app wiring lives under `src/main/java/com/fire/app/` plus `src
   - cross-compiles `libfire_uniffi.so` for `arm64-v8a` and `x86_64`
   - resolves the host-side UniFFI metadata library extension per OS so Gradle sync can run on macOS and Linux CI
   - keeps release Android `.so` packaging separate from host bindgen input so Linux CI is not broken by the workspace `strip = true` release profile
-  - writes variant-specific generated sources and JNI libraries into the Gradle build directory
+  - writes variant-specific generated sources and JNI libraries into the Gradle build directory (Kotlin bindings land under `build/generated/source/uniffi/<buildType>/kotlin/`, mirroring the AGP convention for generated sources such as `build/generated/source/buildConfig`)
 - `FireWebViewLoginCoordinator.kt`
   - reads the current `WebView` cookie batch, `current-username`, `csrf-token`, page HTML, and the live browser user agent
   - converts them into `LoginSyncState`
@@ -69,7 +69,7 @@ Current browser note:
 
 - The Android shell now loads the real Rust session/topic APIs through generated Kotlin UniFFI bindings.
 - Network-backed UniFFI APIs now surface to Kotlin as native `suspend fun` calls instead of a synchronous wrapper.
-- The UniFFI boundary now returns all exported host interactions through `FireUniFfiError`; if Rust panics, the boundary logs the panic, returns an `Internal` error, and poisons the current `FireCoreHandle` so the host can recreate it instead of continuing on corrupted state.
+- The UniFFI boundary now returns all exported host interactions through `FireUniFfiError`; if Rust panics, the boundary logs the panic, returns an `Internal` error, and poisons the current `FireAppCore` so the host can recreate it instead of continuing on corrupted state.
 - `MainActivity` still renders a compact browser shell, but the data path is no longer stubbed.
 - The current browser shell now supports `Load More` pagination, category metadata derived from the shared Rust bootstrap snapshot, and Rust-owned row/status presentation data instead of rebuilding those labels on Android.
 - Topic detail now opens in a dedicated activity instead of being embedded under the feed list.
@@ -77,7 +77,7 @@ Current browser note:
 
 Note:
 
-- The generated Kotlin bindings are configured by `rust/crates/fire-uniffi/uniffi.toml`, currently use the `uniffi.fire_uniffi` package, and load `libfire_uniffi.so` through JNA.
+- The generated Kotlin bindings are configured by `rust/crates/fire-uniffi/uniffi.toml`, split across `uniffi.fire_uniffi`, `uniffi.fire_uniffi_diagnostics`, `uniffi.fire_uniffi_messagebus`, `uniffi.fire_uniffi_notifications`, `uniffi.fire_uniffi_search`, `uniffi.fire_uniffi_session`, `uniffi.fire_uniffi_topics`, `uniffi.fire_uniffi_types`, and `uniffi.fire_uniffi_user` (one per namespace), and load `libfire_uniffi.so` through JNA (single cdylib shared across every namespace).
 - Android Rust targets now inherit `-Wl,-z,max-page-size=16384` from `.cargo/config.toml` so packaged shared libraries are aligned for Android 15+ 16 KB page-size compatibility.
 - `assembleDebug` now packages Rust debug `.so` outputs and `assembleRelease` packages Rust release `.so` outputs.
 - Build with a full JDK that includes `jlink`. On this machine, `ANDROID_HOME=$HOME/Library/Android/sdk ANDROID_SDK_ROOT=$HOME/Library/Android/sdk JAVA_HOME=/Library/Java/JavaVirtualMachines/temurin-17.jdk/Contents/Home ./gradlew assembleDebug` and `./gradlew assembleRelease` are verified working.

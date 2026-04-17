@@ -1,9 +1,7 @@
 [bindings.kotlin]
-package_name = "uniffi.fire_uniffi"
 android = true
 kotlin_target_version = "2.2.0"
 
 [bindings.swift]
-module_name = "fire_uniffi"
 ffi_module_name = "fire_uniffiFFI"
 ffi_module_filename = "fire_uniffiFFI"

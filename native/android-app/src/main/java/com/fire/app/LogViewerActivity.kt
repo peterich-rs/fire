@@ -10,7 +10,7 @@ import androidx.lifecycle.lifecycleScope
 import com.fire.app.session.FireSessionStore
 import com.fire.app.session.FireSessionStoreRepository
 import kotlinx.coroutines.launch
-import uniffi.fire_uniffi.LogFileSummaryState
+import uniffi.fire_uniffi_diagnostics.LogFileSummaryState
 
 class LogViewerActivity : AppCompatActivity() {
     private lateinit var sessionStore: FireSessionStore

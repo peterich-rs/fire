@@ -4,7 +4,7 @@ use fire_models::{
     TopicPresenceUser,
 };
 
-use crate::state_topic_list::TopicListKindState;
+use fire_uniffi_types::TopicListKindState;
 
 #[derive(uniffi::Enum, Debug, Clone, Copy)]
 pub enum MessageBusClientModeState {

@@ -6,7 +6,10 @@ UniFFI Swift bindings and a Rust static library built during Xcode pre-build.
 The generated artifacts are written into
 `native/ios-app/Generated/` at build time:
 
-- `fire_uniffi.swift`
+- `FireUniFfi/<namespace>.swift` (one file per UniFFI namespace:
+  `fire_uniffi`, `fire_uniffi_diagnostics`, `fire_uniffi_messagebus`,
+  `fire_uniffi_notifications`, `fire_uniffi_search`, `fire_uniffi_session`,
+  `fire_uniffi_topics`, `fire_uniffi_types`, `fire_uniffi_user`)
 - `fire_uniffiFFI/fire_uniffiFFI.h`
 - `fire_uniffiFFI/module.modulemap`
 - `lib/<platform>/libfire_uniffi.a`
@@ -21,7 +24,7 @@ leak into host-side UniFFI bindgen steps.
 Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
 
 - `FireSessionStore.swift`
-  - owns `FireCoreHandle`
+  - owns `FireAppCore`
   - passes the platform workspace root (`Application Support/Fire`) into Rust during initialization
   - restores the persisted session snapshot on cold start, then re-injects Keychain cookies before authenticated requests
   - delegates platform-cookie apply semantics plus bootstrap/CSRF refresh decisions to Rust instead of reimplementing them in Swift
@@ -138,8 +141,6 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
   - covers the remaining Swift-owned presentation helpers plus the generated Rust-backed text and row/thread models consumed by SwiftUI
 - `Tests/Unit/FireEntityStateTests.swift`
   - covers `FireEntityIndex` upsert behavior plus `FireOrderedIDList` deduplication and stable ordering for the W2 home-feed list state
-- `Tests/UI/FireSmokeUITests.swift`
-  - keeps a minimal launch smoke test available for the dedicated `FireUITests` target; PR CI now runs the `Fire` scheme with `-only-testing:FireTests`, while push CI performs one shared `build-for-testing` pass before reusing those build products for both the unit suite and the smoke case
 - `Tests/Unit/FireRouteParserTests.swift`
   - covers supported custom URL forms, LinuxDo route parsing, and notification-payload route mapping
 - `App/FireRootView.swift`
@@ -171,14 +172,9 @@ Expected integration flow:
 Xcode project generation rules:
 
 - `native/ios-app/project.yml` is the source of truth for `Fire.xcodeproj`.
-- `project.yml` now also pins the W3 foundation packages:
-  - `Nuke` for the upcoming production image pipeline
-  - `SnapshotTesting` for later renderer/list snapshot coverage
-  - `FireUITests` as the dedicated UI-test target
-- The generated project now ships three shared schemes:
-  - `Fire` for app builds plus the combined push-only test lane
+- The generated project now ships two shared schemes:
+  - `Fire` for app builds plus local unit-test runs
   - `FireUnitTests` for the isolated unit-test lane
-  - `FireUISmoke` for the isolated UI smoke lane
 - Signing now flows through `native/ios-app/Configs/Fire-*.xcconfig` so local developer-account overrides do not need to touch the generated project.
 - New Swift files placed under existing source roots such as `App/` or `Sources/FireAppSession/` do not require a `project.yml` edit, but they do require rerunning `xcodegen generate --spec native/ios-app/project.yml` and committing the regenerated `Fire.xcodeproj`.
 - Changes that introduce a new source/resource directory, framework dependency, build script, target, or Xcode build setting must update `project.yml` first, then regenerate `Fire.xcodeproj`.
@@ -190,7 +186,7 @@ Local signing overrides:
 - `Debug` loads `native/ios-app/Configs/Fire-Local-Debug.xcconfig` if it exists.
 - `Release` loads `native/ios-app/Configs/Fire-Local-Release.xcconfig` if it exists.
 - The two `Fire-Local-*.xcconfig` files are ignored by git; use the matching `.example.xcconfig` file as the template.
-- Only the repo-managed shared schemes (`Fire`, `FireUnitTests`, and `FireUISmoke`) should be committed. If you need a personal debug/release variant, duplicate a scheme in Xcode with `Shared` unchecked; Xcode stores that under `xcuserdata`, which is already ignored by git in this repo.
+- Only the repo-managed shared schemes (`Fire` and `FireUnitTests`) should be committed. If you need a personal debug/release variant, duplicate a scheme in Xcode with `Shared` unchecked; Xcode stores that under `xcuserdata`, which is already ignored by git in this repo.
 - `FIRE_DISPLAY_NAME` can now be overridden from those local xcconfig files if you want `Debug` and `Release` installs to appear as separate app names on-device.
 - Recommended local-device setup:
   1. Copy `native/ios-app/Configs/Fire-Local-Debug.example.xcconfig` to `native/ios-app/Configs/Fire-Local-Debug.xcconfig`.
@@ -227,7 +223,7 @@ Current UX note:
 - The app now uses one typed route model for supported custom URL opens, local-notification taps, and search / notification jumps to topic, profile, and badge destinations.
 - The shared search layer now powers the native composer’s tag search and `@mention` autocomplete flows.
 - Network-backed UniFFI APIs now surface to Swift as native `async/await` methods instead of a synchronous wrapper.
-- The UniFFI boundary now returns exported host interactions as Swift `throws`; if Rust panics, the boundary logs the panic, throws an `Internal` UniFFI error instead of tripping generated `try!` call sites, and poisons the current `FireCoreHandle` so the host can recreate it.
+- The UniFFI boundary now returns exported host interactions as Swift `throws`; if Rust panics, the boundary logs the panic, throws an `Internal` UniFFI error instead of tripping generated `try!` call sites, and poisons the current `FireAppCore` so the host can recreate it.
 - The app now enters through a branded session gate when authenticated topic reads are not ready, instead of exposing raw readiness/debug state as the primary UI.
 - The current topic browser now supports spotlight topic paging, scroll-driven auto pagination, category-aware topic rows, richer topic/detail metadata sourced from the shared Rust session snapshot, and a more formal native reading surface instead of the earlier developer-facing list presentation.
 - Topic rows now come across the UniFFI boundary as Rust-generated row models that already resolve original-poster identity, status labels, plain-text excerpts, trimmed tag names, and Unix-millisecond timestamps from the topic-list payload, while Swift only formats timestamps and renders the native row layout.
@@ -260,10 +256,7 @@ Verified local commands:
 - `./scripts/check_clean_submodules.sh`
 - `xcodegen generate --spec native/ios-app/project.yml`
 - `xcodebuild -project native/ios-app/Fire.xcodeproj -scheme Fire -destination 'generic/platform=iOS Simulator' build`
-- `xcodebuild -project native/ios-app/Fire.xcodeproj -scheme Fire -destination 'platform=iOS Simulator,OS=18.2,name=iPhone 16' -derivedDataPath /tmp/fire-ios-ui CODE_SIGNING_ALLOWED=NO -only-testing:FireTests test`
-- `xcodebuild -project native/ios-app/Fire.xcodeproj -scheme Fire -destination 'platform=iOS Simulator,OS=18.2,name=iPhone 16' -derivedDataPath /tmp/fire-ios-ui CODE_SIGNING_ALLOWED=NO build-for-testing`
-- `xcodebuild -project native/ios-app/Fire.xcodeproj -scheme Fire -destination 'platform=iOS Simulator,OS=18.2,name=iPhone 16' -derivedDataPath /tmp/fire-ios-ui CODE_SIGNING_ALLOWED=NO -only-testing:FireTests test-without-building`
-- `xcodebuild -project native/ios-app/Fire.xcodeproj -scheme Fire -destination 'platform=iOS Simulator,OS=18.2,name=iPhone 16' -derivedDataPath /tmp/fire-ios-ui CODE_SIGNING_ALLOWED=NO -only-testing:FireUITests/FireSmokeUITests/testAppLaunches test-without-building`
+- `xcodebuild -project native/ios-app/Fire.xcodeproj -scheme FireUnitTests -destination 'platform=iOS Simulator,OS=18.2,name=iPhone 16' -derivedDataPath /tmp/fire-ios-ui CODE_SIGNING_ALLOWED=NO test`
 
 Operational archive command:
 

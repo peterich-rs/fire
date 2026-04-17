@@ -12,13 +12,13 @@ use tracing::error;
 use crate::error::FireUniFfiError;
 
 #[derive(Default)]
-pub(crate) struct PanicState {
+pub struct PanicState {
     poisoned: AtomicBool,
     last_panic: Mutex<Option<String>>,
 }
 
 impl PanicState {
-    pub(crate) fn ensure_healthy(&self, operation: &'static str) -> Result<(), FireUniFfiError> {
+    pub fn ensure_healthy(&self, operation: &'static str) -> Result<(), FireUniFfiError> {
         if !self.poisoned.load(Ordering::SeqCst) {
             return Ok(());
         }
@@ -36,7 +36,7 @@ impl PanicState {
         })
     }
 
-    pub(crate) fn capture_panic(
+    pub fn capture_panic(
         &self,
         operation: &'static str,
         payload: &(dyn Any + Send),
@@ -53,14 +53,14 @@ impl PanicState {
     }
 }
 
-pub(crate) struct CapturedPanic {
+pub struct CapturedPanic {
     operation: &'static str,
     message: String,
     backtrace: String,
 }
 
 impl CapturedPanic {
-    pub(crate) fn from_payload(operation: &'static str, payload: &(dyn Any + Send)) -> Self {
+    pub fn from_payload(operation: &'static str, payload: &(dyn Any + Send)) -> Self {
         Self {
             operation,
             message: panic_payload_to_string(payload),
@@ -68,15 +68,15 @@ impl CapturedPanic {
         }
     }
 
-    pub(crate) fn summary(&self) -> String {
+    pub fn summary(&self) -> String {
         format!("{} panicked: {}", self.operation, self.message)
     }
 
-    pub(crate) fn user_message(&self) -> String {
+    pub fn user_message(&self) -> String {
         self.summary()
     }
 
-    pub(crate) fn log(&self) {
+    pub fn log(&self) {
         error!(
             operation = self.operation,
             panic_message = %self.message,
@@ -92,7 +92,7 @@ impl CapturedPanic {
     }
 }
 
-pub(crate) fn panic_payload_to_string(payload: &(dyn Any + Send)) -> String {
+pub fn panic_payload_to_string(payload: &(dyn Any + Send)) -> String {
     if let Some(message) = payload.downcast_ref::<&'static str>() {
         (*message).to_string()
     } else if let Some(message) = payload.downcast_ref::<String>() {

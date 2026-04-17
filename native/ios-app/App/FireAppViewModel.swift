@@ -109,9 +109,40 @@ private struct PendingCloudflareRecovery {
     let waiters = PendingCloudflareRecoveryWaiters()
 }
 
-struct FireTopicPostPaginationState {
-    var targetLoadedCount: Int
+struct FireTopicDetailWindowState {
+    static let maxWindowSize = 200
+
+    var anchorPostNumber: UInt32?
+    var requestedRange: Range<Int>
+    var loadedIndices: IndexSet
+    var loadedPostNumbers: Set<UInt32> = []
     var exhaustedPostIDs: Set<UInt64> = []
+    var pendingScrollTarget: UInt32?
+
+    var activeAnchorPostNumber: UInt32? {
+        pendingScrollTarget ?? anchorPostNumber
+    }
+
+    func clearingTransientAnchor() -> FireTopicDetailWindowState {
+        var window = self
+        window.anchorPostNumber = nil
+        window.pendingScrollTarget = nil
+        return window
+    }
+}
+
+struct FireTopicDetailRequest: Equatable {
+    enum Reason: Equatable {
+        case initialOpen
+        case routeAnchor
+        case visibleRangeExpansion
+        case userRefresh
+        case messageBusRefresh
+    }
+
+    var anchorPostNumber: UInt32?
+    var reason: Reason
+    var forceNetwork: Bool = false
 }
 
 enum FireSearchScope: String, CaseIterable, Identifiable {
@@ -507,13 +538,11 @@ final class FireAppViewModel: ObservableObject {
 
     func preloadTopicPostsIfNeeded(
         topicId: UInt64,
-        visibleReplyIndex: Int,
-        totalReplyCount: Int
+        visiblePostNumbers: Set<UInt32>
     ) {
         topicDetailStore?.preloadTopicPostsIfNeeded(
             topicId: topicId,
-            visibleReplyIndex: visibleReplyIndex,
-            totalReplyCount: totalReplyCount
+            visiblePostNumbers: visiblePostNumbers
         )
     }
 

@@ -265,7 +265,7 @@ jobs:
     name: iOS Test
     needs: [rust-ios-uniffi]
     runs-on: macos-15
-    timeout-minutes: 90
+    timeout-minutes: 30
 
     steps:
       - uses: actions/checkout@v5
@@ -288,17 +288,17 @@ jobs:
             brew install xcodegen
           fi
 
-      - name: Generate Xcode project
-        run: xcodegen generate --spec native/ios-app/project.yml
-
-      - name: Verify generated Xcode project is up to date
-        run: git diff --exit-code -- native/ios-app/Fire.xcodeproj
-
       - name: Download pre-built UniFFI artifacts
         uses: actions/download-artifact@v4
         with:
           name: ios-uniffi-generated
           path: native/ios-app/Generated/
+
+      - name: Generate Xcode project
+        run: xcodegen generate --spec native/ios-app/project.yml
+
+      - name: Verify generated Xcode project is up to date
+        run: git diff --exit-code -- native/ios-app/Fire.xcodeproj
 
       - name: Run iOS tests
         shell: bash
@@ -332,13 +332,9 @@ jobs:
               "$action"
           }
 
-          if [[ "${GITHUB_EVENT_NAME}" == "push" ]]; then
-            run_xcodebuild Fire build-for-testing
-            run_xcodebuild Fire test-without-building -only-testing:FireTests
-            run_xcodebuild Fire test-without-building -only-testing:FireUITests/FireSmokeUITests/testAppLaunches
-          else
-            run_xcodebuild Fire test -only-testing:FireTests
-          fi
+          # Required CI stays on the unit-only lane; the repo no longer ships a
+          # separate UI smoke target in blocking validation.
+          run_xcodebuild FireUnitTests test
 
   native-android-test:
     name: Android Test

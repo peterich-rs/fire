@@ -20,12 +20,14 @@ impl FireCore {
         &self,
         query: TopicDetailQuery,
     ) -> Result<TopicDetail, FireCoreError> {
-        let result = self.fetch_topic_detail_base(query).await?;
+        let mut result = self.fetch_topic_detail_base(query).await?;
+        result.rebuild_timeline_entries();
         info!(
             topic_id = result.id,
             posts_count = result.posts_count,
             post_stream_total = result.post_stream.stream.len(),
             post_stream_len = result.post_stream.posts.len(),
+            timeline_entries = result.timeline_entries.len(),
             "topic detail initial payload fetched successfully"
         );
         Ok(result)
@@ -138,12 +140,15 @@ impl FireCore {
                 error = %error,
                 "topic detail hydration fell back to partially loaded posts"
             );
+            // Hydration builds timeline entries on success; build from partial data on failure.
+            result.rebuild_timeline_entries();
         }
         info!(
             topic_id = result.id,
             posts_count = result.posts_count,
             post_stream_total = result.post_stream.stream.len(),
             post_stream_len = result.post_stream.posts.len(),
+            timeline_entries = result.timeline_entries.len(),
             "topic detail fetched successfully"
         );
         Ok(result)
@@ -260,6 +265,7 @@ impl FireCore {
         );
         detail.thread = TopicThread::from_posts(&detail.post_stream.posts);
         detail.flat_posts = detail.thread.flatten(&detail.post_stream.posts);
+        detail.rebuild_timeline_entries();
 
         let remaining_missing = missing_topic_post_ids(&detail.post_stream);
         if !remaining_missing.is_empty() {

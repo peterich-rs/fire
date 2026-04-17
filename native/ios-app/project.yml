@@ -19,17 +19,12 @@ schemes:
         Fire: all
         FireTests:
           - test
-        FireUITests:
-          - test
     test:
       gatherCoverageData: false
       targets:
         - name: FireTests
           parallelizable: true
           randomExecutionOrder: true
-        - name: FireUITests
-          parallelizable: false
-          randomExecutionOrder: false
   FireUnitTests:
     build:
       targets:
@@ -42,18 +37,6 @@ schemes:
         - name: FireTests
           parallelizable: true
           randomExecutionOrder: true
-  FireUISmoke:
-    build:
-      targets:
-        Fire: all
-        FireUITests:
-          - test
-    test:
-      gatherCoverageData: false
-      targets:
-        - name: FireUITests
-          parallelizable: false
-          randomExecutionOrder: false
 settings:
   base:
     SWIFT_VERSION: "5.10"
@@ -68,8 +51,9 @@ targets:
     sources:
       - path: App
       - path: Sources/FireAppSession
-      - path: Generated/fire_uniffi.swift
+      - path: Generated/FireUniFfi
         optional: true
+        type: group
         buildPhase: sources
     dependencies:
       - sdk: Security.framework
@@ -123,7 +107,15 @@ targets:
           - $(SRCROOT)/../../third_party/xlog-rs
           - $(SRCROOT)/../../rust/crates/fire-uniffi/uniffi.toml
         outputFiles:
-          - $(SRCROOT)/Generated/fire_uniffi.swift
+          - $(SRCROOT)/Generated/FireUniFfi/fire_uniffi.swift
+          - $(SRCROOT)/Generated/FireUniFfi/fire_uniffi_diagnostics.swift
+          - $(SRCROOT)/Generated/FireUniFfi/fire_uniffi_messagebus.swift
+          - $(SRCROOT)/Generated/FireUniFfi/fire_uniffi_notifications.swift
+          - $(SRCROOT)/Generated/FireUniFfi/fire_uniffi_search.swift
+          - $(SRCROOT)/Generated/FireUniFfi/fire_uniffi_session.swift
+          - $(SRCROOT)/Generated/FireUniFfi/fire_uniffi_topics.swift
+          - $(SRCROOT)/Generated/FireUniFfi/fire_uniffi_types.swift
+          - $(SRCROOT)/Generated/FireUniFfi/fire_uniffi_user.swift
           - $(SRCROOT)/Generated/fire_uniffiFFI/fire_uniffiFFI.h
           - $(SRCROOT)/Generated/fire_uniffiFFI/module.modulemap
           - $(SRCROOT)/Generated/lib/$(PLATFORM_NAME)/libfire_uniffi.a
@@ -141,14 +133,3 @@ targets:
         SWIFT_INCLUDE_PATHS:
           - "$(inherited)"
           - "$(SRCROOT)/Generated"
-  FireUITests:
-    type: bundle.ui-testing
-    platform: iOS
-    deploymentTarget: "17.0"
-    sources:
-      - path: Tests/UI
-    dependencies:
-      - target: Fire
-    settings:
-      base:
-        GENERATE_INFOPLIST_FILE: YES

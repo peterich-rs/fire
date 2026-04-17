@@ -3,6 +3,14 @@ members = [
     "rust/crates/fire-models",
     "rust/crates/fire-core",
     "rust/crates/fire-uniffi",
+    "rust/crates/fire-uniffi-diagnostics",
+    "rust/crates/fire-uniffi-messagebus",
+    "rust/crates/fire-uniffi-notifications",
+    "rust/crates/fire-uniffi-search",
+    "rust/crates/fire-uniffi-session",
+    "rust/crates/fire-uniffi-topics",
+    "rust/crates/fire-uniffi-types",
+    "rust/crates/fire-uniffi-user",
 ]
 resolver = "2"
 
@@ -48,7 +56,7 @@ tokio-rustls = "0.26.4"
 tower = { version = "0.5.3", features = ["timeout", "util"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3.20", features = ["env-filter", "fmt"] }
-uniffi = "=0.29.4"
+uniffi = "=0.31.1"
 url = "2.5"
 
 [profile.release]

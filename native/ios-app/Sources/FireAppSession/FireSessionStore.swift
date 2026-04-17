@@ -352,12 +352,12 @@ public actor FireSessionStore {
     }
 
     public func notificationState() throws -> NotificationCenterState {
-        try core.notificationState()
+        try core.notifications().notificationState()
     }
 
     public func fetchRecentNotifications(limit: UInt32? = nil) async throws -> NotificationListState {
         try await runPersistingSessionChanges {
-            try await core.fetchRecentNotifications(limit: limit)
+            try await core.notifications().fetchRecentNotifications(limit: limit)
         }
     }
 
@@ -366,19 +366,19 @@ public actor FireSessionStore {
         offset: UInt32? = nil
     ) async throws -> NotificationListState {
         try await runPersistingSessionChanges {
-            try await core.fetchNotifications(limit: limit, offset: offset)
+            try await core.notifications().fetchNotifications(limit: limit, offset: offset)
         }
     }
 
     public func markNotificationRead(id: UInt64) async throws -> NotificationCenterState {
         try await runPersistingSessionChanges {
-            try await core.markNotificationRead(notificationId: id)
+            try await core.notifications().markNotificationRead(notificationId: id)
         }
     }
 
     public func markAllNotificationsRead() async throws -> NotificationCenterState {
         try await runPersistingSessionChanges {
-            try await core.markAllNotificationsRead()
+            try await core.notifications().markAllNotificationsRead()
         }
     }
 
@@ -387,13 +387,13 @@ public actor FireSessionStore {
         page: UInt32? = nil
     ) async throws -> TopicListState {
         try await runPersistingSessionChanges {
-            try await core.fetchBookmarks(username: username, page: page)
+            try await core.notifications().fetchBookmarks(username: username, page: page)
         }
     }
 
     public func fetchReadHistory(page: UInt32? = nil) async throws -> TopicListState {
         try await runPersistingSessionChanges {
-            try await core.fetchReadHistory(page: page)
+            try await core.notifications().fetchReadHistory(page: page)
         }
     }
 
@@ -402,13 +402,13 @@ public actor FireSessionStore {
         limit: UInt32? = nil
     ) async throws -> DraftListResponseState {
         try await runPersistingSessionChanges {
-            try await core.fetchDrafts(offset: offset, limit: limit)
+            try await core.notifications().fetchDrafts(offset: offset, limit: limit)
         }
     }
 
     public func fetchDraft(draftKey: String) async throws -> DraftState? {
         try await runPersistingSessionChanges {
-            try await core.fetchDraft(draftKey: draftKey)
+            try await core.notifications().fetchDraft(draftKey: draftKey)
         }
     }
 
@@ -418,7 +418,7 @@ public actor FireSessionStore {
         sequence: UInt32
     ) async throws -> UInt32 {
         try await runPersistingSessionChanges {
-            try await core.saveDraft(draftKey: draftKey, data: data, sequence: sequence)
+            try await core.notifications().saveDraft(draftKey: draftKey, data: data, sequence: sequence)
         }
     }
 
@@ -427,7 +427,7 @@ public actor FireSessionStore {
         sequence: UInt32? = nil
     ) async throws {
         try await runPersistingSessionChanges {
-            try await core.deleteDraft(draftKey: draftKey, sequence: sequence)
+            try await core.notifications().deleteDraft(draftKey: draftKey, sequence: sequence)
         }
     }
 
@@ -698,7 +698,7 @@ public actor FireSessionStore {
         autoDeletePreference: Int32? = nil
     ) async throws -> UInt64 {
         try await runPersistingSessionChanges {
-            try await core.createBookmark(
+            try await core.notifications().createBookmark(
                 bookmarkableId: bookmarkableID,
                 bookmarkableType: bookmarkableType,
                 name: name,
@@ -715,7 +715,7 @@ public actor FireSessionStore {
         autoDeletePreference: Int32? = nil
     ) async throws {
         try await runPersistingSessionChanges {
-            try await core.updateBookmark(
+            try await core.notifications().updateBookmark(
                 bookmarkId: bookmarkID,
                 name: name,
                 reminderAt: reminderAt,
@@ -726,7 +726,7 @@ public actor FireSessionStore {
 
     public func deleteBookmark(bookmarkID: UInt64) async throws {
         try await runPersistingSessionChanges {
-            try await core.deleteBookmark(bookmarkId: bookmarkID)
+            try await core.notifications().deleteBookmark(bookmarkId: bookmarkID)
         }
     }
 
@@ -735,7 +735,7 @@ public actor FireSessionStore {
         notificationLevel: Int32
     ) async throws {
         try await runPersistingSessionChanges {
-            try await core.setTopicNotificationLevel(
+            try await core.notifications().setTopicNotificationLevel(
                 topicId: topicID,
                 notificationLevel: notificationLevel
             )

@@ -7,7 +7,7 @@ import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
 import java.util.Locale
 import uniffi.fire_uniffi.TopicCategoryState
-import uniffi.fire_uniffi.TopicTagState
+import uniffi.fire_uniffi_types.TopicTagState
 
 fun TopicCategoryState.displayName(): String {
     return if (name.isBlank()) "Category #$id" else name

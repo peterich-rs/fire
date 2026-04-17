@@ -6,19 +6,19 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import uniffi.fire_uniffi.FireAppCore
 import uniffi.fire_uniffi.LoginSyncState
-import uniffi.fire_uniffi.NotificationCenterState
-import uniffi.fire_uniffi.NotificationListState
 import uniffi.fire_uniffi.PlatformCookieState
 import uniffi.fire_uniffi.SessionState
 import uniffi.fire_uniffi.TopicDetailQueryState
 import uniffi.fire_uniffi.TopicDetailState
 import uniffi.fire_uniffi.TopicListQueryState
-import uniffi.fire_uniffi.TopicListState
 import uniffi.fire_uniffi.TopicPostState
 import uniffi.fire_uniffi_diagnostics.LogFileDetailState
 import uniffi.fire_uniffi_diagnostics.LogFileSummaryState
 import uniffi.fire_uniffi_diagnostics.NetworkTraceDetailState
 import uniffi.fire_uniffi_diagnostics.NetworkTraceSummaryState
+import uniffi.fire_uniffi_notifications.NotificationCenterState
+import uniffi.fire_uniffi_notifications.NotificationListState
+import uniffi.fire_uniffi_types.TopicListState
 
 class FireSessionStore(
     context: Context,
@@ -115,29 +115,29 @@ class FireSessionStore(
     }
 
     suspend fun notificationState(): NotificationCenterState = withContext(Dispatchers.Default) {
-        core.notificationState()
+        core.notifications().notificationState()
     }
 
     suspend fun fetchRecentNotifications(limit: UInt? = null): NotificationListState =
         withContext(Dispatchers.IO) {
-            core.fetchRecentNotifications(limit)
+            core.notifications().fetchRecentNotifications(limit)
         }
 
     suspend fun fetchNotifications(
         limit: UInt? = null,
         offset: UInt? = null,
     ): NotificationListState = withContext(Dispatchers.IO) {
-        core.fetchNotifications(limit, offset)
+        core.notifications().fetchNotifications(limit, offset)
     }
 
     suspend fun markNotificationRead(id: ULong): NotificationCenterState =
         withContext(Dispatchers.IO) {
-            core.markNotificationRead(id)
+            core.notifications().markNotificationRead(id)
         }
 
     suspend fun markAllNotificationsRead(): NotificationCenterState =
         withContext(Dispatchers.IO) {
-            core.markAllNotificationsRead()
+            core.notifications().markAllNotificationsRead()
         }
 
     suspend fun restoreSessionJson(json: String): SessionState = withContext(Dispatchers.Default) {

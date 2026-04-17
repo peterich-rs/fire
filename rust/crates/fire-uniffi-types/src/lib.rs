@@ -8,7 +8,11 @@ pub mod shared;
 
 pub use error::FireUniFfiError;
 pub use panic::{CapturedPanic, PanicState};
-pub use records::RequiredTagGroupState;
+pub use records::{
+    DraftDataState, DraftListResponseState, DraftState, RequiredTagGroupState, TopicListState,
+    TopicParticipantState, TopicPosterState, TopicRowState, TopicSummaryState, TopicTagState,
+    TopicUserState,
+};
 pub use runtime::{
     constructor_guard, ffi_runtime, run_fallible, run_infallible, run_on_ffi_runtime,
 };

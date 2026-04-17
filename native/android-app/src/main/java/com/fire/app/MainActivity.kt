@@ -24,9 +24,9 @@ import uniffi.fire_uniffi.SessionReadinessState
 import uniffi.fire_uniffi.TopicCategoryState
 import uniffi.fire_uniffi.TopicListKindState
 import uniffi.fire_uniffi.TopicListQueryState
-import uniffi.fire_uniffi.TopicListState
-import uniffi.fire_uniffi.TopicRowState
-import uniffi.fire_uniffi.TopicSummaryState
+import uniffi.fire_uniffi_types.TopicListState
+import uniffi.fire_uniffi_types.TopicRowState
+import uniffi.fire_uniffi_types.TopicSummaryState
 
 class MainActivity : AppCompatActivity() {
     private lateinit var binding: ActivityMainBinding
@@ -536,11 +536,11 @@ class MainActivity : AppCompatActivity() {
         existing.topics.forEach { topicsById[it.id] = it }
         incoming.topics.forEach { topicsById[it.id] = it }
 
-        val usersById = LinkedHashMap<ULong, uniffi.fire_uniffi.TopicUserState>()
+        val usersById = LinkedHashMap<ULong, uniffi.fire_uniffi_types.TopicUserState>()
         existing.users.forEach { usersById[it.id] = it }
         incoming.users.forEach { usersById[it.id] = it }
 
-        val rowsByTopicId = LinkedHashMap<ULong, uniffi.fire_uniffi.TopicRowState>()
+        val rowsByTopicId = LinkedHashMap<ULong, uniffi.fire_uniffi_types.TopicRowState>()
         existing.rows.forEach { rowsByTopicId[it.topic.id] = it }
         incoming.rows.forEach { rowsByTopicId[it.topic.id] = it }
 

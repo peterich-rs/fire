@@ -9,24 +9,25 @@ use fire_core::{
     preview_text_from_html as shared_preview_text_from_html, FireCore, FireCoreError,
 };
 use fire_uniffi_diagnostics::FireDiagnosticsHandle;
+use fire_uniffi_notifications::FireNotificationsHandle;
 use fire_uniffi_search::FireSearchHandle;
-use fire_uniffi_types::{ffi_runtime, run_on_ffi_runtime, FireUniFfiError, PanicState, SharedFireCore};
+use fire_uniffi_types::{
+    ffi_runtime, run_on_ffi_runtime, FireUniFfiError, PanicState, SharedFireCore, TopicListState,
+};
 use crate::state_messagebus::{
     MessageBusClientModeState, MessageBusEventHandler, MessageBusSubscriptionState,
     NotificationAlertPollResultState, TopicPresenceState,
 };
-use crate::state_notification::{NotificationCenterState, NotificationListState};
 use crate::state_session::{
     BootstrapState, CookieState, LoginSyncState, PlatformCookieState, SessionState,
 };
 use crate::state_topic_detail::{
-    DraftDataState, DraftListResponseState, DraftState, InviteCreateRequestState, PollState,
-    PostReactionUpdateState, PostUpdateRequestState, PrivateMessageCreateRequestState,
-    ResolvedUploadUrlState, TopicCreateRequestState, TopicDetailQueryState, TopicDetailState,
-    TopicPostState, TopicReplyRequestState, TopicTimingsRequestState, TopicUpdateRequestState,
-    UploadImageRequestState, UploadResultState,
+    InviteCreateRequestState, PollState, PostReactionUpdateState, PostUpdateRequestState,
+    PrivateMessageCreateRequestState, ResolvedUploadUrlState, TopicCreateRequestState,
+    TopicDetailQueryState, TopicDetailState, TopicPostState, TopicReplyRequestState,
+    TopicTimingsRequestState, TopicUpdateRequestState, UploadImageRequestState, UploadResultState,
 };
-use crate::state_topic_list::{TopicListQueryState, TopicListState};
+use crate::state_topic_list::TopicListQueryState;
 use crate::state_user::{
     BadgeState, FollowUserState, InviteLinkState, UserActionState, UserProfileState,
     UserSummaryState, VoteResponseState, VotedUserState,
@@ -52,6 +53,7 @@ pub struct FireAppCore {
     inner: Arc<FireCore>,
     pub(crate) panic_state: Arc<PanicState>,
     diagnostics: Arc<FireDiagnosticsHandle>,
+    notifications: Arc<FireNotificationsHandle>,
     search: Arc<FireSearchHandle>,
 }
 
@@ -67,12 +69,17 @@ impl FireAppCore {
             inner: shared.core.clone(),
             panic_state: shared.panic_state.clone(),
             diagnostics: FireDiagnosticsHandle::from_shared(shared.clone()),
+            notifications: FireNotificationsHandle::from_shared(shared.clone()),
             search: FireSearchHandle::from_shared(shared),
         })
     }
 
     pub fn diagnostics(&self) -> Arc<FireDiagnosticsHandle> {
         self.diagnostics.clone()
+    }
+
+    pub fn notifications(&self) -> Arc<FireNotificationsHandle> {
+        self.notifications.clone()
     }
 
     pub fn search(&self) -> Arc<FireSearchHandle> {
@@ -251,145 +258,6 @@ impl FireAppCore {
             })
             .await?;
         Ok(response.into())
-    }
-
-    pub fn notification_state(&self) -> Result<NotificationCenterState, FireUniFfiError> {
-        self.run_infallible("notification_state", |inner| {
-            inner.notification_state().into()
-        })
-    }
-
-    pub async fn fetch_recent_notifications(
-        &self,
-        limit: Option<u32>,
-    ) -> Result<NotificationListState, FireUniFfiError> {
-        let inner = Arc::clone(&self.inner);
-        let panic_state = Arc::clone(&self.panic_state);
-        let response = run_on_ffi_runtime("fetch_recent_notifications", panic_state, async move {
-            inner.fetch_recent_notifications(limit).await
-        })
-        .await?;
-        Ok(response.into())
-    }
-
-    pub async fn fetch_notifications(
-        &self,
-        limit: Option<u32>,
-        offset: Option<u32>,
-    ) -> Result<NotificationListState, FireUniFfiError> {
-        let inner = Arc::clone(&self.inner);
-        let panic_state = Arc::clone(&self.panic_state);
-        let response = run_on_ffi_runtime("fetch_notifications", panic_state, async move {
-            inner.fetch_notifications(limit, offset).await
-        })
-        .await?;
-        Ok(response.into())
-    }
-
-    pub async fn mark_notification_read(
-        &self,
-        notification_id: u64,
-    ) -> Result<NotificationCenterState, FireUniFfiError> {
-        let inner = Arc::clone(&self.inner);
-        let panic_state = Arc::clone(&self.panic_state);
-        let response = run_on_ffi_runtime("mark_notification_read", panic_state, async move {
-            inner.mark_notification_read(notification_id).await
-        })
-        .await?;
-        Ok(response.into())
-    }
-
-    pub async fn mark_all_notifications_read(
-        &self,
-    ) -> Result<NotificationCenterState, FireUniFfiError> {
-        let inner = Arc::clone(&self.inner);
-        let panic_state = Arc::clone(&self.panic_state);
-        let response = run_on_ffi_runtime("mark_all_notifications_read", panic_state, async move {
-            inner.mark_all_notifications_read().await
-        })
-        .await?;
-        Ok(response.into())
-    }
-
-    pub async fn fetch_bookmarks(
-        &self,
-        username: String,
-        page: Option<u32>,
-    ) -> Result<TopicListState, FireUniFfiError> {
-        let inner = Arc::clone(&self.inner);
-        let panic_state = Arc::clone(&self.panic_state);
-        let response = run_on_ffi_runtime("fetch_bookmarks", panic_state, async move {
-            inner.fetch_bookmarks(&username, page).await
-        })
-        .await?;
-        Ok(response.into())
-    }
-
-    pub async fn fetch_read_history(
-        &self,
-        page: Option<u32>,
-    ) -> Result<TopicListState, FireUniFfiError> {
-        let inner = Arc::clone(&self.inner);
-        let panic_state = Arc::clone(&self.panic_state);
-        let response = run_on_ffi_runtime("fetch_read_history", panic_state, async move {
-            inner.fetch_read_history(page).await
-        })
-        .await?;
-        Ok(response.into())
-    }
-
-    pub async fn fetch_drafts(
-        &self,
-        offset: Option<u32>,
-        limit: Option<u32>,
-    ) -> Result<DraftListResponseState, FireUniFfiError> {
-        let inner = Arc::clone(&self.inner);
-        let panic_state = Arc::clone(&self.panic_state);
-        let response = run_on_ffi_runtime("fetch_drafts", panic_state, async move {
-            inner.fetch_drafts(offset, limit).await
-        })
-        .await?;
-        Ok(response.into())
-    }
-
-    pub async fn fetch_draft(
-        &self,
-        draft_key: String,
-    ) -> Result<Option<DraftState>, FireUniFfiError> {
-        let inner = Arc::clone(&self.inner);
-        let panic_state = Arc::clone(&self.panic_state);
-        let response = run_on_ffi_runtime("fetch_draft", panic_state, async move {
-            inner.fetch_draft(&draft_key).await
-        })
-        .await?;
-        Ok(response.map(Into::into))
-    }
-
-    pub async fn save_draft(
-        &self,
-        draft_key: String,
-        data: DraftDataState,
-        sequence: u32,
-    ) -> Result<u32, FireUniFfiError> {
-        let inner = Arc::clone(&self.inner);
-        let panic_state = Arc::clone(&self.panic_state);
-        run_on_ffi_runtime("save_draft", panic_state, async move {
-            inner.save_draft(&draft_key, data.into(), sequence).await
-        })
-        .await
-    }
-
-    pub async fn delete_draft(
-        &self,
-        draft_key: String,
-        sequence: Option<u32>,
-    ) -> Result<(), FireUniFfiError> {
-        let inner = Arc::clone(&self.inner);
-        let panic_state = Arc::clone(&self.panic_state);
-        run_on_ffi_runtime("delete_draft", panic_state, async move {
-            inner.delete_draft(&draft_key, sequence).await
-        })
-        .await
     }
 
     pub async fn fetch_topic_list(
@@ -658,71 +526,6 @@ impl FireAppCore {
         })
         .await?;
         Ok(response.into_iter().map(Into::into).collect())
-    }
-
-    pub async fn create_bookmark(
-        &self,
-        bookmarkable_id: u64,
-        bookmarkable_type: String,
-        name: Option<String>,
-        reminder_at: Option<String>,
-        auto_delete_preference: Option<i32>,
-    ) -> Result<u64, FireUniFfiError> {
-        let inner = Arc::clone(&self.inner);
-        let panic_state = Arc::clone(&self.panic_state);
-        run_on_ffi_runtime("create_bookmark", panic_state, async move {
-            inner
-                .create_bookmark(
-                    bookmarkable_id,
-                    &bookmarkable_type,
-                    name.as_deref(),
-                    reminder_at.as_deref(),
-                    auto_delete_preference,
-                )
-                .await
-        })
-        .await
-    }
-
-    pub async fn update_bookmark(
-        &self,
-        bookmark_id: u64,
-        name: Option<String>,
-        reminder_at: Option<String>,
-        auto_delete_preference: Option<i32>,
-    ) -> Result<(), FireUniFfiError> {
-        let inner = Arc::clone(&self.inner);
-        let panic_state = Arc::clone(&self.panic_state);
-        run_on_ffi_runtime("update_bookmark", panic_state, async move {
-            inner
-                .update_bookmark(bookmark_id, name, reminder_at, auto_delete_preference)
-                .await
-        })
-        .await
-    }
-
-    pub async fn delete_bookmark(&self, bookmark_id: u64) -> Result<(), FireUniFfiError> {
-        let inner = Arc::clone(&self.inner);
-        let panic_state = Arc::clone(&self.panic_state);
-        run_on_ffi_runtime("delete_bookmark", panic_state, async move {
-            inner.delete_bookmark(bookmark_id).await
-        })
-        .await
-    }
-
-    pub async fn set_topic_notification_level(
-        &self,
-        topic_id: u64,
-        notification_level: i32,
-    ) -> Result<(), FireUniFfiError> {
-        let inner = Arc::clone(&self.inner);
-        let panic_state = Arc::clone(&self.panic_state);
-        run_on_ffi_runtime("set_topic_notification_level", panic_state, async move {
-            inner
-                .set_topic_notification_level(topic_id, notification_level)
-                .await
-        })
-        .await
     }
 
     pub fn apply_cookies(&self, cookies: CookieState) -> Result<SessionState, FireUniFfiError> {

@@ -1,0 +1,18 @@
+[package]
+name = "fire-uniffi-notifications"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+publish = false
+
+[lib]
+crate-type = ["rlib"]
+
+[dependencies]
+fire-core = { path = "../fire-core" }
+fire-models = { path = "../fire-models" }
+fire-uniffi-types = { path = "../fire-uniffi-types" }
+tokio.workspace = true
+uniffi.workspace = true

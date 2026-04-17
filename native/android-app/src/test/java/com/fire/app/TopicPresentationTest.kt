@@ -3,10 +3,10 @@ package com.fire.app
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import uniffi.fire_uniffi.TopicPosterState
-import uniffi.fire_uniffi.TopicRowState
-import uniffi.fire_uniffi.TopicSummaryState
-import uniffi.fire_uniffi.TopicTagState
+import uniffi.fire_uniffi_types.TopicPosterState
+import uniffi.fire_uniffi_types.TopicRowState
+import uniffi.fire_uniffi_types.TopicSummaryState
+import uniffi.fire_uniffi_types.TopicTagState
 
 class TopicPresentationTest {
     @Test

@@ -536,6 +536,7 @@
 			outputPaths = (
 				"$(SRCROOT)/Generated/FireUniFfi/fire_uniffi.swift",
 				"$(SRCROOT)/Generated/FireUniFfi/fire_uniffi_diagnostics.swift",
+				"$(SRCROOT)/Generated/FireUniFfi/fire_uniffi_notifications.swift",
 				"$(SRCROOT)/Generated/FireUniFfi/fire_uniffi_search.swift",
 				"$(SRCROOT)/Generated/FireUniFfi/fire_uniffi_types.swift",
 				"$(SRCROOT)/Generated/fire_uniffiFFI/fire_uniffiFFI.h",

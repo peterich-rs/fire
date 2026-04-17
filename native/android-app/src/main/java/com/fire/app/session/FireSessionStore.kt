@@ -4,21 +4,21 @@ import android.content.Context
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
-import uniffi.fire_uniffi.FireCoreHandle
-import uniffi.fire_uniffi.LoginSyncState
-import uniffi.fire_uniffi.LogFileDetailState
-import uniffi.fire_uniffi.LogFileSummaryState
-import uniffi.fire_uniffi.NetworkTraceDetailState
-import uniffi.fire_uniffi.NetworkTraceSummaryState
-import uniffi.fire_uniffi.NotificationCenterState
-import uniffi.fire_uniffi.NotificationListState
-import uniffi.fire_uniffi.PlatformCookieState
-import uniffi.fire_uniffi.SessionState
-import uniffi.fire_uniffi.TopicDetailQueryState
-import uniffi.fire_uniffi.TopicDetailState
-import uniffi.fire_uniffi.TopicListQueryState
-import uniffi.fire_uniffi.TopicListState
-import uniffi.fire_uniffi.TopicPostState
+import uniffi.fire_uniffi.FireAppCore
+import uniffi.fire_uniffi_diagnostics.LogFileDetailState
+import uniffi.fire_uniffi_diagnostics.LogFileSummaryState
+import uniffi.fire_uniffi_diagnostics.NetworkTraceDetailState
+import uniffi.fire_uniffi_diagnostics.NetworkTraceSummaryState
+import uniffi.fire_uniffi_notifications.NotificationCenterState
+import uniffi.fire_uniffi_notifications.NotificationListState
+import uniffi.fire_uniffi_session.LoginSyncState
+import uniffi.fire_uniffi_session.PlatformCookieState
+import uniffi.fire_uniffi_session.SessionState
+import uniffi.fire_uniffi_topics.TopicDetailQueryState
+import uniffi.fire_uniffi_topics.TopicDetailState
+import uniffi.fire_uniffi_topics.TopicListQueryState
+import uniffi.fire_uniffi_topics.TopicPostState
+import uniffi.fire_uniffi_types.TopicListState
 
 class FireSessionStore(
     context: Context,
@@ -27,7 +27,7 @@ class FireSessionStore(
     sessionFilePath: String? = null,
 ) {
     private val workspaceDir: File
-    private val core: FireCoreHandle
+    private val core: FireAppCore
     private val sessionFile: File
 
     init {
@@ -35,24 +35,24 @@ class FireSessionStore(
             ?: sessionFilePath?.let { File(it).parentFile?.absolutePath }
             ?: defaultWorkspacePath(context)
         workspaceDir = File(resolvedWorkspacePath)
-        core = FireCoreHandle(baseUrl, workspaceDir.absolutePath)
-        sessionFile = File(sessionFilePath ?: core.resolveWorkspacePath("session.json"))
+        core = FireAppCore(baseUrl, workspaceDir.absolutePath)
+        sessionFile = File(sessionFilePath ?: core.session().resolveWorkspacePath("session.json"))
     }
 
     suspend fun snapshot(): SessionState = withContext(Dispatchers.Default) {
-        core.snapshot()
+        core.session().snapshot()
     }
 
     suspend fun restorePersistedSessionIfAvailable(): SessionState? = withContext(Dispatchers.IO) {
         if (!sessionFile.exists()) {
             return@withContext null
         }
-        core.loadSessionFromPath(sessionFile.absolutePath)
+        core.session().loadSessionFromPath(sessionFile.absolutePath)
     }
 
     suspend fun syncLoginContext(captured: FireCapturedLoginState): SessionState =
         withContext(Dispatchers.Default) {
-            val state = core.syncLoginContext(
+            val state = core.session().syncLoginContext(
                 LoginSyncState(
                     currentUrl = captured.currentUrl,
                     username = captured.username,
@@ -67,109 +67,109 @@ class FireSessionStore(
         }
 
     suspend fun refreshBootstrapIfNeeded(): SessionState = withContext(Dispatchers.IO) {
-        val refreshed = core.refreshBootstrapIfNeeded()
+        val refreshed = core.session().refreshBootstrapIfNeeded()
         persistCurrentSession()
         refreshed
     }
 
     suspend fun refreshCsrfTokenIfNeeded(): SessionState = withContext(Dispatchers.IO) {
-        val current = core.snapshot()
+        val current = core.session().snapshot()
         if (current.cookies.csrfToken != null) {
             return@withContext current
         }
 
-        val refreshed = core.refreshCsrfToken()
+        val refreshed = core.session().refreshCsrfToken()
         persistCurrentSession()
         refreshed
     }
 
     suspend fun persistCurrentSession() = withContext(Dispatchers.IO) {
         sessionFile.parentFile?.mkdirs()
-        core.saveSessionToPath(sessionFile.absolutePath)
+        core.session().saveSessionToPath(sessionFile.absolutePath)
     }
 
     fun workspacePath(): String = workspaceDir.absolutePath
 
     suspend fun listLogFiles(): List<LogFileSummaryState> =
         withContext(Dispatchers.IO) {
-            core.listLogFiles()
+            core.diagnostics().listLogFiles()
         }
 
     suspend fun readLogFile(relativePath: String): LogFileDetailState =
         withContext(Dispatchers.IO) {
-            core.readLogFile(relativePath)
+            core.diagnostics().readLogFile(relativePath)
         }
 
     suspend fun listNetworkTraces(limit: ULong = 200uL): List<NetworkTraceSummaryState> =
         withContext(Dispatchers.IO) {
-            core.listNetworkTraces(limit)
+            core.diagnostics().listNetworkTraces(limit)
         }
 
     suspend fun networkTraceDetail(traceId: ULong): NetworkTraceDetailState? =
         withContext(Dispatchers.IO) {
-            core.networkTraceDetail(traceId)
+            core.diagnostics().networkTraceDetail(traceId)
         }
 
     suspend fun exportSessionJson(): String = withContext(Dispatchers.Default) {
-        core.exportSessionJson()
+        core.session().exportSessionJson()
     }
 
     suspend fun notificationState(): NotificationCenterState = withContext(Dispatchers.Default) {
-        core.notificationState()
+        core.notifications().notificationState()
     }
 
     suspend fun fetchRecentNotifications(limit: UInt? = null): NotificationListState =
         withContext(Dispatchers.IO) {
-            core.fetchRecentNotifications(limit)
+            core.notifications().fetchRecentNotifications(limit)
         }
 
     suspend fun fetchNotifications(
         limit: UInt? = null,
         offset: UInt? = null,
     ): NotificationListState = withContext(Dispatchers.IO) {
-        core.fetchNotifications(limit, offset)
+        core.notifications().fetchNotifications(limit, offset)
     }
 
     suspend fun markNotificationRead(id: ULong): NotificationCenterState =
         withContext(Dispatchers.IO) {
-            core.markNotificationRead(id)
+            core.notifications().markNotificationRead(id)
         }
 
     suspend fun markAllNotificationsRead(): NotificationCenterState =
         withContext(Dispatchers.IO) {
-            core.markAllNotificationsRead()
+            core.notifications().markAllNotificationsRead()
         }
 
     suspend fun restoreSessionJson(json: String): SessionState = withContext(Dispatchers.Default) {
-        val restored = core.restoreSessionJson(json)
+        val restored = core.session().restoreSessionJson(json)
         persistCurrentSession()
         restored
     }
 
     suspend fun logout(): SessionState = withContext(Dispatchers.IO) {
-        val state = core.logoutRemote(true)
+        val state = core.session().logoutRemote(true)
         clearPersistedSession()
         state
     }
 
     suspend fun fetchTopicList(query: TopicListQueryState): TopicListState = withContext(Dispatchers.IO) {
-        core.fetchTopicList(query)
+        core.topics().fetchTopicList(query)
     }
 
     suspend fun fetchTopicDetail(query: TopicDetailQueryState): TopicDetailState = withContext(Dispatchers.IO) {
-        core.fetchTopicDetail(query)
+        core.topics().fetchTopicDetail(query)
     }
 
     suspend fun fetchTopicDetailInitial(query: TopicDetailQueryState): TopicDetailState = withContext(Dispatchers.IO) {
-        core.fetchTopicDetailInitial(query)
+        core.topics().fetchTopicDetailInitial(query)
     }
 
     suspend fun fetchTopicPosts(topicId: ULong, postIds: List<ULong>): List<TopicPostState> = withContext(Dispatchers.IO) {
-        core.fetchTopicPosts(topicId, postIds)
+        core.topics().fetchTopicPosts(topicId, postIds)
     }
 
     suspend fun clearPersistedSession() = withContext(Dispatchers.IO) {
-        core.clearSessionPath(sessionFile.absolutePath)
+        core.session().clearSessionPath(sessionFile.absolutePath)
     }
 
     companion object {

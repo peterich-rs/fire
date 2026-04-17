@@ -550,4 +550,4 @@ Manual verification matrix:
 - `rust/crates/fire-core/tests/network.rs` -- prove anchored initial payloads remain partial and do not regress into prefix hydration assumptions.
 - `rust/crates/fire-models/src/topic_detail.rs` -- replace thread-first presentation payloads with lightweight floor-order timeline entries.
 - `rust/crates/fire-uniffi/src/state_topic_detail.rs` -- expose `timeline_entries` and stop bridging redundant `thread`/`flat_posts` copies.
-- `uniffi/fire_uniffi/fire_uniffi.kt` -- regenerate Android bindings for the updated `TopicDetailState` UniFFI shape (mechanical regeneration only; Android-side code adaptation is tracked separately).
+- Regenerate Android bindings for the updated `TopicDetailState` UniFFI shape (mechanical regeneration only; Android-side code adaptation is tracked separately).

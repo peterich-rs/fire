@@ -12,8 +12,8 @@ import androidx.lifecycle.lifecycleScope
 import com.fire.app.session.FireSessionStore
 import com.fire.app.session.FireSessionStoreRepository
 import kotlinx.coroutines.launch
-import uniffi.fire_uniffi.LogFileSummaryState
-import uniffi.fire_uniffi.NetworkTraceSummaryState
+import uniffi.fire_uniffi_diagnostics.LogFileSummaryState
+import uniffi.fire_uniffi_diagnostics.NetworkTraceSummaryState
 
 class DiagnosticsActivity : AppCompatActivity() {
     private lateinit var sessionStore: FireSessionStore
@@ -125,10 +125,10 @@ class DiagnosticsActivity : AppCompatActivity() {
                         append(" · ")
                         append(
                             when (trace.outcome) {
-                                uniffi.fire_uniffi.NetworkTraceOutcomeState.IN_PROGRESS -> "In Progress"
-                                uniffi.fire_uniffi.NetworkTraceOutcomeState.SUCCEEDED -> "Succeeded"
-                                uniffi.fire_uniffi.NetworkTraceOutcomeState.FAILED -> "Failed"
-                                uniffi.fire_uniffi.NetworkTraceOutcomeState.CANCELLED -> "Cancelled"
+                                uniffi.fire_uniffi_diagnostics.NetworkTraceOutcomeState.IN_PROGRESS -> "In Progress"
+                                uniffi.fire_uniffi_diagnostics.NetworkTraceOutcomeState.SUCCEEDED -> "Succeeded"
+                                uniffi.fire_uniffi_diagnostics.NetworkTraceOutcomeState.FAILED -> "Failed"
+                                uniffi.fire_uniffi_diagnostics.NetworkTraceOutcomeState.CANCELLED -> "Cancelled"
                             },
                         )
                         trace.statusCode?.let { append(" · HTTP ${it.toInt()}") }

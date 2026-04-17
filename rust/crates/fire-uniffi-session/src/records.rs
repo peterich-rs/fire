@@ -3,7 +3,7 @@ use fire_models::{
     SessionReadiness, SessionSnapshot, TopicCategory,
 };
 
-use crate::state_search::RequiredTagGroupState;
+use fire_uniffi_types::RequiredTagGroupState;
 
 #[derive(uniffi::Record, Debug, Clone)]
 pub struct PlatformCookieState {
@@ -315,7 +315,7 @@ pub struct SessionState {
 }
 
 impl SessionState {
-    pub(crate) fn from_snapshot(snapshot: SessionSnapshot) -> Self {
+    pub fn from_snapshot(snapshot: SessionSnapshot) -> Self {
         let readiness = snapshot.readiness();
         let login_phase = snapshot.login_phase();
         Self {

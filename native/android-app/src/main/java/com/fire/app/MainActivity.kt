@@ -17,16 +17,16 @@ import com.fire.app.databinding.ActivityMainBinding
 import com.fire.app.session.FireSessionStore
 import com.fire.app.session.FireSessionStoreRepository
 import kotlinx.coroutines.launch
-import uniffi.fire_uniffi.BootstrapState
-import uniffi.fire_uniffi.CookieState
-import uniffi.fire_uniffi.SessionState
-import uniffi.fire_uniffi.SessionReadinessState
-import uniffi.fire_uniffi.TopicCategoryState
-import uniffi.fire_uniffi.TopicListKindState
-import uniffi.fire_uniffi.TopicListQueryState
-import uniffi.fire_uniffi.TopicListState
-import uniffi.fire_uniffi.TopicRowState
-import uniffi.fire_uniffi.TopicSummaryState
+import uniffi.fire_uniffi_session.BootstrapState
+import uniffi.fire_uniffi_session.CookieState
+import uniffi.fire_uniffi_session.SessionState
+import uniffi.fire_uniffi_session.SessionReadinessState
+import uniffi.fire_uniffi_session.TopicCategoryState
+import uniffi.fire_uniffi_topics.TopicListQueryState
+import uniffi.fire_uniffi_types.TopicListKindState
+import uniffi.fire_uniffi_types.TopicListState
+import uniffi.fire_uniffi_types.TopicRowState
+import uniffi.fire_uniffi_types.TopicSummaryState
 
 class MainActivity : AppCompatActivity() {
     private lateinit var binding: ActivityMainBinding
@@ -495,7 +495,7 @@ class MainActivity : AppCompatActivity() {
                 canWriteAuthenticatedApi = false,
                 canOpenMessageBus = false,
             ),
-            loginPhase = uniffi.fire_uniffi.LoginPhaseState.ANONYMOUS,
+            loginPhase = uniffi.fire_uniffi_session.LoginPhaseState.ANONYMOUS,
             hasLoginSession = false,
             profileDisplayName = "未登录",
             loginPhaseLabel = "未登录",
@@ -536,11 +536,11 @@ class MainActivity : AppCompatActivity() {
         existing.topics.forEach { topicsById[it.id] = it }
         incoming.topics.forEach { topicsById[it.id] = it }
 
-        val usersById = LinkedHashMap<ULong, uniffi.fire_uniffi.TopicUserState>()
+        val usersById = LinkedHashMap<ULong, uniffi.fire_uniffi_types.TopicUserState>()
         existing.users.forEach { usersById[it.id] = it }
         incoming.users.forEach { usersById[it.id] = it }
 
-        val rowsByTopicId = LinkedHashMap<ULong, uniffi.fire_uniffi.TopicRowState>()
+        val rowsByTopicId = LinkedHashMap<ULong, uniffi.fire_uniffi_types.TopicRowState>()
         existing.rows.forEach { rowsByTopicId[it.topic.id] = it }
         incoming.rows.forEach { rowsByTopicId[it.topic.id] = it }
 

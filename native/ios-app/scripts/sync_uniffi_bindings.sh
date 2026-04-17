@@ -10,7 +10,7 @@ script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 project_root="${SRCROOT:-$(cd -- "$script_dir/.." && pwd)}"
 repo_root="$(cd -- "$project_root/../.." && pwd)"
 generated_dir="$project_root/Generated"
-swift_out_dir="$generated_dir"
+swift_out_dir="$generated_dir/FireUniFfi"
 ffi_out_dir="$generated_dir/fire_uniffiFFI"
 lib_out_root="$generated_dir/lib"
 uniffi_config_path="$repo_root/rust/crates/fire-uniffi/uniffi.toml"
@@ -43,6 +43,8 @@ trap 'rm -rf "$tmp_dir"' EXIT
 
 mkdir -p "$swift_out_dir" "$ffi_out_dir" "$lib_out_root/$platform_name"
 rm -f "$generated_dir/fire_uniffiFFI.h" "$generated_dir/fire_uniffiFFI.modulemap"
+rm -f "$generated_dir/fire_uniffi.swift"
+rm -f "$swift_out_dir"/*.swift
 
 ensure_rust_target_installed() {
   local rust_target="$1"
@@ -222,20 +224,60 @@ dedupe_targets
     --library "$repo_root/rust/target/$profile_dir/libfire_uniffi.dylib" \
     --language swift \
     --no-format \
-    --config "$uniffi_config_path" \
     --out-dir "$tmp_dir/bindings"
 )
 
-cp "$tmp_dir/bindings/fire_uniffi.swift" "$swift_out_dir/fire_uniffi.swift"
-cp "$tmp_dir/bindings/fire_uniffiFFI.h" "$ffi_out_dir/fire_uniffiFFI.h"
-cp "$tmp_dir/bindings/fire_uniffiFFI.modulemap" "$ffi_out_dir/module.modulemap"
+# The fire-uniffi dylib bundles multiple UniFFI namespaces (fire_uniffi,
+# fire_uniffi_types, fire_uniffi_diagnostics, ...). Without a Swift ffi_module_name
+# override, bindgen emits one <namespace>FFI.{h,modulemap} per namespace and the
+# generated Swift files import their own per-namespace FFI module.
+#
+# We collapse every namespace into a single clang module "fire_uniffiFFI" that
+# all Swift sources import. That keeps the Xcode integration simple (one
+# modulemap, one include path) and is a strict superset of any one namespace's
+# FFI surface, so no symbols are lost.
 
-python3 - <<'PY' "$swift_out_dir/fire_uniffi.swift"
+# Merge every per-namespace FFI header into one fire_uniffiFFI.h. The per-file
+# UNIFFI_SHARED_H / UNIFFI_FFIDEF_* guards keep duplicate typedefs out of the
+# concatenation; only #pragma once appears multiple times, which clang allows
+# (and the module is never #include-d in another TU).
+{
+  for header in "$tmp_dir/bindings"/*FFI.h; do
+    cat "$header"
+  done
+} > "$ffi_out_dir/fire_uniffiFFI.h"
+
+cat > "$ffi_out_dir/module.modulemap" <<'MODULEMAP'
+module fire_uniffiFFI {
+    header "fire_uniffiFFI.h"
+    export *
+    use "Darwin"
+    use "_Builtin_stdbool"
+    use "_Builtin_stdint"
+}
+MODULEMAP
+
+# Copy Swift sources and rewrite per-namespace FFI imports to the unified module.
+for swift_file in "$tmp_dir/bindings"/*.swift; do
+  python3 - "$swift_file" "$swift_out_dir/$(basename "$swift_file")" <<'PY'
+import re
+import sys
+
+src, dst = sys.argv[1], sys.argv[2]
+pattern = re.compile(r"\bfire_uniffi(?:_[a-z_]+)?FFI\b")
+with open(src, "r", encoding="utf-8") as fh:
+    text = fh.read()
+text = pattern.sub("fire_uniffiFFI", text)
+with open(dst, "w", encoding="utf-8") as fh:
+    fh.write(text)
+PY
+done
+
+python3 - <<'PY' "$swift_out_dir"
 from pathlib import Path
 import sys
 
-path = Path(sys.argv[1])
-text = path.read_text()
+directory = Path(sys.argv[1])
 replacements = {
     '            if result == nil {\n                print("Uniffi callback interface MessageBusEventHandler: handle missing in uniffiFree")\n            }\n':
     '            if result == nil {\n                #if DEBUG\n                print("Uniffi callback interface MessageBusEventHandler: handle missing in uniffiFree")\n                #endif\n            }\n',
@@ -243,12 +285,13 @@ replacements = {
     '    } else {\n        #if DEBUG\n        print("uniffiFutureContinuationCallback invalid handle")\n        #endif\n    }\n',
 }
 
-updated = text
-for before, after in replacements.items():
-    updated = updated.replace(before, after)
-
-if updated != text:
-    path.write_text(updated)
+for path in sorted(directory.glob("*.swift")):
+    text = path.read_text()
+    updated = text
+    for before, after in replacements.items():
+        updated = updated.replace(before, after)
+    if updated != text:
+        path.write_text(updated)
 PY
 
 declare -a built_libraries=()

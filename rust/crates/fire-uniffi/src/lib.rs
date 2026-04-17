@@ -1,33 +1,101 @@
 uniffi::setup_scaffolding!("fire_uniffi");
 
-mod panic;
+use std::sync::Arc;
 
-pub mod error;
-pub mod handle;
-pub mod state_diagnostics;
-pub mod state_messagebus;
-pub mod state_notification;
-pub mod state_search;
-pub mod state_session;
-pub mod state_topic_detail;
-pub mod state_topic_list;
-pub mod state_user;
+use fire_core::{
+    monogram_for_username as shared_monogram_for_username,
+    plain_text_from_html as shared_plain_text_from_html,
+    preview_text_from_html as shared_preview_text_from_html,
+};
+use fire_uniffi_diagnostics::FireDiagnosticsHandle;
+use fire_uniffi_messagebus::FireMessageBusHandle;
+use fire_uniffi_notifications::FireNotificationsHandle;
+use fire_uniffi_search::FireSearchHandle;
+use fire_uniffi_session::FireSessionHandle;
+use fire_uniffi_topics::FireTopicsHandle;
+use fire_uniffi_types::{FireUniFfiError, SharedFireCore};
+use fire_uniffi_user::FireUserHandle;
 
-pub use error::*;
-pub use handle::*;
-pub use state_diagnostics::*;
-pub use state_messagebus::*;
-pub use state_notification::*;
-pub use state_search::*;
-pub use state_session::*;
-pub use state_topic_detail::*;
-pub use state_topic_list::*;
-pub use state_user::*;
+#[uniffi::export]
+pub fn plain_text_from_html(raw_html: String) -> String {
+    shared_plain_text_from_html(&raw_html)
+}
+
+#[uniffi::export]
+pub fn preview_text_from_html(raw_html: Option<String>) -> Option<String> {
+    shared_preview_text_from_html(raw_html.as_deref())
+}
+
+#[uniffi::export]
+pub fn monogram_for_username(username: String) -> String {
+    shared_monogram_for_username(&username)
+}
+
+#[derive(uniffi::Object)]
+pub struct FireAppCore {
+    diagnostics: Arc<FireDiagnosticsHandle>,
+    messagebus: Arc<FireMessageBusHandle>,
+    notifications: Arc<FireNotificationsHandle>,
+    search: Arc<FireSearchHandle>,
+    session: Arc<FireSessionHandle>,
+    topics: Arc<FireTopicsHandle>,
+    user: Arc<FireUserHandle>,
+}
+
+#[uniffi::export]
+impl FireAppCore {
+    #[uniffi::constructor]
+    pub fn new(
+        base_url: Option<String>,
+        workspace_path: Option<String>,
+    ) -> Result<Arc<Self>, FireUniFfiError> {
+        let shared = Arc::new(SharedFireCore::bootstrap(base_url, workspace_path)?);
+        Ok(Arc::new(Self {
+            diagnostics: FireDiagnosticsHandle::from_shared(shared.clone()),
+            messagebus: FireMessageBusHandle::from_shared(shared.clone()),
+            notifications: FireNotificationsHandle::from_shared(shared.clone()),
+            search: FireSearchHandle::from_shared(shared.clone()),
+            session: FireSessionHandle::from_shared(shared.clone()),
+            topics: FireTopicsHandle::from_shared(shared.clone()),
+            user: FireUserHandle::from_shared(shared),
+        }))
+    }
+
+    pub fn diagnostics(&self) -> Arc<FireDiagnosticsHandle> {
+        self.diagnostics.clone()
+    }
+
+    pub fn messagebus(&self) -> Arc<FireMessageBusHandle> {
+        self.messagebus.clone()
+    }
+
+    pub fn notifications(&self) -> Arc<FireNotificationsHandle> {
+        self.notifications.clone()
+    }
+
+    pub fn search(&self) -> Arc<FireSearchHandle> {
+        self.search.clone()
+    }
+
+    pub fn session(&self) -> Arc<FireSessionHandle> {
+        self.session.clone()
+    }
+
+    pub fn topics(&self) -> Arc<FireTopicsHandle> {
+        self.topics.clone()
+    }
+
+    pub fn user(&self) -> Arc<FireUserHandle> {
+        self.user.clone()
+    }
+}
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use std::{io, path::PathBuf};
+    use fire_uniffi_types::{
+        ffi_runtime, run_infallible, run_on_ffi_runtime, FireUniFfiError, PanicState,
+        SharedFireCore,
+    };
 
     #[test]
     fn maps_http_status_errors_without_flattening() {
@@ -85,6 +153,8 @@ mod tests {
 
     #[test]
     fn maps_storage_errors_to_storage_variant() {
+        use std::{io, path::PathBuf};
+
         let error = FireUniFfiError::from(fire_core::FireCoreError::PersistIo {
             path: PathBuf::from("/tmp/session.json"),
             source: io::Error::new(io::ErrorKind::PermissionDenied, "denied"),
@@ -98,31 +168,8 @@ mod tests {
     }
 
     #[test]
-    fn topic_detail_state_carries_interaction_count() {
-        use fire_models::{TopicDetail, TopicPost, TopicPostStream, TopicReaction};
-
-        let state = TopicDetailState::from(TopicDetail {
-            like_count: 8,
-            post_stream: TopicPostStream {
-                posts: vec![TopicPost {
-                    reactions: vec![TopicReaction {
-                        id: "clap".into(),
-                        count: 2,
-                        ..TopicReaction::default()
-                    }],
-                    ..TopicPost::default()
-                }],
-                ..TopicPostStream::default()
-            },
-            ..TopicDetail::default()
-        });
-
-        assert_eq!(state.interaction_count, 10);
-    }
-
-    #[test]
     fn runs_async_work_on_ffi_runtime() {
-        let panic_state = std::sync::Arc::new(panic::PanicState::default());
+        let panic_state = std::sync::Arc::new(PanicState::default());
         let value = ffi_runtime()
             .block_on(run_on_ffi_runtime(
                 "test_async_success",
@@ -136,11 +183,11 @@ mod tests {
 
     #[test]
     fn converts_sync_panic_to_internal_error_and_poisoned_handle() {
-        let handle = FireCoreHandle::new(None, None).expect("constructor should succeed");
+        let shared = std::sync::Arc::new(SharedFireCore::bootstrap(None, None).expect("bootstrap"));
 
-        let error = handle
-            .run_infallible("test_sync_panic", |_| {
-                panic!("boom");
+        let error =
+            run_infallible::<(), _>(&shared.panic_state, &shared.core, "test_sync_panic", |_| {
+                panic!("boom")
             })
             .expect_err("panic should map to an internal error");
 
@@ -149,7 +196,7 @@ mod tests {
             FireUniFfiError::Internal { details } if details.contains("test_sync_panic panicked: boom")
         ));
         assert!(matches!(
-            handle.panic_state.ensure_healthy("snapshot"),
+            shared.panic_state.ensure_healthy("snapshot"),
             Err(FireUniFfiError::Internal { details })
                 if details.contains("poisoned by a previous panic")
                     && details.contains("test_sync_panic panicked: boom")
@@ -158,7 +205,7 @@ mod tests {
 
     #[test]
     fn converts_async_panic_to_internal_error_and_poisoned_handle() {
-        let panic_state = std::sync::Arc::new(panic::PanicState::default());
+        let panic_state = std::sync::Arc::new(PanicState::default());
 
         let error = ffi_runtime()
             .block_on(run_on_ffi_runtime(

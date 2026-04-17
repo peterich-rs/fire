@@ -1,13 +1,64 @@
 use fire_models::{
-    Draft, DraftData, DraftListResponse, InviteCreateRequest, Poll, PollOption, PostReactionUpdate,
-    PostUpdateRequest, PrivateMessageCreateRequest, ResolvedUploadUrl, TopicCreateRequest,
-    TopicDetail, TopicDetailCreatedBy, TopicDetailMeta, TopicDetailQuery, TopicPost,
-    TopicPostStream, TopicReaction, TopicReplyRequest, TopicThread, TopicThreadFlatPost,
-    TopicThreadReply, TopicThreadSection, TopicTimelineEntry, TopicTimingEntry,
-    TopicTimingsRequest, TopicUpdateRequest, UploadResult,
+    Poll, PollOption, PostReactionUpdate, PostUpdateRequest, PrivateMessageCreateRequest,
+    ResolvedUploadUrl, TopicCreateRequest, TopicDetail, TopicDetailCreatedBy, TopicDetailMeta,
+    TopicDetailQuery, TopicListQuery, TopicPost, TopicPostStream, TopicReaction, TopicReplyRequest,
+    TopicThread, TopicThreadFlatPost, TopicThreadReply, TopicThreadSection, TopicTimelineEntry,
+    TopicTimingEntry, TopicTimingsRequest, TopicUpdateRequest, UploadResult, VoteResponse,
+    VotedUser,
 };
 
-use crate::state_topic_list::{TopicParticipantState, TopicTagState};
+use fire_uniffi_types::{TopicListKindState, TopicParticipantState, TopicTagState};
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct TopicListQueryState {
+    pub kind: TopicListKindState,
+    pub page: Option<u32>,
+    pub topic_ids: Vec<u64>,
+    pub order: Option<String>,
+    pub ascending: Option<bool>,
+    pub category_slug: Option<String>,
+    pub category_id: Option<u64>,
+    pub parent_category_slug: Option<String>,
+    pub tag: Option<String>,
+    pub additional_tags: Vec<String>,
+    pub match_all_tags: bool,
+}
+
+impl From<TopicListQuery> for TopicListQueryState {
+    fn from(value: TopicListQuery) -> Self {
+        Self {
+            kind: value.kind.into(),
+            page: value.page,
+            topic_ids: value.topic_ids,
+            order: value.order,
+            ascending: value.ascending,
+            category_slug: value.category_slug,
+            category_id: value.category_id,
+            parent_category_slug: value.parent_category_slug,
+            tag: value.tag,
+            additional_tags: value.additional_tags,
+            match_all_tags: value.match_all_tags,
+        }
+    }
+}
+
+impl From<TopicListQueryState> for TopicListQuery {
+    fn from(value: TopicListQueryState) -> Self {
+        Self {
+            kind: value.kind.into(),
+            page: value.page,
+            topic_ids: value.topic_ids,
+            order: value.order,
+            ascending: value.ascending,
+            category_slug: value.category_slug,
+            category_id: value.category_id,
+            parent_category_slug: value.parent_category_slug,
+            tag: value.tag,
+            additional_tags: value.additional_tags,
+            match_all_tags: value.match_all_tags,
+        }
+    }
+}
 
 #[derive(uniffi::Record, Debug, Clone)]
 pub struct TopicDetailQueryState {
@@ -193,117 +244,6 @@ impl From<PostUpdateRequestState> for PostUpdateRequest {
             post_id: value.post_id,
             raw: value.raw,
             edit_reason: value.edit_reason,
-        }
-    }
-}
-
-#[derive(uniffi::Record, Debug, Clone)]
-pub struct InviteCreateRequestState {
-    pub max_redemptions_allowed: u32,
-    pub expires_at: Option<String>,
-    pub description: Option<String>,
-    pub email: Option<String>,
-}
-
-impl From<InviteCreateRequestState> for InviteCreateRequest {
-    fn from(value: InviteCreateRequestState) -> Self {
-        Self {
-            max_redemptions_allowed: value.max_redemptions_allowed,
-            expires_at: value.expires_at,
-            description: value.description,
-            email: value.email,
-        }
-    }
-}
-
-#[derive(uniffi::Record, Debug, Clone)]
-pub struct DraftDataState {
-    pub reply: Option<String>,
-    pub title: Option<String>,
-    pub category_id: Option<u64>,
-    pub tags: Vec<String>,
-    pub reply_to_post_number: Option<u32>,
-    pub action: Option<String>,
-    pub recipients: Vec<String>,
-    pub archetype_id: Option<String>,
-    pub composer_time: Option<u32>,
-    pub typing_time: Option<u32>,
-}
-
-impl From<DraftData> for DraftDataState {
-    fn from(value: DraftData) -> Self {
-        Self {
-            reply: value.reply,
-            title: value.title,
-            category_id: value.category_id,
-            tags: value.tags,
-            reply_to_post_number: value.reply_to_post_number,
-            action: value.action,
-            recipients: value.recipients,
-            archetype_id: value.archetype_id,
-            composer_time: value.composer_time,
-            typing_time: value.typing_time,
-        }
-    }
-}
-
-impl From<DraftDataState> for DraftData {
-    fn from(value: DraftDataState) -> Self {
-        Self {
-            reply: value.reply,
-            title: value.title,
-            category_id: value.category_id,
-            tags: value.tags,
-            reply_to_post_number: value.reply_to_post_number,
-            action: value.action,
-            recipients: value.recipients,
-            archetype_id: value.archetype_id,
-            composer_time: value.composer_time,
-            typing_time: value.typing_time,
-        }
-    }
-}
-
-#[derive(uniffi::Record, Debug, Clone)]
-pub struct DraftState {
-    pub draft_key: String,
-    pub data: DraftDataState,
-    pub sequence: u32,
-    pub title: Option<String>,
-    pub excerpt: Option<String>,
-    pub updated_at: Option<String>,
-    pub username: Option<String>,
-    pub avatar_template: Option<String>,
-    pub topic_id: Option<u64>,
-}
-
-impl From<Draft> for DraftState {
-    fn from(value: Draft) -> Self {
-        Self {
-            draft_key: value.draft_key,
-            data: value.data.into(),
-            sequence: value.sequence,
-            title: value.title,
-            excerpt: value.excerpt,
-            updated_at: value.updated_at,
-            username: value.username,
-            avatar_template: value.avatar_template,
-            topic_id: value.topic_id,
-        }
-    }
-}
-
-#[derive(uniffi::Record, Debug, Clone)]
-pub struct DraftListResponseState {
-    pub drafts: Vec<DraftState>,
-    pub has_more: bool,
-}
-
-impl From<DraftListResponse> for DraftListResponseState {
-    fn from(value: DraftListResponse) -> Self {
-        Self {
-            drafts: value.drafts.into_iter().map(Into::into).collect(),
-            has_more: value.has_more,
         }
     }
 }
@@ -673,6 +613,48 @@ impl From<TopicDetail> for TopicDetailState {
             flat_posts: value.flat_posts.into_iter().map(Into::into).collect(),
             timeline_entries: value.timeline_entries.into_iter().map(Into::into).collect(),
             details: value.details.into(),
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct VotedUserState {
+    pub id: u64,
+    pub username: String,
+    pub name: Option<String>,
+    pub avatar_template: Option<String>,
+}
+
+impl From<VotedUser> for VotedUserState {
+    fn from(value: VotedUser) -> Self {
+        Self {
+            id: value.id,
+            username: value.username,
+            name: value.name,
+            avatar_template: value.avatar_template,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct VoteResponseState {
+    pub can_vote: bool,
+    pub vote_limit: u32,
+    pub vote_count: i32,
+    pub votes_left: i32,
+    pub alert: bool,
+    pub who_voted: Vec<VotedUserState>,
+}
+
+impl From<VoteResponse> for VoteResponseState {
+    fn from(value: VoteResponse) -> Self {
+        Self {
+            can_vote: value.can_vote,
+            vote_limit: value.vote_limit,
+            vote_count: value.vote_count,
+            votes_left: value.votes_left,
+            alert: value.alert,
+            who_voted: value.who_voted.into_iter().map(Into::into).collect(),
         }
     }
 }

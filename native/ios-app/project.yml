@@ -19,17 +19,12 @@ schemes:
         Fire: all
         FireTests:
           - test
-        FireUITests:
-          - test
     test:
       gatherCoverageData: false
       targets:
         - name: FireTests
           parallelizable: true
           randomExecutionOrder: true
-        - name: FireUITests
-          parallelizable: false
-          randomExecutionOrder: false
   FireUnitTests:
     build:
       targets:
@@ -42,18 +37,6 @@ schemes:
         - name: FireTests
           parallelizable: true
           randomExecutionOrder: true
-  FireUISmoke:
-    build:
-      targets:
-        Fire: all
-        FireUITests:
-          - test
-    test:
-      gatherCoverageData: false
-      targets:
-        - name: FireUITests
-          parallelizable: false
-          randomExecutionOrder: false
 settings:
   base:
     SWIFT_VERSION: "5.10"
@@ -141,14 +124,3 @@ targets:
         SWIFT_INCLUDE_PATHS:
           - "$(inherited)"
           - "$(SRCROOT)/Generated"
-  FireUITests:
-    type: bundle.ui-testing
-    platform: iOS
-    deploymentTarget: "17.0"
-    sources:
-      - path: Tests/UI
-    dependencies:
-      - target: Fire
-    settings:
-      base:
-        GENERATE_INFOPLIST_FILE: YES

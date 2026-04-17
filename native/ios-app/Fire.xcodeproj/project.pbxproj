@@ -79,7 +79,6 @@
 		B4AA77D05D86AB070BE06A93 /* FireNotificationStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 502CE714A74D91C33212BF57 /* FireNotificationStore.swift */; };
 		BACF637B5B2F0C0C8EDA3048 /* fire_uniffi.swift in Sources */ = {isa = PBXBuildFile; fileRef = 588B3F8CFD76DF758BE3A242 /* fire_uniffi.swift */; };
 		C02B0FA4DC635EE4FF05F19F /* SessionState+Helpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5F3291447D7DA0AEF9AA413 /* SessionState+Helpers.swift */; };
-		C0F81D0F77AD3163B093E18B /* FireSmokeUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5CE05C9BDCF4A8B4E7BF4CB0 /* FireSmokeUITests.swift */; };
 		C1300F26689601362E952200 /* FireTopicListMessageBusRefresh.swift in Sources */ = {isa = PBXBuildFile; fileRef = E91142A1E76D9831A6B3EC94 /* FireTopicListMessageBusRefresh.swift */; };
 		C25654B366748CB1C015E4FA /* FireDraftsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEF79A11C032C071A2F494A0 /* FireDraftsView.swift */; };
 		C393F32FAD3010FF51E3E7F2 /* FireAppRouteDestinationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF328A93631D56CB94E4FA7A /* FireAppRouteDestinationView.swift */; };
@@ -102,13 +101,6 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
-		07329CA8EE49AC256B3F5C5B /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = 9AB7FC66AC31A04F54C77B79 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = 87BF3D86E2CA36A3D645AA33;
-			remoteInfo = Fire;
-		};
 		DC8D43819C61EEBADFD56ED4 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 9AB7FC66AC31A04F54C77B79 /* Project object */;
@@ -153,7 +145,6 @@
 		52BB1F5B0970DC2504ACD989 /* FirePushRegistrationCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FirePushRegistrationCoordinator.swift; sourceTree = "<group>"; };
 		568D9F64260FB53D957BE41C /* FireProfileView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireProfileView.swift; sourceTree = "<group>"; };
 		588B3F8CFD76DF758BE3A242 /* fire_uniffi.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = fire_uniffi.swift; sourceTree = "<group>"; };
-		5CE05C9BDCF4A8B4E7BF4CB0 /* FireSmokeUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireSmokeUITests.swift; sourceTree = "<group>"; };
 		6210541C2E8219CE500CFC04 /* FireProfileStatsRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireProfileStatsRow.swift; sourceTree = "<group>"; };
 		6725F42C679E922AA3DD1FBF /* FireLoginWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireLoginWebView.swift; sourceTree = "<group>"; };
 		67647993BFF688FB02B71DBB /* FireTopicDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireTopicDetailView.swift; sourceTree = "<group>"; };
@@ -203,7 +194,6 @@
 		DD9004CEFFCDDBE2E50D71B0 /* FireOnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireOnboardingView.swift; sourceTree = "<group>"; };
 		DFBA718C5E89D3669A9C6D22 /* FireTopicDetailStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireTopicDetailStoreTests.swift; sourceTree = "<group>"; };
 		E2A86A280EED500EF3126038 /* FireNotificationsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireNotificationsView.swift; sourceTree = "<group>"; };
-		E32651328DFBB06437A350F2 /* FireUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = FireUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		E69013450F80AEC210D5512D /* Security.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Security.framework; path = System/Library/Frameworks/Security.framework; sourceTree = SDKROOT; };
 		E7E60D1F8BA725E4D60AFBA3 /* FireHomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireHomeView.swift; sourceTree = "<group>"; };
 		E91142A1E76D9831A6B3EC94 /* FireTopicListMessageBusRefresh.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireTopicListMessageBusRefresh.swift; sourceTree = "<group>"; };
@@ -237,21 +227,11 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
-		17C4ACC0123F8815EE1A7F9E /* UI */ = {
-			isa = PBXGroup;
-			children = (
-				5CE05C9BDCF4A8B4E7BF4CB0 /* FireSmokeUITests.swift */,
-			);
-			name = UI;
-			path = Tests/UI;
-			sourceTree = "<group>";
-		};
 		1D88C155B3075FF19641DF3E /* Products */ = {
 			isa = PBXGroup;
 			children = (
 				48CAB0E38556929FC140E25D /* Fire.app */,
 				0C933069DE6C026030AAB6EF /* FireTests.xctest */,
-				E32651328DFBB06437A350F2 /* FireUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -395,7 +375,6 @@
 				BD212BBA5E9DA62F41FF41F4 /* Configs */,
 				32338F9E71B0E67C5112C300 /* FireAppSession */,
 				B6732AD346DE25D47D208DE1 /* Generated */,
-				17C4ACC0123F8815EE1A7F9E /* UI */,
 				8FCD2C1B029D07F4C1B82746 /* Unit */,
 				D5EBFF4F5452417E0754E6D0 /* Frameworks */,
 				1D88C155B3075FF19641DF3E /* Products */,
@@ -487,24 +466,6 @@
 			productReference = 0C933069DE6C026030AAB6EF /* FireTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
-		80B98F4CA63C484FFADEB951 /* FireUITests */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = 79697F4DF834B9D646F09236 /* Build configuration list for PBXNativeTarget "FireUITests" */;
-			buildPhases = (
-				716BF1E0422BDD56F8AC2402 /* Sources */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-				3B4B37294E75CD2A91941E75 /* PBXTargetDependency */,
-			);
-			name = FireUITests;
-			packageProductDependencies = (
-			);
-			productName = FireUITests;
-			productReference = E32651328DFBB06437A350F2 /* FireUITests.xctest */;
-			productType = "com.apple.product-type.bundle.ui-testing";
-		};
 		87BF3D86E2CA36A3D645AA33 /* Fire */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 8B557C6BBAEE714D516101F2 /* Build configuration list for PBXNativeTarget "Fire" */;
@@ -534,9 +495,6 @@
 				BuildIndependentTargetsInParallel = YES;
 				LastUpgradeCheck = 1430;
 				TargetAttributes = {
-					80B98F4CA63C484FFADEB951 = {
-						TestTargetID = 87BF3D86E2CA36A3D645AA33;
-					};
 					87BF3D86E2CA36A3D645AA33 = {
 						DevelopmentTeam = "$(FIRE_DEVELOPMENT_TEAM)";
 						ProvisioningStyle = "$(FIRE_CODE_SIGN_STYLE)";
@@ -562,7 +520,6 @@
 			targets = (
 				87BF3D86E2CA36A3D645AA33 /* Fire */,
 				3ACA300207EBD80A07FC30BD /* FireTests */,
-				80B98F4CA63C484FFADEB951 /* FireUITests */,
 			);
 		};
 /* End PBXProject section */
@@ -618,14 +575,6 @@
 				E29EFDDF900994EACCA13358 /* FireTopicDetailStoreTests.swift in Sources */,
 				9F734046F02B45409AD5F1C6 /* FireTopicListMessageBusRefreshTests.swift in Sources */,
 				FFCC342F97F349220632A787 /* FireTopicPresentationTests.swift in Sources */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		716BF1E0422BDD56F8AC2402 /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				C0F81D0F77AD3163B093E18B /* FireSmokeUITests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -712,11 +661,6 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
-		3B4B37294E75CD2A91941E75 /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = 87BF3D86E2CA36A3D645AA33 /* Fire */;
-			targetProxy = 07329CA8EE49AC256B3F5C5B /* PBXContainerItemProxy */;
-		};
 		FAD67CF76E1A43CF274706B3 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = 87BF3D86E2CA36A3D645AA33 /* Fire */;
@@ -772,23 +716,6 @@
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Debug;
-		};
-		0B6567B0DF9F6DE802C0BA13 /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				BUNDLE_LOADER = "$(TEST_HOST)";
-				GENERATE_INFOPLIST_FILE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/Frameworks",
-					"@loader_path/Frameworks",
-				);
-				SDKROOT = iphoneos;
-				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_TARGET_NAME = Fire;
-			};
-			name = Release;
 		};
 		6E68DB783361D38DCA73F9A4 /* Debug */ = {
 			isa = XCBuildConfiguration;
@@ -997,23 +924,6 @@
 			};
 			name = Release;
 		};
-		FCD72076FC7437313E8B67F1 /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				BUNDLE_LOADER = "$(TEST_HOST)";
-				GENERATE_INFOPLIST_FILE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/Frameworks",
-					"@loader_path/Frameworks",
-				);
-				SDKROOT = iphoneos;
-				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_TARGET_NAME = Fire;
-			};
-			name = Debug;
-		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -1022,15 +932,6 @@
 			buildConfigurations = (
 				6E68DB783361D38DCA73F9A4 /* Debug */,
 				8D1DD178D93ACE719AA9A787 /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Debug;
-		};
-		79697F4DF834B9D646F09236 /* Build configuration list for PBXNativeTarget "FireUITests" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				FCD72076FC7437313E8B67F1 /* Debug */,
-				0B6567B0DF9F6DE802C0BA13 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;

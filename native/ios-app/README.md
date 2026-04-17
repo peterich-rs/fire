@@ -138,8 +138,6 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
   - covers the remaining Swift-owned presentation helpers plus the generated Rust-backed text and row/thread models consumed by SwiftUI
 - `Tests/Unit/FireEntityStateTests.swift`
   - covers `FireEntityIndex` upsert behavior plus `FireOrderedIDList` deduplication and stable ordering for the W2 home-feed list state
-- `Tests/UI/FireSmokeUITests.swift`
-  - keeps a minimal launch smoke test available for the dedicated `FireUITests` target; PR CI now runs the `Fire` scheme with `-only-testing:FireTests`, while push CI performs one shared `build-for-testing` pass before reusing those build products for both the unit suite and the smoke case
 - `Tests/Unit/FireRouteParserTests.swift`
   - covers supported custom URL forms, LinuxDo route parsing, and notification-payload route mapping
 - `App/FireRootView.swift`
@@ -171,14 +169,9 @@ Expected integration flow:
 Xcode project generation rules:
 
 - `native/ios-app/project.yml` is the source of truth for `Fire.xcodeproj`.
-- `project.yml` now also pins the W3 foundation packages:
-  - `Nuke` for the upcoming production image pipeline
-  - `SnapshotTesting` for later renderer/list snapshot coverage
-  - `FireUITests` as the dedicated UI-test target
-- The generated project now ships three shared schemes:
-  - `Fire` for app builds plus the combined push-only test lane
+- The generated project now ships two shared schemes:
+  - `Fire` for app builds plus local unit-test runs
   - `FireUnitTests` for the isolated unit-test lane
-  - `FireUISmoke` for the isolated UI smoke lane
 - Signing now flows through `native/ios-app/Configs/Fire-*.xcconfig` so local developer-account overrides do not need to touch the generated project.
 - New Swift files placed under existing source roots such as `App/` or `Sources/FireAppSession/` do not require a `project.yml` edit, but they do require rerunning `xcodegen generate --spec native/ios-app/project.yml` and committing the regenerated `Fire.xcodeproj`.
 - Changes that introduce a new source/resource directory, framework dependency, build script, target, or Xcode build setting must update `project.yml` first, then regenerate `Fire.xcodeproj`.
@@ -190,7 +183,7 @@ Local signing overrides:
 - `Debug` loads `native/ios-app/Configs/Fire-Local-Debug.xcconfig` if it exists.
 - `Release` loads `native/ios-app/Configs/Fire-Local-Release.xcconfig` if it exists.
 - The two `Fire-Local-*.xcconfig` files are ignored by git; use the matching `.example.xcconfig` file as the template.
-- Only the repo-managed shared schemes (`Fire`, `FireUnitTests`, and `FireUISmoke`) should be committed. If you need a personal debug/release variant, duplicate a scheme in Xcode with `Shared` unchecked; Xcode stores that under `xcuserdata`, which is already ignored by git in this repo.
+- Only the repo-managed shared schemes (`Fire` and `FireUnitTests`) should be committed. If you need a personal debug/release variant, duplicate a scheme in Xcode with `Shared` unchecked; Xcode stores that under `xcuserdata`, which is already ignored by git in this repo.
 - `FIRE_DISPLAY_NAME` can now be overridden from those local xcconfig files if you want `Debug` and `Release` installs to appear as separate app names on-device.
 - Recommended local-device setup:
   1. Copy `native/ios-app/Configs/Fire-Local-Debug.example.xcconfig` to `native/ios-app/Configs/Fire-Local-Debug.xcconfig`.
@@ -260,10 +253,7 @@ Verified local commands:
 - `./scripts/check_clean_submodules.sh`
 - `xcodegen generate --spec native/ios-app/project.yml`
 - `xcodebuild -project native/ios-app/Fire.xcodeproj -scheme Fire -destination 'generic/platform=iOS Simulator' build`
-- `xcodebuild -project native/ios-app/Fire.xcodeproj -scheme Fire -destination 'platform=iOS Simulator,OS=18.2,name=iPhone 16' -derivedDataPath /tmp/fire-ios-ui CODE_SIGNING_ALLOWED=NO -only-testing:FireTests test`
-- `xcodebuild -project native/ios-app/Fire.xcodeproj -scheme Fire -destination 'platform=iOS Simulator,OS=18.2,name=iPhone 16' -derivedDataPath /tmp/fire-ios-ui CODE_SIGNING_ALLOWED=NO build-for-testing`
-- `xcodebuild -project native/ios-app/Fire.xcodeproj -scheme Fire -destination 'platform=iOS Simulator,OS=18.2,name=iPhone 16' -derivedDataPath /tmp/fire-ios-ui CODE_SIGNING_ALLOWED=NO -only-testing:FireTests test-without-building`
-- `xcodebuild -project native/ios-app/Fire.xcodeproj -scheme Fire -destination 'platform=iOS Simulator,OS=18.2,name=iPhone 16' -derivedDataPath /tmp/fire-ios-ui CODE_SIGNING_ALLOWED=NO -only-testing:FireUITests/FireSmokeUITests/testAppLaunches test-without-building`
+- `xcodebuild -project native/ios-app/Fire.xcodeproj -scheme FireUnitTests -destination 'platform=iOS Simulator,OS=18.2,name=iPhone 16' -derivedDataPath /tmp/fire-ios-ui CODE_SIGNING_ALLOWED=NO test`
 
 Operational archive command:
 

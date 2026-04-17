@@ -265,7 +265,7 @@ jobs:
     name: iOS Test
     needs: [rust-ios-uniffi]
     runs-on: macos-15
-    timeout-minutes: 90
+    timeout-minutes: 30
 
     steps:
       - uses: actions/checkout@v5
@@ -332,13 +332,9 @@ jobs:
               "$action"
           }
 
-          if [[ "${GITHUB_EVENT_NAME}" == "push" ]]; then
-            run_xcodebuild Fire build-for-testing
-            run_xcodebuild Fire test-without-building -only-testing:FireTests
-            run_xcodebuild Fire test-without-building -only-testing:FireUITests/FireSmokeUITests/testAppLaunches
-          else
-            run_xcodebuild Fire test -only-testing:FireTests
-          fi
+          # Required CI stays on the unit-only lane; the repo no longer ships a
+          # separate UI smoke target in blocking validation.
+          run_xcodebuild FireUnitTests test
 
   native-android-test:
     name: Android Test

@@ -1,8 +1,10 @@
 use fire_models::{
-    GroupedSearchResult, RequiredTagGroup, SearchPost, SearchQuery, SearchResult, SearchTopic,
-    SearchTypeFilter, SearchUser, TagSearchItem, TagSearchQuery, TagSearchResult, UserMentionGroup,
+    GroupedSearchResult, SearchPost, SearchQuery, SearchResult, SearchTopic, SearchTypeFilter,
+    SearchUser, TagSearchItem, TagSearchQuery, TagSearchResult, UserMentionGroup,
     UserMentionQuery, UserMentionResult, UserMentionUser,
 };
+
+use fire_uniffi_types::RequiredTagGroupState;
 
 #[derive(uniffi::Enum, Debug, Clone, Copy)]
 pub enum SearchTypeFilterState {
@@ -231,30 +233,6 @@ impl From<TagSearchItem> for TagSearchItemState {
             name: value.name,
             text: value.text,
             count: value.count,
-        }
-    }
-}
-
-#[derive(uniffi::Record, Debug, Clone)]
-pub struct RequiredTagGroupState {
-    pub name: String,
-    pub min_count: u32,
-}
-
-impl From<RequiredTagGroup> for RequiredTagGroupState {
-    fn from(value: RequiredTagGroup) -> Self {
-        Self {
-            name: value.name,
-            min_count: value.min_count,
-        }
-    }
-}
-
-impl From<RequiredTagGroupState> for RequiredTagGroup {
-    fn from(value: RequiredTagGroupState) -> Self {
-        Self {
-            name: value.name,
-            min_count: value.min_count,
         }
     }
 }

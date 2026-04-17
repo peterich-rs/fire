@@ -9,16 +9,13 @@ use fire_core::{
     preview_text_from_html as shared_preview_text_from_html, FireCore, FireCoreError,
 };
 use fire_uniffi_diagnostics::FireDiagnosticsHandle;
+use fire_uniffi_search::FireSearchHandle;
 use fire_uniffi_types::{ffi_runtime, run_on_ffi_runtime, FireUniFfiError, PanicState, SharedFireCore};
 use crate::state_messagebus::{
     MessageBusClientModeState, MessageBusEventHandler, MessageBusSubscriptionState,
     NotificationAlertPollResultState, TopicPresenceState,
 };
 use crate::state_notification::{NotificationCenterState, NotificationListState};
-use crate::state_search::{
-    SearchQueryState, SearchResultState, TagSearchQueryState, TagSearchResultState,
-    UserMentionQueryState, UserMentionResultState,
-};
 use crate::state_session::{
     BootstrapState, CookieState, LoginSyncState, PlatformCookieState, SessionState,
 };
@@ -55,6 +52,7 @@ pub struct FireAppCore {
     inner: Arc<FireCore>,
     pub(crate) panic_state: Arc<PanicState>,
     diagnostics: Arc<FireDiagnosticsHandle>,
+    search: Arc<FireSearchHandle>,
 }
 
 #[uniffi::export]
@@ -68,12 +66,17 @@ impl FireAppCore {
         Ok(Self {
             inner: shared.core.clone(),
             panic_state: shared.panic_state.clone(),
-            diagnostics: FireDiagnosticsHandle::from_shared(shared),
+            diagnostics: FireDiagnosticsHandle::from_shared(shared.clone()),
+            search: FireSearchHandle::from_shared(shared),
         })
     }
 
     pub fn diagnostics(&self) -> Arc<FireDiagnosticsHandle> {
         self.diagnostics.clone()
+    }
+
+    pub fn search(&self) -> Arc<FireSearchHandle> {
+        self.search.clone()
     }
 
     pub fn base_url(&self) -> Result<String, FireUniFfiError> {
@@ -397,45 +400,6 @@ impl FireAppCore {
         let panic_state = Arc::clone(&self.panic_state);
         let response = run_on_ffi_runtime("fetch_topic_list", panic_state, async move {
             inner.fetch_topic_list(query.into()).await
-        })
-        .await?;
-        Ok(response.into())
-    }
-
-    pub async fn search(
-        &self,
-        query: SearchQueryState,
-    ) -> Result<SearchResultState, FireUniFfiError> {
-        let inner = Arc::clone(&self.inner);
-        let panic_state = Arc::clone(&self.panic_state);
-        let response = run_on_ffi_runtime("search", panic_state, async move {
-            inner.search(query.into()).await
-        })
-        .await?;
-        Ok(response.into())
-    }
-
-    pub async fn search_tags(
-        &self,
-        query: TagSearchQueryState,
-    ) -> Result<TagSearchResultState, FireUniFfiError> {
-        let inner = Arc::clone(&self.inner);
-        let panic_state = Arc::clone(&self.panic_state);
-        let response = run_on_ffi_runtime("search_tags", panic_state, async move {
-            inner.search_tags(query.into()).await
-        })
-        .await?;
-        Ok(response.into())
-    }
-
-    pub async fn search_users(
-        &self,
-        query: UserMentionQueryState,
-    ) -> Result<UserMentionResultState, FireUniFfiError> {
-        let inner = Arc::clone(&self.inner);
-        let panic_state = Arc::clone(&self.panic_state);
-        let response = run_on_ffi_runtime("search_users", panic_state, async move {
-            inner.search_users(query.into()).await
         })
         .await?;
         Ok(response.into())

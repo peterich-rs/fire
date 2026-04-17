@@ -3,7 +3,6 @@ uniffi::setup_scaffolding!("fire_uniffi");
 pub mod handle;
 pub mod state_messagebus;
 pub mod state_notification;
-pub mod state_search;
 pub mod state_session;
 pub mod state_topic_detail;
 pub mod state_topic_list;
@@ -17,7 +16,6 @@ pub use fire_uniffi_types::{
 pub use handle::*;
 pub use state_messagebus::*;
 pub use state_notification::*;
-pub use state_search::*;
 pub use state_session::*;
 pub use state_topic_detail::*;
 pub use state_topic_list::*;

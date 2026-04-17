@@ -3,7 +3,7 @@ use fire_models::{
     SessionReadiness, SessionSnapshot, TopicCategory,
 };
 
-use crate::state_search::RequiredTagGroupState;
+use fire_uniffi_types::RequiredTagGroupState;
 
 #[derive(uniffi::Record, Debug, Clone)]
 pub struct PlatformCookieState {

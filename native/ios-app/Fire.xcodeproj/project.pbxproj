@@ -535,6 +535,7 @@
 			);
 			outputPaths = (
 				"$(SRCROOT)/Generated/FireUniFfi/fire_uniffi.swift",
+				"$(SRCROOT)/Generated/FireUniFfi/fire_uniffi_diagnostics.swift",
 				"$(SRCROOT)/Generated/FireUniFfi/fire_uniffi_types.swift",
 				"$(SRCROOT)/Generated/fire_uniffiFFI/fire_uniffiFFI.h",
 				"$(SRCROOT)/Generated/fire_uniffiFFI/module.modulemap",

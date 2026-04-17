@@ -7,7 +7,7 @@ shared libraries for the app to load through JNA.
 Current host-side app wiring lives under `src/main/java/com/fire/app/` plus `src/main/java/com/fire/app/session/`:
 
 - `FireSessionStore.kt`
-  - owns `FireCoreHandle`
+  - owns `FireAppCore`
   - passes the platform workspace root (`filesDir/fire`) into Rust during initialization
   - restores persisted session snapshots on cold start
   - persists the latest Rust session snapshot to `filesDir/fire/session.json`
@@ -69,7 +69,7 @@ Current browser note:
 
 - The Android shell now loads the real Rust session/topic APIs through generated Kotlin UniFFI bindings.
 - Network-backed UniFFI APIs now surface to Kotlin as native `suspend fun` calls instead of a synchronous wrapper.
-- The UniFFI boundary now returns all exported host interactions through `FireUniFfiError`; if Rust panics, the boundary logs the panic, returns an `Internal` error, and poisons the current `FireCoreHandle` so the host can recreate it instead of continuing on corrupted state.
+- The UniFFI boundary now returns all exported host interactions through `FireUniFfiError`; if Rust panics, the boundary logs the panic, returns an `Internal` error, and poisons the current `FireAppCore` so the host can recreate it instead of continuing on corrupted state.
 - `MainActivity` still renders a compact browser shell, but the data path is no longer stubbed.
 - The current browser shell now supports `Load More` pagination, category metadata derived from the shared Rust bootstrap snapshot, and Rust-owned row/status presentation data instead of rebuilding those labels on Android.
 - Topic detail now opens in a dedicated activity instead of being embedded under the feed list.

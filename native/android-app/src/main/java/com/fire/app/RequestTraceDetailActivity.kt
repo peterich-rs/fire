@@ -58,10 +58,10 @@ class RequestTraceDetailActivity : AppCompatActivity() {
                     appendLine(
                         "Outcome: ${
                             when (detail.summary.outcome) {
-                                uniffi.fire_uniffi.NetworkTraceOutcomeState.IN_PROGRESS -> "In Progress"
-                                uniffi.fire_uniffi.NetworkTraceOutcomeState.SUCCEEDED -> "Succeeded"
-                                uniffi.fire_uniffi.NetworkTraceOutcomeState.FAILED -> "Failed"
-                                uniffi.fire_uniffi.NetworkTraceOutcomeState.CANCELLED -> "Cancelled"
+                                uniffi.fire_uniffi_diagnostics.NetworkTraceOutcomeState.IN_PROGRESS -> "In Progress"
+                                uniffi.fire_uniffi_diagnostics.NetworkTraceOutcomeState.SUCCEEDED -> "Succeeded"
+                                uniffi.fire_uniffi_diagnostics.NetworkTraceOutcomeState.FAILED -> "Failed"
+                                uniffi.fire_uniffi_diagnostics.NetworkTraceOutcomeState.CANCELLED -> "Cancelled"
                             }
                         }",
                     )

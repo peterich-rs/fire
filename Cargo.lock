@@ -765,11 +765,23 @@ version = "0.1.0"
 dependencies = [
  "fire-core",
  "fire-models",
+ "fire-uniffi-diagnostics",
  "fire-uniffi-types",
  "futures-util",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
+ "uniffi",
+]
+
+[[package]]
+name = "fire-uniffi-diagnostics"
+version = "0.1.0"
+dependencies = [
+ "fire-core",
+ "fire-models",
+ "fire-uniffi-types",
+ "tokio",
  "uniffi",
 ]
 

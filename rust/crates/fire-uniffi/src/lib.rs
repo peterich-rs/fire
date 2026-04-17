@@ -1,7 +1,6 @@
 uniffi::setup_scaffolding!("fire_uniffi");
 
 pub mod handle;
-pub mod state_diagnostics;
 pub mod state_messagebus;
 pub mod state_notification;
 pub mod state_search;
@@ -16,7 +15,6 @@ pub use fire_uniffi_types::{
 };
 
 pub use handle::*;
-pub use state_diagnostics::*;
 pub use state_messagebus::*;
 pub use state_notification::*;
 pub use state_search::*;
@@ -137,7 +135,7 @@ mod tests {
 
     #[test]
     fn converts_sync_panic_to_internal_error_and_poisoned_handle() {
-        let handle = FireCoreHandle::new(None, None).expect("constructor should succeed");
+        let handle = FireAppCore::new(None, None).expect("constructor should succeed");
 
         let error = handle
             .run_infallible("test_sync_panic", |_| {

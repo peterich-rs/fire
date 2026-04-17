@@ -4,12 +4,8 @@ import android.content.Context
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
-import uniffi.fire_uniffi.FireCoreHandle
+import uniffi.fire_uniffi.FireAppCore
 import uniffi.fire_uniffi.LoginSyncState
-import uniffi.fire_uniffi.LogFileDetailState
-import uniffi.fire_uniffi.LogFileSummaryState
-import uniffi.fire_uniffi.NetworkTraceDetailState
-import uniffi.fire_uniffi.NetworkTraceSummaryState
 import uniffi.fire_uniffi.NotificationCenterState
 import uniffi.fire_uniffi.NotificationListState
 import uniffi.fire_uniffi.PlatformCookieState
@@ -19,6 +15,10 @@ import uniffi.fire_uniffi.TopicDetailState
 import uniffi.fire_uniffi.TopicListQueryState
 import uniffi.fire_uniffi.TopicListState
 import uniffi.fire_uniffi.TopicPostState
+import uniffi.fire_uniffi_diagnostics.LogFileDetailState
+import uniffi.fire_uniffi_diagnostics.LogFileSummaryState
+import uniffi.fire_uniffi_diagnostics.NetworkTraceDetailState
+import uniffi.fire_uniffi_diagnostics.NetworkTraceSummaryState
 
 class FireSessionStore(
     context: Context,
@@ -27,7 +27,7 @@ class FireSessionStore(
     sessionFilePath: String? = null,
 ) {
     private val workspaceDir: File
-    private val core: FireCoreHandle
+    private val core: FireAppCore
     private val sessionFile: File
 
     init {
@@ -35,7 +35,7 @@ class FireSessionStore(
             ?: sessionFilePath?.let { File(it).parentFile?.absolutePath }
             ?: defaultWorkspacePath(context)
         workspaceDir = File(resolvedWorkspacePath)
-        core = FireCoreHandle(baseUrl, workspaceDir.absolutePath)
+        core = FireAppCore(baseUrl, workspaceDir.absolutePath)
         sessionFile = File(sessionFilePath ?: core.resolveWorkspacePath("session.json"))
     }
 
@@ -92,22 +92,22 @@ class FireSessionStore(
 
     suspend fun listLogFiles(): List<LogFileSummaryState> =
         withContext(Dispatchers.IO) {
-            core.listLogFiles()
+            core.diagnostics().listLogFiles()
         }
 
     suspend fun readLogFile(relativePath: String): LogFileDetailState =
         withContext(Dispatchers.IO) {
-            core.readLogFile(relativePath)
+            core.diagnostics().readLogFile(relativePath)
         }
 
     suspend fun listNetworkTraces(limit: ULong = 200uL): List<NetworkTraceSummaryState> =
         withContext(Dispatchers.IO) {
-            core.listNetworkTraces(limit)
+            core.diagnostics().listNetworkTraces(limit)
         }
 
     suspend fun networkTraceDetail(traceId: ULong): NetworkTraceDetailState? =
         withContext(Dispatchers.IO) {
-            core.networkTraceDetail(traceId)
+            core.diagnostics().networkTraceDetail(traceId)
         }
 
     suspend fun exportSessionJson(): String = withContext(Dispatchers.Default) {

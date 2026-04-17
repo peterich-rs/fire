@@ -6,17 +6,10 @@ use std::{
 use fire_core::{
     monogram_for_username as shared_monogram_for_username,
     plain_text_from_html as shared_plain_text_from_html,
-    preview_text_from_html as shared_preview_text_from_html, FireCore, FireCoreConfig,
-    FireCoreError,
+    preview_text_from_html as shared_preview_text_from_html, FireCore, FireCoreError,
 };
-use fire_uniffi_types::{
-    constructor_guard, ffi_runtime, run_on_ffi_runtime, FireUniFfiError, PanicState,
-};
-use crate::state_diagnostics::{
-    DiagnosticsPageDirectionState, HostLogLevelState, LogFileDetailState, LogFilePageState,
-    LogFileSummaryState, NetworkTraceBodyPageState, NetworkTraceDetailState,
-    NetworkTraceSummaryState, SupportBundleExportState, SupportBundleHostContextState,
-};
+use fire_uniffi_diagnostics::FireDiagnosticsHandle;
+use fire_uniffi_types::{ffi_runtime, run_on_ffi_runtime, FireUniFfiError, PanicState, SharedFireCore};
 use crate::state_messagebus::{
     MessageBusClientModeState, MessageBusEventHandler, MessageBusSubscriptionState,
     NotificationAlertPollResultState, TopicPresenceState,
@@ -58,27 +51,29 @@ pub fn monogram_for_username(username: String) -> String {
 }
 
 #[derive(uniffi::Object)]
-pub struct FireCoreHandle {
+pub struct FireAppCore {
     inner: Arc<FireCore>,
     pub(crate) panic_state: Arc<PanicState>,
+    diagnostics: Arc<FireDiagnosticsHandle>,
 }
 
 #[uniffi::export]
-impl FireCoreHandle {
+impl FireAppCore {
     #[uniffi::constructor]
     pub fn new(
         base_url: Option<String>,
         workspace_path: Option<String>,
     ) -> Result<Self, FireUniFfiError> {
-        constructor_guard("constructor.new", || {
-            Ok(Self {
-                inner: Arc::new(FireCore::new(FireCoreConfig {
-                    base_url: base_url.unwrap_or_else(|| "https://linux.do".to_string()),
-                    workspace_path,
-                })?),
-                panic_state: Arc::new(PanicState::default()),
-            })
+        let shared = Arc::new(SharedFireCore::bootstrap(base_url, workspace_path)?);
+        Ok(Self {
+            inner: shared.core.clone(),
+            panic_state: shared.panic_state.clone(),
+            diagnostics: FireDiagnosticsHandle::from_shared(shared),
         })
+    }
+
+    pub fn diagnostics(&self) -> Arc<FireDiagnosticsHandle> {
+        self.diagnostics.clone()
     }
 
     pub fn base_url(&self) -> Result<String, FireUniFfiError> {
@@ -98,120 +93,6 @@ impl FireCoreHandle {
             inner
                 .resolve_workspace_path(relative_path)
                 .map(|path| path.display().to_string())
-        })
-    }
-
-    pub fn diagnostic_session_id(&self) -> Result<String, FireUniFfiError> {
-        self.run_infallible("diagnostic_session_id", |inner| {
-            inner.diagnostic_session_id()
-        })
-    }
-
-    pub fn export_support_bundle(
-        &self,
-        host_context: SupportBundleHostContextState,
-    ) -> Result<SupportBundleExportState, FireUniFfiError> {
-        self.run_fallible("export_support_bundle", move |inner| {
-            inner
-                .export_support_bundle(host_context.into())
-                .map(Into::into)
-        })
-    }
-
-    pub fn flush_logs(&self, sync: bool) -> Result<(), FireUniFfiError> {
-        self.run_infallible("flush_logs", move |inner| inner.flush_logs(sync))
-    }
-
-    pub fn log_host(
-        &self,
-        level: HostLogLevelState,
-        target: String,
-        message: String,
-    ) -> Result<(), FireUniFfiError> {
-        self.run_infallible("log_host", move |inner| {
-            inner.log_host(level.into(), target, message)
-        })
-    }
-
-    pub fn list_log_files(&self) -> Result<Vec<LogFileSummaryState>, FireUniFfiError> {
-        self.run_fallible("list_log_files", |inner| {
-            inner
-                .list_log_files()
-                .map(|items| items.into_iter().map(Into::into).collect())
-        })
-    }
-
-    pub fn read_log_file(
-        &self,
-        relative_path: String,
-    ) -> Result<LogFileDetailState, FireUniFfiError> {
-        self.run_fallible("read_log_file", move |inner| {
-            inner.read_log_file(relative_path).map(Into::into)
-        })
-    }
-
-    pub fn read_log_file_page(
-        &self,
-        relative_path: String,
-        cursor: Option<u64>,
-        max_bytes: Option<u64>,
-        direction: DiagnosticsPageDirectionState,
-    ) -> Result<LogFilePageState, FireUniFfiError> {
-        self.run_fallible("read_log_file_page", move |inner| {
-            inner
-                .read_log_file_page(
-                    relative_path,
-                    cursor,
-                    max_bytes
-                        .and_then(|value| usize::try_from(value).ok())
-                        .unwrap_or_default(),
-                    direction.into(),
-                )
-                .map(Into::into)
-        })
-    }
-
-    pub fn list_network_traces(
-        &self,
-        limit: u64,
-    ) -> Result<Vec<NetworkTraceSummaryState>, FireUniFfiError> {
-        self.run_infallible("list_network_traces", move |inner| {
-            let limit = usize::try_from(limit).unwrap_or(usize::MAX);
-            inner
-                .list_network_traces(limit)
-                .into_iter()
-                .map(Into::into)
-                .collect()
-        })
-    }
-
-    pub fn network_trace_detail(
-        &self,
-        trace_id: u64,
-    ) -> Result<Option<NetworkTraceDetailState>, FireUniFfiError> {
-        self.run_infallible("network_trace_detail", move |inner| {
-            inner.network_trace_detail(trace_id).map(Into::into)
-        })
-    }
-
-    pub fn network_trace_body_page(
-        &self,
-        trace_id: u64,
-        cursor: Option<u64>,
-        max_bytes: Option<u64>,
-        direction: DiagnosticsPageDirectionState,
-    ) -> Result<Option<NetworkTraceBodyPageState>, FireUniFfiError> {
-        self.run_infallible("network_trace_body_page", move |inner| {
-            inner
-                .network_trace_body_page(
-                    trace_id,
-                    cursor,
-                    max_bytes
-                        .and_then(|value| usize::try_from(value).ok())
-                        .unwrap_or_default(),
-                    direction.into(),
-                )
-                .map(Into::into)
         })
     }
 
@@ -1131,7 +1012,7 @@ impl FireCoreHandle {
     }
 }
 
-impl FireCoreHandle {
+impl FireAppCore {
     pub(crate) fn run_fallible<T, F>(
         &self,
         operation: &'static str,

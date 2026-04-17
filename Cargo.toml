@@ -3,6 +3,7 @@ members = [
     "rust/crates/fire-models",
     "rust/crates/fire-core",
     "rust/crates/fire-uniffi",
+    "rust/crates/fire-uniffi-diagnostics",
     "rust/crates/fire-uniffi-types",
 ]
 resolver = "2"

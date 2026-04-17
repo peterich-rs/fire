@@ -21,7 +21,7 @@ leak into host-side UniFFI bindgen steps.
 Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
 
 - `FireSessionStore.swift`
-  - owns `FireCoreHandle`
+  - owns `FireAppCore`
   - passes the platform workspace root (`Application Support/Fire`) into Rust during initialization
   - restores the persisted session snapshot on cold start, then re-injects Keychain cookies before authenticated requests
   - delegates platform-cookie apply semantics plus bootstrap/CSRF refresh decisions to Rust instead of reimplementing them in Swift
@@ -220,7 +220,7 @@ Current UX note:
 - The app now uses one typed route model for supported custom URL opens, local-notification taps, and search / notification jumps to topic, profile, and badge destinations.
 - The shared search layer now powers the native composer’s tag search and `@mention` autocomplete flows.
 - Network-backed UniFFI APIs now surface to Swift as native `async/await` methods instead of a synchronous wrapper.
-- The UniFFI boundary now returns exported host interactions as Swift `throws`; if Rust panics, the boundary logs the panic, throws an `Internal` UniFFI error instead of tripping generated `try!` call sites, and poisons the current `FireCoreHandle` so the host can recreate it.
+- The UniFFI boundary now returns exported host interactions as Swift `throws`; if Rust panics, the boundary logs the panic, throws an `Internal` UniFFI error instead of tripping generated `try!` call sites, and poisons the current `FireAppCore` so the host can recreate it.
 - The app now enters through a branded session gate when authenticated topic reads are not ready, instead of exposing raw readiness/debug state as the primary UI.
 - The current topic browser now supports spotlight topic paging, scroll-driven auto pagination, category-aware topic rows, richer topic/detail metadata sourced from the shared Rust session snapshot, and a more formal native reading surface instead of the earlier developer-facing list presentation.
 - Topic rows now come across the UniFFI boundary as Rust-generated row models that already resolve original-poster identity, status labels, plain-text excerpts, trimmed tag names, and Unix-millisecond timestamps from the topic-list payload, while Swift only formats timestamps and renders the native row layout.

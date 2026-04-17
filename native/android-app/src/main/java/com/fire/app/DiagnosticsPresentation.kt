@@ -6,7 +6,7 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
 import java.util.Locale
-import uniffi.fire_uniffi.NetworkTraceHeaderState
+import uniffi.fire_uniffi_diagnostics.NetworkTraceHeaderState
 
 object DiagnosticsPresentation {
     private val timestampFormatter: DateTimeFormatter =

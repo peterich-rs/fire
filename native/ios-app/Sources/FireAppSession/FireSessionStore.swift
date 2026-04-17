@@ -68,7 +68,7 @@ private struct FirePersistedSessionArtifacts: Equatable {
 }
 
 public actor FireSessionStore {
-    nonisolated private let core: FireCoreHandle
+    nonisolated private let core: FireAppCore
     private let baseURL: URL
     private let workspacePath: String
     private let sessionFilePath: String
@@ -91,7 +91,7 @@ public actor FireSessionStore {
                 URL(fileURLWithPath: $0).deletingLastPathComponent().path
             }
             ?? Self.defaultWorkspacePath(fileManager: fileManager)
-        let core = try FireCoreHandle(baseUrl: baseURL, workspacePath: resolvedWorkspacePath)
+        let core = try FireAppCore(baseUrl: baseURL, workspacePath: resolvedWorkspacePath)
         let resolvedBaseURL = URL(string: try core.snapshot().bootstrap.baseUrl)
             ?? URL(string: "https://linux.do")!
         let resolvedSessionFilePath = try sessionFilePath
@@ -221,13 +221,13 @@ public actor FireSessionStore {
     }
 
     public nonisolated func logHost(level: HostLogLevelState, target: String, message: String) {
-        try? core.logHost(level: level, target: target, message: message)
+        try? core.diagnostics().logHost(level: level, target: target, message: message)
     }
 
     public nonisolated func makeLogger(target: String) -> FireHostLogger {
         let core = self.core
         return FireHostLogger(target: target) { level, target, message in
-            try? core.logHost(level: level, target: target, message: message)
+            try? core.diagnostics().logHost(level: level, target: target, message: message)
         }
     }
 
@@ -236,7 +236,7 @@ public actor FireSessionStore {
         let diagnosticsQueue = self.diagnosticsQueue
         return try await withCheckedThrowingContinuation { continuation in
             diagnosticsQueue.async {
-                continuation.resume(with: Result { try core.listLogFiles() })
+                continuation.resume(with: Result { try core.diagnostics().listLogFiles() })
             }
         }
     }
@@ -246,7 +246,7 @@ public actor FireSessionStore {
         let diagnosticsQueue = self.diagnosticsQueue
         return try await withCheckedThrowingContinuation { continuation in
             diagnosticsQueue.async {
-                continuation.resume(with: Result { try core.readLogFile(relativePath: relativePath) })
+                continuation.resume(with: Result { try core.diagnostics().readLogFile(relativePath: relativePath) })
             }
         }
     }
@@ -263,7 +263,7 @@ public actor FireSessionStore {
             diagnosticsQueue.async {
                 continuation.resume(
                     with: Result {
-                        try core.readLogFilePage(
+                        try core.diagnostics().readLogFilePage(
                             relativePath: relativePath,
                             cursor: cursor,
                             maxBytes: maxBytes,
@@ -276,11 +276,11 @@ public actor FireSessionStore {
     }
 
     public func listNetworkTraces(limit: UInt64 = 200) throws -> [NetworkTraceSummaryState] {
-        try core.listNetworkTraces(limit: limit)
+        try core.diagnostics().listNetworkTraces(limit: limit)
     }
 
     public func networkTraceDetail(traceID: UInt64) throws -> NetworkTraceDetailState? {
-        try core.networkTraceDetail(traceId: traceID)
+        try core.diagnostics().networkTraceDetail(traceId: traceID)
     }
 
     public func networkTraceBodyPage(
@@ -295,7 +295,7 @@ public actor FireSessionStore {
             diagnosticsQueue.async {
                 continuation.resume(
                     with: Result {
-                        try core.networkTraceBodyPage(
+                        try core.diagnostics().networkTraceBodyPage(
                             traceId: traceID,
                             cursor: cursor,
                             maxBytes: maxBytes,
@@ -308,7 +308,7 @@ public actor FireSessionStore {
     }
 
     public func diagnosticSessionID() throws -> String {
-        try core.diagnosticSessionId()
+        try core.diagnostics().diagnosticSessionId()
     }
 
     public func exportSupportBundle(
@@ -323,7 +323,7 @@ public actor FireSessionStore {
             diagnosticsQueue.async {
                 continuation.resume(
                     with: Result {
-                        try core.exportSupportBundle(
+                        try core.diagnostics().exportSupportBundle(
                             hostContext: SupportBundleHostContextState(
                                 platform: platform,
                                 appVersion: appVersion,
@@ -342,7 +342,7 @@ public actor FireSessionStore {
         let diagnosticsQueue = self.diagnosticsQueue
         try await withCheckedThrowingContinuation { continuation in
             diagnosticsQueue.async {
-                continuation.resume(with: Result { try core.flushLogs(sync: sync) })
+                continuation.resume(with: Result { try core.diagnostics().flushLogs(sync: sync) })
             }
         }
     }

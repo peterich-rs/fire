@@ -17,11 +17,11 @@ import com.fire.app.databinding.ActivityMainBinding
 import com.fire.app.session.FireSessionStore
 import com.fire.app.session.FireSessionStoreRepository
 import kotlinx.coroutines.launch
-import uniffi.fire_uniffi.BootstrapState
-import uniffi.fire_uniffi.CookieState
-import uniffi.fire_uniffi.SessionState
-import uniffi.fire_uniffi.SessionReadinessState
-import uniffi.fire_uniffi.TopicCategoryState
+import uniffi.fire_uniffi_session.BootstrapState
+import uniffi.fire_uniffi_session.CookieState
+import uniffi.fire_uniffi_session.SessionState
+import uniffi.fire_uniffi_session.SessionReadinessState
+import uniffi.fire_uniffi_session.TopicCategoryState
 import uniffi.fire_uniffi_topics.TopicListQueryState
 import uniffi.fire_uniffi_types.TopicListKindState
 import uniffi.fire_uniffi_types.TopicListState
@@ -495,7 +495,7 @@ class MainActivity : AppCompatActivity() {
                 canWriteAuthenticatedApi = false,
                 canOpenMessageBus = false,
             ),
-            loginPhase = uniffi.fire_uniffi.LoginPhaseState.ANONYMOUS,
+            loginPhase = uniffi.fire_uniffi_session.LoginPhaseState.ANONYMOUS,
             hasLoginSession = false,
             profileDisplayName = "未登录",
             loginPhaseLabel = "未登录",

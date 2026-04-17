@@ -92,10 +92,10 @@ public actor FireSessionStore {
             }
             ?? Self.defaultWorkspacePath(fileManager: fileManager)
         let core = try FireAppCore(baseUrl: baseURL, workspacePath: resolvedWorkspacePath)
-        let resolvedBaseURL = URL(string: try core.snapshot().bootstrap.baseUrl)
+        let resolvedBaseURL = URL(string: try core.session().snapshot().bootstrap.baseUrl)
             ?? URL(string: "https://linux.do")!
         let resolvedSessionFilePath = try sessionFilePath
-            ?? core.resolveWorkspacePath(relativePath: "session.json")
+            ?? core.session().resolveWorkspacePath(relativePath: "session.json")
         self.core = core
         self.baseURL = resolvedBaseURL
         self.workspacePath = resolvedWorkspacePath
@@ -104,14 +104,14 @@ public actor FireSessionStore {
     }
 
     public func snapshot() throws -> SessionState {
-        try core.snapshot()
+        try core.session().snapshot()
     }
 
     public func restorePersistedSessionIfAvailable() throws -> SessionState? {
         guard FileManager.default.fileExists(atPath: sessionFilePath) else {
             return nil
         }
-        return try core.loadSessionFromPath(path: sessionFilePath)
+        return try core.session().loadSessionFromPath(path: sessionFilePath)
     }
 
     @discardableResult
@@ -138,9 +138,9 @@ public actor FireSessionStore {
             _ = try applyPlatformCookies(secureSecrets.platformCookies(baseURL: baseURL))
         }
 
-        let current = try core.snapshot()
+        let current = try core.session().snapshot()
         if !current.readiness.canReadAuthenticatedApi && shouldDiscardRestoredBootstrap(current) {
-            let cleared = try core.logoutLocal(preserveCfClearance: true)
+            let cleared = try core.session().logoutLocal(preserveCfClearance: true)
             try persistCurrentSession()
             return cleared
         }
@@ -155,7 +155,7 @@ public actor FireSessionStore {
 
     @discardableResult
     public func syncLoginContext(_ captured: FireCapturedLoginState) throws -> SessionState {
-        let state = try core.syncLoginContext(
+        let state = try core.session().syncLoginContext(
             context: LoginSyncState(
                 currentUrl: captured.currentURL,
                 username: captured.username,
@@ -171,14 +171,14 @@ public actor FireSessionStore {
 
     @discardableResult
     public func applyPlatformCookies(_ cookies: [PlatformCookieState]) throws -> SessionState {
-        let state = try core.applyPlatformCookies(cookies: cookies)
+        let state = try core.session().applyPlatformCookies(cookies: cookies)
         try persistCurrentSession()
         return state
     }
 
     @discardableResult
     public func logoutLocal(preserveCfClearance: Bool = true) throws -> SessionState {
-        let state = try core.logoutLocal(preserveCfClearance: preserveCfClearance)
+        let state = try core.session().logoutLocal(preserveCfClearance: preserveCfClearance)
         try authCookieStore.clear(preserveCfClearance: preserveCfClearance)
         try persistCurrentSession()
         return state
@@ -186,7 +186,7 @@ public actor FireSessionStore {
 
     @discardableResult
     public func refreshBootstrap() async throws -> SessionState {
-        let refreshed = try await core.refreshBootstrap()
+        let refreshed = try await core.session().refreshBootstrap()
         try persistCurrentSession()
         return refreshed
     }
@@ -194,7 +194,7 @@ public actor FireSessionStore {
     @discardableResult
     public func refreshBootstrapIfNeeded() async throws -> SessionState {
         let before = try persistedSessionArtifacts()
-        let refreshed = try await core.refreshBootstrapIfNeeded()
+        let refreshed = try await core.session().refreshBootstrapIfNeeded()
         if try persistedSessionArtifacts() != before {
             try persistCurrentSession()
         }
@@ -204,7 +204,7 @@ public actor FireSessionStore {
     @discardableResult
     public func refreshCsrfTokenIfNeeded() async throws -> SessionState {
         let before = try persistedSessionArtifacts()
-        let refreshed = try await core.refreshCsrfTokenIfNeeded()
+        let refreshed = try await core.session().refreshCsrfTokenIfNeeded()
         if try persistedSessionArtifacts() != before {
             try persistCurrentSession()
         }
@@ -348,7 +348,7 @@ public actor FireSessionStore {
     }
 
     public func exportSessionJSON() throws -> String {
-        try core.exportSessionJson()
+        try core.session().exportSessionJson()
     }
 
     public func notificationState() throws -> NotificationCenterState {
@@ -820,7 +820,7 @@ public actor FireSessionStore {
 
     @discardableResult
     public func restoreSessionJSON(_ json: String) throws -> SessionState {
-        let state = try core.restoreSessionJson(json: json)
+        let state = try core.session().restoreSessionJson(json: json)
         try persistCurrentSession()
         return state
     }
@@ -898,18 +898,18 @@ public actor FireSessionStore {
 
     @discardableResult
     public func logout() async throws -> SessionState {
-        let current = try core.snapshot()
+        let current = try core.session().snapshot()
         if current.readiness.canReadAuthenticatedApi && !current.readiness.hasCurrentUser {
             _ = try await refreshBootstrapIfNeeded()
         }
-        let state = try await core.logoutRemote(preserveCfClearance: true)
+        let state = try await core.session().logoutRemote(preserveCfClearance: true)
         try authCookieStore.save(FireAuthCookieSecrets(cookieState: state.cookies))
         try clearPersistedSession()
         return state
     }
 
     public func clearPersistedSession() throws {
-        try core.clearSessionPath(path: sessionFilePath)
+        try core.session().clearSessionPath(path: sessionFilePath)
     }
 
     public static func defaultWorkspacePath(fileManager: FileManager = .default) throws -> String {
@@ -957,17 +957,17 @@ public actor FireSessionStore {
 
     private func persistedSessionArtifacts() throws -> FirePersistedSessionArtifacts {
         FirePersistedSessionArtifacts(
-            sessionJSON: try core.exportSessionJson(),
-            secureSecrets: FireAuthCookieSecrets(cookieState: try core.snapshot().cookies)
+            sessionJSON: try core.session().exportSessionJson(),
+            secureSecrets: FireAuthCookieSecrets(cookieState: try core.session().snapshot().cookies)
         )
     }
 
     private func persistCurrentAuthCookies() throws {
-        try authCookieStore.save(FireAuthCookieSecrets(cookieState: try core.snapshot().cookies))
+        try authCookieStore.save(FireAuthCookieSecrets(cookieState: try core.session().snapshot().cookies))
     }
 
     private func persistSessionFile() throws {
-        try core.saveSessionToPath(path: sessionFilePath)
+        try core.session().saveSessionToPath(path: sessionFilePath)
     }
 
     private func runPersistingSessionChanges<T>(

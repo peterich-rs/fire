@@ -7,6 +7,7 @@ members = [
     "rust/crates/fire-uniffi-messagebus",
     "rust/crates/fire-uniffi-notifications",
     "rust/crates/fire-uniffi-search",
+    "rust/crates/fire-uniffi-session",
     "rust/crates/fire-uniffi-topics",
     "rust/crates/fire-uniffi-types",
 ]

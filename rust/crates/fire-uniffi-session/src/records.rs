@@ -315,7 +315,7 @@ pub struct SessionState {
 }
 
 impl SessionState {
-    pub(crate) fn from_snapshot(snapshot: SessionSnapshot) -> Self {
+    pub fn from_snapshot(snapshot: SessionSnapshot) -> Self {
         let readiness = snapshot.readiness();
         let login_phase = snapshot.login_phase();
         Self {

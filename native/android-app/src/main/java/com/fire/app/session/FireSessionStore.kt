@@ -5,15 +5,15 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 import uniffi.fire_uniffi.FireAppCore
-import uniffi.fire_uniffi.LoginSyncState
-import uniffi.fire_uniffi.PlatformCookieState
-import uniffi.fire_uniffi.SessionState
 import uniffi.fire_uniffi_diagnostics.LogFileDetailState
 import uniffi.fire_uniffi_diagnostics.LogFileSummaryState
 import uniffi.fire_uniffi_diagnostics.NetworkTraceDetailState
 import uniffi.fire_uniffi_diagnostics.NetworkTraceSummaryState
 import uniffi.fire_uniffi_notifications.NotificationCenterState
 import uniffi.fire_uniffi_notifications.NotificationListState
+import uniffi.fire_uniffi_session.LoginSyncState
+import uniffi.fire_uniffi_session.PlatformCookieState
+import uniffi.fire_uniffi_session.SessionState
 import uniffi.fire_uniffi_topics.TopicDetailQueryState
 import uniffi.fire_uniffi_topics.TopicDetailState
 import uniffi.fire_uniffi_topics.TopicListQueryState
@@ -36,23 +36,23 @@ class FireSessionStore(
             ?: defaultWorkspacePath(context)
         workspaceDir = File(resolvedWorkspacePath)
         core = FireAppCore(baseUrl, workspaceDir.absolutePath)
-        sessionFile = File(sessionFilePath ?: core.resolveWorkspacePath("session.json"))
+        sessionFile = File(sessionFilePath ?: core.session().resolveWorkspacePath("session.json"))
     }
 
     suspend fun snapshot(): SessionState = withContext(Dispatchers.Default) {
-        core.snapshot()
+        core.session().snapshot()
     }
 
     suspend fun restorePersistedSessionIfAvailable(): SessionState? = withContext(Dispatchers.IO) {
         if (!sessionFile.exists()) {
             return@withContext null
         }
-        core.loadSessionFromPath(sessionFile.absolutePath)
+        core.session().loadSessionFromPath(sessionFile.absolutePath)
     }
 
     suspend fun syncLoginContext(captured: FireCapturedLoginState): SessionState =
         withContext(Dispatchers.Default) {
-            val state = core.syncLoginContext(
+            val state = core.session().syncLoginContext(
                 LoginSyncState(
                     currentUrl = captured.currentUrl,
                     username = captured.username,
@@ -67,25 +67,25 @@ class FireSessionStore(
         }
 
     suspend fun refreshBootstrapIfNeeded(): SessionState = withContext(Dispatchers.IO) {
-        val refreshed = core.refreshBootstrapIfNeeded()
+        val refreshed = core.session().refreshBootstrapIfNeeded()
         persistCurrentSession()
         refreshed
     }
 
     suspend fun refreshCsrfTokenIfNeeded(): SessionState = withContext(Dispatchers.IO) {
-        val current = core.snapshot()
+        val current = core.session().snapshot()
         if (current.cookies.csrfToken != null) {
             return@withContext current
         }
 
-        val refreshed = core.refreshCsrfToken()
+        val refreshed = core.session().refreshCsrfToken()
         persistCurrentSession()
         refreshed
     }
 
     suspend fun persistCurrentSession() = withContext(Dispatchers.IO) {
         sessionFile.parentFile?.mkdirs()
-        core.saveSessionToPath(sessionFile.absolutePath)
+        core.session().saveSessionToPath(sessionFile.absolutePath)
     }
 
     fun workspacePath(): String = workspaceDir.absolutePath
@@ -111,7 +111,7 @@ class FireSessionStore(
         }
 
     suspend fun exportSessionJson(): String = withContext(Dispatchers.Default) {
-        core.exportSessionJson()
+        core.session().exportSessionJson()
     }
 
     suspend fun notificationState(): NotificationCenterState = withContext(Dispatchers.Default) {
@@ -141,13 +141,13 @@ class FireSessionStore(
         }
 
     suspend fun restoreSessionJson(json: String): SessionState = withContext(Dispatchers.Default) {
-        val restored = core.restoreSessionJson(json)
+        val restored = core.session().restoreSessionJson(json)
         persistCurrentSession()
         restored
     }
 
     suspend fun logout(): SessionState = withContext(Dispatchers.IO) {
-        val state = core.logoutRemote(true)
+        val state = core.session().logoutRemote(true)
         clearPersistedSession()
         state
     }
@@ -169,7 +169,7 @@ class FireSessionStore(
     }
 
     suspend fun clearPersistedSession() = withContext(Dispatchers.IO) {
-        core.clearSessionPath(sessionFile.absolutePath)
+        core.session().clearSessionPath(sessionFile.absolutePath)
     }
 
     companion object {

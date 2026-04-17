@@ -1,7 +1,6 @@
 uniffi::setup_scaffolding!("fire_uniffi");
 
 pub mod handle;
-pub mod state_session;
 pub mod state_user;
 
 pub use fire_uniffi_types::{
@@ -10,7 +9,6 @@ pub use fire_uniffi_types::{
 };
 
 pub use handle::*;
-pub use state_session::*;
 pub use state_user::*;
 
 #[cfg(test)]
@@ -102,20 +100,23 @@ mod tests {
 
     #[test]
     fn converts_sync_panic_to_internal_error_and_poisoned_handle() {
-        let handle = FireAppCore::new(None, None).expect("constructor should succeed");
+        let shared =
+            std::sync::Arc::new(SharedFireCore::bootstrap(None, None).expect("bootstrap"));
 
-        let error = handle
-            .run_infallible("test_sync_panic", |_| {
-                panic!("boom");
-            })
-            .expect_err("panic should map to an internal error");
+        let error = run_infallible::<(), _>(
+            &shared.panic_state,
+            &shared.core,
+            "test_sync_panic",
+            |_| panic!("boom"),
+        )
+        .expect_err("panic should map to an internal error");
 
         assert!(matches!(
             error,
             FireUniFfiError::Internal { details } if details.contains("test_sync_panic panicked: boom")
         ));
         assert!(matches!(
-            handle.panic_state.ensure_healthy("snapshot"),
+            shared.panic_state.ensure_healthy("snapshot"),
             Err(FireUniFfiError::Internal { details })
                 if details.contains("poisoned by a previous panic")
                     && details.contains("test_sync_panic panicked: boom")

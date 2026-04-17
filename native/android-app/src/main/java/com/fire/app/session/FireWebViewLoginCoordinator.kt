@@ -8,8 +8,8 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.net.URI
 import kotlin.coroutines.resume
-import uniffi.fire_uniffi.PlatformCookieState
-import uniffi.fire_uniffi.SessionState
+import uniffi.fire_uniffi_session.PlatformCookieState
+import uniffi.fire_uniffi_session.SessionState
 
 class FireWebViewLoginCoordinator(
     private val sessionStore: FireSessionStore,

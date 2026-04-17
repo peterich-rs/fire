@@ -6,18 +6,19 @@ This change breaks the public Rust / UniFFI API surface exposed to iOS and Andro
 
 Required migration steps for native call sites:
 
-1. Replace `FireCoreHandle` constructor calls with `FireAppCore.new(workspacePath, logDirectory)` (same signature, renamed type).
+1. Replace `FireCoreHandle` constructor calls with `FireAppCore.new(baseUrl, workspacePath)`. The argument list and defaults are preserved verbatim from today's `FireCoreHandle::new(base_url: Option<String>, workspace_path: Option<String>)` (see `rust/crates/fire-uniffi/src/handle.rs:72-85`). Only the type name changes.
 2. Replace direct method calls on the handle with a one-level domain prefix obtained from the facade:
    - `handle.fetchTopicDetail(...)` -> `handle.topics().fetchTopicDetail(...)`
    - `handle.snapshot()` -> `handle.session().snapshot()`
    - `handle.listLogFiles()` -> `handle.diagnostics().listLogFiles()`
    - etc. (mapping table lives in the implementation plan)
-3. Update imports: types that move to `fire-uniffi-types` gain a new generated module name (`uniffi.fire_uniffi_types` on Kotlin, `fire_uniffi_types` on Swift). Many types keep their identifier; only the import source changes.
-4. Delete the committed legacy file at `<repo_root>/uniffi/fire_uniffi/fire_uniffi.kt`; the active binding now lives under `native/android-app/build/generated/source/uniffi/<buildType>/...`.
+3. Top-level `#[uniffi::export]` free functions (`plain_text_from_html`, `preview_text_from_html`, `monogram_for_username`) remain in the root `fire_uniffi` namespace. No migration required for call sites such as `native/android-app/src/main/java/com/fire/app/TopicDetailActivity.kt:19,280-282`.
+4. Update imports: types that move to `fire-uniffi-types` gain a new generated module name (`uniffi.fire_uniffi_types` on Kotlin, `fire_uniffi_types` on Swift). Many types keep their identifier; only the import source changes.
+5. Delete the committed legacy file at `<repo_root>/uniffi/fire_uniffi/fire_uniffi.kt`; the active binding now lives under `native/android-app/build/generated/source/uniffi/<buildType>/...`.
 
 ## Feasibility Assessment
 
-All impacted surface is inside this repo. `FireCoreHandle` is defined in a single module (`rust/crates/fire-uniffi/src/handle.rs`) with 60+ `#[uniffi::export]` methods that delegate to `Arc<FireCore>`; every method can be moved to a domain sub-handle without touching `fire-core`. UniFFI 0.28+ supports multiple `setup_scaffolding!` namespaces in a single cdylib and the `--library` bindgen mode emits one generated file per namespace; no fork or bespoke bindgen is required. Existing sync scripts for iOS (`native/ios-app/scripts/sync_uniffi_bindings.sh`) and Android (`native/android-app/scripts/sync_uniffi_bindings.sh`) already invoke `--library` mode against a single cdylib. Sourceset wiring on Android (`native/android-app/build.gradle.kts` lines 92-101) and the Xcode preBuild phase on iOS (`native/ios-app/project.yml` lines 94-112) continue to work unchanged in shape. Native call sites total 14 files and are pure mechanical rename. **Fully feasible.**
+All impacted surface is inside this repo. `FireCoreHandle` is defined in a single module (`rust/crates/fire-uniffi/src/handle.rs`) with 60+ `#[uniffi::export]` methods that delegate to `Arc<FireCore>`; every method can be moved to a domain sub-handle without touching `fire-core`. The same module also exposes three top-level `#[uniffi::export]` free functions (`plain_text_from_html`, `preview_text_from_html`, `monogram_for_username`) which stay in the facade crate unchanged. UniFFI 0.28+ supports multiple `setup_scaffolding!` namespaces in a single cdylib and the `--library` bindgen mode emits one generated file per namespace; no fork or bespoke bindgen is required. Existing sync scripts for iOS (`native/ios-app/scripts/sync_uniffi_bindings.sh`) and Android (`native/android-app/scripts/sync_uniffi_bindings.sh`) already invoke `--library` mode against a single cdylib. Sourceset wiring on Android (`native/android-app/build.gradle.kts` lines 92-101) and the Xcode preBuild phase on iOS (`native/ios-app/project.yml` lines 94-112) continue to work unchanged in shape. Native call sites total 14 files and are pure mechanical rename. **Fully feasible.**
 
 ## Current Surface Inventory
 
@@ -143,10 +144,10 @@ pub struct FireAppCore {
 impl FireAppCore {
     #[uniffi::constructor]
     pub fn new(
+        base_url: Option<String>,
         workspace_path: Option<String>,
-        log_directory: Option<String>,
     ) -> Result<Arc<Self>, FireUniFfiError> {
-        let shared = Arc::new(SharedFireCore::bootstrap(workspace_path, log_directory)?);
+        let shared = Arc::new(SharedFireCore::bootstrap(base_url, workspace_path)?);
         Ok(Arc::new(Self {
             session: FireSessionHandle::from_shared(shared.clone()),
             diagnostics: FireDiagnosticsHandle::from_shared(shared.clone()),
@@ -183,10 +184,11 @@ pub struct SharedFireCore {
 
 impl SharedFireCore {
     pub fn bootstrap(
+        base_url: Option<String>,
         workspace_path: Option<String>,
-        log_directory: Option<String>,
     ) -> Result<Self, FireUniFfiError> {
-        // single-bootstrap implementation moved from handle.rs::FireCoreHandle::new
+        // Same logic as today's FireCoreHandle::new (handle.rs:72-85):
+        // hand base_url/workspace_path to fire_core::FireCoreConfig and construct FireCore.
     }
 }
 ```
@@ -227,6 +229,16 @@ impl FireTopicsHandle {
 - **Types used by 2+ domains** move to `fire-uniffi-types`. Initial set: `FireUniFfiError`, `SessionState` (referenced by session handle constructor *and* cookie-apply returns consumed by multiple domains), `TopicRowState` (topics + search), `TopicPostState` (topics + messagebus events), `UserSummaryState` (user + notifications + search), `CategoryRefState`, `TagRefState`, `CookieState`, `BootstrapState`.
 - **Infrastructure helpers** (`PanicState`, `run_on_ffi_runtime`, `run_infallible`) move to `fire-uniffi-types` and are `pub` for sibling crates but not `#[uniffi::export]`ed.
 - When ambiguous, types go into `fire-uniffi-types`; moving a type out later is cheaper than creating two divergent copies.
+
+### Top-Level `#[uniffi::export]` Free Functions
+
+`rust/crates/fire-uniffi/src/handle.rs:48-61` exports three namespace-level `#[uniffi::export] pub fn`s that are not `FireCoreHandle` methods:
+
+- `plain_text_from_html(raw_html: String) -> String`
+- `preview_text_from_html(raw_html: Option<String>) -> Option<String>`
+- `monogram_for_username(username: String) -> String`
+
+These are stateless display helpers and have no affinity to any domain. They stay in the top-level `fire-uniffi` crate (namespace `fire_uniffi`) alongside `FireAppCore`. Existing Android call sites (e.g., `native/android-app/src/main/java/com/fire/app/TopicDetailActivity.kt:19,280-282` uses `plainTextFromHtml`) continue to reference `uniffi.fire_uniffi.plainTextFromHtml` / `FireUniFfi.plainTextFromHtml` with no rename. Any future stateless helper that is domain-specific (e.g., a topic-detail-only sanitizer) goes into its domain crate instead.
 
 ### Namespace to Generated File Mapping
 
@@ -324,17 +336,52 @@ uniffi.workspace = true
 **File: `rust/crates/fire-uniffi/src/error.rs`, `panic.rs`, and relevant `state_*.rs`**
 - Delete the moved items; leave each file if it still hosts non-moved content, or delete outright.
 
-**File: `native/ios-app/scripts/sync_uniffi_bindings.sh` and `native/android-app/scripts/sync_uniffi_bindings.sh`**
-- No change yet; `--library` mode continues to pick up both namespaces from the single cdylib.
+**iOS build-system scaffolding must ship in this same phase.** The moment bindgen emits a second `.swift` (the new `fire_uniffi_types.swift`), the single-file iOS pipeline breaks: `native/ios-app/scripts/sync_uniffi_bindings.sh:229-231` copies only `fire_uniffi.swift`, and `native/ios-app/project.yml:51-56,108-112` compiles only that one file. Without the changes below, Xcode links against a `fire_uniffi.swift` that references types defined in `fire_uniffi_types.swift` which never reach the compiler, and iOS fails to build. Address all of that here, not in Phase 4.
+
+**File: `native/ios-app/Generated/FireUniFfi/` (new directory)**
+- Create directory. All per-namespace `.swift` files land here; `Generated/fire_uniffiFFI/` and `Generated/lib/` keep their current roles.
+
+**File: `native/ios-app/project.yml`**
+- Lines 51-56: replace the explicit single-file source entry with a directory group:
+  ```yaml
+  - path: Generated/FireUniFfi
+    optional: true
+    type: group
+    buildPhase: sources
+  ```
+  xcodegen now auto-includes every `.swift` file landed by the sync script; future namespaces do not require another `project.yml` edit.
+- Lines 108-112: rewrite preBuildScript `outputFiles:` to enumerate each expected per-namespace Swift file (at this phase: `Generated/FireUniFfi/fire_uniffi.swift`, `Generated/FireUniFfi/fire_uniffi_types.swift`). Subsequent phases append entries as each domain namespace lands, which keeps Xcode's incremental-build graph accurate.
+
+**File: `native/ios-app/scripts/sync_uniffi_bindings.sh`**
+- Lines 229-231: replace the three explicit `cp` commands with:
+  ```bash
+  mkdir -p "$swift_out_dir/FireUniFfi"
+  rm -f "$swift_out_dir/FireUniFfi"/*.swift
+  cp "$tmp_dir/bindings"/*.swift "$swift_out_dir/FireUniFfi/"
+  cp "$tmp_dir/bindings/fire_uniffiFFI.h" "$ffi_out_dir/fire_uniffiFFI.h"
+  cp "$tmp_dir/bindings/fire_uniffiFFI.modulemap" "$ffi_out_dir/module.modulemap"
+  rm -f "$swift_out_dir/fire_uniffi.swift"
+  ```
+  `.h` and `.modulemap` remain single files (UniFFI emits one pair per cdylib regardless of namespace count). The trailing `rm -f` wipes the pre-split `Generated/fire_uniffi.swift` artifact so Xcode does not link it alongside the directory-group files.
+- Lines 233-252: update the Python post-processing step to iterate over `"$swift_out_dir/FireUniFfi"/*.swift` instead of patching a single file. Same replacement dictionary.
+
+**File: `native/ios-app/Fire.xcodeproj/project.pbxproj`**
+- Regenerate via xcodegen after updating `project.yml` (repo convention).
+
+**File: `native/android-app/scripts/sync_uniffi_bindings.sh`**
+- No change. The existing `cp -R "$tmp_dir"/. "$generated_kotlin_dir"/` already copies every generated `.kt`; `java.srcDir` on the output directory picks up any file in the tree.
 
 **File: `rust/crates/fire-uniffi/uniffi.toml`**
 - Add per-namespace override section for `fire_uniffi_types` (package name, Swift module name) if needed; UniFFI accepts multiple `[bindings.kotlin.<namespace>]` sections.
 
+**iOS Swift import semantics:** UniFFI-generated Swift files share the app's default module (no separate Swift module per namespace). Types declared in `fire_uniffi_types.swift` are directly visible to code in `fire_uniffi.swift` and app sources without an `import fire_uniffi_types` statement. The only UniFFI-declared Swift module is `fire_uniffiFFI` (the C-level helper, from `rust/crates/fire-uniffi/uniffi.toml:6-9`), which is unchanged. References to "import fire_uniffi_diagnostics" in later phases should be read as "types are in scope via the same app target", not as a Swift module import.
+
 Verification:
 - `cargo build -p fire-uniffi` succeeds.
-- Android bindgen produces two `.kt` files: `fire_uniffi.kt` (now smaller; includes `FireCoreHandle` methods minus type definitions moved to types) and `fire_uniffi_types.kt`.
-- iOS bindgen produces two `.swift` files similarly.
-- Android and iOS apps build and pass existing tests without native code edits. Native code still calls `FireCoreHandle` as before; types are imported from the new module but identifiers are unchanged.
+- Android bindgen produces two `.kt` files: `fire_uniffi.kt` (now smaller; contains `FireCoreHandle` methods and the three top-level free functions minus type definitions moved to types) and `fire_uniffi_types.kt`.
+- iOS bindgen produces two `.swift` files under `Generated/FireUniFfi/`; `ls native/ios-app/Generated/FireUniFfi/*.swift` shows exactly `fire_uniffi.swift` and `fire_uniffi_types.swift`.
+- `xcodebuild -scheme Fire` compiles both Swift files; linker resolves cross-file type references without `import fire_uniffi_types`.
+- `./gradlew assembleDebug` and existing test suites pass without any Swift/Kotlin call-site edits. Native call-site code still calls `FireCoreHandle` as before; type identifiers and the three free functions are unchanged.
 
 Addressing review feedback: if probe shows UniFFI external-type macro syntax differs from this plan's assumption, adjust and document in the types crate before Phase 2. All subsequent phases assume the probe's pattern.
 
@@ -404,7 +451,10 @@ impl FireDiagnosticsHandle {
 - `handle.listLogFiles()` -> `handle.diagnostics().listLogFiles()`
 - `handle.networkTraceDetail(...)` -> `handle.diagnostics().networkTraceDetail(...)`
 - etc., for every diagnostics call.
-- Imports: `import fire_uniffi_diagnostics` where needed (Swift types from that module are referenced directly by name; Swift's module import system resolves).
+- No new Swift `import` needed: all generated Swift files compile into the same app target (Phase 1 sets this up). Types defined in `fire_uniffi_diagnostics.swift` are directly visible by name to the rest of the target.
+
+**File: `native/ios-app/project.yml`**
+- Extend preBuildScript `outputFiles:` (set up in Phase 1) with `Generated/FireUniFfi/fire_uniffi_diagnostics.swift`. Regenerate `Fire.xcodeproj/project.pbxproj` via xcodegen.
 
 **File: `native/android-app/src/main/java/com/fire/app/session/FireSessionStore.kt`**
 - Same rename.
@@ -441,9 +491,11 @@ Each sub-phase:
 - Renames every call site in native code via a domain-method mapping table (the mapping table is maintained in the implementation plan and verified via `git grep`).
 - Deletes the corresponding `state_<domain>.rs` after its contents are empty.
 
-After all sub-phases: `handle.rs` is deleted; `state_*.rs` files are deleted; `fire-uniffi/src/lib.rs` contains only the `FireAppCore` facade.
+After all sub-phases: `handle.rs` is deleted; `state_*.rs` files are deleted; `fire-uniffi/src/lib.rs` contains the `FireAppCore` facade plus the three top-level `#[uniffi::export]` free functions (`plain_text_from_html`, `preview_text_from_html`, `monogram_for_username`).
 
-### Phase 4: Android Generated Path Rename and iOS Directory Layout
+### Phase 4: Android Generated Path Rename
+
+The iOS directory layout (`Generated/FireUniFfi/`), the updated `project.yml` source group, and the sync-script rewrite all landed in Phase 1 — they had to, because multi-namespace bindgen breaks the single-file iOS pipeline on contact. This phase only finishes the Android side.
 
 **File: `native/android-app/build.gradle.kts`**
 - Line 10: change `val generatedUniffiRootDir = layout.buildDirectory.dir("generated/uniffi")` to `layout.buildDirectory.dir("generated/source/uniffi")`.
@@ -456,43 +508,12 @@ After all sub-phases: `handle.rs` is deleted; `state_*.rs` files are deleted; `f
 **File: `native/android-app/README.md`**
 - Replace the current "generated Kotlin bindings" description with the new path and a sentence that clarifies why generated sources live under `build/generated/source/` (AGP convention, not `src/main/kotlin`).
 
-**File: `native/ios-app/project.yml`**
-- Lines 51-56: replace
-  ```yaml
-  - path: Generated/fire_uniffi.swift
-    optional: true
-    buildPhase: sources
-  ```
-  with
-  ```yaml
-  - path: Generated/FireUniFfi
-    optional: true
-    type: group
-    buildPhase: sources
-  ```
-- Lines 108-112: update preBuildScript `outputFiles:` to enumerate each per-namespace `.swift` file (`Generated/FireUniFfi/fire_uniffi.swift`, `Generated/FireUniFfi/fire_uniffi_types.swift`, ..., plus the unchanged `Generated/fire_uniffiFFI/*` entries).
-
-**File: `native/ios-app/scripts/sync_uniffi_bindings.sh`**
-- Lines 229-231: change the three explicit `cp` commands to:
-  ```bash
-  mkdir -p "$swift_out_dir/FireUniFfi"
-  cp "$tmp_dir/bindings"/*.swift "$swift_out_dir/FireUniFfi/"
-  cp "$tmp_dir/bindings/fire_uniffiFFI.h" "$ffi_out_dir/fire_uniffiFFI.h"
-  cp "$tmp_dir/bindings/fire_uniffiFFI.modulemap" "$ffi_out_dir/module.modulemap"
-  ```
-  Rationale: `.h` and `.modulemap` remain single files (UniFFI emits one pair per cdylib, regardless of namespace count); only `.swift` multiplies.
-- Lines 233-252: update the Python post-processing step to iterate `"$swift_out_dir/FireUniFfi"/*.swift` instead of patching one file. Same replacement dictionary.
-
 **File: `native/ios-app/README.md`**
-- Replace any references to the single `Generated/fire_uniffi.swift` with the new directory layout.
-
-**File: `native/ios-app/Fire.xcodeproj/project.pbxproj`**
-- Regenerate via `xcodegen` (repo's convention); no hand-edits.
+- Replace any references to the single `Generated/fire_uniffi.swift` with the `Generated/FireUniFfi/` directory layout (reflect the Phase 1 change in docs).
 
 Verification:
 - `./gradlew clean assembleDebug` produces Kotlin files under `build/generated/source/uniffi/debug/`.
-- `xcodebuild -scheme Fire clean build` succeeds; Xcode finds all generated Swift files via the directory group.
-- `ls native/ios-app/Generated/FireUniFfi/*.swift | wc -l` shows 9.
+- `ls native/ios-app/Generated/FireUniFfi/*.swift | wc -l` shows 9 (only Swift surface count; Android path rename is orthogonal to this count).
 
 ### Phase 5: Verification
 
@@ -572,8 +593,8 @@ Verification:
 - `rust/crates/fire-uniffi/Cargo.toml` -- depend on all 8 new crates; retains cdylib/staticlib/rlib.
 - `rust/crates/fire-uniffi/src/bin/uniffi-bindgen.rs` -- unchanged.
 - `rust/crates/fire-uniffi/src/error.rs` -- deleted (moved to types).
-- `rust/crates/fire-uniffi/src/handle.rs` -- deleted (methods dispersed across domain handles).
-- `rust/crates/fire-uniffi/src/lib.rs` -- reduces to `FireAppCore` facade + `setup_scaffolding!("fire_uniffi")`.
+- `rust/crates/fire-uniffi/src/handle.rs` -- deleted. `FireCoreHandle` methods disperse to per-domain handles; the three top-level `#[uniffi::export]` free functions (`plain_text_from_html`, `preview_text_from_html`, `monogram_for_username`) move verbatim into `fire-uniffi/src/lib.rs`.
+- `rust/crates/fire-uniffi/src/lib.rs` -- reduces to `setup_scaffolding!("fire_uniffi")` + `FireAppCore` facade + the three top-level free functions carried over from `handle.rs`.
 - `rust/crates/fire-uniffi/src/panic.rs` -- deleted (moved to types).
 - `rust/crates/fire-uniffi/src/state_diagnostics.rs` -- deleted.
 - `rust/crates/fire-uniffi/src/state_messagebus.rs` -- deleted.

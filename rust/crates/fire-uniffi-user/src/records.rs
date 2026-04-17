@@ -1,10 +1,8 @@
 use fire_models::{
-    Badge, FollowUser, InviteLink, InviteLinkDetails, ProfileSummaryReply,
+    Badge, FollowUser, InviteCreateRequest, InviteLink, InviteLinkDetails, ProfileSummaryReply,
     ProfileSummaryTopCategory, ProfileSummaryTopic, ProfileSummaryUserReference, UserAction,
     UserProfile, UserSummaryResponse, UserSummaryStats,
 };
-
-// --- Profile types ---
 
 #[derive(uniffi::Record, Debug, Clone)]
 pub struct UserProfileState {
@@ -64,7 +62,7 @@ impl From<UserProfile> for UserProfileState {
     }
 }
 
-pub(crate) fn trust_level_label(level: u32) -> String {
+fn trust_level_label(level: u32) -> String {
     match level {
         0 => "新人".to_string(),
         1 => "基本".to_string(),
@@ -291,6 +289,25 @@ impl From<FollowUser> for FollowUserState {
 }
 
 #[derive(uniffi::Record, Debug, Clone)]
+pub struct InviteCreateRequestState {
+    pub max_redemptions_allowed: u32,
+    pub expires_at: Option<String>,
+    pub description: Option<String>,
+    pub email: Option<String>,
+}
+
+impl From<InviteCreateRequestState> for InviteCreateRequest {
+    fn from(value: InviteCreateRequestState) -> Self {
+        Self {
+            max_redemptions_allowed: value.max_redemptions_allowed,
+            expires_at: value.expires_at,
+            description: value.description,
+            email: value.email,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
 pub struct InviteLinkDetailsState {
     pub id: Option<u64>,
     pub invite_key: Option<String>,
@@ -329,4 +346,3 @@ impl From<InviteLink> for InviteLinkState {
         }
     }
 }
-

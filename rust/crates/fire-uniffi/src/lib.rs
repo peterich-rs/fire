@@ -1,20 +1,101 @@
 uniffi::setup_scaffolding!("fire_uniffi");
 
-pub mod handle;
-pub mod state_user;
+use std::sync::Arc;
 
-pub use fire_uniffi_types::{
-    constructor_guard, ffi_runtime, run_fallible, run_infallible, run_on_ffi_runtime,
-    CapturedPanic, FireUniFfiError, PanicState, SharedFireCore,
+use fire_core::{
+    monogram_for_username as shared_monogram_for_username,
+    plain_text_from_html as shared_plain_text_from_html,
+    preview_text_from_html as shared_preview_text_from_html,
 };
+use fire_uniffi_diagnostics::FireDiagnosticsHandle;
+use fire_uniffi_messagebus::FireMessageBusHandle;
+use fire_uniffi_notifications::FireNotificationsHandle;
+use fire_uniffi_search::FireSearchHandle;
+use fire_uniffi_session::FireSessionHandle;
+use fire_uniffi_topics::FireTopicsHandle;
+use fire_uniffi_types::{FireUniFfiError, SharedFireCore};
+use fire_uniffi_user::FireUserHandle;
 
-pub use handle::*;
-pub use state_user::*;
+#[uniffi::export]
+pub fn plain_text_from_html(raw_html: String) -> String {
+    shared_plain_text_from_html(&raw_html)
+}
+
+#[uniffi::export]
+pub fn preview_text_from_html(raw_html: Option<String>) -> Option<String> {
+    shared_preview_text_from_html(raw_html.as_deref())
+}
+
+#[uniffi::export]
+pub fn monogram_for_username(username: String) -> String {
+    shared_monogram_for_username(&username)
+}
+
+#[derive(uniffi::Object)]
+pub struct FireAppCore {
+    diagnostics: Arc<FireDiagnosticsHandle>,
+    messagebus: Arc<FireMessageBusHandle>,
+    notifications: Arc<FireNotificationsHandle>,
+    search: Arc<FireSearchHandle>,
+    session: Arc<FireSessionHandle>,
+    topics: Arc<FireTopicsHandle>,
+    user: Arc<FireUserHandle>,
+}
+
+#[uniffi::export]
+impl FireAppCore {
+    #[uniffi::constructor]
+    pub fn new(
+        base_url: Option<String>,
+        workspace_path: Option<String>,
+    ) -> Result<Arc<Self>, FireUniFfiError> {
+        let shared = Arc::new(SharedFireCore::bootstrap(base_url, workspace_path)?);
+        Ok(Arc::new(Self {
+            diagnostics: FireDiagnosticsHandle::from_shared(shared.clone()),
+            messagebus: FireMessageBusHandle::from_shared(shared.clone()),
+            notifications: FireNotificationsHandle::from_shared(shared.clone()),
+            search: FireSearchHandle::from_shared(shared.clone()),
+            session: FireSessionHandle::from_shared(shared.clone()),
+            topics: FireTopicsHandle::from_shared(shared.clone()),
+            user: FireUserHandle::from_shared(shared),
+        }))
+    }
+
+    pub fn diagnostics(&self) -> Arc<FireDiagnosticsHandle> {
+        self.diagnostics.clone()
+    }
+
+    pub fn messagebus(&self) -> Arc<FireMessageBusHandle> {
+        self.messagebus.clone()
+    }
+
+    pub fn notifications(&self) -> Arc<FireNotificationsHandle> {
+        self.notifications.clone()
+    }
+
+    pub fn search(&self) -> Arc<FireSearchHandle> {
+        self.search.clone()
+    }
+
+    pub fn session(&self) -> Arc<FireSessionHandle> {
+        self.session.clone()
+    }
+
+    pub fn topics(&self) -> Arc<FireTopicsHandle> {
+        self.topics.clone()
+    }
+
+    pub fn user(&self) -> Arc<FireUserHandle> {
+        self.user.clone()
+    }
+}
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use std::{io, path::PathBuf};
+    use fire_uniffi_types::{
+        ffi_runtime, run_infallible, run_on_ffi_runtime, FireUniFfiError, PanicState,
+        SharedFireCore,
+    };
 
     #[test]
     fn maps_http_status_errors_without_flattening() {
@@ -72,6 +153,8 @@ mod tests {
 
     #[test]
     fn maps_storage_errors_to_storage_variant() {
+        use std::{io, path::PathBuf};
+
         let error = FireUniFfiError::from(fire_core::FireCoreError::PersistIo {
             path: PathBuf::from("/tmp/session.json"),
             source: io::Error::new(io::ErrorKind::PermissionDenied, "denied"),

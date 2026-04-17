@@ -36,14 +36,14 @@ use fire_uniffi_types::{
 pub mod records;
 
 pub use records::{
-    InviteCreateRequestState, PollOptionState, PollState, PostReactionUpdateState,
-    PostUpdateRequestState, PrivateMessageCreateRequestState, ResolvedUploadUrlState,
-    TopicCreateRequestState, TopicDetailCreatedByState, TopicDetailMetaState,
-    TopicDetailQueryState, TopicDetailState, TopicListQueryState, TopicPostState,
-    TopicPostStreamState, TopicReactionState, TopicReplyRequestState, TopicThreadFlatPostState,
-    TopicThreadReplyState, TopicThreadSectionState, TopicThreadState, TopicTimelineEntryState,
-    TopicTimingEntryState, TopicTimingsRequestState, TopicUpdateRequestState,
-    UploadImageRequestState, UploadResultState, VoteResponseState, VotedUserState,
+    PollOptionState, PollState, PostReactionUpdateState, PostUpdateRequestState,
+    PrivateMessageCreateRequestState, ResolvedUploadUrlState, TopicCreateRequestState,
+    TopicDetailCreatedByState, TopicDetailMetaState, TopicDetailQueryState, TopicDetailState,
+    TopicListQueryState, TopicPostState, TopicPostStreamState, TopicReactionState,
+    TopicReplyRequestState, TopicThreadFlatPostState, TopicThreadReplyState,
+    TopicThreadSectionState, TopicThreadState, TopicTimelineEntryState, TopicTimingEntryState,
+    TopicTimingsRequestState, TopicUpdateRequestState, UploadImageRequestState, UploadResultState,
+    VoteResponseState, VotedUserState,
 };
 
 #[derive(uniffi::Object)]

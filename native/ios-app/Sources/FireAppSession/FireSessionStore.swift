@@ -744,13 +744,13 @@ public actor FireSessionStore {
 
     public func fetchUserProfile(username: String) async throws -> UserProfileState {
         try await runPersistingSessionChanges {
-            try await core.fetchUserProfile(username: username)
+            try await core.user().fetchUserProfile(username: username)
         }
     }
 
     public func fetchUserSummary(username: String) async throws -> UserSummaryState {
         try await runPersistingSessionChanges {
-            try await core.fetchUserSummary(username: username)
+            try await core.user().fetchUserSummary(username: username)
         }
     }
 
@@ -760,37 +760,37 @@ public actor FireSessionStore {
         filter: String?
     ) async throws -> [UserActionState] {
         try await runPersistingSessionChanges {
-            try await core.fetchUserActions(username: username, offset: offset, filter: filter)
+            try await core.user().fetchUserActions(username: username, offset: offset, filter: filter)
         }
     }
 
     public func fetchFollowing(username: String) async throws -> [FollowUserState] {
         try await runPersistingSessionChanges {
-            try await core.fetchFollowing(username: username)
+            try await core.user().fetchFollowing(username: username)
         }
     }
 
     public func fetchFollowers(username: String) async throws -> [FollowUserState] {
         try await runPersistingSessionChanges {
-            try await core.fetchFollowers(username: username)
+            try await core.user().fetchFollowers(username: username)
         }
     }
 
     public func followUser(username: String) async throws {
         try await runPersistingSessionChanges {
-            try await core.followUser(username: username)
+            try await core.user().followUser(username: username)
         }
     }
 
     public func unfollowUser(username: String) async throws {
         try await runPersistingSessionChanges {
-            try await core.unfollowUser(username: username)
+            try await core.user().unfollowUser(username: username)
         }
     }
 
     public func fetchPendingInvites(username: String) async throws -> [InviteLinkState] {
         try await runPersistingSessionChanges {
-            try await core.fetchPendingInvites(username: username)
+            try await core.user().fetchPendingInvites(username: username)
         }
     }
 
@@ -801,7 +801,7 @@ public actor FireSessionStore {
         email: String? = nil
     ) async throws -> InviteLinkState {
         try await runPersistingSessionChanges {
-            try await core.createInviteLink(
+            try await core.user().createInviteLink(
                 input: InviteCreateRequestState(
                     maxRedemptionsAllowed: maxRedemptionsAllowed,
                     expiresAt: expiresAt,
@@ -814,7 +814,7 @@ public actor FireSessionStore {
 
     public func fetchBadgeDetail(badgeID: UInt64) async throws -> BadgeState {
         try await runPersistingSessionChanges {
-            try await core.fetchBadgeDetail(badgeId: badgeID)
+            try await core.user().fetchBadgeDetail(badgeId: badgeID)
         }
     }
 

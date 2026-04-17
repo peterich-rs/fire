@@ -1,10 +1,10 @@
 use fire_models::{
-    InviteCreateRequest, Poll, PollOption, PostReactionUpdate, PostUpdateRequest,
-    PrivateMessageCreateRequest, ResolvedUploadUrl, TopicCreateRequest, TopicDetail,
-    TopicDetailCreatedBy, TopicDetailMeta, TopicDetailQuery, TopicListQuery, TopicPost,
-    TopicPostStream, TopicReaction, TopicReplyRequest, TopicThread, TopicThreadFlatPost,
-    TopicThreadReply, TopicThreadSection, TopicTimelineEntry, TopicTimingEntry,
-    TopicTimingsRequest, TopicUpdateRequest, UploadResult, VoteResponse, VotedUser,
+    Poll, PollOption, PostReactionUpdate, PostUpdateRequest, PrivateMessageCreateRequest,
+    ResolvedUploadUrl, TopicCreateRequest, TopicDetail, TopicDetailCreatedBy, TopicDetailMeta,
+    TopicDetailQuery, TopicListQuery, TopicPost, TopicPostStream, TopicReaction, TopicReplyRequest,
+    TopicThread, TopicThreadFlatPost, TopicThreadReply, TopicThreadSection, TopicTimelineEntry,
+    TopicTimingEntry, TopicTimingsRequest, TopicUpdateRequest, UploadResult, VoteResponse,
+    VotedUser,
 };
 
 use fire_uniffi_types::{TopicListKindState, TopicParticipantState, TopicTagState};
@@ -244,25 +244,6 @@ impl From<PostUpdateRequestState> for PostUpdateRequest {
             post_id: value.post_id,
             raw: value.raw,
             edit_reason: value.edit_reason,
-        }
-    }
-}
-
-#[derive(uniffi::Record, Debug, Clone)]
-pub struct InviteCreateRequestState {
-    pub max_redemptions_allowed: u32,
-    pub expires_at: Option<String>,
-    pub description: Option<String>,
-    pub email: Option<String>,
-}
-
-impl From<InviteCreateRequestState> for InviteCreateRequest {
-    fn from(value: InviteCreateRequestState) -> Self {
-        Self {
-            max_redemptions_allowed: value.max_redemptions_allowed,
-            expires_at: value.expires_at,
-            description: value.description,
-            email: value.email,
         }
     }
 }

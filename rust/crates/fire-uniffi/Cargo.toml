@@ -20,6 +20,7 @@ fire-uniffi-search = { path = "../fire-uniffi-search" }
 fire-uniffi-session = { path = "../fire-uniffi-session" }
 fire-uniffi-topics = { path = "../fire-uniffi-topics" }
 fire-uniffi-types = { path = "../fire-uniffi-types" }
+fire-uniffi-user = { path = "../fire-uniffi-user" }
 futures-util.workspace = true
 thiserror.workspace = true
 tokio.workspace = true

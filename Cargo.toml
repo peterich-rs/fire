@@ -10,6 +10,7 @@ members = [
     "rust/crates/fire-uniffi-session",
     "rust/crates/fire-uniffi-topics",
     "rust/crates/fire-uniffi-types",
+    "rust/crates/fire-uniffi-user",
 ]
 resolver = "2"
 

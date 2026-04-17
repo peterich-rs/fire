@@ -772,6 +772,7 @@ dependencies = [
  "fire-uniffi-session",
  "fire-uniffi-topics",
  "fire-uniffi-types",
+ "fire-uniffi-user",
  "futures-util",
  "thiserror 2.0.18",
  "tokio",
@@ -855,6 +856,17 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tracing",
+ "uniffi",
+]
+
+[[package]]
+name = "fire-uniffi-user"
+version = "0.1.0"
+dependencies = [
+ "fire-core",
+ "fire-models",
+ "fire-uniffi-types",
+ "tokio",
  "uniffi",
 ]
 

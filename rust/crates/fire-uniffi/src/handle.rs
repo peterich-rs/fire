@@ -9,14 +9,11 @@ use fire_core::{
     preview_text_from_html as shared_preview_text_from_html, FireCore, FireCoreError,
 };
 use fire_uniffi_diagnostics::FireDiagnosticsHandle;
+use fire_uniffi_messagebus::FireMessageBusHandle;
 use fire_uniffi_notifications::FireNotificationsHandle;
 use fire_uniffi_search::FireSearchHandle;
 use fire_uniffi_types::{
-    ffi_runtime, run_on_ffi_runtime, FireUniFfiError, PanicState, SharedFireCore, TopicListState,
-};
-use crate::state_messagebus::{
-    MessageBusClientModeState, MessageBusEventHandler, MessageBusSubscriptionState,
-    NotificationAlertPollResultState, TopicPresenceState,
+    run_on_ffi_runtime, FireUniFfiError, PanicState, SharedFireCore, TopicListState,
 };
 use crate::state_session::{
     BootstrapState, CookieState, LoginSyncState, PlatformCookieState, SessionState,
@@ -53,6 +50,7 @@ pub struct FireAppCore {
     inner: Arc<FireCore>,
     pub(crate) panic_state: Arc<PanicState>,
     diagnostics: Arc<FireDiagnosticsHandle>,
+    messagebus: Arc<FireMessageBusHandle>,
     notifications: Arc<FireNotificationsHandle>,
     search: Arc<FireSearchHandle>,
 }
@@ -69,6 +67,7 @@ impl FireAppCore {
             inner: shared.core.clone(),
             panic_state: shared.panic_state.clone(),
             diagnostics: FireDiagnosticsHandle::from_shared(shared.clone()),
+            messagebus: FireMessageBusHandle::from_shared(shared.clone()),
             notifications: FireNotificationsHandle::from_shared(shared.clone()),
             search: FireSearchHandle::from_shared(shared),
         })
@@ -76,6 +75,10 @@ impl FireAppCore {
 
     pub fn diagnostics(&self) -> Arc<FireDiagnosticsHandle> {
         self.diagnostics.clone()
+    }
+
+    pub fn messagebus(&self) -> Arc<FireMessageBusHandle> {
+        self.messagebus.clone()
     }
 
     pub fn notifications(&self) -> Arc<FireNotificationsHandle> {
@@ -158,106 +161,6 @@ impl FireAppCore {
         self.run_fallible("clear_session_path", move |inner| {
             inner.clear_session_path(path)
         })
-    }
-
-    pub fn subscribe_channel(
-        &self,
-        subscription: MessageBusSubscriptionState,
-    ) -> Result<(), FireUniFfiError> {
-        self.run_fallible("subscribe_channel", move |inner| {
-            inner.subscribe_message_bus_channel(subscription.into())
-        })
-    }
-
-    pub fn unsubscribe_channel(
-        &self,
-        owner_token: String,
-        channel: String,
-    ) -> Result<(), FireUniFfiError> {
-        self.run_fallible("unsubscribe_channel", move |inner| {
-            inner.unsubscribe_message_bus_channel(owner_token, channel)
-        })
-    }
-
-    pub fn stop_message_bus(&self, clear_subscriptions: bool) -> Result<(), FireUniFfiError> {
-        self.run_infallible("stop_message_bus", move |inner| {
-            inner.stop_message_bus(clear_subscriptions)
-        })
-    }
-
-    pub async fn start_message_bus(
-        &self,
-        mode: MessageBusClientModeState,
-        handler: Arc<dyn MessageBusEventHandler>,
-    ) -> Result<String, FireUniFfiError> {
-        let inner = Arc::clone(&self.inner);
-        let panic_state = Arc::clone(&self.panic_state);
-        let (event_sender, mut event_receiver) = tokio::sync::mpsc::unbounded_channel();
-        let client_id = run_on_ffi_runtime("start_message_bus", panic_state, async move {
-            inner.start_message_bus(mode.into(), event_sender).await
-        })
-        .await?;
-
-        ffi_runtime().spawn(async move {
-            while let Some(event) = event_receiver.recv().await {
-                handler.on_message_bus_event(event.into());
-            }
-        });
-
-        Ok(client_id)
-    }
-
-    pub fn topic_reply_presence_state(
-        &self,
-        topic_id: u64,
-    ) -> Result<TopicPresenceState, FireUniFfiError> {
-        self.run_infallible("topic_reply_presence_state", move |inner| {
-            inner.topic_reply_presence_state(topic_id).into()
-        })
-    }
-
-    pub async fn bootstrap_topic_reply_presence(
-        &self,
-        topic_id: u64,
-        owner_token: String,
-    ) -> Result<TopicPresenceState, FireUniFfiError> {
-        let inner = Arc::clone(&self.inner);
-        let panic_state = Arc::clone(&self.panic_state);
-        let presence =
-            run_on_ffi_runtime("bootstrap_topic_reply_presence", panic_state, async move {
-                inner
-                    .bootstrap_topic_reply_presence(topic_id, owner_token)
-                    .await
-            })
-            .await?;
-        Ok(presence.into())
-    }
-
-    pub async fn update_topic_reply_presence(
-        &self,
-        topic_id: u64,
-        active: bool,
-    ) -> Result<(), FireUniFfiError> {
-        let inner = Arc::clone(&self.inner);
-        let panic_state = Arc::clone(&self.panic_state);
-        run_on_ffi_runtime("update_topic_reply_presence", panic_state, async move {
-            inner.update_topic_reply_presence(topic_id, active).await
-        })
-        .await
-    }
-
-    pub async fn poll_notification_alert_once(
-        &self,
-        last_message_id: i64,
-    ) -> Result<NotificationAlertPollResultState, FireUniFfiError> {
-        let inner = Arc::clone(&self.inner);
-        let panic_state = Arc::clone(&self.panic_state);
-        let response =
-            run_on_ffi_runtime("poll_notification_alert_once", panic_state, async move {
-                inner.poll_notification_alert_once(last_message_id).await
-            })
-            .await?;
-        Ok(response.into())
     }
 
     pub async fn fetch_topic_list(

@@ -5,6 +5,6 @@ pub mod topic_list;
 pub use draft::{DraftDataState, DraftListResponseState, DraftState};
 pub use tag::RequiredTagGroupState;
 pub use topic_list::{
-    TopicListState, TopicParticipantState, TopicPosterState, TopicRowState, TopicSummaryState,
-    TopicTagState, TopicUserState,
+    TopicListKindState, TopicListState, TopicParticipantState, TopicPosterState, TopicRowState,
+    TopicSummaryState, TopicTagState, TopicUserState,
 };

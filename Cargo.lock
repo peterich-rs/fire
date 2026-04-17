@@ -766,6 +766,7 @@ dependencies = [
  "fire-core",
  "fire-models",
  "fire-uniffi-diagnostics",
+ "fire-uniffi-messagebus",
  "fire-uniffi-notifications",
  "fire-uniffi-search",
  "fire-uniffi-types",
@@ -778,6 +779,17 @@ dependencies = [
 
 [[package]]
 name = "fire-uniffi-diagnostics"
+version = "0.1.0"
+dependencies = [
+ "fire-core",
+ "fire-models",
+ "fire-uniffi-types",
+ "tokio",
+ "uniffi",
+]
+
+[[package]]
+name = "fire-uniffi-messagebus"
 version = "0.1.0"
 dependencies = [
  "fire-core",

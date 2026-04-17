@@ -14,6 +14,7 @@ crate-type = ["cdylib", "staticlib", "rlib"]
 fire-core = { path = "../fire-core" }
 fire-models = { path = "../fire-models" }
 fire-uniffi-diagnostics = { path = "../fire-uniffi-diagnostics" }
+fire-uniffi-messagebus = { path = "../fire-uniffi-messagebus" }
 fire-uniffi-notifications = { path = "../fire-uniffi-notifications" }
 fire-uniffi-search = { path = "../fire-uniffi-search" }
 fire-uniffi-types = { path = "../fire-uniffi-types" }

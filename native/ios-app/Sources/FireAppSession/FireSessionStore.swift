@@ -435,7 +435,7 @@ public actor FireSessionStore {
         lastMessageId: Int64
     ) async throws -> NotificationAlertPollResultState {
         try await runPersistingSessionChanges {
-            try await core.pollNotificationAlertOnce(lastMessageId: lastMessageId)
+            try await core.messagebus().pollNotificationAlertOnce(lastMessageId: lastMessageId)
         }
     }
 
@@ -830,16 +830,16 @@ public actor FireSessionStore {
     @discardableResult
     public func startMessageBus(handler: any MessageBusEventHandler) async throws -> String {
         try await runPersistingSessionChanges {
-            try await core.startMessageBus(mode: .foreground, handler: handler)
+            try await core.messagebus().startMessageBus(mode: .foreground, handler: handler)
         }
     }
 
     public func stopMessageBus(clearSubscriptions: Bool = false) throws {
-        try core.stopMessageBus(clearSubscriptions: clearSubscriptions)
+        try core.messagebus().stopMessageBus(clearSubscriptions: clearSubscriptions)
     }
 
     public func subscribeTopicDetailChannel(topicId: UInt64, ownerToken: String) throws {
-        try core.subscribeChannel(
+        try core.messagebus().subscribeChannel(
             subscription: MessageBusSubscriptionState(
                 ownerToken: ownerToken,
                 channel: "/topic/\(topicId)",
@@ -850,11 +850,11 @@ public actor FireSessionStore {
     }
 
     public func unsubscribeTopicDetailChannel(topicId: UInt64, ownerToken: String) throws {
-        try core.unsubscribeChannel(ownerToken: ownerToken, channel: "/topic/\(topicId)")
+        try core.messagebus().unsubscribeChannel(ownerToken: ownerToken, channel: "/topic/\(topicId)")
     }
 
     public func subscribeTopicReactionChannel(topicId: UInt64, ownerToken: String) throws {
-        try core.subscribeChannel(
+        try core.messagebus().subscribeChannel(
             subscription: MessageBusSubscriptionState(
                 ownerToken: ownerToken,
                 channel: "/topic/\(topicId)/reactions",
@@ -865,11 +865,11 @@ public actor FireSessionStore {
     }
 
     public func unsubscribeTopicReactionChannel(topicId: UInt64, ownerToken: String) throws {
-        try core.unsubscribeChannel(ownerToken: ownerToken, channel: "/topic/\(topicId)/reactions")
+        try core.messagebus().unsubscribeChannel(ownerToken: ownerToken, channel: "/topic/\(topicId)/reactions")
     }
 
     public func topicReplyPresenceState(topicId: UInt64) throws -> TopicPresenceState {
-        try core.topicReplyPresenceState(topicId: topicId)
+        try core.messagebus().topicReplyPresenceState(topicId: topicId)
     }
 
     public func bootstrapTopicReplyPresence(
@@ -877,12 +877,12 @@ public actor FireSessionStore {
         ownerToken: String
     ) async throws -> TopicPresenceState {
         try await runPersistingSessionChanges {
-            try await core.bootstrapTopicReplyPresence(topicId: topicId, ownerToken: ownerToken)
+            try await core.messagebus().bootstrapTopicReplyPresence(topicId: topicId, ownerToken: ownerToken)
         }
     }
 
     public func unsubscribeTopicReplyPresenceChannel(topicId: UInt64, ownerToken: String) throws {
-        try core.unsubscribeChannel(
+        try core.messagebus().unsubscribeChannel(
             ownerToken: ownerToken,
             channel: "/presence/discourse-presence/reply/\(topicId)"
         )
@@ -890,7 +890,7 @@ public actor FireSessionStore {
 
     public func updateTopicReplyPresence(topicId: UInt64, active: Bool) async throws {
         try await runPersistingSessionChanges {
-            try await core.updateTopicReplyPresence(topicId: topicId, active: active)
+            try await core.messagebus().updateTopicReplyPresence(topicId: topicId, active: active)
         }
     }
 

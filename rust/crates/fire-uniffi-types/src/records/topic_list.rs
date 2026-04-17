@@ -1,6 +1,49 @@
 use fire_models::{
-    TopicListResponse, TopicParticipant, TopicPoster, TopicRow, TopicSummary, TopicTag, TopicUser,
+    TopicListKind, TopicListResponse, TopicParticipant, TopicPoster, TopicRow, TopicSummary,
+    TopicTag, TopicUser,
 };
+
+#[derive(uniffi::Enum, Debug, Clone, Copy)]
+pub enum TopicListKindState {
+    Latest,
+    New,
+    Unread,
+    Unseen,
+    Hot,
+    Top,
+    PrivateMessagesInbox,
+    PrivateMessagesSent,
+}
+
+impl From<TopicListKind> for TopicListKindState {
+    fn from(value: TopicListKind) -> Self {
+        match value {
+            TopicListKind::Latest => Self::Latest,
+            TopicListKind::New => Self::New,
+            TopicListKind::Unread => Self::Unread,
+            TopicListKind::Unseen => Self::Unseen,
+            TopicListKind::Hot => Self::Hot,
+            TopicListKind::Top => Self::Top,
+            TopicListKind::PrivateMessagesInbox => Self::PrivateMessagesInbox,
+            TopicListKind::PrivateMessagesSent => Self::PrivateMessagesSent,
+        }
+    }
+}
+
+impl From<TopicListKindState> for TopicListKind {
+    fn from(value: TopicListKindState) -> Self {
+        match value {
+            TopicListKindState::Latest => Self::Latest,
+            TopicListKindState::New => Self::New,
+            TopicListKindState::Unread => Self::Unread,
+            TopicListKindState::Unseen => Self::Unseen,
+            TopicListKindState::Hot => Self::Hot,
+            TopicListKindState::Top => Self::Top,
+            TopicListKindState::PrivateMessagesInbox => Self::PrivateMessagesInbox,
+            TopicListKindState::PrivateMessagesSent => Self::PrivateMessagesSent,
+        }
+    }
+}
 
 #[derive(uniffi::Record, Debug, Clone)]
 pub struct TopicUserState {

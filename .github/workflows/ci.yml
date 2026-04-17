@@ -288,17 +288,17 @@ jobs:
             brew install xcodegen
           fi
 
-      - name: Generate Xcode project
-        run: xcodegen generate --spec native/ios-app/project.yml
-
-      - name: Verify generated Xcode project is up to date
-        run: git diff --exit-code -- native/ios-app/Fire.xcodeproj
-
       - name: Download pre-built UniFFI artifacts
         uses: actions/download-artifact@v4
         with:
           name: ios-uniffi-generated
           path: native/ios-app/Generated/
+
+      - name: Generate Xcode project
+        run: xcodegen generate --spec native/ios-app/project.yml
+
+      - name: Verify generated Xcode project is up to date
+        run: git diff --exit-code -- native/ios-app/Fire.xcodeproj
 
       - name: Run iOS tests
         shell: bash

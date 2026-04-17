@@ -48,10 +48,7 @@ impl FireSessionHandle {
         )
     }
 
-    pub fn resolve_workspace_path(
-        &self,
-        relative_path: String,
-    ) -> Result<String, FireUniFfiError> {
+    pub fn resolve_workspace_path(&self, relative_path: String) -> Result<String, FireUniFfiError> {
         run_fallible(
             &self.shared.panic_state,
             &self.shared.core,

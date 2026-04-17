@@ -29,9 +29,7 @@ mod tests {
 
 use std::sync::Arc;
 
-use fire_uniffi_types::{
-    run_on_ffi_runtime, FireUniFfiError, SharedFireCore, TopicListState,
-};
+use fire_uniffi_types::{run_on_ffi_runtime, FireUniFfiError, SharedFireCore, TopicListState};
 
 pub mod records;
 

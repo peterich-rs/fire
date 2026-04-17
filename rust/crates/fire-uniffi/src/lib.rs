@@ -183,16 +183,13 @@ mod tests {
 
     #[test]
     fn converts_sync_panic_to_internal_error_and_poisoned_handle() {
-        let shared =
-            std::sync::Arc::new(SharedFireCore::bootstrap(None, None).expect("bootstrap"));
+        let shared = std::sync::Arc::new(SharedFireCore::bootstrap(None, None).expect("bootstrap"));
 
-        let error = run_infallible::<(), _>(
-            &shared.panic_state,
-            &shared.core,
-            "test_sync_panic",
-            |_| panic!("boom"),
-        )
-        .expect_err("panic should map to an internal error");
+        let error =
+            run_infallible::<(), _>(&shared.panic_state, &shared.core, "test_sync_panic", |_| {
+                panic!("boom")
+            })
+            .expect_err("panic should map to an internal error");
 
         assert!(matches!(
             error,

@@ -1,7 +1,7 @@
 use fire_models::{
     GroupedSearchResult, SearchPost, SearchQuery, SearchResult, SearchTopic, SearchTypeFilter,
-    SearchUser, TagSearchItem, TagSearchQuery, TagSearchResult, UserMentionGroup,
-    UserMentionQuery, UserMentionResult, UserMentionUser,
+    SearchUser, TagSearchItem, TagSearchQuery, TagSearchResult, UserMentionGroup, UserMentionQuery,
+    UserMentionResult, UserMentionUser,
 };
 
 use fire_uniffi_types::RequiredTagGroupState;

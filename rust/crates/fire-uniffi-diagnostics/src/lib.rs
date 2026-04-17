@@ -7,11 +7,10 @@ use fire_uniffi_types::{run_fallible, run_infallible, FireUniFfiError, SharedFir
 pub mod records;
 
 pub use records::{
-    DiagnosticsPageDirectionState, DiagnosticsTextPageState, HostLogLevelState,
-    LogFileDetailState, LogFilePageState, LogFileSummaryState, NetworkTraceBodyPageState,
-    NetworkTraceDetailState, NetworkTraceEventState, NetworkTraceHeaderState,
-    NetworkTraceOutcomeState, NetworkTraceSummaryState, SupportBundleExportState,
-    SupportBundleHostContextState,
+    DiagnosticsPageDirectionState, DiagnosticsTextPageState, HostLogLevelState, LogFileDetailState,
+    LogFilePageState, LogFileSummaryState, NetworkTraceBodyPageState, NetworkTraceDetailState,
+    NetworkTraceEventState, NetworkTraceHeaderState, NetworkTraceOutcomeState,
+    NetworkTraceSummaryState, SupportBundleExportState, SupportBundleHostContextState,
 };
 
 #[derive(uniffi::Object)]

@@ -7,7 +7,7 @@ plugins {
 
 val fireRepoRoot = rootDir.parentFile?.parentFile
     ?: error("Unable to resolve Fire repository root from $rootDir")
-val generatedUniffiRootDir = layout.buildDirectory.dir("generated/uniffi")
+val generatedUniffiRootDir = layout.buildDirectory.dir("generated/source/uniffi")
 
 fun registerSyncFireUniffiBindingsTask(
     taskName: String,

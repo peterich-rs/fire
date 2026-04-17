@@ -129,6 +129,10 @@ enum FireSystemNotificationPresenter {
            !excerpt.isEmpty {
             content.userInfo["excerpt"] = excerpt
         }
+        if let postUrl = alert.postUrl?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !postUrl.isEmpty {
+            content.userInfo["postUrl"] = postUrl
+        }
         content.userInfo["messageId"] = alert.messageId
 
         let request = UNNotificationRequest(

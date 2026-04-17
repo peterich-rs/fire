@@ -53,20 +53,6 @@ private enum FireTopicNotificationLevelOption: Int32, CaseIterable, Identifiable
     }
 }
 
-func replyIndexByPostNumber(posts: [FireTopicFlatPostPresentation]) -> [UInt32: Int] {
-    Dictionary(uniqueKeysWithValues: posts.enumerated().map { ($1.post.postNumber, $0) })
-}
-
-private struct FireReplyPostIndexCache {
-    let indexByPostNumber: [UInt32: Int]
-    let totalReplyCount: Int
-
-    init(posts: [FireTopicFlatPostPresentation]) {
-        totalReplyCount = posts.count
-        indexByPostNumber = replyIndexByPostNumber(posts: posts)
-    }
-}
-
 struct FireTopicDetailView: View {
     fileprivate static let scrollCoordinateSpaceName = "fire-topic-detail-scroll"
 
@@ -92,7 +78,6 @@ struct FireTopicDetailView: View {
     @State private var quickReplyError: String?
     @State private var timingTracker: FireTopicTimingTracker
     @State private var detailOwnerToken: String
-    @State private var hasScrolledToTarget = false
     @State private var bookmarkEditorContext: FireBookmarkEditorContext?
     @State private var selectedImage: FireCookedImage?
     @State private var postEditorContext: FirePostEditorContext?
@@ -156,44 +141,37 @@ struct FireTopicDetailView: View {
         return detailTags.isEmpty ? row.tagNames : detailTags
     }
 
-    private var threadPresentation: FireTopicThreadPresentation? {
-        detail?.thread
-    }
-
-    private var flatPosts: [FireTopicFlatPostPresentation] {
-        detail?.flatPosts ?? []
+    private var timelineRows: [FireTopicTimelineRow] {
+        guard let detail else {
+            return []
+        }
+        return FireTopicPresentation.timelineRows(
+            entries: detail.timelineEntries,
+            posts: detail.postStream.posts
+        )
     }
 
     private var originalPost: TopicPostState? {
-        if let originalPost = flatPosts.first(where: \.isOriginalPost)?.post {
+        if let originalPost = timelineRows.first(where: { $0.entry.isOriginalPost })?.post {
             return originalPost
         }
         return detail?.postStream.posts.min(by: { $0.postNumber < $1.postNumber })
     }
 
-    private var replyPosts: [FireTopicFlatPostPresentation] {
-        guard let detail else {
-            return []
-        }
-
+    private var replyTimelineRows: [FireTopicTimelineRow] {
         let originalPostID = originalPost?.id
-        let displayPosts = flatPosts.isEmpty
-            ? detail.postStream.posts.map {
-                FireTopicFlatPostPresentation(
-                    post: $0,
-                    depth: 0,
-                    parentPostNumber: $0.replyToPostNumber,
-                    showsThreadLine: false,
-                    isOriginalPost: $0.id == originalPostID
-                )
-            }
-            : flatPosts
-
         guard let originalPostID else {
-            return displayPosts
+            return timelineRows
         }
+        return timelineRows.filter { $0.entry.postId != originalPostID }
+    }
 
-        return displayPosts.filter { $0.post.id != originalPostID }
+    private var renderedPostNumbers: Set<UInt32> {
+        var postNumbers = Set(replyTimelineRows.map { $0.entry.postNumber })
+        if let originalPost {
+            postNumbers.insert(originalPost.postNumber)
+        }
+        return postNumbers
     }
 
     private var reactionOptions: [FireReactionOption] {
@@ -202,6 +180,10 @@ struct FireTopicDetailView: View {
 
     private var typingUsers: [TopicPresenceUserState] {
         topicDetailStore.topicPresenceUsers(for: topic.id)
+    }
+
+    private var pendingScrollTarget: UInt32? {
+        topicDetailStore.pendingScrollTarget(topicId: topic.id)
     }
 
     private var nonHeartReactionOptions: [FireReactionOption] {
@@ -295,10 +277,7 @@ struct FireTopicDetailView: View {
     }
 
     private var loadedReplyCount: Int {
-        guard let detail else {
-            return 0
-        }
-        return max(detail.postStream.posts.count - 1, 0)
+        replyTimelineRows.count
     }
 
     private var displayedInteractionCount: UInt32? {
@@ -310,7 +289,7 @@ struct FireTopicDetailView: View {
     }
 
     private var displayedFloorCount: Int {
-        threadPresentation?.replySections.count ?? 0
+        replyTimelineRows.count
     }
 
     private var trimmedReplyDraft: String {
@@ -339,7 +318,6 @@ struct FireTopicDetailView: View {
     }
 
     var body: some View {
-        let replyPostIndexCache = FireReplyPostIndexCache(posts: replyPosts)
         return GeometryReader { geometry in
             ScrollViewReader { scrollProxy in
                 ScrollView {
@@ -356,12 +334,13 @@ struct FireTopicDetailView: View {
                 .onPreferenceChange(FireVisiblePostFramePreferenceKey.self) { frames in
                     updateVisiblePostFrames(
                         frames,
-                        viewportHeight: geometry.size.height,
-                        replyIndexByPostNumber: replyPostIndexCache.indexByPostNumber,
-                        totalReplyCount: replyPostIndexCache.totalReplyCount
+                        viewportHeight: geometry.size.height
                     )
                 }
                 .onChange(of: detail?.postStream.posts.count) { _, _ in
+                    scrollToTargetPostIfNeeded(proxy: scrollProxy)
+                }
+                .task(id: pendingScrollTarget) {
                     scrollToTargetPostIfNeeded(proxy: scrollProxy)
                 }
             }
@@ -612,14 +591,23 @@ struct FireTopicDetailView: View {
     }
 
     private func scrollToTargetPostIfNeeded(proxy: ScrollViewProxy) {
-        guard let scrollToPostNumber, !hasScrolledToTarget else { return }
-        guard detail != nil else { return }
-        hasScrolledToTarget = true
+        guard let target = pendingScrollTarget else {
+            return
+        }
+
+        if topicDetailStore.isScrollTargetExhausted(topicId: topic.id, postNumber: target) {
+            topicDetailStore.markScrollTargetSatisfied(topicId: topic.id, postNumber: target)
+            return
+        }
+
+        guard renderedPostNumbers.contains(target) else { return }
+
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
             withAnimation(.easeInOut(duration: 0.3)) {
-                proxy.scrollTo(scrollToPostNumber, anchor: .top)
+                proxy.scrollTo(target, anchor: .top)
             }
         }
+        topicDetailStore.markScrollTargetSatisfied(topicId: topic.id, postNumber: target)
     }
 
     private var topicHeaderSection: some View {
@@ -779,17 +767,17 @@ struct FireTopicDetailView: View {
             .padding(.bottom, 14)
 
         if detail != nil {
-            let displayPosts = replyPosts
+            let displayRows = replyTimelineRows
 
-            if displayPosts.isEmpty {
+            if displayRows.isEmpty {
                 if topicDetailStore.hasMoreTopicPosts(topicId: topic.id) {
                     FireTopicPostsLoadingFooter()
                         .padding(.vertical, 16)
                         .task(id: topic.id) {
+                            let seedVisiblePostNumbers = originalPost.map { Set([ $0.postNumber ]) } ?? []
                             topicDetailStore.preloadTopicPostsIfNeeded(
                                 topicId: topic.id,
-                                visibleReplyIndex: 0,
-                                totalReplyCount: 1
+                                visiblePostNumbers: seedVisiblePostNumbers
                             )
                         }
                 } else {
@@ -800,7 +788,7 @@ struct FireTopicDetailView: View {
                         .padding(.vertical, 24)
                 }
             } else {
-                replyPostRows(displayPosts)
+                replyPostRows(displayRows)
 
                 if topicDetailStore.isLoadingMoreTopicPosts(topicId: topic.id) {
                     FireTopicPostsLoadingFooter()
@@ -848,40 +836,53 @@ struct FireTopicDetailView: View {
     }
 
     @ViewBuilder
-    private func replyPostRows(_ displayPosts: [FireTopicFlatPostPresentation]) -> some View {
-        ForEach(Array(displayPosts.enumerated()), id: \.element.post.id) { index, flatPost in
-            FireSwipeToReplyContainer(enabled: canWriteInteractions) {
-                openComposer(replyToPost: flatPost.post)
-            } content: {
-                FirePostRow(
-                    post: flatPost.post,
-                    depth: Int(flatPost.depth),
-                    replyContext: flatPost.parentPostNumber.map { "回复 #\($0)" },
-                    showsThreadLine: flatPost.showsThreadLine,
-                    baseURLString: baseURLString,
-                    canWriteInteractions: canWriteInteractions,
-                    isMutating: topicDetailStore.isMutatingPost(postId: flatPost.post.id),
-                    onOpenImage: { selectedImage = $0 },
-                    onToggleLike: { toggleLike(for: $0) },
-                    onSelectReaction: { post, reactionId in
-                        toggleReaction(reactionId, for: post)
-                    },
-                    onEditPost: { postEditorContext = FirePostEditorContext(postID: $0.id, postNumber: $0.postNumber) },
-                    onVotePoll: { post, poll, options in
-                        submitPollVote(for: post, poll: poll, options: options)
-                    },
-                    onUnvotePoll: { post, poll in
-                        removePollVote(for: post, poll: poll)
+    private func replyPostRows(_ displayRows: [FireTopicTimelineRow]) -> some View {
+        ForEach(Array(displayRows.enumerated()), id: \.element.id) { index, row in
+            Group {
+                if let post = row.post {
+                    FireSwipeToReplyContainer(enabled: canWriteInteractions) {
+                        openComposer(replyToPost: post)
+                    } content: {
+                        FirePostRow(
+                            post: post,
+                            depth: Int(row.entry.depth),
+                            replyContext: row.entry.parentPostNumber.map { "回复 #\($0)" },
+                            showsThreadLine: showsTimelineThreadLine(in: displayRows, at: index),
+                            baseURLString: baseURLString,
+                            canWriteInteractions: canWriteInteractions,
+                            isMutating: topicDetailStore.isMutatingPost(postId: post.id),
+                            onOpenImage: { selectedImage = $0 },
+                            onToggleLike: { toggleLike(for: $0) },
+                            onSelectReaction: { post, reactionId in
+                                toggleReaction(reactionId, for: post)
+                            },
+                            onEditPost: { postEditorContext = FirePostEditorContext(postID: $0.id, postNumber: $0.postNumber) },
+                            onVotePoll: { post, poll, options in
+                                submitPollVote(for: post, poll: poll, options: options)
+                            },
+                            onUnvotePoll: { post, poll in
+                                removePollVote(for: post, poll: poll)
+                            }
+                        )
                     }
-                )
+                } else {
+                    FireTopicPostPlaceholder(depth: Int(row.entry.depth))
+                }
             }
-            .id(flatPost.post.postNumber)
-            .background(FireVisiblePostFrameReporter(postNumber: flatPost.post.postNumber))
+            .id(row.entry.postNumber)
+            .background(FireVisiblePostFrameReporter(postNumber: row.entry.postNumber))
 
-            if index != displayPosts.count - 1 {
+            if index != displayRows.count - 1 {
                 Divider()
             }
         }
+    }
+
+    private func showsTimelineThreadLine(in rows: [FireTopicTimelineRow], at index: Int) -> Bool {
+        guard index < rows.count - 1 else {
+            return false
+        }
+        return rows[index + 1].entry.depth >= rows[index].entry.depth
     }
 
     private func topicVotePanel(_ detail: TopicDetailState) -> some View {
@@ -936,9 +937,7 @@ struct FireTopicDetailView: View {
 
     private func updateVisiblePostFrames(
         _ frames: [UInt32: CGRect],
-        viewportHeight: CGFloat,
-        replyIndexByPostNumber: [UInt32: Int],
-        totalReplyCount: Int
+        viewportHeight: CGFloat
     ) {
         let visiblePostNumbers = Set(
             frames.compactMap { postNumber, frame in
@@ -947,14 +946,9 @@ struct FireTopicDetailView: View {
         )
         timingTracker.updateVisiblePostNumbers(visiblePostNumbers)
 
-        guard let visibleReplyIndex = visiblePostNumbers.compactMap({ replyIndexByPostNumber[$0] }).max() else {
-            return
-        }
-
         topicDetailStore.preloadTopicPostsIfNeeded(
             topicId: topic.id,
-            visibleReplyIndex: visibleReplyIndex,
-            totalReplyCount: totalReplyCount
+            visiblePostNumbers: visiblePostNumbers
         )
     }
 
@@ -1382,6 +1376,47 @@ private struct FireTopicPostsLoadingFooter: View {
         }
         .padding(.horizontal, 4)
         .padding(.vertical, 10)
+    }
+}
+
+private struct FireTopicPostPlaceholder: View {
+    let depth: Int
+
+    private static let maxVisualDepth = 3
+
+    private var indentWidth: CGFloat {
+        CGFloat(min(depth, Self.maxVisualDepth)) * 20
+    }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: depth > 0 ? 6 : 10) {
+            if depth > 0 {
+                Color.clear.frame(width: indentWidth)
+            }
+
+            Circle()
+                .fill(Color(.tertiarySystemFill))
+                .frame(width: depth > 0 ? 26 : 32, height: depth > 0 ? 26 : 32)
+
+            VStack(alignment: .leading, spacing: 8) {
+                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    .fill(Color(.tertiarySystemFill))
+                    .frame(width: 120, height: 12)
+
+                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    .fill(Color(.tertiarySystemFill))
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 12)
+
+                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    .fill(Color(.tertiarySystemFill))
+                    .frame(width: 160, height: 12)
+            }
+            .padding(.vertical, 6)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 8)
+        .redacted(reason: .placeholder)
     }
 }
 

@@ -160,6 +160,20 @@ enum FireAppRoute: Hashable, Identifiable {
             return "badge:\(id):\(slug?.lowercased() ?? "nil")"
         }
     }
+
+    func overlayPreview(_ preview: FireTopicRoutePreview?) -> FireAppRoute {
+        guard let preview else { return self }
+        switch self {
+        case .topic(let payload):
+            return .topic(payload: FireTopicRoutePayload(
+                topicId: payload.topicId,
+                postNumber: payload.postNumber,
+                preview: payload.preview ?? preview
+            ))
+        default:
+            return self
+        }
+    }
 }
 
 extension TopicRowState {

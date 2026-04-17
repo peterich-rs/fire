@@ -38,7 +38,7 @@ Two independent features delivered in sequence: Phase A flattens the developer t
 - `native/ios-app/App/FireProfileView.swift` (line 156) -- NavigationLink to `FirePrivateMessagesView`
 - `rust/crates/fire-models/src/topic.rs` -- `TopicListKind::PrivateMessagesInbox`, `TopicListKind::PrivateMessagesSent`
 - `rust/crates/fire-models/src/topic_detail.rs` -- `PrivateMessageCreateRequest`, `DraftData`
-- `rust/crates/fire-uniffi/src/state_topic_list.rs` -- `TopicListKindState`, `TopicRowState`, `TopicParticipantState`
+- `rust/crates/fire-uniffi-types/src/records/topic_list.rs` -- `TopicListKindState`, `TopicRowState`, `TopicParticipantState` (shared across `fire-uniffi-topics`, `fire-uniffi-search`, and the `FireAppCore` facade after the UniFFI multi-namespace split; see `docs/architecture/uniffi-multi-namespace-split.md`)
 
 ## Design
 
@@ -352,9 +352,9 @@ Phase B verification:
 
 ## Architectural Notes
 
-- **No Rust changes in either phase.** All modifications are Swift-side navigation, layout, and rendering. UniFFI bindings, models, and API orchestration remain untouched.
+- **No Rust changes in either phase.** All modifications are Swift-side navigation, layout, and rendering. UniFFI bindings, models, and API orchestration remain untouched. Post the `fire-uniffi` multi-namespace split, every record referenced here (`TopicRowState`, `TopicPostState`, `TopicParticipantState`, `NotificationCenterState`, `LogFileSummaryState`, `NetworkTraceSummaryState`, etc.) is emitted from a per-domain crate (`fire-uniffi-types`, `fire-uniffi-diagnostics`, `fire-uniffi-notifications`, ...) into `Generated/FireUniFfi/*.swift`, but the type identifiers are unchanged and compile into the same Swift target — no `import` changes are required in Phase A or Phase B code.
 - **No backend API changes.** Phase B works within existing Discourse PM endpoints (`/topics/private-messages/{username}.json`, `/topics/private-messages-sent/{username}.json`).
-- **`FireTopicDetailStore` is not modified.** Phase B reuses it via `@EnvironmentObject` for all data operations. The store already handles PM topics identically to forum topics.
+- **`FireTopicDetailStore` is not modified.** Phase B reuses it via `@EnvironmentObject` for all data operations. The store already handles PM topics identically to forum topics. `loadTopicDetail(topicId:targetPostNumber:force:)` now carries the anchor-aware timeline plumbing introduced by the topic detail anchor timeline feature (`topicDetailTargetPostNumbers`, `topicWindowStates`, `activeAnchorPostNumber`). Phase B calls `loadTopicDetail(topicId:)` without an anchor — the store loads Discourse's default post window for the topic, and `FireChatDetailView` does the client-side "scroll to latest" via a `ScrollViewReader` after the posts are sorted by `postNumber` ascending.
 - **`FireTopicDetailView` is not modified.** Forum post rendering continues unchanged. Phase B creates a parallel rendering path for PM topics only.
 - **`FireComposerView` is not modified.** Existing route types (`.privateMessage`, `.advancedReply(isPrivateMessage: true)`) are sufficient.
 - **Xcode project file (`*.pbxproj`)** may need file reference updates for new/deleted files. Build verification after each phase catches this.

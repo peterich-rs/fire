@@ -18,9 +18,9 @@ import com.fire.app.session.FireSessionStoreRepository
 import kotlinx.coroutines.launch
 import uniffi.fire_uniffi.plainTextFromHtml
 import uniffi.fire_uniffi.TopicCategoryState
-import uniffi.fire_uniffi.TopicDetailQueryState
-import uniffi.fire_uniffi.TopicDetailState
-import uniffi.fire_uniffi.TopicPostState
+import uniffi.fire_uniffi_topics.TopicDetailQueryState
+import uniffi.fire_uniffi_topics.TopicDetailState
+import uniffi.fire_uniffi_topics.TopicPostState
 
 class TopicDetailActivity : AppCompatActivity() {
     private lateinit var binding: ActivityTopicDetailBinding

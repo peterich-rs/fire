@@ -769,6 +769,7 @@ dependencies = [
  "fire-uniffi-messagebus",
  "fire-uniffi-notifications",
  "fire-uniffi-search",
+ "fire-uniffi-topics",
  "fire-uniffi-types",
  "futures-util",
  "thiserror 2.0.18",
@@ -812,6 +813,17 @@ dependencies = [
 
 [[package]]
 name = "fire-uniffi-search"
+version = "0.1.0"
+dependencies = [
+ "fire-core",
+ "fire-models",
+ "fire-uniffi-types",
+ "tokio",
+ "uniffi",
+]
+
+[[package]]
+name = "fire-uniffi-topics"
 version = "0.1.0"
 dependencies = [
  "fire-core",

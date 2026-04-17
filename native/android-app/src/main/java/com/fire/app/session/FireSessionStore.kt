@@ -8,16 +8,16 @@ import uniffi.fire_uniffi.FireAppCore
 import uniffi.fire_uniffi.LoginSyncState
 import uniffi.fire_uniffi.PlatformCookieState
 import uniffi.fire_uniffi.SessionState
-import uniffi.fire_uniffi.TopicDetailQueryState
-import uniffi.fire_uniffi.TopicDetailState
-import uniffi.fire_uniffi.TopicListQueryState
-import uniffi.fire_uniffi.TopicPostState
 import uniffi.fire_uniffi_diagnostics.LogFileDetailState
 import uniffi.fire_uniffi_diagnostics.LogFileSummaryState
 import uniffi.fire_uniffi_diagnostics.NetworkTraceDetailState
 import uniffi.fire_uniffi_diagnostics.NetworkTraceSummaryState
 import uniffi.fire_uniffi_notifications.NotificationCenterState
 import uniffi.fire_uniffi_notifications.NotificationListState
+import uniffi.fire_uniffi_topics.TopicDetailQueryState
+import uniffi.fire_uniffi_topics.TopicDetailState
+import uniffi.fire_uniffi_topics.TopicListQueryState
+import uniffi.fire_uniffi_topics.TopicPostState
 import uniffi.fire_uniffi_types.TopicListState
 
 class FireSessionStore(
@@ -153,19 +153,19 @@ class FireSessionStore(
     }
 
     suspend fun fetchTopicList(query: TopicListQueryState): TopicListState = withContext(Dispatchers.IO) {
-        core.fetchTopicList(query)
+        core.topics().fetchTopicList(query)
     }
 
     suspend fun fetchTopicDetail(query: TopicDetailQueryState): TopicDetailState = withContext(Dispatchers.IO) {
-        core.fetchTopicDetail(query)
+        core.topics().fetchTopicDetail(query)
     }
 
     suspend fun fetchTopicDetailInitial(query: TopicDetailQueryState): TopicDetailState = withContext(Dispatchers.IO) {
-        core.fetchTopicDetailInitial(query)
+        core.topics().fetchTopicDetailInitial(query)
     }
 
     suspend fun fetchTopicPosts(topicId: ULong, postIds: List<ULong>): List<TopicPostState> = withContext(Dispatchers.IO) {
-        core.fetchTopicPosts(topicId, postIds)
+        core.topics().fetchTopicPosts(topicId, postIds)
     }
 
     suspend fun clearPersistedSession() = withContext(Dispatchers.IO) {

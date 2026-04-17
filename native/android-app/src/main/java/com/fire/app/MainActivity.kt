@@ -22,8 +22,8 @@ import uniffi.fire_uniffi.CookieState
 import uniffi.fire_uniffi.SessionState
 import uniffi.fire_uniffi.SessionReadinessState
 import uniffi.fire_uniffi.TopicCategoryState
-import uniffi.fire_uniffi.TopicListKindState
-import uniffi.fire_uniffi.TopicListQueryState
+import uniffi.fire_uniffi_topics.TopicListQueryState
+import uniffi.fire_uniffi_types.TopicListKindState
 import uniffi.fire_uniffi_types.TopicListState
 import uniffi.fire_uniffi_types.TopicRowState
 import uniffi.fire_uniffi_types.TopicSummaryState

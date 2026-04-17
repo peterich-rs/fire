@@ -17,6 +17,7 @@ fire-uniffi-diagnostics = { path = "../fire-uniffi-diagnostics" }
 fire-uniffi-messagebus = { path = "../fire-uniffi-messagebus" }
 fire-uniffi-notifications = { path = "../fire-uniffi-notifications" }
 fire-uniffi-search = { path = "../fire-uniffi-search" }
+fire-uniffi-topics = { path = "../fire-uniffi-topics" }
 fire-uniffi-types = { path = "../fire-uniffi-types" }
 futures-util.workspace = true
 thiserror.workspace = true

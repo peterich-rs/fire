@@ -2,8 +2,6 @@ uniffi::setup_scaffolding!("fire_uniffi");
 
 pub mod handle;
 pub mod state_session;
-pub mod state_topic_detail;
-pub mod state_topic_list;
 pub mod state_user;
 
 pub use fire_uniffi_types::{
@@ -13,8 +11,6 @@ pub use fire_uniffi_types::{
 
 pub use handle::*;
 pub use state_session::*;
-pub use state_topic_detail::*;
-pub use state_topic_list::*;
 pub use state_user::*;
 
 #[cfg(test)]
@@ -88,29 +84,6 @@ mod tests {
             FireUniFfiError::Storage { details }
                 if details.contains("/tmp/session.json") && details.contains("denied")
         ));
-    }
-
-    #[test]
-    fn topic_detail_state_carries_interaction_count() {
-        use fire_models::{TopicDetail, TopicPost, TopicPostStream, TopicReaction};
-
-        let state = TopicDetailState::from(TopicDetail {
-            like_count: 8,
-            post_stream: TopicPostStream {
-                posts: vec![TopicPost {
-                    reactions: vec![TopicReaction {
-                        id: "clap".into(),
-                        count: 2,
-                        ..TopicReaction::default()
-                    }],
-                    ..TopicPost::default()
-                }],
-                ..TopicPostStream::default()
-            },
-            ..TopicDetail::default()
-        });
-
-        assert_eq!(state.interaction_count, 10);
     }
 
     #[test]

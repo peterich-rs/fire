@@ -1,7 +1,7 @@
 use fire_models::{
     Badge, FollowUser, InviteLink, InviteLinkDetails, ProfileSummaryReply,
     ProfileSummaryTopCategory, ProfileSummaryTopic, ProfileSummaryUserReference, UserAction,
-    UserProfile, UserSummaryResponse, UserSummaryStats, VoteResponse, VotedUser,
+    UserProfile, UserSummaryResponse, UserSummaryStats,
 };
 
 // --- Profile types ---
@@ -330,44 +330,3 @@ impl From<InviteLink> for InviteLinkState {
     }
 }
 
-#[derive(uniffi::Record, Debug, Clone)]
-pub struct VotedUserState {
-    pub id: u64,
-    pub username: String,
-    pub name: Option<String>,
-    pub avatar_template: Option<String>,
-}
-
-impl From<VotedUser> for VotedUserState {
-    fn from(value: VotedUser) -> Self {
-        Self {
-            id: value.id,
-            username: value.username,
-            name: value.name,
-            avatar_template: value.avatar_template,
-        }
-    }
-}
-
-#[derive(uniffi::Record, Debug, Clone)]
-pub struct VoteResponseState {
-    pub can_vote: bool,
-    pub vote_limit: u32,
-    pub vote_count: i32,
-    pub votes_left: i32,
-    pub alert: bool,
-    pub who_voted: Vec<VotedUserState>,
-}
-
-impl From<VoteResponse> for VoteResponseState {
-    fn from(value: VoteResponse) -> Self {
-        Self {
-            can_vote: value.can_vote,
-            vote_limit: value.vote_limit,
-            vote_count: value.vote_count,
-            votes_left: value.votes_left,
-            alert: value.alert,
-            who_voted: value.who_voted.into_iter().map(Into::into).collect(),
-        }
-    }
-}

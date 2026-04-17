@@ -459,7 +459,7 @@ public actor FireSessionStore {
 
     public func fetchTopicList(query: TopicListQueryState) async throws -> TopicListState {
         try await runPersistingSessionChanges {
-            try await core.fetchTopicList(query: query)
+            try await core.topics().fetchTopicList(query: query)
         }
     }
 
@@ -483,13 +483,13 @@ public actor FireSessionStore {
 
     public func fetchTopicDetail(query: TopicDetailQueryState) async throws -> TopicDetailState {
         try await runPersistingSessionChanges {
-            try await core.fetchTopicDetail(query: query)
+            try await core.topics().fetchTopicDetail(query: query)
         }
     }
 
     public func fetchTopicDetailInitial(query: TopicDetailQueryState) async throws -> TopicDetailState {
         try await runPersistingSessionChanges {
-            try await core.fetchTopicDetailInitial(query: query)
+            try await core.topics().fetchTopicDetailInitial(query: query)
         }
     }
 
@@ -508,13 +508,13 @@ public actor FireSessionStore {
 
     public func fetchTopicPosts(topicID: UInt64, postIDs: [UInt64]) async throws -> [TopicPostState] {
         try await runPersistingSessionChanges {
-            try await core.fetchTopicPosts(topicId: topicID, postIds: postIDs)
+            try await core.topics().fetchTopicPosts(topicId: topicID, postIds: postIDs)
         }
     }
 
     public func fetchPost(postID: UInt64) async throws -> TopicPostState {
         try await runPersistingSessionChanges {
-            try await core.fetchPost(postId: postID)
+            try await core.topics().fetchPost(postId: postID)
         }
     }
 
@@ -524,7 +524,7 @@ public actor FireSessionStore {
         replyToPostNumber: UInt32?
     ) async throws -> TopicPostState {
         try await runPersistingSessionChanges {
-            try await core.createReply(
+            try await core.topics().createReply(
                 input: TopicReplyRequestState(
                     topicId: topicID,
                     raw: raw,
@@ -540,7 +540,7 @@ public actor FireSessionStore {
         editReason: String? = nil
     ) async throws -> TopicPostState {
         try await runPersistingSessionChanges {
-            try await core.updatePost(
+            try await core.topics().updatePost(
                 input: PostUpdateRequestState(
                     postId: postID,
                     raw: raw,
@@ -557,7 +557,7 @@ public actor FireSessionStore {
         tags: [String]
     ) async throws -> UInt64 {
         try await runPersistingSessionChanges {
-            try await core.createTopic(
+            try await core.topics().createTopic(
                 input: TopicCreateRequestState(
                     title: title,
                     raw: raw,
@@ -574,7 +574,7 @@ public actor FireSessionStore {
         targetRecipients: [String]
     ) async throws -> UInt64 {
         try await runPersistingSessionChanges {
-            try await core.createPrivateMessage(
+            try await core.topics().createPrivateMessage(
                 input: PrivateMessageCreateRequestState(
                     title: title,
                     raw: raw,
@@ -591,7 +591,7 @@ public actor FireSessionStore {
         tags: [String]
     ) async throws {
         try await runPersistingSessionChanges {
-            try await core.updateTopic(
+            try await core.topics().updateTopic(
                 input: TopicUpdateRequestState(
                     topicId: topicID,
                     title: title,
@@ -608,7 +608,7 @@ public actor FireSessionStore {
         bytes: Data
     ) async throws -> UploadResultState {
         try await runPersistingSessionChanges {
-            try await core.uploadImage(
+            try await core.topics().uploadImage(
                 input: UploadImageRequestState(
                     fileName: fileName,
                     mimeType: mimeType,
@@ -620,7 +620,7 @@ public actor FireSessionStore {
 
     public func lookupUploadUrls(shortUrls: [String]) async throws -> [ResolvedUploadUrlState] {
         try await runPersistingSessionChanges {
-            try await core.lookupUploadUrls(shortUrls: shortUrls)
+            try await core.topics().lookupUploadUrls(shortUrls: shortUrls)
         }
     }
 
@@ -628,19 +628,19 @@ public actor FireSessionStore {
         input: TopicTimingsRequestState
     ) async throws -> Bool {
         try await runPersistingSessionChanges {
-            try await core.reportTopicTimings(input: input)
+            try await core.topics().reportTopicTimings(input: input)
         }
     }
 
     public func likePost(postID: UInt64) async throws -> PostReactionUpdateState? {
         try await runPersistingSessionChanges {
-            try await core.likePost(postId: postID)
+            try await core.topics().likePost(postId: postID)
         }
     }
 
     public func unlikePost(postID: UInt64) async throws -> PostReactionUpdateState? {
         try await runPersistingSessionChanges {
-            try await core.unlikePost(postId: postID)
+            try await core.topics().unlikePost(postId: postID)
         }
     }
 
@@ -649,7 +649,7 @@ public actor FireSessionStore {
         reactionID: String
     ) async throws -> PostReactionUpdateState {
         try await runPersistingSessionChanges {
-            try await core.togglePostReaction(postId: postID, reactionId: reactionID)
+            try await core.topics().togglePostReaction(postId: postID, reactionId: reactionID)
         }
     }
 
@@ -659,7 +659,7 @@ public actor FireSessionStore {
         options: [String]
     ) async throws -> PollState {
         try await runPersistingSessionChanges {
-            try await core.votePoll(postId: postID, pollName: pollName, options: options)
+            try await core.topics().votePoll(postId: postID, pollName: pollName, options: options)
         }
     }
 
@@ -668,25 +668,25 @@ public actor FireSessionStore {
         pollName: String
     ) async throws -> PollState {
         try await runPersistingSessionChanges {
-            try await core.unvotePoll(postId: postID, pollName: pollName)
+            try await core.topics().unvotePoll(postId: postID, pollName: pollName)
         }
     }
 
     public func voteTopic(topicID: UInt64) async throws -> VoteResponseState {
         try await runPersistingSessionChanges {
-            try await core.voteTopic(topicId: topicID)
+            try await core.topics().voteTopic(topicId: topicID)
         }
     }
 
     public func unvoteTopic(topicID: UInt64) async throws -> VoteResponseState {
         try await runPersistingSessionChanges {
-            try await core.unvoteTopic(topicId: topicID)
+            try await core.topics().unvoteTopic(topicId: topicID)
         }
     }
 
     public func fetchTopicVoters(topicID: UInt64) async throws -> [VotedUserState] {
         try await runPersistingSessionChanges {
-            try await core.fetchTopicVoters(topicId: topicID)
+            try await core.topics().fetchTopicVoters(topicId: topicID)
         }
     }
 

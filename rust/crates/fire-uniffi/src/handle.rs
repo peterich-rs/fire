@@ -1,7 +1,6 @@
 use std::{
-    future::Future,
     panic::{self, AssertUnwindSafe},
-    sync::{Arc, OnceLock},
+    sync::Arc,
 };
 
 use fire_core::{
@@ -10,11 +9,9 @@ use fire_core::{
     preview_text_from_html as shared_preview_text_from_html, FireCore, FireCoreConfig,
     FireCoreError,
 };
-use futures_util::FutureExt;
-use tokio::runtime::{Builder, Runtime};
-
-use crate::error::FireUniFfiError;
-use crate::panic::{CapturedPanic, PanicState};
+use fire_uniffi_types::{
+    constructor_guard, ffi_runtime, run_on_ffi_runtime, FireUniFfiError, PanicState,
+};
 use crate::state_diagnostics::{
     DiagnosticsPageDirectionState, HostLogLevelState, LogFileDetailState, LogFilePageState,
     LogFileSummaryState, NetworkTraceBodyPageState, NetworkTraceDetailState,
@@ -1165,51 +1162,4 @@ impl FireCoreHandle {
             Err(payload) => Err(self.panic_state.capture_panic(operation, payload.as_ref())),
         }
     }
-}
-
-pub(crate) fn constructor_guard<T, F>(operation: &'static str, f: F) -> Result<T, FireUniFfiError>
-where
-    F: FnOnce() -> Result<T, FireCoreError>,
-{
-    match panic::catch_unwind(AssertUnwindSafe(f)) {
-        Ok(Ok(value)) => Ok(value),
-        Ok(Err(error)) => Err(error.into()),
-        Err(payload) => {
-            let report = CapturedPanic::from_payload(operation, payload.as_ref());
-            report.log();
-            Err(FireUniFfiError::Internal {
-                details: report.user_message(),
-            })
-        }
-    }
-}
-
-pub(crate) async fn run_on_ffi_runtime<T, Fut>(
-    operation: &'static str,
-    panic_state: Arc<PanicState>,
-    future: Fut,
-) -> Result<T, FireUniFfiError>
-where
-    T: Send + 'static,
-    Fut: Future<Output = Result<T, FireCoreError>> + Send + 'static,
-{
-    panic_state.ensure_healthy(operation)?;
-    ffi_runtime()
-        .spawn(AssertUnwindSafe(future).catch_unwind())
-        .await
-        .map_err(|error| FireUniFfiError::Runtime {
-            details: error.to_string(),
-        })?
-        .map_err(|payload| panic_state.capture_panic(operation, payload.as_ref()))?
-        .map_err(Into::into)
-}
-
-pub(crate) fn ffi_runtime() -> &'static Runtime {
-    static RUNTIME: OnceLock<Runtime> = OnceLock::new();
-    RUNTIME.get_or_init(|| {
-        Builder::new_multi_thread()
-            .enable_all()
-            .build()
-            .expect("failed to create ffi runtime")
-    })
 }

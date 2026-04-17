@@ -765,6 +765,20 @@ version = "0.1.0"
 dependencies = [
  "fire-core",
  "fire-models",
+ "fire-uniffi-types",
+ "futures-util",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "uniffi",
+]
+
+[[package]]
+name = "fire-uniffi-types"
+version = "0.1.0"
+dependencies = [
+ "fire-core",
+ "fire-models",
  "futures-util",
  "thiserror 2.0.18",
  "tokio",

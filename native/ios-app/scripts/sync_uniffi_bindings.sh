@@ -10,7 +10,7 @@ script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 project_root="${SRCROOT:-$(cd -- "$script_dir/.." && pwd)}"
 repo_root="$(cd -- "$project_root/../.." && pwd)"
 generated_dir="$project_root/Generated"
-swift_out_dir="$generated_dir"
+swift_out_dir="$generated_dir/FireUniFfi"
 ffi_out_dir="$generated_dir/fire_uniffiFFI"
 lib_out_root="$generated_dir/lib"
 uniffi_config_path="$repo_root/rust/crates/fire-uniffi/uniffi.toml"
@@ -43,6 +43,8 @@ trap 'rm -rf "$tmp_dir"' EXIT
 
 mkdir -p "$swift_out_dir" "$ffi_out_dir" "$lib_out_root/$platform_name"
 rm -f "$generated_dir/fire_uniffiFFI.h" "$generated_dir/fire_uniffiFFI.modulemap"
+rm -f "$generated_dir/fire_uniffi.swift"
+rm -f "$swift_out_dir"/*.swift
 
 ensure_rust_target_installed() {
   local rust_target="$1"
@@ -226,16 +228,15 @@ dedupe_targets
     --out-dir "$tmp_dir/bindings"
 )
 
-cp "$tmp_dir/bindings/fire_uniffi.swift" "$swift_out_dir/fire_uniffi.swift"
+cp "$tmp_dir/bindings"/*.swift "$swift_out_dir/"
 cp "$tmp_dir/bindings/fire_uniffiFFI.h" "$ffi_out_dir/fire_uniffiFFI.h"
 cp "$tmp_dir/bindings/fire_uniffiFFI.modulemap" "$ffi_out_dir/module.modulemap"
 
-python3 - <<'PY' "$swift_out_dir/fire_uniffi.swift"
+python3 - <<'PY' "$swift_out_dir"
 from pathlib import Path
 import sys
 
-path = Path(sys.argv[1])
-text = path.read_text()
+directory = Path(sys.argv[1])
 replacements = {
     '            if result == nil {\n                print("Uniffi callback interface MessageBusEventHandler: handle missing in uniffiFree")\n            }\n':
     '            if result == nil {\n                #if DEBUG\n                print("Uniffi callback interface MessageBusEventHandler: handle missing in uniffiFree")\n                #endif\n            }\n',
@@ -243,12 +244,13 @@ replacements = {
     '    } else {\n        #if DEBUG\n        print("uniffiFutureContinuationCallback invalid handle")\n        #endif\n    }\n',
 }
 
-updated = text
-for before, after in replacements.items():
-    updated = updated.replace(before, after)
-
-if updated != text:
-    path.write_text(updated)
+for path in sorted(directory.glob("*.swift")):
+    text = path.read_text()
+    updated = text
+    for before, after in replacements.items():
+        updated = updated.replace(before, after)
+    if updated != text:
+        path.write_text(updated)
 PY
 
 declare -a built_libraries=()

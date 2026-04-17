@@ -1,5 +1,5 @@
 [package]
-name = "fire-uniffi"
+name = "fire-uniffi-types"
 version = "0.1.0"
 edition.workspace = true
 license.workspace = true
@@ -8,14 +8,13 @@ authors.workspace = true
 publish = false
 
 [lib]
-crate-type = ["cdylib", "staticlib", "rlib"]
+crate-type = ["rlib"]
 
 [dependencies]
 fire-core = { path = "../fire-core" }
 fire-models = { path = "../fire-models" }
-fire-uniffi-types = { path = "../fire-uniffi-types" }
 futures-util.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
-uniffi = { workspace = true, features = ["cli"] }
+uniffi.workspace = true

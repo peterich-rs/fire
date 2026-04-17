@@ -1,8 +1,5 @@
 uniffi::setup_scaffolding!("fire_uniffi");
 
-mod panic;
-
-pub mod error;
 pub mod handle;
 pub mod state_diagnostics;
 pub mod state_messagebus;
@@ -13,7 +10,11 @@ pub mod state_topic_detail;
 pub mod state_topic_list;
 pub mod state_user;
 
-pub use error::*;
+pub use fire_uniffi_types::{
+    constructor_guard, ffi_runtime, run_fallible, run_infallible, run_on_ffi_runtime,
+    CapturedPanic, FireUniFfiError, PanicState, SharedFireCore,
+};
+
 pub use handle::*;
 pub use state_diagnostics::*;
 pub use state_messagebus::*;
@@ -122,7 +123,7 @@ mod tests {
 
     #[test]
     fn runs_async_work_on_ffi_runtime() {
-        let panic_state = std::sync::Arc::new(panic::PanicState::default());
+        let panic_state = std::sync::Arc::new(PanicState::default());
         let value = ffi_runtime()
             .block_on(run_on_ffi_runtime(
                 "test_async_success",
@@ -158,7 +159,7 @@ mod tests {
 
     #[test]
     fn converts_async_panic_to_internal_error_and_poisoned_handle() {
-        let panic_state = std::sync::Arc::new(panic::PanicState::default());
+        let panic_state = std::sync::Arc::new(PanicState::default());
 
         let error = ffi_runtime()
             .block_on(run_on_ffi_runtime(

@@ -10,10 +10,13 @@ final class FireNotificationStore: ObservableObject {
     @Published private(set) var fullNotifications: [NotificationItemState] = []
     @Published private(set) var fullNextOffset: UInt32?
     @Published private(set) var isLoadingFullPage = false
+    @Published private(set) var hasLoadedFullOnce = false
     @Published private(set) var hasMoreFull = false
+    @Published private(set) var fullErrorMessage: String?
 
     private let appViewModel: FireAppViewModel
     private var pendingStateRefreshTask: Task<Void, Never>?
+    private var lastFailedFullOffset: UInt32?
 
     init(appViewModel: FireAppViewModel) {
         self.appViewModel = appViewModel
@@ -27,6 +30,18 @@ final class FireNotificationStore: ObservableObject {
         hasLoadedRecentOnce ? recentErrorMessage : nil
     }
 
+    var blockingFullErrorMessage: String? {
+        hasLoadedFullOnce ? nil : fullErrorMessage
+    }
+
+    var fullNonBlockingErrorMessage: String? {
+        hasLoadedFullOnce ? fullErrorMessage : nil
+    }
+
+    var shouldShowFullPaginationRetry: Bool {
+        lastFailedFullOffset != nil
+    }
+
     func reset() {
         pendingStateRefreshTask?.cancel()
         pendingStateRefreshTask = nil
@@ -38,7 +53,10 @@ final class FireNotificationStore: ObservableObject {
         fullNotifications = []
         fullNextOffset = nil
         isLoadingFullPage = false
+        hasLoadedFullOnce = false
         hasMoreFull = false
+        fullErrorMessage = nil
+        lastFailedFullOffset = nil
     }
 
     func cancelScheduledRefresh() {
@@ -50,8 +68,21 @@ final class FireNotificationStore: ObservableObject {
         recentErrorMessage = nil
     }
 
+    func clearFullError() {
+        fullErrorMessage = nil
+    }
+
     func recordRecentLoadFailure(_ message: String) {
         recentErrorMessage = message
+    }
+
+    func recordFullLoadFailure(_ message: String, offset: UInt32? = nil) {
+        fullErrorMessage = message
+        lastFailedFullOffset = offset
+    }
+
+    func retryFullLoad() async {
+        await loadFullPage(offset: lastFailedFullOffset)
     }
 
     func syncStateFromRuntimeIfAvailable() async {
@@ -121,6 +152,7 @@ final class FireNotificationStore: ObservableObject {
         guard !isLoadingFullPage else { return }
 
         isLoadingFullPage = true
+        fullErrorMessage = nil
         defer { isLoadingFullPage = false }
 
         do {
@@ -128,7 +160,10 @@ final class FireNotificationStore: ObservableObject {
             let state = try await appViewModel.notificationCenterState()
             apply(centerState: state, updateRecent: state.hasLoadedRecent, updateFull: true)
         } catch {
-            _ = await appViewModel.handleRecoverableSessionErrorIfNeeded(error)
+            if await appViewModel.handleRecoverableSessionErrorIfNeeded(error) {
+                return
+            }
+            recordFullLoadFailure(error.localizedDescription, offset: offset)
         }
     }
 
@@ -168,7 +203,10 @@ final class FireNotificationStore: ObservableObject {
         if updateFull {
             fullNotifications = centerState.full
             fullNextOffset = centerState.fullNextOffset
+            hasLoadedFullOnce = true
             hasMoreFull = centerState.fullNextOffset != nil
+            fullErrorMessage = nil
+            lastFailedFullOffset = nil
         }
     }
 }

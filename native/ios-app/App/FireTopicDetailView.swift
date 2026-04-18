@@ -496,6 +496,9 @@ struct FireTopicDetailView: View {
                         Task {
                             await topicDetailStore.loadTopicDetail(topicId: topic.id, force: true)
                         }
+                    },
+                    onSubmissionNotice: { message in
+                        composerNotice = message
                     }
                 )
             }

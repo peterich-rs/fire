@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct FireNotificationHistoryView: View {
     let appViewModel: FireAppViewModel
@@ -12,11 +13,13 @@ struct FireNotificationHistoryView: View {
 
     var body: some View {
         Group {
-            if notificationStore.isLoadingFullPage && notificationStore.fullNotifications.isEmpty {
+            if let errorMessage = notificationStore.blockingFullErrorMessage {
+                blockingErrorState(message: errorMessage)
+            } else if notificationStore.isLoadingFullPage && notificationStore.fullNotifications.isEmpty {
                 ProgressView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if notificationStore.fullNotifications.isEmpty {
-                emptyState
+                emptyState(errorMessage: notificationStore.fullNonBlockingErrorMessage)
             } else {
                 notificationList
             }
@@ -46,8 +49,38 @@ struct FireNotificationHistoryView: View {
         }
     }
 
+    private func retryFullLoad() {
+        Task {
+            await notificationStore.retryFullLoad()
+        }
+    }
+
+    private func blockingErrorState(message: String) -> some View {
+        FireBlockingErrorState(
+            title: "全部通知加载失败",
+            message: message,
+            onRetry: retryFullLoad
+        )
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
     private var notificationList: some View {
         List {
+            if let errorMessage = notificationStore.fullNonBlockingErrorMessage {
+                Section {
+                    FireErrorBanner(
+                        message: errorMessage,
+                        copied: false,
+                        onCopy: {
+                            UIPasteboard.general.string = errorMessage
+                        },
+                        onDismiss: {
+                            notificationStore.clearFullError()
+                        }
+                    )
+                }
+            }
+
             ForEach(notificationStore.fullNotifications, id: \.id) { item in
                 Button {
                     handleNotificationTap(item)
@@ -63,7 +96,23 @@ struct FireNotificationHistoryView: View {
                 .listRowBackground(Color.clear)
             }
 
-            if notificationStore.hasMoreFull {
+            if notificationStore.shouldShowFullPaginationRetry {
+                Button {
+                    retryFullLoad()
+                } label: {
+                    HStack {
+                        Spacer()
+                        Label("重试加载更多", systemImage: "arrow.clockwise")
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(FireTheme.accent)
+                            .padding(.vertical, 12)
+                        Spacer()
+                    }
+                }
+                .buttonStyle(.plain)
+                .listRowSeparator(.hidden)
+                .listRowBackground(Color.clear)
+            } else if notificationStore.hasMoreFull {
                 HStack {
                     Spacer()
                     ProgressView()
@@ -82,8 +131,21 @@ struct FireNotificationHistoryView: View {
         .listStyle(.plain)
     }
 
-    private var emptyState: some View {
+    private func emptyState(errorMessage: String?) -> some View {
         VStack(spacing: 16) {
+            if let errorMessage {
+                FireErrorBanner(
+                    message: errorMessage,
+                    copied: false,
+                    onCopy: {
+                        UIPasteboard.general.string = errorMessage
+                    },
+                    onDismiss: {
+                        notificationStore.clearFullError()
+                    }
+                )
+            }
+
             Image(systemName: "bell.slash")
                 .font(.system(size: 40, weight: .light))
                 .foregroundStyle(FireTheme.tertiaryInk)
@@ -93,9 +155,7 @@ struct FireNotificationHistoryView: View {
                 .foregroundStyle(.secondary)
 
             Button("刷新") {
-                Task {
-                    await notificationStore.loadFullPage(offset: nil)
-                }
+                retryFullLoad()
             }
             .buttonStyle(FireSecondaryButtonStyle())
         }

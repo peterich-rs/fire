@@ -11,6 +11,7 @@ struct FireHomeView: View {
     @State private var didPrefetchToFillViewport = false
     @State private var selectedRoute: FireAppRoute?
     @State private var lastTopicListScrollMetrics: FireCollectionScrollMetrics?
+    @State private var composerNotice: String?
 
     private static let paginationPrefetchDistance: CGFloat = 480
 
@@ -79,9 +80,24 @@ struct FireHomeView: View {
                     initialTags: homeFeedStore.selectedHomeTags,
                     onTopicCreated: { _ in
                         showCreateTopicComposer = false
+                    },
+                    onSubmissionNotice: { message in
+                        composerNotice = message
                     }
                 )
             }
+        }
+        .alert("提示", isPresented: Binding(
+            get: { composerNotice != nil },
+            set: { presenting in
+                if !presenting {
+                    composerNotice = nil
+                }
+            }
+        )) {
+            Button("知道了", role: .cancel) {}
+        } message: {
+            Text(composerNotice ?? "")
         }
     }
 

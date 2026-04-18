@@ -14,6 +14,7 @@ struct FirePublicProfileView: View {
     @State private var selectedBadge: FireSelectedBadge?
     @State private var isUpdatingFollow = false
     @State private var showPrivateMessageComposer = false
+    @State private var composerNotice: String?
 
     init(viewModel: FireAppViewModel, username: String) {
         self.viewModel = viewModel
@@ -208,9 +209,24 @@ struct FirePublicProfileView: View {
                     viewModel: viewModel,
                     route: FireComposerRoute(
                         kind: .privateMessage(recipients: [displayUsername], title: nil)
-                    )
+                    ),
+                    onSubmissionNotice: { message in
+                        composerNotice = message
+                    }
                 )
             }
+        }
+        .alert("提示", isPresented: Binding(
+            get: { composerNotice != nil },
+            set: { presenting in
+                if !presenting {
+                    composerNotice = nil
+                }
+            }
+        )) {
+            Button("知道了", role: .cancel) {}
+        } message: {
+            Text(composerNotice ?? "")
         }
         .refreshable {
             await profileViewModel.refreshAll()

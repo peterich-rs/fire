@@ -144,6 +144,7 @@ struct FirePrivateMessagesView: View {
     @State private var showComposer = false
     @State private var selectedRoute: FireAppRoute?
     @State private var copiedErrorMessage = false
+    @State private var composerNotice: String?
 
     init(viewModel: FireAppViewModel) {
         self.viewModel = viewModel
@@ -298,13 +299,34 @@ struct FirePrivateMessagesView: View {
                 FireComposerView(
                     viewModel: viewModel,
                     route: FireComposerRoute(kind: .privateMessage(recipients: [], title: nil)),
-                    onPrivateMessageCreated: { topicID in
+                    onPrivateMessageCreated: { topicID, title in
                         showComposer = false
-                        selectedRoute = .topic(topicId: topicID, postNumber: nil)
+                        selectedRoute = .topic(
+                            topicId: topicID,
+                            postNumber: nil,
+                            preview: FireTopicRoutePreview.fromMetadata(title: title)
+                        )
                         Task { await mailboxViewModel.refresh() }
+                    },
+                    onSubmissionNotice: { message in
+                        if message.contains("等待审核") {
+                            composerNotice = message
+                        }
                     }
                 )
             }
+        }
+        .alert("提示", isPresented: Binding(
+            get: { composerNotice != nil },
+            set: { presenting in
+                if !presenting {
+                    composerNotice = nil
+                }
+            }
+        )) {
+            Button("知道了", role: .cancel) {}
+        } message: {
+            Text(composerNotice ?? "")
         }
     }
 

@@ -340,7 +340,8 @@ struct FireComposerView: View {
     var initialTags: [String] = []
     var onTopicCreated: ((UInt64) -> Void)?
     var onReplySubmitted: (() -> Void)?
-    var onPrivateMessageCreated: ((UInt64) -> Void)?
+    var onPrivateMessageCreated: ((UInt64, String) -> Void)?
+    var onSubmissionNotice: ((String) -> Void)?
 
     @Environment(\.dismiss) private var dismiss
     @State private var title = ""
@@ -488,6 +489,28 @@ struct FireComposerView: View {
 
     private var markdownImages: [FireComposerMarkdownImage] {
         extractMarkdownImages(from: bodyText)
+    }
+
+    private var submissionSuccessMessage: String {
+        switch route.kind {
+        case .createTopic:
+            return "帖子已发布。"
+        case .privateMessage:
+            return "私信已发送。"
+        case .advancedReply:
+            return "回复已发送。"
+        }
+    }
+
+    private var pendingReviewMessage: String {
+        switch route.kind {
+        case .createTopic:
+            return "帖子已提交，等待审核。"
+        case .privateMessage:
+            return "私信已提交，等待审核。"
+        case .advancedReply:
+            return "回复已提交，等待审核。"
+        }
     }
 
     var body: some View {
@@ -1510,13 +1533,14 @@ struct FireComposerView: View {
                     try? await viewModel.deleteDraft(draftKey: route.draftKey, sequence: draftSequence)
                     draftSequence = 0
                     onTopicCreated?(topicID)
+                    onSubmissionNotice?(submissionSuccessMessage)
                     dismiss()
                 } catch {
                     let message = error.localizedDescription
                     if message.localizedCaseInsensitiveContains("pending review") {
                         try? await viewModel.deleteDraft(draftKey: route.draftKey, sequence: draftSequence)
                         draftSequence = 0
-                        noticeMessage = "帖子已提交，等待审核。"
+                        onSubmissionNotice?(pendingReviewMessage)
                         dismiss()
                         return
                     }
@@ -1557,14 +1581,15 @@ struct FireComposerView: View {
                     )
                     try? await viewModel.deleteDraft(draftKey: route.draftKey, sequence: draftSequence)
                     draftSequence = 0
-                    onPrivateMessageCreated?(topicID)
+                    onPrivateMessageCreated?(topicID, trimmedTitle)
+                    onSubmissionNotice?(submissionSuccessMessage)
                     dismiss()
                 } catch {
                     let message = error.localizedDescription
                     if message.localizedCaseInsensitiveContains("pending review") {
                         try? await viewModel.deleteDraft(draftKey: route.draftKey, sequence: draftSequence)
                         draftSequence = 0
-                        noticeMessage = "私信已提交，等待审核。"
+                        onSubmissionNotice?(pendingReviewMessage)
                         dismiss()
                         return
                     }
@@ -1594,14 +1619,15 @@ struct FireComposerView: View {
                     try? await viewModel.deleteDraft(draftKey: route.draftKey, sequence: draftSequence)
                     draftSequence = 0
                     onReplySubmitted?()
+                    onSubmissionNotice?(submissionSuccessMessage)
                     dismiss()
                 } catch {
                     let message = error.localizedDescription
                     if message.localizedCaseInsensitiveContains("pending review") {
                         try? await viewModel.deleteDraft(draftKey: route.draftKey, sequence: draftSequence)
                         draftSequence = 0
-                        noticeMessage = "回复已提交，等待审核。"
                         onReplySubmitted?()
+                        onSubmissionNotice?(pendingReviewMessage)
                         dismiss()
                         return
                     }

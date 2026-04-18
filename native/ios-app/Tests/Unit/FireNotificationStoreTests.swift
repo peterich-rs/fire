@@ -13,6 +13,17 @@ final class FireNotificationStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testFullLoadFailureIsBlockingBeforeFirstSuccessfulLoad() {
+        let store = FireNotificationStore(appViewModel: FireAppViewModel())
+
+        store.recordFullLoadFailure("offline")
+
+        XCTAssertEqual(store.blockingFullErrorMessage, "offline")
+        XCTAssertNil(store.fullNonBlockingErrorMessage)
+        XCTAssertFalse(store.shouldShowFullPaginationRetry)
+    }
+
+    @MainActor
     func testRecentLoadFailureIsNonBlockingAfterSuccessfulLoad() {
         let store = FireNotificationStore(appViewModel: FireAppViewModel())
 
@@ -38,6 +49,35 @@ final class FireNotificationStoreTests: XCTestCase {
         XCTAssertNil(store.blockingRecentErrorMessage)
         XCTAssertEqual(store.recentNonBlockingErrorMessage, "offline")
         XCTAssertEqual(store.recentNotifications.map(\.id), [1])
+    }
+
+    @MainActor
+    func testFullPaginationFailureIsNonBlockingAfterSuccessfulLoad() {
+        let store = FireNotificationStore(appViewModel: FireAppViewModel())
+
+        store.apply(
+            centerState: NotificationCenterState(
+                counters: NotificationCountersState(allUnread: 1, unread: 1, highPriority: 0),
+                recent: [],
+                hasLoadedRecent: false,
+                recentSeenNotificationId: 0,
+                full: [makeNotification(id: 2, read: true)],
+                hasLoadedFull: true,
+                totalRowsNotifications: 10,
+                fullSeenNotificationId: 2,
+                fullLoadMoreNotifications: "/notifications?offset=60",
+                fullNextOffset: 60
+            ),
+            updateRecent: false,
+            updateFull: true
+        )
+
+        store.recordFullLoadFailure("offline", offset: 60)
+
+        XCTAssertNil(store.blockingFullErrorMessage)
+        XCTAssertEqual(store.fullNonBlockingErrorMessage, "offline")
+        XCTAssertEqual(store.fullNotifications.map(\.id), [2])
+        XCTAssertTrue(store.shouldShowFullPaginationRetry)
     }
 
     @MainActor
@@ -99,6 +139,8 @@ final class FireNotificationStoreTests: XCTestCase {
         XCTAssertFalse(store.hasMoreFull)
         XCTAssertFalse(store.isLoadingRecent)
         XCTAssertFalse(store.isLoadingFullPage)
+        XCTAssertFalse(store.hasLoadedFullOnce)
+        XCTAssertNil(store.fullNonBlockingErrorMessage)
     }
 
     private func makeNotification(id: UInt64, read: Bool) -> NotificationItemState {

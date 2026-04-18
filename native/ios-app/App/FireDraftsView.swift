@@ -81,6 +81,7 @@ final class FireDraftsViewModel: ObservableObject {
 struct FireDraftsView: View {
     @ObservedObject var viewModel: FireAppViewModel
     @StateObject private var draftsViewModel: FireDraftsViewModel
+    @State private var composerNotice: String?
 
     init(viewModel: FireAppViewModel) {
         self.viewModel = viewModel
@@ -160,8 +161,11 @@ struct FireDraftsView: View {
                                     onReplySubmitted: {
                                         Task { await draftsViewModel.refresh() }
                                     },
-                                    onPrivateMessageCreated: { _ in
+                                    onPrivateMessageCreated: { _, _ in
                                         Task { await draftsViewModel.refresh() }
+                                    },
+                                    onSubmissionNotice: { message in
+                                        composerNotice = message
                                     }
                                 )
                             } label: {
@@ -203,6 +207,18 @@ struct FireDraftsView: View {
         }
         .refreshable {
             await draftsViewModel.refresh()
+        }
+        .alert("提示", isPresented: Binding(
+            get: { composerNotice != nil },
+            set: { presenting in
+                if !presenting {
+                    composerNotice = nil
+                }
+            }
+        )) {
+            Button("知道了", role: .cancel) {}
+        } message: {
+            Text(composerNotice ?? "")
         }
     }
 

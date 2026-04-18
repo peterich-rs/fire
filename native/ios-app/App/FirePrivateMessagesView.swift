@@ -11,6 +11,7 @@ final class FirePrivateMessagesViewModel: ObservableObject {
     @Published var selectedKind: TopicListKindState = .privateMessagesInbox
     @Published private(set) var rows: [TopicRowState] = []
     @Published private(set) var users: [TopicUserState] = []
+    @Published private(set) var renderedKind: TopicListKindState?
     @Published private(set) var isLoading = false
     @Published private(set) var isLoadingMore = false
     @Published private(set) var hasLoadedOnce = false
@@ -31,6 +32,26 @@ final class FirePrivateMessagesViewModel: ObservableObject {
         self.fetchPrivateMessages = fetchPrivateMessages
     }
 
+    var hasResolvedCurrentKind: Bool {
+        renderedKind == selectedKind
+    }
+
+    var displayedRows: [TopicRowState] {
+        hasResolvedCurrentKind ? rows : []
+    }
+
+    var displayedUsers: [TopicUserState] {
+        hasResolvedCurrentKind ? users : []
+    }
+
+    var currentKindDisplayState: FireScopedTopicListDisplayState {
+        FireScopedTopicListDisplayState.resolve(
+            hasResolvedCurrentScope: hasResolvedCurrentKind,
+            hasRows: !displayedRows.isEmpty,
+            errorMessage: errorMessage
+        )
+    }
+
     private func deduplicatedRows(_ rows: [TopicRowState]) -> [TopicRowState] {
         var seenTopicIDs = Set<UInt64>()
         return rows.filter { row in
@@ -46,7 +67,7 @@ final class FirePrivateMessagesViewModel: ObservableObject {
     }
 
     func loadIfNeeded() async {
-        guard rows.isEmpty, !isLoading else { return }
+        guard (!hasResolvedCurrentKind || rows.isEmpty), !isLoading else { return }
         await load(reset: true)
     }
 
@@ -61,8 +82,9 @@ final class FirePrivateMessagesViewModel: ObservableObject {
     }
 
     func loadMoreIfNeeded(currentTopicID: UInt64) async {
+        guard hasResolvedCurrentKind else { return }
         guard hasMore, !isLoading, !isLoadingMore else { return }
-        guard rows.last?.topic.id == currentTopicID else { return }
+        guard displayedRows.last?.topic.id == currentTopicID else { return }
         await load(reset: false)
     }
 
@@ -127,6 +149,7 @@ final class FirePrivateMessagesViewModel: ObservableObject {
             let receivedFreshContent = !freshRows.isEmpty || !freshUsers.isEmpty
             nextPage = resolvedNextPage
             hasMore = resolvedNextPage != nil && (reset || receivedFreshContent)
+            renderedKind = requestKind
             hasLoadedOnce = true
             errorMessage = nil
         } catch {
@@ -153,13 +176,26 @@ struct FirePrivateMessagesView: View {
         )
     }
 
+    private var displayState: FireScopedTopicListDisplayState {
+        mailboxViewModel.currentKindDisplayState
+    }
+
     private var currentUsername: String? {
         viewModel.session.bootstrap.currentUsername?.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private var usersByID: [UInt64: TopicUserState] {
-        mailboxViewModel.users.reduce(into: [:]) { partialResult, user in
+        mailboxViewModel.displayedUsers.reduce(into: [:]) { partialResult, user in
             partialResult[user.id] = user
+        }
+    }
+
+    private var nonBlockingErrorMessage: String? {
+        switch displayState {
+        case .empty(let message), .content(let message):
+            return message
+        case .loading, .blockingError:
+            return nil
         }
     }
 
@@ -167,8 +203,7 @@ struct FirePrivateMessagesView: View {
         List {
             pickerSection
 
-            if let errorMessage = mailboxViewModel.errorMessage,
-               mailboxViewModel.hasLoadedOnce {
+            if let errorMessage = nonBlockingErrorMessage {
                 Section {
                     FireErrorBanner(
                         message: errorMessage,
@@ -188,30 +223,29 @@ struct FirePrivateMessagesView: View {
                 }
             }
 
-            if !mailboxViewModel.hasLoadedOnce {
-                if let errorMessage = mailboxViewModel.errorMessage {
-                    Section {
-                        FireBlockingErrorState(
-                            title: "私信加载失败",
-                            message: errorMessage,
-                            onRetry: {
-                                Task {
-                                    await mailboxViewModel.refresh()
-                                }
-                            }
-                        )
-                    }
-                } else {
-                    Section {
-                        HStack {
-                            Spacer()
-                            ProgressView()
-                                .padding(.vertical, 20)
-                            Spacer()
-                        }
+            switch displayState {
+            case .loading:
+                Section {
+                    HStack {
+                        Spacer()
+                        ProgressView()
+                            .padding(.vertical, 20)
+                        Spacer()
                     }
                 }
-            } else if mailboxViewModel.rows.isEmpty {
+            case .blockingError(let errorMessage):
+                Section {
+                    FireBlockingErrorState(
+                        title: "私信加载失败",
+                        message: errorMessage,
+                        onRetry: {
+                            Task {
+                                await mailboxViewModel.refresh()
+                            }
+                        }
+                    )
+                }
+            case .empty:
                 Section {
                     VStack(spacing: 10) {
                         Image(systemName: "tray.2")
@@ -235,7 +269,7 @@ struct FirePrivateMessagesView: View {
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 28)
                 }
-            } else {
+            case .content:
                 Section {
                     if mailboxViewModel.isLoading {
                         HStack {
@@ -247,7 +281,7 @@ struct FirePrivateMessagesView: View {
                         }
                     }
 
-                    ForEach(mailboxViewModel.rows, id: \.topic.id) { row in
+                    ForEach(mailboxViewModel.displayedRows, id: \.topic.id) { row in
                         Button {
                             selectedRoute = .topic(row: row)
                         } label: {

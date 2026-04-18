@@ -1,12 +1,39 @@
 import SwiftUI
 import UIKit
 
+enum FireScopedTopicListDisplayState: Equatable {
+    case loading
+    case blockingError(message: String)
+    case empty(nonBlockingErrorMessage: String?)
+    case content(nonBlockingErrorMessage: String?)
+
+    static func resolve(
+        hasResolvedCurrentScope: Bool,
+        hasRows: Bool,
+        errorMessage: String?
+    ) -> Self {
+        if !hasResolvedCurrentScope {
+            if let errorMessage {
+                return .blockingError(message: errorMessage)
+            }
+            return .loading
+        }
+
+        if hasRows {
+            return .content(nonBlockingErrorMessage: errorMessage)
+        }
+
+        return .empty(nonBlockingErrorMessage: errorMessage)
+    }
+}
+
 @MainActor
 final class FireFilteredTopicListViewModel: ObservableObject {
     typealias FetchFilteredTopics = @MainActor (TopicListQueryState) async throws -> TopicListState
 
     @Published var selectedKind: TopicListKindState = .latest
     @Published private(set) var rows: [FireTopicRowPresentation] = []
+    @Published private(set) var renderedKind: TopicListKindState?
     @Published private(set) var nextPage: UInt32?
     @Published private(set) var isLoading = false
     @Published private(set) var isLoadingMore = false
@@ -50,8 +77,28 @@ final class FireFilteredTopicListViewModel: ObservableObject {
         self.tag = tag
     }
 
+    var hasResolvedCurrentKind: Bool {
+        renderedKind == selectedKind
+    }
+
+    var displayedRows: [FireTopicRowPresentation] {
+        hasResolvedCurrentKind ? rows : []
+    }
+
+    var currentKindNextPage: UInt32? {
+        hasResolvedCurrentKind ? nextPage : nil
+    }
+
+    var currentKindDisplayState: FireScopedTopicListDisplayState {
+        FireScopedTopicListDisplayState.resolve(
+            hasResolvedCurrentScope: hasResolvedCurrentKind,
+            hasRows: !displayedRows.isEmpty,
+            errorMessage: errorMessage
+        )
+    }
+
     func loadIfNeeded() async {
-        guard rows.isEmpty, !isLoading else { return }
+        guard (!hasResolvedCurrentKind || rows.isEmpty), !isLoading else { return }
         await refresh()
     }
 
@@ -66,7 +113,7 @@ final class FireFilteredTopicListViewModel: ObservableObject {
     }
 
     func loadMore() async {
-        guard let nextPage else { return }
+        guard let nextPage = currentKindNextPage else { return }
         guard !isLoading, !isLoadingMore else { return }
         await load(page: nextPage, reset: false)
     }
@@ -119,6 +166,7 @@ final class FireFilteredTopicListViewModel: ObservableObject {
             } else {
                 rows = mergeRows(existing: rows, incoming: response.rows)
             }
+            renderedKind = requestKind
             nextPage = response.nextPage
             hasLoadedOnce = true
             errorMessage = nil
@@ -179,12 +227,24 @@ struct FireFilteredTopicListView: View {
         )
     }
 
+    private var displayState: FireScopedTopicListDisplayState {
+        listViewModel.currentKindDisplayState
+    }
+
+    private var nonBlockingErrorMessage: String? {
+        switch displayState {
+        case .empty(let message), .content(let message):
+            return message
+        case .loading, .blockingError:
+            return nil
+        }
+    }
+
     var body: some View {
         List {
             kindSelectorSection
 
-            if let errorMessage = listViewModel.errorMessage,
-               listViewModel.hasLoadedOnce {
+            if let errorMessage = nonBlockingErrorMessage {
                 Section {
                     FireErrorBanner(
                         message: errorMessage,
@@ -204,25 +264,24 @@ struct FireFilteredTopicListView: View {
                 }
             }
 
-            if !listViewModel.hasLoadedOnce {
-                if let errorMessage = listViewModel.errorMessage {
-                    Section {
-                        FireBlockingErrorState(
-                            title: "列表加载失败",
-                            message: errorMessage,
-                            onRetry: {
-                                Task {
-                                    await listViewModel.refresh()
-                                }
+            switch displayState {
+            case .loading:
+                loadingSection
+            case .blockingError(let errorMessage):
+                Section {
+                    FireBlockingErrorState(
+                        title: "列表加载失败",
+                        message: errorMessage,
+                        onRetry: {
+                            Task {
+                                await listViewModel.refresh()
                             }
-                        )
-                    }
-                } else {
-                    loadingSection
+                        }
+                    )
                 }
-            } else if listViewModel.rows.isEmpty {
+            case .empty:
                 emptySection
-            } else {
+            case .content:
                 topicListSection
             }
         }
@@ -294,7 +353,7 @@ struct FireFilteredTopicListView: View {
                 }
             }
 
-            ForEach(listViewModel.rows, id: \.topic.id) { topicRow in
+            ForEach(listViewModel.displayedRows, id: \.topic.id) { topicRow in
                 Button {
                     selectedRoute = .topic(row: topicRow)
                 } label: {
@@ -306,7 +365,7 @@ struct FireFilteredTopicListView: View {
                 .buttonStyle(.plain)
             }
 
-            if listViewModel.nextPage != nil {
+            if listViewModel.currentKindNextPage != nil {
                 loadMoreRow
             }
         }

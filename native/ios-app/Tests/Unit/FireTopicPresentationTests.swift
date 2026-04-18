@@ -139,6 +139,45 @@ final class FireTopicPresentationTests: XCTestCase {
         XCTAssertNotEqual(beforeLoad, afterLoad)
     }
 
+    func testTopicDetailViewStateClearsCachedDetailWhenStoreDropsTopic() {
+        let detail = makeTopicDetail(
+            posts: [makePost(postNumber: 1, replyToPostNumber: nil, username: "author")],
+            stream: [1]
+        )
+
+        let mirrored = FireTopicDetailViewState.syncedCachedDetail(
+            topicId: 42,
+            topicDetails: [42: detail]
+        )
+        let cleared = FireTopicDetailViewState.syncedCachedDetail(
+            topicId: 42,
+            topicDetails: [:]
+        )
+
+        XCTAssertEqual(mirrored?.id, 42)
+        XCTAssertNil(cleared)
+    }
+
+    func testTopicDetailViewStateSubscriptionOnlyTracksLiveDetail() {
+        let cachedDetail = makeTopicDetail(
+            posts: [makePost(postNumber: 1, replyToPostNumber: nil, username: "author")],
+            stream: [1]
+        )
+
+        let resolvedFromCache = FireTopicDetailViewState.resolvedDetail(
+            liveDetail: nil,
+            cachedDetail: cachedDetail
+        )
+
+        XCTAssertEqual(resolvedFromCache?.id, 42)
+        XCTAssertFalse(
+            FireTopicDetailViewState.hasLoadedDetailForSubscription(liveDetail: nil)
+        )
+        XCTAssertTrue(
+            FireTopicDetailViewState.hasLoadedDetailForSubscription(liveDetail: cachedDetail)
+        )
+    }
+
     @MainActor
     func testHomeFeedVisibleTopicSanitizerDropsUnloadedTopicIDs() {
         let sanitized = FireHomeFeedStore.sanitizedVisibleTopicIDs(
@@ -465,7 +504,7 @@ final class FireTopicPresentationTests: XCTestCase {
     }
 
     @MainActor
-    func testPrivateMessagesViewModelKeepsRowsWhenMailboxReloadFails() async {
+    func testPrivateMessagesViewModelHidesStaleRowsWhenMailboxKindSwitchFails() async {
         let loader = PrivateMessageMailboxLoader(
             steps: [
                 .success(makePrivateMessageMailboxResponse(topicID: 101, username: "alice")),
@@ -482,10 +521,42 @@ final class FireTopicPresentationTests: XCTestCase {
         await viewModel.selectKind(.privateMessagesSent)
 
         XCTAssertEqual(viewModel.selectedKind, .privateMessagesSent)
+        XCTAssertEqual(viewModel.renderedKind, .privateMessagesInbox)
+        XCTAssertTrue(viewModel.displayedRows.isEmpty)
+        XCTAssertTrue(viewModel.displayedUsers.isEmpty)
         XCTAssertEqual(viewModel.rows.map(\.topic.id), [101])
         XCTAssertEqual(viewModel.users.map(\.username), ["alice"])
         XCTAssertTrue(viewModel.hasLoadedOnce)
         XCTAssertEqual(viewModel.errorMessage, "offline")
+        XCTAssertEqual(
+            viewModel.currentKindDisplayState,
+            .blockingError(message: "offline")
+        )
+    }
+
+    @MainActor
+    func testPrivateMessagesViewModelKeepsCurrentKindRowsWhenRefreshFails() async {
+        let loader = PrivateMessageMailboxLoader(
+            steps: [
+                .success(makePrivateMessageMailboxResponse(topicID: 101, username: "alice")),
+                .failure("offline")
+            ]
+        )
+        let viewModel = FirePrivateMessagesViewModel { kind, page in
+            try await loader.fetch(kind: kind, page: page)
+        }
+
+        await viewModel.refresh()
+        await viewModel.refresh()
+
+        XCTAssertEqual(viewModel.selectedKind, .privateMessagesInbox)
+        XCTAssertEqual(viewModel.renderedKind, .privateMessagesInbox)
+        XCTAssertEqual(viewModel.displayedRows.map(\.topic.id), [101])
+        XCTAssertEqual(viewModel.displayedUsers.map(\.username), ["alice"])
+        XCTAssertEqual(
+            viewModel.currentKindDisplayState,
+            .content(nonBlockingErrorMessage: "offline")
+        )
     }
 
     @MainActor
@@ -538,7 +609,7 @@ final class FireTopicPresentationTests: XCTestCase {
     }
 
     @MainActor
-    func testFilteredTopicListViewModelKeepsRowsWhenKindReloadFails() async {
+    func testFilteredTopicListViewModelHidesStaleRowsWhenKindSwitchFails() async {
         let loader = FilteredTopicListLoader(
             steps: [
                 .success(makeFilteredTopicListResponse(topicID: 301, title: "Latest")),
@@ -562,9 +633,45 @@ final class FireTopicPresentationTests: XCTestCase {
         await viewModel.selectKind(.top)
 
         XCTAssertEqual(viewModel.selectedKind, .top)
+        XCTAssertEqual(viewModel.renderedKind, .latest)
+        XCTAssertTrue(viewModel.displayedRows.isEmpty)
         XCTAssertEqual(viewModel.rows.map(\.topic.id), [301])
         XCTAssertTrue(viewModel.hasLoadedOnce)
         XCTAssertEqual(viewModel.errorMessage, "offline")
+        XCTAssertEqual(
+            viewModel.currentKindDisplayState,
+            .blockingError(message: "offline")
+        )
+    }
+
+    @MainActor
+    func testFilteredTopicListViewModelKeepsCurrentKindRowsWhenRefreshFails() async {
+        let loader = FilteredTopicListLoader(
+            steps: [
+                .success(makeFilteredTopicListResponse(topicID: 301, title: "Latest")),
+                .failure("offline")
+            ]
+        )
+        let viewModel = FireFilteredTopicListViewModel(
+            categorySlug: nil,
+            categoryId: nil,
+            parentCategorySlug: nil,
+            tag: nil,
+            fetchFilteredTopics: { query in
+                try await loader.fetch(query: query)
+            }
+        )
+
+        await viewModel.refresh()
+        await viewModel.refresh()
+
+        XCTAssertEqual(viewModel.selectedKind, .latest)
+        XCTAssertEqual(viewModel.renderedKind, .latest)
+        XCTAssertEqual(viewModel.displayedRows.map(\.topic.id), [301])
+        XCTAssertEqual(
+            viewModel.currentKindDisplayState,
+            .content(nonBlockingErrorMessage: "offline")
+        )
     }
 
     @MainActor

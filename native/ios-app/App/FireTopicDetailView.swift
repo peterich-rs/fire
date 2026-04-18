@@ -1,6 +1,26 @@
 import Photos
 import SwiftUI
 
+enum FireTopicDetailViewState {
+    static func resolvedDetail(
+        liveDetail: TopicDetailState?,
+        cachedDetail: TopicDetailState?
+    ) -> TopicDetailState? {
+        liveDetail ?? cachedDetail
+    }
+
+    static func syncedCachedDetail(
+        topicId: UInt64,
+        topicDetails: [UInt64: TopicDetailState]
+    ) -> TopicDetailState? {
+        topicDetails[topicId]
+    }
+
+    static func hasLoadedDetailForSubscription(liveDetail: TopicDetailState?) -> Bool {
+        liveDetail != nil
+    }
+}
+
 private struct FireReplyComposerContext: Identifiable, Equatable {
     let topicId: UInt64
     let postId: UInt64?
@@ -101,8 +121,15 @@ struct FireTopicDetailView: View {
         row.topic
     }
 
+    private var liveDetail: TopicDetailState? {
+        topicDetailStore.topicDetail(for: topic.id)
+    }
+
     private var detail: TopicDetailState? {
-        topicDetailStore.topicDetail(for: topic.id) ?? cachedDetail
+        FireTopicDetailViewState.resolvedDetail(
+            liveDetail: liveDetail,
+            cachedDetail: cachedDetail
+        )
     }
 
     private var detailError: String? {
@@ -267,7 +294,9 @@ struct FireTopicDetailView: View {
         Self.topicDetailSubscriptionTaskID(
             topicId: topic.id,
             canOpenMessageBus: viewModel.session.readiness.canOpenMessageBus,
-            hasLoadedDetail: detail != nil
+            hasLoadedDetail: FireTopicDetailViewState.hasLoadedDetailForSubscription(
+                liveDetail: liveDetail
+            )
         )
     }
 
@@ -527,14 +556,15 @@ struct FireTopicDetailView: View {
         .onAppear {
             topicDetailStore.beginTopicDetailLifecycle(topicId: topic.id, ownerToken: detailOwnerToken)
             viewModel.setAPMRoute("topic.detail.\(topic.id)")
-            if let current = topicDetailStore.topicDetail(for: topic.id) {
+            if let current = liveDetail {
                 cachedDetail = current
             }
         }
         .onReceive(topicDetailStore.$topicDetails) { dict in
-            if let fresh = dict[topic.id] {
-                cachedDetail = fresh
-            }
+            cachedDetail = FireTopicDetailViewState.syncedCachedDetail(
+                topicId: topic.id,
+                topicDetails: dict
+            )
         }
         .task(id: topic.id) {
             timingTracker.start { topicId, topicTimeMs, timings in

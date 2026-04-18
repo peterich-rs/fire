@@ -75,6 +75,7 @@ final class FireReadHistoryViewModel: ObservableObject {
 struct FireReadHistoryView: View {
     @ObservedObject var viewModel: FireAppViewModel
     @StateObject private var historyViewModel: FireReadHistoryViewModel
+    @State private var selectedRoute: FireAppRoute?
 
     init(viewModel: FireAppViewModel) {
         self.viewModel = viewModel
@@ -143,11 +144,10 @@ struct FireReadHistoryView: View {
             } else {
                 Section {
                     ForEach(historyViewModel.rows, id: \.topic.id) { row in
-                        NavigationLink {
-                            FireTopicDetailView(
-                                viewModel: viewModel,
+                        Button {
+                            selectedRoute = .topic(
                                 row: row,
-                                scrollToPostNumber: row.topic.lastReadPostNumber
+                                postNumber: row.topic.lastReadPostNumber
                             )
                         } label: {
                             FireTopicRow(
@@ -178,6 +178,9 @@ struct FireReadHistoryView: View {
         .background(FireTheme.canvasTop)
         .navigationTitle("浏览历史")
         .navigationBarTitleDisplayMode(.inline)
+        .navigationDestination(item: $selectedRoute) { route in
+            FireAppRouteDestinationView(viewModel: viewModel, route: route)
+        }
         .task {
             await historyViewModel.loadIfNeeded()
         }

@@ -75,6 +75,7 @@ struct FireBookmarksView: View {
 
     @StateObject private var bookmarksViewModel: FireBookmarksViewModel
     @State private var editingContext: FireBookmarkEditorContext?
+    @State private var selectedRoute: FireAppRoute?
 
     init(viewModel: FireAppViewModel, username: String) {
         self.viewModel = viewModel
@@ -145,15 +146,15 @@ struct FireBookmarksView: View {
             } else {
                 Section {
                     ForEach(bookmarksViewModel.rows, id: \.topic.id) { row in
-                        NavigationLink {
-                            FireTopicDetailView(
-                                viewModel: viewModel,
+                        Button {
+                            selectedRoute = .topic(
                                 row: row,
-                                scrollToPostNumber: row.topic.bookmarkedPostNumber ?? row.topic.lastReadPostNumber
+                                postNumber: row.topic.bookmarkedPostNumber ?? row.topic.lastReadPostNumber
                             )
                         } label: {
                             bookmarkRow(row)
                         }
+                        .buttonStyle(.plain)
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                             if row.topic.bookmarkId != nil {
                                 Button("编辑") {
@@ -190,6 +191,9 @@ struct FireBookmarksView: View {
         .listStyle(.insetGrouped)
         .navigationTitle("我的书签")
         .navigationBarTitleDisplayMode(.inline)
+        .navigationDestination(item: $selectedRoute) { route in
+            FireAppRouteDestinationView(viewModel: viewModel, route: route)
+        }
         .task {
             await bookmarksViewModel.loadIfNeeded()
         }

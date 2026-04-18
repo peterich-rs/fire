@@ -248,8 +248,8 @@ struct FirePrivateMessagesView: View {
                     }
 
                     ForEach(mailboxViewModel.rows, id: \.topic.id) { row in
-                        NavigationLink {
-                            FireTopicDetailView(viewModel: viewModel, row: row)
+                        Button {
+                            selectedRoute = .topic(row: row)
                         } label: {
                             privateMessageRow(row)
                         }
@@ -304,7 +304,7 @@ struct FirePrivateMessagesView: View {
                         selectedRoute = .topic(
                             topicId: topicID,
                             postNumber: nil,
-                            preview: FireTopicRoutePreview.fromMetadata(title: title)
+                            preview: FireTopicRoutePreview.fromMetadata(title: title, slug: nil)
                         )
                         Task { await mailboxViewModel.refresh() }
                     },

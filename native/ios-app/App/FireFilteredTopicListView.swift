@@ -152,6 +152,7 @@ struct FireFilteredTopicListView: View {
 
     @StateObject private var listViewModel: FireFilteredTopicListViewModel
     @State private var copiedErrorMessage = false
+    @State private var selectedRoute: FireAppRoute?
 
     init(
         viewModel: FireAppViewModel,
@@ -228,6 +229,9 @@ struct FireFilteredTopicListView: View {
         .listStyle(.plain)
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
+        .navigationDestination(item: $selectedRoute) { route in
+            FireAppRouteDestinationView(viewModel: viewModel, route: route)
+        }
         .refreshable {
             await listViewModel.refresh()
         }
@@ -244,8 +248,8 @@ struct FireFilteredTopicListView: View {
                 HStack(spacing: 4) {
                     ForEach(TopicListKindState.orderedCases, id: \.self) { kind in
                         Button {
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                Task {
+                            _ = withAnimation(.easeInOut(duration: 0.2)) {
+                                Task<Void, Never> {
                                     await listViewModel.selectKind(kind)
                                 }
                             }
@@ -291,14 +295,15 @@ struct FireFilteredTopicListView: View {
             }
 
             ForEach(listViewModel.rows, id: \.topic.id) { topicRow in
-                NavigationLink {
-                    FireTopicDetailView(viewModel: viewModel, row: topicRow)
+                Button {
+                    selectedRoute = .topic(row: topicRow)
                 } label: {
                     FireTopicRow(
                         row: topicRow,
                         category: viewModel.categoryPresentation(for: topicRow.topic.categoryId)
                     )
                 }
+                .buttonStyle(.plain)
             }
 
             if listViewModel.nextPage != nil {
@@ -309,7 +314,7 @@ struct FireFilteredTopicListView: View {
 
     private var loadMoreRow: some View {
         Button {
-            Task {
+            _ = Task<Void, Never> {
                 await listViewModel.loadMore()
             }
         } label: {

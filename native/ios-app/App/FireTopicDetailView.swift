@@ -1788,46 +1788,255 @@ private struct FireTopicVotersSheet: View {
 private struct FireTopicImageViewer: View {
     let image: FireCookedImage
     @Environment(\.dismiss) private var dismiss
+    @State private var interactionMode: InteractionMode = .idle
+    @State private var activeDragMode: DragMode?
+    @State private var steadyZoomScale: CGFloat = 1
+    @State private var gestureZoomScale: CGFloat = 1
+    @State private var panOffset: CGSize = .zero
+    @State private var dragStartOffset: CGSize = .zero
+    @State private var dismissOffset: CGSize = .zero
+
+    private enum InteractionMode {
+        case idle
+        case zooming
+        case panning
+        case dismissing
+    }
+
+    private enum DragMode {
+        case pan
+        case dismiss
+        case ignore
+    }
+
+    private let minimumZoomScale: CGFloat = 1
+    private let maximumZoomScale: CGFloat = 4
+    private let dismissThreshold: CGFloat = 140
+    private let dismissProgressDistance: CGFloat = 220
+    private let imagePadding: CGFloat = 16
 
     private var imageRequest: FireRemoteImageRequest {
         FireRemoteImageRequest(url: image.url)
     }
 
-    var body: some View {
-        ZStack(alignment: .topTrailing) {
-            Color.black.ignoresSafeArea()
+    private var effectiveZoomScale: CGFloat {
+        clampedScale(steadyZoomScale * gestureZoomScale)
+    }
 
-            FireRemoteImage(request: imageRequest) { loadedImage in
-                Image(uiImage: loadedImage)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .padding(16)
-            } placeholder: { state in
-                switch state {
-                case .loading, .missingRequest:
-                    ProgressView()
-                        .tint(.white)
-                case .failure:
-                    VStack(spacing: 12) {
-                        Image(systemName: "photo")
-                            .font(.largeTitle)
-                        Text("图片加载失败")
-                            .font(.subheadline)
+    private var dismissProgress: CGFloat {
+        min(max(dismissOffset.height / dismissProgressDistance, 0), 1)
+    }
+
+    private var backgroundOpacity: Double {
+        Double(max(0.22, 1 - dismissProgress * 0.78))
+    }
+
+    private var contentScale: CGFloat {
+        let dismissScale = max(0.88, 1 - dismissProgress * 0.12)
+        return effectiveZoomScale * dismissScale
+    }
+
+    var body: some View {
+        GeometryReader { proxy in
+            let containerSize = proxy.size
+
+            ZStack(alignment: .topTrailing) {
+                Color.black
+                    .opacity(backgroundOpacity)
+                    .ignoresSafeArea()
+
+                FireRemoteImage(request: imageRequest) { loadedImage in
+                    Image(uiImage: loadedImage)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .padding(imagePadding)
+                } placeholder: { state in
+                    switch state {
+                    case .loading, .missingRequest:
+                        ProgressView()
+                            .tint(.white)
+                    case .failure:
+                        VStack(spacing: 12) {
+                            Image(systemName: "photo")
+                                .font(.largeTitle)
+                            Text("图片加载失败")
+                                .font(.subheadline)
+                        }
+                        .foregroundStyle(.white)
                     }
-                    .foregroundStyle(.white)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .scaleEffect(contentScale)
+                .offset(displayOffset(in: containerSize))
+                .simultaneousGesture(magnificationGesture(in: containerSize))
+
+                Button {
+                    dismiss()
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 28))
+                        .foregroundStyle(.white.opacity(0.92))
+                        .padding(20)
+                }
+                .opacity(max(0.4, backgroundOpacity))
+            }
+            .contentShape(Rectangle())
+            .simultaneousGesture(dragGesture(in: containerSize))
+        }
+    }
+
+    private func magnificationGesture(in containerSize: CGSize) -> some Gesture {
+        MagnificationGesture()
+            .onChanged { value in
+                activeDragMode = nil
+                dismissOffset = .zero
+                interactionMode = .zooming
+                gestureZoomScale = value
+            }
+            .onEnded { value in
+                let resolvedScale = clampedScale(steadyZoomScale * value)
+                withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
+                    steadyZoomScale = resolvedScale
+                    gestureZoomScale = 1
+                    if resolvedScale <= minimumZoomScale + 0.01 {
+                        resetTransformState()
+                    } else {
+                        panOffset = clampedPanOffset(panOffset, in: containerSize, scale: resolvedScale)
+                        interactionMode = .panning
+                    }
                 }
             }
+    }
 
-            Button {
-                dismiss()
-            } label: {
-                Image(systemName: "xmark.circle.fill")
-                    .font(.system(size: 28))
-                    .foregroundStyle(.white.opacity(0.92))
-                    .padding(20)
+    private func dragGesture(in containerSize: CGSize) -> some Gesture {
+        DragGesture(minimumDistance: 10)
+            .onChanged { value in
+                handleDragChanged(value, in: containerSize)
+            }
+            .onEnded { value in
+                handleDragEnded(value, in: containerSize)
+            }
+    }
+
+    private func handleDragChanged(_ value: DragGesture.Value, in containerSize: CGSize) {
+        guard interactionMode != .zooming else { return }
+
+        if activeDragMode == nil {
+            if effectiveZoomScale > minimumZoomScale + 0.01 {
+                activeDragMode = .pan
+                dragStartOffset = panOffset
+            } else if value.translation.height > 0,
+                        abs(value.translation.height) > abs(value.translation.width) {
+                activeDragMode = .dismiss
+            } else {
+                activeDragMode = .ignore
             }
         }
+
+        switch activeDragMode {
+        case .pan:
+            interactionMode = .panning
+            dismissOffset = .zero
+            let proposedOffset = CGSize(
+                width: dragStartOffset.width + value.translation.width,
+                height: dragStartOffset.height + value.translation.height
+            )
+            panOffset = clampedPanOffset(proposedOffset, in: containerSize, scale: effectiveZoomScale)
+        case .dismiss:
+            interactionMode = .dismissing
+            let horizontalDrift = value.translation.width * 0.18
+            let verticalOffset = value.translation.height > dismissThreshold
+                ? dismissThreshold + (value.translation.height - dismissThreshold) * 0.72
+                : value.translation.height
+            dismissOffset = CGSize(width: horizontalDrift, height: verticalOffset)
+        case .ignore, .none:
+            break
+        }
+    }
+
+    private func handleDragEnded(_ value: DragGesture.Value, in containerSize: CGSize) {
+        defer { activeDragMode = nil }
+
+        switch activeDragMode {
+        case .pan:
+            withAnimation(.spring(response: 0.25, dampingFraction: 0.82)) {
+                panOffset = clampedPanOffset(panOffset, in: containerSize, scale: effectiveZoomScale)
+            }
+            interactionMode = effectiveZoomScale > minimumZoomScale + 0.01 ? .panning : .idle
+        case .dismiss:
+            let projectedDismissDistance = max(value.translation.height, value.predictedEndTranslation.height)
+            if projectedDismissDistance > dismissThreshold {
+                dismiss()
+            } else {
+                withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
+                    dismissOffset = .zero
+                    interactionMode = effectiveZoomScale > minimumZoomScale + 0.01 ? .panning : .idle
+                }
+            }
+        case .ignore, .none:
+            withAnimation(.spring(response: 0.25, dampingFraction: 0.82)) {
+                dismissOffset = .zero
+            }
+            interactionMode = effectiveZoomScale > minimumZoomScale + 0.01 ? .panning : .idle
+        }
+    }
+
+    private func displayOffset(in containerSize: CGSize) -> CGSize {
+        let clampedPan = clampedPanOffset(panOffset, in: containerSize, scale: effectiveZoomScale)
+        return CGSize(
+            width: clampedPan.width + dismissOffset.width,
+            height: clampedPan.height + dismissOffset.height
+        )
+    }
+
+    private func resetTransformState() {
+        steadyZoomScale = minimumZoomScale
+        gestureZoomScale = 1
+        panOffset = .zero
+        dragStartOffset = .zero
+        dismissOffset = .zero
+        interactionMode = .idle
+    }
+
+    private func clampedScale(_ scale: CGFloat) -> CGFloat {
+        min(max(scale, minimumZoomScale), maximumZoomScale)
+    }
+
+    private func clampedPanOffset(_ proposedOffset: CGSize, in containerSize: CGSize, scale: CGFloat) -> CGSize {
+        let maxOffset = maximumPanOffset(in: containerSize, scale: scale)
+        return CGSize(
+            width: min(max(proposedOffset.width, -maxOffset.width), maxOffset.width),
+            height: min(max(proposedOffset.height, -maxOffset.height), maxOffset.height)
+        )
+    }
+
+    private func maximumPanOffset(in containerSize: CGSize, scale: CGFloat) -> CGSize {
+        guard scale > minimumZoomScale else {
+            return .zero
+        }
+
+        let fittedSize = fittedImageSize(in: containerSize)
+        let scaledSize = CGSize(width: fittedSize.width * scale, height: fittedSize.height * scale)
+        return CGSize(
+            width: max((scaledSize.width - fittedSize.width) / 2, 0),
+            height: max((scaledSize.height - fittedSize.height) / 2, 0)
+        )
+    }
+
+    private func fittedImageSize(in containerSize: CGSize) -> CGSize {
+        let availableWidth = max(containerSize.width - imagePadding * 2, 1)
+        let availableHeight = max(containerSize.height - imagePadding * 2, 1)
+
+        guard let aspectRatio = image.aspectRatio, aspectRatio > 0 else {
+            return CGSize(width: availableWidth, height: availableHeight)
+        }
+
+        let containerAspectRatio = availableWidth / availableHeight
+        if aspectRatio > containerAspectRatio {
+            return CGSize(width: availableWidth, height: availableWidth / aspectRatio)
+        }
+        return CGSize(width: availableHeight * aspectRatio, height: availableHeight)
     }
 }
 

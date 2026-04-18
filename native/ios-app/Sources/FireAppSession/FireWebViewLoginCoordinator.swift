@@ -290,10 +290,14 @@ public final class FireWebViewLoginCoordinator {
         )
     }
 
-    public func refreshPlatformCookies() async throws -> SessionState {
-        let cookies = try await relevantCookies(
+    public func platformCookiesForSessionResync() async throws -> [PlatformCookieState] {
+        try await relevantCookies(
             from: WKWebsiteDataStore.default().httpCookieStore
         )
+    }
+
+    public func refreshPlatformCookies() async throws -> SessionState {
+        let cookies = try await platformCookiesForSessionResync()
         return try await sessionStore.applyPlatformCookies(cookies)
     }
 

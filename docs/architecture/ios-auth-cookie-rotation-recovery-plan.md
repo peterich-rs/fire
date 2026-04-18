@@ -98,10 +98,11 @@ This document is a follow-up to `docs/architecture/ios-auth-cookie-invalidation-
    1. read the current auth recovery hint,
    2. call shared `refreshCsrfTokenIfNeeded()`,
    3. if the hint cleared or the auth epoch changed, continue normally,
-   4. if the same epoch still carries the hint and a host provider is available, perform one `refreshPlatformCookies()` resync for that epoch,
-   5. apply the refreshed cookies through `sessionStore.applyPlatformCookies(...)`,
+   4. if the same epoch still carries the hint and a host cookie-source provider is available, read one platform-cookie batch for that epoch,
+   5. apply that cookie batch through `sessionStore.applyPlatformCookies(...)`,
    6. rerun `refreshCsrfTokenIfNeeded()`, then continue the original write.
-- `refreshPlatformCookies()` should never be triggered from read paths and should never run after a strong invalidation signal has already been produced.
+- SessionStore should swallow host resync provider failures for that epoch and continue the original write so explicit `LoginRequired` / strong invalidation still comes from the shared request path instead of from WebKit sync errors.
+- Host cookie reads should never be triggered from read paths and should never run after a strong invalidation signal has already been produced.
 - `FireWebViewLoginCoordinator` should remain a provider of platform cookies, not the policy owner of when auth recovery happens.
 - `FireAppViewModel` should only wire the provider and continue handling final `LoginRequired` outcomes.
 - The host fallback should be protected by two gates:
@@ -166,7 +167,7 @@ Rationale: once auth rotation clears stale CSRF centrally, the current write pat
 **Files:** `native/ios-app/Sources/FireAppSession/FireWebViewLoginCoordinator.swift`, `native/ios-app/Sources/FireAppSession/FireSessionStore.swift`
 
 - Add a `FireSessionStore`-owned authenticated write preflight instead of patching `/topics/timings` directly.
-- Inject a platform-cookie resync provider into `FireSessionStore`; its first implementation can delegate to `FireWebViewLoginCoordinator.refreshPlatformCookies()`.
+- Inject a platform-cookie source into `FireSessionStore`; its first implementation can delegate to `FireWebViewLoginCoordinator.platformCookiesForSessionResync()` and let `FireSessionStore` own `applyPlatformCookies(...)`.
 - Use the runtime-only auth recovery hint plus the current auth epoch to decide whether host resync is still eligible.
 - Preflight order for eligible writes:
    1. run `refreshCsrfTokenIfNeeded()`,

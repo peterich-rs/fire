@@ -455,6 +455,140 @@ final class FireSessionSecurityTests: XCTestCase {
         XCTAssertTrue(normalized.platformCookies.isEmpty)
     }
 
+    func testAuthenticatedWritePreflightHostResyncRunsAtMostOncePerEpoch() async throws {
+        let store = try makeAuthenticatedWritePreflightStore()
+        let harness = AuthenticatedWritePreflightHarness(
+            context: authenticatedWritePreflightContext(
+                sessionEpoch: 7,
+                authRecoveryHint: authRecoveryHint(epoch: 7)
+            ),
+            hostResyncCookies: [
+                makePlatformCookie(name: "_forum_session", value: "forum-2")
+            ]
+        )
+
+        try await runAuthenticatedWritePreflight(store: store, harness: harness)
+        try await runAuthenticatedWritePreflight(store: store, harness: harness)
+
+        let counts = await harness.counts()
+        XCTAssertEqual(counts.hostResyncProviderCount, 1)
+        XCTAssertEqual(counts.applyPlatformCookiesCount, 1)
+    }
+
+    func testAuthenticatedWritePreflightSingleFlightsConcurrentHostResync() async throws {
+        let store = try makeAuthenticatedWritePreflightStore()
+        let enteredGate = AsyncGate()
+        let releaseGate = AsyncGate()
+        let harness = AuthenticatedWritePreflightHarness(
+            context: authenticatedWritePreflightContext(
+                sessionEpoch: 11,
+                authRecoveryHint: authRecoveryHint(epoch: 11)
+            ),
+            hostResyncCookies: [
+                makePlatformCookie(name: "_forum_session", value: "forum-2")
+            ],
+            providerEnteredGate: enteredGate,
+            providerReleaseGate: releaseGate
+        )
+
+        let firstTask = Task {
+            try await self.runAuthenticatedWritePreflight(store: store, harness: harness)
+        }
+
+        await enteredGate.wait()
+
+        let secondTask = Task {
+            try await self.runAuthenticatedWritePreflight(store: store, harness: harness)
+        }
+
+        await releaseGate.open()
+
+        try await firstTask.value
+        try await secondTask.value
+
+        let counts = await harness.counts()
+        XCTAssertEqual(counts.hostResyncProviderCount, 1)
+        XCTAssertEqual(counts.applyPlatformCookiesCount, 1)
+    }
+
+    func testAuthenticatedWritePreflightSkipsHostResyncWhenCsrfRefreshRequiresLogin() async throws {
+        let store = try makeAuthenticatedWritePreflightStore()
+        let harness = AuthenticatedWritePreflightHarness(
+            context: authenticatedWritePreflightContext(
+                sessionEpoch: 19,
+                authRecoveryHint: authRecoveryHint(epoch: 19)
+            ),
+            refreshOutcomes: [
+                .error(FireUniFfiError.LoginRequired(details: "您需要登录才能执行此操作。"))
+            ],
+            hostResyncCookies: [
+                makePlatformCookie(name: "_forum_session", value: "forum-2")
+            ]
+        )
+
+        do {
+            try await runAuthenticatedWritePreflight(store: store, harness: harness)
+            XCTFail("expected LoginRequired to bypass host resync")
+        } catch let error as FireUniFfiError {
+            XCTAssertEqual(error, .LoginRequired(details: "您需要登录才能执行此操作。"))
+        } catch {
+            XCTFail("unexpected error: \(error)")
+        }
+
+        let counts = await harness.counts()
+        XCTAssertEqual(counts.hostResyncProviderCount, 0)
+        XCTAssertEqual(counts.applyPlatformCookiesCount, 0)
+    }
+
+    func testAuthenticatedWritePreflightDropsLateHostResyncResultsFromOldEpoch() async throws {
+        let store = try makeAuthenticatedWritePreflightStore()
+        let enteredGate = AsyncGate()
+        let releaseGate = AsyncGate()
+        let harness = AuthenticatedWritePreflightHarness(
+            context: authenticatedWritePreflightContext(
+                sessionEpoch: 23,
+                authRecoveryHint: authRecoveryHint(epoch: 23)
+            ),
+            hostResyncCookies: [
+                makePlatformCookie(name: "_forum_session", value: "forum-2")
+            ],
+            providerEnteredGate: enteredGate,
+            providerReleaseGate: releaseGate
+        )
+
+        await harness.setNextAppliedContext(
+            authenticatedWritePreflightContext(
+                sessionEpoch: 25,
+                authRecoveryHint: nil
+            )
+        )
+
+        let firstTask = Task {
+            try await self.runAuthenticatedWritePreflight(store: store, harness: harness)
+        }
+
+        await enteredGate.wait()
+        await harness.setContext(
+            authenticatedWritePreflightContext(
+                sessionEpoch: 24,
+                authRecoveryHint: authRecoveryHint(epoch: 24)
+            )
+        )
+        await releaseGate.open()
+
+        try await firstTask.value
+
+        var counts = await harness.counts()
+        XCTAssertEqual(counts.hostResyncProviderCount, 1)
+        XCTAssertEqual(counts.applyPlatformCookiesCount, 0)
+
+        try await runAuthenticatedWritePreflight(store: store, harness: harness)
+
+        counts = await harness.counts()
+        XCTAssertEqual(counts.hostResyncProviderCount, 2)
+        XCTAssertEqual(counts.applyPlatformCookiesCount, 1)
+    }
+
     @MainActor
     func testCompleteLoginRollsBackPartialSessionWhenBootstrapRefreshIsChallenged() async {
         let store = MockLoginSessionStore(
@@ -1469,6 +1603,51 @@ final class FireSessionSecurityTests: XCTestCase {
             loginPhaseLabel: "未登录"
         )
     }
+
+    private func makeAuthenticatedWritePreflightStore() throws -> FireSessionStore {
+        try FireSessionStore(
+            workspacePath: try FireSessionStore.defaultWorkspacePath(),
+            sessionFilePath: makeSessionFileURL(name: "authenticated-write-preflight").path,
+            authCookieStore: InMemoryAuthCookieSecureStore()
+        )
+    }
+
+    private func authenticatedWritePreflightContext(
+        sessionEpoch: UInt64,
+        authRecoveryHint: AuthRecoveryHintState?
+    ) -> FireSessionStore.AuthenticatedWritePreflightContext {
+        FireSessionStore.AuthenticatedWritePreflightContext(
+            sessionEpoch: sessionEpoch,
+            authRecoveryHint: authRecoveryHint
+        )
+    }
+
+    private func authRecoveryHint(epoch: UInt64) -> AuthRecoveryHintState {
+        AuthRecoveryHintState(
+            observedEpoch: epoch,
+            reason: .forumSessionOnlyRotation
+        )
+    }
+
+    private func runAuthenticatedWritePreflight(
+        store: FireSessionStore,
+        harness: AuthenticatedWritePreflightHarness
+    ) async throws {
+        try await store.runAuthenticatedWritePreflight(
+            readContext: {
+                await harness.readContext()
+            },
+            refreshCsrfTokenIfNeeded: {
+                try await harness.refreshCsrfTokenIfNeeded()
+            },
+            applyPlatformCookies: { cookies in
+                await harness.applyPlatformCookies(cookies)
+            },
+            hostResyncProvider: {
+                await harness.hostResyncProvider()
+            }
+        )
+    }
 }
 
 private actor ColdStartRefreshRecorder {
@@ -1519,6 +1698,106 @@ private actor AsyncGate {
         let pendingWaiters = waiters
         waiters.removeAll()
         pendingWaiters.forEach { $0.resume() }
+    }
+}
+
+private actor AuthenticatedWritePreflightHarness {
+    enum RefreshOutcome {
+        case context(FireSessionStore.AuthenticatedWritePreflightContext)
+        case error(FireUniFfiError)
+    }
+
+    struct Counts {
+        let readContextCount: Int
+        let refreshCsrfCount: Int
+        let hostResyncProviderCount: Int
+        let applyPlatformCookiesCount: Int
+    }
+
+    private var context: FireSessionStore.AuthenticatedWritePreflightContext
+    private var refreshOutcomes: [RefreshOutcome]
+    private let hostResyncCookies: [PlatformCookieState]
+    private let providerEnteredGate: AsyncGate?
+    private let providerReleaseGate: AsyncGate?
+    private var nextAppliedContext: FireSessionStore.AuthenticatedWritePreflightContext?
+    private var readContextCount = 0
+    private var refreshCsrfCount = 0
+    private var hostResyncProviderCount = 0
+    private var applyPlatformCookiesCount = 0
+
+    init(
+        context: FireSessionStore.AuthenticatedWritePreflightContext,
+        refreshOutcomes: [RefreshOutcome] = [],
+        hostResyncCookies: [PlatformCookieState],
+        providerEnteredGate: AsyncGate? = nil,
+        providerReleaseGate: AsyncGate? = nil
+    ) {
+        self.context = context
+        self.refreshOutcomes = refreshOutcomes
+        self.hostResyncCookies = hostResyncCookies
+        self.providerEnteredGate = providerEnteredGate
+        self.providerReleaseGate = providerReleaseGate
+    }
+
+    func readContext() -> FireSessionStore.AuthenticatedWritePreflightContext {
+        readContextCount += 1
+        return context
+    }
+
+    func refreshCsrfTokenIfNeeded() throws -> FireSessionStore.AuthenticatedWritePreflightContext {
+        refreshCsrfCount += 1
+        guard !refreshOutcomes.isEmpty else {
+            return context
+        }
+
+        let outcome = refreshOutcomes.removeFirst()
+        switch outcome {
+        case let .context(nextContext):
+            context = nextContext
+            return nextContext
+        case let .error(error):
+            throw error
+        }
+    }
+
+    func hostResyncProvider() async -> [PlatformCookieState]? {
+        hostResyncProviderCount += 1
+        if let providerEnteredGate {
+            await providerEnteredGate.open()
+        }
+        if let providerReleaseGate {
+            await providerReleaseGate.wait()
+        }
+        return hostResyncCookies
+    }
+
+    func applyPlatformCookies(
+        _ cookies: [PlatformCookieState]
+    ) -> FireSessionStore.AuthenticatedWritePreflightContext {
+        _ = cookies
+        applyPlatformCookiesCount += 1
+        if let nextAppliedContext {
+            context = nextAppliedContext
+            self.nextAppliedContext = nil
+        }
+        return context
+    }
+
+    func setContext(_ context: FireSessionStore.AuthenticatedWritePreflightContext) {
+        self.context = context
+    }
+
+    func setNextAppliedContext(_ context: FireSessionStore.AuthenticatedWritePreflightContext?) {
+        nextAppliedContext = context
+    }
+
+    func counts() -> Counts {
+        Counts(
+            readContextCount: readContextCount,
+            refreshCsrfCount: refreshCsrfCount,
+            hostResyncProviderCount: hostResyncProviderCount,
+            applyPlatformCookiesCount: applyPlatformCookiesCount
+        )
     }
 }
 

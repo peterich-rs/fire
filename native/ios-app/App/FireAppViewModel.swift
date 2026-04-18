@@ -1863,6 +1863,7 @@ final class FireAppViewModel: ObservableObject {
 
     func sessionStoreValue() async throws -> FireSessionStore {
         if let sessionStore {
+            await configureAuthenticatedWriteHostResyncProvider(with: sessionStore)
             return sessionStore
         }
 
@@ -1870,6 +1871,7 @@ final class FireAppViewModel: ObservableObject {
             let sessionStore = try await sessionStoreInitializationTask.value
             self.sessionStore = sessionStore
             await FireAPMManager.shared.attachSessionStore(sessionStore)
+            await configureAuthenticatedWriteHostResyncProvider(with: sessionStore)
             return sessionStore
         }
 
@@ -1883,6 +1885,7 @@ final class FireAppViewModel: ObservableObject {
             sessionStoreInitializationTask = nil
             self.sessionStore = sessionStore
             await FireAPMManager.shared.attachSessionStore(sessionStore)
+            await configureAuthenticatedWriteHostResyncProvider(with: sessionStore)
             return sessionStore
         } catch {
             sessionStoreInitializationTask = nil
@@ -1904,9 +1907,31 @@ final class FireAppViewModel: ObservableObject {
         }
 
         let sessionStore = try await sessionStoreValue()
-        let loginCoordinator = FireWebViewLoginCoordinator(sessionStore: sessionStore)
-        self.loginCoordinator = loginCoordinator
+        await configureAuthenticatedWriteHostResyncProvider(with: sessionStore)
+        guard let loginCoordinator else {
+            throw CancellationError()
+        }
         return loginCoordinator
+    }
+
+    private func configureAuthenticatedWriteHostResyncProvider(
+        with sessionStore: FireSessionStore
+    ) async {
+        let loginCoordinator: FireWebViewLoginCoordinator
+        if let existingLoginCoordinator = self.loginCoordinator {
+            loginCoordinator = existingLoginCoordinator
+        } else {
+            let newLoginCoordinator = FireWebViewLoginCoordinator(sessionStore: sessionStore)
+            self.loginCoordinator = newLoginCoordinator
+            loginCoordinator = newLoginCoordinator
+        }
+
+        await sessionStore.setAuthenticatedWriteHostResyncProvider { [weak loginCoordinator] in
+            guard let loginCoordinator else {
+                return nil
+            }
+            return try await loginCoordinator.platformCookiesForSessionResync()
+        }
     }
 
     // MARK: - Profile API

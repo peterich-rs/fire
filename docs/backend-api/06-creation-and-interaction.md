@@ -225,7 +225,8 @@
   - Rust 共享层持有 `/topics/timings` 的限流冷却窗口；冷却期内会直接跳过请求，避免继续撞 429
   - `429` 对 `/topics/timings` 也是“软失败”；Rust 返回“本次未上报”给宿主层，iOS 会保留待发送时长，等下一次 flush 周期重试
   - 如果响应里没有可解析的等待时长，客户端回退到一个短默认冷却时间再恢复请求
-  - 若前面某个普通响应已经附带 `discourse-logged-out: 1` 或 `Set-Cookie: _t=; Max-Age=0`，`/topics/timings` 往往只是第一个暴露出来的写接口；根因通常是更早一步会话已被服务端判定失效
+  - `/topics/timings` 往往只是第一个暴露 auth 上下文问题的写接口；根因可能是更早一步已经出现显式失效，也可能是更早一步成功读请求只轮换了部分 auth Cookie
+  - Fire 当前会在真正发送认证写请求前先刷新 CSRF；如果同一 auth epoch 仍带 partial rotation recovery hint，还会做一次有界的 host cookie resync，然后再执行原始写请求
 
 ### `GET /presence/get`
 
@@ -268,7 +269,7 @@
   - 服务端也可能返回 `"/discourse-presence/reply/{topicId}": null`；Fire 会将其视为空 Presence 快照，按 `users = []`、`message_id = -1` 处理，而不是把它当成解析错误
   - 若 `last_message_id` / `message_id` 缺失、为 `null` 或是字符串数字，Fire 共享层会尽量解析；无法解析时回退为 `-1`
   - `users[]` 中单个成员如果缺少可用 `id` / `username`，Fire 会跳过坏项，不让整次 Presence bootstrap 失败
-  - 宿主层不要在“话题详情首次加载尚未确认成功”之前抢先 bootstrap Presence。对不存在、不可见或无权限的话题，Linux.do 观测上可能在 `GET /presence/get` 返回 `null` 快照的同时附带 `discourse-logged-out: 1` 和 `Set-Cookie: _t=; Max-Age=0`，从而把当前登录态清掉
+  - 宿主层不要在“话题详情首次加载尚未确认成功”之前抢先 bootstrap Presence。对不存在、不可见或无权限的话题，Linux.do 观测上可能在 `GET /presence/get` 返回 `null` 快照的同时附带 `discourse-logged-out: 1` 和 `Set-Cookie: _t=; Max-Age=0`；当前 Fire 会按显式失效路径收口并清掉登录态
 
 ### `POST /presence/update`
 

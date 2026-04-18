@@ -26,10 +26,31 @@ final class FireTopicDetailStore: ObservableObject {
     }
 
     func applySession(_ session: SessionState) {
-        guard session.readiness.canReadAuthenticatedApi else {
-            reset()
+        let readiness = session.readiness
+        if readiness.canReadAuthenticatedApi {
             return
         }
+        let isLoggedOut = !readiness.hasLoginCookie && !readiness.hasCurrentUser
+        if isLoggedOut {
+            appViewModel.topicDetailLogger()?.notice(
+                "resetting topic detail store reason=logged-out topic_ids=\(Self.formattedTopicIDs(Set(topicDetails.keys)))"
+            )
+            reset()
+        } else {
+            appViewModel.topicDetailLogger()?.debug(
+                "pausing topic detail fetches reason=transient-unauth retained_topic_ids=\(Self.formattedTopicIDs(Set(topicDetails.keys)))"
+            )
+            cancelInFlightFetches()
+        }
+    }
+
+    private func cancelInFlightFetches() {
+        pendingTopicDetailRefreshTasks.values.forEach { $0.cancel() }
+        pendingTopicDetailRefreshTasks = [:]
+        topicPostPreloadTasks.values.forEach { $0.cancel() }
+        topicPostPreloadTasks = [:]
+        loadingTopicIDs.removeAll()
+        loadingMoreTopicPostIDs.removeAll()
     }
 
     func handleMessageBusStopped() {
@@ -41,6 +62,9 @@ final class FireTopicDetailStore: ObservableObject {
     }
 
     func reset() {
+        appViewModel.topicDetailLogger()?.notice(
+            "resetting topic detail store topic_ids=\(Self.formattedTopicIDs(Set(topicDetails.keys))) loading_ids=\(Self.formattedTopicIDs(loadingTopicIDs))"
+        )
         pendingTopicDetailRefreshTasks.values.forEach { $0.cancel() }
         pendingTopicDetailRefreshTasks = [:]
         topicPresenceHeartbeatTasks.values.forEach { $0.cancel() }
@@ -68,7 +92,7 @@ final class FireTopicDetailStore: ObservableObject {
             return
         }
         if !appViewModel.session.readiness.canReadAuthenticatedApi {
-            reset()
+            applySession(appViewModel.session)
             return
         }
 
@@ -109,23 +133,25 @@ final class FireTopicDetailStore: ObservableObject {
         do {
             let sessionStore = try await appViewModel.sessionStoreValue()
             errorMessage = nil
-            let detail = try await FireAPMManager.shared.withSpan(
-                .topicDetailInitialLoad,
-                metadata: ["topic_id": String(topicId)]
-            ) {
-                try await appViewModel.performWithCloudflareRecovery(
-                    operation: "加载话题详情"
+            let detail = try await performWithTimeout(30, operation: "加载话题详情") { [appViewModel] in
+                try await FireAPMManager.shared.withSpan(
+                    .topicDetailInitialLoad,
+                    metadata: ["topic_id": String(topicId)]
                 ) {
-                    try await sessionStore.fetchTopicDetailInitial(
-                        query: TopicDetailQueryState(
-                            topicId: topicId,
-                            postNumber: anchorPostNumber,
-                            trackVisit: true,
-                            filter: nil,
-                            usernameFilters: nil,
-                            filterTopLevelReplies: false
+                    try await appViewModel.performWithCloudflareRecovery(
+                        operation: "加载话题详情"
+                    ) {
+                        try await sessionStore.fetchTopicDetailInitial(
+                            query: TopicDetailQueryState(
+                                topicId: topicId,
+                                postNumber: anchorPostNumber,
+                                trackVisit: true,
+                                filter: nil,
+                                usernameFilters: nil,
+                                filterTopLevelReplies: false
+                            )
                         )
-                    )
+                    }
                 }
             }
             applyTopicDetail(detail, topicId: topicId)
@@ -137,6 +163,9 @@ final class FireTopicDetailStore: ObservableObject {
                 "topic detail load failed topic_id=\(topicId) error=\(error.localizedDescription)"
             )
             if await appViewModel.handleRecoverableSessionErrorIfNeeded(error) {
+                if topicDetails[topicId] == nil {
+                    errorMessage = error.localizedDescription
+                }
                 return
             }
             errorMessage = error.localizedDescription
@@ -565,19 +594,21 @@ final class FireTopicDetailStore: ObservableObject {
         topicId: UInt64,
         sessionStore: FireSessionStore
     ) async throws {
-        let detail = try await appViewModel.performWithCloudflareRecovery(
-            operation: "刷新话题详情"
-        ) {
-            try await sessionStore.fetchTopicDetailInitial(
-                query: TopicDetailQueryState(
-                    topicId: topicId,
-                    postNumber: nil,
-                    trackVisit: false,
-                    filter: nil,
-                    usernameFilters: nil,
-                    filterTopLevelReplies: false
+        let detail = try await performWithTimeout(30, operation: "刷新话题详情") { [appViewModel] in
+            try await appViewModel.performWithCloudflareRecovery(
+                operation: "刷新话题详情"
+            ) {
+                try await sessionStore.fetchTopicDetailInitial(
+                    query: TopicDetailQueryState(
+                        topicId: topicId,
+                        postNumber: nil,
+                        trackVisit: false,
+                        filter: nil,
+                        usernameFilters: nil,
+                        filterTopLevelReplies: false
+                    )
                 )
-            )
+            }
         }
         applyTopicDetail(detail, topicId: topicId)
     }
@@ -591,23 +622,33 @@ final class FireTopicDetailStore: ObservableObject {
             guard self.topicDetails[topicId] != nil else { return }
             let anchorPostNumber = self.activeAnchorPostNumber(topicId: topicId)
             do {
-                let detail = try await self.appViewModel.performWithCloudflareRecovery(
-                    operation: "刷新话题详情"
-                ) {
-                    try await store.fetchTopicDetailInitial(
-                        query: TopicDetailQueryState(
-                            topicId: topicId,
-                            postNumber: anchorPostNumber,
-                            trackVisit: false,
-                            filter: nil,
-                            usernameFilters: nil,
-                            filterTopLevelReplies: false
+                let detail = try await self.performWithTimeout(30, operation: "刷新话题详情") { [appViewModel = self.appViewModel] in
+                    try await appViewModel.performWithCloudflareRecovery(
+                        operation: "刷新话题详情"
+                    ) {
+                        try await store.fetchTopicDetailInitial(
+                            query: TopicDetailQueryState(
+                                topicId: topicId,
+                                postNumber: anchorPostNumber,
+                                trackVisit: false,
+                                filter: nil,
+                                usernameFilters: nil,
+                                filterTopLevelReplies: false
+                            )
                         )
-                    )
+                    }
                 }
                 self.applyTopicDetail(detail, topicId: topicId)
             } catch {
-                _ = await self.appViewModel.handleRecoverableSessionErrorIfNeeded(error)
+                if await self.appViewModel.handleRecoverableSessionErrorIfNeeded(error) {
+                    self.appViewModel.topicDetailLogger()?.notice(
+                        "recoverable session error swallowed during topic detail refresh topic_id=\(topicId)"
+                    )
+                    return
+                }
+                self.appViewModel.topicDetailLogger()?.error(
+                    "topic detail background refresh failed topic_id=\(topicId) error=\(error.localizedDescription)"
+                )
             }
         }
     }
@@ -1188,5 +1229,37 @@ final class FireTopicDetailStore: ObservableObject {
 
         detail.postStream.posts[postIndex] = post
         topicDetails[topicId] = FireTopicPresentation.recomposedDetail(detail)
+    }
+
+    private func performWithTimeout<T>(
+        _ seconds: Double,
+        operation: String,
+        _ body: @escaping () async throws -> T
+    ) async throws -> T {
+        let work = Task { try await body() }
+        let timer = Task {
+            try? await Task.sleep(for: .seconds(seconds))
+            work.cancel()
+        }
+        defer { timer.cancel() }
+        do {
+            return try await work.value
+        } catch {
+            if work.isCancelled && !Task.isCancelled {
+                appViewModel.topicDetailLogger()?.error(
+                    "topic detail fetch timed out operation=\(operation) seconds=\(seconds)"
+                )
+                throw FireTopicDetailTimeoutError(operation: operation, seconds: seconds)
+            }
+            throw error
+        }
+    }
+}
+
+struct FireTopicDetailTimeoutError: LocalizedError {
+    let operation: String
+    let seconds: Double
+    var errorDescription: String? {
+        "\(operation)超时（\(Int(seconds))s），请稍后重试"
     }
 }

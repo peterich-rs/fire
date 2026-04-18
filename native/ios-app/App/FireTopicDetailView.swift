@@ -85,6 +85,7 @@ struct FireTopicDetailView: View {
     @State private var topicVoters: [VotedUserState] = []
     @State private var isLoadingTopicVoters = false
     @State private var showingTopicVoters = false
+    @State private var cachedDetail: TopicDetailState?
     @FocusState private var isReplyFieldFocused: Bool
 
     init(viewModel: FireAppViewModel, row: FireTopicRowPresentation, scrollToPostNumber: UInt32? = nil) {
@@ -100,7 +101,7 @@ struct FireTopicDetailView: View {
     }
 
     private var detail: TopicDetailState? {
-        topicDetailStore.topicDetail(for: topic.id)
+        topicDetailStore.topicDetail(for: topic.id) ?? cachedDetail
     }
 
     private var detailError: String? {
@@ -522,6 +523,14 @@ struct FireTopicDetailView: View {
         .onAppear {
             topicDetailStore.beginTopicDetailLifecycle(topicId: topic.id, ownerToken: detailOwnerToken)
             viewModel.setAPMRoute("topic.detail.\(topic.id)")
+            if let current = topicDetailStore.topicDetail(for: topic.id) {
+                cachedDetail = current
+            }
+        }
+        .onReceive(topicDetailStore.$topicDetails) { dict in
+            if let fresh = dict[topic.id] {
+                cachedDetail = fresh
+            }
         }
         .task(id: topic.id) {
             timingTracker.start { topicId, topicTimeMs, timings in

@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 // MARK: - Notification helpers
 
@@ -201,10 +202,12 @@ struct FireNotificationsView: View {
     var body: some View {
         NavigationStack {
             Group {
-                if notificationStore.isLoadingRecent && notificationStore.recentNotifications.isEmpty {
+                if let errorMessage = notificationStore.blockingRecentErrorMessage {
+                    blockingErrorState(message: errorMessage)
+                } else if !notificationStore.hasLoadedRecentOnce {
                     loadingSkeleton
                 } else if notificationStore.recentNotifications.isEmpty {
-                    emptyState
+                    emptyState(errorMessage: notificationStore.recentNonBlockingErrorMessage)
                 } else {
                     notificationList
                 }
@@ -233,10 +236,40 @@ struct FireNotificationsView: View {
         }
     }
 
+    private func retryRecentLoad() {
+        Task {
+            await notificationStore.loadRecent(force: true)
+        }
+    }
+
+    private func blockingErrorState(message: String) -> some View {
+        FireBlockingErrorState(
+            title: "通知加载失败",
+            message: message,
+            onRetry: retryRecentLoad
+        )
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
     // MARK: - Notification list
 
     private var notificationList: some View {
         List {
+            if let errorMessage = notificationStore.recentNonBlockingErrorMessage {
+                Section {
+                    FireErrorBanner(
+                        message: errorMessage,
+                        copied: false,
+                        onCopy: {
+                            UIPasteboard.general.string = errorMessage
+                        },
+                        onDismiss: {
+                            notificationStore.clearRecentError()
+                        }
+                    )
+                }
+            }
+
             ForEach(notificationStore.recentNotifications, id: \.id) { item in
                 notificationRow(item)
                     .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
@@ -328,8 +361,21 @@ struct FireNotificationsView: View {
 
     // MARK: - Empty state
 
-    private var emptyState: some View {
+    private func emptyState(errorMessage: String?) -> some View {
         VStack(spacing: 16) {
+            if let errorMessage {
+                FireErrorBanner(
+                    message: errorMessage,
+                    copied: false,
+                    onCopy: {
+                        UIPasteboard.general.string = errorMessage
+                    },
+                    onDismiss: {
+                        notificationStore.clearRecentError()
+                    }
+                )
+            }
+
             Image(systemName: "bell.slash")
                 .font(.system(size: 40, weight: .light))
                 .foregroundStyle(FireTheme.tertiaryInk)
@@ -345,9 +391,7 @@ struct FireNotificationsView: View {
                 .fixedSize(horizontal: false, vertical: true)
 
             Button("刷新") {
-                Task {
-                    await notificationStore.loadRecent(force: true)
-                }
+                retryRecentLoad()
             }
             .buttonStyle(FireSecondaryButtonStyle())
         }

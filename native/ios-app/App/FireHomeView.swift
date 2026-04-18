@@ -103,7 +103,7 @@ struct FireHomeView: View {
             lastTopicListScrollMetrics = newMetrics
         }
 
-        guard homeFeedStore.nextTopicsPage != nil else { return }
+        guard homeFeedStore.currentScopeNextTopicsPage != nil else { return }
         guard !homeFeedStore.isLoadingTopics else { return }
 
         let contentFitsViewport = newMetrics.contentHeight <= newMetrics.visibleHeight + 1

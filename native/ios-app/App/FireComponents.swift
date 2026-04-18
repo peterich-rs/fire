@@ -364,6 +364,53 @@ struct FireErrorBanner: View {
     }
 }
 
+// MARK: - Blocking Error State
+
+struct FireBlockingErrorState: View {
+    let title: String
+    let message: String
+    let retryTitle: String
+    let onRetry: () -> Void
+
+    init(
+        title: String,
+        message: String,
+        retryTitle: String = "重试",
+        onRetry: @escaping () -> Void
+    ) {
+        self.title = title
+        self.message = message
+        self.retryTitle = retryTitle
+        self.onRetry = onRetry
+    }
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "exclamationmark.triangle")
+                .font(.system(size: 32, weight: .light))
+                .foregroundStyle(FireTheme.warning)
+
+            VStack(spacing: 8) {
+                Text(title)
+                    .font(.headline)
+                    .foregroundStyle(FireTheme.ink)
+
+                Text(message)
+                    .font(.subheadline)
+                    .foregroundStyle(FireTheme.subtleInk)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Button(retryTitle, action: onRetry)
+                .buttonStyle(FireSecondaryButtonStyle())
+        }
+        .padding(.horizontal, 24)
+        .padding(.vertical, 32)
+        .frame(maxWidth: .infinity)
+    }
+}
+
 // MARK: - Empty Feed State
 
 struct FireEmptyFeedState: View {

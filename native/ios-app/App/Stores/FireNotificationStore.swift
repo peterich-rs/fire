@@ -5,6 +5,8 @@ final class FireNotificationStore: ObservableObject {
     @Published private(set) var unreadCount: Int = 0
     @Published private(set) var recentNotifications: [NotificationItemState] = []
     @Published private(set) var isLoadingRecent = false
+    @Published private(set) var hasLoadedRecentOnce = false
+    @Published private(set) var recentErrorMessage: String?
     @Published private(set) var fullNotifications: [NotificationItemState] = []
     @Published private(set) var fullNextOffset: UInt32?
     @Published private(set) var isLoadingFullPage = false
@@ -17,12 +19,22 @@ final class FireNotificationStore: ObservableObject {
         self.appViewModel = appViewModel
     }
 
+    var blockingRecentErrorMessage: String? {
+        hasLoadedRecentOnce ? nil : recentErrorMessage
+    }
+
+    var recentNonBlockingErrorMessage: String? {
+        hasLoadedRecentOnce ? recentErrorMessage : nil
+    }
+
     func reset() {
         pendingStateRefreshTask?.cancel()
         pendingStateRefreshTask = nil
         unreadCount = 0
         recentNotifications = []
         isLoadingRecent = false
+        hasLoadedRecentOnce = false
+        recentErrorMessage = nil
         fullNotifications = []
         fullNextOffset = nil
         isLoadingFullPage = false
@@ -32,6 +44,14 @@ final class FireNotificationStore: ObservableObject {
     func cancelScheduledRefresh() {
         pendingStateRefreshTask?.cancel()
         pendingStateRefreshTask = nil
+    }
+
+    func clearRecentError() {
+        recentErrorMessage = nil
+    }
+
+    func recordRecentLoadFailure(_ message: String) {
+        recentErrorMessage = message
     }
 
     func syncStateFromRuntimeIfAvailable() async {
@@ -53,18 +73,24 @@ final class FireNotificationStore: ObservableObject {
         guard !isLoadingRecent || force else { return }
 
         isLoadingRecent = true
+        recentErrorMessage = nil
         defer { isLoadingRecent = false }
 
         do {
             try await FireAPMManager.shared.withSpan(.notificationsRefresh) {
                 let list = try await appViewModel.fetchRecentNotificationsData()
                 recentNotifications = list.notifications
+                hasLoadedRecentOnce = true
+                recentErrorMessage = nil
                 if let state = try? await appViewModel.notificationCenterState() {
                     apply(centerState: state, updateRecent: true, updateFull: state.hasLoadedFull)
                 }
             }
         } catch {
-            _ = await appViewModel.handleRecoverableSessionErrorIfNeeded(error)
+            if await appViewModel.handleRecoverableSessionErrorIfNeeded(error) {
+                return
+            }
+            recordRecentLoadFailure(error.localizedDescription)
         }
     }
 
@@ -136,6 +162,8 @@ final class FireNotificationStore: ObservableObject {
         unreadCount = Int(centerState.counters.allUnread)
         if updateRecent {
             recentNotifications = centerState.recent
+            hasLoadedRecentOnce = true
+            recentErrorMessage = nil
         }
         if updateFull {
             fullNotifications = centerState.full

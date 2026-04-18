@@ -7,6 +7,7 @@ final class FireBookmarksViewModel: ObservableObject {
     @Published private(set) var nextPage: UInt32?
     @Published private(set) var isLoading = false
     @Published private(set) var isLoadingMore = false
+    @Published private(set) var hasLoadedOnce = false
     @Published var errorMessage: String?
 
     private let appViewModel: FireAppViewModel
@@ -32,6 +33,7 @@ final class FireBookmarksViewModel: ObservableObject {
             let list = try await appViewModel.fetchBookmarks(username: username, page: nil)
             rows = list.rows
             nextPage = list.nextPage
+            hasLoadedOnce = true
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -43,12 +45,14 @@ final class FireBookmarksViewModel: ObservableObject {
         guard rows.last?.topic.id == currentTopicID else { return }
 
         isLoadingMore = true
+        errorMessage = nil
         defer { isLoadingMore = false }
 
         do {
             let list = try await appViewModel.fetchBookmarks(username: username, page: nextPage)
             rows = mergeRows(existing: rows, incoming: list.rows)
             self.nextPage = list.nextPage
+            hasLoadedOnce = true
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -82,7 +86,8 @@ struct FireBookmarksView: View {
 
     var body: some View {
         List {
-            if let errorMessage = bookmarksViewModel.errorMessage {
+            if let errorMessage = bookmarksViewModel.errorMessage,
+               bookmarksViewModel.hasLoadedOnce {
                 Section {
                     FireErrorBanner(
                         message: errorMessage,
@@ -97,13 +102,27 @@ struct FireBookmarksView: View {
                 }
             }
 
-            if bookmarksViewModel.isLoading && bookmarksViewModel.rows.isEmpty {
-                Section {
-                    HStack {
-                        Spacer()
-                        ProgressView()
-                            .padding(.vertical, 24)
-                        Spacer()
+            if !bookmarksViewModel.hasLoadedOnce {
+                if let errorMessage = bookmarksViewModel.errorMessage {
+                    Section {
+                        FireBlockingErrorState(
+                            title: "书签加载失败",
+                            message: errorMessage,
+                            onRetry: {
+                                Task {
+                                    await bookmarksViewModel.refresh()
+                                }
+                            }
+                        )
+                    }
+                } else {
+                    Section {
+                        HStack {
+                            Spacer()
+                            ProgressView()
+                                .padding(.vertical, 24)
+                            Spacer()
+                        }
                     }
                 }
             } else if bookmarksViewModel.rows.isEmpty {

@@ -19,6 +19,7 @@ final class FireFollowListViewModel: ObservableObject {
 
     @Published private(set) var users: [FollowUserState] = []
     @Published private(set) var isLoading = false
+    @Published private(set) var hasLoadedOnce = false
     @Published var errorMessage: String?
 
     private let appViewModel: FireAppViewModel
@@ -34,6 +35,7 @@ final class FireFollowListViewModel: ObservableObject {
     func load(force: Bool = false) async {
         guard force || (!isLoading && users.isEmpty) else { return }
         isLoading = true
+        errorMessage = nil
         defer { isLoading = false }
 
         do {
@@ -43,11 +45,10 @@ final class FireFollowListViewModel: ObservableObject {
             case .followers:
                 users = try await appViewModel.fetchFollowers(username: username)
             }
+            hasLoadedOnce = true
             errorMessage = nil
         } catch {
-            if users.isEmpty {
-                errorMessage = error.localizedDescription
-            }
+            errorMessage = error.localizedDescription
         }
     }
 }
@@ -74,7 +75,8 @@ struct FireFollowListView: View {
 
     var body: some View {
         List {
-            if let errorMessage = listViewModel.errorMessage {
+            if let errorMessage = listViewModel.errorMessage,
+               listViewModel.hasLoadedOnce {
                 Section {
                     FireErrorBanner(
                         message: errorMessage,
@@ -89,13 +91,27 @@ struct FireFollowListView: View {
                 }
             }
 
-            if listViewModel.isLoading && listViewModel.users.isEmpty {
-                Section {
-                    HStack {
-                        Spacer()
-                        ProgressView()
-                            .padding(.vertical, 20)
-                        Spacer()
+            if !listViewModel.hasLoadedOnce {
+                if let errorMessage = listViewModel.errorMessage {
+                    Section {
+                        FireBlockingErrorState(
+                            title: "\(kind.title)列表加载失败",
+                            message: errorMessage,
+                            onRetry: {
+                                Task {
+                                    await listViewModel.load(force: true)
+                                }
+                            }
+                        )
+                    }
+                } else {
+                    Section {
+                        HStack {
+                            Spacer()
+                            ProgressView()
+                                .padding(.vertical, 20)
+                            Spacer()
+                        }
                     }
                 }
             } else if listViewModel.users.isEmpty {

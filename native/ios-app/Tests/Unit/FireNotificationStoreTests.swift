@@ -3,6 +3,44 @@ import XCTest
 
 final class FireNotificationStoreTests: XCTestCase {
     @MainActor
+    func testRecentLoadFailureIsBlockingBeforeFirstSuccessfulLoad() {
+        let store = FireNotificationStore(appViewModel: FireAppViewModel())
+
+        store.recordRecentLoadFailure("offline")
+
+        XCTAssertEqual(store.blockingRecentErrorMessage, "offline")
+        XCTAssertNil(store.recentNonBlockingErrorMessage)
+    }
+
+    @MainActor
+    func testRecentLoadFailureIsNonBlockingAfterSuccessfulLoad() {
+        let store = FireNotificationStore(appViewModel: FireAppViewModel())
+
+        store.apply(
+            centerState: NotificationCenterState(
+                counters: NotificationCountersState(allUnread: 1, unread: 1, highPriority: 0),
+                recent: [makeNotification(id: 1, read: false)],
+                hasLoadedRecent: true,
+                recentSeenNotificationId: 1,
+                full: [],
+                hasLoadedFull: false,
+                totalRowsNotifications: 1,
+                fullSeenNotificationId: 0,
+                fullLoadMoreNotifications: nil,
+                fullNextOffset: nil
+            ),
+            updateRecent: true,
+            updateFull: false
+        )
+
+        store.recordRecentLoadFailure("offline")
+
+        XCTAssertNil(store.blockingRecentErrorMessage)
+        XCTAssertEqual(store.recentNonBlockingErrorMessage, "offline")
+        XCTAssertEqual(store.recentNotifications.map(\.id), [1])
+    }
+
+    @MainActor
     func testApplyCenterStateUpdatesUnreadRecentAndFullLists() {
         let store = FireNotificationStore(appViewModel: FireAppViewModel())
         let recent = makeNotification(id: 1, read: false)

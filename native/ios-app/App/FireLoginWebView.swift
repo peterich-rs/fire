@@ -35,7 +35,7 @@ final class FireWebViewBox: ObservableObject {
             pageTitle = nextPageTitle
         }
 
-        let nextCurrentURL = webView.url?.host ?? webView.url?.absoluteString
+        let nextCurrentURL = webView.url?.absoluteString ?? webView.url?.host
         if currentURL != nextCurrentURL {
             currentURL = nextCurrentURL
         }
@@ -282,10 +282,12 @@ struct FireAuthScreen: View {
                     url: url,
                     webViewBox: webViewBox,
                     onNavigationStateChange: { webView in
-                        guard case .login = presentationState else {
-                            return
+                        switch presentationState {
+                        case .login:
+                            viewModel.refreshLoginSyncReadiness(from: webView)
+                        case .cloudflareRecovery:
+                            viewModel.observeCloudflareRecoveryNavigation(from: webView)
                         }
-                        viewModel.refreshLoginSyncReadiness(from: webView)
                     }
                 )
                 .frame(maxHeight: .infinity)
@@ -315,7 +317,7 @@ struct FireAuthScreen: View {
                         viewModel.completeLogin(from: webView)
                     },
                     onCloudflareRecoveryComplete: {
-                        viewModel.completeCloudflareRecovery()
+                        viewModel.completeCloudflareRecovery(from: webViewBox.webView)
                     }
                 )
             }
@@ -326,10 +328,35 @@ struct FireAuthScreen: View {
                 guard phase == .active, let webView = webViewBox.webView else {
                     return
                 }
-                guard case .login = presentationState else {
+                switch presentationState {
+                case .login:
+                    viewModel.refreshLoginSyncReadiness(from: webView)
+                case .cloudflareRecovery:
+                    viewModel.observeCloudflareRecoveryNavigation(
+                        from: webView,
+                        source: "scene_active"
+                    )
+                }
+            }
+            .task(id: presentationState.id) {
+                guard case .cloudflareRecovery = presentationState else {
                     return
                 }
-                viewModel.refreshLoginSyncReadiness(from: webView)
+
+                while !Task.isCancelled {
+                    if let webView = webViewBox.webView {
+                        viewModel.observeCloudflareRecoveryNavigation(
+                            from: webView,
+                            source: "poll"
+                        )
+                    }
+
+                    do {
+                        try await Task.sleep(for: .seconds(1))
+                    } catch {
+                        return
+                    }
+                }
             }
             .onDisappear {
                 viewModel.restoreTopLevelAPMRoute()

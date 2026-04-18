@@ -1020,7 +1020,7 @@ final class FireSessionSecurityTests: XCTestCase {
     }
 
     @MainActor
-    func testPerformWithCloudflareRecoveryWaitsForInteractiveRecoveryAndRetries() async throws {
+    func testPerformWithCloudflareRecoveryAutoCompletesAfterChallengeExitObservation() async throws {
         let viewModel = FireAppViewModel(
             initialSession: authenticatedSession(),
             cloudflareRecoveryCookieSync: {
@@ -1049,13 +1049,85 @@ final class FireSessionSecurityTests: XCTestCase {
         XCTAssertTrue(presentedRecovery)
         XCTAssertEqual(attempts, 2)
 
-        viewModel.completeCloudflareRecovery()
+        viewModel.receiveCloudflareRecoveryObservation(
+            makeCloudflareRecoveryObservation(
+                url: "https://linux.do/latest",
+                title: "Linux.do",
+                isLoading: false,
+                hasActiveChallenge: false,
+                cfClearance: "fresh-clearance"
+            )
+        )
 
         let dismissedRecovery = await waitUntil { viewModel.authPresentationState == nil }
         XCTAssertTrue(dismissedRecovery)
         let result = try await task.value
         XCTAssertEqual(result, "ok")
         XCTAssertEqual(attempts, 3)
+    }
+
+    @MainActor
+    func testCloudflareRecoveryManualCompletionKeepsSheetOpenOnStaleChallengeURL() async {
+        let viewModel = FireAppViewModel(
+            initialSession: authenticatedSession(),
+            cloudflareRecoveryCookieSync: {
+                self.authenticatedSession(turnstileSitekey: "sitekey")
+            }
+        )
+        var attempts = 0
+
+        let task = Task {
+            try await viewModel.performWithCloudflareRecovery(operation: "刷新首页话题列表") {
+                attempts += 1
+                if attempts < 3 {
+                    throw FireUniFfiError.CloudflareChallenge
+                }
+                return "ok"
+            }
+        }
+
+        let presentedRecovery = await waitUntil {
+            if case .cloudflareRecovery? = viewModel.authPresentationState {
+                return true
+            }
+            return false
+        }
+
+        XCTAssertTrue(presentedRecovery)
+        XCTAssertEqual(attempts, 2)
+
+        viewModel.receiveCloudflareRecoveryObservation(
+            makeCloudflareRecoveryObservation(
+                url: "https://linux.do/challenge",
+                title: "That page doesn't exist or is private.",
+                isLoading: false,
+                hasActiveChallenge: false,
+                cfClearance: "clearance"
+            ),
+            allowAutoCompletion: false
+        )
+
+        viewModel.completeCloudflareRecovery()
+
+        let surfacedError = await waitUntil {
+            viewModel.errorMessage == "验证页仍停留在 challenge 页面，尚未观察到新的 Cloudflare clearance。"
+        }
+        XCTAssertTrue(surfacedError)
+        XCTAssertEqual(attempts, 2)
+        if case .cloudflareRecovery? = viewModel.authPresentationState {
+            XCTAssertTrue(true)
+        } else {
+            XCTFail("expected Cloudflare recovery to stay presented")
+        }
+
+        task.cancel()
+        do {
+            _ = try await task.value
+            XCTFail("Expected task cancellation while Cloudflare recovery stayed blocked")
+        } catch {
+            XCTAssertTrue(error is CancellationError)
+        }
+        XCTAssertEqual(attempts, 2)
     }
 
     @MainActor
@@ -1106,7 +1178,15 @@ final class FireSessionSecurityTests: XCTestCase {
         XCTAssertTrue(completionError is CancellationError)
         XCTAssertEqual(attempts, 2)
 
-        viewModel.completeCloudflareRecovery()
+        viewModel.receiveCloudflareRecoveryObservation(
+            makeCloudflareRecoveryObservation(
+                url: "https://linux.do/latest",
+                title: "Linux.do",
+                isLoading: false,
+                hasActiveChallenge: false,
+                cfClearance: "fresh-clearance"
+            )
+        )
         let dismissedRecovery = await waitUntil { viewModel.authPresentationState == nil }
         XCTAssertTrue(dismissedRecovery)
         XCTAssertEqual(attempts, 2)
@@ -1602,6 +1682,58 @@ final class FireSessionSecurityTests: XCTestCase {
             profileDisplayName: "未登录",
             loginPhaseLabel: "未登录"
         )
+    }
+
+    private func makeCloudflareRecoveryObservation(
+        url: String,
+        title: String,
+        isLoading: Bool,
+        hasActiveChallenge: Bool,
+        tToken: String? = "token",
+        forumSession: String? = "forum",
+        cfClearance: String? = "clearance"
+    ) -> FireCloudflareRecoveryObservation {
+        FireCloudflareRecoveryObservation(
+            url: url,
+            title: title,
+            isLoading: isLoading,
+            hasActiveChallenge: hasActiveChallenge,
+            domChallengeDetected: hasActiveChallenge,
+            hasChallengeURL: url.contains("/challenge"),
+            titleLooksLikeChallenge: title.lowercased().contains("cloudflare"),
+            cookieSnapshot: makeCloudflareRecoveryCookieSnapshot(
+                tToken: tToken,
+                forumSession: forumSession,
+                cfClearance: cfClearance
+            ),
+            jsEvaluationFailed: false
+        )
+    }
+
+    private func makeCloudflareRecoveryCookieSnapshot(
+        tToken: String?,
+        forumSession: String?,
+        cfClearance: String?
+    ) -> FireCloudflareRecoveryCookieSnapshot {
+        FireCloudflareRecoveryCookieSnapshot(
+            hasAuthCookies: !(tToken?.isEmpty ?? true) && !(forumSession?.isEmpty ?? true),
+            hasCloudflareClearance: !(cfClearance?.isEmpty ?? true),
+            authFingerprint: "t=\(cookieFingerprint(tToken) ?? "none")|forum=\(cookieFingerprint(forumSession) ?? "none")",
+            cfClearanceFingerprint: cookieFingerprint(cfClearance)
+        )
+    }
+
+    private func cookieFingerprint(_ value: String?) -> String? {
+        guard let value, !value.isEmpty else {
+            return nil
+        }
+
+        var hash: UInt64 = 0xcbf29ce484222325
+        for byte in value.utf8 {
+            hash ^= UInt64(byte)
+            hash &*= 0x100000001b3
+        }
+        return String(hash, radix: 16)
     }
 
     private func makeAuthenticatedWritePreflightStore() throws -> FireSessionStore {

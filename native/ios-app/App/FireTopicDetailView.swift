@@ -1430,6 +1430,30 @@ private struct FireTopicPostPlaceholder: View {
     }
 }
 
+enum FireTopicReplySwipeAxis: Equatable {
+    case horizontal
+    case vertical
+    case reservedForNavigationBack
+}
+
+enum FireTopicReplySwipePolicy {
+    static let backNavigationReservedWidth: CGFloat = 32
+
+    static func resolvedAxis(
+        startLocationX: CGFloat,
+        translationWidth: CGFloat,
+        translationHeight: CGFloat
+    ) -> FireTopicReplySwipeAxis {
+        if startLocationX <= backNavigationReservedWidth {
+            return .reservedForNavigationBack
+        }
+
+        return abs(translationWidth) > abs(translationHeight) * 1.2
+            ? .horizontal
+            : .vertical
+    }
+}
+
 private struct FirePostRow: View {
     let post: TopicPostState
     let depth: Int
@@ -2232,10 +2256,8 @@ private struct FireSwipeToReplyContainer<Content: View>: View {
     @ViewBuilder let content: () -> Content
 
     @State private var offset: CGFloat = 0
-    @State private var gestureDirection: GestureAxis? = nil
+    @State private var gestureDirection: FireTopicReplySwipeAxis? = nil
     @State private var replyTriggered = false
-
-    private enum GestureAxis { case horizontal, vertical }
 
     private let triggerThreshold: CGFloat = 55
     private let maxOffset: CGFloat = 75
@@ -2278,7 +2300,11 @@ private struct FireSwipeToReplyContainer<Content: View>: View {
                 let dy = value.translation.height
 
                 if gestureDirection == nil {
-                    gestureDirection = abs(dx) > abs(dy) * 1.2 ? .horizontal : .vertical
+                    gestureDirection = FireTopicReplySwipePolicy.resolvedAxis(
+                        startLocationX: value.startLocation.x,
+                        translationWidth: dx,
+                        translationHeight: dy
+                    )
                 }
 
                 guard gestureDirection == .horizontal, dx > 0 else { return }

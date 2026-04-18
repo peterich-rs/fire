@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 // MARK: - Scene Background
 
@@ -622,51 +623,214 @@ struct FlowLayout: Layout {
 
 // MARK: - Avatar View
 
+private let fireAvatarPlaceholderOpacity = 0.6
+
+struct FireAvatarImageRequest: Hashable, Sendable {
+    let url: URL
+
+    var cacheKey: String {
+        url.absoluteString
+    }
+}
+
+enum FireAvatarImagePipelineError: Error {
+    case badServerResponse
+    case invalidImageData
+}
+
+final class FireAvatarImageMemoryCache: @unchecked Sendable {
+    static let shared = FireAvatarImageMemoryCache()
+
+    private let storage: NSCache<NSString, UIImage>
+
+    init(
+        countLimit: Int = 256,
+        totalCostLimit: Int = 48 * 1024 * 1024,
+        storage: NSCache<NSString, UIImage> = NSCache<NSString, UIImage>()
+    ) {
+        self.storage = storage
+        self.storage.countLimit = countLimit
+        self.storage.totalCostLimit = totalCostLimit
+    }
+
+    func image(for key: String) -> UIImage? {
+        storage.object(forKey: key as NSString)
+    }
+
+    func insert(_ image: UIImage, for key: String) {
+        storage.setObject(image, forKey: key as NSString, cost: image.fireMemoryCost)
+    }
+
+    func removeAllObjects() {
+        storage.removeAllObjects()
+    }
+}
+
+final class FireAvatarImagePipeline: @unchecked Sendable {
+    static let shared = FireAvatarImagePipeline()
+
+    private struct InFlightLoad {
+        let id: UUID
+        let task: Task<UIImage, Error>
+    }
+
+    private let memoryCache: FireAvatarImageMemoryCache
+    private let dataLoader: @Sendable (URL) async throws -> Data
+    private let lock = NSLock()
+    private var inFlightLoads: [String: InFlightLoad] = [:]
+
+    init(
+        memoryCache: FireAvatarImageMemoryCache = .shared,
+        dataLoader: @escaping @Sendable (URL) async throws -> Data = FireAvatarImagePipeline.defaultDataLoader
+    ) {
+        self.memoryCache = memoryCache
+        self.dataLoader = dataLoader
+    }
+
+    func cachedImage(for request: FireAvatarImageRequest) -> UIImage? {
+        memoryCache.image(for: request.cacheKey)
+    }
+
+    func loadImage(for request: FireAvatarImageRequest) async throws -> UIImage {
+        if let cachedImage = cachedImage(for: request) {
+            return cachedImage
+        }
+
+        let load = withLock { () -> InFlightLoad in
+            if let existingLoad = inFlightLoads[request.cacheKey] {
+                return existingLoad
+            }
+
+            let load = InFlightLoad(
+                id: UUID(),
+                task: Task(priority: .userInitiated) { [memoryCache, dataLoader] in
+                    let data = try await dataLoader(request.url)
+                    guard let image = UIImage(data: data) else {
+                        throw FireAvatarImagePipelineError.invalidImageData
+                    }
+                    let preparedImage = image.preparingForDisplay() ?? image
+                    memoryCache.insert(preparedImage, for: request.cacheKey)
+                    return preparedImage
+                }
+            )
+            inFlightLoads[request.cacheKey] = load
+            return load
+        }
+
+        defer {
+            withLock {
+                guard inFlightLoads[request.cacheKey]?.id == load.id else {
+                    return
+                }
+                inFlightLoads.removeValue(forKey: request.cacheKey)
+            }
+        }
+
+        let image = try await load.task.value
+        memoryCache.insert(image, for: request.cacheKey)
+        return image
+    }
+
+    private static func defaultDataLoader(from url: URL) async throws -> Data {
+        let (data, response) = try await URLSession.shared.data(from: url)
+        if let httpResponse = response as? HTTPURLResponse,
+           !(200..<300).contains(httpResponse.statusCode) {
+            throw FireAvatarImagePipelineError.badServerResponse
+        }
+        return data
+    }
+
+    private func withLock<T>(_ body: () -> T) -> T {
+        lock.lock()
+        defer { lock.unlock() }
+        return body()
+    }
+}
+
+func fireAvatarURL(
+    avatarTemplate: String?,
+    size: CGFloat,
+    scale: CGFloat,
+    baseURLString: String = "https://linux.do"
+) -> URL? {
+    guard let avatarTemplate, !avatarTemplate.isEmpty else {
+        return nil
+    }
+
+    let pixelSize = Int(size * scale)
+    let path = avatarTemplate.replacingOccurrences(of: "{size}", with: "\(pixelSize)")
+    if path.hasPrefix("http") {
+        return URL(string: path)
+    }
+    if path.hasPrefix("//") {
+        let scheme = URL(string: baseURLString)?.scheme ?? "https"
+        return URL(string: "\(scheme):\(path)")
+    }
+    return URL(string: path, relativeTo: URL(string: baseURLString))?.absoluteURL
+}
+
+private extension UIImage {
+    var fireMemoryCost: Int {
+        guard let cgImage else {
+            return 0
+        }
+        return cgImage.bytesPerRow * cgImage.height
+    }
+}
+
 struct FireAvatarView: View {
     let avatarTemplate: String?
     let username: String
     let size: CGFloat
     var baseURLString: String = "https://linux.do"
 
-    private var avatarURL: URL? {
-        guard let avatarTemplate, !avatarTemplate.isEmpty else {
+    @State private var loadedImage: UIImage?
+    @State private var loadedImageKey: String?
+    @State private var loadFailed = false
+
+    private var avatarRequest: FireAvatarImageRequest? {
+        guard let avatarURL = fireAvatarURL(
+            avatarTemplate: avatarTemplate,
+            size: size,
+            scale: UIScreen.main.scale,
+            baseURLString: baseURLString
+        ) else {
             return nil
         }
-        let pixelSize = Int(size * UIScreen.main.scale)
-        let path = avatarTemplate.replacingOccurrences(of: "{size}", with: "\(pixelSize)")
-        if path.hasPrefix("http") {
-            return URL(string: path)
-        }
-        if path.hasPrefix("//") {
-            let scheme = URL(string: baseURLString)?.scheme ?? "https"
-            return URL(string: "\(scheme):\(path)")
-        }
-        return URL(string: path, relativeTo: URL(string: baseURLString))?.absoluteURL
+        return FireAvatarImageRequest(url: avatarURL)
     }
 
     private var monogram: String {
         monogramForUsername(username: username.isEmpty ? "?" : username)
     }
 
+    private var resolvedImage: UIImage? {
+        guard let avatarRequest else {
+            return nil
+        }
+        if loadedImageKey == avatarRequest.cacheKey, let loadedImage {
+            return loadedImage
+        }
+        return FireAvatarImagePipeline.shared.cachedImage(for: avatarRequest)
+    }
+
     var body: some View {
-        if let avatarURL {
-            AsyncImage(url: avatarURL) { phase in
-                switch phase {
-                case .success(let image):
-                    image
-                        .resizable()
-                        .scaledToFill()
-                case .failure:
-                    monogramView
-                default:
-                    monogramView
-                        .opacity(0.6)
-                }
+        Group {
+            if let resolvedImage {
+                Image(uiImage: resolvedImage)
+                    .resizable()
+                    .scaledToFill()
+            } else if avatarRequest != nil {
+                monogramView
+                    .opacity(loadFailed ? 1 : fireAvatarPlaceholderOpacity)
+            } else {
+                monogramView
             }
-            .frame(width: size, height: size)
-            .clipShape(Circle())
-        } else {
-            monogramView
+        }
+        .frame(width: size, height: size)
+        .clipShape(Circle())
+        .task(id: avatarRequest?.cacheKey) {
+            await loadAvatarImageIfNeeded()
         }
     }
 
@@ -686,6 +850,42 @@ struct FireAvatarView: View {
                 .foregroundStyle(.white)
         }
         .frame(width: size, height: size)
+    }
+
+    @MainActor
+    private func loadAvatarImageIfNeeded() async {
+        guard let avatarRequest else {
+            loadedImage = nil
+            loadedImageKey = nil
+            loadFailed = false
+            return
+        }
+
+        loadedImage = nil
+        loadedImageKey = nil
+        loadFailed = false
+
+        if let cachedImage = FireAvatarImagePipeline.shared.cachedImage(for: avatarRequest) {
+            loadedImage = cachedImage
+            loadedImageKey = avatarRequest.cacheKey
+            return
+        }
+
+        do {
+            let image = try await FireAvatarImagePipeline.shared.loadImage(for: avatarRequest)
+            guard !Task.isCancelled else {
+                return
+            }
+            loadedImage = image
+            loadedImageKey = avatarRequest.cacheKey
+        } catch is CancellationError {
+            return
+        } catch {
+            guard !Task.isCancelled else {
+                return
+            }
+            loadFailed = true
+        }
     }
 }
 

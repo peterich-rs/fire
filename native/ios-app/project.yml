@@ -75,6 +75,7 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_CFBundleDisplayName: $(FIRE_DISPLAY_NAME)
         INFOPLIST_KEY_FireGitSha: $(FIRE_GIT_SHA)
+        INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription: Fire 需要把你在帖子里查看的图片保存到相册。
         INFOPLIST_KEY_BGTaskSchedulerPermittedIdentifiers:
           - com.fire.app.ios.notification-alert-refresh
         INFOPLIST_KEY_CFBundleURLTypes: '[["CFBundleURLSchemes": ["fire"], "CFBundleURLName": "fire"]]'

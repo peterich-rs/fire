@@ -1,3 +1,4 @@
+import Photos
 import SwiftUI
 
 private struct FireReplyComposerContext: Identifiable, Equatable {
@@ -1787,14 +1788,6 @@ private struct FireTopicVotersSheet: View {
 
 private struct FireTopicImageViewer: View {
     let image: FireCookedImage
-    @Environment(\.dismiss) private var dismiss
-    @State private var interactionMode: InteractionMode = .idle
-    @State private var activeDragMode: DragMode?
-    @State private var steadyZoomScale: CGFloat = 1
-    @State private var gestureZoomScale: CGFloat = 1
-    @State private var panOffset: CGSize = .zero
-    @State private var dragStartOffset: CGSize = .zero
-    @State private var dismissOffset: CGSize = .zero
 
     private enum InteractionMode {
         case idle
@@ -1809,6 +1802,30 @@ private struct FireTopicImageViewer: View {
         case ignore
     }
 
+    private enum ToolbarAction {
+        case share
+        case save
+    }
+
+    private enum PhotoSaveError: Error {
+        case unknownFailure
+    }
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var interactionMode: InteractionMode = .idle
+    @State private var activeDragMode: DragMode?
+    @State private var activeToolbarAction: ToolbarAction?
+    @State private var sharedImage: UIImage?
+    @State private var isShowingShareSheet = false
+    @State private var isShowingAlert = false
+    @State private var alertTitle = ""
+    @State private var alertMessage = ""
+    @State private var steadyZoomScale: CGFloat = 1
+    @State private var gestureZoomScale: CGFloat = 1
+    @State private var panOffset: CGSize = .zero
+    @State private var dragStartOffset: CGSize = .zero
+    @State private var dismissOffset: CGSize = .zero
+
     private let minimumZoomScale: CGFloat = 1
     private let maximumZoomScale: CGFloat = 4
     private let dismissThreshold: CGFloat = 140
@@ -1817,6 +1834,11 @@ private struct FireTopicImageViewer: View {
 
     private var imageRequest: FireRemoteImageRequest {
         FireRemoteImageRequest(url: image.url)
+    }
+
+    private var shareSubject: String {
+        let fileName = image.url.lastPathComponent.trimmingCharacters(in: .whitespacesAndNewlines)
+        return fileName.isEmpty ? "Fire 帖子图片" : fileName
     }
 
     private var effectiveZoomScale: CGFloat {
@@ -1836,11 +1858,15 @@ private struct FireTopicImageViewer: View {
         return effectiveZoomScale * dismissScale
     }
 
+    private var isToolbarBusy: Bool {
+        activeToolbarAction != nil
+    }
+
     var body: some View {
         GeometryReader { proxy in
             let containerSize = proxy.size
 
-            ZStack(alignment: .topTrailing) {
+            ZStack {
                 Color.black
                     .opacity(backgroundOpacity)
                     .ignoresSafeArea()
@@ -1871,18 +1897,178 @@ private struct FireTopicImageViewer: View {
                 .offset(displayOffset(in: containerSize))
                 .simultaneousGesture(magnificationGesture(in: containerSize))
 
-                Button {
-                    dismiss()
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 28))
-                        .foregroundStyle(.white.opacity(0.92))
-                        .padding(20)
+                VStack {
+                    HStack(spacing: 12) {
+                        Spacer()
+
+                        viewerControlButton(
+                            systemName: "square.and.arrow.up",
+                            isBusy: activeToolbarAction == .share,
+                            action: { Task { await handleShareAction() } }
+                        )
+                        .disabled(isToolbarBusy)
+
+                        viewerControlButton(
+                            systemName: "arrow.down.to.line",
+                            isBusy: activeToolbarAction == .save,
+                            action: { Task { await handleSaveAction() } }
+                        )
+                        .disabled(isToolbarBusy)
+
+                        viewerControlButton(systemName: "xmark", action: {
+                            dismiss()
+                        })
+                    }
+                    .padding(.top, proxy.safeAreaInsets.top + 12)
+                    .padding(.horizontal, 16)
+
+                    Spacer()
                 }
                 .opacity(max(0.4, backgroundOpacity))
             }
             .contentShape(Rectangle())
             .simultaneousGesture(dragGesture(in: containerSize))
+        }
+        .sheet(isPresented: $isShowingShareSheet, onDismiss: {
+            sharedImage = nil
+        }) {
+            if let sharedImage {
+                FireActivityShareSheet(
+                    activityItems: [sharedImage],
+                    subject: shareSubject
+                )
+            }
+        }
+        .alert(alertTitle, isPresented: $isShowingAlert) {
+            Button("知道了", role: .cancel) {}
+        } message: {
+            Text(alertMessage)
+        }
+    }
+
+    private func viewerControlButton(
+        systemName: String,
+        isBusy: Bool = false,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Group {
+                if isBusy {
+                    ProgressView()
+                        .controlSize(.small)
+                        .tint(.white)
+                } else {
+                    Image(systemName: systemName)
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.92))
+                }
+            }
+            .frame(width: 42, height: 42)
+            .background(
+                Circle()
+                    .fill(Color.black.opacity(0.34))
+            )
+            .overlay(
+                Circle()
+                    .stroke(Color.white.opacity(0.14), lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    @MainActor
+    private func handleShareAction() async {
+        guard activeToolbarAction == nil else { return }
+
+        activeToolbarAction = .share
+        defer { activeToolbarAction = nil }
+
+        do {
+            let resolvedImage = try await FireRemoteImagePipeline.shared.loadImage(for: imageRequest)
+            sharedImage = resolvedImage
+            isShowingShareSheet = true
+        } catch {
+            presentAlert(
+                title: "无法分享图片",
+                message: "图片还没加载完成或下载失败，请稍后再试。"
+            )
+        }
+    }
+
+    @MainActor
+    private func handleSaveAction() async {
+        guard activeToolbarAction == nil else { return }
+
+        activeToolbarAction = .save
+        defer { activeToolbarAction = nil }
+
+        let resolvedImage: UIImage
+        do {
+            resolvedImage = try await FireRemoteImagePipeline.shared.loadImage(for: imageRequest)
+        } catch {
+            presentAlert(
+                title: "无法保存图片",
+                message: "图片还没加载完成或下载失败，请稍后再试。"
+            )
+            return
+        }
+
+        let authorizationStatus = await photoLibraryAuthorizationStatus()
+        guard authorizationStatus == .authorized || authorizationStatus == .limited else {
+            presentAlert(
+                title: "无法保存到相册",
+                message: "Fire 需要照片权限才能把当前图片保存到相册，请在系统设置里允许添加照片。"
+            )
+            return
+        }
+
+        do {
+            try await saveImageToPhotoLibrary(resolvedImage)
+            presentAlert(
+                title: "已保存到相册",
+                message: "当前帖子图片已经保存到系统相册。"
+            )
+        } catch {
+            presentAlert(
+                title: "保存失败",
+                message: "系统暂时无法写入相册，请稍后再试。"
+            )
+        }
+    }
+
+    @MainActor
+    private func presentAlert(title: String, message: String) {
+        alertTitle = title
+        alertMessage = message
+        isShowingAlert = true
+    }
+
+    private func photoLibraryAuthorizationStatus() async -> PHAuthorizationStatus {
+        let currentStatus = PHPhotoLibrary.authorizationStatus(for: .addOnly)
+        guard currentStatus == .notDetermined else {
+            return currentStatus
+        }
+
+        return await withCheckedContinuation { continuation in
+            PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
+                continuation.resume(returning: status)
+            }
+        }
+    }
+
+    private func saveImageToPhotoLibrary(_ image: UIImage) async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            PHPhotoLibrary.shared().performChanges {
+                PHAssetCreationRequest.creationRequestForAsset(from: image)
+            } completionHandler: { success, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                } else if success {
+                    continuation.resume(returning: ())
+                } else {
+                    continuation.resume(throwing: PhotoSaveError.unknownFailure)
+                }
+            }
         }
     }
 

@@ -1,9 +1,40 @@
+use fire_core::{FireAuthRecoveryHint, FireAuthRecoveryHintReason};
 use fire_models::{
     BootstrapArtifacts, CookieSnapshot, LoginPhase, LoginSyncInput, PlatformCookie,
     SessionReadiness, SessionSnapshot, TopicCategory,
 };
 
 use fire_uniffi_types::RequiredTagGroupState;
+
+#[derive(uniffi::Enum, Debug, Clone, Copy)]
+pub enum AuthRecoveryHintReasonState {
+    TOnlyRotation,
+    ForumSessionOnlyRotation,
+}
+
+impl From<FireAuthRecoveryHintReason> for AuthRecoveryHintReasonState {
+    fn from(value: FireAuthRecoveryHintReason) -> Self {
+        match value {
+            FireAuthRecoveryHintReason::TOnlyRotation => Self::TOnlyRotation,
+            FireAuthRecoveryHintReason::ForumSessionOnlyRotation => Self::ForumSessionOnlyRotation,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct AuthRecoveryHintState {
+    pub observed_epoch: u64,
+    pub reason: AuthRecoveryHintReasonState,
+}
+
+impl From<FireAuthRecoveryHint> for AuthRecoveryHintState {
+    fn from(value: FireAuthRecoveryHint) -> Self {
+        Self {
+            observed_epoch: value.observed_epoch,
+            reason: value.reason.into(),
+        }
+    }
+}
 
 #[derive(uniffi::Record, Debug, Clone)]
 pub struct PlatformCookieState {

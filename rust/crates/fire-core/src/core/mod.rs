@@ -45,10 +45,56 @@ const CLIENT_MAX_CONNECTIONS_PER_HOST: usize = 8;
 const CLIENT_POOL_MAX_IDLE_PER_HOST: usize = 4;
 const MESSAGE_BUS_HTTP2_KEEP_ALIVE_INTERVAL: Duration = Duration::from_secs(30);
 
+type FireAuthKey = (Option<String>, Option<String>);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FireAuthRecoveryHintReason {
+    TOnlyRotation,
+    ForumSessionOnlyRotation,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FireAuthRecoveryHint {
+    pub observed_epoch: u64,
+    pub reason: FireAuthRecoveryHintReason,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum FireAuthChangeSource {
+    DirectMutation,
+    PlatformSync,
+    NetworkIngress,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum FireAuthRotation {
+    TOnly,
+    ForumSessionOnly,
+    Both,
+}
+
+impl FireAuthRotation {
+    fn recovery_hint_reason(self) -> Option<FireAuthRecoveryHintReason> {
+        match self {
+            Self::TOnly => Some(FireAuthRecoveryHintReason::TOnlyRotation),
+            Self::ForumSessionOnly => Some(FireAuthRecoveryHintReason::ForumSessionOnlyRotation),
+            Self::Both => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct FireResponseAuthChange {
+    pub(crate) request_trace_id: u64,
+    pub(crate) observed_epoch: u64,
+}
+
 #[derive(Clone)]
 pub(crate) struct FireSessionRuntimeState {
     pub(crate) snapshot: SessionSnapshot,
     pub(crate) epoch: u64,
+    pub(crate) auth_recovery_hint: Option<FireAuthRecoveryHint>,
+    pub(crate) last_response_auth_change: Option<FireResponseAuthChange>,
 }
 
 #[derive(Clone)]
@@ -89,6 +135,8 @@ impl FireCore {
                 browser_user_agent: None,
             },
             epoch: 1,
+            auth_recovery_hint: None,
+            last_response_auth_change: None,
         };
         let session = Arc::new(RwLock::new(session));
         let cookie_jar = Arc::new(FireSessionCookieJar::new(base_url.clone(), session.clone()));
@@ -171,6 +219,14 @@ impl FireCore {
 
     pub(crate) fn current_session_epoch(&self) -> u64 {
         read_rwlock(&self.session, "session").epoch
+    }
+
+    pub fn session_epoch(&self) -> u64 {
+        self.current_session_epoch()
+    }
+
+    pub fn auth_recovery_hint(&self) -> Option<FireAuthRecoveryHint> {
+        read_rwlock(&self.session, "session").auth_recovery_hint
     }
 
     pub fn shared_client(&self) -> Client {
@@ -263,6 +319,7 @@ impl FireCore {
     pub(crate) fn update_session_advancing_epoch_if_auth_changed<F>(
         &self,
         reason: &'static str,
+        source: FireAuthChangeSource,
         mutate: F,
     ) -> SessionSnapshot
     where
@@ -270,27 +327,94 @@ impl FireCore {
     {
         let snapshot = {
             let mut session = write_rwlock(&self.session, "session");
-            let before = auth_cookie_epoch_key(&session.snapshot);
-            mutate(&mut session.snapshot);
-            let after = auth_cookie_epoch_key(&session.snapshot);
-            if before != after {
-                session.epoch = session.epoch.saturating_add(1);
-                info!(
-                    session_epoch = session.epoch,
-                    reason, "advanced session epoch"
-                );
-            }
+            mutate_runtime_session_tracking_auth_change(&mut session, source, reason, mutate);
             session.snapshot.clone()
         };
         notifications::reconcile_notification_runtime(&self.notifications, &snapshot);
         presence::reconcile_topic_presence_runtime(&self.topic_presence, &snapshot);
         snapshot
     }
+
+    pub(crate) fn clear_auth_recovery_hint(&self, reason: &'static str) {
+        let cleared_hint = {
+            let mut session = write_rwlock(&self.session, "session");
+            session.auth_recovery_hint.take()
+        };
+        if let Some(cleared_hint) = cleared_hint {
+            info!(
+                reason,
+                observed_epoch = cleared_hint.observed_epoch,
+                auth_recovery_hint = ?cleared_hint.reason,
+                "cleared auth recovery hint"
+            );
+        }
+    }
 }
 
-fn auth_cookie_epoch_key(snapshot: &SessionSnapshot) -> (Option<String>, Option<String>) {
+pub(crate) fn mutate_runtime_session_tracking_auth_change<F>(
+    session: &mut FireSessionRuntimeState,
+    source: FireAuthChangeSource,
+    reason: &'static str,
+    mutate: F,
+) where
+    F: FnOnce(&mut SessionSnapshot),
+{
+    let before = auth_cookie_epoch_key(&session.snapshot);
+    let before_csrf = session.snapshot.cookies.csrf_token.clone();
+    mutate(&mut session.snapshot);
+    let after = auth_cookie_epoch_key(&session.snapshot);
+    if before == after {
+        return;
+    }
+
+    let rotation = classify_auth_rotation(&before, &after);
+    let stale_csrf_cleared =
+        before_csrf.is_some() && session.snapshot.cookies.csrf_token == before_csrf;
+    if stale_csrf_cleared {
+        session.snapshot.cookies.csrf_token = None;
+    }
+    session.epoch = session.epoch.saturating_add(1);
+    session.auth_recovery_hint = match (source, rotation.recovery_hint_reason()) {
+        (FireAuthChangeSource::NetworkIngress, Some(reason)) => Some(FireAuthRecoveryHint {
+            observed_epoch: session.epoch,
+            reason,
+        }),
+        _ => None,
+    };
+    session.last_response_auth_change = if source == FireAuthChangeSource::NetworkIngress {
+        crate::cookies::FIRE_REQUEST_TRACE_ID
+            .try_with(|trace_id| FireResponseAuthChange {
+                request_trace_id: *trace_id,
+                observed_epoch: session.epoch,
+            })
+            .ok()
+    } else {
+        None
+    };
+    info!(
+        session_epoch = session.epoch,
+        source = ?source,
+        auth_rotation = ?rotation,
+        stale_csrf_cleared,
+        auth_recovery_hint = ?session.auth_recovery_hint,
+        reason,
+        "processed auth rotation"
+    );
+}
+
+fn auth_cookie_epoch_key(snapshot: &SessionSnapshot) -> FireAuthKey {
     (
         snapshot.cookies.t_token.clone(),
         snapshot.cookies.forum_session.clone(),
     )
+}
+
+fn classify_auth_rotation(before: &FireAuthKey, after: &FireAuthKey) -> FireAuthRotation {
+    let t_changed = before.0 != after.0;
+    let forum_session_changed = before.1 != after.1;
+    match (t_changed, forum_session_changed) {
+        (true, false) => FireAuthRotation::TOnly,
+        (false, true) => FireAuthRotation::ForumSessionOnly,
+        _ => FireAuthRotation::Both,
+    }
 }

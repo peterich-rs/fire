@@ -1,5 +1,7 @@
 # Fix iOS Auth Cookie Invalidation
 
+This document only covers the false-positive logout path caused by non-authoritative auth-cookie deletion signals. The later support snapshot that showed a successful response rotating `_forum_session` before `/topics/timings` is tracked separately in `docs/architecture/ios-auth-cookie-rotation-recovery-plan.md`.
+
 ## Feasibility Assessment
 
 This change is fully achievable inside the current Fire architecture. The false-positive logout behavior is controlled by a small shared Rust surface: `rust/crates/fire-core/src/cookies.rs` decides whether network `Set-Cookie` headers mutate the session snapshot, and `rust/crates/fire-core/src/core/network.rs` decides whether a response should become `LoginRequired`. The existing strong signals (`discourse-logged-out` and `error_type: "not_logged_in"`) already exist and remain valid, while the stale-response epoch guard already protects the separate in-flight race. No platform API changes or new dependencies are required. Fully feasible.

@@ -20,7 +20,7 @@ use super::{
     NETWORK_CONNECT_TIMEOUT,
 };
 use crate::{
-    cookies::{FireSessionCookieJar, FIRE_REQUEST_EPOCH},
+    cookies::{FireSessionCookieJar, FIRE_REQUEST_EPOCH, FIRE_REQUEST_TRACE_ID},
     diagnostics::{
         FireDiagnosticsStore, FireNetworkTraceCancellationGuard,
         FireNetworkTraceEventListenerFactory,
@@ -256,7 +256,10 @@ impl FireNetworkLayer {
             "Future dropped before the trace reached a terminal state",
         );
         let execute = apply_call_profile(self.client.new_call(traced.request), profile).execute();
-        let mut response = match FIRE_REQUEST_EPOCH.scope(request_epoch.0, execute).await {
+        let execute = FIRE_REQUEST_TRACE_ID.scope(trace_id, async move {
+            FIRE_REQUEST_EPOCH.scope(request_epoch.0, execute).await
+        });
+        let mut response = match execute.await {
             Ok(response) => response,
             Err(source) => {
                 self.diagnostics
@@ -271,19 +274,27 @@ impl FireNetworkLayer {
             }
         };
         let current_epoch = self.current_epoch();
-        if current_epoch != request_epoch.0 {
-            trace_guard.cancel(
-                "Session superseded",
-                format!(
-                    "Discarded `{operation}` response after session epoch advanced from {} to {}",
-                    request_epoch.0, current_epoch
-                ),
-            );
-            return Err(FireCoreError::StaleSessionResponse { operation });
-        }
+        let response_epoch = if current_epoch != request_epoch.0 {
+            if self.last_response_auth_change().is_some_and(|change| {
+                change.request_trace_id == trace_id && change.observed_epoch == current_epoch
+            }) {
+                current_epoch
+            } else {
+                trace_guard.cancel(
+                    "Session superseded",
+                    format!(
+                        "Discarded `{operation}` response after session epoch advanced from {} to {}",
+                        request_epoch.0, current_epoch
+                    ),
+                );
+                return Err(FireCoreError::StaleSessionResponse { operation });
+            }
+        } else {
+            current_epoch
+        };
         response.extensions_mut().insert(trace_guard);
         response.extensions_mut().insert(FireResponseEpochContext {
-            request_epoch: request_epoch.0,
+            request_epoch: response_epoch,
             operation,
         });
         debug!(
@@ -297,6 +308,10 @@ impl FireNetworkLayer {
 
     fn current_epoch(&self) -> u64 {
         read_rwlock(&self.session, "session").epoch
+    }
+
+    fn last_response_auth_change(&self) -> Option<super::FireResponseAuthChange> {
+        read_rwlock(&self.session, "session").last_response_auth_change
     }
 }
 

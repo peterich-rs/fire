@@ -35,7 +35,7 @@ struct FireHomeCollectionView: View {
 
     let onShowCategoryBrowser: () -> Void
     let onShowTagPicker: () -> Void
-    let onSelectTopic: (UInt64) -> Void
+    let onSelectTopic: (FireAppRoute) -> Void
     let onRefresh: () async -> Void
     let onScrollMetricsChanged: (FireCollectionScrollMetrics) -> Void
 
@@ -115,8 +115,9 @@ struct FireHomeCollectionView: View {
     }
 
     private func handleSelection(_ item: FireHomeCollectionItem) {
-        guard case let .topic(topicID) = item else { return }
-        onSelectTopic(topicID)
+        guard case let .topic(topicID) = item,
+              let row = homeFeedStore.topicRow(for: topicID) else { return }
+        onSelectTopic(.topic(row: row))
     }
 
     private func handleVisibleItemsChanged(_ items: [FireHomeCollectionItem]) {

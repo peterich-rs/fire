@@ -143,6 +143,17 @@ enum FireAppRoute: Hashable, Identifiable {
     case badge(id: UInt64, slug: String?)
 
     static func topic(
+        row: TopicRowState,
+        postNumber: UInt32? = nil
+    ) -> FireAppRoute {
+        topic(
+            topicId: row.topic.id,
+            postNumber: postNumber,
+            preview: FireTopicRoutePreview(row: row)
+        )
+    }
+
+    static func topic(
         topicId: UInt64,
         postNumber: UInt32?,
         preview: FireTopicRoutePreview? = nil

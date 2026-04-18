@@ -217,12 +217,27 @@ struct FireProfileView: View {
                 }
 
                 Section {
-                    if recentActions.isEmpty, profileViewModel.isLoadingActions {
-                        HStack {
-                            Spacer()
-                            ProgressView()
-                                .padding(.vertical, 18)
-                            Spacer()
+                    if let errorMessage = profileViewModel.actionsErrorMessage,
+                       profileViewModel.hasLoadedActionsOnce {
+                        activityErrorBanner(message: errorMessage)
+                    }
+
+                    if !profileViewModel.hasLoadedActionsOnce {
+                        if let errorMessage = profileViewModel.actionsErrorMessage {
+                            FireBlockingErrorState(
+                                title: "动态加载失败",
+                                message: errorMessage,
+                                onRetry: {
+                                    profileViewModel.loadActions(reset: true)
+                                }
+                            )
+                        } else {
+                            HStack {
+                                Spacer()
+                                ProgressView()
+                                    .padding(.vertical, 18)
+                                Spacer()
+                            }
                         }
                     } else if recentActions.isEmpty {
                         Text("还没有可展示的动态")
@@ -235,6 +250,16 @@ struct FireProfileView: View {
                             fireIdentifiedValues(recentActions) { $0.fireStableBaseID }
                         ) { item in
                             activityRow(item.value)
+                        }
+
+                        if profileViewModel.isLoadingActions {
+                            HStack {
+                                Spacer()
+                                ProgressView()
+                                    .controlSize(.small)
+                                    .padding(.vertical, 8)
+                                Spacer()
+                            }
                         }
                     }
 
@@ -465,6 +490,20 @@ struct FireProfileView: View {
             onDismiss: {
                 profileViewModel.errorMessage = nil
                 viewModel.dismissError()
+            }
+        )
+        .padding(.vertical, 2)
+    }
+
+    private func activityErrorBanner(message: String) -> some View {
+        FireErrorBanner(
+            message: message,
+            copied: false,
+            onCopy: {
+                UIPasteboard.general.string = message
+            },
+            onDismiss: {
+                profileViewModel.actionsErrorMessage = nil
             }
         )
         .padding(.vertical, 2)

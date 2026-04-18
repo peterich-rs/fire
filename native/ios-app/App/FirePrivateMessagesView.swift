@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 @MainActor
 final class FirePrivateMessagesViewModel: ObservableObject {
@@ -12,6 +13,7 @@ final class FirePrivateMessagesViewModel: ObservableObject {
     @Published private(set) var users: [TopicUserState] = []
     @Published private(set) var isLoading = false
     @Published private(set) var isLoadingMore = false
+    @Published private(set) var hasLoadedOnce = false
     @Published var errorMessage: String?
 
     private let fetchPrivateMessages: FetchPrivateMessages
@@ -73,10 +75,8 @@ final class FirePrivateMessagesViewModel: ObservableObject {
         if reset {
             isLoading = true
             isLoadingMore = false
-            rows = []
-            users = []
             nextPage = nil
-            hasMore = true
+            hasMore = false
         } else {
             isLoadingMore = true
         }
@@ -127,16 +127,11 @@ final class FirePrivateMessagesViewModel: ObservableObject {
             let receivedFreshContent = !freshRows.isEmpty || !freshUsers.isEmpty
             nextPage = resolvedNextPage
             hasMore = resolvedNextPage != nil && (reset || receivedFreshContent)
+            hasLoadedOnce = true
             errorMessage = nil
         } catch {
             guard generation == loadGeneration, requestKind == selectedKind else {
                 return
-            }
-            if reset {
-                rows = []
-                users = []
-                nextPage = nil
-                hasMore = false
             }
             errorMessage = error.localizedDescription
         }
@@ -148,6 +143,7 @@ struct FirePrivateMessagesView: View {
     @StateObject private var mailboxViewModel: FirePrivateMessagesViewModel
     @State private var showComposer = false
     @State private var selectedRoute: FireAppRoute?
+    @State private var copiedErrorMessage = false
 
     init(viewModel: FireAppViewModel) {
         self.viewModel = viewModel
@@ -170,12 +166,20 @@ struct FirePrivateMessagesView: View {
         List {
             pickerSection
 
-            if let errorMessage = mailboxViewModel.errorMessage {
+            if let errorMessage = mailboxViewModel.errorMessage,
+               mailboxViewModel.hasLoadedOnce {
                 Section {
                     FireErrorBanner(
                         message: errorMessage,
-                        copied: false,
-                        onCopy: {},
+                        copied: copiedErrorMessage,
+                        onCopy: {
+                            UIPasteboard.general.string = errorMessage
+                            copiedErrorMessage = true
+                            Task { @MainActor in
+                                try? await Task.sleep(for: .seconds(1.2))
+                                copiedErrorMessage = false
+                            }
+                        },
                         onDismiss: {
                             mailboxViewModel.errorMessage = nil
                         }
@@ -183,13 +187,27 @@ struct FirePrivateMessagesView: View {
                 }
             }
 
-            if mailboxViewModel.isLoading && mailboxViewModel.rows.isEmpty {
-                Section {
-                    HStack {
-                        Spacer()
-                        ProgressView()
-                            .padding(.vertical, 20)
-                        Spacer()
+            if !mailboxViewModel.hasLoadedOnce {
+                if let errorMessage = mailboxViewModel.errorMessage {
+                    Section {
+                        FireBlockingErrorState(
+                            title: "私信加载失败",
+                            message: errorMessage,
+                            onRetry: {
+                                Task {
+                                    await mailboxViewModel.refresh()
+                                }
+                            }
+                        )
+                    }
+                } else {
+                    Section {
+                        HStack {
+                            Spacer()
+                            ProgressView()
+                                .padding(.vertical, 20)
+                            Spacer()
+                        }
                     }
                 }
             } else if mailboxViewModel.rows.isEmpty {
@@ -204,12 +222,30 @@ struct FirePrivateMessagesView: View {
                         Text(mailboxViewModel.selectedKind == .privateMessagesInbox ? "新收到的私信会出现在这里。" : "你发出的私信会出现在这里。")
                             .font(.caption)
                             .foregroundStyle(FireTheme.subtleInk)
+
+                        Button("重新加载") {
+                            Task {
+                                await mailboxViewModel.refresh()
+                            }
+                        }
+                        .buttonStyle(.bordered)
+                        .tint(FireTheme.accent)
                     }
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 28)
                 }
             } else {
                 Section {
+                    if mailboxViewModel.isLoading {
+                        HStack {
+                            Spacer()
+                            ProgressView()
+                                .controlSize(.small)
+                                .padding(.vertical, 8)
+                            Spacer()
+                        }
+                    }
+
                     ForEach(mailboxViewModel.rows, id: \.topic.id) { row in
                         NavigationLink {
                             FireTopicDetailView(viewModel: viewModel, row: row)

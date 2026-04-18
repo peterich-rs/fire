@@ -4,10 +4,11 @@ import UIKit
 struct FireProfileActivityTimelineView: View {
     @ObservedObject var viewModel: FireAppViewModel
     @ObservedObject var profileViewModel: FireProfileViewModel
+    @State private var copiedActionsError = false
 
     var body: some View {
         List {
-            if let errorMessage = profileViewModel.errorMessage ?? viewModel.errorMessage {
+            if let errorMessage = viewModel.errorMessage ?? profileViewModel.errorMessage {
                 Section {
                     FireErrorBanner(
                         message: errorMessage,
@@ -21,29 +22,59 @@ struct FireProfileActivityTimelineView: View {
                         }
                     )
                 }
-            }
+                            if let errorMessage = profileViewModel.actionsErrorMessage,
+                               profileViewModel.hasLoadedActionsOnce {
+                                FireErrorBanner(
+                                    message: errorMessage,
+                                    copied: copiedActionsError,
+                                    onCopy: {
+                                        UIPasteboard.general.string = errorMessage
+                                        copiedActionsError = true
+                                        Task { @MainActor in
+                                            try? await Task.sleep(for: .seconds(1.2))
+                                            copiedActionsError = false
+                                        }
+                                    },
+                                    onDismiss: {
+                                        profileViewModel.actionsErrorMessage = nil
+                                    }
+                                )
+                            }
 
-            Section {
-                Picker(
-                    "动态筛选",
-                    selection: Binding(
-                        get: { profileViewModel.selectedTab },
-                        set: { profileViewModel.selectTab($0) }
-                    )
-                ) {
-                    ForEach(FireProfileViewModel.ProfileTab.allCases, id: \.self) { tab in
-                        Text(tab.title).tag(tab)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .padding(.vertical, 4)
-            }
-
-            Section {
-                if profileViewModel.actions.isEmpty, profileViewModel.isLoadingActions {
-                    HStack {
-                        Spacer()
-                        ProgressView()
+                            if !profileViewModel.hasLoadedActionsOnce {
+                                if let errorMessage = profileViewModel.actionsErrorMessage {
+                                    FireBlockingErrorState(
+                                        title: "动态加载失败",
+                                        message: errorMessage,
+                                        onRetry: {
+                                            profileViewModel.loadActions(reset: true)
+                                        }
+                                    )
+                                } else {
+                                    HStack {
+                                        Spacer()
+                                        ProgressView()
+                                            .padding(.vertical, 20)
+                                        Spacer()
+                                    }
+                                }
+                            } else if profileViewModel.actions.isEmpty {
+                                Text("暂无动态")
+                                    .font(.subheadline)
+                                    .foregroundStyle(FireTheme.tertiaryInk)
+                                    .frame(maxWidth: .infinity, alignment: .center)
+                                    .padding(.vertical, 24)
+                            } else {
+                                ForEach(
+                                    fireIdentifiedValues(profileViewModel.actions) { $0.fireStableBaseID }
+                                ) { item in
+                                    activityRow(item.value)
+                                        .onAppear {
+                                            if item.index >= max(profileViewModel.actions.count - 3, 0) {
+                                                profileViewModel.loadActions(reset: false)
+                                            }
+                                        }
+                                }
                             .padding(.vertical, 20)
                         Spacer()
                     }

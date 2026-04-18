@@ -366,10 +366,12 @@ final class FireProfileViewModel: ObservableObject {
     @Published private(set) var actions: [UserActionState] = []
     @Published private(set) var isLoadingProfile = false
     @Published private(set) var isLoadingActions = false
+    @Published private(set) var hasLoadedActionsOnce = false
     @Published private(set) var selectedTab: ProfileTab = .all
     @Published private(set) var actionsOffset: Int = 0
     @Published private(set) var hasMoreActions = true
     @Published var errorMessage: String?
+    @Published var actionsErrorMessage: String?
 
     enum ProfileTab: String, CaseIterable {
         case all      // filter "4,5" -- topics + replies combined
@@ -638,8 +640,8 @@ These methods are intentionally thin: they don't modify any `@Published` state o
 - Published properties: `profile: UserProfileState?`, `summary: UserSummaryState?`, `actions: [UserActionState]`, `isLoadingProfile: Bool`, `isLoadingActions: Bool`, `selectedTab: ProfileTab`, `errorMessage: String?`, `hasMoreActions: Bool`.
 - Define `ProfileTab` enum: `.all` (filter "4,5"), `.topics` (filter "4"), `.replies` (filter "5"), `.liked` (filter "2"). Display names: "全部", "话题", "回复", "被赞".
 - Implement `loadProfile()`: read `username` from `appViewModel.session.bootstrap.currentUsername`, fetch profile and summary concurrently using `async let` via the `appViewModel.fetchUserProfile(...)` / `appViewModel.fetchUserSummary(...)` wrappers.
-- Implement `loadActions(reset:)`: fetch user actions with current tab's filter and offset via `appViewModel.fetchUserActions(...)`, append or replace results.
-- Implement `selectTab(_:)`: update selected tab, reset actions, trigger `loadActions(reset: true)`.
+- Implement `loadActions(reset:)`: fetch user actions with current tab's filter and offset via `appViewModel.fetchUserActions(...)`, append or replace results while preserving the previous successful timeline during tab switches and refresh retries.
+- Implement `selectTab(_:)`: update selected tab and trigger `loadActions(reset: true)` without clearing the existing action rows first.
 
 ### Phase 6: Redesign FireProfileView
 
@@ -649,7 +651,7 @@ These methods are intentionally thin: they don't modify any `@Published` state o
 - **Account shortcuts**: keep key destinations directly under the header, including bookmarks, history, drafts, badges, invite links, following, and followers.
 - **Recent Activity Preview**: only the first few action rows render on the main page. A trailing `NavigationLink` opens `FireProfileActivityTimelineView` for the complete activity history.
 - **Toolbar menu**: the top-right gear now opens developer tools and logout actions.
-- **Error handling**: `FireErrorBanner` remains at the top when profile or action requests fail.
+- **Error handling**: keep profile-level failures in the page banner, but localize activity failures inside the preview section and timeline. Initial activity failures use a blocking retry state; later failures keep stale rows visible and show a non-blocking banner.
 - **Refresh behavior**: pull-to-refresh calls `refreshAll()` so summary and activity stay in sync.
 
 **File: `native/ios-app/App/FireProfileTrustLevelPill.swift`** (new file)

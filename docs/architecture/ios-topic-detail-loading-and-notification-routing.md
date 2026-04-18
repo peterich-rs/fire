@@ -36,7 +36,7 @@ The latest `main` already contains the hard parts needed for this slice: Rust `f
 2. `P0 in this plan`: notification tap-through reliability for reply/comment targets, including background/system notifications.
 3. `P1 next`: real notification delivery beyond beta polling. Current iOS behavior is still `BGAppRefreshTask` + one-shot MessageBus alert polling plus local-only APNs token storage (`native/ios-app/README.md`, lines 111-115).
 4. `P1 next`: high-volume non-home list surfaces. `docs/architecture/ios-listkit-home.md` explicitly states that notifications/history and topic detail were not part of the home migration, and current `List`-backed high-churn views still include notifications, history, bookmarks, PMs, filtered lists, read history, profile activity, and search results.
-5. `P1 next`: production image/rendering infrastructure. The iOS README still calls out `Nuke` as upcoming (`native/ios-app/README.md`, line 175), while avatars, badges, composer uploads, and topic media still rely on `AsyncImage` surfaces (`native/ios-app/App/FireComponents.swift`, line 653; `native/ios-app/App/FireTopicDetailView.swift`, lines 1752, 1878).
+5. `P1 next`: production image/rendering infrastructure. Avatars and topic media now run through the Fire-owned decoded-memory remote-image pipeline, but badge/composer image surfaces still rely on `AsyncImage`, and viewer gestures/save/share are still not implemented.
 
 ### Key Design Decisions
 

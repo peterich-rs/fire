@@ -1789,21 +1789,25 @@ private struct FireTopicImageViewer: View {
     let image: FireCookedImage
     @Environment(\.dismiss) private var dismiss
 
+    private var imageRequest: FireRemoteImageRequest {
+        FireRemoteImageRequest(url: image.url)
+    }
+
     var body: some View {
         ZStack(alignment: .topTrailing) {
             Color.black.ignoresSafeArea()
 
-            AsyncImage(url: image.url) { phase in
-                switch phase {
-                case .empty:
+            FireRemoteImage(request: imageRequest) { loadedImage in
+                Image(uiImage: loadedImage)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .padding(16)
+            } placeholder: { state in
+                switch state {
+                case .loading, .missingRequest:
                     ProgressView()
                         .tint(.white)
-                case .success(let loadedImage):
-                    loadedImage
-                        .resizable()
-                        .scaledToFit()
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .padding(16)
                 case .failure:
                     VStack(spacing: 12) {
                         Image(systemName: "photo")
@@ -1812,8 +1816,6 @@ private struct FireTopicImageViewer: View {
                             .font(.subheadline)
                     }
                     .foregroundStyle(.white)
-                @unknown default:
-                    EmptyView()
                 }
             }
 
@@ -1918,19 +1920,23 @@ private struct FireCookedImageCard: View {
         image.aspectRatio ?? 1.45
     }
 
+    private var imageRequest: FireRemoteImageRequest {
+        FireRemoteImageRequest(url: image.url)
+    }
+
     var body: some View {
-        AsyncImage(url: image.url) { phase in
-            switch phase {
-            case .empty:
+        FireRemoteImage(request: imageRequest) { loadedImage in
+            Image(uiImage: loadedImage)
+                .resizable()
+                .scaledToFill()
+        } placeholder: { state in
+            switch state {
+            case .loading, .missingRequest:
                 ZStack {
                     RoundedRectangle(cornerRadius: 16, style: .continuous)
                         .fill(Color(.tertiarySystemFill))
                     ProgressView()
                 }
-            case .success(let loadedImage):
-                loadedImage
-                    .resizable()
-                    .scaledToFill()
             case .failure:
                 ZStack {
                     RoundedRectangle(cornerRadius: 16, style: .continuous)
@@ -1944,8 +1950,6 @@ private struct FireCookedImageCard: View {
                             .foregroundStyle(.secondary)
                     }
                 }
-            @unknown default:
-                EmptyView()
             }
         }
         .frame(maxWidth: .infinity)

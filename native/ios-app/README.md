@@ -174,7 +174,7 @@ Xcode project generation rules:
 - `native/ios-app/project.yml` is the source of truth for `Fire.xcodeproj`.
 - The generated project now ships two shared schemes:
   - `Fire` for app builds plus local unit-test runs
-  - `FireUnitTests` for the isolated unit-test lane
+  - `FireUnitTests` for the isolated hosted unit-test lane used by CI
 - Signing now flows through `native/ios-app/Configs/Fire-*.xcconfig` so local developer-account overrides do not need to touch the generated project.
 - New Swift files placed under existing source roots such as `App/` or `Sources/FireAppSession/` do not require a `project.yml` edit, but they do require rerunning `xcodegen generate --spec native/ios-app/project.yml` and committing the regenerated `Fire.xcodeproj`.
 - Changes that introduce a new source/resource directory, framework dependency, build script, target, or Xcode build setting must update `project.yml` first, then regenerate `Fire.xcodeproj`.
@@ -270,6 +270,7 @@ Release artifact note:
 Current build note:
 
 - The clean verification baseline requires `third_party/openwire` and `third_party/xlog-rs` to be initialized and free of local modifications. Run `./scripts/check_clean_submodules.sh` from the repository root before trusting local build/test results.
+- `FireUnitTests` excludes the removed UI smoke coverage, but it still boots an iOS Simulator because `FireTests` is configured as a hosted unit-test bundle with `Fire.app` as `TEST_HOST`.
 - The simulator/unit-test path above is verified locally after the diagnostics addition.
 - The device `Release` Xcode path is also verified locally.
 - The UniFFI pre-build script now sanitizes host and iOS-target cargo environments separately: host cargo invocations keep the macOS SDK and library search path, while iOS target cargo invocations keep the macOS `SDKROOT` needed for host build scripts without leaking the macOS `LIBRARY_PATH` into iPhoneOS/iPhoneSimulator links.

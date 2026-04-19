@@ -265,7 +265,7 @@ jobs:
     name: iOS Test
     needs: [rust-ios-uniffi]
     runs-on: macos-15
-    timeout-minutes: 30
+    timeout-minutes: 90
 
     steps:
       - uses: actions/checkout@v5
@@ -332,8 +332,10 @@ jobs:
               "$action"
           }
 
-          # Required CI stays on the unit-only lane; the repo no longer ships a
-          # separate UI smoke target in blocking validation.
+          # Required CI stays on the unit-only lane. FireUnitTests excludes the
+          # removed UI smoke coverage, but FireTests is still a hosted iOS test
+          # bundle, so the lane remains simulator-backed and needs a realistic
+          # timeout for clean GitHub-hosted builds.
           run_xcodebuild FireUnitTests test
 
   native-android-test:

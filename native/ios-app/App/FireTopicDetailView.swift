@@ -115,6 +115,7 @@ struct FireTopicDetailView: View {
     @State private var showingTopicVoters = false
     @State private var cachedDetail: TopicDetailState?
     @State private var cachedRenderState: FireTopicDetailRenderState?
+    @State private var currentlyVisiblePostNumbers: Set<UInt32> = []
     @FocusState private var isReplyFieldFocused: Bool
 
     init(viewModel: FireAppViewModel, row: FireTopicRowPresentation, scrollToPostNumber: UInt32? = nil) {
@@ -362,31 +363,22 @@ struct FireTopicDetailView: View {
     }
 
     var body: some View {
-        return GeometryReader { geometry in
-            ScrollViewReader { scrollProxy in
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 0) {
-                        topicHeaderSection
-                            .padding(.bottom, 18)
-                        postsSection
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.top, 12)
-                    .padding(.bottom, 24)
+        ScrollViewReader { scrollProxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    topicHeaderSection
+                        .padding(.bottom, 18)
+                    postsSection
                 }
-                .coordinateSpace(name: Self.scrollCoordinateSpaceName)
-                .onPreferenceChange(FireVisiblePostFramePreferenceKey.self) { frames in
-                    updateVisiblePostFrames(
-                        frames,
-                        viewportHeight: geometry.size.height
-                    )
-                }
-                .onChange(of: detail?.postStream.posts.count) { _, _ in
+                .padding(.horizontal, 16)
+                .padding(.top, 12)
+                .padding(.bottom, 24)
+            }
+            .onChange(of: detail?.postStream.posts.count) { _, _ in
                     scrollToTargetPostIfNeeded(proxy: scrollProxy)
                 }
-                .task(id: pendingScrollTarget) {
-                    scrollToTargetPostIfNeeded(proxy: scrollProxy)
-                }
+            .task(id: pendingScrollTarget) {
+                scrollToTargetPostIfNeeded(proxy: scrollProxy)
             }
         }
         .navigationTitle("话题")
@@ -772,7 +764,8 @@ struct FireTopicDetailView: View {
                     )
                 }
                 .id(originalPost.postNumber)
-                .background(FireVisiblePostFrameReporter(postNumber: originalPost.postNumber))
+                .onAppear { handlePostVisibilityChange(postNumber: originalPost.postNumber, isVisible: true) }
+                .onDisappear { handlePostVisibilityChange(postNumber: originalPost.postNumber, isVisible: false) }
             } else if let excerpt = row.excerptText {
                 Text(excerpt)
                     .font(.subheadline)
@@ -942,7 +935,8 @@ struct FireTopicDetailView: View {
                 }
             }
             .id(row.entry.postNumber)
-            .background(FireVisiblePostFrameReporter(postNumber: row.entry.postNumber))
+            .onAppear { handlePostVisibilityChange(postNumber: row.entry.postNumber, isVisible: true) }
+            .onDisappear { handlePostVisibilityChange(postNumber: row.entry.postNumber, isVisible: false) }
 
             if index != displayRows.count - 1 {
                 Divider()
@@ -1007,20 +1001,18 @@ struct FireTopicDetailView: View {
         .background(FireTheme.softSurface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
-    private func updateVisiblePostFrames(
-        _ frames: [UInt32: CGRect],
-        viewportHeight: CGFloat
-    ) {
-        let visiblePostNumbers = Set(
-            frames.compactMap { postNumber, frame in
-                frame.maxY > 0 && frame.minY < viewportHeight ? postNumber : nil
-            }
-        )
-        timingTracker.updateVisiblePostNumbers(visiblePostNumbers)
+    private func handlePostVisibilityChange(postNumber: UInt32, isVisible: Bool) {
+        if isVisible {
+            currentlyVisiblePostNumbers.insert(postNumber)
+        } else {
+            currentlyVisiblePostNumbers.remove(postNumber)
+        }
+        
+        timingTracker.updateVisiblePostNumbers(currentlyVisiblePostNumbers)
 
         topicDetailStore.preloadTopicPostsIfNeeded(
             topicId: topic.id,
-            visiblePostNumbers: visiblePostNumbers
+            visiblePostNumbers: currentlyVisiblePostNumbers
         )
     }
 
@@ -1373,28 +1365,7 @@ struct FireTopicDetailView: View {
     }
 }
 
-private struct FireVisiblePostFrameReporter: View {
-    let postNumber: UInt32
 
-    var body: some View {
-        GeometryReader { proxy in
-            Color.clear.preference(
-                key: FireVisiblePostFramePreferenceKey.self,
-                value: [
-                    postNumber: proxy.frame(in: .named(FireTopicDetailView.scrollCoordinateSpaceName))
-                ]
-            )
-        }
-    }
-}
-
-private struct FireVisiblePostFramePreferenceKey: PreferenceKey {
-    static var defaultValue: [UInt32: CGRect] = [:]
-
-    static func reduce(value: inout [UInt32: CGRect], nextValue: () -> [UInt32: CGRect]) {
-        value.merge(nextValue(), uniquingKeysWith: { _, latest in latest })
-    }
-}
 
 private struct FireTypingPresenceStrip: View {
     let users: [TopicPresenceUserState]

@@ -556,8 +556,14 @@ fn session_persistence_revisions_track_snapshot_and_auth_cookie_changes() {
         ..BootstrapArtifacts::default()
     });
     let after_bootstrap = core.session_persistence_state();
-    assert_eq!(after_bootstrap.snapshot_revision, initial.snapshot_revision + 1);
-    assert_eq!(after_bootstrap.auth_cookie_revision, initial.auth_cookie_revision);
+    assert_eq!(
+        after_bootstrap.snapshot_revision,
+        initial.snapshot_revision + 1
+    );
+    assert_eq!(
+        after_bootstrap.auth_cookie_revision,
+        initial.auth_cookie_revision
+    );
 
     let _ = core.apply_platform_cookies(vec![
         PlatformCookie {

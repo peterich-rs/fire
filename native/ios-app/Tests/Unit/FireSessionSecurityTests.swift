@@ -1091,6 +1091,20 @@ final class FireSessionSecurityTests: XCTestCase {
 
     @MainActor
     func testCloudflareRecoveryManualCompletionKeepsSheetOpenOnStaleChallengeURL() async {
+        let webKitStore = WKWebsiteDataStore.default().httpCookieStore
+        await clearLinuxDoCookiesFromWebKitStore(webKitStore)
+        guard
+            let rotatedClearance = makeHTTPCookie(
+                name: "cf_clearance",
+                value: "fresh-clearance",
+                domain: "linux.do"
+            )
+        else {
+            XCTFail("expected Cloudflare clearance cookie")
+            return
+        }
+        await webKitStore.setCookieAsync(rotatedClearance)
+
         let viewModel = FireAppViewModel(
             initialSession: authenticatedSession(),
             cloudflareRecoveryCookieSync: {
@@ -1151,6 +1165,8 @@ final class FireSessionSecurityTests: XCTestCase {
             XCTAssertTrue(error is CancellationError)
         }
         XCTAssertEqual(attempts, 2)
+
+        await clearLinuxDoCookiesFromWebKitStore(webKitStore)
     }
 
     @MainActor
@@ -1349,6 +1365,17 @@ final class FireSessionSecurityTests: XCTestCase {
     private func clearMirroredCookiesFromWebKitStore(_ store: any MirroredCookieStore) async {
         for cookie in await mirroredWebKitCookies(store) {
             await store.deleteCookie(cookie)
+        }
+    }
+
+    private func clearLinuxDoCookiesFromWebKitStore(_ store: WKHTTPCookieStore) async {
+        let host = "linux.do"
+        let cookies = await store.getAllCookiesAsync().filter {
+            let normalizedDomain = normalizeCookieDomain($0.domain)
+            return normalizedDomain == host || normalizedDomain.hasSuffix(".\(host)")
+        }
+        for cookie in cookies {
+            await store.deleteCookieAsync(cookie)
         }
     }
 
@@ -1853,6 +1880,32 @@ private actor AsyncGate {
         let pendingWaiters = waiters
         waiters.removeAll()
         pendingWaiters.forEach { $0.resume() }
+    }
+}
+
+private extension WKHTTPCookieStore {
+    func getAllCookiesAsync() async -> [HTTPCookie] {
+        await withCheckedContinuation { continuation in
+            getAllCookies { cookies in
+                continuation.resume(returning: cookies)
+            }
+        }
+    }
+
+    func setCookieAsync(_ cookie: HTTPCookie) async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            setCookie(cookie) {
+                continuation.resume()
+            }
+        }
+    }
+
+    func deleteCookieAsync(_ cookie: HTTPCookie) async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            delete(cookie) {
+                continuation.resume()
+            }
+        }
     }
 }
 

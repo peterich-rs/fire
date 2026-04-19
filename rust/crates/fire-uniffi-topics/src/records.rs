@@ -1,9 +1,9 @@
 use fire_models::{
     Poll, PollOption, PostReactionUpdate, PostUpdateRequest, PrivateMessageCreateRequest,
     ResolvedUploadUrl, TopicCreateRequest, TopicDetail, TopicDetailCreatedBy, TopicDetailMeta,
-    TopicDetailQuery, TopicListQuery, TopicPost, TopicPostStream, TopicReaction,
-    TopicReplyRequest, TopicTimingEntry, TopicTimingsRequest, TopicUpdateRequest,
-    UploadResult, VoteResponse, VotedUser,
+    TopicDetailQuery, TopicListQuery, TopicPost, TopicPostStream, TopicReaction, TopicReplyRequest,
+    TopicTimingEntry, TopicTimingsRequest, TopicUpdateRequest, UploadResult, VoteResponse,
+    VotedUser,
 };
 
 use fire_uniffi_types::{TopicListKindState, TopicParticipantState, TopicTagState};

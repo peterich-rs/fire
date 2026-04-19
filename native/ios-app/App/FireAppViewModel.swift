@@ -130,13 +130,13 @@ struct FireCloudflareRecoveryObservation: Equatable {
         !isLoading && !hasActiveChallenge
     }
 
-    func autoCompletionToken(cfClearanceChanged: Bool) -> String {
+    func autoCompletionToken(cfClearanceIsFresh: Bool) -> String {
         [
             url ?? "unknown",
             title ?? "untitled",
             isLoading ? "loading" : "idle",
             hasActiveChallenge ? "challenge" : "clear",
-            cfClearanceChanged ? "cf_changed" : "cf_same",
+            cfClearanceIsFresh ? "cf_fresh" : "cf_stale",
             cookieSnapshot.authFingerprint,
             cookieSnapshot.cfClearanceFingerprint ?? "none",
         ].joined(separator: "|")
@@ -157,15 +157,18 @@ private final class PendingCloudflareRecovery {
     let waiters = PendingCloudflareRecoveryWaiters()
 
     let initialCookieSnapshot: FireCloudflareRecoveryCookieSnapshot
+    let initialSessionCookieSnapshot: FireCloudflareRecoveryCookieSnapshot
     var latestObservation: FireCloudflareRecoveryObservation?
     var lastAutoCompletionToken: String?
 
     init(
         context: FireCloudflareChallengeContext,
-        initialCookieSnapshot: FireCloudflareRecoveryCookieSnapshot
+        initialCookieSnapshot: FireCloudflareRecoveryCookieSnapshot,
+        initialSessionCookieSnapshot: FireCloudflareRecoveryCookieSnapshot
     ) {
         self.context = context
         self.initialCookieSnapshot = initialCookieSnapshot
+        self.initialSessionCookieSnapshot = initialSessionCookieSnapshot
     }
 }
 
@@ -1538,11 +1541,13 @@ final class FireAppViewModel: ObservableObject {
         let previousObservation = pendingCloudflareRecovery.latestObservation
         pendingCloudflareRecovery.latestObservation = observation
 
-        let cfClearanceChanged =
-            observation.cookieSnapshot.cfClearanceFingerprint
-            != pendingCloudflareRecovery.initialCookieSnapshot.cfClearanceFingerprint
+        let cfClearanceIsFresh = hasFreshCloudflareClearance(
+            observation,
+            initialCookieSnapshot: pendingCloudflareRecovery.initialCookieSnapshot,
+            initialSessionCookieSnapshot: pendingCloudflareRecovery.initialSessionCookieSnapshot
+        )
         let diagnosticMessage =
-            "cloudflare recovery observation source=\(source) cf_changed=\(cfClearanceChanged) \(observation.diagnosticSummary)"
+            "cloudflare recovery observation source=\(source) cf_fresh=\(cfClearanceIsFresh) \(observation.diagnosticSummary)"
 
         if previousObservation != observation {
             FireAPMManager.shared.recordBreadcrumb(
@@ -1563,14 +1568,15 @@ final class FireAppViewModel: ObservableObject {
 
         guard shouldAutoCompleteCloudflareRecovery(
             observation,
-            initialCookieSnapshot: pendingCloudflareRecovery.initialCookieSnapshot
+            initialCookieSnapshot: pendingCloudflareRecovery.initialCookieSnapshot,
+            initialSessionCookieSnapshot: pendingCloudflareRecovery.initialSessionCookieSnapshot
         ) else {
             pendingCloudflareRecovery.lastAutoCompletionToken = nil
             return
         }
 
         let autoCompletionToken = observation.autoCompletionToken(
-            cfClearanceChanged: cfClearanceChanged
+            cfClearanceIsFresh: cfClearanceIsFresh
         )
         guard pendingCloudflareRecovery.lastAutoCompletionToken != autoCompletionToken else {
             return
@@ -1659,6 +1665,7 @@ final class FireAppViewModel: ObservableObject {
 
     private func beginCloudflareRecoveryAndWait(operation: String) async throws {
         if pendingCloudflareRecovery == nil {
+            let initialSessionCookieSnapshot = makeCloudflareRecoveryCookieSnapshot(from: session)
             let context = FireCloudflareChallengeContext(
                 id: UUID(),
                 operation: operation,
@@ -1667,7 +1674,8 @@ final class FireAppViewModel: ObservableObject {
             )
             pendingCloudflareRecovery = PendingCloudflareRecovery(
                 context: context,
-                initialCookieSnapshot: await currentCloudflareRecoveryCookieSnapshot()
+                initialCookieSnapshot: await currentCloudflareRecoveryCookieSnapshot(),
+                initialSessionCookieSnapshot: initialSessionCookieSnapshot
             )
             errorMessage = nil
             canSyncLoginSession = false
@@ -1754,6 +1762,7 @@ final class FireAppViewModel: ObservableObject {
 
         let operation = message ?? "当前请求"
         if pendingCloudflareRecovery == nil {
+            let initialSessionCookieSnapshot = makeCloudflareRecoveryCookieSnapshot(from: session)
             let context = FireCloudflareChallengeContext(
                 id: UUID(),
                 operation: operation,
@@ -1762,7 +1771,8 @@ final class FireAppViewModel: ObservableObject {
             )
             pendingCloudflareRecovery = PendingCloudflareRecovery(
                 context: context,
-                initialCookieSnapshot: await currentCloudflareRecoveryCookieSnapshot()
+                initialCookieSnapshot: await currentCloudflareRecoveryCookieSnapshot(),
+                initialSessionCookieSnapshot: initialSessionCookieSnapshot
             )
             errorMessage = nil
             canSyncLoginSession = false
@@ -2106,19 +2116,35 @@ final class FireAppViewModel: ObservableObject {
 
     private func shouldAutoCompleteCloudflareRecovery(
         _ observation: FireCloudflareRecoveryObservation,
-        initialCookieSnapshot: FireCloudflareRecoveryCookieSnapshot
+        initialCookieSnapshot: FireCloudflareRecoveryCookieSnapshot,
+        initialSessionCookieSnapshot: FireCloudflareRecoveryCookieSnapshot
     ) -> Bool {
         cloudflareRecoveryCompletionBlockReason(
             trigger: .automatic,
             observation: observation,
-            initialCookieSnapshot: initialCookieSnapshot
+            initialCookieSnapshot: initialCookieSnapshot,
+            initialSessionCookieSnapshot: initialSessionCookieSnapshot
         ) == nil
+    }
+
+    private func hasFreshCloudflareClearance(
+        _ observation: FireCloudflareRecoveryObservation,
+        initialCookieSnapshot: FireCloudflareRecoveryCookieSnapshot,
+        initialSessionCookieSnapshot: FireCloudflareRecoveryCookieSnapshot
+    ) -> Bool {
+        guard let currentFingerprint = observation.cookieSnapshot.cfClearanceFingerprint else {
+            return false
+        }
+
+        return currentFingerprint != initialCookieSnapshot.cfClearanceFingerprint
+            || currentFingerprint != initialSessionCookieSnapshot.cfClearanceFingerprint
     }
 
     private func cloudflareRecoveryCompletionBlockReason(
         trigger: FireCloudflareRecoveryCompletionTrigger,
         observation: FireCloudflareRecoveryObservation?,
-        initialCookieSnapshot: FireCloudflareRecoveryCookieSnapshot
+        initialCookieSnapshot: FireCloudflareRecoveryCookieSnapshot,
+        initialSessionCookieSnapshot: FireCloudflareRecoveryCookieSnapshot
     ) -> String? {
         guard let observation else {
             return trigger == .manual
@@ -2147,10 +2173,12 @@ final class FireAppViewModel: ObservableObject {
                 : "clearance_missing"
         }
 
-        let cfClearanceChanged =
-            observation.cookieSnapshot.cfClearanceFingerprint
-            != initialCookieSnapshot.cfClearanceFingerprint
-        if observation.hasChallengeURL && !cfClearanceChanged {
+        let cfClearanceIsFresh = hasFreshCloudflareClearance(
+            observation,
+            initialCookieSnapshot: initialCookieSnapshot,
+            initialSessionCookieSnapshot: initialSessionCookieSnapshot
+        )
+        if observation.hasChallengeURL && !cfClearanceIsFresh {
             return trigger == .manual
                 ? "验证页仍停留在 challenge 页面，尚未观察到新的 Cloudflare clearance。"
                 : "challenge_url_without_cookie_rotation"
@@ -2199,7 +2227,8 @@ final class FireAppViewModel: ObservableObject {
         if let blockReason = cloudflareRecoveryCompletionBlockReason(
             trigger: trigger,
             observation: observation,
-            initialCookieSnapshot: pendingCloudflareRecovery.initialCookieSnapshot
+            initialCookieSnapshot: pendingCloudflareRecovery.initialCookieSnapshot,
+            initialSessionCookieSnapshot: pendingCloudflareRecovery.initialSessionCookieSnapshot
         ) {
             let diagnosticMessage =
                 "cloudflare recovery completion blocked trigger=\(trigger.rawValue) reason=\(blockReason) observation=\(observation?.diagnosticSummary ?? "none")"

@@ -18,10 +18,7 @@ mod workspace;
 
 pub use config::FireCoreConfig;
 pub use core::{
-    FireAuthRecoveryHint,
-    FireAuthRecoveryHintReason,
-    FireCore,
-    FireSessionPersistenceState,
+    FireAuthRecoveryHint, FireAuthRecoveryHintReason, FireCore, FireSessionPersistenceState,
 };
 pub use diagnostics::{
     DiagnosticsPageDirection, DiagnosticsTextPage, FireLogFileDetail, FireLogFilePage,

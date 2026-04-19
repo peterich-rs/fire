@@ -23,6 +23,13 @@ import uniffi.fire_uniffi_topics.TopicDetailState
 import uniffi.fire_uniffi_topics.TopicPostState
 
 class TopicDetailActivity : AppCompatActivity() {
+    private data class TopicTimelineRow(
+        val post: TopicPostState,
+        val parentPostNumber: UInt?,
+        val depth: Int,
+        val isOriginalPost: Boolean,
+    )
+
     private lateinit var binding: ActivityTopicDetailBinding
     private lateinit var sessionStore: FireSessionStore
 
@@ -83,6 +90,7 @@ class TopicDetailActivity : AppCompatActivity() {
     }
 
     private fun renderDetail(detail: TopicDetailState) {
+        val timelineRows = buildTimelineRows(detail)
         val tagNames = TopicPresentation.tagNames(detail.tags)
         binding.pageTitleText.text = detail.title
         binding.pageMetaText.text = buildList {
@@ -100,12 +108,12 @@ class TopicDetailActivity : AppCompatActivity() {
         }.joinToString(" · ")
 
         binding.postsContainer.removeAllViews()
-        if (detail.postStream.posts.isEmpty()) {
+        if (timelineRows.isEmpty()) {
             binding.postsContainer.addView(sectionBodyText(getString(R.string.topic_detail_empty_posts)))
             return
         }
 
-        detail.flatPosts.firstOrNull { it.isOriginalPost }?.post?.let { originalPost ->
+        timelineRows.firstOrNull { it.isOriginalPost }?.post?.let { originalPost ->
             binding.postsContainer.addView(
                 sectionCard(
                     title = getString(R.string.topic_detail_original_post),
@@ -124,7 +132,7 @@ class TopicDetailActivity : AppCompatActivity() {
             )
         }
 
-        val replyPosts = detail.flatPosts.filterNot { it.isOriginalPost }
+        val replyPosts = timelineRows.filterNot { it.isOriginalPost }
         if (replyPosts.isEmpty()) {
             binding.postsContainer.addView(
                 sectionBodyText(getString(R.string.topic_detail_no_replies)),
@@ -138,19 +146,76 @@ class TopicDetailActivity : AppCompatActivity() {
                 subtitle = getString(R.string.topic_detail_replies_count, replyPosts.size.toString()),
                 accentColor = sectionAccentColor(alpha = 0x66),
             ) {
-                replyPosts.forEach { flatPost ->
+                replyPosts.forEach { row ->
                     addView(
                         postCardView(
-                            post = flatPost.post,
-                            roleLabel = flatPost.parentPostNumber
+                            post = row.post,
+                            roleLabel = row.parentPostNumber
                                 ?.let { getString(R.string.topic_detail_nested_reply_to, it.toString()) }
                                 ?: getString(R.string.topic_detail_reply_to_topic),
-                            depth = flatPost.depth.toInt(),
-                            emphasized = flatPost.depth == 0u,
+                            depth = row.depth,
+                            emphasized = row.depth == 0,
                         ),
                     )
                 }
             },
+        )
+    }
+
+    private fun buildTimelineRows(detail: TopicDetailState): List<TopicTimelineRow> {
+        val posts = detail.postStream.posts.sortedWith(
+            compareBy<TopicPostState> { it.postNumber }.thenBy { it.id },
+        )
+        if (posts.isEmpty()) {
+            return emptyList()
+        }
+
+        val postsByNumber = posts.associateBy { it.postNumber }
+        val originalPostNumber = posts.minOf { it.postNumber }
+
+        return posts.map { post ->
+            val parentPostNumber = normalizedReplyTarget(
+                replyToPostNumber = post.replyToPostNumber,
+                currentPostNumber = post.postNumber,
+            )
+            TopicTimelineRow(
+                post = post,
+                parentPostNumber = parentPostNumber,
+                depth = parentPostNumber?.let { computeReplyDepth(it, postsByNumber) } ?: 0,
+                isOriginalPost = post.postNumber == originalPostNumber,
+            )
+        }
+    }
+
+    private fun normalizedReplyTarget(
+        replyToPostNumber: UInt?,
+        currentPostNumber: UInt,
+    ): UInt? {
+        val parentPostNumber = replyToPostNumber ?: return null
+        return parentPostNumber.takeIf { it != 0u && it != currentPostNumber }
+    }
+
+    private fun computeReplyDepth(
+        parentPostNumber: UInt,
+        postsByNumber: Map<UInt, TopicPostState>,
+        currentDepth: Int = 1,
+        visited: MutableSet<UInt> = mutableSetOf(),
+    ): Int {
+        if (!visited.add(parentPostNumber)) {
+            return currentDepth
+        }
+
+        val parentPost = postsByNumber[parentPostNumber] ?: return currentDepth
+        val grandParentPostNumber = normalizedReplyTarget(
+            replyToPostNumber = parentPost.replyToPostNumber,
+            currentPostNumber = parentPost.postNumber,
+        ) ?: return currentDepth
+
+        return computeReplyDepth(
+            parentPostNumber = grandParentPostNumber,
+            postsByNumber = postsByNumber,
+            currentDepth = currentDepth + 1,
+            visited = visited,
         )
     }
 

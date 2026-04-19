@@ -284,7 +284,7 @@ enum FireTopicPresentation {
     // MARK: - Timeline Entries
 
     static func rebuildTimelineEntries(from posts: [TopicPostState]) -> [FireTopicTimelineEntry] {
-        return rebuildTimelineEntries(posts: posts).map { entry in
+        return Fire.rebuildTimelineEntries(posts: posts).map { entry in
             FireTopicTimelineEntry(
                 postId: entry.postId,
                 postNumber: entry.postNumber,

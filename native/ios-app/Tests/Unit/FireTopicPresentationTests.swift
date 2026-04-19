@@ -803,11 +803,11 @@ final class FireTopicPresentationTests: XCTestCase {
         let entries = FireTopicPresentation.rebuildTimelineEntries(from: posts)
 
         XCTAssertEqual(entries.count, 3)
-        // Post 5 replies to 3 (not loaded) — depth falls back to 1.
-        XCTAssertEqual(entries[0].depth, 1)
-        XCTAssertEqual(entries[0].parentPostNumber, 3)
-        // Post 6 replies to 5 (loaded) — depth is 2.
-        XCTAssertEqual(entries[1].depth, 2)
+        // Post 5 replies to 3 (not loaded) — with DFS, it acts as a standalone thread segment (root).
+        XCTAssertEqual(entries[0].depth, 0)
+        XCTAssertNil(entries[0].parentPostNumber)
+        // Post 6 replies to 5 (loaded) — depth is 1.
+        XCTAssertEqual(entries[1].depth, 1)
         // Post 7 has no parent — depth is 0.
         XCTAssertEqual(entries[2].depth, 0)
     }

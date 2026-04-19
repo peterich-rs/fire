@@ -1,9 +1,58 @@
+use fire_core::{
+    FireAuthRecoveryHint, FireAuthRecoveryHintReason,
+    FireSessionPersistenceState as CoreSessionPersistenceState,
+};
 use fire_models::{
     BootstrapArtifacts, CookieSnapshot, LoginPhase, LoginSyncInput, PlatformCookie,
     SessionReadiness, SessionSnapshot, TopicCategory,
 };
 
 use fire_uniffi_types::RequiredTagGroupState;
+
+#[derive(uniffi::Enum, Debug, Clone, Copy)]
+pub enum AuthRecoveryHintReasonState {
+    TOnlyRotation,
+    ForumSessionOnlyRotation,
+}
+
+impl From<FireAuthRecoveryHintReason> for AuthRecoveryHintReasonState {
+    fn from(value: FireAuthRecoveryHintReason) -> Self {
+        match value {
+            FireAuthRecoveryHintReason::TOnlyRotation => Self::TOnlyRotation,
+            FireAuthRecoveryHintReason::ForumSessionOnlyRotation => Self::ForumSessionOnlyRotation,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct AuthRecoveryHintState {
+    pub observed_epoch: u64,
+    pub reason: AuthRecoveryHintReasonState,
+}
+
+impl From<FireAuthRecoveryHint> for AuthRecoveryHintState {
+    fn from(value: FireAuthRecoveryHint) -> Self {
+        Self {
+            observed_epoch: value.observed_epoch,
+            reason: value.reason.into(),
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct SessionPersistenceState {
+    pub snapshot_revision: u64,
+    pub auth_cookie_revision: u64,
+}
+
+impl From<CoreSessionPersistenceState> for SessionPersistenceState {
+    fn from(value: CoreSessionPersistenceState) -> Self {
+        Self {
+            snapshot_revision: value.snapshot_revision,
+            auth_cookie_revision: value.auth_cookie_revision,
+        }
+    }
+}
 
 #[derive(uniffi::Record, Debug, Clone)]
 pub struct PlatformCookieState {

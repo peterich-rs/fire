@@ -84,17 +84,18 @@
   - 任意主站响应头 `x-discourse-username`
   - 首页 `data-preloaded.currentUser.username`
 
-### 会话失效信号
+### 会话失效与 auth 轮换
 
-- Linux.do/Discourse 不一定等写接口才暴露“登录已失效”
-- 当前观测里，普通成功响应也可能直接宣告登录态失效，例如：
+- Linux.do/Discourse 不一定等写接口才暴露登录态问题，但这里要区分“显式失效”和“auth 上下文轮换”两类现象。
+- 当前 Fire 仍把这些当作强失效信号：
   - `discourse-logged-out: 1`
-  - `Set-Cookie: _t=; path=/; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT`
-- 客户端不要继续把这种响应后的会话当作“仍可写入”；应立即清掉本地登录态并提示重新登录
-- Fire 共享层现在把 `discourse-logged-out`、清空 `_t` / `_forum_session` 的 `Set-Cookie`、`error_type=not_logged_in` 统一视为登录失效信号，并先推进内部 session epoch，再清掉本地登录态
-- Fire 共享层现在会在 `sync_login_context`、`apply_platform_cookies` 导致 auth Cookie 轮换时、显式登出、被动失效时推进 session epoch；晚到的旧请求响应会被整体视为 stale response：旧 payload 不再交付，`Set-Cookie` 也会整批丢弃，包括 `cf_clearance`、`__cf_bm` 等浏览器上下文 Cookie
-- 当前 `BAD CSRF` 只触发一次性 CSRF 刷新与单次重试；如果同一请求同时已经暴露登录失效信号，则优先按登录失效收口，而不是继续保留本地登录态
-- 否则后续最常见的表现是：前面的列表、详情等匿名可读请求仍然成功，但稍后的 `/topics/timings`、点赞、回复等写请求才返回 `403` / `error_type=not_logged_in`
+  - `401` / `403` 且 body 里有 `error_type=not_logged_in`
+- 成功响应里的 auth Cookie 删除不再单独作为登出依据；仅靠 `Set-Cookie: _t=; Max-Age=0` 或 `_forum_session=; Max-Age=0`，Fire 只保留诊断线索，不会直接清掉本地登录态。
+- Fire 共享层现在会在 `sync_login_context`、`apply_platform_cookies`、以及网络 `Set-Cookie` 导致 auth key `(_t, _forum_session)` 变化时推进 session epoch；晚到的旧请求响应仍会作为 stale response 整批丢弃。
+- 如果 auth key 变化但同一批更新没有带来新的 CSRF，Fire 会立即清掉旧 CSRF，让下一次认证写请求先刷新 token。
+- 如果网络侧只轮换了 `_t` / `_forum_session` 的一部分，Fire 会记录一次运行时 recovery hint，并把必要的 host cookie resync 延迟到下一次认证写请求，而不是在读路径里立刻探测 WebKit。
+- 当前 `BAD CSRF` 仍只触发一次性 CSRF 刷新与单次重试；如果同一请求同时已经暴露强失效信号，则优先按登录失效收口。
+- 因此后续常见表现不只有“更早一步已明确失效”，也可能是“更早一步成功读请求触发了 partial auth rotation，首个写请求才真正暴露问题”。
 
 ### `GET /challenge`
 

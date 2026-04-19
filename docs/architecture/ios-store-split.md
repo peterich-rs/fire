@@ -51,6 +51,8 @@ state itself.
 - paging metadata (`moreTopicsUrl`, `nextTopicsPage`)
 - category/tag bootstrap snapshots used by home/category/tag screens
 - home loading / append-loading flags
+- current-scope load error state used to distinguish blocking first-load failures from non-blocking refresh failures
+- the scope snapshot for the rows currently rendered on screen
 - topic-list MessageBus refresh debounce and incremental merge behavior
 
 Home rows are backed internally by:
@@ -89,7 +91,8 @@ The earlier W2 slices remain unchanged in role:
 - `FireSearchStore` owns query, scope, result state, pagination, and
   search-screen errors.
 - `FireNotificationStore` owns unread count, recent/full notification state,
-  paging, and delayed runtime refresh.
+  first-load vs refresh error state for the recent list, paging, and delayed
+  runtime refresh.
 
 ## Shared Primitives
 

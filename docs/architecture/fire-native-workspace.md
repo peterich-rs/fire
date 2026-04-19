@@ -50,6 +50,7 @@ fire/
   - native UI, files, media, notifications, keychain/keystore
 - Rust-owned:
   - session state
+  - session persistence revision tracking for snapshot/auth-cookie writes
   - session epoch invalidation for stale network responses and cookies
   - bootstrap parsing results
   - API orchestration
@@ -99,6 +100,7 @@ fire/
 - `native/ios-app` and `native/android-app`
   - host WebView login, cookie capture, native UI state, the current topic browser/detail shells, native composer/private-message UX, and thin notification-store wrappers over the shared Rust notification APIs
   - iOS topic-detail state is retained by per-view owner tokens while a detail screen is active, so background homepage refreshes can no longer evict an on-screen topic detail cache
+  - iOS now keeps a host-only prepared topic-detail render cache and coalesces MessageBus ingress before MainActor delivery, while leaving session/runtime ownership with Rust
 
 The intended native integration order is:
 
@@ -106,7 +108,7 @@ The intended native integration order is:
 2. After login or Cloudflare verification, read the platform cookie store, the current page HTML/meta, and the live WebView/browser user agent.
 3. Call `sync_login_context` in Rust with the full same-site browser cookie batch, optional username, CSRF, the preferred homepage HTML captured through the browser context, and the WebView/browser user agent.
 4. Persist the latest session snapshot through the host-appropriate session policy:
-   - iOS currently writes the full `session.json` snapshot during the active diagnostics-heavy development phase, keeps the full same-site browser cookie batch in Keychain with expiry metadata and distinct host/domain variants, and refreshes that Keychain copy when Rust receives newer auth cookies from the network.
+  - iOS currently writes the full `session.json` snapshot during the active diagnostics-heavy development phase, keeps the full same-site browser cookie batch in Keychain with expiry metadata and distinct host/domain variants, and now gates both writes off Rust-owned snapshot/auth-cookie persistence revisions instead of diffing exported session JSON in Swift.
    - Android currently uses `export_session_json` or `save_session_to_path` until Keystore-backed parity lands.
 5. On cold start, restore the snapshot through `restore_session_json` or `load_session_from_path`.
 6. Before any authenticated request, hosts that keep browser cookies outside `session.json` must re-inject that platform cookie batch into Rust.
@@ -132,5 +134,5 @@ File ownership convention:
 - iOS now also owns `ios-apm/` under the same workspace root for beta crash/APM files. That directory is explicitly host-owned and must not be treated as shared Rust diagnostics state.
 - Debug builds may also mirror shared logs into the platform console for local development, but release builds keep shared logging file-only through Xlog/readable-log artifacts.
 - `session.json` remains host-triggered persistence under that workspace root.
-- iOS currently treats `session.json` as a full-fidelity development cache and stores the same-site browser cookie batch in Keychain, including expiry metadata and refreshed auth-cookie state observed by Rust.
+- iOS currently treats `session.json` as a full-fidelity development cache and stores the same-site browser cookie batch in Keychain, including expiry metadata and refreshed auth-cookie state observed by Rust, while letting Rust-owned persistence revisions decide when those writes are actually necessary.
 - Android currently still restores the full snapshot from `session.json` until its secure-cookie migration lands.

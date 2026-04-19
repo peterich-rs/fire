@@ -137,6 +137,7 @@ impl FireCore {
                 "refreshed csrf token over network"
             );
         });
+        self.clear_auth_recovery_hint("refresh csrf token");
         info!("CSRF token refreshed successfully");
         Ok(result)
     }

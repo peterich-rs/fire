@@ -1,4 +1,32 @@
+import Photos
 import SwiftUI
+
+enum FireTopicDetailViewState {
+    static func resolvedDetail(
+        liveDetail: TopicDetailState?,
+        cachedDetail: TopicDetailState?
+    ) -> TopicDetailState? {
+        liveDetail ?? cachedDetail
+    }
+
+    static func syncedCachedDetail(
+        topicId: UInt64,
+        topicDetails: [UInt64: TopicDetailState]
+    ) -> TopicDetailState? {
+        topicDetails[topicId]
+    }
+
+    static func syncedCachedRenderState(
+        topicId: UInt64,
+        topicRenderStates: [UInt64: FireTopicDetailRenderState]
+    ) -> FireTopicDetailRenderState? {
+        topicRenderStates[topicId]
+    }
+
+    static func hasLoadedDetailForSubscription(liveDetail: TopicDetailState?) -> Bool {
+        liveDetail != nil
+    }
+}
 
 private struct FireReplyComposerContext: Identifiable, Equatable {
     let topicId: UInt64
@@ -85,6 +113,8 @@ struct FireTopicDetailView: View {
     @State private var topicVoters: [VotedUserState] = []
     @State private var isLoadingTopicVoters = false
     @State private var showingTopicVoters = false
+    @State private var cachedDetail: TopicDetailState?
+    @State private var cachedRenderState: FireTopicDetailRenderState?
     @FocusState private var isReplyFieldFocused: Bool
 
     init(viewModel: FireAppViewModel, row: FireTopicRowPresentation, scrollToPostNumber: UInt32? = nil) {
@@ -99,8 +129,23 @@ struct FireTopicDetailView: View {
         row.topic
     }
 
-    private var detail: TopicDetailState? {
+    private var liveDetail: TopicDetailState? {
         topicDetailStore.topicDetail(for: topic.id)
+    }
+
+    private var liveRenderState: FireTopicDetailRenderState? {
+        topicDetailStore.topicRenderState(for: topic.id)
+    }
+
+    private var detail: TopicDetailState? {
+        FireTopicDetailViewState.resolvedDetail(
+            liveDetail: liveDetail,
+            cachedDetail: cachedDetail
+        )
+    }
+
+    private var renderState: FireTopicDetailRenderState? {
+        liveRenderState ?? cachedRenderState
     }
 
     private var detailError: String? {
@@ -141,37 +186,34 @@ struct FireTopicDetailView: View {
         return detailTags.isEmpty ? row.tagNames : detailTags
     }
 
-    private var timelineRows: [FireTopicTimelineRow] {
-        guard let detail else {
-            return []
-        }
-        return FireTopicPresentation.timelineRows(
-            entries: detail.timelineEntries,
-            posts: detail.postStream.posts
-        )
+    private var postLookup: [UInt64: TopicPostState] {
+        Dictionary(uniqueKeysWithValues: (detail?.postStream.posts ?? []).map { ($0.id, $0) })
+    }
+
+    private var originalRow: FirePreparedTopicTimelineRow? {
+        renderState?.originalRow
     }
 
     private var originalPost: TopicPostState? {
-        if let originalPost = timelineRows.first(where: { $0.entry.isOriginalPost })?.post {
-            return originalPost
+        if let originalRow {
+            return postLookup[originalRow.entry.postId]
         }
         return detail?.postStream.posts.min(by: { $0.postNumber < $1.postNumber })
     }
 
-    private var replyTimelineRows: [FireTopicTimelineRow] {
-        let originalPostID = originalPost?.id
-        guard let originalPostID else {
-            return timelineRows
+    private var originalPostRenderContent: FireTopicPostRenderContent? {
+        guard let originalRow else {
+            return nil
         }
-        return timelineRows.filter { $0.entry.postId != originalPostID }
+        return renderState?.contentByPostID[originalRow.entry.postId]
+    }
+
+    private var replyRows: [FirePreparedTopicTimelineRow] {
+        renderState?.replyRows ?? []
     }
 
     private var renderedPostNumbers: Set<UInt32> {
-        var postNumbers = Set(replyTimelineRows.map { $0.entry.postNumber })
-        if let originalPost {
-            postNumbers.insert(originalPost.postNumber)
-        }
-        return postNumbers
+        renderState?.renderedPostNumbers ?? []
     }
 
     private var reactionOptions: [FireReactionOption] {
@@ -265,7 +307,9 @@ struct FireTopicDetailView: View {
         Self.topicDetailSubscriptionTaskID(
             topicId: topic.id,
             canOpenMessageBus: viewModel.session.readiness.canOpenMessageBus,
-            hasLoadedDetail: detail != nil
+            hasLoadedDetail: FireTopicDetailViewState.hasLoadedDetailForSubscription(
+                liveDetail: liveDetail
+            )
         )
     }
 
@@ -277,11 +321,11 @@ struct FireTopicDetailView: View {
     }
 
     private var loadedReplyCount: Int {
-        replyTimelineRows.count
+        replyRows.count
     }
 
     private var displayedInteractionCount: UInt32? {
-        detail?.interactionCount
+        detail.map(FireTopicPresentation.interactionCount(for:))
     }
 
     private var displayedViewsCount: UInt32 {
@@ -289,7 +333,7 @@ struct FireTopicDetailView: View {
     }
 
     private var displayedFloorCount: Int {
-        replyTimelineRows.count
+        replyRows.count
     }
 
     private var trimmedReplyDraft: String {
@@ -494,6 +538,9 @@ struct FireTopicDetailView: View {
                         Task {
                             await topicDetailStore.loadTopicDetail(topicId: topic.id, force: true)
                         }
+                    },
+                    onSubmissionNotice: { message in
+                        composerNotice = message
                     }
                 )
             }
@@ -522,6 +569,24 @@ struct FireTopicDetailView: View {
         .onAppear {
             topicDetailStore.beginTopicDetailLifecycle(topicId: topic.id, ownerToken: detailOwnerToken)
             viewModel.setAPMRoute("topic.detail.\(topic.id)")
+            if let current = liveDetail {
+                cachedDetail = current
+            }
+            if let current = liveRenderState {
+                cachedRenderState = current
+            }
+        }
+        .onReceive(topicDetailStore.$topicDetails) { dict in
+            cachedDetail = FireTopicDetailViewState.syncedCachedDetail(
+                topicId: topic.id,
+                topicDetails: dict
+            )
+        }
+        .onReceive(topicDetailStore.$topicRenderStates) { dict in
+            cachedRenderState = FireTopicDetailViewState.syncedCachedRenderState(
+                topicId: topic.id,
+                topicRenderStates: dict
+            )
         }
         .task(id: topic.id) {
             timingTracker.start { topicId, topicTimeMs, timings in
@@ -678,12 +743,14 @@ struct FireTopicDetailView: View {
                 }
             }
 
-            if let originalPost {
+            if let originalPost,
+               let originalRenderContent = originalPostRenderContent {
                 FireSwipeToReplyContainer(enabled: canWriteInteractions) {
                     openComposer(replyToPost: originalPost)
                 } content: {
                     FirePostRow(
                         post: originalPost,
+                        renderContent: originalRenderContent,
                         depth: 0,
                         replyContext: nil,
                         showsThreadLine: false,
@@ -767,7 +834,7 @@ struct FireTopicDetailView: View {
             .padding(.bottom, 14)
 
         if detail != nil {
-            let displayRows = replyTimelineRows
+            let displayRows = replyRows
 
             if displayRows.isEmpty {
                 if topicDetailStore.hasMoreTopicPosts(topicId: topic.id) {
@@ -836,15 +903,20 @@ struct FireTopicDetailView: View {
     }
 
     @ViewBuilder
-    private func replyPostRows(_ displayRows: [FireTopicTimelineRow]) -> some View {
+    private func replyPostRows(_ displayRows: [FirePreparedTopicTimelineRow]) -> some View {
         ForEach(Array(displayRows.enumerated()), id: \.element.id) { index, row in
             Group {
-                if let post = row.post {
+                if let post = postLookup[row.entry.postId] {
                     FireSwipeToReplyContainer(enabled: canWriteInteractions) {
                         openComposer(replyToPost: post)
                     } content: {
                         FirePostRow(
                             post: post,
+                            renderContent: renderState?.contentByPostID[row.entry.postId]
+                                ?? FireTopicPresentation.renderContent(
+                                    from: post.cooked,
+                                    baseURLString: baseURLString
+                                ),
                             depth: Int(row.entry.depth),
                             replyContext: row.entry.parentPostNumber.map { "回复 #\($0)" },
                             showsThreadLine: showsTimelineThreadLine(in: displayRows, at: index),
@@ -878,7 +950,7 @@ struct FireTopicDetailView: View {
         }
     }
 
-    private func showsTimelineThreadLine(in rows: [FireTopicTimelineRow], at index: Int) -> Bool {
+    private func showsTimelineThreadLine(in rows: [FirePreparedTopicTimelineRow], at index: Int) -> Bool {
         guard index < rows.count - 1 else {
             return false
         }
@@ -1420,8 +1492,33 @@ private struct FireTopicPostPlaceholder: View {
     }
 }
 
+enum FireTopicReplySwipeAxis: Equatable {
+    case horizontal
+    case vertical
+    case reservedForNavigationBack
+}
+
+enum FireTopicReplySwipePolicy {
+    static let backNavigationReservedWidth: CGFloat = 32
+
+    static func resolvedAxis(
+        startLocationX: CGFloat,
+        translationWidth: CGFloat,
+        translationHeight: CGFloat
+    ) -> FireTopicReplySwipeAxis {
+        if startLocationX <= backNavigationReservedWidth {
+            return .reservedForNavigationBack
+        }
+
+        return abs(translationWidth) > abs(translationHeight) * 1.2
+            ? .horizontal
+            : .vertical
+    }
+}
+
 private struct FirePostRow: View {
     let post: TopicPostState
+    let renderContent: FireTopicPostRenderContent
     let depth: Int
     let replyContext: String?
     let showsThreadLine: Bool
@@ -1439,10 +1536,6 @@ private struct FirePostRow: View {
 
     private var indentWidth: CGFloat {
         CGFloat(min(depth, Self.maxVisualDepth)) * 20
-    }
-
-    private var imageAttachments: [FireCookedImage] {
-        FireTopicPresentation.imageAttachments(from: post.cooked, baseURLString: baseURLString)
     }
 
     private var canChangeReaction: Bool {
@@ -1517,14 +1610,14 @@ private struct FirePostRow: View {
                     }
                 }
 
-                Text(plainTextFromHtml(rawHtml: post.cooked))
+                Text(renderContent.plainText)
                     .font(.subheadline)
                     .foregroundStyle(.primary.opacity(0.92))
                     .fixedSize(horizontal: false, vertical: true)
 
-                if !imageAttachments.isEmpty {
+                if !renderContent.imageAttachments.isEmpty {
                     VStack(spacing: 10) {
-                        ForEach(imageAttachments) { attachment in
+                        ForEach(renderContent.imageAttachments) { attachment in
                             Button {
                                 onOpenImage(attachment)
                             } label: {
@@ -1778,45 +1871,441 @@ private struct FireTopicVotersSheet: View {
 
 private struct FireTopicImageViewer: View {
     let image: FireCookedImage
+
+    private enum InteractionMode {
+        case idle
+        case zooming
+        case panning
+        case dismissing
+    }
+
+    private enum DragMode {
+        case pan
+        case dismiss
+        case ignore
+    }
+
+    private enum ToolbarAction {
+        case share
+        case save
+    }
+
+    private enum PhotoSaveError: Error {
+        case unknownFailure
+    }
+
     @Environment(\.dismiss) private var dismiss
+    @State private var interactionMode: InteractionMode = .idle
+    @State private var activeDragMode: DragMode?
+    @State private var activeToolbarAction: ToolbarAction?
+    @State private var sharedImage: UIImage?
+    @State private var isShowingShareSheet = false
+    @State private var isShowingAlert = false
+    @State private var alertTitle = ""
+    @State private var alertMessage = ""
+    @State private var steadyZoomScale: CGFloat = 1
+    @State private var gestureZoomScale: CGFloat = 1
+    @State private var panOffset: CGSize = .zero
+    @State private var dragStartOffset: CGSize = .zero
+    @State private var dismissOffset: CGSize = .zero
+
+    private let minimumZoomScale: CGFloat = 1
+    private let maximumZoomScale: CGFloat = 4
+    private let dismissThreshold: CGFloat = 140
+    private let dismissProgressDistance: CGFloat = 220
+    private let imagePadding: CGFloat = 16
+
+    private var imageRequest: FireRemoteImageRequest {
+        FireRemoteImageRequest(url: image.url)
+    }
+
+    private var shareSubject: String {
+        let fileName = image.url.lastPathComponent.trimmingCharacters(in: .whitespacesAndNewlines)
+        return fileName.isEmpty ? "Fire 帖子图片" : fileName
+    }
+
+    private var effectiveZoomScale: CGFloat {
+        clampedScale(steadyZoomScale * gestureZoomScale)
+    }
+
+    private var dismissProgress: CGFloat {
+        min(max(dismissOffset.height / dismissProgressDistance, 0), 1)
+    }
+
+    private var backgroundOpacity: Double {
+        Double(max(0.22, 1 - dismissProgress * 0.78))
+    }
+
+    private var contentScale: CGFloat {
+        let dismissScale = max(0.88, 1 - dismissProgress * 0.12)
+        return effectiveZoomScale * dismissScale
+    }
+
+    private var isToolbarBusy: Bool {
+        activeToolbarAction != nil
+    }
 
     var body: some View {
-        ZStack(alignment: .topTrailing) {
-            Color.black.ignoresSafeArea()
+        GeometryReader { proxy in
+            let containerSize = proxy.size
 
-            AsyncImage(url: image.url) { phase in
-                switch phase {
-                case .empty:
-                    ProgressView()
-                        .tint(.white)
-                case .success(let loadedImage):
-                    loadedImage
+            ZStack {
+                Color.black
+                    .opacity(backgroundOpacity)
+                    .ignoresSafeArea()
+
+                FireRemoteImage(request: imageRequest) { loadedImage in
+                    Image(uiImage: loadedImage)
                         .resizable()
                         .scaledToFit()
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .padding(16)
-                case .failure:
-                    VStack(spacing: 12) {
-                        Image(systemName: "photo")
-                            .font(.largeTitle)
-                        Text("图片加载失败")
-                            .font(.subheadline)
+                        .padding(imagePadding)
+                } placeholder: { state in
+                    switch state {
+                    case .loading, .missingRequest:
+                        ProgressView()
+                            .tint(.white)
+                    case .failure:
+                        VStack(spacing: 12) {
+                            Image(systemName: "photo")
+                                .font(.largeTitle)
+                            Text("图片加载失败")
+                                .font(.subheadline)
+                        }
+                        .foregroundStyle(.white)
                     }
-                    .foregroundStyle(.white)
-                @unknown default:
-                    EmptyView()
                 }
-            }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .scaleEffect(contentScale)
+                .offset(displayOffset(in: containerSize))
+                .simultaneousGesture(magnificationGesture(in: containerSize))
 
-            Button {
-                dismiss()
-            } label: {
-                Image(systemName: "xmark.circle.fill")
-                    .font(.system(size: 28))
-                    .foregroundStyle(.white.opacity(0.92))
-                    .padding(20)
+                VStack {
+                    HStack(spacing: 12) {
+                        Spacer()
+
+                        viewerControlButton(
+                            systemName: "square.and.arrow.up",
+                            isBusy: activeToolbarAction == .share,
+                            action: { Task { await handleShareAction() } }
+                        )
+                        .disabled(isToolbarBusy)
+
+                        viewerControlButton(
+                            systemName: "arrow.down.to.line",
+                            isBusy: activeToolbarAction == .save,
+                            action: { Task { await handleSaveAction() } }
+                        )
+                        .disabled(isToolbarBusy)
+
+                        viewerControlButton(systemName: "xmark", action: {
+                            dismiss()
+                        })
+                    }
+                    .padding(.top, proxy.safeAreaInsets.top + 12)
+                    .padding(.horizontal, 16)
+
+                    Spacer()
+                }
+                .opacity(max(0.4, backgroundOpacity))
+            }
+            .contentShape(Rectangle())
+            .simultaneousGesture(dragGesture(in: containerSize))
+        }
+        .sheet(isPresented: $isShowingShareSheet, onDismiss: {
+            sharedImage = nil
+        }) {
+            if let sharedImage {
+                FireActivityShareSheet(
+                    activityItems: [sharedImage],
+                    subject: shareSubject
+                )
             }
         }
+        .alert(alertTitle, isPresented: $isShowingAlert) {
+            Button("知道了", role: .cancel) {}
+        } message: {
+            Text(alertMessage)
+        }
+    }
+
+    private func viewerControlButton(
+        systemName: String,
+        isBusy: Bool = false,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Group {
+                if isBusy {
+                    ProgressView()
+                        .controlSize(.small)
+                        .tint(.white)
+                } else {
+                    Image(systemName: systemName)
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.92))
+                }
+            }
+            .frame(width: 42, height: 42)
+            .background(
+                Circle()
+                    .fill(Color.black.opacity(0.34))
+            )
+            .overlay(
+                Circle()
+                    .stroke(Color.white.opacity(0.14), lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    @MainActor
+    private func handleShareAction() async {
+        guard activeToolbarAction == nil else { return }
+
+        activeToolbarAction = .share
+        defer { activeToolbarAction = nil }
+
+        do {
+            let resolvedImage = try await FireRemoteImagePipeline.shared.loadImage(for: imageRequest)
+            sharedImage = resolvedImage
+            isShowingShareSheet = true
+        } catch {
+            presentAlert(
+                title: "无法分享图片",
+                message: "图片还没加载完成或下载失败，请稍后再试。"
+            )
+        }
+    }
+
+    @MainActor
+    private func handleSaveAction() async {
+        guard activeToolbarAction == nil else { return }
+
+        activeToolbarAction = .save
+        defer { activeToolbarAction = nil }
+
+        let resolvedImage: UIImage
+        do {
+            resolvedImage = try await FireRemoteImagePipeline.shared.loadImage(for: imageRequest)
+        } catch {
+            presentAlert(
+                title: "无法保存图片",
+                message: "图片还没加载完成或下载失败，请稍后再试。"
+            )
+            return
+        }
+
+        let authorizationStatus = await photoLibraryAuthorizationStatus()
+        guard authorizationStatus == .authorized || authorizationStatus == .limited else {
+            presentAlert(
+                title: "无法保存到相册",
+                message: "Fire 需要照片权限才能把当前图片保存到相册，请在系统设置里允许添加照片。"
+            )
+            return
+        }
+
+        do {
+            try await saveImageToPhotoLibrary(resolvedImage)
+            presentAlert(
+                title: "已保存到相册",
+                message: "当前帖子图片已经保存到系统相册。"
+            )
+        } catch {
+            presentAlert(
+                title: "保存失败",
+                message: "系统暂时无法写入相册，请稍后再试。"
+            )
+        }
+    }
+
+    @MainActor
+    private func presentAlert(title: String, message: String) {
+        alertTitle = title
+        alertMessage = message
+        isShowingAlert = true
+    }
+
+    private func photoLibraryAuthorizationStatus() async -> PHAuthorizationStatus {
+        let currentStatus = PHPhotoLibrary.authorizationStatus(for: .addOnly)
+        guard currentStatus == .notDetermined else {
+            return currentStatus
+        }
+
+        return await withCheckedContinuation { continuation in
+            PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
+                continuation.resume(returning: status)
+            }
+        }
+    }
+
+    private func saveImageToPhotoLibrary(_ image: UIImage) async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            PHPhotoLibrary.shared().performChanges {
+                PHAssetCreationRequest.creationRequestForAsset(from: image)
+            } completionHandler: { success, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                } else if success {
+                    continuation.resume(returning: ())
+                } else {
+                    continuation.resume(throwing: PhotoSaveError.unknownFailure)
+                }
+            }
+        }
+    }
+
+    private func magnificationGesture(in containerSize: CGSize) -> some Gesture {
+        MagnificationGesture()
+            .onChanged { value in
+                activeDragMode = nil
+                dismissOffset = .zero
+                interactionMode = .zooming
+                gestureZoomScale = value
+            }
+            .onEnded { value in
+                let resolvedScale = clampedScale(steadyZoomScale * value)
+                withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
+                    steadyZoomScale = resolvedScale
+                    gestureZoomScale = 1
+                    if resolvedScale <= minimumZoomScale + 0.01 {
+                        resetTransformState()
+                    } else {
+                        panOffset = clampedPanOffset(panOffset, in: containerSize, scale: resolvedScale)
+                        interactionMode = .panning
+                    }
+                }
+            }
+    }
+
+    private func dragGesture(in containerSize: CGSize) -> some Gesture {
+        DragGesture(minimumDistance: 10)
+            .onChanged { value in
+                handleDragChanged(value, in: containerSize)
+            }
+            .onEnded { value in
+                handleDragEnded(value, in: containerSize)
+            }
+    }
+
+    private func handleDragChanged(_ value: DragGesture.Value, in containerSize: CGSize) {
+        guard interactionMode != .zooming else { return }
+
+        if activeDragMode == nil {
+            if effectiveZoomScale > minimumZoomScale + 0.01 {
+                activeDragMode = .pan
+                dragStartOffset = panOffset
+            } else if value.translation.height > 0,
+                        abs(value.translation.height) > abs(value.translation.width) {
+                activeDragMode = .dismiss
+            } else {
+                activeDragMode = .ignore
+            }
+        }
+
+        switch activeDragMode {
+        case .pan:
+            interactionMode = .panning
+            dismissOffset = .zero
+            let proposedOffset = CGSize(
+                width: dragStartOffset.width + value.translation.width,
+                height: dragStartOffset.height + value.translation.height
+            )
+            panOffset = clampedPanOffset(proposedOffset, in: containerSize, scale: effectiveZoomScale)
+        case .dismiss:
+            interactionMode = .dismissing
+            let horizontalDrift = value.translation.width * 0.18
+            let verticalOffset = value.translation.height > dismissThreshold
+                ? dismissThreshold + (value.translation.height - dismissThreshold) * 0.72
+                : value.translation.height
+            dismissOffset = CGSize(width: horizontalDrift, height: verticalOffset)
+        case .ignore, .none:
+            break
+        }
+    }
+
+    private func handleDragEnded(_ value: DragGesture.Value, in containerSize: CGSize) {
+        defer { activeDragMode = nil }
+
+        switch activeDragMode {
+        case .pan:
+            withAnimation(.spring(response: 0.25, dampingFraction: 0.82)) {
+                panOffset = clampedPanOffset(panOffset, in: containerSize, scale: effectiveZoomScale)
+            }
+            interactionMode = effectiveZoomScale > minimumZoomScale + 0.01 ? .panning : .idle
+        case .dismiss:
+            let projectedDismissDistance = max(value.translation.height, value.predictedEndTranslation.height)
+            if projectedDismissDistance > dismissThreshold {
+                dismiss()
+            } else {
+                withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
+                    dismissOffset = .zero
+                    interactionMode = effectiveZoomScale > minimumZoomScale + 0.01 ? .panning : .idle
+                }
+            }
+        case .ignore, .none:
+            withAnimation(.spring(response: 0.25, dampingFraction: 0.82)) {
+                dismissOffset = .zero
+            }
+            interactionMode = effectiveZoomScale > minimumZoomScale + 0.01 ? .panning : .idle
+        }
+    }
+
+    private func displayOffset(in containerSize: CGSize) -> CGSize {
+        let clampedPan = clampedPanOffset(panOffset, in: containerSize, scale: effectiveZoomScale)
+        return CGSize(
+            width: clampedPan.width + dismissOffset.width,
+            height: clampedPan.height + dismissOffset.height
+        )
+    }
+
+    private func resetTransformState() {
+        steadyZoomScale = minimumZoomScale
+        gestureZoomScale = 1
+        panOffset = .zero
+        dragStartOffset = .zero
+        dismissOffset = .zero
+        interactionMode = .idle
+    }
+
+    private func clampedScale(_ scale: CGFloat) -> CGFloat {
+        min(max(scale, minimumZoomScale), maximumZoomScale)
+    }
+
+    private func clampedPanOffset(_ proposedOffset: CGSize, in containerSize: CGSize, scale: CGFloat) -> CGSize {
+        let maxOffset = maximumPanOffset(in: containerSize, scale: scale)
+        return CGSize(
+            width: min(max(proposedOffset.width, -maxOffset.width), maxOffset.width),
+            height: min(max(proposedOffset.height, -maxOffset.height), maxOffset.height)
+        )
+    }
+
+    private func maximumPanOffset(in containerSize: CGSize, scale: CGFloat) -> CGSize {
+        guard scale > minimumZoomScale else {
+            return .zero
+        }
+
+        let fittedSize = fittedImageSize(in: containerSize)
+        let scaledSize = CGSize(width: fittedSize.width * scale, height: fittedSize.height * scale)
+        return CGSize(
+            width: max((scaledSize.width - fittedSize.width) / 2, 0),
+            height: max((scaledSize.height - fittedSize.height) / 2, 0)
+        )
+    }
+
+    private func fittedImageSize(in containerSize: CGSize) -> CGSize {
+        let availableWidth = max(containerSize.width - imagePadding * 2, 1)
+        let availableHeight = max(containerSize.height - imagePadding * 2, 1)
+
+        guard let aspectRatio = image.aspectRatio, aspectRatio > 0 else {
+            return CGSize(width: availableWidth, height: availableHeight)
+        }
+
+        let containerAspectRatio = availableWidth / availableHeight
+        if aspectRatio > containerAspectRatio {
+            return CGSize(width: availableWidth, height: availableWidth / aspectRatio)
+        }
+        return CGSize(width: availableHeight * aspectRatio, height: availableHeight)
     }
 }
 
@@ -1826,10 +2315,8 @@ private struct FireSwipeToReplyContainer<Content: View>: View {
     @ViewBuilder let content: () -> Content
 
     @State private var offset: CGFloat = 0
-    @State private var gestureDirection: GestureAxis? = nil
+    @State private var gestureDirection: FireTopicReplySwipeAxis? = nil
     @State private var replyTriggered = false
-
-    private enum GestureAxis { case horizontal, vertical }
 
     private let triggerThreshold: CGFloat = 55
     private let maxOffset: CGFloat = 75
@@ -1872,7 +2359,11 @@ private struct FireSwipeToReplyContainer<Content: View>: View {
                 let dy = value.translation.height
 
                 if gestureDirection == nil {
-                    gestureDirection = abs(dx) > abs(dy) * 1.2 ? .horizontal : .vertical
+                    gestureDirection = FireTopicReplySwipePolicy.resolvedAxis(
+                        startLocationX: value.startLocation.x,
+                        translationWidth: dx,
+                        translationHeight: dy
+                    )
                 }
 
                 guard gestureDirection == .horizontal, dx > 0 else { return }
@@ -1909,19 +2400,23 @@ private struct FireCookedImageCard: View {
         image.aspectRatio ?? 1.45
     }
 
+    private var imageRequest: FireRemoteImageRequest {
+        FireRemoteImageRequest(url: image.url)
+    }
+
     var body: some View {
-        AsyncImage(url: image.url) { phase in
-            switch phase {
-            case .empty:
+        FireRemoteImage(request: imageRequest) { loadedImage in
+            Image(uiImage: loadedImage)
+                .resizable()
+                .scaledToFill()
+        } placeholder: { state in
+            switch state {
+            case .loading, .missingRequest:
                 ZStack {
                     RoundedRectangle(cornerRadius: 16, style: .continuous)
                         .fill(Color(.tertiarySystemFill))
                     ProgressView()
                 }
-            case .success(let loadedImage):
-                loadedImage
-                    .resizable()
-                    .scaledToFill()
             case .failure:
                 ZStack {
                     RoundedRectangle(cornerRadius: 16, style: .continuous)
@@ -1935,8 +2430,6 @@ private struct FireCookedImageCard: View {
                             .foregroundStyle(.secondary)
                     }
                 }
-            @unknown default:
-                EmptyView()
             }
         }
         .frame(maxWidth: .infinity)

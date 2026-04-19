@@ -7,7 +7,9 @@ use openwire::CookieJar;
 use time::{format_description::well_known::Rfc2822, OffsetDateTime};
 use url::Url;
 
-use crate::core::FireSessionRuntimeState;
+use crate::core::{
+    mutate_runtime_session_tracking_auth_change, FireAuthChangeSource, FireSessionRuntimeState,
+};
 use crate::sync_utils::{read_rwlock, write_rwlock};
 
 #[derive(Clone)]
@@ -24,6 +26,10 @@ impl FireSessionCookieJar {
 
 tokio::task_local! {
     pub(crate) static FIRE_REQUEST_EPOCH: u64;
+}
+
+tokio::task_local! {
+    pub(crate) static FIRE_REQUEST_TRACE_ID: u64;
 }
 
 impl CookieJar for FireSessionCookieJar {
@@ -64,7 +70,14 @@ impl CookieJar for FireSessionCookieJar {
         }
 
         let mut session = write_rwlock(&self.session, "session");
-        session.snapshot.cookies.merge_patch(&patch);
+        mutate_runtime_session_tracking_auth_change(
+            &mut session,
+            FireAuthChangeSource::NetworkIngress,
+            "network set-cookie ingress",
+            |snapshot| {
+                snapshot.cookies.merge_patch(&patch);
+            },
+        );
     }
 
     fn cookies(&self, url: &Url) -> Option<HeaderValue> {

@@ -25,6 +25,18 @@ schemes:
         - name: FireTests
           parallelizable: true
           randomExecutionOrder: true
+  FireIntegrationTests:
+    build:
+      targets:
+        Fire: all
+        FireIntegrationTests:
+          - test
+    test:
+      gatherCoverageData: false
+      targets:
+        - name: FireIntegrationTests
+          parallelizable: true
+          randomExecutionOrder: true
   FireUnitTests:
     build:
       targets:
@@ -75,6 +87,7 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_CFBundleDisplayName: $(FIRE_DISPLAY_NAME)
         INFOPLIST_KEY_FireGitSha: $(FIRE_GIT_SHA)
+        INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription: Fire 需要把你在帖子里查看的图片保存到相册。
         INFOPLIST_KEY_BGTaskSchedulerPermittedIdentifiers:
           - com.fire.app.ios.notification-alert-refresh
         INFOPLIST_KEY_CFBundleURLTypes: '[["CFBundleURLSchemes": ["fire"], "CFBundleURLName": "fire"]]'
@@ -125,6 +138,20 @@ targets:
     deploymentTarget: "17.0"
     sources:
       - path: Tests/Unit
+    dependencies:
+      - target: Fire
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        SWIFT_INCLUDE_PATHS:
+          - "$(inherited)"
+          - "$(SRCROOT)/Generated"
+  FireIntegrationTests:
+    type: bundle.unit-test
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: Tests/Integration
     dependencies:
       - target: Fire
     settings:

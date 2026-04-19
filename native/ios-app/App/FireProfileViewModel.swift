@@ -2,15 +2,22 @@ import SwiftUI
 
 @MainActor
 final class FireProfileViewModel: ObservableObject {
+    typealias CurrentUsernameProvider = @MainActor () -> String?
+    typealias FetchUserProfile = @MainActor (String) async throws -> UserProfileState
+    typealias FetchUserSummary = @MainActor (String) async throws -> UserSummaryState
+    typealias FetchUserActions = @MainActor (String, UInt32?, String) async throws -> [UserActionState]
+
     @Published private(set) var profile: UserProfileState?
     @Published private(set) var summary: UserSummaryState?
     @Published private(set) var actions: [UserActionState] = []
     @Published private(set) var isLoadingProfile = false
     @Published private(set) var isLoadingActions = false
+    @Published private(set) var hasLoadedActionsOnce = false
     @Published private(set) var selectedTab: ProfileTab = .all
     @Published private(set) var actionsOffset: Int = 0
     @Published private(set) var hasMoreActions = true
     @Published var errorMessage: String?
+    @Published var actionsErrorMessage: String?
 
     enum ProfileTab: String, CaseIterable {
         case all
@@ -37,8 +44,10 @@ final class FireProfileViewModel: ObservableObject {
         }
     }
 
-    private let appViewModel: FireAppViewModel
-    private let fixedUsername: String?
+    private let currentUsernameProvider: CurrentUsernameProvider
+    private let fetchUserProfile: FetchUserProfile
+    private let fetchUserSummary: FetchUserSummary
+    private let fetchUserActions: FetchUserActions
     private var loadedUsername: String?
     private var profileTask: Task<Void, Never>?
     private var actionsTask: Task<Void, Never>?
@@ -46,12 +55,39 @@ final class FireProfileViewModel: ObservableObject {
     private var actionsRequestID: UInt64 = 0
 
     init(appViewModel: FireAppViewModel, fixedUsername: String? = nil) {
-        self.appViewModel = appViewModel
-        self.fixedUsername = fixedUsername?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedFixedUsername = fixedUsername?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.currentUsernameProvider = {
+            normalizedFixedUsername ?? appViewModel.session.bootstrap.currentUsername
+        }
+        self.fetchUserProfile = { username in
+            try await appViewModel.fetchUserProfile(username: username)
+        }
+        self.fetchUserSummary = { username in
+            try await appViewModel.fetchUserSummary(username: username)
+        }
+        self.fetchUserActions = { username, offset, filter in
+            try await appViewModel.fetchUserActions(
+                username: username,
+                offset: offset,
+                filter: filter
+            )
+        }
+    }
+
+    init(
+        currentUsernameProvider: @escaping CurrentUsernameProvider,
+        fetchUserProfile: @escaping FetchUserProfile,
+        fetchUserSummary: @escaping FetchUserSummary,
+        fetchUserActions: @escaping FetchUserActions
+    ) {
+        self.currentUsernameProvider = currentUsernameProvider
+        self.fetchUserProfile = fetchUserProfile
+        self.fetchUserSummary = fetchUserSummary
+        self.fetchUserActions = fetchUserActions
     }
 
     var currentUsername: String? {
-        fixedUsername ?? appViewModel.session.bootstrap.currentUsername
+        currentUsernameProvider()
     }
 
     deinit {
@@ -87,8 +123,8 @@ final class FireProfileViewModel: ObservableObject {
             guard let self else { return }
 
             do {
-                async let profileResult = self.appViewModel.fetchUserProfile(username: username)
-                async let summaryResult = self.appViewModel.fetchUserSummary(username: username)
+                async let profileResult = self.fetchUserProfile(username)
+                async let summaryResult = self.fetchUserSummary(username)
                 let (fetchedProfile, fetchedSummary) = try await (profileResult, summaryResult)
                 try Task.checkCancellation()
                 guard requestID == self.profileRequestID, self.loadedUsername == username else { return }
@@ -114,7 +150,6 @@ final class FireProfileViewModel: ObservableObject {
             actionsTask?.cancel()
             actionsOffset = 0
             hasMoreActions = true
-            actions = []
         } else if isLoadingActions {
             return
         }
@@ -122,8 +157,8 @@ final class FireProfileViewModel: ObservableObject {
         guard hasMoreActions else { return }
 
         isLoadingActions = true
-        errorMessage = nil
-        let currentOffset = actionsOffset
+        actionsErrorMessage = nil
+        let currentOffset = reset ? 0 : actionsOffset
         let filter = selectedTab.actionFilter
         actionsRequestID &+= 1
         let requestID = actionsRequestID
@@ -132,10 +167,10 @@ final class FireProfileViewModel: ObservableObject {
             guard let self else { return }
 
             do {
-                let fetched = try await self.appViewModel.fetchUserActions(
-                    username: username,
-                    offset: currentOffset > 0 ? UInt32(currentOffset) : nil,
-                    filter: filter
+                let fetched = try await self.fetchUserActions(
+                    username,
+                    currentOffset > 0 ? UInt32(currentOffset) : nil,
+                    filter
                 )
                 try Task.checkCancellation()
                 guard requestID == self.actionsRequestID,
@@ -150,6 +185,8 @@ final class FireProfileViewModel: ObservableObject {
                 }
                 self.actionsOffset = self.actions.count
                 self.hasMoreActions = !fetched.isEmpty
+                self.hasLoadedActionsOnce = true
+                self.actionsErrorMessage = nil
                 self.isLoadingActions = false
             } catch is CancellationError {
                 guard requestID == self.actionsRequestID else { return }
@@ -157,9 +194,7 @@ final class FireProfileViewModel: ObservableObject {
             } catch {
                 guard requestID == self.actionsRequestID, self.loadedUsername == username else { return }
                 self.isLoadingActions = false
-                if self.actions.isEmpty {
-                    self.errorMessage = error.localizedDescription
-                }
+                self.actionsErrorMessage = error.localizedDescription
             }
         }
     }
@@ -167,6 +202,7 @@ final class FireProfileViewModel: ObservableObject {
     func selectTab(_ tab: ProfileTab) {
         guard tab != selectedTab else { return }
         selectedTab = tab
+        actionsErrorMessage = nil
         loadActions(reset: true)
     }
 
@@ -174,8 +210,8 @@ final class FireProfileViewModel: ObservableObject {
         guard let username = normalizedCurrentUsername(), loadedUsername == username else { return }
 
         do {
-            async let profileResult = appViewModel.fetchUserProfile(username: username)
-            async let summaryResult = appViewModel.fetchUserSummary(username: username)
+            async let profileResult = fetchUserProfile(username)
+            async let summaryResult = fetchUserSummary(username)
             let (fetchedProfile, fetchedSummary) = try await (profileResult, summaryResult)
             guard loadedUsername == username else { return }
             self.profile = fetchedProfile
@@ -214,6 +250,8 @@ final class FireProfileViewModel: ObservableObject {
         selectedTab = .all
         actionsOffset = 0
         hasMoreActions = true
+        hasLoadedActionsOnce = false
         errorMessage = nil
+        actionsErrorMessage = nil
     }
 }

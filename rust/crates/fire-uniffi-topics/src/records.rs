@@ -2,7 +2,6 @@ use fire_models::{
     Poll, PollOption, PostReactionUpdate, PostUpdateRequest, PrivateMessageCreateRequest,
     ResolvedUploadUrl, TopicCreateRequest, TopicDetail, TopicDetailCreatedBy, TopicDetailMeta,
     TopicDetailQuery, TopicListQuery, TopicPost, TopicPostStream, TopicReaction, TopicReplyRequest,
-    TopicThread, TopicThreadFlatPost, TopicThreadReply, TopicThreadSection, TopicTimelineEntry,
     TopicTimingEntry, TopicTimingsRequest, TopicUpdateRequest, UploadResult, VoteResponse,
     VotedUser,
 };
@@ -421,95 +420,6 @@ impl From<TopicPostStream> for TopicPostStreamState {
 }
 
 #[derive(uniffi::Record, Debug, Clone)]
-pub struct TopicThreadReplyState {
-    pub post_number: u32,
-    pub depth: u32,
-    pub parent_post_number: Option<u32>,
-}
-
-impl From<TopicThreadReply> for TopicThreadReplyState {
-    fn from(value: TopicThreadReply) -> Self {
-        Self {
-            post_number: value.post_number,
-            depth: value.depth,
-            parent_post_number: value.parent_post_number,
-        }
-    }
-}
-
-#[derive(uniffi::Record, Debug, Clone)]
-pub struct TopicThreadSectionState {
-    pub anchor_post_number: u32,
-    pub replies: Vec<TopicThreadReplyState>,
-}
-
-impl From<TopicThreadSection> for TopicThreadSectionState {
-    fn from(value: TopicThreadSection) -> Self {
-        Self {
-            anchor_post_number: value.anchor_post_number,
-            replies: value.replies.into_iter().map(Into::into).collect(),
-        }
-    }
-}
-
-#[derive(uniffi::Record, Debug, Clone)]
-pub struct TopicThreadState {
-    pub original_post_number: Option<u32>,
-    pub reply_sections: Vec<TopicThreadSectionState>,
-}
-
-impl From<TopicThread> for TopicThreadState {
-    fn from(value: TopicThread) -> Self {
-        Self {
-            original_post_number: value.original_post_number,
-            reply_sections: value.reply_sections.into_iter().map(Into::into).collect(),
-        }
-    }
-}
-
-#[derive(uniffi::Record, Debug, Clone)]
-pub struct TopicThreadFlatPostState {
-    pub post: TopicPostState,
-    pub depth: u32,
-    pub parent_post_number: Option<u32>,
-    pub shows_thread_line: bool,
-    pub is_original_post: bool,
-}
-
-impl From<TopicThreadFlatPost> for TopicThreadFlatPostState {
-    fn from(value: TopicThreadFlatPost) -> Self {
-        Self {
-            post: value.post.into(),
-            depth: value.depth,
-            parent_post_number: value.parent_post_number,
-            shows_thread_line: value.shows_thread_line,
-            is_original_post: value.is_original_post,
-        }
-    }
-}
-
-#[derive(uniffi::Record, Debug, Clone)]
-pub struct TopicTimelineEntryState {
-    pub post_id: u64,
-    pub post_number: u32,
-    pub parent_post_number: Option<u32>,
-    pub depth: u32,
-    pub is_original_post: bool,
-}
-
-impl From<TopicTimelineEntry> for TopicTimelineEntryState {
-    fn from(value: TopicTimelineEntry) -> Self {
-        Self {
-            post_id: value.post_id,
-            post_number: value.post_number,
-            parent_post_number: value.parent_post_number,
-            depth: value.depth,
-            is_original_post: value.is_original_post,
-        }
-    }
-}
-
-#[derive(uniffi::Record, Debug, Clone)]
 pub struct TopicDetailCreatedByState {
     pub id: u64,
     pub username: String,
@@ -555,7 +465,6 @@ pub struct TopicDetailState {
     pub tags: Vec<TopicTagState>,
     pub views: u32,
     pub like_count: u32,
-    pub interaction_count: u32,
     pub created_at: Option<String>,
     pub last_read_post_number: Option<u32>,
     pub bookmarks: Vec<u64>,
@@ -573,15 +482,11 @@ pub struct TopicDetailState {
     pub has_summary: bool,
     pub archetype: Option<String>,
     pub post_stream: TopicPostStreamState,
-    pub thread: TopicThreadState,
-    pub flat_posts: Vec<TopicThreadFlatPostState>,
-    pub timeline_entries: Vec<TopicTimelineEntryState>,
     pub details: TopicDetailMetaState,
 }
 
 impl From<TopicDetail> for TopicDetailState {
     fn from(value: TopicDetail) -> Self {
-        let interaction_count = value.interaction_count();
         Self {
             id: value.id,
             title: value.title,
@@ -591,7 +496,6 @@ impl From<TopicDetail> for TopicDetailState {
             tags: value.tags.into_iter().map(Into::into).collect(),
             views: value.views,
             like_count: value.like_count,
-            interaction_count,
             created_at: value.created_at,
             last_read_post_number: value.last_read_post_number,
             bookmarks: value.bookmarks,
@@ -609,9 +513,6 @@ impl From<TopicDetail> for TopicDetailState {
             has_summary: value.has_summary,
             archetype: value.archetype,
             post_stream: value.post_stream.into(),
-            thread: value.thread.into(),
-            flat_posts: value.flat_posts.into_iter().map(Into::into).collect(),
-            timeline_entries: value.timeline_entries.into_iter().map(Into::into).collect(),
             details: value.details.into(),
         }
     }

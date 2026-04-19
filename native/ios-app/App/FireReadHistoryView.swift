@@ -7,6 +7,7 @@ final class FireReadHistoryViewModel: ObservableObject {
     @Published private(set) var nextPage: UInt32?
     @Published private(set) var isLoading = false
     @Published private(set) var isLoadingMore = false
+    @Published private(set) var hasLoadedOnce = false
     @Published var errorMessage: String?
 
     private let appViewModel: FireAppViewModel
@@ -37,6 +38,7 @@ final class FireReadHistoryViewModel: ObservableObject {
         } else {
             isLoadingMore = true
         }
+        errorMessage = nil
         defer {
             isLoading = false
             isLoadingMore = false
@@ -50,11 +52,10 @@ final class FireReadHistoryViewModel: ObservableObject {
                 rows = mergeRows(existing: rows, incoming: response.rows)
             }
             nextPage = response.nextPage
+            hasLoadedOnce = true
             errorMessage = nil
         } catch {
-            if rows.isEmpty {
-                errorMessage = error.localizedDescription
-            }
+            errorMessage = error.localizedDescription
         }
     }
 
@@ -74,6 +75,7 @@ final class FireReadHistoryViewModel: ObservableObject {
 struct FireReadHistoryView: View {
     @ObservedObject var viewModel: FireAppViewModel
     @StateObject private var historyViewModel: FireReadHistoryViewModel
+    @State private var selectedRoute: FireAppRoute?
 
     init(viewModel: FireAppViewModel) {
         self.viewModel = viewModel
@@ -84,7 +86,8 @@ struct FireReadHistoryView: View {
 
     var body: some View {
         List {
-            if let errorMessage = historyViewModel.errorMessage {
+            if let errorMessage = historyViewModel.errorMessage,
+               historyViewModel.hasLoadedOnce {
                 Section {
                     FireErrorBanner(
                         message: errorMessage,
@@ -99,13 +102,27 @@ struct FireReadHistoryView: View {
                 }
             }
 
-            if historyViewModel.isLoading && historyViewModel.rows.isEmpty {
-                Section {
-                    HStack {
-                        Spacer()
-                        ProgressView()
-                            .padding(.vertical, 20)
-                        Spacer()
+            if !historyViewModel.hasLoadedOnce {
+                if let errorMessage = historyViewModel.errorMessage {
+                    Section {
+                        FireBlockingErrorState(
+                            title: "浏览历史加载失败",
+                            message: errorMessage,
+                            onRetry: {
+                                Task {
+                                    await historyViewModel.refresh()
+                                }
+                            }
+                        )
+                    }
+                } else {
+                    Section {
+                        HStack {
+                            Spacer()
+                            ProgressView()
+                                .padding(.vertical, 20)
+                            Spacer()
+                        }
                     }
                 }
             } else if historyViewModel.rows.isEmpty {
@@ -127,11 +144,10 @@ struct FireReadHistoryView: View {
             } else {
                 Section {
                     ForEach(historyViewModel.rows, id: \.topic.id) { row in
-                        NavigationLink {
-                            FireTopicDetailView(
-                                viewModel: viewModel,
+                        Button {
+                            selectedRoute = .topic(
                                 row: row,
-                                scrollToPostNumber: row.topic.lastReadPostNumber
+                                postNumber: row.topic.lastReadPostNumber
                             )
                         } label: {
                             FireTopicRow(
@@ -162,6 +178,9 @@ struct FireReadHistoryView: View {
         .background(FireTheme.canvasTop)
         .navigationTitle("浏览历史")
         .navigationBarTitleDisplayMode(.inline)
+        .navigationDestination(item: $selectedRoute) { route in
+            FireAppRouteDestinationView(viewModel: viewModel, route: route)
+        }
         .task {
             await historyViewModel.loadIfNeeded()
         }

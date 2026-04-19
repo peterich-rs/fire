@@ -143,11 +143,45 @@ enum FireAppRoute: Hashable, Identifiable {
     case badge(id: UInt64, slug: String?)
 
     static func topic(
+        row: TopicRowState,
+        postNumber: UInt32? = nil
+    ) -> FireAppRoute {
+        topic(
+            topicId: row.topic.id,
+            postNumber: postNumber,
+            preview: FireTopicRoutePreview(row: row)
+        )
+    }
+
+    static func topic(
         topicId: UInt64,
         postNumber: UInt32?,
         preview: FireTopicRoutePreview? = nil
     ) -> FireAppRoute {
         .topic(payload: FireTopicRoutePayload(topicId: topicId, postNumber: postNumber, preview: preview))
+    }
+
+    static func topic(action: UserActionState) -> FireAppRoute? {
+        guard let topicId = action.topicId else {
+            return nil
+        }
+
+        let resolvedTitle = action.title?.ifEmpty("话题 #\(topicId)") ?? "话题 #\(topicId)"
+        let resolvedSlug = {
+            let trimmed = action.slug?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return trimmed.isEmpty ? "topic-\(topicId)" : trimmed
+        }()
+
+        return topic(
+            row: .routeStub(
+                topicId: topicId,
+                title: resolvedTitle,
+                slug: resolvedSlug,
+                categoryId: action.categoryId,
+                excerptText: action.excerpt
+            ),
+            postNumber: action.postNumber
+        )
     }
 
     var id: String {

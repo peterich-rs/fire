@@ -2,6 +2,28 @@ import XCTest
 @testable import Fire
 
 final class FireTopicListMessageBusRefreshTests: XCTestCase {
+    func testHomeTopicListDisplayStateShowsBlockingErrorWhenCurrentScopeHasNoSnapshot() {
+        XCTAssertEqual(
+            FireHomeTopicListDisplayState.resolve(
+                hasResolvedCurrentScope: false,
+                hasRows: false,
+                errorMessage: "offline"
+            ),
+            .blockingError(message: "offline")
+        )
+    }
+
+    func testHomeTopicListDisplayStateKeepsContentVisibleOnRefreshFailure() {
+        XCTAssertEqual(
+            FireHomeTopicListDisplayState.resolve(
+                hasResolvedCurrentScope: true,
+                hasRows: true,
+                errorMessage: "offline"
+            ),
+            .content(nonBlockingErrorMessage: "offline")
+        )
+    }
+
     func testLatestEventsRespectMinimumRefreshIntervalAndCoalesceTopicIDs() {
         let clock = ContinuousClock()
         let scope = FireTopicListRefreshScope(kind: .latest, categoryId: nil, tags: [])

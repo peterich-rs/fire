@@ -7,6 +7,7 @@ final class FireBookmarksViewModel: ObservableObject {
     @Published private(set) var nextPage: UInt32?
     @Published private(set) var isLoading = false
     @Published private(set) var isLoadingMore = false
+    @Published private(set) var hasLoadedOnce = false
     @Published var errorMessage: String?
 
     private let appViewModel: FireAppViewModel
@@ -32,6 +33,7 @@ final class FireBookmarksViewModel: ObservableObject {
             let list = try await appViewModel.fetchBookmarks(username: username, page: nil)
             rows = list.rows
             nextPage = list.nextPage
+            hasLoadedOnce = true
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -43,12 +45,14 @@ final class FireBookmarksViewModel: ObservableObject {
         guard rows.last?.topic.id == currentTopicID else { return }
 
         isLoadingMore = true
+        errorMessage = nil
         defer { isLoadingMore = false }
 
         do {
             let list = try await appViewModel.fetchBookmarks(username: username, page: nextPage)
             rows = mergeRows(existing: rows, incoming: list.rows)
             self.nextPage = list.nextPage
+            hasLoadedOnce = true
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -71,6 +75,7 @@ struct FireBookmarksView: View {
 
     @StateObject private var bookmarksViewModel: FireBookmarksViewModel
     @State private var editingContext: FireBookmarkEditorContext?
+    @State private var selectedRoute: FireAppRoute?
 
     init(viewModel: FireAppViewModel, username: String) {
         self.viewModel = viewModel
@@ -82,7 +87,8 @@ struct FireBookmarksView: View {
 
     var body: some View {
         List {
-            if let errorMessage = bookmarksViewModel.errorMessage {
+            if let errorMessage = bookmarksViewModel.errorMessage,
+               bookmarksViewModel.hasLoadedOnce {
                 Section {
                     FireErrorBanner(
                         message: errorMessage,
@@ -97,13 +103,27 @@ struct FireBookmarksView: View {
                 }
             }
 
-            if bookmarksViewModel.isLoading && bookmarksViewModel.rows.isEmpty {
-                Section {
-                    HStack {
-                        Spacer()
-                        ProgressView()
-                            .padding(.vertical, 24)
-                        Spacer()
+            if !bookmarksViewModel.hasLoadedOnce {
+                if let errorMessage = bookmarksViewModel.errorMessage {
+                    Section {
+                        FireBlockingErrorState(
+                            title: "书签加载失败",
+                            message: errorMessage,
+                            onRetry: {
+                                Task {
+                                    await bookmarksViewModel.refresh()
+                                }
+                            }
+                        )
+                    }
+                } else {
+                    Section {
+                        HStack {
+                            Spacer()
+                            ProgressView()
+                                .padding(.vertical, 24)
+                            Spacer()
+                        }
                     }
                 }
             } else if bookmarksViewModel.rows.isEmpty {
@@ -126,15 +146,15 @@ struct FireBookmarksView: View {
             } else {
                 Section {
                     ForEach(bookmarksViewModel.rows, id: \.topic.id) { row in
-                        NavigationLink {
-                            FireTopicDetailView(
-                                viewModel: viewModel,
+                        Button {
+                            selectedRoute = .topic(
                                 row: row,
-                                scrollToPostNumber: row.topic.bookmarkedPostNumber ?? row.topic.lastReadPostNumber
+                                postNumber: row.topic.bookmarkedPostNumber ?? row.topic.lastReadPostNumber
                             )
                         } label: {
                             bookmarkRow(row)
                         }
+                        .buttonStyle(.plain)
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                             if row.topic.bookmarkId != nil {
                                 Button("编辑") {
@@ -171,6 +191,9 @@ struct FireBookmarksView: View {
         .listStyle(.insetGrouped)
         .navigationTitle("我的书签")
         .navigationBarTitleDisplayMode(.inline)
+        .navigationDestination(item: $selectedRoute) { route in
+            FireAppRouteDestinationView(viewModel: viewModel, route: route)
+        }
         .task {
             await bookmarksViewModel.loadIfNeeded()
         }

@@ -1,12 +1,6 @@
 import SwiftUI
 
 struct FireHomeView: View {
-    private struct SelectedTopicDestination: Hashable, Identifiable {
-        let topicID: UInt64
-
-        var id: UInt64 { topicID }
-    }
-
     @EnvironmentObject private var navigationState: FireNavigationState
     @EnvironmentObject private var homeFeedStore: FireHomeFeedStore
     let viewModel: FireAppViewModel
@@ -16,8 +10,8 @@ struct FireHomeView: View {
     @State private var showCreateTopicComposer = false
     @State private var didPrefetchToFillViewport = false
     @State private var selectedRoute: FireAppRoute?
-    @State private var selectedTopicDestination: SelectedTopicDestination?
     @State private var lastTopicListScrollMetrics: FireCollectionScrollMetrics?
+    @State private var composerNotice: String?
 
     private static let paginationPrefetchDistance: CGFloat = 480
 
@@ -55,14 +49,6 @@ struct FireHomeView: View {
             .navigationDestination(item: $selectedRoute) { route in
                 FireAppRouteDestinationView(viewModel: viewModel, route: route)
             }
-            .navigationDestination(item: $selectedTopicDestination) { destination in
-                if let row = homeFeedStore.topicRow(for: destination.topicID) {
-                    FireTopicDetailView(viewModel: viewModel, row: row)
-                } else {
-                    ProgressView()
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                }
-            }
         }
         .onAppear {
             consumePendingRouteIfVisible(navigationState.pendingRoute)
@@ -94,9 +80,24 @@ struct FireHomeView: View {
                     initialTags: homeFeedStore.selectedHomeTags,
                     onTopicCreated: { _ in
                         showCreateTopicComposer = false
+                    },
+                    onSubmissionNotice: { message in
+                        composerNotice = message
                     }
                 )
             }
+        }
+        .alert("提示", isPresented: Binding(
+            get: { composerNotice != nil },
+            set: { presenting in
+                if !presenting {
+                    composerNotice = nil
+                }
+            }
+        )) {
+            Button("知道了", role: .cancel) {}
+        } message: {
+            Text(composerNotice ?? "")
         }
     }
 
@@ -109,8 +110,8 @@ struct FireHomeView: View {
         await homeFeedStore.refreshTopicsAsync()
     }
 
-    private func selectTopic(_ topicID: UInt64) {
-        selectedTopicDestination = SelectedTopicDestination(topicID: topicID)
+    private func selectTopic(_ route: FireAppRoute) {
+        selectedRoute = route
     }
 
     private func handleTopicListScrollMetricsChange(_ newMetrics: FireCollectionScrollMetrics) {
@@ -118,7 +119,7 @@ struct FireHomeView: View {
             lastTopicListScrollMetrics = newMetrics
         }
 
-        guard homeFeedStore.nextTopicsPage != nil else { return }
+        guard homeFeedStore.currentScopeNextTopicsPage != nil else { return }
         guard !homeFeedStore.isLoadingTopics else { return }
 
         let contentFitsViewport = newMetrics.contentHeight <= newMetrics.visibleHeight + 1

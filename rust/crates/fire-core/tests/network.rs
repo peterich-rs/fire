@@ -6,7 +6,9 @@ use common::{
     raw_json_response, raw_text_response, sample_home_html, sample_latest_json,
     sample_topic_detail_json, TestServer, TestServerStep,
 };
-use fire_core::{FireCore, FireCoreConfig, FireCoreError};
+use fire_core::{
+    FireAuthRecoveryHint, FireAuthRecoveryHintReason, FireCore, FireCoreConfig, FireCoreError,
+};
 use fire_models::{
     LoginSyncInput, PlatformCookie, TopicDetailQuery, TopicListKind, TopicListQuery,
     TopicReplyRequest, TopicTag,
@@ -464,6 +466,80 @@ async fn fetch_topic_list_keeps_local_login_when_success_response_only_clears_au
         Some("alice")
     );
     assert!(snapshot.bootstrap.has_preloaded_data);
+}
+
+#[tokio::test]
+async fn fetch_topic_detail_partial_auth_rotation_advances_epoch_and_clears_csrf() {
+    let body = sample_topic_detail_json();
+    let response = format!(
+        "HTTP/1.1 200 TEST\r\nContent-Type: application/json\r\nContent-Length: {}\r\nSet-Cookie: _forum_session=rotated-forum; path=/; SameSite=Lax\r\nConnection: close\r\n\r\n{body}",
+        body.len()
+    );
+    let server = TestServer::spawn(vec![response]).await.expect("server");
+    let core = FireCore::new(FireCoreConfig {
+        base_url: server.base_url(),
+        workspace_path: None,
+    })
+    .expect("core");
+
+    let _ = core.sync_login_context(LoginSyncInput {
+        username: Some("alice".into()),
+        home_html: Some(sample_home_html()),
+        csrf_token: Some("csrf-token".into()),
+        current_url: Some(server.base_url()),
+        browser_user_agent: None,
+        cookies: vec![
+            PlatformCookie {
+                name: "_t".into(),
+                value: "token".into(),
+                domain: None,
+                path: None,
+                expires_at_unix_ms: None,
+            },
+            PlatformCookie {
+                name: "_forum_session".into(),
+                value: "forum".into(),
+                domain: None,
+                path: None,
+                expires_at_unix_ms: None,
+            },
+        ],
+    });
+    let before_epoch = core.session_epoch();
+
+    let detail = core
+        .fetch_topic_detail(TopicDetailQuery {
+            topic_id: 123,
+            post_number: None,
+            track_visit: true,
+            filter: None,
+            username_filters: None,
+            filter_top_level_replies: false,
+        })
+        .await
+        .expect("detail");
+    let requests = server.shutdown_with_requests().await;
+
+    let snapshot = core.snapshot();
+    let after_epoch = core.session_epoch();
+    assert_eq!(detail.id, 123);
+    assert_eq!(after_epoch, before_epoch + 1);
+    assert_eq!(snapshot.cookies.t_token.as_deref(), Some("token"));
+    assert_eq!(
+        snapshot.cookies.forum_session.as_deref(),
+        Some("rotated-forum")
+    );
+    assert_eq!(snapshot.cookies.csrf_token, None);
+    assert!(!snapshot.readiness().can_write_authenticated_api);
+    assert_eq!(
+        core.auth_recovery_hint(),
+        Some(FireAuthRecoveryHint {
+            observed_epoch: after_epoch,
+            reason: FireAuthRecoveryHintReason::ForumSessionOnlyRotation,
+        })
+    );
+    assert_eq!(requests.len(), 1);
+    assert!(requests[0].contains("GET /t/123.json?track_visit=true HTTP/1.1"));
 }
 
 #[tokio::test]

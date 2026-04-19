@@ -3,13 +3,17 @@ import SwiftUI
 
 typealias FireTopicCategoryPresentation = TopicCategoryState
 typealias FireTopicRowPresentation = TopicRowState
-typealias FireTopicFlatPostPresentation = TopicThreadFlatPostState
-typealias FireTopicReplyPresentation = TopicThreadReplyState
-typealias FireTopicReplySectionPresentation = TopicThreadSectionState
-typealias FireTopicThreadPresentation = TopicThreadState
+
+struct FireTopicTimelineEntry: Hashable, Sendable {
+    let postId: UInt64
+    let postNumber: UInt32
+    let parentPostNumber: UInt32?
+    let depth: UInt32
+    let isOriginalPost: Bool
+}
 
 struct FireTopicTimelineRow: Identifiable {
-    let entry: TopicTimelineEntryState
+    let entry: FireTopicTimelineEntry
     let post: TopicPostState?
     var id: UInt64 { entry.postId }
     var isLoaded: Bool { post != nil }
@@ -37,15 +41,28 @@ struct FireCookedImage: Identifiable, Hashable, Sendable {
     }
 }
 
+struct FireTopicPostRenderContent: Sendable {
+    let plainText: String
+    let imageAttachments: [FireCookedImage]
+}
+
+struct FirePreparedTopicTimelineRow: Identifiable, Sendable {
+    let entry: FireTopicTimelineEntry
+
+    var id: UInt64 { entry.postId }
+}
+
+struct FireTopicDetailRenderState: Sendable {
+    let originalRow: FirePreparedTopicTimelineRow?
+    let replyRows: [FirePreparedTopicTimelineRow]
+    let contentByPostID: [UInt64: FireTopicPostRenderContent]
+    let renderedPostNumbers: Set<UInt32>
+}
+
 struct FireReactionOption: Identifiable, Hashable, Sendable {
     let id: String
     let symbol: String
     let label: String
-}
-
-struct FireTopicThreadComposition {
-    let thread: TopicThreadState
-    let flatPosts: [TopicThreadFlatPostState]
 }
 
 enum FireTopicPresentation {
@@ -160,6 +177,50 @@ enum FireTopicPresentation {
         return images
     }
 
+    static func renderContent(from html: String, baseURLString: String) -> FireTopicPostRenderContent {
+        FireTopicPostRenderContent(
+            plainText: plainTextFromHtml(rawHtml: html),
+            imageAttachments: imageAttachments(from: html, baseURLString: baseURLString)
+        )
+    }
+
+    static func detailRenderState(
+        from detail: TopicDetailState,
+        baseURLString: String
+    ) -> FireTopicDetailRenderState {
+        let orderedPosts = mergeTopicPosts(
+            existing: detail.postStream.posts,
+            incoming: [],
+            orderedPostIDs: detail.postStream.stream
+        )
+        let rows = rebuildTimelineEntries(from: orderedPosts).map(FirePreparedTopicTimelineRow.init)
+        let originalRow = rows.first(where: { $0.entry.isOriginalPost })
+        let replyRows = rows.filter { row in
+            row.entry.postId != originalRow?.entry.postId
+        }
+
+        var contentByPostID: [UInt64: FireTopicPostRenderContent] = [:]
+        contentByPostID.reserveCapacity(orderedPosts.count)
+        for post in orderedPosts {
+            contentByPostID[post.id] = renderContent(
+                from: post.cooked,
+                baseURLString: baseURLString
+            )
+        }
+
+        var renderedPostNumbers = Set(replyRows.map(\.entry.postNumber))
+        if let originalRow {
+            renderedPostNumbers.insert(originalRow.entry.postNumber)
+        }
+
+        return FireTopicDetailRenderState(
+            originalRow: originalRow,
+            replyRows: replyRows,
+            contentByPostID: contentByPostID,
+            renderedPostNumbers: renderedPostNumbers
+        )
+    }
+
     static func minimumReplyLength(from minPostLength: UInt32) -> Int {
         max(Int(minPostLength), 1)
     }
@@ -220,28 +281,9 @@ enum FireTopicPresentation {
         return mergedPosts
     }
 
-    static func recomposedDetail(_ detail: TopicDetailState) -> TopicDetailState {
-        var detail = detail
-        detail.postStream = TopicPostStreamState(
-            posts: mergeTopicPosts(
-                existing: detail.postStream.posts,
-                incoming: [],
-                orderedPostIDs: detail.postStream.stream
-            ),
-            stream: detail.postStream.stream
-        )
-
-        let composition = composeThread(posts: detail.postStream.posts)
-        detail.thread = composition.thread
-        detail.flatPosts = composition.flatPosts
-        detail.timelineEntries = rebuildTimelineEntries(from: detail.postStream.posts)
-        detail.interactionCount = interactionCount(for: detail)
-        return detail
-    }
-
     // MARK: - Timeline Entries
 
-    static func rebuildTimelineEntries(from posts: [TopicPostState]) -> [TopicTimelineEntryState] {
+    static func rebuildTimelineEntries(from posts: [TopicPostState]) -> [FireTopicTimelineEntry] {
         let postNumbers = Set(posts.map(\.postNumber))
         let minPN = posts.map(\.postNumber).min() ?? 0
         let sorted = posts.sorted(by: comparePosts(_:_:))
@@ -256,7 +298,7 @@ enum FireTopicPresentation {
             } else {
                 depth = 0
             }
-            return TopicTimelineEntryState(
+            return FireTopicTimelineEntry(
                 postId: post.id,
                 postNumber: post.postNumber,
                 parentPostNumber: parent,
@@ -267,7 +309,7 @@ enum FireTopicPresentation {
     }
 
     static func timelineRows(
-        entries: [TopicTimelineEntryState],
+        entries: [FireTopicTimelineEntry],
         posts: [TopicPostState]
     ) -> [FireTopicTimelineRow] {
         let postsByID = Dictionary(uniqueKeysWithValues: posts.map { ($0.id, $0) })
@@ -309,7 +351,17 @@ enum FireTopicPresentation {
     }
 
     static func interactionCount(for detail: TopicDetailState) -> UInt32 {
-        let extraReactionCount = detail.postStream.posts
+        interactionCount(
+            likeCount: detail.likeCount,
+            posts: detail.postStream.posts
+        )
+    }
+
+    static func interactionCount(
+        likeCount: UInt32,
+        posts: [TopicPostState]
+    ) -> UInt32 {
+        let extraReactionCount = posts
             .flatMap(\.reactions)
             .filter { $0.id.caseInsensitiveCompare("heart") != .orderedSame }
             .reduce(0 as UInt32) { partialResult, reaction in
@@ -317,9 +369,9 @@ enum FireTopicPresentation {
                     ? UInt32.max
                     : partialResult + reaction.count
             }
-        return detail.likeCount > UInt32.max - extraReactionCount
+        return likeCount > UInt32.max - extraReactionCount
             ? UInt32.max
-            : detail.likeCount + extraReactionCount
+            : likeCount + extraReactionCount
     }
 
     static func loadedWindowCount(detail: TopicDetailState) -> Int {
@@ -403,196 +455,11 @@ enum FireTopicPresentation {
         return formatted.replacingOccurrences(of: ".0", with: "") + suffix
     }
 
-    private static func composeThread(posts: [TopicPostState]) -> FireTopicThreadComposition {
-        let orderedPosts = posts.sorted(by: comparePosts(_:_:))
-        guard let originalPost = orderedPosts.min(by: comparePosts(_:_:)) else {
-            return FireTopicThreadComposition(
-                thread: TopicThreadState(
-                    originalPostNumber: nil,
-                    replySections: []
-                ),
-                flatPosts: []
-            )
-        }
-
-        let rootPostNumber = originalPost.postNumber
-        let postNumbers = Set(orderedPosts.map(\.postNumber))
-        let postsByNumber = Dictionary(uniqueKeysWithValues: orderedPosts.map { ($0.postNumber, $0) })
-        var childrenByParent: [UInt32: [TopicPostState]] = [:]
-
-        for post in orderedPosts where post.postNumber != rootPostNumber {
-            guard let parentPostNumber = normalizedReplyTarget(post.replyToPostNumber) else {
-                continue
-            }
-            guard parentPostNumber != post.postNumber else {
-                continue
-            }
-            childrenByParent[parentPostNumber, default: []].append(post)
-        }
-
-        for parentPostNumber in childrenByParent.keys {
-            childrenByParent[parentPostNumber]?.sort(by: comparePosts(_:_:))
-        }
-
-        var consumedPostNumbers: Set<UInt32> = [rootPostNumber]
-        var replySections: [TopicThreadSectionState] = []
-
-        for post in orderedPosts where post.postNumber != rootPostNumber {
-            if consumedPostNumbers.contains(post.postNumber) {
-                continue
-            }
-
-            let normalizedParent = normalizedReplyTarget(post.replyToPostNumber)
-            let shouldStartSection = normalizedParent == nil
-                || normalizedParent == rootPostNumber
-                || normalizedParent.map { !postNumbers.contains($0) } == true
-            if !shouldStartSection {
-                continue
-            }
-
-            consumedPostNumbers.insert(post.postNumber)
-            var branchVisited: Set<UInt32> = [post.postNumber]
-            let replies = flattenThreadReplies(
-                parentPostNumber: post.postNumber,
-                depth: 1,
-                childrenByParent: childrenByParent,
-                consumedPostNumbers: &consumedPostNumbers,
-                branchVisited: &branchVisited
-            )
-            replySections.append(
-                TopicThreadSectionState(
-                    anchorPostNumber: post.postNumber,
-                    replies: replies
-                )
-            )
-        }
-
-        let remainingPostNumbers = orderedPosts
-            .filter { $0.postNumber != rootPostNumber }
-            .map(\.postNumber)
-            .filter { !consumedPostNumbers.contains($0) }
-
-        for postNumber in remainingPostNumbers {
-            guard let post = postsByNumber[postNumber] else {
-                continue
-            }
-            consumedPostNumbers.insert(post.postNumber)
-            var branchVisited: Set<UInt32> = [post.postNumber]
-            let replies = flattenThreadReplies(
-                parentPostNumber: post.postNumber,
-                depth: 1,
-                childrenByParent: childrenByParent,
-                consumedPostNumbers: &consumedPostNumbers,
-                branchVisited: &branchVisited
-            )
-            replySections.append(
-                TopicThreadSectionState(
-                    anchorPostNumber: post.postNumber,
-                    replies: replies
-                )
-            )
-        }
-
-        let thread = TopicThreadState(
-            originalPostNumber: rootPostNumber,
-            replySections: replySections
-        )
-
-        var flatPosts: [TopicThreadFlatPostState] = []
-        if let original = postsByNumber[rootPostNumber] {
-            flatPosts.append(
-                TopicThreadFlatPostState(
-                    post: original,
-                    depth: 0,
-                    parentPostNumber: nil,
-                    showsThreadLine: !replySections.isEmpty,
-                    isOriginalPost: true
-                )
-            )
-        }
-
-        for (sectionIndex, section) in replySections.enumerated() {
-            let isLastSection = sectionIndex == replySections.count - 1
-            let hasNestedReplies = !section.replies.isEmpty
-            guard let anchorPost = postsByNumber[section.anchorPostNumber] else {
-                continue
-            }
-
-            flatPosts.append(
-                TopicThreadFlatPostState(
-                    post: anchorPost,
-                    depth: 0,
-                    parentPostNumber: nil,
-                    showsThreadLine: hasNestedReplies || !isLastSection,
-                    isOriginalPost: false
-                )
-            )
-
-            for (replyIndex, reply) in section.replies.enumerated() {
-                guard let replyPost = postsByNumber[reply.postNumber] else {
-                    continue
-                }
-                let isLastReply = replyIndex == section.replies.count - 1
-                flatPosts.append(
-                    TopicThreadFlatPostState(
-                        post: replyPost,
-                        depth: reply.depth,
-                        parentPostNumber: reply.parentPostNumber,
-                        showsThreadLine: !isLastReply || !isLastSection,
-                        isOriginalPost: false
-                    )
-                )
-            }
-        }
-
-        return FireTopicThreadComposition(thread: thread, flatPosts: flatPosts)
-    }
-
     private static func normalizedReplyTarget(_ replyToPostNumber: UInt32?) -> UInt32? {
         guard let replyToPostNumber, replyToPostNumber > 0 else {
             return nil
         }
         return replyToPostNumber
-    }
-
-    private static func flattenThreadReplies(
-        parentPostNumber: UInt32,
-        depth: UInt32,
-        childrenByParent: [UInt32: [TopicPostState]],
-        consumedPostNumbers: inout Set<UInt32>,
-        branchVisited: inout Set<UInt32>
-    ) -> [TopicThreadReplyState] {
-        guard let children = childrenByParent[parentPostNumber] else {
-            return []
-        }
-
-        var replies: [TopicThreadReplyState] = []
-        for child in children {
-            if branchVisited.contains(child.postNumber) {
-                continue
-            }
-
-            consumedPostNumbers.insert(child.postNumber)
-            replies.append(
-                TopicThreadReplyState(
-                    postNumber: child.postNumber,
-                    depth: depth,
-                    parentPostNumber: normalizedReplyTarget(child.replyToPostNumber)
-                )
-            )
-
-            branchVisited.insert(child.postNumber)
-            replies.append(contentsOf: flattenThreadReplies(
-                parentPostNumber: child.postNumber,
-                depth: depth + 1,
-                childrenByParent: childrenByParent,
-                consumedPostNumbers: &consumedPostNumbers,
-                branchVisited: &branchVisited
-            ))
-            branchVisited.remove(child.postNumber)
-        }
-
-        return replies
     }
 
     private static func comparePosts(_ lhs: TopicPostState, _ rhs: TopicPostState) -> Bool {

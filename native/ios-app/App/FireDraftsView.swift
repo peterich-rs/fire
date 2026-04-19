@@ -7,6 +7,7 @@ final class FireDraftsViewModel: ObservableObject {
     @Published private(set) var hasMore = true
     @Published private(set) var isLoading = false
     @Published private(set) var isLoadingMore = false
+    @Published private(set) var hasLoadedOnce = false
     @Published var errorMessage: String?
 
     private static let pageSize: UInt32 = 20
@@ -50,6 +51,7 @@ final class FireDraftsViewModel: ObservableObject {
         } else {
             isLoadingMore = true
         }
+        errorMessage = nil
         defer {
             isLoading = false
             isLoadingMore = false
@@ -68,11 +70,10 @@ final class FireDraftsViewModel: ObservableObject {
                 drafts.append(contentsOf: response.drafts.filter { !existingKeys.contains($0.draftKey) })
             }
             hasMore = response.hasMore
+            hasLoadedOnce = true
             errorMessage = nil
         } catch {
-            if drafts.isEmpty {
-                errorMessage = error.localizedDescription
-            }
+            errorMessage = error.localizedDescription
         }
     }
 }
@@ -80,6 +81,7 @@ final class FireDraftsViewModel: ObservableObject {
 struct FireDraftsView: View {
     @ObservedObject var viewModel: FireAppViewModel
     @StateObject private var draftsViewModel: FireDraftsViewModel
+    @State private var composerNotice: String?
 
     init(viewModel: FireAppViewModel) {
         self.viewModel = viewModel
@@ -90,7 +92,8 @@ struct FireDraftsView: View {
 
     var body: some View {
         List {
-            if let errorMessage = draftsViewModel.errorMessage {
+            if let errorMessage = draftsViewModel.errorMessage,
+               draftsViewModel.hasLoadedOnce {
                 Section {
                     FireErrorBanner(
                         message: errorMessage,
@@ -105,13 +108,27 @@ struct FireDraftsView: View {
                 }
             }
 
-            if draftsViewModel.isLoading && draftsViewModel.drafts.isEmpty {
-                Section {
-                    HStack {
-                        Spacer()
-                        ProgressView()
-                            .padding(.vertical, 20)
-                        Spacer()
+            if !draftsViewModel.hasLoadedOnce {
+                if let errorMessage = draftsViewModel.errorMessage {
+                    Section {
+                        FireBlockingErrorState(
+                            title: "草稿加载失败",
+                            message: errorMessage,
+                            onRetry: {
+                                Task {
+                                    await draftsViewModel.refresh()
+                                }
+                            }
+                        )
+                    }
+                } else {
+                    Section {
+                        HStack {
+                            Spacer()
+                            ProgressView()
+                                .padding(.vertical, 20)
+                            Spacer()
+                        }
                     }
                 }
             } else if draftsViewModel.drafts.isEmpty {
@@ -144,8 +161,11 @@ struct FireDraftsView: View {
                                     onReplySubmitted: {
                                         Task { await draftsViewModel.refresh() }
                                     },
-                                    onPrivateMessageCreated: { _ in
+                                    onPrivateMessageCreated: { _, _ in
                                         Task { await draftsViewModel.refresh() }
+                                    },
+                                    onSubmissionNotice: { message in
+                                        composerNotice = message
                                     }
                                 )
                             } label: {
@@ -187,6 +207,18 @@ struct FireDraftsView: View {
         }
         .refreshable {
             await draftsViewModel.refresh()
+        }
+        .alert("提示", isPresented: Binding(
+            get: { composerNotice != nil },
+            set: { presenting in
+                if !presenting {
+                    composerNotice = nil
+                }
+            }
+        )) {
+            Button("知道了", role: .cancel) {}
+        } message: {
+            Text(composerNotice ?? "")
         }
     }
 

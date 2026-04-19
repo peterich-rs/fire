@@ -1,4 +1,6 @@
 import XCTest
+import UIKit
+import SwiftUI
 @testable import Fire
 
 final class FireTopicPresentationTests: XCTestCase {
@@ -137,6 +139,45 @@ final class FireTopicPresentationTests: XCTestCase {
         XCTAssertNotEqual(beforeLoad, afterLoad)
     }
 
+    func testTopicDetailViewStateClearsCachedDetailWhenStoreDropsTopic() {
+        let detail = makeTopicDetail(
+            posts: [makePost(postNumber: 1, replyToPostNumber: nil, username: "author")],
+            stream: [1]
+        )
+
+        let mirrored = FireTopicDetailViewState.syncedCachedDetail(
+            topicId: 42,
+            topicDetails: [42: detail]
+        )
+        let cleared = FireTopicDetailViewState.syncedCachedDetail(
+            topicId: 42,
+            topicDetails: [:]
+        )
+
+        XCTAssertEqual(mirrored?.id, 42)
+        XCTAssertNil(cleared)
+    }
+
+    func testTopicDetailViewStateSubscriptionOnlyTracksLiveDetail() {
+        let cachedDetail = makeTopicDetail(
+            posts: [makePost(postNumber: 1, replyToPostNumber: nil, username: "author")],
+            stream: [1]
+        )
+
+        let resolvedFromCache = FireTopicDetailViewState.resolvedDetail(
+            liveDetail: nil,
+            cachedDetail: cachedDetail
+        )
+
+        XCTAssertEqual(resolvedFromCache?.id, 42)
+        XCTAssertFalse(
+            FireTopicDetailViewState.hasLoadedDetailForSubscription(liveDetail: nil)
+        )
+        XCTAssertTrue(
+            FireTopicDetailViewState.hasLoadedDetailForSubscription(liveDetail: cachedDetail)
+        )
+    }
+
     @MainActor
     func testHomeFeedVisibleTopicSanitizerDropsUnloadedTopicIDs() {
         let sanitized = FireHomeFeedStore.sanitizedVisibleTopicIDs(
@@ -148,67 +189,49 @@ final class FireTopicPresentationTests: XCTestCase {
     }
 
     func testTimelineRowsBuildStableLookupForReplyRows() {
-        let detail = FireTopicPresentation.recomposedDetail(
-            makeTopicDetail(
+        let renderState = FireTopicPresentation.detailRenderState(
+            from: makeTopicDetail(
                 posts: [
                     makePost(postNumber: 1, replyToPostNumber: nil, username: "author"),
                     makePost(postNumber: 2, replyToPostNumber: 1, username: "reply-a"),
                     makePost(postNumber: 3, replyToPostNumber: 2, username: "reply-b"),
                 ],
                 stream: [1, 2, 3]
-            )
+            ),
+            baseURLString: "https://linux.do"
         )
-        let replyRows = FireTopicPresentation.timelineRows(
-            entries: detail.timelineEntries,
-            posts: detail.postStream.posts
-        ).filter { !$0.entry.isOriginalPost }
 
-        let lookup = Dictionary(uniqueKeysWithValues: replyRows.enumerated().map { ($1.entry.postNumber, $0) })
+        let lookup = Dictionary(uniqueKeysWithValues: renderState.replyRows.enumerated().map { ($1.entry.postNumber, $0) })
 
         XCTAssertEqual(lookup[2], 0)
         XCTAssertEqual(lookup[3], 1)
         XCTAssertEqual(lookup.count, 2)
     }
 
-    func testTopicThreadFlatPostStateCarriesRustDisplayMetadata() {
-        let flatPosts = [
-            TopicThreadFlatPostState(
-                post: makePost(postNumber: 1, replyToPostNumber: nil, username: "author"),
-                depth: 0,
-                parentPostNumber: nil,
-                showsThreadLine: true,
-                isOriginalPost: true
-            ),
-            TopicThreadFlatPostState(
-                post: makePost(postNumber: 2, replyToPostNumber: 1, username: "floor-a"),
-                depth: 0,
-                parentPostNumber: nil,
-                showsThreadLine: true,
-                isOriginalPost: false
-            ),
-            TopicThreadFlatPostState(
-                post: makePost(postNumber: 3, replyToPostNumber: 2, username: "nested-a1"),
-                depth: 1,
-                parentPostNumber: 2,
-                showsThreadLine: true,
-                isOriginalPost: false
-            ),
-            TopicThreadFlatPostState(
-                post: makePost(postNumber: 4, replyToPostNumber: 3, username: "nested-a2"),
-                depth: 2,
-                parentPostNumber: 3,
-                showsThreadLine: false,
-                isOriginalPost: false
-            ),
-        ]
+    func testDetailRenderStateCachesPlainTextAndImages() {
+        let detail = makeTopicDetail(
+            posts: [
+                makePost(
+                    postNumber: 1,
+                    replyToPostNumber: nil,
+                    username: "author",
+                    cooked: "<p>Hello&nbsp;Fire</p><img src=\"/uploads/default/original/1X/fire.png\" alt=\"fire\">"
+                )
+            ],
+            stream: [1]
+        )
 
-        XCTAssertEqual(flatPosts.map(\.post.postNumber), [1, 2, 3, 4])
-        XCTAssertEqual(flatPosts.map(\.depth), [0, 0, 1, 2])
-        XCTAssertEqual(flatPosts[2].parentPostNumber, 2)
-        XCTAssertEqual(flatPosts[3].parentPostNumber, 3)
-        XCTAssertTrue(flatPosts[0].showsThreadLine)
-        XCTAssertFalse(flatPosts[3].showsThreadLine)
-        XCTAssertTrue(flatPosts[0].isOriginalPost)
+        let renderState = FireTopicPresentation.detailRenderState(
+            from: detail,
+            baseURLString: "https://linux.do"
+        )
+        let content = renderState.contentByPostID[1]
+
+        XCTAssertEqual(content?.plainText, "Hello Fire")
+        XCTAssertEqual(
+            content?.imageAttachments.first?.url.absoluteString,
+            "https://linux.do/uploads/default/original/1X/fire.png"
+        )
     }
 
     func testMergeTopicPostsRespectsStreamOrderAndPrefersIncomingValues() {
@@ -228,7 +251,7 @@ final class FireTopicPresentationTests: XCTestCase {
         XCTAssertEqual(merged[2].username, "new-nested")
     }
 
-    func testRecomposedDetailRebuildsThreadFromLoadedPosts() {
+    func testRebuildTimelineEntriesUsesFloorOrderForLoadedPosts() {
         let detail = makeTopicDetail(
             posts: [
                 makePost(postNumber: 3, replyToPostNumber: 2, username: "nested"),
@@ -238,15 +261,14 @@ final class FireTopicPresentationTests: XCTestCase {
             stream: [1, 2, 3]
         )
 
-        let recomposed = FireTopicPresentation.recomposedDetail(detail)
+        let entries = FireTopicPresentation.rebuildTimelineEntries(from: detail.postStream.posts)
 
-        XCTAssertEqual(recomposed.postStream.posts.map(\.postNumber), [1, 2, 3])
-        XCTAssertEqual(recomposed.flatPosts.map(\.post.postNumber), [1, 2, 3])
-        XCTAssertEqual(recomposed.flatPosts.map(\.depth), [0, 0, 1])
-        XCTAssertEqual(recomposed.flatPosts[2].parentPostNumber, 2)
+        XCTAssertEqual(entries.map(\.postNumber), [1, 2, 3])
+        XCTAssertEqual(entries.map(\.depth), [0, 1, 2])
+        XCTAssertEqual(entries[2].parentPostNumber, 2)
     }
 
-    func testRecomposedDetailRecomputesInteractionCountFromNonHeartReactions() {
+    func testInteractionCountIncludesNonHeartReactions() {
         let detail = makeTopicDetail(
             posts: [
                 makePost(
@@ -270,9 +292,7 @@ final class FireTopicPresentationTests: XCTestCase {
             stream: [1, 2]
         )
 
-        let recomposed = FireTopicPresentation.recomposedDetail(detail)
-
-        XCTAssertEqual(recomposed.interactionCount, 12)
+        XCTAssertEqual(FireTopicPresentation.interactionCount(for: detail), 12)
     }
 
     func testLoadedWindowCountStopsAtFirstGap() {
@@ -463,7 +483,7 @@ final class FireTopicPresentationTests: XCTestCase {
     }
 
     @MainActor
-    func testPrivateMessagesViewModelClearsRowsWhenMailboxReloadFails() async {
+    func testPrivateMessagesViewModelHidesStaleRowsWhenMailboxKindSwitchFails() async {
         let loader = PrivateMessageMailboxLoader(
             steps: [
                 .success(makePrivateMessageMailboxResponse(topicID: 101, username: "alice")),
@@ -480,8 +500,178 @@ final class FireTopicPresentationTests: XCTestCase {
         await viewModel.selectKind(.privateMessagesSent)
 
         XCTAssertEqual(viewModel.selectedKind, .privateMessagesSent)
+        XCTAssertEqual(viewModel.renderedKind, .privateMessagesInbox)
+        XCTAssertTrue(viewModel.displayedRows.isEmpty)
+        XCTAssertTrue(viewModel.displayedUsers.isEmpty)
+        XCTAssertEqual(viewModel.rows.map(\.topic.id), [101])
+        XCTAssertEqual(viewModel.users.map(\.username), ["alice"])
+        XCTAssertTrue(viewModel.hasLoadedOnce)
+        XCTAssertEqual(viewModel.errorMessage, "offline")
+        XCTAssertEqual(
+            viewModel.currentKindDisplayState,
+            .blockingError(message: "offline")
+        )
+    }
+
+    @MainActor
+    func testPrivateMessagesViewModelKeepsCurrentKindRowsWhenRefreshFails() async {
+        let loader = PrivateMessageMailboxLoader(
+            steps: [
+                .success(makePrivateMessageMailboxResponse(topicID: 101, username: "alice")),
+                .failure("offline")
+            ]
+        )
+        let viewModel = FirePrivateMessagesViewModel { kind, page in
+            try await loader.fetch(kind: kind, page: page)
+        }
+
+        await viewModel.refresh()
+        await viewModel.refresh()
+
+        XCTAssertEqual(viewModel.selectedKind, .privateMessagesInbox)
+        XCTAssertEqual(viewModel.renderedKind, .privateMessagesInbox)
+        XCTAssertEqual(viewModel.displayedRows.map(\.topic.id), [101])
+        XCTAssertEqual(viewModel.displayedUsers.map(\.username), ["alice"])
+        XCTAssertEqual(
+            viewModel.currentKindDisplayState,
+            .content(nonBlockingErrorMessage: "offline")
+        )
+    }
+
+    @MainActor
+    func testPrivateMessagesViewModelMarksInitialFailureAsUnloadedState() async {
+        let loader = PrivateMessageMailboxLoader(
+            steps: [.failure("offline")]
+        )
+        let viewModel = FirePrivateMessagesViewModel { kind, page in
+            try await loader.fetch(kind: kind, page: page)
+        }
+
+        await viewModel.refresh()
+
+        XCTAssertFalse(viewModel.hasLoadedOnce)
         XCTAssertTrue(viewModel.rows.isEmpty)
         XCTAssertTrue(viewModel.users.isEmpty)
+        XCTAssertEqual(viewModel.errorMessage, "offline")
+    }
+
+    @MainActor
+    func testProfileViewModelKeepsActionsWhenTabReloadFails() async {
+        let loader = UserActionsLoader(
+            steps: [
+                .success([makeUserAction(topicID: 101, title: "First")]),
+                .failure("offline")
+            ]
+        )
+        let viewModel = FireProfileViewModel(
+            currentUsernameProvider: { "alice" },
+            fetchUserProfile: { _ in self.makeUserProfile(username: "alice") },
+            fetchUserSummary: { _ in self.makeUserSummary() },
+            fetchUserActions: { username, offset, filter in
+                try await loader.fetch(username: username, offset: offset, filter: filter)
+            }
+        )
+
+        viewModel.loadProfile(force: true)
+        await waitUntil { viewModel.hasLoadedActionsOnce }
+
+        XCTAssertEqual(viewModel.actions.compactMap(\.topicId), [101])
+        XCTAssertNil(viewModel.actionsErrorMessage)
+
+        viewModel.selectTab(.topics)
+        await waitUntil { !viewModel.isLoadingActions }
+
+        XCTAssertEqual(viewModel.selectedTab, .topics)
+        XCTAssertEqual(viewModel.actions.compactMap(\.topicId), [101])
+        XCTAssertTrue(viewModel.hasLoadedActionsOnce)
+        XCTAssertEqual(viewModel.actionsErrorMessage, "offline")
+    }
+
+    @MainActor
+    func testFilteredTopicListViewModelHidesStaleRowsWhenKindSwitchFails() async {
+        let loader = FilteredTopicListLoader(
+            steps: [
+                .success(makeFilteredTopicListResponse(topicID: 301, title: "Latest")),
+                .failure("offline")
+            ]
+        )
+        let viewModel = FireFilteredTopicListViewModel(
+            categorySlug: nil,
+            categoryId: nil,
+            parentCategorySlug: nil,
+            tag: nil,
+            fetchFilteredTopics: { query in
+                try await loader.fetch(query: query)
+            }
+        )
+
+        await viewModel.refresh()
+        XCTAssertEqual(viewModel.rows.map(\.topic.id), [301])
+        XCTAssertTrue(viewModel.hasLoadedOnce)
+
+        await viewModel.selectKind(.top)
+
+        XCTAssertEqual(viewModel.selectedKind, .top)
+        XCTAssertEqual(viewModel.renderedKind, .latest)
+        XCTAssertTrue(viewModel.displayedRows.isEmpty)
+        XCTAssertEqual(viewModel.rows.map(\.topic.id), [301])
+        XCTAssertTrue(viewModel.hasLoadedOnce)
+        XCTAssertEqual(viewModel.errorMessage, "offline")
+        XCTAssertEqual(
+            viewModel.currentKindDisplayState,
+            .blockingError(message: "offline")
+        )
+    }
+
+    @MainActor
+    func testFilteredTopicListViewModelKeepsCurrentKindRowsWhenRefreshFails() async {
+        let loader = FilteredTopicListLoader(
+            steps: [
+                .success(makeFilteredTopicListResponse(topicID: 301, title: "Latest")),
+                .failure("offline")
+            ]
+        )
+        let viewModel = FireFilteredTopicListViewModel(
+            categorySlug: nil,
+            categoryId: nil,
+            parentCategorySlug: nil,
+            tag: nil,
+            fetchFilteredTopics: { query in
+                try await loader.fetch(query: query)
+            }
+        )
+
+        await viewModel.refresh()
+        await viewModel.refresh()
+
+        XCTAssertEqual(viewModel.selectedKind, .latest)
+        XCTAssertEqual(viewModel.renderedKind, .latest)
+        XCTAssertEqual(viewModel.displayedRows.map(\.topic.id), [301])
+        XCTAssertEqual(
+            viewModel.currentKindDisplayState,
+            .content(nonBlockingErrorMessage: "offline")
+        )
+    }
+
+    @MainActor
+    func testFilteredTopicListViewModelMarksInitialFailureAsUnloadedState() async {
+        let loader = FilteredTopicListLoader(
+            steps: [.failure("offline")]
+        )
+        let viewModel = FireFilteredTopicListViewModel(
+            categorySlug: nil,
+            categoryId: nil,
+            parentCategorySlug: nil,
+            tag: nil,
+            fetchFilteredTopics: { query in
+                try await loader.fetch(query: query)
+            }
+        )
+
+        await viewModel.refresh()
+
+        XCTAssertFalse(viewModel.hasLoadedOnce)
+        XCTAssertTrue(viewModel.rows.isEmpty)
         XCTAssertEqual(viewModel.errorMessage, "offline")
     }
 
@@ -628,13 +818,13 @@ final class FireTopicPresentationTests: XCTestCase {
             makePost(postNumber: 2, replyToPostNumber: 1, username: "reply"),
         ]
         let entries = [
-            TopicTimelineEntryState(
+            FireTopicTimelineEntry(
                 postId: 1, postNumber: 1, parentPostNumber: nil, depth: 0, isOriginalPost: true
             ),
-            TopicTimelineEntryState(
+            FireTopicTimelineEntry(
                 postId: 2, postNumber: 2, parentPostNumber: 1, depth: 1, isOriginalPost: false
             ),
-            TopicTimelineEntryState(
+            FireTopicTimelineEntry(
                 postId: 3, postNumber: 3, parentPostNumber: 2, depth: 2, isOriginalPost: false
             ),
         ]
@@ -681,14 +871,15 @@ final class FireTopicPresentationTests: XCTestCase {
         replyToPostNumber: UInt32?,
         username: String,
         likeCount: UInt32 = 0,
-        reactions: [TopicReactionState] = []
+        reactions: [TopicReactionState] = [],
+        cooked: String? = nil
     ) -> TopicPostState {
         TopicPostState(
             id: UInt64(postNumber),
             username: username,
             name: nil,
             avatarTemplate: nil,
-            cooked: "<p>\(username)</p>",
+            cooked: cooked ?? "<p>\(username)</p>",
             raw: nil,
             postNumber: postNumber,
             postType: 1,
@@ -725,7 +916,6 @@ final class FireTopicPresentationTests: XCTestCase {
             tags: [],
             views: 128,
             likeCount: 9,
-            interactionCount: 9,
             createdAt: "2026-03-28T10:00:00Z",
             lastReadPostNumber: nil,
             bookmarks: [],
@@ -743,9 +933,6 @@ final class FireTopicPresentationTests: XCTestCase {
             hasSummary: false,
             archetype: "regular",
             postStream: TopicPostStreamState(posts: posts, stream: stream),
-            thread: TopicThreadState(originalPostNumber: nil, replySections: []),
-            flatPosts: [],
-            timelineEntries: [],
             details: TopicDetailMetaState(
                 notificationLevel: nil,
                 canEdit: false,
@@ -826,6 +1013,141 @@ final class FireTopicPresentationTests: XCTestCase {
             nextPage: nextPage
         )
     }
+
+    private func makeFilteredTopicListResponse(
+        topicID: UInt64,
+        title: String,
+        nextPage: UInt32? = nil
+    ) -> TopicListState {
+        let topic = TopicSummaryState(
+            id: topicID,
+            title: title,
+            slug: "topic-\(topicID)",
+            postsCount: 2,
+            replyCount: 1,
+            views: 42,
+            likeCount: 3,
+            excerpt: "filtered",
+            createdAt: "2026-03-28T10:00:00Z",
+            lastPostedAt: "2026-03-28T10:05:00Z",
+            lastPosterUsername: "alice",
+            categoryId: 7,
+            pinned: false,
+            visible: true,
+            closed: false,
+            archived: false,
+            tags: [],
+            posters: [],
+            participants: [],
+            unseen: false,
+            unreadPosts: 0,
+            newPosts: 0,
+            lastReadPostNumber: nil,
+            highestPostNumber: 2,
+            bookmarkedPostNumber: nil,
+            bookmarkId: nil,
+            bookmarkName: nil,
+            bookmarkReminderAt: nil,
+            bookmarkableType: nil,
+            hasAcceptedAnswer: false,
+            canHaveAnswer: true
+        )
+        let row = TopicRowState(
+            topic: topic,
+            excerptText: "filtered",
+            originalPosterUsername: "alice",
+            originalPosterAvatarTemplate: nil,
+            tagNames: [],
+            statusLabels: [],
+            isPinned: false,
+            isClosed: false,
+            isArchived: false,
+            hasAcceptedAnswer: false,
+            hasUnreadPosts: false,
+            createdTimestampUnixMs: 1_711_624_600_000,
+            activityTimestampUnixMs: 1_711_624_900_000,
+            lastPosterUsername: "alice"
+        )
+
+        return TopicListState(
+            topics: [topic],
+            users: [],
+            rows: [row],
+            moreTopicsUrl: nextPage.map { "/latest?page=\($0)" },
+            nextPage: nextPage
+        )
+    }
+
+    private func makeUserProfile(username: String) -> UserProfileState {
+        UserProfileState(
+            id: 1,
+            username: username,
+            name: username.capitalized,
+            avatarTemplate: nil,
+            trustLevel: 2,
+            bioCooked: nil,
+            createdAt: "2026-03-28T10:00:00Z",
+            lastSeenAt: nil,
+            lastPostedAt: nil,
+            flairName: nil,
+            flairUrl: nil,
+            flairBgColor: nil,
+            flairColor: nil,
+            profileBackgroundUrl: nil,
+            totalFollowers: 10,
+            totalFollowing: 5,
+            canFollow: false,
+            isFollowed: false,
+            canSendPrivateMessageToUser: true,
+            gamificationScore: 12,
+            trustLevelLabel: "成员"
+        )
+    }
+
+    private func makeUserSummary() -> UserSummaryState {
+        UserSummaryState(
+            stats: UserSummaryStatsState(
+                daysVisited: 1,
+                likesReceived: 2,
+                likesGiven: 3,
+                topicCount: 4,
+                postCount: 5,
+                timeReadSeconds: 600,
+                bookmarkCount: 1
+            ),
+            topTopics: [],
+            topReplies: [],
+            topCategories: [],
+            mostLikedByUsers: [],
+            badges: []
+        )
+    }
+
+    private func makeUserAction(topicID: UInt64, title: String) -> UserActionState {
+        UserActionState(
+            actionType: 4,
+            topicId: topicID,
+            postNumber: 1,
+            title: title,
+            slug: "topic-\(topicID)",
+            excerpt: "excerpt",
+            categoryId: 7,
+            actingUsername: "alice",
+            actingAvatarTemplate: nil,
+            createdAt: "2026-03-28T10:00:00Z"
+        )
+    }
+
+    @MainActor
+    private func waitUntil(
+        limit: Int = 200,
+        _ condition: @escaping @MainActor () -> Bool
+    ) async {
+        for _ in 0..<limit where !condition() {
+            await Task.yield()
+        }
+        XCTAssertTrue(condition())
+    }
 }
 
 private actor PrivateMessageMailboxLoader {
@@ -874,5 +1196,69 @@ private actor PrivateMessageMailboxLoader {
         guard !deferredResponses.isEmpty else { return }
         let continuation = deferredResponses.removeFirst()
         continuation.resume(returning: response)
+    }
+}
+
+private actor UserActionsLoader {
+    enum Step {
+        case success([UserActionState])
+        case failure(String)
+    }
+
+    private let steps: [Step]
+    private var callCountValue = 0
+
+    init(steps: [Step]) {
+        self.steps = steps
+    }
+
+    func fetch(
+        username: String,
+        offset: UInt32?,
+        filter: String
+    ) async throws -> [UserActionState] {
+        let stepIndex = callCountValue
+        callCountValue += 1
+
+        switch steps[stepIndex] {
+        case .success(let actions):
+            return actions
+        case .failure(let message):
+            throw NSError(
+                domain: "FireTests.UserActionsLoader",
+                code: stepIndex,
+                userInfo: [NSLocalizedDescriptionKey: message]
+            )
+        }
+    }
+}
+
+private actor FilteredTopicListLoader {
+    enum Step {
+        case success(TopicListState)
+        case failure(String)
+    }
+
+    private let steps: [Step]
+    private var callCountValue = 0
+
+    init(steps: [Step]) {
+        self.steps = steps
+    }
+
+    func fetch(query: TopicListQueryState) async throws -> TopicListState {
+        let stepIndex = callCountValue
+        callCountValue += 1
+
+        switch steps[stepIndex] {
+        case .success(let response):
+            return response
+        case .failure(let message):
+            throw NSError(
+                domain: "FireTests.FilteredTopicListLoader",
+                code: stepIndex,
+                userInfo: [NSLocalizedDescriptionKey: message]
+            )
+        }
     }
 }

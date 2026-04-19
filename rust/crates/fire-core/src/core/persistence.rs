@@ -2,13 +2,14 @@ use std::{fs, io, path::Path};
 
 use tracing::{debug, warn};
 
-use super::FireCore;
+use super::{notifications, presence, update_session_persistence_revisions, FireCore};
 use crate::{
     error::FireCoreError,
     session_store::{
         sanitize_snapshot_for_restore, write_atomic, LegacyPersistedSessionSnapshot,
         PersistedSessionEnvelope,
     },
+    sync_utils::write_rwlock,
 };
 
 impl FireCore {
@@ -28,14 +29,23 @@ impl FireCore {
         let snapshot = self.decode_persisted_snapshot(&json)?;
         self.clear_notification_state();
         self.clear_topic_presence_state();
-        Ok(self.update_session(|session| {
-            *session = snapshot.clone();
+        let snapshot = {
+            let mut session = write_rwlock(&self.session, "session");
+            let before_snapshot = session.snapshot.clone();
+            session.snapshot = snapshot;
+            update_session_persistence_revisions(&mut session, &before_snapshot);
+            session.auth_recovery_hint = None;
+            session.last_response_auth_change = None;
             debug!(
-                phase = ?session.login_phase(),
-                readiness = ?session.readiness(),
+                phase = ?session.snapshot.login_phase(),
+                readiness = ?session.snapshot.readiness(),
                 "restored persisted session from json"
             );
-        }))
+            session.snapshot.clone()
+        };
+        notifications::reconcile_notification_runtime(&self.notifications, &snapshot);
+        presence::reconcile_topic_presence_runtime(&self.topic_presence, &snapshot);
+        Ok(snapshot)
     }
 
     pub fn save_session_to_path(&self, path: impl AsRef<Path>) -> Result<(), FireCoreError> {

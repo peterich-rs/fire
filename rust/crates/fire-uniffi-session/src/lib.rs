@@ -9,8 +9,9 @@ use fire_uniffi_types::{
 pub mod records;
 
 pub use records::{
-    BootstrapState, CookieState, LoginPhaseState, LoginSyncState, PlatformCookieState,
-    SessionReadinessState, SessionState, TopicCategoryState,
+    AuthRecoveryHintState, BootstrapState, CookieState, LoginPhaseState, LoginSyncState,
+    PlatformCookieState, SessionPersistenceState, SessionReadinessState, SessionState,
+    TopicCategoryState,
 };
 
 #[derive(uniffi::Object)]
@@ -76,6 +77,33 @@ impl FireSessionHandle {
             &self.shared.core,
             "snapshot",
             |inner| SessionState::from_snapshot(inner.snapshot()),
+        )
+    }
+
+    pub fn session_epoch(&self) -> Result<u64, FireUniFfiError> {
+        run_infallible(
+            &self.shared.panic_state,
+            &self.shared.core,
+            "session_epoch",
+            |inner| inner.session_epoch(),
+        )
+    }
+
+    pub fn session_persistence_state(&self) -> Result<SessionPersistenceState, FireUniFfiError> {
+        run_infallible(
+            &self.shared.panic_state,
+            &self.shared.core,
+            "session_persistence_state",
+            |inner| inner.session_persistence_state().into(),
+        )
+    }
+
+    pub fn auth_recovery_hint(&self) -> Result<Option<AuthRecoveryHintState>, FireUniFfiError> {
+        run_infallible(
+            &self.shared.panic_state,
+            &self.shared.core,
+            "auth_recovery_hint",
+            |inner| inner.auth_recovery_hint().map(Into::into),
         )
     }
 

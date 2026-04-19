@@ -264,6 +264,22 @@ final class FireSessionSecurityTests: XCTestCase {
         XCTAssertTrue(persisted.contains("\"csrf-token\""))
     }
 
+    func testRefreshBootstrapIfNeededSkipsPersistenceWhenSessionIsUnchanged() async throws {
+        let sessionFileURL = try makeSessionFileURL(name: "refresh-bootstrap-if-needed-no-persist")
+        let secureStore = CountingAuthCookieSecureStore()
+        let store = try FireSessionStore(
+            workspacePath: try FireSessionStore.defaultWorkspacePath(),
+            sessionFilePath: sessionFileURL.path,
+            authCookieStore: secureStore
+        )
+
+        let session = try await store.refreshBootstrapIfNeeded()
+
+        XCTAssertFalse(session.readiness.canReadAuthenticatedApi)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: sessionFileURL.path))
+        XCTAssertEqual(secureStore.saveCount(), 0)
+    }
+
     func testPersistCurrentSessionRewritesSecureStoreFromCurrentSnapshot() async throws {
         let sessionFileURL = try makeSessionFileURL(name: "persist-current-session-rewrites-secure-store")
         let secureStore = InMemoryAuthCookieSecureStore()
@@ -298,6 +314,8 @@ final class FireSessionSecurityTests: XCTestCase {
             )
         )
 
+        try "stale-session".write(to: sessionFileURL, atomically: true, encoding: .utf8)
+
         try secureStore.save(
             FireAuthCookieSecrets(
                 platformCookies: [
@@ -318,10 +336,15 @@ final class FireSessionSecurityTests: XCTestCase {
         try await store.persistCurrentSession()
 
         let secrets = try secureStore.load()
+        let persisted = try String(contentsOf: sessionFileURL, encoding: .utf8)
 
         XCTAssertEqual(secrets.tToken, "fresh-token")
         XCTAssertEqual(secrets.forumSession, "fresh-forum")
         XCTAssertEqual(secrets.platformCookies.count, 2)
+        XCTAssertFalse(persisted.contains("stale-session"))
+        XCTAssertTrue(persisted.contains("\"fresh-token\""))
+        XCTAssertTrue(persisted.contains("\"fresh-forum\""))
+        XCTAssertTrue(persisted.contains("\"csrf-token\""))
         XCTAssertTrue(
             secrets.platformCookies.contains { cookie in
                 cookie.name == "_t"
@@ -453,6 +476,140 @@ final class FireSessionSecurityTests: XCTestCase {
         XCTAssertEqual(normalized.forumSession, "forum")
         XCTAssertEqual(normalized.cfClearance, "clearance")
         XCTAssertTrue(normalized.platformCookies.isEmpty)
+    }
+
+    func testAuthenticatedWritePreflightHostResyncRunsAtMostOncePerEpoch() async throws {
+        let store = try makeAuthenticatedWritePreflightStore()
+        let harness = AuthenticatedWritePreflightHarness(
+            context: authenticatedWritePreflightContext(
+                sessionEpoch: 7,
+                authRecoveryHint: authRecoveryHint(epoch: 7)
+            ),
+            hostResyncCookies: [
+                makePlatformCookie(name: "_forum_session", value: "forum-2")
+            ]
+        )
+
+        try await runAuthenticatedWritePreflight(store: store, harness: harness)
+        try await runAuthenticatedWritePreflight(store: store, harness: harness)
+
+        let counts = await harness.counts()
+        XCTAssertEqual(counts.hostResyncProviderCount, 1)
+        XCTAssertEqual(counts.applyPlatformCookiesCount, 1)
+    }
+
+    func testAuthenticatedWritePreflightSingleFlightsConcurrentHostResync() async throws {
+        let store = try makeAuthenticatedWritePreflightStore()
+        let enteredGate = AsyncGate()
+        let releaseGate = AsyncGate()
+        let harness = AuthenticatedWritePreflightHarness(
+            context: authenticatedWritePreflightContext(
+                sessionEpoch: 11,
+                authRecoveryHint: authRecoveryHint(epoch: 11)
+            ),
+            hostResyncCookies: [
+                makePlatformCookie(name: "_forum_session", value: "forum-2")
+            ],
+            providerEnteredGate: enteredGate,
+            providerReleaseGate: releaseGate
+        )
+
+        let firstTask = Task {
+            try await self.runAuthenticatedWritePreflight(store: store, harness: harness)
+        }
+
+        await enteredGate.wait()
+
+        let secondTask = Task {
+            try await self.runAuthenticatedWritePreflight(store: store, harness: harness)
+        }
+
+        await releaseGate.open()
+
+        try await firstTask.value
+        try await secondTask.value
+
+        let counts = await harness.counts()
+        XCTAssertEqual(counts.hostResyncProviderCount, 1)
+        XCTAssertEqual(counts.applyPlatformCookiesCount, 1)
+    }
+
+    func testAuthenticatedWritePreflightSkipsHostResyncWhenCsrfRefreshRequiresLogin() async throws {
+        let store = try makeAuthenticatedWritePreflightStore()
+        let harness = AuthenticatedWritePreflightHarness(
+            context: authenticatedWritePreflightContext(
+                sessionEpoch: 19,
+                authRecoveryHint: authRecoveryHint(epoch: 19)
+            ),
+            refreshOutcomes: [
+                .error(FireUniFfiError.LoginRequired(details: "您需要登录才能执行此操作。"))
+            ],
+            hostResyncCookies: [
+                makePlatformCookie(name: "_forum_session", value: "forum-2")
+            ]
+        )
+
+        do {
+            try await runAuthenticatedWritePreflight(store: store, harness: harness)
+            XCTFail("expected LoginRequired to bypass host resync")
+        } catch let error as FireUniFfiError {
+            XCTAssertEqual(error, .LoginRequired(details: "您需要登录才能执行此操作。"))
+        } catch {
+            XCTFail("unexpected error: \(error)")
+        }
+
+        let counts = await harness.counts()
+        XCTAssertEqual(counts.hostResyncProviderCount, 0)
+        XCTAssertEqual(counts.applyPlatformCookiesCount, 0)
+    }
+
+    func testAuthenticatedWritePreflightDropsLateHostResyncResultsFromOldEpoch() async throws {
+        let store = try makeAuthenticatedWritePreflightStore()
+        let enteredGate = AsyncGate()
+        let releaseGate = AsyncGate()
+        let harness = AuthenticatedWritePreflightHarness(
+            context: authenticatedWritePreflightContext(
+                sessionEpoch: 23,
+                authRecoveryHint: authRecoveryHint(epoch: 23)
+            ),
+            hostResyncCookies: [
+                makePlatformCookie(name: "_forum_session", value: "forum-2")
+            ],
+            providerEnteredGate: enteredGate,
+            providerReleaseGate: releaseGate
+        )
+
+        await harness.setNextAppliedContext(
+            authenticatedWritePreflightContext(
+                sessionEpoch: 25,
+                authRecoveryHint: nil
+            )
+        )
+
+        let firstTask = Task {
+            try await self.runAuthenticatedWritePreflight(store: store, harness: harness)
+        }
+
+        await enteredGate.wait()
+        await harness.setContext(
+            authenticatedWritePreflightContext(
+                sessionEpoch: 24,
+                authRecoveryHint: authRecoveryHint(epoch: 24)
+            )
+        )
+        await releaseGate.open()
+
+        try await firstTask.value
+
+        var counts = await harness.counts()
+        XCTAssertEqual(counts.hostResyncProviderCount, 1)
+        XCTAssertEqual(counts.applyPlatformCookiesCount, 0)
+
+        try await runAuthenticatedWritePreflight(store: store, harness: harness)
+
+        counts = await harness.counts()
+        XCTAssertEqual(counts.hostResyncProviderCount, 2)
+        XCTAssertEqual(counts.applyPlatformCookiesCount, 1)
     }
 
     @MainActor
@@ -886,7 +1043,7 @@ final class FireSessionSecurityTests: XCTestCase {
     }
 
     @MainActor
-    func testPerformWithCloudflareRecoveryWaitsForInteractiveRecoveryAndRetries() async throws {
+    func testPerformWithCloudflareRecoveryAutoCompletesAfterChallengeExitObservation() async throws {
         let viewModel = FireAppViewModel(
             initialSession: authenticatedSession(),
             cloudflareRecoveryCookieSync: {
@@ -915,13 +1072,101 @@ final class FireSessionSecurityTests: XCTestCase {
         XCTAssertTrue(presentedRecovery)
         XCTAssertEqual(attempts, 2)
 
-        viewModel.completeCloudflareRecovery()
+        viewModel.receiveCloudflareRecoveryObservation(
+            makeCloudflareRecoveryObservation(
+                url: "https://linux.do/latest",
+                title: "Linux.do",
+                isLoading: false,
+                hasActiveChallenge: false,
+                cfClearance: "fresh-clearance"
+            )
+        )
 
         let dismissedRecovery = await waitUntil { viewModel.authPresentationState == nil }
         XCTAssertTrue(dismissedRecovery)
         let result = try await task.value
         XCTAssertEqual(result, "ok")
         XCTAssertEqual(attempts, 3)
+    }
+
+    @MainActor
+    func testCloudflareRecoveryManualCompletionKeepsSheetOpenOnStaleChallengeURL() async {
+        let webKitStore = WKWebsiteDataStore.default().httpCookieStore
+        await clearLinuxDoCookiesFromWebKitStore(webKitStore)
+        guard
+            let rotatedClearance = makeHTTPCookie(
+                name: "cf_clearance",
+                value: "fresh-clearance",
+                domain: "linux.do"
+            )
+        else {
+            XCTFail("expected Cloudflare clearance cookie")
+            return
+        }
+        await webKitStore.setCookieAsync(rotatedClearance)
+
+        let viewModel = FireAppViewModel(
+            initialSession: authenticatedSession(),
+            cloudflareRecoveryCookieSync: {
+                self.authenticatedSession(turnstileSitekey: "sitekey")
+            }
+        )
+        var attempts = 0
+
+        let task = Task {
+            try await viewModel.performWithCloudflareRecovery(operation: "刷新首页话题列表") {
+                attempts += 1
+                if attempts < 3 {
+                    throw FireUniFfiError.CloudflareChallenge
+                }
+                return "ok"
+            }
+        }
+
+        let presentedRecovery = await waitUntil {
+            if case .cloudflareRecovery? = viewModel.authPresentationState {
+                return true
+            }
+            return false
+        }
+
+        XCTAssertTrue(presentedRecovery)
+        XCTAssertEqual(attempts, 2)
+
+        viewModel.receiveCloudflareRecoveryObservation(
+            makeCloudflareRecoveryObservation(
+                url: "https://linux.do/challenge",
+                title: "That page doesn't exist or is private.",
+                isLoading: false,
+                hasActiveChallenge: false,
+                cfClearance: "clearance"
+            ),
+            allowAutoCompletion: false
+        )
+
+        viewModel.completeCloudflareRecovery()
+
+        let surfacedError = await waitUntil {
+            viewModel.errorMessage == "验证页仍停留在 challenge 页面，尚未观察到新的 Cloudflare clearance。"
+        }
+        XCTAssertTrue(surfacedError)
+        XCTAssertEqual(attempts, 2)
+        if case .cloudflareRecovery? = viewModel.authPresentationState {
+            XCTAssertTrue(true)
+        } else {
+            XCTFail("expected Cloudflare recovery to stay presented")
+        }
+
+        task.cancel()
+        do {
+            _ = try await task.value
+            XCTFail("Expected task cancellation while Cloudflare recovery stayed blocked")
+        } catch {
+            XCTAssertTrue(error is CancellationError)
+        }
+        XCTAssertEqual(attempts, 2)
+
+        await clearLinuxDoCookiesFromWebKitStore(webKitStore)
     }
 
     @MainActor
@@ -972,7 +1217,15 @@ final class FireSessionSecurityTests: XCTestCase {
         XCTAssertTrue(completionError is CancellationError)
         XCTAssertEqual(attempts, 2)
 
-        viewModel.completeCloudflareRecovery()
+        viewModel.receiveCloudflareRecoveryObservation(
+            makeCloudflareRecoveryObservation(
+                url: "https://linux.do/latest",
+                title: "Linux.do",
+                isLoading: false,
+                hasActiveChallenge: false,
+                cfClearance: "fresh-clearance"
+            )
+        )
         let dismissedRecovery = await waitUntil { viewModel.authPresentationState == nil }
         XCTAssertTrue(dismissedRecovery)
         XCTAssertEqual(attempts, 2)
@@ -1112,6 +1365,17 @@ final class FireSessionSecurityTests: XCTestCase {
     private func clearMirroredCookiesFromWebKitStore(_ store: any MirroredCookieStore) async {
         for cookie in await mirroredWebKitCookies(store) {
             await store.deleteCookie(cookie)
+        }
+    }
+
+    private func clearLinuxDoCookiesFromWebKitStore(_ store: WKHTTPCookieStore) async {
+        let host = "linux.do"
+        let cookies = await store.getAllCookiesAsync().filter {
+            let normalizedDomain = normalizeCookieDomain($0.domain)
+            return normalizedDomain == host || normalizedDomain.hasSuffix(".\(host)")
+        }
+        for cookie in cookies {
+            await store.deleteCookieAsync(cookie)
         }
     }
 
@@ -1469,6 +1733,103 @@ final class FireSessionSecurityTests: XCTestCase {
             loginPhaseLabel: "未登录"
         )
     }
+
+    private func makeCloudflareRecoveryObservation(
+        url: String,
+        title: String,
+        isLoading: Bool,
+        hasActiveChallenge: Bool,
+        tToken: String? = "token",
+        forumSession: String? = "forum",
+        cfClearance: String? = "clearance"
+    ) -> FireCloudflareRecoveryObservation {
+        FireCloudflareRecoveryObservation(
+            url: url,
+            title: title,
+            isLoading: isLoading,
+            hasActiveChallenge: hasActiveChallenge,
+            domChallengeDetected: hasActiveChallenge,
+            hasChallengeURL: url.contains("/challenge"),
+            titleLooksLikeChallenge: title.lowercased().contains("cloudflare"),
+            cookieSnapshot: makeCloudflareRecoveryCookieSnapshot(
+                tToken: tToken,
+                forumSession: forumSession,
+                cfClearance: cfClearance
+            ),
+            jsEvaluationFailed: false
+        )
+    }
+
+    private func makeCloudflareRecoveryCookieSnapshot(
+        tToken: String?,
+        forumSession: String?,
+        cfClearance: String?
+    ) -> FireCloudflareRecoveryCookieSnapshot {
+        FireCloudflareRecoveryCookieSnapshot(
+            hasAuthCookies: !(tToken?.isEmpty ?? true) && !(forumSession?.isEmpty ?? true),
+            hasCloudflareClearance: !(cfClearance?.isEmpty ?? true),
+            authFingerprint: "t=\(cookieFingerprint(tToken) ?? "none")|forum=\(cookieFingerprint(forumSession) ?? "none")",
+            cfClearanceFingerprint: cookieFingerprint(cfClearance)
+        )
+    }
+
+    private func cookieFingerprint(_ value: String?) -> String? {
+        guard let value, !value.isEmpty else {
+            return nil
+        }
+
+        var hash: UInt64 = 0xcbf29ce484222325
+        for byte in value.utf8 {
+            hash ^= UInt64(byte)
+            hash &*= 0x100000001b3
+        }
+        return String(hash, radix: 16)
+    }
+
+    private func makeAuthenticatedWritePreflightStore() throws -> FireSessionStore {
+        try FireSessionStore(
+            workspacePath: try FireSessionStore.defaultWorkspacePath(),
+            sessionFilePath: makeSessionFileURL(name: "authenticated-write-preflight").path,
+            authCookieStore: InMemoryAuthCookieSecureStore()
+        )
+    }
+
+    private func authenticatedWritePreflightContext(
+        sessionEpoch: UInt64,
+        authRecoveryHint: AuthRecoveryHintState?
+    ) -> FireSessionStore.AuthenticatedWritePreflightContext {
+        FireSessionStore.AuthenticatedWritePreflightContext(
+            sessionEpoch: sessionEpoch,
+            authRecoveryHint: authRecoveryHint
+        )
+    }
+
+    private func authRecoveryHint(epoch: UInt64) -> AuthRecoveryHintState {
+        AuthRecoveryHintState(
+            observedEpoch: epoch,
+            reason: .forumSessionOnlyRotation
+        )
+    }
+
+    private func runAuthenticatedWritePreflight(
+        store: FireSessionStore,
+        harness: AuthenticatedWritePreflightHarness
+    ) async throws {
+        try await store.runAuthenticatedWritePreflight(
+            readContext: {
+                await harness.readContext()
+            },
+            refreshCsrfTokenIfNeeded: {
+                try await harness.refreshCsrfTokenIfNeeded()
+            },
+            applyPlatformCookies: { cookies in
+                await harness.applyPlatformCookies(cookies)
+            },
+            hostResyncProvider: {
+                await harness.hostResyncProvider()
+            }
+        )
+    }
 }
 
 private actor ColdStartRefreshRecorder {
@@ -1522,6 +1883,132 @@ private actor AsyncGate {
     }
 }
 
+private extension WKHTTPCookieStore {
+    func getAllCookiesAsync() async -> [HTTPCookie] {
+        await withCheckedContinuation { continuation in
+            getAllCookies { cookies in
+                continuation.resume(returning: cookies)
+            }
+        }
+    }
+
+    func setCookieAsync(_ cookie: HTTPCookie) async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            setCookie(cookie) {
+                continuation.resume()
+            }
+        }
+    }
+
+    func deleteCookieAsync(_ cookie: HTTPCookie) async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            delete(cookie) {
+                continuation.resume()
+            }
+        }
+    }
+}
+
+private actor AuthenticatedWritePreflightHarness {
+    enum RefreshOutcome {
+        case context(FireSessionStore.AuthenticatedWritePreflightContext)
+        case error(FireUniFfiError)
+    }
+
+    struct Counts {
+        let readContextCount: Int
+        let refreshCsrfCount: Int
+        let hostResyncProviderCount: Int
+        let applyPlatformCookiesCount: Int
+    }
+
+    private var context: FireSessionStore.AuthenticatedWritePreflightContext
+    private var refreshOutcomes: [RefreshOutcome]
+    private let hostResyncCookies: [PlatformCookieState]
+    private let providerEnteredGate: AsyncGate?
+    private let providerReleaseGate: AsyncGate?
+    private var nextAppliedContext: FireSessionStore.AuthenticatedWritePreflightContext?
+    private var readContextCount = 0
+    private var refreshCsrfCount = 0
+    private var hostResyncProviderCount = 0
+    private var applyPlatformCookiesCount = 0
+
+    init(
+        context: FireSessionStore.AuthenticatedWritePreflightContext,
+        refreshOutcomes: [RefreshOutcome] = [],
+        hostResyncCookies: [PlatformCookieState],
+        providerEnteredGate: AsyncGate? = nil,
+        providerReleaseGate: AsyncGate? = nil
+    ) {
+        self.context = context
+        self.refreshOutcomes = refreshOutcomes
+        self.hostResyncCookies = hostResyncCookies
+        self.providerEnteredGate = providerEnteredGate
+        self.providerReleaseGate = providerReleaseGate
+    }
+
+    func readContext() -> FireSessionStore.AuthenticatedWritePreflightContext {
+        readContextCount += 1
+        return context
+    }
+
+    func refreshCsrfTokenIfNeeded() throws -> FireSessionStore.AuthenticatedWritePreflightContext {
+        refreshCsrfCount += 1
+        guard !refreshOutcomes.isEmpty else {
+            return context
+        }
+
+        let outcome = refreshOutcomes.removeFirst()
+        switch outcome {
+        case let .context(nextContext):
+            context = nextContext
+            return nextContext
+        case let .error(error):
+            throw error
+        }
+    }
+
+    func hostResyncProvider() async -> [PlatformCookieState]? {
+        hostResyncProviderCount += 1
+        if let providerEnteredGate {
+            await providerEnteredGate.open()
+        }
+        if let providerReleaseGate {
+            await providerReleaseGate.wait()
+        }
+        return hostResyncCookies
+    }
+
+    func applyPlatformCookies(
+        _ cookies: [PlatformCookieState]
+    ) -> FireSessionStore.AuthenticatedWritePreflightContext {
+        _ = cookies
+        applyPlatformCookiesCount += 1
+        if let nextAppliedContext {
+            context = nextAppliedContext
+            self.nextAppliedContext = nil
+        }
+        return context
+    }
+
+    func setContext(_ context: FireSessionStore.AuthenticatedWritePreflightContext) {
+        self.context = context
+    }
+
+    func setNextAppliedContext(_ context: FireSessionStore.AuthenticatedWritePreflightContext?) {
+        nextAppliedContext = context
+    }
+
+    func counts() -> Counts {
+        Counts(
+            readContextCount: readContextCount,
+            refreshCsrfCount: refreshCsrfCount,
+            hostResyncProviderCount: hostResyncProviderCount,
+            applyPlatformCookiesCount: applyPlatformCookiesCount
+        )
+    }
+}
+
 private final class InMemoryAuthCookieSecureStore: FireAuthCookieSecureStore, @unchecked Sendable {
     private let lock = NSLock()
     private var secrets: FireAuthCookieSecrets
@@ -1546,6 +2033,37 @@ private final class InMemoryAuthCookieSecureStore: FireAuthCookieSecureStore, @u
         lock.lock()
         defer { lock.unlock() }
         secrets = preserveCfClearance ? secrets.preservingCfClearanceOnly() : FireAuthCookieSecrets()
+    }
+}
+
+private final class CountingAuthCookieSecureStore: FireAuthCookieSecureStore, @unchecked Sendable {
+    private let lock = NSLock()
+    private var secrets = FireAuthCookieSecrets()
+    private var saveInvocationCount = 0
+
+    func load() throws -> FireAuthCookieSecrets {
+        lock.lock()
+        defer { lock.unlock() }
+        return secrets
+    }
+
+    func save(_ secrets: FireAuthCookieSecrets) throws {
+        lock.lock()
+        self.secrets = secrets
+        saveInvocationCount += 1
+        lock.unlock()
+    }
+
+    func clear(preserveCfClearance: Bool) throws {
+        lock.lock()
+        defer { lock.unlock() }
+        secrets = preserveCfClearance ? secrets.preservingCfClearanceOnly() : FireAuthCookieSecrets()
+    }
+
+    func saveCount() -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return saveInvocationCount
     }
 }
 

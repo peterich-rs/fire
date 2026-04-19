@@ -2,11 +2,12 @@ mod common;
 
 use std::time::Duration;
 
-use common::{raw_json_response, TestServer};
+use common::{raw_json_response, sample_home_html, sample_topic_detail_json, TestServer};
 use fire_core::{FireCore, FireCoreConfig, FireCoreError};
 use fire_models::{
-    CookieSnapshot, DraftData, InviteCreateRequest, PostUpdateRequest, PrivateMessageCreateRequest,
-    TopicCreateRequest, TopicTimingEntry, TopicTimingsRequest, TopicUpdateRequest,
+    CookieSnapshot, DraftData, InviteCreateRequest, LoginSyncInput, PlatformCookie,
+    PostUpdateRequest, PrivateMessageCreateRequest, TopicCreateRequest, TopicDetailQuery,
+    TopicTimingEntry, TopicTimingsRequest, TopicUpdateRequest,
 };
 
 #[tokio::test]
@@ -137,6 +138,94 @@ async fn report_topic_timings_surfaces_login_required_when_server_session_is_inv
         FireCoreError::LoginRequired { message, .. }
             if message == "您需要登录才能执行此操作。"
     ));
+}
+
+#[tokio::test]
+async fn report_topic_timings_refreshes_csrf_after_partial_network_auth_rotation() {
+    let detail_body = sample_topic_detail_json();
+    let detail_response = format!(
+        "HTTP/1.1 200 TEST\r\nContent-Type: application/json\r\nContent-Length: {}\r\nSet-Cookie: _forum_session=rotated-forum; path=/; SameSite=Lax\r\nConnection: close\r\n\r\n{detail_body}",
+        detail_body.len()
+    );
+    let server = TestServer::spawn(vec![
+        detail_response,
+        raw_json_response(200, "application/json", r#"{"csrf":"fresh-csrf"}"#),
+        raw_json_response(200, "application/json", "{}"),
+    ])
+    .await
+    .expect("server");
+    let core = FireCore::new(FireCoreConfig {
+        base_url: server.base_url(),
+        workspace_path: None,
+    })
+    .expect("core");
+    let _ = core.sync_login_context(LoginSyncInput {
+        username: Some("alice".into()),
+        home_html: Some(sample_home_html()),
+        csrf_token: Some("csrf-token".into()),
+        current_url: Some(server.base_url()),
+        browser_user_agent: None,
+        cookies: vec![
+            PlatformCookie {
+                name: "_t".into(),
+                value: "token".into(),
+                domain: None,
+                path: None,
+                expires_at_unix_ms: None,
+            },
+            PlatformCookie {
+                name: "_forum_session".into(),
+                value: "forum".into(),
+                domain: None,
+                path: None,
+                expires_at_unix_ms: None,
+            },
+        ],
+    });
+
+    let detail = core
+        .fetch_topic_detail(TopicDetailQuery {
+            topic_id: 123,
+            post_number: None,
+            track_visit: true,
+            filter: None,
+            username_filters: None,
+            filter_top_level_replies: false,
+        })
+        .await
+        .expect("detail");
+    assert_eq!(detail.id, 123);
+    assert_eq!(core.snapshot().cookies.csrf_token, None);
+
+    let accepted = core
+        .report_topic_timings(TopicTimingsRequest {
+            topic_id: 123,
+            topic_time_ms: 15_000,
+            timings: vec![TopicTimingEntry {
+                post_number: 1,
+                milliseconds: 5_000,
+            }],
+        })
+        .await
+        .expect("report timings");
+    assert!(accepted);
+
+    let snapshot = core.snapshot();
+    let requests = server.shutdown_with_requests().await;
+    assert_eq!(snapshot.cookies.csrf_token.as_deref(), Some("fresh-csrf"));
+    assert_eq!(core.auth_recovery_hint(), None);
+    assert_eq!(requests.len(), 3);
+
+    let detail_request = requests[0].to_ascii_lowercase();
+    let csrf_request = requests[1].to_ascii_lowercase();
+    let timings_request = requests[2].to_ascii_lowercase();
+    assert!(detail_request.contains("get /t/123.json?track_visit=true"));
+    assert!(csrf_request.contains("get /session/csrf http/1.1"));
+    assert!(csrf_request.contains("_t=token"));
+    assert!(csrf_request.contains("_forum_session=rotated-forum"));
+    assert!(timings_request.contains("post /topics/timings"));
+    assert!(timings_request.contains("x-csrf-token: fresh-csrf"));
+    assert!(timings_request.contains("topic_id=123"));
 }
 
 #[tokio::test]

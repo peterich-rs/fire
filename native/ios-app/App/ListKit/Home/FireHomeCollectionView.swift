@@ -12,6 +12,8 @@ private enum FireHomeCollectionItem: Hashable {
     case categoryTabs
     case feedSelector
     case tagChips
+    case blockingError(String)
+    case inlineErrorBanner(String)
     case topic(UInt64)
     case loadingSkeleton(Int)
     case emptyState
@@ -27,15 +29,16 @@ struct FireHomeCollectionView: View {
         let selectedTopicKind: TopicListKindState
         let selectedHomeCategoryId: UInt64?
         let selectedHomeTags: [String]
+        let topicListDisplayState: FireHomeTopicListDisplayState
         let topicRows: [FireTopicRowPresentation]
-        let nextTopicsPage: UInt32?
+        let currentScopeNextTopicsPage: UInt32?
         let isLoadingTopics: Bool
         let isAppendingTopics: Bool
     }
 
     let onShowCategoryBrowser: () -> Void
     let onShowTagPicker: () -> Void
-    let onSelectTopic: (UInt64) -> Void
+    let onSelectTopic: (FireAppRoute) -> Void
     let onRefresh: () async -> Void
     let onScrollMetricsChanged: (FireCollectionScrollMetrics) -> Void
 
@@ -50,8 +53,9 @@ struct FireHomeCollectionView: View {
             selectedTopicKind: homeFeedStore.selectedTopicKind,
             selectedHomeCategoryId: homeFeedStore.selectedHomeCategoryId,
             selectedHomeTags: homeFeedStore.selectedHomeTags,
+            topicListDisplayState: homeFeedStore.topicListDisplayState,
             topicRows: homeFeedStore.topicRows,
-            nextTopicsPage: homeFeedStore.nextTopicsPage,
+            currentScopeNextTopicsPage: homeFeedStore.currentScopeNextTopicsPage,
             isLoadingTopics: homeFeedStore.isLoadingTopics,
             isAppendingTopics: homeFeedStore.isAppendingTopics
         )
@@ -68,14 +72,20 @@ struct FireHomeCollectionView: View {
         }
 
         let contentItems: [FireHomeCollectionItem]
-        if homeFeedStore.isLoadingTopics && homeFeedStore.topicRows.isEmpty {
+        switch homeFeedStore.topicListDisplayState {
+        case .loading:
             contentItems = (0..<6).map(FireHomeCollectionItem.loadingSkeleton)
-        } else if homeFeedStore.topicRows.isEmpty {
-            contentItems = [.emptyState]
-        } else {
+        case let .blockingError(message):
+            contentItems = [.blockingError(message)]
+        case let .empty(nonBlockingErrorMessage):
             contentItems =
-                homeFeedStore.topicRows.map { .topic($0.topic.id) }
-                + (homeFeedStore.nextTopicsPage != nil && homeFeedStore.isAppendingTopics
+                (nonBlockingErrorMessage.map { [.inlineErrorBanner($0)] } ?? [])
+                + [.emptyState]
+        case let .content(nonBlockingErrorMessage):
+            contentItems =
+                (nonBlockingErrorMessage.map { [.inlineErrorBanner($0)] } ?? [])
+                + homeFeedStore.topicRows.map { .topic($0.topic.id) }
+                + (homeFeedStore.currentScopeNextTopicsPage != nil && homeFeedStore.isAppendingTopics
                     ? [.appendingFooter]
                     : [])
         }
@@ -115,8 +125,9 @@ struct FireHomeCollectionView: View {
     }
 
     private func handleSelection(_ item: FireHomeCollectionItem) {
-        guard case let .topic(topicID) = item else { return }
-        onSelectTopic(topicID)
+        guard case let .topic(topicID) = item,
+              let row = homeFeedStore.topicRow(for: topicID) else { return }
+        onSelectTopic(.topic(row: row))
     }
 
     private func handleVisibleItemsChanged(_ items: [FireHomeCollectionItem]) {
@@ -136,6 +147,10 @@ struct FireHomeCollectionView: View {
             feedSelectorRow
         case .tagChips:
             tagChipsRow
+        case let .blockingError(message):
+            blockingErrorRow(message: message)
+        case let .inlineErrorBanner(message):
+            inlineErrorBannerRow(message: message)
         case let .topic(topicID):
             if let row = homeFeedStore.topicRow(for: topicID) {
                 FireTopicRow(
@@ -154,6 +169,33 @@ struct FireHomeCollectionView: View {
         case .appendingFooter:
             appendingFooterRow
         }
+    }
+
+    private func blockingErrorRow(message: String) -> some View {
+        FireBlockingErrorState(
+            title: "首页加载失败",
+            message: message,
+            onRetry: {
+                homeFeedStore.refreshTopics()
+            }
+        )
+        .padding(.horizontal, 16)
+        .padding(.vertical, 16)
+    }
+
+    private func inlineErrorBannerRow(message: String) -> some View {
+        FireErrorBanner(
+            message: message,
+            copied: false,
+            onCopy: {
+                UIPasteboard.general.string = message
+            },
+            onDismiss: {
+                homeFeedStore.clearTopicLoadError()
+            }
+        )
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
     }
 
     private var categoryTabsRow: some View {

@@ -7,6 +7,7 @@ struct FireProfileView: View {
     @State private var copiedErrorMessage = false
     @State private var showLogoutConfirmation = false
     @State private var showDeveloperTools = false
+    @State private var selectedRoute: FireAppRoute?
     private static let recentActivityPreviewLimit = 3
 
     private var isLoggedIn: Bool {
@@ -217,12 +218,27 @@ struct FireProfileView: View {
                 }
 
                 Section {
-                    if recentActions.isEmpty, profileViewModel.isLoadingActions {
-                        HStack {
-                            Spacer()
-                            ProgressView()
-                                .padding(.vertical, 18)
-                            Spacer()
+                    if let errorMessage = profileViewModel.actionsErrorMessage,
+                       profileViewModel.hasLoadedActionsOnce {
+                        activityErrorBanner(message: errorMessage)
+                    }
+
+                    if !profileViewModel.hasLoadedActionsOnce {
+                        if let errorMessage = profileViewModel.actionsErrorMessage {
+                            FireBlockingErrorState(
+                                title: "动态加载失败",
+                                message: errorMessage,
+                                onRetry: {
+                                    profileViewModel.loadActions(reset: true)
+                                }
+                            )
+                        } else {
+                            HStack {
+                                Spacer()
+                                ProgressView()
+                                    .padding(.vertical, 18)
+                                Spacer()
+                            }
                         }
                     } else if recentActions.isEmpty {
                         Text("还没有可展示的动态")
@@ -235,6 +251,16 @@ struct FireProfileView: View {
                             fireIdentifiedValues(recentActions) { $0.fireStableBaseID }
                         ) { item in
                             activityRow(item.value)
+                        }
+
+                        if profileViewModel.isLoadingActions {
+                            HStack {
+                                Spacer()
+                                ProgressView()
+                                    .controlSize(.small)
+                                    .padding(.vertical, 8)
+                                Spacer()
+                            }
                         }
                     }
 
@@ -265,6 +291,9 @@ struct FireProfileView: View {
             .background(FireTheme.canvasTop)
             .navigationTitle("我的")
             .navigationBarTitleDisplayMode(.inline)
+            .navigationDestination(item: $selectedRoute) { route in
+                FireAppRouteDestinationView(viewModel: viewModel, route: route)
+            }
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Menu {
@@ -383,13 +412,9 @@ struct FireProfileView: View {
 
     @ViewBuilder
     private func activityRow(_ action: UserActionState) -> some View {
-        if let row = topicRow(for: action) {
-            NavigationLink {
-                FireTopicDetailView(
-                    viewModel: viewModel,
-                    row: row,
-                    scrollToPostNumber: action.postNumber
-                )
+        if let route = FireAppRoute.topic(action: action) {
+            Button {
+                selectedRoute = route
             } label: {
                 FireProfileActivityRow(action: action)
             }
@@ -397,24 +422,6 @@ struct FireProfileView: View {
         } else {
             FireProfileActivityRow(action: action)
         }
-    }
-
-    private func topicRow(for action: UserActionState) -> FireTopicRowPresentation? {
-        guard let topicId = action.topicId else {
-            return nil
-        }
-
-        let resolvedSlug = {
-            let trimmed = action.slug?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            return trimmed.isEmpty ? "topic-\(topicId)" : trimmed
-        }()
-
-        return .stub(
-            topicId: topicId,
-            title: action.title?.ifEmpty("话题 #\(topicId)") ?? "话题 #\(topicId)",
-            slug: resolvedSlug,
-            categoryId: action.categoryId
-        )
     }
 
     private func shortcutRowContent(
@@ -465,6 +472,20 @@ struct FireProfileView: View {
             onDismiss: {
                 profileViewModel.errorMessage = nil
                 viewModel.dismissError()
+            }
+        )
+        .padding(.vertical, 2)
+    }
+
+    private func activityErrorBanner(message: String) -> some View {
+        FireErrorBanner(
+            message: message,
+            copied: false,
+            onCopy: {
+                UIPasteboard.general.string = message
+            },
+            onDismiss: {
+                profileViewModel.actionsErrorMessage = nil
             }
         )
         .padding(.vertical, 2)

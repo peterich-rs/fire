@@ -11,9 +11,11 @@ struct FirePublicProfileView: View {
     let username: String
 
     @StateObject private var profileViewModel: FireProfileViewModel
+    @State private var selectedRoute: FireAppRoute?
     @State private var selectedBadge: FireSelectedBadge?
     @State private var isUpdatingFollow = false
     @State private var showPrivateMessageComposer = false
+    @State private var composerNotice: String?
 
     init(viewModel: FireAppViewModel, username: String) {
         self.viewModel = viewModel
@@ -199,6 +201,9 @@ struct FirePublicProfileView: View {
         .background(FireTheme.canvasTop)
         .navigationTitle(displayName)
         .navigationBarTitleDisplayMode(.inline)
+        .navigationDestination(item: $selectedRoute) { route in
+            FireAppRouteDestinationView(viewModel: viewModel, route: route)
+        }
         .navigationDestination(item: $selectedBadge) { item in
             FireBadgeDetailView(viewModel: viewModel, badgeID: item.badge.id, initialBadge: item.badge)
         }
@@ -208,9 +213,24 @@ struct FirePublicProfileView: View {
                     viewModel: viewModel,
                     route: FireComposerRoute(
                         kind: .privateMessage(recipients: [displayUsername], title: nil)
-                    )
+                    ),
+                    onSubmissionNotice: { message in
+                        composerNotice = message
+                    }
                 )
             }
+        }
+        .alert("提示", isPresented: Binding(
+            get: { composerNotice != nil },
+            set: { presenting in
+                if !presenting {
+                    composerNotice = nil
+                }
+            }
+        )) {
+            Button("知道了", role: .cancel) {}
+        } message: {
+            Text(composerNotice ?? "")
         }
         .refreshable {
             await profileViewModel.refreshAll()
@@ -334,13 +354,9 @@ struct FirePublicProfileView: View {
 
     @ViewBuilder
     private func activityRow(_ action: UserActionState) -> some View {
-        if let row = topicRow(for: action) {
-            NavigationLink {
-                FireTopicDetailView(
-                    viewModel: viewModel,
-                    row: row,
-                    scrollToPostNumber: action.postNumber
-                )
+        if let route = FireAppRoute.topic(action: action) {
+            Button {
+                selectedRoute = route
             } label: {
                 FireProfileActivityRow(action: action)
             }
@@ -348,24 +364,6 @@ struct FirePublicProfileView: View {
         } else {
             FireProfileActivityRow(action: action)
         }
-    }
-
-    private func topicRow(for action: UserActionState) -> FireTopicRowPresentation? {
-        guard let topicId = action.topicId else {
-            return nil
-        }
-
-        let resolvedSlug = {
-            let trimmed = action.slug?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            return trimmed.isEmpty ? "topic-\(topicId)" : trimmed
-        }()
-
-        return .stub(
-            topicId: topicId,
-            title: action.title?.ifEmpty("话题 #\(topicId)") ?? "话题 #\(topicId)",
-            slug: resolvedSlug,
-            categoryId: action.categoryId
-        )
     }
 
     private func formatNumber(_ value: UInt32) -> String {

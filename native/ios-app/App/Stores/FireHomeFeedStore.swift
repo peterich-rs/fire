@@ -1,5 +1,31 @@
 import Foundation
 
+public enum FireHomeTopicListDisplayState: Hashable {
+    case loading
+    case blockingError(message: String)
+    case empty(nonBlockingErrorMessage: String?)
+    case content(nonBlockingErrorMessage: String?)
+
+    public static func resolve(
+        hasResolvedCurrentScope: Bool,
+        hasRows: Bool,
+        errorMessage: String?
+    ) -> Self {
+        if !hasResolvedCurrentScope {
+            if let errorMessage {
+                return .blockingError(message: errorMessage)
+            }
+            return .loading
+        }
+
+        if hasRows {
+            return .content(nonBlockingErrorMessage: errorMessage)
+        }
+
+        return .empty(nonBlockingErrorMessage: errorMessage)
+    }
+}
+
 @MainActor
 final class FireHomeFeedStore: ObservableObject {
     private static let topicListRefreshLoadingPollInterval: Duration = .milliseconds(250)
@@ -16,8 +42,10 @@ final class FireHomeFeedStore: ObservableObject {
     @Published private(set) var canTagTopics = false
     @Published private(set) var isLoadingTopics = false
     @Published private(set) var isAppendingTopics = false
+    @Published private(set) var topicLoadErrorMessage: String?
 
     private(set) var visibleTopicIDs: Set<UInt64> = []
+    private(set) var renderedTopicListScope: FireTopicListRefreshScope?
     private let appViewModel: FireAppViewModel
     private let topicListRefreshClock = ContinuousClock()
     private var pendingTopicListRefreshTask: Task<Void, Never>?
@@ -34,6 +62,18 @@ final class FireHomeFeedStore: ObservableObject {
     var selectedHomeCategoryPresentation: FireTopicCategoryPresentation? {
         guard let id = selectedHomeCategoryId else { return nil }
         return categoryPresentation(for: id)
+    }
+
+    var currentScopeNextTopicsPage: UInt32? {
+        hasResolvedCurrentScope ? nextTopicsPage : nil
+    }
+
+    var topicListDisplayState: FireHomeTopicListDisplayState {
+        FireHomeTopicListDisplayState.resolve(
+            hasResolvedCurrentScope: hasResolvedCurrentScope,
+            hasRows: !topicRows.isEmpty,
+            errorMessage: topicLoadErrorMessage
+        )
     }
 
     static func sanitizedVisibleTopicIDs(
@@ -80,6 +120,7 @@ final class FireHomeFeedStore: ObservableObject {
             return
         }
         selectedTopicKind = kind
+        topicLoadErrorMessage = nil
         scheduleDebouncedRefresh()
     }
 
@@ -87,24 +128,28 @@ final class FireHomeFeedStore: ObservableObject {
         guard selectedHomeCategoryId != categoryId else { return }
         selectedHomeCategoryId = categoryId
         selectedHomeTags = []
+        topicLoadErrorMessage = nil
         scheduleDebouncedRefresh()
     }
 
     func addHomeTag(_ tag: String) {
         guard !selectedHomeTags.contains(tag) else { return }
         selectedHomeTags.append(tag)
+        topicLoadErrorMessage = nil
         scheduleDebouncedRefresh()
     }
 
     func removeHomeTag(_ tag: String) {
         guard selectedHomeTags.contains(tag) else { return }
         selectedHomeTags.removeAll { $0 == tag }
+        topicLoadErrorMessage = nil
         scheduleDebouncedRefresh()
     }
 
     func clearHomeTags() {
         guard !selectedHomeTags.isEmpty else { return }
         selectedHomeTags = []
+        topicLoadErrorMessage = nil
         scheduleDebouncedRefresh()
     }
 
@@ -124,7 +169,7 @@ final class FireHomeFeedStore: ObservableObject {
     }
 
     func loadMoreTopics() {
-        guard let nextTopicsPage else {
+        guard let nextTopicsPage = currentScopeNextTopicsPage else {
             return
         }
 
@@ -138,7 +183,9 @@ final class FireHomeFeedStore: ObservableObject {
         let scope = currentTopicListRefreshScope
         guard busKind == scope.kind else { return }
 
-        let allowIncremental = scope.supportsIncrementalMessageBusRefresh && !topicRows.isEmpty
+        let allowIncremental = scope.supportsIncrementalMessageBusRefresh
+            && renderedTopicListScope == scope
+            && !topicRows.isEmpty
         guard let delay = topicListMessageBusRefreshController.register(
             event: event,
             for: scope,
@@ -190,11 +237,17 @@ final class FireHomeFeedStore: ObservableObject {
         nextTopicsPage = nil
         isLoadingTopics = false
         isAppendingTopics = false
+        topicLoadErrorMessage = nil
+        renderedTopicListScope = nil
         selectedHomeCategoryId = nil
         selectedHomeTags = []
         if resetTopicKind {
             selectedTopicKind = .latest
         }
+    }
+
+    func clearTopicLoadError() {
+        topicLoadErrorMessage = nil
     }
 
     private var currentTopicListRefreshScope: FireTopicListRefreshScope {
@@ -203,6 +256,10 @@ final class FireHomeFeedStore: ObservableObject {
             categoryId: selectedHomeCategoryId,
             tags: selectedHomeTags
         )
+    }
+
+    private var hasResolvedCurrentScope: Bool {
+        renderedTopicListScope == currentTopicListRefreshScope
     }
 
     private func scheduleDebouncedRefresh() {
@@ -240,6 +297,7 @@ final class FireHomeFeedStore: ObservableObject {
 
         isLoadingTopics = true
         isAppendingTopics = !reset
+        topicLoadErrorMessage = nil
         defer {
             isLoadingTopics = false
             isAppendingTopics = false
@@ -247,7 +305,6 @@ final class FireHomeFeedStore: ObservableObject {
 
         do {
             let sessionStore = try await appViewModel.sessionStoreValue()
-            appViewModel.errorMessage = nil
             let requestedKind = selectedTopicKind
             let categoryId = selectedHomeCategoryId
             let requestedTags = selectedHomeTags
@@ -279,6 +336,7 @@ final class FireHomeFeedStore: ObservableObject {
                 && reset
                 && !incrementalTopicIDs.isEmpty
                 && requestedScope.supportsIncrementalMessageBusRefresh
+                && renderedTopicListScope == requestedScope
                 && !topicRows.isEmpty
             let fetch: () async throws -> TopicListState = {
                 try await sessionStore.fetchTopicList(
@@ -332,6 +390,8 @@ final class FireHomeFeedStore: ObservableObject {
                 usesIncrementalRefresh: usesIncrementalRefresh
             )
             setTopicRows(mergedTopicRows)
+            renderedTopicListScope = requestedScope
+            topicLoadErrorMessage = nil
 
             if !usesIncrementalRefresh {
                 moreTopicsUrl = response.moreTopicsUrl
@@ -351,10 +411,7 @@ final class FireHomeFeedStore: ObservableObject {
             if await appViewModel.handleRecoverableSessionErrorIfNeeded(error) {
                 return false
             }
-            if reset, case .full = refreshMode {
-                clearTopicRows()
-            }
-            appViewModel.errorMessage = error.localizedDescription
+            topicLoadErrorMessage = error.localizedDescription
             return false
         }
     }
@@ -384,6 +441,7 @@ final class FireHomeFeedStore: ObservableObject {
         visibleTopicIDs = []
         moreTopicsUrl = nil
         nextTopicsPage = nil
+        renderedTopicListScope = nil
     }
 
     private func mergeTopicRows(

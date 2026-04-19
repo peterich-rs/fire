@@ -82,6 +82,123 @@ fn sync_login_context_merges_platform_cookies_and_html() {
     assert!(snapshot.readiness().can_open_message_bus);
 }
 
+#[test]
+fn apply_platform_cookies_clears_stale_csrf_and_advances_epoch_on_auth_rotation() {
+    let core = FireCore::new(FireCoreConfig::default()).expect("core");
+    let _ = core.sync_login_context(LoginSyncInput {
+        username: Some("alice".into()),
+        home_html: Some(sample_home_html()),
+        csrf_token: Some("csrf-token".into()),
+        current_url: Some("https://linux.do/".into()),
+        browser_user_agent: None,
+        cookies: vec![
+            PlatformCookie {
+                name: "_t".into(),
+                value: "token".into(),
+                domain: None,
+                path: None,
+                expires_at_unix_ms: None,
+            },
+            PlatformCookie {
+                name: "_forum_session".into(),
+                value: "forum".into(),
+                domain: None,
+                path: None,
+                expires_at_unix_ms: None,
+            },
+        ],
+    });
+    let before_epoch = core.session_epoch();
+
+    let snapshot = core.apply_platform_cookies(vec![
+        PlatformCookie {
+            name: "_t".into(),
+            value: "token".into(),
+            domain: None,
+            path: None,
+            expires_at_unix_ms: None,
+        },
+        PlatformCookie {
+            name: "_forum_session".into(),
+            value: "rotated-forum".into(),
+            domain: None,
+            path: None,
+            expires_at_unix_ms: None,
+        },
+    ]);
+
+    assert_eq!(core.session_epoch(), before_epoch + 1);
+    assert_eq!(snapshot.cookies.t_token.as_deref(), Some("token"));
+    assert_eq!(
+        snapshot.cookies.forum_session.as_deref(),
+        Some("rotated-forum")
+    );
+    assert_eq!(snapshot.cookies.csrf_token, None);
+    assert_eq!(core.auth_recovery_hint(), None);
+}
+
+#[test]
+fn sync_login_context_clears_stale_csrf_and_advances_epoch_on_auth_rotation() {
+    let core = FireCore::new(FireCoreConfig::default()).expect("core");
+    let _ = core.sync_login_context(LoginSyncInput {
+        username: Some("alice".into()),
+        home_html: Some(sample_home_html()),
+        csrf_token: Some("csrf-token".into()),
+        current_url: Some("https://linux.do/".into()),
+        browser_user_agent: None,
+        cookies: vec![
+            PlatformCookie {
+                name: "_t".into(),
+                value: "token".into(),
+                domain: None,
+                path: None,
+                expires_at_unix_ms: None,
+            },
+            PlatformCookie {
+                name: "_forum_session".into(),
+                value: "forum".into(),
+                domain: None,
+                path: None,
+                expires_at_unix_ms: None,
+            },
+        ],
+    });
+    let before_epoch = core.session_epoch();
+
+    let snapshot = core.sync_login_context(LoginSyncInput {
+        username: Some("alice".into()),
+        home_html: Some(sample_home_html()),
+        csrf_token: None,
+        current_url: Some("https://linux.do/t/123".into()),
+        browser_user_agent: None,
+        cookies: vec![
+            PlatformCookie {
+                name: "_t".into(),
+                value: "token".into(),
+                domain: None,
+                path: None,
+                expires_at_unix_ms: None,
+            },
+            PlatformCookie {
+                name: "_forum_session".into(),
+                value: "rotated-forum".into(),
+                domain: None,
+                path: None,
+                expires_at_unix_ms: None,
+            },
+        ],
+    });
+
+    assert_eq!(core.session_epoch(), before_epoch + 1);
+    assert_eq!(snapshot.cookies.t_token.as_deref(), Some("token"));
+    assert_eq!(
+        snapshot.cookies.forum_session.as_deref(),
+        Some("rotated-forum")
+    );
+    assert_eq!(snapshot.cookies.csrf_token, None);
+    assert_eq!(core.auth_recovery_hint(), None);
+}
+
 #[tokio::test]
 async fn refresh_bootstrap_if_needed_skips_for_unauthenticated_session() {
     let core = FireCore::new(FireCoreConfig::default()).expect("core");
@@ -424,6 +541,55 @@ fn session_can_roundtrip_through_json_export_and_restore() {
     let restored = restored_core.restore_session_json(json).expect("restore");
 
     assert_eq!(restored, expected);
+}
+
+#[test]
+fn session_persistence_revisions_track_snapshot_and_auth_cookie_changes() {
+    let core = FireCore::new(FireCoreConfig::default()).expect("core");
+    let initial = core.session_persistence_state();
+
+    let _ = core.apply_bootstrap(BootstrapArtifacts::default());
+    assert_eq!(core.session_persistence_state(), initial);
+
+    let _ = core.apply_bootstrap(BootstrapArtifacts {
+        current_username: Some("alice".into()),
+        ..BootstrapArtifacts::default()
+    });
+    let after_bootstrap = core.session_persistence_state();
+    assert_eq!(
+        after_bootstrap.snapshot_revision,
+        initial.snapshot_revision + 1
+    );
+    assert_eq!(
+        after_bootstrap.auth_cookie_revision,
+        initial.auth_cookie_revision
+    );
+
+    let _ = core.apply_platform_cookies(vec![
+        PlatformCookie {
+            name: "_t".into(),
+            value: "token".into(),
+            domain: None,
+            path: None,
+            expires_at_unix_ms: None,
+        },
+        PlatformCookie {
+            name: "_forum_session".into(),
+            value: "forum".into(),
+            domain: None,
+            path: None,
+            expires_at_unix_ms: None,
+        },
+    ]);
+    let after_cookies = core.session_persistence_state();
+    assert_eq!(
+        after_cookies.snapshot_revision,
+        after_bootstrap.snapshot_revision + 1
+    );
+    assert_eq!(
+        after_cookies.auth_cookie_revision,
+        after_bootstrap.auth_cookie_revision + 1
+    );
 }
 
 #[test]

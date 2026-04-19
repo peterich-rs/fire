@@ -62,17 +62,24 @@ public struct FireHostLogger: Sendable {
     }
 }
 
-private struct FirePersistedSessionArtifacts: Equatable {
-    let sessionJSON: String
-    let secureSecrets: FireAuthCookieSecrets
-}
-
 public actor FireSessionStore {
+    typealias AuthenticatedWriteHostResyncProvider = @MainActor @Sendable () async throws -> [PlatformCookieState]?
+
+    struct AuthenticatedWritePreflightContext: Sendable {
+        let sessionEpoch: UInt64
+        let authRecoveryHint: AuthRecoveryHintState?
+    }
+
     nonisolated private let core: FireAppCore
     private let baseURL: URL
     private let workspacePath: String
     private let sessionFilePath: String
     private let authCookieStore: any FireAuthCookieSecureStore
+    private var authenticatedWriteHostResyncProvider: AuthenticatedWriteHostResyncProvider?
+    private var authenticatedWriteHostResyncTasks: [UInt64: Task<Void, Never>] = [:]
+    private var authenticatedWriteHostResyncAttemptedEpochs: Set<UInt64> = []
+    private var lastPersistedSnapshotRevision: UInt64
+    private var lastPersistedAuthCookieRevision: UInt64
     // Keep blocking diagnostics IO off elevated Swift concurrency executors.
     private let diagnosticsQueue = DispatchQueue(
         label: "com.fire.session-store.diagnostics",
@@ -101,6 +108,9 @@ public actor FireSessionStore {
         self.workspacePath = resolvedWorkspacePath
         self.sessionFilePath = resolvedSessionFilePath
         self.authCookieStore = authCookieStore ?? FireKeychainAuthCookieStore(baseURL: resolvedBaseURL)
+        let persistenceState = try core.session().sessionPersistenceState()
+        self.lastPersistedSnapshotRevision = persistenceState.snapshotRevision
+        self.lastPersistedAuthCookieRevision = persistenceState.authCookieRevision
     }
 
     public func snapshot() throws -> SessionState {
@@ -111,7 +121,10 @@ public actor FireSessionStore {
         guard FileManager.default.fileExists(atPath: sessionFilePath) else {
             return nil
         }
-        return try core.session().loadSessionFromPath(path: sessionFilePath)
+        let state = try core.session().loadSessionFromPath(path: sessionFilePath)
+        let persistenceState = try currentSessionPersistenceState()
+        lastPersistedSnapshotRevision = persistenceState.snapshotRevision
+        return state
     }
 
     @discardableResult
@@ -141,7 +154,7 @@ public actor FireSessionStore {
         let current = try core.session().snapshot()
         if !current.readiness.canReadAuthenticatedApi && shouldDiscardRestoredBootstrap(current) {
             let cleared = try core.session().logoutLocal(preserveCfClearance: true)
-            try persistCurrentSession()
+            try persistCurrentSessionIfNeeded()
             return cleared
         }
 
@@ -165,14 +178,14 @@ public actor FireSessionStore {
                 cookies: captured.cookies
             )
         )
-        try persistCurrentSession()
+        try persistCurrentSessionIfNeeded()
         return state
     }
 
     @discardableResult
     public func applyPlatformCookies(_ cookies: [PlatformCookieState]) throws -> SessionState {
         let state = try core.session().applyPlatformCookies(cookies: cookies)
-        try persistCurrentSession()
+        try persistCurrentSessionIfNeeded()
         return state
     }
 
@@ -180,44 +193,53 @@ public actor FireSessionStore {
     public func logoutLocal(preserveCfClearance: Bool = true) throws -> SessionState {
         let state = try core.session().logoutLocal(preserveCfClearance: preserveCfClearance)
         try authCookieStore.clear(preserveCfClearance: preserveCfClearance)
-        try persistCurrentSession()
+        try persistCurrentSessionIfNeeded()
         return state
     }
 
     @discardableResult
     public func refreshBootstrap() async throws -> SessionState {
         let refreshed = try await core.session().refreshBootstrap()
-        try persistCurrentSession()
+        try persistCurrentSessionIfNeeded()
         return refreshed
     }
 
     @discardableResult
     public func refreshBootstrapIfNeeded() async throws -> SessionState {
-        let before = try persistedSessionArtifacts()
         let refreshed = try await core.session().refreshBootstrapIfNeeded()
-        if try persistedSessionArtifacts() != before {
-            try persistCurrentSession()
-        }
+        try persistCurrentSessionIfNeeded()
         return refreshed
     }
 
     @discardableResult
     public func refreshCsrfTokenIfNeeded() async throws -> SessionState {
-        let before = try persistedSessionArtifacts()
         let refreshed = try await core.session().refreshCsrfTokenIfNeeded()
-        if try persistedSessionArtifacts() != before {
-            try persistCurrentSession()
-        }
+        try persistCurrentSessionIfNeeded()
         return refreshed
     }
 
     public func persistCurrentSession() throws {
-        try persistCurrentAuthCookies()
-        try persistSessionFile()
+        try persistCurrentSession(force: true)
+    }
+
+    private func persistCurrentSessionIfNeeded() throws {
+        try persistCurrentSession(force: false)
+    }
+
+    private func persistCurrentSession(force: Bool) throws {
+        let persistenceState = try currentSessionPersistenceState()
+        try persistCurrentAuthCookies(persistenceState: persistenceState, force: force)
+        try persistSessionFile(persistenceState: persistenceState, force: force)
     }
 
     public func workspacePathValue() -> String {
         workspacePath
+    }
+
+    func setAuthenticatedWriteHostResyncProvider(
+        _ provider: AuthenticatedWriteHostResyncProvider?
+    ) {
+        authenticatedWriteHostResyncProvider = provider
     }
 
     public nonisolated func logHost(level: HostLogLevelState, target: String, message: String) {
@@ -371,13 +393,13 @@ public actor FireSessionStore {
     }
 
     public func markNotificationRead(id: UInt64) async throws -> NotificationCenterState {
-        try await runPersistingSessionChanges {
+        try await runAuthenticatedWritePersistingSessionChanges {
             try await core.notifications().markNotificationRead(notificationId: id)
         }
     }
 
     public func markAllNotificationsRead() async throws -> NotificationCenterState {
-        try await runPersistingSessionChanges {
+        try await runAuthenticatedWritePersistingSessionChanges {
             try await core.notifications().markAllNotificationsRead()
         }
     }
@@ -417,7 +439,7 @@ public actor FireSessionStore {
         data: DraftDataState,
         sequence: UInt32
     ) async throws -> UInt32 {
-        try await runPersistingSessionChanges {
+        try await runAuthenticatedWritePersistingSessionChanges {
             try await core.notifications().saveDraft(draftKey: draftKey, data: data, sequence: sequence)
         }
     }
@@ -426,7 +448,7 @@ public actor FireSessionStore {
         draftKey: String,
         sequence: UInt32? = nil
     ) async throws {
-        try await runPersistingSessionChanges {
+        try await runAuthenticatedWritePersistingSessionChanges {
             try await core.notifications().deleteDraft(draftKey: draftKey, sequence: sequence)
         }
     }
@@ -523,7 +545,7 @@ public actor FireSessionStore {
         raw: String,
         replyToPostNumber: UInt32?
     ) async throws -> TopicPostState {
-        try await runPersistingSessionChanges {
+        try await runAuthenticatedWritePersistingSessionChanges {
             try await core.topics().createReply(
                 input: TopicReplyRequestState(
                     topicId: topicID,
@@ -539,7 +561,7 @@ public actor FireSessionStore {
         raw: String,
         editReason: String? = nil
     ) async throws -> TopicPostState {
-        try await runPersistingSessionChanges {
+        try await runAuthenticatedWritePersistingSessionChanges {
             try await core.topics().updatePost(
                 input: PostUpdateRequestState(
                     postId: postID,
@@ -556,7 +578,7 @@ public actor FireSessionStore {
         categoryID: UInt64,
         tags: [String]
     ) async throws -> UInt64 {
-        try await runPersistingSessionChanges {
+        try await runAuthenticatedWritePersistingSessionChanges {
             try await core.topics().createTopic(
                 input: TopicCreateRequestState(
                     title: title,
@@ -573,7 +595,7 @@ public actor FireSessionStore {
         raw: String,
         targetRecipients: [String]
     ) async throws -> UInt64 {
-        try await runPersistingSessionChanges {
+        try await runAuthenticatedWritePersistingSessionChanges {
             try await core.topics().createPrivateMessage(
                 input: PrivateMessageCreateRequestState(
                     title: title,
@@ -590,7 +612,7 @@ public actor FireSessionStore {
         categoryID: UInt64,
         tags: [String]
     ) async throws {
-        try await runPersistingSessionChanges {
+        try await runAuthenticatedWritePersistingSessionChanges {
             try await core.topics().updateTopic(
                 input: TopicUpdateRequestState(
                     topicId: topicID,
@@ -607,7 +629,7 @@ public actor FireSessionStore {
         mimeType: String?,
         bytes: Data
     ) async throws -> UploadResultState {
-        try await runPersistingSessionChanges {
+        try await runAuthenticatedWritePersistingSessionChanges {
             try await core.topics().uploadImage(
                 input: UploadImageRequestState(
                     fileName: fileName,
@@ -627,19 +649,19 @@ public actor FireSessionStore {
     public func reportTopicTimings(
         input: TopicTimingsRequestState
     ) async throws -> Bool {
-        try await runPersistingSessionChanges {
+        try await runAuthenticatedWritePersistingSessionChanges {
             try await core.topics().reportTopicTimings(input: input)
         }
     }
 
     public func likePost(postID: UInt64) async throws -> PostReactionUpdateState? {
-        try await runPersistingSessionChanges {
+        try await runAuthenticatedWritePersistingSessionChanges {
             try await core.topics().likePost(postId: postID)
         }
     }
 
     public func unlikePost(postID: UInt64) async throws -> PostReactionUpdateState? {
-        try await runPersistingSessionChanges {
+        try await runAuthenticatedWritePersistingSessionChanges {
             try await core.topics().unlikePost(postId: postID)
         }
     }
@@ -648,7 +670,7 @@ public actor FireSessionStore {
         postID: UInt64,
         reactionID: String
     ) async throws -> PostReactionUpdateState {
-        try await runPersistingSessionChanges {
+        try await runAuthenticatedWritePersistingSessionChanges {
             try await core.topics().togglePostReaction(postId: postID, reactionId: reactionID)
         }
     }
@@ -658,7 +680,7 @@ public actor FireSessionStore {
         pollName: String,
         options: [String]
     ) async throws -> PollState {
-        try await runPersistingSessionChanges {
+        try await runAuthenticatedWritePersistingSessionChanges {
             try await core.topics().votePoll(postId: postID, pollName: pollName, options: options)
         }
     }
@@ -667,19 +689,19 @@ public actor FireSessionStore {
         postID: UInt64,
         pollName: String
     ) async throws -> PollState {
-        try await runPersistingSessionChanges {
+        try await runAuthenticatedWritePersistingSessionChanges {
             try await core.topics().unvotePoll(postId: postID, pollName: pollName)
         }
     }
 
     public func voteTopic(topicID: UInt64) async throws -> VoteResponseState {
-        try await runPersistingSessionChanges {
+        try await runAuthenticatedWritePersistingSessionChanges {
             try await core.topics().voteTopic(topicId: topicID)
         }
     }
 
     public func unvoteTopic(topicID: UInt64) async throws -> VoteResponseState {
-        try await runPersistingSessionChanges {
+        try await runAuthenticatedWritePersistingSessionChanges {
             try await core.topics().unvoteTopic(topicId: topicID)
         }
     }
@@ -697,7 +719,7 @@ public actor FireSessionStore {
         reminderAt: String? = nil,
         autoDeletePreference: Int32? = nil
     ) async throws -> UInt64 {
-        try await runPersistingSessionChanges {
+        try await runAuthenticatedWritePersistingSessionChanges {
             try await core.notifications().createBookmark(
                 bookmarkableId: bookmarkableID,
                 bookmarkableType: bookmarkableType,
@@ -714,7 +736,7 @@ public actor FireSessionStore {
         reminderAt: String? = nil,
         autoDeletePreference: Int32? = nil
     ) async throws {
-        try await runPersistingSessionChanges {
+        try await runAuthenticatedWritePersistingSessionChanges {
             try await core.notifications().updateBookmark(
                 bookmarkId: bookmarkID,
                 name: name,
@@ -725,7 +747,7 @@ public actor FireSessionStore {
     }
 
     public func deleteBookmark(bookmarkID: UInt64) async throws {
-        try await runPersistingSessionChanges {
+        try await runAuthenticatedWritePersistingSessionChanges {
             try await core.notifications().deleteBookmark(bookmarkId: bookmarkID)
         }
     }
@@ -734,7 +756,7 @@ public actor FireSessionStore {
         topicID: UInt64,
         notificationLevel: Int32
     ) async throws {
-        try await runPersistingSessionChanges {
+        try await runAuthenticatedWritePersistingSessionChanges {
             try await core.notifications().setTopicNotificationLevel(
                 topicId: topicID,
                 notificationLevel: notificationLevel
@@ -777,13 +799,13 @@ public actor FireSessionStore {
     }
 
     public func followUser(username: String) async throws {
-        try await runPersistingSessionChanges {
+        try await runAuthenticatedWritePersistingSessionChanges {
             try await core.user().followUser(username: username)
         }
     }
 
     public func unfollowUser(username: String) async throws {
-        try await runPersistingSessionChanges {
+        try await runAuthenticatedWritePersistingSessionChanges {
             try await core.user().unfollowUser(username: username)
         }
     }
@@ -800,7 +822,7 @@ public actor FireSessionStore {
         description: String? = nil,
         email: String? = nil
     ) async throws -> InviteLinkState {
-        try await runPersistingSessionChanges {
+        try await runAuthenticatedWritePersistingSessionChanges {
             try await core.user().createInviteLink(
                 input: InviteCreateRequestState(
                     maxRedemptionsAllowed: maxRedemptionsAllowed,
@@ -821,7 +843,7 @@ public actor FireSessionStore {
     @discardableResult
     public func restoreSessionJSON(_ json: String) throws -> SessionState {
         let state = try core.session().restoreSessionJson(json: json)
-        try persistCurrentSession()
+        try persistCurrentSessionIfNeeded()
         return state
     }
 
@@ -889,7 +911,7 @@ public actor FireSessionStore {
     }
 
     public func updateTopicReplyPresence(topicId: UInt64, active: Bool) async throws {
-        try await runPersistingSessionChanges {
+        try await runAuthenticatedWritePersistingSessionChanges {
             try await core.messagebus().updateTopicReplyPresence(topicId: topicId, active: active)
         }
     }
@@ -904,12 +926,15 @@ public actor FireSessionStore {
         }
         let state = try await core.session().logoutRemote(preserveCfClearance: true)
         try authCookieStore.save(FireAuthCookieSecrets(cookieState: state.cookies))
+        let persistenceState = try currentSessionPersistenceState()
+        lastPersistedAuthCookieRevision = persistenceState.authCookieRevision
         try clearPersistedSession()
         return state
     }
 
     public func clearPersistedSession() throws {
         try core.session().clearSessionPath(path: sessionFilePath)
+        lastPersistedSnapshotRevision = 0
     }
 
     public static func defaultWorkspacePath(fileManager: FileManager = .default) throws -> String {
@@ -955,29 +980,179 @@ public actor FireSessionStore {
             && !session.readiness.hasCsrfToken
     }
 
-    private func persistedSessionArtifacts() throws -> FirePersistedSessionArtifacts {
-        FirePersistedSessionArtifacts(
-            sessionJSON: try core.session().exportSessionJson(),
-            secureSecrets: FireAuthCookieSecrets(cookieState: try core.session().snapshot().cookies)
+    private func currentSessionPersistenceState() throws -> SessionPersistenceState {
+        try core.session().sessionPersistenceState()
+    }
+
+    private func persistCurrentAuthCookies(
+        persistenceState: SessionPersistenceState,
+        force: Bool
+    ) throws {
+        guard force || persistenceState.authCookieRevision != lastPersistedAuthCookieRevision else {
+            return
+        }
+
+        try authCookieStore.save(FireAuthCookieSecrets(cookieState: try core.session().snapshot().cookies))
+        lastPersistedAuthCookieRevision = persistenceState.authCookieRevision
+    }
+
+    private func persistSessionFile(
+        persistenceState: SessionPersistenceState,
+        force: Bool
+    ) throws {
+        guard force || persistenceState.snapshotRevision != lastPersistedSnapshotRevision else {
+            return
+        }
+
+        try core.session().saveSessionToPath(path: sessionFilePath)
+        lastPersistedSnapshotRevision = persistenceState.snapshotRevision
+    }
+
+    private func authenticatedWritePreflightContext() throws -> AuthenticatedWritePreflightContext {
+        AuthenticatedWritePreflightContext(
+            sessionEpoch: try core.session().sessionEpoch(),
+            authRecoveryHint: try core.session().authRecoveryHint()
         )
     }
 
-    private func persistCurrentAuthCookies() throws {
-        try authCookieStore.save(FireAuthCookieSecrets(cookieState: try core.session().snapshot().cookies))
+    private func refreshCsrfTokenForAuthenticatedWritePreflight() async throws -> AuthenticatedWritePreflightContext {
+        _ = try await refreshCsrfTokenIfNeeded()
+        return try authenticatedWritePreflightContext()
     }
 
-    private func persistSessionFile() throws {
-        try core.session().saveSessionToPath(path: sessionFilePath)
+    private func applyPlatformCookiesForAuthenticatedWritePreflight(
+        _ cookies: [PlatformCookieState]
+    ) async throws -> AuthenticatedWritePreflightContext {
+        _ = try applyPlatformCookies(cookies)
+        return try authenticatedWritePreflightContext()
+    }
+
+    private func runAuthenticatedWritePreflight() async throws {
+        try await runAuthenticatedWritePreflight(
+            readContext: {
+                try await self.authenticatedWritePreflightContext()
+            },
+            refreshCsrfTokenIfNeeded: {
+                try await self.refreshCsrfTokenForAuthenticatedWritePreflight()
+            },
+            applyPlatformCookies: { cookies in
+                try await self.applyPlatformCookiesForAuthenticatedWritePreflight(cookies)
+            },
+            hostResyncProvider: authenticatedWriteHostResyncProvider
+        )
+    }
+
+    func runAuthenticatedWritePreflight(
+        readContext: @escaping @Sendable () async throws -> AuthenticatedWritePreflightContext,
+        refreshCsrfTokenIfNeeded: @escaping @Sendable () async throws -> AuthenticatedWritePreflightContext,
+        applyPlatformCookies: @escaping @Sendable ([PlatformCookieState]) async throws -> AuthenticatedWritePreflightContext,
+        hostResyncProvider: AuthenticatedWriteHostResyncProvider?
+    ) async throws {
+        let initialContext = try await readContext()
+        let refreshedContext = try await refreshCsrfTokenIfNeeded()
+
+        guard
+            let recoveryHint = initialContext.authRecoveryHint,
+            recoveryHint.observedEpoch == initialContext.sessionEpoch,
+            refreshedContext.sessionEpoch == initialContext.sessionEpoch,
+            let refreshedHint = refreshedContext.authRecoveryHint,
+            refreshedHint.observedEpoch == initialContext.sessionEpoch
+        else {
+            return
+        }
+
+        guard let hostResyncProvider else {
+            return
+        }
+
+        await runAuthenticatedWriteHostResyncIfNeeded(
+            for: initialContext.sessionEpoch,
+            readContext: readContext,
+            applyPlatformCookies: applyPlatformCookies,
+            hostResyncProvider: hostResyncProvider
+        )
+        _ = try await refreshCsrfTokenIfNeeded()
+    }
+
+    private func runAuthenticatedWriteHostResyncIfNeeded(
+        for sessionEpoch: UInt64,
+        readContext: @escaping @Sendable () async throws -> AuthenticatedWritePreflightContext,
+        applyPlatformCookies: @escaping @Sendable ([PlatformCookieState]) async throws -> AuthenticatedWritePreflightContext,
+        hostResyncProvider: @escaping AuthenticatedWriteHostResyncProvider
+    ) async {
+        if let existingTask = authenticatedWriteHostResyncTasks[sessionEpoch] {
+            await existingTask.value
+            return
+        }
+
+        guard !authenticatedWriteHostResyncAttemptedEpochs.contains(sessionEpoch) else {
+            return
+        }
+
+        authenticatedWriteHostResyncAttemptedEpochs.insert(sessionEpoch)
+        let task = Task<Void, Never> { [self] in
+            do {
+                try await executeAuthenticatedWriteHostResync(
+                    for: sessionEpoch,
+                    readContext: readContext,
+                    applyPlatformCookies: applyPlatformCookies,
+                    hostResyncProvider: hostResyncProvider
+                )
+            } catch {
+            }
+            await clearAuthenticatedWriteHostResyncTask(for: sessionEpoch)
+        }
+        authenticatedWriteHostResyncTasks[sessionEpoch] = task
+        await task.value
+    }
+
+    private func executeAuthenticatedWriteHostResync(
+        for sessionEpoch: UInt64,
+        readContext: @escaping @Sendable () async throws -> AuthenticatedWritePreflightContext,
+        applyPlatformCookies: @escaping @Sendable ([PlatformCookieState]) async throws -> AuthenticatedWritePreflightContext,
+        hostResyncProvider: @escaping AuthenticatedWriteHostResyncProvider
+    ) async throws {
+        let beforeProviderContext = try await readContext()
+        guard
+            beforeProviderContext.sessionEpoch == sessionEpoch,
+            let recoveryHint = beforeProviderContext.authRecoveryHint,
+            recoveryHint.observedEpoch == sessionEpoch
+        else {
+            return
+        }
+
+        guard let platformCookies = try await hostResyncProvider(), !platformCookies.isEmpty else {
+            return
+        }
+
+        let beforeApplyContext = try await readContext()
+        guard
+            beforeApplyContext.sessionEpoch == sessionEpoch,
+            let recoveryHint = beforeApplyContext.authRecoveryHint,
+            recoveryHint.observedEpoch == sessionEpoch
+        else {
+            return
+        }
+
+        _ = try await applyPlatformCookies(platformCookies)
+    }
+
+    private func clearAuthenticatedWriteHostResyncTask(for sessionEpoch: UInt64) {
+        authenticatedWriteHostResyncTasks.removeValue(forKey: sessionEpoch)
+    }
+
+    private func runAuthenticatedWritePersistingSessionChanges<T>(
+        _ operation: () async throws -> T
+    ) async throws -> T {
+        try await runAuthenticatedWritePreflight()
+        return try await runPersistingSessionChanges(operation)
     }
 
     private func runPersistingSessionChanges<T>(
         _ operation: () async throws -> T
     ) async throws -> T {
-        let before = try persistedSessionArtifacts()
         let result = try await operation()
-        if try persistedSessionArtifacts() != before {
-            try persistCurrentSession()
-        }
+        try persistCurrentSessionIfNeeded()
         return result
     }
 }

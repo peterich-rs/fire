@@ -4,10 +4,12 @@ import UIKit
 struct FireProfileActivityTimelineView: View {
     @ObservedObject var viewModel: FireAppViewModel
     @ObservedObject var profileViewModel: FireProfileViewModel
+    @State private var copiedActionsError = false
+    @State private var selectedRoute: FireAppRoute?
 
     var body: some View {
         List {
-            if let errorMessage = profileViewModel.errorMessage ?? viewModel.errorMessage {
+            if let errorMessage = viewModel.errorMessage ?? profileViewModel.errorMessage {
                 Section {
                     FireErrorBanner(
                         message: errorMessage,
@@ -24,28 +26,41 @@ struct FireProfileActivityTimelineView: View {
             }
 
             Section {
-                Picker(
-                    "动态筛选",
-                    selection: Binding(
-                        get: { profileViewModel.selectedTab },
-                        set: { profileViewModel.selectTab($0) }
+                if let errorMessage = profileViewModel.actionsErrorMessage,
+                   profileViewModel.hasLoadedActionsOnce {
+                    FireErrorBanner(
+                        message: errorMessage,
+                        copied: copiedActionsError,
+                        onCopy: {
+                            UIPasteboard.general.string = errorMessage
+                            copiedActionsError = true
+                            Task { @MainActor in
+                                try? await Task.sleep(for: .seconds(1.2))
+                                copiedActionsError = false
+                            }
+                        },
+                        onDismiss: {
+                            profileViewModel.actionsErrorMessage = nil
+                        }
                     )
-                ) {
-                    ForEach(FireProfileViewModel.ProfileTab.allCases, id: \.self) { tab in
-                        Text(tab.title).tag(tab)
-                    }
                 }
-                .pickerStyle(.segmented)
-                .padding(.vertical, 4)
-            }
 
-            Section {
-                if profileViewModel.actions.isEmpty, profileViewModel.isLoadingActions {
-                    HStack {
-                        Spacer()
-                        ProgressView()
-                            .padding(.vertical, 20)
-                        Spacer()
+                if !profileViewModel.hasLoadedActionsOnce {
+                    if let errorMessage = profileViewModel.actionsErrorMessage {
+                        FireBlockingErrorState(
+                            title: "动态加载失败",
+                            message: errorMessage,
+                            onRetry: {
+                                profileViewModel.loadActions(reset: true)
+                            }
+                        )
+                    } else {
+                        HStack {
+                            Spacer()
+                            ProgressView()
+                                .padding(.vertical, 20)
+                            Spacer()
+                        }
                     }
                 } else if profileViewModel.actions.isEmpty {
                     Text("暂无动态")
@@ -82,6 +97,9 @@ struct FireProfileActivityTimelineView: View {
         .background(FireTheme.canvasTop)
         .navigationTitle("全部动态")
         .navigationBarTitleDisplayMode(.inline)
+        .navigationDestination(item: $selectedRoute) { route in
+            FireAppRouteDestinationView(viewModel: viewModel, route: route)
+        }
         .refreshable {
             await profileViewModel.refreshAll()
         }
@@ -94,13 +112,9 @@ struct FireProfileActivityTimelineView: View {
 
     @ViewBuilder
     private func activityRow(_ action: UserActionState) -> some View {
-        if let row = topicRow(for: action) {
-            NavigationLink {
-                FireTopicDetailView(
-                    viewModel: viewModel,
-                    row: row,
-                    scrollToPostNumber: action.postNumber
-                )
+        if let route = FireAppRoute.topic(action: action) {
+            Button {
+                selectedRoute = route
             } label: {
                 FireProfileActivityRow(action: action)
             }
@@ -108,23 +122,5 @@ struct FireProfileActivityTimelineView: View {
         } else {
             FireProfileActivityRow(action: action)
         }
-    }
-
-    private func topicRow(for action: UserActionState) -> FireTopicRowPresentation? {
-        guard let topicId = action.topicId else {
-            return nil
-        }
-
-        let resolvedSlug = {
-            let trimmed = action.slug?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            return trimmed.isEmpty ? "topic-\(topicId)" : trimmed
-        }()
-
-        return .stub(
-            topicId: topicId,
-            title: action.title?.ifEmpty("话题 #\(topicId)") ?? "话题 #\(topicId)",
-            slug: resolvedSlug,
-            categoryId: action.categoryId
-        )
     }
 }

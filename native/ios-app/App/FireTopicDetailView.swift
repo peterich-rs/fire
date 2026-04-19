@@ -325,7 +325,7 @@ struct FireTopicDetailView: View {
     }
 
     private var displayedInteractionCount: UInt32? {
-        detail?.interactionCount
+        detail.map(FireTopicPresentation.interactionCount(for:))
     }
 
     private var displayedViewsCount: UInt32 {

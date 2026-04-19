@@ -1,32 +1,5 @@
 uniffi::setup_scaffolding!("fire_uniffi_topics");
 
-#[cfg(test)]
-mod tests {
-    use super::records::TopicDetailState;
-    use fire_models::{TopicDetail, TopicPost, TopicPostStream, TopicReaction};
-
-    #[test]
-    fn topic_detail_state_carries_interaction_count() {
-        let state = TopicDetailState::from(TopicDetail {
-            like_count: 8,
-            post_stream: TopicPostStream {
-                posts: vec![TopicPost {
-                    reactions: vec![TopicReaction {
-                        id: "clap".into(),
-                        count: 2,
-                        ..TopicReaction::default()
-                    }],
-                    ..TopicPost::default()
-                }],
-                ..TopicPostStream::default()
-            },
-            ..TopicDetail::default()
-        });
-
-        assert_eq!(state.interaction_count, 10);
-    }
-}
-
 use std::sync::Arc;
 
 use fire_uniffi_types::{run_on_ffi_runtime, FireUniFfiError, SharedFireCore, TopicListState};
@@ -38,10 +11,9 @@ pub use records::{
     PrivateMessageCreateRequestState, ResolvedUploadUrlState, TopicCreateRequestState,
     TopicDetailCreatedByState, TopicDetailMetaState, TopicDetailQueryState, TopicDetailState,
     TopicListQueryState, TopicPostState, TopicPostStreamState, TopicReactionState,
-    TopicReplyRequestState, TopicThreadFlatPostState, TopicThreadReplyState,
-    TopicThreadSectionState, TopicThreadState, TopicTimelineEntryState, TopicTimingEntryState,
-    TopicTimingsRequestState, TopicUpdateRequestState, UploadImageRequestState, UploadResultState,
-    VoteResponseState, VotedUserState,
+    TopicReplyRequestState, TopicTimingEntryState, TopicTimingsRequestState,
+    TopicUpdateRequestState, UploadImageRequestState, UploadResultState, VoteResponseState,
+    VotedUserState,
 };
 
 #[derive(uniffi::Object)]

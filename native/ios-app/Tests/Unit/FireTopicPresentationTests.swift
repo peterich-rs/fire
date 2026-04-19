@@ -234,47 +234,6 @@ final class FireTopicPresentationTests: XCTestCase {
         )
     }
 
-    func testTopicThreadFlatPostStateCarriesRustDisplayMetadata() {
-        let flatPosts = [
-            TopicThreadFlatPostState(
-                post: makePost(postNumber: 1, replyToPostNumber: nil, username: "author"),
-                depth: 0,
-                parentPostNumber: nil,
-                showsThreadLine: true,
-                isOriginalPost: true
-            ),
-            TopicThreadFlatPostState(
-                post: makePost(postNumber: 2, replyToPostNumber: 1, username: "floor-a"),
-                depth: 0,
-                parentPostNumber: nil,
-                showsThreadLine: true,
-                isOriginalPost: false
-            ),
-            TopicThreadFlatPostState(
-                post: makePost(postNumber: 3, replyToPostNumber: 2, username: "nested-a1"),
-                depth: 1,
-                parentPostNumber: 2,
-                showsThreadLine: true,
-                isOriginalPost: false
-            ),
-            TopicThreadFlatPostState(
-                post: makePost(postNumber: 4, replyToPostNumber: 3, username: "nested-a2"),
-                depth: 2,
-                parentPostNumber: 3,
-                showsThreadLine: false,
-                isOriginalPost: false
-            ),
-        ]
-
-        XCTAssertEqual(flatPosts.map(\.post.postNumber), [1, 2, 3, 4])
-        XCTAssertEqual(flatPosts.map(\.depth), [0, 0, 1, 2])
-        XCTAssertEqual(flatPosts[2].parentPostNumber, 2)
-        XCTAssertEqual(flatPosts[3].parentPostNumber, 3)
-        XCTAssertTrue(flatPosts[0].showsThreadLine)
-        XCTAssertFalse(flatPosts[3].showsThreadLine)
-        XCTAssertTrue(flatPosts[0].isOriginalPost)
-    }
-
     func testMergeTopicPostsRespectsStreamOrderAndPrefersIncomingValues() {
         let merged = FireTopicPresentation.mergeTopicPosts(
             existing: [
@@ -292,7 +251,7 @@ final class FireTopicPresentationTests: XCTestCase {
         XCTAssertEqual(merged[2].username, "new-nested")
     }
 
-    func testRecomposedDetailRebuildsThreadFromLoadedPosts() {
+    func testRebuildTimelineEntriesUsesFloorOrderForLoadedPosts() {
         let detail = makeTopicDetail(
             posts: [
                 makePost(postNumber: 3, replyToPostNumber: 2, username: "nested"),
@@ -302,15 +261,14 @@ final class FireTopicPresentationTests: XCTestCase {
             stream: [1, 2, 3]
         )
 
-        let recomposed = FireTopicPresentation.recomposedDetail(detail)
+        let entries = FireTopicPresentation.rebuildTimelineEntries(from: detail.postStream.posts)
 
-        XCTAssertEqual(recomposed.postStream.posts.map(\.postNumber), [1, 2, 3])
-        XCTAssertEqual(recomposed.flatPosts.map(\.post.postNumber), [1, 2, 3])
-        XCTAssertEqual(recomposed.flatPosts.map(\.depth), [0, 0, 1])
-        XCTAssertEqual(recomposed.flatPosts[2].parentPostNumber, 2)
+        XCTAssertEqual(entries.map(\.postNumber), [1, 2, 3])
+        XCTAssertEqual(entries.map(\.depth), [0, 1, 2])
+        XCTAssertEqual(entries[2].parentPostNumber, 2)
     }
 
-    func testRecomposedDetailRecomputesInteractionCountFromNonHeartReactions() {
+    func testInteractionCountIncludesNonHeartReactions() {
         let detail = makeTopicDetail(
             posts: [
                 makePost(
@@ -334,9 +292,7 @@ final class FireTopicPresentationTests: XCTestCase {
             stream: [1, 2]
         )
 
-        let recomposed = FireTopicPresentation.recomposedDetail(detail)
-
-        XCTAssertEqual(recomposed.interactionCount, 12)
+        XCTAssertEqual(FireTopicPresentation.interactionCount(for: detail), 12)
     }
 
     func testLoadedWindowCountStopsAtFirstGap() {
@@ -862,13 +818,13 @@ final class FireTopicPresentationTests: XCTestCase {
             makePost(postNumber: 2, replyToPostNumber: 1, username: "reply"),
         ]
         let entries = [
-            TopicTimelineEntryState(
+            FireTopicTimelineEntry(
                 postId: 1, postNumber: 1, parentPostNumber: nil, depth: 0, isOriginalPost: true
             ),
-            TopicTimelineEntryState(
+            FireTopicTimelineEntry(
                 postId: 2, postNumber: 2, parentPostNumber: 1, depth: 1, isOriginalPost: false
             ),
-            TopicTimelineEntryState(
+            FireTopicTimelineEntry(
                 postId: 3, postNumber: 3, parentPostNumber: 2, depth: 2, isOriginalPost: false
             ),
         ]
@@ -960,7 +916,6 @@ final class FireTopicPresentationTests: XCTestCase {
             tags: [],
             views: 128,
             likeCount: 9,
-            interactionCount: 9,
             createdAt: "2026-03-28T10:00:00Z",
             lastReadPostNumber: nil,
             bookmarks: [],
@@ -978,9 +933,6 @@ final class FireTopicPresentationTests: XCTestCase {
             hasSummary: false,
             archetype: "regular",
             postStream: TopicPostStreamState(posts: posts, stream: stream),
-            thread: TopicThreadState(originalPostNumber: nil, replySections: []),
-            flatPosts: [],
-            timelineEntries: [],
             details: TopicDetailMetaState(
                 notificationLevel: nil,
                 canEdit: false,

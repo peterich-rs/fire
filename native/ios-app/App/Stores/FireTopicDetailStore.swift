@@ -784,13 +784,6 @@ final class FireTopicDetailStore: ObservableObject {
             ),
             stream: detail.postStream.stream
         )
-        // The iOS host now renders from its own prepared row cache, so keeping a
-        // second host-retained thread/flat-post copy only inflates memory.
-        cachedDetail.thread = TopicThreadState(
-            originalPostNumber: nil,
-            replySections: []
-        )
-        cachedDetail.flatPosts = []
 
         topicDetails[topicId] = cachedDetail
         topicRenderStates[topicId] = FireTopicPresentation.detailRenderState(
@@ -1267,10 +1260,6 @@ final class FireTopicDetailStore: ObservableObject {
         }
 
         detail.postStream.posts[postIndex] = post
-        detail.interactionCount = FireTopicPresentation.interactionCount(
-            likeCount: detail.likeCount,
-            posts: detail.postStream.posts
-        )
         _ = cacheTopicDetail(detail, topicId: topicId)
     }
 

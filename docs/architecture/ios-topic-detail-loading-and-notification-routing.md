@@ -1,5 +1,7 @@
 # Redesign iOS Topic Detail Loading and Notification Routing
 
+Status update (2026-04-19): the incremental payload-reduction slice landed by trimming `TopicDetailState` over UniFFI down to canonical topic scalars, `post_stream`, and `details`. Swift now rebuilds local floor-order timeline metadata from `post_stream.posts` for render-cache and hydration decisions, so duplicate `thread`, `flat_posts`, `timeline_entries`, and `interaction_count` copies no longer cross the host boundary.
+
 ## Feasibility Assessment
 
 The latest `main` already contains the hard parts needed for this slice: Rust `fetch_topic_detail_initial` in `rust/crates/fire-core/src/core/topics.rs` (line 19) already supports anchored `/t/{topicId}/{postNumber}.json` reads and intentionally keeps partial `post_stream` payloads (`rust/crates/fire-core/tests/network.rs`, lines 1001-1038), Swift topic-detail state is isolated in `native/ios-app/App/Stores/FireTopicDetailStore.swift` (lines 62, 527, 650, 764), and app-wide route delivery already flows through `native/ios-app/App/FireNavigationState.swift` (lines 7-10), `native/ios-app/App/Routing/FireRouteParser.swift` (line 28), and `native/ios-app/App/FireAppDelegate.swift` (line 31). MessageBus alert parsing already carries `post_url` in Rust and UniFFI (`rust/crates/fire-core/src/core/messagebus.rs`, line 1044; `rust/crates/fire-uniffi/src/state_messagebus.rs`, line 200), so reliable notification tap-through does not need a backend contract change. The work is local and mechanical: replace prefix-window assumptions with anchor-aware range state, treat route anchors as one-shot state instead of a long-lived refresh default, collapse redundant topic-detail presentation shapes, and make target scrolling retry until the row is actually loaded. Fully feasible.
@@ -10,7 +12,7 @@ The latest `main` already contains the hard parts needed for this slice: Rust `f
 - `native/ios-app/App/Stores/FireTopicDetailStore.swift` `clearTopicDetailAnchor` (line 126) -- clears the transient route anchor and pending scroll target while preserving the active requested window.
 - `native/ios-app/App/Stores/FireTopicDetailStore.swift` `refreshTopicDetailAfterMutation` (line 506) -- mutation refresh path; currently always reloads from topic start.
 - `native/ios-app/App/Stores/FireTopicDetailStore.swift` `scheduleTopicDetailRefresh` (line 527) -- MessageBus refresh path; must only reuse an anchor while a route target is still unresolved.
-- `native/ios-app/App/Stores/FireTopicDetailStore.swift` `applyTopicDetail` (line 650) -- merges incoming detail, recomposes thread/flat copies in Swift, and seeds hydration state from a prefix count.
+- `native/ios-app/App/Stores/FireTopicDetailStore.swift` `applyTopicDetail` (line 650) -- merges incoming detail, normalizes `post_stream.posts` order, and seeds anchor-aware hydration plus the host render cache.
 - `native/ios-app/App/Stores/FireTopicDetailStore.swift` `hydrateTopicPostsToTargetIfNeeded` (line 764) -- incremental fetch loop; currently resolves missing posts against the start of `post_stream.stream`, not the anchored window the user is reading.
 - `native/ios-app/App/FireTopicPresentation.swift` `loadedWindowCount` / `missingPostIDs` (lines 248, 274) -- prefix-based hydration helpers that treat “loaded” as a contiguous stream head.
 - `native/ios-app/App/FireTopicDetailView.swift` `onPreferenceChange(FireVisiblePostFramePreferenceKey...)` (line 356) -- visible-post callback used to trigger preload.
@@ -19,7 +21,7 @@ The latest `main` already contains the hard parts needed for this slice: Rust `f
 - `rust/crates/fire-core/src/core/topics.rs` `fetch_topic_detail_initial` (line 19) -- anchored initial read that intentionally preserves a partial stream.
 - `rust/crates/fire-core/src/core/topics.rs` `hydrate_topic_detail_posts` (line 229) -- full missing-post hydration path used by the non-initial fetch.
 - `rust/crates/fire-models/src/topic_detail.rs` `TopicThread::from_posts` / `flatten` (lines 245, 339) -- current thread-first/depth-first presentation order.
-- `rust/crates/fire-uniffi/src/state_topic_detail.rs` `TopicDetailState` (line 588) -- current UniFFI payload bridges `post_stream`, `thread`, and `flat_posts` at the same time.
+- `rust/crates/fire-uniffi-topics/src/records.rs` `TopicDetailState` -- the current UniFFI payload bridges canonical topic scalars plus `post_stream`; derived thread/timeline/interaction metadata stays off the boundary.
 - `native/ios-app/App/FireNotificationsView.swift` `NotificationItemState.appRoute` (line 98) and `handleNotificationTap` (line 282) -- recent-notification route construction and tap handling.
 - `native/ios-app/App/FireNotificationHistoryView.swift` `handleNotificationTap` (line 106) -- full-history route construction and tap handling.
 - `native/ios-app/App/Stores/FireNotificationStore.swift` `loadFullPage` / `scheduleStateRefresh` (lines 93, 109) -- notification full-history paging and MessageBus refresh application.
@@ -55,10 +57,10 @@ The latest `main` already contains the hard parts needed for this slice: Rust `f
    Rejected: the current `topicDetails[topicId] != nil && !force` short-circuit.
    Why: latest main can silently drop a new notification anchor if the topic was already cached, while the current branch can accidentally keep reusing that anchor for later refreshes after the jump is already done.
 
-4. **Keep one lightweight presentation shape across Rust and Swift.**
-   Chosen: remove `thread` and `flat_posts` from the bridged detail payload and replace them with a lightweight floor-ordered `timeline_entries` vector.
-   Rejected: continue bridging raw posts plus a thread tree plus a flat threaded copy, then recompute again in Swift.
-   Why: the current shape pays memory twice and still leaves Swift doing redundant recomposition work.
+4. **Keep the UniFFI boundary canonical and let the host derive render metadata locally.**
+    Chosen: remove `thread`, `flat_posts`, `timeline_entries`, and `interaction_count` from the bridged detail payload; keep `post_stream` as the single bridged post container and rebuild lightweight floor-order metadata in Swift.
+    Rejected: continue bridging multiple overlapping presentation shapes, or swap one duplicate bridged shape for another while the host already maintains its own render cache.
+    Why: the boundary should pay to serialize the post graph once. Any host-only row/timeline metadata can be derived from that canonical stream without another large copy.
 
 5. **Make scroll-to-target retriable until the row exists and becomes visible.**
    Chosen: keep a pending scroll target in store/view state and only mark it resolved after the target row is present in the rendered dataset.
@@ -141,15 +143,23 @@ struct FireTopicDetailRequest: Equatable {
 File: `native/ios-app/App/FireTopicPresentation.swift`
 
 ```swift
+struct FireTopicTimelineEntry: Hashable, Sendable {
+    let postId: UInt64
+    let postNumber: UInt32
+    let parentPostNumber: UInt32?
+    let depth: UInt32
+    let isOriginalPost: Bool
+}
+
 struct FireTopicTimelineRow: Identifiable {
-    let entry: TopicTimelineEntryState
+    let entry: FireTopicTimelineEntry
     let post: TopicPostState?
     var id: UInt64 { entry.postId }
     var isLoaded: Bool { post != nil }
 }
 ```
 
-The topic detail view renders `[FireTopicTimelineRow]` instead of `[TopicThreadFlatPostState]`. Each row joins a lightweight timeline entry with an optional loaded post. Rows where `post == nil` (entry present but post not yet hydrated) render a compact loading placeholder. This replaces the current `FireTopicFlatPostPresentation` type alias.
+The topic detail view renders `[FireTopicTimelineRow]` instead of `[TopicThreadFlatPostState]`. Each row joins host-local timeline metadata with an optional loaded post. Rows where `post == nil` (entry present but post not yet hydrated) render a compact loading placeholder. This replaces the old flat-post aliases without putting another derived timeline copy back onto the UniFFI boundary.
 
 Usage example: route/comment jump
 
@@ -189,7 +199,7 @@ let route = FireRouteParser.route(fromNotificationUserInfo: [
 
 ## Phased Implementation
 
-## Phase 1: Replace Redundant Thread Payloads with a Floor-Ordered Timeline
+## Phase 1: Shrink the Topic Detail UniFFI Boundary
 
 **File: `rust/crates/fire-models/src/topic_detail.rs`**
 
@@ -268,24 +278,13 @@ result.rebuild_timeline_entries();
 
 Rationale: initial payload semantics stay the same; only the presentation payload changes.
 
-**File: `rust/crates/fire-uniffi/src/state_topic_detail.rs`**
+**File: `rust/crates/fire-uniffi-topics/src/records.rs`**
 
-- Export `TopicTimelineEntryState`.
-- Remove `thread` and `flat_posts` from `TopicDetailState`.
-- Map `timeline_entries` through UniFFI.
+- Remove `thread`, `flat_posts`, `timeline_entries`, and `interaction_count` from `TopicDetailState`.
+- Keep `post_stream` as the only bridged post container.
+- Stop exporting the UniFFI-only thread/timeline helper records that no platform source consumes.
 
-```rust
-#[derive(uniffi::Record, Debug, Clone)]
-pub struct TopicTimelineEntryState {
-    pub post_id: u64,
-    pub post_number: u32,
-    pub parent_post_number: Option<u32>,
-    pub depth: u32,
-    pub is_original_post: bool,
-}
-```
-
-Rationale: bridge only the data the native host actually needs to render.
+Rationale: bridge only the data the native host actually needs to render and paginate. The iOS render cache already derives local floor-order timeline metadata from `post_stream.posts`, so sending another bridged copy just re-serializes the same post graph.
 
 **File: `rust/crates/fire-core/tests/network.rs`**
 
@@ -306,7 +305,7 @@ Rationale: this is the cheapest executable proof that the new payload shape pres
 - Replace prefix-based `targetLoadedCount` math with range math over `post_stream.stream` indices.
 - Expand the requested range in both directions when the user reads near the top or bottom of the current window. Cap `requestedRange` at `FireTopicDetailWindowState.maxWindowSize` (200 indices); when the user scrolls past the window edge, shift the window rather than expanding it. Posts outside the active window remain in `loadedIndices` as warm cache but are not actively hydrated.
 - Keep background refresh and force reload unanchored by default once the one-shot route target has been consumed.
-- Keep `recomposedDetail` as the shared composition path for now, but ensure topic-detail hydration is driven by `requestedRange` instead of prefix counts. `composeThread` / `thread` / `flatPosts` remain temporarily for compatibility while the visible reply list migrates to `timelineRows`.
+- Remove the old `recomposedDetail` / `composeThread` compatibility path so topic-detail state no longer carries dead thread/flat-post baggage on the host.
 - After hydration loop exits, check whether `pendingScrollTarget` refers to a post ID in `exhaustedPostIDs`; if so, clear the target and log a warning rather than retrying indefinitely.
 
 ```swift
@@ -330,9 +329,9 @@ Rationale: route/comment jumps must be able to reuse cache when valid and bypass
 - Remove `loadedWindowCount` and `missingPostIDs(upTo:)` as the store’s primary pagination helpers.
 - Add range-based helpers keyed by stream indices.
 - Keep `recomposedDetail` as the shared composition path and continue rebuilding `timelineEntries` after every post set mutation (initial apply, incremental hydration, MessageBus refresh). The store should stop using the old prefix helpers as its primary pagination inputs.
-- Add `rebuildTimelineEntries` as the Swift-side counterpart to Rust’s `build_floor_timeline_entries`. This function is called after Swift-side incremental hydration to extend `timeline_entries` with newly loaded posts, using the same floor-order and best-effort depth logic. This is necessary because Swift-side hydration fetches individual posts via `fetchTopicPosts` and merges them locally — the Rust-side `rebuild_timeline_entries` only runs on the initial fetch path.
-- Add `timelineRows` mapper that joins `timeline_entries` with `post_stream.posts` into `[FireTopicTimelineRow]` for the view.
-- Leave the old flat-post/thread type aliases in place until the last compatibility caller is gone; they are no longer the source of truth for topic-detail hydration.
+- Add `rebuildTimelineEntries` as the Swift-side counterpart to Rust’s `build_floor_timeline_entries`. This function rebuilds local `FireTopicTimelineEntry` metadata after Swift-side incremental hydration, using the same floor-order and best-effort depth logic. This is necessary because Swift-side hydration fetches individual posts via `fetchTopicPosts` and merges them locally.
+- Add `timelineRows` mapper that joins local timeline entries with `post_stream.posts` into `[FireTopicTimelineRow]` for the view.
+- Remove the old flat-post/thread type aliases entirely once the render path is on timeline rows.
 
 ```swift
 static func missingPostIDs(
@@ -347,12 +346,12 @@ static func missingPostIDs(
 /// depth by parent-chain walk with fallback to 1 when parent is not loaded.
 static func rebuildTimelineEntries(
     from posts: [TopicPostState]
-) -> [TopicTimelineEntryState]
+) -> [FireTopicTimelineEntry]
 
 /// Join timeline entries with loaded posts into renderable rows.
 /// Rows can surface `post == nil` when future hydration paths provide entry-only timeline data.
 static func timelineRows(
-    entries: [TopicTimelineEntryState],
+    entries: [FireTopicTimelineEntry],
     posts: [TopicPostState]
 ) -> [FireTopicTimelineRow] {
     let postsByID = Dictionary(uniqueKeysWithValues: posts.map { ($0.id, $0) })
@@ -362,7 +361,7 @@ static func timelineRows(
 }
 ```
 
-Rationale: the view should no longer infer meaning from “how many posts from the front are loaded.” The `rebuildTimelineEntries` function ensures `timeline_entries` stays consistent with `post_stream.posts` regardless of whether posts arrived from the initial Rust fetch or from Swift-side incremental hydration.
+Rationale: the view should no longer infer meaning from “how many posts from the front are loaded.” The `rebuildTimelineEntries` function ensures local timeline metadata stays consistent with `post_stream.posts` regardless of whether posts arrived from the initial Rust fetch or from Swift-side incremental hydration.
 
 **File: `native/ios-app/App/FireTopicDetailView.swift`**
 
@@ -531,7 +530,7 @@ Manual verification matrix:
 
 - **No backend API change in this slice**: the plan keeps using `/t/{topicId}.json`, `/t/{topicId}/{postNumber}.json`, `/t/{topicId}/posts.json`, and the existing MessageBus `notification-alert` payload.
 - **UniFFI host shape changes are internal, not public semver**: `TopicDetailState` changes require regenerated Swift/Kotlin bindings, but there is no external crate API or backend contract break. Android bindings regeneration is mechanical and requires no Kotlin code change in this slice; Android-side adaptation is tracked as a separate follow-up.
-- **Retained-memory impact is positive**: removing bridged `thread` + `flat_posts` copies and stopping Swift-side recomposition cuts duplicate post retention while preserving `post_stream.stream` as the hydration source of truth.
+- **Retained-memory impact is positive**: removing bridged `thread`, `flat_posts`, `timeline_entries`, and `interaction_count` cuts duplicate host-bound payload while preserving `post_stream.stream` as the hydration source of truth.
 - **Object ownership stays aligned with repository architecture**: Rust owns canonical topic-detail models and initial timeline presentation metadata; Swift owns viewport state, route handling, native scrolling, and timeline entry rebuild after incremental hydration (using the same floor-order algorithm as Rust, keeping depth self-correcting as more posts arrive).
 - **What is explicitly not changed**: APNs/backend token upload, server-side push delivery, ListKit rollout to non-home surfaces, and the production `Nuke` image pipeline are identified as top follow-up workstreams but remain out of scope for this implementation slice.
 - **Cross-dependency impact is neutral**: no new third-party dependency is required for the in-scope topic-detail and notification-routing work.
@@ -549,5 +548,5 @@ Manual verification matrix:
 - `rust/crates/fire-core/src/core/topics.rs` -- rebuild lightweight floor-order timeline metadata after initial fetch and hydration.
 - `rust/crates/fire-core/tests/network.rs` -- prove anchored initial payloads remain partial and do not regress into prefix hydration assumptions.
 - `rust/crates/fire-models/src/topic_detail.rs` -- replace thread-first presentation payloads with lightweight floor-order timeline entries.
-- `rust/crates/fire-uniffi/src/state_topic_detail.rs` -- expose `timeline_entries` and stop bridging redundant `thread`/`flat_posts` copies.
+- `rust/crates/fire-uniffi-topics/src/records.rs` -- stop bridging redundant `thread`/`flat_posts`/`timeline_entries`/`interaction_count` topic-detail copies.
 - Regenerate Android bindings for the updated `TopicDetailState` UniFFI shape (mechanical regeneration only; Android-side code adaptation is tracked separately).

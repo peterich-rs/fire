@@ -559,12 +559,3 @@ impl From<VoteResponse> for VoteResponseState {
         }
     }
 }
-
-#[derive(uniffi::Record, Debug, Clone)]
-pub struct TopicTimelineEntryState {
-    pub post_id: u64,
-    pub post_number: u32,
-    pub parent_post_number: Option<u32>,
-    pub depth: u32,
-    pub is_original_post: bool,
-}

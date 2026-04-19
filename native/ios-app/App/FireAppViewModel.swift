@@ -248,7 +248,6 @@ final class FireAppViewModel: ObservableObject {
     typealias LoginCoordinatorPreloader = @Sendable () async throws -> Void
     typealias LoginNetworkWarmup = @Sendable () async -> Void
     typealias CloudflareRecoveryCookieSync = @Sendable () async throws -> SessionState
-    typealias WebKitCookieProvider = @Sendable @MainActor () async -> [HTTPCookie]
 
     private static let messageBusErrorPrefix = "实时同步连接失败："
     private static let loginRequiredMessage = "登录状态已失效，请重新登录。"
@@ -289,7 +288,6 @@ final class FireAppViewModel: ObservableObject {
     private let loginCoordinatorPreloader: LoginCoordinatorPreloader?
     private let loginNetworkWarmup: LoginNetworkWarmup?
     private let cloudflareRecoveryCookieSync: CloudflareRecoveryCookieSync?
-    private let webKitCookieProvider: WebKitCookieProvider?
     // MessageBus
     private var messageBusCoordinator: FireMessageBusCoordinator?
     private var isMessageBusActive = false
@@ -305,15 +303,13 @@ final class FireAppViewModel: ObservableObject {
         challengeRecoveryStore: (any FireChallengeSessionRecovering)? = nil,
         loginCoordinatorPreloader: LoginCoordinatorPreloader? = nil,
         loginNetworkWarmup: LoginNetworkWarmup? = nil,
-        cloudflareRecoveryCookieSync: CloudflareRecoveryCookieSync? = nil,
-        webKitCookieProvider: WebKitCookieProvider? = nil
+        cloudflareRecoveryCookieSync: CloudflareRecoveryCookieSync? = nil
     ) {
         self.session = initialSession
         self.challengeRecoveryStore = challengeRecoveryStore
         self.loginCoordinatorPreloader = loginCoordinatorPreloader
         self.loginNetworkWarmup = loginNetworkWarmup
         self.cloudflareRecoveryCookieSync = cloudflareRecoveryCookieSync
-        self.webKitCookieProvider = webKitCookieProvider
     }
 
     var isPresentingLogin: Bool {
@@ -1851,10 +1847,7 @@ final class FireAppViewModel: ObservableObject {
     }
 
     private func currentWebKitCookies() async -> [HTTPCookie] {
-        if let webKitCookieProvider {
-            return await webKitCookieProvider()
-        }
-        return await currentWebKitCookies(from: WKWebsiteDataStore.default().httpCookieStore)
+        await currentWebKitCookies(from: WKWebsiteDataStore.default().httpCookieStore)
     }
 
     private func currentWebKitCookies(from store: WKHTTPCookieStore) async -> [HTTPCookie] {

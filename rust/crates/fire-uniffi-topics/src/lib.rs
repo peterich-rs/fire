@@ -11,7 +11,7 @@ pub use records::{
     PrivateMessageCreateRequestState, ResolvedUploadUrlState, TopicCreateRequestState,
     TopicDetailCreatedByState, TopicDetailMetaState, TopicDetailQueryState, TopicDetailState,
     TopicListQueryState, TopicPostState, TopicPostStreamState, TopicReactionState,
-    TopicReplyRequestState, TopicTimelineEntryState, TopicTimingEntryState, TopicTimingsRequestState,
+    TopicReplyRequestState, TopicTimingEntryState, TopicTimingsRequestState,
     TopicUpdateRequestState, UploadImageRequestState, UploadResultState, VoteResponseState,
     VotedUserState,
 };
@@ -296,93 +296,4 @@ impl FireTopicsHandle {
         .await?;
         Ok(response.into_iter().map(Into::into).collect())
     }
-}
-
-#[uniffi::export]
-pub fn rebuild_timeline_entries(posts: Vec<TopicPostState>) -> Vec<TopicTimelineEntryState> {
-    if posts.is_empty() {
-        return vec![];
-    }
-
-    let min_pn = posts.iter().map(|p| p.post_number).min().unwrap_or(0);
-
-    let mut post_map = std::collections::HashMap::new();
-    for post in &posts {
-        post_map.insert(post.post_number, post.clone());
-    }
-
-    let mut children_map: std::collections::HashMap<u32, Vec<TopicPostState>> = std::collections::HashMap::new();
-    let mut roots = Vec::new();
-
-    let mut sorted_posts = posts.clone();
-    sorted_posts.sort_by(|a, b| {
-        if a.post_number != b.post_number {
-            a.post_number.cmp(&b.post_number)
-        } else {
-            a.id.cmp(&b.id)
-        }
-    });
-
-    for post in sorted_posts.iter() {
-        let parent = post.reply_to_post_number;
-        if let Some(p) = parent {
-            if p != post.post_number && post_map.contains_key(&p) {
-                children_map.entry(p).or_default().push(post.clone());
-                continue;
-            }
-        }
-        roots.push(post.clone());
-    }
-
-    let mut result = Vec::new();
-    let mut visited = std::collections::HashSet::new();
-
-    fn dfs(
-        post: &TopicPostState,
-        depth: u32,
-        min_pn: u32,
-        children_map: &std::collections::HashMap<u32, Vec<TopicPostState>>,
-        post_map: &std::collections::HashMap<u32, TopicPostState>,
-        visited: &mut std::collections::HashSet<u32>,
-        result: &mut Vec<TopicTimelineEntryState>,
-    ) {
-        if visited.contains(&post.post_number) {
-            return;
-        }
-        visited.insert(post.post_number);
-
-        let parent = post.reply_to_post_number;
-
-        let parent_post_number = if depth == 0 {
-            None
-        } else {
-            parent.filter(|&p| post_map.contains_key(&p))
-        };
-
-        result.push(TopicTimelineEntryState {
-            post_id: post.id,
-            post_number: post.post_number,
-            parent_post_number,
-            depth,
-            is_original_post: post.post_number == min_pn,
-        });
-
-        if let Some(children) = children_map.get(&post.post_number) {
-            for child in children {
-                dfs(child, depth + 1, min_pn, children_map, post_map, visited, result);
-            }
-        }
-    }
-
-    for root in roots {
-        dfs(&root, 0, min_pn, &children_map, &post_map, &mut visited, &mut result);
-    }
-
-    for post in sorted_posts.iter() {
-        if !visited.contains(&post.post_number) {
-            dfs(post, 0, min_pn, &children_map, &post_map, &mut visited, &mut result);
-        }
-    }
-
-    result
 }

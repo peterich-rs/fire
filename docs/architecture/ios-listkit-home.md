@@ -53,12 +53,15 @@ The new shared ListKit layer currently provides:
 
 - `FireCollectionHost`
   - SwiftUI wrapper around a generic collection-backed controller
+  - shared plain-list layout helper for screens that want the neutral Fire list surface
 - `FireDiffableListController`
   - diffable snapshot apply
   - top-visible-item + relative-offset preservation across updates
   - visible-item publication
   - scroll-metrics publication
   - native `UIRefreshControl` bridge
+  - scroll requests keyed by logical request identity so a surface can explicitly
+    retry the same target without depending on a nil-reset round-trip
 - `FireListSectionModel`
   - minimal typed section/item container shared by future migrations
 

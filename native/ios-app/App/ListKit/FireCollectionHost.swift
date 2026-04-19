@@ -1,6 +1,18 @@
 import SwiftUI
 import UIKit
 
+enum FireCollectionLayouts {
+    static func plainList(
+        backgroundColor: UIColor = .clear,
+        showsSeparators: Bool = false
+    ) -> UICollectionViewLayout {
+        var configuration = UICollectionLayoutListConfiguration(appearance: .plain)
+        configuration.backgroundColor = backgroundColor
+        configuration.showsSeparators = showsSeparators
+        return UICollectionViewCompositionalLayout.list(using: configuration)
+    }
+}
+
 struct FireCollectionHost<SectionID: Hashable, ItemID: Hashable, RowContent: View>:
     UIViewControllerRepresentable
 {

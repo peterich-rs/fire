@@ -111,10 +111,7 @@ struct FireHomeCollectionView: View {
     }
 
     private static func makeLayout() -> UICollectionViewLayout {
-        var configuration = UICollectionLayoutListConfiguration(appearance: .plain)
-        configuration.backgroundColor = .clear
-        configuration.showsSeparators = false
-        return UICollectionViewCompositionalLayout.list(using: configuration)
+        FireCollectionLayouts.plainList()
     }
 
     private func canSelect(_ item: FireHomeCollectionItem) -> Bool {

@@ -119,6 +119,8 @@ Home is already on the right host, so this work is a consolidation pass:
 - extract any home-specific controller behavior that topic detail will need into
   generic ListKit primitives
 - make visible-item publication stable enough for both home and topic detail
+- keep the default plain-list layout and scroll-request contract shared at the
+  host layer so later screens do not copy screen-specific list mechanics
 - tighten row identity and snapshot policy so live list patches do not cause
   unnecessary scroll-anchor work
 - keep category/filter chrome visually unchanged while preserving current

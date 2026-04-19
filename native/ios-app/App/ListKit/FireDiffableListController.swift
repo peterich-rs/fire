@@ -13,10 +13,12 @@ struct FireCollectionScrollAnchor<ItemID: Hashable>: Equatable {
 }
 
 struct FireCollectionScrollRequest<ItemID: Hashable>: Equatable {
+    let requestID: AnyHashable
     let itemID: ItemID
     let animated: Bool
 
-    init(itemID: ItemID, animated: Bool = true) {
+    init(itemID: ItemID, animated: Bool = true, requestID: AnyHashable? = nil) {
+        self.requestID = requestID ?? AnyHashable(itemID)
         self.itemID = itemID
         self.animated = animated
     }
@@ -63,6 +65,21 @@ func fireCollectionCommonItems<SectionID: Hashable, ItemID: Hashable>(
         .filter { existingItems.contains($0) }
 }
 
+func fireCollectionScrollRequestDidChange<ItemID: Hashable>(
+    current: FireCollectionScrollRequest<ItemID>?,
+    incoming: FireCollectionScrollRequest<ItemID>?
+) -> Bool {
+    current?.requestID != incoming?.requestID
+}
+
+func fireCollectionNeedsScrollRequest<ItemID: Hashable>(
+    handledRequestID: AnyHashable?,
+    incoming: FireCollectionScrollRequest<ItemID>?
+) -> Bool {
+    guard let incoming else { return false }
+    return handledRequestID != incoming.requestID
+}
+
 @MainActor
 final class FireDiffableListController<SectionID: Hashable, ItemID: Hashable, RowContent: View>: UIViewController,
     UICollectionViewDelegate
@@ -88,8 +105,8 @@ final class FireDiffableListController<SectionID: Hashable, ItemID: Hashable, Ro
     private var lastVisibleItemIDs: [ItemID] = []
     private var lastScrollMetrics: FireCollectionScrollMetrics?
     private var isRefreshing = false
-    private var handledScrollRequestItemID: ItemID?
-    private var animatingScrollRequestItemID: ItemID?
+    private var handledScrollRequestID: AnyHashable?
+    private var animatingScrollRequest: FireCollectionScrollRequest<ItemID>?
 
     init(
         layout: UICollectionViewLayout,
@@ -206,19 +223,30 @@ final class FireDiffableListController<SectionID: Hashable, ItemID: Hashable, Ro
         _ scrollRequest: FireCollectionScrollRequest<ItemID>?,
         onCompleted: ((ItemID) -> Void)?
     ) {
+        if let currentScrollRequest = self.scrollRequest,
+           let scrollRequest,
+           currentScrollRequest.requestID == scrollRequest.requestID,
+           currentScrollRequest.itemID != scrollRequest.itemID {
+            assertionFailure("FireCollectionScrollRequest request IDs must stay bound to one item ID.")
+        }
+
+        let requestChanged = fireCollectionScrollRequestDidChange(
+            current: self.scrollRequest,
+            incoming: scrollRequest
+        )
         self.scrollRequest = scrollRequest
         self.onScrollRequestCompleted = onCompleted
 
-        if let scrollRequest {
-            if handledScrollRequestItemID != scrollRequest.itemID {
-                animatingScrollRequestItemID = nil
-            }
-        } else {
-            handledScrollRequestItemID = nil
-            animatingScrollRequestItemID = nil
+        if requestChanged {
+            animatingScrollRequest = nil
         }
 
-        applyScrollRequestIfNeeded()
+        if scrollRequest == nil {
+            handledScrollRequestID = nil
+            animatingScrollRequest = nil
+        } else {
+            applyScrollRequestIfNeeded()
+        }
     }
 
     func setSections(
@@ -422,26 +450,29 @@ final class FireDiffableListController<SectionID: Hashable, ItemID: Hashable, Ro
             let collectionView,
             let dataSource,
             let scrollRequest,
-            handledScrollRequestItemID != scrollRequest.itemID,
+            fireCollectionNeedsScrollRequest(
+                handledRequestID: handledScrollRequestID,
+                incoming: scrollRequest
+            ),
             let indexPath = dataSource.indexPath(for: scrollRequest.itemID)
         else {
             return
         }
 
         collectionView.layoutIfNeeded()
-        handledScrollRequestItemID = scrollRequest.itemID
+        handledScrollRequestID = scrollRequest.requestID
         collectionView.scrollToItem(at: indexPath, at: .top, animated: scrollRequest.animated)
 
         if scrollRequest.animated {
-            animatingScrollRequestItemID = scrollRequest.itemID
+            animatingScrollRequest = scrollRequest
         } else {
             onScrollRequestCompleted?(scrollRequest.itemID)
         }
     }
 
     private func completeAnimatedScrollRequestIfNeeded() {
-        guard let itemID = animatingScrollRequestItemID else { return }
-        animatingScrollRequestItemID = nil
-        onScrollRequestCompleted?(itemID)
+        guard let scrollRequest = animatingScrollRequest else { return }
+        animatingScrollRequest = nil
+        onScrollRequestCompleted?(scrollRequest.itemID)
     }
 }

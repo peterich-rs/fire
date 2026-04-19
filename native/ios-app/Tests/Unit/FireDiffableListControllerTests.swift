@@ -32,6 +32,37 @@ final class FireDiffableListControllerTests: XCTestCase {
         XCTAssertEqual(fireCollectionCommonItems(current: current, incoming: incoming), [3, 2])
     }
 
+    func testScrollRequestDefaultsRequestIdentityToItemID() {
+        let request = FireCollectionScrollRequest(itemID: 42)
+
+        XCTAssertEqual(request.requestID, AnyHashable(42))
+    }
+
+    func testScrollRequestChangeHelperUsesLogicalRequestIdentity() {
+        let current = FireCollectionScrollRequest(itemID: 42, requestID: "initial")
+        let retry = FireCollectionScrollRequest(itemID: 42, requestID: "retry")
+
+        XCTAssertTrue(fireCollectionScrollRequestDidChange(current: current, incoming: retry))
+        XCTAssertFalse(fireCollectionScrollRequestDidChange(current: retry, incoming: retry))
+    }
+
+    func testNeedsScrollRequestHelperAllowsRetryForSameItemWithNewRequestID() {
+        let retry = FireCollectionScrollRequest(itemID: 42, requestID: "retry")
+
+        XCTAssertTrue(
+            fireCollectionNeedsScrollRequest(
+                handledRequestID: "initial",
+                incoming: retry
+            )
+        )
+        XCTAssertFalse(
+            fireCollectionNeedsScrollRequest(
+                handledRequestID: "retry",
+                incoming: retry
+            )
+        )
+    }
+
     func testDefaultScrollAnchorRestorePolicySkipsAnimatedDiffs() {
         XCTAssertFalse(
             FireCollectionScrollAnchorRestorePolicy.whenNotAnimatingDifferences.shouldRestore(

@@ -1091,6 +1091,8 @@ final class FireSessionSecurityTests: XCTestCase {
 
     @MainActor
     func testCloudflareRecoveryManualCompletionKeepsSheetOpenOnStaleChallengeURL() async {
+        let webKitStore = WKWebsiteDataStore.default().httpCookieStore
+        await clearLinuxDoCookiesFromWebKitStore(webKitStore)
         guard
             let rotatedClearance = makeHTTPCookie(
                 name: "cf_clearance",
@@ -1101,14 +1103,12 @@ final class FireSessionSecurityTests: XCTestCase {
             XCTFail("expected Cloudflare clearance cookie")
             return
         }
+        await webKitStore.setCookieAsync(rotatedClearance)
 
         let viewModel = FireAppViewModel(
             initialSession: authenticatedSession(),
             cloudflareRecoveryCookieSync: {
                 self.authenticatedSession(turnstileSitekey: "sitekey")
-            },
-            webKitCookieProvider: {
-                [rotatedClearance]
             }
         )
         var attempts = 0
@@ -1165,6 +1165,8 @@ final class FireSessionSecurityTests: XCTestCase {
             XCTAssertTrue(error is CancellationError)
         }
         XCTAssertEqual(attempts, 2)
+
+        await clearLinuxDoCookiesFromWebKitStore(webKitStore)
     }
 
     @MainActor

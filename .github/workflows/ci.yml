@@ -332,10 +332,10 @@ jobs:
               "$action"
           }
 
-          # Required CI stays on the unit-only lane. FireUnitTests excludes the
-          # removed UI smoke coverage, but FireTests is still a hosted iOS test
-          # bundle, so the lane remains simulator-backed and needs a realistic
-          # timeout for clean GitHub-hosted builds.
+          # Required CI stays on the pure logic lane. WebKit, rendering, and
+          # filesystem-backed coverage moved to the separate integration target,
+          # but FireTests still runs as an app-hosted iOS unit-test bundle, so
+          # the lane remains simulator-backed and needs a realistic timeout.
           run_xcodebuild FireUnitTests test
 
   native-android-test:

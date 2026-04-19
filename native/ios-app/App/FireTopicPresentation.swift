@@ -284,13 +284,26 @@ enum FireTopicPresentation {
     // MARK: - Timeline Entries
 
     static func rebuildTimelineEntries(from posts: [TopicPostState]) -> [FireTopicTimelineEntry] {
-        return Fire.rebuildTimelineEntries(posts: posts).map { entry in
-            FireTopicTimelineEntry(
-                postId: entry.postId,
-                postNumber: entry.postNumber,
-                parentPostNumber: entry.parentPostNumber,
-                depth: entry.depth,
-                isOriginalPost: entry.isOriginalPost
+        let postNumbers = Set(posts.map(\.postNumber))
+        let minPN = posts.map(\.postNumber).min() ?? 0
+        let sorted = posts.sorted(by: comparePosts(_:_:))
+
+        return sorted.map { post in
+            let parent = normalizedReplyTarget(post.replyToPostNumber)
+            let depth: UInt32
+            if let pn = parent, pn != post.postNumber {
+                depth = computeDepthWalk(
+                    parentPN: pn, posts: posts, loaded: postNumbers, currentDepth: 1
+                )
+            } else {
+                depth = 0
+            }
+            return FireTopicTimelineEntry(
+                postId: post.id,
+                postNumber: post.postNumber,
+                parentPostNumber: parent,
+                depth: depth,
+                isOriginalPost: post.postNumber == minPN
             )
         }
     }
@@ -317,6 +330,24 @@ enum FireTopicPresentation {
         return orderedPostIDs[clampedRange].filter { postID in
             !loadedPostIDs.contains(postID) && !exhaustedPostIDs.contains(postID)
         }
+    }
+
+    private static func computeDepthWalk(
+        parentPN: UInt32,
+        posts: [TopicPostState],
+        loaded: Set<UInt32>,
+        currentDepth: UInt32
+    ) -> UInt32 {
+        guard loaded.contains(parentPN) else { return currentDepth }
+        guard let parentPost = posts.first(where: { $0.postNumber == parentPN }) else {
+            return currentDepth
+        }
+        if let gp = normalizedReplyTarget(parentPost.replyToPostNumber), gp != parentPN {
+            return computeDepthWalk(
+                parentPN: gp, posts: posts, loaded: loaded, currentDepth: currentDepth + 1
+            )
+        }
+        return currentDepth
     }
 
     static func interactionCount(for detail: TopicDetailState) -> UInt32 {

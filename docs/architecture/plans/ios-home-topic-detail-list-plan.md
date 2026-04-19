@@ -1,6 +1,6 @@
 # iOS Home and Topic Detail List Host Plan
 
-Status: planning draft (2026-04-19)
+Status: initial implementation landed on `refactor/ios-listkit-topic-host` (2026-04-19)
 
 ## Summary
 
@@ -12,9 +12,32 @@ that matches our performance goals: explicit visible-item reporting, diffable
 updates, cache control, scroll-metric driven prefetch, and predictable gesture
 arbitration.
 
-The real remaining migration is topic detail. Home needs follow-up refinement
-and shared-host cleanup, while topic detail needs a full host migration from
-`ScrollView` + `LazyVStack` onto the same list foundation.
+The main migration target was topic detail. That host swap has now landed in
+code on top of the existing home/ListKit foundation. The remaining work is
+cleanup and hardening: trim legacy in-file scroll-stack helpers that are no
+longer on the runtime path, expand verification, and continue tightening the
+shared host contract.
+
+## Implemented Slice
+
+The current branch now includes the core migration described in this plan:
+
+- `native/ios-app/App/ListKit/FireDiffableListController.swift` and
+  `native/ios-app/App/ListKit/FireCollectionHost.swift` now expose a generic
+  one-shot scroll-request path so a screen can wait for a target item to enter
+  the diffable snapshot and then scroll it into view.
+- topic detail now renders through
+  `native/ios-app/App/ListKit/TopicDetail/FireTopicDetailCollectionView.swift`
+  instead of the old `ScrollViewReader -> ScrollView -> LazyVStack` body path.
+- topic detail visible-post reporting and preload triggering now come from the
+  ListKit visible-item callback instead of geometry preference frames.
+- route target scrolling now resolves a pending post number to a typed
+  collection item and clears the pending target after the host completes the
+  scroll request.
+- topic detail keeps the existing SwiftUI shell for navigation, toolbar,
+  sheets, fullscreen covers, and the bottom quick-reply bar.
+- the migration reuses the existing topic row/post row styling and swipe to
+  reply container so the visual design and gesture reservation stay intact.
 
 ## Current State
 
@@ -30,20 +53,24 @@ and shared-host cleanup, while topic detail needs a full host migration from
   - scroll-metric publication
   - refresh-control bridging
   - scroll-anchor preservation across updates
+  - explicit scroll requests for target items that appear after a snapshot update
 - Remaining home work is refinement, not first migration.
 
 ### Topic Detail
 
-- `native/ios-app/App/FireTopicDetailView.swift` still uses one large
-  `ScrollViewReader -> ScrollView -> LazyVStack` pipeline.
-- Visibility and preload currently depend on SwiftUI geometry preference
-  reporting instead of a list delegate/controller.
+- `native/ios-app/App/FireTopicDetailView.swift` now keeps the SwiftUI shell,
+  but its body content is rendered through
+  `native/ios-app/App/ListKit/TopicDetail/FireTopicDetailCollectionView.swift`.
+- Visibility and preload now depend on ListKit visible-item publication instead
+  of SwiftUI geometry preference reporting.
+- Anchored route scrolling now resolves a post number to a typed collection
+  item and uses the shared host scroll-request callback to clear the pending
+  target.
 - The screen already has the right state split for migration:
   - `FireTopicDetailStore` owns loading, range expansion, and hydration
   - `FireTopicPresentation` owns row metadata derivation
   - the view mostly owns composition and gesture wiring
-- This is the main remaining high-churn screen that does not yet use the
-  shared list host.
+- The remaining work is cleanup and hardening, not first-host migration.
 
 ## Goals
 
@@ -144,6 +171,8 @@ Exit criteria:
 
 ### Phase 1. Shared ListKit Capability Lift
 
+Status: implemented in the current branch.
+
 - extend `FireDiffableListController` with the controller outputs topic detail
   needs:
   - stable visible-item publication by item identity
@@ -159,6 +188,8 @@ Exit criteria:
   hacks as its long-term dependency
 
 ### Phase 2. Topic Detail List Modeling
+
+Status: implemented in the current branch.
 
 - introduce typed topic-detail section/item models under ListKit or a dedicated
   topic-detail list adapter layer
@@ -178,6 +209,8 @@ Exit criteria:
 
 ### Phase 3. Topic Detail Host Swap
 
+Status: implemented in the current branch.
+
 - replace `ScrollView` + `LazyVStack` with a topic-detail collection host
 - keep the SwiftUI screen shell for:
   - navigation title and toolbar
@@ -192,6 +225,8 @@ Exit criteria:
 - visible-post reporting comes from the host instead of geometry preferences
 
 ### Phase 4. Cleanup and Hardening
+
+Status: partially remaining.
 
 - delete geometry-preference visibility tracking that the host replaces
 - delete migration-only compatibility glue

@@ -1,5 +1,11 @@
 # iOS ListKit Home Migration
 
+Current repo state: topic detail has since also moved onto the shared
+collection-host ListKit foundation under
+`native/ios-app/App/ListKit/TopicDetail/FireTopicDetailCollectionView.swift`.
+This document remains the original home-only migration record for the first
+slice on `refactor/ios-store-split`.
+
 This note records the first W3 migration slice on `refactor/ios-store-split`:
 the authenticated home feed now runs on the new collection-host ListKit
 foundation instead of SwiftUI `List`.

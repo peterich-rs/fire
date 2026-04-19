@@ -16,6 +16,9 @@ struct FireCollectionHost<SectionID: Hashable, ItemID: Hashable, RowContent: Vie
     let onVisibleItemsChanged: (([ItemID]) -> Void)?
     let onScrollMetricsChanged: ((FireCollectionScrollMetrics) -> Void)?
     let onRefresh: (() async -> Void)?
+    let scrollAnchorRestorePolicy: FireCollectionScrollAnchorRestorePolicy
+    let scrollRequest: FireCollectionScrollRequest<ItemID>?
+    let onScrollRequestCompleted: ((ItemID) -> Void)?
     let rowContent: (ItemID) -> RowContent
 
     init(
@@ -30,6 +33,9 @@ struct FireCollectionHost<SectionID: Hashable, ItemID: Hashable, RowContent: Vie
         onVisibleItemsChanged: (([ItemID]) -> Void)? = nil,
         onScrollMetricsChanged: ((FireCollectionScrollMetrics) -> Void)? = nil,
         onRefresh: (() async -> Void)? = nil,
+        scrollAnchorRestorePolicy: FireCollectionScrollAnchorRestorePolicy = .whenNotAnimatingDifferences,
+        scrollRequest: FireCollectionScrollRequest<ItemID>? = nil,
+        onScrollRequestCompleted: ((ItemID) -> Void)? = nil,
         makeLayout: @escaping () -> UICollectionViewLayout,
         rowContent: @escaping (ItemID) -> RowContent
     ) {
@@ -44,6 +50,9 @@ struct FireCollectionHost<SectionID: Hashable, ItemID: Hashable, RowContent: Vie
         self.onVisibleItemsChanged = onVisibleItemsChanged
         self.onScrollMetricsChanged = onScrollMetricsChanged
         self.onRefresh = onRefresh
+        self.scrollAnchorRestorePolicy = scrollAnchorRestorePolicy
+        self.scrollRequest = scrollRequest
+        self.onScrollRequestCompleted = onScrollRequestCompleted
         self.makeLayout = makeLayout
         self.rowContent = rowContent
     }
@@ -63,6 +72,9 @@ struct FireCollectionHost<SectionID: Hashable, ItemID: Hashable, RowContent: Vie
                 onVisibleItemsChanged: onVisibleItemsChanged,
                 onScrollMetricsChanged: onScrollMetricsChanged,
                 onRefresh: onRefresh,
+                scrollAnchorRestorePolicy: scrollAnchorRestorePolicy,
+                scrollRequest: scrollRequest,
+                onScrollRequestCompleted: onScrollRequestCompleted,
                 rowContent: rowContent
             )
         return controller
@@ -72,6 +84,10 @@ struct FireCollectionHost<SectionID: Hashable, ItemID: Hashable, RowContent: Vie
         _ uiViewController: FireDiffableListController<SectionID, ItemID, RowContent>,
         context: Context
     ) {
+        uiViewController.updateScrollRequest(
+            scrollRequest,
+            onCompleted: onScrollRequestCompleted
+        )
         uiViewController.updateLayoutIfNeeded(
             version: layoutVersion,
             makeLayout: makeLayout

@@ -12,6 +12,16 @@ struct FireCollectionScrollAnchor<ItemID: Hashable>: Equatable {
     let offsetFromTop: CGFloat
 }
 
+struct FireCollectionScrollRequest<ItemID: Hashable>: Equatable {
+    let itemID: ItemID
+    let animated: Bool
+
+    init(itemID: ItemID, animated: Bool = true) {
+        self.itemID = itemID
+        self.animated = animated
+    }
+}
+
 enum FireCollectionScrollAnchorRestorePolicy {
     case always
     case never
@@ -64,11 +74,13 @@ final class FireDiffableListController<SectionID: Hashable, ItemID: Hashable, Ro
     private let onScrollMetricsChanged: ((FireCollectionScrollMetrics) -> Void)?
     private let onRefresh: (() async -> Void)?
     private let scrollAnchorRestorePolicy: FireCollectionScrollAnchorRestorePolicy
+    private var onScrollRequestCompleted: ((ItemID) -> Void)?
     private var listLayout: UICollectionViewLayout
     private var layoutVersion: AnyHashable
     private var contentVersion: AnyHashable
     private var showsVerticalScrollIndicator: Bool
     private var backgroundColor: UIColor
+    private var scrollRequest: FireCollectionScrollRequest<ItemID>?
 
     private var collectionView: UICollectionView?
     private var dataSource: UICollectionViewDiffableDataSource<SectionID, ItemID>?
@@ -76,6 +88,8 @@ final class FireDiffableListController<SectionID: Hashable, ItemID: Hashable, Ro
     private var lastVisibleItemIDs: [ItemID] = []
     private var lastScrollMetrics: FireCollectionScrollMetrics?
     private var isRefreshing = false
+    private var handledScrollRequestItemID: ItemID?
+    private var animatingScrollRequestItemID: ItemID?
 
     init(
         layout: UICollectionViewLayout,
@@ -89,6 +103,8 @@ final class FireDiffableListController<SectionID: Hashable, ItemID: Hashable, Ro
         onScrollMetricsChanged: ((FireCollectionScrollMetrics) -> Void)? = nil,
         onRefresh: (() async -> Void)? = nil,
         scrollAnchorRestorePolicy: FireCollectionScrollAnchorRestorePolicy = .whenNotAnimatingDifferences,
+        scrollRequest: FireCollectionScrollRequest<ItemID>? = nil,
+        onScrollRequestCompleted: ((ItemID) -> Void)? = nil,
         rowContent: @escaping (ItemID) -> RowContent
     ) {
         self.listLayout = layout
@@ -102,6 +118,8 @@ final class FireDiffableListController<SectionID: Hashable, ItemID: Hashable, Ro
         self.onScrollMetricsChanged = onScrollMetricsChanged
         self.onRefresh = onRefresh
         self.scrollAnchorRestorePolicy = scrollAnchorRestorePolicy
+        self.scrollRequest = scrollRequest
+        self.onScrollRequestCompleted = onScrollRequestCompleted
         self.rowContent = rowContent
         super.init(nibName: nil, bundle: nil)
     }
@@ -184,6 +202,25 @@ final class FireDiffableListController<SectionID: Hashable, ItemID: Hashable, Ro
         collectionView?.backgroundColor = backgroundColor
     }
 
+    func updateScrollRequest(
+        _ scrollRequest: FireCollectionScrollRequest<ItemID>?,
+        onCompleted: ((ItemID) -> Void)?
+    ) {
+        self.scrollRequest = scrollRequest
+        self.onScrollRequestCompleted = onCompleted
+
+        if let scrollRequest {
+            if handledScrollRequestItemID != scrollRequest.itemID {
+                animatingScrollRequestItemID = nil
+            }
+        } else {
+            handledScrollRequestItemID = nil
+            animatingScrollRequestItemID = nil
+        }
+
+        applyScrollRequestIfNeeded()
+    }
+
     func setSections(
         _ sections: [FireListSectionModel<SectionID, ItemID>],
         contentVersion: AnyHashable,
@@ -223,6 +260,7 @@ final class FireDiffableListController<SectionID: Hashable, ItemID: Hashable, Ro
         dataSource.apply(snapshot, animatingDifferences: effectiveAnimatingDifferences) { [weak self] in
             guard let self else { return }
             self.restoreScrollAnchor(scrollAnchor)
+            self.applyScrollRequestIfNeeded()
             self.publishVisibleItems()
             self.publishScrollMetrics()
         }
@@ -255,6 +293,12 @@ final class FireDiffableListController<SectionID: Hashable, ItemID: Hashable, Ro
     func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
         publishVisibleItems()
         publishScrollMetrics()
+    }
+
+    func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
+        publishVisibleItems()
+        publishScrollMetrics()
+        completeAnimatedScrollRequestIfNeeded()
     }
 
     private func publishVisibleItems() {
@@ -371,5 +415,33 @@ final class FireDiffableListController<SectionID: Hashable, ItemID: Hashable, Ro
             ),
             animated: false
         )
+    }
+
+    private func applyScrollRequestIfNeeded() {
+        guard
+            let collectionView,
+            let dataSource,
+            let scrollRequest,
+            handledScrollRequestItemID != scrollRequest.itemID,
+            let indexPath = dataSource.indexPath(for: scrollRequest.itemID)
+        else {
+            return
+        }
+
+        collectionView.layoutIfNeeded()
+        handledScrollRequestItemID = scrollRequest.itemID
+        collectionView.scrollToItem(at: indexPath, at: .top, animated: scrollRequest.animated)
+
+        if scrollRequest.animated {
+            animatingScrollRequestItemID = scrollRequest.itemID
+        } else {
+            onScrollRequestCompleted?(scrollRequest.itemID)
+        }
+    }
+
+    private func completeAnimatedScrollRequestIfNeeded() {
+        guard let itemID = animatingScrollRequestItemID else { return }
+        animatingScrollRequestItemID = nil
+        onScrollRequestCompleted?(itemID)
     }
 }

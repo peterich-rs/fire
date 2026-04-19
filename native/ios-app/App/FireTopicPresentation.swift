@@ -56,7 +56,6 @@ struct FireTopicDetailRenderState: Sendable {
     let originalRow: FirePreparedTopicTimelineRow?
     let replyRows: [FirePreparedTopicTimelineRow]
     let contentByPostID: [UInt64: FireTopicPostRenderContent]
-    let renderedPostNumbers: Set<UInt32>
 }
 
 struct FireReactionOption: Identifiable, Hashable, Sendable {
@@ -208,16 +207,10 @@ enum FireTopicPresentation {
             )
         }
 
-        var renderedPostNumbers = Set(replyRows.map(\.entry.postNumber))
-        if let originalRow {
-            renderedPostNumbers.insert(originalRow.entry.postNumber)
-        }
-
         return FireTopicDetailRenderState(
             originalRow: originalRow,
             replyRows: replyRows,
-            contentByPostID: contentByPostID,
-            renderedPostNumbers: renderedPostNumbers
+            contentByPostID: contentByPostID
         )
     }
 

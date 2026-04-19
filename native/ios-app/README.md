@@ -30,7 +30,7 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
   - delegates platform-cookie apply semantics plus bootstrap/CSRF refresh decisions to Rust instead of reimplementing them in Swift
   - relies on Rust-owned session epoch fencing so late network responses can no longer overwrite rotated `_t` / `_forum_session` cookies or revive a locally cleared session
   - now also consumes Rust-owned snapshot/auth-cookie persistence revisions so no-op bootstrap/CSRF wrappers stop exporting full session JSON just to decide whether `session.json` or Keychain need a write
-  - persists the latest Rust session snapshot as a full `Application Support/Fire/session.json` and mirrors the current Rust-owned auth cookie batch back into Keychain only when the corresponding Rust revision changes
+  - persists the latest Rust session snapshot as a full `Application Support/Fire/session.json`; routine internal write paths mirror `session.json` and Keychain only when the corresponding Rust revision changes, while explicit `persistCurrentSession()` force-refreshes both from the current snapshot
   - lets Rust initialize shared logs under `Application Support/Fire/logs`
   - wraps `syncLoginContext`, async `refreshBootstrap`, async `refreshCsrfToken`, async topic fetches, and async logout
 - `Sources/FireAppSession/APM/*`

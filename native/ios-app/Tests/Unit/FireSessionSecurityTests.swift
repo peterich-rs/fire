@@ -314,6 +314,8 @@ final class FireSessionSecurityTests: XCTestCase {
             )
         )
 
+        try "stale-session".write(to: sessionFileURL, atomically: true, encoding: .utf8)
+
         try secureStore.save(
             FireAuthCookieSecrets(
                 platformCookies: [
@@ -334,10 +336,15 @@ final class FireSessionSecurityTests: XCTestCase {
         try await store.persistCurrentSession()
 
         let secrets = try secureStore.load()
+        let persisted = try String(contentsOf: sessionFileURL, encoding: .utf8)
 
         XCTAssertEqual(secrets.tToken, "fresh-token")
         XCTAssertEqual(secrets.forumSession, "fresh-forum")
         XCTAssertEqual(secrets.platformCookies.count, 2)
+        XCTAssertFalse(persisted.contains("stale-session"))
+        XCTAssertTrue(persisted.contains("\"fresh-token\""))
+        XCTAssertTrue(persisted.contains("\"fresh-forum\""))
+        XCTAssertTrue(persisted.contains("\"csrf-token\""))
         XCTAssertTrue(
             secrets.platformCookies.contains { cookie in
                 cookie.name == "_t"

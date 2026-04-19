@@ -154,7 +154,7 @@ public actor FireSessionStore {
         let current = try core.session().snapshot()
         if !current.readiness.canReadAuthenticatedApi && shouldDiscardRestoredBootstrap(current) {
             let cleared = try core.session().logoutLocal(preserveCfClearance: true)
-            try persistCurrentSession()
+            try persistCurrentSessionIfNeeded()
             return cleared
         }
 
@@ -178,14 +178,14 @@ public actor FireSessionStore {
                 cookies: captured.cookies
             )
         )
-        try persistCurrentSession()
+        try persistCurrentSessionIfNeeded()
         return state
     }
 
     @discardableResult
     public func applyPlatformCookies(_ cookies: [PlatformCookieState]) throws -> SessionState {
         let state = try core.session().applyPlatformCookies(cookies: cookies)
-        try persistCurrentSession()
+        try persistCurrentSessionIfNeeded()
         return state
     }
 
@@ -193,35 +193,43 @@ public actor FireSessionStore {
     public func logoutLocal(preserveCfClearance: Bool = true) throws -> SessionState {
         let state = try core.session().logoutLocal(preserveCfClearance: preserveCfClearance)
         try authCookieStore.clear(preserveCfClearance: preserveCfClearance)
-        try persistCurrentSession()
+        try persistCurrentSessionIfNeeded()
         return state
     }
 
     @discardableResult
     public func refreshBootstrap() async throws -> SessionState {
         let refreshed = try await core.session().refreshBootstrap()
-        try persistCurrentSession()
+        try persistCurrentSessionIfNeeded()
         return refreshed
     }
 
     @discardableResult
     public func refreshBootstrapIfNeeded() async throws -> SessionState {
         let refreshed = try await core.session().refreshBootstrapIfNeeded()
-        try persistCurrentSession()
+        try persistCurrentSessionIfNeeded()
         return refreshed
     }
 
     @discardableResult
     public func refreshCsrfTokenIfNeeded() async throws -> SessionState {
         let refreshed = try await core.session().refreshCsrfTokenIfNeeded()
-        try persistCurrentSession()
+        try persistCurrentSessionIfNeeded()
         return refreshed
     }
 
     public func persistCurrentSession() throws {
+        try persistCurrentSession(force: true)
+    }
+
+    private func persistCurrentSessionIfNeeded() throws {
+        try persistCurrentSession(force: false)
+    }
+
+    private func persistCurrentSession(force: Bool) throws {
         let persistenceState = try currentSessionPersistenceState()
-        try persistCurrentAuthCookies(persistenceState: persistenceState)
-        try persistSessionFile(persistenceState: persistenceState)
+        try persistCurrentAuthCookies(persistenceState: persistenceState, force: force)
+        try persistSessionFile(persistenceState: persistenceState, force: force)
     }
 
     public func workspacePathValue() -> String {
@@ -835,7 +843,7 @@ public actor FireSessionStore {
     @discardableResult
     public func restoreSessionJSON(_ json: String) throws -> SessionState {
         let state = try core.session().restoreSessionJson(json: json)
-        try persistCurrentSession()
+        try persistCurrentSessionIfNeeded()
         return state
     }
 
@@ -977,9 +985,10 @@ public actor FireSessionStore {
     }
 
     private func persistCurrentAuthCookies(
-        persistenceState: SessionPersistenceState
+        persistenceState: SessionPersistenceState,
+        force: Bool
     ) throws {
-        guard persistenceState.authCookieRevision != lastPersistedAuthCookieRevision else {
+        guard force || persistenceState.authCookieRevision != lastPersistedAuthCookieRevision else {
             return
         }
 
@@ -988,9 +997,10 @@ public actor FireSessionStore {
     }
 
     private func persistSessionFile(
-        persistenceState: SessionPersistenceState
+        persistenceState: SessionPersistenceState,
+        force: Bool
     ) throws {
-        guard persistenceState.snapshotRevision != lastPersistedSnapshotRevision else {
+        guard force || persistenceState.snapshotRevision != lastPersistedSnapshotRevision else {
             return
         }
 
@@ -1142,7 +1152,7 @@ public actor FireSessionStore {
         _ operation: () async throws -> T
     ) async throws -> T {
         let result = try await operation()
-        try persistCurrentSession()
+        try persistCurrentSessionIfNeeded()
         return result
     }
 }

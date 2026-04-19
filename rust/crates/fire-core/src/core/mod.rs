@@ -60,6 +60,12 @@ pub struct FireAuthRecoveryHint {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FireSessionPersistenceState {
+    pub snapshot_revision: u64,
+    pub auth_cookie_revision: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum FireAuthChangeSource {
     DirectMutation,
     PlatformSync,
@@ -93,6 +99,8 @@ pub(crate) struct FireResponseAuthChange {
 pub(crate) struct FireSessionRuntimeState {
     pub(crate) snapshot: SessionSnapshot,
     pub(crate) epoch: u64,
+    pub(crate) snapshot_revision: u64,
+    pub(crate) auth_cookie_revision: u64,
     pub(crate) auth_recovery_hint: Option<FireAuthRecoveryHint>,
     pub(crate) last_response_auth_change: Option<FireResponseAuthChange>,
 }
@@ -135,6 +143,8 @@ impl FireCore {
                 browser_user_agent: None,
             },
             epoch: 1,
+            snapshot_revision: 1,
+            auth_cookie_revision: 1,
             auth_recovery_hint: None,
             last_response_auth_change: None,
         };
@@ -225,6 +235,14 @@ impl FireCore {
         self.current_session_epoch()
     }
 
+    pub fn session_persistence_state(&self) -> FireSessionPersistenceState {
+        let state = read_rwlock(&self.session, "session");
+        FireSessionPersistenceState {
+            snapshot_revision: state.snapshot_revision,
+            auth_cookie_revision: state.auth_cookie_revision,
+        }
+    }
+
     pub fn auth_recovery_hint(&self) -> Option<FireAuthRecoveryHint> {
         read_rwlock(&self.session, "session").auth_recovery_hint
     }
@@ -308,7 +326,9 @@ impl FireCore {
     {
         let snapshot = {
             let mut session = write_rwlock(&self.session, "session");
+            let before_snapshot = session.snapshot.clone();
             mutate(&mut session.snapshot);
+            update_session_persistence_revisions(&mut session, &before_snapshot);
             session.snapshot.clone()
         };
         notifications::reconcile_notification_runtime(&self.notifications, &snapshot);
@@ -359,9 +379,11 @@ pub(crate) fn mutate_runtime_session_tracking_auth_change<F>(
 ) where
     F: FnOnce(&mut SessionSnapshot),
 {
-    let before = auth_cookie_epoch_key(&session.snapshot);
-    let before_csrf = session.snapshot.cookies.csrf_token.clone();
+    let before_snapshot = session.snapshot.clone();
+    let before = auth_cookie_epoch_key(&before_snapshot);
+    let before_csrf = before_snapshot.cookies.csrf_token.clone();
     mutate(&mut session.snapshot);
+    update_session_persistence_revisions(session, &before_snapshot);
     let after = auth_cookie_epoch_key(&session.snapshot);
     if before == after {
         return;
@@ -407,6 +429,29 @@ fn auth_cookie_epoch_key(snapshot: &SessionSnapshot) -> FireAuthKey {
         snapshot.cookies.t_token.clone(),
         snapshot.cookies.forum_session.clone(),
     )
+}
+
+fn update_session_persistence_revisions(
+    session: &mut FireSessionRuntimeState,
+    before_snapshot: &SessionSnapshot,
+) {
+    if session.snapshot != *before_snapshot {
+        session.snapshot_revision = session.snapshot_revision.saturating_add(1);
+    }
+
+    if auth_cookie_persistence_changed(before_snapshot, &session.snapshot) {
+        session.auth_cookie_revision = session.auth_cookie_revision.saturating_add(1);
+    }
+}
+
+fn auth_cookie_persistence_changed(
+    before_snapshot: &SessionSnapshot,
+    after_snapshot: &SessionSnapshot,
+) -> bool {
+    before_snapshot.cookies.t_token != after_snapshot.cookies.t_token
+        || before_snapshot.cookies.forum_session != after_snapshot.cookies.forum_session
+        || before_snapshot.cookies.cf_clearance != after_snapshot.cookies.cf_clearance
+        || before_snapshot.cookies.platform_cookies != after_snapshot.cookies.platform_cookies
 }
 
 fn classify_auth_rotation(before: &FireAuthKey, after: &FireAuthKey) -> FireAuthRotation {

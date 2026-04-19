@@ -189,26 +189,49 @@ final class FireTopicPresentationTests: XCTestCase {
     }
 
     func testTimelineRowsBuildStableLookupForReplyRows() {
-        let detail = FireTopicPresentation.recomposedDetail(
-            makeTopicDetail(
+        let renderState = FireTopicPresentation.detailRenderState(
+            from: makeTopicDetail(
                 posts: [
                     makePost(postNumber: 1, replyToPostNumber: nil, username: "author"),
                     makePost(postNumber: 2, replyToPostNumber: 1, username: "reply-a"),
                     makePost(postNumber: 3, replyToPostNumber: 2, username: "reply-b"),
                 ],
                 stream: [1, 2, 3]
-            )
+            ),
+            baseURLString: "https://linux.do"
         )
-        let replyRows = FireTopicPresentation.timelineRows(
-            entries: detail.timelineEntries,
-            posts: detail.postStream.posts
-        ).filter { !$0.entry.isOriginalPost }
 
-        let lookup = Dictionary(uniqueKeysWithValues: replyRows.enumerated().map { ($1.entry.postNumber, $0) })
+        let lookup = Dictionary(uniqueKeysWithValues: renderState.replyRows.enumerated().map { ($1.entry.postNumber, $0) })
 
         XCTAssertEqual(lookup[2], 0)
         XCTAssertEqual(lookup[3], 1)
         XCTAssertEqual(lookup.count, 2)
+    }
+
+    func testDetailRenderStateCachesPlainTextAndImages() {
+        let detail = makeTopicDetail(
+            posts: [
+                makePost(
+                    postNumber: 1,
+                    replyToPostNumber: nil,
+                    username: "author",
+                    cooked: "<p>Hello&nbsp;Fire</p><img src=\"/uploads/default/original/1X/fire.png\" alt=\"fire\">"
+                )
+            ],
+            stream: [1]
+        )
+
+        let renderState = FireTopicPresentation.detailRenderState(
+            from: detail,
+            baseURLString: "https://linux.do"
+        )
+        let content = renderState.contentByPostID[1]
+
+        XCTAssertEqual(content?.plainText, "Hello Fire")
+        XCTAssertEqual(
+            content?.imageAttachments.first?.url.absoluteString,
+            "https://linux.do/uploads/default/original/1X/fire.png"
+        )
     }
 
     func testTopicThreadFlatPostStateCarriesRustDisplayMetadata() {
@@ -892,14 +915,15 @@ final class FireTopicPresentationTests: XCTestCase {
         replyToPostNumber: UInt32?,
         username: String,
         likeCount: UInt32 = 0,
-        reactions: [TopicReactionState] = []
+        reactions: [TopicReactionState] = [],
+        cooked: String? = nil
     ) -> TopicPostState {
         TopicPostState(
             id: UInt64(postNumber),
             username: username,
             name: nil,
             avatarTemplate: nil,
-            cooked: "<p>\(username)</p>",
+            cooked: cooked ?? "<p>\(username)</p>",
             raw: nil,
             postNumber: postNumber,
             postType: 1,

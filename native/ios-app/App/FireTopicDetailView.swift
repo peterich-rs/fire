@@ -16,6 +16,13 @@ enum FireTopicDetailViewState {
         topicDetails[topicId]
     }
 
+    static func syncedCachedRenderState(
+        topicId: UInt64,
+        topicRenderStates: [UInt64: FireTopicDetailRenderState]
+    ) -> FireTopicDetailRenderState? {
+        topicRenderStates[topicId]
+    }
+
     static func hasLoadedDetailForSubscription(liveDetail: TopicDetailState?) -> Bool {
         liveDetail != nil
     }
@@ -107,6 +114,7 @@ struct FireTopicDetailView: View {
     @State private var isLoadingTopicVoters = false
     @State private var showingTopicVoters = false
     @State private var cachedDetail: TopicDetailState?
+    @State private var cachedRenderState: FireTopicDetailRenderState?
     @FocusState private var isReplyFieldFocused: Bool
 
     init(viewModel: FireAppViewModel, row: FireTopicRowPresentation, scrollToPostNumber: UInt32? = nil) {
@@ -125,11 +133,19 @@ struct FireTopicDetailView: View {
         topicDetailStore.topicDetail(for: topic.id)
     }
 
+    private var liveRenderState: FireTopicDetailRenderState? {
+        topicDetailStore.topicRenderState(for: topic.id)
+    }
+
     private var detail: TopicDetailState? {
         FireTopicDetailViewState.resolvedDetail(
             liveDetail: liveDetail,
             cachedDetail: cachedDetail
         )
+    }
+
+    private var renderState: FireTopicDetailRenderState? {
+        liveRenderState ?? cachedRenderState
     }
 
     private var detailError: String? {
@@ -170,37 +186,34 @@ struct FireTopicDetailView: View {
         return detailTags.isEmpty ? row.tagNames : detailTags
     }
 
-    private var timelineRows: [FireTopicTimelineRow] {
-        guard let detail else {
-            return []
-        }
-        return FireTopicPresentation.timelineRows(
-            entries: detail.timelineEntries,
-            posts: detail.postStream.posts
-        )
+    private var postLookup: [UInt64: TopicPostState] {
+        Dictionary(uniqueKeysWithValues: (detail?.postStream.posts ?? []).map { ($0.id, $0) })
+    }
+
+    private var originalRow: FirePreparedTopicTimelineRow? {
+        renderState?.originalRow
     }
 
     private var originalPost: TopicPostState? {
-        if let originalPost = timelineRows.first(where: { $0.entry.isOriginalPost })?.post {
-            return originalPost
+        if let originalRow {
+            return postLookup[originalRow.entry.postId]
         }
         return detail?.postStream.posts.min(by: { $0.postNumber < $1.postNumber })
     }
 
-    private var replyTimelineRows: [FireTopicTimelineRow] {
-        let originalPostID = originalPost?.id
-        guard let originalPostID else {
-            return timelineRows
+    private var originalPostRenderContent: FireTopicPostRenderContent? {
+        guard let originalRow else {
+            return nil
         }
-        return timelineRows.filter { $0.entry.postId != originalPostID }
+        return renderState?.contentByPostID[originalRow.entry.postId]
+    }
+
+    private var replyRows: [FirePreparedTopicTimelineRow] {
+        renderState?.replyRows ?? []
     }
 
     private var renderedPostNumbers: Set<UInt32> {
-        var postNumbers = Set(replyTimelineRows.map { $0.entry.postNumber })
-        if let originalPost {
-            postNumbers.insert(originalPost.postNumber)
-        }
-        return postNumbers
+        renderState?.renderedPostNumbers ?? []
     }
 
     private var reactionOptions: [FireReactionOption] {
@@ -308,7 +321,7 @@ struct FireTopicDetailView: View {
     }
 
     private var loadedReplyCount: Int {
-        replyTimelineRows.count
+        replyRows.count
     }
 
     private var displayedInteractionCount: UInt32? {
@@ -320,7 +333,7 @@ struct FireTopicDetailView: View {
     }
 
     private var displayedFloorCount: Int {
-        replyTimelineRows.count
+        replyRows.count
     }
 
     private var trimmedReplyDraft: String {
@@ -559,11 +572,20 @@ struct FireTopicDetailView: View {
             if let current = liveDetail {
                 cachedDetail = current
             }
+            if let current = liveRenderState {
+                cachedRenderState = current
+            }
         }
         .onReceive(topicDetailStore.$topicDetails) { dict in
             cachedDetail = FireTopicDetailViewState.syncedCachedDetail(
                 topicId: topic.id,
                 topicDetails: dict
+            )
+        }
+        .onReceive(topicDetailStore.$topicRenderStates) { dict in
+            cachedRenderState = FireTopicDetailViewState.syncedCachedRenderState(
+                topicId: topic.id,
+                topicRenderStates: dict
             )
         }
         .task(id: topic.id) {
@@ -721,12 +743,14 @@ struct FireTopicDetailView: View {
                 }
             }
 
-            if let originalPost {
+            if let originalPost,
+               let originalRenderContent = originalPostRenderContent {
                 FireSwipeToReplyContainer(enabled: canWriteInteractions) {
                     openComposer(replyToPost: originalPost)
                 } content: {
                     FirePostRow(
                         post: originalPost,
+                        renderContent: originalRenderContent,
                         depth: 0,
                         replyContext: nil,
                         showsThreadLine: false,
@@ -810,7 +834,7 @@ struct FireTopicDetailView: View {
             .padding(.bottom, 14)
 
         if detail != nil {
-            let displayRows = replyTimelineRows
+            let displayRows = replyRows
 
             if displayRows.isEmpty {
                 if topicDetailStore.hasMoreTopicPosts(topicId: topic.id) {
@@ -879,15 +903,20 @@ struct FireTopicDetailView: View {
     }
 
     @ViewBuilder
-    private func replyPostRows(_ displayRows: [FireTopicTimelineRow]) -> some View {
+    private func replyPostRows(_ displayRows: [FirePreparedTopicTimelineRow]) -> some View {
         ForEach(Array(displayRows.enumerated()), id: \.element.id) { index, row in
             Group {
-                if let post = row.post {
+                if let post = postLookup[row.entry.postId] {
                     FireSwipeToReplyContainer(enabled: canWriteInteractions) {
                         openComposer(replyToPost: post)
                     } content: {
                         FirePostRow(
                             post: post,
+                            renderContent: renderState?.contentByPostID[row.entry.postId]
+                                ?? FireTopicPresentation.renderContent(
+                                    from: post.cooked,
+                                    baseURLString: baseURLString
+                                ),
                             depth: Int(row.entry.depth),
                             replyContext: row.entry.parentPostNumber.map { "回复 #\($0)" },
                             showsThreadLine: showsTimelineThreadLine(in: displayRows, at: index),
@@ -921,7 +950,7 @@ struct FireTopicDetailView: View {
         }
     }
 
-    private func showsTimelineThreadLine(in rows: [FireTopicTimelineRow], at index: Int) -> Bool {
+    private func showsTimelineThreadLine(in rows: [FirePreparedTopicTimelineRow], at index: Int) -> Bool {
         guard index < rows.count - 1 else {
             return false
         }
@@ -1489,6 +1518,7 @@ enum FireTopicReplySwipePolicy {
 
 private struct FirePostRow: View {
     let post: TopicPostState
+    let renderContent: FireTopicPostRenderContent
     let depth: Int
     let replyContext: String?
     let showsThreadLine: Bool
@@ -1506,10 +1536,6 @@ private struct FirePostRow: View {
 
     private var indentWidth: CGFloat {
         CGFloat(min(depth, Self.maxVisualDepth)) * 20
-    }
-
-    private var imageAttachments: [FireCookedImage] {
-        FireTopicPresentation.imageAttachments(from: post.cooked, baseURLString: baseURLString)
     }
 
     private var canChangeReaction: Bool {
@@ -1584,14 +1610,14 @@ private struct FirePostRow: View {
                     }
                 }
 
-                Text(plainTextFromHtml(rawHtml: post.cooked))
+                Text(renderContent.plainText)
                     .font(.subheadline)
                     .foregroundStyle(.primary.opacity(0.92))
                     .fixedSize(horizontal: false, vertical: true)
 
-                if !imageAttachments.isEmpty {
+                if !renderContent.imageAttachments.isEmpty {
                     VStack(spacing: 10) {
-                        ForEach(imageAttachments) { attachment in
+                        ForEach(renderContent.imageAttachments) { attachment in
                             Button {
                                 onOpenImage(attachment)
                             } label: {

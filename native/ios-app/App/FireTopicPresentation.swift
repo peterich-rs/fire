@@ -37,6 +37,24 @@ struct FireCookedImage: Identifiable, Hashable, Sendable {
     }
 }
 
+struct FireTopicPostRenderContent: Sendable {
+    let plainText: String
+    let imageAttachments: [FireCookedImage]
+}
+
+struct FirePreparedTopicTimelineRow: Identifiable, Sendable {
+    let entry: TopicTimelineEntryState
+
+    var id: UInt64 { entry.postId }
+}
+
+struct FireTopicDetailRenderState: Sendable {
+    let originalRow: FirePreparedTopicTimelineRow?
+    let replyRows: [FirePreparedTopicTimelineRow]
+    let contentByPostID: [UInt64: FireTopicPostRenderContent]
+    let renderedPostNumbers: Set<UInt32>
+}
+
 struct FireReactionOption: Identifiable, Hashable, Sendable {
     let id: String
     let symbol: String
@@ -158,6 +176,50 @@ enum FireTopicPresentation {
         }
 
         return images
+    }
+
+    static func renderContent(from html: String, baseURLString: String) -> FireTopicPostRenderContent {
+        FireTopicPostRenderContent(
+            plainText: plainTextFromHtml(rawHtml: html),
+            imageAttachments: imageAttachments(from: html, baseURLString: baseURLString)
+        )
+    }
+
+    static func detailRenderState(
+        from detail: TopicDetailState,
+        baseURLString: String
+    ) -> FireTopicDetailRenderState {
+        let orderedPosts = mergeTopicPosts(
+            existing: detail.postStream.posts,
+            incoming: [],
+            orderedPostIDs: detail.postStream.stream
+        )
+        let rows = rebuildTimelineEntries(from: orderedPosts).map(FirePreparedTopicTimelineRow.init)
+        let originalRow = rows.first(where: { $0.entry.isOriginalPost })
+        let replyRows = rows.filter { row in
+            row.entry.postId != originalRow?.entry.postId
+        }
+
+        var contentByPostID: [UInt64: FireTopicPostRenderContent] = [:]
+        contentByPostID.reserveCapacity(orderedPosts.count)
+        for post in orderedPosts {
+            contentByPostID[post.id] = renderContent(
+                from: post.cooked,
+                baseURLString: baseURLString
+            )
+        }
+
+        var renderedPostNumbers = Set(replyRows.map(\.entry.postNumber))
+        if let originalRow {
+            renderedPostNumbers.insert(originalRow.entry.postNumber)
+        }
+
+        return FireTopicDetailRenderState(
+            originalRow: originalRow,
+            replyRows: replyRows,
+            contentByPostID: contentByPostID,
+            renderedPostNumbers: renderedPostNumbers
+        )
     }
 
     static func minimumReplyLength(from minPostLength: UInt32) -> Int {
@@ -309,7 +371,17 @@ enum FireTopicPresentation {
     }
 
     static func interactionCount(for detail: TopicDetailState) -> UInt32 {
-        let extraReactionCount = detail.postStream.posts
+        interactionCount(
+            likeCount: detail.likeCount,
+            posts: detail.postStream.posts
+        )
+    }
+
+    static func interactionCount(
+        likeCount: UInt32,
+        posts: [TopicPostState]
+    ) -> UInt32 {
+        let extraReactionCount = posts
             .flatMap(\.reactions)
             .filter { $0.id.caseInsensitiveCompare("heart") != .orderedSame }
             .reduce(0 as UInt32) { partialResult, reaction in
@@ -317,9 +389,9 @@ enum FireTopicPresentation {
                     ? UInt32.max
                     : partialResult + reaction.count
             }
-        return detail.likeCount > UInt32.max - extraReactionCount
+        return likeCount > UInt32.max - extraReactionCount
             ? UInt32.max
-            : detail.likeCount + extraReactionCount
+            : likeCount + extraReactionCount
     }
 
     static func loadedWindowCount(detail: TopicDetailState) -> Int {

@@ -264,6 +264,22 @@ final class FireSessionSecurityTests: XCTestCase {
         XCTAssertTrue(persisted.contains("\"csrf-token\""))
     }
 
+    func testRefreshBootstrapIfNeededSkipsPersistenceWhenSessionIsUnchanged() async throws {
+        let sessionFileURL = try makeSessionFileURL(name: "refresh-bootstrap-if-needed-no-persist")
+        let secureStore = CountingAuthCookieSecureStore()
+        let store = try FireSessionStore(
+            workspacePath: try FireSessionStore.defaultWorkspacePath(),
+            sessionFilePath: sessionFileURL.path,
+            authCookieStore: secureStore
+        )
+
+        let session = try await store.refreshBootstrapIfNeeded()
+
+        XCTAssertFalse(session.readiness.canReadAuthenticatedApi)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: sessionFileURL.path))
+        XCTAssertEqual(secureStore.saveCount(), 0)
+    }
+
     func testPersistCurrentSessionRewritesSecureStoreFromCurrentSnapshot() async throws {
         let sessionFileURL = try makeSessionFileURL(name: "persist-current-session-rewrites-secure-store")
         let secureStore = InMemoryAuthCookieSecureStore()
@@ -1957,6 +1973,37 @@ private final class InMemoryAuthCookieSecureStore: FireAuthCookieSecureStore, @u
         lock.lock()
         defer { lock.unlock() }
         secrets = preserveCfClearance ? secrets.preservingCfClearanceOnly() : FireAuthCookieSecrets()
+    }
+}
+
+private final class CountingAuthCookieSecureStore: FireAuthCookieSecureStore, @unchecked Sendable {
+    private let lock = NSLock()
+    private var secrets = FireAuthCookieSecrets()
+    private var saveInvocationCount = 0
+
+    func load() throws -> FireAuthCookieSecrets {
+        lock.lock()
+        defer { lock.unlock() }
+        return secrets
+    }
+
+    func save(_ secrets: FireAuthCookieSecrets) throws {
+        lock.lock()
+        self.secrets = secrets
+        saveInvocationCount += 1
+        lock.unlock()
+    }
+
+    func clear(preserveCfClearance: Bool) throws {
+        lock.lock()
+        defer { lock.unlock() }
+        secrets = preserveCfClearance ? secrets.preservingCfClearanceOnly() : FireAuthCookieSecrets()
+    }
+
+    func saveCount() -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return saveInvocationCount
     }
 }
 

@@ -17,7 +17,12 @@ mod user_payloads;
 mod workspace;
 
 pub use config::FireCoreConfig;
-pub use core::{FireAuthRecoveryHint, FireAuthRecoveryHintReason, FireCore};
+pub use core::{
+    FireAuthRecoveryHint,
+    FireAuthRecoveryHintReason,
+    FireCore,
+    FireSessionPersistenceState,
+};
 pub use diagnostics::{
     DiagnosticsPageDirection, DiagnosticsTextPage, FireLogFileDetail, FireLogFilePage,
     FireLogFileSummary, FireSupportBundleExport, FireSupportBundleHostContext,

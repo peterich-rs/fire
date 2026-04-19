@@ -544,6 +544,49 @@ fn session_can_roundtrip_through_json_export_and_restore() {
 }
 
 #[test]
+fn session_persistence_revisions_track_snapshot_and_auth_cookie_changes() {
+    let core = FireCore::new(FireCoreConfig::default()).expect("core");
+    let initial = core.session_persistence_state();
+
+    let _ = core.apply_bootstrap(BootstrapArtifacts::default());
+    assert_eq!(core.session_persistence_state(), initial);
+
+    let _ = core.apply_bootstrap(BootstrapArtifacts {
+        current_username: Some("alice".into()),
+        ..BootstrapArtifacts::default()
+    });
+    let after_bootstrap = core.session_persistence_state();
+    assert_eq!(after_bootstrap.snapshot_revision, initial.snapshot_revision + 1);
+    assert_eq!(after_bootstrap.auth_cookie_revision, initial.auth_cookie_revision);
+
+    let _ = core.apply_platform_cookies(vec![
+        PlatformCookie {
+            name: "_t".into(),
+            value: "token".into(),
+            domain: None,
+            path: None,
+            expires_at_unix_ms: None,
+        },
+        PlatformCookie {
+            name: "_forum_session".into(),
+            value: "forum".into(),
+            domain: None,
+            path: None,
+            expires_at_unix_ms: None,
+        },
+    ]);
+    let after_cookies = core.session_persistence_state();
+    assert_eq!(
+        after_cookies.snapshot_revision,
+        after_bootstrap.snapshot_revision + 1
+    );
+    assert_eq!(
+        after_cookies.auth_cookie_revision,
+        after_bootstrap.auth_cookie_revision + 1
+    );
+}
+
+#[test]
 fn redacted_session_export_currently_returns_full_session_snapshot() {
     let core = FireCore::new(FireCoreConfig::default()).expect("core");
     let _ = core.sync_login_context(LoginSyncInput {

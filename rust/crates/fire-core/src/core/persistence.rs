@@ -2,7 +2,7 @@ use std::{fs, io, path::Path};
 
 use tracing::{debug, warn};
 
-use super::{notifications, presence, FireCore};
+use super::{notifications, presence, update_session_persistence_revisions, FireCore};
 use crate::{
     error::FireCoreError,
     session_store::{
@@ -31,7 +31,9 @@ impl FireCore {
         self.clear_topic_presence_state();
         let snapshot = {
             let mut session = write_rwlock(&self.session, "session");
+            let before_snapshot = session.snapshot.clone();
             session.snapshot = snapshot;
+            update_session_persistence_revisions(&mut session, &before_snapshot);
             session.auth_recovery_hint = None;
             session.last_response_auth_change = None;
             debug!(

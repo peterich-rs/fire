@@ -6,6 +6,7 @@ final class FireTopicDetailStore: ObservableObject {
     nonisolated private static let topicPostPrefetchThreshold = 6
 
     @Published private(set) var topicDetails: [UInt64: TopicDetailState] = [:]
+    @Published private(set) var topicRenderStates: [UInt64: FireTopicDetailRenderState] = [:]
     @Published private(set) var topicPresenceUsersByTopic: [UInt64: [TopicPresenceUserState]] = [:]
     @Published private(set) var loadingMoreTopicPostIDs: Set<UInt64> = []
     @Published private(set) var loadingTopicIDs: Set<UInt64> = []
@@ -23,6 +24,11 @@ final class FireTopicDetailStore: ObservableObject {
 
     init(appViewModel: FireAppViewModel) {
         self.appViewModel = appViewModel
+    }
+
+    private var renderBaseURLString: String {
+        let trimmed = appViewModel.session.bootstrap.baseUrl.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "https://linux.do" : trimmed
     }
 
     func applySession(_ session: SessionState) {
@@ -75,6 +81,7 @@ final class FireTopicDetailStore: ObservableObject {
         topicDetailTargetPostNumbers = [:]
         topicWindowStates = [:]
         topicDetails = [:]
+        topicRenderStates = [:]
         topicPresenceUsersByTopic = [:]
         loadingMoreTopicPostIDs = []
         loadingTopicIDs = []
@@ -206,6 +213,10 @@ final class FireTopicDetailStore: ObservableObject {
 
     func topicDetail(for topicId: UInt64) -> TopicDetailState? {
         topicDetails[topicId]
+    }
+
+    func topicRenderState(for topicId: UInt64) -> FireTopicDetailRenderState? {
+        topicRenderStates[topicId]
     }
 
     func topicPresenceUsers(for topicId: UInt64) -> [TopicPresenceUserState] {
@@ -730,6 +741,7 @@ final class FireTopicDetailStore: ObservableObject {
 
     private func evictTopicDetailState(topicId: UInt64, reason: String) {
         let removedDetail = topicDetails.removeValue(forKey: topicId) != nil
+        let removedRenderState = topicRenderStates.removeValue(forKey: topicId) != nil
         let removedWindow = topicWindowStates.removeValue(forKey: topicId) != nil
         let removedPresence = topicPresenceUsersByTopic.removeValue(forKey: topicId) != nil
         let removedLoadingTopic = loadingTopicIDs.remove(topicId) != nil
@@ -742,6 +754,7 @@ final class FireTopicDetailStore: ObservableObject {
         preloadTask?.cancel()
 
         guard removedDetail
+            || removedRenderState
             || removedWindow
             || removedPresence
             || removedLoadingTopic
@@ -758,6 +771,35 @@ final class FireTopicDetailStore: ObservableObject {
         )
     }
 
+    private func cacheTopicDetail(
+        _ detail: TopicDetailState,
+        topicId: UInt64
+    ) -> TopicDetailState {
+        var cachedDetail = detail
+        cachedDetail.postStream = TopicPostStreamState(
+            posts: FireTopicPresentation.mergeTopicPosts(
+                existing: detail.postStream.posts,
+                incoming: [],
+                orderedPostIDs: detail.postStream.stream
+            ),
+            stream: detail.postStream.stream
+        )
+        // The iOS host now renders from its own prepared row cache, so keeping a
+        // second host-retained thread/flat-post copy only inflates memory.
+        cachedDetail.thread = TopicThreadState(
+            originalPostNumber: nil,
+            replySections: []
+        )
+        cachedDetail.flatPosts = []
+
+        topicDetails[topicId] = cachedDetail
+        topicRenderStates[topicId] = FireTopicPresentation.detailRenderState(
+            from: cachedDetail,
+            baseURLString: renderBaseURLString
+        )
+        return cachedDetail
+    }
+
     private func applyTopicDetail(_ incomingDetail: TopicDetailState, topicId: UInt64) {
         var detail = incomingDetail
         if let previousDetail = topicDetails[topicId] {
@@ -767,8 +809,7 @@ final class FireTopicDetailStore: ObservableObject {
                 orderedPostIDs: detail.postStream.stream
             )
         }
-        detail = FireTopicPresentation.recomposedDetail(detail)
-        topicDetails[topicId] = detail
+        detail = cacheTopicDetail(detail, topicId: topicId)
 
         refreshTopicWindowState(
             topicId: topicId,
@@ -810,8 +851,7 @@ final class FireTopicDetailStore: ObservableObject {
         }
 
         let previousStreamCount = detail.postStream.stream.count
-        detail = FireTopicPresentation.recomposedDetail(detail)
-        topicDetails[topicId] = detail
+        detail = cacheTopicDetail(detail, topicId: topicId)
 
         var requestedRange = topicWindowStates[topicId]?.requestedRange
         if let window = topicWindowStates[topicId],
@@ -975,12 +1015,11 @@ final class FireTopicDetailStore: ObservableObject {
             incoming: posts,
             orderedPostIDs: currentDetail.postStream.stream
         )
-        let recomposed = FireTopicPresentation.recomposedDetail(currentDetail)
-        topicDetails[topicId] = recomposed
+        let cachedDetail = cacheTopicDetail(currentDetail, topicId: topicId)
 
         refreshTopicWindowState(
             topicId: topicId,
-            detail: recomposed,
+            detail: cachedDetail,
             anchorPostNumber: currentWindow.activeAnchorPostNumber,
             requestedRange: currentWindow.requestedRange,
             pendingScrollTarget: currentWindow.pendingScrollTarget
@@ -1228,7 +1267,11 @@ final class FireTopicDetailStore: ObservableObject {
         }
 
         detail.postStream.posts[postIndex] = post
-        topicDetails[topicId] = FireTopicPresentation.recomposedDetail(detail)
+        detail.interactionCount = FireTopicPresentation.interactionCount(
+            likeCount: detail.likeCount,
+            posts: detail.postStream.posts
+        )
+        _ = cacheTopicDetail(detail, topicId: topicId)
     }
 
     private func performWithTimeout<T>(

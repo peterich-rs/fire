@@ -10,7 +10,8 @@ pub mod records;
 
 pub use records::{
     AuthRecoveryHintState, BootstrapState, CookieState, LoginPhaseState, LoginSyncState,
-    PlatformCookieState, SessionReadinessState, SessionState, TopicCategoryState,
+    PlatformCookieState, SessionPersistenceState, SessionReadinessState, SessionState,
+    TopicCategoryState,
 };
 
 #[derive(uniffi::Object)]
@@ -85,6 +86,15 @@ impl FireSessionHandle {
             &self.shared.core,
             "session_epoch",
             |inner| inner.session_epoch(),
+        )
+    }
+
+    pub fn session_persistence_state(&self) -> Result<SessionPersistenceState, FireUniFfiError> {
+        run_infallible(
+            &self.shared.panic_state,
+            &self.shared.core,
+            "session_persistence_state",
+            |inner| inner.session_persistence_state().into(),
         )
     }
 

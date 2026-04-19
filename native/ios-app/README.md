@@ -29,7 +29,8 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
   - restores the persisted session snapshot on cold start, then re-injects Keychain cookies before authenticated requests
   - delegates platform-cookie apply semantics plus bootstrap/CSRF refresh decisions to Rust instead of reimplementing them in Swift
   - relies on Rust-owned session epoch fencing so late network responses can no longer overwrite rotated `_t` / `_forum_session` cookies or revive a locally cleared session
-  - persists the latest Rust session snapshot as a full `Application Support/Fire/session.json` and mirrors the current Rust-owned auth cookie batch back into Keychain whenever it changes
+  - now also consumes Rust-owned snapshot/auth-cookie persistence revisions so no-op bootstrap/CSRF wrappers stop exporting full session JSON just to decide whether `session.json` or Keychain need a write
+  - persists the latest Rust session snapshot as a full `Application Support/Fire/session.json` and mirrors the current Rust-owned auth cookie batch back into Keychain only when the corresponding Rust revision changes
   - lets Rust initialize shared logs under `Application Support/Fire/logs`
   - wraps `syncLoginContext`, async `refreshBootstrap`, async `refreshCsrfToken`, async topic fetches, and async logout
 - `Sources/FireAppSession/APM/*`
@@ -79,11 +80,14 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
   - now also treats Rust-owned `LoginRequired` invalidation the same way, clearing host-side auth cookies while preserving `cf_clearance` so passive session loss, explicit logout, and bootstrap-challenged recovery all converge on one reset path
   - now probes login sync readiness from the embedded `WKWebView` and keeps the `完成登录` button disabled until the shared login prerequisites are actually satisfied
   - now also emits host-owned APM spans for cold-start restore, login sync, bootstrap refresh, latest-feed load, topic-detail load, reply submit, notification refresh, and MessageBus start
+- `App/FireMessageBusCoordinator.swift`
+  - buffers and coalesces foreground MessageBus bursts before MainActor delivery so topic/detail/notification spikes no longer spawn one task per event on iOS
 - `App/Stores/FireHomeFeedStore.swift`
   - owns selected feed kind, selected category/tags, paginated home rows, and bootstrap-derived category/tag metadata for the authenticated home shell
   - applies MessageBus-driven home refreshes with explicit entity patching and stable ordering instead of whole-array replacement
 - `App/Stores/FireTopicDetailStore.swift`
   - owns topic-detail cache, anchor post numbers, post hydration/pagination, reply presence, and topic-detail mutation flags
+  - now builds a host-only render cache for timeline rows plus cooked text/image payloads, and drops duplicated Swift-owned `thread` / `flatPosts` copies after receipt to keep Rust as the domain owner
   - keeps topic-detail subscription, presence heartbeat, quick reply, reaction toggles, and post-edit refresh reconciliation out of `FireAppViewModel`
 - `App/Stores/FireSearchStore.swift`
   - owns the search screen's query, scope, result, paging, loading, and error state
@@ -108,6 +112,7 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
   - reports visible-post reading timings through a native viewport tracker that flushes into the shared Rust `/topics/timings` API
   - now shows live "typing" presence above the quick-reply bar while keeping the actual presence state and heartbeats in the shared layer, and lets reply-presence heartbeats reuse the same CSRF auto-repair path as other authenticated writes
   - now treats `private_message` threads as a distinct native surface, showing participant chips in the header and hiding topic-only controls that do not apply to PMs
+  - now renders from store-prepared timeline rows and cached cooked text/image payloads so SwiftUI body updates do not repeatedly join posts to timeline entries or parse post HTML
 - `App/FirePublicProfileView.swift`
   - now exposes a native private-message entry when the target profile allows direct messages, pre-filling the recipient into the shared PM composer flow
 - `App/FireBackgroundNotificationAlert.swift`
@@ -136,6 +141,7 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
 - `App/FireTopicPresentation.swift`
   - normalizes topic/post timestamps for native presentation
   - extracts inline cooked-image attachments plus enabled reaction options from bootstrap/topic HTML so the native detail view can render media and interaction affordances without a WebView
+  - now also prepares topic-detail render caches for iOS-specific row ordering and cooked post content, instead of mutating Rust-owned topic-detail payloads in Swift
   - now focuses on host-only presentation helpers after topic-row shaping, shared text helpers, and thread flattening moved into Rust
 - `Tests/Unit/FireTopicPresentationTests.swift`
   - covers the remaining Swift-owned presentation helpers plus the generated Rust-backed text and row/thread models consumed by SwiftUI
@@ -206,7 +212,7 @@ Workspace note:
 - Debug builds may also mirror that shared pipeline into the Xcode/device console, while release builds keep the shared logs in Xlog/readable-log files only.
 - Rust can resolve relative paths inside that workspace for shared file ownership such as logs, caches, or exports.
 - The current persisted session file remains `Application Support/Fire/session.json`, and iOS currently writes the full session snapshot there during the active diagnostics-heavy development phase.
-- iOS keeps the full same-site LinuxDo browser cookie batch in Keychain, including expiry metadata and distinct host/domain variants, re-injects it into Rust during cold start before any authenticated refresh path runs, and refreshes the Keychain copy when Rust receives newer auth cookies from the network.
+- iOS keeps the full same-site LinuxDo browser cookie batch in Keychain, including expiry metadata and distinct host/domain variants, re-injects it into Rust during cold start before any authenticated refresh path runs, and now refreshes the Keychain copy only when Rust's auth-cookie persistence revision advances.
 - iOS now also keeps host-owned beta crash/APM runtime state under `Application Support/Fire/ios-apm/` plus exported full APM zip archives under `Application Support/Fire/ios-apm-exports/`. Those trees are not Rust-owned and should be treated as native-only operational state.
 - Full APM zip exports are auto-cleaned: the app keeps at most the latest 3 archives and expires older exports after 24 hours. Any temporary staging directory used during zipping is removed immediately after export.
 
@@ -234,6 +240,7 @@ Current UX note:
 - Topic detail now also reports native visible-post reading timings through the shared Rust `/topics/timings` API instead of keeping that reporting path host-specific.
 - Topic detail now also listens to the shared MessageBus reaction/presence channels, refreshes live post state from Rust on matching events, and shows shared reply-presence users in the quick-reply area.
 - Topic detail now also recognizes `private_message` threads, renders participant chips in the header, and hides public-topic-only controls such as vote panels, topic editing, category/tag navigation, and topic notification settings.
+- Topic detail now prepares reply rows plus cooked text/image payloads in the store layer, so SwiftUI body updates reuse cached render content instead of repeating timeline joins and cooked HTML parsing.
 - Topic posts now render normalized native text plus inline image attachments in the detail screen, while more complex cooked modules still fall back to the lightweight native presentation instead of a full HTML/WebView renderer.
 - The app now keeps the in-app notification list synchronized from Rust-owned notification runtime state when MessageBus notification events arrive, instead of only updating the unread badge count.
 - iOS now schedules background refresh work for `/notification-alert/{userId}` and presents host-owned local notifications from a dedicated one-shot Rust MessageBus poll path.

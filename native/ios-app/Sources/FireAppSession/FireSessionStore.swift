@@ -62,11 +62,6 @@ public struct FireHostLogger: Sendable {
     }
 }
 
-private struct FirePersistedSessionArtifacts: Equatable {
-    let sessionJSON: String
-    let secureSecrets: FireAuthCookieSecrets
-}
-
 public actor FireSessionStore {
     typealias AuthenticatedWriteHostResyncProvider = @MainActor @Sendable () async throws -> [PlatformCookieState]?
 
@@ -83,6 +78,8 @@ public actor FireSessionStore {
     private var authenticatedWriteHostResyncProvider: AuthenticatedWriteHostResyncProvider?
     private var authenticatedWriteHostResyncTasks: [UInt64: Task<Void, Never>] = [:]
     private var authenticatedWriteHostResyncAttemptedEpochs: Set<UInt64> = []
+    private var lastPersistedSnapshotRevision: UInt64
+    private var lastPersistedAuthCookieRevision: UInt64
     // Keep blocking diagnostics IO off elevated Swift concurrency executors.
     private let diagnosticsQueue = DispatchQueue(
         label: "com.fire.session-store.diagnostics",
@@ -111,6 +108,9 @@ public actor FireSessionStore {
         self.workspacePath = resolvedWorkspacePath
         self.sessionFilePath = resolvedSessionFilePath
         self.authCookieStore = authCookieStore ?? FireKeychainAuthCookieStore(baseURL: resolvedBaseURL)
+        let persistenceState = try core.session().sessionPersistenceState()
+        self.lastPersistedSnapshotRevision = persistenceState.snapshotRevision
+        self.lastPersistedAuthCookieRevision = persistenceState.authCookieRevision
     }
 
     public func snapshot() throws -> SessionState {
@@ -121,7 +121,10 @@ public actor FireSessionStore {
         guard FileManager.default.fileExists(atPath: sessionFilePath) else {
             return nil
         }
-        return try core.session().loadSessionFromPath(path: sessionFilePath)
+        let state = try core.session().loadSessionFromPath(path: sessionFilePath)
+        let persistenceState = try currentSessionPersistenceState()
+        lastPersistedSnapshotRevision = persistenceState.snapshotRevision
+        return state
     }
 
     @discardableResult
@@ -203,27 +206,22 @@ public actor FireSessionStore {
 
     @discardableResult
     public func refreshBootstrapIfNeeded() async throws -> SessionState {
-        let before = try persistedSessionArtifacts()
         let refreshed = try await core.session().refreshBootstrapIfNeeded()
-        if try persistedSessionArtifacts() != before {
-            try persistCurrentSession()
-        }
+        try persistCurrentSession()
         return refreshed
     }
 
     @discardableResult
     public func refreshCsrfTokenIfNeeded() async throws -> SessionState {
-        let before = try persistedSessionArtifacts()
         let refreshed = try await core.session().refreshCsrfTokenIfNeeded()
-        if try persistedSessionArtifacts() != before {
-            try persistCurrentSession()
-        }
+        try persistCurrentSession()
         return refreshed
     }
 
     public func persistCurrentSession() throws {
-        try persistCurrentAuthCookies()
-        try persistSessionFile()
+        let persistenceState = try currentSessionPersistenceState()
+        try persistCurrentAuthCookies(persistenceState: persistenceState)
+        try persistSessionFile(persistenceState: persistenceState)
     }
 
     public func workspacePathValue() -> String {
@@ -920,12 +918,15 @@ public actor FireSessionStore {
         }
         let state = try await core.session().logoutRemote(preserveCfClearance: true)
         try authCookieStore.save(FireAuthCookieSecrets(cookieState: state.cookies))
+        let persistenceState = try currentSessionPersistenceState()
+        lastPersistedAuthCookieRevision = persistenceState.authCookieRevision
         try clearPersistedSession()
         return state
     }
 
     public func clearPersistedSession() throws {
         try core.session().clearSessionPath(path: sessionFilePath)
+        lastPersistedSnapshotRevision = 0
     }
 
     public static func defaultWorkspacePath(fileManager: FileManager = .default) throws -> String {
@@ -971,19 +972,30 @@ public actor FireSessionStore {
             && !session.readiness.hasCsrfToken
     }
 
-    private func persistedSessionArtifacts() throws -> FirePersistedSessionArtifacts {
-        FirePersistedSessionArtifacts(
-            sessionJSON: try core.session().exportSessionJson(),
-            secureSecrets: FireAuthCookieSecrets(cookieState: try core.session().snapshot().cookies)
-        )
+    private func currentSessionPersistenceState() throws -> SessionPersistenceState {
+        try core.session().sessionPersistenceState()
     }
 
-    private func persistCurrentAuthCookies() throws {
+    private func persistCurrentAuthCookies(
+        persistenceState: SessionPersistenceState
+    ) throws {
+        guard persistenceState.authCookieRevision != lastPersistedAuthCookieRevision else {
+            return
+        }
+
         try authCookieStore.save(FireAuthCookieSecrets(cookieState: try core.session().snapshot().cookies))
+        lastPersistedAuthCookieRevision = persistenceState.authCookieRevision
     }
 
-    private func persistSessionFile() throws {
+    private func persistSessionFile(
+        persistenceState: SessionPersistenceState
+    ) throws {
+        guard persistenceState.snapshotRevision != lastPersistedSnapshotRevision else {
+            return
+        }
+
         try core.session().saveSessionToPath(path: sessionFilePath)
+        lastPersistedSnapshotRevision = persistenceState.snapshotRevision
     }
 
     private func authenticatedWritePreflightContext() throws -> AuthenticatedWritePreflightContext {
@@ -1129,11 +1141,8 @@ public actor FireSessionStore {
     private func runPersistingSessionChanges<T>(
         _ operation: () async throws -> T
     ) async throws -> T {
-        let before = try persistedSessionArtifacts()
         let result = try await operation()
-        if try persistedSessionArtifacts() != before {
-            try persistCurrentSession()
-        }
+        try persistCurrentSession()
         return result
     }
 }

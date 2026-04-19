@@ -1,4 +1,7 @@
-use fire_core::{FireAuthRecoveryHint, FireAuthRecoveryHintReason};
+use fire_core::{
+    FireAuthRecoveryHint, FireAuthRecoveryHintReason,
+    FireSessionPersistenceState as CoreSessionPersistenceState,
+};
 use fire_models::{
     BootstrapArtifacts, CookieSnapshot, LoginPhase, LoginSyncInput, PlatformCookie,
     SessionReadiness, SessionSnapshot, TopicCategory,
@@ -32,6 +35,21 @@ impl From<FireAuthRecoveryHint> for AuthRecoveryHintState {
         Self {
             observed_epoch: value.observed_epoch,
             reason: value.reason.into(),
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct SessionPersistenceState {
+    pub snapshot_revision: u64,
+    pub auth_cookie_revision: u64,
+}
+
+impl From<CoreSessionPersistenceState> for SessionPersistenceState {
+    fn from(value: CoreSessionPersistenceState) -> Self {
+        Self {
+            snapshot_revision: value.snapshot_revision,
+            auth_cookie_revision: value.auth_cookie_revision,
         }
     }
 }

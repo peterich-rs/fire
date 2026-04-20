@@ -1,5 +1,11 @@
 # iOS ListKit Home Migration
 
+Current repo state: topic detail has since also moved onto the shared
+collection-host ListKit foundation under
+`native/ios-app/App/ListKit/TopicDetail/FireTopicDetailCollectionView.swift`.
+This document remains the original home-only migration record for the first
+slice on `refactor/ios-store-split`.
+
 This note records the first W3 migration slice on `refactor/ios-store-split`:
 the authenticated home feed now runs on the new collection-host ListKit
 foundation instead of SwiftUI `List`.
@@ -47,12 +53,15 @@ The new shared ListKit layer currently provides:
 
 - `FireCollectionHost`
   - SwiftUI wrapper around a generic collection-backed controller
+  - shared plain-list layout helper for screens that want the neutral Fire list surface
 - `FireDiffableListController`
   - diffable snapshot apply
   - top-visible-item + relative-offset preservation across updates
   - visible-item publication
   - scroll-metrics publication
   - native `UIRefreshControl` bridge
+  - scroll requests keyed by logical request identity so a surface can explicitly
+    retry the same target without depending on a nil-reset round-trip
 - `FireListSectionModel`
   - minimal typed section/item container shared by future migrations
 

@@ -82,8 +82,6 @@ private enum FireTopicNotificationLevelOption: Int32, CaseIterable, Identifiable
 }
 
 struct FireTopicDetailView: View {
-    fileprivate static let scrollCoordinateSpaceName = "fire-topic-detail-scroll"
-
     static func topicDetailSubscriptionTaskID(
         topicId: UInt64,
         canOpenMessageBus: Bool,
@@ -98,7 +96,6 @@ struct FireTopicDetailView: View {
     let scrollToPostNumber: UInt32?
 
     @Environment(\.scenePhase) private var scenePhase
-    @Environment(\.colorScheme) private var colorScheme
     @State private var composerContext: FireReplyComposerContext?
     @State private var advancedComposerContext: FireReplyComposerContext?
     @State private var replyDraft = ""
@@ -148,10 +145,6 @@ struct FireTopicDetailView: View {
         liveRenderState ?? cachedRenderState
     }
 
-    private var detailError: String? {
-        topicDetailStore.errorMessage
-    }
-
     private var displayedTopicTitle: String {
         let trimmedDetailTitle = detail?.title.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if !trimmedDetailTitle.isEmpty {
@@ -174,18 +167,6 @@ struct FireTopicDetailView: View {
         detail?.categoryId ?? topic.categoryId
     }
 
-    private var displayedCategory: FireTopicCategoryPresentation? {
-        viewModel.categoryPresentation(for: displayedCategoryId)
-    }
-
-    private var displayedTagNames: [String] {
-        let detailTags = detail?.tags
-            .map(\.name)
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty } ?? []
-        return detailTags.isEmpty ? row.tagNames : detailTags
-    }
-
     private var postLookup: [UInt64: TopicPostState] {
         Dictionary(uniqueKeysWithValues: (detail?.postStream.posts ?? []).map { ($0.id, $0) })
     }
@@ -201,19 +182,8 @@ struct FireTopicDetailView: View {
         return detail?.postStream.posts.min(by: { $0.postNumber < $1.postNumber })
     }
 
-    private var originalPostRenderContent: FireTopicPostRenderContent? {
-        guard let originalRow else {
-            return nil
-        }
-        return renderState?.contentByPostID[originalRow.entry.postId]
-    }
-
     private var replyRows: [FirePreparedTopicTimelineRow] {
         renderState?.replyRows ?? []
-    }
-
-    private var renderedPostNumbers: Set<UInt32> {
-        renderState?.renderedPostNumbers ?? []
     }
 
     private var reactionOptions: [FireReactionOption] {
@@ -261,36 +231,6 @@ struct FireTopicDetailView: View {
         FireTopicPresentation.isPrivateMessageArchetype(detail?.archetype)
     }
 
-    private var displayedParticipants: [TopicParticipantState] {
-        guard isPrivateMessageThread else {
-            return []
-        }
-
-        let source = !(detail?.details.participants.isEmpty ?? true)
-            ? detail?.details.participants ?? []
-            : topic.participants
-        var participants: [TopicParticipantState] = []
-        let currentUsername = viewModel.session.bootstrap.currentUsername?.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        for participant in source {
-            let normalizedUsername = participant.username?
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            if let currentUsername,
-               normalizedUsername?.caseInsensitiveCompare(currentUsername) == .orderedSame {
-                continue
-            }
-
-            let stableID = normalizedUsername?.lowercased() ?? "id:\(participant.userId)"
-            if participants.contains(where: {
-                ($0.username?.lowercased() ?? "id:\($0.userId)") == stableID
-            }) {
-                continue
-            }
-            participants.append(participant)
-        }
-        return participants
-    }
-
     private var topicBookmarkContext: FireBookmarkEditorContext {
         FireBookmarkEditorContext(
             bookmarkID: detail?.bookmarkId,
@@ -311,29 +251,6 @@ struct FireTopicDetailView: View {
                 liveDetail: liveDetail
             )
         )
-    }
-
-    private var displayedReplyCount: UInt32 {
-        if let detail {
-            return max(detail.postsCount, 1) - 1
-        }
-        return topic.replyCount
-    }
-
-    private var loadedReplyCount: Int {
-        replyRows.count
-    }
-
-    private var displayedInteractionCount: UInt32? {
-        detail.map(FireTopicPresentation.interactionCount(for:))
-    }
-
-    private var displayedViewsCount: UInt32 {
-        detail?.views ?? topic.views
-    }
-
-    private var displayedFloorCount: Int {
-        replyRows.count
     }
 
     private var trimmedReplyDraft: String {
@@ -362,33 +279,40 @@ struct FireTopicDetailView: View {
     }
 
     var body: some View {
-        return GeometryReader { geometry in
-            ScrollViewReader { scrollProxy in
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 0) {
-                        topicHeaderSection
-                            .padding(.bottom, 18)
-                        postsSection
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.top, 12)
-                    .padding(.bottom, 24)
-                }
-                .coordinateSpace(name: Self.scrollCoordinateSpaceName)
-                .onPreferenceChange(FireVisiblePostFramePreferenceKey.self) { frames in
-                    updateVisiblePostFrames(
-                        frames,
-                        viewportHeight: geometry.size.height
-                    )
-                }
-                .onChange(of: detail?.postStream.posts.count) { _, _ in
-                    scrollToTargetPostIfNeeded(proxy: scrollProxy)
-                }
-                .task(id: pendingScrollTarget) {
-                    scrollToTargetPostIfNeeded(proxy: scrollProxy)
-                }
-            }
-        }
+        FireTopicDetailCollectionView(
+            viewModel: viewModel,
+            row: row,
+            detail: detail,
+            renderState: renderState,
+            pendingScrollTarget: pendingScrollTarget,
+            canWriteInteractions: canWriteInteractions,
+            onVisiblePostNumbersChanged: handleVisiblePostNumbersChanged(_:),
+            onRefresh: {
+                timingTracker.recordInteraction()
+                topicDetailStore.clearTopicDetailAnchor(topicId: topic.id)
+                await topicDetailStore.loadTopicDetail(topicId: topic.id, force: true)
+            },
+            onScrollTargetHandled: { postNumber in
+                topicDetailStore.markScrollTargetSatisfied(topicId: topic.id, postNumber: postNumber)
+            },
+            onOpenComposer: openComposer(replyToPost:),
+            onOpenImage: { selectedImage = $0 },
+            onToggleLike: { toggleLike(for: $0) },
+            onSelectReaction: { post, reactionId in
+                toggleReaction(reactionId, for: post)
+            },
+            onEditPost: { post in
+                postEditorContext = FirePostEditorContext(postID: post.id, postNumber: post.postNumber)
+            },
+            onVotePoll: { post, poll, options in
+                submitPollVote(for: post, poll: poll, options: options)
+            },
+            onUnvotePoll: { post, poll in
+                removePollVote(for: post, poll: poll)
+            },
+            onToggleTopicVote: toggleTopicVote,
+            onShowTopicVoters: presentTopicVoters
+        )
         .navigationTitle("话题")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.hidden, for: .tabBar)
@@ -549,6 +473,22 @@ struct FireTopicDetailView: View {
             FireTopicImageViewer(image: image)
         }
         .scrollDismissesKeyboard(.interactively)
+        .task(id: pendingScrollTarget) {
+            guard let pendingScrollTarget else {
+                return
+            }
+            guard FireTopicDetailCollectionAdapter.scrollItem(
+                for: pendingScrollTarget,
+                topicID: topic.id,
+                originalPostNumber: originalPost?.postNumber,
+                replyRows: replyRows
+            ) == nil else {
+                return
+            }
+            if topicDetailStore.isScrollTargetExhausted(topicId: topic.id, postNumber: pendingScrollTarget) {
+                topicDetailStore.markScrollTargetSatisfied(topicId: topic.id, postNumber: pendingScrollTarget)
+            }
+        }
         .alert("提示", isPresented: Binding(
             get: { composerNotice != nil },
             set: { presenting in
@@ -560,11 +500,6 @@ struct FireTopicDetailView: View {
             Button("知道了", role: .cancel) {}
         } message: {
             Text(composerNotice ?? "")
-        }
-        .refreshable {
-            timingTracker.recordInteraction()
-            topicDetailStore.clearTopicDetailAnchor(topicId: topic.id)
-            await topicDetailStore.loadTopicDetail(topicId: topic.id, force: true)
         }
         .onAppear {
             topicDetailStore.beginTopicDetailLifecycle(topicId: topic.id, ownerToken: detailOwnerToken)
@@ -655,367 +590,7 @@ struct FireTopicDetailView: View {
         "ios.topic-detail.\(topicId).\(UUID().uuidString.lowercased())"
     }
 
-    private func scrollToTargetPostIfNeeded(proxy: ScrollViewProxy) {
-        guard let target = pendingScrollTarget else {
-            return
-        }
-
-        if topicDetailStore.isScrollTargetExhausted(topicId: topic.id, postNumber: target) {
-            topicDetailStore.markScrollTargetSatisfied(topicId: topic.id, postNumber: target)
-            return
-        }
-
-        guard renderedPostNumbers.contains(target) else { return }
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-            withAnimation(.easeInOut(duration: 0.3)) {
-                proxy.scrollTo(target, anchor: .top)
-            }
-        }
-        topicDetailStore.markScrollTargetSatisfied(topicId: topic.id, postNumber: target)
-    }
-
-    private var topicHeaderSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(displayedTopicTitle)
-                .font(.title3.weight(.bold))
-
-            FlowLayout(spacing: 6, fallbackWidth: max(UIScreen.main.bounds.width - 40, 200)) {
-                if isPrivateMessageThread {
-                    FireStatusChip(label: "私信", tone: .accent)
-
-                    ForEach(displayedParticipants, id: \.userId) { participant in
-                        let label = (participant.name ?? "").ifEmpty(participant.username ?? "用户 \(participant.userId)")
-                        Text("@\(label)")
-                            .font(.caption2.weight(.medium))
-                            .foregroundStyle(.indigo)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(Color.indigo.opacity(0.12), in: Capsule())
-                    }
-                } else {
-                    if let displayedCategory {
-                        let accent = Color(fireHex: displayedCategory.colorHex) ?? FireTheme.accent
-                        NavigationLink {
-                            FireFilteredTopicListView(
-                                viewModel: viewModel,
-                                title: displayedCategory.displayName,
-                                categorySlug: displayedCategory.slug,
-                                categoryId: displayedCategory.id,
-                                parentCategorySlug: nil,
-                                tag: nil
-                            )
-                        } label: {
-                            FireTopicPill(
-                                label: displayedCategory.displayName,
-                                backgroundColor: FireTheme.categoryChipBackground(accent: accent, isDark: colorScheme == .dark),
-                                foregroundColor: accent
-                            )
-                        }
-                        .buttonStyle(.plain)
-                    }
-
-                    ForEach(displayedTagNames, id: \.self) { tagName in
-                        NavigationLink {
-                            FireFilteredTopicListView(
-                                viewModel: viewModel,
-                                title: "#\(tagName)",
-                                categorySlug: nil,
-                                categoryId: nil,
-                                parentCategorySlug: nil,
-                                tag: tagName
-                            )
-                        } label: {
-                            Text("#\(tagName)")
-                                .font(.caption2.weight(.medium))
-                                .foregroundStyle(FireTheme.tagChipForeground)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 3)
-                                .background(FireTheme.tagChipBackground)
-                                .clipShape(Capsule())
-                        }
-                        .buttonStyle(.plain)
-                    }
-
-                    ForEach(row.statusLabels, id: \.self) { label in
-                        FireStatusChip(label: label, tone: .accent)
-                    }
-                }
-            }
-
-            if let originalPost,
-               let originalRenderContent = originalPostRenderContent {
-                FireSwipeToReplyContainer(enabled: canWriteInteractions) {
-                    openComposer(replyToPost: originalPost)
-                } content: {
-                    FirePostRow(
-                        post: originalPost,
-                        renderContent: originalRenderContent,
-                        depth: 0,
-                        replyContext: nil,
-                        showsThreadLine: false,
-                        baseURLString: baseURLString,
-                        canWriteInteractions: canWriteInteractions,
-                        isMutating: topicDetailStore.isMutatingPost(postId: originalPost.id),
-                        onOpenImage: { selectedImage = $0 },
-                        onToggleLike: { toggleLike(for: $0) },
-                        onSelectReaction: { post, reactionId in
-                            toggleReaction(reactionId, for: post)
-                        },
-                        onEditPost: { postEditorContext = FirePostEditorContext(postID: $0.id, postNumber: $0.postNumber) },
-                        onVotePoll: { post, poll, options in
-                            submitPollVote(for: post, poll: poll, options: options)
-                        },
-                        onUnvotePoll: { post, poll in
-                            removePollVote(for: post, poll: poll)
-                        }
-                    )
-                }
-                .id(originalPost.postNumber)
-                .background(FireVisiblePostFrameReporter(postNumber: originalPost.postNumber))
-            } else if let excerpt = row.excerptText {
-                Text(excerpt)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            Divider()
-
-            HStack(spacing: 20) {
-                statLabel(value: "\(displayedReplyCount)", label: "回复")
-                statLabel(value: "\(displayedViewsCount)", label: "浏览")
-                statLabel(value: displayedInteractionCount.map(String.init) ?? "…", label: "互动")
-            }
-            .padding(.vertical, 4)
-
-            if let detail,
-               !isPrivateMessageThread,
-               detail.canVote || detail.userVoted || detail.voteCount > 0 {
-                topicVotePanel(detail)
-            }
-        }
-        .padding(.vertical, 4)
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private func statLabel(value: String, label: String) -> some View {
-        VStack(spacing: 2) {
-            Text(value)
-                .font(.subheadline.monospacedDigit().weight(.semibold))
-            Text(label)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity)
-    }
-
-    private var postsSectionHeader: some View {
-        HStack {
-            Text("回复")
-                .font(.headline)
-            Spacer()
-            if let detail {
-                let totalReplyCount = max(Int(detail.postsCount) - 1, 0)
-                if loadedReplyCount < totalReplyCount {
-                    Text("已加载 \(loadedReplyCount) / \(totalReplyCount) 条")
-                        .foregroundStyle(.secondary)
-                } else {
-                    Text("\(totalReplyCount) 条 · \(displayedFloorCount) 楼")
-                        .foregroundStyle(.secondary)
-                }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var postsSection: some View {
-        postsSectionHeader
-            .padding(.bottom, 14)
-
-        if detail != nil {
-            let displayRows = replyRows
-
-            if displayRows.isEmpty {
-                if topicDetailStore.hasMoreTopicPosts(topicId: topic.id) {
-                    FireTopicPostsLoadingFooter()
-                        .padding(.vertical, 16)
-                        .task(id: topic.id) {
-                            let seedVisiblePostNumbers = originalPost.map { Set([ $0.postNumber ]) } ?? []
-                            topicDetailStore.preloadTopicPostsIfNeeded(
-                                topicId: topic.id,
-                                visiblePostNumbers: seedVisiblePostNumbers
-                            )
-                        }
-                } else {
-                    Text("还没有回复")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .center)
-                        .padding(.vertical, 24)
-                }
-            } else {
-                replyPostRows(displayRows)
-
-                if topicDetailStore.isLoadingMoreTopicPosts(topicId: topic.id) {
-                    FireTopicPostsLoadingFooter()
-                        .padding(.top, 12)
-                }
-            }
-        } else if topicDetailStore.isLoadingTopic(topicId: topic.id) {
-            HStack {
-                Spacer()
-                VStack(spacing: 8) {
-                    ProgressView()
-                    Text("加载中…")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                .padding(.vertical, 30)
-                Spacer()
-            }
-        } else if let detailError {
-            VStack(spacing: 8) {
-                Text(detailError)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-
-                Button("重试") {
-                    Task {
-                        await topicDetailStore.loadTopicDetail(topicId: topic.id, force: true)
-                    }
-                }
-                .buttonStyle(.bordered)
-                .tint(FireTheme.accent)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 20)
-        } else {
-            Button("加载帖子") {
-                Task {
-                    await topicDetailStore.loadTopicDetail(topicId: topic.id, force: true)
-                }
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 20)
-        }
-    }
-
-    @ViewBuilder
-    private func replyPostRows(_ displayRows: [FirePreparedTopicTimelineRow]) -> some View {
-        ForEach(Array(displayRows.enumerated()), id: \.element.id) { index, row in
-            Group {
-                if let post = postLookup[row.entry.postId] {
-                    FireSwipeToReplyContainer(enabled: canWriteInteractions) {
-                        openComposer(replyToPost: post)
-                    } content: {
-                        FirePostRow(
-                            post: post,
-                            renderContent: renderState?.contentByPostID[row.entry.postId]
-                                ?? FireTopicPresentation.renderContent(
-                                    from: post.cooked,
-                                    baseURLString: baseURLString
-                                ),
-                            depth: Int(row.entry.depth),
-                            replyContext: row.entry.parentPostNumber.map { "回复 #\($0)" },
-                            showsThreadLine: showsTimelineThreadLine(in: displayRows, at: index),
-                            baseURLString: baseURLString,
-                            canWriteInteractions: canWriteInteractions,
-                            isMutating: topicDetailStore.isMutatingPost(postId: post.id),
-                            onOpenImage: { selectedImage = $0 },
-                            onToggleLike: { toggleLike(for: $0) },
-                            onSelectReaction: { post, reactionId in
-                                toggleReaction(reactionId, for: post)
-                            },
-                            onEditPost: { postEditorContext = FirePostEditorContext(postID: $0.id, postNumber: $0.postNumber) },
-                            onVotePoll: { post, poll, options in
-                                submitPollVote(for: post, poll: poll, options: options)
-                            },
-                            onUnvotePoll: { post, poll in
-                                removePollVote(for: post, poll: poll)
-                            }
-                        )
-                    }
-                } else {
-                    FireTopicPostPlaceholder(depth: Int(row.entry.depth))
-                }
-            }
-            .id(row.entry.postNumber)
-            .background(FireVisiblePostFrameReporter(postNumber: row.entry.postNumber))
-
-            if index != displayRows.count - 1 {
-                Divider()
-            }
-        }
-    }
-
-    private func showsTimelineThreadLine(in rows: [FirePreparedTopicTimelineRow], at index: Int) -> Bool {
-        guard index < rows.count - 1 else {
-            return false
-        }
-        return rows[index + 1].entry.depth >= rows[index].entry.depth
-    }
-
-    private func topicVotePanel(_ detail: TopicDetailState) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 10) {
-                Label("\(detail.voteCount) 票", systemImage: "hand.thumbsup.fill")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(FireTheme.accent)
-
-                if detail.userVoted {
-                    Text("你已投票")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.green)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(Color.green.opacity(0.12), in: Capsule())
-                }
-
-                Spacer()
-            }
-
-            HStack(spacing: 10) {
-                Button {
-                    Task { await toggleTopicVote() }
-                } label: {
-                    Text(detail.userVoted ? "取消投票" : "投一票")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(detail.userVoted ? FireTheme.subtleInk : .white)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 8)
-                        .background(
-                            detail.userVoted ? FireTheme.softSurface : FireTheme.accent,
-                            in: Capsule()
-                        )
-                }
-                .buttonStyle(.plain)
-                .disabled(!canWriteInteractions)
-
-                Button {
-                    Task { await presentTopicVoters() }
-                } label: {
-                    Label("查看投票用户", systemImage: "person.3")
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(FireTheme.accent)
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .padding(14)
-        .background(FireTheme.softSurface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-    }
-
-    private func updateVisiblePostFrames(
-        _ frames: [UInt32: CGRect],
-        viewportHeight: CGFloat
-    ) {
-        let visiblePostNumbers = Set(
-            frames.compactMap { postNumber, frame in
-                frame.maxY > 0 && frame.minY < viewportHeight ? postNumber : nil
-            }
-        )
+    private func handleVisiblePostNumbersChanged(_ visiblePostNumbers: Set<UInt32>) {
         timingTracker.updateVisiblePostNumbers(visiblePostNumbers)
 
         topicDetailStore.preloadTopicPostsIfNeeded(
@@ -1373,29 +948,6 @@ struct FireTopicDetailView: View {
     }
 }
 
-private struct FireVisiblePostFrameReporter: View {
-    let postNumber: UInt32
-
-    var body: some View {
-        GeometryReader { proxy in
-            Color.clear.preference(
-                key: FireVisiblePostFramePreferenceKey.self,
-                value: [
-                    postNumber: proxy.frame(in: .named(FireTopicDetailView.scrollCoordinateSpaceName))
-                ]
-            )
-        }
-    }
-}
-
-private struct FireVisiblePostFramePreferenceKey: PreferenceKey {
-    static var defaultValue: [UInt32: CGRect] = [:]
-
-    static func reduce(value: inout [UInt32: CGRect], nextValue: () -> [UInt32: CGRect]) {
-        value.merge(nextValue(), uniquingKeysWith: { _, latest in latest })
-    }
-}
-
 private struct FireTypingPresenceStrip: View {
     let users: [TopicPresenceUserState]
     let baseURLString: String
@@ -1436,7 +988,7 @@ private struct FireTypingPresenceStrip: View {
     }
 }
 
-private struct FireTopicPostsLoadingFooter: View {
+struct FireTopicPostsLoadingFooter: View {
     var body: some View {
         HStack(spacing: 10) {
             ProgressView()
@@ -1451,7 +1003,7 @@ private struct FireTopicPostsLoadingFooter: View {
     }
 }
 
-private struct FireTopicPostPlaceholder: View {
+struct FireTopicPostPlaceholder: View {
     let depth: Int
 
     private static let maxVisualDepth = 3
@@ -1516,7 +1068,7 @@ enum FireTopicReplySwipePolicy {
     }
 }
 
-private struct FirePostRow: View {
+struct FirePostRow: View {
     let post: TopicPostState
     let renderContent: FireTopicPostRenderContent
     let depth: Int
@@ -2309,7 +1861,7 @@ private struct FireTopicImageViewer: View {
     }
 }
 
-private struct FireSwipeToReplyContainer<Content: View>: View {
+struct FireSwipeToReplyContainer<Content: View>: View {
     let enabled: Bool
     let onSwipeReply: () -> Void
     @ViewBuilder let content: () -> Content

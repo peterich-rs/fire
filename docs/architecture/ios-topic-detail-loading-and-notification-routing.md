@@ -2,6 +2,8 @@
 
 Status update (2026-04-19): the incremental payload-reduction slice landed by trimming `TopicDetailState` over UniFFI down to canonical topic scalars, `post_stream`, and `details`. Swift now rebuilds local floor-order timeline metadata from `post_stream.posts` for render-cache and hydration decisions, so duplicate `thread`, `flat_posts`, `timeline_entries`, and `interaction_count` copies no longer cross the host boundary.
 
+Status update (2026-04-19, later): topic detail has since also moved onto the shared ListKit collection host via `native/ios-app/App/ListKit/TopicDetail/FireTopicDetailCollectionView.swift`. References below to `ScrollView`, `ScrollViewReader`, or geometry-preference viewport reporting describe the earlier pre-ListKit host unless a section explicitly calls out current code.
+
 ## Feasibility Assessment
 
 The latest `main` already contains the hard parts needed for this slice: Rust `fetch_topic_detail_initial` in `rust/crates/fire-core/src/core/topics.rs` (line 19) already supports anchored `/t/{topicId}/{postNumber}.json` reads and intentionally keeps partial `post_stream` payloads (`rust/crates/fire-core/tests/network.rs`, lines 1001-1038), Swift topic-detail state is isolated in `native/ios-app/App/Stores/FireTopicDetailStore.swift` (lines 62, 527, 650, 764), and app-wide route delivery already flows through `native/ios-app/App/FireNavigationState.swift` (lines 7-10), `native/ios-app/App/Routing/FireRouteParser.swift` (line 28), and `native/ios-app/App/FireAppDelegate.swift` (line 31). MessageBus alert parsing already carries `post_url` in Rust and UniFFI (`rust/crates/fire-core/src/core/messagebus.rs`, line 1044; `rust/crates/fire-uniffi/src/state_messagebus.rs`, line 200), so reliable notification tap-through does not need a backend contract change. The work is local and mechanical: replace prefix-window assumptions with anchor-aware range state, treat route anchors as one-shot state instead of a long-lived refresh default, collapse redundant topic-detail presentation shapes, and make target scrolling retry until the row is actually loaded. Fully feasible.
@@ -15,9 +17,9 @@ The latest `main` already contains the hard parts needed for this slice: Rust `f
 - `native/ios-app/App/Stores/FireTopicDetailStore.swift` `applyTopicDetail` (line 650) -- merges incoming detail, normalizes `post_stream.posts` order, and seeds anchor-aware hydration plus the host render cache.
 - `native/ios-app/App/Stores/FireTopicDetailStore.swift` `hydrateTopicPostsToTargetIfNeeded` (line 764) -- incremental fetch loop; currently resolves missing posts against the start of `post_stream.stream`, not the anchored window the user is reading.
 - `native/ios-app/App/FireTopicPresentation.swift` `loadedWindowCount` / `missingPostIDs` (lines 248, 274) -- prefix-based hydration helpers that treat “loaded” as a contiguous stream head.
-- `native/ios-app/App/FireTopicDetailView.swift` `onPreferenceChange(FireVisiblePostFramePreferenceKey...)` (line 356) -- visible-post callback used to trigger preload.
-- `native/ios-app/App/FireTopicDetailView.swift` `scrollToTargetPostIfNeeded` (line 614) -- scroll retry path; it must fire for cached targets too, not only when post counts change.
-- `native/ios-app/App/FireTopicDetailView.swift` `replyPostRows` (line 851) and `FireVisiblePostFrameReporter` (line 1310) -- row rendering and viewport reporting for long threads.
+- `native/ios-app/App/ListKit/TopicDetail/FireTopicDetailCollectionView.swift` `handleVisibleItemsChanged(_:)` plus `native/ios-app/App/FireTopicDetailView.swift` `handleVisiblePostNumbersChanged(_:)` -- visible-post callback used to trigger preload and reading-time timing.
+- `native/ios-app/App/ListKit/TopicDetail/FireTopicDetailCollectionView.swift` `scrollRequest` plus `native/ios-app/App/ListKit/FireDiffableListController.swift` `applyScrollRequestIfNeeded()` -- scroll retry path; the request stays pending until the target collection item exists in the diffable snapshot.
+- `native/ios-app/App/ListKit/TopicDetail/FireTopicDetailCollectionView.swift` `replyRow(for:)` plus `FireTopicDetailCollectionAdapter.visiblePostNumbers(...)` -- row rendering and viewport reporting for long threads.
 - `rust/crates/fire-core/src/core/topics.rs` `fetch_topic_detail_initial` (line 19) -- anchored initial read that intentionally preserves a partial stream.
 - `rust/crates/fire-core/src/core/topics.rs` `hydrate_topic_detail_posts` (line 229) -- full missing-post hydration path used by the non-initial fetch.
 - `rust/crates/fire-models/src/topic_detail.rs` `TopicThread::from_posts` / `flatten` (lines 245, 339) -- current thread-first/depth-first presentation order.
@@ -28,7 +30,7 @@ The latest `main` already contains the hard parts needed for this slice: Rust `f
 - `native/ios-app/App/FireBackgroundNotificationAlert.swift` `present(alert:)` (line 111) -- builds local notification payloads; currently omits `postUrl` even though Rust provides it.
 - `native/ios-app/App/Routing/FireRouteParser.swift` `route(fromNotificationUserInfo:)` (line 28) -- system-notification parser; currently requires `topicId` and ignores `postUrl` fallback.
 - `native/ios-app/App/FireHomeView.swift` `consumePendingRouteIfVisible` (line 137) and `native/ios-app/App/FireTabRoot.swift` `selectTabForPendingRouteIfReady` (line 151) -- current pending-route handoff; already works for app and universal-link routing.
-- `native/ios-app/README.md` (lines 111-115, 175) and `docs/architecture/ios-listkit-home.md` (lines 20-21) -- current iOS delivery/rendering gaps: beta notification polling, ListKit limited to home, and `Nuke` still planned rather than adopted.
+- `native/ios-app/README.md` (lines 111-115, 175) and `docs/architecture/ios-listkit-home.md` (lines 20-21) -- current iOS delivery/rendering gaps: beta notification polling, remaining ListKit rollout beyond home/topic detail, and `Nuke` still planned rather than adopted.
 
 ## Design
 
@@ -37,8 +39,8 @@ The latest `main` already contains the hard parts needed for this slice: Rust `f
 1. `P0 in this plan`: topic-detail loading/rendering correctness, anchor reliability, and retained-memory reduction.
 2. `P0 in this plan`: notification tap-through reliability for reply/comment targets, including background/system notifications.
 3. `P1 next`: real notification delivery beyond beta polling. Current iOS behavior is still `BGAppRefreshTask` + one-shot MessageBus alert polling plus local-only APNs token storage (`native/ios-app/README.md`, lines 111-115).
-4. `P1 next`: high-volume non-home list surfaces. `docs/architecture/ios-listkit-home.md` explicitly states that notifications/history and topic detail were not part of the home migration, and current `List`-backed high-churn views still include notifications, history, bookmarks, PMs, filtered lists, read history, profile activity, and search results.
-5. `P1 next`: production image/rendering infrastructure. Avatars and topic media now run through the Fire-owned decoded-memory remote-image pipeline, but badge/composer image surfaces still rely on `AsyncImage`, and viewer gestures/save/share are still not implemented.
+4. `P1 next`: high-volume non-home list surfaces beyond topic detail. `docs/architecture/ios-listkit-home.md` still captures the original home-only migration boundary, and current `List`-backed high-churn views still include notifications, history, bookmarks, PMs, filtered lists, read history, profile activity, and search results.
+5. `P1 next`: production image/rendering infrastructure. Avatars and topic media now run through the Fire-owned decoded-memory remote-image pipeline, but badge/composer image surfaces still rely on `AsyncImage`, and broader media-surface unification plus viewer double-tap polish are still follow-up work.
 
 ### Key Design Decisions
 
@@ -77,10 +79,10 @@ The latest `main` already contains the hard parts needed for this slice: Rust `f
    Rejected: bundle APNs backend upload, push entitlement/product work, and topic-detail correctness into one implementation.
    Why: the current blocker for reply notifications is not payload creation in Rust; it is anchor preservation, payload fallback, and scroll completion.
 
-8. **Do not combine the data-model rewrite with a same-PR ListKit host migration.**
-   Chosen: keep the current `ScrollView`/`LazyVStack` host for this slice and win perceived performance through smaller bridged state, floor-order rendering, and bounded active windows.
-   Rejected: rewrite topic detail into a collection host at the same time.
-   Why: correctness and state-shape changes are already enough risk for one slice, and the later ListKit rollout should build on a stable topic-detail model.
+8. **Historical staging note: the data-model rewrite landed before the later ListKit host migration.**
+    Chosen at the time: keep the then-current `ScrollView`/`LazyVStack` host for the payload-reduction slice and win perceived performance through smaller bridged state, floor-order rendering, and bounded active windows.
+    Rejected at the time: rewrite topic detail into a collection host at the same time.
+    Why: correctness and state-shape changes were already enough risk for one slice, and the later ListKit rollout was intended to build on a stable topic-detail model. Current code now uses the collection host.
 
 ### Concrete Types / Interface Definitions
 

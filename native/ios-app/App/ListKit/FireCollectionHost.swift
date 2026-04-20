@@ -96,6 +96,7 @@ struct FireCollectionHost<SectionID: Hashable, ItemID: Hashable, RowContent: Vie
         _ uiViewController: FireDiffableListController<SectionID, ItemID, RowContent>,
         context: Context
     ) {
+        uiViewController.updateRowContent(rowContent)
         uiViewController.updateScrollRequest(
             scrollRequest,
             onCompleted: onScrollRequestCompleted

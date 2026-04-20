@@ -84,7 +84,7 @@ func fireCollectionNeedsScrollRequest<ItemID: Hashable>(
 final class FireDiffableListController<SectionID: Hashable, ItemID: Hashable, RowContent: View>: UIViewController,
     UICollectionViewDelegate
 {
-    private let rowContent: (ItemID) -> RowContent
+    private var rowContent: (ItemID) -> RowContent
     private let onSelectItem: ((ItemID) -> Void)?
     private let canSelectItem: ((ItemID) -> Bool)?
     private let onVisibleItemsChanged: (([ItemID]) -> Void)?
@@ -207,6 +207,10 @@ final class FireDiffableListController<SectionID: Hashable, ItemID: Hashable, Ro
         let layout = makeLayout()
         listLayout = layout
         collectionView?.setCollectionViewLayout(layout, animated: false)
+    }
+
+    func updateRowContent(_ rowContent: @escaping (ItemID) -> RowContent) {
+        self.rowContent = rowContent
     }
 
     func updateAppearance(

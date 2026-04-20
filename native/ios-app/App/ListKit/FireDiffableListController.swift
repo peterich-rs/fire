@@ -353,6 +353,13 @@ final class FireDiffableListController<SectionID: Hashable, ItemID: Hashable, Ro
         publishScrollMetrics()
     }
 
+    func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        // A user-initiated drag cancels any animated scroll request; UIKit won't fire
+        // scrollViewDidEndScrollingAnimation, so complete the request here so the
+        // caller can clear its pending target.
+        completeAnimatedScrollRequestIfNeeded()
+    }
+
     func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
         if !decelerate {
             publishVisibleItems()
@@ -462,12 +469,6 @@ final class FireDiffableListController<SectionID: Hashable, ItemID: Hashable, Ro
             return
         }
 
-        // setContentOffset(animated: false) cancels the user's in-flight drag or
-        // fling, so the anchor is only worth restoring when the scroll view is idle.
-        if collectionView.isDragging || collectionView.isDecelerating {
-            return
-        }
-
         collectionView.layoutIfNeeded()
 
         guard let attributes = collectionView.layoutAttributesForItem(at: indexPath) else {
@@ -482,13 +483,22 @@ final class FireDiffableListController<SectionID: Hashable, ItemID: Hashable, Ro
                 - collectionView.bounds.height
                 + collectionView.adjustedContentInset.bottom
         )
-        let targetOffsetY = attributes.frame.minY - adjustedTop + scrollAnchor.offsetFromTop
+        let targetOffsetY = min(
+            max(attributes.frame.minY - adjustedTop + scrollAnchor.offsetFromTop, minOffsetY),
+            maxOffsetY
+        )
+
+        // setContentOffset(animated: false) cancels the user's in-flight drag or fling.
+        // When the anchor hasn't shifted (items added only below the viewport, or no
+        // geometry change), skip the write so mid-scroll updates don't break momentum.
+        // When it has shifted (e.g. backward pagination prepended replies), restore so
+        // the reader stays locked to the same post instead of jumping.
+        if abs(collectionView.contentOffset.y - targetOffsetY) < 0.5 {
+            return
+        }
 
         collectionView.setContentOffset(
-            CGPoint(
-                x: collectionView.contentOffset.x,
-                y: min(max(targetOffsetY, minOffsetY), maxOffsetY)
-            ),
+            CGPoint(x: collectionView.contentOffset.x, y: targetOffsetY),
             animated: false
         )
     }
@@ -509,13 +519,37 @@ final class FireDiffableListController<SectionID: Hashable, ItemID: Hashable, Ro
 
         collectionView.layoutIfNeeded()
         handledScrollRequestID = scrollRequest.requestID
+
+        // scrollToItem is a no-op when the target is already aligned at .top — UIKit
+        // won't fire scrollViewDidEndScrollingAnimation in that case, so detect it
+        // here and complete synchronously. Reading contentOffset after an animated
+        // scrollToItem returns the pre-animation value, so compare against the
+        // clamped target offset we expect UIKit to settle on instead.
+        let willMove = scrollToItemWillMove(indexPath: indexPath)
         collectionView.scrollToItem(at: indexPath, at: .top, animated: scrollRequest.animated)
 
-        if scrollRequest.animated {
+        if scrollRequest.animated && willMove {
             animatingScrollRequest = scrollRequest
         } else {
             onScrollRequestCompleted?(scrollRequest.itemID)
         }
+    }
+
+    private func scrollToItemWillMove(indexPath: IndexPath) -> Bool {
+        guard let collectionView,
+              let attributes = collectionView.layoutAttributesForItem(at: indexPath) else {
+            return true
+        }
+        let adjustedTop = collectionView.adjustedContentInset.top
+        let minOffsetY = -adjustedTop
+        let maxOffsetY = max(
+            minOffsetY,
+            collectionView.contentSize.height
+                - collectionView.bounds.height
+                + collectionView.adjustedContentInset.bottom
+        )
+        let targetOffsetY = min(max(attributes.frame.minY - adjustedTop, minOffsetY), maxOffsetY)
+        return abs(collectionView.contentOffset.y - targetOffsetY) >= 0.5
     }
 
     private func completeAnimatedScrollRequestIfNeeded() {

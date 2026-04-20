@@ -281,7 +281,10 @@ struct FireTopicDetailCollectionView: View {
         return isLoadingMoreTopicPosts ? .loadingFooter : .none
     }
 
-    private func itemContentToken(for item: FireTopicDetailCollectionItem) -> AnyHashable {
+    private func itemContentToken(
+        for item: FireTopicDetailCollectionItem,
+        replyIndexByPostID: [UInt64: Int]
+    ) -> AnyHashable {
         switch item {
         case .header:
             return AnyHashable([
@@ -339,9 +342,9 @@ struct FireTopicDetailCollectionView: View {
                 detailError ?? "",
             ])
         case let .reply(key):
-            guard let index = replyRows.firstIndex(where: {
-                $0.entry.postId == key.postID && $0.entry.postNumber == key.postNumber
-            }) else {
+            guard let index = replyIndexByPostID[key.postID],
+                  index < replyRows.count,
+                  replyRows[index].entry.postNumber == key.postNumber else {
                 return AnyHashable("missing|\(key.postID)|\(key.postNumber)")
             }
             let row = replyRows[index]
@@ -378,9 +381,16 @@ struct FireTopicDetailCollectionView: View {
     }
 
     var body: some View {
-        FireCollectionHost(
+        // Build the reply-index map once per render and reuse it for every token and
+        // row lookup. Without this, FireCollectionHost's per-item token rebuild would
+        // trigger an O(N) firstIndex scan per item — O(N²) across a full pass, which
+        // stalls typing and scrolling once a thread has dozens of replies loaded.
+        let replyIndexByPostID = makeReplyIndexByPostID()
+        return FireCollectionHost(
             sections: sections,
-            itemContentToken: itemContentToken(for:),
+            itemContentToken: { item in
+                itemContentToken(for: item, replyIndexByPostID: replyIndexByPostID)
+            },
             backgroundColor: .systemBackground,
             animatingDifferences: true,
             onVisibleItemsChanged: handleVisibleItemsChanged(_:),
@@ -388,8 +398,19 @@ struct FireTopicDetailCollectionView: View {
             scrollRequest: scrollRequest,
             onScrollRequestCompleted: handleScrollRequestCompleted(_:),
             makeLayout: Self.makeLayout,
-            rowContent: rowView(for:)
+            rowContent: { item in
+                rowView(for: item, replyIndexByPostID: replyIndexByPostID)
+            }
         )
+    }
+
+    private func makeReplyIndexByPostID() -> [UInt64: Int] {
+        var map: [UInt64: Int] = [:]
+        map.reserveCapacity(replyRows.count)
+        for (index, row) in replyRows.enumerated() {
+            map[row.entry.postId] = index
+        }
+        return map
     }
 
     private static func makeLayout() -> UICollectionViewLayout {
@@ -416,7 +437,10 @@ struct FireTopicDetailCollectionView: View {
     }
 
     @ViewBuilder
-    private func rowView(for item: FireTopicDetailCollectionItem) -> some View {
+    private func rowView(
+        for item: FireTopicDetailCollectionItem,
+        replyIndexByPostID: [UInt64: Int]
+    ) -> some View {
         switch item {
         case .header:
             headerRow
@@ -431,7 +455,7 @@ struct FireTopicDetailCollectionView: View {
         case .bodyState:
             bodyStateRow
         case let .reply(key):
-            replyRow(for: key)
+            replyRow(for: key, replyIndexByPostID: replyIndexByPostID)
         case .replyFooter:
             replyFooterRow
         }
@@ -658,10 +682,18 @@ struct FireTopicDetailCollectionView: View {
     }
 
     @ViewBuilder
-    private func replyRow(for key: FireTopicDetailCollectionReplyKey) -> some View {
-        let replyIndex = replyRows.firstIndex(where: {
-            $0.entry.postId == key.postID && $0.entry.postNumber == key.postNumber
-        })
+    private func replyRow(
+        for key: FireTopicDetailCollectionReplyKey,
+        replyIndexByPostID: [UInt64: Int]
+    ) -> some View {
+        let replyIndex: Int? = {
+            guard let idx = replyIndexByPostID[key.postID],
+                  idx < replyRows.count,
+                  replyRows[idx].entry.postNumber == key.postNumber else {
+                return nil
+            }
+            return idx
+        }()
         let row = replyIndex.map { replyRows[$0] }
         let showsDivider = replyIndex.map { $0 != replyRows.count - 1 } ?? false
 

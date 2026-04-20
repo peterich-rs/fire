@@ -273,9 +273,11 @@ final class FireDiffableListController<SectionID: Hashable, ItemID: Hashable, Ro
         currentSections = sections
         self.contentVersion = contentVersion
 
-        // Animated diffable updates should keep UIKit's insertion/reorder animation intact.
-        // Restoring contentOffset after those animations turns local diffs into visible snaps.
-        let effectiveAnimatingDifferences = sectionsChanged && animatingDifferences
+        // Diffable animations during an active drag or fling steal momentum from the
+        // user's gesture, so we only animate insertions when the scroll view is idle.
+        let isActivelyScrolling = collectionView.map { $0.isDragging || $0.isDecelerating } ?? false
+        let effectiveAnimatingDifferences =
+            sectionsChanged && animatingDifferences && !isActivelyScrolling
         let shouldRestoreScrollAnchor = scrollAnchorRestorePolicy.shouldRestore(
             animatingDifferences: effectiveAnimatingDifferences
         )
@@ -421,6 +423,12 @@ final class FireDiffableListController<SectionID: Hashable, ItemID: Hashable, Ro
             let scrollAnchor,
             let indexPath = dataSource.indexPath(for: scrollAnchor.itemID)
         else {
+            return
+        }
+
+        // setContentOffset(animated: false) cancels the user's in-flight drag or
+        // fling, so the anchor is only worth restoring when the scroll view is idle.
+        if collectionView.isDragging || collectionView.isDecelerating {
             return
         }
 

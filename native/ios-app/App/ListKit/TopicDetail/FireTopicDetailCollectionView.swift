@@ -15,6 +15,7 @@ enum FireTopicDetailCollectionItem: Hashable {
     case header(topicID: UInt64)
     case originalPost(topicID: UInt64)
     case stats(topicID: UInt64)
+    case topicVote(topicID: UInt64)
     case repliesHeader(topicID: UInt64)
     case bodyState(topicID: UInt64)
     case reply(FireTopicDetailCollectionReplyKey)
@@ -247,12 +248,22 @@ struct FireTopicDetailCollectionView: View {
         topicDetailStore.isLoadingMoreTopicPosts(topicId: topic.id)
     }
 
+    private var showsTopicVote: Bool {
+        guard let detail, !isPrivateMessageThread else {
+            return false
+        }
+        return detail.canVote || detail.userVoted || detail.voteCount > 0
+    }
+
     private var sections: [FireListSectionModel<FireTopicDetailCollectionSection, FireTopicDetailCollectionItem>] {
-        let topicItems: [FireTopicDetailCollectionItem] = [
+        var topicItems: [FireTopicDetailCollectionItem] = [
             .header(topicID: topic.id),
             .originalPost(topicID: topic.id),
             .stats(topicID: topic.id),
         ]
+        if showsTopicVote {
+            topicItems.append(.topicVote(topicID: topic.id))
+        }
 
         var replyItems: [FireTopicDetailCollectionItem] = [
             .repliesHeader(topicID: topic.id)
@@ -405,6 +416,8 @@ struct FireTopicDetailCollectionView: View {
             originalPostRow
         case .stats:
             statsRow
+        case .topicVote:
+            topicVoteRow
         case .repliesHeader:
             repliesHeaderRow
         case .bodyState:
@@ -542,16 +555,21 @@ struct FireTopicDetailCollectionView: View {
                 statLabel(value: displayedInteractionCount.map(String.init) ?? "…", label: "互动")
             }
             .padding(.vertical, 4)
-
-            if let detail,
-               !isPrivateMessageThread,
-               detail.canVote || detail.userVoted || detail.voteCount > 0 {
-                topicVotePanel(detail)
-            }
         }
         .padding(.horizontal, 16)
         .padding(.bottom, 4)
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    @ViewBuilder
+    private var topicVoteRow: some View {
+        if let detail, showsTopicVote {
+            topicVotePanel(detail)
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+                .padding(.bottom, 4)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
     }
 
     private func statLabel(value: String, label: String) -> some View {

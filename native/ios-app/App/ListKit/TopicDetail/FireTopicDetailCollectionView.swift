@@ -67,29 +67,6 @@ enum FireTopicDetailCollectionAdapter {
     }
 }
 
-private struct FireTopicDetailCollectionContentVersion: Hashable {
-    let topicTitle: String
-    let categoryToken: String?
-    let tagNames: [String]
-    let participantTokens: [String]
-    let statusLabels: [String]
-    let excerptText: String?
-    let displayedReplyCount: UInt32
-    let displayedViewsCount: UInt32
-    let displayedInteractionCount: UInt32?
-    let loadedReplyCount: Int
-    let totalReplyCount: Int
-    let displayedFloorCount: Int
-    let isPrivateMessageThread: Bool
-    let isLoadingTopic: Bool
-    let detailError: String?
-    let hasMoreTopicPosts: Bool
-    let isLoadingMoreTopicPosts: Bool
-    let canWriteInteractions: Bool
-    let topicVoteToken: String?
-    let originalPostToken: String?
-    let replyRowTokens: [String]
-}
 
 struct FireTopicDetailCollectionView: View {
     @EnvironmentObject private var topicDetailStore: FireTopicDetailStore
@@ -304,55 +281,86 @@ struct FireTopicDetailCollectionView: View {
         return isLoadingMoreTopicPosts ? .loadingFooter : .none
     }
 
-    private var contentVersion: FireTopicDetailCollectionContentVersion {
-        FireTopicDetailCollectionContentVersion(
-            topicTitle: displayedTopicTitle,
-            categoryToken: displayedCategory.map {
-                "\($0.id)|\($0.slug)|\($0.displayName)|\($0.colorHex ?? "")"
-            },
-            tagNames: displayedTagNames,
-            participantTokens: displayedParticipants.map {
-                "\($0.userId)|\($0.username ?? "")|\($0.name ?? "")"
-            },
-            statusLabels: row.statusLabels,
-            excerptText: row.excerptText,
-            displayedReplyCount: displayedReplyCount,
-            displayedViewsCount: displayedViewsCount,
-            displayedInteractionCount: displayedInteractionCount,
-            loadedReplyCount: loadedReplyCount,
-            totalReplyCount: detail.map { max(Int($0.postsCount) - 1, 0) } ?? Int(topic.replyCount),
-            displayedFloorCount: displayedFloorCount,
-            isPrivateMessageThread: isPrivateMessageThread,
-            isLoadingTopic: isLoadingTopic,
-            detailError: detailError,
-            hasMoreTopicPosts: hasMoreTopicPosts,
-            isLoadingMoreTopicPosts: isLoadingMoreTopicPosts,
-            canWriteInteractions: canWriteInteractions,
-            topicVoteToken: detail.flatMap { detail in
-                guard !isPrivateMessageThread,
-                      detail.canVote || detail.userVoted || detail.voteCount > 0 else {
-                    return nil
-                }
-                return "\(detail.canVote)|\(detail.userVoted)|\(detail.voteCount)"
-            },
-            originalPostToken: originalPost.map { post in
+    private func itemContentToken(for item: FireTopicDetailCollectionItem) -> AnyHashable {
+        switch item {
+        case .header:
+            return AnyHashable([
+                displayedTopicTitle,
+                displayedCategory.map { "\($0.id)|\($0.slug)|\($0.displayName)|\($0.colorHex ?? "")" } ?? "",
+                displayedTagNames.joined(separator: ","),
+                displayedParticipants.map {
+                    "\($0.userId)|\($0.username ?? "")|\($0.name ?? "")"
+                }.joined(separator: ";"),
+                row.statusLabels.joined(separator: ","),
+                String(isPrivateMessageThread),
+            ])
+        case .originalPost:
+            let postToken = originalPost.map { post in
                 Self.postContentToken(
                     post,
                     renderContent: originalPostRenderContent,
                     isMutating: topicDetailStore.isMutatingPost(postId: post.id)
                 )
-            },
-            replyRowTokens: replyRows.enumerated().map { index, row in
-                let post = postLookup[row.entry.postId]
-                return Self.replyRowToken(
-                    row: row,
-                    post: post,
-                    renderContent: renderState?.contentByPostID[row.entry.postId],
-                    showsThreadLine: showsTimelineThreadLine(in: replyRows, at: index),
-                    isMutating: post.map { topicDetailStore.isMutatingPost(postId: $0.id) } ?? false
-                )
             }
-        )
+            return AnyHashable([
+                postToken ?? "",
+                row.excerptText ?? "",
+                String(canWriteInteractions),
+            ])
+        case .stats:
+            return AnyHashable([
+                String(displayedReplyCount),
+                String(displayedViewsCount),
+                displayedInteractionCount.map(String.init) ?? "",
+            ])
+        case .topicVote:
+            let voteToken = detail.flatMap { detail -> String? in
+                guard !isPrivateMessageThread,
+                      detail.canVote || detail.userVoted || detail.voteCount > 0 else {
+                    return nil
+                }
+                return "\(detail.canVote)|\(detail.userVoted)|\(detail.voteCount)"
+            }
+            return AnyHashable([
+                voteToken ?? "",
+                String(canWriteInteractions),
+            ])
+        case .repliesHeader:
+            let total = detail.map { max(Int($0.postsCount) - 1, 0) } ?? Int(topic.replyCount)
+            return AnyHashable([
+                String(loadedReplyCount),
+                String(total),
+                String(displayedFloorCount),
+                String(detail != nil),
+            ])
+        case .bodyState:
+            return AnyHashable([
+                String(isLoadingTopic),
+                detailError ?? "",
+            ])
+        case let .reply(key):
+            guard let index = replyRows.firstIndex(where: {
+                $0.entry.postId == key.postID && $0.entry.postNumber == key.postNumber
+            }) else {
+                return AnyHashable("missing|\(key.postID)|\(key.postNumber)")
+            }
+            let row = replyRows[index]
+            let post = postLookup[row.entry.postId]
+            let token = Self.replyRowToken(
+                row: row,
+                post: post,
+                renderContent: renderState?.contentByPostID[row.entry.postId],
+                showsThreadLine: showsTimelineThreadLine(in: replyRows, at: index),
+                isMutating: post.map { topicDetailStore.isMutatingPost(postId: $0.id) } ?? false
+            )
+            return AnyHashable("\(token)|\(canWriteInteractions)")
+        case .replyFooter:
+            return AnyHashable([
+                String(reflecting: replyFooterState),
+                String(replyRows.isEmpty),
+                String(topic.id),
+            ])
+        }
     }
 
     private var scrollRequest: FireCollectionScrollRequest<FireTopicDetailCollectionItem>? {
@@ -372,7 +380,7 @@ struct FireTopicDetailCollectionView: View {
     var body: some View {
         FireCollectionHost(
             sections: sections,
-            contentVersion: contentVersion,
+            itemContentToken: itemContentToken(for:),
             backgroundColor: .systemBackground,
             animatingDifferences: true,
             onVisibleItemsChanged: handleVisibleItemsChanged(_:),

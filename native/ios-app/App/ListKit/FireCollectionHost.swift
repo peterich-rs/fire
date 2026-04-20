@@ -19,6 +19,7 @@ struct FireCollectionHost<SectionID: Hashable, ItemID: Hashable, RowContent: Vie
     let sections: [FireListSectionModel<SectionID, ItemID>]
     let layoutVersion: AnyHashable
     let contentVersion: AnyHashable
+    let itemContentToken: ((ItemID) -> AnyHashable)?
     let makeLayout: () -> UICollectionViewLayout
     let showsVerticalScrollIndicator: Bool
     let backgroundColor: UIColor
@@ -37,6 +38,7 @@ struct FireCollectionHost<SectionID: Hashable, ItemID: Hashable, RowContent: Vie
         sections: [FireListSectionModel<SectionID, ItemID>],
         layoutVersion: AnyHashable = 0,
         contentVersion: AnyHashable = 0,
+        itemContentToken: ((ItemID) -> AnyHashable)? = nil,
         showsVerticalScrollIndicator: Bool = true,
         backgroundColor: UIColor = .clear,
         animatingDifferences: Bool = true,
@@ -54,6 +56,7 @@ struct FireCollectionHost<SectionID: Hashable, ItemID: Hashable, RowContent: Vie
         self.sections = sections
         self.layoutVersion = layoutVersion
         self.contentVersion = contentVersion
+        self.itemContentToken = itemContentToken
         self.showsVerticalScrollIndicator = showsVerticalScrollIndicator
         self.backgroundColor = backgroundColor
         self.animatingDifferences = animatingDifferences
@@ -109,9 +112,23 @@ struct FireCollectionHost<SectionID: Hashable, ItemID: Hashable, RowContent: Vie
             showsVerticalScrollIndicator: showsVerticalScrollIndicator,
             backgroundColor: backgroundColor
         )
+        let itemContentTokens: [ItemID: AnyHashable]?
+        if let itemContentToken {
+            var tokens: [ItemID: AnyHashable] = [:]
+            tokens.reserveCapacity(sections.reduce(0) { $0 + $1.items.count })
+            for section in sections {
+                for item in section.items {
+                    tokens[item] = itemContentToken(item)
+                }
+            }
+            itemContentTokens = tokens
+        } else {
+            itemContentTokens = nil
+        }
         uiViewController.setSections(
             sections,
             contentVersion: contentVersion,
+            itemContentTokens: itemContentTokens,
             animatingDifferences: animatingDifferences
         )
     }

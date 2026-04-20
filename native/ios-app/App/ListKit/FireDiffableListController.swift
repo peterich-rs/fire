@@ -65,6 +65,20 @@ func fireCollectionCommonItems<SectionID: Hashable, ItemID: Hashable>(
         .filter { existingItems.contains($0) }
 }
 
+func fireCollectionChangedItems<SectionID: Hashable, ItemID: Hashable>(
+    current: [FireListSectionModel<SectionID, ItemID>],
+    incoming: [FireListSectionModel<SectionID, ItemID>],
+    previousTokens: [ItemID: AnyHashable],
+    currentTokens: [ItemID: AnyHashable]
+) -> [ItemID] {
+    let existingItems = Set(current.flatMap(\.items))
+    return incoming
+        .flatMap(\.items)
+        .filter { item in
+            existingItems.contains(item) && previousTokens[item] != currentTokens[item]
+        }
+}
+
 func fireCollectionScrollRequestDidChange<ItemID: Hashable>(
     current: FireCollectionScrollRequest<ItemID>?,
     incoming: FireCollectionScrollRequest<ItemID>?
@@ -102,6 +116,7 @@ final class FireDiffableListController<SectionID: Hashable, ItemID: Hashable, Ro
     private var collectionView: UICollectionView?
     private var dataSource: UICollectionViewDiffableDataSource<SectionID, ItemID>?
     private var currentSections: [FireListSectionModel<SectionID, ItemID>] = []
+    private var currentItemContentTokens: [ItemID: AnyHashable] = [:]
     private var lastVisibleItemIDs: [ItemID] = []
     private var lastScrollMetrics: FireCollectionScrollMetrics?
     private var isRefreshing = false
@@ -256,6 +271,7 @@ final class FireDiffableListController<SectionID: Hashable, ItemID: Hashable, Ro
     func setSections(
         _ sections: [FireListSectionModel<SectionID, ItemID>],
         contentVersion: AnyHashable,
+        itemContentTokens: [ItemID: AnyHashable]?,
         animatingDifferences: Bool
     ) {
         guard let dataSource else { return }
@@ -263,15 +279,35 @@ final class FireDiffableListController<SectionID: Hashable, ItemID: Hashable, Ro
             current: currentSections,
             incoming: sections
         )
-        let contentChanged = self.contentVersion != contentVersion
+        let legacyContentChanged = self.contentVersion != contentVersion
+
+        let reconfiguredItems: [ItemID]
+        let contentChanged: Bool
+        if let itemContentTokens {
+            let changed = fireCollectionChangedItems(
+                current: currentSections,
+                incoming: sections,
+                previousTokens: currentItemContentTokens,
+                currentTokens: itemContentTokens
+            )
+            reconfiguredItems = changed
+            contentChanged = !changed.isEmpty
+        } else {
+            reconfiguredItems = legacyContentChanged
+                ? fireCollectionCommonItems(current: currentSections, incoming: sections)
+                : []
+            contentChanged = legacyContentChanged
+        }
+
         guard sectionsChanged || contentChanged else {
             return
         }
-        let reconfiguredItems = contentChanged
-            ? fireCollectionCommonItems(current: currentSections, incoming: sections)
-            : []
+
         currentSections = sections
         self.contentVersion = contentVersion
+        if let itemContentTokens {
+            currentItemContentTokens = itemContentTokens
+        }
 
         // Diffable animations during an active drag or fling steal momentum from the
         // user's gesture, so we only animate insertions when the scroll view is idle.

@@ -32,6 +32,26 @@ final class FireDiffableListControllerTests: XCTestCase {
         XCTAssertEqual(fireCollectionCommonItems(current: current, incoming: incoming), [3, 2])
     }
 
+    func testChangedItemsHelperOnlyReturnsCommonItemsWithMutatedTokens() {
+        let current = [
+            FireListSectionModel<Int, Int>(id: 0, items: [1, 2, 3])
+        ]
+        let incoming = [
+            FireListSectionModel<Int, Int>(id: 0, items: [3, 2, 4])
+        ]
+        let previousTokens: [Int: AnyHashable] = [1: "a", 2: "b", 3: "c"]
+        let currentTokens: [Int: AnyHashable] = [2: "b", 3: "c-new", 4: "d"]
+
+        let changed = fireCollectionChangedItems(
+            current: current,
+            incoming: incoming,
+            previousTokens: previousTokens,
+            currentTokens: currentTokens
+        )
+
+        XCTAssertEqual(changed, [3])
+    }
+
     func testScrollRequestDefaultsRequestIdentityToItemID() {
         let request = FireCollectionScrollRequest(itemID: 42)
 

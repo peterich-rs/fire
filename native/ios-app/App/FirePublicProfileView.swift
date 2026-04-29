@@ -98,7 +98,25 @@ struct FirePublicProfileView: View {
             }
 
             Section {
-                profileHeader
+                Group {
+                    if profileViewModel.profile != nil {
+                        profileHeader
+                            .fireRespectingReduceMotion { content, reduceMotion in
+                                content.transition(reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.98)))
+                            }
+                    } else {
+                        profileHeader
+                            .fireRespectingReduceMotion { content, reduceMotion in
+                                content.transition(reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.98)))
+                            }
+                    }
+                }
+                .fireRespectingReduceMotion { content, reduceMotion in
+                    content.animation(
+                        FireMotionTokens.animation(for: .standard, reduceMotion: reduceMotion),
+                        value: profileViewModel.profile?.username
+                    )
+                }
             }
 
             Section {

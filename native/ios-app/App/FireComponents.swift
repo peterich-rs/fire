@@ -256,7 +256,7 @@ struct FireMetricTile: View {
             Text(value)
                 .font(.title3.monospacedDigit().weight(.semibold))
                 .foregroundStyle(valueColor)
-                .contentTransition(.numericText())
+                .fireNumericChange(value: value)
 
             Text(label)
                 .font(.caption)

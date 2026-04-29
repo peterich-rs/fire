@@ -165,6 +165,7 @@ struct FireTopicRow: View {
             Text(FireTopicPresentation.compactCount(value))
                 .font(.caption2.monospacedDigit())
                 .lineLimit(1)
+                .fireNumericChange(value: value)
         }
         .foregroundStyle(FireTheme.tertiaryInk)
         .frame(maxWidth: .infinity, alignment: alignment)

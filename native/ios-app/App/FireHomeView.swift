@@ -12,6 +12,7 @@ struct FireHomeView: View {
     @State private var selectedRoute: FireAppRoute?
     @State private var lastTopicListScrollMetrics: FireCollectionScrollMetrics?
     @State private var composerNotice: String?
+    @Namespace private var pushTransitionNamespace
 
     private static let paginationPrefetchDistance: CGFloat = 480
 
@@ -48,6 +49,10 @@ struct FireHomeView: View {
             }
             .navigationDestination(item: $selectedRoute) { route in
                 FireAppRouteDestinationView(viewModel: viewModel, route: route)
+                    .fireNavigationPush(
+                        sourceID: "home-route",
+                        namespace: pushTransitionNamespace
+                    )
             }
         }
         .onAppear {
@@ -67,9 +72,11 @@ struct FireHomeView: View {
         }
         .sheet(isPresented: $showCategoryBrowser) {
             FireCategoryBrowserSheet(viewModel: viewModel)
+                .fireSheet(presented: $showCategoryBrowser)
         }
         .sheet(isPresented: $showTagPicker) {
             FireTagPickerSheet(viewModel: viewModel)
+                .fireSheet(presented: $showTagPicker)
         }
         .fullScreenCover(isPresented: $showCreateTopicComposer) {
             NavigationStack {

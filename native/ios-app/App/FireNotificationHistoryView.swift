@@ -5,6 +5,7 @@ struct FireNotificationHistoryView: View {
     let appViewModel: FireAppViewModel
     @ObservedObject var notificationStore: FireNotificationStore
     @State private var selectedRoute: FireAppRoute?
+    @Namespace private var pushTransitionNamespace
 
     private var baseURLString: String {
         let trimmed = appViewModel.session.bootstrap.baseUrl.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -43,6 +44,10 @@ struct FireNotificationHistoryView: View {
         }
         .navigationDestination(item: $selectedRoute) { route in
             FireAppRouteDestinationView(viewModel: appViewModel, route: route)
+                .fireNavigationPush(
+                    sourceID: route.id,
+                    namespace: pushTransitionNamespace
+                )
         }
         .task {
             await notificationStore.loadFullPage(offset: nil)
@@ -94,6 +99,10 @@ struct FireNotificationHistoryView: View {
                 .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
                 .listRowSeparator(.hidden)
                 .listRowBackground(Color.clear)
+                .matchedTransitionSourceIfAvailable(
+                    id: item.appRoute?.id ?? "notification-\(item.id)",
+                    in: pushTransitionNamespace
+                )
                 .fireRespectingReduceMotion { content, reduceMotion in
                     content.transition(.fireListItem(reduceMotion: reduceMotion))
                 }

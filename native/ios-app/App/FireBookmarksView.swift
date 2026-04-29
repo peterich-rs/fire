@@ -76,6 +76,7 @@ struct FireBookmarksView: View {
     @StateObject private var bookmarksViewModel: FireBookmarksViewModel
     @State private var editingContext: FireBookmarkEditorContext?
     @State private var selectedRoute: FireAppRoute?
+    @Namespace private var pushTransitionNamespace
 
     init(viewModel: FireAppViewModel, username: String) {
         self.viewModel = viewModel
@@ -155,6 +156,13 @@ struct FireBookmarksView: View {
                             bookmarkRow(row)
                         }
                         .buttonStyle(.plain)
+                        .matchedTransitionSourceIfAvailable(
+                            id: FireAppRoute.topic(
+                                row: row,
+                                postNumber: row.topic.bookmarkedPostNumber ?? row.topic.lastReadPostNumber
+                            ).id,
+                            in: pushTransitionNamespace
+                        )
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                             if row.topic.bookmarkId != nil {
                                 Button("编辑") {
@@ -193,6 +201,10 @@ struct FireBookmarksView: View {
         .navigationBarTitleDisplayMode(.inline)
         .navigationDestination(item: $selectedRoute) { route in
             FireAppRouteDestinationView(viewModel: viewModel, route: route)
+                .fireNavigationPush(
+                    sourceID: route.id,
+                    namespace: pushTransitionNamespace
+                )
         }
         .task {
             await bookmarksViewModel.loadIfNeeded()

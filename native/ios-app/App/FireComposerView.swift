@@ -582,6 +582,7 @@ struct FireComposerView: View {
                     scheduleAutosave()
                 }
             }
+            .fireSheet(presented: $showCategorySheet)
         }
         .task {
             await loadInitialComposerState()

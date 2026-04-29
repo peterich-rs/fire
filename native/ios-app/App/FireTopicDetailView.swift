@@ -432,6 +432,7 @@ struct FireTopicDetailView: View {
                     }
                 )
             }
+            .fireSheet(presented: $showingTopicEditor)
         }
         .sheet(isPresented: $showingTopicVoters) {
             NavigationStack {
@@ -440,6 +441,7 @@ struct FireTopicDetailView: View {
                     isLoading: isLoadingTopicVoters
                 )
             }
+            .fireSheet(presented: $showingTopicVoters)
         }
         .fullScreenCover(item: $advancedComposerContext) { context in
             NavigationStack {
@@ -1570,12 +1572,15 @@ private struct FireTopicImageViewer: View {
         .sheet(isPresented: $isShowingShareSheet, onDismiss: {
             sharedImage = nil
         }) {
-            if let sharedImage {
-                FireActivityShareSheet(
-                    activityItems: [sharedImage],
-                    subject: shareSubject
-                )
+            Group {
+                if let sharedImage {
+                    FireActivityShareSheet(
+                        activityItems: [sharedImage],
+                        subject: shareSubject
+                    )
+                }
             }
+            .fireSheet(presented: $isShowingShareSheet)
         }
         .alert(alertTitle, isPresented: $isShowingAlert) {
             Button("知道了", role: .cancel) {}

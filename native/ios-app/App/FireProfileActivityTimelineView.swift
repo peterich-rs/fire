@@ -73,6 +73,9 @@ struct FireProfileActivityTimelineView: View {
                         fireIdentifiedValues(profileViewModel.actions) { $0.fireStableBaseID }
                     ) { item in
                         activityRow(item.value)
+                            .fireRespectingReduceMotion { content, reduceMotion in
+                                content.transition(.fireListItem(reduceMotion: reduceMotion))
+                            }
                             .onAppear {
                                 if item.index >= max(profileViewModel.actions.count - 3, 0) {
                                     profileViewModel.loadActions(reset: false)
@@ -95,6 +98,12 @@ struct FireProfileActivityTimelineView: View {
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
         .background(FireTheme.canvasTop)
+        .fireRespectingReduceMotion { content, reduceMotion in
+            content.animation(
+                FireMotionTokens.animation(for: .standard, reduceMotion: reduceMotion),
+                value: profileViewModel.actions.map(\.fireStableBaseID)
+            )
+        }
         .navigationTitle("全部动态")
         .navigationBarTitleDisplayMode(.inline)
         .navigationDestination(item: $selectedRoute) { route in

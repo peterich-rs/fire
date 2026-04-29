@@ -67,7 +67,12 @@ struct FireTabRoot: View {
                 )
             }
         }
-        .animation(.easeInOut(duration: 0.3), value: isAuthenticated)
+        .fireRespectingReduceMotion { content, reduceMotion in
+            content.animation(
+                FireMotionTokens.animation(for: .standard, reduceMotion: reduceMotion),
+                value: isAuthenticated
+            )
+        }
         .fullScreenCover(item: $viewModel.authPresentationState) { presentationState in
             FireAuthScreen(
                 viewModel: viewModel,

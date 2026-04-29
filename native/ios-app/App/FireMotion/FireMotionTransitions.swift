@@ -55,3 +55,36 @@ private struct FireSheetSpringModifier: ViewModifier {
         }
     }
 }
+
+extension View {
+    /// Apply the iOS 18 zoom navigation transition where available,
+    /// falling back to the centralised `.firePush` transition on iOS 17.
+    /// Apply this to the destination view inside `.navigationDestination`.
+    @ViewBuilder
+    func fireNavigationPush<ID: Hashable>(
+        sourceID: ID,
+        namespace: Namespace.ID
+    ) -> some View {
+        if #available(iOS 18, *) {
+            self.navigationTransition(.zoom(sourceID: sourceID, in: namespace))
+        } else {
+            self.fireRespectingReduceMotion { content, reduceMotion in
+                content.transition(.firePush(reduceMotion: reduceMotion))
+            }
+        }
+    }
+
+    /// Apply `.matchedTransitionSource(id:in:)` on iOS 18+, no-op on iOS 17.
+    /// Use on the row/source view that the destination is "zoomed from".
+    @ViewBuilder
+    func matchedTransitionSourceIfAvailable<ID: Hashable>(
+        id: ID,
+        in namespace: Namespace.ID
+    ) -> some View {
+        if #available(iOS 18, *) {
+            self.matchedTransitionSource(id: id, in: namespace)
+        } else {
+            self
+        }
+    }
+}

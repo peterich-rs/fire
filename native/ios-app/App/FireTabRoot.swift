@@ -86,6 +86,10 @@ struct FireTabRoot: View {
             if isAuthenticated {
                 await FirePushRegistrationCoordinator.shared.ensurePushRegistration()
                 selectTabForPendingRouteIfReady(navigationState.pendingRoute)
+                FireStartupPreloadCoordinator(
+                    profile: profileViewModel,
+                    notifications: notificationStore
+                ).preloadOffScreenTabs()
             } else {
                 FireBackgroundNotificationAlertScheduler.cancelRefresh()
             }

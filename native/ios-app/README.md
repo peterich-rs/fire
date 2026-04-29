@@ -178,10 +178,7 @@ Expected integration flow:
 Xcode project generation rules:
 
 - `native/ios-app/project.yml` is the source of truth for `Fire.xcodeproj`.
-- The generated project now ships three shared schemes:
-  - `Fire` for app builds plus local pure-logic unit-test runs
-  - `FireUnitTests` for the isolated pure-logic unit-test lane used by CI
-  - `FireIntegrationTests` for the optional hosted integration suite (`Tests/Integration`)
+- The generated project now ships a single shared scheme `Fire` that drives both app builds and the pure-logic unit-test lane (used by ⌘U and CI).
 - Signing now flows through `native/ios-app/Configs/Fire-*.xcconfig` so local developer-account overrides do not need to touch the generated project.
 - New Swift files placed under existing source roots such as `App/` or `Sources/FireAppSession/` do not require a `project.yml` edit, but they do require rerunning `xcodegen generate --spec native/ios-app/project.yml` and committing the regenerated `Fire.xcodeproj`.
 - Changes that introduce a new source/resource directory, framework dependency, build script, target, or Xcode build setting must update `project.yml` first, then regenerate `Fire.xcodeproj`.
@@ -193,7 +190,7 @@ Local signing overrides:
 - `Debug` loads `native/ios-app/Configs/Fire-Local-Debug.xcconfig` if it exists.
 - `Release` loads `native/ios-app/Configs/Fire-Local-Release.xcconfig` if it exists.
 - The two `Fire-Local-*.xcconfig` files are ignored by git; use the matching `.example.xcconfig` file as the template.
-- Only the repo-managed shared schemes (`Fire`, `FireUnitTests`, and `FireIntegrationTests`) should be committed. If you need a personal debug/release variant, duplicate a scheme in Xcode with `Shared` unchecked; Xcode stores that under `xcuserdata`, which is already ignored by git in this repo.
+- Only the repo-managed shared scheme (`Fire`) should be committed. If you need a personal debug/release variant, duplicate a scheme in Xcode with `Shared` unchecked; Xcode stores that under `xcuserdata`, which is already ignored by git in this repo.
 - `FIRE_DISPLAY_NAME` can now be overridden from those local xcconfig files if you want `Debug` and `Release` installs to appear as separate app names on-device.
 - Recommended local-device setup:
   1. Copy `native/ios-app/Configs/Fire-Local-Debug.example.xcconfig` to `native/ios-app/Configs/Fire-Local-Debug.xcconfig`.
@@ -264,7 +261,7 @@ Verified local commands:
 - `./scripts/check_clean_submodules.sh`
 - `xcodegen generate --spec native/ios-app/project.yml`
 - `xcodebuild -project native/ios-app/Fire.xcodeproj -scheme Fire -destination 'generic/platform=iOS Simulator' build`
-- `xcodebuild -project native/ios-app/Fire.xcodeproj -scheme FireUnitTests -destination 'platform=iOS Simulator,OS=18.2,name=iPhone 16' -derivedDataPath /tmp/fire-ios-unit CODE_SIGNING_ALLOWED=NO test`
+- `xcodebuild -project native/ios-app/Fire.xcodeproj -scheme Fire -destination 'platform=iOS Simulator,OS=18.2,name=iPhone 16' -derivedDataPath /tmp/fire-ios-unit CODE_SIGNING_ALLOWED=NO test`
 
 Operational archive command:
 
@@ -278,8 +275,7 @@ Release artifact note:
 Current build note:
 
 - The clean verification baseline requires `third_party/openwire` and `third_party/xlog-rs` to be initialized and free of local modifications. Run `./scripts/check_clean_submodules.sh` from the repository root before trusting local build/test results.
-- `FireUnitTests` now contains only millisecond-scale pure-logic cases. WebKit, rendering, and filesystem-backed coverage lives under `native/ios-app/Tests/Integration` and only runs through the dedicated `FireIntegrationTests` scheme.
-- `FireUnitTests` still boots an iOS Simulator because `FireTests` remains configured as an app-hosted iOS unit-test bundle with `Fire.app` as `TEST_HOST`.
+- `FireTests` contains only pure-logic cases and is the single iOS test bundle. It still boots an iOS Simulator because the bundle remains app-hosted with `Fire.app` as `TEST_HOST`.
 - The simulator/unit-test path above is verified locally after the diagnostics addition.
 - The device `Release` Xcode path is also verified locally.
 - The UniFFI pre-build script now sanitizes host and iOS-target cargo environments separately: host cargo invocations keep the macOS SDK and library search path, while iOS target cargo invocations keep the macOS `SDKROOT` needed for host build scripts without leaking the macOS `LIBRARY_PATH` into iPhoneOS/iPhoneSimulator links.

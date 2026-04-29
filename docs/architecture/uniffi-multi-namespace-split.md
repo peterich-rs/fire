@@ -520,7 +520,7 @@ Verification:
 **File: (no source changes)**
 - Run: `cargo test --workspace` -- unit tests for all 9 crates pass.
 - Run: `./gradlew :app:testDebugUnitTest` -- Android unit tests (including `TopicPresentationTest`) pass.
-- Run: `xcodebuild test -scheme FireUnitTests -destination 'platform=iOS Simulator,name=iPhone 15'` -- iOS tests pass.
+- Run: `xcodebuild test -scheme Fire -destination 'platform=iOS Simulator,name=iPhone 15'` -- iOS tests pass.
 - Manual smoke: login flow (iOS + Android), topic list, topic detail (post + reply + reaction), notifications tap-through, diagnostics log export. Matches pre-refactor behavior.
 - Inspect file sizes: `find native/ios-app/Generated/FireUniFfi -name '*.swift' -exec wc -l {} +` -- each file under ~5,000 lines. `find native/android-app/build/generated/source/uniffi -name '*.kt' -exec wc -l {} +` -- each under ~3,000 lines.
 

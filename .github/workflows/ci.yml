@@ -332,11 +332,7 @@ jobs:
               "$action"
           }
 
-          # Required CI stays on the pure logic lane. WebKit, rendering, and
-          # filesystem-backed coverage moved to the separate integration target,
-          # but FireTests still runs as an app-hosted iOS unit-test bundle, so
-          # the lane remains simulator-backed and needs a realistic timeout.
-          run_xcodebuild FireUnitTests test
+          run_xcodebuild Fire test
 
   native-android-test:
     name: Android Test

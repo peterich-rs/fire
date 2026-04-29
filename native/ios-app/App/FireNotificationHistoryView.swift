@@ -94,6 +94,9 @@ struct FireNotificationHistoryView: View {
                 .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
                 .listRowSeparator(.hidden)
                 .listRowBackground(Color.clear)
+                .fireRespectingReduceMotion { content, reduceMotion in
+                    content.transition(.fireListItem(reduceMotion: reduceMotion))
+                }
             }
 
             if notificationStore.shouldShowFullPaginationRetry {
@@ -129,6 +132,12 @@ struct FireNotificationHistoryView: View {
             }
         }
         .listStyle(.plain)
+        .fireRespectingReduceMotion { content, reduceMotion in
+            content.animation(
+                FireMotionTokens.animation(for: .standard, reduceMotion: reduceMotion),
+                value: notificationStore.fullNotifications.map(\.id)
+            )
+        }
     }
 
     private func emptyState(errorMessage: String?) -> some View {

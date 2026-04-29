@@ -342,6 +342,7 @@ struct FireTopicDetailView: View {
                             detail?.bookmarked == true ? "编辑书签" : "添加书签",
                             systemImage: detail?.bookmarked == true ? "bookmark.fill" : "bookmark"
                         )
+                        .fireBookmarkEffect(active: detail?.bookmarked == true)
                     }
                     .disabled(!canWriteInteractions)
 
@@ -1211,8 +1212,10 @@ struct FirePostRow: View {
                                 } label: {
                                     HStack(spacing: 5) {
                                         Text(option.symbol)
+                                            .fireLikeEffect(active: reaction.id == "heart" && post.currentUserReaction?.id == "heart")
                                         Text("\(reaction.count)")
                                             .font(.caption.monospacedDigit())
+                                            .fireNumericChange(value: reaction.count)
                                     }
                                     .padding(.horizontal, 10)
                                     .padding(.vertical, 6)
@@ -1869,6 +1872,7 @@ struct FireSwipeToReplyContainer<Content: View>: View {
     @State private var offset: CGFloat = 0
     @State private var gestureDirection: FireTopicReplySwipeAxis? = nil
     @State private var replyTriggered = false
+    @State private var swipeReplyTriggerPulse = 0
 
     private let triggerThreshold: CGFloat = 55
     private let maxOffset: CGFloat = 75
@@ -1892,6 +1896,7 @@ struct FireSwipeToReplyContainer<Content: View>: View {
             .clipped()
             .contentShape(Rectangle())
             .simultaneousGesture(swipeGesture)
+            .fireSwipeReplyFeedback(trigger: swipeReplyTriggerPulse)
     }
 
     private var replyIndicator: some View {
@@ -1929,7 +1934,7 @@ struct FireSwipeToReplyContainer<Content: View>: View {
 
                 if offset >= triggerThreshold && !replyTriggered {
                     replyTriggered = true
-                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                    swipeReplyTriggerPulse += 1
                 }
             }
             .onEnded { _ in

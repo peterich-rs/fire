@@ -166,3 +166,25 @@ private struct FireSwipeReplyFeedbackEffect: ViewModifier {
         content.sensoryFeedback(.impact(weight: .medium), trigger: trigger)
     }
 }
+
+/// One-shot per-session gates for celebration confetti. Static state is
+/// fine here because the gates are inherently process-scoped: a relaunch
+/// resets them implicitly, which matches the "rare, surprising moment"
+/// intent. Logout calls `reset()` so a re-login user still gets a
+/// fresh celebration.
+@MainActor
+enum FireMotionCelebrationGate {
+    private static var firstFollowFiredThisSession = false
+
+    /// Returns `true` the first time it is called in this process, then
+    /// `false` for every subsequent call until `reset()` is invoked.
+    static func consumeFirstFollow() -> Bool {
+        guard !firstFollowFiredThisSession else { return false }
+        firstFollowFiredThisSession = true
+        return true
+    }
+
+    static func reset() {
+        firstFollowFiredThisSession = false
+    }
+}

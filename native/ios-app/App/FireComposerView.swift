@@ -375,6 +375,7 @@ struct FireComposerView: View {
     @State private var errorMessage: String?
     @State private var selectedPhoto: PhotosPickerItem?
     @State private var resolvedUploads: [String: ResolvedUploadUrlState] = [:]
+    @State private var saveCompletionPulse: Int = 0
 
     private var baseURLString: String {
         let trimmed = viewModel.session.bootstrap.baseUrl.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -562,6 +563,7 @@ struct FireComposerView: View {
                     submitComposer()
                 }
                 .disabled(!canSubmit)
+                .fireCTAPress()
             }
         }
         .interactiveDismissDisabled(isSubmitting)
@@ -1016,6 +1018,8 @@ struct FireComposerView: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(!canSubmit)
+                .fireCTAPress()
+                .fireSuccessFeedback(trigger: saveCompletionPulse)
             }
             .padding(.horizontal, 16)
             .padding(.bottom, 12)
@@ -1533,6 +1537,7 @@ struct FireComposerView: View {
                     try? await viewModel.deleteDraft(draftKey: route.draftKey, sequence: draftSequence)
                     draftSequence = 0
                     onTopicCreated?(topicID)
+                    saveCompletionPulse += 1
                     onSubmissionNotice?(submissionSuccessMessage)
                     dismiss()
                 } catch {
@@ -1582,6 +1587,7 @@ struct FireComposerView: View {
                     try? await viewModel.deleteDraft(draftKey: route.draftKey, sequence: draftSequence)
                     draftSequence = 0
                     onPrivateMessageCreated?(topicID, trimmedTitle)
+                    saveCompletionPulse += 1
                     onSubmissionNotice?(submissionSuccessMessage)
                     dismiss()
                 } catch {
@@ -1619,6 +1625,7 @@ struct FireComposerView: View {
                     try? await viewModel.deleteDraft(draftKey: route.draftKey, sequence: draftSequence)
                     draftSequence = 0
                     onReplySubmitted?()
+                    saveCompletionPulse += 1
                     onSubmissionNotice?(submissionSuccessMessage)
                     dismiss()
                 } catch {

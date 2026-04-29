@@ -139,6 +139,7 @@ struct FireTabRoot: View {
                 searchStore.reset()
                 notificationStore.reset()
                 topicDetailStore.reset()
+                FireMotionCelebrationGate.reset()
             }
             viewModel.updateTopLevelAPMRoute(
                 selectedTab: navigationState.selectedTab,

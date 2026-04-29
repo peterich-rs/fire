@@ -221,6 +221,7 @@ struct FireNotificationsView: View {
                         }
                         .font(.subheadline.weight(.medium))
                         .foregroundStyle(FireTheme.accent)
+                        .fireCTAPress()
                     }
                 }
             }
@@ -275,6 +276,9 @@ struct FireNotificationsView: View {
                     .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
                     .listRowSeparator(.hidden)
                     .listRowBackground(Color.clear)
+                    .fireRespectingReduceMotion { content, reduceMotion in
+                        content.transition(.fireListItem(reduceMotion: reduceMotion))
+                    }
             }
 
             NavigationLink {
@@ -301,6 +305,12 @@ struct FireNotificationsView: View {
             .listRowBackground(Color.clear)
         }
         .listStyle(.plain)
+        .fireRespectingReduceMotion { content, reduceMotion in
+            content.animation(
+                FireMotionTokens.animation(for: .standard, reduceMotion: reduceMotion),
+                value: notificationStore.recentNotifications.map(\.id)
+            )
+        }
     }
 
     private func notificationRow(_ item: NotificationItemState) -> some View {

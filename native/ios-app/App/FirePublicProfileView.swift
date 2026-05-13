@@ -16,6 +16,7 @@ struct FirePublicProfileView: View {
     @State private var isUpdatingFollow = false
     @State private var showPrivateMessageComposer = false
     @State private var composerNotice: String?
+    @State private var celebrationPulse: Int = 0
 
     init(viewModel: FireAppViewModel, username: String) {
         self.viewModel = viewModel
@@ -97,7 +98,25 @@ struct FirePublicProfileView: View {
             }
 
             Section {
-                profileHeader
+                Group {
+                    if profileViewModel.profile != nil {
+                        profileHeader
+                            .fireRespectingReduceMotion { content, reduceMotion in
+                                content.transition(reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.98)))
+                            }
+                    } else {
+                        profileHeader
+                            .fireRespectingReduceMotion { content, reduceMotion in
+                                content.transition(reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.98)))
+                            }
+                    }
+                }
+                .fireRespectingReduceMotion { content, reduceMotion in
+                    content.animation(
+                        FireMotionTokens.animation(for: .standard, reduceMotion: reduceMotion),
+                        value: profileViewModel.profile?.username
+                    )
+                }
             }
 
             Section {
@@ -238,6 +257,7 @@ struct FirePublicProfileView: View {
         .task(id: username) {
             profileViewModel.loadProfile(force: true)
         }
+        .fireCelebrationConfetti(trigger: $celebrationPulse)
     }
 
     private var profileHeader: some View {
@@ -298,9 +318,11 @@ struct FirePublicProfileView: View {
                                             (profileViewModel.profile?.isFollowed == true ? FireTheme.softSurface : FireTheme.accent),
                                             in: Capsule()
                                         )
+                                        .fireFollowEffect(active: profileViewModel.profile?.isFollowed == true)
                                     }
                                     .buttonStyle(.plain)
                                     .disabled(isUpdatingFollow)
+                                    .fireCTAPress()
                                 }
 
                                 if canSendPrivateMessage {
@@ -505,6 +527,9 @@ struct FirePublicProfileView: View {
                 try await viewModel.unfollowUser(username: username)
             } else {
                 try await viewModel.followUser(username: username)
+                if FireMotionCelebrationGate.consumeFirstFollow() {
+                    celebrationPulse += 1
+                }
             }
             await profileViewModel.refreshAll()
         } catch {

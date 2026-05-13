@@ -255,3 +255,6 @@ final class FireProfileViewModel: ObservableObject {
         actionsErrorMessage = nil
     }
 }
+
+extension FireProfileViewModel: FireStartupPreloadProfileLoader {}
+

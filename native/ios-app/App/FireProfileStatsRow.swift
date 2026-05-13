@@ -16,7 +16,7 @@ struct FireProfileStatsRow: View {
                     Text(item.value.value)
                         .font(.title3.monospacedDigit().weight(.semibold))
                         .foregroundStyle(FireTheme.ink)
-                        .contentTransition(.numericText())
+                        .fireNumericChange(value: item.value.value)
 
                     Text(item.value.label)
                         .font(.caption2)

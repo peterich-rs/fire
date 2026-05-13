@@ -13,6 +13,7 @@ struct FirePostEditorView: View {
     @State private var isLoading = false
     @State private var isSaving = false
     @State private var errorMessage: String?
+    @State private var saveCompletionPulse: Int = 0
 
     private var canSubmit: Bool {
         !rawText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -66,6 +67,8 @@ struct FirePostEditorView: View {
                     Task { await save() }
                 }
                 .disabled(!canSubmit)
+                .fireCTAPress()
+                .fireSuccessFeedback(trigger: saveCompletionPulse)
             }
         }
         .task {
@@ -98,6 +101,7 @@ struct FirePostEditorView: View {
                 raw: rawText,
                 editReason: editReason.trimmingCharacters(in: .whitespacesAndNewlines).ifEmpty("")
             )
+            saveCompletionPulse += 1
             onSaved?()
             dismiss()
         } catch {

@@ -5,6 +5,9 @@ packages:
   CrashReporter:
     url: https://github.com/microsoft/plcrashreporter.git
     exactVersion: 1.12.2
+  ConfettiSwiftUI:
+    url: https://github.com/simibac/ConfettiSwiftUI.git
+    exactVersion: 3.0.0
 fileGroups:
   - Configs/Fire-Debug.xcconfig
   - Configs/Fire-Local-Debug.example.xcconfig
@@ -14,30 +17,6 @@ fileGroups:
   - Fire.entitlements
 schemes:
   Fire:
-    build:
-      targets:
-        Fire: all
-        FireTests:
-          - test
-    test:
-      gatherCoverageData: false
-      targets:
-        - name: FireTests
-          parallelizable: true
-          randomExecutionOrder: true
-  FireIntegrationTests:
-    build:
-      targets:
-        Fire: all
-        FireIntegrationTests:
-          - test
-    test:
-      gatherCoverageData: false
-      targets:
-        - name: FireIntegrationTests
-          parallelizable: true
-          randomExecutionOrder: true
-  FireUnitTests:
     build:
       targets:
         Fire: all
@@ -74,6 +53,8 @@ targets:
       - sdk: libiconv.tbd
       - package: CrashReporter
         product: CrashReporter
+      - package: ConfettiSwiftUI
+        product: ConfettiSwiftUI
     settings:
       base:
         CODE_SIGN_STYLE: $(FIRE_CODE_SIGN_STYLE)
@@ -138,20 +119,6 @@ targets:
     deploymentTarget: "17.0"
     sources:
       - path: Tests/Unit
-    dependencies:
-      - target: Fire
-    settings:
-      base:
-        GENERATE_INFOPLIST_FILE: YES
-        SWIFT_INCLUDE_PATHS:
-          - "$(inherited)"
-          - "$(SRCROOT)/Generated"
-  FireIntegrationTests:
-    type: bundle.unit-test
-    platform: iOS
-    deploymentTarget: "17.0"
-    sources:
-      - path: Tests/Integration
     dependencies:
       - target: Fire
     settings:

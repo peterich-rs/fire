@@ -67,7 +67,12 @@ struct FireTabRoot: View {
                 )
             }
         }
-        .animation(.easeInOut(duration: 0.3), value: isAuthenticated)
+        .fireRespectingReduceMotion { content, reduceMotion in
+            content.animation(
+                FireMotionTokens.animation(for: .standard, reduceMotion: reduceMotion),
+                value: isAuthenticated
+            )
+        }
         .fullScreenCover(item: $viewModel.authPresentationState) { presentationState in
             FireAuthScreen(
                 viewModel: viewModel,
@@ -86,6 +91,10 @@ struct FireTabRoot: View {
             if isAuthenticated {
                 await FirePushRegistrationCoordinator.shared.ensurePushRegistration()
                 selectTabForPendingRouteIfReady(navigationState.pendingRoute)
+                FireStartupPreloadCoordinator(
+                    profile: profileViewModel,
+                    notifications: notificationStore
+                ).preloadOffScreenTabs()
             } else {
                 FireBackgroundNotificationAlertScheduler.cancelRefresh()
             }
@@ -135,6 +144,7 @@ struct FireTabRoot: View {
                 searchStore.reset()
                 notificationStore.reset()
                 topicDetailStore.reset()
+                FireMotionCelebrationGate.reset()
             }
             viewModel.updateTopLevelAPMRoute(
                 selectedTab: navigationState.selectedTab,

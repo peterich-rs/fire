@@ -403,6 +403,7 @@ private struct FireSearchPostRow: View {
                 Label("#\(post.postNumber)", systemImage: "number")
                 if post.likeCount > 0 {
                     Label("\(post.likeCount)", systemImage: "heart")
+                        .fireNumericChange(value: post.likeCount)
                 }
                 if let timestampText = FireTopicPresentation.compactTimestamp(
                     unixMs: post.createdTimestampUnixMs

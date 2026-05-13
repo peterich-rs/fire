@@ -201,6 +201,7 @@ struct FireFilteredTopicListView: View {
     @StateObject private var listViewModel: FireFilteredTopicListViewModel
     @State private var copiedErrorMessage = false
     @State private var selectedRoute: FireAppRoute?
+    @Namespace private var pushTransitionNamespace
 
     init(
         viewModel: FireAppViewModel,
@@ -290,6 +291,10 @@ struct FireFilteredTopicListView: View {
         .navigationBarTitleDisplayMode(.inline)
         .navigationDestination(item: $selectedRoute) { route in
             FireAppRouteDestinationView(viewModel: viewModel, route: route)
+                .fireNavigationPush(
+                    sourceID: route.id,
+                    namespace: pushTransitionNamespace
+                )
         }
         .refreshable {
             await listViewModel.refresh()
@@ -363,6 +368,10 @@ struct FireFilteredTopicListView: View {
                     )
                 }
                 .buttonStyle(.plain)
+                .matchedTransitionSourceIfAvailable(
+                    id: FireAppRoute.topic(row: topicRow).id,
+                    in: pushTransitionNamespace
+                )
             }
 
             if listViewModel.currentKindNextPage != nil {

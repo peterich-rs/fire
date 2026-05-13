@@ -26,6 +26,7 @@ struct FireBookmarkEditorSheet: View {
     @State private var reminderDate: Date
     @State private var isSubmitting = false
     @State private var errorMessage: String?
+    @State private var saveCompletionPulse: Int = 0
 
     init(
         context: FireBookmarkEditorContext,
@@ -138,6 +139,8 @@ struct FireBookmarkEditorSheet: View {
                         }
                     }
                     .disabled(isSubmitting)
+                    .fireCTAPress()
+                    .fireSuccessFeedback(trigger: saveCompletionPulse)
                 }
             }
         }
@@ -150,6 +153,7 @@ struct FireBookmarkEditorSheet: View {
 
         do {
             try await onSave(trimmedName, reminderAt)
+            saveCompletionPulse += 1
             dismiss()
         } catch {
             errorMessage = error.localizedDescription

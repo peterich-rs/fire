@@ -632,6 +632,7 @@ impl FireCore {
         }
 
         let invalidation = response_login_invalidation_signal(response.headers());
+        let response_headers = response.headers().clone();
         let body = self.read_response_text(trace_id, response).await?;
         self.diagnostics
             .record_http_status_error(trace_id, StatusCode::FORBIDDEN.as_u16(), &body);
@@ -657,6 +658,7 @@ impl FireCore {
             return Err(classify_http_status_error(
                 operation,
                 StatusCode::FORBIDDEN.as_u16(),
+                &response_headers,
                 body,
             ));
         }
@@ -744,6 +746,7 @@ pub(crate) async fn expect_success(
     let response_status = response.status();
     let status = response_status.as_u16();
     let invalidation = response_login_invalidation_signal(response.headers());
+    let response_headers = response.headers().clone();
     let response_epoch = response_epoch_context(&response);
     let _trace_guard = take_trace_cancellation_guard(&mut response).unwrap_or_else(|| {
         core.diagnostics.cancellation_guard(
@@ -781,7 +784,12 @@ pub(crate) async fn expect_success(
     ) {
         return Err(error);
     }
-    Err(classify_http_status_error(operation, status, body))
+    Err(classify_http_status_error(
+        operation,
+        status,
+        &response_headers,
+        body,
+    ))
 }
 
 pub(crate) fn header_value(headers: &HeaderMap, name: &str) -> Option<String> {
@@ -800,9 +808,10 @@ pub(crate) fn is_bad_csrf_body(body: &str) -> bool {
 pub(crate) fn classify_http_status_error(
     operation: &'static str,
     status: u16,
+    headers: &HeaderMap,
     body: String,
 ) -> FireCoreError {
-    if status == StatusCode::FORBIDDEN.as_u16() && is_cloudflare_challenge_body(&body) {
+    if is_cloudflare_challenge_response(status, headers, &body) {
         FireCoreError::CloudflareChallenge { operation }
     } else if let Some(message) = not_logged_in_message(status, &body) {
         FireCoreError::LoginRequired { operation, message }
@@ -925,10 +934,37 @@ fn response_login_invalidation_error(
 
 pub(crate) fn is_cloudflare_challenge_body(body: &str) -> bool {
     let normalized = body.to_ascii_lowercase();
-    normalized.contains("just a moment")
-        || normalized.contains("cf challenge")
-        || normalized.contains("__cf_chl_opt")
-        || normalized.contains("/cdn-cgi/challenge-platform/")
+    normalized.contains("cf_chl_opt")
+        || (normalized.contains("challenge-platform") && normalized.contains("cloudflare"))
+        || (normalized.contains("just a moment")
+            && (normalized.contains("cloudflare") || normalized.contains("cf-challenge")))
+}
+
+pub(crate) fn is_cloudflare_challenge_response(
+    status: u16,
+    headers: &HeaderMap,
+    body: &str,
+) -> bool {
+    if status != StatusCode::FORBIDDEN.as_u16() {
+        return false;
+    }
+
+    let server = header_value(headers, "server").unwrap_or_default();
+    if !server.to_ascii_lowercase().contains("cloudflare") {
+        return false;
+    }
+
+    let content_type = header_value(headers, "content-type").unwrap_or_default();
+    if !content_type.to_ascii_lowercase().contains("text/html") {
+        return false;
+    }
+
+    let cf_mitigated = header_value(headers, "cf-mitigated").unwrap_or_default();
+    if cf_mitigated.to_ascii_lowercase().contains("challenge") {
+        return true;
+    }
+
+    is_cloudflare_challenge_body(body)
 }
 
 pub(crate) fn request_origin(base_url: &Url) -> String {

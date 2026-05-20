@@ -1784,7 +1784,7 @@ final class FireAppViewModel: ObservableObject {
     }
 
     private func challengeRecoveryURL() -> URL {
-        session.baseURL.appendingPathComponent("challenge", isDirectory: false)
+        session.baseURL
     }
 
     private func resetSessionAndPresentLogin(message: String) async {
@@ -1940,7 +1940,7 @@ final class FireAppViewModel: ObservableObject {
         }
 
         let path = url.path.lowercased()
-        if path == "/challenge" || path.hasPrefix("/challenge/") {
+        if path == "/challenge" || path.hasPrefix("/challenge/") || path == "/" || path.isEmpty {
             return true
         }
 

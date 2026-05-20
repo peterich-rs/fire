@@ -162,12 +162,12 @@ fn merge_platform_cookie_batch(current: &mut Vec<PlatformCookie>, incoming: &[Pl
     let now_unix_ms = current_unix_ms();
     current.retain(|cookie| !cookie.is_expired_at(now_unix_ms));
     for cookie in incoming {
-        let Some((name, domain, path)) = normalized_platform_cookie_key(cookie) else {
+        let Some((name, domain_key, path)) = normalized_platform_cookie_key(cookie) else {
             continue;
         };
         current.retain(|existing| {
             normalized_platform_cookie_key(existing).is_none_or(|existing_key| {
-                existing_key != (name.clone(), domain.clone(), path.clone())
+                existing_key != (name.clone(), domain_key.clone(), path.clone())
             })
         });
         if is_deleted_cookie_value(&cookie.value) || cookie.is_expired_at(now_unix_ms) {
@@ -176,7 +176,7 @@ fn merge_platform_cookie_batch(current: &mut Vec<PlatformCookie>, incoming: &[Pl
         current.push(PlatformCookie {
             name,
             value: cookie.value.trim().to_string(),
-            domain,
+            domain: normalized_cookie_domain_for_storage(cookie.domain.as_deref()),
             path: Some(path),
             expires_at_unix_ms: cookie.expires_at_unix_ms,
         });
@@ -190,12 +190,7 @@ fn normalized_platform_cookie_key(
     if name.is_empty() {
         return None;
     }
-    let domain = cookie
-        .domain
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(|value| value.to_ascii_lowercase());
+    let domain = normalized_cookie_domain(cookie.domain.as_deref());
     let path = cookie
         .path
         .as_deref()
@@ -203,6 +198,21 @@ fn normalized_platform_cookie_key(
         .filter(|value| !value.is_empty())
         .unwrap_or("/");
     Some((name.to_string(), domain, path.to_string()))
+}
+
+fn normalized_cookie_domain(domain: Option<&str>) -> Option<String> {
+    domain
+        .map(str::trim)
+        .map(|value| value.trim_start_matches('.'))
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_ascii_lowercase())
+}
+
+fn normalized_cookie_domain_for_storage(domain: Option<&str>) -> Option<String> {
+    domain
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_ascii_lowercase())
 }
 
 fn is_deleted_cookie_value(value: &str) -> bool {

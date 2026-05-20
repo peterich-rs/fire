@@ -3,8 +3,8 @@ mod common;
 use std::sync::atomic::Ordering;
 
 use common::{
-    raw_json_response, raw_text_response, sample_home_html, sample_latest_json,
-    sample_topic_detail_json, TestServer, TestServerStep,
+    raw_cloudflare_challenge_response, raw_json_response, raw_text_response, sample_home_html,
+    sample_latest_json, sample_topic_detail_json, TestServer, TestServerStep,
 };
 use fire_core::{
     FireAuthRecoveryHint, FireAuthRecoveryHintReason, FireCore, FireCoreConfig, FireCoreError,
@@ -373,7 +373,7 @@ async fn fetch_bookmarks_parses_bookmark_metadata_fields() {
 
 #[tokio::test]
 async fn fetch_topic_list_surfaces_cloudflare_challenge_error() {
-    let responses = vec![raw_text_response(
+    let responses = vec![raw_cloudflare_challenge_response(
         403,
         r#"<html><head><title>Just a moment...</title></head><body>__cf_chl_opt</body></html>"#,
     )];
@@ -397,6 +397,39 @@ async fn fetch_topic_list_surfaces_cloudflare_challenge_error() {
         error,
         FireCoreError::CloudflareChallenge {
             operation: "fetch topic list"
+        }
+    ));
+}
+
+#[tokio::test]
+async fn fetch_topic_list_does_not_treat_non_cloudflare_403_body_as_challenge() {
+    let responses = vec![raw_json_response(
+        403,
+        "text/html; charset=utf-8",
+        r#"<html><head><title>Just a moment...</title></head><body>__cf_chl_opt</body></html>"#,
+    )];
+    let server = TestServer::spawn(responses).await.expect("server");
+    let core = FireCore::new(FireCoreConfig {
+        base_url: server.base_url(),
+        workspace_path: None,
+    })
+    .expect("core");
+
+    let error = core
+        .fetch_topic_list(TopicListQuery {
+            kind: TopicListKind::Latest,
+            ..TopicListQuery::default()
+        })
+        .await
+        .expect_err("non-cloudflare 403 should surface as a plain HTTP error");
+    let _ = server.shutdown().await;
+
+    assert!(matches!(
+        error,
+        FireCoreError::HttpStatus {
+            operation: "fetch topic list",
+            status: 403,
+            ..
         }
     ));
 }
@@ -1775,7 +1808,7 @@ async fn create_reply_surfaces_pending_review_state() {
 
 #[tokio::test]
 async fn create_reply_surfaces_cloudflare_challenge_error() {
-    let responses = vec![raw_text_response(
+    let responses = vec![raw_cloudflare_challenge_response(
         403,
         r#"<html><body><h1>Just a moment</h1><script src="/cdn-cgi/challenge-platform/h/g/orchestrate/chl_page/v1"></script></body></html>"#,
     )];

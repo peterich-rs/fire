@@ -225,9 +225,10 @@ public struct FireAuthCookieSecrets: Codable, Equatable, Sendable {
             guard !normalizedCookie.name.isEmpty, !normalizedValue.isEmpty else {
                 continue
             }
+            let normalizedDomainKey = normalizedDomainForIdentity(normalizedCookie.domain)
             deduped.removeAll { existing in
                 existing.name == normalizedCookie.name
-                    && existing.domain?.lowercased() == normalizedCookie.domain?.lowercased()
+                    && normalizedDomainForIdentity(existing.domain) == normalizedDomainKey
                     && (existing.path ?? "/") == (normalizedCookie.path ?? "/")
             }
             if normalizedCookie.isExpired(nowUnixMs: nowUnixMs) {
@@ -244,6 +245,14 @@ public struct FireAuthCookieSecrets: Codable, Equatable, Sendable {
             )
         }
         return deduped
+    }
+
+    private static func normalizedDomainForIdentity(_ domain: String?) -> String? {
+        guard let domain = normalized(domain) else {
+            return nil
+        }
+        let lowercased = domain.lowercased()
+        return lowercased.hasPrefix(".") ? String(lowercased.dropFirst()) : lowercased
     }
 
     private static func isExpired(_ expiresAtUnixMs: Int64?, nowUnixMs: Int64) -> Bool {

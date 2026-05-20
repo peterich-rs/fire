@@ -82,6 +82,7 @@ Discourse-Present: true
 ```
 
 - Fire 共享层把 `error_type == "not_logged_in"` 视为登录态失效信号，不按普通 `HttpStatus` 处理；宿主层应清理本地会话并拉起重新登录
+- Fire 共享层只在 `403` 同时满足 `server: cloudflare`、`Content-Type: text/html`，并且带 `cf-mitigated: challenge` 或 HTML 中含 Cloudflare challenge 特征时，才分类为 `CloudflareChallenge`；普通 Discourse `403` 不应仅凭正文关键词触发 Cloudflare 恢复流程
 
 ## 推荐调用顺序
 
@@ -94,7 +95,7 @@ Discourse-Present: true
 3. 使用 Cookie Session 调用主站 API
 4. 如需实时能力，先持久化 `siteSettings.long_polling_base_url`、`topicTrackingStateMeta`，以及跨域长轮询场景下可能存在的 `shared_session_key`
 5. 使用单例 `clientId` 调用 `POST /message-bus/{clientId}/poll`
-6. 如遇 Cloudflare 挑战，先完成 `/challenge` 页面验证并拿到 `cf_clearance`
+6. 如遇 Cloudflare 挑战，先在宿主 WebView 中加载站点主页（或挑战页）完成验证并拿到 `cf_clearance`
 
 ## 已知实现细节
 

@@ -604,6 +604,7 @@ async fn read_message_bus_error_response_for_diagnostics(
         )
     });
     let status = response.status().as_u16();
+    let response_headers = response.headers().clone();
     let body = match response.into_body().text().await {
         Ok(body) => body,
         Err(source) => {
@@ -615,6 +616,7 @@ async fn read_message_bus_error_response_for_diagnostics(
     Err(classify_http_status_error(
         MESSAGE_BUS_OPERATION,
         status,
+        &response_headers,
         body,
     ))
 }

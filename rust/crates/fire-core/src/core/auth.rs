@@ -162,6 +162,7 @@ impl FireCore {
         let (trace_id, response) = self.execute_request(traced).await?;
 
         if response.status() == StatusCode::FORBIDDEN {
+            let response_headers = response.headers().clone();
             let body = self.read_response_text(trace_id, response).await?;
             self.diagnostics.record_http_status_error(
                 trace_id,
@@ -182,6 +183,7 @@ impl FireCore {
             return Err(classify_http_status_error(
                 "logout",
                 StatusCode::FORBIDDEN.as_u16(),
+                &response_headers,
                 body,
             ));
         }

@@ -1165,10 +1165,17 @@ struct FirePostRow: View {
                     }
                 }
 
-                Text(renderContent.plainText)
-                    .font(.subheadline)
-                    .foregroundStyle(.primary.opacity(0.92))
+                if let attributedText = renderContent.attributedText, attributedText.length > 0 {
+                    FireRichTextView(attributedString: attributedText) { url in
+                        UIApplication.shared.open(url)
+                    }
                     .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    Text(renderContent.plainText)
+                        .font(.subheadline)
+                        .foregroundStyle(.primary.opacity(0.92))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
 
                 if !renderContent.imageAttachments.isEmpty {
                     VStack(spacing: 10) {

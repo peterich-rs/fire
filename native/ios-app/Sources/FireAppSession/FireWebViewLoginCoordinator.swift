@@ -373,6 +373,9 @@ public final class FireWebViewLoginCoordinator {
             guard cookie.domain.range(of: "linux.do", options: .caseInsensitive) != nil else {
                 return nil
             }
+            guard isActiveCookie(cookie) else {
+                return nil
+            }
 
             return PlatformCookieState(
                 name: cookie.name,
@@ -382,6 +385,17 @@ public final class FireWebViewLoginCoordinator {
                 expiresAtUnixMs: cookie.expiresDate.map { Int64($0.timeIntervalSince1970 * 1000) }
             )
         }
+    }
+
+    private func isActiveCookie(_ cookie: HTTPCookie) -> Bool {
+        let normalizedValue = cookie.value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedValue.isEmpty else {
+            return false
+        }
+        guard let expiresDate = cookie.expiresDate else {
+            return true
+        }
+        return expiresDate > Date()
     }
 
     private func fetchHomeHTML(in webView: WKWebView) async throws -> String? {

@@ -143,12 +143,9 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
   - extracts inline cooked-image attachments plus enabled reaction options from bootstrap/topic HTML so the native detail view can render media and interaction affordances without a WebView
   - now also prepares topic-detail render caches for iOS-specific row ordering and cooked post content, instead of mutating Rust-owned topic-detail payloads in Swift
   - now focuses on host-only presentation helpers after topic-row shaping, shared text helpers, and thread flattening moved into Rust
-- `Tests/Unit/FireTopicPresentationTests.swift`
-  - covers the remaining Swift-owned presentation helpers plus the generated Rust-backed text and row/thread models consumed by SwiftUI
-- `Tests/Unit/FireEntityStateTests.swift`
-  - covers `FireEntityIndex` upsert behavior plus `FireOrderedIDList` deduplication and stable ordering for the W2 home-feed list state
-- `Tests/Unit/FireRouteParserTests.swift`
-  - covers supported custom URL forms, LinuxDo route parsing, and notification-payload route mapping
+- `Tests/Unit/`
+  - contains only logic-level unit tests for route parsing, avatar URL construction, composer validation, entity ordering/indexing, MessageBus refresh coalescing, topic-detail window math, search result merging, and Swift-owned topic presentation helpers
+  - excludes SwiftUI/UIKit rendering, app-hosted feature flows, notification/push registration, startup preload, and collection-view adapter behavior; those belong in integration/UI coverage rather than the unit bundle
 - `App/FireRootView.swift`
   - now replaces the earlier stacked-card list shell with a structured SwiftUI reading workspace that separates session gate, feed console, spotlight topics, and dense thread scanning
   - renders the first topic read path with featured-topic paging, feed filters, category-aware list rows, scroll-driven feed pagination, and dedicated topic detail navigation
@@ -276,7 +273,7 @@ Current build note:
 
 - The clean verification baseline requires `third_party/openwire` and `third_party/xlog-rs` to be initialized and free of local modifications. Run `./scripts/check_clean_submodules.sh` from the repository root before trusting local build/test results.
 - `FireTests` contains only pure-logic cases and is the single iOS test bundle. It still boots an iOS Simulator because the bundle remains app-hosted with `Fire.app` as `TEST_HOST`.
-- The simulator/unit-test path above is verified locally after the diagnostics addition.
+- The simulator/unit-test path above is verified locally after the iOS logic-unit test cleanup.
 - The device `Release` Xcode path is also verified locally.
 - The UniFFI pre-build script now sanitizes host and iOS-target cargo environments separately: host cargo invocations keep the macOS SDK and library search path, while iOS target cargo invocations keep the macOS `SDKROOT` needed for host build scripts without leaking the macOS `LIBRARY_PATH` into iPhoneOS/iPhoneSimulator links.
 

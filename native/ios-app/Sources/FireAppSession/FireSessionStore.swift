@@ -153,9 +153,11 @@ public actor FireSessionStore {
 
         let current = try core.session().snapshot()
         if !current.readiness.canReadAuthenticatedApi && shouldDiscardRestoredBootstrap(current) {
-            let cleared = try core.session().logoutLocal(preserveCfClearance: true)
-            try persistCurrentSessionIfNeeded()
-            return cleared
+            logHost(
+                level: .warn,
+                target: "session.cold_start",
+                message: "Cold-start session has valid user bootstrap but platform cookies are missing/expired. Preserving session to allow recovery."
+            )
         }
 
         let restored = try await refreshBootstrapIfNeeded()

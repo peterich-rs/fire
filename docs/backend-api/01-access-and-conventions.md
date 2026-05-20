@@ -82,6 +82,7 @@ Discourse-Present: true
 ```
 
 - Fire 共享层把 `error_type == "not_logged_in"` 视为登录态失效信号，不按普通 `HttpStatus` 处理；宿主层应清理本地会话并拉起重新登录
+- Fire 共享层只在 `403` 同时满足 `server: cloudflare`、`Content-Type: text/html`，并且带 `cf-mitigated: challenge` 或 HTML 中含 Cloudflare challenge 特征时，才分类为 `CloudflareChallenge`；普通 Discourse `403` 不应仅凭正文关键词触发 Cloudflare 恢复流程
 
 ## 推荐调用顺序
 

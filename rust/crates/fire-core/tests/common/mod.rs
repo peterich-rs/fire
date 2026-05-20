@@ -256,6 +256,13 @@ pub(crate) fn raw_text_response(status: u16, body: &str) -> String {
     raw_json_response(status, "application/json", body)
 }
 
+pub(crate) fn raw_cloudflare_challenge_response(status: u16, body: &str) -> String {
+    format!(
+        "HTTP/1.1 {status} TEST\r\nServer: cloudflare\r\nContent-Type: text/html; charset=utf-8\r\nCf-Mitigated: challenge\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        body.len()
+    )
+}
+
 pub(crate) struct TestServer {
     addr: SocketAddr,
     requests: Arc<AtomicUsize>,

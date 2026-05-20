@@ -103,6 +103,7 @@
 - 用途：打开 Cloudflare 挑战页面。在缺少 `cf_clearance` 时，加载站点主页 `/`（或任意被挑战拦截的页面）将触发 Cloudflare Turnstile 挑战，通常由宿主层 WebView 承载完成。
 - 认证：匿名可访问
 - 响应：HTML 页面，不是 JSON
+- 识别：共享层只把 `403` 且响应头指向 Cloudflare HTML challenge 的回包归类为 `CloudflareChallenge`；优先使用 `cf-mitigated: challenge`，缺失时再用 HTML 中的 `cf_chl_opt`、`challenge-platform`、`Just a moment` 等特征兜底
 
 ### `POST /cdn-cgi/challenge-platform/h/g/rc/{chlId}`
 

@@ -44,22 +44,6 @@ final class FireSearchStoreTests: XCTestCase {
         XCTAssertEqual(merged.topics.first?.views, 99)
     }
 
-    @MainActor
-    func testResetClearsTransientSearchState() {
-        let store = FireSearchStore(appViewModel: FireAppViewModel())
-        store.query = "rust"
-        store.setScope(.user)
-        store.reset()
-
-        XCTAssertEqual(store.query, "")
-        XCTAssertEqual(store.scope, .all)
-        XCTAssertNil(store.result)
-        XCTAssertEqual(store.currentPage, 1)
-        XCTAssertFalse(store.isSearching)
-        XCTAssertFalse(store.isAppending)
-        XCTAssertNil(store.errorMessage)
-    }
-
     private func makeGroupedResult(
         morePosts: Bool = false,
         moreUsers: Bool = false

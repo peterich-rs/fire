@@ -369,26 +369,15 @@ public final class FireWebViewLoginCoordinator {
 
     private func relevantCookies(from store: WKHTTPCookieStore) async throws -> [PlatformCookieState] {
         let allCookies = try await httpCookies(from: store)
-        let filtered = allCookies.filter { cookie in
-            cookie.domain.range(of: "linux.do", options: .caseInsensitive) != nil
-        }
-        
-        let requestHost = "linux.do"
-        let grouped = Dictionary(grouping: filtered, by: { $0.name })
-        var dedupedCookies: [HTTPCookie] = []
-        
-        for (_, cookies) in grouped {
-            if cookies.count > 1 {
-                if let best = selectBestCookie(from: cookies, requestHost: requestHost) {
-                    dedupedCookies.append(best)
-                }
-            } else if let first = cookies.first {
-                dedupedCookies.append(first)
+        return allCookies.compactMap { cookie in
+            guard cookie.domain.range(of: "linux.do", options: .caseInsensitive) != nil else {
+                return nil
             }
-        }
-        
-        return dedupedCookies.compactMap { cookie in
-            PlatformCookieState(
+            guard isActiveCookie(cookie) else {
+                return nil
+            }
+
+            return PlatformCookieState(
                 name: cookie.name,
                 value: cookie.value,
                 domain: cookie.domain,
@@ -398,72 +387,15 @@ public final class FireWebViewLoginCoordinator {
         }
     }
 
-    private func selectBestCookie(from cookies: [HTTPCookie], requestHost: String) -> HTTPCookie? {
-        guard !cookies.isEmpty else { return nil }
-        
-        let sorted = cookies.sorted { a, b in
-            let scoreA = scoreCookie(a, requestHost: requestHost)
-            let scoreB = scoreCookie(b, requestHost: requestHost)
-            if scoreA != scoreB {
-                return scoreA > scoreB
-            }
-            
-            let pathLenA = a.path.count
-            let pathLenB = b.path.count
-            if pathLenA != pathLenB {
-                return pathLenA > pathLenB
-            }
-            
-            return a.value.count > b.value.count
+    private func isActiveCookie(_ cookie: HTTPCookie) -> Bool {
+        let normalizedValue = cookie.value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedValue.isEmpty else {
+            return false
         }
-        
-        return sorted.first
-    }
-    
-    private func scoreCookie(_ cookie: HTTPCookie, requestHost: String) -> Int {
-        var score = 0
-        let value = cookie.value
-        if !value.isEmpty {
-            score += 100000
+        guard let expiresDate = cookie.expiresDate else {
+            return true
         }
-        
-        let expires = cookie.expiresDate
-        if expires == nil || expires! > Date() {
-            score += 50000
-        }
-        
-        let normalizedDomain = normalizeCookieDomain(cookie.domain)
-        if normalizedDomain.isEmpty {
-            score += 40000
-        } else if normalizedDomain == requestHost {
-            score += 30000 + normalizedDomain.count
-        } else if requestHost.hasSuffix(".\(normalizedDomain)") {
-            score += 20000 + normalizedDomain.count
-        } else {
-            score += normalizedDomain.count
-        }
-        
-        if cookie.isHTTPOnly {
-            score += 500
-        }
-        if cookie.isSecure {
-            score += 250
-        }
-        score += cookie.path.count
-        score += value.count
-        return score
-    }
-    
-    private func normalizeCookieDomain(_ domain: String) -> String {
-        let trimmed = domain.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
-            return ""
-        }
-        var normalized = trimmed.lowercased()
-        if normalized.hasPrefix(".") {
-            normalized.removeFirst()
-        }
-        return normalized
+        return expiresDate > Date()
     }
 
     private func fetchHomeHTML(in webView: WKWebView) async throws -> String? {

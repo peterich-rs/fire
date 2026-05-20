@@ -108,7 +108,7 @@ The intended native integration order is:
 2. After login or Cloudflare verification, read the platform cookie store, the current page HTML/meta, and the live WebView/browser user agent.
 3. Call `sync_login_context` in Rust with the full same-site browser cookie batch, optional username, CSRF, the preferred homepage HTML captured through the browser context, and the WebView/browser user agent.
 4. Persist the latest session snapshot through the host-appropriate session policy:
-  - iOS currently writes the full `session.json` snapshot during the active diagnostics-heavy development phase, keeps the full same-site browser cookie batch in Keychain with expiry metadata and distinct host/domain variants, and now gates both writes off Rust-owned snapshot/auth-cookie persistence revisions instead of diffing exported session JSON in Swift.
+  - iOS currently writes the full `session.json` snapshot during the active diagnostics-heavy development phase, keeps the full same-site browser cookie batch in Keychain with expiry metadata, and gates both writes off Rust-owned snapshot/auth-cookie persistence revisions instead of diffing exported session JSON in Swift. Cookie identity follows the shared Rust model: `(name, normalizedDomain, path)`, with a leading `.` stripped from the identity domain.
    - Android currently uses `export_session_json` or `save_session_to_path` until Keystore-backed parity lands.
 5. On cold start, restore the snapshot through `restore_session_json` or `load_session_from_path`.
 6. Before any authenticated request, hosts that keep browser cookies outside `session.json` must re-inject that platform cookie batch into Rust.

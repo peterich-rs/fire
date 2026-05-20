@@ -283,7 +283,7 @@ mod tests {
     }
 
     #[test]
-    fn platform_cookie_apply_keeps_host_and_domain_variants_separate() {
+    fn platform_cookie_apply_replaces_same_normalized_domain_variant() {
         let mut cookies = CookieSnapshot::default();
 
         cookies.apply_platform_cookies(&[
@@ -303,17 +303,13 @@ mod tests {
             },
         ]);
 
-        assert_eq!(cookies.platform_cookies.len(), 2);
-        assert!(cookies
-            .platform_cookies
-            .iter()
-            .any(|cookie| cookie.domain.as_deref() == Some("linux.do")
-                && cookie.value == "host-only"));
-        assert!(cookies
-            .platform_cookies
-            .iter()
-            .any(|cookie| cookie.domain.as_deref() == Some(".linux.do")
-                && cookie.value == "domain-scope"));
+        assert_eq!(cookies.platform_cookies.len(), 1);
+        assert_eq!(cookies.t_token.as_deref(), Some("domain-scope"));
+        assert_eq!(
+            cookies.platform_cookies[0].domain.as_deref(),
+            Some(".linux.do")
+        );
+        assert_eq!(cookies.platform_cookies[0].value, "domain-scope");
     }
 
     #[test]

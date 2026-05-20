@@ -97,9 +97,9 @@
 - 当前 `BAD CSRF` 仍只触发一次性 CSRF 刷新与单次重试；如果同一请求同时已经暴露强失效信号，则优先按登录失效收口。
 - 因此后续常见表现不只有“更早一步已明确失效”，也可能是“更早一步成功读请求触发了 partial auth rotation，首个写请求才真正暴露问题”。
 
-### `GET /challenge`
+### `GET /` (或挑战拦截页面)
 
-- 用途：打开 Cloudflare 挑战页面，通常在 WebView 中人工完成
+- 用途：打开 Cloudflare 挑战页面。在缺少 `cf_clearance` 时，加载站点主页 `/`（或任意被挑战拦截的页面）将触发 Cloudflare Turnstile 挑战，通常由宿主层 WebView 承载完成。
 - 认证：匿名可访问
 - 响应：HTML 页面，不是 JSON
 

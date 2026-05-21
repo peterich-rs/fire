@@ -134,43 +134,51 @@ enum FireTopicPresentation {
         }
 
         let nsRange = NSRange(html.startIndex..., in: html)
-        let tags = imageTagRegex.matches(in: html, range: nsRange)
         var images: [FireCookedImage] = []
         var seenURLs: Set<String> = []
+        let lightboxMatches = lightboxAnchorRegex.matches(in: html, range: nsRange)
 
-        for match in tags {
+        for match in lightboxMatches {
+            guard let matchRange = Range(match.range, in: html) else {
+                continue
+            }
+
+            let wrapper = String(html[matchRange])
+            guard let anchorRange = wrapper.range(of: #"<a\b[^>]*>"#, options: .regularExpression),
+                  let imageMatch = imageTagRegex.firstMatch(
+                      in: wrapper,
+                      range: NSRange(wrapper.startIndex..., in: wrapper)
+                  ),
+                  let imageRange = Range(imageMatch.range, in: wrapper) else {
+                continue
+            }
+
+            let anchorTag = String(wrapper[anchorRange])
+            let imageTag = String(wrapper[imageRange])
+            appendImageAttachment(
+                from: imageTag,
+                preferredSource: attributeValue(named: "href", in: anchorTag),
+                baseURLString: baseURLString,
+                images: &images,
+                seenURLs: &seenURLs
+            )
+        }
+
+        for match in imageTagRegex.matches(in: html, range: nsRange) {
+            if lightboxMatches.contains(where: { NSIntersectionRange($0.range, match.range).length > 0 }) {
+                continue
+            }
+
             guard let range = Range(match.range, in: html) else {
                 continue
             }
 
-            let tag = String(html[range])
-            let classes = attributeValue(named: "class", in: tag)?
-                .split(separator: " ")
-                .map(String.init) ?? []
-            if classes.contains(where: { $0.caseInsensitiveCompare("emoji") == .orderedSame }) {
-                continue
-            }
-
-            guard
-                let rawSource = attributeValue(named: "src", in: tag),
-                let sourceURL = resolvedAssetURL(from: rawSource, baseURLString: baseURLString)
-            else {
-                continue
-            }
-
-            let absoluteURL = sourceURL.absoluteString
-            if absoluteURL.contains("/images/emoji/") || seenURLs.contains(absoluteURL) {
-                continue
-            }
-
-            seenURLs.insert(absoluteURL)
-            images.append(
-                FireCookedImage(
-                    url: sourceURL,
-                    altText: attributeValue(named: "alt", in: tag),
-                    width: attributeValue(named: "width", in: tag).flatMap(Double.init).map { CGFloat($0) },
-                    height: attributeValue(named: "height", in: tag).flatMap(Double.init).map { CGFloat($0) }
-                )
+            appendImageAttachment(
+                from: String(html[range]),
+                preferredSource: nil,
+                baseURLString: baseURLString,
+                images: &images,
+                seenURLs: &seenURLs
             )
         }
 
@@ -606,6 +614,11 @@ enum FireTopicPresentation {
         options: [.caseInsensitive]
     )
 
+    private static let lightboxAnchorRegex = try! NSRegularExpression(
+        pattern: #"<a\b[^>]*class\s*=\s*(?:\"[^\"]*\blightbox\b[^\"]*\"|'[^']*\blightbox\b[^']*')[^>]*>[\s\S]*?</a>"#,
+        options: [.caseInsensitive]
+    )
+
     private static func decodeCommonEntities(in string: String) -> String {
         var decoded = string
         let entities = [
@@ -668,6 +681,45 @@ enum FireTopicPresentation {
         }
 
         return URL(string: trimmed, relativeTo: URL(string: baseURLString))?.absoluteURL
+    }
+
+    private static func appendImageAttachment(
+        from tag: String,
+        preferredSource: String?,
+        baseURLString: String,
+        images: inout [FireCookedImage],
+        seenURLs: inout Set<String>
+    ) {
+        let classes = attributeValue(named: "class", in: tag)?
+            .split(whereSeparator: { $0.isWhitespace })
+            .map { $0.lowercased() } ?? []
+        if classes.contains(where: { $0 == "emoji" }) {
+            return
+        }
+
+        let rawSource = preferredSource?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+            ? preferredSource
+            : attributeValue(named: "src", in: tag)
+
+        guard let rawSource,
+              let sourceURL = resolvedAssetURL(from: rawSource, baseURLString: baseURLString) else {
+            return
+        }
+
+        let absoluteURL = sourceURL.absoluteString
+        if absoluteURL.contains("/images/emoji/") || seenURLs.contains(absoluteURL) {
+            return
+        }
+
+        seenURLs.insert(absoluteURL)
+        images.append(
+            FireCookedImage(
+                url: sourceURL,
+                altText: attributeValue(named: "alt", in: tag),
+                width: attributeValue(named: "width", in: tag).flatMap(Double.init).map { CGFloat($0) },
+                height: attributeValue(named: "height", in: tag).flatMap(Double.init).map { CGFloat($0) }
+            )
+        )
     }
 }
 

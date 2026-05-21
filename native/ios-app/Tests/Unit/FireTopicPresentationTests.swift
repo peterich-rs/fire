@@ -168,6 +168,91 @@ final class FireTopicPresentationTests: XCTestCase {
         )
     }
 
+    func testRenderContentMakesMentionsTappableAsInAppProfiles() throws {
+        let content = FireTopicPresentation.renderContent(
+            from: #"<p>Hello <a class="mention" href="/u/alice">@alice</a></p>"#,
+            baseURLString: "https://linux.do"
+        )
+
+        let attributedText = try XCTUnwrap(content.attributedText)
+        let range = (attributedText.string as NSString).range(of: "@alice")
+
+        XCTAssertNotEqual(range.location, NSNotFound)
+        XCTAssertEqual(
+            attributedText.attribute(.link, at: range.location, effectiveRange: nil) as? URL,
+            URL(string: "fire://profile/alice")
+        )
+    }
+
+    func testImageAttachmentsPreferLightboxOriginalURL() {
+        let content = FireTopicPresentation.renderContent(
+            from: #"<p><a class="lightbox" href="/uploads/default/original/1X/fire-full.png"><img src="/uploads/default/optimized/1X/fire_690x388.png" width="690" height="388"></a></p>"#,
+            baseURLString: "https://linux.do"
+        )
+
+        XCTAssertEqual(content.attributedText?.length ?? 0, 0)
+        XCTAssertEqual(
+            content.imageAttachments.map(\.url.absoluteString),
+            ["https://linux.do/uploads/default/original/1X/fire-full.png"]
+        )
+        XCTAssertEqual(Double(content.imageAttachments.first?.aspectRatio ?? 0), 690.0 / 388.0, accuracy: 0.001)
+    }
+
+    func testRenderContentEmbedsEmojiAttachments() throws {
+        let content = FireTopicPresentation.renderContent(
+            from: #"<p><img class="emoji" title="smile" src="/images/emoji/twitter/smile.png?v=12"></p>"#,
+            baseURLString: "https://linux.do"
+        )
+
+        let attributedText = try XCTUnwrap(content.attributedText)
+        let attachment = try XCTUnwrap(
+            attributedText.attribute(.attachment, at: 0, effectiveRange: nil) as? FireRichTextEmojiAttachment
+        )
+
+        XCTAssertEqual(attachment.remoteURL.absoluteString, "https://linux.do/images/emoji/twitter/smile.png?v=12")
+        XCTAssertEqual(attachment.fallbackText, ":smile:")
+        XCTAssertTrue(content.imageAttachments.isEmpty)
+    }
+
+    func testRenderContentDerivesEmojiShortcodeFromToneVariantPath() throws {
+        let content = FireTopicPresentation.renderContent(
+            from: #"<p><img class="emoji" src="/images/emoji/twitter/wave/t3.png?v=12"></p>"#,
+            baseURLString: "https://linux.do"
+        )
+
+        let attributedText = try XCTUnwrap(content.attributedText)
+        let attachment = try XCTUnwrap(
+            attributedText.attribute(.attachment, at: 0, effectiveRange: nil) as? FireRichTextEmojiAttachment
+        )
+
+        XCTAssertEqual(attachment.fallbackText, ":wave:t3:")
+    }
+
+    func testRenderContentBuildsQuotedReplyHeaderWithInternalLinks() throws {
+        let content = FireTopicPresentation.renderContent(
+            from: #"<aside class="quote" data-username="alice" data-post="12" data-topic="987"><blockquote><p>Hello Fire</p></blockquote></aside>"#,
+            baseURLString: "https://linux.do"
+        )
+
+        let attributedText = try XCTUnwrap(content.attributedText)
+        let text = attributedText.string as NSString
+        let authorRange = text.range(of: "@alice")
+        let postRange = text.range(of: "#12")
+
+        XCTAssertNotEqual(authorRange.location, NSNotFound)
+        XCTAssertNotEqual(postRange.location, NSNotFound)
+        XCTAssertEqual(
+            attributedText.attribute(.link, at: authorRange.location, effectiveRange: nil) as? URL,
+            URL(string: "fire://profile/alice")
+        )
+        XCTAssertEqual(
+            attributedText.attribute(.link, at: postRange.location, effectiveRange: nil) as? URL,
+            URL(string: "fire://topic/987/12")
+        )
+        XCTAssertTrue(attributedText.string.contains("引用"))
+        XCTAssertTrue(attributedText.string.contains("Hello Fire"))
+    }
+
     func testMergeTopicPostsRespectsStreamOrderAndPrefersIncomingValues() {
         let merged = FireTopicPresentation.mergeTopicPosts(
             existing: [

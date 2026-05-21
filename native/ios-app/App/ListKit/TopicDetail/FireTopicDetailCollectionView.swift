@@ -82,6 +82,7 @@ struct FireTopicDetailCollectionView: View {
     let onRefresh: () async -> Void
     let onScrollTargetHandled: (UInt32) -> Void
     let onOpenComposer: (TopicPostState?) -> Void
+    let onLinkTapped: (URL) -> Void
     let onOpenImage: (FireCookedImage) -> Void
     let onToggleLike: (TopicPostState) -> Void
     let onSelectReaction: (TopicPostState, String) -> Void
@@ -554,6 +555,7 @@ struct FireTopicDetailCollectionView: View {
                         baseURLString: baseURLString,
                         canWriteInteractions: canWriteInteractions,
                         isMutating: topicDetailStore.isMutatingPost(postId: originalPost.id),
+                        onLinkTapped: onLinkTapped,
                         onOpenImage: onOpenImage,
                         onToggleLike: onToggleLike,
                         onSelectReaction: onSelectReaction,
@@ -716,6 +718,7 @@ struct FireTopicDetailCollectionView: View {
                         baseURLString: baseURLString,
                         canWriteInteractions: canWriteInteractions,
                         isMutating: topicDetailStore.isMutatingPost(postId: post.id),
+                        onLinkTapped: onLinkTapped,
                         onOpenImage: onOpenImage,
                         onToggleLike: onToggleLike,
                         onSelectReaction: onSelectReaction,

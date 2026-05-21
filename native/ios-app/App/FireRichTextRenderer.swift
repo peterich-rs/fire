@@ -14,8 +14,10 @@ enum FireRichTextNode: Sendable, Equatable {
     case codeBlock(language: String?, code: String)
     case link(url: String, children: [FireRichTextNode])
     case mention(username: String)
+    case emoji(url: String, fallbackText: String, onlyEmoji: Bool)
     case heading(level: Int, children: [FireRichTextNode])
     case blockquote([FireRichTextNode])
+    case quote(author: String?, postNumber: UInt32?, topicId: UInt64?, children: [FireRichTextNode])
     case listItem([FireRichTextNode])
     case lineBreak
     case paragraph([FireRichTextNode])
@@ -99,11 +101,18 @@ enum FireRichTextParser {
             return .lineBreak
 
         case "img":
-            // Images are handled via imageAttachments — skip inline emoji
-            let classes = attrs["class"] ?? ""
+            let classes = classNames(from: attrs["class"])
             if classes.contains("emoji") {
-                let alt = attrs["alt"] ?? ""
-                return alt.isEmpty ? nil : .text(alt)
+                let resolvedURL = resolveURL(attrs["src"] ?? "", baseURLString: baseURLString)
+                let fallbackText = emojiFallbackText(from: attrs, resolvedURLString: resolvedURL)
+                guard !resolvedURL.isEmpty else {
+                    return fallbackText.isEmpty ? nil : .text(fallbackText)
+                }
+                return .emoji(
+                    url: resolvedURL,
+                    fallbackText: fallbackText,
+                    onlyEmoji: classes.contains("only-emoji")
+                )
             }
             return nil // Full images rendered separately
 
@@ -138,20 +147,41 @@ enum FireRichTextParser {
 
         case "a":
             let href = attrs["href"] ?? ""
-            let classes = attrs["class"] ?? ""
+            let classes = classNames(from: attrs["class"])
             if classes.contains("mention") {
                 let content = scanInnerContent(scanner: scanner, closingTag: "a", baseURLString: baseURLString)
-                let username = extractTextContent(from: content).trimmingCharacters(in: .whitespaces)
+                let username = extractTextContent(from: content, includingEmojiFallback: false)
+                    .trimmingCharacters(in: .whitespaces)
                 let cleanUsername = username.hasPrefix("@") ? String(username.dropFirst()) : username
                 return .mention(username: cleanUsername)
             }
             let content = scanInnerContent(scanner: scanner, closingTag: "a", baseURLString: baseURLString)
             let resolvedURL = resolveURL(href, baseURLString: baseURLString)
+            if shouldSuppressLinkForInlineImage(
+                urlString: resolvedURL,
+                classNames: classes,
+                children: content
+            ) {
+                return nil
+            }
             return .link(url: resolvedURL, children: content)
 
         case "blockquote":
             let content = scanInnerContent(scanner: scanner, closingTag: "blockquote", baseURLString: baseURLString)
             return .blockquote(content)
+
+        case "aside":
+            let content = scanInnerContent(scanner: scanner, closingTag: "aside", baseURLString: baseURLString)
+            let classes = classNames(from: attrs["class"])
+            if classes.contains("quote") {
+                return .quote(
+                    author: normalizedText(attrs["data-username"]),
+                    postNumber: attrs["data-post"].flatMap(UInt32.init),
+                    topicId: attrs["data-topic"].flatMap(UInt64.init),
+                    children: normalizeQuotedChildren(content)
+                )
+            }
+            return .paragraph(content)
 
         case "li":
             let content = scanInnerContent(scanner: scanner, closingTag: "li", baseURLString: baseURLString)
@@ -166,7 +196,7 @@ enum FireRichTextParser {
             let content = scanInnerContent(scanner: scanner, closingTag: tagName, baseURLString: baseURLString)
             return .paragraph(content)
 
-        case "div", "span", "aside", "details", "summary", "section", "header", "nav":
+        case "div", "span", "details", "summary", "section", "header", "nav":
             let content = scanInnerContent(scanner: scanner, closingTag: tagName, baseURLString: baseURLString)
             return .paragraph(content)
 
@@ -285,21 +315,156 @@ enum FireRichTextParser {
         return (nil, decodeEntities(code))
     }
 
-    private static func extractTextContent(from nodes: [FireRichTextNode]) -> String {
+    private static func extractTextContent(
+        from nodes: [FireRichTextNode],
+        includingEmojiFallback: Bool = true
+    ) -> String {
         nodes.map { node in
             switch node {
             case .text(let t): return t
             case .bold(let c), .italic(let c), .strikethrough(let c),
                  .paragraph(let c), .heading(_, let c), .blockquote(let c),
-                 .listItem(let c): return extractTextContent(from: c)
-            case .link(_, let c): return extractTextContent(from: c)
+                 .quote(_, _, _, let c), .listItem(let c):
+                return extractTextContent(from: c, includingEmojiFallback: includingEmojiFallback)
+            case .link(_, let c):
+                return extractTextContent(from: c, includingEmojiFallback: includingEmojiFallback)
             case .code(let t): return t
             case .codeBlock(_, let t): return t
             case .mention(let u): return "@\(u)"
+            case .emoji(_, let fallbackText, _): return includingEmojiFallback ? fallbackText : ""
             case .lineBreak: return "\n"
             case .image: return ""
             }
         }.joined()
+    }
+
+    private static func classNames(from rawValue: String?) -> Set<String> {
+        Set(
+            (rawValue ?? "")
+                .split(whereSeparator: { $0.isWhitespace })
+                .map { $0.lowercased() }
+        )
+    }
+
+    private static func normalizeQuotedChildren(_ children: [FireRichTextNode]) -> [FireRichTextNode] {
+        let meaningfulChildren = children.filter { child in
+            guard case .text(let value) = child else { return true }
+            return !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+
+        guard meaningfulChildren.count == 1,
+              case .blockquote(let quotedChildren) = meaningfulChildren[0] else {
+            return children
+        }
+
+        return quotedChildren
+    }
+
+    private static func normalizedText(_ rawValue: String?) -> String? {
+        let trimmed = rawValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private static func shouldSuppressLinkForInlineImage(
+        urlString: String,
+        classNames: Set<String>,
+        children: [FireRichTextNode]
+    ) -> Bool {
+        let visibleText = extractTextContent(from: children, includingEmojiFallback: false)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let imageLikeURL = isImageURL(urlString)
+
+        if classNames.contains("lightbox") {
+            return true
+        }
+
+        if classNames.contains("attachment") && imageLikeURL {
+            return visibleText.isEmpty || looksLikeImageFilename(visibleText)
+        }
+
+        if children.isEmpty && imageLikeURL {
+            return true
+        }
+
+        return imageLikeURL && looksLikeImageFilename(visibleText)
+    }
+
+    private static func isImageURL(_ urlString: String) -> Bool {
+        let normalized = urlString.lowercased()
+        return normalized.hasSuffix(".jpg")
+            || normalized.hasSuffix(".jpeg")
+            || normalized.hasSuffix(".png")
+            || normalized.hasSuffix(".gif")
+            || normalized.hasSuffix(".webp")
+            || normalized.hasSuffix(".avif")
+            || normalized.contains("/uploads/")
+            || normalized.contains("/original/")
+            || normalized.contains("/images/emoji/")
+    }
+
+    private static func looksLikeImageFilename(_ value: String) -> Bool {
+        guard !value.isEmpty else {
+            return false
+        }
+        return isImageURL(value)
+    }
+
+    private static func emojiFallbackText(from attrs: [String: String], resolvedURLString: String) -> String {
+        if let title = normalizedEmojiFallback(attrs["title"]) {
+            return title
+        }
+        if let alt = normalizedEmojiFallback(attrs["alt"]) {
+            return alt
+        }
+        if let derived = emojiShortcode(from: resolvedURLString) {
+            return derived
+        }
+        return ":emoji:"
+    }
+
+    private static func normalizedEmojiFallback(_ rawValue: String?) -> String? {
+        guard let rawValue = normalizedText(rawValue) else {
+            return nil
+        }
+
+        let trimmedColons = rawValue.trimmingCharacters(in: CharacterSet(charactersIn: ":"))
+        let needsShortcodeWrapping = rawValue.unicodeScalars.contains { scalar in
+            CharacterSet.alphanumerics.contains(scalar) || scalar == "_" || scalar == "-"
+        }
+
+        guard needsShortcodeWrapping else {
+            return rawValue
+        }
+
+        return trimmedColons.isEmpty ? rawValue : ":\(trimmedColons):"
+    }
+
+    private static func emojiShortcode(from urlString: String) -> String? {
+        guard !urlString.isEmpty else {
+            return nil
+        }
+
+        let rawPath = URL(string: urlString)?.path ?? urlString
+        guard let emojiPathRange = rawPath.range(of: "/images/emoji/") else {
+            return nil
+        }
+
+        let components = rawPath[emojiPathRange.upperBound...]
+            .split(separator: "/")
+            .map(String.init)
+        guard components.count >= 2 else {
+            return nil
+        }
+
+        let shortcodeComponents = components.dropFirst().map { component in
+            component.replacingOccurrences(of: #"\.[^.]+$"#, with: "", options: .regularExpression)
+        }.filter { !$0.isEmpty }
+
+        guard !shortcodeComponents.isEmpty else {
+            return nil
+        }
+
+        return normalizedEmojiFallback(shortcodeComponents.joined(separator: ":"))
     }
 
     private static func resolveURL(_ href: String, baseURLString: String) -> String {
@@ -410,6 +575,18 @@ enum FireRichTextAttributedStringBuilder {
         func indented() -> RenderContext {
             var ctx = self; ctx.indentLevel += 1; return ctx
         }
+        func withTextColor(_ color: UIColor) -> RenderContext {
+            RenderContext(
+                baseFont: baseFont,
+                textColor: color,
+                accentColor: accentColor,
+                codeBackgroundColor: codeBackgroundColor,
+                isBold: isBold,
+                isItalic: isItalic,
+                isStrikethrough: isStrikethrough,
+                indentLevel: indentLevel
+            )
+        }
     }
 
     // swiftlint:disable:next cyclomatic_complexity function_body_length
@@ -465,23 +642,37 @@ enum FireRichTextAttributedStringBuilder {
                 result.append(NSAttributedString(string: "\n"))
 
             case .link(let url, let children):
-                let linkAttrs = textAttributes(for: context, overrideColor: context.accentColor)
                 let linkText = NSMutableAttributedString()
                 appendNodes(children, to: linkText, context: context)
+                let linkValue: Any = URL(string: url) ?? url
                 // Apply link attribute to entire range
                 linkText.addAttributes([
                     .foregroundColor: context.accentColor,
                     .underlineStyle: NSUnderlineStyle.single.rawValue,
-                    .link: url,
+                    .link: linkValue,
                 ], range: NSRange(location: 0, length: linkText.length))
                 result.append(linkText)
 
             case .mention(let username):
+                let linkValue: Any = URL(string: profileURLString(for: username)) ?? profileURLString(for: username)
                 let attrs: [NSAttributedString.Key: Any] = [
                     .font: context.currentFont,
                     .foregroundColor: context.accentColor,
+                    .link: linkValue,
                 ]
                 result.append(NSAttributedString(string: "@\(username)", attributes: attrs))
+
+            case .emoji(let url, let fallbackText, let onlyEmoji):
+                if let attachment = makeEmojiAttachment(
+                    urlString: url,
+                    fallbackText: fallbackText,
+                    font: context.currentFont,
+                    onlyEmoji: onlyEmoji
+                ) {
+                    result.append(NSAttributedString(attachment: attachment))
+                } else {
+                    result.append(NSAttributedString(string: fallbackText, attributes: textAttributes(for: context)))
+                }
 
             case .heading(let level, let children):
                 let headingSize: CGFloat
@@ -506,26 +697,34 @@ enum FireRichTextAttributedStringBuilder {
                 result.append(NSAttributedString(string: "\n"))
 
             case .blockquote(let children):
-                let paragraph = NSMutableParagraphStyle()
-                paragraph.firstLineHeadIndent = 16
-                paragraph.headIndent = 16
-
                 if result.length > 0 && !result.string.hasSuffix("\n") {
                     result.append(NSAttributedString(string: "\n"))
                 }
 
-                let quoteResult = NSMutableAttributedString()
-                appendNodes(children, to: quoteResult, context: context.indented())
-                quoteResult.addAttributes([
-                    .paragraphStyle: paragraph,
-                    .foregroundColor: UIColor.secondaryLabel,
-                ], range: NSRange(location: 0, length: quoteResult.length))
-                // Add quote indicator
-                let indicator = NSAttributedString(string: "┃ ", attributes: [
-                    .foregroundColor: UIColor.separator,
-                    .font: context.currentFont,
-                ])
-                result.append(indicator)
+                let quoteResult = quoteBlockAttributedString(
+                    author: nil,
+                    postNumber: nil,
+                    topicId: nil,
+                    children: children,
+                    context: context
+                )
+                result.append(quoteResult)
+                if !quoteResult.string.hasSuffix("\n") {
+                    result.append(NSAttributedString(string: "\n"))
+                }
+
+            case .quote(let author, let postNumber, let topicId, let children):
+                if result.length > 0 && !result.string.hasSuffix("\n") {
+                    result.append(NSAttributedString(string: "\n"))
+                }
+
+                let quoteResult = quoteBlockAttributedString(
+                    author: author,
+                    postNumber: postNumber,
+                    topicId: topicId,
+                    children: children,
+                    context: context
+                )
                 result.append(quoteResult)
                 if !quoteResult.string.hasSuffix("\n") {
                     result.append(NSAttributedString(string: "\n"))
@@ -566,6 +765,192 @@ enum FireRichTextAttributedStringBuilder {
             attrs[.strikethroughStyle] = NSUnderlineStyle.single.rawValue
         }
         return attrs
+    }
+
+    private static func makeEmojiAttachment(
+        urlString: String,
+        fallbackText: String,
+        font: UIFont,
+        onlyEmoji: Bool
+    ) -> FireRichTextEmojiAttachment? {
+        guard let url = URL(string: urlString) else {
+            return nil
+        }
+
+        let displaySize = onlyEmoji
+            ? max(font.pointSize * 1.9, font.pointSize + 10)
+            : max(font.pointSize * 1.15, font.pointSize + 1)
+
+        return FireRichTextEmojiAttachment(
+            remoteURL: url,
+            fallbackText: fallbackText,
+            displaySize: displaySize,
+            baselineOffset: font.descender
+        )
+    }
+
+    private static func quoteBlockAttributedString(
+        author: String?,
+        postNumber: UInt32?,
+        topicId: UInt64?,
+        children: [FireRichTextNode],
+        context: RenderContext
+    ) -> NSAttributedString {
+        let content = NSMutableAttributedString()
+
+        if let header = quoteHeaderAttributedString(
+            author: author,
+            postNumber: postNumber,
+            topicId: topicId,
+            context: context
+        ) {
+            content.append(header)
+            if !children.isEmpty {
+                content.append(NSAttributedString(string: "\n"))
+            }
+        }
+
+        let body = NSMutableAttributedString()
+        appendNodes(
+            children,
+            to: body,
+            context: context.indented().withTextColor(.secondaryLabel)
+        )
+        content.append(body)
+
+        let prefixed = prefixedLines(
+            in: content,
+            prefix: NSAttributedString(string: "▍ ", attributes: [
+                .font: context.currentFont,
+                .foregroundColor: UIColor.separator,
+            ])
+        )
+        guard prefixed.length > 0 else {
+            return prefixed
+        }
+
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.paragraphSpacing = 6
+        paragraph.paragraphSpacingBefore = 4
+        paragraph.lineSpacing = 2
+        prefixed.addAttribute(
+            .paragraphStyle,
+            value: paragraph,
+            range: NSRange(location: 0, length: prefixed.length)
+        )
+        return prefixed
+    }
+
+    private static func quoteHeaderAttributedString(
+        author: String?,
+        postNumber: UInt32?,
+        topicId: UInt64?,
+        context: RenderContext
+    ) -> NSAttributedString? {
+        let trimmedAuthor = author?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard (trimmedAuthor?.isEmpty == false) || postNumber != nil else {
+            return nil
+        }
+
+        let font = UIFont.preferredFont(forTextStyle: .caption1)
+        let baseAttributes: [NSAttributedString.Key: Any] = [
+            .font: font,
+            .foregroundColor: UIColor.secondaryLabel,
+        ]
+        let result = NSMutableAttributedString(string: "引用", attributes: baseAttributes)
+
+        if let trimmedAuthor, !trimmedAuthor.isEmpty {
+            result.append(NSAttributedString(string: " ", attributes: baseAttributes))
+            let profileLink: Any = URL(string: profileURLString(for: trimmedAuthor)) ?? profileURLString(for: trimmedAuthor)
+            result.append(NSAttributedString(string: "@\(trimmedAuthor)", attributes: [
+                .font: font,
+                .foregroundColor: context.accentColor,
+                .link: profileLink,
+            ]))
+        }
+
+        if let postNumber {
+            result.append(NSAttributedString(string: " · ", attributes: baseAttributes))
+            var postAttributes = baseAttributes
+            postAttributes[.foregroundColor] = context.accentColor
+            if let topicId {
+                postAttributes[.link] = URL(string: topicURLString(topicId: topicId, postNumber: postNumber))
+                    ?? topicURLString(topicId: topicId, postNumber: postNumber)
+            }
+            result.append(NSAttributedString(string: "#\(postNumber)", attributes: postAttributes))
+        }
+
+        return result
+    }
+
+    private static func prefixedLines(
+        in attributedString: NSAttributedString,
+        prefix: NSAttributedString
+    ) -> NSMutableAttributedString {
+        let result = NSMutableAttributedString()
+        let fullString = attributedString.string as NSString
+
+        guard fullString.length > 0 else {
+            return result
+        }
+
+        var location = 0
+        while location < fullString.length {
+            let lineRange = fullString.lineRange(for: NSRange(location: location, length: 0))
+            result.append(prefix)
+            result.append(attributedString.attributedSubstring(from: lineRange))
+            location = NSMaxRange(lineRange)
+        }
+
+        return result
+    }
+
+    private static func profileURLString(for username: String) -> String {
+        let encodedUsername = username.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? username
+        return "fire://profile/\(encodedUsername)"
+    }
+
+    private static func topicURLString(topicId: UInt64, postNumber: UInt32?) -> String {
+        if let postNumber {
+            return "fire://topic/\(topicId)/\(postNumber)"
+        }
+        return "fire://topic/\(topicId)"
+    }
+}
+
+final class FireRichTextEmojiAttachment: NSTextAttachment {
+    let remoteURL: URL
+    let fallbackText: String
+    let cacheKey: String
+    let request: FireRemoteImageRequest
+
+    init(
+        remoteURL: URL,
+        fallbackText: String,
+        displaySize: CGFloat,
+        baselineOffset: CGFloat
+    ) {
+        self.remoteURL = remoteURL
+        self.fallbackText = fallbackText
+        self.cacheKey = remoteURL.absoluteString
+        self.request = FireRemoteImageRequest(url: remoteURL)
+        super.init(data: nil, ofType: nil)
+        bounds = CGRect(x: 0, y: baselineOffset, width: displaySize, height: displaySize)
+        image = Self.placeholderImage(size: displaySize)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func applyLoadedImage(_ loadedImage: UIImage) {
+        image = loadedImage.preparingForDisplay() ?? loadedImage
+    }
+
+    private static func placeholderImage(size: CGFloat) -> UIImage {
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: max(size, 1), height: max(size, 1)))
+        return renderer.image { _ in }
     }
 }
 
@@ -631,6 +1016,19 @@ struct FireRichTextView: UIViewRepresentable {
 
 /// Custom UITextView that sizes itself to content.
 final class FireRichTextUIView: UITextView {
+    private var emojiLoadTasks: [String: Task<Void, Never>] = [:]
+
+    deinit {
+        cancelEmojiLoadTasks()
+    }
+
+    override var attributedText: NSAttributedString! {
+        didSet {
+            cancelEmojiLoadTasks()
+            loadEmojiAttachmentsIfNeeded()
+        }
+    }
+
     override var intrinsicContentSize: CGSize {
         let fixedWidth = bounds.width > 0 ? bounds.width : UIScreen.main.bounds.width - 80
         let size = sizeThatFits(CGSize(width: fixedWidth, height: .greatestFiniteMagnitude))
@@ -642,5 +1040,84 @@ final class FireRichTextUIView: UITextView {
         if bounds.size != intrinsicContentSize {
             invalidateIntrinsicContentSize()
         }
+    }
+
+    private func cancelEmojiLoadTasks() {
+        emojiLoadTasks.values.forEach { $0.cancel() }
+        emojiLoadTasks.removeAll()
+    }
+
+    private func loadEmojiAttachmentsIfNeeded() {
+        guard attributedText.length > 0 else {
+            return
+        }
+
+        let fullRange = NSRange(location: 0, length: attributedText.length)
+        attributedText.enumerateAttribute(.attachment, in: fullRange) { [weak self] value, _, _ in
+            guard let self,
+                  let attachment = value as? FireRichTextEmojiAttachment else {
+                return
+            }
+
+            let cacheKey = attachment.cacheKey
+            guard emojiLoadTasks[cacheKey] == nil else {
+                return
+            }
+
+            if let cachedImage = FireRemoteImagePipeline.shared.cachedImage(for: attachment.request) {
+                applyEmojiImage(cachedImage, for: cacheKey)
+                return
+            }
+
+            emojiLoadTasks[cacheKey] = Task { [weak self] in
+                do {
+                    let image = try await FireRemoteImagePipeline.shared.loadImage(for: attachment.request)
+                    guard !Task.isCancelled else {
+                        return
+                    }
+                    await MainActor.run {
+                        guard let self else {
+                            return
+                        }
+                        self.applyEmojiImage(image, for: cacheKey)
+                        self.emojiLoadTasks.removeValue(forKey: cacheKey)
+                    }
+                } catch {
+                    await MainActor.run {
+                        self?.emojiLoadTasks.removeValue(forKey: cacheKey)
+                    }
+                }
+            }
+        }
+    }
+
+    private func applyEmojiImage(_ image: UIImage, for cacheKey: String) {
+        guard textStorage.length > 0 else {
+            return
+        }
+
+        let fullRange = NSRange(location: 0, length: textStorage.length)
+        var changedRange = NSRange(location: NSNotFound, length: 0)
+        textStorage.beginEditing()
+        textStorage.enumerateAttribute(.attachment, in: fullRange) { value, range, _ in
+            guard let attachment = value as? FireRichTextEmojiAttachment,
+                  attachment.cacheKey == cacheKey else {
+                return
+            }
+            attachment.applyLoadedImage(image)
+            textStorage.addAttribute(.attachment, value: attachment, range: range)
+            changedRange = changedRange.location == NSNotFound
+                ? range
+                : NSUnionRange(changedRange, range)
+        }
+        textStorage.endEditing()
+
+        guard changedRange.location != NSNotFound else {
+            return
+        }
+
+        layoutManager.invalidateDisplay(forCharacterRange: changedRange)
+        invalidateIntrinsicContentSize()
+        setNeedsLayout()
     }
 }

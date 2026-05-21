@@ -38,7 +38,7 @@
   - iOS 当前在真正提交登录时仍会优先通过浏览器上下文内的 `fetch("/")` 抓首页 HTML；只有这份首页 HTML 不够完整时，才回退到当前页面 `document.documentElement.outerHTML`，并会用优选后的 HTML 回填缺失的 `current-username` / `csrf-token`
   - 在把 bootstrap 视为“已就绪”前，应该确认至少拿到了当前用户、站点级 `site` 元数据（分类/标签能力）和 `siteSettings`（最小长度、reactions、长轮询域等）；缺失时继续回源 `GET /` 刷新，而不要仅凭 `hasPreloadedData=true` 就跳过
   - 当前 Fire 实现还会在首页 bootstrap 仍缺少 `site` 元数据时自动补一次 `GET /site.json`，用于回填 `categories`、`top_tags`、`can_tag_topics`
-  - iOS 当前在真正提交登录前后都会先后各做一次平台 Cookie 刷新：先把 `WKHTTPCookieStore` 里的同站、非空、未过期 Cookie 批量回灌到共享层，再执行 `sync_login_context` / bootstrap 刷新，最后再把浏览器最新 Cookie 状态回灌一次，确保 `_t`、`_forum_session`、`cf_clearance` 以浏览器为准
+  - iOS 当前在真正提交登录时会先把 `WKWebView` 里抓到的同站 auth Cookie 批量回灌到共享层，再执行 `sync_login_context` / bootstrap 刷新，并在把状态交给 UI 前额外保证 CSRF 已可用；因此主界面不会再看到“已登录但 `csrf` 为空”的中间态
   - 宿主层不再按同名 Cookie 做“best score”选优；Cookie 归并由共享层按 `(name, normalizedDomain, path)` 处理，其中 `normalizedDomain` 会去掉前导 `.`。因此 `linux.do` 与 `.linux.do` 的同名同路径 Cookie 只保留最后写入的一份，请求发送阶段再按 URL/path/domain 规则决定可发送项。
   - 当前 Fire 还会从 `siteSettings` 提取 composer 约束：
     - `min_post_length`

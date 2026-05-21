@@ -47,8 +47,8 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
   - continuously supports an “auto-detect, manual Sync” login flow: navigation, scene-activation, and debounced WebKit cookie-store changes can all re-probe readiness, but the user-visible `完成登录` action remains the only commit point
   - only treats login as ready to sync once it can read `current-username`, same-site auth cookies, and reusable bootstrap HTML
   - converts them into `LoginSyncState`
-  - refreshes platform cookies both before and after login sync so Rust always sees the latest WebKit `_t`, `_forum_session`, and `cf_clearance` values
-  - completes login by syncing platform cookies into Keychain and Rust, backfilling missing `current-username` / `csrf-token` from the preferred bootstrap HTML whenever the visible page leaves metadata incomplete
+  - completes login by first syncing the captured WebKit auth-cookie batch into Keychain and Rust, then backfilling missing `current-username` / `csrf-token` from the preferred bootstrap HTML whenever the visible page leaves metadata incomplete
+  - does not hand the authenticated session to SwiftUI until the shared layer has also confirmed a usable CSRF token, so the main tabs no longer see a transient “logged in but missing CSRF” state
   - if the follow-up Rust bootstrap refresh is challenged by Cloudflare again, it clears the partial native session and keeps the WebView login flow open so the user can finish the challenge and sync again
   - clears host-side LinuxDo auth cookies after a successful explicit logout while preserving `cf_clearance`
 - `FireCfClearanceRefreshService.swift`
@@ -88,6 +88,7 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
 - `App/Stores/FireTopicDetailStore.swift`
   - owns topic-detail cache, anchor post numbers, post hydration/pagination, reply presence, and topic-detail mutation flags
   - now builds a host-only render cache for timeline rows plus cooked text/image payloads, and drops duplicated Swift-owned `thread` / `flatPosts` copies after receipt to keep Rust as the domain owner
+  - now prehydrates the anchor window's missing surrounding posts before the first anchored detail render, so notification/comment jumps land on the correct floor with nearby context already present
   - keeps topic-detail subscription, presence heartbeat, quick reply, reaction toggles, and post-edit refresh reconciliation out of `FireAppViewModel`
 - `App/Stores/FireSearchStore.swift`
   - owns the search screen's query, scope, result, paging, loading, and error state

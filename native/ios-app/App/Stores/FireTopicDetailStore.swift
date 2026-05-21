@@ -136,6 +136,8 @@ final class FireTopicDetailStore: ObservableObject {
         }
 
         let hadCachedDetail = topicDetails[topicId] != nil
+        let previousWindow = topicWindowStates[topicId]
+        let pendingScrollTarget = targetPostNumber ?? previousWindow?.pendingScrollTarget
         appViewModel.topicDetailLogger()?.debug(
             "loading topic detail topic_id=\(topicId) force=\(force) had_cache=\(hadCachedDetail) target_post=\(String(describing: targetPostNumber))"
         )
@@ -166,9 +168,21 @@ final class FireTopicDetailStore: ObservableObject {
                     }
                 }
             }
-            applyTopicDetail(detail, topicId: topicId)
+            let hydratedDetail = try await prehydrateAnchoredContextBeforeDisplayIfNeeded(
+                detail: detail,
+                topicId: topicId,
+                anchorPostNumber: anchorPostNumber,
+                previousWindow: previousWindow,
+                pendingScrollTarget: pendingScrollTarget,
+                sessionStore: sessionStore
+            )
+            applyTopicDetail(
+                hydratedDetail.detail,
+                topicId: topicId,
+                seededExhaustedPostIDs: hydratedDetail.exhaustedPostIDs
+            )
             appViewModel.topicDetailLogger()?.debug(
-                "loaded topic detail topic_id=\(topicId) loaded_posts=\(detail.postStream.posts.count) stream_posts=\(detail.postStream.stream.count)"
+                "loaded topic detail topic_id=\(topicId) loaded_posts=\(hydratedDetail.detail.postStream.posts.count) stream_posts=\(hydratedDetail.detail.postStream.stream.count)"
             )
         } catch {
             appViewModel.topicDetailLogger()?.error(
@@ -793,7 +807,11 @@ final class FireTopicDetailStore: ObservableObject {
         return cachedDetail
     }
 
-    private func applyTopicDetail(_ incomingDetail: TopicDetailState, topicId: UInt64) {
+    private func applyTopicDetail(
+        _ incomingDetail: TopicDetailState,
+        topicId: UInt64,
+        seededExhaustedPostIDs: Set<UInt64> = []
+    ) {
         var detail = incomingDetail
         if let previousDetail = topicDetails[topicId] {
             detail.postStream.posts = FireTopicPresentation.mergeTopicPosts(
@@ -813,10 +831,96 @@ final class FireTopicDetailStore: ObservableObject {
                 ?? topicDetailTargetPostNumbers[topicId]
         )
 
+        if !seededExhaustedPostIDs.isEmpty {
+            topicWindowStates[topicId]?.exhaustedPostIDs.formUnion(seededExhaustedPostIDs)
+        }
+
         if hasMissingPostsInRequestedRange(topicId: topicId) {
             Task {
                 await hydrateTopicPostsToTargetIfNeeded(topicId: topicId)
             }
+        }
+    }
+
+    private func prehydrateAnchoredContextBeforeDisplayIfNeeded(
+        detail: TopicDetailState,
+        topicId: UInt64,
+        anchorPostNumber: UInt32?,
+        previousWindow: FireTopicDetailWindowState?,
+        pendingScrollTarget: UInt32?,
+        sessionStore: FireSessionStore
+    ) async throws -> (detail: TopicDetailState, exhaustedPostIDs: Set<UInt64>) {
+        guard anchorPostNumber != nil || pendingScrollTarget != nil else {
+            return (detail, previousWindow?.exhaustedPostIDs ?? [])
+        }
+
+        let window = resolvedTopicWindowState(
+            detail: detail,
+            previousWindow: previousWindow,
+            anchorPostNumber: anchorPostNumber,
+            requestedRange: previousWindow?.requestedRange,
+            pendingScrollTarget: pendingScrollTarget
+        )
+        let missingPostIDs = FireTopicPresentation.missingPostIDs(
+            orderedPostIDs: detail.postStream.stream,
+            in: window.requestedRange,
+            loadedPostIDs: Set(detail.postStream.posts.map(\.id)),
+            excluding: window.exhaustedPostIDs
+        )
+        guard !missingPostIDs.isEmpty else {
+            return (detail, window.exhaustedPostIDs)
+        }
+
+        return try await Self.hydrateRequestedRange(
+            detail: detail,
+            window: window
+        ) { [appViewModel] batchPostIDs in
+            try await appViewModel.performWithCloudflareRecovery(
+                operation: "加载更多帖子"
+            ) {
+                try await sessionStore.fetchTopicPosts(
+                    topicID: topicId,
+                    postIDs: batchPostIDs
+                )
+            }
+        }
+    }
+
+    static func hydrateRequestedRange(
+        detail: TopicDetailState,
+        window: FireTopicDetailWindowState,
+        fetchPosts: @escaping @Sendable ([UInt64]) async throws -> [TopicPostState]
+    ) async throws -> (detail: TopicDetailState, exhaustedPostIDs: Set<UInt64>) {
+        var hydratedDetail = detail
+        var exhaustedPostIDs = window.exhaustedPostIDs
+
+        while true {
+            let missingPostIDs = FireTopicPresentation.missingPostIDs(
+                orderedPostIDs: hydratedDetail.postStream.stream,
+                in: window.requestedRange,
+                loadedPostIDs: Set(hydratedDetail.postStream.posts.map(\.id)),
+                excluding: exhaustedPostIDs
+            )
+            guard !missingPostIDs.isEmpty else {
+                return (hydratedDetail, exhaustedPostIDs)
+            }
+
+            let batchPostIDs = Array(missingPostIDs.prefix(topicPostPageSize))
+            let fetchedPosts = try await fetchPosts(batchPostIDs)
+            let returnedPostIDs = Set(fetchedPosts.map(\.id))
+            exhaustedPostIDs.formUnion(
+                batchPostIDs.filter { !returnedPostIDs.contains($0) }
+            )
+
+            guard !fetchedPosts.isEmpty else {
+                continue
+            }
+
+            hydratedDetail.postStream.posts = FireTopicPresentation.mergeTopicPosts(
+                existing: hydratedDetail.postStream.posts,
+                incoming: fetchedPosts,
+                orderedPostIDs: hydratedDetail.postStream.stream
+            )
         }
     }
 
@@ -1109,6 +1213,22 @@ final class FireTopicDetailStore: ObservableObject {
         requestedRange: Range<Int>?,
         pendingScrollTarget: UInt32?
     ) {
+        topicWindowStates[topicId] = resolvedTopicWindowState(
+            detail: detail,
+            previousWindow: topicWindowStates[topicId],
+            anchorPostNumber: anchorPostNumber,
+            requestedRange: requestedRange,
+            pendingScrollTarget: pendingScrollTarget
+        )
+    }
+
+    private func resolvedTopicWindowState(
+        detail: TopicDetailState,
+        previousWindow: FireTopicDetailWindowState?,
+        anchorPostNumber: UInt32?,
+        requestedRange: Range<Int>?,
+        pendingScrollTarget: UInt32?
+    ) -> FireTopicDetailWindowState {
         let loadedPostNumbers = Set(detail.postStream.posts.map(\.postNumber))
         let loadedPostIDs = Set(detail.postStream.posts.map(\.id))
         var loadedIndices = IndexSet()
@@ -1118,7 +1238,6 @@ final class FireTopicDetailStore: ObservableObject {
             }
         }
 
-        let previousWindow = topicWindowStates[topicId]
         let resolvedAnchor = pendingScrollTarget ?? anchorPostNumber ?? previousWindow?.pendingScrollTarget
         let anchorIndex = streamIndex(forPostNumber: resolvedAnchor, in: detail)
         let anchorChanged = resolvedAnchor != previousWindow?.activeAnchorPostNumber
@@ -1131,7 +1250,7 @@ final class FireTopicDetailStore: ObservableObject {
             anchorChanged: anchorChanged
         )
 
-        topicWindowStates[topicId] = FireTopicDetailWindowState(
+        return FireTopicDetailWindowState(
             anchorPostNumber: resolvedAnchor,
             requestedRange: resolvedRequestedRange,
             loadedIndices: loadedIndices,

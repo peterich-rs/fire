@@ -152,4 +152,318 @@ final class FireTopicDetailStoreTests: XCTestCase {
 
         XCTAssertEqual(nextRange, 430..<630)
     }
+
+    func testHydrateRequestedRangeFillsAnchorWindowBeforeFirstRender() async throws {
+        let initialDetail = makeTopicDetail(
+            posts: [
+                makePost(postNumber: 3, replyToPostNumber: 2, username: "reply-a"),
+                makePost(postNumber: 4, replyToPostNumber: 3, username: "reply-b"),
+            ],
+            stream: [1, 2, 3, 4, 5, 6]
+        )
+        let window = FireTopicDetailWindowState(
+            anchorPostNumber: 4,
+            requestedRange: 1..<5,
+            loadedIndices: IndexSet(integersIn: 2..<4),
+            loadedPostNumbers: [3, 4],
+            pendingScrollTarget: 4
+        )
+        var requestedBatches: [[UInt64]] = []
+
+        let hydrated = try await FireTopicDetailStore.hydrateRequestedRange(
+            detail: initialDetail,
+            window: window
+        ) { postIDs in
+            requestedBatches.append(postIDs)
+            return [
+                self.makePost(postNumber: 2, replyToPostNumber: 1, username: "reply-root"),
+                self.makePost(postNumber: 5, replyToPostNumber: 4, username: "reply-c"),
+            ]
+        }
+
+        XCTAssertEqual(requestedBatches, [[2, 5]])
+        XCTAssertEqual(
+            hydrated.detail.postStream.posts.map(\.postNumber),
+            [2, 3, 4, 5]
+        )
+        XCTAssertTrue(hydrated.exhaustedPostIDs.isEmpty)
+    }
+
+    @MainActor
+    func testCompleteLoginSyncsCookiesBeforeEnsuringCsrf() async throws {
+        let captured = FireCapturedLoginState(
+            currentURL: "https://linux.do/",
+            username: "alice",
+            csrfToken: nil,
+            homeHTML: "<html></html>",
+            browserUserAgent: "FireTests/1.0",
+            cookies: [
+                PlatformCookieState(
+                    name: "_t",
+                    value: "token",
+                    domain: "linux.do",
+                    path: "/",
+                    expiresAtUnixMs: nil
+                )
+            ]
+        )
+        let store = MockLoginSessionStore(
+            syncResult: makeSessionState(csrfToken: nil),
+            bootstrapResult: makeSessionState(csrfToken: nil),
+            csrfResult: makeSessionState(csrfToken: "csrf-token")
+        )
+        let coordinator = FireWebViewLoginCoordinator(loginSessionStore: store)
+
+        let finalState = try await coordinator.completeLogin(captured)
+        let calls = await store.callsSnapshot()
+        let appliedCookies = await store.appliedPlatformCookiesSnapshot()
+
+        XCTAssertEqual(
+            calls,
+            [.applyPlatformCookies, .syncLoginContext, .refreshBootstrapIfNeeded, .refreshCsrfTokenIfNeeded]
+        )
+        XCTAssertEqual(appliedCookies, captured.cookies)
+        XCTAssertEqual(finalState.cookies.csrfToken, "csrf-token")
+        XCTAssertTrue(finalState.readiness.hasCsrfToken)
+        XCTAssertTrue(finalState.readiness.canWriteAuthenticatedApi)
+    }
+
+    @MainActor
+    func testCompleteLoginClearsPartialSessionWhenCsrfRefreshChallenges() async {
+        let captured = FireCapturedLoginState(
+            currentURL: "https://linux.do/",
+            username: "alice",
+            csrfToken: nil,
+            homeHTML: "<html></html>",
+            browserUserAgent: "FireTests/1.0",
+            cookies: []
+        )
+        let store = MockLoginSessionStore(
+            syncResult: makeSessionState(csrfToken: nil),
+            bootstrapResult: makeSessionState(csrfToken: nil),
+            csrfError: FireUniFfiError.CloudflareChallenge
+        )
+        let coordinator = FireWebViewLoginCoordinator(loginSessionStore: store)
+
+        do {
+            _ = try await coordinator.completeLogin(captured)
+            XCTFail("Expected CloudflareChallenge")
+        } catch {
+            guard case FireUniFfiError.CloudflareChallenge = error else {
+                return XCTFail("Unexpected error: \(error)")
+            }
+        }
+        let calls = await store.callsSnapshot()
+
+        XCTAssertEqual(
+            calls,
+            [
+                .applyPlatformCookies,
+                .syncLoginContext,
+                .refreshBootstrapIfNeeded,
+                .refreshCsrfTokenIfNeeded,
+                .logoutLocal,
+            ]
+        )
+    }
+
+    private func makePost(
+        postNumber: UInt32,
+        replyToPostNumber: UInt32?,
+        username: String
+    ) -> TopicPostState {
+        TopicPostState(
+            id: UInt64(postNumber),
+            username: username,
+            name: nil,
+            avatarTemplate: nil,
+            cooked: "<p>\(username)</p>",
+            raw: nil,
+            postNumber: postNumber,
+            postType: 1,
+            createdAt: "2026-03-28T10:00:00Z",
+            updatedAt: "2026-03-28T10:00:00Z",
+            likeCount: 0,
+            replyCount: 0,
+            replyToPostNumber: replyToPostNumber,
+            bookmarked: false,
+            bookmarkId: nil,
+            bookmarkName: nil,
+            bookmarkReminderAt: nil,
+            reactions: [],
+            currentUserReaction: nil,
+            polls: [],
+            acceptedAnswer: false,
+            canEdit: false,
+            canDelete: false,
+            canRecover: false,
+            hidden: false
+        )
+    }
+
+    private func makeTopicDetail(
+        posts: [TopicPostState],
+        stream: [UInt64]
+    ) -> TopicDetailState {
+        TopicDetailState(
+            id: 42,
+            title: "Fire Native",
+            slug: "fire-native",
+            postsCount: UInt32(max(stream.count, posts.count)),
+            categoryId: 7,
+            tags: [],
+            views: 128,
+            likeCount: 9,
+            createdAt: "2026-03-28T10:00:00Z",
+            lastReadPostNumber: nil,
+            bookmarks: [],
+            bookmarked: false,
+            bookmarkId: nil,
+            bookmarkName: nil,
+            bookmarkReminderAt: nil,
+            acceptedAnswer: false,
+            hasAcceptedAnswer: false,
+            canVote: false,
+            voteCount: 0,
+            userVoted: false,
+            summarizable: false,
+            hasCachedSummary: false,
+            hasSummary: false,
+            archetype: "regular",
+            postStream: TopicPostStreamState(posts: posts, stream: stream),
+            details: TopicDetailMetaState(
+                notificationLevel: nil,
+                canEdit: false,
+                createdBy: nil,
+                participants: []
+            )
+        )
+    }
+
+    private func makeSessionState(csrfToken: String?) -> SessionState {
+        SessionState(
+            cookies: CookieState(
+                tToken: "token",
+                forumSession: "forum",
+                cfClearance: "clearance",
+                csrfToken: csrfToken,
+                platformCookies: []
+            ),
+            bootstrap: BootstrapState(
+                baseUrl: "https://linux.do",
+                discourseBaseUri: "/",
+                sharedSessionKey: "shared-session",
+                currentUsername: "alice",
+                currentUserId: 1,
+                notificationChannelPosition: nil,
+                longPollingBaseUrl: "https://linux.do",
+                turnstileSitekey: nil,
+                topicTrackingStateMeta: nil,
+                preloadedJson: "{\"site\":{}}",
+                hasPreloadedData: true,
+                hasSiteMetadata: true,
+                topTags: [],
+                canTagTopics: false,
+                categories: [],
+                hasSiteSettings: true,
+                enabledReactionIds: ["heart"],
+                minPostLength: 1,
+                minTopicTitleLength: 15,
+                minFirstPostLength: 20,
+                minPersonalMessageTitleLength: 2,
+                minPersonalMessagePostLength: 10,
+                defaultComposerCategory: nil
+            ),
+            readiness: SessionReadinessState(
+                hasLoginCookie: true,
+                hasForumSession: true,
+                hasCloudflareClearance: true,
+                hasCsrfToken: csrfToken != nil,
+                hasCurrentUser: true,
+                hasPreloadedData: true,
+                hasSharedSessionKey: true,
+                canReadAuthenticatedApi: true,
+                canWriteAuthenticatedApi: csrfToken != nil,
+                canOpenMessageBus: true
+            ),
+            loginPhase: .ready,
+            hasLoginSession: true,
+            profileDisplayName: "alice",
+            loginPhaseLabel: csrfToken == nil ? "账号信息同步中" : "已就绪"
+        )
+    }
+}
+
+private actor MockLoginSessionStore: FireLoginSessionStoring {
+    enum Call: Equatable {
+        case applyPlatformCookies
+        case syncLoginContext
+        case refreshBootstrapIfNeeded
+        case refreshCsrfTokenIfNeeded
+        case logoutLocal
+    }
+
+    private let syncResult: SessionState
+    private let bootstrapResult: SessionState
+    private let csrfResult: SessionState
+    private let csrfError: Error?
+    private var calls: [Call] = []
+    private var appliedPlatformCookies: [PlatformCookieState] = []
+
+    init(
+        syncResult: SessionState,
+        bootstrapResult: SessionState,
+        csrfResult: SessionState? = nil,
+        csrfError: Error? = nil
+    ) {
+        self.syncResult = syncResult
+        self.bootstrapResult = bootstrapResult
+        self.csrfResult = csrfResult ?? bootstrapResult
+        self.csrfError = csrfError
+    }
+
+    func restorePersistedSessionIfAvailable() async throws -> SessionState? {
+        nil
+    }
+
+    func syncLoginContext(_ captured: FireCapturedLoginState) async throws -> SessionState {
+        calls.append(.syncLoginContext)
+        return syncResult
+    }
+
+    func refreshBootstrapIfNeeded() async throws -> SessionState {
+        calls.append(.refreshBootstrapIfNeeded)
+        return bootstrapResult
+    }
+
+    func refreshCsrfTokenIfNeeded() async throws -> SessionState {
+        calls.append(.refreshCsrfTokenIfNeeded)
+        if let csrfError {
+            throw csrfError
+        }
+        return csrfResult
+    }
+
+    func logout() async throws -> SessionState {
+        bootstrapResult
+    }
+
+    func logoutLocal(preserveCfClearance: Bool) async throws -> SessionState {
+        calls.append(.logoutLocal)
+        return bootstrapResult
+    }
+
+    func applyPlatformCookies(_ cookies: [PlatformCookieState]) async throws -> SessionState {
+        calls.append(.applyPlatformCookies)
+        appliedPlatformCookies = cookies
+        return syncResult
+    }
+
+    func callsSnapshot() -> [Call] {
+        calls
+    }
+
+    func appliedPlatformCookiesSnapshot() -> [PlatformCookieState] {
+        appliedPlatformCookies
+    }
 }

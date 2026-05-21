@@ -228,8 +228,18 @@ struct FireNotificationsView: View {
             .refreshable {
                 await notificationStore.loadRecent(force: true)
             }
-            .navigationDestination(item: $selectedRoute) { route in
-                FireAppRouteDestinationView(viewModel: appViewModel, route: route)
+            .navigationDestination(isPresented: Binding(
+                get: { selectedRoute != nil },
+                set: { isPresented in
+                    if !isPresented {
+                        selectedRoute = nil
+                    }
+                }
+            )) {
+                if let route = selectedRoute {
+                    FireAppRouteDestinationView(viewModel: appViewModel, route: route)
+                        .id(route.id)
+                }
             }
         }
         .task {

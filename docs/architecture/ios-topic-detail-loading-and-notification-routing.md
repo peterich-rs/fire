@@ -303,12 +303,12 @@ Rationale: this is the cheapest executable proof that the new payload shape pres
 - Change `loadTopicDetail` to accept `FireTopicDetailRequest` and record `anchorPostNumber` before any cache reuse.
 - If a cached detail already contains the target post, reuse it and set `pendingScrollTarget` without a network fetch.
 - If a cached detail does not contain the target post, force an anchored `fetchTopicDetailInitial` instead of returning early.
-- Clear the transient route anchor as soon as `pendingScrollTarget` is satisfied or exhausted so later refreshes fall back to unanchored `/t/{topicId}.json`.
+- Clear the transient route anchor as soon as `pendingScrollTarget` is satisfied or truly exhausted so later refreshes fall back to unanchored `/t/{topicId}.json`. Exhaustion must not be inferred from a single anchored window; it is only safe once the requested range has covered the whole stream without loading the target.
 - Replace prefix-based `targetLoadedCount` math with range math over `post_stream.stream` indices.
 - Expand the requested range in both directions when the user reads near the top or bottom of the current window. Cap `requestedRange` at `FireTopicDetailWindowState.maxWindowSize` (200 indices); when the user scrolls past the window edge, shift the window rather than expanding it. Posts outside the active window remain in `loadedIndices` as warm cache but are not actively hydrated.
 - Keep background refresh and force reload unanchored by default once the one-shot route target has been consumed.
 - Remove the old `recomposedDetail` / `composeThread` compatibility path so topic-detail state no longer carries dead thread/flat-post baggage on the host.
-- After hydration loop exits, check whether `pendingScrollTarget` refers to a post ID in `exhaustedPostIDs`; if so, clear the target and log a warning rather than retrying indefinitely.
+- Resolve final stream positions through exact loaded `post_number` to post-id mapping only. A `post_number`-based estimate may be used as a search hint to decide which stream IDs to hydrate next, but it must not be treated as the resolved anchor index; large topics can have gaps, deletions, and partial anchored payloads where that approximation lands on the wrong window.
 
 ```swift
 private func needsAnchoredReload(

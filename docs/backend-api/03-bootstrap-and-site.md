@@ -98,9 +98,9 @@
 - 当前 `BAD CSRF` 仍只触发一次性 CSRF 刷新与单次重试；如果同一请求同时已经暴露强失效信号，则优先按登录失效收口。
 - 因此后续常见表现不只有“更早一步已明确失效”，也可能是“更早一步成功读请求触发了 partial auth rotation，首个写请求才真正暴露问题”。
 
-### `GET /` (或挑战拦截页面)
+### `GET /challenge` (交互式 Cloudflare 恢复)
 
-- 用途：打开 Cloudflare 挑战页面。在缺少 `cf_clearance` 时，加载站点主页 `/`（或任意被挑战拦截的页面）将触发 Cloudflare Turnstile 挑战，通常由宿主层 WebView 承载完成。
+- 用途：打开 Cloudflare 挑战页面。Fire iOS 的交互式恢复会先删除 `WKHTTPCookieStore` 中旧的 `cf_clearance`，再加载 `/challenge`，避免 WebView 继续用旧 clearance 直接进入正常页面。
 - 认证：匿名可访问
 - 响应：HTML 页面，不是 JSON
 - 识别：共享层只把 `403` 且响应头指向 Cloudflare HTML challenge 的回包归类为 `CloudflareChallenge`；优先使用 `cf-mitigated: challenge`，缺失时再用 HTML 中的 `cf_chl_opt`、`challenge-platform`、`Just a moment` 等特征兜底
@@ -131,6 +131,7 @@
   - 当前客户端没有把这一步当成独立业务接口暴露，而是视为 Cloudflare 内部续期流程
   - 当前客户端回放请求时未显式固定 `Content-Type` 为 `application/x-www-form-urlencoded`；拦截到的原始运行时请求体更接近 JSON 形态
   - 当前 Fire iOS 会在会话已连接、已有 `cf_clearance`、且首页 bootstrap 已暴露 Turnstile `sitekey` 时，启动一个离屏 `WKWebView` 承载 Turnstile widget；宿主在 `api.js` 加载前注入 `fetch` 拦截脚本，捕获 `/cdn-cgi/challenge-platform/.../rc/...` 请求后由 `URLSession` 代发，再把真实响应回注到页面，最后把更新后的 Cookie 同步回共享层
+  - 交互式恢复与离屏续期不同：恢复前会删除 WebView Store 里的旧 `cf_clearance`，并且只把相对恢复开始前发生变化的 clearance 视为完成
   - 共享层仍会保留并发送 `cf_clearance`；挑战完成、平台 Cookie 读取、离屏 WebView 续期都仍属于宿主职责
 
 ## 站点信息、分类、标签、表情

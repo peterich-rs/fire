@@ -1666,6 +1666,12 @@ final class FireAppViewModel: ObservableObject {
     private func beginCloudflareRecoveryAndWait(operation: String) async throws {
         if pendingCloudflareRecovery == nil {
             let initialSessionCookieSnapshot = makeCloudflareRecoveryCookieSnapshot(from: session)
+            let initialCookieSnapshot = await currentCloudflareRecoveryCookieSnapshot()
+
+            // Remove stale WebView clearance after taking the baseline snapshot so
+            // completion can reject the old value if it leaks back into WebKit.
+            await deleteCfClearanceFromWebViewStore()
+
             let context = FireCloudflareChallengeContext(
                 id: UUID(),
                 operation: operation,
@@ -1674,7 +1680,7 @@ final class FireAppViewModel: ObservableObject {
             )
             pendingCloudflareRecovery = PendingCloudflareRecovery(
                 context: context,
-                initialCookieSnapshot: await currentCloudflareRecoveryCookieSnapshot(),
+                initialCookieSnapshot: initialCookieSnapshot,
                 initialSessionCookieSnapshot: initialSessionCookieSnapshot
             )
             errorMessage = nil
@@ -1763,6 +1769,12 @@ final class FireAppViewModel: ObservableObject {
         let operation = message ?? "当前请求"
         if pendingCloudflareRecovery == nil {
             let initialSessionCookieSnapshot = makeCloudflareRecoveryCookieSnapshot(from: session)
+            let initialCookieSnapshot = await currentCloudflareRecoveryCookieSnapshot()
+
+            // Remove stale WebView clearance after taking the baseline snapshot so
+            // completion can reject the old value if it leaks back into WebKit.
+            await deleteCfClearanceFromWebViewStore()
+
             let context = FireCloudflareChallengeContext(
                 id: UUID(),
                 operation: operation,
@@ -1771,7 +1783,7 @@ final class FireAppViewModel: ObservableObject {
             )
             pendingCloudflareRecovery = PendingCloudflareRecovery(
                 context: context,
-                initialCookieSnapshot: await currentCloudflareRecoveryCookieSnapshot(),
+                initialCookieSnapshot: initialCookieSnapshot,
                 initialSessionCookieSnapshot: initialSessionCookieSnapshot
             )
             errorMessage = nil
@@ -1784,7 +1796,10 @@ final class FireAppViewModel: ObservableObject {
     }
 
     private func challengeRecoveryURL() -> URL {
-        session.baseURL
+        // Load the dedicated challenge path so recovery does not land on
+        // a normal page after WebKit's old clearance cookie is removed.
+        let base = session.baseURL
+        return base.appendingPathComponent("challenge")
     }
 
     private func resetSessionAndPresentLogin(message: String) async {
@@ -1855,6 +1870,27 @@ final class FireAppViewModel: ObservableObject {
             store.getAllCookies { cookies in
                 continuation.resume(returning: cookies)
             }
+        }
+    }
+
+    /// Removes stale Cloudflare clearance cookies from the WebView store before
+    /// presenting the recovery browser.
+    private func deleteCfClearanceFromWebViewStore() async {
+        let cookieStore = WKWebsiteDataStore.default().httpCookieStore
+        let allCookies = await currentWebKitCookies(from: cookieStore)
+        let cfClearanceCookies = allCookies.filter { $0.name == "cf_clearance" }
+        for cookie in cfClearanceCookies {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                cookieStore.delete(cookie) {
+                    continuation.resume()
+                }
+            }
+        }
+        if !cfClearanceCookies.isEmpty {
+            FireAPMManager.shared.recordBreadcrumb(
+                target: Self.authDiagnosticsLogTarget,
+                message: "deleted \(cfClearanceCookies.count) cf_clearance cookie(s) from WebView store before challenge recovery"
+            )
         }
     }
 
@@ -2136,8 +2172,16 @@ final class FireAppViewModel: ObservableObject {
             return false
         }
 
-        return currentFingerprint != initialCookieSnapshot.cfClearanceFingerprint
-            || currentFingerprint != initialSessionCookieSnapshot.cfClearanceFingerprint
+        let staleFingerprints = Set([
+            initialCookieSnapshot.cfClearanceFingerprint,
+            initialSessionCookieSnapshot.cfClearanceFingerprint,
+        ].compactMap { $0 })
+
+        guard !staleFingerprints.isEmpty else {
+            return true
+        }
+
+        return !staleFingerprints.contains(currentFingerprint)
     }
 
     private func cloudflareRecoveryCompletionBlockReason(
@@ -2178,10 +2222,10 @@ final class FireAppViewModel: ObservableObject {
             initialCookieSnapshot: initialCookieSnapshot,
             initialSessionCookieSnapshot: initialSessionCookieSnapshot
         )
-        if observation.hasChallengeURL && !cfClearanceIsFresh {
+        if !cfClearanceIsFresh {
             return trigger == .manual
-                ? "验证页仍停留在 challenge 页面，尚未观察到新的 Cloudflare clearance。"
-                : "challenge_url_without_cookie_rotation"
+                ? "验证页尚未观察到新的 Cloudflare clearance，请继续完成验证或刷新验证页。"
+                : "clearance_not_rotated"
         }
 
         return nil

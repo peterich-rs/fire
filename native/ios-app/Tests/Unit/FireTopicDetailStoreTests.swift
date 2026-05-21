@@ -80,4 +80,76 @@ final class FireTopicDetailStoreTests: XCTestCase {
         XCTAssertEqual(range.upperBound - range.lowerBound, FireTopicDetailWindowState.maxWindowSize)
         XCTAssertTrue(range.contains(180))
     }
+
+    func testActiveScrollTargetIsNotExhaustedUntilWholeStreamHasBeenCovered() {
+        let window = FireTopicDetailWindowState(
+            anchorPostNumber: 88,
+            requestedRange: 40..<70,
+            loadedIndices: IndexSet(integersIn: 40..<70),
+            loadedPostNumbers: Set((40..<70).map(UInt32.init)),
+            pendingScrollTarget: 88
+        )
+        let orderedPostIDs = Array(1...120).map(UInt64.init)
+        let loadedPostIDs = Set(orderedPostIDs[40..<70])
+
+        XCTAssertFalse(FireTopicDetailStore.scrollTargetIsExhausted(
+            postNumber: 88,
+            window: window,
+            orderedPostIDs: orderedPostIDs,
+            loadedPostIDs: loadedPostIDs
+        ))
+    }
+
+    func testScrollTargetIsExhaustedAfterWholeStreamCoveredWithoutTarget() {
+        let window = FireTopicDetailWindowState(
+            anchorPostNumber: 88,
+            requestedRange: 0..<5,
+            loadedIndices: IndexSet(integersIn: 0..<5),
+            loadedPostNumbers: Set<UInt32>([1, 2, 3, 4, 5]),
+            pendingScrollTarget: 88
+        )
+        let orderedPostIDs = Array(1...5).map(UInt64.init)
+        let loadedPostIDs = Set(orderedPostIDs)
+
+        XCTAssertTrue(FireTopicDetailStore.scrollTargetIsExhausted(
+            postNumber: 88,
+            window: window,
+            orderedPostIDs: orderedPostIDs,
+            loadedPostIDs: loadedPostIDs
+        ))
+    }
+
+    func testUnresolvedScrollTargetSearchJumpsNearEstimatedPostNumber() {
+        let nextRange = FireTopicDetailStore.nextRequestedRangeForUnresolvedTarget(
+            postNumber: 500,
+            current: 0..<30,
+            totalCount: 1_000,
+            loadedPostNumbersInCurrentRange: Array(1...30).map(UInt32.init)
+        )
+
+        XCTAssertNotNil(nextRange)
+        XCTAssertTrue(nextRange?.contains(499) == true)
+    }
+
+    func testUnresolvedScrollTargetSearchMovesBackwardWhenWindowIsPastTarget() {
+        let nextRange = FireTopicDetailStore.nextRequestedRangeForUnresolvedTarget(
+            postNumber: 500,
+            current: 480..<510,
+            totalCount: 1_000,
+            loadedPostNumbersInCurrentRange: Array(700...729).map(UInt32.init)
+        )
+
+        XCTAssertEqual(nextRange, 450..<510)
+    }
+
+    func testUnresolvedScrollTargetSearchSlidesForwardAtWindowCap() {
+        let nextRange = FireTopicDetailStore.nextRequestedRangeForUnresolvedTarget(
+            postNumber: 500,
+            current: 400..<600,
+            totalCount: 1_000,
+            loadedPostNumbersInCurrentRange: Array(300...499).map(UInt32.init)
+        )
+
+        XCTAssertEqual(nextRange, 430..<630)
+    }
 }

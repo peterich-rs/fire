@@ -76,7 +76,7 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
   - now also owns native private-message inbox/sent loading plus private-message creation on top of the shared Rust mailbox and `/posts.json` PM surfaces
   - now acts as a session/runtime facade for feature stores instead of also owning every screen's transient state directly
   - now owns the foreground MessageBus transport lifecycle on iOS and forwards runtime refresh work into the bound feature stores instead of publishing home/topic-detail state itself
-  - now treats Rust-owned `CloudflareChallenge` errors as the signal to present an interactive `/challenge` recovery WebView, re-sync the browser cookie batch back into Rust, and automatically retry the blocked read/write flow without tearing down the current authenticated snapshot
+  - now treats Rust-owned `CloudflareChallenge` errors as the signal to delete stale WebView `cf_clearance`, present an interactive `/challenge` recovery WebView, re-sync the browser cookie batch back into Rust, and automatically retry the blocked read/write flow without tearing down the current authenticated snapshot
   - now also treats Rust-owned `LoginRequired` invalidation the same way, clearing host-side auth cookies while preserving `cf_clearance` so passive session loss, explicit logout, and bootstrap-challenged recovery all converge on one reset path
   - now probes login sync readiness from the embedded `WKWebView` and keeps the `完成登录` button disabled until the shared login prerequisites are actually satisfied
   - now also emits host-owned APM spans for cold-start restore, login sync, bootstrap refresh, latest-feed load, topic-detail load, reply submit, notification refresh, and MessageBus start

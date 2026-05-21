@@ -1,5 +1,10 @@
 import Foundation
 
+private enum FireTopicDetailSearchDirection {
+    case backward
+    case forward
+}
+
 @MainActor
 final class FireTopicDetailStore: ObservableObject {
     nonisolated private static let topicPostPageSize = 30
@@ -190,17 +195,12 @@ final class FireTopicDetailStore: ObservableObject {
     func isScrollTargetExhausted(topicId: UInt64, postNumber: UInt32) -> Bool {
         guard let window = topicWindowStates[topicId],
               let detail = topicDetails[topicId] else { return false }
-        if window.loadedPostNumbers.contains(postNumber) {
-            return false
-        }
-        let loadedPostIDs = Set(detail.postStream.posts.map(\.id))
-        let hasMissingInWindow = !FireTopicPresentation.missingPostIDs(
+        return Self.scrollTargetIsExhausted(
+            postNumber: postNumber,
+            window: window,
             orderedPostIDs: detail.postStream.stream,
-            in: window.requestedRange,
-            loadedPostIDs: loadedPostIDs,
-            excluding: window.exhaustedPostIDs
-        ).isEmpty
-        return !hasMissingInWindow
+            loadedPostIDs: Set(detail.postStream.posts.map(\.id))
+        )
     }
 
     func markScrollTargetSatisfied(topicId: UInt64, postNumber: UInt32) {
@@ -934,6 +934,24 @@ final class FireTopicDetailStore: ObservableObject {
                 excluding: window.exhaustedPostIDs.union(exhaustedPostIDs)
             )
             guard !missingPostIDs.isEmpty else {
+                if !hydratedPosts.isEmpty || !exhaustedPostIDs.isEmpty {
+                    applyHydratedTopicPostsIfNeeded(
+                        topicId: topicId,
+                        posts: hydratedPosts,
+                        exhaustedPostIDs: exhaustedPostIDs
+                    )
+                    hydratedPosts.removeAll()
+                    hydratedPostIDs.removeAll()
+                    exhaustedPostIDs.removeAll()
+                    continue
+                }
+                if advanceRequestedRangeTowardPendingScrollTargetIfNeeded(
+                    topicId: topicId,
+                    detail: detail,
+                    window: window
+                ) {
+                    continue
+                }
                 applyHydratedTopicPostsIfNeeded(
                     topicId: topicId,
                     posts: hydratedPosts,
@@ -978,6 +996,51 @@ final class FireTopicDetailStore: ObservableObject {
             posts: hydratedPosts,
             exhaustedPostIDs: exhaustedPostIDs
         )
+    }
+
+    private func advanceRequestedRangeTowardPendingScrollTargetIfNeeded(
+        topicId: UInt64,
+        detail: TopicDetailState,
+        window: FireTopicDetailWindowState
+    ) -> Bool {
+        guard let target = window.pendingScrollTarget,
+              !window.loadedPostNumbers.contains(target) else {
+            return false
+        }
+
+        let loadedPostNumbersInWindow = loadedPostNumbers(
+            in: window.requestedRange,
+            detail: detail
+        )
+        guard let nextRange = Self.nextRequestedRangeForUnresolvedTarget(
+            postNumber: target,
+            current: window.requestedRange,
+            totalCount: detail.postStream.stream.count,
+            loadedPostNumbersInCurrentRange: loadedPostNumbersInWindow
+        ), nextRange != window.requestedRange else {
+            return false
+        }
+
+        topicWindowStates[topicId]?.requestedRange = nextRange
+        return true
+    }
+
+    private func loadedPostNumbers(
+        in range: Range<Int>,
+        detail: TopicDetailState
+    ) -> [UInt32] {
+        let indexByPostID = Dictionary(
+            uniqueKeysWithValues: detail.postStream.stream.enumerated().map { index, postID in
+                (postID, index)
+            }
+        )
+        return detail.postStream.posts.compactMap { post in
+            guard let index = indexByPostID[post.id],
+                  range.contains(index) else {
+                return nil
+            }
+            return post.postNumber
+        }
     }
 
     private func applyHydratedTopicPostsIfNeeded(
@@ -1154,6 +1217,179 @@ final class FireTopicDetailStore: ObservableObject {
             return nil
         }
         return detail.postStream.stream.firstIndex(of: postID)
+    }
+
+    nonisolated static func scrollTargetIsExhausted(
+        postNumber: UInt32,
+        window: FireTopicDetailWindowState,
+        orderedPostIDs: [UInt64],
+        loadedPostIDs: Set<UInt64>
+    ) -> Bool {
+        if window.loadedPostNumbers.contains(postNumber) {
+            return false
+        }
+
+        let hasMissingInWindow = !FireTopicPresentation.missingPostIDs(
+            orderedPostIDs: orderedPostIDs,
+            in: window.requestedRange,
+            loadedPostIDs: loadedPostIDs,
+            excluding: window.exhaustedPostIDs
+        ).isEmpty
+        if hasMissingInWindow {
+            return false
+        }
+
+        let wholeStreamResolved = FireTopicPresentation.missingPostIDs(
+            orderedPostIDs: orderedPostIDs,
+            in: 0..<orderedPostIDs.count,
+            loadedPostIDs: loadedPostIDs,
+            excluding: window.exhaustedPostIDs
+        ).isEmpty
+        if window.activeAnchorPostNumber == postNumber && !wholeStreamResolved {
+            return false
+        }
+
+        return true
+    }
+
+    nonisolated static func nextRequestedRangeForUnresolvedTarget(
+        postNumber: UInt32,
+        current: Range<Int>,
+        totalCount: Int,
+        loadedPostNumbersInCurrentRange: [UInt32]
+    ) -> Range<Int>? {
+        guard totalCount > 0 else {
+            return nil
+        }
+        guard current.lowerBound > 0 || current.upperBound < totalCount else {
+            return nil
+        }
+
+        let estimatedIndex = max(0, min(Int(postNumber) - 1, totalCount - 1))
+        if !current.contains(estimatedIndex) {
+            return boundedRequestedRange(
+                lowerBound: estimatedIndex - (topicPostPageSize / 2),
+                upperBound: estimatedIndex + (topicPostPageSize / 2) + 1,
+                totalCount: totalCount,
+                anchorIndex: nil
+            )
+        }
+
+        let direction: FireTopicDetailSearchDirection
+        if let maxLoadedPostNumber = loadedPostNumbersInCurrentRange.max(),
+           postNumber > maxLoadedPostNumber {
+            direction = .forward
+        } else if let minLoadedPostNumber = loadedPostNumbersInCurrentRange.min(),
+                  postNumber < minLoadedPostNumber {
+            direction = .backward
+        } else if totalCount - current.upperBound >= current.lowerBound {
+            direction = .forward
+        } else {
+            direction = .backward
+        }
+
+        return nextDirectionalSearchRange(
+            current: current,
+            totalCount: totalCount,
+            direction: direction
+        )
+    }
+
+    private nonisolated static func nextDirectionalSearchRange(
+        current: Range<Int>,
+        totalCount: Int,
+        direction: FireTopicDetailSearchDirection
+    ) -> Range<Int>? {
+        guard totalCount > 0 else {
+            return nil
+        }
+
+        let pageSize = topicPostPageSize
+        let maxWindowSize = FireTopicDetailWindowState.maxWindowSize
+        let currentCount = current.count
+
+        switch direction {
+        case .backward:
+            if current.lowerBound > 0 {
+                return previousDirectionalSearchRange(
+                    current: current,
+                    totalCount: totalCount,
+                    pageSize: pageSize,
+                    maxWindowSize: maxWindowSize,
+                    currentCount: currentCount
+                )
+            }
+            guard current.upperBound < totalCount else {
+                return nil
+            }
+            return nextForwardSearchRange(
+                current: current,
+                totalCount: totalCount,
+                pageSize: pageSize,
+                maxWindowSize: maxWindowSize,
+                currentCount: currentCount
+            )
+        case .forward:
+            if current.upperBound < totalCount {
+                return nextForwardSearchRange(
+                    current: current,
+                    totalCount: totalCount,
+                    pageSize: pageSize,
+                    maxWindowSize: maxWindowSize,
+                    currentCount: currentCount
+                )
+            }
+            guard current.lowerBound > 0 else {
+                return nil
+            }
+            return previousDirectionalSearchRange(
+                current: current,
+                totalCount: totalCount,
+                pageSize: pageSize,
+                maxWindowSize: maxWindowSize,
+                currentCount: currentCount
+            )
+        }
+    }
+
+    private nonisolated static func previousDirectionalSearchRange(
+        current: Range<Int>,
+        totalCount: Int,
+        pageSize: Int,
+        maxWindowSize: Int,
+        currentCount: Int
+    ) -> Range<Int> {
+        if currentCount >= maxWindowSize {
+            let lowerBound = max(0, current.lowerBound - pageSize)
+            let upperBound = min(totalCount, lowerBound + currentCount)
+            return lowerBound..<upperBound
+        }
+        return boundedRequestedRange(
+            lowerBound: current.lowerBound - pageSize,
+            upperBound: current.upperBound,
+            totalCount: totalCount,
+            anchorIndex: nil
+        )
+    }
+
+    private nonisolated static func nextForwardSearchRange(
+        current: Range<Int>,
+        totalCount: Int,
+        pageSize: Int,
+        maxWindowSize: Int,
+        currentCount: Int
+    ) -> Range<Int> {
+        if currentCount >= maxWindowSize {
+            let upperBound = min(totalCount, current.upperBound + pageSize)
+            let lowerBound = max(0, upperBound - currentCount)
+            return lowerBound..<upperBound
+        }
+        return boundedRequestedRange(
+            lowerBound: current.lowerBound,
+            upperBound: current.upperBound + pageSize,
+            totalCount: totalCount,
+            anchorIndex: nil
+        )
     }
 
     nonisolated static func initialRequestedRange(

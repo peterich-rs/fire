@@ -47,12 +47,15 @@ struct FireHomeView: View {
                     }
                 }
             }
-            .navigationDestination(item: $selectedRoute) { route in
-                FireAppRouteDestinationView(viewModel: viewModel, route: route)
-                    .fireNavigationPush(
-                        sourceID: "home-route",
-                        namespace: pushTransitionNamespace
-                    )
+            .navigationDestination(isPresented: isRoutePresented) {
+                if let route = selectedRoute {
+                    FireAppRouteDestinationView(viewModel: viewModel, route: route)
+                        .id(route.id)
+                        .fireNavigationPush(
+                            sourceID: "home-route",
+                            namespace: pushTransitionNamespace
+                        )
+                }
             }
         }
         .onAppear {
@@ -111,6 +114,17 @@ struct FireHomeView: View {
     private func resetPaginationTracking() {
         didPrefetchToFillViewport = false
         lastTopicListScrollMetrics = nil
+    }
+
+    private var isRoutePresented: Binding<Bool> {
+        Binding(
+            get: { selectedRoute != nil },
+            set: { isPresented in
+                if !isPresented {
+                    selectedRoute = nil
+                }
+            }
+        )
     }
 
     private func refreshTopics() async {

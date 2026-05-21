@@ -180,6 +180,7 @@ protocol FireLoginSessionStoring: Sendable {
     func restorePersistedSessionIfAvailable() async throws -> SessionState?
     func syncLoginContext(_ captured: FireCapturedLoginState) async throws -> SessionState
     func refreshBootstrapIfNeeded() async throws -> SessionState
+    func refreshCsrfTokenIfNeeded() async throws -> SessionState
     func logout() async throws -> SessionState
     func logoutLocal(preserveCfClearance: Bool) async throws -> SessionState
     func applyPlatformCookies(_ cookies: [PlatformCookieState]) async throws -> SessionState
@@ -211,29 +212,29 @@ public final class FireWebViewLoginCoordinator {
     }
 
     public func completeLogin(from webView: WKWebView) async throws -> SessionState {
-        _ = try await refreshPlatformCookies()
         let captured = try await captureLoginState(from: webView)
         let readiness = loginSyncReadiness(for: captured)
         guard readiness.isReady else {
             throw FireWebViewLoginCoordinatorError.loginSyncNotReady(readiness)
         }
-        _ = try await completeLogin(captured)
-        return try await refreshPlatformCookies()
+        return try await completeLogin(captured)
     }
 
     func completeLogin(_ captured: FireCapturedLoginState) async throws -> SessionState {
+        _ = try await sessionStore.applyPlatformCookies(captured.cookies)
         _ = try await sessionStore.syncLoginContext(captured)
 
         do {
-            return try await sessionStore.refreshBootstrapIfNeeded()
+            _ = try await sessionStore.refreshBootstrapIfNeeded()
+            return try await sessionStore.refreshCsrfTokenIfNeeded()
         } catch {
             guard case FireUniFfiError.CloudflareChallenge = error else {
                 throw error
             }
 
             // Don't keep a partially synced native session around when bootstrap
-            // refresh is still challenged. The WebView login flow remains open so
-            // the user can complete the challenge and retry Sync.
+            // or CSRF refresh is still challenged. The WebView login flow remains
+            // open so the user can complete the challenge and retry Sync.
             _ = try? await sessionStore.logoutLocal(preserveCfClearance: true)
             if let challengeRecoveryCookieCleaner {
                 try? await challengeRecoveryCookieCleaner()

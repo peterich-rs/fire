@@ -35,6 +35,8 @@
   - 登录回调页、用户页、话题页等“非首页” HTML 里也可能带 `data-preloaded`，但有时只包含 `currentUser` 等局部字段，不一定带完整的 `site` / `siteSettings`
   - 某些 LinuxDo 页面里，`data-preloaded.currentUser`、`siteSettings`、`site`、`topicTrackingStateMeta` 本身不是对象，而是“JSON 字符串”；客户端在提取字段前需要先解包这层字符串
   - iOS 当前把登录页收口做成“自动探测、手动 Sync”：实时探测会先轻量检查当前页的用户名 / bootstrap 标记与同站 auth Cookie，只在 auth Cookie 已就绪但当前页元数据仍不完整时，才补一次浏览器上下文内的首页 `fetch("/")`；只有最终同时拿到 `current-username`、有效 `_t` / `_forum_session` Cookie，以及可复用的首页 bootstrap HTML 时，才允许用户点击“完成登录”
+  - iOS 登录 `WKWebView` 现在会显式开启 `window.open` / 新窗口请求，并把 `target="_blank"` 或脚本弹出的登录跳转收口到当前浏览器上下文继续导航，避免第三方登录选择页因为缺少 `WKUIDelegate` 而直接失效
+  - iOS 的交互式 Cloudflare 恢复不再单独打开 `/challenge` 页面，而是复用登录页上下文；当登录上下文探测到同站 auth Cookie 和可复用 bootstrap 已齐备时，会自动执行一次登录同步并恢复原始操作
   - iOS 当前在真正提交登录时仍会优先通过浏览器上下文内的 `fetch("/")` 抓首页 HTML；只有这份首页 HTML 不够完整时，才回退到当前页面 `document.documentElement.outerHTML`，并会用优选后的 HTML 回填缺失的 `current-username` / `csrf-token`
   - 在把 bootstrap 视为“已就绪”前，应该确认至少拿到了当前用户、站点级 `site` 元数据（分类/标签能力）和 `siteSettings`（最小长度、reactions、长轮询域等）；缺失时继续回源 `GET /` 刷新，而不要仅凭 `hasPreloadedData=true` 就跳过
   - 当前 Fire 实现还会在首页 bootstrap 仍缺少 `site` 元数据时自动补一次 `GET /site.json`，用于回填 `categories`、`top_tags`、`can_tag_topics`
@@ -98,9 +100,9 @@
 - 当前 `BAD CSRF` 仍只触发一次性 CSRF 刷新与单次重试；如果同一请求同时已经暴露强失效信号，则优先按登录失效收口。
 - 因此后续常见表现不只有“更早一步已明确失效”，也可能是“更早一步成功读请求触发了 partial auth rotation，首个写请求才真正暴露问题”。
 
-### `GET /challenge` (交互式 Cloudflare 恢复)
+### 交互式 Cloudflare 恢复
 
-- 用途：打开 Cloudflare 挑战页面。Fire iOS 的交互式恢复会先删除 `WKHTTPCookieStore` 中旧的 `cf_clearance`，再加载 `/challenge`，避免 WebView 继续用旧 clearance 直接进入正常页面。
+- 用途：在浏览器上下文内完成 Cloudflare 验证并恢复原始操作。Fire iOS 的交互式恢复会先删除 `WKHTTPCookieStore` 中旧的 `cf_clearance`，再复用登录页上下文等待 challenge 退出、出现新的 clearance、并且登录 bootstrap 一起就绪后再自动同步，避免 WebView 继续复用旧 clearance。
 - 认证：匿名可访问
 - 响应：HTML 页面，不是 JSON
 - 识别：共享层只把 `403` 且响应头指向 Cloudflare HTML challenge 的回包归类为 `CloudflareChallenge`；优先使用 `cf-mitigated: challenge`，缺失时再用 HTML 中的 `cf_chl_opt`、`challenge-platform`、`Just a moment` 等特征兜底

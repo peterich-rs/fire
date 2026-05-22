@@ -5,6 +5,12 @@ private enum FireTopicDetailSearchDirection {
     case forward
 }
 
+private struct FireTopicRenderStateInput: Equatable {
+    let baseURLString: String
+    let stream: [UInt64]
+    let posts: [TopicPostState]
+}
+
 @MainActor
 final class FireTopicDetailStore: ObservableObject {
     nonisolated private static let topicPostPageSize = 30
@@ -24,6 +30,7 @@ final class FireTopicDetailStore: ObservableObject {
     private var topicPresenceHeartbeatTasks: [UInt64: Task<Void, Never>] = [:]
     private var topicPostPreloadTasks: [UInt64: Task<Void, Never>] = [:]
     private var topicWindowStates: [UInt64: FireTopicDetailWindowState] = [:]
+    private var topicRenderStateInputs: [UInt64: FireTopicRenderStateInput] = [:]
     private var topicDetailTargetPostNumbers: [UInt64: UInt32] = [:]
     private var activeTopicDetailOwnerTokens: [UInt64: Set<String>] = [:]
 
@@ -85,6 +92,7 @@ final class FireTopicDetailStore: ObservableObject {
         activeTopicDetailOwnerTokens = [:]
         topicDetailTargetPostNumbers = [:]
         topicWindowStates = [:]
+        topicRenderStateInputs = [:]
         topicDetails = [:]
         topicRenderStates = [:]
         topicPresenceUsersByTopic = [:]
@@ -756,6 +764,7 @@ final class FireTopicDetailStore: ObservableObject {
     private func evictTopicDetailState(topicId: UInt64, reason: String) {
         let removedDetail = topicDetails.removeValue(forKey: topicId) != nil
         let removedRenderState = topicRenderStates.removeValue(forKey: topicId) != nil
+        topicRenderStateInputs.removeValue(forKey: topicId)
         let removedWindow = topicWindowStates.removeValue(forKey: topicId) != nil
         let removedPresence = topicPresenceUsersByTopic.removeValue(forKey: topicId) != nil
         let removedLoadingTopic = loadingTopicIDs.remove(topicId) != nil
@@ -799,11 +808,22 @@ final class FireTopicDetailStore: ObservableObject {
             stream: detail.postStream.stream
         )
 
-        topicDetails[topicId] = cachedDetail
-        topicRenderStates[topicId] = FireTopicPresentation.detailRenderState(
-            from: cachedDetail,
-            baseURLString: renderBaseURLString
+        if topicDetails[topicId] != cachedDetail {
+            topicDetails[topicId] = cachedDetail
+        }
+
+        let renderStateInput = FireTopicRenderStateInput(
+            baseURLString: renderBaseURLString,
+            stream: cachedDetail.postStream.stream,
+            posts: cachedDetail.postStream.posts
         )
+        if topicRenderStateInputs[topicId] != renderStateInput {
+            topicRenderStateInputs[topicId] = renderStateInput
+            topicRenderStates[topicId] = FireTopicPresentation.detailRenderState(
+                from: cachedDetail,
+                baseURLString: renderStateInput.baseURLString
+            )
+        }
         return cachedDetail
     }
 

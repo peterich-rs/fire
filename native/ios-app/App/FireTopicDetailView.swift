@@ -63,6 +63,12 @@ private struct FirePostEditorContext: Identifiable, Equatable {
     var id: UInt64 { postID }
 }
 
+private struct FireProfileSheetContext: Identifiable, Equatable {
+    let username: String
+
+    var id: String { username.lowercased() }
+}
+
 private enum FireTopicNotificationLevelOption: Int32, CaseIterable, Identifiable {
     case muted = 0
     case regular = 1
@@ -82,6 +88,7 @@ private enum FireTopicNotificationLevelOption: Int32, CaseIterable, Identifiable
 }
 
 struct FireTopicDetailView: View {
+    @Environment(\.openURL) private var openURL
     static func topicDetailSubscriptionTaskID(
         topicId: UInt64,
         canOpenMessageBus: Bool,
@@ -112,6 +119,8 @@ struct FireTopicDetailView: View {
     @State private var showingTopicVoters = false
     @State private var cachedDetail: TopicDetailState?
     @State private var cachedRenderState: FireTopicDetailRenderState?
+    @State private var selectedRoute: FireAppRoute?
+    @State private var profileSheetContext: FireProfileSheetContext?
     @FocusState private var isReplyFieldFocused: Bool
 
     init(viewModel: FireAppViewModel, row: FireTopicRowPresentation, scrollToPostNumber: UInt32? = nil) {
@@ -296,6 +305,7 @@ struct FireTopicDetailView: View {
                 topicDetailStore.markScrollTargetSatisfied(topicId: topic.id, postNumber: postNumber)
             },
             onOpenComposer: openComposer(replyToPost:),
+            onLinkTapped: handleRichTextLink,
             onOpenImage: { selectedImage = $0 },
             onToggleLike: { toggleLike(for: $0) },
             onSelectReaction: { post, reactionId in
@@ -315,6 +325,9 @@ struct FireTopicDetailView: View {
         )
         .navigationTitle("话题")
         .navigationBarTitleDisplayMode(.inline)
+        .navigationDestination(item: $selectedRoute) { route in
+            FireAppRouteDestinationView(viewModel: viewModel, route: route)
+        }
         .toolbar(.hidden, for: .tabBar)
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
@@ -373,6 +386,21 @@ struct FireTopicDetailView: View {
             if canWriteInteractions {
                 quickReplyBar
             }
+        }
+        .sheet(item: $profileSheetContext) { context in
+            NavigationStack {
+                FirePublicProfileView(viewModel: viewModel, username: context.username)
+            }
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+            .fireSheet(presented: Binding(
+                get: { profileSheetContext != nil },
+                set: { presented in
+                    if !presented {
+                        profileSheetContext = nil
+                    }
+                }
+            ))
         }
         .sheet(item: $bookmarkEditorContext) { context in
             FireBookmarkEditorSheet(
@@ -600,6 +628,44 @@ struct FireTopicDetailView: View {
             topicId: topic.id,
             visiblePostNumbers: visiblePostNumbers
         )
+    }
+
+    private func handleRichTextLink(_ url: URL) {
+        timingTracker.recordInteraction()
+
+        guard let route = FireRouteParser.parse(url: url) else {
+            openURL(url)
+            return
+        }
+
+        switch route {
+        case .profile(let username):
+            profileSheetContext = FireProfileSheetContext(username: username)
+
+        case .topic(let payload):
+            handleTopicLink(payload)
+
+        case .badge:
+            selectedRoute = route
+        }
+    }
+
+    private func handleTopicLink(_ payload: FireTopicRoutePayload) {
+        if payload.topicId == topic.id {
+            guard let postNumber = payload.postNumber else {
+                return
+            }
+
+            Task {
+                await topicDetailStore.loadTopicDetail(
+                    topicId: topic.id,
+                    targetPostNumber: postNumber
+                )
+            }
+            return
+        }
+
+        selectedRoute = .topic(payload: payload)
     }
 
     private var quickReplyBar: some View {
@@ -1011,19 +1077,26 @@ struct FireTopicPostPlaceholder: View {
 
     private static let maxVisualDepth = 3
 
+    private var visualDepth: Int {
+        max(depth - 1, 0)
+    }
+
     private var indentWidth: CGFloat {
-        CGFloat(min(depth, Self.maxVisualDepth)) * 20
+        CGFloat(min(visualDepth, Self.maxVisualDepth)) * 20
     }
 
     var body: some View {
-        HStack(alignment: .top, spacing: depth > 0 ? 6 : 10) {
-            if depth > 0 {
+        HStack(alignment: .top, spacing: visualDepth > 0 ? 6 : 10) {
+            if visualDepth > 0 {
                 Color.clear.frame(width: indentWidth)
             }
 
             Circle()
                 .fill(Color(.tertiarySystemFill))
-                .frame(width: depth > 0 ? 26 : 32, height: depth > 0 ? 26 : 32)
+                .frame(
+                    width: visualDepth > 0 ? 26 : 32,
+                    height: visualDepth > 0 ? 26 : 32
+                )
 
             VStack(alignment: .leading, spacing: 8) {
                 RoundedRectangle(cornerRadius: 4, style: .continuous)
@@ -1080,6 +1153,7 @@ struct FirePostRow: View {
     let baseURLString: String
     let canWriteInteractions: Bool
     let isMutating: Bool
+    let onLinkTapped: (URL) -> Void
     let onOpenImage: (FireCookedImage) -> Void
     let onToggleLike: (TopicPostState) -> Void
     let onSelectReaction: (TopicPostState, String) -> Void
@@ -1089,8 +1163,12 @@ struct FirePostRow: View {
 
     private static let maxVisualDepth = 3
 
+    private var visualDepth: Int {
+        max(depth - 1, 0)
+    }
+
     private var indentWidth: CGFloat {
-        CGFloat(min(depth, Self.maxVisualDepth)) * 20
+        CGFloat(min(visualDepth, Self.maxVisualDepth)) * 20
     }
 
     private var canChangeReaction: Bool {
@@ -1098,8 +1176,8 @@ struct FirePostRow: View {
     }
 
     var body: some View {
-        HStack(alignment: .top, spacing: depth > 0 ? 6 : 10) {
-            if depth > 0 {
+        HStack(alignment: .top, spacing: visualDepth > 0 ? 6 : 10) {
+            if visualDepth > 0 {
                 Color.clear.frame(width: indentWidth)
             }
 
@@ -1107,7 +1185,7 @@ struct FirePostRow: View {
                 FireAvatarView(
                     avatarTemplate: post.avatarTemplate,
                     username: post.username.isEmpty ? "?" : post.username,
-                    size: depth > 0 ? 26 : 32,
+                    size: visualDepth > 0 ? 26 : 32,
                     baseURLString: baseURLString
                 )
 
@@ -1167,7 +1245,7 @@ struct FirePostRow: View {
 
                 if let attributedText = renderContent.attributedText, attributedText.length > 0 {
                     FireRichTextView(attributedString: attributedText) { url in
-                        UIApplication.shared.open(url)
+                        onLinkTapped(url)
                     }
                     .fixedSize(horizontal: false, vertical: true)
                 } else {
@@ -1977,7 +2055,7 @@ private struct FireCookedImageCard: View {
         FireRemoteImage(request: imageRequest) { loadedImage in
             Image(uiImage: loadedImage)
                 .resizable()
-                .scaledToFill()
+                .scaledToFit()
         } placeholder: { state in
             switch state {
             case .loading, .missingRequest:

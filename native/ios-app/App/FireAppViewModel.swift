@@ -316,6 +316,26 @@ final class FireAppViewModel: ObservableObject {
         authPresentationState != nil
     }
 
+    var authPresentationMessage: String? {
+        if case let .cloudflareRecovery(context)? = authPresentationState {
+            return context.message
+        }
+        guard shouldAutoSyncLoginAfterRecovery else {
+            return nil
+        }
+        return pendingCloudflareRecovery?.context.message
+    }
+
+    var shouldAutoSyncLoginAfterRecovery: Bool {
+        guard pendingCloudflareRecovery != nil else {
+            return false
+        }
+        guard case .login? = authPresentationState else {
+            return false
+        }
+        return true
+    }
+
     func bindHomeFeedStore(_ store: FireHomeFeedStore) {
         homeFeedStore = store
     }
@@ -435,9 +455,13 @@ final class FireAppViewModel: ObservableObject {
             do {
                 try await FireAPMManager.shared.withSpan(.authLoginSync) {
                     let loginCoordinator = try await loginCoordinatorValue()
+                    let shouldResolveRecovery = pendingCloudflareRecovery != nil
                     errorMessage = nil
                     await applySession(try await loginCoordinator.completeLogin(from: webView))
                     setAuthPresentationState(nil)
+                    if shouldResolveRecovery {
+                        resolvePendingCloudflareRecovery(with: .success(()))
+                    }
                     await refreshHomeFeedIfPossible(force: true)
                     canSyncLoginSession = false
                 }
@@ -1501,11 +1525,65 @@ final class FireAppViewModel: ObservableObject {
                             : "login sync readiness cleared"
                     )
                 }
+                if readiness.isReady {
+                    await scheduleAutomaticRecoveryLoginSyncIfNeeded(
+                        readiness: readiness,
+                        from: webView
+                    )
+                } else {
+                    pendingCloudflareRecovery?.lastAutoCompletionToken = nil
+                }
             } catch {
                 guard !Task.isCancelled else { return }
                 canSyncLoginSession = false
+                pendingCloudflareRecovery?.lastAutoCompletionToken = nil
             }
         }
+    }
+
+    private func scheduleAutomaticRecoveryLoginSyncIfNeeded(
+        readiness: FireLoginSyncReadiness,
+        from webView: WKWebView
+    ) async {
+        guard shouldAutoSyncLoginAfterRecovery,
+              let pendingCloudflareRecovery else {
+            return
+        }
+
+        let observation = await collectCloudflareRecoveryObservation(from: webView)
+        guard !Task.isCancelled else {
+            return
+        }
+
+        let blockReason = cloudflareRecoveryCompletionBlockReason(
+            trigger: .automatic,
+            observation: observation,
+            initialCookieSnapshot: pendingCloudflareRecovery.initialCookieSnapshot,
+            initialSessionCookieSnapshot: pendingCloudflareRecovery.initialSessionCookieSnapshot
+        )
+        guard blockReason == nil else {
+            pendingCloudflareRecovery.lastAutoCompletionToken = nil
+            let blockedReason = blockReason ?? "unknown"
+            let readinessUser = readiness.username ?? "unknown"
+            FireAPMManager.shared.recordBreadcrumb(
+                target: Self.authDiagnosticsLogTarget,
+                message: "cloudflare recovery login auto-sync blocked reason=\(blockedReason) readiness_user=\(readinessUser) score=\(readiness.preferredBootstrapScore)"
+            )
+            return
+        }
+
+        let autoCompletionToken = observation.autoCompletionToken(cfClearanceIsFresh: true)
+
+        guard pendingCloudflareRecovery.lastAutoCompletionToken != autoCompletionToken else {
+            return
+        }
+        pendingCloudflareRecovery.lastAutoCompletionToken = autoCompletionToken
+
+        FireAPMManager.shared.recordBreadcrumb(
+            target: Self.authDiagnosticsLogTarget,
+            message: "cloudflare recovery login auto-sync scheduled token=\(autoCompletionToken)"
+        )
+        completeLogin(from: webView)
     }
 
     func observeCloudflareRecoveryNavigation(
@@ -1675,7 +1753,7 @@ final class FireAppViewModel: ObservableObject {
             let context = FireCloudflareChallengeContext(
                 id: UUID(),
                 operation: operation,
-                preferredURL: challengeRecoveryURL(),
+                preferredURL: loginURL,
                 message: "\(operation) 需要先完成 Cloudflare 验证。完成后会自动重试。"
             )
             pendingCloudflareRecovery = PendingCloudflareRecovery(
@@ -1685,7 +1763,7 @@ final class FireAppViewModel: ObservableObject {
             )
             errorMessage = nil
             canSyncLoginSession = false
-            setAuthPresentationState(.cloudflareRecovery(context))
+            setAuthPresentationState(.login)
         }
 
         guard let pendingCloudflareRecovery else {
@@ -1778,7 +1856,7 @@ final class FireAppViewModel: ObservableObject {
             let context = FireCloudflareChallengeContext(
                 id: UUID(),
                 operation: operation,
-                preferredURL: challengeRecoveryURL(),
+                preferredURL: loginURL,
                 message: message ?? error.localizedDescription
             )
             pendingCloudflareRecovery = PendingCloudflareRecovery(
@@ -1788,18 +1866,11 @@ final class FireAppViewModel: ObservableObject {
             )
             errorMessage = nil
             canSyncLoginSession = false
-            setAuthPresentationState(.cloudflareRecovery(context))
-        } else if case let .cloudflareRecovery(context)? = authPresentationState {
-            setAuthPresentationState(.cloudflareRecovery(context))
+            setAuthPresentationState(.login)
+        } else if case .login? = authPresentationState {
+            setAuthPresentationState(.login)
         }
         return true
-    }
-
-    private func challengeRecoveryURL() -> URL {
-        // Load the dedicated challenge path so recovery does not land on
-        // a normal page after WebKit's old clearance cookie is removed.
-        let base = session.baseURL
-        return base.appendingPathComponent("challenge")
     }
 
     private func resetSessionAndPresentLogin(message: String) async {
@@ -2333,16 +2404,7 @@ final class FireAppViewModel: ObservableObject {
 
     private func setAuthPresentationState(_ state: FireAuthPresentationState?) {
         authPresentationState = state
-        let isInteractiveRecoveryActive: Bool
-        switch state {
-        case .cloudflareRecovery:
-            isInteractiveRecoveryActive = true
-        case .login, .none:
-            isInteractiveRecoveryActive = false
-        }
-        FireCfClearanceRefreshService.shared.setInteractiveRecoveryActive(
-            isInteractiveRecoveryActive
-        )
+        updateInteractiveRecoveryState()
     }
 
     private func resolvePendingCloudflareRecovery(with result: Result<Void, Error>) {
@@ -2354,7 +2416,14 @@ final class FireAppViewModel: ObservableObject {
         cloudflareRecoveryObservationTask = nil
         let waiters = pendingCloudflareRecovery.waiters.removeAll()
         self.pendingCloudflareRecovery = nil
+        updateInteractiveRecoveryState()
         waiters.forEach { $0.resume(with: result) }
+    }
+
+    private func updateInteractiveRecoveryState() {
+        FireCfClearanceRefreshService.shared.setInteractiveRecoveryActive(
+            pendingCloudflareRecovery != nil
+        )
     }
 
     func topicDetailLogger() -> FireHostLogger? {

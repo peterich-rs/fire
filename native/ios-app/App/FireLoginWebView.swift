@@ -133,8 +133,9 @@ struct FireLoginWebView: UIViewRepresentable {
     let onNavigationStateChange: (WKWebView) -> Void
 
     func makeUIView(context: Context) -> WKWebView {
-        let webView = WKWebView(frame: .zero)
+        let webView = WKWebView(frame: .zero, configuration: Self.makeConfiguration())
         webView.navigationDelegate = context.coordinator
+        webView.uiDelegate = context.coordinator
         context.coordinator.attach(to: webView)
         webView.allowsBackForwardNavigationGestures = true
         webView.load(URLRequest(url: url))
@@ -150,6 +151,15 @@ struct FireLoginWebView: UIViewRepresentable {
     static func dismantleUIView(_ uiView: WKWebView, coordinator: Coordinator) {
         coordinator.detach()
         uiView.navigationDelegate = nil
+        uiView.uiDelegate = nil
+    }
+
+    static func makeConfiguration() -> WKWebViewConfiguration {
+        let configuration = WKWebViewConfiguration()
+        configuration.websiteDataStore = .default()
+        configuration.preferences.javaScriptCanOpenWindowsAutomatically = true
+        configuration.defaultWebpagePreferences.allowsContentJavaScript = true
+        return configuration
     }
 
     func makeCoordinator() -> Coordinator {
@@ -159,7 +169,7 @@ struct FireLoginWebView: UIViewRepresentable {
         )
     }
 
-    final class Coordinator: NSObject, WKNavigationDelegate {
+    final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
         private let webViewBox: FireWebViewBox
         private let probeBridge: FireLoginWebViewProbeBridge
 
@@ -187,6 +197,19 @@ struct FireLoginWebView: UIViewRepresentable {
             syncBrowserState(from: webView)
             probeBridge.attach(to: webView)
             probeBridge.requestProbe()
+        }
+
+        private func openInCurrentWebViewIfNeeded(
+            _ navigationAction: WKNavigationAction,
+            in webView: WKWebView
+        ) -> Bool {
+            guard navigationAction.targetFrame == nil else {
+                return false
+            }
+
+            webView.load(navigationAction.request)
+            syncBrowserState(from: webView)
+            return true
         }
 
         func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
@@ -219,6 +242,16 @@ struct FireLoginWebView: UIViewRepresentable {
 
         func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
             handleTerminalStateChange(for: webView)
+        }
+
+        func webView(
+            _ webView: WKWebView,
+            createWebViewWith configuration: WKWebViewConfiguration,
+            for navigationAction: WKNavigationAction,
+            windowFeatures: WKWindowFeatures
+        ) -> WKWebView? {
+            _ = openInCurrentWebViewIfNeeded(navigationAction, in: webView)
+            return nil
         }
     }
 }
@@ -256,6 +289,10 @@ struct FireAuthScreen: View {
         }
     }
 
+    private var infoMessage: String? {
+        viewModel.authPresentationMessage
+    }
+
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
@@ -274,8 +311,8 @@ struct FireAuthScreen: View {
                     )
                 }
 
-                if case let .cloudflareRecovery(context) = presentationState {
-                    FireAuthInfoBanner(message: context.message)
+                if let infoMessage {
+                    FireAuthInfoBanner(message: infoMessage)
                 }
 
                 FireLoginWebView(
@@ -430,6 +467,15 @@ private struct FireAuthBottomBar: View {
         }
     }
 
+    private var hidesPrimaryActionForAutomaticRecovery: Bool {
+        switch presentationState {
+        case .login:
+            return viewModel.shouldAutoSyncLoginAfterRecovery
+        case .cloudflareRecovery:
+            return false
+        }
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             Divider()
@@ -452,18 +498,30 @@ private struct FireAuthBottomBar: View {
 
                 Spacer()
 
-                Button(action: performPrimaryAction) {
+                if hidesPrimaryActionForAutomaticRecovery {
                     HStack(spacing: 6) {
                         if isRunningAction {
                             ProgressView()
-                                .tint(.white)
                                 .controlSize(.small)
                         }
-                        Text(actionTitle)
+                        Text(isRunningAction ? "同步中…" : "验证完成后自动同步")
+                            .font(.footnote.weight(.medium))
+                            .foregroundStyle(.secondary)
                     }
+                } else {
+                    Button(action: performPrimaryAction) {
+                        HStack(spacing: 6) {
+                            if isRunningAction {
+                                ProgressView()
+                                    .tint(.white)
+                                    .controlSize(.small)
+                            }
+                            Text(actionTitle)
+                        }
+                    }
+                    .buttonStyle(FirePrimaryButtonStyle())
+                    .disabled(!isActionEnabled)
                 }
-                .buttonStyle(FirePrimaryButtonStyle())
-                .disabled(!isActionEnabled)
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 10)

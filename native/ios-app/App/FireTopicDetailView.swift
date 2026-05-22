@@ -1077,19 +1077,26 @@ struct FireTopicPostPlaceholder: View {
 
     private static let maxVisualDepth = 3
 
+    private var visualDepth: Int {
+        max(depth - 1, 0)
+    }
+
     private var indentWidth: CGFloat {
-        CGFloat(min(depth, Self.maxVisualDepth)) * 20
+        CGFloat(min(visualDepth, Self.maxVisualDepth)) * 20
     }
 
     var body: some View {
-        HStack(alignment: .top, spacing: depth > 0 ? 6 : 10) {
-            if depth > 0 {
+        HStack(alignment: .top, spacing: visualDepth > 0 ? 6 : 10) {
+            if visualDepth > 0 {
                 Color.clear.frame(width: indentWidth)
             }
 
             Circle()
                 .fill(Color(.tertiarySystemFill))
-                .frame(width: depth > 0 ? 26 : 32, height: depth > 0 ? 26 : 32)
+                .frame(
+                    width: visualDepth > 0 ? 26 : 32,
+                    height: visualDepth > 0 ? 26 : 32
+                )
 
             VStack(alignment: .leading, spacing: 8) {
                 RoundedRectangle(cornerRadius: 4, style: .continuous)
@@ -1156,8 +1163,12 @@ struct FirePostRow: View {
 
     private static let maxVisualDepth = 3
 
+    private var visualDepth: Int {
+        max(depth - 1, 0)
+    }
+
     private var indentWidth: CGFloat {
-        CGFloat(min(depth, Self.maxVisualDepth)) * 20
+        CGFloat(min(visualDepth, Self.maxVisualDepth)) * 20
     }
 
     private var canChangeReaction: Bool {
@@ -1165,8 +1176,8 @@ struct FirePostRow: View {
     }
 
     var body: some View {
-        HStack(alignment: .top, spacing: depth > 0 ? 6 : 10) {
-            if depth > 0 {
+        HStack(alignment: .top, spacing: visualDepth > 0 ? 6 : 10) {
+            if visualDepth > 0 {
                 Color.clear.frame(width: indentWidth)
             }
 
@@ -1174,7 +1185,7 @@ struct FirePostRow: View {
                 FireAvatarView(
                     avatarTemplate: post.avatarTemplate,
                     username: post.username.isEmpty ? "?" : post.username,
-                    size: depth > 0 ? 26 : 32,
+                    size: visualDepth > 0 ? 26 : 32,
                     baseURLString: baseURLString
                 )
 

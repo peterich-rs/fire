@@ -48,7 +48,9 @@ This document describes the iOS-only crash and APM runtime added for the beta ph
 - Export staging directories are removed immediately after zipping so only the final archive remains in `ios-apm-exports/`.
 - Release artifact generation is handled by `scripts/ios/archive_release.sh`.
 - CI/manual archive artifact generation is handled by `.github/workflows/ios-release-artifacts.yml`.
-- The archive script injects `FIRE_GIT_SHA`, archives the app, copies `dSYMs/`, and emits `build-metadata.json`.
+- Signed TestFlight export/upload is handled by `.github/workflows/ios-testflight.yml`; the workflow passes version/build/signing/App Store Connect settings into `scripts/ios/archive_release.sh`.
+- The archive script injects `FIRE_GIT_SHA`, archives the app, copies `dSYMs/`, optionally exports or uploads an App Store Connect build, and emits `build-metadata.json`.
+- See `docs/architecture/ios-testflight-release.md` for the production release contract and required secrets.
 
 ## Privacy rules
 

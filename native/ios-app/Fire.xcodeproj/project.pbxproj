@@ -821,6 +821,7 @@
 				CODE_SIGN_ENTITLEMENTS = Fire.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = "$(FIRE_CODE_SIGN_STYLE)";
+				CURRENT_PROJECT_VERSION = "$(FIRE_BUILD_NUMBER)";
 				DEVELOPMENT_TEAM = "$(FIRE_DEVELOPMENT_TEAM)";
 				FIRE_GIT_SHA = "$(FIRE_GIT_SHA)";
 				GENERATE_INFOPLIST_FILE = YES;
@@ -846,6 +847,7 @@
 					"$(inherited)",
 					"$(SRCROOT)/Generated/lib/$(PLATFORM_NAME)",
 				);
+				MARKETING_VERSION = "$(FIRE_MARKETING_VERSION)";
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-lfire_uniffi",
@@ -1029,6 +1031,7 @@
 				CODE_SIGN_ENTITLEMENTS = Fire.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = "$(FIRE_CODE_SIGN_STYLE)";
+				CURRENT_PROJECT_VERSION = "$(FIRE_BUILD_NUMBER)";
 				DEVELOPMENT_TEAM = "$(FIRE_DEVELOPMENT_TEAM)";
 				FIRE_GIT_SHA = "$(FIRE_GIT_SHA)";
 				GENERATE_INFOPLIST_FILE = YES;
@@ -1054,6 +1057,7 @@
 					"$(inherited)",
 					"$(SRCROOT)/Generated/lib/$(PLATFORM_NAME)",
 				);
+				MARKETING_VERSION = "$(FIRE_MARKETING_VERSION)";
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-lfire_uniffi",

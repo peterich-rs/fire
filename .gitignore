@@ -9,6 +9,7 @@
 /target/
 /rust/target/
 /uniffi/
+/artifacts/
 **/*.xcodeproj/xcuserdata/
 **/*.xcworkspace/xcuserdata/
 native/ios-app/Configs/Fire-Local-Debug.xcconfig

@@ -1,0 +1,173 @@
+name: iOS TestFlight
+
+on:
+  workflow_dispatch:
+    inputs:
+      marketing_version:
+        description: CFBundleShortVersionString for the TestFlight build.
+        required: true
+        type: string
+        default: "0.1.0"
+      build_number:
+        description: CFBundleVersion. Defaults to the GitHub run number when empty.
+        required: false
+        type: string
+      upload_to_testflight:
+        description: Upload the signed archive to App Store Connect/TestFlight.
+        required: true
+        type: boolean
+        default: false
+      internal_testing_only:
+        description: Mark uploaded builds as internal testing only.
+        required: true
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+  RUST_TOOLCHAIN: 1.88.0
+
+jobs:
+  testflight:
+    name: Archive and Upload iOS TestFlight
+    runs-on: macos-15
+    timeout-minutes: 90
+    env:
+      APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+      APP_STORE_CONNECT_API_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
+      APP_STORE_CONNECT_API_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_API_PRIVATE_KEY }}
+      APPLE_DISTRIBUTION_CERTIFICATE_BASE64: ${{ secrets.APPLE_DISTRIBUTION_CERTIFICATE_BASE64 }}
+      APPLE_DISTRIBUTION_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_DISTRIBUTION_CERTIFICATE_PASSWORD }}
+      APPLE_PROVISIONING_PROFILE_BASE64: ${{ secrets.APPLE_PROVISIONING_PROFILE_BASE64 }}
+      APPLE_SIGNING_KEYCHAIN_PASSWORD: ${{ secrets.APPLE_SIGNING_KEYCHAIN_PASSWORD }}
+      FIRE_DEVELOPMENT_TEAM: ${{ secrets.APPLE_TEAM_ID }}
+      FIRE_CODE_SIGN_STYLE: ${{ vars.IOS_CODE_SIGN_STYLE || 'Automatic' }}
+      FIRE_MARKETING_VERSION: ${{ inputs.marketing_version }}
+      FIRE_BUILD_NUMBER: ${{ inputs.build_number || github.run_number }}
+      FIRE_PRODUCT_BUNDLE_IDENTIFIER: ${{ vars.IOS_BUNDLE_ID || 'com.fire.app.ios' }}
+      FIRE_PROVISIONING_PROFILE_SPECIFIER: ${{ vars.IOS_PROVISIONING_PROFILE_SPECIFIER }}
+      EXPORT_SIGNING_CERTIFICATE: ${{ vars.IOS_EXPORT_SIGNING_CERTIFICATE }}
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: recursive
+
+      - name: Verify required submodules are initialized and clean
+        shell: bash
+        run: ./scripts/check_clean_submodules.sh
+
+      - name: Install Rust toolchain and iOS targets
+        shell: bash
+        run: |
+          rustup toolchain install "${RUST_TOOLCHAIN}" --profile minimal
+          rustup default "${RUST_TOOLCHAIN}"
+          rustup target add aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: rust-${{ runner.os }}-${{ env.RUST_TOOLCHAIN }}
+          workspaces: |
+            . -> rust/target
+
+      - name: Install XcodeGen
+        shell: bash
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+          HOMEBREW_NO_INSTALL_CLEANUP: "1"
+        run: |
+          if command -v xcodegen >/dev/null 2>&1; then
+            xcodegen --version
+          else
+            brew install xcodegen
+          fi
+
+      - name: Prepare App Store Connect API key
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${APP_STORE_CONNECT_API_KEY_ID}" || -z "${APP_STORE_CONNECT_API_ISSUER_ID}" || -z "${APP_STORE_CONNECT_API_PRIVATE_KEY}" ]]; then
+            echo "APP_STORE_CONNECT_API_KEY_ID, APP_STORE_CONNECT_API_ISSUER_ID, and APP_STORE_CONNECT_API_PRIVATE_KEY secrets are required" >&2
+            exit 1
+          fi
+
+          key_dir="${RUNNER_TEMP}/app-store-connect"
+          key_path="${key_dir}/AuthKey_${APP_STORE_CONNECT_API_KEY_ID}.p8"
+          mkdir -p "$key_dir"
+          printf '%s' "$APP_STORE_CONNECT_API_PRIVATE_KEY" > "$key_path"
+          chmod 600 "$key_path"
+          echo "APP_STORE_CONNECT_API_KEY_PATH=$key_path" >> "$GITHUB_ENV"
+
+      - name: Install optional signing certificate and profile
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ -n "${APPLE_DISTRIBUTION_CERTIFICATE_BASE64}" ]]; then
+            if [[ -z "${APPLE_DISTRIBUTION_CERTIFICATE_PASSWORD}" ]]; then
+              echo "APPLE_DISTRIBUTION_CERTIFICATE_PASSWORD is required when APPLE_DISTRIBUTION_CERTIFICATE_BASE64 is set" >&2
+              exit 1
+            fi
+
+            keychain_password="${APPLE_SIGNING_KEYCHAIN_PASSWORD:-$(openssl rand -hex 16)}"
+            keychain_path="${RUNNER_TEMP}/fire-signing.keychain-db"
+            certificate_path="${RUNNER_TEMP}/apple-distribution.p12"
+
+            printf '%s' "$APPLE_DISTRIBUTION_CERTIFICATE_BASE64" | base64 --decode > "$certificate_path"
+            security create-keychain -p "$keychain_password" "$keychain_path"
+            security set-keychain-settings -lut 21600 "$keychain_path"
+            security unlock-keychain -p "$keychain_password" "$keychain_path"
+            security import "$certificate_path" -P "$APPLE_DISTRIBUTION_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$keychain_path"
+            security list-keychains -d user -s "$keychain_path" "$HOME/Library/Keychains/login.keychain-db"
+            security default-keychain -d user -s "$keychain_path"
+            security set-key-partition-list -S apple-tool:,apple: -k "$keychain_password" "$keychain_path"
+          fi
+
+          if [[ -n "${APPLE_PROVISIONING_PROFILE_BASE64}" ]]; then
+            profile_path="${RUNNER_TEMP}/Fire_App_Store.mobileprovision"
+            profile_plist="${RUNNER_TEMP}/Fire_App_Store.mobileprovision.plist"
+            profiles_dir="$HOME/Library/MobileDevice/Provisioning Profiles"
+
+            printf '%s' "$APPLE_PROVISIONING_PROFILE_BASE64" | base64 --decode > "$profile_path"
+            security cms -D -i "$profile_path" > "$profile_plist"
+            profile_uuid="$(/usr/libexec/PlistBuddy -c 'Print UUID' "$profile_plist")"
+            mkdir -p "$profiles_dir"
+            cp "$profile_path" "$profiles_dir/${profile_uuid}.mobileprovision"
+          fi
+
+      - name: Archive and export TestFlight build
+        shell: bash
+        env:
+          TESTFLIGHT_UPLOAD_INPUT: ${{ inputs.upload_to_testflight }}
+          TESTFLIGHT_INTERNAL_ONLY_INPUT: ${{ inputs.internal_testing_only }}
+        run: |
+          set -euo pipefail
+          testflight_upload="NO"
+          if [[ "$TESTFLIGHT_UPLOAD_INPUT" == "true" ]]; then
+            testflight_upload="YES"
+          fi
+
+          internal_only="NO"
+          if [[ "$TESTFLIGHT_INTERNAL_ONLY_INPUT" == "true" ]]; then
+            internal_only="YES"
+          fi
+
+          CODE_SIGNING_ALLOWED=YES \
+          ALLOW_PROVISIONING_UPDATES=YES \
+          TESTFLIGHT_UPLOAD="$testflight_upload" \
+          TESTFLIGHT_INTERNAL_ONLY="$internal_only" \
+          EXPORT_METHOD=app-store-connect \
+          EXPORT_DESTINATION=export \
+          FIRE_GIT_SHA="${GITHUB_SHA}" \
+          OUT_ROOT="${GITHUB_WORKSPACE}/artifacts/ios-testflight" \
+          ./scripts/ios/archive_release.sh
+
+      - name: Upload TestFlight release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-testflight-release
+          path: artifacts/ios-testflight
+          if-no-files-found: error

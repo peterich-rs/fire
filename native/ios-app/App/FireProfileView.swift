@@ -589,17 +589,35 @@ private struct FireSettingsView: View {
         let info = Bundle.main.infoDictionary
         let version = info?["CFBundleShortVersionString"] as? String
         let build = info?["CFBundleVersion"] as? String
+        let gitSha = info?["FireGitSha"] as? String
+        let shortGitSha = Self.shortGitSha(from: gitSha)
 
+        let base: String
         switch (version?.isEmpty == false ? version : nil, build?.isEmpty == false ? build : nil) {
         case let (.some(version), .some(build)):
-            return "版本 \(version) (\(build))"
+            base = "版本 \(version) (\(build))"
         case let (.some(version), .none):
-            return "版本 \(version)"
+            base = "版本 \(version)"
         case let (.none, .some(build)):
-            return "Build \(build)"
+            base = "Build \(build)"
         case (.none, .none):
-            return "版本信息不可用"
+            base = "版本信息不可用"
         }
+
+        if let shortGitSha {
+            return "\(base) · \(shortGitSha)"
+        }
+        return base
+    }
+
+    private static func shortGitSha(from gitSha: String?) -> String? {
+        guard let trimmed = gitSha?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty,
+              trimmed != "unknown"
+        else {
+            return nil
+        }
+        return String(trimmed.prefix(8))
     }
 
     var body: some View {

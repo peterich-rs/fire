@@ -26,8 +26,10 @@ The app now has explicit version build settings:
 
 - `FIRE_MARKETING_VERSION` maps to `MARKETING_VERSION` / `CFBundleShortVersionString`.
 - `FIRE_BUILD_NUMBER` maps to `CURRENT_PROJECT_VERSION` / `CFBundleVersion`.
+- `FIRE_GIT_SHA` maps to the generated `FireGitSha` Info.plist value.
 - Defaults live in `native/ios-app/Configs/Fire-Shared.xcconfig`.
 - CI passes both values into `archive_release.sh`; the TestFlight workflow defaults the build number to the GitHub run number if the dispatch input is empty.
+- The iOS settings page displays the version, build number, and short git SHA when the build includes one.
 
 ## Signing and credentials
 

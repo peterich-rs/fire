@@ -284,6 +284,7 @@ Release artifact note:
 - `native/ios-app/project.yml` now carries a user-defined `FIRE_GIT_SHA` build setting and writes it into the generated Info.plist as `FireGitSha`.
 - `.github/workflows/ios-release-artifacts.yml` produces an unsigned release archive, collected `dSYMs/`, and `build-metadata.json` for beta crash symbolication rehearsal.
 - `FIRE_MARKETING_VERSION` and `FIRE_BUILD_NUMBER` now drive the generated app version and build number through `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION`.
+- The settings page displays the app version, build number, and short `FireGitSha` when the build includes one.
 - `.github/workflows/ios-testflight.yml` is the manual signed release lane for App Store Connect/TestFlight. It can either export a signed `.ipa` artifact or upload directly to TestFlight.
 - The TestFlight lane requires App Store Connect API key secrets and an Apple team id. Optional certificate/profile secrets can install explicit signing assets on GitHub runners; local machines should keep signing overrides in ignored `Fire-Local-Release.xcconfig`.
 - The full production release contract lives in `docs/architecture/ios-testflight-release.md`.

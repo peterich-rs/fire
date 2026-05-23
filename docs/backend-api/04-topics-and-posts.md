@@ -130,7 +130,8 @@
     - 共享 Rust Core 的“完整详情”路径会继续按缺失的 `post_ids[]` 调用 `GET /t/{topicId}/posts.json`，补齐整条评论流
     - iOS 帖子详情页的滚动列表路径会先消费首屏 `post_stream.posts`，再依据 `post_stream.stream` 自动分批请求 `GET /t/{topicId}/posts.json?post_ids[]=` 续载后续评论
   - 进入“只看顶层回复”模式后，后续翻页依赖 `post_stream.stream` 和 `GET /t/{topicId}/posts.json?post_ids[]=`，不是继续用 `post_number + asc`
-  - 当前 iOS 还会消费 `post_stream.posts[].polls` 和 `post_stream.posts[].polls_votes`，用于在 topic detail 渲染原生 poll 卡片并恢复当前用户的已选项
+  - 当前 iOS 和 Android 都会消费 `post_stream.posts[].polls` 和 `post_stream.posts[].polls_votes`，用于在 topic detail 渲染原生 poll 卡片并恢复当前用户的已选项
+  - 当前共享 Rust 解析 `post_stream.posts[].reply_to_user`，并通过 UniFFI 暴露到 `TopicPostState.reply_to_user` / `replyToUser`；iOS / Android 用它把回复关系显示为 `回复 @username`，缺失时才回退到 `reply_to_post_number`
   - 当前 iOS 也会消费顶层 `archetype` 以及 `details.participants[]`，用于把 `private_message` 线程渲染成私信详情页，并在头部展示会话参与者
   - `details.created_by`、`post_stream.posts[].current_user_reaction` 这类可选嵌套对象如果类型漂移，Fire 会将其按缺失处理，而不是让整个详情解析失败
 
@@ -273,7 +274,7 @@
   - `1`: regular
   - `2`: tracking
   - `3`: watching
-  - iOS 当前只在普通公开话题里暴露这个入口；`archetype = "private_message"` 的私信线程会隐藏话题通知级别设置
+  - iOS / Android 当前只在普通公开话题里暴露这个入口；`archetype = "private_message"` 的私信线程会隐藏话题通知级别设置
 
 ### `PUT /t/-/{topicId}.json`
 
@@ -293,12 +294,18 @@
   - iOS 在 topic detail 顶栏 menu 提供原生 topic editor
   - 成功后会刷新当前 topic detail，并触发首页话题流同步刷新
   - iOS 当前不会对私信线程暴露这个编辑入口；`private_message` 仍复用详情页，但不允许走公开话题编辑能力
+  - Android 话题详情页在 `details.can_edit` / `details.canEdit` 为 true 时显示顶部编辑入口
+  - Android 编辑器提交前复用共享 bootstrap 的 `min_topic_title_length` / `minTopicTitleLength`、`site.categories[].permission`、`minimum_required_tags` 和 `allowed_tags` 做本地校验；保存后刷新当前 topic detail
 
 ### `GET /discourse-ai/summarization/t/{topicId}`
 
 - 用途：获取 AI 话题摘要
 - Query：
   - `skip_age_check?: "true"`
+- 当前客户端行为：
+  - 共享 Rust 层通过 `fetch_topic_ai_summary` 请求并解析 `ai_topic_summary`，再通过 `TopicAiSummaryState` 暴露给 iOS / Android
+  - 普通 `403` / `404` 按“当前话题没有可展示摘要或当前用户不可取摘要”处理，返回空摘要；Cloudflare challenge 形态的 `403` 仍返回 `CloudflareChallenge`，由宿主走交互式恢复
+  - iOS 和 Android topic detail 在 `summarizable` / `has_cached_summary` / `has_summary` 为真时非阻塞加载并渲染 AI 摘要；摘要缺失不占位，加载失败只影响摘要卡片，不阻塞正文详情
 - 响应：
 
 ```json
@@ -318,15 +325,28 @@
 
 - 用途：轻量获取主贴 HTML
 - 响应：`TopicDetail`，客户端只读取 `post_stream.posts[0].cooked`
+- 渲染备注：共享 Rust 层现在用 `scraper` / `html5ever` 解析 Discourse `cooked` HTML，产出扁平 cooked-HTML AST、共享纯文本、图片 URL 和链接 URL，并通过顶层 UniFFI `parseCookedHtml` 暴露给宿主。宿主仍负责高性能原生渲染和排版；iOS 现有富文本 renderer 继续覆盖 inline emoji、链接图片原图优先、引用块、列表、details/spoiler、简单表格、onebox/video 降级链接、group mention、hashtag 和站内 topic/profile/badge 链接；Android 话题详情正文现在也消费同一 Rust AST，原生渲染段落、标题、引用、列表、代码块、details/spoiler、表格文本降级、链接/mention/hashtag span，以及图片/onebox/iframe/附件降级卡片。
 
 ## 帖子、回复、书签、举报、解决方案
 
 ### `POST /posts.json`
 
-- 用途：回复话题/帖子
+- 用途：创建主题、回复话题/帖子，也可用同一端点创建私信
 - 认证：需要登录
 - `Content-Type`: `application/x-www-form-urlencoded`
-- Body：
+- 创建公开主题 Body：
+
+```json
+{
+  "title": "主题标题",
+  "raw": "首帖正文",
+  "category": 7,
+  "archetype": "regular",
+  "tags[]": ["rust", "ios"]
+}
+```
+
+- 回复 Body：
 
 ```json
 {
@@ -336,7 +356,15 @@
 }
 ```
 
-- 成功响应：`Post` 或 `{ "post": Post }`
+- 成功响应：创建主题/私信返回可解析 `topic_id` 的 `Post` 或包装对象；回复返回 `Post` 或 `{ "post": Post }`
+- 当前 Fire 行为：
+  - 共享 Rust 写接口通过 UniFFI 暴露 `create_topic` / `createTopic(TopicCreateRequestState)`，发送 `title`、`raw`、`category`、`archetype=regular` 和重复的 `tags[]`，并复用认证写请求的 CSRF 刷新 / Cloudflare 恢复流程
+  - Android 主话题列表提供新建主题入口；提交前使用共享 bootstrap 的 `min_topic_title_length` / `minTopicTitleLength`、`min_first_post_length` / `minFirstPostLength`、`default_composer_category`、`site.categories[].permission`、`minimum_required_tags` 和 `allowed_tags` 做本地校验
+  - Android 创建主题成功后会打开新 topic detail，并刷新当前最新列表把新主题作为选中项
+  - 共享 Rust 写接口通过 UniFFI 暴露 `create_reply` / `createReply(TopicReplyRequestState)`，并复用认证写请求的 CSRF 刷新 / Cloudflare 恢复流程
+  - Android 话题详情页顶部提供回复话题入口，每条帖子也提供回复该楼层入口；提交前使用共享 bootstrap 的 `min_post_length` / `minPostLength` 做最小长度校验
+  - 回复成功后 Android 会刷新当前 topic detail，并跳转到新创建帖子的楼层
+  - 共享 Rust 已有 `create_private_message` / `createPrivateMessage(PrivateMessageCreateRequestState)`，使用 `archetype=private_message` 和 `target_recipients`；Android 公开用户页会从 profile 私信入口创建单收件人私信，成功后打开新私信线程
 
 ### `GET /posts/{postId}.json`
 
@@ -372,21 +400,36 @@
 
 - 当前客户端行为：
   - iOS 在可编辑帖子右上角 menu 提供原生 post editor
+  - Android 话题详情页在 `Post.can_edit` / `canEdit` 为 true 且帖子未隐藏时，从每帖 Actions 菜单提供原生 post editor
   - `edit_reason` 为可选字段
-  - 成功后会刷新当前 topic detail
+  - 成功后会刷新当前 topic detail，并跳回被编辑的楼层
 
 ### `DELETE /posts/{postId}.json`
 
 - 用途：删除帖子
+- 当前 Fire 行为：
+  - 共享 Rust 写接口通过 UniFFI 暴露给宿主，并复用 CSRF 刷新 / 重试处理
+  - iOS 仅在 `Post.can_delete == true` 且帖子未隐藏时显示删除入口
+  - Android 话题详情页在 `Post.can_delete == true` 且帖子未隐藏时，在每帖 Actions 菜单中显示删除入口
+  - 成功后刷新当前 topic detail，并让宿主同步最新 session 状态
 
 ### `PUT /posts/{postId}/recover.json`
 
 - 用途：恢复已删除帖子
+- 当前 Fire 行为：
+  - 共享 Rust 写接口通过 UniFFI 暴露给宿主，并复用 CSRF 刷新 / 重试处理
+  - iOS 仅在 `Post.can_recover == true` 时显示恢复入口
+  - Android 话题详情页在 `Post.can_recover == true` 时，在每帖 Actions 菜单中显示恢复入口
+  - 成功后刷新当前 topic detail，并让宿主同步最新 session 状态
 
 ### `GET /posts/{postId}/reply-history`
 
 - 用途：获取帖子编辑/回复历史
 - 响应：`Post[]`
+- 当前 Fire 行为：
+  - 共享 Rust 通过 `fetch_post_reply_history` 调用该接口，并复用普通认证请求的 Cloudflare / LoginRequired 分类与恢复路径
+  - UniFFI topics namespace 暴露 `fetchPostReplyHistory(postId:)`
+  - iOS 话题详情页在帖子有 `reply_to_post_number` 时加载这组数据，并在回复上下文 sheet 的“回复来源”区展示；Android 话题详情页在原生弹窗中展示同一组来源帖子；点选条目会跳转到对应楼层
 
 ### `GET /posts/{postId}/replies`
 
@@ -394,6 +437,10 @@
 - Query：
   - `after?: integer`，默认 `1`
 - 响应：`Post[]`
+- 当前 Fire 行为：
+  - 共享 Rust 通过 `fetch_post_replies(post_id, after)` 调用该接口，并解析返回的 `Post[]` 与 `reply_to_user`
+  - UniFFI topics namespace 暴露 `fetchPostReplies(postId:after:)`
+  - iOS / Android 话题详情页只在 `reply-ids` 返回空列表时把该接口作为直接回复回退路径；点选条目会跳转到对应楼层
 
 ### `GET /posts/by_number/{topicId}/{postNumber}`
 
@@ -412,6 +459,11 @@
 ]
 ```
 
+- 当前 Fire 行为：
+  - 共享 Rust 通过 `fetch_post_reply_ids(post_id)` 调用该接口，兼容对象数组和数字 ID 数组，并过滤无效 ID
+  - UniFFI topics namespace 暴露 `fetchPostReplyIds(postId:)`
+  - iOS / Android 话题详情页在 `reply_count > 0` 的帖子下优先读取这组回复树 ID，然后按批次调用 `GET /t/{topicId}/posts.json?post_ids[]=...` 拉取完整帖子并在原生回复上下文中展示；如果 ID 列表为空，再回退到 `GET /posts/{postId}/replies`
+
 ### `POST /post_actions`
 
 - 用途 1：点赞
@@ -429,6 +481,9 @@
   - 线上实测服务端可能直接返回完整 `Post` 对象，而不是空体
   - 该对象里会带更新后的 `reactions`、`current_user_reaction`，以及 `actions_summary` 中对应操作的 `acted/can_undo`
   - 客户端如果拿到了这些字段，不应该直接丢弃
+- 当前 Fire 行为：
+  - 共享 Rust 写接口通过 UniFFI 暴露 `like_post` / `likePost`，并把服务端返回的 reaction 更新映射为 `PostReactionUpdateState`
+  - Android 话题详情页在每条帖子下显示 heart 点赞按钮；点击后调用共享 Rust `likePost(postId)`，先应用返回的 `reactions` / `current_user_reaction`，再刷新目标楼层以同步完整帖子状态。非 heart 自定义回应走 `/discourse-reactions/.../toggle.json`。
 
 - 用途 2：举报
 - `Content-Type`: `application/x-www-form-urlencoded`
@@ -442,17 +497,32 @@
 }
 ```
 
+- 当前 Fire 行为：
+  - 共享 Rust 写接口通过 UniFFI 暴露 `id`、`post_action_type_id` 和可选 `message`
+  - 共享 Rust 读接口会优先读取 bootstrap `data-preloaded.site.post_action_types`，缺失时回退 `GET /post_action_types.json`
+  - iOS 在已认证且帖子可交互、未隐藏时显示举报入口，并使用服务端返回的 enabled flag 类型；只有服务端类型不可用时才回退 LinuxDo / Discourse 常见类型：`3` off-topic、`4` inappropriate、`7` notify moderators、`8` spam
+  - Android 话题详情页在未隐藏帖子 Actions 菜单中显示举报入口，先读取同一套服务端 flag 类型，再按服务端 `require_message` 决定是否要求填写补充说明
+  - 如果服务端标记某个举报类型 `require_message=true`，iOS / Android 会要求填写补充说明
+  - 成功后刷新当前 topic detail，并让宿主同步最新 session 状态
+
 ### `DELETE /post_actions/{postId}`
 
 - 用途：取消点赞
 - Query：
   - `post_action_type_id=2`
+- 当前 Fire 行为：
+  - 共享 Rust 写接口通过 UniFFI 暴露 `unlike_post` / `unlikePost`，并复用与点赞相同的 reaction 更新解析
+  - Android 话题详情页在当前用户 heart 已选且可撤销时把按钮切换为取消点赞；成功后刷新目标楼层以同步 reaction 计数与当前用户状态
 
 ### `GET /post_action_types.json`
 
 - 用途：获取服务端支持的帖子操作类型
 - 关键响应字段：
   - `post_action_types`
+- 兼容性说明：
+  - Fire 共享层也接受顶层数组、根对象 `post_action_types`、以及嵌套 `site.post_action_types`
+  - 当前解析字段包括 `id`、`name_key` / `nameKey`、`name`、`description`、`short_description` / `shortDescription`、`is_flag` / `isFlag`、`require_message` / `requireMessage`、`enabled`、`position`、`applies_to` / `appliesTo`
+  - iOS / Android 举报弹窗只展示 `is_flag=true`、`enabled=true`，且 `applies_to` 为空或包含 `Post` 的类型，并按 `position`、`id` 排序
 
 ### `PUT /discourse-reactions/posts/{postId}/custom-reactions/{reaction}/toggle.json`
 
@@ -468,6 +538,10 @@
 
 - 兼容性说明：
   - `current_user_reaction` 如果不是对象，Fire 会按未设置处理；`reactions[]` 里的单个坏项会被跳过
+- 当前 Fire 行为：
+  - 共享 Rust 写接口通过 UniFFI 暴露 `toggle_post_reaction` / `togglePostReaction(postId, reactionId)`，并解析返回的 `reactions` 与 `current_user_reaction`
+  - Android 话题详情页从共享 bootstrap 的 `enabled_reaction_ids` / `enabledReactionIds`、当前帖子已有 `reactions[]`、以及 `current_user_reaction` 合并生成自定义 reaction picker
+  - Android picker 排除 `heart`，因为 heart 继续使用 Discourse 标准 `POST /post_actions` / `DELETE /post_actions/{postId}` 快捷路径；切换自定义 reaction 成功后刷新目标楼层
 
 ### `GET /discourse-reactions/posts/{postId}/reactions-users.json`
 
@@ -485,6 +559,14 @@
   ]
 }
 ```
+
+- 兼容性说明：
+  - Fire 共享层接受顶层数组、根对象 `reaction_users[]`，以及兼容性的根对象 `reactions[]`
+  - 每个 group 解析 `id`、`count` 和 `users[]`；`id` 缺失或不是标量时跳过该 group，`count` 缺失时回退为成功解析的 `users.length`
+  - 每个用户解析 `id`、`username`、`name`、`avatar_template`；`username` 缺失或不是标量时跳过该用户
+- 当前 Fire 行为：
+  - 共享 Rust 读接口通过 UniFFI 暴露 `fetch_reaction_users` / `fetchReactionUsers(postId)`
+  - Android 话题详情页会把帖子 reaction summary 作为入口，点击后拉取该接口并用原生弹窗按 reaction 分组展示用户；用户行继续打开原生 profile
 
 ### `POST /solution/accept`
 
@@ -529,6 +611,12 @@
 - `bookmarkable_type` 可选：
   - `Topic`
   - `Post`
+- 当前 Fire 行为：
+  - 共享 Rust 写接口通过 UniFFI 暴露创建 Topic/Post 书签，并复用认证写请求的 CSRF 刷新 / Cloudflare 恢复流程
+  - iOS 话题详情页顶部菜单可添加或编辑 Topic 书签
+  - iOS 话题详情页每条可交互且未隐藏的帖子菜单可添加或编辑 Post 书签；弹窗复用同一套书签备注/提醒编辑 UI，保存后刷新当前 topic detail 以同步 `bookmarked` / `bookmark_id` / `bookmark_name` / `bookmark_reminder_at`
+  - Android 话题详情页顶部按钮可添加或编辑 Topic 书签
+  - Android 话题详情页每条未隐藏帖子的 Actions 菜单可添加或编辑 Post 书签；弹窗保存后刷新当前 topic detail 以同步 `bookmarked` / `bookmark_id` / `bookmark_name` / `bookmark_reminder_at`
 
 - 成功响应：
 
@@ -555,6 +643,7 @@
 - 当前客户端约束：
   - 若未设置提醒，则会直接省略 `reminder_at`
   - `auto_delete_preference` 当前仅透传数值，不在宿主层做额外枚举扩展
+  - Android 复用 topic/post 书签弹窗编辑 `name` 和 `reminder_at`，保存后刷新当前 topic detail
 
 ### `PUT /bookmarks/bulk.json`
 
@@ -574,10 +663,15 @@
 ### `DELETE /bookmarks/{bookmarkId}.json`
 
 - 用途：删除书签
+- 当前 Fire 行为：
+  - iOS 书签编辑弹窗在已有 `bookmark_id` 时显示删除入口
+  - Android 书签编辑弹窗在已有 `bookmark_id` 时显示删除入口
+  - 删除 Topic/Post 书签后会刷新当前列表或 topic detail
 
 ### `GET /posts/{postId}/cooked.json`
 
 - 用途：获取帖子渲染后的 HTML，常用于隐藏帖恢复查看
+- 渲染备注：返回的 `cooked` HTML 应按与话题详情帖子相同的容错规则处理；未知标签应降级为可读文本或链接，不应阻塞帖子展示。
 - 响应：
 
 ```json

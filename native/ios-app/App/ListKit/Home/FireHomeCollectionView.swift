@@ -98,11 +98,13 @@ struct FireHomeCollectionView: View {
         FireCollectionHost(
             sections: sections,
             contentVersion: contentVersion,
+            itemContentToken: itemContentToken(for:),
             backgroundColor: .systemBackground,
             animatingDifferences: true,
             onSelectItem: handleSelection(_:),
             canSelectItem: canSelect(_:),
             onVisibleItemsChanged: handleVisibleItemsChanged(_:),
+            onPrefetchItems: handlePrefetchItems(_:),
             onScrollMetricsChanged: onScrollMetricsChanged,
             onRefresh: onRefresh,
             makeLayout: Self.makeLayout,
@@ -121,6 +123,36 @@ struct FireHomeCollectionView: View {
         return false
     }
 
+    private func itemContentToken(for item: FireHomeCollectionItem) -> AnyHashable {
+        switch item {
+        case .categoryTabs:
+            return AnyHashable(
+                parentCategories.map { "\($0.id)|\($0.displayName)|\($0.colorHex ?? "")" }
+                    .joined(separator: "\u{1F}")
+                    + "|selected:\(homeFeedStore.selectedHomeCategoryId.map(String.init) ?? "all")"
+            )
+        case .feedSelector:
+            return AnyHashable(homeFeedStore.selectedTopicKind)
+        case .tagChips:
+            return AnyHashable(
+                (homeFeedStore.selectedHomeTags + homeFeedStore.topTags).joined(separator: "\u{1F}")
+            )
+        case let .blockingError(message), let .inlineErrorBanner(message):
+            return AnyHashable(message)
+        case let .topic(topicID):
+            guard let row = homeFeedStore.topicRow(for: topicID) else {
+                return AnyHashable("missing|\(topicID)")
+            }
+            return AnyHashable(topicRowContentToken(row))
+        case let .loadingSkeleton(index):
+            return AnyHashable(index)
+        case .emptyState:
+            return AnyHashable(homeFeedStore.topicListDisplayState)
+        case .appendingFooter:
+            return AnyHashable(homeFeedStore.isAppendingTopics)
+        }
+    }
+
     private func handleSelection(_ item: FireHomeCollectionItem) {
         guard case let .topic(topicID) = item,
               let row = homeFeedStore.topicRow(for: topicID) else { return }
@@ -133,6 +165,63 @@ struct FireHomeCollectionView: View {
             return topicID
         })
         homeFeedStore.updateVisibleTopicIDs(visibleTopicIDs)
+    }
+
+    private func handlePrefetchItems(_ items: [FireHomeCollectionItem]) {
+        guard homeFeedStore.currentScopeNextTopicsPage != nil else { return }
+        guard !homeFeedStore.isLoadingTopics else { return }
+
+        if items.contains(.appendingFooter) {
+            homeFeedStore.loadMoreTopics()
+            return
+        }
+
+        let prefetchedTopicIDs = Set(items.compactMap { item -> UInt64? in
+            guard case let .topic(topicID) = item else { return nil }
+            return topicID
+        })
+        guard !prefetchedTopicIDs.isEmpty else { return }
+
+        let rows = homeFeedStore.topicRows
+        let prefetchThreshold = 5
+        if let furthestIndex = rows.lastIndex(where: { prefetchedTopicIDs.contains($0.topic.id) }),
+           rows.count - furthestIndex <= prefetchThreshold {
+            homeFeedStore.loadMoreTopics()
+        }
+    }
+
+    private func topicRowContentToken(_ row: FireTopicRowPresentation) -> String {
+        let topic = row.topic
+        let category = homeFeedStore.categoryPresentation(for: topic.categoryId)
+        var parts: [String] = []
+        parts.reserveCapacity(26)
+        parts.append(String(topic.id))
+        parts.append(topic.title)
+        parts.append(topic.slug)
+        parts.append(String(topic.postsCount))
+        parts.append(String(topic.replyCount))
+        parts.append(String(topic.views))
+        parts.append(String(topic.likeCount))
+        parts.append(topic.excerpt ?? "")
+        parts.append(topic.createdAt ?? "")
+        parts.append(topic.lastPostedAt ?? "")
+        parts.append(topic.lastPosterUsername ?? "")
+        parts.append(topic.categoryId.map(String.init) ?? "")
+        parts.append(String(topic.pinned))
+        parts.append(String(topic.closed))
+        parts.append(String(topic.archived))
+        parts.append(String(topic.unseen))
+        parts.append(String(topic.unreadPosts))
+        parts.append(String(topic.newPosts))
+        parts.append(topic.lastReadPostNumber.map(String.init) ?? "")
+        parts.append(String(topic.highestPostNumber))
+        parts.append(row.excerptText ?? "")
+        parts.append(row.originalPosterUsername ?? "")
+        parts.append(row.originalPosterAvatarTemplate ?? "")
+        parts.append(row.tagNames.joined(separator: ","))
+        parts.append(row.statusLabels.joined(separator: ","))
+        parts.append(category.map { "\($0.id)|\($0.displayName)|\($0.colorHex ?? "")" } ?? "")
+        return parts.joined(separator: "\u{1F}")
     }
 
     @ViewBuilder

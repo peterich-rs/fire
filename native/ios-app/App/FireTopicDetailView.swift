@@ -63,6 +63,164 @@ private struct FirePostEditorContext: Identifiable, Equatable {
     var id: UInt64 { postID }
 }
 
+private struct FirePostManagementContext: Identifiable, Equatable {
+    let postID: UInt64
+    let postNumber: UInt32
+    let username: String?
+
+    var id: UInt64 { postID }
+
+    init(postID: UInt64, postNumber: UInt32, username: String? = nil) {
+        self.postID = postID
+        self.postNumber = postNumber
+        self.username = username
+    }
+}
+
+private struct FirePostReplyContext: Identifiable {
+    let post: TopicPostState
+
+    var id: UInt64 { post.id }
+}
+
+private struct FirePostFlagOption: Identifiable, Equatable, Hashable {
+    let id: UInt32
+    let nameKey: String
+    let title: String
+    let detail: String
+    let requireMessage: Bool
+    let position: Int32
+
+    static let fallbackOptions: [Self] = [
+        .init(
+            id: 3,
+            nameKey: "off_topic",
+            title: "偏离主题",
+            detail: "这个回复明显偏离当前话题。",
+            requireMessage: false,
+            position: 1
+        ),
+        .init(
+            id: 4,
+            nameKey: "inappropriate",
+            title: "不当内容",
+            detail: "这个回复包含不适合社区的内容。",
+            requireMessage: false,
+            position: 2
+        ),
+        .init(
+            id: 8,
+            nameKey: "spam",
+            title: "垃圾信息",
+            detail: "这个回复像广告、灌水或重复垃圾信息。",
+            requireMessage: false,
+            position: 3
+        ),
+        .init(
+            id: 7,
+            nameKey: "notify_moderators",
+            title: "通知版主",
+            detail: "需要版主人工判断，请补充说明。",
+            requireMessage: true,
+            position: 4
+        )
+    ]
+
+    init(type: PostActionTypeState) {
+        self.id = type.id
+        self.nameKey = type.nameKey
+        self.title = Self.displayTitle(for: type)
+        self.detail = Self.displayDetail(for: type)
+        self.requireMessage = type.requireMessage
+        self.position = type.position
+    }
+
+    private init(
+        id: UInt32,
+        nameKey: String,
+        title: String,
+        detail: String,
+        requireMessage: Bool,
+        position: Int32
+    ) {
+        self.id = id
+        self.nameKey = nameKey
+        self.title = title
+        self.detail = detail
+        self.requireMessage = requireMessage
+        self.position = position
+    }
+
+    static func options(from actionTypes: [PostActionTypeState]) -> [Self] {
+        let options = actionTypes
+            .filter { type in
+                type.isFlag
+                    && type.enabled
+                    && (type.appliesTo.isEmpty || type.appliesTo.contains("Post"))
+            }
+            .sorted { lhs, rhs in
+                if lhs.position != rhs.position {
+                    return lhs.position < rhs.position
+                }
+                return lhs.id < rhs.id
+            }
+            .map(Self.init(type:))
+        return options.isEmpty ? fallbackOptions : options
+    }
+
+    static func displayTitle(for type: PostActionTypeState) -> String {
+        let fallback = fallbackTitle(nameKey: type.nameKey, id: type.id)
+        return type.name
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .ifEmpty(fallback)
+    }
+
+    static func displayDetail(for type: PostActionTypeState) -> String {
+        let raw = (type.description.ifEmpty(type.shortDescription ?? ""))
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if !raw.isEmpty {
+            return plainTextFromHtml(rawHtml: raw)
+        }
+        return fallbackDetail(nameKey: type.nameKey, id: type.id)
+    }
+
+    static func fallbackTitle(nameKey: String, id: UInt32) -> String {
+        switch nameKey {
+        case "off_topic": "偏离主题"
+        case "inappropriate": "不当内容"
+        case "spam": "垃圾信息"
+        case "notify_moderators": "通知版主"
+        case "notify_user": "私信提醒作者"
+        default:
+            switch id {
+            case 3: "偏离主题"
+            case 4: "不当内容"
+            case 7: "通知版主"
+            case 8: "垃圾信息"
+            default: "举报"
+            }
+        }
+    }
+
+    static func fallbackDetail(nameKey: String, id: UInt32) -> String {
+        switch nameKey {
+        case "off_topic": "这个回复明显偏离当前话题。"
+        case "inappropriate": "这个回复包含不适合社区的内容。"
+        case "spam": "这个回复像广告、灌水或重复垃圾信息。"
+        case "notify_moderators": "需要版主人工判断，请补充说明。"
+        case "notify_user": "向作者发送提醒。"
+        default:
+            switch id {
+            case 3: "这个回复明显偏离当前话题。"
+            case 4: "这个回复包含不适合社区的内容。"
+            case 7: "需要版主人工判断，请补充说明。"
+            case 8: "这个回复像广告、灌水或重复垃圾信息。"
+            default: "向社区管理人员报告这个回复。"
+            }
+        }
+    }
+}
+
 private struct FireProfileSheetContext: Identifiable, Equatable {
     let username: String
 
@@ -84,6 +242,175 @@ private enum FireTopicNotificationLevelOption: Int32, CaseIterable, Identifiable
         case .tracking: "跟踪"
         case .watching: "关注"
         }
+    }
+}
+
+private struct FirePostFlagSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let context: FirePostManagementContext
+    let options: [FirePostFlagOption]
+    let isLoadingOptions: Bool
+    let onSubmit: (FirePostFlagOption, String?) async throws -> Void
+
+    @State private var selectedOptionID: FirePostFlagOption.ID?
+    @State private var message = ""
+    @State private var isSubmitting = false
+    @State private var errorMessage: String?
+
+    private var resolvedOptions: [FirePostFlagOption] {
+        options.isEmpty ? FirePostFlagOption.fallbackOptions : options
+    }
+
+    private var selectedOption: FirePostFlagOption? {
+        if let selectedOptionID,
+           let selected = resolvedOptions.first(where: { $0.id == selectedOptionID }) {
+            return selected
+        }
+        return resolvedOptions.first
+    }
+
+    var body: some View {
+        NavigationStack {
+            flagForm
+            .navigationTitle("举报 #\(context.postNumber)")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { flagToolbar }
+        }
+        .onAppear {
+            syncSelectedOptionID()
+        }
+        .onChange(of: options) { _, _ in
+            syncSelectedOptionID()
+        }
+    }
+
+    private var flagForm: some View {
+        Form {
+            loadingSection
+            optionSection
+            messageSection
+            errorSection
+        }
+    }
+
+    @ViewBuilder
+    private var loadingSection: some View {
+        if isLoadingOptions {
+            Section {
+                ProgressView("加载举报类型…")
+            }
+        }
+    }
+
+    private var optionSection: some View {
+        Section("举报类型") {
+            ForEach(resolvedOptions) { option in
+                FirePostFlagOptionRow(
+                    option: option,
+                    isSelected: selectedOption?.id == option.id,
+                    description: description(for: option)
+                ) {
+                    selectedOptionID = option.id
+                }
+            }
+        }
+    }
+
+    private var messageSection: some View {
+        Section(selectedOption?.requireMessage == true ? "补充说明（必填）" : "补充说明") {
+            TextEditor(text: $message)
+                .frame(minHeight: 110)
+        }
+    }
+
+    @ViewBuilder
+    private var errorSection: some View {
+        if let errorMessage {
+            Section {
+                Text(errorMessage)
+                    .font(.footnote)
+                    .foregroundStyle(.red)
+            }
+        }
+    }
+
+    @ToolbarContentBuilder
+    private var flagToolbar: some ToolbarContent {
+        ToolbarItem(placement: .cancellationAction) {
+            Button("取消") {
+                dismiss()
+            }
+            .disabled(isSubmitting)
+        }
+
+        ToolbarItem(placement: .confirmationAction) {
+            Button(isSubmitting ? "提交中" : "提交") {
+                submit()
+            }
+            .disabled(isSubmitting || selectedOption == nil)
+        }
+    }
+
+    private func submit() {
+        guard !isSubmitting, let selectedOption else { return }
+        let trimmedMessage = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        if selectedOption.requireMessage && trimmedMessage.isEmpty {
+            errorMessage = "请补充举报说明。"
+            return
+        }
+        isSubmitting = true
+        errorMessage = nil
+
+        Task { @MainActor in
+            do {
+                try await onSubmit(
+                    selectedOption,
+                    trimmedMessage.isEmpty ? nil : trimmedMessage
+                )
+                dismiss()
+            } catch {
+                errorMessage = error.localizedDescription
+                isSubmitting = false
+            }
+        }
+    }
+
+    private func description(for option: FirePostFlagOption) -> String {
+        let username = context.username?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .ifEmpty("该用户") ?? "该用户"
+        return option.detail
+            .replacingOccurrences(of: "%{username}", with: username)
+            .replacingOccurrences(of: "@%{username}", with: "@\(username)")
+    }
+
+    private func syncSelectedOptionID() {
+        selectedOptionID = selectedOption?.id
+    }
+}
+
+private struct FirePostFlagOptionRow: View {
+    let option: FirePostFlagOption
+    let isSelected: Bool
+    let description: String
+    let onSelect: () -> Void
+
+    var body: some View {
+        Button(action: onSelect) {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .foregroundStyle(isSelected ? FireTheme.accent : FireTheme.tertiaryInk)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(option.title)
+                        .foregroundStyle(FireTheme.ink)
+                    Text(description)
+                        .font(.footnote)
+                        .foregroundStyle(FireTheme.subtleInk)
+                }
+            }
+        }
+        .buttonStyle(.plain)
     }
 }
 
@@ -113,6 +440,8 @@ struct FireTopicDetailView: View {
     @State private var bookmarkEditorContext: FireBookmarkEditorContext?
     @State private var selectedImage: FireCookedImage?
     @State private var postEditorContext: FirePostEditorContext?
+    @State private var pendingPostDeletion: FirePostManagementContext?
+    @State private var postFlagContext: FirePostManagementContext?
     @State private var showingTopicEditor = false
     @State private var topicVoters: [VotedUserState] = []
     @State private var isLoadingTopicVoters = false
@@ -121,6 +450,7 @@ struct FireTopicDetailView: View {
     @State private var cachedRenderState: FireTopicDetailRenderState?
     @State private var selectedRoute: FireAppRoute?
     @State private var profileSheetContext: FireProfileSheetContext?
+    @State private var postReplyContext: FirePostReplyContext?
     @FocusState private var isReplyFieldFocused: Bool
 
     init(viewModel: FireAppViewModel, row: FireTopicRowPresentation, scrollToPostNumber: UInt32? = nil) {
@@ -252,6 +582,19 @@ struct FireTopicDetailView: View {
         )
     }
 
+    private func postBookmarkContext(for post: TopicPostState) -> FireBookmarkEditorContext {
+        let username = post.username.trimmingCharacters(in: .whitespacesAndNewlines)
+        return FireBookmarkEditorContext(
+            bookmarkID: post.bookmarkId,
+            bookmarkableID: post.id,
+            bookmarkableType: "Post",
+            title: username.isEmpty ? "#\(post.postNumber)" : "#\(post.postNumber) · \(username)",
+            initialName: post.bookmarkName,
+            initialReminderAt: post.bookmarkReminderAt,
+            allowsDelete: post.bookmarkId != nil
+        )
+    }
+
     private var messageBusSubscriptionTaskID: String {
         Self.topicDetailSubscriptionTaskID(
             topicId: topic.id,
@@ -288,6 +631,10 @@ struct FireTopicDetailView: View {
     }
 
     var body: some View {
+        detailLifecycleContent
+    }
+
+    private var detailCollectionContent: some View {
         FireTopicDetailCollectionView(
             viewModel: viewModel,
             row: row,
@@ -305,6 +652,8 @@ struct FireTopicDetailView: View {
                 topicDetailStore.markScrollTargetSatisfied(topicId: topic.id, postNumber: postNumber)
             },
             onOpenComposer: openComposer(replyToPost:),
+            onOpenPostNumber: openPostNumber(_:),
+            onOpenPostReplies: openPostReplies(for:),
             onLinkTapped: handleRichTextLink,
             onOpenImage: { selectedImage = $0 },
             onToggleLike: { toggleLike(for: $0) },
@@ -313,6 +662,25 @@ struct FireTopicDetailView: View {
             },
             onEditPost: { post in
                 postEditorContext = FirePostEditorContext(postID: post.id, postNumber: post.postNumber)
+            },
+            onBookmarkPost: { post in
+                bookmarkEditorContext = postBookmarkContext(for: post)
+            },
+            onDeletePost: { post in
+                pendingPostDeletion = FirePostManagementContext(
+                    postID: post.id,
+                    postNumber: post.postNumber
+                )
+            },
+            onRecoverPost: { post in
+                recoverPost(post)
+            },
+            onFlagPost: { post in
+                postFlagContext = FirePostManagementContext(
+                    postID: post.id,
+                    postNumber: post.postNumber,
+                    username: post.username
+                )
             },
             onVotePoll: { post, poll, options in
                 submitPollVote(for: post, poll: poll, options: options)
@@ -323,84 +691,132 @@ struct FireTopicDetailView: View {
             onToggleTopicVote: toggleTopicVote,
             onShowTopicVoters: presentTopicVoters
         )
+    }
+
+    private var detailNavigationContent: some View {
+        detailCollectionContent
         .navigationTitle("话题")
         .navigationBarTitleDisplayMode(.inline)
         .navigationDestination(item: $selectedRoute) { route in
             FireAppRouteDestinationView(viewModel: viewModel, route: route)
         }
         .toolbar(.hidden, for: .tabBar)
-        .toolbar {
-            ToolbarItemGroup(placement: .topBarTrailing) {
-                if let topicShareURL {
-                    ShareLink(item: topicShareURL) {
-                        Image(systemName: "square.and.arrow.up")
-                    }
-                }
-
-                Menu {
-                    if detail?.details.canEdit == true && !isPrivateMessageThread {
-                        Button {
-                            showingTopicEditor = true
-                        } label: {
-                            Label("编辑话题", systemImage: "pencil")
-                        }
-
-                        Divider()
-                    }
-
-                    Button {
-                        bookmarkEditorContext = topicBookmarkContext
-                    } label: {
-                        Label(
-                            detail?.bookmarked == true ? "编辑书签" : "添加书签",
-                            systemImage: detail?.bookmarked == true ? "bookmark.fill" : "bookmark"
-                        )
-                        .fireBookmarkEffect(active: detail?.bookmarked == true)
-                    }
-                    .disabled(!canWriteInteractions)
-
-                    Divider()
-
-                    if !isPrivateMessageThread {
-                        ForEach(FireTopicNotificationLevelOption.allCases) { option in
-                            Button {
-                                Task {
-                                    await updateTopicNotificationLevel(option)
-                                }
-                            } label: {
-                                if option == currentTopicNotificationLevel {
-                                    Label(option.title, systemImage: "checkmark")
-                                } else {
-                                    Text(option.title)
-                                }
-                            }
-                            .disabled(!canWriteInteractions)
-                        }
-                    }
-                } label: {
-                    Image(systemName: "ellipsis.circle")
-                }
-            }
-        }
+        .toolbar { topicToolbar }
         .safeAreaInset(edge: .bottom) {
             if canWriteInteractions {
                 quickReplyBar
             }
         }
+    }
+
+    @ToolbarContentBuilder
+    private var topicToolbar: some ToolbarContent {
+        ToolbarItemGroup(placement: .topBarTrailing) {
+            if let topicShareURL {
+                ShareLink(item: topicShareURL) {
+                    Image(systemName: "square.and.arrow.up")
+                }
+            }
+
+            Menu {
+                if detail?.details.canEdit == true && !isPrivateMessageThread {
+                    Button {
+                        showingTopicEditor = true
+                    } label: {
+                        Label("编辑话题", systemImage: "pencil")
+                    }
+
+                    Divider()
+                }
+
+                Button {
+                    bookmarkEditorContext = topicBookmarkContext
+                } label: {
+                    Label(
+                        detail?.bookmarked == true ? "编辑书签" : "添加书签",
+                        systemImage: detail?.bookmarked == true ? "bookmark.fill" : "bookmark"
+                    )
+                    .fireBookmarkEffect(active: detail?.bookmarked == true)
+                }
+                .disabled(!canWriteInteractions)
+
+                Divider()
+
+                if !isPrivateMessageThread {
+                    ForEach(FireTopicNotificationLevelOption.allCases) { option in
+                        Button {
+                            Task {
+                                await updateTopicNotificationLevel(option)
+                            }
+                        } label: {
+                            if option == currentTopicNotificationLevel {
+                                Label(option.title, systemImage: "checkmark")
+                            } else {
+                                Text(option.title)
+                            }
+                        }
+                        .disabled(!canWriteInteractions)
+                    }
+                }
+            } label: {
+                Image(systemName: "ellipsis.circle")
+            }
+        }
+    }
+
+    private var profileSheetPresented: Binding<Bool> {
+        Binding(
+            get: { profileSheetContext != nil },
+            set: { presented in
+                if !presented {
+                    profileSheetContext = nil
+                }
+            }
+        )
+    }
+
+    private var postFlagSheetPresented: Binding<Bool> {
+        Binding(
+            get: { postFlagContext != nil },
+            set: { presented in
+                if !presented {
+                    postFlagContext = nil
+                }
+            }
+        )
+    }
+
+    private var composerNoticePresented: Binding<Bool> {
+        Binding(
+            get: { composerNotice != nil },
+            set: { presenting in
+                if !presenting {
+                    composerNotice = nil
+                }
+            }
+        )
+    }
+
+    private var postDeletionPresented: Binding<Bool> {
+        Binding(
+            get: { pendingPostDeletion != nil },
+            set: { presenting in
+                if !presenting {
+                    pendingPostDeletion = nil
+                }
+            }
+        )
+    }
+
+    private var detailModalContent: some View {
+        detailNavigationContent
         .sheet(item: $profileSheetContext) { context in
             NavigationStack {
                 FirePublicProfileView(viewModel: viewModel, username: context.username)
             }
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
-            .fireSheet(presented: Binding(
-                get: { profileSheetContext != nil },
-                set: { presented in
-                    if !presented {
-                        profileSheetContext = nil
-                    }
-                }
-            ))
+            .fireSheet(presented: profileSheetPresented)
         }
         .sheet(item: $bookmarkEditorContext) { context in
             FireBookmarkEditorSheet(
@@ -445,6 +861,25 @@ struct FireTopicDetailView: View {
                 )
             }
         }
+        .sheet(item: $postFlagContext) { context in
+            FirePostFlagSheet(
+                context: context,
+                options: FirePostFlagOption.options(from: topicDetailStore.postActionTypes),
+                isLoadingOptions: topicDetailStore.isLoadingPostActionTypes
+            ) { option, message in
+                try await topicDetailStore.flagPost(
+                    topicID: topic.id,
+                    postID: context.postID,
+                    flagTypeID: option.id,
+                    message: message
+                )
+                composerNotice = "举报已提交。"
+            }
+            .fireSheet(presented: postFlagSheetPresented)
+            .task {
+                await topicDetailStore.loadPostActionTypesIfNeeded()
+            }
+        }
         .sheet(isPresented: $showingTopicEditor) {
             NavigationStack {
                 FireTopicEditorView(
@@ -470,6 +905,37 @@ struct FireTopicDetailView: View {
                 )
             }
             .fireSheet(presented: $showingTopicVoters)
+        }
+        .sheet(item: $postReplyContext) { context in
+            NavigationStack {
+                FirePostRepliesSheet(
+                    post: context.post,
+                    replies: topicDetailStore.postReplies(for: context.post.id) ?? [],
+                    replyHistory: topicDetailStore.postReplyHistory(for: context.post.id) ?? [],
+                    isLoading: topicDetailStore.isLoadingPostReplyContext(postID: context.post.id),
+                    errorMessage: topicDetailStore.postReplyContextError(for: context.post.id),
+                    baseURLString: baseURLString,
+                    onJumpToPost: { postNumber in
+                        postReplyContext = nil
+                        openPostNumber(postNumber)
+                    },
+                    onRetry: {
+                        await topicDetailStore.loadPostReplyContextIfNeeded(
+                            topicID: topic.id,
+                            post: context.post,
+                            force: true
+                        )
+                    }
+                )
+            }
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+            .task(id: context.post.id) {
+                await topicDetailStore.loadPostReplyContextIfNeeded(
+                    topicID: topic.id,
+                    post: context.post
+                )
+            }
         }
         .fullScreenCover(item: $advancedComposerContext) { context in
             NavigationStack {
@@ -503,6 +969,10 @@ struct FireTopicDetailView: View {
         .fullScreenCover(item: $selectedImage) { image in
             FireTopicImageViewer(image: image)
         }
+    }
+
+    private var detailAlertContent: some View {
+        detailModalContent
         .scrollDismissesKeyboard(.interactively)
         .task(id: pendingScrollTarget) {
             guard let pendingScrollTarget else {
@@ -520,18 +990,29 @@ struct FireTopicDetailView: View {
                 topicDetailStore.markScrollTargetSatisfied(topicId: topic.id, postNumber: pendingScrollTarget)
             }
         }
-        .alert("提示", isPresented: Binding(
-            get: { composerNotice != nil },
-            set: { presenting in
-                if !presenting {
-                    composerNotice = nil
-                }
-            }
-        )) {
+        .alert("提示", isPresented: composerNoticePresented) {
             Button("知道了", role: .cancel) {}
         } message: {
             Text(composerNotice ?? "")
         }
+        .alert("删除回复", isPresented: postDeletionPresented) {
+            Button("取消", role: .cancel) {
+                pendingPostDeletion = nil
+            }
+            Button("删除", role: .destructive) {
+                guard let context = pendingPostDeletion else { return }
+                pendingPostDeletion = nil
+                deletePost(context)
+            }
+        } message: {
+            if let postNumber = pendingPostDeletion?.postNumber {
+                Text("确认删除 #\(postNumber) 吗？")
+            }
+        }
+    }
+
+    private var detailLifecycleContent: some View {
+        detailAlertContent
         .onAppear {
             topicDetailStore.beginTopicDetailLifecycle(topicId: topic.id, ownerToken: detailOwnerToken)
             viewModel.setAPMRoute("topic.detail.\(topic.id)")
@@ -656,12 +1137,7 @@ struct FireTopicDetailView: View {
                 return
             }
 
-            Task {
-                await topicDetailStore.loadTopicDetail(
-                    topicId: topic.id,
-                    targetPostNumber: postNumber
-                )
-            }
+            openPostNumber(postNumber)
             return
         }
 
@@ -807,6 +1283,23 @@ struct FireTopicDetailView: View {
         isReplyFieldFocused = true
     }
 
+    private func openPostNumber(_ postNumber: UInt32) {
+        guard postNumber > 0 else {
+            return
+        }
+
+        Task {
+            await topicDetailStore.loadTopicDetail(
+                topicId: topic.id,
+                targetPostNumber: postNumber
+            )
+        }
+    }
+
+    private func openPostReplies(for post: TopicPostState) {
+        postReplyContext = FirePostReplyContext(post: post)
+    }
+
     private func clearComposerTarget() {
         composerContext = nil
     }
@@ -884,6 +1377,38 @@ struct FireTopicDetailView: View {
             to: post.currentUserReaction?.id == trimmedReactionID ? nil : trimmedReactionID,
             postId: post.id
         )
+    }
+
+    private func deletePost(_ context: FirePostManagementContext) {
+        Task { @MainActor in
+            do {
+                try await topicDetailStore.deletePost(
+                    topicID: topic.id,
+                    postID: context.postID
+                )
+                composerNotice = "已删除 #\(context.postNumber)。"
+            } catch {
+                composerNotice = error.localizedDescription
+            }
+        }
+    }
+
+    private func recoverPost(_ post: TopicPostState) {
+        let context = FirePostManagementContext(
+            postID: post.id,
+            postNumber: post.postNumber
+        )
+        Task { @MainActor in
+            do {
+                try await topicDetailStore.recoverPost(
+                    topicID: topic.id,
+                    postID: context.postID
+                )
+                composerNotice = "已恢复 #\(context.postNumber)。"
+            } catch {
+                composerNotice = error.localizedDescription
+            }
+        }
     }
 
     private func applyReactionChange(
@@ -1149,6 +1674,7 @@ struct FirePostRow: View {
     let renderContent: FireTopicPostRenderContent
     let depth: Int
     let replyContext: String?
+    let replyTargetPostNumber: UInt32?
     let showsThreadLine: Bool
     let baseURLString: String
     let canWriteInteractions: Bool
@@ -1158,10 +1684,17 @@ struct FirePostRow: View {
     let onToggleLike: (TopicPostState) -> Void
     let onSelectReaction: (TopicPostState, String) -> Void
     let onEditPost: (TopicPostState) -> Void
+    let onBookmarkPost: (TopicPostState) -> Void
+    let onDeletePost: (TopicPostState) -> Void
+    let onRecoverPost: (TopicPostState) -> Void
+    let onFlagPost: (TopicPostState) -> Void
+    let onOpenReplyTarget: (UInt32) -> Void
+    let onOpenReplies: (TopicPostState) -> Void
     let onVotePoll: (TopicPostState, PollState, [String]) -> Void
     let onUnvotePoll: (TopicPostState, PollState) -> Void
 
     private static let maxVisualDepth = 3
+    private static let showsRepliesPanelShortcut = false
 
     private var visualDepth: Int {
         max(depth - 1, 0)
@@ -1173,6 +1706,22 @@ struct FirePostRow: View {
 
     private var canChangeReaction: Bool {
         canWriteInteractions && !isMutating && (post.currentUserReaction?.canUndo ?? true)
+    }
+
+    private var canFlagPost: Bool {
+        canWriteInteractions && !post.hidden
+    }
+
+    private var canBookmarkPost: Bool {
+        canWriteInteractions && !post.hidden
+    }
+
+    private var canShowPostMenu: Bool {
+        post.canEdit
+            || canBookmarkPost
+            || canFlagPost
+            || post.canRecover
+            || (post.canDelete && !post.hidden)
     }
 
     var body: some View {
@@ -1204,9 +1753,20 @@ struct FirePostRow: View {
                         .font(.subheadline.weight(.semibold))
 
                     if let replyContext {
-                        Text(replyContext)
-                            .font(.caption2.weight(.medium))
-                            .foregroundStyle(FireTheme.accent)
+                        if let replyTargetPostNumber, replyTargetPostNumber > 0 {
+                            Button {
+                                onOpenReplyTarget(replyTargetPostNumber)
+                            } label: {
+                                Text(replyContext)
+                                    .font(.caption2.weight(.medium))
+                                    .foregroundStyle(FireTheme.accent)
+                            }
+                            .buttonStyle(.plain)
+                        } else {
+                            Text(replyContext)
+                                .font(.caption2.weight(.medium))
+                                .foregroundStyle(FireTheme.accent)
+                        }
                     }
 
                     if let timestamp = FireTopicPresentation.compactTimestamp(post.createdAt) {
@@ -1227,12 +1787,63 @@ struct FirePostRow: View {
                         .font(.caption2.monospacedDigit())
                         .foregroundStyle(FireTheme.tertiaryInk)
 
-                    if post.canEdit {
+                    if canShowPostMenu {
                         Menu {
-                            Button {
-                                onEditPost(post)
-                            } label: {
-                                Label("编辑", systemImage: "pencil")
+                            if post.canEdit {
+                                Button {
+                                    onEditPost(post)
+                                } label: {
+                                    Label("编辑", systemImage: "pencil")
+                                }
+                                .disabled(isMutating)
+                            }
+
+                            if canBookmarkPost {
+                                Button {
+                                    onBookmarkPost(post)
+                                } label: {
+                                    Label(
+                                        post.bookmarked ? "编辑书签" : "添加书签",
+                                        systemImage: post.bookmarked ? "bookmark.fill" : "bookmark"
+                                    )
+                                    .fireBookmarkEffect(active: post.bookmarked)
+                                }
+                                .disabled(isMutating)
+                            }
+
+                            if canFlagPost {
+                                Button {
+                                    onFlagPost(post)
+                                } label: {
+                                    Label("举报", systemImage: "flag")
+                                }
+                                .disabled(isMutating)
+                            }
+
+                            if post.canRecover {
+                                if post.canEdit || canFlagPost {
+                                    Divider()
+                                }
+
+                                Button {
+                                    onRecoverPost(post)
+                                } label: {
+                                    Label("恢复", systemImage: "arrow.uturn.backward")
+                                }
+                                .disabled(isMutating)
+                            }
+
+                            if post.canDelete && !post.hidden {
+                                if post.canEdit || canFlagPost || post.canRecover {
+                                    Divider()
+                                }
+
+                                Button(role: .destructive) {
+                                    onDeletePost(post)
+                                } label: {
+                                    Label("删除", systemImage: "trash")
+                                }
+                                .disabled(isMutating)
                             }
                         } label: {
                             Image(systemName: "ellipsis")
@@ -1283,6 +1894,20 @@ struct FirePostRow: View {
                             )
                         }
                     }
+                }
+
+                if Self.showsRepliesPanelShortcut && post.replyCount > 0 {
+                    Button {
+                        onOpenReplies(post)
+                    } label: {
+                        Label("\(post.replyCount) 条回复", systemImage: "bubble.left.and.bubble.right")
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(FireTheme.accent)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(FireTheme.accent.opacity(0.10), in: Capsule())
+                    }
+                    .buttonStyle(.plain)
                 }
 
                 if !post.reactions.isEmpty {
@@ -1508,6 +2133,167 @@ private struct FireTopicVotersSheet: View {
         }
         .navigationTitle("投票用户")
         .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+private struct FirePostRepliesSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    let post: TopicPostState
+    let replies: [TopicPostState]
+    let replyHistory: [TopicPostState]
+    let isLoading: Bool
+    let errorMessage: String?
+    let baseURLString: String
+    let onJumpToPost: (UInt32) -> Void
+    let onRetry: () async -> Void
+
+    private var hasContent: Bool {
+        !replies.isEmpty || !replyHistory.isEmpty
+    }
+
+    var body: some View {
+        List {
+            if isLoading && !hasContent {
+                loadingRow
+            }
+
+            if let errorMessage {
+                errorRow(message: errorMessage)
+            }
+
+            if !replyHistory.isEmpty {
+                Section("回复来源") {
+                    ForEach(replyHistory, id: \.id) { reply in
+                        FirePostReplyContextRow(
+                            post: reply,
+                            baseURLString: baseURLString,
+                            onJump: onJumpToPost
+                        )
+                    }
+                }
+            }
+
+            if !replies.isEmpty {
+                Section("直接回复") {
+                    ForEach(replies, id: \.id) { reply in
+                        FirePostReplyContextRow(
+                            post: reply,
+                            baseURLString: baseURLString,
+                            onJump: onJumpToPost
+                        )
+                    }
+                }
+            }
+
+            if !isLoading && errorMessage == nil && !hasContent {
+                emptyRow
+            }
+        }
+        .navigationTitle("#\(post.postNumber) 的回复")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("关闭") {
+                    dismiss()
+                }
+            }
+        }
+    }
+
+    private var loadingRow: some View {
+        HStack {
+            Spacer()
+            ProgressView()
+                .padding(.vertical, 20)
+            Spacer()
+        }
+    }
+
+    private func errorRow(message: String) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(message)
+                .font(.footnote)
+                .foregroundStyle(.red)
+
+            Button {
+                Task { await onRetry() }
+            } label: {
+                Label("重试", systemImage: "arrow.clockwise")
+            }
+            .buttonStyle(.bordered)
+        }
+        .padding(.vertical, 6)
+    }
+
+    private var emptyRow: some View {
+        VStack(spacing: 10) {
+            Image(systemName: "bubble.left.and.bubble.right")
+                .font(.title2)
+                .foregroundStyle(FireTheme.subtleInk)
+            Text("暂时没有可显示的回复上下文")
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(FireTheme.ink)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 28)
+    }
+}
+
+private struct FirePostReplyContextRow: View {
+    let post: TopicPostState
+    let baseURLString: String
+    let onJump: (UInt32) -> Void
+
+    private var displayName: String {
+        (post.name ?? "").ifEmpty(post.username.ifEmpty("Unknown"))
+    }
+
+    private var excerpt: String {
+        plainTextFromHtml(rawHtml: post.cooked)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .ifEmpty("无正文预览")
+    }
+
+    var body: some View {
+        Button {
+            onJump(post.postNumber)
+        } label: {
+            HStack(alignment: .top, spacing: 12) {
+                FireAvatarView(
+                    avatarTemplate: post.avatarTemplate,
+                    username: post.username.ifEmpty("?"),
+                    size: 34,
+                    baseURLString: baseURLString
+                )
+
+                VStack(alignment: .leading, spacing: 5) {
+                    HStack(spacing: 6) {
+                        Text(displayName)
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(FireTheme.ink)
+                            .lineLimit(1)
+
+                        Text("#\(post.postNumber)")
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(FireTheme.tertiaryInk)
+
+                        Spacer(minLength: 0)
+
+                        Image(systemName: "arrow.up.forward")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(FireTheme.tertiaryInk)
+                    }
+
+                    Text(excerpt)
+                        .font(.footnote)
+                        .foregroundStyle(FireTheme.subtleInk)
+                        .lineLimit(3)
+                }
+            }
+            .padding(.vertical, 4)
+        }
+        .buttonStyle(.plain)
     }
 }
 

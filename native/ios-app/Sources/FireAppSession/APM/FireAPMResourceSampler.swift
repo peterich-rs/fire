@@ -58,16 +58,7 @@ final class FireAPMResourceSampler {
         let interval = now < boostedUntil ? Constants.boostedInterval : Constants.defaultInterval
         timer?.schedule(deadline: .now() + interval, repeating: interval)
 
-        let sample = FireAPMResourceSample(
-            timestampUnixMs: FireAPMClock.nowUnixMs(date: now),
-            cpuPercent: Self.currentCPUPercent(),
-            residentSizeBytes: Self.currentResidentSize(),
-            physicalFootprintBytes: Self.currentPhysicalFootprint(),
-            thermalState: Self.thermalStateDescription(ProcessInfo.processInfo.thermalState),
-            batteryState: Self.batteryStateDescription(UIDevice.current.batteryState),
-            lowPowerModeEnabled: ProcessInfo.processInfo.isLowPowerModeEnabled
-        )
-        onSample(sample)
+        onSample(Self.currentSnapshot(date: now))
     }
 
     private static func currentResidentSize() -> UInt64? {
@@ -98,6 +89,18 @@ final class FireAPMResourceSampler {
             return nil
         }
         return UInt64(info.phys_footprint)
+    }
+
+    static func currentSnapshot(date: Date = Date()) -> FireAPMResourceSample {
+        FireAPMResourceSample(
+            timestampUnixMs: FireAPMClock.nowUnixMs(date: date),
+            cpuPercent: currentCPUPercent(),
+            residentSizeBytes: currentResidentSize(),
+            physicalFootprintBytes: currentPhysicalFootprint(),
+            thermalState: thermalStateDescription(ProcessInfo.processInfo.thermalState),
+            batteryState: batteryStateDescription(UIDevice.current.batteryState),
+            lowPowerModeEnabled: ProcessInfo.processInfo.isLowPowerModeEnabled
+        )
     }
 
     private static func currentCPUPercent() -> Double? {

@@ -233,4 +233,19 @@ impl FireNotificationsHandle {
         })
         .await
     }
+
+    pub async fn set_category_notification_level(
+        &self,
+        category_id: u64,
+        notification_level: i32,
+    ) -> Result<(), FireUniFfiError> {
+        let inner = self.shared.core.clone();
+        let panic_state = self.shared.panic_state.clone();
+        run_on_ffi_runtime("set_category_notification_level", panic_state, async move {
+            inner
+                .set_category_notification_level(category_id, notification_level)
+                .await
+        })
+        .await
+    }
 }

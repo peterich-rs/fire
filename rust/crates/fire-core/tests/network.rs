@@ -372,6 +372,76 @@ async fn fetch_bookmarks_parses_bookmark_metadata_fields() {
 }
 
 #[tokio::test]
+async fn fetch_bookmarks_parses_user_bookmark_list_payload() {
+    let payload = r#"{
+  "user_bookmark_list": {
+    "more_bookmarks_url": "/u/alice/bookmarks.json?page=2",
+    "bookmarks": [
+      {
+        "id": 901,
+        "name": "稍后细读",
+        "reminder_at": "2026-03-29T09:00:00Z",
+        "bookmarkable_type": "Post",
+        "bookmarkable_id": 7007,
+        "topic_id": 1001,
+        "linked_post_number": 7,
+        "title": "真实书签响应",
+        "slug": "real-bookmark",
+        "excerpt": "<p>Hello&nbsp;<strong>Fire</strong></p>",
+        "created_at": "2026-03-28T00:00:00Z",
+        "bumped_at": "2026-03-28T01:00:00Z",
+        "category_id": 42,
+        "highest_post_number": 12,
+        "views": 88,
+        "user": {
+          "id": 12,
+          "username": "alice",
+          "avatar_template": "/user_avatar/linux.do/alice/{size}/1_2.png"
+        }
+      }
+    ]
+  }
+}"#;
+    let responses = vec![raw_json_response(200, "application/json", payload)];
+    let server = TestServer::spawn(responses).await.expect("server");
+    let core = FireCore::new(FireCoreConfig {
+        base_url: server.base_url(),
+        workspace_path: None,
+    })
+    .expect("core");
+
+    let response = core
+        .fetch_bookmarks("alice", None)
+        .await
+        .expect("bookmarks");
+    let requests = server.shutdown_with_requests().await;
+
+    assert_eq!(response.topics.len(), 1);
+    assert_eq!(response.rows.len(), 1);
+    assert_eq!(response.next_page, Some(2));
+    assert_eq!(response.topics[0].id, 1001);
+    assert_eq!(response.topics[0].title, "真实书签响应");
+    assert_eq!(response.topics[0].reply_count, 11);
+    assert_eq!(response.topics[0].bookmarked_post_number, Some(7));
+    assert_eq!(response.topics[0].bookmark_id, Some(901));
+    assert_eq!(
+        response.topics[0].bookmark_name.as_deref(),
+        Some("稍后细读")
+    );
+    assert_eq!(
+        response.topics[0].bookmark_reminder_at.as_deref(),
+        Some("2026-03-29T09:00:00Z")
+    );
+    assert_eq!(response.rows[0].excerpt_text.as_deref(), Some("Hello Fire"));
+    assert_eq!(
+        response.rows[0].original_poster_username.as_deref(),
+        Some("alice")
+    );
+    assert_eq!(requests.len(), 1);
+    assert!(requests[0].contains("GET /u/alice/bookmarks.json HTTP/1.1"));
+}
+
+#[tokio::test]
 async fn fetch_topic_list_surfaces_cloudflare_challenge_error() {
     let responses = vec![raw_cloudflare_challenge_response(
         403,
@@ -957,6 +1027,99 @@ async fn fetch_topic_detail_parses_detail_payload() {
 }
 
 #[tokio::test]
+async fn fetch_topic_ai_summary_parses_payload_and_query_params() {
+    let body = r#"{
+  "ai_topic_summary": {
+    "summarized_text": "Fire summary",
+    "algorithm": "linuxdo-ai",
+    "outdated": "true",
+    "can_regenerate": false,
+    "new_posts_since_summary": "3",
+    "updated_at": "2026-03-26T00:00:00Z"
+  }
+}"#;
+    let responses = vec![raw_json_response(200, "application/json", body)];
+    let server = TestServer::spawn(responses).await.expect("server");
+    let core = FireCore::new(FireCoreConfig {
+        base_url: server.base_url(),
+        workspace_path: None,
+    })
+    .expect("core");
+
+    let summary = core
+        .fetch_topic_ai_summary(123, true)
+        .await
+        .expect("topic ai summary")
+        .expect("summary payload");
+    let requests = server.shutdown_with_requests().await;
+
+    assert_eq!(summary.summarized_text, "Fire summary");
+    assert_eq!(summary.algorithm.as_deref(), Some("linuxdo-ai"));
+    assert!(summary.outdated);
+    assert!(!summary.can_regenerate);
+    assert_eq!(summary.new_posts_since_summary, 3);
+    assert_eq!(summary.updated_at.as_deref(), Some("2026-03-26T00:00:00Z"));
+    assert_eq!(requests.len(), 1);
+    assert!(
+        requests[0].contains("GET /discourse-ai/summarization/t/123?skip_age_check=true HTTP/1.1")
+    );
+}
+
+#[tokio::test]
+async fn fetch_topic_ai_summary_returns_none_for_unavailable_statuses() {
+    for status in [403, 404] {
+        let responses = vec![raw_json_response(
+            status,
+            "application/json",
+            r#"{"errors":["no summary"]}"#,
+        )];
+        let server = TestServer::spawn(responses).await.expect("server");
+        let core = FireCore::new(FireCoreConfig {
+            base_url: server.base_url(),
+            workspace_path: None,
+        })
+        .expect("core");
+
+        let summary = core
+            .fetch_topic_ai_summary(123, false)
+            .await
+            .expect("topic ai summary");
+        let requests = server.shutdown_with_requests().await;
+
+        assert_eq!(summary, None);
+        assert_eq!(requests.len(), 1);
+        assert!(requests[0].contains("GET /discourse-ai/summarization/t/123 HTTP/1.1"));
+    }
+}
+
+#[tokio::test]
+async fn fetch_topic_ai_summary_surfaces_cloudflare_challenge() {
+    let responses = vec![raw_cloudflare_challenge_response(
+        403,
+        "<html><title>Just a moment</title><script>window._cf_chl_opt={}</script></html>",
+    )];
+    let server = TestServer::spawn(responses).await.expect("server");
+    let core = FireCore::new(FireCoreConfig {
+        base_url: server.base_url(),
+        workspace_path: None,
+    })
+    .expect("core");
+
+    let error = core
+        .fetch_topic_ai_summary(123, false)
+        .await
+        .expect_err("cloudflare challenge");
+    let _ = server.shutdown().await;
+
+    assert!(matches!(
+        error,
+        FireCoreError::CloudflareChallenge {
+            operation: "fetch topic ai summary"
+        }
+    ));
+}
+
+#[tokio::test]
 async fn fetch_private_message_detail_parses_detail_participants() {
     let mut payload: Value =
         serde_json::from_str(&sample_topic_detail_json()).expect("detail fixture json");
@@ -1451,6 +1614,57 @@ async fn refresh_csrf_token_accepts_scalar_tokens() {
     server.shutdown().await;
 
     assert_eq!(snapshot.cookies.csrf_token.as_deref(), Some("12345"));
+}
+
+#[tokio::test]
+async fn concurrent_csrf_refresh_if_needed_shares_in_flight_request() {
+    let server = TestServer::spawn_scripted(vec![TestServerStep::delayed(
+        raw_json_response(200, "application/json", r#"{"csrf":"fresh-csrf"}"#),
+        Duration::from_millis(50),
+    )])
+    .await
+    .expect("server");
+    let core = FireCore::new(FireCoreConfig {
+        base_url: server.base_url(),
+        workspace_path: None,
+    })
+    .expect("core");
+    let _ = core.sync_login_context(LoginSyncInput {
+        username: Some("alice".into()),
+        home_html: None,
+        csrf_token: None,
+        current_url: Some(server.base_url()),
+        browser_user_agent: None,
+        cookies: vec![
+            PlatformCookie {
+                name: "_t".into(),
+                value: "token".into(),
+                domain: None,
+                path: None,
+                expires_at_unix_ms: None,
+            },
+            PlatformCookie {
+                name: "_forum_session".into(),
+                value: "forum".into(),
+                domain: None,
+                path: None,
+                expires_at_unix_ms: None,
+            },
+        ],
+    });
+
+    let (first, second) = tokio::join!(
+        core.refresh_csrf_token_if_needed(),
+        core.refresh_csrf_token_if_needed()
+    );
+    let first = first.expect("first csrf refresh");
+    let second = second.expect("second csrf refresh");
+    let requests = server.shutdown_with_requests().await;
+
+    assert_eq!(first.cookies.csrf_token.as_deref(), Some("fresh-csrf"));
+    assert_eq!(second.cookies.csrf_token.as_deref(), Some("fresh-csrf"));
+    assert_eq!(requests.len(), 1);
+    assert!(requests[0].contains("GET /session/csrf HTTP/1.1"));
 }
 
 #[tokio::test]
@@ -2052,6 +2266,95 @@ async fn toggle_post_reaction_encodes_reaction_path_segment() {
     assert!(requests[0].contains(
         "PUT /discourse-reactions/posts/9001/custom-reactions/%2B1/toggle.json HTTP/1.1"
     ));
+}
+
+#[tokio::test]
+async fn fetch_reaction_users_uses_reactions_users_endpoint_and_skips_malformed_items() {
+    let responses = vec![raw_json_response(
+        200,
+        "application/json",
+        r#"{
+          "reaction_users": [
+            {
+              "id": "heart",
+              "count": "2",
+              "users": [
+                {
+                  "id": "1",
+                  "username": "alice",
+                  "name": "Alice",
+                  "avatar_template": "/user_avatar/linux.do/alice/{size}/1_2.png"
+                },
+                { "bad": "ignored" }
+              ]
+            },
+            1,
+            {
+              "id": "clap",
+              "users": [
+                { "username": "bob" }
+              ]
+            }
+          ]
+        }"#,
+    )];
+    let server = TestServer::spawn(responses).await.expect("server");
+    let core = FireCore::new(FireCoreConfig {
+        base_url: server.base_url(),
+        workspace_path: None,
+    })
+    .expect("core");
+
+    let _ = core.sync_login_context(LoginSyncInput {
+        username: Some("alice".into()),
+        home_html: Some(sample_home_html()),
+        csrf_token: Some("csrf-token".into()),
+        current_url: Some(server.base_url()),
+        browser_user_agent: None,
+        cookies: vec![
+            PlatformCookie {
+                name: "_t".into(),
+                value: "token".into(),
+                domain: None,
+                path: None,
+                expires_at_unix_ms: None,
+            },
+            PlatformCookie {
+                name: "_forum_session".into(),
+                value: "forum".into(),
+                domain: None,
+                path: None,
+                expires_at_unix_ms: None,
+            },
+        ],
+    });
+
+    let groups = core
+        .fetch_reaction_users(9001)
+        .await
+        .expect("reaction users");
+    let requests = server.shutdown_with_requests().await;
+
+    assert_eq!(groups.len(), 2);
+    assert_eq!(groups[0].id, "heart");
+    assert_eq!(groups[0].count, 2);
+    assert_eq!(groups[0].users.len(), 1);
+    assert_eq!(groups[0].users[0].id, 1);
+    assert_eq!(groups[0].users[0].username, "alice");
+    assert_eq!(groups[0].users[0].name.as_deref(), Some("Alice"));
+    assert_eq!(
+        groups[0].users[0].avatar_template.as_deref(),
+        Some("/user_avatar/linux.do/alice/{size}/1_2.png")
+    );
+    assert_eq!(groups[1].id, "clap");
+    assert_eq!(groups[1].count, 1);
+    assert_eq!(groups[1].users.len(), 1);
+    assert_eq!(groups[1].users[0].id, 0);
+    assert_eq!(groups[1].users[0].username, "bob");
+    assert_eq!(requests.len(), 1);
+    assert!(
+        requests[0].contains("GET /discourse-reactions/posts/9001/reactions-users.json HTTP/1.1")
+    );
 }
 
 #[tokio::test]

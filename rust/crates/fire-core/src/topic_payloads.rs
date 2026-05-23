@@ -1,7 +1,8 @@
 use fire_models::{
-    Poll, PollOption, PostReactionUpdate, TopicDetail, TopicDetailCreatedBy, TopicDetailMeta,
-    TopicListResponse, TopicParticipant, TopicPost, TopicPostStream, TopicPoster, TopicReaction,
-    TopicRow, TopicSummary, TopicTag, TopicThread, TopicUser, VoteResponse, VotedUser,
+    Poll, PollOption, PostReactionUpdate, ReactionUser, ReactionUsersGroup, TopicAiSummary,
+    TopicDetail, TopicDetailCreatedBy, TopicDetailMeta, TopicListResponse, TopicParticipant,
+    TopicPost, TopicPostStream, TopicPoster, TopicReaction, TopicReplyToUser, TopicRow,
+    TopicSummary, TopicTag, TopicThread, TopicUser, VoteResponse, VotedUser,
 };
 use serde::{
     de::{DeserializeOwned, Error as DeError},
@@ -13,7 +14,8 @@ use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 use tracing::warn;
 
 use crate::json_helpers::{
-    boolean, integer_i32, integer_u32, integer_u64, invalid_json, scalar_string,
+    boolean, integer_i32, integer_u32, integer_u64, invalid_json, parse_array_items_lossy,
+    scalar_string,
 };
 use crate::preview_text_from_html;
 use crate::topic_status_labels;
@@ -24,24 +26,48 @@ pub(crate) struct RawTopicListResponse {
     topic_list: RawTopicListPage,
     #[serde(default, deserialize_with = "deserialize_default_sequence")]
     users: Vec<RawTopicUser>,
+    #[serde(default, deserialize_with = "deserialize_default_record")]
+    user_bookmark_list: RawUserBookmarkList,
+    #[serde(default, deserialize_with = "deserialize_default_sequence")]
+    bookmarks: Vec<RawUserBookmarkEntry>,
 }
 
 impl From<RawTopicListResponse> for TopicListResponse {
     fn from(value: RawTopicListResponse) -> Self {
-        let topics: Vec<TopicSummary> = value
-            .topic_list
-            .topics
-            .into_iter()
-            .map(Into::into)
-            .collect();
-        let users: Vec<TopicUser> = value.users.into_iter().map(Into::into).collect();
-        let next_page = next_page_from_more_topics_url(value.topic_list.more_topics_url.as_deref());
+        let mut users = value.users;
+        let topic_list_has_payload =
+            !value.topic_list.topics.is_empty() || value.topic_list.more_topics_url.is_some();
+        let bookmark_list_has_payload = !value.user_bookmark_list.bookmarks.is_empty()
+            || value.user_bookmark_list.more_bookmarks_url.is_some();
+
+        let (raw_topics, more_topics_url) = if topic_list_has_payload {
+            (value.topic_list.topics, value.topic_list.more_topics_url)
+        } else if bookmark_list_has_payload {
+            let topics = value
+                .user_bookmark_list
+                .bookmarks
+                .into_iter()
+                .filter_map(|bookmark| bookmark.into_topic_summary(&mut users))
+                .collect();
+            (topics, value.user_bookmark_list.more_bookmarks_url)
+        } else {
+            let topics = value
+                .bookmarks
+                .into_iter()
+                .filter_map(|bookmark| bookmark.into_topic_summary(&mut users))
+                .collect();
+            (topics, None)
+        };
+
+        let topics: Vec<TopicSummary> = raw_topics.into_iter().map(Into::into).collect();
+        let users: Vec<TopicUser> = users.into_iter().map(Into::into).collect();
+        let next_page = next_page_from_more_topics_url(more_topics_url.as_deref());
         let rows = topic_rows_from_topics_and_users(&topics, &users);
         Self {
             topics,
             users,
             rows,
-            more_topics_url: value.topic_list.more_topics_url,
+            more_topics_url,
             next_page,
         }
     }
@@ -53,6 +79,14 @@ struct RawTopicListPage {
     topics: Vec<RawTopicSummary>,
     #[serde(default, deserialize_with = "deserialize_optional_scalar_string")]
     more_topics_url: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct RawUserBookmarkList {
+    #[serde(default, deserialize_with = "deserialize_default_sequence")]
+    bookmarks: Vec<RawUserBookmarkEntry>,
+    #[serde(default, deserialize_with = "deserialize_optional_scalar_string")]
+    more_bookmarks_url: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -72,6 +106,157 @@ impl From<RawTopicUser> for TopicUser {
             username: value.username,
             avatar_template: value.avatar_template,
         }
+    }
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct RawUserBookmarkEntry {
+    #[serde(default, deserialize_with = "deserialize_default_u64")]
+    id: u64,
+    #[serde(default, deserialize_with = "deserialize_optional_scalar_string")]
+    name: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_optional_scalar_string")]
+    reminder_at: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_optional_scalar_string")]
+    bookmarkable_type: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_optional_u64")]
+    bookmarkable_id: Option<u64>,
+    #[serde(default, deserialize_with = "deserialize_optional_u64")]
+    topic_id: Option<u64>,
+    #[serde(default, deserialize_with = "deserialize_optional_u32")]
+    linked_post_number: Option<u32>,
+    #[serde(default, deserialize_with = "deserialize_optional_scalar_string")]
+    title: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_optional_scalar_string")]
+    fancy_title: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_optional_scalar_string")]
+    slug: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_optional_scalar_string")]
+    excerpt: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_optional_scalar_string")]
+    created_at: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_optional_scalar_string")]
+    bumped_at: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_optional_scalar_string")]
+    last_posted_at: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_optional_scalar_string")]
+    last_poster_username: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_optional_u64")]
+    category_id: Option<u64>,
+    #[serde(default, deserialize_with = "deserialize_optional_u32")]
+    posts_count: Option<u32>,
+    #[serde(default, deserialize_with = "deserialize_optional_u32")]
+    reply_count: Option<u32>,
+    #[serde(default, deserialize_with = "deserialize_optional_u32")]
+    highest_post_number: Option<u32>,
+    #[serde(default, deserialize_with = "deserialize_default_u32")]
+    views: u32,
+    #[serde(default, deserialize_with = "deserialize_default_u32")]
+    like_count: u32,
+    #[serde(default, deserialize_with = "deserialize_default_bool")]
+    pinned: bool,
+    #[serde(
+        default = "default_visible",
+        deserialize_with = "deserialize_default_true_bool"
+    )]
+    visible: bool,
+    #[serde(default, deserialize_with = "deserialize_default_bool")]
+    closed: bool,
+    #[serde(default, deserialize_with = "deserialize_default_bool")]
+    archived: bool,
+    #[serde(default, deserialize_with = "deserialize_topic_tags")]
+    tags: Vec<TopicTag>,
+    #[serde(default, deserialize_with = "deserialize_optional_u32")]
+    last_read_post_number: Option<u32>,
+    #[serde(default, deserialize_with = "deserialize_optional_record")]
+    user: Option<RawTopicUser>,
+}
+
+impl RawUserBookmarkEntry {
+    fn into_topic_summary(self, users: &mut Vec<RawTopicUser>) -> Option<RawTopicSummary> {
+        let topic_id = self.topic_id.or_else(|| {
+            if self.bookmarkable_type.as_deref() == Some("Topic") {
+                self.bookmarkable_id
+            } else {
+                None
+            }
+        })?;
+        if topic_id == 0 {
+            return None;
+        }
+
+        let bookmark_name = normalized_scalar(self.name.as_deref());
+        let title = normalized_scalar(self.title.as_deref())
+            .or_else(|| normalized_scalar(self.fancy_title.as_deref()))
+            .or_else(|| bookmark_name.clone())
+            .unwrap_or_else(|| format!("Topic {topic_id}"));
+        let posts_count = self
+            .posts_count
+            .or(self.highest_post_number)
+            .unwrap_or(1)
+            .max(1);
+        let reply_count = self
+            .reply_count
+            .unwrap_or_else(|| posts_count.saturating_sub(1));
+        let bookmarked_post_number = match self.bookmarkable_type.as_deref() {
+            Some("Post") => self.linked_post_number,
+            _ => None,
+        };
+
+        let user = self.user;
+        let last_poster_username = self
+            .last_poster_username
+            .or_else(|| user.as_ref().map(|user| user.username.clone()));
+        let posters = user
+            .as_ref()
+            .map(|user| {
+                vec![RawTopicPoster {
+                    user_id: user.id,
+                    description: Some("Original Poster".into()),
+                    extras: Some("latest".into()),
+                }]
+            })
+            .unwrap_or_default();
+
+        if let Some(user) = user {
+            if !users.iter().any(|existing| existing.id == user.id) {
+                users.push(user);
+            }
+        }
+
+        Some(RawTopicSummary {
+            id: topic_id,
+            title,
+            slug: self.slug.unwrap_or_default(),
+            posts_count,
+            reply_count,
+            views: self.views,
+            like_count: self.like_count,
+            excerpt: self.excerpt,
+            created_at: self.created_at.clone(),
+            last_posted_at: self.last_posted_at.or(self.bumped_at).or(self.created_at),
+            last_poster_username,
+            category_id: self.category_id,
+            pinned: self.pinned,
+            visible: self.visible,
+            closed: self.closed,
+            archived: self.archived,
+            tags: self.tags,
+            posters,
+            participants: Vec::new(),
+            unseen: false,
+            unread_posts: 0,
+            new_posts: 0,
+            last_read_post_number: self.last_read_post_number,
+            highest_post_number: self.highest_post_number.unwrap_or(posts_count),
+            bookmarked_post_number,
+            bookmark_id: Some(self.id),
+            bookmark_name,
+            bookmark_reminder_at: self.reminder_at,
+            bookmarkable_type: self.bookmarkable_type,
+            has_accepted_answer: false,
+            can_have_answer: false,
+        })
     }
 }
 
@@ -466,6 +651,26 @@ impl From<RawPoll> for Poll {
 }
 
 #[derive(Debug, Default, Deserialize)]
+struct RawTopicReplyToUser {
+    #[serde(default, deserialize_with = "deserialize_default_string")]
+    username: String,
+    #[serde(default, deserialize_with = "deserialize_optional_scalar_string")]
+    name: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_optional_scalar_string")]
+    avatar_template: Option<String>,
+}
+
+impl From<RawTopicReplyToUser> for TopicReplyToUser {
+    fn from(value: RawTopicReplyToUser) -> Self {
+        Self {
+            username: value.username,
+            name: value.name,
+            avatar_template: value.avatar_template,
+        }
+    }
+}
+
+#[derive(Debug, Default, Deserialize)]
 struct RawTopicPost {
     #[serde(default, deserialize_with = "deserialize_default_u64")]
     id: u64,
@@ -496,6 +701,8 @@ struct RawTopicPost {
     reply_count: u32,
     #[serde(default, deserialize_with = "deserialize_optional_u32")]
     reply_to_post_number: Option<u32>,
+    #[serde(default, deserialize_with = "deserialize_optional_record")]
+    reply_to_user: Option<RawTopicReplyToUser>,
     #[serde(default, deserialize_with = "deserialize_default_bool")]
     bookmarked: bool,
     #[serde(default, deserialize_with = "deserialize_optional_u64")]
@@ -522,6 +729,10 @@ struct RawTopicPost {
     polls_votes: Option<HashMap<String, Vec<String>>>,
     #[serde(default, deserialize_with = "deserialize_default_bool")]
     accepted_answer: bool,
+    #[serde(default, deserialize_with = "deserialize_default_bool")]
+    can_accept_answer: bool,
+    #[serde(default, deserialize_with = "deserialize_default_bool")]
+    can_unaccept_answer: bool,
     #[serde(default, deserialize_with = "deserialize_default_bool")]
     can_edit: bool,
     #[serde(default, deserialize_with = "deserialize_default_bool")]
@@ -559,6 +770,7 @@ impl From<RawTopicPost> for TopicPost {
             like_count: value.like_count,
             reply_count: value.reply_count,
             reply_to_post_number: value.reply_to_post_number,
+            reply_to_user: value.reply_to_user.map(Into::into),
             bookmarked: value.bookmarked,
             bookmark_id: value.bookmark_id,
             bookmark_name: value.bookmark_name,
@@ -567,6 +779,8 @@ impl From<RawTopicPost> for TopicPost {
             current_user_reaction: value.current_user_reaction.map(Into::into),
             polls,
             accepted_answer: value.accepted_answer,
+            can_accept_answer: value.can_accept_answer,
+            can_unaccept_answer: value.can_unaccept_answer,
             can_edit: value.can_edit,
             can_delete: value.can_delete,
             can_recover: value.can_recover,
@@ -583,6 +797,12 @@ pub(crate) fn parse_topic_post_value(value: Value) -> Result<TopicPost, serde_js
     RawTopicPost::deserialize(value).map(Into::into)
 }
 
+pub(crate) fn parse_topic_post_list_value(
+    value: Value,
+) -> Result<Vec<TopicPost>, serde_json::Error> {
+    Vec::<RawTopicPost>::deserialize(value).map(|posts| posts.into_iter().map(Into::into).collect())
+}
+
 pub(crate) fn parse_topic_post_stream_value(
     value: Value,
 ) -> Result<TopicPostStream, serde_json::Error> {
@@ -595,10 +815,67 @@ pub(crate) fn parse_topic_post_stream_value(
     RawTopicPostStream::deserialize(value).map(Into::into)
 }
 
+pub(crate) fn parse_topic_ai_summary_value(
+    value: Value,
+) -> Result<Option<TopicAiSummary>, serde_json::Error> {
+    let Value::Object(mut object) = value else {
+        return Ok(None);
+    };
+    let Some(summary_value) = object.remove("ai_topic_summary") else {
+        return Ok(None);
+    };
+    if summary_value.is_null() {
+        return Ok(None);
+    }
+    RawTopicAiSummary::deserialize(summary_value).map(|summary| Some(summary.into()))
+}
+
+pub(crate) fn parse_post_reply_ids_value(value: Value) -> Result<Vec<u64>, serde_json::Error> {
+    let items = match value {
+        Value::Array(items) => items,
+        value => {
+            return Err(invalid_json(format!(
+                "post reply ids root was {}, expected array",
+                value_kind(&value)
+            )));
+        }
+    };
+
+    Ok(items
+        .iter()
+        .filter_map(|item| match item {
+            Value::Object(object) => integer_u64(object.get("id")),
+            value => integer_u64(Some(value)),
+        })
+        .filter(|id| *id > 0)
+        .collect())
+}
+
 pub(crate) fn parse_post_reaction_update_value(
     value: Value,
 ) -> Result<PostReactionUpdate, serde_json::Error> {
     RawPostReactionUpdate::deserialize(value).map(Into::into)
+}
+
+pub(crate) fn parse_reaction_users_groups_value(
+    value: Value,
+) -> Result<Vec<ReactionUsersGroup>, serde_json::Error> {
+    let items = match value {
+        Value::Array(items) => items,
+        Value::Object(object) => object
+            .get("reaction_users")
+            .or_else(|| object.get("reactions"))
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default(),
+        _ => Vec::new(),
+    };
+
+    Ok(parse_array_items_lossy(
+        &items,
+        "reaction users group",
+        parse_reaction_users_group_value,
+    ))
 }
 
 pub(crate) fn parse_poll_response_value(value: Value) -> Result<Poll, serde_json::Error> {
@@ -666,6 +943,52 @@ fn parse_voted_user_value(value: Value) -> Result<VotedUser, serde_json::Error> 
         name: scalar_string(object.get("name")),
         avatar_template: scalar_string(object.get("avatar_template")),
     })
+}
+
+fn parse_reaction_users_group_value(
+    value: &Value,
+) -> Result<ReactionUsersGroup, serde_json::Error> {
+    let object = value
+        .as_object()
+        .ok_or_else(|| invalid_json("reaction users group was not an object"))?;
+    let id = scalar_string(object.get("id"))
+        .ok_or_else(|| invalid_json("reaction users group did not contain an id"))?;
+    let users = object
+        .get("users")
+        .and_then(Value::as_array)
+        .map(|items| {
+            parse_array_items_lossy(items, "reaction user entry", parse_reaction_user_value)
+        })
+        .unwrap_or_default();
+    let count = integer_u32(object.get("count")).unwrap_or(users.len() as u32);
+
+    Ok(ReactionUsersGroup { id, count, users })
+}
+
+fn parse_reaction_user_value(value: &Value) -> Result<ReactionUser, serde_json::Error> {
+    let object = value
+        .as_object()
+        .ok_or_else(|| invalid_json("reaction user entry was not an object"))?;
+    let username = scalar_string(object.get("username"))
+        .ok_or_else(|| invalid_json("reaction user entry did not contain a username"))?;
+
+    Ok(ReactionUser {
+        id: integer_u64(object.get("id")).unwrap_or_default(),
+        username,
+        name: scalar_string(object.get("name")),
+        avatar_template: scalar_string(object.get("avatar_template")),
+    })
+}
+
+fn value_kind(value: &Value) -> &'static str {
+    match value {
+        Value::Null => "null",
+        Value::Bool(_) => "bool",
+        Value::Number(_) => "number",
+        Value::String(_) => "string",
+        Value::Array(_) => "array",
+        Value::Object(_) => "object",
+    }
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -862,6 +1185,35 @@ impl From<RawTopicDetail> for TopicDetail {
             flat_posts,
             timeline_entries: Vec::new(),
             details: value.details.into(),
+        }
+    }
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct RawTopicAiSummary {
+    #[serde(default, deserialize_with = "deserialize_default_string")]
+    summarized_text: String,
+    #[serde(default, deserialize_with = "deserialize_optional_scalar_string")]
+    algorithm: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_default_bool")]
+    outdated: bool,
+    #[serde(default, deserialize_with = "deserialize_default_bool")]
+    can_regenerate: bool,
+    #[serde(default, deserialize_with = "deserialize_default_u32")]
+    new_posts_since_summary: u32,
+    #[serde(default, deserialize_with = "deserialize_optional_scalar_string")]
+    updated_at: Option<String>,
+}
+
+impl From<RawTopicAiSummary> for TopicAiSummary {
+    fn from(value: RawTopicAiSummary) -> Self {
+        Self {
+            summarized_text: value.summarized_text,
+            algorithm: value.algorithm,
+            outdated: value.outdated,
+            can_regenerate: value.can_regenerate,
+            new_posts_since_summary: value.new_posts_since_summary,
+            updated_at: value.updated_at,
         }
     }
 }

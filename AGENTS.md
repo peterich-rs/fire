@@ -64,7 +64,7 @@ Preserve the following architectural split:
 - Offload research, exploration, and parallel analysis to subagents
 - For complex problems, throw more compute at it via subagents
 - One task per subagent for focused execution
-- Default subagent configuration is model `gpt-5.4-mini` with reasoning effort `high`
+- Default subagent configuration is model `gpt-5.5` with reasoning effort `xhigh`
 
 ## 3. Worktree Strategy
 - The repository root is the primary worktree

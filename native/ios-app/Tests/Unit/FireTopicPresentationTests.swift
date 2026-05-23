@@ -5,7 +5,7 @@ final class FireTopicPresentationTests: XCTestCase {
     func testPlainTextNormalizesHTMLContent() {
         let plainText = plainTextFromHtml(rawHtml: "<p>Hello<br>Fire</p><ul><li>Rust</li><li>CI</li></ul>")
 
-        XCTAssertEqual(plainText, "Hello\nFire\n\n Rust\n CI")
+        XCTAssertEqual(plainText, "Hello\nFire\n\nRust\nCI")
     }
 
     func testSharedTextHelpersProvidePreviewAndMonogram() {
@@ -168,6 +168,16 @@ final class FireTopicPresentationTests: XCTestCase {
         )
     }
 
+    func testRenderContentPlainTextOmitsImageAttachmentAltText() {
+        let content = FireTopicPresentation.renderContent(
+            from: #"<p>Hello&nbsp;Fire</p><img src="/uploads/default/original/1X/fire.png" alt="fire">"#,
+            baseURLString: "https://linux.do"
+        )
+
+        XCTAssertEqual(content.plainText, "Hello Fire")
+        XCTAssertEqual(content.imageAttachments.first?.altText, "fire")
+    }
+
     func testRenderContentMakesMentionsTappableAsInAppProfiles() throws {
         let content = FireTopicPresentation.renderContent(
             from: #"<p>Hello <a class="mention" href="/u/alice">@alice</a></p>"#,
@@ -196,6 +206,19 @@ final class FireTopicPresentationTests: XCTestCase {
             ["https://linux.do/uploads/default/original/1X/fire-full.png"]
         )
         XCTAssertEqual(Double(content.imageAttachments.first?.aspectRatio ?? 0), 690.0 / 388.0, accuracy: 0.001)
+    }
+
+    func testImageAttachmentsPreferGenericLinkedImageURL() {
+        let content = FireTopicPresentation.renderContent(
+            from: #"<p><a href="/uploads/default/original/1X/fire-full.png"><img src="/uploads/default/optimized/1X/fire_690x388.png" width="690" height="388"></a></p>"#,
+            baseURLString: "https://linux.do"
+        )
+
+        XCTAssertEqual(content.attributedText?.length ?? 0, 0)
+        XCTAssertEqual(
+            content.imageAttachments.map(\.url.absoluteString),
+            ["https://linux.do/uploads/default/original/1X/fire-full.png"]
+        )
     }
 
     func testRenderContentEmbedsEmojiAttachments() throws {
@@ -251,6 +274,63 @@ final class FireTopicPresentationTests: XCTestCase {
         )
         XCTAssertTrue(attributedText.string.contains("引用"))
         XCTAssertTrue(attributedText.string.contains("Hello Fire"))
+    }
+
+    func testRenderContentMakesMentionGroupsAndHashtagsTappable() throws {
+        let content = FireTopicPresentation.renderContent(
+            from: #"<p><a class="mention-group" href="/groups/moderators">@moderators</a> <a class="hashtag-cooked" data-type="tag" href="/tag/rust">#rust</a></p>"#,
+            baseURLString: "https://linux.do"
+        )
+
+        let attributedText = try XCTUnwrap(content.attributedText)
+        let text = attributedText.string as NSString
+        let groupRange = text.range(of: "@moderators")
+        let hashtagRange = text.range(of: "#rust")
+
+        XCTAssertNotEqual(groupRange.location, NSNotFound)
+        XCTAssertNotEqual(hashtagRange.location, NSNotFound)
+        XCTAssertEqual(
+            attributedText.attribute(.link, at: groupRange.location, effectiveRange: nil) as? URL,
+            URL(string: "https://linux.do/groups/moderators")
+        )
+        XCTAssertEqual(
+            attributedText.attribute(.link, at: hashtagRange.location, effectiveRange: nil) as? URL,
+            URL(string: "https://linux.do/tag/rust")
+        )
+    }
+
+    func testRenderContentPreservesDetailsAndSpoilerText() throws {
+        let content = FireTopicPresentation.renderContent(
+            from: #"<details><summary>展开说明</summary><p>可见 <span class="spoiler">隐藏内容</span></p></details>"#,
+            baseURLString: "https://linux.do"
+        )
+
+        let attributedText = try XCTUnwrap(content.attributedText)
+        let text = attributedText.string as NSString
+        let spoilerRange = text.range(of: "隐藏内容")
+
+        XCTAssertTrue(attributedText.string.contains("展开说明"))
+        XCTAssertNotEqual(spoilerRange.location, NSNotFound)
+        XCTAssertNotNil(attributedText.attribute(.backgroundColor, at: spoilerRange.location, effectiveRange: nil))
+    }
+
+    func testRenderContentSupportsOrderedListsTablesAndOneboxes() throws {
+        let content = FireTopicPresentation.renderContent(
+            from: #"""
+            <ol><li>第一项</li><li><strong>第二项</strong></li></ol>
+            <table><tr><th>A</th><th>B</th></tr><tr><td>1</td><td>2</td></tr></table>
+            <aside class="onebox"><header><a href="https://example.com/post">example.com</a></header><div class="onebox-body"><h3><a href="https://example.com/post">Example title</a></h3><p>Example description</p></div></aside>
+            """#,
+            baseURLString: "https://linux.do"
+        )
+
+        let attributedText = try XCTUnwrap(content.attributedText)
+        XCTAssertTrue(attributedText.string.contains("1. 第一项"))
+        XCTAssertTrue(attributedText.string.contains("2. 第二项"))
+        XCTAssertTrue(attributedText.string.contains("A | B\n1 | 2"))
+        XCTAssertTrue(attributedText.string.contains("链接预览"))
+        XCTAssertTrue(attributedText.string.contains("Example title"))
+        XCTAssertTrue(attributedText.string.contains("Example description"))
     }
 
     func testMergeTopicPostsRespectsStreamOrderAndPrefersIncomingValues() {
@@ -365,6 +445,7 @@ final class FireTopicPresentationTests: XCTestCase {
             ),
             loginPhase: .cookiesCaptured,
             hasLoginSession: true,
+            browserUserAgent: nil,
             profileDisplayName: "会话已连接",
             loginPhaseLabel: "账号信息同步中"
         )
@@ -401,6 +482,7 @@ final class FireTopicPresentationTests: XCTestCase {
             ),
             loginPhase: .ready,
             hasLoginSession: true,
+            browserUserAgent: nil,
             profileDisplayName: "alice",
             loginPhaseLabel: "已就绪"
         )
@@ -588,6 +670,7 @@ final class FireTopicPresentationTests: XCTestCase {
             likeCount: likeCount,
             replyCount: 0,
             replyToPostNumber: replyToPostNumber,
+            replyToUser: nil,
             bookmarked: false,
             bookmarkId: nil,
             bookmarkName: nil,
@@ -596,6 +679,8 @@ final class FireTopicPresentationTests: XCTestCase {
             currentUserReaction: nil,
             polls: [],
             acceptedAnswer: false,
+            canAcceptAnswer: false,
+            canUnacceptAnswer: false,
             canEdit: false,
             canDelete: false,
             canRecover: false,

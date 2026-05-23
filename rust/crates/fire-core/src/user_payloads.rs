@@ -1,7 +1,7 @@
 use fire_models::{
     Badge, FollowUser, InviteLink, InviteLinkDetails, ProfileSummaryLink, ProfileSummaryReply,
     ProfileSummaryTopCategory, ProfileSummaryTopic, ProfileSummaryUserReference, UserAction,
-    UserProfile, UserSummaryResponse, UserSummaryStats,
+    UserProfile, UserReaction, UserReactionsResponse, UserSummaryResponse, UserSummaryStats,
 };
 use serde_json::{Map, Value};
 
@@ -44,6 +44,10 @@ pub(crate) fn parse_user_profile_value(value: Value) -> Result<UserProfile, serd
         can_send_private_message_to_user: optional_boolean(
             object.get("can_send_private_message_to_user"),
         ),
+        muted: optional_boolean(object.get("muted")),
+        ignored: optional_boolean(object.get("ignored")),
+        can_mute_user: optional_boolean(object.get("can_mute_user")),
+        can_ignore_user: optional_boolean(object.get("can_ignore_user")),
         gamification_score: integer_u32(object.get("gamification_score")),
         suspended_till: scalar_string(object.get("suspended_till")),
         silenced_till: scalar_string(object.get("silenced_till")),
@@ -137,6 +141,28 @@ pub(crate) fn parse_user_actions_value(value: Value) -> Result<Vec<UserAction>, 
         "user action item",
         parse_user_action_value,
     ))
+}
+
+pub(crate) fn parse_user_reactions_value(
+    value: Value,
+) -> Result<UserReactionsResponse, serde_json::Error> {
+    let reactions_value = match value {
+        Value::Array(_) => value,
+        Value::Object(ref obj) => obj
+            .get("reactions")
+            .or_else(|| obj.get("posts"))
+            .cloned()
+            .unwrap_or(Value::Array(Vec::new())),
+        _ => Value::Array(Vec::new()),
+    };
+
+    Ok(UserReactionsResponse {
+        reactions: parse_array_items_lossy(
+            array_items(Some(&reactions_value)),
+            "user reaction item",
+            parse_user_reaction_value,
+        ),
+    })
 }
 
 pub(crate) fn parse_badge_value(value: Value) -> Result<Badge, serde_json::Error> {
@@ -388,6 +414,42 @@ fn parse_user_action_value(value: &Value) -> Result<UserAction, serde_json::Erro
     })
 }
 
+fn parse_user_reaction_value(value: &Value) -> Result<UserReaction, serde_json::Error> {
+    let object = value
+        .as_object()
+        .ok_or_else(|| invalid_json("user reaction item was not an object"))?;
+    let post_object = object.get("post").and_then(Value::as_object);
+    let reaction_object = object.get("reaction").and_then(Value::as_object);
+    let id = integer_u64(object.get("id"))
+        .ok_or_else(|| invalid_json("user reaction item did not contain an id"))?;
+    let post_id = integer_u64(object.get("post_id"))
+        .or_else(|| post_object.and_then(|post| integer_u64(post.get("id"))))
+        .ok_or_else(|| invalid_json("user reaction item did not contain a post_id"))?;
+
+    Ok(UserReaction {
+        id,
+        post_id,
+        topic_id: post_object
+            .and_then(|post| integer_u64(post.get("topic_id")))
+            .or_else(|| integer_u64(object.get("topic_id")))
+            .unwrap_or_default(),
+        post_number: post_object
+            .and_then(|post| integer_u32(post.get("post_number")))
+            .or_else(|| integer_u32(object.get("post_number"))),
+        topic_title: post_object
+            .and_then(|post| scalar_string(post.get("topic_title")))
+            .or_else(|| scalar_string(object.get("topic_title")))
+            .or_else(|| scalar_string(object.get("title"))),
+        excerpt: post_object
+            .and_then(|post| scalar_string(post.get("excerpt")))
+            .or_else(|| scalar_string(object.get("excerpt"))),
+        reaction_value: reaction_object
+            .and_then(|reaction| scalar_string(reaction.get("reaction_value")))
+            .or_else(|| scalar_string(object.get("reaction_value"))),
+        created_at: scalar_string(object.get("created_at")),
+    })
+}
+
 fn parse_follow_user_value(value: &Value) -> Result<FollowUser, serde_json::Error> {
     let object = value
         .as_object()
@@ -474,7 +536,11 @@ mod tests {
                 "total_followers": "12",
                 "total_following": 5,
                 "can_follow": "1",
-                "is_followed": 0
+                "is_followed": 0,
+                "muted": "1",
+                "ignored": false,
+                "can_mute_user": true,
+                "can_ignore_user": "0"
             }
         });
         let profile = parse_user_profile_value(value).unwrap();
@@ -484,6 +550,10 @@ mod tests {
         assert_eq!(profile.total_following, Some(5));
         assert_eq!(profile.can_follow, Some(true));
         assert_eq!(profile.is_followed, Some(false));
+        assert_eq!(profile.muted, Some(true));
+        assert_eq!(profile.ignored, Some(false));
+        assert_eq!(profile.can_mute_user, Some(true));
+        assert_eq!(profile.can_ignore_user, Some(false));
     }
 
     #[test]
@@ -613,6 +683,66 @@ mod tests {
         assert_eq!(actions.len(), 1);
         assert_eq!(actions[0].action_type, Some(4));
         assert_eq!(actions[0].topic_id, Some(100));
+    }
+
+    #[test]
+    fn test_parse_user_reactions_accepts_wrapper_payload() {
+        let value = json!({
+            "reactions": [
+                {
+                    "id": "77",
+                    "post_id": "9001",
+                    "post": {
+                        "topic_id": "123",
+                        "post_number": "4",
+                        "topic_title": "Fire topic",
+                        "excerpt": "<p>Hello Fire</p>"
+                    },
+                    "reaction": {
+                        "reaction_value": "heart"
+                    },
+                    "created_at": "2026-05-01T00:00:00Z"
+                }
+            ]
+        });
+
+        let response = parse_user_reactions_value(value).unwrap();
+        assert_eq!(response.reactions.len(), 1);
+        let reaction = &response.reactions[0];
+        assert_eq!(reaction.id, 77);
+        assert_eq!(reaction.post_id, 9001);
+        assert_eq!(reaction.topic_id, 123);
+        assert_eq!(reaction.post_number, Some(4));
+        assert_eq!(reaction.topic_title.as_deref(), Some("Fire topic"));
+        assert_eq!(reaction.excerpt.as_deref(), Some("<p>Hello Fire</p>"));
+        assert_eq!(reaction.reaction_value.as_deref(), Some("heart"));
+        assert_eq!(reaction.created_at.as_deref(), Some("2026-05-01T00:00:00Z"));
+    }
+
+    #[test]
+    fn test_parse_user_reactions_accepts_array_and_skips_malformed_items() {
+        let value = json!([
+            1,
+            {
+                "id": 78,
+                "post_id": 9002,
+                "topic_id": 124,
+                "post_number": 2,
+                "topic_title": "Flat topic",
+                "excerpt": "flat excerpt",
+                "reaction_value": "clap"
+            }
+        ]);
+
+        let response = parse_user_reactions_value(value).unwrap();
+        assert_eq!(response.reactions.len(), 1);
+        let reaction = &response.reactions[0];
+        assert_eq!(reaction.id, 78);
+        assert_eq!(reaction.post_id, 9002);
+        assert_eq!(reaction.topic_id, 124);
+        assert_eq!(reaction.post_number, Some(2));
+        assert_eq!(reaction.topic_title.as_deref(), Some("Flat topic"));
+        assert_eq!(reaction.reaction_value.as_deref(), Some("clap"));
     }
 
     #[test]

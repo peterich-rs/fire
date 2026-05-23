@@ -14,11 +14,20 @@ enum FireRichTextNode: Sendable, Equatable {
     case codeBlock(language: String?, code: String)
     case link(url: String, children: [FireRichTextNode])
     case mention(username: String)
+    case mentionGroup(name: String, url: String)
+    case hashtag(text: String, url: String, kind: String?)
     case emoji(url: String, fallbackText: String, onlyEmoji: Bool)
     case heading(level: Int, children: [FireRichTextNode])
     case blockquote([FireRichTextNode])
     case quote(author: String?, postNumber: UInt32?, topicId: UInt64?, children: [FireRichTextNode])
+    case onebox(url: String?, title: String?, description: String?)
+    case list(ordered: Bool, items: [[FireRichTextNode]])
     case listItem([FireRichTextNode])
+    case spoiler([FireRichTextNode])
+    case details(summary: [FireRichTextNode], children: [FireRichTextNode])
+    case table(String)
+    case video(url: String, title: String?)
+    case divider
     case lineBreak
     case paragraph([FireRichTextNode])
     case image(src: String, alt: String?, width: CGFloat?, height: CGFloat?)
@@ -27,292 +36,544 @@ enum FireRichTextNode: Sendable, Equatable {
 /// Parsed rich text content for a single post.
 struct FireRichTextContent: Sendable {
     let nodes: [FireRichTextNode]
+    let plainText: String
     let imageAttachments: [FireCookedImage]
 }
 
-// MARK: - HTML → Rich Text Parser
+// MARK: - Cooked HTML → Rich Text Parser
 
 enum FireRichTextParser {
     /// Parse Discourse `cooked` HTML into structured rich text nodes.
-    /// This is a lightweight regex/scanner-based parser optimized for the common
-    /// HTML patterns emitted by Discourse (not a full HTML parser).
+    /// The HTML tree comes from the shared Rust parser backed by scraper/html5ever;
+    /// this layer only adapts the shared AST to the iOS renderer model.
     static func parse(html: String, baseURLString: String) -> FireRichTextContent {
         guard !html.isEmpty else {
-            return FireRichTextContent(nodes: [], imageAttachments: [])
+            return FireRichTextContent(nodes: [], plainText: "", imageAttachments: [])
         }
 
-        let images = FireTopicPresentation.imageAttachments(from: html, baseURLString: baseURLString)
-        let nodes = parseNodes(from: html, baseURLString: baseURLString)
-        return FireRichTextContent(nodes: nodes, imageAttachments: images)
+        let document = parseCookedHtml(rawHtml: html)
+        let tree = CookedHtmlTree(nodes: document.nodes)
+        let nodes = tree.root.map {
+            mapChildren(of: $0, tree: tree, baseURLString: baseURLString)
+        } ?? []
+        return FireRichTextContent(
+            nodes: nodes,
+            plainText: plainText(from: nodes),
+            imageAttachments: imageAttachments(from: document, tree: tree, baseURLString: baseURLString)
+        )
     }
 
-    private static func parseNodes(from html: String, baseURLString: String) -> [FireRichTextNode] {
-        var result: [FireRichTextNode] = []
-        let scanner = Scanner(string: html)
-        scanner.charactersToBeSkipped = nil
+    private struct CookedHtmlTree {
+        let root: CookedHtmlNodeState?
+        private let nodesByID: [UInt32: CookedHtmlNodeState]
+        private let childrenByParentID: [UInt32: [CookedHtmlNodeState]]
 
-        while !scanner.isAtEnd {
-            if let node = scanTag(scanner: scanner, baseURLString: baseURLString) {
-                result.append(node)
-            } else if let text = scanner.scanUpToString("<") {
-                let decoded = decodeEntities(text)
-                if !decoded.isEmpty {
-                    result.append(.text(decoded))
-                }
-            } else if scanner.scanString("<") != nil {
-                // Stray '<' — consume as text
-                result.append(.text("<"))
-            }
+        init(nodes: [CookedHtmlNodeState]) {
+            nodesByID = Dictionary(uniqueKeysWithValues: nodes.map { ($0.id, $0) })
+            childrenByParentID = Dictionary(grouping: nodes.compactMap { node -> CookedHtmlNodeState? in
+                node.parentId == nil ? nil : node
+            }, by: { $0.parentId ?? 0 })
+            root = nodes.first(where: { $0.parentId == nil && $0.kind == .document })
+                ?? nodes.first(where: { $0.parentId == nil })
         }
 
-        return result
+        func node(id: UInt32?) -> CookedHtmlNodeState? {
+            guard let id else { return nil }
+            return nodesByID[id]
+        }
+
+        func children(of node: CookedHtmlNodeState) -> [CookedHtmlNodeState] {
+            childrenByParentID[node.id] ?? []
+        }
+
+        func nearestAncestor(
+            of node: CookedHtmlNodeState,
+            matching predicate: (CookedHtmlNodeState) -> Bool
+        ) -> CookedHtmlNodeState? {
+            var current = self.node(id: node.parentId)
+            while let candidate = current {
+                if predicate(candidate) {
+                    return candidate
+                }
+                current = self.node(id: candidate.parentId)
+            }
+            return nil
+        }
+    }
+
+    private static func mapChildren(
+        of node: CookedHtmlNodeState,
+        tree: CookedHtmlTree,
+        baseURLString: String
+    ) -> [FireRichTextNode] {
+        tree.children(of: node).flatMap { child in
+            mapNode(child, tree: tree, baseURLString: baseURLString)
+        }
     }
 
     // swiftlint:disable:next cyclomatic_complexity function_body_length
-    private static func scanTag(scanner: Scanner, baseURLString: String) -> FireRichTextNode? {
-        let startIndex = scanner.currentIndex
-        guard scanner.scanString("<") != nil else { return nil }
-
-        // Closing tags — skip
-        if scanner.scanString("/") != nil {
-            _ = scanner.scanUpToString(">")
-            _ = scanner.scanString(">")
-            return nil
-        }
-
-        // Tag name
-        guard let tagName = scanner.scanCharacters(from: .alphanumerics)?.lowercased() else {
-            scanner.currentIndex = startIndex
-            return nil
-        }
-
-        // Scan attributes
-        let attrs = scanAttributes(scanner: scanner)
-
-        // Self-closing or closing >
-        _ = scanner.scanString("/")
-        guard scanner.scanString(">") != nil else {
-            scanner.currentIndex = startIndex
-            return nil
-        }
-
-        switch tagName {
-        case "br":
-            return .lineBreak
-
-        case "img":
-            let classes = classNames(from: attrs["class"])
-            if classes.contains("emoji") {
-                let resolvedURL = resolveURL(attrs["src"] ?? "", baseURLString: baseURLString)
-                let fallbackText = emojiFallbackText(from: attrs, resolvedURLString: resolvedURL)
-                guard !resolvedURL.isEmpty else {
-                    return fallbackText.isEmpty ? nil : .text(fallbackText)
-                }
-                return .emoji(
-                    url: resolvedURL,
-                    fallbackText: fallbackText,
-                    onlyEmoji: classes.contains("only-emoji")
-                )
-            }
-            return nil // Full images rendered separately
-
-        case "p":
-            let content = scanInnerContent(scanner: scanner, closingTag: "p", baseURLString: baseURLString)
-            return .paragraph(content)
-
-        case "strong", "b":
-            let closing = tagName == "strong" ? "strong" : "b"
-            let content = scanInnerContent(scanner: scanner, closingTag: closing, baseURLString: baseURLString)
-            return .bold(content)
-
-        case "em", "i":
-            let closing = tagName == "em" ? "em" : "i"
-            let content = scanInnerContent(scanner: scanner, closingTag: closing, baseURLString: baseURLString)
-            return .italic(content)
-
-        case "s", "del":
-            let closing = tagName
-            let content = scanInnerContent(scanner: scanner, closingTag: closing, baseURLString: baseURLString)
-            return .strikethrough(content)
-
-        case "code":
-            let innerHTML = scanRawInner(scanner: scanner, closingTag: "code")
-            return .code(decodeEntities(innerHTML))
-
-        case "pre":
-            // Code block: <pre><code class="lang-xxx">...</code></pre>
-            let innerHTML = scanRawInner(scanner: scanner, closingTag: "pre")
-            let (language, code) = extractCodeBlockContent(from: innerHTML)
-            return .codeBlock(language: language, code: code)
-
-        case "a":
-            let href = attrs["href"] ?? ""
-            let classes = classNames(from: attrs["class"])
-            if classes.contains("mention") {
-                let content = scanInnerContent(scanner: scanner, closingTag: "a", baseURLString: baseURLString)
-                let username = extractTextContent(from: content, includingEmojiFallback: false)
-                    .trimmingCharacters(in: .whitespaces)
-                let cleanUsername = username.hasPrefix("@") ? String(username.dropFirst()) : username
-                return .mention(username: cleanUsername)
-            }
-            let content = scanInnerContent(scanner: scanner, closingTag: "a", baseURLString: baseURLString)
-            let resolvedURL = resolveURL(href, baseURLString: baseURLString)
-            if shouldSuppressLinkForInlineImage(
-                urlString: resolvedURL,
-                classNames: classes,
-                children: content
-            ) {
-                return nil
-            }
-            return .link(url: resolvedURL, children: content)
-
-        case "blockquote":
-            let content = scanInnerContent(scanner: scanner, closingTag: "blockquote", baseURLString: baseURLString)
-            return .blockquote(content)
-
-        case "aside":
-            let content = scanInnerContent(scanner: scanner, closingTag: "aside", baseURLString: baseURLString)
-            let classes = classNames(from: attrs["class"])
-            if classes.contains("quote") {
-                return .quote(
-                    author: normalizedText(attrs["data-username"]),
-                    postNumber: attrs["data-post"].flatMap(UInt32.init),
-                    topicId: attrs["data-topic"].flatMap(UInt64.init),
-                    children: normalizeQuotedChildren(content)
-                )
-            }
-            return .paragraph(content)
-
-        case "li":
-            let content = scanInnerContent(scanner: scanner, closingTag: "li", baseURLString: baseURLString)
-            return .listItem(content)
-
-        case "h1", "h2", "h3", "h4", "h5", "h6":
-            let level = Int(String(tagName.last!))!
-            let content = scanInnerContent(scanner: scanner, closingTag: tagName, baseURLString: baseURLString)
-            return .heading(level: level, children: content)
-
-        case "ul", "ol":
-            let content = scanInnerContent(scanner: scanner, closingTag: tagName, baseURLString: baseURLString)
-            return .paragraph(content)
-
-        case "div", "span", "details", "summary", "section", "header", "nav":
-            let content = scanInnerContent(scanner: scanner, closingTag: tagName, baseURLString: baseURLString)
-            return .paragraph(content)
-
-        default:
-            // Unknown tag — try to consume content inside it
-            let content = scanInnerContent(scanner: scanner, closingTag: tagName, baseURLString: baseURLString)
-            return content.count == 1 ? content[0] : .paragraph(content)
-        }
-    }
-
-    private static func scanAttributes(scanner: Scanner) -> [String: String] {
-        var attrs: [String: String] = [:]
-        let attrNameChars = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_"))
-
-        while !scanner.isAtEnd {
-            _ = scanner.scanCharacters(from: .whitespaces)
-            if scanner.string[scanner.currentIndex...].hasPrefix(">")
-                || scanner.string[scanner.currentIndex...].hasPrefix("/>") {
-                break
-            }
-
-            guard let name = scanner.scanCharacters(from: attrNameChars)?.lowercased() else {
-                _ = scanner.scanCharacter()
-                continue
-            }
-
-            _ = scanner.scanCharacters(from: .whitespaces)
-            guard scanner.scanString("=") != nil else {
-                attrs[name] = ""
-                continue
-            }
-            _ = scanner.scanCharacters(from: .whitespaces)
-
-            let value: String
-            if scanner.scanString("\"") != nil {
-                value = scanner.scanUpToString("\"") ?? ""
-                _ = scanner.scanString("\"")
-            } else if scanner.scanString("'") != nil {
-                value = scanner.scanUpToString("'") ?? ""
-                _ = scanner.scanString("'")
-            } else {
-                value = scanner.scanCharacters(from: CharacterSet.whitespaces.union(CharacterSet(charactersIn: ">")).inverted) ?? ""
-            }
-            attrs[name] = decodeEntities(value)
-        }
-
-        return attrs
-    }
-
-    private static func scanInnerContent(
-        scanner: Scanner,
-        closingTag: String,
+    private static func mapNode(
+        _ node: CookedHtmlNodeState,
+        tree: CookedHtmlTree,
         baseURLString: String
     ) -> [FireRichTextNode] {
-        var nodes: [FireRichTextNode] = []
-        let closingPattern = "</\(closingTag)"
+        let children = mapChildren(of: node, tree: tree, baseURLString: baseURLString)
+        let attrs = attributes(from: node)
 
-        while !scanner.isAtEnd {
-            // Check for closing tag
-            let remaining = scanner.string[scanner.currentIndex...]
-            if remaining.lowercased().hasPrefix(closingPattern.lowercased()) {
-                // Consume closing tag
-                scanner.currentIndex = scanner.string.index(scanner.currentIndex, offsetBy: closingPattern.count)
-                _ = scanner.scanUpToString(">")
-                _ = scanner.scanString(">")
-                break
+        switch node.kind {
+        case .document:
+            return children
+        case .text:
+            return normalizedText(node.text).map { [.text($0)] } ?? []
+        case .paragraph:
+            return [.paragraph(children)]
+        case .heading:
+            return [.heading(level: Int(node.level ?? 2), children: children)]
+        case .lineBreak:
+            return [.lineBreak]
+        case .strong:
+            return [.bold(children)]
+        case .emphasis:
+            return [.italic(children)]
+        case .strikethrough:
+            return [.strikethrough(children)]
+        case .code:
+            return [.code(subtreeText(node, tree: tree))]
+        case .codeBlock:
+            return [.codeBlock(language: codeLanguage(in: node, tree: tree), code: subtreeText(node, tree: tree))]
+        case .link:
+            return mapLinkNode(node, children: children, attrs: attrs, baseURLString: baseURLString)
+        case .mention:
+            let username = extractTextContent(from: children, includingEmojiFallback: false)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let cleanUsername = username.hasPrefix("@") ? String(username.dropFirst()) : username
+            return cleanUsername.isEmpty ? children : [.mention(username: cleanUsername)]
+        case .hashtag:
+            let text = extractTextContent(from: children, includingEmojiFallback: false)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let cleanText = text.hasPrefix("#") ? String(text.dropFirst()) : text
+            let url = resolveURL(node.url ?? "", baseURLString: baseURLString)
+            return cleanText.isEmpty ? children : [.hashtag(text: cleanText, url: url, kind: normalizedText(attrs["data-type"]))]
+        case .image:
+            guard let source = resolvedURLString(node.url, baseURLString: baseURLString), !isEmojiNode(node) else {
+                return []
+            }
+            return [.image(
+                src: source,
+                alt: normalizedText(node.alt),
+                width: numericAttribute("width", in: attrs),
+                height: numericAttribute("height", in: attrs)
+            )]
+        case .emoji:
+            guard let source = resolvedURLString(node.url, baseURLString: baseURLString) else {
+                let fallback = emojiFallbackText(from: attrs, resolvedURLString: "")
+                return fallback.isEmpty ? [] : [.text(fallback)]
+            }
+            return [.emoji(
+                url: source,
+                fallbackText: emojiFallbackText(from: attrs, resolvedURLString: source),
+                onlyEmoji: classNames(from: attrs["class"]).contains("only-emoji")
+            )]
+        case .blockquote:
+            return [.blockquote(children)]
+        case .discourseQuote:
+            return [.quote(
+                author: normalizedText(attrs["data-username"] ?? node.title),
+                postNumber: attrs["data-post"].flatMap(UInt32.init),
+                topicId: attrs["data-topic"].flatMap(UInt64.init),
+                children: normalizeQuotedChildren(children)
+            )]
+        case .list:
+            let items = tree.children(of: node).compactMap { child -> [FireRichTextNode]? in
+                guard child.kind == .listItem else { return nil }
+                return mapChildren(of: child, tree: tree, baseURLString: baseURLString)
+            }
+            return items.isEmpty ? children : [.list(ordered: node.ordered == true, items: items)]
+        case .listItem:
+            return [.listItem(children)]
+        case .spoiler:
+            return [.spoiler(children)]
+        case .details:
+            let parts = detailsParts(from: children)
+            return [.details(summary: parts.summary, children: parts.body)]
+        case .table:
+            return [.table(tablePlainText(from: node, tree: tree))]
+        case .tableRow, .tableCell:
+            return children
+        case .onebox:
+            return [.onebox(
+                url: resolvedURLString(node.url, baseURLString: baseURLString),
+                title: normalizedText(node.title) ?? normalizedText(subtreeText(node, tree: tree)),
+                description: nil
+            )]
+        case .iframe:
+            guard let url = resolvedURLString(node.url, baseURLString: baseURLString) else {
+                return children
+            }
+            return [.video(url: url, title: normalizedText(node.title))]
+        case .attachment:
+            let url = resolveURL(node.url ?? "", baseURLString: baseURLString)
+            return url.isEmpty ? children : [.link(url: url, children: children)]
+        case .unknown:
+            return children
+        }
+    }
+
+    private static func mapLinkNode(
+        _ node: CookedHtmlNodeState,
+        children: [FireRichTextNode],
+        attrs: [String: String],
+        baseURLString: String
+    ) -> [FireRichTextNode] {
+        let url = resolveURL(node.url ?? "", baseURLString: baseURLString)
+        let classes = classNames(from: attrs["class"])
+
+        if classes.contains("mention-group") {
+            let groupName = extractTextContent(from: children, includingEmojiFallback: false)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let cleanName = groupName.hasPrefix("@") ? String(groupName.dropFirst()) : groupName
+            return cleanName.isEmpty ? children : [.mentionGroup(name: cleanName, url: url)]
+        }
+        if classes.contains("mention") {
+            let username = extractTextContent(from: children, includingEmojiFallback: false)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let cleanUsername = username.hasPrefix("@") ? String(username.dropFirst()) : username
+            return cleanUsername.isEmpty ? children : [.mention(username: cleanUsername)]
+        }
+        if classes.contains("hashtag") || classes.contains("hashtag-cooked") {
+            let hashtag = extractTextContent(from: children, includingEmojiFallback: false)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let cleanHashtag = hashtag.hasPrefix("#") ? String(hashtag.dropFirst()) : hashtag
+            return cleanHashtag.isEmpty ? children : [.hashtag(
+                text: cleanHashtag,
+                url: url,
+                kind: normalizedText(attrs["data-type"])
+            )]
+        }
+
+        if shouldSuppressLinkForInlineImage(urlString: url, classNames: classes, children: children) {
+            return children
+        }
+        return [.link(url: url, children: children)]
+    }
+
+    private static func imageAttachments(
+        from document: CookedHtmlDocumentState,
+        tree: CookedHtmlTree,
+        baseURLString: String
+    ) -> [FireCookedImage] {
+        var images: [FireCookedImage] = []
+        var seenURLs: Set<String> = []
+
+        for node in document.nodes where node.kind == .image && !isEmojiNode(node) {
+            let attrs = attributes(from: node)
+            let preferredSource = tree.nearestAncestor(of: node) { ancestor in
+                ancestor.kind == .link || ancestor.kind == .attachment
+            }?.url
+            let rawSource = normalizedText(preferredSource) ?? normalizedText(node.url)
+            guard let sourceURL = rawSource.flatMap({ resolvedAssetURL(from: $0, baseURLString: baseURLString) }) else {
+                continue
             }
 
-            if remaining.hasPrefix("<") {
-                if let node = scanTag(scanner: scanner, baseURLString: baseURLString) {
-                    nodes.append(node)
-                }
+            let absoluteURL = sourceURL.absoluteString
+            if absoluteURL.contains("/images/emoji/") || seenURLs.contains(absoluteURL) {
+                continue
+            }
+
+            seenURLs.insert(absoluteURL)
+            images.append(FireCookedImage(
+                url: sourceURL,
+                altText: normalizedText(node.alt),
+                width: numericAttribute("width", in: attrs),
+                height: numericAttribute("height", in: attrs)
+            ))
+        }
+
+        return images
+    }
+
+    private static func plainText(from nodes: [FireRichTextNode]) -> String {
+        var builder = PlainTextBuilder()
+        builder.append(nodes)
+        return builder.text
+    }
+
+    private static func attributes(from node: CookedHtmlNodeState) -> [String: String] {
+        Dictionary(uniqueKeysWithValues: node.attributes.map { ($0.name.lowercased(), $0.value) })
+    }
+
+    private static func isEmojiNode(_ node: CookedHtmlNodeState) -> Bool {
+        if node.kind == .emoji {
+            return true
+        }
+        let attrs = attributes(from: node)
+        if classNames(from: attrs["class"]).contains("emoji") {
+            return true
+        }
+        return node.url?.contains("/images/emoji/") == true
+    }
+
+    private static func numericAttribute(_ name: String, in attrs: [String: String]) -> CGFloat? {
+        attrs[name].flatMap(Double.init).map { CGFloat($0) }
+    }
+
+    private static func resolvedURLString(_ rawValue: String?, baseURLString: String) -> String? {
+        let resolved = resolveURL(rawValue ?? "", baseURLString: baseURLString)
+        return resolved.isEmpty ? nil : resolved
+    }
+
+    private static func resolvedAssetURL(from rawValue: String, baseURLString: String) -> URL? {
+        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return nil
+        }
+
+        if trimmed.hasPrefix("//") {
+            return URL(string: "https:\(trimmed)")
+        }
+
+        if let absoluteURL = URL(string: trimmed), absoluteURL.scheme != nil {
+            return absoluteURL
+        }
+
+        return URL(string: trimmed, relativeTo: URL(string: baseURLString))?.absoluteURL
+    }
+
+    private static func codeLanguage(in node: CookedHtmlNodeState, tree: CookedHtmlTree) -> String? {
+        let classes = classNames(from: attributes(from: node)["class"])
+        for className in classes {
+            if className.hasPrefix("language-") {
+                return String(className.dropFirst("language-".count))
+            }
+            if className.hasPrefix("lang-") {
+                return String(className.dropFirst("lang-".count))
+            }
+        }
+
+        for child in tree.children(of: node) {
+            if let language = codeLanguage(in: child, tree: tree) {
+                return language
+            }
+        }
+        return nil
+    }
+
+    private static func subtreeText(_ node: CookedHtmlNodeState, tree: CookedHtmlTree) -> String {
+        var builder = PlainTextBuilder()
+        appendSubtreeText(node, tree: tree, to: &builder)
+        return builder.text
+    }
+
+    private static func appendSubtreeText(
+        _ node: CookedHtmlNodeState,
+        tree: CookedHtmlTree,
+        to builder: inout PlainTextBuilder
+    ) {
+        switch node.kind {
+        case .text:
+            builder.appendInline(node.text ?? "")
+        case .lineBreak:
+            builder.ensureLineBreak()
+        case .image:
+            if isEmojiNode(node) {
+                builder.appendInline(emojiFallbackText(from: attributes(from: node), resolvedURLString: node.url ?? ""))
+            }
+        case .emoji:
+            builder.appendInline(emojiFallbackText(from: attributes(from: node), resolvedURLString: node.url ?? ""))
+        case .tableCell:
+            tree.children(of: node).forEach { appendSubtreeText($0, tree: tree, to: &builder) }
+            builder.appendInline(" ")
+        case .tableRow, .listItem:
+            tree.children(of: node).forEach { appendSubtreeText($0, tree: tree, to: &builder) }
+            builder.ensureLineBreak()
+        default:
+            tree.children(of: node).forEach { appendSubtreeText($0, tree: tree, to: &builder) }
+        }
+    }
+
+    private static func detailsParts(
+        from children: [FireRichTextNode]
+    ) -> (summary: [FireRichTextNode], body: [FireRichTextNode]) {
+        var summary: [FireRichTextNode] = []
+        var body: [FireRichTextNode] = []
+        var isReadingSummary = true
+
+        for child in children {
+            if isReadingSummary && isInlineDetailsSummaryNode(child) {
+                summary.append(child)
             } else {
-                let text = scanner.scanUpToString("<") ?? ""
-                let decoded = decodeEntities(text)
-                if !decoded.isEmpty {
-                    nodes.append(.text(decoded))
+                isReadingSummary = false
+                body.append(child)
+            }
+        }
+
+        return (summary.isEmpty ? [.text("Details")] : summary, body)
+    }
+
+    private static func isInlineDetailsSummaryNode(_ node: FireRichTextNode) -> Bool {
+        switch node {
+        case .text(let value):
+            return !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        case .bold, .italic, .strikethrough, .code, .link, .mention, .mentionGroup, .hashtag, .emoji:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private static func tablePlainText(from node: CookedHtmlNodeState, tree: CookedHtmlTree) -> String {
+        let rows = tree.children(of: node).filter { $0.kind == .tableRow }
+        guard !rows.isEmpty else {
+            return subtreeText(node, tree: tree)
+        }
+
+        return rows.compactMap { row in
+            let cells = tree.children(of: row).filter { $0.kind == .tableCell }
+            let text = cells
+                .map { subtreeText($0, tree: tree).trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+                .joined(separator: " | ")
+            return text.isEmpty ? nil : text
+        }.joined(separator: "\n")
+    }
+
+    private struct PlainTextBuilder {
+        private var storage = ""
+
+        var text: String {
+            storage.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        mutating func append(_ nodes: [FireRichTextNode]) {
+            nodes.forEach { append($0) }
+        }
+
+        // swiftlint:disable:next cyclomatic_complexity
+        mutating func append(_ node: FireRichTextNode) {
+            switch node {
+            case .text(let value), .code(let value):
+                appendInline(value)
+            case .bold(let children), .italic(let children), .strikethrough(let children),
+                 .link(_, let children), .blockquote(let children), .quote(_, _, _, let children),
+                 .spoiler(let children), .paragraph(let children), .heading(_, let children),
+                 .listItem(let children):
+                append(children)
+            case .codeBlock(_, let code), .table(let code):
+                ensureBlockBoundary()
+                appendPreformatted(code)
+                ensureBlockBoundary()
+            case .mention(let username):
+                appendInline("@\(username)")
+            case .mentionGroup(let name, _):
+                appendInline("@\(name)")
+            case .hashtag(let text, _, _):
+                appendInline("#\(text)")
+            case .emoji(_, let fallbackText, _):
+                appendInline(fallbackText)
+            case .onebox(let url, let title, let description):
+                ensureBlockBoundary()
+                [title, description, url].compactMap { $0 }.forEach { appendInline($0); ensureLineBreak() }
+                ensureBlockBoundary()
+            case .list(let ordered, let items):
+                ensureBlockBoundary()
+                for (index, item) in items.enumerated() {
+                    appendInline(ordered ? "\(index + 1)." : "-")
+                    append(item)
+                    ensureLineBreak()
+                }
+                ensureBlockBoundary()
+            case .details(let summary, let children):
+                ensureBlockBoundary()
+                append(summary)
+                ensureLineBreak()
+                append(children)
+                ensureBlockBoundary()
+            case .video(let url, let title):
+                appendInline(title ?? url)
+            case .divider:
+                ensureBlockBoundary()
+            case .lineBreak:
+                ensureLineBreak()
+            case .image:
+                break
+            }
+        }
+
+        mutating func appendInline(_ rawValue: String) {
+            let value = rawValue.replacingOccurrences(of: "\u{a0}", with: " ")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !value.isEmpty else {
+                return
+            }
+            if shouldInsertInlineSeparator(before: value) {
+                storage.append(" ")
+            }
+            storage.append(value)
+        }
+
+        mutating func appendPreformatted(_ rawValue: String) {
+            let value = rawValue.trimmingCharacters(in: .newlines)
+            guard !value.isEmpty else {
+                return
+            }
+            storage.append(value)
+        }
+
+        mutating func ensureLineBreak() {
+            trimTrailingSpaces()
+            if !storage.isEmpty && !storage.hasSuffix("\n") {
+                storage.append("\n")
+            }
+        }
+
+        mutating func ensureBlockBoundary() {
+            trimTrailingSpaces()
+            guard !storage.isEmpty else {
+                return
+            }
+            let trailingNewlineCount = storage.reversed().prefix { $0 == "\n" }.count
+            for _ in trailingNewlineCount..<2 {
+                storage.append("\n")
+            }
+        }
+
+        private mutating func trimTrailingSpaces() {
+            while storage.last == " " || storage.last == "\t" {
+                storage.removeLast()
+            }
+        }
+
+        private func shouldInsertInlineSeparator(before nextText: String) -> Bool {
+            guard let previous = storage.last, !previous.isWhitespace else {
+                return false
+            }
+            guard let next = nextText.first, !next.isWhitespace, !Self.isClosingPunctuation(next) else {
+                return false
+            }
+            if Self.isCJK(previous) && Self.isCJK(next) {
+                return false
+            }
+            return Self.isWordBoundary(previous) && Self.isWordBoundary(next)
+        }
+
+        private static func isWordBoundary(_ character: Character) -> Bool {
+            character.isLetter || character.isNumber || "@#_)]}".contains(character)
+        }
+
+        private static func isClosingPunctuation(_ character: Character) -> Bool {
+            ".,!?:;)]}%。，！？：；、".contains(character)
+        }
+
+        private static func isCJK(_ character: Character) -> Bool {
+            character.unicodeScalars.contains { scalar in
+                switch scalar.value {
+                case 0x4E00...0x9FFF, 0x3400...0x4DBF, 0x3040...0x30FF, 0xAC00...0xD7AF:
+                    return true
+                default:
+                    return false
                 }
             }
         }
-
-        return nodes
-    }
-
-    private static func scanRawInner(scanner: Scanner, closingTag: String) -> String {
-        let closingPattern = "</\(closingTag)"
-        var content = ""
-
-        while !scanner.isAtEnd {
-            let remaining = scanner.string[scanner.currentIndex...]
-            if remaining.lowercased().hasPrefix(closingPattern.lowercased()) {
-                scanner.currentIndex = scanner.string.index(scanner.currentIndex, offsetBy: closingPattern.count)
-                _ = scanner.scanUpToString(">")
-                _ = scanner.scanString(">")
-                break
-            }
-            content.append(scanner.string[scanner.currentIndex])
-            scanner.currentIndex = scanner.string.index(after: scanner.currentIndex)
-        }
-
-        return content
-    }
-
-    private static func extractCodeBlockContent(from html: String) -> (language: String?, code: String) {
-        // Try to find <code class="lang-xxx"> inner content
-        let codePattern = #"<code[^>]*class="[^"]*lang(?:uage)?-([^"\s]+)[^"]*"[^>]*>([\s\S]*?)</code>"#
-        if let regex = try? NSRegularExpression(pattern: codePattern, options: .caseInsensitive),
-           let match = regex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)) {
-            let language = Range(match.range(at: 1), in: html).map { String(html[$0]) }
-            let code = Range(match.range(at: 2), in: html).map { String(html[$0]) } ?? ""
-            return (language, decodeEntities(stripTags(code)))
-        }
-
-        // Fallback: just strip all tags
-        let code = stripTags(html)
-        return (nil, decodeEntities(code))
     }
 
     private static func extractTextContent(
@@ -331,7 +592,26 @@ enum FireRichTextParser {
             case .code(let t): return t
             case .codeBlock(_, let t): return t
             case .mention(let u): return "@\(u)"
+            case .mentionGroup(let name, _): return "@\(name)"
+            case .hashtag(let text, _, _): return "#\(text)"
             case .emoji(_, let fallbackText, _): return includingEmojiFallback ? fallbackText : ""
+            case .onebox(let url, let title, let description):
+                return [title, description, url].compactMap { $0 }.joined(separator: "\n")
+            case .list(_, let items):
+                return items.map {
+                    extractTextContent(from: $0, includingEmojiFallback: includingEmojiFallback)
+                }.joined(separator: "\n")
+            case .spoiler(let c):
+                return extractTextContent(from: c, includingEmojiFallback: includingEmojiFallback)
+            case .details(let summary, let c):
+                return (
+                    extractTextContent(from: summary, includingEmojiFallback: includingEmojiFallback)
+                    + "\n"
+                    + extractTextContent(from: c, includingEmojiFallback: includingEmojiFallback)
+                )
+            case .table(let text): return text
+            case .video(let url, let title): return title ?? url
+            case .divider: return "\n"
             case .lineBreak: return "\n"
             case .image: return ""
             }
@@ -483,39 +763,6 @@ enum FireRichTextParser {
         }
         return trimmed
     }
-
-    private static func stripTags(_ html: String) -> String {
-        html.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
-    }
-
-    private static func decodeEntities(_ text: String) -> String {
-        var result = text
-        let entities: [(String, String)] = [
-            ("&nbsp;", " "), ("&#160;", " "),
-            ("&amp;", "&"),
-            ("&quot;", "\""), ("&#34;", "\""),
-            ("&#39;", "'"), ("&#x27;", "'"), ("&apos;", "'"),
-            ("&lt;", "<"), ("&gt;", ">"),
-            ("&#8211;", "–"), ("&#8212;", "—"),
-            ("&#8230;", "…"),
-        ]
-        for (entity, replacement) in entities {
-            result = result.replacingOccurrences(of: entity, with: replacement)
-        }
-        // Numeric entities
-        let numericPattern = #"&#(\d+);"#
-        if let regex = try? NSRegularExpression(pattern: numericPattern) {
-            let matches = regex.matches(in: result, range: NSRange(result.startIndex..., in: result))
-            for match in matches.reversed() {
-                guard let range = Range(match.range, in: result),
-                      let codeRange = Range(match.range(at: 1), in: result),
-                      let codePoint = UInt32(result[codeRange]),
-                      let scalar = Unicode.Scalar(codePoint) else { continue }
-                result.replaceSubrange(range, with: String(Character(scalar)))
-            }
-        }
-        return result
-    }
 }
 
 // MARK: - AttributedString Builder
@@ -662,6 +909,24 @@ enum FireRichTextAttributedStringBuilder {
                 ]
                 result.append(NSAttributedString(string: "@\(username)", attributes: attrs))
 
+            case .mentionGroup(let name, let url):
+                let linkValue: Any = URL(string: url) ?? url
+                let attrs: [NSAttributedString.Key: Any] = [
+                    .font: context.currentFont,
+                    .foregroundColor: context.accentColor,
+                    .link: linkValue,
+                ]
+                result.append(NSAttributedString(string: "@\(name)", attributes: attrs))
+
+            case .hashtag(let text, let url, _):
+                let linkValue: Any = URL(string: url) ?? url
+                let attrs: [NSAttributedString.Key: Any] = [
+                    .font: context.currentFont,
+                    .foregroundColor: context.accentColor,
+                    .link: linkValue,
+                ]
+                result.append(NSAttributedString(string: "#\(text)", attributes: attrs))
+
             case .emoji(let url, let fallbackText, let onlyEmoji):
                 if let attachment = makeEmojiAttachment(
                     urlString: url,
@@ -730,6 +995,31 @@ enum FireRichTextAttributedStringBuilder {
                     result.append(NSAttributedString(string: "\n"))
                 }
 
+            case .onebox(let url, let title, let description):
+                if result.length > 0 && !result.string.hasSuffix("\n") {
+                    result.append(NSAttributedString(string: "\n"))
+                }
+                result.append(oneboxAttributedString(
+                    url: url,
+                    title: title,
+                    description: description,
+                    context: context
+                ))
+                result.append(NSAttributedString(string: "\n"))
+
+            case .list(let ordered, let items):
+                if result.length > 0 && !result.string.hasSuffix("\n") {
+                    result.append(NSAttributedString(string: "\n"))
+                }
+                for (index, item) in items.enumerated() {
+                    if index > 0 {
+                        result.append(NSAttributedString(string: "\n"))
+                    }
+                    let prefix = ordered ? "\(index + 1). " : " • "
+                    result.append(NSAttributedString(string: prefix, attributes: textAttributes(for: context)))
+                    appendNodes(item, to: result, context: context)
+                }
+
             case .listItem(let children):
                 if result.length > 0 && !result.string.hasSuffix("\n") {
                     result.append(NSAttributedString(string: "\n"))
@@ -737,6 +1027,65 @@ enum FireRichTextAttributedStringBuilder {
                 let bullet = NSAttributedString(string: " • ", attributes: textAttributes(for: context))
                 result.append(bullet)
                 appendNodes(children, to: result, context: context)
+
+            case .spoiler(let children):
+                let spoiler = NSMutableAttributedString()
+                appendNodes(children, to: spoiler, context: context)
+                if spoiler.length > 0 {
+                    spoiler.addAttributes([
+                        .backgroundColor: UIColor.tertiarySystemFill,
+                        .foregroundColor: UIColor.secondaryLabel,
+                    ], range: NSRange(location: 0, length: spoiler.length))
+                    result.append(spoiler)
+                }
+
+            case .details(let summary, let children):
+                if result.length > 0 && !result.string.hasSuffix("\n") {
+                    result.append(NSAttributedString(string: "\n"))
+                }
+                let summaryResult = NSMutableAttributedString(
+                    string: "▾ ",
+                    attributes: textAttributes(for: context)
+                )
+                appendNodes(summary, to: summaryResult, context: context.withBold())
+                result.append(summaryResult)
+                if !children.isEmpty {
+                    result.append(NSAttributedString(string: "\n"))
+                    appendNodes(children, to: result, context: context.indented())
+                }
+
+            case .table(let text):
+                if result.length > 0 && !result.string.hasSuffix("\n") {
+                    result.append(NSAttributedString(string: "\n"))
+                }
+                var attrs = textAttributes(for: context)
+                attrs[.font] = UIFont.monospacedSystemFont(
+                    ofSize: context.baseFont.pointSize - 1,
+                    weight: .regular
+                )
+                attrs[.backgroundColor] = context.codeBackgroundColor
+                result.append(NSAttributedString(string: text, attributes: attrs))
+                result.append(NSAttributedString(string: "\n"))
+
+            case .video(let url, let title):
+                let display = title?.isEmpty == false ? title! : url
+                let linkValue: Any = URL(string: url) ?? url
+                result.append(NSAttributedString(string: display, attributes: [
+                    .font: context.currentFont,
+                    .foregroundColor: context.accentColor,
+                    .underlineStyle: NSUnderlineStyle.single.rawValue,
+                    .link: linkValue,
+                ]))
+
+            case .divider:
+                if result.length > 0 && !result.string.hasSuffix("\n") {
+                    result.append(NSAttributedString(string: "\n"))
+                }
+                result.append(NSAttributedString(
+                    string: "----------",
+                    attributes: textAttributes(for: context.withTextColor(.separator))
+                ))
+                result.append(NSAttributedString(string: "\n"))
 
             case .lineBreak:
                 result.append(NSAttributedString(string: "\n"))
@@ -765,6 +1114,61 @@ enum FireRichTextAttributedStringBuilder {
             attrs[.strikethroughStyle] = NSUnderlineStyle.single.rawValue
         }
         return attrs
+    }
+
+    private static func oneboxAttributedString(
+        url: String?,
+        title: String?,
+        description: String?,
+        context: RenderContext
+    ) -> NSAttributedString {
+        let result = NSMutableAttributedString()
+        let captionAttributes: [NSAttributedString.Key: Any] = [
+            .font: UIFont.preferredFont(forTextStyle: .caption1),
+            .foregroundColor: UIColor.secondaryLabel,
+        ]
+        result.append(NSAttributedString(string: "链接预览", attributes: captionAttributes))
+
+        let linkValue: Any?
+        if let url {
+            linkValue = URL(string: url) ?? url
+        } else {
+            linkValue = nil
+        }
+        let titleText = title?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let descriptionText = description?.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if let titleText, !titleText.isEmpty {
+            result.append(NSAttributedString(string: "\n"))
+            var attrs = textAttributes(for: context.withBold())
+            attrs[.foregroundColor] = context.accentColor
+            if let linkValue {
+                attrs[.link] = linkValue
+            }
+            result.append(NSAttributedString(string: titleText, attributes: attrs))
+        }
+
+        if let descriptionText, !descriptionText.isEmpty {
+            result.append(NSAttributedString(string: "\n"))
+            result.append(NSAttributedString(
+                string: descriptionText,
+                attributes: textAttributes(for: context.withTextColor(.secondaryLabel))
+            ))
+        } else if let url, !url.isEmpty, titleText?.isEmpty != false {
+            result.append(NSAttributedString(string: "\n"))
+            var attrs = textAttributes(for: context)
+            attrs[.foregroundColor] = context.accentColor
+            if let linkValue {
+                attrs[.link] = linkValue
+            }
+            result.append(NSAttributedString(string: url, attributes: attrs))
+        }
+
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.paragraphSpacing = 6
+        paragraph.paragraphSpacingBefore = 4
+        result.addAttribute(.paragraphStyle, value: paragraph, range: NSRange(location: 0, length: result.length))
+        return result
     }
 
     private static func makeEmojiAttachment(

@@ -133,6 +133,7 @@ pub struct TopicCategoryState {
     pub required_tag_groups: Vec<RequiredTagGroupState>,
     pub allowed_tags: Vec<String>,
     pub permission: Option<u32>,
+    pub notification_level: Option<i32>,
 }
 
 impl From<TopicCategory> for TopicCategoryState {
@@ -153,6 +154,7 @@ impl From<TopicCategory> for TopicCategoryState {
                 .collect(),
             allowed_tags: value.allowed_tags,
             permission: value.permission,
+            notification_level: value.notification_level,
         }
     }
 }
@@ -175,6 +177,7 @@ impl From<TopicCategoryState> for TopicCategory {
                 .collect(),
             allowed_tags: value.allowed_tags,
             permission: value.permission,
+            notification_level: value.notification_level,
         }
     }
 }
@@ -359,6 +362,7 @@ pub struct SessionState {
     pub readiness: SessionReadinessState,
     pub login_phase: LoginPhaseState,
     pub has_login_session: bool,
+    pub browser_user_agent: Option<String>,
     pub profile_display_name: String,
     pub login_phase_label: String,
 }
@@ -367,14 +371,17 @@ impl SessionState {
     pub fn from_snapshot(snapshot: SessionSnapshot) -> Self {
         let readiness = snapshot.readiness();
         let login_phase = snapshot.login_phase();
+        let profile_display_name = snapshot.profile_display_name();
+        let login_phase_label = snapshot.login_phase_label();
         Self {
             has_login_session: snapshot.cookies.has_login_session(),
-            profile_display_name: snapshot.profile_display_name(),
-            login_phase_label: snapshot.login_phase_label(),
+            profile_display_name,
+            login_phase_label,
             cookies: snapshot.cookies.into(),
             bootstrap: snapshot.bootstrap.into(),
             readiness: readiness.into(),
             login_phase: login_phase.into(),
+            browser_user_agent: snapshot.browser_user_agent,
         }
     }
 }

@@ -88,6 +88,28 @@ pub struct PostUpdateRequest {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PostFlagRequest {
+    pub post_id: u64,
+    pub flag_type_id: u32,
+    pub message: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PostActionType {
+    pub id: u32,
+    pub name_key: String,
+    pub name: String,
+    pub description: String,
+    pub short_description: Option<String>,
+    pub is_flag: bool,
+    pub require_message: bool,
+    pub enabled: bool,
+    pub position: i32,
+    #[serde(default)]
+    pub applies_to: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InviteCreateRequest {
     pub max_redemptions_allowed: u32,
     pub expires_at: Option<String>,
@@ -181,6 +203,28 @@ pub struct PostReactionUpdate {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReactionUser {
+    pub id: u64,
+    pub username: String,
+    pub name: Option<String>,
+    pub avatar_template: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReactionUsersGroup {
+    pub id: String,
+    pub count: u32,
+    pub users: Vec<ReactionUser>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TopicReplyToUser {
+    pub username: String,
+    pub name: Option<String>,
+    pub avatar_template: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TopicPost {
     pub id: u64,
     pub username: String,
@@ -195,6 +239,7 @@ pub struct TopicPost {
     pub like_count: u32,
     pub reply_count: u32,
     pub reply_to_post_number: Option<u32>,
+    pub reply_to_user: Option<TopicReplyToUser>,
     pub bookmarked: bool,
     pub bookmark_id: Option<u64>,
     pub bookmark_name: Option<String>,
@@ -203,6 +248,8 @@ pub struct TopicPost {
     pub current_user_reaction: Option<TopicReaction>,
     pub polls: Vec<Poll>,
     pub accepted_answer: bool,
+    pub can_accept_answer: bool,
+    pub can_unaccept_answer: bool,
     pub can_edit: bool,
     pub can_delete: bool,
     pub can_recover: bool,
@@ -414,6 +461,16 @@ pub struct TopicDetailMeta {
     pub created_by: Option<TopicDetailCreatedBy>,
     #[serde(default)]
     pub participants: Vec<TopicParticipant>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TopicAiSummary {
+    pub summarized_text: String,
+    pub algorithm: Option<String>,
+    pub outdated: bool,
+    pub can_regenerate: bool,
+    pub new_posts_since_summary: u32,
+    pub updated_at: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

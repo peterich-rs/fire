@@ -557,7 +557,17 @@ actor FireAPMEventStore {
             type: envelope.eventType,
             title: title,
             subtitle: subtitle,
-            timestampUnixMs: envelope.capturedAtUnixMs
+            timestampUnixMs: envelope.capturedAtUnixMs,
+            launchID: envelope.launchID,
+            diagnosticSessionID: envelope.diagnosticSessionID,
+            route: envelope.route,
+            scenePhase: envelope.scenePhase,
+            privacyTier: envelope.privacyTier,
+            payloadPath: envelope.payloadPath,
+            payloadSummary: envelope.payloadSummary,
+            appVersion: envelope.appVersion,
+            buildNumber: envelope.buildNumber,
+            gitSha: envelope.gitSha
         )
     }
 }

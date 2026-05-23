@@ -60,6 +60,20 @@
             android:text="@string/action_refresh_topics" />
 
         <Button
+            android:id="@+id/createTopicButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="@string/action_create_topic" />
+
+        <Button
+            android:id="@+id/categoryNotificationButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="@string/action_category_notifications" />
+
+        <Button
             android:id="@+id/logoutButton"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -72,6 +86,20 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="12dp"
             android:text="@string/action_open_diagnostics" />
+
+        <Button
+            android:id="@+id/openNotificationsButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="@string/action_open_notifications" />
+
+        <Button
+            android:id="@+id/openSearchButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="@string/action_open_search" />
 
         <LinearLayout
             android:id="@+id/lastErrorSection"
@@ -174,6 +202,34 @@
                     android:layout_height="wrap_content"
                     android:layout_marginStart="8dp"
                     android:text="@string/feed_top" />
+
+                <Button
+                    android:id="@+id/privateMessagesInboxButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:text="@string/feed_private_messages_inbox" />
+
+                <Button
+                    android:id="@+id/privateMessagesSentButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:text="@string/feed_private_messages_sent" />
+
+                <Button
+                    android:id="@+id/bookmarksButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:text="@string/feed_bookmarks" />
+
+                <Button
+                    android:id="@+id/readHistoryButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:text="@string/feed_read_history" />
             </LinearLayout>
         </HorizontalScrollView>
 

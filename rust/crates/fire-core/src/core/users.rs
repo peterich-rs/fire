@@ -1,8 +1,9 @@
 use fire_models::{
     Badge, FollowUser, InviteCreateRequest, InviteLink, TopicListResponse, UserAction, UserProfile,
-    UserSummaryResponse,
+    UserReactionsResponse, UserSummaryResponse,
 };
 use http::Method;
+use openwire::RequestBody;
 use serde_json::{json, Value};
 use tracing::info;
 
@@ -13,7 +14,7 @@ use crate::{
     user_payloads::{
         parse_badge_value, parse_follow_users_value, parse_invite_link_value,
         parse_invite_links_value, parse_user_actions_value, parse_user_profile_value,
-        parse_user_summary_value,
+        parse_user_reactions_value, parse_user_summary_value,
     },
 };
 
@@ -102,6 +103,57 @@ impl FireCore {
             })
             .await?;
         let response = expect_success(self, "unfollow user", trace_id, response).await?;
+        let _ = self.read_response_text(trace_id, response).await?;
+        Ok(())
+    }
+
+    pub async fn set_user_notification_level(
+        &self,
+        username: &str,
+        notification_level: &str,
+        expiring_at: Option<&str>,
+    ) -> Result<(), FireCoreError> {
+        let notification_level = normalized_user_notification_level(notification_level)?;
+        info!(
+            username,
+            notification_level,
+            has_expiring_at = expiring_at.is_some(),
+            "setting user notification level"
+        );
+
+        let path = format!("/u/{username}/notification_level.json");
+        let mut body = serde_json::Map::new();
+        body.insert(
+            "notification_level".to_string(),
+            Value::String(notification_level.to_string()),
+        );
+        if let Some(expiring_at) = expiring_at {
+            body.insert(
+                "expiring_at".to_string(),
+                Value::String(expiring_at.to_string()),
+            );
+        }
+        let body = serde_json::to_vec(&Value::Object(body)).map_err(|source| {
+            FireCoreError::ResponseDeserialize {
+                operation: "set user notification level",
+                source,
+            }
+        })?;
+
+        let (trace_id, response) = self
+            .execute_api_request_with_csrf_retry("set user notification level", || {
+                self.build_api_request_with_body(
+                    "set user notification level",
+                    Method::PUT,
+                    &path,
+                    Some("application/json; charset=utf-8"),
+                    RequestBody::from(body.clone()),
+                    true,
+                )
+            })
+            .await?;
+        let response =
+            expect_success(self, "set user notification level", trace_id, response).await?;
         let _ = self.read_response_text(trace_id, response).await?;
         Ok(())
     }
@@ -281,6 +333,48 @@ impl FireCore {
         Ok(actions)
     }
 
+    pub async fn fetch_user_reactions(
+        &self,
+        username: &str,
+        before_reaction_user_id: Option<u64>,
+    ) -> Result<UserReactionsResponse, FireCoreError> {
+        info!(
+            username,
+            ?before_reaction_user_id,
+            "fetching user reactions"
+        );
+        let mut params: Vec<(&str, String)> = vec![("username", username.to_string())];
+        if let Some(before_reaction_user_id) = before_reaction_user_id {
+            params.push((
+                "before_reaction_user_id",
+                before_reaction_user_id.to_string(),
+            ));
+        }
+        let traced = self.build_json_get_request(
+            "fetch user reactions",
+            "/discourse-reactions/posts/reactions.json",
+            params,
+            &[],
+        )?;
+        let (trace_id, response) = self.execute_request(traced).await?;
+        let response = expect_success(self, "fetch user reactions", trace_id, response).await?;
+        let value: Value = self
+            .read_response_json("fetch user reactions", trace_id, response)
+            .await?;
+        let result = parse_user_reactions_value(value).map_err(|source| {
+            FireCoreError::ResponseDeserialize {
+                operation: "fetch user reactions",
+                source,
+            }
+        })?;
+        info!(
+            username,
+            reaction_count = result.reactions.len(),
+            "user reactions fetched successfully"
+        );
+        Ok(result)
+    }
+
     async fn fetch_follow_users(
         &self,
         username: &str,
@@ -307,5 +401,16 @@ impl FireCore {
             "follow users fetched successfully"
         );
         Ok(users)
+    }
+}
+
+fn normalized_user_notification_level(level: &str) -> Result<&'static str, FireCoreError> {
+    match level.trim().to_ascii_lowercase().as_str() {
+        "normal" => Ok("normal"),
+        "mute" => Ok("mute"),
+        "ignore" => Ok("ignore"),
+        other => Err(FireCoreError::InvalidUserNotificationLevel {
+            level: other.to_string(),
+        }),
     }
 }

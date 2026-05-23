@@ -232,13 +232,14 @@ impl FireTopicsHandle {
 
 ### Top-Level `#[uniffi::export]` Free Functions
 
-`rust/crates/fire-uniffi/src/handle.rs:48-61` exports three namespace-level `#[uniffi::export] pub fn`s that are not `FireCoreHandle` methods:
+`rust/crates/fire-uniffi/src/lib.rs` exports namespace-level `#[uniffi::export] pub fn`s that are not `FireAppCore` methods:
 
 - `plain_text_from_html(raw_html: String) -> String`
+- `parse_cooked_html(raw_html: String) -> CookedHtmlDocumentState`
 - `preview_text_from_html(raw_html: Option<String>) -> Option<String>`
 - `monogram_for_username(username: String) -> String`
 
-These are stateless display helpers and have no affinity to any domain. They stay in the top-level `fire-uniffi` crate (namespace `fire_uniffi`) alongside `FireAppCore`. Existing Android call sites (e.g., `native/android-app/src/main/java/com/fire/app/TopicDetailActivity.kt:19,280-282` uses `plainTextFromHtml`) continue to reference `uniffi.fire_uniffi.plainTextFromHtml` / `FireUniFfi.plainTextFromHtml` with no rename. Any future stateless helper that is domain-specific (e.g., a topic-detail-only sanitizer) goes into its domain crate instead.
+These are stateless display helpers and have no affinity to a live `FireAppCore` instance. They stay in the top-level `fire-uniffi` crate (namespace `fire_uniffi`) alongside `FireAppCore`. Existing Android call sites continue to reference `uniffi.fire_uniffi.plainTextFromHtml`; newer native renderers can consume `parseCookedHtml` to get the shared Rust `scraper` / `html5ever` cooked-HTML AST before applying host-owned layout. Any future stateless helper that is domain-specific and not shared across host surfaces can still move into its domain crate.
 
 ### Namespace to Generated File Mapping
 

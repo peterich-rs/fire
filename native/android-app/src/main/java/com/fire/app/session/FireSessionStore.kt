@@ -11,14 +11,33 @@ import uniffi.fire_uniffi_diagnostics.NetworkTraceDetailState
 import uniffi.fire_uniffi_diagnostics.NetworkTraceSummaryState
 import uniffi.fire_uniffi_notifications.NotificationCenterState
 import uniffi.fire_uniffi_notifications.NotificationListState
+import uniffi.fire_uniffi_search.SearchQueryState
+import uniffi.fire_uniffi_search.SearchResultState
 import uniffi.fire_uniffi_session.LoginSyncState
 import uniffi.fire_uniffi_session.PlatformCookieState
 import uniffi.fire_uniffi_session.SessionState
+import uniffi.fire_uniffi_topics.PollState
+import uniffi.fire_uniffi_topics.PostActionTypeState
+import uniffi.fire_uniffi_topics.PostFlagRequestState
+import uniffi.fire_uniffi_topics.PostReactionUpdateState
+import uniffi.fire_uniffi_topics.PostUpdateRequestState
+import uniffi.fire_uniffi_topics.PrivateMessageCreateRequestState
+import uniffi.fire_uniffi_topics.ReactionUsersGroupState
+import uniffi.fire_uniffi_topics.TopicAiSummaryState
+import uniffi.fire_uniffi_topics.TopicCreateRequestState
 import uniffi.fire_uniffi_topics.TopicDetailQueryState
 import uniffi.fire_uniffi_topics.TopicDetailState
 import uniffi.fire_uniffi_topics.TopicListQueryState
 import uniffi.fire_uniffi_topics.TopicPostState
+import uniffi.fire_uniffi_topics.TopicReplyRequestState
+import uniffi.fire_uniffi_topics.TopicUpdateRequestState
+import uniffi.fire_uniffi_topics.VoteResponseState
+import uniffi.fire_uniffi_topics.VotedUserState
 import uniffi.fire_uniffi_types.TopicListState
+import uniffi.fire_uniffi_user.FollowUserState
+import uniffi.fire_uniffi_user.UserProfileState
+import uniffi.fire_uniffi_user.UserReactionsState
+import uniffi.fire_uniffi_user.UserSummaryState
 
 class FireSessionStore(
     context: Context,
@@ -72,13 +91,14 @@ class FireSessionStore(
         refreshed
     }
 
-    suspend fun refreshCsrfTokenIfNeeded(): SessionState = withContext(Dispatchers.IO) {
-        val current = core.session().snapshot()
-        if (current.cookies.csrfToken != null) {
-            return@withContext current
-        }
+    suspend fun refreshBootstrap(): SessionState = withContext(Dispatchers.IO) {
+        val refreshed = core.session().refreshBootstrap()
+        persistCurrentSession()
+        refreshed
+    }
 
-        val refreshed = core.session().refreshCsrfToken()
+    suspend fun refreshCsrfTokenIfNeeded(): SessionState = withContext(Dispatchers.IO) {
+        val refreshed = core.session().refreshCsrfTokenIfNeeded()
         persistCurrentSession()
         refreshed
     }
@@ -130,6 +150,66 @@ class FireSessionStore(
         core.notifications().fetchNotifications(limit, offset)
     }
 
+    suspend fun fetchBookmarks(username: String, page: UInt? = null): TopicListState =
+        withContext(Dispatchers.IO) {
+            core.notifications().fetchBookmarks(username, page)
+        }
+
+    suspend fun fetchReadHistory(page: UInt? = null): TopicListState =
+        withContext(Dispatchers.IO) {
+            core.notifications().fetchReadHistory(page)
+        }
+
+    suspend fun createBookmark(
+        bookmarkableId: ULong,
+        bookmarkableType: String,
+        name: String? = null,
+        reminderAt: String? = null,
+        autoDeletePreference: Int? = null,
+    ): ULong = withContext(Dispatchers.IO) {
+        val bookmarkId = core.notifications().createBookmark(
+            bookmarkableId,
+            bookmarkableType,
+            name,
+            reminderAt,
+            autoDeletePreference,
+        )
+        persistCurrentSession()
+        bookmarkId
+    }
+
+    suspend fun updateBookmark(
+        bookmarkId: ULong,
+        name: String? = null,
+        reminderAt: String? = null,
+        autoDeletePreference: Int? = null,
+    ) = withContext(Dispatchers.IO) {
+        core.notifications().updateBookmark(
+            bookmarkId,
+            name,
+            reminderAt,
+            autoDeletePreference,
+        )
+        persistCurrentSession()
+    }
+
+    suspend fun deleteBookmark(bookmarkId: ULong) = withContext(Dispatchers.IO) {
+        core.notifications().deleteBookmark(bookmarkId)
+        persistCurrentSession()
+    }
+
+    suspend fun setTopicNotificationLevel(topicId: ULong, notificationLevel: Int) =
+        withContext(Dispatchers.IO) {
+            core.notifications().setTopicNotificationLevel(topicId, notificationLevel)
+            persistCurrentSession()
+        }
+
+    suspend fun setCategoryNotificationLevel(categoryId: ULong, notificationLevel: Int) =
+        withContext(Dispatchers.IO) {
+            core.notifications().setCategoryNotificationLevel(categoryId, notificationLevel)
+            persistCurrentSession()
+        }
+
     suspend fun markNotificationRead(id: ULong): NotificationCenterState =
         withContext(Dispatchers.IO) {
             core.notifications().markNotificationRead(id)
@@ -140,6 +220,10 @@ class FireSessionStore(
             core.notifications().markAllNotificationsRead()
         }
 
+    suspend fun search(query: SearchQueryState): SearchResultState = withContext(Dispatchers.IO) {
+        core.search().search(query)
+    }
+
     suspend fun restoreSessionJson(json: String): SessionState = withContext(Dispatchers.Default) {
         val restored = core.session().restoreSessionJson(json)
         persistCurrentSession()
@@ -147,7 +231,8 @@ class FireSessionStore(
     }
 
     suspend fun logout(): SessionState = withContext(Dispatchers.IO) {
-        val state = core.session().logoutRemote(true)
+        val state = runCatching { core.session().logoutRemote(true) }
+            .getOrElse { core.session().logoutLocal(true) }
         clearPersistedSession()
         state
     }
@@ -166,6 +251,174 @@ class FireSessionStore(
 
     suspend fun fetchTopicPosts(topicId: ULong, postIds: List<ULong>): List<TopicPostState> = withContext(Dispatchers.IO) {
         core.topics().fetchTopicPosts(topicId, postIds)
+    }
+
+    suspend fun fetchTopicAiSummary(topicId: ULong, skipAgeCheck: Boolean = false): TopicAiSummaryState? =
+        withContext(Dispatchers.IO) {
+            core.topics().fetchTopicAiSummary(topicId, skipAgeCheck)
+        }
+
+    suspend fun createTopic(input: TopicCreateRequestState): ULong = withContext(Dispatchers.IO) {
+        val topicId = core.topics().createTopic(input)
+        persistCurrentSession()
+        topicId
+    }
+
+    suspend fun createPrivateMessage(input: PrivateMessageCreateRequestState): ULong = withContext(Dispatchers.IO) {
+        val topicId = core.topics().createPrivateMessage(input)
+        persistCurrentSession()
+        topicId
+    }
+
+    suspend fun createReply(input: TopicReplyRequestState): TopicPostState = withContext(Dispatchers.IO) {
+        val post = core.topics().createReply(input)
+        persistCurrentSession()
+        post
+    }
+
+    suspend fun updateTopic(input: TopicUpdateRequestState) = withContext(Dispatchers.IO) {
+        core.topics().updateTopic(input)
+        persistCurrentSession()
+    }
+
+    suspend fun updatePost(input: PostUpdateRequestState): TopicPostState = withContext(Dispatchers.IO) {
+        val post = core.topics().updatePost(input)
+        persistCurrentSession()
+        post
+    }
+
+    suspend fun fetchPostReplies(postId: ULong, after: UInt? = 1u): List<TopicPostState> = withContext(Dispatchers.IO) {
+        core.topics().fetchPostReplies(postId, after)
+    }
+
+    suspend fun fetchPostReplyIds(postId: ULong): List<ULong> = withContext(Dispatchers.IO) {
+        core.topics().fetchPostReplyIds(postId)
+    }
+
+    suspend fun fetchPostReplyHistory(postId: ULong): List<TopicPostState> = withContext(Dispatchers.IO) {
+        core.topics().fetchPostReplyHistory(postId)
+    }
+
+    suspend fun likePost(postId: ULong): PostReactionUpdateState? = withContext(Dispatchers.IO) {
+        val update = core.topics().likePost(postId)
+        persistCurrentSession()
+        update
+    }
+
+    suspend fun unlikePost(postId: ULong): PostReactionUpdateState? = withContext(Dispatchers.IO) {
+        val update = core.topics().unlikePost(postId)
+        persistCurrentSession()
+        update
+    }
+
+    suspend fun togglePostReaction(postId: ULong, reactionId: String): PostReactionUpdateState =
+        withContext(Dispatchers.IO) {
+            val update = core.topics().togglePostReaction(postId, reactionId)
+            persistCurrentSession()
+            update
+        }
+
+    suspend fun fetchReactionUsers(postId: ULong): List<ReactionUsersGroupState> =
+        withContext(Dispatchers.IO) {
+            core.topics().fetchReactionUsers(postId)
+        }
+
+    suspend fun votePoll(postId: ULong, pollName: String, options: List<String>): PollState =
+        withContext(Dispatchers.IO) {
+            val poll = core.topics().votePoll(postId, pollName, options)
+            persistCurrentSession()
+            poll
+        }
+
+    suspend fun unvotePoll(postId: ULong, pollName: String): PollState = withContext(Dispatchers.IO) {
+        val poll = core.topics().unvotePoll(postId, pollName)
+        persistCurrentSession()
+        poll
+    }
+
+    suspend fun voteTopic(topicId: ULong): VoteResponseState = withContext(Dispatchers.IO) {
+        val response = core.topics().voteTopic(topicId)
+        persistCurrentSession()
+        response
+    }
+
+    suspend fun unvoteTopic(topicId: ULong): VoteResponseState = withContext(Dispatchers.IO) {
+        val response = core.topics().unvoteTopic(topicId)
+        persistCurrentSession()
+        response
+    }
+
+    suspend fun fetchTopicVoters(topicId: ULong): List<VotedUserState> = withContext(Dispatchers.IO) {
+        core.topics().fetchTopicVoters(topicId)
+    }
+
+    suspend fun deletePost(postId: ULong) = withContext(Dispatchers.IO) {
+        core.topics().deletePost(postId)
+        persistCurrentSession()
+    }
+
+    suspend fun recoverPost(postId: ULong) = withContext(Dispatchers.IO) {
+        core.topics().recoverPost(postId)
+        persistCurrentSession()
+    }
+
+    suspend fun acceptSolution(postId: ULong) = withContext(Dispatchers.IO) {
+        core.topics().acceptSolution(postId)
+        persistCurrentSession()
+    }
+
+    suspend fun unacceptSolution(postId: ULong) = withContext(Dispatchers.IO) {
+        core.topics().unacceptSolution(postId)
+        persistCurrentSession()
+    }
+
+    suspend fun flagPost(input: PostFlagRequestState) = withContext(Dispatchers.IO) {
+        core.topics().flagPost(input)
+        persistCurrentSession()
+    }
+
+    suspend fun fetchPostActionTypes(): List<PostActionTypeState> = withContext(Dispatchers.IO) {
+        core.topics().fetchPostActionTypes()
+    }
+
+    suspend fun fetchUserProfile(username: String): UserProfileState = withContext(Dispatchers.IO) {
+        core.user().fetchUserProfile(username)
+    }
+
+    suspend fun fetchUserSummary(username: String): UserSummaryState = withContext(Dispatchers.IO) {
+        core.user().fetchUserSummary(username)
+    }
+
+    suspend fun fetchUserReactions(
+        username: String,
+        beforeReactionUserId: ULong? = null,
+    ): UserReactionsState = withContext(Dispatchers.IO) {
+        core.user().fetchUserReactions(username, beforeReactionUserId)
+    }
+
+    suspend fun fetchFollowing(username: String): List<FollowUserState> = withContext(Dispatchers.IO) {
+        core.user().fetchFollowing(username)
+    }
+
+    suspend fun fetchFollowers(username: String): List<FollowUserState> = withContext(Dispatchers.IO) {
+        core.user().fetchFollowers(username)
+    }
+
+    suspend fun followUser(username: String) = withContext(Dispatchers.IO) {
+        core.user().followUser(username)
+    }
+
+    suspend fun unfollowUser(username: String) = withContext(Dispatchers.IO) {
+        core.user().unfollowUser(username)
+    }
+
+    suspend fun setUserNotificationLevel(
+        username: String,
+        notificationLevel: String,
+        expiringAt: String? = null,
+    ) = withContext(Dispatchers.IO) {
+        core.user().setUserNotificationLevel(username, notificationLevel, expiringAt)
+        persistCurrentSession()
     }
 
     suspend fun clearPersistedSession() = withContext(Dispatchers.IO) {

@@ -9,8 +9,8 @@ pub mod records;
 pub use records::{
     BadgeState, FollowUserState, InviteCreateRequestState, InviteLinkDetailsState, InviteLinkState,
     ProfileSummaryReplyState, ProfileSummaryTopCategoryState, ProfileSummaryTopicState,
-    ProfileSummaryUserReferenceState, UserActionState, UserProfileState, UserSummaryState,
-    UserSummaryStatsState,
+    ProfileSummaryUserReferenceState, UserActionState, UserProfileState, UserReactionState,
+    UserReactionsState, UserSummaryState, UserSummaryStatsState,
 };
 
 #[derive(uniffi::Object)]
@@ -96,6 +96,22 @@ impl FireUserHandle {
         .await
     }
 
+    pub async fn set_user_notification_level(
+        &self,
+        username: String,
+        notification_level: String,
+        expiring_at: Option<String>,
+    ) -> Result<(), FireUniFfiError> {
+        let inner = self.shared.core.clone();
+        let panic_state = self.shared.panic_state.clone();
+        run_on_ffi_runtime("set_user_notification_level", panic_state, async move {
+            inner
+                .set_user_notification_level(&username, &notification_level, expiring_at.as_deref())
+                .await
+        })
+        .await
+    }
+
     pub async fn fetch_badge_detail(&self, badge_id: u64) -> Result<BadgeState, FireUniFfiError> {
         let inner = self.shared.core.clone();
         let panic_state = self.shared.panic_state.clone();
@@ -121,6 +137,22 @@ impl FireUserHandle {
         })
         .await?;
         Ok(actions.into_iter().map(Into::into).collect())
+    }
+
+    pub async fn fetch_user_reactions(
+        &self,
+        username: String,
+        before_reaction_user_id: Option<u64>,
+    ) -> Result<UserReactionsState, FireUniFfiError> {
+        let inner = self.shared.core.clone();
+        let panic_state = self.shared.panic_state.clone();
+        let reactions = run_on_ffi_runtime("fetch_user_reactions", panic_state, async move {
+            inner
+                .fetch_user_reactions(&username, before_reaction_user_id)
+                .await
+        })
+        .await?;
+        Ok(reactions.into())
     }
 
     pub async fn fetch_pending_invites(

@@ -9,6 +9,7 @@ mod logging;
 mod notification_payloads;
 mod parsing;
 mod presentation;
+mod rich_text;
 mod search_payloads;
 mod session_store;
 mod sync_utils;
@@ -31,3 +32,4 @@ pub use logging::{FireHostLogLevel, FireLogger, FireLoggerConfig};
 pub use presentation::{
     monogram_for_username, plain_text_from_html, preview_text_from_html, topic_status_labels,
 };
+pub use rich_text::parse_cooked_html;

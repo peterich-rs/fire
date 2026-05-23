@@ -29,6 +29,13 @@ This document describes the iOS-only crash and APM runtime added for the beta ph
 - Crash harvest on the next cold start uses the previous `runtime-state.json` to recover the last known route, scene phase, active spans, and breadcrumbs.
 - Host-owned APM files are not written back into Rust diagnostics directories.
 
+## Developer diagnostics surface
+
+- `FireDeveloperToolsView` and `FireAPMDiagnosticsView` start the APM auto-refresh loop while visible and stop it on disappear, so the developer-tools overview subtitle and the APM page both refresh live instead of waiting for another page update.
+- The diagnostics summary refresh takes a fresh in-process CPU / memory / thermal / battery snapshot before reading persisted event summaries, so the visible CPU and footprint values update on the one-second diagnostics refresh without changing the lower-level persisted sampler cadence.
+- Recent crash, MetricKit, span, breadcrumb, resource, and main-thread stall rows are tappable. Crash and stall stat counters also open filtered event lists, and each detail page shows event type, timestamp, route, scene phase, privacy tier, launch/session IDs, payload summary, payload path when present, and build metadata.
+- Raw `.plcrash` decoding remains an export/symbolication concern; the in-app detail links to the stored payload path and the full APM export carries the raw attachment.
+
 ## Export and release workflow
 
 - Standard diagnostics export still comes from Rust via `export_support_bundle`.

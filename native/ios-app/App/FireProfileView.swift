@@ -5,8 +5,6 @@ struct FireProfileView: View {
     @ObservedObject var viewModel: FireAppViewModel
     @ObservedObject var profileViewModel: FireProfileViewModel
     @State private var copiedErrorMessage = false
-    @State private var showLogoutConfirmation = false
-    @State private var showDeveloperTools = false
     @State private var selectedRoute: FireAppRoute?
     private static let recentActivityPreviewLimit = 3
 
@@ -314,46 +312,19 @@ struct FireProfileView: View {
             }
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Menu {
-                        Button {
-                            showDeveloperTools = true
-                        } label: {
-                            Label("开发者工具", systemImage: "wrench.and.screwdriver")
-                        }
-
-                        if canLogout {
-                            Button(role: .destructive) {
-                                showLogoutConfirmation = true
-                            } label: {
-                                Label(
-                                    viewModel.isLoggingOut ? "退出中…" : "退出登录",
-                                    systemImage: "rectangle.portrait.and.arrow.right"
-                                )
-                            }
-                            .disabled(viewModel.isLoggingOut)
-                        }
+                    NavigationLink {
+                        FireSettingsView(viewModel: viewModel, canLogout: canLogout)
                     } label: {
                         Image(systemName: "gearshape")
                             .foregroundStyle(FireTheme.subtleInk)
                     }
                 }
             }
-            .navigationDestination(isPresented: $showDeveloperTools) {
-                FireDeveloperToolsView(viewModel: viewModel)
-            }
             .refreshable {
                 await profileViewModel.refreshAll()
             }
             .task(id: profileViewModel.currentUsername) {
                 profileViewModel.syncWithCurrentSession()
-            }
-            .alert("确认退出", isPresented: $showLogoutConfirmation) {
-                Button("取消", role: .cancel) {}
-                Button("退出登录", role: .destructive) {
-                    viewModel.logout()
-                }
-            } message: {
-                Text("确定要退出当前账号吗？")
             }
         }
     }
@@ -605,5 +576,100 @@ struct FireProfileView: View {
         }
 
         return RelativeDateTimeFormatter().localizedString(for: date, relativeTo: Date())
+    }
+}
+
+private struct FireSettingsView: View {
+    @ObservedObject var viewModel: FireAppViewModel
+    let canLogout: Bool
+    @AppStorage("fire.appearancePreference") private var appearancePreferenceRawValue = FireAppearancePreference.system.rawValue
+    @State private var showLogoutConfirmation = false
+
+    private var appVersionText: String {
+        let info = Bundle.main.infoDictionary
+        let version = info?["CFBundleShortVersionString"] as? String
+        let build = info?["CFBundleVersion"] as? String
+
+        switch (version?.isEmpty == false ? version : nil, build?.isEmpty == false ? build : nil) {
+        case let (.some(version), .some(build)):
+            return "版本 \(version) (\(build))"
+        case let (.some(version), .none):
+            return "版本 \(version)"
+        case let (.none, .some(build)):
+            return "Build \(build)"
+        case (.none, .none):
+            return "版本信息不可用"
+        }
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            List {
+                Section {
+                    Picker("主题", selection: $appearancePreferenceRawValue) {
+                        ForEach(FireAppearancePreference.allCases) { preference in
+                            Text(preference.title).tag(preference.rawValue)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                } header: {
+                    Text("外观")
+                }
+
+                Section {
+                    NavigationLink {
+                        FireDeveloperToolsView(viewModel: viewModel)
+                    } label: {
+                        Label("开发者工具", systemImage: "wrench.and.screwdriver")
+                    }
+                } header: {
+                    Text("诊断")
+                }
+            }
+            .listStyle(.insetGrouped)
+            .scrollContentBackground(.hidden)
+
+            VStack(spacing: 12) {
+                if canLogout {
+                    Button(role: .destructive) {
+                        showLogoutConfirmation = true
+                    } label: {
+                        HStack(spacing: 8) {
+                            if viewModel.isLoggingOut {
+                                ProgressView()
+                                    .controlSize(.small)
+                            } else {
+                                Image(systemName: "rectangle.portrait.and.arrow.right")
+                            }
+                            Text(viewModel.isLoggingOut ? "退出中…" : "退出登录")
+                        }
+                        .font(.headline)
+                        .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.red)
+                    .disabled(viewModel.isLoggingOut)
+                }
+
+                Text(appVersionText)
+                    .font(.footnote)
+                    .foregroundStyle(FireTheme.tertiaryInk)
+            }
+            .padding(.horizontal, 24)
+            .padding(.top, 12)
+            .padding(.bottom, 20)
+            .background(FireTheme.canvasTop)
+        }
+        .background(FireTheme.canvasTop)
+        .navigationTitle("设置")
+        .navigationBarTitleDisplayMode(.inline)
+        .alert("确认退出", isPresented: $showLogoutConfirmation) {
+            Button("取消", role: .cancel) {}
+            Button("退出登录", role: .destructive) {
+                viewModel.logout()
+            }
+        } message: {
+            Text("会先尝试通知服务端退出；即使网络请求失败，也会清空本地登录态并回到登录页。")
+        }
     }
 }

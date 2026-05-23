@@ -22,6 +22,10 @@ pub struct UserProfile {
     pub can_follow: Option<bool>,
     pub is_followed: Option<bool>,
     pub can_send_private_message_to_user: Option<bool>,
+    pub muted: Option<bool>,
+    pub ignored: Option<bool>,
+    pub can_mute_user: Option<bool>,
+    pub can_ignore_user: Option<bool>,
     pub gamification_score: Option<u32>,
     pub suspended_till: Option<String>,
     pub silenced_till: Option<String>,
@@ -129,6 +133,23 @@ pub struct UserAction {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct UserActionResponse {
     pub user_actions: Vec<UserAction>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UserReaction {
+    pub id: u64,
+    pub post_id: u64,
+    pub topic_id: u64,
+    pub post_number: Option<u32>,
+    pub topic_title: Option<String>,
+    pub excerpt: Option<String>,
+    pub reaction_value: Option<String>,
+    pub created_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UserReactionsResponse {
+    pub reactions: Vec<UserReaction>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

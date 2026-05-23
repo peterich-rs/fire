@@ -536,9 +536,39 @@ public actor FireSessionStore {
         }
     }
 
+    public func fetchTopicAiSummary(
+        topicID: UInt64,
+        skipAgeCheck: Bool = false
+    ) async throws -> TopicAiSummaryState? {
+        try await runPersistingSessionChanges {
+            try await core.topics().fetchTopicAiSummary(
+                topicId: topicID,
+                skipAgeCheck: skipAgeCheck
+            )
+        }
+    }
+
     public func fetchPost(postID: UInt64) async throws -> TopicPostState {
         try await runPersistingSessionChanges {
             try await core.topics().fetchPost(postId: postID)
+        }
+    }
+
+    public func fetchPostReplies(postID: UInt64, after: UInt32? = 1) async throws -> [TopicPostState] {
+        try await runPersistingSessionChanges {
+            try await core.topics().fetchPostReplies(postId: postID, after: after)
+        }
+    }
+
+    public func fetchPostReplyIds(postID: UInt64) async throws -> [UInt64] {
+        try await runPersistingSessionChanges {
+            try await core.topics().fetchPostReplyIds(postId: postID)
+        }
+    }
+
+    public func fetchPostReplyHistory(postID: UInt64) async throws -> [TopicPostState] {
+        try await runPersistingSessionChanges {
+            try await core.topics().fetchPostReplyHistory(postId: postID)
         }
     }
 
@@ -571,6 +601,40 @@ public actor FireSessionStore {
                     editReason: editReason
                 )
             )
+        }
+    }
+
+    public func deletePost(postID: UInt64) async throws {
+        try await runAuthenticatedWritePersistingSessionChanges {
+            try await core.topics().deletePost(postId: postID)
+        }
+    }
+
+    public func recoverPost(postID: UInt64) async throws {
+        try await runAuthenticatedWritePersistingSessionChanges {
+            try await core.topics().recoverPost(postId: postID)
+        }
+    }
+
+    public func flagPost(
+        postID: UInt64,
+        flagTypeID: UInt32,
+        message: String? = nil
+    ) async throws {
+        try await runAuthenticatedWritePersistingSessionChanges {
+            try await core.topics().flagPost(
+                input: PostFlagRequestState(
+                    postId: postID,
+                    flagTypeId: flagTypeID,
+                    message: message
+                )
+            )
+        }
+    }
+
+    public func fetchPostActionTypes() async throws -> [PostActionTypeState] {
+        try await runPersistingSessionChanges {
+            try await core.topics().fetchPostActionTypes()
         }
     }
 
@@ -972,13 +1036,11 @@ public actor FireSessionStore {
     }
 
     private func shouldRefreshCsrfAfterColdStartRestore(_ session: SessionState) -> Bool {
-        // A cold-start restore can still come back without a usable CSRF token even
-        // when cookie/bootstrap state is otherwise ready.
+        // A cold-start restore can still come back without a usable CSRF token
+        // while the authenticated cookies are already usable. Refreshing CSRF
+        // here lets the session leave the "initializing" phase without waiting
+        // for a user-triggered authenticated write.
         session.readiness.canReadAuthenticatedApi
-            && session.readiness.hasCurrentUser
-            && session.bootstrap.hasPreloadedData
-            && session.bootstrap.hasSiteMetadata
-            && session.bootstrap.hasSiteSettings
             && !session.readiness.hasCsrfToken
     }
 

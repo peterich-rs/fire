@@ -20,6 +20,7 @@ use std::{
 
 use fire_models::{BootstrapArtifacts, CookieSnapshot, SessionSnapshot};
 use openwire::Client;
+use tokio::sync::Mutex as TokioMutex;
 use tracing::info;
 use url::Url;
 
@@ -116,6 +117,7 @@ pub struct FireCore {
     notifications: Arc<Mutex<notifications::FireNotificationRuntime>>,
     topic_presence: Arc<Mutex<presence::FireTopicPresenceRuntime>>,
     topic_timing: Arc<Mutex<interactions::FireTopicTimingRuntime>>,
+    csrf_refresh: Arc<TokioMutex<()>>,
 }
 
 impl FireCore {
@@ -167,6 +169,7 @@ impl FireCore {
             notifications: Arc::new(Mutex::new(notifications::FireNotificationRuntime::default())),
             topic_presence: Arc::new(Mutex::new(presence::FireTopicPresenceRuntime::default())),
             topic_timing: Arc::new(Mutex::new(interactions::FireTopicTimingRuntime::default())),
+            csrf_refresh: Arc::new(TokioMutex::new(())),
         })
     }
 

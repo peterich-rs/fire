@@ -39,7 +39,7 @@ The latest `main` already contains the hard parts needed for this slice: Rust `f
 1. `P0 in this plan`: topic-detail loading/rendering correctness, anchor reliability, and retained-memory reduction.
 2. `P0 in this plan`: notification tap-through reliability for reply/comment targets, including background/system notifications.
 3. `P1 next`: real notification delivery beyond beta polling. Current iOS behavior is still `BGAppRefreshTask` + one-shot MessageBus alert polling plus local-only APNs token storage (`native/ios-app/README.md`, lines 111-115).
-4. `P1 next`: high-volume non-home list surfaces beyond topic detail. `docs/architecture/ios-listkit-home.md` still captures the original home-only migration boundary, and current `List`-backed high-churn views still include notifications, history, bookmarks, PMs, filtered lists, read history, profile activity, and search results.
+4. `P1 next`: high-volume non-home list surfaces beyond topic detail. `docs/architecture/ios-listkit-home.md` still captures the original home-only migration boundary; bookmarks now use the shared collection host, while remaining `List`-backed high-churn views still include notifications, history, PMs, filtered lists, read history, profile activity, and search results.
 5. `P1 next`: production image/rendering infrastructure. Avatars and topic media now run through the Fire-owned decoded-memory remote-image pipeline, but badge/composer image surfaces still rely on `AsyncImage`, and broader media-surface unification plus viewer double-tap polish are still follow-up work.
 
 ### Key Design Decisions

@@ -6,7 +6,7 @@ Two independent features delivered in sequence: Phase A flattens the developer t
 
 **Phase A (Developer Page):** Fully feasible. The entire change is a Swift-side navigation and file decomposition refactor. All views in `FireDiagnosticsView.swift` are `private struct`s that can be extracted to standalone files by removing the `private` modifier. The shared `FireDiagnosticsViewModel` already owns all state; lifting it to the parent view is a one-line `@StateObject` move. No Rust or UniFFI changes are needed. The unauthenticated entry point (`FireOnboardingView.swift`, line 117) is a single NavigationLink destination swap.
 
-**Phase B (Chat IM):** Fully feasible. The existing `FireTopicDetailStore` already provides topic loading, reply submission, MessageBus real-time updates, typing presence, and pagination -- all reusable without modification. Content rendering tools already exist: `plainTextFromHtml(rawHtml:)` (Rust UniFFI function) and `FireTopicPresentation.imageAttachments(from:baseURLString:)` (Swift helper). The dual-endpoint merge (inbox + sent) is a client-side operation using existing `fetchPrivateMessages(kind:page:)`. No Rust or backend changes are needed.
+**Phase B (Chat IM):** Fully feasible. The existing `FireTopicDetailStore` already provides topic loading, reply submission, MessageBus real-time updates, typing presence, and pagination -- all reusable without modification. Content rendering should consume the shared Rust `parseCookedHtml` cooked-HTML AST through the iOS rich-text adapter, including the `FireTopicPresentation.imageAttachments(from:baseURLString:)` convenience wrapper for media. The dual-endpoint merge (inbox + sent) is a client-side operation using existing `fetchPrivateMessages(kind:page:)`.
 
 ## Current Surface Inventory
 
@@ -34,7 +34,7 @@ Two independent features delivered in sequence: Phase A flattens the developer t
 - `native/ios-app/App/FireTopicDetailView.swift` -- reused for PM thread display (post-reply style); detects PM via `isPrivateMessageThread` / `archetype == "private_message"`
 - `native/ios-app/App/Stores/FireTopicDetailStore.swift` -- data store for topic detail: loading, reply submission, MessageBus subscription, typing presence, pagination
 - `native/ios-app/App/FireComposerView.swift` -- message composition; supports `.privateMessage` and `.advancedReply(isPrivateMessage: true)` routes
-- `native/ios-app/App/FireTopicPresentation.swift` -- `plainTextFromHtml` usage, `imageAttachments(from:baseURLString:)`, `isPrivateMessageArchetype()`, timestamp formatting
+- `native/ios-app/App/FireTopicPresentation.swift` -- shared cooked-HTML render-cache usage, `imageAttachments(from:baseURLString:)`, `isPrivateMessageArchetype()`, timestamp formatting
 - `native/ios-app/App/FireProfileView.swift` (line 156) -- NavigationLink to `FirePrivateMessagesView`
 - `rust/crates/fire-models/src/topic.rs` -- `TopicListKind::PrivateMessagesInbox`, `TopicListKind::PrivateMessagesSent`
 - `rust/crates/fire-models/src/topic_detail.rs` -- `PrivateMessageCreateRequest`, `DraftData`
@@ -99,7 +99,7 @@ Key design decisions:
 
 3. **Reuse `FireTopicDetailStore` unchanged** for chat detail data operations instead of building a new store. The store already provides `loadTopicDetail`, `submitReply`, `maintainTopicDetailSubscription`, `beginTopicReplyPresence`, and `preloadTopicPostsIfNeeded`. Only the rendering layer changes. Alternative rejected: a new dedicated store would duplicate all existing logic for no benefit.
 
-4. **`plainTextFromHtml` + `imageAttachments` for content rendering** instead of inline HTML rendering (WKWebView) or full HTML-to-AttributedString. Alternative rejected: WKWebView in chat bubbles has severe performance and sizing issues; full AttributedString conversion is complex. Plain text + image attachments matches the Telegram approach.
+4. **Shared Rust cooked-HTML AST plus host rendering** instead of inline HTML rendering (WKWebView) or full HTML-to-AttributedString. Chat bubbles should reuse the same `parseCookedHtml` path as topic detail, then render plain text and image attachments through the host cache. Alternative rejected: WKWebView in chat bubbles has severe performance and sizing issues; full AttributedString conversion is complex.
 
 5. **New `FireChatDetailView` rather than modifying `FireTopicDetailView`** to add a bubble mode. Alternative rejected: mixing forum-style and chat-style rendering in one view would create excessive conditional branching and coupling. Forum topics continue using `FireTopicDetailView` unchanged.
 
@@ -253,8 +253,8 @@ Build must succeed after this phase. The original `FireDiagnosticsView.swift` st
 **File: `native/ios-app/App/Chat/FireChatBubbleView.swift`** (new, ~120 lines)
 
 - Takes: `post: TopicPostState`, `isSentByCurrentUser: Bool`, `isGroupChat: Bool`, `baseURLString: String`
-- Renders plain text via `plainTextFromHtml(rawHtml: post.cooked)`
-- Renders images via `FireTopicPresentation.imageAttachments(from: post.cooked, baseURLString:)`
+- Renders plain text from the shared cooked-HTML render cache derived from `parseCookedHtml`
+- Renders images via `FireTopicPresentation.imageAttachments(from: post.cooked, baseURLString:)`, which now delegates to the shared cooked-HTML AST
 - Left-aligned gray bubble for received, right-aligned accent-colored bubble for sent
 - In group chat: shows sender avatar (28pt) and username above received bubbles
 - Timestamp below bubble via `FireTopicPresentation.compactTimestamp`

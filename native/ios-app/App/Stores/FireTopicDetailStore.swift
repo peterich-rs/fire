@@ -15,6 +15,7 @@ private struct FireTopicRenderStateInput: Equatable {
 final class FireTopicDetailStore: ObservableObject {
     nonisolated private static let topicPostPageSize = 30
     nonisolated private static let topicPostPrefetchThreshold = 6
+    nonisolated private static let replyContextPostBatchSize = 20
 
     @Published private(set) var topicDetails: [UInt64: TopicDetailState] = [:]
     @Published private(set) var topicRenderStates: [UInt64: FireTopicDetailRenderState] = [:]
@@ -23,6 +24,16 @@ final class FireTopicDetailStore: ObservableObject {
     @Published private(set) var loadingTopicIDs: Set<UInt64> = []
     @Published private(set) var submittingReplyTopicIDs: Set<UInt64> = []
     @Published private(set) var mutatingPostIDs: Set<UInt64> = []
+    @Published private(set) var postActionTypes: [PostActionTypeState] = []
+    @Published private(set) var isLoadingPostActionTypes = false
+    @Published private(set) var postRepliesByPostID: [UInt64: [TopicPostState]] = [:]
+    @Published private(set) var postReplyHistoryByPostID: [UInt64: [TopicPostState]] = [:]
+    @Published private(set) var postReplyContextErrorsByPostID: [UInt64: String] = [:]
+    @Published private(set) var loadingPostReplyContextIDs: Set<UInt64> = []
+    @Published private(set) var topicAiSummaries: [UInt64: TopicAiSummaryState] = [:]
+    @Published private(set) var loadingTopicAiSummaryIDs: Set<UInt64> = []
+    @Published private(set) var unavailableTopicAiSummaryIDs: Set<UInt64> = []
+    @Published private(set) var topicAiSummaryErrorsByTopicID: [UInt64: String] = [:]
     @Published var errorMessage: String?
 
     private let appViewModel: FireAppViewModel
@@ -33,6 +44,8 @@ final class FireTopicDetailStore: ObservableObject {
     private var topicRenderStateInputs: [UInt64: FireTopicRenderStateInput] = [:]
     private var topicDetailTargetPostNumbers: [UInt64: UInt32] = [:]
     private var activeTopicDetailOwnerTokens: [UInt64: Set<String>] = [:]
+    private var topicAiSummaryTasks: [UInt64: Task<Void, Never>] = [:]
+    private var hasLoadedPostActionTypes = false
 
     init(appViewModel: FireAppViewModel) {
         self.appViewModel = appViewModel
@@ -69,6 +82,10 @@ final class FireTopicDetailStore: ObservableObject {
         topicPostPreloadTasks = [:]
         loadingTopicIDs.removeAll()
         loadingMoreTopicPostIDs.removeAll()
+        loadingPostReplyContextIDs.removeAll()
+        topicAiSummaryTasks.values.forEach { $0.cancel() }
+        topicAiSummaryTasks = [:]
+        loadingTopicAiSummaryIDs.removeAll()
     }
 
     func handleMessageBusStopped() {
@@ -89,17 +106,30 @@ final class FireTopicDetailStore: ObservableObject {
         topicPresenceHeartbeatTasks = [:]
         topicPostPreloadTasks.values.forEach { $0.cancel() }
         topicPostPreloadTasks = [:]
+        topicAiSummaryTasks.values.forEach { $0.cancel() }
+        topicAiSummaryTasks = [:]
         activeTopicDetailOwnerTokens = [:]
         topicDetailTargetPostNumbers = [:]
         topicWindowStates = [:]
         topicRenderStateInputs = [:]
         topicDetails = [:]
         topicRenderStates = [:]
+        topicAiSummaries = [:]
+        unavailableTopicAiSummaryIDs = []
+        topicAiSummaryErrorsByTopicID = [:]
         topicPresenceUsersByTopic = [:]
         loadingMoreTopicPostIDs = []
         loadingTopicIDs = []
+        loadingTopicAiSummaryIDs = []
         submittingReplyTopicIDs = []
         mutatingPostIDs = []
+        postActionTypes = []
+        isLoadingPostActionTypes = false
+        postRepliesByPostID = [:]
+        postReplyHistoryByPostID = [:]
+        postReplyContextErrorsByPostID = [:]
+        loadingPostReplyContextIDs = []
+        hasLoadedPostActionTypes = false
         errorMessage = nil
     }
 
@@ -245,12 +275,40 @@ final class FireTopicDetailStore: ObservableObject {
         topicPresenceUsersByTopic[topicId] ?? []
     }
 
+    func topicAiSummary(for topicId: UInt64) -> TopicAiSummaryState? {
+        topicAiSummaries[topicId]
+    }
+
+    func isLoadingTopicAiSummary(topicId: UInt64) -> Bool {
+        loadingTopicAiSummaryIDs.contains(topicId)
+    }
+
+    func topicAiSummaryError(for topicId: UInt64) -> String? {
+        topicAiSummaryErrorsByTopicID[topicId]
+    }
+
     func isLoadingTopic(topicId: UInt64) -> Bool {
         loadingTopicIDs.contains(topicId)
     }
 
     func isLoadingMoreTopicPosts(topicId: UInt64) -> Bool {
         loadingMoreTopicPostIDs.contains(topicId)
+    }
+
+    func postReplies(for postID: UInt64) -> [TopicPostState]? {
+        postRepliesByPostID[postID]
+    }
+
+    func postReplyHistory(for postID: UInt64) -> [TopicPostState]? {
+        postReplyHistoryByPostID[postID]
+    }
+
+    func postReplyContextError(for postID: UInt64) -> String? {
+        postReplyContextErrorsByPostID[postID]
+    }
+
+    func isLoadingPostReplyContext(postID: UInt64) -> Bool {
+        loadingPostReplyContextIDs.contains(postID)
     }
 
     func hasMoreTopicPosts(topicId: UInt64) -> Bool {
@@ -537,6 +595,168 @@ final class FireTopicDetailStore: ObservableObject {
         }
     }
 
+    func deletePost(topicID: UInt64, postID: UInt64) async throws {
+        try await performPostManagementMutation(topicID: topicID, postID: postID) { sessionStore in
+            try await sessionStore.deletePost(postID: postID)
+        }
+    }
+
+    func recoverPost(topicID: UInt64, postID: UInt64) async throws {
+        try await performPostManagementMutation(topicID: topicID, postID: postID) { sessionStore in
+            try await sessionStore.recoverPost(postID: postID)
+        }
+    }
+
+    func flagPost(
+        topicID: UInt64,
+        postID: UInt64,
+        flagTypeID: UInt32,
+        message: String?
+    ) async throws {
+        let trimmedMessage = message?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        try await performPostManagementMutation(topicID: topicID, postID: postID) { sessionStore in
+            try await sessionStore.flagPost(
+                postID: postID,
+                flagTypeID: flagTypeID,
+                message: trimmedMessage?.isEmpty == true ? nil : trimmedMessage
+            )
+        }
+    }
+
+    func loadPostActionTypesIfNeeded(force: Bool = false) async {
+        if isLoadingPostActionTypes {
+            return
+        }
+        if hasLoadedPostActionTypes && !force {
+            return
+        }
+
+        guard let sessionStore = try? await appViewModel.sessionStoreValue() else {
+            return
+        }
+
+        isLoadingPostActionTypes = true
+        defer { isLoadingPostActionTypes = false }
+
+        do {
+            let types = try await appViewModel.performWithCloudflareRecovery(
+                operation: "加载举报类型"
+            ) {
+                try await sessionStore.fetchPostActionTypes()
+            }
+            postActionTypes = types
+            hasLoadedPostActionTypes = true
+        } catch {
+            if await appViewModel.handleRecoverableSessionErrorIfNeeded(error) {
+                return
+            }
+            appViewModel.topicDetailLogger()?.warning(
+                "failed to load post action types: \(error.localizedDescription)"
+            )
+            hasLoadedPostActionTypes = true
+        }
+    }
+
+    func loadPostReplyContextIfNeeded(
+        topicID: UInt64,
+        post: TopicPostState,
+        force: Bool = false
+    ) async {
+        guard force
+            || postRepliesByPostID[post.id] == nil
+            || postReplyHistoryByPostID[post.id] == nil else {
+            return
+        }
+        guard !loadingPostReplyContextIDs.contains(post.id) else {
+            return
+        }
+        guard let sessionStore = try? await appViewModel.sessionStoreValue() else {
+            return
+        }
+
+        loadingPostReplyContextIDs.insert(post.id)
+        postReplyContextErrorsByPostID[post.id] = nil
+        defer { loadingPostReplyContextIDs.remove(post.id) }
+
+        do {
+            let replies = try await appViewModel.performWithCloudflareRecovery(
+                operation: "加载帖子回复"
+            ) {
+                try await self.fetchReplyContextReplies(
+                    topicID: topicID,
+                    post: post,
+                    sessionStore: sessionStore
+                )
+            }
+            let replyHistory = try await appViewModel.performWithCloudflareRecovery(
+                operation: "加载回复来源"
+            ) {
+                post.replyToPostNumber != nil
+                    ? try await sessionStore.fetchPostReplyHistory(postID: post.id)
+                    : []
+            }
+            postRepliesByPostID[post.id] = replies
+            postReplyHistoryByPostID[post.id] = replyHistory
+
+            let refreshedPosts = replies + replyHistory
+            if !refreshedPosts.isEmpty {
+                applyHydratedTopicPostsIfNeeded(
+                    topicId: topicID,
+                    posts: refreshedPosts,
+                    exhaustedPostIDs: []
+                )
+            }
+        } catch {
+            if await appViewModel.handleRecoverableSessionErrorIfNeeded(error) {
+                return
+            }
+            postReplyContextErrorsByPostID[post.id] = error.localizedDescription
+        }
+    }
+
+    private func fetchReplyContextReplies(
+        topicID: UInt64,
+        post: TopicPostState,
+        sessionStore: FireSessionStore
+    ) async throws -> [TopicPostState] {
+        guard post.replyCount > 0 else {
+            return []
+        }
+
+        let replyIDs = orderedUniquePostIDs(
+            try await sessionStore.fetchPostReplyIds(postID: post.id)
+        )
+        guard !replyIDs.isEmpty else {
+            return try await sessionStore.fetchPostReplies(postID: post.id, after: 1)
+        }
+
+        var replies: [TopicPostState] = []
+        var startIndex = 0
+        while startIndex < replyIDs.count {
+            let endIndex = min(startIndex + Self.replyContextPostBatchSize, replyIDs.count)
+            let batchIDs = Array(replyIDs[startIndex..<endIndex])
+            replies.append(
+                contentsOf: try await sessionStore.fetchTopicPosts(
+                    topicID: topicID,
+                    postIDs: batchIDs
+                )
+            )
+            startIndex = endIndex
+        }
+        return replies
+    }
+
+    private func orderedUniquePostIDs(_ ids: [UInt64]) -> [UInt64] {
+        var seen: Set<UInt64> = []
+        var result: [UInt64] = []
+        for id in ids where id > 0 && !seen.contains(id) {
+            seen.insert(id)
+            result.append(id)
+        }
+        return result
+    }
+
     func setPostLiked(
         topicId: UInt64,
         postId: UInt64,
@@ -607,6 +827,39 @@ final class FireTopicDetailStore: ObservableObject {
                 )
             }
             applyPostReactionUpdate(topicId: topicId, postId: postId, update: update)
+        } catch {
+            if await appViewModel.handleRecoverableSessionErrorIfNeeded(error) {
+                throw error
+            }
+            errorMessage = error.localizedDescription
+            throw error
+        }
+    }
+
+    private func performPostManagementMutation(
+        topicID: UInt64,
+        postID: UInt64,
+        operation: @escaping (FireSessionStore) async throws -> Void
+    ) async throws {
+        let sessionStore = try await appViewModel.sessionStoreValue()
+        guard appViewModel.canStartAuthenticatedMutation else {
+            throw FireTopicInteractionError.requiresAuthenticatedWrite
+        }
+        guard !mutatingPostIDs.contains(postID) else {
+            return
+        }
+
+        mutatingPostIDs.insert(postID)
+        defer { mutatingPostIDs.remove(postID) }
+
+        do {
+            errorMessage = nil
+            try await appViewModel.performWriteWithCloudflareRetry {
+                try await operation(sessionStore)
+            }
+            await appViewModel.syncSessionSnapshotIfAvailable(from: sessionStore)
+            try? await refreshTopicDetailAfterMutation(topicId: topicID, sessionStore: sessionStore)
+            await appViewModel.refreshHomeFeedIfPossible(force: false)
         } catch {
             if await appViewModel.handleRecoverableSessionErrorIfNeeded(error) {
                 throw error
@@ -725,6 +978,11 @@ final class FireTopicDetailStore: ObservableObject {
         let trackedTopicIDs = Set(topicDetails.keys)
             .union(topicWindowStates.keys)
             .union(topicPresenceUsersByTopic.keys)
+            .union(topicAiSummaries.keys)
+            .union(loadingTopicAiSummaryIDs)
+            .union(unavailableTopicAiSummaryIDs)
+            .union(topicAiSummaryErrorsByTopicID.keys)
+            .union(topicAiSummaryTasks.keys)
             .union(loadingTopicIDs)
             .union(loadingMoreTopicPostIDs)
             .union(topicPostPreloadTasks.keys)
@@ -767,24 +1025,35 @@ final class FireTopicDetailStore: ObservableObject {
         topicRenderStateInputs.removeValue(forKey: topicId)
         let removedWindow = topicWindowStates.removeValue(forKey: topicId) != nil
         let removedPresence = topicPresenceUsersByTopic.removeValue(forKey: topicId) != nil
+        let removedAiSummary = topicAiSummaries.removeValue(forKey: topicId) != nil
+        let removedAiSummaryUnavailable = unavailableTopicAiSummaryIDs.remove(topicId) != nil
+        let removedAiSummaryError = topicAiSummaryErrorsByTopicID.removeValue(forKey: topicId) != nil
         let removedLoadingTopic = loadingTopicIDs.remove(topicId) != nil
         let removedLoadingMore = loadingMoreTopicPostIDs.remove(topicId) != nil
+        let removedLoadingAiSummary = loadingTopicAiSummaryIDs.remove(topicId) != nil
         let refreshTask = pendingTopicDetailRefreshTasks.removeValue(forKey: topicId)
         let presenceTask = topicPresenceHeartbeatTasks.removeValue(forKey: topicId)
         let preloadTask = topicPostPreloadTasks.removeValue(forKey: topicId)
+        let aiSummaryTask = topicAiSummaryTasks.removeValue(forKey: topicId)
         refreshTask?.cancel()
         presenceTask?.cancel()
         preloadTask?.cancel()
+        aiSummaryTask?.cancel()
 
         guard removedDetail
             || removedRenderState
             || removedWindow
             || removedPresence
+            || removedAiSummary
+            || removedAiSummaryUnavailable
+            || removedAiSummaryError
             || removedLoadingTopic
             || removedLoadingMore
+            || removedLoadingAiSummary
             || refreshTask != nil
             || presenceTask != nil
             || preloadTask != nil
+            || aiSummaryTask != nil
         else {
             return
         }
@@ -858,6 +1127,75 @@ final class FireTopicDetailStore: ObservableObject {
         if hasMissingPostsInRequestedRange(topicId: topicId) {
             Task {
                 await hydrateTopicPostsToTargetIfNeeded(topicId: topicId)
+            }
+        }
+
+        loadTopicAiSummaryIfNeeded(topicId: topicId, detail: detail)
+    }
+
+    func reloadTopicAiSummary(topicId: UInt64) {
+        guard let detail = topicDetails[topicId] else { return }
+        loadTopicAiSummaryIfNeeded(topicId: topicId, detail: detail, force: true)
+    }
+
+    private func loadTopicAiSummaryIfNeeded(
+        topicId: UInt64,
+        detail: TopicDetailState,
+        force: Bool = false
+    ) {
+        guard detail.summarizable || detail.hasCachedSummary || detail.hasSummary else {
+            return
+        }
+        guard force
+            || topicAiSummaries[topicId] == nil
+                && !loadingTopicAiSummaryIDs.contains(topicId)
+                && !unavailableTopicAiSummaryIDs.contains(topicId) else {
+            return
+        }
+
+        topicAiSummaryTasks[topicId]?.cancel()
+        loadingTopicAiSummaryIDs.insert(topicId)
+        unavailableTopicAiSummaryIDs.remove(topicId)
+        topicAiSummaryErrorsByTopicID.removeValue(forKey: topicId)
+
+        topicAiSummaryTasks[topicId] = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer {
+                self.loadingTopicAiSummaryIDs.remove(topicId)
+                self.topicAiSummaryTasks.removeValue(forKey: topicId)
+            }
+
+            do {
+                let sessionStore = try await self.appViewModel.sessionStoreValue()
+                let summary = try await self.appViewModel.performWithCloudflareRecovery(
+                    operation: "加载 AI 摘要"
+                ) {
+                    try await sessionStore.fetchTopicAiSummary(
+                        topicID: topicId,
+                        skipAgeCheck: false
+                    )
+                }
+
+                if let summary,
+                   !summary.summarizedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    self.topicAiSummaries[topicId] = summary
+                    self.unavailableTopicAiSummaryIDs.remove(topicId)
+                    self.topicAiSummaryErrorsByTopicID.removeValue(forKey: topicId)
+                } else {
+                    self.topicAiSummaries.removeValue(forKey: topicId)
+                    self.unavailableTopicAiSummaryIDs.insert(topicId)
+                }
+            } catch {
+                if await self.appViewModel.handleRecoverableSessionErrorIfNeeded(error) {
+                    self.appViewModel.topicDetailLogger()?.notice(
+                        "recoverable session error swallowed during topic AI summary load topic_id=\(topicId)"
+                    )
+                    return
+                }
+                self.topicAiSummaryErrorsByTopicID[topicId] = error.localizedDescription
+                self.appViewModel.topicDetailLogger()?.error(
+                    "topic AI summary load failed topic_id=\(topicId) error=\(error.localizedDescription)"
+                )
             }
         }
     }

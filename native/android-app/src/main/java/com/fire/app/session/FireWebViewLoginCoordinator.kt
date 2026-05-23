@@ -22,10 +22,15 @@ class FireWebViewLoginCoordinator(
     suspend fun completeLogin(webView: WebView): SessionState {
         val captured = captureLoginState(webView)
         val state = sessionStore.syncLoginContext(captured)
-        return if (state.bootstrap.hasPreloadedData) {
+        val bootstrapped = if (state.bootstrap.hasPreloadedData) {
             state
         } else {
             sessionStore.refreshBootstrapIfNeeded()
+        }
+        return if (bootstrapped.readiness.hasCsrfToken) {
+            bootstrapped
+        } else {
+            sessionStore.refreshCsrfTokenIfNeeded()
         }
     }
 

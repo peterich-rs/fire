@@ -4,9 +4,11 @@ use std::sync::Arc;
 
 use fire_core::{
     monogram_for_username as shared_monogram_for_username,
+    parse_cooked_html as shared_parse_cooked_html,
     plain_text_from_html as shared_plain_text_from_html,
     preview_text_from_html as shared_preview_text_from_html,
 };
+use fire_models::{CookedHtmlDocument, CookedHtmlNode, CookedHtmlNodeKind};
 use fire_uniffi_diagnostics::FireDiagnosticsHandle;
 use fire_uniffi_messagebus::FireMessageBusHandle;
 use fire_uniffi_notifications::FireNotificationsHandle;
@@ -22,6 +24,11 @@ pub fn plain_text_from_html(raw_html: String) -> String {
 }
 
 #[uniffi::export]
+pub fn parse_cooked_html(raw_html: String) -> CookedHtmlDocumentState {
+    shared_parse_cooked_html(&raw_html).into()
+}
+
+#[uniffi::export]
 pub fn preview_text_from_html(raw_html: Option<String>) -> Option<String> {
     shared_preview_text_from_html(raw_html.as_deref())
 }
@@ -29,6 +36,135 @@ pub fn preview_text_from_html(raw_html: Option<String>) -> Option<String> {
 #[uniffi::export]
 pub fn monogram_for_username(username: String) -> String {
     shared_monogram_for_username(&username)
+}
+
+#[derive(uniffi::Enum, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CookedHtmlNodeKindState {
+    Document,
+    Text,
+    Paragraph,
+    Heading,
+    LineBreak,
+    Strong,
+    Emphasis,
+    Strikethrough,
+    Link,
+    Image,
+    Emoji,
+    Code,
+    CodeBlock,
+    Blockquote,
+    DiscourseQuote,
+    List,
+    ListItem,
+    Spoiler,
+    Details,
+    Table,
+    TableRow,
+    TableCell,
+    Onebox,
+    Iframe,
+    Mention,
+    Hashtag,
+    Attachment,
+    Unknown,
+}
+
+impl From<CookedHtmlNodeKind> for CookedHtmlNodeKindState {
+    fn from(value: CookedHtmlNodeKind) -> Self {
+        match value {
+            CookedHtmlNodeKind::Document => Self::Document,
+            CookedHtmlNodeKind::Text => Self::Text,
+            CookedHtmlNodeKind::Paragraph => Self::Paragraph,
+            CookedHtmlNodeKind::Heading => Self::Heading,
+            CookedHtmlNodeKind::LineBreak => Self::LineBreak,
+            CookedHtmlNodeKind::Strong => Self::Strong,
+            CookedHtmlNodeKind::Emphasis => Self::Emphasis,
+            CookedHtmlNodeKind::Strikethrough => Self::Strikethrough,
+            CookedHtmlNodeKind::Link => Self::Link,
+            CookedHtmlNodeKind::Image => Self::Image,
+            CookedHtmlNodeKind::Emoji => Self::Emoji,
+            CookedHtmlNodeKind::Code => Self::Code,
+            CookedHtmlNodeKind::CodeBlock => Self::CodeBlock,
+            CookedHtmlNodeKind::Blockquote => Self::Blockquote,
+            CookedHtmlNodeKind::DiscourseQuote => Self::DiscourseQuote,
+            CookedHtmlNodeKind::List => Self::List,
+            CookedHtmlNodeKind::ListItem => Self::ListItem,
+            CookedHtmlNodeKind::Spoiler => Self::Spoiler,
+            CookedHtmlNodeKind::Details => Self::Details,
+            CookedHtmlNodeKind::Table => Self::Table,
+            CookedHtmlNodeKind::TableRow => Self::TableRow,
+            CookedHtmlNodeKind::TableCell => Self::TableCell,
+            CookedHtmlNodeKind::Onebox => Self::Onebox,
+            CookedHtmlNodeKind::Iframe => Self::Iframe,
+            CookedHtmlNodeKind::Mention => Self::Mention,
+            CookedHtmlNodeKind::Hashtag => Self::Hashtag,
+            CookedHtmlNodeKind::Attachment => Self::Attachment,
+            CookedHtmlNodeKind::Unknown => Self::Unknown,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct CookedHtmlAttributeState {
+    pub name: String,
+    pub value: String,
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct CookedHtmlNodeState {
+    pub id: u32,
+    pub parent_id: Option<u32>,
+    pub kind: CookedHtmlNodeKindState,
+    pub depth: u32,
+    pub text: Option<String>,
+    pub url: Option<String>,
+    pub title: Option<String>,
+    pub alt: Option<String>,
+    pub level: Option<u32>,
+    pub ordered: Option<bool>,
+    pub attributes: Vec<CookedHtmlAttributeState>,
+}
+
+impl From<CookedHtmlNode> for CookedHtmlNodeState {
+    fn from(value: CookedHtmlNode) -> Self {
+        Self {
+            id: value.id,
+            parent_id: value.parent_id,
+            kind: value.kind.into(),
+            depth: value.depth,
+            text: value.text,
+            url: value.url,
+            title: value.title,
+            alt: value.alt,
+            level: value.level,
+            ordered: value.ordered,
+            attributes: value
+                .attributes
+                .into_iter()
+                .map(|(name, value)| CookedHtmlAttributeState { name, value })
+                .collect(),
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct CookedHtmlDocumentState {
+    pub nodes: Vec<CookedHtmlNodeState>,
+    pub plain_text: String,
+    pub image_urls: Vec<String>,
+    pub link_urls: Vec<String>,
+}
+
+impl From<CookedHtmlDocument> for CookedHtmlDocumentState {
+    fn from(value: CookedHtmlDocument) -> Self {
+        Self {
+            nodes: value.nodes.into_iter().map(Into::into).collect(),
+            plain_text: value.plain_text,
+            image_urls: value.image_urls,
+            link_urls: value.link_urls,
+        }
+    }
 }
 
 #[derive(uniffi::Object)]
@@ -92,10 +228,28 @@ impl FireAppCore {
 
 #[cfg(test)]
 mod tests {
+    use crate::{parse_cooked_html, CookedHtmlNodeKindState};
     use fire_uniffi_types::{
         ffi_runtime, run_infallible, run_on_ffi_runtime, FireUniFfiError, PanicState,
         SharedFireCore,
     };
+
+    #[test]
+    fn parse_cooked_html_exposes_shared_ast_record() {
+        let document = parse_cooked_html(
+            r#"<p>Hello <a href="/t/123/4">topic</a></p><img src="/uploads/fire.png" alt="fire">"#
+                .to_string(),
+        );
+
+        assert_eq!(document.plain_text, "Hello topic\n\nfire");
+        assert_eq!(document.image_urls, vec!["/uploads/fire.png".to_string()]);
+        assert_eq!(document.link_urls, vec!["/t/123/4".to_string()]);
+        assert!(document
+            .nodes
+            .iter()
+            .any(|node| node.kind == CookedHtmlNodeKindState::Link
+                && node.url.as_deref() == Some("/t/123/4")));
+    }
 
     #[test]
     fn maps_http_status_errors_without_flattening() {

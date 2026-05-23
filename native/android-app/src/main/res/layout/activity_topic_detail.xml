@@ -45,6 +45,34 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="@string/action_refresh" />
+
+        <Button
+            android:id="@+id/editTopicButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:text="@string/topic_detail_edit_topic" />
+
+        <Button
+            android:id="@+id/topicBookmarkButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:text="@string/topic_detail_bookmark_topic" />
+
+        <Button
+            android:id="@+id/topicNotificationButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:text="@string/topic_detail_notification_topic" />
+
+        <Button
+            android:id="@+id/replyTopicButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:text="@string/topic_detail_reply_topic" />
     </LinearLayout>
 
     <ProgressBar
@@ -66,6 +94,7 @@
         android:visibility="gone" />
 
     <ScrollView
+        android:id="@+id/postsScrollView"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1">

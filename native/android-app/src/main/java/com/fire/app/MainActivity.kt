@@ -4,13 +4,17 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Intent
 import android.os.Bundle
+import android.text.InputType
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
+import android.widget.EditText
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import com.fire.app.databinding.ActivityMainBinding
@@ -22,6 +26,7 @@ import uniffi.fire_uniffi_session.CookieState
 import uniffi.fire_uniffi_session.SessionState
 import uniffi.fire_uniffi_session.SessionReadinessState
 import uniffi.fire_uniffi_session.TopicCategoryState
+import uniffi.fire_uniffi_topics.TopicCreateRequestState
 import uniffi.fire_uniffi_topics.TopicListQueryState
 import uniffi.fire_uniffi_types.TopicListKindState
 import uniffi.fire_uniffi_types.TopicListState
@@ -29,9 +34,53 @@ import uniffi.fire_uniffi_types.TopicRowState
 import uniffi.fire_uniffi_types.TopicSummaryState
 
 class MainActivity : AppCompatActivity() {
+    private enum class BrowserListSource {
+        FEED,
+        BOOKMARKS,
+        READ_HISTORY,
+    }
+
+    private enum class CategoryNotificationLevelOption(
+        val value: Int,
+        val titleResId: Int,
+        val descriptionResId: Int,
+    ) {
+        MUTED(
+            value = 0,
+            titleResId = R.string.category_notification_muted,
+            descriptionResId = R.string.category_notification_muted_description,
+        ),
+        REGULAR(
+            value = 1,
+            titleResId = R.string.category_notification_regular,
+            descriptionResId = R.string.category_notification_regular_description,
+        ),
+        TRACKING(
+            value = 2,
+            titleResId = R.string.category_notification_tracking,
+            descriptionResId = R.string.category_notification_tracking_description,
+        ),
+        WATCHING(
+            value = 3,
+            titleResId = R.string.category_notification_watching,
+            descriptionResId = R.string.category_notification_watching_description,
+        ),
+        WATCHING_FIRST_POST(
+            value = 4,
+            titleResId = R.string.category_notification_watching_first_post,
+            descriptionResId = R.string.category_notification_watching_first_post_description,
+        );
+
+        companion object {
+            fun fromValue(value: Int?): CategoryNotificationLevelOption =
+                entries.firstOrNull { it.value == value } ?: REGULAR
+        }
+    }
+
     private lateinit var binding: ActivityMainBinding
     private lateinit var sessionStore: FireSessionStore
 
+    private var currentListSource = BrowserListSource.FEED
     private var currentFeedKind = TopicListKindState.LATEST
     private var currentFeedPage: UInt = 0u
     private var nextFeedPage: UInt? = null
@@ -66,6 +115,14 @@ class MainActivity : AppCompatActivity() {
         binding.openDiagnosticsButton.setOnClickListener {
             startActivity(Intent(this, DiagnosticsActivity::class.java))
         }
+        binding.openNotificationsButton.setOnClickListener {
+            startActivity(Intent(this, NotificationsActivity::class.java))
+        }
+        binding.openSearchButton.setOnClickListener {
+            startActivity(Intent(this, SearchActivity::class.java))
+        }
+        binding.createTopicButton.setOnClickListener { showCreateTopicComposer() }
+        binding.categoryNotificationButton.setOnClickListener { showCategoryNotificationPicker() }
         binding.refreshFeedButton.setOnClickListener { reloadCurrentFeed() }
         binding.loadMoreButton.setOnClickListener { loadMoreFeed() }
         binding.copyLastErrorButton.setOnClickListener { copyLastError() }
@@ -76,6 +133,14 @@ class MainActivity : AppCompatActivity() {
         binding.unseenButton.setOnClickListener { loadFeed(TopicListKindState.UNSEEN) }
         binding.hotButton.setOnClickListener { loadFeed(TopicListKindState.HOT) }
         binding.topButton.setOnClickListener { loadFeed(TopicListKindState.TOP) }
+        binding.privateMessagesInboxButton.setOnClickListener {
+            loadFeed(TopicListKindState.PRIVATE_MESSAGES_INBOX)
+        }
+        binding.privateMessagesSentButton.setOnClickListener {
+            loadFeed(TopicListKindState.PRIVATE_MESSAGES_SENT)
+        }
+        binding.bookmarksButton.setOnClickListener { loadBookmarks() }
+        binding.readHistoryButton.setOnClickListener { loadReadHistory() }
 
         refreshSessionAndFeed()
     }
@@ -85,6 +150,9 @@ class MainActivity : AppCompatActivity() {
             clearLastError()
             try {
                 applySession(sessionStore.restorePersistedSessionIfAvailable() ?: sessionStore.snapshot())
+                if (session.readiness.canReadAuthenticatedApi && !session.readiness.hasCsrfToken) {
+                    applySession(sessionStore.refreshCsrfTokenIfNeeded())
+                }
                 renderSession(session)
                 reloadCurrentFeed()
             } catch (error: Exception) {
@@ -101,6 +169,9 @@ class MainActivity : AppCompatActivity() {
             clearLastError()
             try {
                 applySession(sessionStore.refreshBootstrapIfNeeded())
+                if (session.readiness.canReadAuthenticatedApi && !session.readiness.hasCsrfToken) {
+                    applySession(sessionStore.refreshCsrfTokenIfNeeded())
+                }
                 renderSession(session)
                 reloadCurrentFeed()
             } catch (error: Exception) {
@@ -117,6 +188,7 @@ class MainActivity : AppCompatActivity() {
             clearLastError()
             try {
                 applySession(sessionStore.logout())
+                currentListSource = BrowserListSource.FEED
                 currentFeedKind = TopicListKindState.LATEST
                 currentFeedPage = 0u
                 nextFeedPage = null
@@ -133,13 +205,284 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun showCreateTopicComposer() {
+        if (!session.readiness.canWriteAuthenticatedApi) {
+            recordLastError(IllegalStateException(getString(R.string.create_topic_login_required)))
+            renderSession(session)
+            renderBrowser()
+            return
+        }
+
+        val categories = topicCategoriesForComposer()
+        if (categories.isEmpty()) {
+            recordLastError(IllegalStateException(getString(R.string.create_topic_no_categories)))
+            renderSession(session)
+            renderBrowser()
+            return
+        }
+
+        var selectedCategory = defaultComposerCategory(categories) ?: categories.first()
+        val titleInput = EditText(this).apply {
+            hint = getString(R.string.create_topic_title_hint)
+            setSingleLine(false)
+            maxLines = 3
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
+        }
+        val categoryText = TextView(this).apply {
+            text = createTopicCategoryLabel(selectedCategory)
+            textSize = 14f
+            setPadding(0, dp(10), 0, 0)
+        }
+        val categoryButton = Button(this).apply {
+            isAllCaps = false
+            text = getString(R.string.create_topic_select_category)
+            setOnClickListener {
+                showTopicCategoryPicker(categories, selectedCategory) { category ->
+                    selectedCategory = category
+                    categoryText.text = createTopicCategoryLabel(category)
+                }
+            }
+        }
+        val bodyInput = EditText(this).apply {
+            hint = getString(R.string.create_topic_body_hint)
+            minLines = 8
+            inputType = InputType.TYPE_CLASS_TEXT or
+                InputType.TYPE_TEXT_FLAG_MULTI_LINE or
+                InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
+        }
+        val tagsInput = EditText(this).apply {
+            hint = getString(R.string.create_topic_tags_hint)
+            setSingleLine(false)
+            maxLines = 2
+            inputType = InputType.TYPE_CLASS_TEXT
+        }
+
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(8), dp(20), dp(4))
+            addView(labelText(getString(R.string.create_topic_title_label)))
+            addView(titleInput)
+            addView(labelText(getString(R.string.create_topic_category_label)))
+            addView(categoryText)
+            addView(categoryButton)
+            addView(labelText(getString(R.string.create_topic_body_label)))
+            addView(bodyInput)
+            addView(labelText(getString(R.string.create_topic_tags_label)))
+            addView(tagsInput)
+        }
+
+        val dialog = AlertDialog.Builder(this)
+            .setTitle(R.string.create_topic_title)
+            .setView(ScrollView(this).apply { addView(content) })
+            .setPositiveButton(R.string.create_topic_submit, null)
+            .setNegativeButton(R.string.action_cancel, null)
+            .create()
+
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val title = titleInput.text?.toString()?.trim().orEmpty()
+                val raw = bodyInput.text?.toString()?.trim().orEmpty()
+                val tags = parseTopicTags(tagsInput.text?.toString().orEmpty())
+                val disallowedTags = disallowedTopicTags(tags, selectedCategory)
+
+                when {
+                    title.length < session.bootstrap.minTopicTitleLength.toInt() -> {
+                        titleInput.error = getString(
+                            R.string.create_topic_title_min_length,
+                            session.bootstrap.minTopicTitleLength.toString(),
+                        )
+                    }
+                    raw.length < session.bootstrap.minFirstPostLength.toInt() -> {
+                        bodyInput.error = getString(
+                            R.string.create_topic_body_min_length,
+                            session.bootstrap.minFirstPostLength.toString(),
+                        )
+                    }
+                    tags.size < selectedCategory.minimumRequiredTags.toInt() -> {
+                        tagsInput.error = getString(
+                            R.string.create_topic_tags_required,
+                            selectedCategory.minimumRequiredTags.toString(),
+                        )
+                    }
+                    disallowedTags.isNotEmpty() -> {
+                        tagsInput.error = getString(
+                            R.string.create_topic_tags_not_allowed,
+                            disallowedTags.joinToString(", "),
+                        )
+                    }
+                    else -> {
+                        dialog.dismiss()
+                        submitCreateTopic(
+                            title = title,
+                            raw = raw,
+                            categoryId = selectedCategory.id,
+                            tags = tags,
+                        )
+                    }
+                }
+            }
+        }
+        dialog.show()
+    }
+
+    private fun showCategoryNotificationPicker() {
+        if (!session.readiness.canWriteAuthenticatedApi) {
+            recordLastError(IllegalStateException(getString(R.string.category_notification_login_required)))
+            renderSession(session)
+            renderBrowser()
+            return
+        }
+
+        val categories = topicCategoriesForNotifications()
+        if (categories.isEmpty()) {
+            recordLastError(IllegalStateException(getString(R.string.category_notification_no_categories)))
+            renderSession(session)
+            renderBrowser()
+            return
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle(R.string.category_notification_select_category)
+            .setItems(categories.map(::categoryNotificationCategoryLabel).toTypedArray()) { dialog, which ->
+                dialog.dismiss()
+                showCategoryNotificationLevelPicker(categories[which])
+            }
+            .setNegativeButton(R.string.action_cancel, null)
+            .show()
+    }
+
+    private fun showCategoryNotificationLevelPicker(category: TopicCategoryState) {
+        val options = CategoryNotificationLevelOption.entries.toTypedArray()
+        val current = CategoryNotificationLevelOption.fromValue(category.notificationLevel)
+        val currentIndex = options.indexOf(current).coerceAtLeast(0)
+
+        AlertDialog.Builder(this)
+            .setTitle(getString(R.string.category_notification_title, category.displayName()))
+            .setSingleChoiceItems(
+                options.map(::categoryNotificationOptionLabel).toTypedArray(),
+                currentIndex,
+            ) { dialog, which ->
+                dialog.dismiss()
+                val selected = options[which]
+                if (selected != current) {
+                    updateCategoryNotificationLevel(category, selected)
+                }
+            }
+            .setNegativeButton(R.string.action_cancel, null)
+            .show()
+    }
+
+    private fun updateCategoryNotificationLevel(
+        category: TopicCategoryState,
+        option: CategoryNotificationLevelOption,
+    ) {
+        lifecycleScope.launch {
+            clearLastError()
+            setBrowserLoading(
+                true,
+                getString(R.string.category_notification_saving, category.displayName()),
+            )
+            renderSession(session)
+            renderBrowser()
+
+            try {
+                sessionStore.setCategoryNotificationLevel(category.id, option.value)
+                applySession(sessionStore.refreshBootstrap())
+                setBrowserLoading(
+                    false,
+                    getString(
+                        R.string.category_notification_saved,
+                        category.displayName(),
+                        getString(option.titleResId),
+                    ),
+                )
+                renderSession(session)
+                renderBrowser()
+            } catch (error: Exception) {
+                recordLastError(error)
+                setBrowserLoading(false, lastErrorMessage ?: getString(R.string.category_notification_error))
+                renderSession(session)
+                renderBrowser()
+            }
+        }
+    }
+
+    private fun showTopicCategoryPicker(
+        categories: List<TopicCategoryState>,
+        selectedCategory: TopicCategoryState,
+        onSelected: (TopicCategoryState) -> Unit,
+    ) {
+        val selectedIndex = categories.indexOfFirst { it.id == selectedCategory.id }.coerceAtLeast(0)
+        AlertDialog.Builder(this)
+            .setTitle(R.string.create_topic_select_category)
+            .setSingleChoiceItems(
+                categories.map(::createTopicCategoryLabel).toTypedArray(),
+                selectedIndex,
+            ) { dialog, which ->
+                onSelected(categories[which])
+                dialog.dismiss()
+            }
+            .setNegativeButton(R.string.action_cancel, null)
+            .show()
+    }
+
+    private fun submitCreateTopic(
+        title: String,
+        raw: String,
+        categoryId: ULong,
+        tags: List<String>,
+    ) {
+        lifecycleScope.launch {
+            clearLastError()
+            setBrowserLoading(true, getString(R.string.create_topic_submitting))
+            renderSession(session)
+            renderBrowser()
+
+            try {
+                val topicId = sessionStore.createTopic(
+                    TopicCreateRequestState(
+                        title = title,
+                        raw = raw,
+                        categoryId = categoryId,
+                        tags = tags,
+                    ),
+                )
+                selectedTopicId = topicId
+                setBrowserLoading(false, getString(R.string.create_topic_created, topicId.toString()))
+                startActivity(TopicDetailActivity.intent(this@MainActivity, topicId, title))
+                loadFeed(TopicListKindState.LATEST, preferredTopicId = topicId, reset = true, page = null)
+            } catch (error: Exception) {
+                recordLastError(error)
+                setBrowserLoading(false, lastErrorMessage)
+                renderSession(session)
+                renderBrowser()
+            }
+        }
+    }
+
     private fun reloadCurrentFeed() {
-        loadFeed(currentFeedKind, selectedTopicId, reset = true, page = null)
+        when (currentListSource) {
+            BrowserListSource.FEED -> loadFeed(currentFeedKind, selectedTopicId, reset = true, page = null)
+            BrowserListSource.BOOKMARKS -> loadBookmarks(preferredTopicId = selectedTopicId)
+            BrowserListSource.READ_HISTORY -> loadReadHistory(preferredTopicId = selectedTopicId)
+        }
     }
 
     private fun loadMoreFeed() {
         val page = nextFeedPage ?: return
-        loadFeed(currentFeedKind, selectedTopicId, reset = false, page = page)
+        when (currentListSource) {
+            BrowserListSource.FEED -> loadFeed(currentFeedKind, selectedTopicId, reset = false, page = page)
+            BrowserListSource.BOOKMARKS -> loadBookmarks(
+                preferredTopicId = selectedTopicId,
+                reset = false,
+                page = page,
+            )
+            BrowserListSource.READ_HISTORY -> loadReadHistory(
+                preferredTopicId = selectedTopicId,
+                reset = false,
+                page = page,
+            )
+        }
     }
 
     private fun loadFeed(
@@ -150,6 +493,7 @@ class MainActivity : AppCompatActivity() {
     ) {
         lifecycleScope.launch {
             clearLastError()
+            currentListSource = BrowserListSource.FEED
             currentFeedKind = kind
             isLoadingMoreFeed = !reset
             setBrowserLoading(
@@ -212,6 +556,114 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun loadBookmarks(
+        preferredTopicId: ULong? = selectedTopicId,
+        reset: Boolean = true,
+        page: UInt? = null,
+    ) {
+        lifecycleScope.launch {
+            clearLastError()
+            currentListSource = BrowserListSource.BOOKMARKS
+            isLoadingMoreFeed = !reset
+            setBrowserLoading(
+                true,
+                getString(if (reset) R.string.browser_loading_bookmarks else R.string.browser_loading_more),
+            )
+            renderSession(session)
+            renderBrowser()
+
+            try {
+                val username = session.bootstrap.currentUsername?.trim().orEmpty()
+                if (username.isBlank()) {
+                    throw IllegalStateException(getString(R.string.feed_bookmarks_login_required))
+                }
+                applyTopicListResponse(
+                    response = sessionStore.fetchBookmarks(username, page),
+                    preferredTopicId = preferredTopicId,
+                    reset = reset,
+                    page = page,
+                    emptyMessage = getString(R.string.feed_bookmarks_empty),
+                )
+            } catch (error: Exception) {
+                handleTopicListError(error)
+            }
+        }
+    }
+
+    private fun loadReadHistory(
+        preferredTopicId: ULong? = selectedTopicId,
+        reset: Boolean = true,
+        page: UInt? = null,
+    ) {
+        lifecycleScope.launch {
+            clearLastError()
+            currentListSource = BrowserListSource.READ_HISTORY
+            isLoadingMoreFeed = !reset
+            setBrowserLoading(
+                true,
+                getString(if (reset) R.string.browser_loading_read_history else R.string.browser_loading_more),
+            )
+            renderSession(session)
+            renderBrowser()
+
+            try {
+                applyTopicListResponse(
+                    response = sessionStore.fetchReadHistory(page),
+                    preferredTopicId = preferredTopicId,
+                    reset = reset,
+                    page = page,
+                    emptyMessage = getString(R.string.feed_read_history_empty),
+                )
+            } catch (error: Exception) {
+                handleTopicListError(error)
+            }
+        }
+    }
+
+    private fun applyTopicListResponse(
+        response: TopicListState,
+        preferredTopicId: ULong?,
+        reset: Boolean,
+        page: UInt?,
+        emptyMessage: String,
+    ) {
+        currentFeedPage = page ?: 0u
+        nextFeedPage = response.nextPage
+        currentTopicList = if (reset || currentTopicList == null) {
+            response
+        } else {
+            mergeTopicLists(currentTopicList!!, response)
+        }
+        val topicList = currentTopicList!!
+
+        val nextTopicId = preferredTopicId?.takeIf { id ->
+            topicList.rows.any { it.topic.id == id }
+        } ?: topicList.rows.firstOrNull()?.topic?.id
+        selectedTopicId = nextTopicId
+        renderSession(session)
+        renderBrowser()
+
+        if (nextTopicId == null) {
+            setBrowserLoading(false, emptyMessage)
+            isLoadingMoreFeed = false
+            renderBrowser()
+            return
+        }
+
+        setBrowserLoading(false, browserFeedSummary(topicList))
+        isLoadingMoreFeed = false
+        renderBrowser()
+    }
+
+    private fun handleTopicListError(error: Exception) {
+        recordLastError(error)
+        browserStatusMessage = lastErrorMessage
+        setBrowserLoading(false, browserStatusMessage)
+        isLoadingMoreFeed = false
+        renderSession(session)
+        renderBrowser()
+    }
+
     private fun openTopic(topicId: ULong) {
         selectedTopicId = topicId
         renderSession(session)
@@ -221,7 +673,14 @@ class MainActivity : AppCompatActivity() {
             ?.rows
             ?.firstOrNull { it.topic.id == topicId }
             ?.let { row ->
-                startActivity(TopicDetailActivity.intent(this, row.topic.id, row.topic.title))
+                startActivity(
+                    TopicDetailActivity.intent(
+                        context = this,
+                        topicId = row.topic.id,
+                        topicTitle = row.topic.title,
+                        targetPostNumber = targetPostNumberFor(row),
+                    ),
+                )
             }
     }
 
@@ -238,6 +697,11 @@ class MainActivity : AppCompatActivity() {
     private fun selectedTopicMeta(row: TopicRowState): String {
         return buildList {
             categoryLabelFor(row.topic.categoryId)?.let(::add)
+            privateMessageParticipantLabel(row.topic)?.let {
+                add(getString(R.string.feed_private_messages_participants, it))
+            }
+            bookmarkLabel(row.topic)?.let(::add)
+            readHistoryLabel(row.topic)?.let(::add)
             row.lastPosterUsername?.let(::add)
             TopicPresentation.formatTimestamp(row.activityTimestampUnixMs ?: row.createdTimestampUnixMs)
                 ?.let(::add)
@@ -333,12 +797,26 @@ class MainActivity : AppCompatActivity() {
             binding.unseenButton to TopicListKindState.UNSEEN,
             binding.hotButton to TopicListKindState.HOT,
             binding.topButton to TopicListKindState.TOP,
+            binding.privateMessagesInboxButton to TopicListKindState.PRIVATE_MESSAGES_INBOX,
+            binding.privateMessagesSentButton to TopicListKindState.PRIVATE_MESSAGES_SENT,
         ).forEach { (button, kind) ->
-            val selected = currentFeedKind == kind
+            val selected = currentListSource == BrowserListSource.FEED && currentFeedKind == kind
+            button.alpha = if (selected) 1f else 0.75f
+            button.isEnabled = !isBrowserLoading
+        }
+        listOf(
+            binding.bookmarksButton to BrowserListSource.BOOKMARKS,
+            binding.readHistoryButton to BrowserListSource.READ_HISTORY,
+        ).forEach { (button, source) ->
+            val selected = currentListSource == source
             button.alpha = if (selected) 1f else 0.75f
             button.isEnabled = !isBrowserLoading
         }
         binding.refreshFeedButton.isEnabled = !isBrowserLoading
+        binding.createTopicButton.isEnabled = !isBrowserLoading && session.readiness.canWriteAuthenticatedApi
+        binding.categoryNotificationButton.isEnabled = !isBrowserLoading &&
+            session.readiness.canWriteAuthenticatedApi &&
+            topicCategoriesForNotifications().isNotEmpty()
         binding.loadMoreButton.isEnabled = !isBrowserLoading && nextFeedPage != null
     }
 
@@ -380,7 +858,7 @@ class MainActivity : AppCompatActivity() {
             rows.firstOrNull { it.topic.id == id }?.topic?.title
         }
         return buildString {
-            append("${currentFeedKind.displayName()} feed")
+            append(currentListTitle())
             append(" · ${rows.size} topics")
             append(" · pages 1-${currentFeedPage.toInt() + 1}")
             if (!topicList?.moreTopicsUrl.isNullOrBlank()) {
@@ -401,6 +879,9 @@ class MainActivity : AppCompatActivity() {
         )
         val excerpt = row.excerptText?.takeIf { it.isNotBlank() }
         val tagNames = row.tagNames
+        val participants = privateMessageParticipantLabel(topic)
+        val bookmark = bookmarkLabel(topic)
+        val readHistory = readHistoryLabel(topic)
 
         return Button(this).apply {
             isAllCaps = false
@@ -423,6 +904,18 @@ class MainActivity : AppCompatActivity() {
                     append("\n")
                     append(lastActivity.joinToString(" · "))
                 }
+                if (!participants.isNullOrBlank()) {
+                    append("\n")
+                    append(getString(R.string.feed_private_messages_participants, participants))
+                }
+                if (!bookmark.isNullOrBlank()) {
+                    append("\n")
+                    append(bookmark)
+                }
+                if (!readHistory.isNullOrBlank()) {
+                    append("\n")
+                    append(readHistory)
+                }
                 if (tagNames.isNotEmpty()) {
                     append(" · #${tagNames.joinToString(" #")}")
                 }
@@ -438,6 +931,81 @@ class MainActivity : AppCompatActivity() {
             ).apply {
                 topMargin = if (binding.topicListContainer.childCount == 0) 0 else dp(8)
             }
+        }
+    }
+
+    private fun privateMessageParticipantLabel(topic: TopicSummaryState): String? {
+        if (currentListSource != BrowserListSource.FEED) {
+            return null
+        }
+        if (currentFeedKind != TopicListKindState.PRIVATE_MESSAGES_INBOX &&
+            currentFeedKind != TopicListKindState.PRIVATE_MESSAGES_SENT
+        ) {
+            return null
+        }
+
+        val currentUsername = session.bootstrap.currentUsername?.trim()
+        val participants = topic.participants.mapNotNull { participant ->
+            val username = participant.username?.trim().orEmpty()
+            val name = participant.name?.trim().orEmpty()
+            when {
+                username.isEmpty() -> null
+                username == currentUsername -> null
+                name.isNotEmpty() -> "$name (@$username)"
+                else -> "@$username"
+            }
+        }.distinct()
+
+        return participants.takeIf { it.isNotEmpty() }?.take(4)?.joinToString(", ")
+    }
+
+    private fun bookmarkLabel(topic: TopicSummaryState): String? {
+        if (currentListSource != BrowserListSource.BOOKMARKS) {
+            return null
+        }
+        return buildList {
+            topic.bookmarkedPostNumber?.let {
+                add(getString(R.string.feed_bookmark_post_number, it.toString()))
+            }
+            topic.bookmarkName?.takeIf { it.isNotBlank() }?.let {
+                add(getString(R.string.feed_bookmark_name, it))
+            }
+            TopicPresentation.formatTimestamp(topic.bookmarkReminderAt)?.let {
+                add(getString(R.string.feed_bookmark_reminder, it))
+            }
+        }.takeIf { it.isNotEmpty() }?.joinToString(" · ")
+    }
+
+    private fun readHistoryLabel(topic: TopicSummaryState): String? {
+        if (currentListSource != BrowserListSource.READ_HISTORY) {
+            return null
+        }
+        return topic.lastReadPostNumber?.let {
+            getString(R.string.feed_read_history_last_read, it.toString())
+        }
+    }
+
+    private fun targetPostNumberFor(row: TopicRowState): UInt? {
+        return when (currentListSource) {
+            BrowserListSource.BOOKMARKS -> row.topic.bookmarkedPostNumber ?: row.topic.lastReadPostNumber
+            BrowserListSource.READ_HISTORY -> row.topic.lastReadPostNumber
+            BrowserListSource.FEED -> null
+        }
+    }
+
+    private fun currentListTitle(): String {
+        return when (currentListSource) {
+            BrowserListSource.FEED -> getString(R.string.feed_title, currentFeedKind.displayName())
+            BrowserListSource.BOOKMARKS -> getString(R.string.feed_bookmarks)
+            BrowserListSource.READ_HISTORY -> getString(R.string.feed_read_history)
+        }
+    }
+
+    private fun labelText(text: String): TextView {
+        return TextView(this).apply {
+            this.text = text
+            textSize = 13f
+            setPadding(0, dp(12), 0, dp(4))
         }
     }
 
@@ -499,6 +1067,7 @@ class MainActivity : AppCompatActivity() {
             hasLoginSession = false,
             profileDisplayName = "未登录",
             loginPhaseLabel = "未登录",
+            browserUserAgent = null,
         )
     }
 
@@ -521,6 +1090,79 @@ class MainActivity : AppCompatActivity() {
 
     private fun dp(value: Int): Int {
         return (value * resources.displayMetrics.density).toInt()
+    }
+
+    private fun topicCategoriesForComposer(): List<TopicCategoryState> {
+        return session.bootstrap.categories
+            .filter { category -> category.id > 0uL && (category.permission ?: 1u) > 0u }
+            .sortedWith(compareBy<TopicCategoryState> { it.name.lowercase() }.thenBy { it.id })
+    }
+
+    private fun topicCategoriesForNotifications(): List<TopicCategoryState> {
+        return session.bootstrap.categories
+            .filter { category -> category.id > 0uL }
+            .sortedWith(compareBy<TopicCategoryState> { it.name.lowercase() }.thenBy { it.id })
+    }
+
+    private fun defaultComposerCategory(categories: List<TopicCategoryState>): TopicCategoryState? {
+        val defaultId = session.bootstrap.defaultComposerCategory
+        return categories.firstOrNull { it.id == defaultId } ?: categories.firstOrNull()
+    }
+
+    private fun createTopicCategoryLabel(category: TopicCategoryState): String {
+        return buildList {
+            add(category.displayName())
+            if (category.minimumRequiredTags > 0u) {
+                add(getString(R.string.create_topic_category_required_tags, category.minimumRequiredTags.toString()))
+            }
+            if (category.allowedTags.isNotEmpty()) {
+                add(getString(R.string.create_topic_category_allowed_tags, category.allowedTags.take(6).joinToString(", ")))
+            }
+        }.joinToString(" · ")
+    }
+
+    private fun categoryNotificationCategoryLabel(category: TopicCategoryState): String {
+        val level = CategoryNotificationLevelOption.fromValue(category.notificationLevel)
+        return getString(
+            R.string.category_notification_category_choice,
+            category.displayName(),
+            getString(level.titleResId),
+        )
+    }
+
+    private fun categoryNotificationOptionLabel(option: CategoryNotificationLevelOption): String {
+        return getString(
+            R.string.topic_detail_notification_option,
+            getString(option.titleResId),
+            getString(option.descriptionResId),
+        )
+    }
+
+    private fun parseTopicTags(input: String): List<String> {
+        val seen = mutableSetOf<String>()
+        return input
+            .split(',', '#', ' ', '\n', '\t')
+            .mapNotNull { value ->
+                val tag = value.trim()
+                tag.takeIf { it.isNotEmpty() && seen.add(it.lowercase()) }
+            }
+    }
+
+    private fun disallowedTopicTags(
+        tags: List<String>,
+        category: TopicCategoryState,
+    ): List<String> {
+        if (tags.isEmpty() || category.allowedTags.isEmpty()) {
+            return emptyList()
+        }
+        val allowed = category.allowedTags
+            .map { it.trim().lowercase() }
+            .filter { it.isNotEmpty() }
+            .toSet()
+        if (allowed.isEmpty()) {
+            return emptyList()
+        }
+        return tags.filter { it.trim().lowercase() !in allowed }
     }
 
     private fun applySession(state: SessionState) {

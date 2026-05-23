@@ -295,6 +295,8 @@ final class FireTopicDetailStoreTests: XCTestCase {
             currentUserReaction: nil,
             polls: [],
             acceptedAnswer: false,
+            canAcceptAnswer: false,
+            canUnacceptAnswer: false,
             canEdit: false,
             canDelete: false,
             canRecover: false,

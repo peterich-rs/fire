@@ -679,6 +679,8 @@ final class FireTopicPresentationTests: XCTestCase {
             currentUserReaction: nil,
             polls: [],
             acceptedAnswer: false,
+            canAcceptAnswer: false,
+            canUnacceptAnswer: false,
             canEdit: false,
             canDelete: false,
             canRecover: false,

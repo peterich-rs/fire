@@ -34,13 +34,15 @@
 - 客户端接入备注：
   - 登录回调页、用户页、话题页等“非首页” HTML 里也可能带 `data-preloaded`，但有时只包含 `currentUser` 等局部字段，不一定带完整的 `site` / `siteSettings`
   - 某些 LinuxDo 页面里，`data-preloaded.currentUser`、`siteSettings`、`site`、`topicTrackingStateMeta` 本身不是对象，而是“JSON 字符串”；客户端在提取字段前需要先解包这层字符串
-  - iOS 当前把登录页收口做成“自动探测、手动 Sync”：实时探测会先轻量检查当前页的用户名 / bootstrap 标记与同站 auth Cookie，只在 auth Cookie 已就绪但当前页元数据仍不完整时，才补一次浏览器上下文内的首页 `fetch("/")`；只有最终同时拿到 `current-username`、有效 `_t` / `_forum_session` Cookie，以及可复用的首页 bootstrap HTML 时，才允许用户点击“完成登录”
+  - iOS 当前把登录页收口做成“自动探测、按 readiness 同步”：实时探测会先轻量检查当前页的用户名 / bootstrap 标记与同站 auth Cookie，只在 auth Cookie 已就绪但当前页元数据仍不完整时，才补一次浏览器上下文内的首页 `fetch("/")`；只有最终同时拿到 `current-username`、有效 `_t` / `_forum_session` Cookie，以及可复用的首页 bootstrap HTML 时，才允许普通登录点击“完成登录”
+  - iOS 登录与 Cloudflare 验证 WebView 使用同一套 auth-browser profile：默认持久化 `WKWebsiteDataStore`、不自定义进程池、浏览器兼容 UA、JavaScript、新窗口处理、inline media 设置、调试可检查 WebView，以及少量浏览器兼容 polyfill；完成登录时再读取实际 `navigator.userAgent`，通过 `sync_login_context.browser_user_agent` 交给共享层保存，并由 `SessionState.browser_user_agent` 暴露回宿主
   - iOS 登录 `WKWebView` 现在会显式开启 `window.open` / 新窗口请求，并把 `target="_blank"` 或脚本弹出的登录跳转收口到当前浏览器上下文继续导航，避免第三方登录选择页因为缺少 `WKUIDelegate` 而直接失效
-  - iOS 的交互式 Cloudflare 恢复不再单独打开 `/challenge` 页面，而是复用登录页上下文；当登录上下文探测到同站 auth Cookie 和可复用 bootstrap 已齐备时，会自动执行一次登录同步并恢复原始操作
+  - iOS 的交互式 Cloudflare 恢复不再单独打开 `/challenge` 页面，而是复用登录 URL 和同一个 auth-browser profile；当登录上下文满足普通登录“完成登录”按钮的同一套可用条件（WebView 已停止 loading、用户名、同站 auth Cookie、可复用 bootstrap、且当前没有同步任务）时，会自动执行一次 `completeLogin` 并恢复原始操作
+  - 这个 WebView profile 只用于让 LinuxDo 登录、Cloudflare challenge 和普通站内跳转尽量接近系统 `WKWebView` 浏览器环境，不能绕过第三方 OAuth 的嵌入式浏览器限制。Google OAuth 仍可能在 `WKWebView` 中返回 `disallowed_useragent`；如需支持 Google 登录，需要系统认证会话 / Safari fallback，并配套服务端 redirect 或 Cookie 交换能力。
   - iOS 当前在真正提交登录时仍会优先通过浏览器上下文内的 `fetch("/")` 抓首页 HTML；只有这份首页 HTML 不够完整时，才回退到当前页面 `document.documentElement.outerHTML`，并会用优选后的 HTML 回填缺失的 `current-username` / `csrf-token`
   - 在把 bootstrap 视为“已就绪”前，应该确认至少拿到了当前用户、站点级 `site` 元数据（分类/标签能力）和 `siteSettings`（最小长度、reactions、长轮询域等）；缺失时继续回源 `GET /` 刷新，而不要仅凭 `hasPreloadedData=true` 就跳过
   - 当前 Fire 实现还会在首页 bootstrap 仍缺少 `site` 元数据时自动补一次 `GET /site.json`，用于回填 `categories`、`top_tags`、`can_tag_topics`
-  - iOS 当前在真正提交登录时会先把 `WKWebView` 里抓到的同站 auth Cookie 批量回灌到共享层，再执行 `sync_login_context` / bootstrap 刷新，并在把状态交给 UI 前额外保证 CSRF 已可用；因此主界面不会再看到“已登录但 `csrf` 为空”的中间态
+  - iOS 当前在真正提交登录时会先把 `WKWebView` 里抓到的同站 auth Cookie 批量回灌到共享层，再执行 `sync_login_context` / bootstrap 刷新，并在把状态交给 UI 前额外保证 CSRF 已可用；Android 登录完成后也会做同样的 CSRF 补齐；因此主界面不会再看到“已登录但 `csrf` 为空”的中间态
   - 宿主层不再按同名 Cookie 做“best score”选优；Cookie 归并由共享层按 `(name, normalizedDomain, path)` 处理，其中 `normalizedDomain` 会去掉前导 `.`。因此 `linux.do` 与 `.linux.do` 的同名同路径 Cookie 只保留最后写入的一份，请求发送阶段再按 URL/path/domain 规则决定可发送项。
   - 当前 Fire 还会从 `siteSettings` 提取 composer 约束：
     - `min_post_length`
@@ -58,6 +60,7 @@
     - `required_tag_groups`
     - `allowed_tags`
     - `permission`
+    - `notification_level`
 
 ### `GET /session/csrf`
 
@@ -97,12 +100,12 @@
 - Fire 共享层现在会在 `sync_login_context`、`apply_platform_cookies`、以及网络 `Set-Cookie` 导致 auth key `(_t, _forum_session)` 变化时推进 session epoch；晚到的旧请求响应仍会作为 stale response 整批丢弃。
 - 如果 auth key 变化但同一批更新没有带来新的 CSRF，Fire 会立即清掉旧 CSRF，让下一次认证写请求先刷新 token。
 - 如果网络侧只轮换了 `_t` / `_forum_session` 的一部分，Fire 会记录一次运行时 recovery hint，并把必要的 host cookie resync 延迟到下一次认证写请求，而不是在读路径里立刻探测 WebKit。
-- 当前 `BAD CSRF` 仍只触发一次性 CSRF 刷新与单次重试；如果同一请求同时已经暴露强失效信号，则优先按登录失效收口。
+- 当前 `BAD CSRF` 仍只触发一次性 CSRF 刷新与单次重试；如果同一请求同时已经暴露强失效信号，则优先按登录失效收口。Rust 的自动 CSRF 刷新会做 in-flight 去重，避免多个认证写请求同时发现缺 token 时重复打 `/session/csrf`。
 - 因此后续常见表现不只有“更早一步已明确失效”，也可能是“更早一步成功读请求触发了 partial auth rotation，首个写请求才真正暴露问题”。
 
 ### 交互式 Cloudflare 恢复
 
-- 用途：在浏览器上下文内完成 Cloudflare 验证并恢复原始操作。Fire iOS 的交互式恢复会先删除 `WKHTTPCookieStore` 中旧的 `cf_clearance`，再复用登录页上下文等待 challenge 退出、出现新的 clearance、并且登录 bootstrap 一起就绪后再自动同步，避免 WebView 继续复用旧 clearance。
+- 用途：在浏览器上下文内完成 Cloudflare 验证并恢复原始操作。Fire iOS 的交互式恢复会先删除 `WKHTTPCookieStore` 中旧的 `cf_clearance`，再复用登录 URL 和登录页 readiness 探测；当页面拿到用户名、同站 auth Cookie 和可复用 bootstrap，且 WebView 不再 loading 后，宿主按普通登录按钮可用状态自动执行登录同步并重试原操作。
 - 认证：匿名可访问
 - 响应：HTML 页面，不是 JSON
 - 识别：共享层只把 `403` 且响应头指向 Cloudflare HTML challenge 的回包归类为 `CloudflareChallenge`；优先使用 `cf-mitigated: challenge`，缺失时再用 HTML 中的 `cf_chl_opt`、`challenge-platform`、`Just a moment` 等特征兜底
@@ -132,8 +135,8 @@
 - 备注：
   - 当前客户端没有把这一步当成独立业务接口暴露，而是视为 Cloudflare 内部续期流程
   - 当前客户端回放请求时未显式固定 `Content-Type` 为 `application/x-www-form-urlencoded`；拦截到的原始运行时请求体更接近 JSON 形态
-  - 当前 Fire iOS 会在会话已连接、已有 `cf_clearance`、且首页 bootstrap 已暴露 Turnstile `sitekey` 时，启动一个离屏 `WKWebView` 承载 Turnstile widget；宿主在 `api.js` 加载前注入 `fetch` 拦截脚本，捕获 `/cdn-cgi/challenge-platform/.../rc/...` 请求后由 `URLSession` 代发，再把真实响应回注到页面，最后把更新后的 Cookie 同步回共享层
-  - 交互式恢复与离屏续期不同：恢复前会删除 WebView Store 里的旧 `cf_clearance`，并且只把相对恢复开始前发生变化的 clearance 视为完成
+  - 当前 Fire iOS 会在会话已连接、已有 `cf_clearance`、且首页 bootstrap 已暴露 Turnstile `sitekey` 时，启动一个离屏 `WKWebView` 承载 Turnstile widget；这个离屏 WebView 使用会话里捕获的浏览器 UA，缺失时回退到登录页同款 Mobile Safari 风格 UA；宿主在 `api.js` 加载前注入 `fetch` 拦截脚本，捕获 `/cdn-cgi/challenge-platform/.../rc/...` 请求后由 `URLSession` 代发，再把真实响应回注到页面，最后把更新后的 Cookie 同步回共享层
+  - 交互式恢复与离屏续期不同：恢复前会删除 WebView Store 里的旧 `cf_clearance`，但完成条件不再是单独观察新的 clearance；当前 iOS 入口以登录页 readiness 为准，同步完整浏览器 Cookie 批次后由共享层刷新 bootstrap / CSRF
   - 共享层仍会保留并发送 `cf_clearance`；挑战完成、平台 Cookie 读取、离屏 WebView 续期都仍属于宿主职责
 
 ## 站点信息、分类、标签、表情
@@ -152,6 +155,7 @@
   - `required_tag_groups`
   - `allowed_tags`
   - `permission`
+  - `notification_level`
 - 补充说明：
   - 当前举报/Flag 流程优先使用首页 `data-preloaded.site.post_action_types`
   - 分类/热门标签能力也可参考 FluxDo 的做法：优先使用首页 `data-preloaded.site`，缺失时再回退到 `/site.json`
@@ -187,6 +191,7 @@
   - `2`: tracking
   - `3`: watching
   - `4`: watching_first_post
+- 当前共享 Rust 模型会从 `data-preloaded.site.categories[]` / `/site.json` 读取分类当前 `notification_level`，并通过 UniFFI 暴露给宿主；Android 主页面的分类通知入口会调用共享 `set_category_notification_level`，成功后强制刷新 bootstrap 以回灌服务端状态。
 - Body：
 
 ```json

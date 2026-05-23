@@ -125,10 +125,13 @@
 
 - 补充说明：
   - 协议层应支持重复提交 `options[]` 表单字段来表达多选
-  - 当前客户端代码存在多选实现偏差，实际更可靠的是单值 `options[]`
+  - Fire 共享 Rust 写接口会为每个选中项重复发送 `options[]`
   - 当前 Fire iOS 会从 `posts[].polls` + `posts[].polls_votes` 渲染原生 poll 卡片：
     - `type="regular"` 按单选处理
     - `type` 含 `multiple` 按多选处理
+  - Android 话题详情页也会从 `TopicPostState.polls` 渲染原生 poll 卡片：
+    - 普通 poll 点击选项直接投票
+    - 多选 poll 打开原生多选弹窗后提交选中的 `options[]`
   - 提交成功后会刷新当前 topic detail
 
 ### `DELETE /polls/vote`
@@ -154,6 +157,7 @@
 
 - 当前客户端行为：
   - iOS 在已投票的 poll 卡片上提供“撤销投票”
+  - Android 在已投票且 poll 未关闭时显示“Remove Vote”
   - 撤销后会刷新当前 topic detail
 
 ### `POST /voting/vote`
@@ -171,6 +175,7 @@
 - 响应：`VoteResponse`
 - 当前客户端行为：
   - iOS 在 topic detail header 提供原生话题投票面板
+  - Android 在 topic detail 顶部渲染原生话题投票面板
   - 成功后会刷新当前 topic detail
   - `VoteResponse.who_voted[]` 中单个坏项会被跳过
 
@@ -189,6 +194,7 @@
 - 响应：`VoteResponse`
 - 当前客户端行为：
   - iOS 在已投票状态下显示“取消投票”
+  - Android 在已投票状态下显示“Remove Vote”
   - 成功后会刷新当前 topic detail
   - `VoteResponse.who_voted[]` 中单个坏项会被跳过
 
@@ -200,6 +206,7 @@
 - 响应：`VotedUser[]`
 - 当前客户端行为：
   - iOS 在 topic detail vote panel 提供 voters sheet
+  - Android 在 topic detail vote panel 提供 native voters dialog，并可从用户名跳转 public profile
   - `VotedUser[]` 中单个坏项会被跳过
 
 ### `POST /topics/timings`
@@ -526,8 +533,9 @@
 - 开发前置约束：
   - 当前客户端会先读取 `min_personal_message_title_length`
   - 以及 `min_personal_message_post_length`
-- 当前 Fire iOS 行为：
+- 当前 Fire 行为：
   - 通过 profile 页“私信”入口或公开用户页 header 的“私信”按钮进入原生 full-screen composer
   - `target_recipients` 由选中的用户名列表按逗号拼接，当前不支持群组收件人
   - 收件人搜索走 `GET /u/search/users?include_groups=false`
   - 发送成功后会刷新私信 mailbox，并直接跳入新建出的私信详情线程
+  - Android 公开用户页会在 `can_send_private_message_to_user = true` 时显示单收件人私信 composer；提交前使用共享 bootstrap 的 `min_personal_message_title_length` / `minPersonalMessageTitleLength` 和 `min_personal_message_post_length` / `minPersonalMessagePostLength` 做本地校验，成功后直接打开新私信线程

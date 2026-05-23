@@ -59,4 +59,4 @@
 3. 使用 Cookie Session 调用主站 API
 4. 如需实时能力，先持久化 `siteSettings.long_polling_base_url`、`topicTrackingStateMeta`，以及跨域长轮询场景下可能存在的 `shared_session_key`
 5. 使用单例 `clientId` 调用 `POST /message-bus/{clientId}/poll`
-6. 如遇 Cloudflare 挑战，宿主先删除 WebView Cookie Store 中旧的 `cf_clearance`，再在 WebView 中加载 `/challenge` 完成验证并拿到新的 `cf_clearance`
+6. 如遇 Cloudflare 挑战，宿主先删除 WebView Cookie Store 中旧的 `cf_clearance`，再在宿主 auth WebView 的 LinuxDo 登录上下文中完成验证；当登录页 readiness 满足用户名、同站 auth Cookie 和可复用 bootstrap 后，把浏览器 Cookie 批量同步回共享层并重试原操作

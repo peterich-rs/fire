@@ -40,6 +40,7 @@
   - Fire 共享层对 `user` 里的数值/布尔标量做宽松解析，兼容字符串数字和 `"0"` / `"1"`
 - 当前客户端行为：
   - iOS 公开用户页会在 `user.can_send_private_message_to_user = true` 且不是本人资料页时显示“私信”入口，并以该用户名预填新私信 composer 的收件人
+  - Android 话题详情里的作者名和回复上下文用户名会进入原生公开用户页；该页通过共享 Rust 用户 API 渲染 profile metadata、bio、followers/following 入口、follow/unfollow 状态，并在 `can_send_private_message_to_user = true` 时显示单收件人私信 composer
 
 ### `GET /u/{username}/summary.json`
 
@@ -56,6 +57,8 @@
 - 兼容性说明：
   - Fire 共享层对 summary 统计字段做宽松解析
   - `topics` / `replies` / `links` / `top_categories` / `most_*_users` / `badges` 中单个坏项会被跳过，不再让整页 summary 失败或整组结果清空
+- 当前客户端行为：
+  - Android 公开用户页会读取 summary stats、top topics、top replies 和 badges；top topics/replies 会复用原生 topic detail 打开对应话题或楼层
 
 ### `GET /user_actions.json`
 
@@ -78,6 +81,13 @@
   - `username: string`
   - `before_reaction_user_id?: integer`
 - 响应：`UserReactionsResponse`
+- 兼容性说明：
+  - Fire 共享层兼容数组根节点，以及对象根节点下的 `reactions[]` 或 `posts[]`
+  - 每条记录会读取 `id`、`post_id`、`post.topic_id`、`post.post_number`、`post.topic_title`、`post.excerpt`、`reaction.reaction_value`、`created_at`
+  - 单个坏项会被跳过
+- 当前客户端行为：
+  - 共享 Rust 用户 API 通过 `fetch_user_reactions(username, before_reaction_user_id)` 调用该接口，并通过 UniFFI 暴露给宿主
+  - Android 公开用户页会加载用户回应列表，使用最后一条 reaction `id` 作为 `before_reaction_user_id` 分页游标，列表项打开对应话题楼层
 
 ### `GET /u/{username}/follow/following`
 
@@ -85,6 +95,7 @@
 - 响应：`FollowUser[]`
 - 当前客户端行为：
   - iOS 在公开用户页和“我的”页都提供 following / followers 原生列表
+  - Android 公开用户页 header 提供 followers / following 原生弹窗列表
   - 列表项会跳转到公开用户页
   - 当前共享层兼容数组根节点和简单 wrapper 结构
   - `FollowUser[]` 中单个坏项会被跳过
@@ -99,6 +110,7 @@
 - 用途：关注用户
 - 当前客户端行为：
   - iOS 在公开用户页 header 提供 follow / unfollow 原生按钮
+  - Android 在公开用户页 header 提供 follow / unfollow 原生按钮
   - 成功后会刷新当前 profile 数据
 
 ### `DELETE /follow/{username}`
@@ -109,6 +121,9 @@
 
 - 用途：设置用户订阅级别
 - `Content-Type`: `application/json`
+- Body 字段：
+  - `notification_level: "normal" | "mute" | "ignore"`
+  - `expiring_at?: ISO-8601 string`，通常只在 `ignore` 时传入
 - Body：
 
 ```json
@@ -117,6 +132,9 @@
   "expiring_at": "2026-03-27T00:00:00.000Z"
 }
 ```
+- 当前客户端行为：
+  - 共享 Rust 用户 API 通过 `set_user_notification_level(username, notification_level, expiring_at)` 发送该接口，并复用认证写请求的 CSRF 刷新 / Cloudflare 恢复流程
+  - Android 公开用户页会从 `user.muted` / `user.ignored` 和 `user.can_mute_user` / `user.can_ignore_user` 显示 Normal / Mute / Ignore 选择；选择 Ignore 时会先选择过期时间，提交成功后刷新 profile 以回到服务端状态
 
 ### `GET /read.json`
 
@@ -126,6 +144,7 @@
 - 响应：`TopicListResponse`
 - 当前客户端行为：
   - iOS 在“我的”页提供浏览历史列表
+  - Android 主话题浏览器 filter bar 提供 `Read History` 入口，复用共享 `fetchReadHistory(page)`
   - 列表项进入 topic detail 时，会优先用 `last_read_post_number` 接续上次阅读位置
 
 ### `GET /u/{username}/bookmarks.json`
@@ -137,8 +156,16 @@
   - 主站响应头 `x-discourse-username`
 - Query：
   - `page?: integer`
-- 响应：`TopicListResponse`
-- 当前客户端额外依赖的 `topic_list.topics[]` 字段：
+- 响应：Discourse 常见返回 `user_bookmark_list.bookmarks[]`，客户端共享层会把它归一化成 `TopicListResponse`；也兼容旧的 `topic_list.topics[]` 形态
+- 当前客户端额外依赖的书签字段：
+  - `user_bookmark_list.more_bookmarks_url` / `topic_list.more_topics_url`
+  - `user_bookmark_list.bookmarks[].topic_id`
+  - `user_bookmark_list.bookmarks[].linked_post_number`
+  - `user_bookmark_list.bookmarks[].id`
+  - `user_bookmark_list.bookmarks[].name`
+  - `user_bookmark_list.bookmarks[].reminder_at`
+  - `user_bookmark_list.bookmarks[].bookmarkable_type`
+- 归一化后的 `TopicSummary` 字段：
   - `bookmarked_post_number`
   - `bookmark_id`
   - `bookmark_name`
@@ -147,6 +174,9 @@
 - 用途补充：
   - `bookmarked_post_number` 优先用于“从书签跳回指定楼层”
   - `bookmark_id` / `bookmark_name` / `bookmark_reminder_at` 用于原地编辑或删除书签
+- 当前客户端行为：
+  - iOS 在“我的”页提供书签列表，使用 collection-backed ListKit 渲染、按书签 ID 保持行身份，并在列表项进入 topic detail 时优先跳到 `bookmarked_post_number`
+  - Android 主话题浏览器 filter bar 提供 `Bookmarks` 入口，复用共享 `fetchBookmarks(username, page)`；列表行展示 bookmark post/name/reminder metadata，进入 topic detail 时优先跳到 `bookmarked_post_number`
 
 ### `GET /topics/created-by/{username}.json`
 
@@ -169,7 +199,9 @@
   - `participants[].avatar_template`
 - 当前客户端行为：
   - iOS 在“我的”页提供原生私信入口，进入后默认展示收件箱
+  - Android 主话题浏览器 filter bar 提供 `Messages` 入口，复用共享 `TopicListKind::PrivateMessagesInbox`
   - 列表行会结合 `topic_list.topics[].participants[]` 与响应侧载的 `users[]` 渲染对话对象头像/名称
+  - Android 列表行会在服务端返回 `participants[]` 时显示会话参与者
   - 点进列表项后直接复用原生 topic detail，按私信线程模式显示
 
 ### `GET /topics/private-messages-sent/{username}.json`
@@ -182,6 +214,7 @@
 - 当前客户端行为：
   - iOS 私信页通过 segmented control 在 inbox / sent 之间切换
   - sent 列表与 inbox 使用同一套 `TopicListResponse` / topic detail 渲染逻辑
+  - Android 主话题浏览器 filter bar 提供 `Sent Messages` 入口，复用共享 `TopicListKind::PrivateMessagesSent` 和同一套 topic detail 渲染逻辑
 
 ### `GET /user-badges/{username}.json`
 
@@ -307,6 +340,10 @@
 - 兼容性说明：
   - `posts[]` / `topics[]` / `users[]` 中单个坏项会被跳过
   - `grouped_search_result` 仍是必需字段；根节点或该字段本身严重缺失时仍会报解析错误
+- 当前客户端行为：
+  - Android 主界面提供原生 Search 入口，复用共享 Rust `search(SearchQuery)` API
+  - Android 搜索页提供 All / Topics / Posts / Users 过滤；topic 结果打开原生 topic detail，post 结果按 `topic_id` + `post_number` 打开对应楼层，user 结果打开原生公开用户页
+  - Android 搜索页只在 `grouped_search_result` 暴露更多结果时显示加载更多，并继续沿用当前 filter 的 `page`
 
 ### `GET /discourse-ai/embeddings/semantic-search`
 
@@ -460,6 +497,8 @@
   - 当前未读角标和 recent 同步不只依赖该接口
   - 首次计数来自 `currentUser`
   - 实时增量依赖 MessageBus `/notification/{userId}`，详见 [07. MessageBus 长轮询](07-messagebus.md)
+  - Android 通知中心使用完整分页通知列表，展示未读/全局未读/高优先级计数；点击单条通知会先 `markNotificationRead(id)`，再优先按 `topic_id` + `post_number` 打开原生话题详情楼层，缺少话题目标时回退到 `display_username` / `username` / `original_username` 用户资料
+  - Android 通知中心的全部标已读按钮调用 `markAllNotificationsRead()`，并同步本地列表 read 状态
   - `inviteeAccepted` / `following` 当前会跳转到公开用户页，用户名优先取 `display_username`，否则回退 `username` / `original_username`
   - `grantedBadge` 当前会跳转到徽章详情页，主键取 `data.badge_id`，`data.badge_slug` 仅作为附加展示信息
   - `notifications[]` 中单个坏项会被跳过，而不是让整页 recent/full 通知失败

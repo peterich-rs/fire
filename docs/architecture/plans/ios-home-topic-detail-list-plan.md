@@ -26,11 +26,18 @@ The current branch now includes the core migration described in this plan:
   `native/ios-app/App/ListKit/FireCollectionHost.swift` now expose a generic
   one-shot scroll-request path so a screen can wait for a target item to enter
   the diffable snapshot and then scroll it into view.
+- The shared collection host also exposes UIKit collection prefetch callbacks,
+  allowing screens to trigger pagination or post-window hydration before rows
+  become visible.
 - topic detail now renders through
   `native/ios-app/App/ListKit/TopicDetail/FireTopicDetailCollectionView.swift`
   instead of the old `ScrollViewReader -> ScrollView -> LazyVStack` body path.
 - topic detail visible-post reporting and preload triggering now come from the
-  ListKit visible-item callback instead of geometry preference frames.
+  ListKit visible-item and prefetch callbacks instead of geometry preference
+  frames.
+- the profile bookmarks page now uses the same ListKit host and stable
+  bookmark-row identity, while Rust normalizes
+  `user_bookmark_list.bookmarks[]` into the shared topic-list model.
 - route target scrolling now resolves a pending post number to a typed
   collection item and clears the pending target after the host completes the
   scroll request.
@@ -50,6 +57,7 @@ The current branch now includes the core migration described in this plan:
 - `native/ios-app/App/ListKit/FireDiffableListController.swift` already provides:
   - diffable snapshot application
   - visible-item publication
+  - prefetch-item publication
   - scroll-metric publication
   - refresh-control bridging
   - scroll-anchor preservation across updates
@@ -62,7 +70,8 @@ The current branch now includes the core migration described in this plan:
   but its body content is rendered through
   `native/ios-app/App/ListKit/TopicDetail/FireTopicDetailCollectionView.swift`.
 - Visibility and preload now depend on ListKit visible-item publication instead
-  of SwiftUI geometry preference reporting.
+  of SwiftUI geometry preference reporting, with collection prefetch used as an
+  earlier signal for long-thread hydration.
 - Anchored route scrolling now resolves a post number to a typed collection
   item and uses the shared host scroll-request callback to clear the pending
   target.
@@ -89,8 +98,8 @@ The current branch now includes the core migration described in this plan:
 - No same-slice rewrite of data ownership across Rust and Swift beyond what topic
   detail already trimmed in the recent UniFFI payload reduction.
 - No broad migration of every list-like surface in this slice. Notifications,
-  PM history, bookmarks, and search can follow after home and topic detail share
-  the same mature host.
+  PM history, filtered lists, read history, and search can follow after home,
+  topic detail, and bookmarks share the same mature host.
 
 ## Architectural Decision
 

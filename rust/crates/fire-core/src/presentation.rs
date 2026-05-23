@@ -1,20 +1,13 @@
 use fire_models::TopicSummary;
 
-use crate::parsing::decode_html_entities;
+use crate::rich_text::parse_cooked_html;
 
 pub fn plain_text_from_html(raw_html: &str) -> String {
     if raw_html.trim().is_empty() {
         return String::new();
     }
 
-    let normalized = raw_html
-        .replace("<br>", "\n")
-        .replace("<br/>", "\n")
-        .replace("<br />", "\n")
-        .replace("</p>", "\n\n")
-        .replace("</li>", "\n");
-    let stripped = strip_html_tags(&normalized);
-    normalize_whitespace(&decode_html_entities(&stripped))
+    parse_cooked_html(raw_html).plain_text
 }
 
 pub fn preview_text_from_html(raw_html: Option<&str>) -> Option<String> {
@@ -72,25 +65,6 @@ pub fn topic_status_labels(topic: &TopicSummary) -> Vec<String> {
     labels
 }
 
-fn strip_html_tags(input: &str) -> String {
-    let mut stripped = String::with_capacity(input.len());
-    let mut inside_tag = false;
-
-    for character in input.chars() {
-        match character {
-            '<' => inside_tag = true,
-            '>' => {
-                inside_tag = false;
-                stripped.push(' ');
-            }
-            _ if !inside_tag => stripped.push(character),
-            _ => {}
-        }
-    }
-
-    stripped
-}
-
 fn normalize_whitespace(value: &str) -> String {
     let normalized = value.replace("\r\n", "\n");
     let mut result = String::with_capacity(normalized.len());
@@ -136,7 +110,7 @@ mod tests {
     fn plain_text_from_html_normalizes_basic_markup() {
         assert_eq!(
             plain_text_from_html("<p>Hello<br>Fire</p><ul><li>Rust</li><li>CI</li></ul>"),
-            "Hello\nFire\n\n Rust\n CI"
+            "Hello\nFire\n\nRust\nCI"
         );
     }
 

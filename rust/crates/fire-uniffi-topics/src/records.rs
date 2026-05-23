@@ -1,9 +1,10 @@
 use fire_models::{
-    Poll, PollOption, PostReactionUpdate, PostUpdateRequest, PrivateMessageCreateRequest,
-    ResolvedUploadUrl, TopicCreateRequest, TopicDetail, TopicDetailCreatedBy, TopicDetailMeta,
+    Poll, PollOption, PostActionType, PostFlagRequest, PostReactionUpdate, PostUpdateRequest,
+    PrivateMessageCreateRequest, ReactionUser, ReactionUsersGroup, ResolvedUploadUrl,
+    TopicAiSummary, TopicCreateRequest, TopicDetail, TopicDetailCreatedBy, TopicDetailMeta,
     TopicDetailQuery, TopicListQuery, TopicPost, TopicPostStream, TopicReaction, TopicReplyRequest,
-    TopicTimingEntry, TopicTimingsRequest, TopicUpdateRequest, UploadResult, VoteResponse,
-    VotedUser,
+    TopicReplyToUser, TopicTimingEntry, TopicTimingsRequest, TopicUpdateRequest, UploadResult,
+    VoteResponse, VotedUser,
 };
 
 use fire_uniffi_types::{TopicListKindState, TopicParticipantState, TopicTagState};
@@ -96,6 +97,29 @@ impl From<TopicDetailQueryState> for TopicDetailQuery {
 }
 
 #[derive(uniffi::Record, Debug, Clone)]
+pub struct TopicAiSummaryState {
+    pub summarized_text: String,
+    pub algorithm: Option<String>,
+    pub outdated: bool,
+    pub can_regenerate: bool,
+    pub new_posts_since_summary: u32,
+    pub updated_at: Option<String>,
+}
+
+impl From<TopicAiSummary> for TopicAiSummaryState {
+    fn from(value: TopicAiSummary) -> Self {
+        Self {
+            summarized_text: value.summarized_text,
+            algorithm: value.algorithm,
+            outdated: value.outdated,
+            can_regenerate: value.can_regenerate,
+            new_posts_since_summary: value.new_posts_since_summary,
+            updated_at: value.updated_at,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
 pub struct TopicReactionState {
     pub id: String,
     pub kind: Option<String>,
@@ -110,6 +134,42 @@ impl From<TopicReaction> for TopicReactionState {
             kind: value.kind,
             count: value.count,
             can_undo: value.can_undo,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct ReactionUserState {
+    pub id: u64,
+    pub username: String,
+    pub name: Option<String>,
+    pub avatar_template: Option<String>,
+}
+
+impl From<ReactionUser> for ReactionUserState {
+    fn from(value: ReactionUser) -> Self {
+        Self {
+            id: value.id,
+            username: value.username,
+            name: value.name,
+            avatar_template: value.avatar_template,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct ReactionUsersGroupState {
+    pub id: String,
+    pub count: u32,
+    pub users: Vec<ReactionUserState>,
+}
+
+impl From<ReactionUsersGroup> for ReactionUsersGroupState {
+    fn from(value: ReactionUsersGroup) -> Self {
+        Self {
+            id: value.id,
+            count: value.count,
+            users: value.users.into_iter().map(Into::into).collect(),
         }
     }
 }
@@ -248,6 +308,54 @@ impl From<PostUpdateRequestState> for PostUpdateRequest {
 }
 
 #[derive(uniffi::Record, Debug, Clone)]
+pub struct PostFlagRequestState {
+    pub post_id: u64,
+    pub flag_type_id: u32,
+    pub message: Option<String>,
+}
+
+impl From<PostFlagRequestState> for PostFlagRequest {
+    fn from(value: PostFlagRequestState) -> Self {
+        Self {
+            post_id: value.post_id,
+            flag_type_id: value.flag_type_id,
+            message: value.message,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct PostActionTypeState {
+    pub id: u32,
+    pub name_key: String,
+    pub name: String,
+    pub description: String,
+    pub short_description: Option<String>,
+    pub is_flag: bool,
+    pub require_message: bool,
+    pub enabled: bool,
+    pub position: i32,
+    pub applies_to: Vec<String>,
+}
+
+impl From<PostActionType> for PostActionTypeState {
+    fn from(value: PostActionType) -> Self {
+        Self {
+            id: value.id,
+            name_key: value.name_key,
+            name: value.name,
+            description: value.description,
+            short_description: value.short_description,
+            is_flag: value.is_flag,
+            require_message: value.require_message,
+            enabled: value.enabled,
+            position: value.position,
+            applies_to: value.applies_to,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
 pub struct UploadImageRequestState {
     pub file_name: String,
     pub mime_type: Option<String>,
@@ -344,6 +452,23 @@ impl From<PostReactionUpdate> for PostReactionUpdateState {
 }
 
 #[derive(uniffi::Record, Debug, Clone)]
+pub struct TopicReplyToUserState {
+    pub username: String,
+    pub name: Option<String>,
+    pub avatar_template: Option<String>,
+}
+
+impl From<TopicReplyToUser> for TopicReplyToUserState {
+    fn from(value: TopicReplyToUser) -> Self {
+        Self {
+            username: value.username,
+            name: value.name,
+            avatar_template: value.avatar_template,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
 pub struct TopicPostState {
     pub id: u64,
     pub username: String,
@@ -358,6 +483,7 @@ pub struct TopicPostState {
     pub like_count: u32,
     pub reply_count: u32,
     pub reply_to_post_number: Option<u32>,
+    pub reply_to_user: Option<TopicReplyToUserState>,
     pub bookmarked: bool,
     pub bookmark_id: Option<u64>,
     pub bookmark_name: Option<String>,
@@ -366,6 +492,8 @@ pub struct TopicPostState {
     pub current_user_reaction: Option<TopicReactionState>,
     pub polls: Vec<PollState>,
     pub accepted_answer: bool,
+    pub can_accept_answer: bool,
+    pub can_unaccept_answer: bool,
     pub can_edit: bool,
     pub can_delete: bool,
     pub can_recover: bool,
@@ -388,6 +516,7 @@ impl From<TopicPost> for TopicPostState {
             like_count: value.like_count,
             reply_count: value.reply_count,
             reply_to_post_number: value.reply_to_post_number,
+            reply_to_user: value.reply_to_user.map(Into::into),
             bookmarked: value.bookmarked,
             bookmark_id: value.bookmark_id,
             bookmark_name: value.bookmark_name,
@@ -396,6 +525,8 @@ impl From<TopicPost> for TopicPostState {
             current_user_reaction: value.current_user_reaction.map(Into::into),
             polls: value.polls.into_iter().map(Into::into).collect(),
             accepted_answer: value.accepted_answer,
+            can_accept_answer: value.can_accept_answer,
+            can_unaccept_answer: value.can_unaccept_answer,
             can_edit: value.can_edit,
             can_delete: value.can_delete,
             can_recover: value.can_recover,

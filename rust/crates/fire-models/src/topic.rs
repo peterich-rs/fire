@@ -133,6 +133,7 @@ pub struct TopicCategory {
     #[serde(default)]
     pub allowed_tags: Vec<String>,
     pub permission: Option<u32>,
+    pub notification_level: Option<i32>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

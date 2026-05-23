@@ -5,7 +5,7 @@ use regex::Regex;
 use serde_json::Value;
 use tracing::warn;
 
-use crate::json_helpers::{integer_i64, positive_u32, positive_u64};
+use crate::json_helpers::{integer_i32, integer_i64, positive_u32, positive_u64};
 
 #[derive(Debug, Default)]
 pub(crate) struct ParsedHomeState {
@@ -370,6 +370,7 @@ fn topic_category_from_value(value: &Value) -> Option<TopicCategory> {
         required_tag_groups: required_tag_groups_from_value(object.get("required_tag_groups")),
         allowed_tags: string_array_from_value(object.get("allowed_tags")),
         permission: positive_u32(object.get("permission")),
+        notification_level: integer_i32(object.get("notification_level")),
     })
 }
 
@@ -594,7 +595,7 @@ mod tests {
 <!doctype html>
 <html>
   <body>
-    <div data-preloaded="{&quot;siteSettings&quot;:{&quot;title&quot;:&quot;A &amp;amp; B&quot;,&quot;min_post_length&quot;:18,&quot;min_topic_title_length&quot;:15,&quot;min_first_post_length&quot;:24,&quot;default_composer_category&quot;:7,&quot;discourse_reactions_enabled_reactions&quot;:&quot;heart|clap&quot;},&quot;site&quot;:{&quot;categories&quot;:[{&quot;id&quot;:7,&quot;name&quot;:&quot;Rust&quot;,&quot;slug&quot;:&quot;rust&quot;,&quot;color&quot;:&quot;FFFFFF&quot;,&quot;text_color&quot;:&quot;000000&quot;,&quot;topic_template&quot;:&quot;## Template&quot;,&quot;minimum_required_tags&quot;:2,&quot;required_tag_groups&quot;:[{&quot;name&quot;:&quot;platform&quot;,&quot;min_count&quot;:1}],&quot;allowed_tags&quot;:[&quot;swift&quot;,&quot;rust&quot;],&quot;permission&quot;:1}],&quot;top_tags&quot;:[{&quot;name&quot;:&quot;swift&quot;},&quot;rust&quot;],&quot;can_tag_topics&quot;:true}}"></div>
+    <div data-preloaded="{&quot;siteSettings&quot;:{&quot;title&quot;:&quot;A &amp;amp; B&quot;,&quot;min_post_length&quot;:18,&quot;min_topic_title_length&quot;:15,&quot;min_first_post_length&quot;:24,&quot;default_composer_category&quot;:7,&quot;discourse_reactions_enabled_reactions&quot;:&quot;heart|clap&quot;},&quot;site&quot;:{&quot;categories&quot;:[{&quot;id&quot;:7,&quot;name&quot;:&quot;Rust&quot;,&quot;slug&quot;:&quot;rust&quot;,&quot;color&quot;:&quot;FFFFFF&quot;,&quot;text_color&quot;:&quot;000000&quot;,&quot;topic_template&quot;:&quot;## Template&quot;,&quot;minimum_required_tags&quot;:2,&quot;required_tag_groups&quot;:[{&quot;name&quot;:&quot;platform&quot;,&quot;min_count&quot;:1}],&quot;allowed_tags&quot;:[&quot;swift&quot;,&quot;rust&quot;],&quot;permission&quot;:1,&quot;notification_level&quot;:&quot;4&quot;}],&quot;top_tags&quot;:[{&quot;name&quot;:&quot;swift&quot;},&quot;rust&quot;],&quot;can_tag_topics&quot;:true}}"></div>
   </body>
 </html>
 "#;
@@ -604,7 +605,7 @@ mod tests {
         assert_eq!(
             parsed.bootstrap_patch.preloaded_json.as_deref(),
             Some(
-                r###"{"siteSettings":{"title":"A &amp; B","min_post_length":18,"min_topic_title_length":15,"min_first_post_length":24,"default_composer_category":7,"discourse_reactions_enabled_reactions":"heart|clap"},"site":{"categories":[{"id":7,"name":"Rust","slug":"rust","color":"FFFFFF","text_color":"000000","topic_template":"## Template","minimum_required_tags":2,"required_tag_groups":[{"name":"platform","min_count":1}],"allowed_tags":["swift","rust"],"permission":1}],"top_tags":[{"name":"swift"},"rust"],"can_tag_topics":true}}"###
+                r###"{"siteSettings":{"title":"A &amp; B","min_post_length":18,"min_topic_title_length":15,"min_first_post_length":24,"default_composer_category":7,"discourse_reactions_enabled_reactions":"heart|clap"},"site":{"categories":[{"id":7,"name":"Rust","slug":"rust","color":"FFFFFF","text_color":"000000","topic_template":"## Template","minimum_required_tags":2,"required_tag_groups":[{"name":"platform","min_count":1}],"allowed_tags":["swift","rust"],"permission":1,"notification_level":"4"}],"top_tags":[{"name":"swift"},"rust"],"can_tag_topics":true}}"###
             )
         );
         assert!(parsed.bootstrap_patch.has_site_settings);
@@ -642,6 +643,10 @@ mod tests {
             vec!["swift", "rust"]
         );
         assert_eq!(parsed.bootstrap_patch.categories[0].permission, Some(1));
+        assert_eq!(
+            parsed.bootstrap_patch.categories[0].notification_level,
+            Some(4)
+        );
     }
 
     #[test]
@@ -672,7 +677,7 @@ mod tests {
             r###"{
   "currentUser":"{\"id\":341628,\"username\":\"alice\",\"notification_channel_position\":11}",
   "siteSettings":"{\"long_polling_base_url\":\"https://ping.linux.do\",\"min_post_length\":18,\"min_topic_title_length\":15,\"min_first_post_length\":24,\"default_composer_category\":7,\"discourse_reactions_enabled_reactions\":\"heart|clap\"}",
-  "site":"{\"categories\":[{\"id\":7,\"name\":\"Rust\",\"slug\":\"rust\",\"color\":\"FFFFFF\",\"text_color\":\"000000\",\"topic_template\":\"## Template\",\"minimum_required_tags\":2,\"required_tag_groups\":[{\"name\":\"platform\",\"min_count\":1}],\"allowed_tags\":[\"swift\",\"rust\"],\"permission\":1}],\"top_tags\":[{\"name\":\"swift\"},\"rust\"],\"can_tag_topics\":true}",
+  "site":"{\"categories\":[{\"id\":7,\"name\":\"Rust\",\"slug\":\"rust\",\"color\":\"FFFFFF\",\"text_color\":\"000000\",\"topic_template\":\"## Template\",\"minimum_required_tags\":2,\"required_tag_groups\":[{\"name\":\"platform\",\"min_count\":1}],\"allowed_tags\":[\"swift\",\"rust\"],\"permission\":1,\"notification_level\":3}],\"top_tags\":[{\"name\":\"swift\"},\"rust\"],\"can_tag_topics\":true}",
   "topicTrackingStateMeta":"{\"/latest\":42,\"/new\":8}"
 }"###,
             &mut bootstrap,
@@ -702,6 +707,7 @@ mod tests {
         assert_eq!(bootstrap.default_composer_category, Some(7));
         assert_eq!(bootstrap.categories[0].minimum_required_tags, 2);
         assert_eq!(bootstrap.categories[0].permission, Some(1));
+        assert_eq!(bootstrap.categories[0].notification_level, Some(3));
     }
 
     #[test]

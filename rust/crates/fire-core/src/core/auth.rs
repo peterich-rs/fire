@@ -96,13 +96,24 @@ impl FireCore {
     pub async fn refresh_csrf_token_if_needed(&self) -> Result<SessionSnapshot, FireCoreError> {
         let current = self.snapshot();
         if current.cookies.csrf_token.is_some() {
-            Ok(current)
-        } else {
-            self.refresh_csrf_token().await
+            return Ok(current);
         }
+
+        let _refresh_guard = self.csrf_refresh.lock().await;
+        let current = self.snapshot();
+        if current.cookies.csrf_token.is_some() {
+            return Ok(current);
+        }
+
+        self.refresh_csrf_token_without_dedupe().await
     }
 
     pub async fn refresh_csrf_token(&self) -> Result<SessionSnapshot, FireCoreError> {
+        let _refresh_guard = self.csrf_refresh.lock().await;
+        self.refresh_csrf_token_without_dedupe().await
+    }
+
+    async fn refresh_csrf_token_without_dedupe(&self) -> Result<SessionSnapshot, FireCoreError> {
         info!("refreshing CSRF token");
         let traced =
             self.build_api_request("refresh csrf token", Method::GET, "/session/csrf", false)?;
@@ -154,7 +165,7 @@ impl FireCore {
         info!(username = %username, preserve_cf_clearance, "initiating remote logout");
 
         if !self.snapshot().cookies.has_csrf_token() {
-            let _ = self.refresh_csrf_token().await?;
+            let _ = self.refresh_csrf_token_if_needed().await?;
         }
 
         let path = format!("/session/{username}");
@@ -172,7 +183,7 @@ impl FireCore {
             if is_bad_csrf_body(&body) {
                 warn!("logout received BAD CSRF, refreshing token and retrying once");
                 let _ = self.clear_csrf_token();
-                let _ = self.refresh_csrf_token().await?;
+                let _ = self.refresh_csrf_token_if_needed().await?;
                 let retry = self.build_api_request("logout", Method::DELETE, &path, true)?;
                 let (retry_trace_id, response) = self.execute_request(retry).await?;
                 let response = expect_success(self, "logout", retry_trace_id, response).await?;

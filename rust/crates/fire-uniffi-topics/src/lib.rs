@@ -7,11 +7,12 @@ use fire_uniffi_types::{run_on_ffi_runtime, FireUniFfiError, SharedFireCore, Top
 pub mod records;
 
 pub use records::{
-    PollOptionState, PollState, PostReactionUpdateState, PostUpdateRequestState,
-    PrivateMessageCreateRequestState, ResolvedUploadUrlState, TopicCreateRequestState,
+    PollOptionState, PollState, PostActionTypeState, PostFlagRequestState, PostReactionUpdateState,
+    PostUpdateRequestState, PrivateMessageCreateRequestState, ReactionUserState,
+    ReactionUsersGroupState, ResolvedUploadUrlState, TopicAiSummaryState, TopicCreateRequestState,
     TopicDetailCreatedByState, TopicDetailMetaState, TopicDetailQueryState, TopicDetailState,
     TopicListQueryState, TopicPostState, TopicPostStreamState, TopicReactionState,
-    TopicReplyRequestState, TopicTimingEntryState, TopicTimingsRequestState,
+    TopicReplyRequestState, TopicReplyToUserState, TopicTimingEntryState, TopicTimingsRequestState,
     TopicUpdateRequestState, UploadImageRequestState, UploadResultState, VoteResponseState,
     VotedUserState,
 };
@@ -82,6 +83,20 @@ impl FireTopicsHandle {
         Ok(response.into_iter().map(Into::into).collect())
     }
 
+    pub async fn fetch_topic_ai_summary(
+        &self,
+        topic_id: u64,
+        skip_age_check: bool,
+    ) -> Result<Option<TopicAiSummaryState>, FireUniFfiError> {
+        let inner = self.shared.core.clone();
+        let panic_state = self.shared.panic_state.clone();
+        let response = run_on_ffi_runtime("fetch_topic_ai_summary", panic_state, async move {
+            inner.fetch_topic_ai_summary(topic_id, skip_age_check).await
+        })
+        .await?;
+        Ok(response.map(Into::into))
+    }
+
     pub async fn create_reply(
         &self,
         input: TopicReplyRequestState,
@@ -105,6 +120,42 @@ impl FireTopicsHandle {
         Ok(response.into())
     }
 
+    pub async fn fetch_post_replies(
+        &self,
+        post_id: u64,
+        after: Option<u32>,
+    ) -> Result<Vec<TopicPostState>, FireUniFfiError> {
+        let inner = self.shared.core.clone();
+        let panic_state = self.shared.panic_state.clone();
+        let response = run_on_ffi_runtime("fetch_post_replies", panic_state, async move {
+            inner.fetch_post_replies(post_id, after).await
+        })
+        .await?;
+        Ok(response.into_iter().map(Into::into).collect())
+    }
+
+    pub async fn fetch_post_reply_ids(&self, post_id: u64) -> Result<Vec<u64>, FireUniFfiError> {
+        let inner = self.shared.core.clone();
+        let panic_state = self.shared.panic_state.clone();
+        run_on_ffi_runtime("fetch_post_reply_ids", panic_state, async move {
+            inner.fetch_post_reply_ids(post_id).await
+        })
+        .await
+    }
+
+    pub async fn fetch_post_reply_history(
+        &self,
+        post_id: u64,
+    ) -> Result<Vec<TopicPostState>, FireUniFfiError> {
+        let inner = self.shared.core.clone();
+        let panic_state = self.shared.panic_state.clone();
+        let response = run_on_ffi_runtime("fetch_post_reply_history", panic_state, async move {
+            inner.fetch_post_reply_history(post_id).await
+        })
+        .await?;
+        Ok(response.into_iter().map(Into::into).collect())
+    }
+
     pub async fn update_post(
         &self,
         input: PostUpdateRequestState,
@@ -116,6 +167,45 @@ impl FireTopicsHandle {
         })
         .await?;
         Ok(response.into())
+    }
+
+    pub async fn delete_post(&self, post_id: u64) -> Result<(), FireUniFfiError> {
+        let inner = self.shared.core.clone();
+        let panic_state = self.shared.panic_state.clone();
+        run_on_ffi_runtime("delete_post", panic_state, async move {
+            inner.delete_post(post_id).await
+        })
+        .await
+    }
+
+    pub async fn recover_post(&self, post_id: u64) -> Result<(), FireUniFfiError> {
+        let inner = self.shared.core.clone();
+        let panic_state = self.shared.panic_state.clone();
+        run_on_ffi_runtime("recover_post", panic_state, async move {
+            inner.recover_post(post_id).await
+        })
+        .await
+    }
+
+    pub async fn flag_post(&self, input: PostFlagRequestState) -> Result<(), FireUniFfiError> {
+        let inner = self.shared.core.clone();
+        let panic_state = self.shared.panic_state.clone();
+        run_on_ffi_runtime("flag_post", panic_state, async move {
+            inner.flag_post(input.into()).await
+        })
+        .await
+    }
+
+    pub async fn fetch_post_action_types(
+        &self,
+    ) -> Result<Vec<PostActionTypeState>, FireUniFfiError> {
+        let inner = self.shared.core.clone();
+        let panic_state = self.shared.panic_state.clone();
+        let response = run_on_ffi_runtime("fetch_post_action_types", panic_state, async move {
+            inner.fetch_post_action_types().await
+        })
+        .await?;
+        Ok(response.into_iter().map(Into::into).collect())
     }
 
     pub async fn create_topic(
@@ -233,6 +323,37 @@ impl FireTopicsHandle {
         })
         .await?;
         Ok(response.into())
+    }
+
+    pub async fn fetch_reaction_users(
+        &self,
+        post_id: u64,
+    ) -> Result<Vec<ReactionUsersGroupState>, FireUniFfiError> {
+        let inner = self.shared.core.clone();
+        let panic_state = self.shared.panic_state.clone();
+        let groups = run_on_ffi_runtime("fetch_reaction_users", panic_state, async move {
+            inner.fetch_reaction_users(post_id).await
+        })
+        .await?;
+        Ok(groups.into_iter().map(Into::into).collect())
+    }
+
+    pub async fn accept_solution(&self, post_id: u64) -> Result<(), FireUniFfiError> {
+        let inner = self.shared.core.clone();
+        let panic_state = self.shared.panic_state.clone();
+        run_on_ffi_runtime("accept_solution", panic_state, async move {
+            inner.accept_solution(post_id).await
+        })
+        .await
+    }
+
+    pub async fn unaccept_solution(&self, post_id: u64) -> Result<(), FireUniFfiError> {
+        let inner = self.shared.core.clone();
+        let panic_state = self.shared.panic_state.clone();
+        run_on_ffi_runtime("unaccept_solution", panic_state, async move {
+            inner.unaccept_solution(post_id).await
+        })
+        .await
     }
 
     pub async fn vote_poll(

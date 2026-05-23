@@ -92,6 +92,9 @@ impl From<FireCoreError> for FireUniFfiError {
             FireCoreError::PostEnqueued { pending_count } => Self::Validation {
                 details: format!("post is pending review (pending_count={pending_count})"),
             },
+            FireCoreError::InvalidUserNotificationLevel { level } => Self::Validation {
+                details: format!("invalid user notification level: {level}"),
+            },
             FireCoreError::MissingWorkspacePath => Self::Configuration {
                 details: "fire workspace path is not configured".to_string(),
             },

@@ -6,8 +6,8 @@ use common::{raw_json_response, sample_home_html, sample_topic_detail_json, Test
 use fire_core::{FireCore, FireCoreConfig, FireCoreError};
 use fire_models::{
     CookieSnapshot, DraftData, InviteCreateRequest, LoginSyncInput, PlatformCookie,
-    PostUpdateRequest, PrivateMessageCreateRequest, TopicCreateRequest, TopicDetailQuery,
-    TopicTimingEntry, TopicTimingsRequest, TopicUpdateRequest,
+    PostFlagRequest, PostUpdateRequest, PrivateMessageCreateRequest, TopicCreateRequest,
+    TopicDetailQuery, TopicTimingEntry, TopicTimingsRequest, TopicUpdateRequest,
 };
 
 #[tokio::test]
@@ -262,8 +262,10 @@ async fn create_bookmark_posts_form_payload() {
 }
 
 #[tokio::test]
-async fn update_and_delete_bookmark_and_topic_notification_level_use_expected_endpoints() {
+async fn update_and_delete_bookmark_and_notification_levels_use_expected_endpoints() {
     let server = TestServer::spawn(vec![
+        raw_json_response(200, "application/json", "{}"),
+        raw_json_response(200, "application/json", "{}"),
         raw_json_response(200, "application/json", "{}"),
         raw_json_response(200, "application/json", "{}"),
         raw_json_response(200, "application/json", "{}"),
@@ -284,9 +286,15 @@ async fn update_and_delete_bookmark_and_topic_notification_level_use_expected_en
     core.set_topic_notification_level(123, 3)
         .await
         .expect("set topic notification level");
+    core.set_category_notification_level(7, 4)
+        .await
+        .expect("set category notification level");
+    core.set_user_notification_level("alice", "ignore", Some("2026-03-27T00:00:00Z"))
+        .await
+        .expect("set user notification level");
 
     let requests = server.shutdown_with_requests().await;
-    assert_eq!(requests.len(), 3);
+    assert_eq!(requests.len(), 5);
     assert!(requests[0].contains("PUT /bookmarks/901.json HTTP/1.1"));
     assert!(requests[0].contains("\"name\":\"新的备注\""));
     assert!(requests[0].contains("\"auto_delete_preference\":1"));
@@ -294,6 +302,14 @@ async fn update_and_delete_bookmark_and_topic_notification_level_use_expected_en
     let third = requests[2].to_ascii_lowercase();
     assert!(third.contains("post /t/123/notifications"));
     assert!(third.contains("notification_level=3"));
+    let fourth = requests[3].to_ascii_lowercase();
+    assert!(fourth.contains("post /category/7/notifications"));
+    assert!(fourth.contains("notification_level=4"));
+    let fifth = requests[4].to_ascii_lowercase();
+    assert!(fifth.contains("put /u/alice/notification_level.json"));
+    assert!(fifth.contains("content-type: application/json"));
+    assert!(fifth.contains("\"notification_level\":\"ignore\""));
+    assert!(fifth.contains("\"expiring_at\":\"2026-03-27t00:00:00z\""));
 }
 
 #[tokio::test]
@@ -552,6 +568,190 @@ async fn stage3_edit_vote_and_poll_surfaces_use_expected_requests() {
 }
 
 #[tokio::test]
+async fn post_reply_context_endpoints_parse_posts_and_reply_to_user() {
+    let server = TestServer::spawn(vec![
+        raw_json_response(
+            200,
+            "application/json",
+            r#"[
+              { "id": 9002 },
+              { "id": "9003" },
+              { "id": 0 },
+              { "bad": "ignored" }
+            ]"#,
+        ),
+        raw_json_response(
+            200,
+            "application/json",
+            r#"[
+              {
+                "id": 9002,
+                "username": "bob",
+                "name": "Bob",
+                "avatar_template": "/user_avatar/linux.do/bob/{size}/1_2.png",
+                "cooked": "<p>Direct reply</p>",
+                "post_number": 2,
+                "reply_count": 0,
+                "reply_to_post_number": 1,
+                "reply_to_user": {
+                  "username": "alice",
+                  "name": "Alice",
+                  "avatar_template": "/user_avatar/linux.do/alice/{size}/1_2.png"
+                }
+              }
+            ]"#,
+        ),
+        raw_json_response(
+            200,
+            "application/json",
+            r#"[
+              {
+                "id": 9001,
+                "username": "alice",
+                "name": "Alice",
+                "avatar_template": "/user_avatar/linux.do/alice/{size}/1_2.png",
+                "cooked": "<p>Parent</p>",
+                "post_number": 1,
+                "reply_count": 1,
+                "reply_to_post_number": null
+              }
+            ]"#,
+        ),
+    ])
+    .await
+    .expect("server");
+    let core = authenticated_core(&server.base_url());
+
+    let reply_ids = core
+        .fetch_post_reply_ids(9001)
+        .await
+        .expect("post reply ids");
+    let replies = core
+        .fetch_post_replies(9001, Some(1))
+        .await
+        .expect("post replies");
+    let history = core
+        .fetch_post_reply_history(9002)
+        .await
+        .expect("reply history");
+    let requests = server.shutdown_with_requests().await;
+
+    assert_eq!(reply_ids, vec![9002, 9003]);
+    assert_eq!(replies.len(), 1);
+    assert_eq!(replies[0].id, 9002);
+    assert_eq!(replies[0].reply_to_post_number, Some(1));
+    let reply_to_user = replies[0].reply_to_user.as_ref().expect("reply_to_user");
+    assert_eq!(reply_to_user.username, "alice");
+    assert_eq!(reply_to_user.name.as_deref(), Some("Alice"));
+    assert_eq!(history.len(), 1);
+    assert_eq!(history[0].post_number, 1);
+    assert_eq!(requests.len(), 3);
+    assert!(requests[0].contains("GET /posts/9001/reply-ids.json HTTP/1.1"));
+    assert!(requests[1].contains("GET /posts/9001/replies.json?after=1 HTTP/1.1"));
+    assert!(requests[2].contains("GET /posts/9002/reply-history HTTP/1.1"));
+}
+
+#[tokio::test]
+async fn post_management_surfaces_use_expected_requests() {
+    let server = TestServer::spawn(vec![
+        raw_json_response(200, "application/json", "{}"),
+        raw_json_response(200, "application/json", "{}"),
+        raw_json_response(200, "application/json", "{}"),
+    ])
+    .await
+    .expect("server");
+    let core = authenticated_core(&server.base_url());
+
+    core.delete_post(9001).await.expect("delete post");
+    core.recover_post(9001).await.expect("recover post");
+    core.flag_post(PostFlagRequest {
+        post_id: 9001,
+        flag_type_id: 7,
+        message: Some("请管理员看一下".into()),
+    })
+    .await
+    .expect("flag post");
+
+    let requests = server.shutdown_with_requests().await;
+    assert_eq!(requests.len(), 3);
+    let delete_request = requests[0].to_ascii_lowercase();
+    assert!(delete_request.contains("delete /posts/9001.json http/1.1"));
+    assert!(delete_request.contains("x-csrf-token: csrf-token"));
+    let recover_request = requests[1].to_ascii_lowercase();
+    assert!(recover_request.contains("put /posts/9001/recover.json http/1.1"));
+    assert!(recover_request.contains("x-csrf-token: csrf-token"));
+
+    let flag_request = requests[2].to_ascii_lowercase();
+    assert!(flag_request.contains("post /post_actions"));
+    assert!(flag_request.contains("x-csrf-token: csrf-token"));
+    assert!(flag_request.contains("id=9001"));
+    assert!(flag_request.contains("post_action_type_id=7"));
+    assert!(flag_request.contains("message="));
+}
+
+#[tokio::test]
+async fn post_action_types_prefer_preloaded_site_metadata() {
+    let core = authenticated_core("http://127.0.0.1:9");
+    core.apply_home_html(
+        r#"
+<!doctype html>
+<html>
+  <head><meta name="csrf-token" content="csrf-token"></head>
+  <body>
+    <div id="data-discourse-setup" data-preloaded="{&quot;site&quot;:{&quot;post_action_types&quot;:[{&quot;id&quot;:7,&quot;name_key&quot;:&quot;notify_moderators&quot;,&quot;name&quot;:&quot;Notify moderators&quot;,&quot;description&quot;:&quot;Tell staff about %{username}&quot;,&quot;short_description&quot;:&quot;Notify&quot;,&quot;is_flag&quot;:true,&quot;require_message&quot;:true,&quot;enabled&quot;:true,&quot;position&quot;:4,&quot;applies_to&quot;:[&quot;Post&quot;]}]}}"></div>
+  </body>
+</html>
+"#
+        .into(),
+    );
+
+    let types = core
+        .fetch_post_action_types()
+        .await
+        .expect("post action types");
+    assert_eq!(types.len(), 1);
+    assert_eq!(types[0].id, 7);
+    assert_eq!(types[0].name_key, "notify_moderators");
+    assert_eq!(types[0].description, "Tell staff about %{username}");
+    assert!(types[0].is_flag);
+    assert!(types[0].require_message);
+    assert_eq!(types[0].applies_to, vec!["Post"]);
+}
+
+#[tokio::test]
+async fn post_action_types_fall_back_to_network_endpoint() {
+    let server = TestServer::spawn(vec![raw_json_response(
+        200,
+        "application/json",
+        r#"{"post_action_types":[
+            {"id":2,"name_key":"like","name":"Like","is_flag":false,"enabled":true,"position":0},
+            {"id":3,"name_key":"off_topic","name":"Off-topic","description":"Topic drift","is_flag":true,"enabled":true,"position":1,"applies_to":["Post","Chat::Message"]},
+            {"id":8,"name_key":"spam","name":"Spam","description":"Spam report","is_flag":true,"enabled":false,"position":3}
+        ]}"#,
+    )])
+    .await
+    .expect("server");
+    let core = authenticated_core(&server.base_url());
+
+    let types = core
+        .fetch_post_action_types()
+        .await
+        .expect("post action types");
+    assert_eq!(types.len(), 3);
+    assert_eq!(types[1].id, 3);
+    assert_eq!(types[1].name_key, "off_topic");
+    assert_eq!(types[1].description, "Topic drift");
+    assert!(types[1].is_flag);
+    assert!(types[1].enabled);
+    assert_eq!(types[1].applies_to, vec!["Post", "Chat::Message"]);
+    assert!(!types[2].enabled);
+
+    let requests = server.shutdown_with_requests().await;
+    assert_eq!(requests.len(), 1);
+    assert!(requests[0].contains("GET /post_action_types.json HTTP/1.1"));
+}
+
+#[tokio::test]
 async fn vote_endpoints_skip_malformed_voter_items() {
     let server = TestServer::spawn(vec![
         raw_json_response(
@@ -684,6 +884,89 @@ async fn stage3_history_follow_and_invite_surfaces_parse_payloads() {
     assert!(requests[3].contains("\"max_redemptions_allowed\":3"));
     assert!(requests[4].contains("PUT /follow/bob HTTP/1.1"));
     assert!(requests[5].contains("DELETE /follow/bob HTTP/1.1"));
+}
+
+#[tokio::test]
+async fn fetch_user_reactions_uses_discourse_reactions_endpoint_and_cursor() {
+    let server = TestServer::spawn(vec![
+        raw_json_response(
+            200,
+            "application/json",
+            r#"{
+              "reactions": [
+                {
+                  "id": 77,
+                  "post_id": 9001,
+                  "post": {
+                    "topic_id": 123,
+                    "post_number": 4,
+                    "topic_title": "Fire topic",
+                    "excerpt": "<p>Hello Fire</p>"
+                  },
+                  "reaction": {
+                    "reaction_value": "heart"
+                  },
+                  "created_at": "2026-05-01T00:00:00Z"
+                }
+              ]
+            }"#,
+        ),
+        raw_json_response(
+            200,
+            "application/json",
+            r#"[
+              {
+                "id": 76,
+                "post_id": 9000,
+                "topic_id": 122,
+                "post_number": 2,
+                "topic_title": "Older topic",
+                "reaction_value": "clap"
+              }
+            ]"#,
+        ),
+    ])
+    .await
+    .expect("server");
+    let core = authenticated_core(&server.base_url());
+
+    let first_page = core
+        .fetch_user_reactions("alice", None)
+        .await
+        .expect("first reactions page");
+    assert_eq!(first_page.reactions.len(), 1);
+    assert_eq!(first_page.reactions[0].id, 77);
+    assert_eq!(first_page.reactions[0].post_id, 9001);
+    assert_eq!(first_page.reactions[0].topic_id, 123);
+    assert_eq!(first_page.reactions[0].post_number, Some(4));
+    assert_eq!(
+        first_page.reactions[0].topic_title.as_deref(),
+        Some("Fire topic")
+    );
+    assert_eq!(
+        first_page.reactions[0].reaction_value.as_deref(),
+        Some("heart")
+    );
+
+    let older_page = core
+        .fetch_user_reactions("alice", Some(first_page.reactions[0].id))
+        .await
+        .expect("older reactions page");
+    assert_eq!(older_page.reactions.len(), 1);
+    assert_eq!(older_page.reactions[0].id, 76);
+    assert_eq!(older_page.reactions[0].topic_id, 122);
+    assert_eq!(
+        older_page.reactions[0].reaction_value.as_deref(),
+        Some("clap")
+    );
+
+    let requests = server.shutdown_with_requests().await;
+    assert_eq!(requests.len(), 2);
+    assert!(requests[0]
+        .contains("GET /discourse-reactions/posts/reactions.json?username=alice HTTP/1.1"));
+    assert!(requests[1].contains(
+        "GET /discourse-reactions/posts/reactions.json?username=alice&before_reaction_user_id=77 HTTP/1.1"
+    ));
 }
 
 #[tokio::test]

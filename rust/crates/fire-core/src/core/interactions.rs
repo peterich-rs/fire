@@ -5,8 +5,9 @@ use std::{
 };
 
 use fire_models::{
-    Poll, PostReactionUpdate, PostUpdateRequest, TopicPost, TopicReplyRequest, TopicTimingsRequest,
-    TopicUpdateRequest, VoteResponse, VotedUser,
+    Poll, PostActionType, PostFlagRequest, PostReactionUpdate, PostUpdateRequest,
+    ReactionUsersGroup, TopicPost, TopicReplyRequest, TopicTimingsRequest, TopicUpdateRequest,
+    VoteResponse, VotedUser,
 };
 use http::{Method, Response};
 use serde_json::json;
@@ -17,8 +18,14 @@ use url::form_urlencoded::byte_serialize;
 use super::{network::expect_success, rate_limit, FireCore};
 use crate::{
     error::FireCoreError,
+    json_helpers::{
+        integer_i32, invalid_json, object_field, optional_boolean, parse_array_items_lossy,
+        positive_u32, scalar_string,
+    },
+    parsing::parse_preloaded_payload,
     topic_payloads::{
-        parse_poll_response_value, parse_post_reaction_update_value, parse_topic_post_value,
+        parse_poll_response_value, parse_post_reaction_update_value, parse_post_reply_ids_value,
+        parse_reaction_users_groups_value, parse_topic_post_list_value, parse_topic_post_value,
         parse_vote_response_value, parse_voted_users_value,
     },
 };
@@ -160,6 +167,34 @@ impl FireCore {
         Ok(())
     }
 
+    pub async fn set_category_notification_level(
+        &self,
+        category_id: u64,
+        notification_level: i32,
+    ) -> Result<(), FireCoreError> {
+        info!(
+            category_id,
+            notification_level, "setting category notification level"
+        );
+        let path = format!("/category/{category_id}/notifications");
+        let fields = vec![("notification_level", notification_level.to_string())];
+        let (trace_id, response) = self
+            .execute_api_request_with_csrf_retry("set category notification level", || {
+                self.build_form_request(
+                    "set category notification level",
+                    Method::POST,
+                    &path,
+                    fields.clone(),
+                    true,
+                )
+            })
+            .await?;
+        let response =
+            expect_success(self, "set category notification level", trace_id, response).await?;
+        let _ = self.read_response_text(trace_id, response).await?;
+        Ok(())
+    }
+
     pub async fn create_reply(&self, input: TopicReplyRequest) -> Result<TopicPost, FireCoreError> {
         info!(
             topic_id = input.topic_id,
@@ -220,6 +255,61 @@ impl FireCore {
         })
     }
 
+    pub async fn fetch_post_replies(
+        &self,
+        post_id: u64,
+        after: Option<u32>,
+    ) -> Result<Vec<TopicPost>, FireCoreError> {
+        info!(post_id, after = ?after, "fetching post replies");
+        let path = format!("/posts/{post_id}/replies.json");
+        let params = after
+            .map(|after| vec![("after", after.to_string())])
+            .unwrap_or_default();
+        let traced = self.build_json_get_request("fetch post replies", &path, params, &[])?;
+        let (trace_id, response) = self.execute_request(traced).await?;
+        let response = expect_success(self, "fetch post replies", trace_id, response).await?;
+        let value: Value = self
+            .read_response_json("fetch post replies", trace_id, response)
+            .await?;
+        parse_topic_post_list_value(value).map_err(|source| FireCoreError::ResponseDeserialize {
+            operation: "fetch post replies",
+            source,
+        })
+    }
+
+    pub async fn fetch_post_reply_ids(&self, post_id: u64) -> Result<Vec<u64>, FireCoreError> {
+        info!(post_id, "fetching post reply ids");
+        let path = format!("/posts/{post_id}/reply-ids.json");
+        let traced = self.build_json_get_request("fetch post reply ids", &path, vec![], &[])?;
+        let (trace_id, response) = self.execute_request(traced).await?;
+        let response = expect_success(self, "fetch post reply ids", trace_id, response).await?;
+        let value: Value = self
+            .read_response_json("fetch post reply ids", trace_id, response)
+            .await?;
+        parse_post_reply_ids_value(value).map_err(|source| FireCoreError::ResponseDeserialize {
+            operation: "fetch post reply ids",
+            source,
+        })
+    }
+
+    pub async fn fetch_post_reply_history(
+        &self,
+        post_id: u64,
+    ) -> Result<Vec<TopicPost>, FireCoreError> {
+        info!(post_id, "fetching post reply history");
+        let path = format!("/posts/{post_id}/reply-history");
+        let traced = self.build_json_get_request("fetch post reply history", &path, vec![], &[])?;
+        let (trace_id, response) = self.execute_request(traced).await?;
+        let response = expect_success(self, "fetch post reply history", trace_id, response).await?;
+        let value: Value = self
+            .read_response_json("fetch post reply history", trace_id, response)
+            .await?;
+        parse_topic_post_list_value(value).map_err(|source| FireCoreError::ResponseDeserialize {
+            operation: "fetch post reply history",
+            source,
+        })
+    }
+
     pub async fn update_post(&self, input: PostUpdateRequest) -> Result<TopicPost, FireCoreError> {
         info!(
             post_id = input.post_id,
@@ -247,6 +337,131 @@ impl FireCore {
             operation: "update post",
             source,
         })
+    }
+
+    pub async fn delete_post(&self, post_id: u64) -> Result<(), FireCoreError> {
+        info!(post_id, "deleting post");
+
+        let path = format!("/posts/{post_id}.json");
+        let (trace_id, response) = self
+            .execute_api_request_with_csrf_retry("delete post", || {
+                self.build_api_request("delete post", Method::DELETE, &path, true)
+            })
+            .await?;
+        let response = expect_success(self, "delete post", trace_id, response).await?;
+        let _ = self.read_response_text(trace_id, response).await?;
+        Ok(())
+    }
+
+    pub async fn recover_post(&self, post_id: u64) -> Result<(), FireCoreError> {
+        info!(post_id, "recovering post");
+
+        let path = format!("/posts/{post_id}/recover.json");
+        let (trace_id, response) = self
+            .execute_api_request_with_csrf_retry("recover post", || {
+                self.build_api_request("recover post", Method::PUT, &path, true)
+            })
+            .await?;
+        let response = expect_success(self, "recover post", trace_id, response).await?;
+        let _ = self.read_response_text(trace_id, response).await?;
+        Ok(())
+    }
+
+    pub async fn accept_solution(&self, post_id: u64) -> Result<(), FireCoreError> {
+        self.update_solution_acceptance("accept solution", "/solution/accept", post_id)
+            .await
+    }
+
+    pub async fn unaccept_solution(&self, post_id: u64) -> Result<(), FireCoreError> {
+        self.update_solution_acceptance("unaccept solution", "/solution/unaccept", post_id)
+            .await
+    }
+
+    async fn update_solution_acceptance(
+        &self,
+        operation: &'static str,
+        path: &'static str,
+        post_id: u64,
+    ) -> Result<(), FireCoreError> {
+        info!(post_id, operation, "updating post solution state");
+        let fields = vec![("id", post_id.to_string())];
+        let (trace_id, response) = self
+            .execute_api_request_with_csrf_retry(operation, || {
+                self.build_form_request(operation, Method::POST, path, fields.clone(), true)
+            })
+            .await?;
+        let response = expect_success(self, operation, trace_id, response).await?;
+        let _ = self.read_response_text(trace_id, response).await?;
+        Ok(())
+    }
+
+    pub async fn flag_post(&self, input: PostFlagRequest) -> Result<(), FireCoreError> {
+        info!(
+            post_id = input.post_id,
+            flag_type_id = input.flag_type_id,
+            has_message = input.message.is_some(),
+            "flagging post"
+        );
+
+        let mut fields = vec![
+            ("id", input.post_id.to_string()),
+            ("post_action_type_id", input.flag_type_id.to_string()),
+        ];
+        if let Some(message) = input.message.filter(|value| !value.trim().is_empty()) {
+            fields.push(("message", message));
+        }
+
+        let (trace_id, response) = self
+            .execute_api_request_with_csrf_retry("flag post", || {
+                self.build_form_request(
+                    "flag post",
+                    Method::POST,
+                    "/post_actions",
+                    fields.clone(),
+                    true,
+                )
+            })
+            .await?;
+        let response = expect_success(self, "flag post", trace_id, response).await?;
+        let _ = self.read_response_text(trace_id, response).await?;
+        Ok(())
+    }
+
+    pub async fn fetch_post_action_types(&self) -> Result<Vec<PostActionType>, FireCoreError> {
+        if let Some(types) = self.post_action_types_from_preloaded() {
+            info!(
+                count = types.len(),
+                "using post action types from bootstrap preloaded data"
+            );
+            return Ok(types);
+        }
+
+        info!("fetching post action types");
+        let traced = self.build_json_get_request(
+            "fetch post action types",
+            "/post_action_types.json",
+            vec![],
+            &[],
+        )?;
+        let (trace_id, response) = self.execute_request(traced).await?;
+        let response = expect_success(self, "fetch post action types", trace_id, response).await?;
+        let value: Value = self
+            .read_response_json("fetch post action types", trace_id, response)
+            .await?;
+        parse_post_action_types_response(value).map_err(|source| {
+            FireCoreError::ResponseDeserialize {
+                operation: "fetch post action types",
+                source,
+            }
+        })
+    }
+
+    fn post_action_types_from_preloaded(&self) -> Option<Vec<PostActionType>> {
+        let snapshot = self.snapshot();
+        let preloaded_json = snapshot.bootstrap.preloaded_json.as_deref()?;
+        let preloaded = parse_preloaded_payload(preloaded_json)?;
+        let types = post_action_types_from_value(&preloaded)?;
+        (!types.is_empty()).then_some(types)
     }
 
     pub async fn update_topic(&self, input: TopicUpdateRequest) -> Result<(), FireCoreError> {
@@ -511,6 +726,32 @@ impl FireCore {
         result
     }
 
+    pub async fn fetch_reaction_users(
+        &self,
+        post_id: u64,
+    ) -> Result<Vec<ReactionUsersGroup>, FireCoreError> {
+        info!(post_id, "fetching reaction users");
+        let path = format!("/discourse-reactions/posts/{post_id}/reactions-users.json");
+        let traced = self.build_json_get_request("fetch reaction users", &path, vec![], &[])?;
+        let (trace_id, response) = self.execute_request(traced).await?;
+        let response = expect_success(self, "fetch reaction users", trace_id, response).await?;
+        let value: Value = self
+            .read_response_json("fetch reaction users", trace_id, response)
+            .await?;
+        let groups = parse_reaction_users_groups_value(value).map_err(|source| {
+            FireCoreError::ResponseDeserialize {
+                operation: "fetch reaction users",
+                source,
+            }
+        })?;
+        info!(
+            post_id,
+            group_count = groups.len(),
+            "reaction users fetched successfully"
+        );
+        Ok(groups)
+    }
+
     pub async fn report_topic_timings(
         &self,
         input: TopicTimingsRequest,
@@ -634,6 +875,79 @@ fn parse_bookmark_id(operation: &'static str, value: Value) -> Result<u64, FireC
             "bookmark response did not contain a valid id",
         )),
     })
+}
+
+fn parse_post_action_types_response(
+    value: Value,
+) -> Result<Vec<PostActionType>, serde_json::Error> {
+    post_action_types_from_value(&value)
+        .ok_or_else(|| invalid_json("post action types response did not contain a valid list"))
+}
+
+fn post_action_types_from_value(value: &Value) -> Option<Vec<PostActionType>> {
+    let items = if let Some(items) = value.as_array() {
+        items
+    } else {
+        object_field(value, "post_action_types")
+            .or_else(|| {
+                object_field(value, "site").and_then(|site| object_field(site, "post_action_types"))
+            })?
+            .as_array()?
+    };
+    Some(parse_array_items_lossy(
+        items,
+        "post action type",
+        parse_post_action_type,
+    ))
+}
+
+fn parse_post_action_type(value: &Value) -> Result<PostActionType, serde_json::Error> {
+    let Some(object) = value.as_object() else {
+        return Err(invalid_json("post action type item was not an object"));
+    };
+    let id = positive_u32(object.get("id"))
+        .ok_or_else(|| invalid_json("post action type item did not contain a valid id"))?;
+    let name_key = scalar_string(object.get("name_key"))
+        .or_else(|| scalar_string(object.get("nameKey")))
+        .unwrap_or_default();
+    let name = scalar_string(object.get("name")).unwrap_or_else(|| name_key.clone());
+    let description = scalar_string(object.get("description")).unwrap_or_default();
+    let short_description = scalar_string(object.get("short_description"))
+        .or_else(|| scalar_string(object.get("shortDescription")));
+    let is_flag = optional_boolean(object.get("is_flag"))
+        .or_else(|| optional_boolean(object.get("isFlag")))
+        .unwrap_or(false);
+    let require_message = optional_boolean(object.get("require_message"))
+        .or_else(|| optional_boolean(object.get("requireMessage")))
+        .unwrap_or(false);
+    let enabled = optional_boolean(object.get("enabled")).unwrap_or(true);
+    let position = integer_i32(object.get("position")).unwrap_or_default();
+    let applies_to =
+        post_action_applies_to(object.get("applies_to").or_else(|| object.get("appliesTo")));
+
+    Ok(PostActionType {
+        id,
+        name_key,
+        name,
+        description,
+        short_description,
+        is_flag,
+        require_message,
+        enabled,
+        position,
+        applies_to,
+    })
+}
+
+fn post_action_applies_to(value: Option<&Value>) -> Vec<String> {
+    match value {
+        Some(Value::Array(items)) => items
+            .iter()
+            .filter_map(|item| scalar_string(Some(item)))
+            .collect(),
+        Some(value) => scalar_string(Some(value)).into_iter().collect(),
+        None => Vec::new(),
+    }
 }
 
 fn is_timing_rate_limited(runtime: &Arc<Mutex<FireTopicTimingRuntime>>) -> bool {

@@ -1,6 +1,7 @@
 mod cookie;
 mod messagebus;
 mod notification;
+mod rich_text;
 mod search;
 mod session;
 mod topic;
@@ -10,6 +11,7 @@ mod user;
 pub use cookie::*;
 pub use messagebus::*;
 pub use notification::*;
+pub use rich_text::*;
 pub use search::*;
 pub use session::*;
 pub use topic::*;
@@ -884,6 +886,7 @@ mod tests {
             like_count: 0,
             reply_count: 0,
             reply_to_post_number,
+            reply_to_user: None,
             bookmarked: false,
             bookmark_id: None,
             bookmark_name: None,

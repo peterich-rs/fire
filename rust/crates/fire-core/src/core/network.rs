@@ -621,7 +621,7 @@ impl FireCore {
                 operation,
                 "no CSRF token available, refreshing before request"
             );
-            let _ = self.refresh_csrf_token().await?;
+            let _ = self.refresh_csrf_token_if_needed().await?;
         }
 
         let traced = make_request()?;
@@ -668,7 +668,7 @@ impl FireCore {
             trace_id, "received BAD CSRF, refreshing token and retrying"
         );
         let _ = self.clear_csrf_token();
-        let _ = self.refresh_csrf_token().await?;
+        let _ = self.refresh_csrf_token_if_needed().await?;
 
         let retry = make_request()?;
         self.execute_request(retry).await

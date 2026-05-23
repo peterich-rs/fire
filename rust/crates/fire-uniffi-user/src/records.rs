@@ -1,7 +1,7 @@
 use fire_models::{
     Badge, FollowUser, InviteCreateRequest, InviteLink, InviteLinkDetails, ProfileSummaryReply,
     ProfileSummaryTopCategory, ProfileSummaryTopic, ProfileSummaryUserReference, UserAction,
-    UserProfile, UserSummaryResponse, UserSummaryStats,
+    UserProfile, UserReaction, UserReactionsResponse, UserSummaryResponse, UserSummaryStats,
 };
 
 #[derive(uniffi::Record, Debug, Clone)]
@@ -25,6 +25,10 @@ pub struct UserProfileState {
     pub can_follow: bool,
     pub is_followed: bool,
     pub can_send_private_message_to_user: bool,
+    pub muted: bool,
+    pub ignored: bool,
+    pub can_mute_user: bool,
+    pub can_ignore_user: bool,
     pub gamification_score: Option<u32>,
     pub trust_level_label: String,
 }
@@ -56,6 +60,10 @@ impl From<UserProfile> for UserProfileState {
             can_send_private_message_to_user: value
                 .can_send_private_message_to_user
                 .unwrap_or(false),
+            muted: value.muted.unwrap_or(false),
+            ignored: value.ignored.unwrap_or(false),
+            can_mute_user: value.can_mute_user.unwrap_or(false),
+            can_ignore_user: value.can_ignore_user.unwrap_or(false),
             gamification_score: value.gamification_score,
             trust_level_label: trust_level_label(trust_level),
         }
@@ -265,6 +273,46 @@ impl From<UserAction> for UserActionState {
             acting_username: value.acting_username,
             acting_avatar_template: value.acting_avatar_template,
             created_at: value.created_at,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct UserReactionState {
+    pub id: u64,
+    pub post_id: u64,
+    pub topic_id: u64,
+    pub post_number: Option<u32>,
+    pub topic_title: Option<String>,
+    pub excerpt: Option<String>,
+    pub reaction_value: Option<String>,
+    pub created_at: Option<String>,
+}
+
+impl From<UserReaction> for UserReactionState {
+    fn from(value: UserReaction) -> Self {
+        Self {
+            id: value.id,
+            post_id: value.post_id,
+            topic_id: value.topic_id,
+            post_number: value.post_number,
+            topic_title: value.topic_title,
+            excerpt: value.excerpt,
+            reaction_value: value.reaction_value,
+            created_at: value.created_at,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct UserReactionsState {
+    pub reactions: Vec<UserReactionState>,
+}
+
+impl From<UserReactionsResponse> for UserReactionsState {
+    fn from(value: UserReactionsResponse) -> Self {
+        Self {
+            reactions: value.reactions.into_iter().map(Into::into).collect(),
         }
     }
 }

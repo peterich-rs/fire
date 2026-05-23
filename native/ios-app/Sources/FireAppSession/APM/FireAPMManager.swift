@@ -159,6 +159,7 @@ final class FireAPMManager: NSObject {
     }
 
     func diagnosticsSummary() async throws -> FireAPMDiagnosticsSummary {
+        latestResourceSample = FireAPMResourceSampler.currentSnapshot()
         let store = try await storeValue()
         return try await store.diagnosticsSummary(currentSample: latestResourceSample)
     }

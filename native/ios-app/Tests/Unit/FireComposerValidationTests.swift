@@ -99,7 +99,8 @@ final class FireComposerValidationTests: XCTestCase {
             minimumRequiredTags: 2,
             requiredTagGroups: [RequiredTagGroupState(name: "platform", minCount: 1)],
             allowedTags: ["swift", "rust"],
-            permission: 1
+            permission: 1,
+            notificationLevel: nil
         )
 
         XCTAssertEqual(
@@ -120,7 +121,8 @@ final class FireComposerValidationTests: XCTestCase {
             minimumRequiredTags: 0,
             requiredTagGroups: [],
             allowedTags: ["swift", "rust", "Swift", "ios"],
-            permission: 1
+            permission: 1,
+            notificationLevel: nil
         )
 
         XCTAssertEqual(

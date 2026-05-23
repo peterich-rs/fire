@@ -96,12 +96,14 @@ func fireCollectionNeedsScrollRequest<ItemID: Hashable>(
 
 @MainActor
 final class FireDiffableListController<SectionID: Hashable, ItemID: Hashable, RowContent: View>: UIViewController,
-    UICollectionViewDelegate
+    UICollectionViewDelegate,
+    UICollectionViewDataSourcePrefetching
 {
     private var rowContent: (ItemID) -> RowContent
     private let onSelectItem: ((ItemID) -> Void)?
     private let canSelectItem: ((ItemID) -> Bool)?
     private let onVisibleItemsChanged: (([ItemID]) -> Void)?
+    private let onPrefetchItems: (([ItemID]) -> Void)?
     private let onScrollMetricsChanged: ((FireCollectionScrollMetrics) -> Void)?
     private let onRefresh: (() async -> Void)?
     private let scrollAnchorRestorePolicy: FireCollectionScrollAnchorRestorePolicy
@@ -132,6 +134,7 @@ final class FireDiffableListController<SectionID: Hashable, ItemID: Hashable, Ro
         onSelectItem: ((ItemID) -> Void)? = nil,
         canSelectItem: ((ItemID) -> Bool)? = nil,
         onVisibleItemsChanged: (([ItemID]) -> Void)? = nil,
+        onPrefetchItems: (([ItemID]) -> Void)? = nil,
         onScrollMetricsChanged: ((FireCollectionScrollMetrics) -> Void)? = nil,
         onRefresh: (() async -> Void)? = nil,
         scrollAnchorRestorePolicy: FireCollectionScrollAnchorRestorePolicy = .whenNotAnimatingDifferences,
@@ -147,6 +150,7 @@ final class FireDiffableListController<SectionID: Hashable, ItemID: Hashable, Ro
         self.onSelectItem = onSelectItem
         self.canSelectItem = canSelectItem
         self.onVisibleItemsChanged = onVisibleItemsChanged
+        self.onPrefetchItems = onPrefetchItems
         self.onScrollMetricsChanged = onScrollMetricsChanged
         self.onRefresh = onRefresh
         self.scrollAnchorRestorePolicy = scrollAnchorRestorePolicy
@@ -169,6 +173,7 @@ final class FireDiffableListController<SectionID: Hashable, ItemID: Hashable, Ro
         collectionView.showsVerticalScrollIndicator = showsVerticalScrollIndicator
         collectionView.allowsSelection = onSelectItem != nil
         collectionView.delegate = self
+        collectionView.prefetchDataSource = self
         self.collectionView = collectionView
         view = collectionView
     }
@@ -346,6 +351,15 @@ final class FireDiffableListController<SectionID: Hashable, ItemID: Hashable, Ro
     func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
         guard let itemID = dataSource?.itemIdentifier(for: indexPath) else { return }
         onSelectItem?(itemID)
+    }
+
+    func collectionView(_ collectionView: UICollectionView, prefetchItemsAt indexPaths: [IndexPath]) {
+        guard let onPrefetchItems, let dataSource else { return }
+        let itemIDs = indexPaths
+            .sorted()
+            .compactMap { dataSource.itemIdentifier(for: $0) }
+        guard !itemIDs.isEmpty else { return }
+        onPrefetchItems(itemIDs)
     }
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {

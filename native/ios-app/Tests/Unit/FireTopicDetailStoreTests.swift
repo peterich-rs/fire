@@ -286,6 +286,7 @@ final class FireTopicDetailStoreTests: XCTestCase {
             likeCount: 0,
             replyCount: 0,
             replyToPostNumber: replyToPostNumber,
+            replyToUser: nil,
             bookmarked: false,
             bookmarkId: nil,
             bookmarkName: nil,
@@ -388,6 +389,7 @@ final class FireTopicDetailStoreTests: XCTestCase {
             ),
             loginPhase: .ready,
             hasLoginSession: true,
+            browserUserAgent: nil,
             profileDisplayName: "alice",
             loginPhaseLabel: csrfToken == nil ? "账号信息同步中" : "已就绪"
         )

@@ -54,7 +54,7 @@ final class FireWebViewBox: ObservableObject {
     }
 
     func loadHome() {
-        guard let webView, let url = URL(string: "https://linux.do") else {
+        guard let webView, let url = URL(string: "https://linux.do/login") else {
             return
         }
         webView.load(URLRequest(url: url))
@@ -129,6 +129,7 @@ public final class FireLoginWebViewProbeBridge: NSObject, WKHTTPCookieStoreObser
 
 struct FireLoginWebView: UIViewRepresentable {
     let url: URL
+    let preferredUserAgent: String?
     @ObservedObject var webViewBox: FireWebViewBox
     let onNavigationStateChange: (WKWebView) -> Void
 
@@ -136,6 +137,7 @@ struct FireLoginWebView: UIViewRepresentable {
         let webView = WKWebView(frame: .zero, configuration: Self.makeConfiguration())
         webView.navigationDelegate = context.coordinator
         webView.uiDelegate = context.coordinator
+        FireWebViewBrowserProfile.configure(webView, preferredUserAgent: preferredUserAgent)
         context.coordinator.attach(to: webView)
         webView.allowsBackForwardNavigationGestures = true
         webView.load(URLRequest(url: url))
@@ -155,11 +157,7 @@ struct FireLoginWebView: UIViewRepresentable {
     }
 
     static func makeConfiguration() -> WKWebViewConfiguration {
-        let configuration = WKWebViewConfiguration()
-        configuration.websiteDataStore = .default()
-        configuration.preferences.javaScriptCanOpenWindowsAutomatically = true
-        configuration.defaultWebpagePreferences.allowsContentJavaScript = true
-        return configuration
+        FireWebViewBrowserProfile.makeConfiguration()
     }
 
     func makeCoordinator() -> Coordinator {
@@ -263,30 +261,15 @@ struct FireAuthScreen: View {
     @StateObject private var webViewBox = FireWebViewBox()
 
     private var title: String {
-        switch presentationState {
-        case .login:
-            return "登录 LinuxDo"
-        case .cloudflareRecovery:
-            return "完成安全验证"
-        }
+        viewModel.shouldAutoSyncLoginAfterRecovery ? "完成安全验证" : "登录 LinuxDo"
     }
 
     private var url: URL {
-        switch presentationState {
-        case .login:
-            return URL(string: "https://linux.do")!
-        case let .cloudflareRecovery(context):
-            return context.preferredURL
-        }
+        URL(string: "https://linux.do/login")!
     }
 
     private var route: String {
-        switch presentationState {
-        case .login:
-            return "auth.login"
-        case .cloudflareRecovery:
-            return "auth.cloudflare"
-        }
+        viewModel.shouldAutoSyncLoginAfterRecovery ? "auth.cloudflare" : "auth.login"
     }
 
     private var infoMessage: String? {
@@ -317,14 +300,10 @@ struct FireAuthScreen: View {
 
                 FireLoginWebView(
                     url: url,
+                    preferredUserAgent: viewModel.session.browserUserAgent,
                     webViewBox: webViewBox,
                     onNavigationStateChange: { webView in
-                        switch presentationState {
-                        case .login:
-                            viewModel.refreshLoginSyncReadiness(from: webView)
-                        case .cloudflareRecovery:
-                            viewModel.observeCloudflareRecoveryNavigation(from: webView)
-                        }
+                        viewModel.refreshLoginSyncReadiness(from: webView)
                     }
                 )
                 .frame(maxHeight: .infinity)
@@ -352,9 +331,6 @@ struct FireAuthScreen: View {
                     onLoginSync: {
                         guard let webView = webViewBox.webView else { return }
                         viewModel.completeLogin(from: webView)
-                    },
-                    onCloudflareRecoveryComplete: {
-                        viewModel.completeCloudflareRecovery(from: webViewBox.webView)
                     }
                 )
             }
@@ -368,32 +344,16 @@ struct FireAuthScreen: View {
                 switch presentationState {
                 case .login:
                     viewModel.refreshLoginSyncReadiness(from: webView)
-                case .cloudflareRecovery:
-                    viewModel.observeCloudflareRecoveryNavigation(
-                        from: webView,
-                        source: "scene_active"
-                    )
                 }
             }
-            .task(id: presentationState.id) {
-                guard case .cloudflareRecovery = presentationState else {
+            .onChange(of: webViewBox.isLoading) { _, isLoading in
+                guard let webView = webViewBox.webView else {
                     return
                 }
-
-                while !Task.isCancelled {
-                    if let webView = webViewBox.webView {
-                        viewModel.observeCloudflareRecoveryNavigation(
-                            from: webView,
-                            source: "poll"
-                        )
-                    }
-
-                    do {
-                        try await Task.sleep(for: .seconds(1))
-                    } catch {
-                        return
-                    }
-                }
+                viewModel.autoSyncLoginAfterRecoveryIfLoginActionEnabled(
+                    from: webView,
+                    isWebViewLoading: isLoading
+                )
             }
             .onDisappear {
                 viewModel.restoreTopLevelAPMRoute()
@@ -428,14 +388,11 @@ private struct FireAuthBottomBar: View {
     let presentationState: FireAuthPresentationState
     @ObservedObject var webViewBox: FireWebViewBox
     let onLoginSync: () -> Void
-    let onCloudflareRecoveryComplete: () -> Void
 
     private var isRunningAction: Bool {
         switch presentationState {
         case .login:
             return viewModel.isSyncingLoginSession
-        case .cloudflareRecovery:
-            return viewModel.isCompletingCloudflareChallenge
         }
     }
 
@@ -443,8 +400,6 @@ private struct FireAuthBottomBar: View {
         switch presentationState {
         case .login:
             return viewModel.isSyncingLoginSession ? "同步中…" : "完成登录"
-        case .cloudflareRecovery:
-            return viewModel.isCompletingCloudflareChallenge ? "重试中…" : "完成验证并重试"
         }
     }
 
@@ -462,8 +417,6 @@ private struct FireAuthBottomBar: View {
         switch presentationState {
         case .login:
             return viewModel.canSyncLoginSession
-        case .cloudflareRecovery:
-            return true
         }
     }
 
@@ -471,8 +424,6 @@ private struct FireAuthBottomBar: View {
         switch presentationState {
         case .login:
             return viewModel.shouldAutoSyncLoginAfterRecovery
-        case .cloudflareRecovery:
-            return false
         }
     }
 
@@ -533,8 +484,6 @@ private struct FireAuthBottomBar: View {
         switch presentationState {
         case .login:
             onLoginSync()
-        case .cloudflareRecovery:
-            onCloudflareRecoveryComplete()
         }
     }
 }

@@ -9,6 +9,7 @@ struct FireTabRoot: View {
     @StateObject private var notificationStore: FireNotificationStore
     @StateObject private var topicDetailStore: FireTopicDetailStore
     @StateObject private var profileViewModel: FireProfileViewModel
+    @AppStorage("fire.appearancePreference") private var appearancePreferenceRawValue = FireAppearancePreference.system.rawValue
 
     init() {
         let vm = FireAppViewModel()
@@ -154,6 +155,11 @@ struct FireTabRoot: View {
                 selectTabForPendingRouteIfReady(route)
             }
         }
+        .preferredColorScheme(appearancePreference.colorScheme)
+    }
+
+    private var appearancePreference: FireAppearancePreference {
+        FireAppearancePreference(rawValue: appearancePreferenceRawValue) ?? .system
     }
 
     private func selectTabForPendingRouteIfReady(_ route: FireAppRoute?) {

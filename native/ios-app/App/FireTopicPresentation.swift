@@ -103,86 +103,12 @@ enum FireTopicPresentation {
         compactCount(UInt64(value))
     }
 
-    static func attributedText(from html: String) -> AttributedString? {
-        guard !html.isEmpty else {
-            return nil
-        }
-
-        let normalized = html
-            .replacingOccurrences(of: "<img\\b[^>]*>", with: "", options: .regularExpression)
-            .replacingOccurrences(of: "<br\\s*/?>", with: "<br />", options: .regularExpression)
-
-        guard let data = normalized.data(using: .utf8),
-              let attributed = try? NSAttributedString(
-                  data: data,
-                  options: [
-                      .documentType: NSAttributedString.DocumentType.html,
-                      .characterEncoding: String.Encoding.utf8.rawValue,
-                  ],
-                  documentAttributes: nil
-              )
-        else {
-            return nil
-        }
-
-        return AttributedString(attributed)
-    }
-
     static func imageAttachments(from html: String, baseURLString: String) -> [FireCookedImage] {
         guard !html.isEmpty else {
             return []
         }
 
-        let nsRange = NSRange(html.startIndex..., in: html)
-        var images: [FireCookedImage] = []
-        var seenURLs: Set<String> = []
-        let lightboxMatches = lightboxAnchorRegex.matches(in: html, range: nsRange)
-
-        for match in lightboxMatches {
-            guard let matchRange = Range(match.range, in: html) else {
-                continue
-            }
-
-            let wrapper = String(html[matchRange])
-            guard let anchorRange = wrapper.range(of: #"<a\b[^>]*>"#, options: .regularExpression),
-                  let imageMatch = imageTagRegex.firstMatch(
-                      in: wrapper,
-                      range: NSRange(wrapper.startIndex..., in: wrapper)
-                  ),
-                  let imageRange = Range(imageMatch.range, in: wrapper) else {
-                continue
-            }
-
-            let anchorTag = String(wrapper[anchorRange])
-            let imageTag = String(wrapper[imageRange])
-            appendImageAttachment(
-                from: imageTag,
-                preferredSource: attributeValue(named: "href", in: anchorTag),
-                baseURLString: baseURLString,
-                images: &images,
-                seenURLs: &seenURLs
-            )
-        }
-
-        for match in imageTagRegex.matches(in: html, range: nsRange) {
-            if lightboxMatches.contains(where: { NSIntersectionRange($0.range, match.range).length > 0 }) {
-                continue
-            }
-
-            guard let range = Range(match.range, in: html) else {
-                continue
-            }
-
-            appendImageAttachment(
-                from: String(html[range]),
-                preferredSource: nil,
-                baseURLString: baseURLString,
-                images: &images,
-                seenURLs: &seenURLs
-            )
-        }
-
-        return images
+        return FireRichTextParser.parse(html: html, baseURLString: baseURLString).imageAttachments
     }
 
     static func renderContent(from html: String, baseURLString: String) -> FireTopicPostRenderContent {
@@ -190,9 +116,9 @@ enum FireTopicPresentation {
         let attributedText = richContent.nodes.isEmpty ? nil :
             FireRichTextAttributedStringBuilder.build(from: richContent.nodes)
         return FireTopicPostRenderContent(
-            plainText: plainTextFromHtml(rawHtml: html),
+            plainText: richContent.plainText,
             attributedText: attributedText,
-            imageAttachments: imageAttachments(from: html, baseURLString: baseURLString)
+            imageAttachments: richContent.imageAttachments
         )
     }
 
@@ -609,118 +535,6 @@ enum FireTopicPresentation {
         return formatter
     }()
 
-    private static let imageTagRegex = try! NSRegularExpression(
-        pattern: #"<img\b[^>]*>"#,
-        options: [.caseInsensitive]
-    )
-
-    private static let lightboxAnchorRegex = try! NSRegularExpression(
-        pattern: #"<a\b[^>]*class\s*=\s*(?:\"[^\"]*\blightbox\b[^\"]*\"|'[^']*\blightbox\b[^']*')[^>]*>[\s\S]*?</a>"#,
-        options: [.caseInsensitive]
-    )
-
-    private static func decodeCommonEntities(in string: String) -> String {
-        var decoded = string
-        let entities = [
-            ("&nbsp;", " "),
-            ("&#160;", " "),
-            ("&amp;", "&"),
-            ("&quot;", "\""),
-            ("&#34;", "\""),
-            ("&#39;", "'"),
-            ("&#x27;", "'"),
-            ("&lt;", "<"),
-            ("&gt;", ">"),
-        ]
-
-        for (entity, replacement) in entities {
-            decoded = decoded.replacingOccurrences(of: entity, with: replacement)
-        }
-
-        return decoded
-    }
-
-    private static func attributeValue(named name: String, in tag: String) -> String? {
-        let escapedName = NSRegularExpression.escapedPattern(for: name)
-        let pattern = #"(?i)\b\#(escapedName)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))"#
-        guard let regex = try? NSRegularExpression(pattern: pattern) else {
-            return nil
-        }
-
-        let range = NSRange(tag.startIndex..., in: tag)
-        guard let match = regex.firstMatch(in: tag, range: range) else {
-            return nil
-        }
-
-        for index in 1...3 {
-            let capture = match.range(at: index)
-            guard
-                capture.location != NSNotFound,
-                let captureRange = Range(capture, in: tag)
-            else {
-                continue
-            }
-            return decodeCommonEntities(in: String(tag[captureRange]))
-        }
-
-        return nil
-    }
-
-    private static func resolvedAssetURL(from rawValue: String, baseURLString: String) -> URL? {
-        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
-            return nil
-        }
-
-        if trimmed.hasPrefix("//") {
-            return URL(string: "https:\(trimmed)")
-        }
-
-        if let absoluteURL = URL(string: trimmed), absoluteURL.scheme != nil {
-            return absoluteURL
-        }
-
-        return URL(string: trimmed, relativeTo: URL(string: baseURLString))?.absoluteURL
-    }
-
-    private static func appendImageAttachment(
-        from tag: String,
-        preferredSource: String?,
-        baseURLString: String,
-        images: inout [FireCookedImage],
-        seenURLs: inout Set<String>
-    ) {
-        let classes = attributeValue(named: "class", in: tag)?
-            .split(whereSeparator: { $0.isWhitespace })
-            .map { $0.lowercased() } ?? []
-        if classes.contains(where: { $0 == "emoji" }) {
-            return
-        }
-
-        let rawSource = preferredSource?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-            ? preferredSource
-            : attributeValue(named: "src", in: tag)
-
-        guard let rawSource,
-              let sourceURL = resolvedAssetURL(from: rawSource, baseURLString: baseURLString) else {
-            return
-        }
-
-        let absoluteURL = sourceURL.absoluteString
-        if absoluteURL.contains("/images/emoji/") || seenURLs.contains(absoluteURL) {
-            return
-        }
-
-        seenURLs.insert(absoluteURL)
-        images.append(
-            FireCookedImage(
-                url: sourceURL,
-                altText: attributeValue(named: "alt", in: tag),
-                width: attributeValue(named: "width", in: tag).flatMap(Double.init).map { CGFloat($0) },
-                height: attributeValue(named: "height", in: tag).flatMap(Double.init).map { CGFloat($0) }
-            )
-        )
-    }
 }
 
 private struct TimestampFormatter {

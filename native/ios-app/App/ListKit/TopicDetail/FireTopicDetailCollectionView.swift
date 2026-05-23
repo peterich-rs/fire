@@ -13,6 +13,7 @@ struct FireTopicDetailCollectionReplyKey: Hashable {
 
 enum FireTopicDetailCollectionItem: Hashable {
     case header(topicID: UInt64)
+    case aiSummary(topicID: UInt64)
     case originalPost(topicID: UInt64)
     case stats(topicID: UInt64)
     case topicVote(topicID: UInt64)
@@ -82,11 +83,17 @@ struct FireTopicDetailCollectionView: View {
     let onRefresh: () async -> Void
     let onScrollTargetHandled: (UInt32) -> Void
     let onOpenComposer: (TopicPostState?) -> Void
+    let onOpenPostNumber: (UInt32) -> Void
+    let onOpenPostReplies: (TopicPostState) -> Void
     let onLinkTapped: (URL) -> Void
     let onOpenImage: (FireCookedImage) -> Void
     let onToggleLike: (TopicPostState) -> Void
     let onSelectReaction: (TopicPostState, String) -> Void
     let onEditPost: (TopicPostState) -> Void
+    let onBookmarkPost: (TopicPostState) -> Void
+    let onDeletePost: (TopicPostState) -> Void
+    let onRecoverPost: (TopicPostState) -> Void
+    let onFlagPost: (TopicPostState) -> Void
     let onVotePoll: (TopicPostState, PollState, [String]) -> Void
     let onUnvotePoll: (TopicPostState, PollState) -> Void
     let onToggleTopicVote: () async -> Void
@@ -233,12 +240,31 @@ struct FireTopicDetailCollectionView: View {
         return detail.canVote || detail.userVoted || detail.voteCount > 0
     }
 
+    private var topicAiSummary: TopicAiSummaryState? {
+        topicDetailStore.topicAiSummary(for: topic.id)
+    }
+
+    private var isLoadingTopicAiSummary: Bool {
+        topicDetailStore.isLoadingTopicAiSummary(topicId: topic.id)
+    }
+
+    private var topicAiSummaryError: String? {
+        topicDetailStore.topicAiSummaryError(for: topic.id)
+    }
+
+    private var showsTopicAiSummary: Bool {
+        topicAiSummary != nil || isLoadingTopicAiSummary || topicAiSummaryError != nil
+    }
+
     private var sections: [FireListSectionModel<FireTopicDetailCollectionSection, FireTopicDetailCollectionItem>] {
         var topicItems: [FireTopicDetailCollectionItem] = [
             .header(topicID: topic.id),
-            .originalPost(topicID: topic.id),
-            .stats(topicID: topic.id),
         ]
+        if showsTopicAiSummary {
+            topicItems.append(.aiSummary(topicID: topic.id))
+        }
+        topicItems.append(.originalPost(topicID: topic.id))
+        topicItems.append(.stats(topicID: topic.id))
         if showsTopicVote {
             topicItems.append(.topicVote(topicID: topic.id))
         }
@@ -297,6 +323,12 @@ struct FireTopicDetailCollectionView: View {
                 }.joined(separator: ";"),
                 row.statusLabels.joined(separator: ","),
                 String(isPrivateMessageThread),
+            ])
+        case .aiSummary:
+            return AnyHashable([
+                topicAiSummary.map(Self.topicAiSummaryContentToken(_:)) ?? "",
+                String(isLoadingTopicAiSummary),
+                topicAiSummaryError ?? "",
             ])
         case .originalPost:
             let postToken = originalPost.map { post in
@@ -395,6 +427,7 @@ struct FireTopicDetailCollectionView: View {
             backgroundColor: .systemBackground,
             animatingDifferences: true,
             onVisibleItemsChanged: handleVisibleItemsChanged(_:),
+            onPrefetchItems: handlePrefetchItems(_:),
             onRefresh: onRefresh,
             scrollRequest: scrollRequest,
             onScrollRequestCompleted: handleScrollRequestCompleted(_:),
@@ -427,6 +460,18 @@ struct FireTopicDetailCollectionView: View {
         )
     }
 
+    private func handlePrefetchItems(_ items: [FireTopicDetailCollectionItem]) {
+        let postNumbers = FireTopicDetailCollectionAdapter.visiblePostNumbers(
+            from: items,
+            originalPostNumber: originalPost?.postNumber
+        )
+        guard !postNumbers.isEmpty else { return }
+        topicDetailStore.preloadTopicPostsIfNeeded(
+            topicId: topic.id,
+            visiblePostNumbers: postNumbers
+        )
+    }
+
     private func handleScrollRequestCompleted(_ item: FireTopicDetailCollectionItem) {
         guard let postNumber = FireTopicDetailCollectionAdapter.visiblePostNumber(
             for: item,
@@ -445,6 +490,8 @@ struct FireTopicDetailCollectionView: View {
         switch item {
         case .header:
             headerRow
+        case .aiSummary:
+            topicAiSummaryRow
         case .originalPost:
             originalPostRow
         case .stats:
@@ -539,6 +586,68 @@ struct FireTopicDetailCollectionView: View {
     }
 
     @ViewBuilder
+    private var topicAiSummaryRow: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: "sparkles")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(FireTheme.accent)
+                Text("AI 摘要")
+                    .font(.subheadline.weight(.semibold))
+                Spacer(minLength: 0)
+                if topicAiSummary?.outdated == true {
+                    Text("有新回复")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(FireTheme.warning)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(FireTheme.warning.opacity(0.12), in: Capsule())
+                }
+            }
+
+            if let topicAiSummary {
+                Text(topicAiSummary.summarizedText)
+                    .font(.subheadline)
+                    .foregroundStyle(.primary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                let metadata = topicAiSummaryMetadata(topicAiSummary)
+                if !metadata.isEmpty {
+                    Text(metadata.joined(separator: " · "))
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            } else if isLoadingTopicAiSummary {
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("正在加载摘要…")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            } else if let topicAiSummaryError {
+                HStack(spacing: 8) {
+                    Text(topicAiSummaryError)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                    Spacer(minLength: 0)
+                    Button("重试") {
+                        topicDetailStore.reloadTopicAiSummary(topicId: topic.id)
+                    }
+                    .font(.caption.weight(.semibold))
+                }
+            }
+        }
+        .padding(14)
+        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 8))
+        .padding(.horizontal, 16)
+        .padding(.top, 4)
+        .padding(.bottom, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    @ViewBuilder
     private var originalPostRow: some View {
         Group {
             if let originalPost,
@@ -551,6 +660,7 @@ struct FireTopicDetailCollectionView: View {
                         renderContent: originalRenderContent,
                         depth: 0,
                         replyContext: nil,
+                        replyTargetPostNumber: nil,
                         showsThreadLine: false,
                         baseURLString: baseURLString,
                         canWriteInteractions: canWriteInteractions,
@@ -560,6 +670,12 @@ struct FireTopicDetailCollectionView: View {
                         onToggleLike: onToggleLike,
                         onSelectReaction: onSelectReaction,
                         onEditPost: onEditPost,
+                        onBookmarkPost: onBookmarkPost,
+                        onDeletePost: onDeletePost,
+                        onRecoverPost: onRecoverPost,
+                        onFlagPost: onFlagPost,
+                        onOpenReplyTarget: onOpenPostNumber,
+                        onOpenReplies: onOpenPostReplies,
                         onVotePoll: onVotePoll,
                         onUnvotePoll: onUnvotePoll
                     )
@@ -711,9 +827,13 @@ struct FireTopicDetailCollectionView: View {
                             ?? FireTopicPresentation.renderContent(
                                 from: post.cooked,
                                 baseURLString: baseURLString
-                            ),
+                        ),
                         depth: Int(row.entry.depth),
-                        replyContext: row.entry.parentPostNumber.map { "回复 #\($0)" },
+                        replyContext: replyContextLabel(
+                            for: post,
+                            fallbackPostNumber: row.entry.parentPostNumber
+                        ),
+                        replyTargetPostNumber: post.replyToPostNumber ?? row.entry.parentPostNumber,
                         showsThreadLine: showsTimelineThreadLine(in: replyRows, at: replyIndex ?? 0),
                         baseURLString: baseURLString,
                         canWriteInteractions: canWriteInteractions,
@@ -723,6 +843,12 @@ struct FireTopicDetailCollectionView: View {
                         onToggleLike: onToggleLike,
                         onSelectReaction: onSelectReaction,
                         onEditPost: onEditPost,
+                        onBookmarkPost: onBookmarkPost,
+                        onDeletePost: onDeletePost,
+                        onRecoverPost: onRecoverPost,
+                        onFlagPost: onFlagPost,
+                        onOpenReplyTarget: onOpenPostNumber,
+                        onOpenReplies: onOpenPostReplies,
                         onVotePoll: onVotePoll,
                         onUnvotePoll: onUnvotePoll
                     )
@@ -770,6 +896,24 @@ struct FireTopicDetailCollectionView: View {
             return false
         }
         return rows[index + 1].entry.depth >= rows[index].entry.depth
+    }
+
+    private func replyContextLabel(
+        for post: TopicPostState,
+        fallbackPostNumber: UInt32?
+    ) -> String? {
+        let targetPostNumber = post.replyToPostNumber ?? fallbackPostNumber
+        guard let targetPostNumber, targetPostNumber > 0 else {
+            return nil
+        }
+
+        let username = post.replyToUser?.username
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !username.isEmpty {
+            return "回复 @\(username)"
+        }
+
+        return "回复 #\(targetPostNumber)"
     }
 
     private func topicVotePanel(_ detail: TopicDetailState) -> some View {
@@ -839,6 +983,35 @@ struct FireTopicDetailCollectionView: View {
         ].joined(separator: "|")
     }
 
+    private func topicAiSummaryMetadata(_ summary: TopicAiSummaryState) -> [String] {
+        var metadata: [String] = []
+        if let updatedAt = FireTopicPresentation.formatTimestamp(summary.updatedAt) {
+            metadata.append("更新 \(updatedAt)")
+        }
+        if summary.outdated, summary.newPostsSinceSummary > 0 {
+            metadata.append("\(summary.newPostsSinceSummary) 条新回复")
+        }
+        if let algorithm = summary.algorithm?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !algorithm.isEmpty {
+            metadata.append(algorithm)
+        }
+        if summary.canRegenerate {
+            metadata.append("可重新生成")
+        }
+        return metadata
+    }
+
+    private static func topicAiSummaryContentToken(_ summary: TopicAiSummaryState) -> String {
+        [
+            summary.summarizedText,
+            summary.algorithm ?? "",
+            String(summary.outdated),
+            String(summary.canRegenerate),
+            String(summary.newPostsSinceSummary),
+            summary.updatedAt ?? "",
+        ].joined(separator: "\u{1F}")
+    }
+
     private static func postContentToken(
         _ post: TopicPostState,
         renderContent: FireTopicPostRenderContent?,
@@ -846,16 +1019,27 @@ struct FireTopicDetailCollectionView: View {
     ) -> String {
         let imageToken = renderContent?.imageAttachments.map(\.id).joined(separator: ",") ?? ""
         var parts: [String] = []
-        parts.reserveCapacity(15)
+        parts.reserveCapacity(26)
         parts.append(String(post.id))
         parts.append(String(post.postNumber))
         parts.append(post.username)
         parts.append(post.avatarTemplate ?? "")
         parts.append(post.createdAt ?? "")
         parts.append(post.cooked)
+        parts.append(String(post.replyCount))
         parts.append(String(post.replyToPostNumber ?? 0))
+        parts.append(post.replyToUser?.username ?? "")
+        parts.append(post.replyToUser?.name ?? "")
+        parts.append(post.replyToUser?.avatarTemplate ?? "")
         parts.append(String(post.acceptedAnswer))
         parts.append(String(post.canEdit))
+        parts.append(String(post.canDelete))
+        parts.append(String(post.canRecover))
+        parts.append(String(post.hidden))
+        parts.append(String(post.bookmarked))
+        parts.append(String(post.bookmarkId ?? 0))
+        parts.append(post.bookmarkName ?? "")
+        parts.append(post.bookmarkReminderAt ?? "")
         parts.append(String(reflecting: post.reactions))
         parts.append(String(reflecting: post.currentUserReaction))
         parts.append(String(reflecting: post.polls))

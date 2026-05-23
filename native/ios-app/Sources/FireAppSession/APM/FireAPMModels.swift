@@ -137,6 +137,16 @@ struct FireAPMRecentEvent: Identifiable, Equatable {
     let title: String
     let subtitle: String?
     let timestampUnixMs: UInt64
+    let launchID: String?
+    let diagnosticSessionID: String?
+    let route: String?
+    let scenePhase: String?
+    let privacyTier: FireAPMPrivacyTier
+    let payloadPath: String?
+    let payloadSummary: [String: String]
+    let appVersion: String
+    let buildNumber: String
+    let gitSha: String
 }
 
 struct FireAPMDiagnosticsSummary: Equatable {

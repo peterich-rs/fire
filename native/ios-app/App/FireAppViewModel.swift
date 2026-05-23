@@ -49,20 +49,16 @@ enum FireTopicInteractionError: LocalizedError {
 struct FireCloudflareChallengeContext: Equatable {
     let id: UUID
     let operation: String
-    let preferredURL: URL
     let message: String
 }
 
 enum FireAuthPresentationState: Identifiable, Equatable {
     case login
-    case cloudflareRecovery(FireCloudflareChallengeContext)
 
     var id: String {
         switch self {
         case .login:
             return "login"
-        case let .cloudflareRecovery(context):
-            return "cloudflare-\(context.id.uuidString)"
         }
     }
 }
@@ -106,50 +102,11 @@ private final class PendingCloudflareRecoveryWaiters: @unchecked Sendable {
 
 struct FireCloudflareRecoveryCookieSnapshot: Equatable {
     let hasAuthCookies: Bool
-    let hasCloudflareClearance: Bool
     let authFingerprint: String
-    let cfClearanceFingerprint: String?
 
     var diagnosticSummary: String {
-        "auth=\(hasAuthCookies) cf=\(hasCloudflareClearance) auth_fp=\(authFingerprint) cf_fp=\(cfClearanceFingerprint ?? "none")"
+        "auth=\(hasAuthCookies) auth_fp=\(authFingerprint)"
     }
-}
-
-struct FireCloudflareRecoveryObservation: Equatable {
-    let url: String?
-    let title: String?
-    let isLoading: Bool
-    let hasActiveChallenge: Bool
-    let domChallengeDetected: Bool?
-    let hasChallengeURL: Bool
-    let titleLooksLikeChallenge: Bool
-    let cookieSnapshot: FireCloudflareRecoveryCookieSnapshot
-    let jsEvaluationFailed: Bool
-
-    var hasExitedChallenge: Bool {
-        !isLoading && !hasActiveChallenge
-    }
-
-    func autoCompletionToken(cfClearanceIsFresh: Bool) -> String {
-        [
-            url ?? "unknown",
-            title ?? "untitled",
-            isLoading ? "loading" : "idle",
-            hasActiveChallenge ? "challenge" : "clear",
-            cfClearanceIsFresh ? "cf_fresh" : "cf_stale",
-            cookieSnapshot.authFingerprint,
-            cookieSnapshot.cfClearanceFingerprint ?? "none",
-        ].joined(separator: "|")
-    }
-
-    var diagnosticSummary: String {
-        "url=\(url ?? "unknown") title=\(title ?? "untitled") loading=\(isLoading) active_challenge=\(hasActiveChallenge) dom_challenge=\(domChallengeDetected.map(String.init) ?? "unknown") challenge_url=\(hasChallengeURL) challenge_title=\(titleLooksLikeChallenge) js_failed=\(jsEvaluationFailed) cookies[\(cookieSnapshot.diagnosticSummary)]"
-    }
-}
-
-private enum FireCloudflareRecoveryCompletionTrigger: String {
-    case manual
-    case automatic
 }
 
 private final class PendingCloudflareRecovery {
@@ -157,19 +114,20 @@ private final class PendingCloudflareRecovery {
     let waiters = PendingCloudflareRecoveryWaiters()
 
     let initialCookieSnapshot: FireCloudflareRecoveryCookieSnapshot
-    let initialSessionCookieSnapshot: FireCloudflareRecoveryCookieSnapshot
-    var latestObservation: FireCloudflareRecoveryObservation?
     var lastAutoCompletionToken: String?
 
     init(
         context: FireCloudflareChallengeContext,
-        initialCookieSnapshot: FireCloudflareRecoveryCookieSnapshot,
-        initialSessionCookieSnapshot: FireCloudflareRecoveryCookieSnapshot
+        initialCookieSnapshot: FireCloudflareRecoveryCookieSnapshot
     ) {
         self.context = context
         self.initialCookieSnapshot = initialCookieSnapshot
-        self.initialSessionCookieSnapshot = initialSessionCookieSnapshot
     }
+}
+
+private struct CachedLoginSyncReadiness {
+    let currentURL: String?
+    let readiness: FireLoginSyncReadiness
 }
 
 struct FireTopicDetailWindowState {
@@ -247,7 +205,6 @@ extension FireWebViewLoginCoordinator: FireChallengeSessionRecovering {}
 final class FireAppViewModel: ObservableObject {
     typealias LoginCoordinatorPreloader = @Sendable () async throws -> Void
     typealias LoginNetworkWarmup = @Sendable () async -> Void
-    typealias CloudflareRecoveryCookieSync = @Sendable () async throws -> SessionState
 
     private static let messageBusErrorPrefix = "实时同步连接失败："
     private static let loginRequiredMessage = "登录状态已失效，请重新登录。"
@@ -267,7 +224,6 @@ final class FireAppViewModel: ObservableObject {
     @Published var authPresentationState: FireAuthPresentationState?
     @Published var isPreparingLogin = false
     @Published var isSyncingLoginSession = false
-    @Published var isCompletingCloudflareChallenge = false
     @Published private(set) var canSyncLoginSession = false
     @Published var isLoggingOut = false
 
@@ -280,14 +236,13 @@ final class FireAppViewModel: ObservableObject {
     private var initialStateLoadingDelayTask: Task<Void, Never>?
     private var initialStateLoadGeneration: UInt64 = 0
     private var loginSyncReadinessTask: Task<Void, Never>?
-    private var cloudflareRecoveryObservationTask: Task<Void, Never>?
+    private var cachedLoginSyncReadiness: CachedLoginSyncReadiness?
     private var pendingCloudflareRecovery: PendingCloudflareRecovery?
     private var isResettingSession = false
-    private let loginURL = URL(string: "https://linux.do")!
+    private let loginURL = URL(string: "https://linux.do/login")!
     private let challengeRecoveryStore: (any FireChallengeSessionRecovering)?
     private let loginCoordinatorPreloader: LoginCoordinatorPreloader?
     private let loginNetworkWarmup: LoginNetworkWarmup?
-    private let cloudflareRecoveryCookieSync: CloudflareRecoveryCookieSync?
     // MessageBus
     private var messageBusCoordinator: FireMessageBusCoordinator?
     private var isMessageBusActive = false
@@ -302,14 +257,12 @@ final class FireAppViewModel: ObservableObject {
         initialSession: SessionState = .placeholder(),
         challengeRecoveryStore: (any FireChallengeSessionRecovering)? = nil,
         loginCoordinatorPreloader: LoginCoordinatorPreloader? = nil,
-        loginNetworkWarmup: LoginNetworkWarmup? = nil,
-        cloudflareRecoveryCookieSync: CloudflareRecoveryCookieSync? = nil
+        loginNetworkWarmup: LoginNetworkWarmup? = nil
     ) {
         self.session = initialSession
         self.challengeRecoveryStore = challengeRecoveryStore
         self.loginCoordinatorPreloader = loginCoordinatorPreloader
         self.loginNetworkWarmup = loginNetworkWarmup
-        self.cloudflareRecoveryCookieSync = cloudflareRecoveryCookieSync
     }
 
     var isPresentingLogin: Bool {
@@ -317,9 +270,6 @@ final class FireAppViewModel: ObservableObject {
     }
 
     var authPresentationMessage: String? {
-        if case let .cloudflareRecovery(context)? = authPresentationState {
-            return context.message
-        }
         guard shouldAutoSyncLoginAfterRecovery else {
             return nil
         }
@@ -408,6 +358,7 @@ final class FireAppViewModel: ObservableObject {
                 errorMessage = nil
                 await applySession(try await sessionStore.snapshot())
                 await applySession(try await sessionStore.refreshBootstrapIfNeeded())
+                await applySession(try await sessionStore.refreshCsrfTokenIfNeeded())
                 await refreshHomeFeedIfPossible(force: false)
             } catch {
                 if await handleRecoverableSessionErrorIfNeeded(error) {
@@ -428,6 +379,7 @@ final class FireAppViewModel: ObservableObject {
 
         errorMessage = nil
         canSyncLoginSession = false
+        cachedLoginSyncReadiness = nil
         presentLoginAuthFlow()
         isPreparingLogin = true
 
@@ -464,6 +416,7 @@ final class FireAppViewModel: ObservableObject {
                     }
                     await refreshHomeFeedIfPossible(force: true)
                     canSyncLoginSession = false
+                    cachedLoginSyncReadiness = nil
                 }
             } catch {
                 if await handleRecoverableSessionErrorIfNeeded(error) {
@@ -474,16 +427,6 @@ final class FireAppViewModel: ObservableObject {
         }
     }
 
-    func completeCloudflareRecovery(from webView: WKWebView? = nil) {
-        Task { [weak self] in
-            await self?.completeCloudflareRecovery(
-                trigger: .manual,
-                from: webView,
-                preparedObservation: nil
-            )
-        }
-    }
-
     func dismissAuthPresentation() {
         if pendingCloudflareRecovery != nil {
             resolvePendingCloudflareRecovery(
@@ -491,6 +434,7 @@ final class FireAppViewModel: ObservableObject {
             )
         }
         canSyncLoginSession = false
+        cachedLoginSyncReadiness = nil
         setAuthPresentationState(nil)
     }
 
@@ -528,10 +472,24 @@ final class FireAppViewModel: ObservableObject {
                 errorMessage = nil
                 await applySession(try await loginCoordinator.logout())
                 canSyncLoginSession = false
+                cachedLoginSyncReadiness = nil
                 clearTopicState()
                 notificationStore?.reset()
             } catch {
-                errorMessage = error.localizedDescription
+                do {
+                    let recoveryStore = try await challengeRecoveryStoreValue()
+                    await applySession(
+                        try await recoveryStore.logoutLocalAndClearPlatformCookies(
+                            preserveCfClearance: true
+                        )
+                    )
+                    canSyncLoginSession = false
+                    cachedLoginSyncReadiness = nil
+                    clearTopicState()
+                    notificationStore?.reset()
+                } catch {
+                    errorMessage = error.localizedDescription
+                }
             }
         }
     }
@@ -1516,6 +1474,12 @@ final class FireAppViewModel: ObservableObject {
                 let readiness = try await coordinator.probeLoginSyncReadiness(from: webView)
                 guard !Task.isCancelled else { return }
                 let previous = canSyncLoginSession
+                cachedLoginSyncReadiness = readiness.isReady
+                    ? CachedLoginSyncReadiness(
+                        currentURL: webView.url?.absoluteString,
+                        readiness: readiness
+                    )
+                    : nil
                 canSyncLoginSession = readiness.isReady
                 if previous != readiness.isReady {
                     FireAPMManager.shared.recordBreadcrumb(
@@ -1526,53 +1490,46 @@ final class FireAppViewModel: ObservableObject {
                     )
                 }
                 if readiness.isReady {
-                    await scheduleAutomaticRecoveryLoginSyncIfNeeded(
-                        readiness: readiness,
-                        from: webView
-                    )
+                    autoSyncLoginAfterRecoveryIfLoginActionEnabled(from: webView)
                 } else {
                     pendingCloudflareRecovery?.lastAutoCompletionToken = nil
                 }
             } catch {
                 guard !Task.isCancelled else { return }
                 canSyncLoginSession = false
+                cachedLoginSyncReadiness = nil
                 pendingCloudflareRecovery?.lastAutoCompletionToken = nil
             }
         }
     }
 
-    private func scheduleAutomaticRecoveryLoginSyncIfNeeded(
-        readiness: FireLoginSyncReadiness,
-        from webView: WKWebView
-    ) async {
+    func autoSyncLoginAfterRecoveryIfLoginActionEnabled(
+        from webView: WKWebView,
+        isWebViewLoading: Bool? = nil
+    ) {
         guard shouldAutoSyncLoginAfterRecovery,
-              let pendingCloudflareRecovery else {
+              let pendingCloudflareRecovery,
+              let cachedLoginSyncReadiness,
+              cachedLoginSyncReadiness.readiness.isReady,
+              canSyncLoginSession,
+              !isSyncingLoginSession else {
+            return
+        }
+        guard !(isWebViewLoading ?? webView.isLoading) else {
             return
         }
 
-        let observation = await collectCloudflareRecoveryObservation(from: webView)
-        guard !Task.isCancelled else {
+        let currentURL = webView.url?.absoluteString ?? "unknown"
+        guard cachedLoginSyncReadiness.currentURL == webView.url?.absoluteString else {
             return
         }
-
-        let blockReason = cloudflareRecoveryCompletionBlockReason(
-            trigger: .automatic,
-            observation: observation,
-            initialCookieSnapshot: pendingCloudflareRecovery.initialCookieSnapshot,
-            initialSessionCookieSnapshot: pendingCloudflareRecovery.initialSessionCookieSnapshot
-        )
-        guard blockReason == nil else {
-            pendingCloudflareRecovery.lastAutoCompletionToken = nil
-            let blockedReason = blockReason ?? "unknown"
-            let readinessUser = readiness.username ?? "unknown"
-            FireAPMManager.shared.recordBreadcrumb(
-                target: Self.authDiagnosticsLogTarget,
-                message: "cloudflare recovery login auto-sync blocked reason=\(blockedReason) readiness_user=\(readinessUser) score=\(readiness.preferredBootstrapScore)"
-            )
-            return
-        }
-
-        let autoCompletionToken = observation.autoCompletionToken(cfClearanceIsFresh: true)
+        let readiness = cachedLoginSyncReadiness.readiness
+        let autoCompletionToken = [
+            currentURL,
+            readiness.username ?? "unknown",
+            String(readiness.preferredBootstrapScore),
+            pendingCloudflareRecovery.initialCookieSnapshot.authFingerprint,
+        ].joined(separator: "|")
 
         guard pendingCloudflareRecovery.lastAutoCompletionToken != autoCompletionToken else {
             return
@@ -1581,98 +1538,9 @@ final class FireAppViewModel: ObservableObject {
 
         FireAPMManager.shared.recordBreadcrumb(
             target: Self.authDiagnosticsLogTarget,
-            message: "cloudflare recovery login auto-sync scheduled token=\(autoCompletionToken)"
+            message: "cloudflare recovery login auto-sync scheduled after login readiness url=\(currentURL) user=\(readiness.username ?? "unknown") score=\(readiness.preferredBootstrapScore)"
         )
         completeLogin(from: webView)
-    }
-
-    func observeCloudflareRecoveryNavigation(
-        from webView: WKWebView,
-        source: String = "navigation"
-    ) {
-        guard pendingCloudflareRecovery != nil else {
-            return
-        }
-
-        cloudflareRecoveryObservationTask?.cancel()
-        cloudflareRecoveryObservationTask = Task { [weak self] in
-            guard let self else { return }
-            let observation = await self.collectCloudflareRecoveryObservation(from: webView)
-            guard !Task.isCancelled else { return }
-            self.receiveCloudflareRecoveryObservation(
-                observation,
-                source: source,
-                allowAutoCompletion: true
-            )
-        }
-    }
-
-    func receiveCloudflareRecoveryObservation(
-        _ observation: FireCloudflareRecoveryObservation,
-        source: String = "external",
-        allowAutoCompletion: Bool = true
-    ) {
-        guard let pendingCloudflareRecovery else {
-            return
-        }
-
-        let previousObservation = pendingCloudflareRecovery.latestObservation
-        pendingCloudflareRecovery.latestObservation = observation
-
-        let cfClearanceIsFresh = hasFreshCloudflareClearance(
-            observation,
-            initialCookieSnapshot: pendingCloudflareRecovery.initialCookieSnapshot,
-            initialSessionCookieSnapshot: pendingCloudflareRecovery.initialSessionCookieSnapshot
-        )
-        let diagnosticMessage =
-            "cloudflare recovery observation source=\(source) cf_fresh=\(cfClearanceIsFresh) \(observation.diagnosticSummary)"
-
-        if previousObservation != observation {
-            FireAPMManager.shared.recordBreadcrumb(
-                target: Self.authDiagnosticsLogTarget,
-                message: diagnosticMessage
-            )
-            Task { [weak self] in
-                guard let self, let logger = await self.authDiagnosticsLogger() else {
-                    return
-                }
-                logger.info(diagnosticMessage)
-            }
-        }
-
-        guard allowAutoCompletion else {
-            return
-        }
-
-        guard shouldAutoCompleteCloudflareRecovery(
-            observation,
-            initialCookieSnapshot: pendingCloudflareRecovery.initialCookieSnapshot,
-            initialSessionCookieSnapshot: pendingCloudflareRecovery.initialSessionCookieSnapshot
-        ) else {
-            pendingCloudflareRecovery.lastAutoCompletionToken = nil
-            return
-        }
-
-        let autoCompletionToken = observation.autoCompletionToken(
-            cfClearanceIsFresh: cfClearanceIsFresh
-        )
-        guard pendingCloudflareRecovery.lastAutoCompletionToken != autoCompletionToken else {
-            return
-        }
-        pendingCloudflareRecovery.lastAutoCompletionToken = autoCompletionToken
-
-        FireAPMManager.shared.recordBreadcrumb(
-            target: Self.authDiagnosticsLogTarget,
-            message: "cloudflare recovery auto-complete scheduled source=\(source) token=\(autoCompletionToken)"
-        )
-
-        Task { [weak self] in
-            await self?.completeCloudflareRecovery(
-                trigger: .automatic,
-                from: nil,
-                preparedObservation: observation
-            )
-        }
     }
 
     private func scheduleMessageBusRetry() {
@@ -1743,26 +1611,24 @@ final class FireAppViewModel: ObservableObject {
 
     private func beginCloudflareRecoveryAndWait(operation: String) async throws {
         if pendingCloudflareRecovery == nil {
-            let initialSessionCookieSnapshot = makeCloudflareRecoveryCookieSnapshot(from: session)
             let initialCookieSnapshot = await currentCloudflareRecoveryCookieSnapshot()
 
             // Remove stale WebView clearance after taking the baseline snapshot so
-            // completion can reject the old value if it leaks back into WebKit.
+            // the login browser does not keep reusing a challenged clearance.
             await deleteCfClearanceFromWebViewStore()
 
             let context = FireCloudflareChallengeContext(
                 id: UUID(),
                 operation: operation,
-                preferredURL: loginURL,
                 message: "\(operation) 需要先完成 Cloudflare 验证。完成后会自动重试。"
             )
             pendingCloudflareRecovery = PendingCloudflareRecovery(
                 context: context,
-                initialCookieSnapshot: initialCookieSnapshot,
-                initialSessionCookieSnapshot: initialSessionCookieSnapshot
+                initialCookieSnapshot: initialCookieSnapshot
             )
             errorMessage = nil
             canSyncLoginSession = false
+            cachedLoginSyncReadiness = nil
             setAuthPresentationState(.login)
         }
 
@@ -1846,26 +1712,24 @@ final class FireAppViewModel: ObservableObject {
 
         let operation = message ?? "当前请求"
         if pendingCloudflareRecovery == nil {
-            let initialSessionCookieSnapshot = makeCloudflareRecoveryCookieSnapshot(from: session)
             let initialCookieSnapshot = await currentCloudflareRecoveryCookieSnapshot()
 
             // Remove stale WebView clearance after taking the baseline snapshot so
-            // completion can reject the old value if it leaks back into WebKit.
+            // the login browser does not keep reusing a challenged clearance.
             await deleteCfClearanceFromWebViewStore()
 
             let context = FireCloudflareChallengeContext(
                 id: UUID(),
                 operation: operation,
-                preferredURL: loginURL,
                 message: message ?? error.localizedDescription
             )
             pendingCloudflareRecovery = PendingCloudflareRecovery(
                 context: context,
-                initialCookieSnapshot: initialCookieSnapshot,
-                initialSessionCookieSnapshot: initialSessionCookieSnapshot
+                initialCookieSnapshot: initialCookieSnapshot
             )
             errorMessage = nil
             canSyncLoginSession = false
+            cachedLoginSyncReadiness = nil
             setAuthPresentationState(.login)
         } else if case .login? = authPresentationState {
             setAuthPresentationState(.login)
@@ -1899,6 +1763,7 @@ final class FireAppViewModel: ObservableObject {
         clearTopicState()
         notificationStore?.reset()
         canSyncLoginSession = false
+        cachedLoginSyncReadiness = nil
         errorMessage = message
         presentLoginAuthFlow()
     }
@@ -2041,30 +1906,6 @@ final class FireAppViewModel: ObservableObject {
         ["_t", "_forum_session", "cf_clearance"].contains(name)
     }
 
-    private static func isChallengeRecoveryURL(_ urlString: String?) -> Bool {
-        guard let urlString, let url = URL(string: urlString) else {
-            return false
-        }
-
-        let path = url.path.lowercased()
-        if path == "/challenge" || path.hasPrefix("/challenge/") || path == "/" || path.isEmpty {
-            return true
-        }
-
-        return path.contains("/cdn-cgi/challenge-platform")
-    }
-
-    private static func titleLooksLikeCloudflareChallenge(_ title: String?) -> Bool {
-        guard let normalizedTitle = title?.lowercased() else {
-            return false
-        }
-
-        return normalizedTitle.contains("just a moment")
-            || normalizedTitle.contains("attention required")
-            || normalizedTitle.contains("verify you are human")
-            || normalizedTitle.contains("cloudflare")
-    }
-
     private static func cookieFingerprint(_ value: String?) -> String? {
         guard let value, !value.isEmpty else {
             return nil
@@ -2080,7 +1921,7 @@ final class FireAppViewModel: ObservableObject {
 
     private func currentCloudflareRecoveryCookieSnapshot() async -> FireCloudflareRecoveryCookieSnapshot {
         let webKitSnapshot = makeCloudflareRecoveryCookieSnapshot(from: await currentWebKitCookies())
-        if webKitSnapshot.hasAuthCookies || webKitSnapshot.hasCloudflareClearance {
+        if webKitSnapshot.hasAuthCookies {
             return webKitSnapshot
         }
         return makeCloudflareRecoveryCookieSnapshot(from: session)
@@ -2097,13 +1938,10 @@ final class FireAppViewModel: ObservableObject {
 
         let tToken = relevantCookies.first(where: { $0.name == "_t" })?.value
         let forumSession = relevantCookies.first(where: { $0.name == "_forum_session" })?.value
-        let cfClearance = relevantCookies.first(where: { $0.name == "cf_clearance" })?.value
 
         return FireCloudflareRecoveryCookieSnapshot(
             hasAuthCookies: !(tToken?.isEmpty ?? true) && !(forumSession?.isEmpty ?? true),
-            hasCloudflareClearance: !(cfClearance?.isEmpty ?? true),
-            authFingerprint: "t=\(Self.cookieFingerprint(tToken) ?? "none")|forum=\(Self.cookieFingerprint(forumSession) ?? "none")",
-            cfClearanceFingerprint: Self.cookieFingerprint(cfClearance)
+            authFingerprint: "t=\(Self.cookieFingerprint(tToken) ?? "none")|forum=\(Self.cookieFingerprint(forumSession) ?? "none")"
         )
     }
 
@@ -2115,268 +1953,11 @@ final class FireAppViewModel: ObservableObject {
         let forumSession =
             platformCookies.first(where: { $0.name == "_forum_session" })?.value
             ?? session.cookies.forumSession
-        let cfClearance =
-            platformCookies.first(where: { $0.name == "cf_clearance" })?.value
-            ?? session.cookies.cfClearance
 
         return FireCloudflareRecoveryCookieSnapshot(
             hasAuthCookies: !(tToken?.isEmpty ?? true) && !(forumSession?.isEmpty ?? true),
-            hasCloudflareClearance: !(cfClearance?.isEmpty ?? true),
-            authFingerprint: "t=\(Self.cookieFingerprint(tToken) ?? "none")|forum=\(Self.cookieFingerprint(forumSession) ?? "none")",
-            cfClearanceFingerprint: Self.cookieFingerprint(cfClearance)
+            authFingerprint: "t=\(Self.cookieFingerprint(tToken) ?? "none")|forum=\(Self.cookieFingerprint(forumSession) ?? "none")"
         )
-    }
-
-    private func collectCloudflareRecoveryObservation(
-        from webView: WKWebView
-    ) async -> FireCloudflareRecoveryObservation {
-        let nativeURL = webView.url?.absoluteString
-        let nativeTitle = webView.title
-        let isLoading = webView.isLoading
-        let cookieSnapshot = makeCloudflareRecoveryCookieSnapshot(
-            from: await currentWebKitCookies(from: webView.configuration.websiteDataStore.httpCookieStore)
-        )
-
-        let domState = await evaluateCloudflareRecoveryDOMState(in: webView)
-        let resolvedURL = domState?.url ?? nativeURL
-        let resolvedTitle = domState?.title ?? nativeTitle
-        let hasChallengeURL = Self.isChallengeRecoveryURL(resolvedURL)
-        let titleLooksLikeChallenge = Self.titleLooksLikeCloudflareChallenge(resolvedTitle)
-        let hasActiveChallenge = domState?.hasActiveChallenge
-            ?? (hasChallengeURL || titleLooksLikeChallenge)
-
-        return FireCloudflareRecoveryObservation(
-            url: resolvedURL,
-            title: resolvedTitle,
-            isLoading: isLoading,
-            hasActiveChallenge: hasActiveChallenge,
-            domChallengeDetected: domState?.hasActiveChallenge,
-            hasChallengeURL: hasChallengeURL,
-            titleLooksLikeChallenge: titleLooksLikeChallenge,
-            cookieSnapshot: cookieSnapshot,
-            jsEvaluationFailed: domState == nil
-        )
-    }
-
-    private func evaluateCloudflareRecoveryDOMState(
-        in webView: WKWebView
-    ) async -> (url: String?, title: String?, hasActiveChallenge: Bool)? {
-        let script = """
-        (function() {
-          try {
-            var bodyText = '';
-            if (document.body && document.body.innerText) {
-              bodyText = document.body.innerText.slice(0, 4000).toLowerCase();
-            }
-            var title = document.title || null;
-            var href = (window.location && window.location.href) || null;
-            var hasTurnstile = !!document.querySelector(
-              '.cf-turnstile, iframe[src*="challenges.cloudflare.com"], [name="cf-turnstile-response"], form[action*="challenge-platform"], script[src*="challenge-platform"], #challenge-form, #cf-challenge-running'
-            );
-            var hasChallengeText =
-              bodyText.indexOf('just a moment') !== -1 ||
-              bodyText.indexOf('checking your browser') !== -1 ||
-              bodyText.indexOf('verify you are human') !== -1 ||
-              bodyText.indexOf('attention required') !== -1 ||
-              (bodyText.indexOf('cloudflare') !== -1 && bodyText.indexOf('challenge') !== -1);
-            return JSON.stringify({
-              url: href,
-              title: title,
-              hasActiveChallenge: hasTurnstile || hasChallengeText
-            });
-          } catch (error) {
-            return null;
-          }
-        })();
-        """
-
-        let value: Any?
-        do {
-            value = try await withCheckedThrowingContinuation {
-                (continuation: CheckedContinuation<Any?, Error>) in
-                webView.evaluateJavaScript(script) { result, error in
-                    if let error {
-                        continuation.resume(throwing: error)
-                    } else {
-                        continuation.resume(returning: result)
-                    }
-                }
-            }
-        } catch {
-            return nil
-        }
-
-        guard
-            let payload = value as? String,
-            let data = payload.data(using: .utf8),
-            let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-        else {
-            return nil
-        }
-
-        return (
-            url: object["url"] as? String,
-            title: object["title"] as? String,
-            hasActiveChallenge: object["hasActiveChallenge"] as? Bool ?? false
-        )
-    }
-
-    private func shouldAutoCompleteCloudflareRecovery(
-        _ observation: FireCloudflareRecoveryObservation,
-        initialCookieSnapshot: FireCloudflareRecoveryCookieSnapshot,
-        initialSessionCookieSnapshot: FireCloudflareRecoveryCookieSnapshot
-    ) -> Bool {
-        cloudflareRecoveryCompletionBlockReason(
-            trigger: .automatic,
-            observation: observation,
-            initialCookieSnapshot: initialCookieSnapshot,
-            initialSessionCookieSnapshot: initialSessionCookieSnapshot
-        ) == nil
-    }
-
-    private func hasFreshCloudflareClearance(
-        _ observation: FireCloudflareRecoveryObservation,
-        initialCookieSnapshot: FireCloudflareRecoveryCookieSnapshot,
-        initialSessionCookieSnapshot: FireCloudflareRecoveryCookieSnapshot
-    ) -> Bool {
-        guard let currentFingerprint = observation.cookieSnapshot.cfClearanceFingerprint else {
-            return false
-        }
-
-        let staleFingerprints = Set([
-            initialCookieSnapshot.cfClearanceFingerprint,
-            initialSessionCookieSnapshot.cfClearanceFingerprint,
-        ].compactMap { $0 })
-
-        guard !staleFingerprints.isEmpty else {
-            return true
-        }
-
-        return !staleFingerprints.contains(currentFingerprint)
-    }
-
-    private func cloudflareRecoveryCompletionBlockReason(
-        trigger: FireCloudflareRecoveryCompletionTrigger,
-        observation: FireCloudflareRecoveryObservation?,
-        initialCookieSnapshot: FireCloudflareRecoveryCookieSnapshot,
-        initialSessionCookieSnapshot: FireCloudflareRecoveryCookieSnapshot
-    ) -> String? {
-        guard let observation else {
-            return trigger == .manual
-                ? "验证页状态尚未稳定，正在等待页面更新。"
-                : "missing_observation"
-        }
-
-        if observation.isLoading {
-            return trigger == .manual
-                ? "验证页仍在加载，稍后会自动重试。"
-                : "page_loading"
-        }
-        if observation.hasActiveChallenge {
-            return trigger == .manual
-                ? "Cloudflare 验证仍未完成，请继续完成验证。"
-                : "challenge_still_active"
-        }
-        if !observation.cookieSnapshot.hasAuthCookies {
-            return trigger == .manual
-                ? "验证页尚未恢复站点登录 Cookie，请继续等待页面完成。"
-                : "auth_cookies_missing"
-        }
-        if !observation.cookieSnapshot.hasCloudflareClearance {
-            return trigger == .manual
-                ? "验证页尚未拿到 Cloudflare clearance，请继续等待页面完成。"
-                : "clearance_missing"
-        }
-
-        let cfClearanceIsFresh = hasFreshCloudflareClearance(
-            observation,
-            initialCookieSnapshot: initialCookieSnapshot,
-            initialSessionCookieSnapshot: initialSessionCookieSnapshot
-        )
-        if !cfClearanceIsFresh {
-            return trigger == .manual
-                ? "验证页尚未观察到新的 Cloudflare clearance，请继续完成验证或刷新验证页。"
-                : "clearance_not_rotated"
-        }
-
-        return nil
-    }
-
-    private func validateCloudflareRecoverySession(_ session: SessionState) -> String? {
-        if !session.hasLoginSession {
-            return "验证页已退出 challenge，但同步后的会话仍未恢复登录状态。"
-        }
-        if !session.readiness.hasCloudflareClearance {
-            return "验证页已退出 challenge，但同步后的会话仍缺少 Cloudflare clearance。"
-        }
-        return nil
-    }
-
-    private func completeCloudflareRecovery(
-        trigger: FireCloudflareRecoveryCompletionTrigger,
-        from webView: WKWebView?,
-        preparedObservation: FireCloudflareRecoveryObservation?
-    ) async {
-        guard let pendingCloudflareRecovery else {
-            return
-        }
-        guard !isCompletingCloudflareChallenge else {
-            return
-        }
-
-        let observation: FireCloudflareRecoveryObservation?
-        if let preparedObservation {
-            observation = preparedObservation
-        } else if let webView {
-            let freshlyObserved = await collectCloudflareRecoveryObservation(from: webView)
-            receiveCloudflareRecoveryObservation(
-                freshlyObserved,
-                source: trigger == .manual ? "manual" : "automatic",
-                allowAutoCompletion: false
-            )
-            observation = freshlyObserved
-        } else {
-            observation = pendingCloudflareRecovery.latestObservation
-        }
-
-        if let blockReason = cloudflareRecoveryCompletionBlockReason(
-            trigger: trigger,
-            observation: observation,
-            initialCookieSnapshot: pendingCloudflareRecovery.initialCookieSnapshot,
-            initialSessionCookieSnapshot: pendingCloudflareRecovery.initialSessionCookieSnapshot
-        ) {
-            let diagnosticMessage =
-                "cloudflare recovery completion blocked trigger=\(trigger.rawValue) reason=\(blockReason) observation=\(observation?.diagnosticSummary ?? "none")"
-            FireAPMManager.shared.recordBreadcrumb(
-                target: Self.authDiagnosticsLogTarget,
-                message: diagnosticMessage
-            )
-            if trigger == .manual {
-                errorMessage = blockReason
-            }
-            return
-        }
-
-        isCompletingCloudflareChallenge = true
-        defer { isCompletingCloudflareChallenge = false }
-
-        do {
-            errorMessage = nil
-            let refreshedSession = try await syncCookiesForCloudflareRecovery()
-            if let validationError = validateCloudflareRecoverySession(refreshedSession) {
-                FireAPMManager.shared.recordBreadcrumb(
-                    target: Self.authDiagnosticsLogTarget,
-                    message: "cloudflare recovery completion rejected trigger=\(trigger.rawValue) reason=\(validationError)"
-                )
-                errorMessage = validationError
-                return
-            }
-            await applySession(refreshedSession)
-            setAuthPresentationState(nil)
-            resolvePendingCloudflareRecovery(with: .success(()))
-        } catch {
-            errorMessage = error.localizedDescription
-        }
     }
 
     private func syncPlatformCookiesFromWebViewStore() async throws {
@@ -2385,20 +1966,12 @@ final class FireAppViewModel: ObservableObject {
         await applySession(session)
     }
 
-    private func syncCookiesForCloudflareRecovery() async throws -> SessionState {
-        if let cloudflareRecoveryCookieSync {
-            return try await cloudflareRecoveryCookieSync()
-        }
-
-        let loginCoordinator = try await loginCoordinatorValue()
-        return try await loginCoordinator.refreshPlatformCookies()
-    }
-
     private func presentLoginAuthFlow() {
         resolvePendingCloudflareRecovery(
             with: .failure(FireCloudflareRecoveryError.cancelled)
         )
         canSyncLoginSession = false
+        cachedLoginSyncReadiness = nil
         setAuthPresentationState(.login)
     }
 
@@ -2412,8 +1985,6 @@ final class FireAppViewModel: ObservableObject {
             return
         }
 
-        cloudflareRecoveryObservationTask?.cancel()
-        cloudflareRecoveryObservationTask = nil
         let waiters = pendingCloudflareRecovery.waiters.removeAll()
         self.pendingCloudflareRecovery = nil
         updateInteractiveRecoveryState()

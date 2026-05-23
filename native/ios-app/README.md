@@ -28,23 +28,29 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
   - passes the platform workspace root (`Application Support/Fire`) into Rust during initialization
   - restores the persisted session snapshot on cold start, then re-injects Keychain cookies before authenticated requests
   - delegates platform-cookie apply semantics plus bootstrap/CSRF refresh decisions to Rust instead of reimplementing them in Swift
+  - consumes the Rust `SessionState.browserUserAgent` field so host WebView runtimes can stay aligned with the browser identity captured during login
   - relies on Rust-owned session epoch fencing so late network responses can no longer overwrite rotated `_t` / `_forum_session` cookies or revive a locally cleared session
   - now also consumes Rust-owned snapshot/auth-cookie persistence revisions so no-op bootstrap/CSRF wrappers stop exporting full session JSON just to decide whether `session.json` or Keychain need a write
   - persists the latest Rust session snapshot as a full `Application Support/Fire/session.json`; routine internal write paths mirror `session.json` and Keychain only when the corresponding Rust revision changes, while explicit `persistCurrentSession()` force-refreshes both from the current snapshot
   - lets Rust initialize shared logs under `Application Support/Fire/logs`
-  - wraps `syncLoginContext`, async `refreshBootstrap`, async `refreshCsrfToken`, async topic fetches, and async logout
+  - wraps `syncLoginContext`, async `refreshBootstrap`, async `refreshCsrfToken`, async topic fetches including `fetchTopicAiSummary`, and async logout
 - `Sources/FireAppSession/APM/*`
   - owns the beta-phase iOS crash/APM runtime
   - installs `PLCrashReporter` at launch, harvests pending crash reports on next cold start, and persists raw `.plcrash` payloads under `Application Support/Fire/ios-apm/crashes`
   - registers `MetricKit`, stores raw metric/diagnostic payload JSON under `Application Support/Fire/ios-apm/metrickit`, and keeps per-launch runtime-state snapshots under `Application Support/Fire/ios-apm/runtime-states` for route / scene / breadcrumb recovery
   - samples foreground CPU / memory / thermal state, detects main-thread stalls, tracks host-owned route/span breadcrumbs, and exports shareable `.zip` archives under `Application Support/Fire/ios-apm-exports`
+  - serves the developer tools overview and APM page with a fresh current CPU/memory snapshot on every visible one-second refresh while keeping persisted crash/stall/MetricKit payloads available for filtered lists, detail rows, and full export
 - `FireAuthCookieKeychainStore.swift`
   - stores the full same-site LinuxDo browser cookie batch in Keychain using a host-scoped generic-password entry, preserving domain variants and cookie expiry
   - preserves non-login browser context cookies, including `cf_clearance`, across explicit logout so Cloudflare challenge state stays aligned with the host shell
+- `FireWebViewBrowserProfile.swift`
+  - centralizes the embedded auth-browser profile used by login and Cloudflare WebViews
+  - gives `WKWebView` a Mobile Safari-style user agent when no captured browser user agent is available
+  - keeps the auth browser on the default persistent `WKWebsiteDataStore` without a custom process pool, enables JavaScript/new-window handling/media playback, and injects color-scheme plus small compatibility polyfills used by the auth browser and offscreen Turnstile runtime
 - `FireWebViewLoginCoordinator.swift`
   - reads `WKWebView` cookies, `current-username`, `csrf-token`, page HTML, and the live browser user agent
   - prefers homepage HTML fetched through the current WebView browser context before falling back to the visible page HTML, so the first shared bootstrap sync stays as close as possible to the browser-authenticated session
-  - continuously supports an “auto-detect, manual Sync” login flow: navigation, scene-activation, and debounced WebKit cookie-store changes can all re-probe readiness, but the user-visible `完成登录` action remains the only commit point
+  - continuously supports login readiness probing: navigation, scene-activation, debounced WebKit cookie-store changes, and WebView loading transitions all re-check the same readiness used by the `完成登录` button; normal login still commits through that visible action, while Cloudflare recovery auto-syncs as soon as that action would be enabled
   - only treats login as ready to sync once it can read `current-username`, same-site auth cookies, and reusable bootstrap HTML
   - converts them into `LoginSyncState`
   - completes login by first syncing the captured WebKit auth-cookie batch into Keychain and Rust, then backfilling missing `current-username` / `csrf-token` from the preferred bootstrap HTML whenever the visible page leaves metadata incomplete
@@ -53,13 +59,16 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
   - clears host-side LinuxDo auth cookies after a successful explicit logout while preserving `cf_clearance`
 - `FireCfClearanceRefreshService.swift`
   - owns an offscreen `WKWebView` that keeps a Turnstile widget alive once the shared session is authenticated, scene-active, and bootstrap has exposed a Turnstile sitekey
+  - configures that hidden WebView with the captured login browser user agent exposed on `SessionState`, falling back to the same Mobile Safari-style profile used by login
   - injects a fetch interceptor before `api.js` loads, replays `/cdn-cgi/challenge-platform/.../rc/...` through native `URLSession`, and feeds the real response back into the page so `cf_clearance` can auto-renew without foreground UI
   - re-syncs refreshed WebKit cookies back into Rust and then pushes the updated session back through `FireAppViewModel.applySession`, which mirrors the latest cookie batch into both `HTTPCookieStorage` and the shared `WKHTTPCookieStore`
-  - pauses that background Turnstile runtime while an interactive `/challenge` recovery WebView is on-screen, resumes automatically after recovery, and records APM breadcrumbs plus bounded retry failures
+  - pauses that background Turnstile runtime while an interactive Cloudflare recovery WebView is on-screen, resumes automatically after recovery, and records APM breadcrumbs plus bounded retry failures
 - `App/FireLoginWebView.swift`
   - presents the host-owned auth browser as a full-screen flow for both initial login and interactive Cloudflare recovery
   - now wraps the embedded `WKWebView` in a full-screen native browser shell with adaptive light/dark chrome, a compact top bar, and a bottom command dock
-  - exposes back, forward, home, reload, and context-aware primary actions so OAuth hops can return to LinuxDo without closing the flow and challenge recovery can finish with an explicit `完成验证并重试`
+  - uses the shared auth-browser profile so login, OAuth redirects, and Cloudflare challenge pages see a Safari-compatible user agent and light/dark color-scheme support
+  - exposes back, forward, reload, and context-aware primary actions so OAuth hops can return to LinuxDo without closing the flow and challenge recovery can reuse login readiness detection for automatic sync
+  - does not try to bypass providers that reject embedded browsers; Google OAuth can still fail with `disallowed_useragent`, which requires a system auth/Safari fallback plus a way to import the resulting LinuxDo session back into Fire
   - enables back/forward swipe gestures on the embedded `WKWebView`
   - avoids mutating observed browser state from `UIViewRepresentable.updateUIView`, so SwiftUI updates do not loop back into `WKWebView` host state and freeze the login entry flow
 - `App/FireApp.swift`
@@ -76,7 +85,7 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
   - now also owns native private-message inbox/sent loading plus private-message creation on top of the shared Rust mailbox and `/posts.json` PM surfaces
   - now acts as a session/runtime facade for feature stores instead of also owning every screen's transient state directly
   - now owns the foreground MessageBus transport lifecycle on iOS and forwards runtime refresh work into the bound feature stores instead of publishing home/topic-detail state itself
-  - now treats Rust-owned `CloudflareChallenge` errors as the signal to delete stale WebView `cf_clearance`, present an interactive `/challenge` recovery WebView, re-sync the browser cookie batch back into Rust, and automatically retry the blocked read/write flow without tearing down the current authenticated snapshot
+  - now treats Rust-owned `CloudflareChallenge` errors as the signal to delete stale WebView `cf_clearance`, present the host auth WebView in the LinuxDo browser context, re-sync the browser cookie batch back into Rust, and automatically retry the blocked read/write flow without tearing down the current authenticated snapshot
   - now also treats Rust-owned `LoginRequired` invalidation the same way, clearing host-side auth cookies while preserving `cf_clearance` so passive session loss, explicit logout, and bootstrap-challenged recovery all converge on one reset path
   - now probes login sync readiness from the embedded `WKWebView` and keeps the `完成登录` button disabled until the shared login prerequisites are actually satisfied
   - now also emits host-owned APM spans for cold-start restore, login sync, bootstrap refresh, latest-feed load, topic-detail load, reply submit, notification refresh, and MessageBus start
@@ -89,6 +98,8 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
   - owns topic-detail cache, anchor post numbers, post hydration/pagination, reply presence, and topic-detail mutation flags
   - now builds a host-only render cache for timeline rows plus cooked text/image payloads, and drops duplicated Swift-owned `thread` / `flatPosts` copies after receipt to keep Rust as the domain owner
   - now prehydrates the anchor window's missing surrounding posts before the first anchored detail render, so notification/comment jumps land on the correct floor with nearby context already present
+  - now caches Rust-fetched per-post reply context from `fetchPostReplyIds` / batched `fetchTopicPosts` plus `fetchPostReplyHistory`, falling back to `fetchPostReplies` only when the reply-ID tree is empty, and hydrates any returned posts back into the active topic detail cache when they belong to the current stream
+  - now loads Rust-fetched topic AI summaries non-blockingly when the detail payload advertises `summarizable`, `hasCachedSummary`, or `hasSummary`, caching success/unavailable/error state per topic without blocking the main detail body
   - keeps topic-detail subscription, presence heartbeat, quick reply, reaction toggles, and post-edit refresh reconciliation out of `FireAppViewModel`
 - `App/Stores/FireSearchStore.swift`
   - owns the search screen's query, scope, result, paging, loading, and error state
@@ -128,6 +139,7 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
   - renders a native diagnostics screen on top of the shared Rust diagnostics APIs
   - lists workspace log files plus reverse-chronological network request traces
   - opens tail-first log pages, preview-first network body viewers, and per-request execution chains without pushing full diagnostic text across the UniFFI boundary by default
+  - keeps the developer tools overview and APM detail page live while visible, and lets Crash/卡顿 counters plus recent crash/stall/MetricKit/span rows open metadata detail pages
   - exposes host-owned notification permission / APNs registration state and the locally cached device token for production-readiness checks
   - exports both the Rust-owned diagnostics bundle and a host-owned full APM `.zip` archive containing local crash / MetricKit / route / span artifacts for share-sheet based escalation during beta, auto-presenting the share sheet after full APM export completes
 - `App/FireTabRoot.swift`
@@ -170,7 +182,7 @@ Expected integration flow:
 4. Create a single `FireSessionStore` instance early in app launch and call `restoreColdStartSession()`.
 5. Let the login `WKWebView` probe readiness through `FireAppViewModel.refreshLoginSyncReadiness(from:)`, and only call `FireWebViewLoginCoordinator.completeLogin(from:)` once the UI has enabled `完成登录`.
 6. After login or restore, let `FireCfClearanceRefreshService.shared` track the active session so same-site Cloudflare cookies can be refreshed in the background when bootstrap has a Turnstile sitekey.
-7. After login or restore, render the topic feeds and topic detail through `fetchTopicList` / `fetchTopicDetail`.
+7. After login or restore, render the topic feeds and topic detail through `fetchTopicList` / `fetchTopicDetail`, and let topic detail fetch optional AI summaries through `fetchTopicAiSummary`.
 8. On explicit logout or shared-layer login invalidation, clear local auth state through the login coordinator path so the Rust snapshot, persisted session file, and host-side LinuxDo auth cookies stay aligned while preserving `cf_clearance`.
 
 Xcode project generation rules:
@@ -217,7 +229,7 @@ Current UX note:
 - The app now opens login as a full-screen browser instead of a partial sheet.
 - The app now keeps the same onboarding page visible during cold-start auto-login, hiding login actions until restore fails and only showing loading if bootstrap takes longer than 500ms.
 - The login browser can navigate back from Google or other intermediate pages without forcing the user to close and reopen login.
-- The login browser now auto-probes whether a manual Sync would actually succeed, re-checking on navigation, scene resume, and debounced WebKit auth-cookie changes, and keeps `完成登录` disabled until username, auth cookies, and reusable bootstrap HTML are all present.
+- The login browser now auto-probes whether sync would actually succeed, re-checking on navigation, scene resume, debounced WebKit auth-cookie changes, and loading-state transitions. Normal login keeps `完成登录` disabled until username, auth cookies, reusable bootstrap HTML, and an idle WebView are all present; Cloudflare recovery hides that button and auto-syncs as soon as the same action would be enabled.
 - The login shell and reading workspace now adapt to both light and dark system appearance while preserving the same hierarchy and contrast model.
 - The network warm-up is best-effort and no longer blocks login browser presentation. iOS does not provide a generic "internet permission" API for arbitrary web access, so this only tries to shift the first prompt/request earlier; it does not create a separate permission flow.
 - The current topic browser now runs against the real shared Rust core through generated UniFFI Swift bindings.
@@ -232,12 +244,14 @@ Current UX note:
 - The homepage `latest` feed now coalesces MessageBus topic-list updates on iOS, enforces a 30-second minimum refresh interval, and batches `/latest.json?topic_ids=...` incremental reloads while the active view is the unfiltered latest list.
 - Topic detail now renders its reading surface through the shared ListKit collection host while keeping the SwiftUI shell for navigation, sheets, and the persistent quick-reply bar; it still hides the tab bar as a dedicated reading page and promotes the original post into the topic header as the main body.
 - The app now also exposes a full-screen native composer for create-topic, private-message, and advanced-reply flows, with server-backed draft restore/save, recipient search, image uploads, upload URL resolution, tag search, and `@mention` autocomplete on top of shared Rust APIs.
-- Topic detail now supports per-post reply targeting, post likes, and custom emoji reactions through the shared Rust write APIs.
+- Topic detail now supports per-post reply targeting, post likes, custom emoji reactions, post-level bookmarks, edit/delete/recover, and flag reporting through the shared Rust write APIs; the flag sheet uses server-provided post action types when available and falls back to the common LinuxDo / Discourse flag types only if that metadata is unavailable.
+- Topic detail now shows clickable reply targets using shared `replyToUser` metadata when available, and posts with direct replies can open a native reply-context sheet that loads Rust-backed recursive reply IDs, batches those IDs through `fetchTopicPosts`, falls back to `fetchPostReplies` when needed, and jumps back to selected floors.
 - Topic detail now also reports native visible-post reading timings through the shared Rust `/topics/timings` API instead of keeping that reporting path host-specific.
 - Topic detail now also listens to the shared MessageBus reaction/presence channels, refreshes live post state from Rust on matching events, and shows shared reply-presence users in the quick-reply area.
 - Topic detail now also recognizes `private_message` threads, renders participant chips in the header, and hides public-topic-only controls such as vote panels, topic editing, category/tag navigation, and topic notification settings.
 - Topic detail now prepares reply rows plus cooked text/image payloads in the store layer, so SwiftUI body updates reuse cached render content instead of repeating timeline joins and cooked HTML parsing.
-- Topic posts now render a richer native cooked-content surface in the detail screen, including inline emoji attachments, lightbox-aware image extraction that prefers the original asset while preserving server-provided aspect ratios, quote/reply metadata blocks, tappable `@mentions` that open the in-app profile sheet, and LinuxDo topic/profile/badge links that stay inside the app instead of bouncing to Safari.
+- Topic detail now shows the shared Rust AI summary card when the backend advertises an available cached or generatable summary; missing summaries simply disappear, and failures stay scoped to the retryable summary card.
+- Topic posts now render a richer native cooked-content surface in the detail screen, including inline emoji attachments, linked-image extraction that prefers the original asset while preserving server-provided aspect ratios, quote/reply metadata blocks, ordered/unordered lists, details/spoilers, simple tables, onebox/video fallbacks, tappable `@mentions` / group mentions / hashtags, and LinuxDo topic/profile/badge links that stay inside the app instead of bouncing to Safari.
 - The app now keeps the in-app notification list synchronized from Rust-owned notification runtime state when MessageBus notification events arrive, instead of only updating the unread badge count.
 - iOS now schedules background refresh work for `/notification-alert/{userId}` and presents host-owned local notifications from a dedicated one-shot Rust MessageBus poll path.
 - The authenticated shell now also requests APNs registration, caches the resulting device token locally, and exposes host-side registration diagnostics without attempting backend token upload yet.

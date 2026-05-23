@@ -114,6 +114,7 @@ final class FireCfClearanceRefreshService: NSObject, WKNavigationDelegate, WKScr
     private var activeSitekey: String?
     private var activeBaseURL: String?
     private var activeRuntimeToken: String?
+    private var activeUserAgent: String?
     private lazy var urlSession: URLSession = {
         let configuration = URLSessionConfiguration.default
         configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
@@ -269,6 +270,7 @@ final class FireCfClearanceRefreshService: NSObject, WKNavigationDelegate, WKScr
 
         return activeSitekey != normalizedTurnstileSitekey
             || activeBaseURL != session.bootstrap.baseUrl
+            || activeUserAgent != FireWebViewBrowserProfile.preferredUserAgent(session.browserUserAgent)
     }
 
     private func reconfigureRuntime(reason: String) {
@@ -287,6 +289,7 @@ final class FireCfClearanceRefreshService: NSObject, WKNavigationDelegate, WKScr
         activeSitekey = sitekey
         activeBaseURL = session.bootstrap.baseUrl
         activeRuntimeToken = UUID().uuidString
+        activeUserAgent = FireWebViewBrowserProfile.preferredUserAgent(session.browserUserAgent)
 
         let generation = advanceGeneration()
         let runtimeToken = activeRuntimeToken ?? UUID().uuidString
@@ -406,12 +409,16 @@ final class FireCfClearanceRefreshService: NSObject, WKNavigationDelegate, WKScr
         userContentController.add(self, name: Self.rcInterceptHandlerName)
         userContentController.add(self, name: Self.turnstileErrorHandlerName)
 
-        let configuration = WKWebViewConfiguration()
-        configuration.userContentController = userContentController
-        configuration.websiteDataStore = .default()
+        let configuration = FireWebViewBrowserProfile.makeConfiguration(
+            userContentController: userContentController
+        )
 
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.isHidden = true
+        FireWebViewBrowserProfile.configure(
+            webView,
+            preferredUserAgent: session.browserUserAgent
+        )
         webView.navigationDelegate = self
         self.webView = webView
         return webView
@@ -425,6 +432,7 @@ final class FireCfClearanceRefreshService: NSObject, WKNavigationDelegate, WKScr
             activeSitekey = nil
             activeBaseURL = nil
             activeRuntimeToken = nil
+            activeUserAgent = nil
             hasInterceptedInitialRc = false
             isCallingRc = false
             return
@@ -440,6 +448,7 @@ final class FireCfClearanceRefreshService: NSObject, WKNavigationDelegate, WKScr
         activeSitekey = nil
         activeBaseURL = nil
         activeRuntimeToken = nil
+        activeUserAgent = nil
         hasInterceptedInitialRc = false
         isCallingRc = false
     }

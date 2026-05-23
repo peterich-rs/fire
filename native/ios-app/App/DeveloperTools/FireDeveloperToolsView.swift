@@ -39,6 +39,12 @@ struct FireDeveloperToolsView: View {
             diagnosticsViewModel.refresh()
             await pushRegistrationCoordinator.refreshAuthorizationStatus()
         }
+        .onAppear {
+            diagnosticsViewModel.startAPMAutoRefresh(source: .developerToolsOverview)
+        }
+        .onDisappear {
+            diagnosticsViewModel.stopAPMAutoRefresh(source: .developerToolsOverview)
+        }
         .refreshable {
             diagnosticsViewModel.refresh()
             await pushRegistrationCoordinator.refreshAuthorizationStatus()

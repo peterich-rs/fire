@@ -136,9 +136,15 @@ struct FireDiagnosticsShareRequest: Identifiable, Equatable {
     let url: URL
 }
 
+enum FireAPMAutoRefreshSource: Hashable {
+    case developerToolsOverview
+    case apmDetail
+}
+
 @MainActor
 final class FireDiagnosticsViewModel: ObservableObject {
     private static let traceAutoRefreshInterval: Duration = .seconds(1)
+    private static let apmAutoRefreshInterval: Duration = .seconds(1)
     private static let logPageBytes: UInt64 = 128 * 1024
     private static let traceBodyPageBytes: UInt64 = 32 * 1024
 
@@ -159,7 +165,10 @@ final class FireDiagnosticsViewModel: ObservableObject {
 
     private let appViewModel: FireAppViewModel
     private var traceAutoRefreshTask: Task<Void, Never>?
+    private var apmAutoRefreshTask: Task<Void, Never>?
+    private var apmAutoRefreshSources: Set<FireAPMAutoRefreshSource> = []
     private var isRefreshingTraces = false
+    private var isRefreshingAPM = false
     private var loadingLogPagePaths: Set<String> = []
     private var loadingTraceDetailIDs: Set<UInt64> = []
     private var loadingTraceBodyPageIDs: Set<UInt64> = []
@@ -170,6 +179,7 @@ final class FireDiagnosticsViewModel: ObservableObject {
 
     deinit {
         traceAutoRefreshTask?.cancel()
+        apmAutoRefreshTask?.cancel()
     }
 
     func refresh() {
@@ -216,6 +226,30 @@ final class FireDiagnosticsViewModel: ObservableObject {
     func stopTraceAutoRefresh() {
         traceAutoRefreshTask?.cancel()
         traceAutoRefreshTask = nil
+    }
+
+    func startAPMAutoRefresh(source: FireAPMAutoRefreshSource) {
+        apmAutoRefreshSources.insert(source)
+        guard apmAutoRefreshTask == nil else {
+            return
+        }
+
+        apmAutoRefreshTask = Task { [weak self] in
+            guard let self else { return }
+            while !Task.isCancelled {
+                await self.refreshAPMIfNeeded()
+                try? await Task.sleep(for: Self.apmAutoRefreshInterval)
+            }
+        }
+    }
+
+    func stopAPMAutoRefresh(source: FireAPMAutoRefreshSource) {
+        apmAutoRefreshSources.remove(source)
+        guard apmAutoRefreshSources.isEmpty else {
+            return
+        }
+        apmAutoRefreshTask?.cancel()
+        apmAutoRefreshTask = nil
     }
 
     func loadLogFile(relativePath: String) {
@@ -555,6 +589,22 @@ final class FireDiagnosticsViewModel: ObservableObject {
             errorMessage = nil
             applyTraceSummaries(traces)
             await refreshCachedTraceDetails(using: traces)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func refreshAPMIfNeeded() async {
+        guard !isRefreshingAPM else {
+            return
+        }
+
+        isRefreshingAPM = true
+        defer { isRefreshingAPM = false }
+
+        do {
+            apmSummary = try await appViewModel.apmDiagnosticsSummary()
+            errorMessage = nil
         } catch {
             errorMessage = error.localizedDescription
         }

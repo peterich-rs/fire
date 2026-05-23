@@ -233,20 +233,26 @@ public final class FireWebViewLoginCoordinator {
             }
 
             // Don't keep a partially synced native session around when bootstrap
-            // or CSRF refresh is still challenged. The WebView login flow remains
-            // open so the user can complete the challenge and retry Sync.
+            // or CSRF refresh is still challenged. Keep the browser auth cookies
+            // intact, because the recovery WebView reuses the login URL and
+            // needs the authenticated site context to let Cloudflare continue.
             _ = try? await sessionStore.logoutLocal(preserveCfClearance: true)
             if let challengeRecoveryCookieCleaner {
                 try? await challengeRecoveryCookieCleaner()
             } else {
-                try? await clearChallengeRecoveryCookies()
+                try? await clearCloudflareClearanceCookies()
             }
             throw error
         }
     }
 
     public func logout() async throws -> SessionState {
-        let state = try await sessionStore.logout()
+        let state: SessionState
+        do {
+            state = try await sessionStore.logout()
+        } catch {
+            state = try await sessionStore.logoutLocal(preserveCfClearance: true)
+        }
         try await clearSameSitePlatformCookies(preserving: ["cf_clearance"])
         return state
     }
@@ -442,8 +448,8 @@ public final class FireWebViewLoginCoordinator {
         }
     }
 
-    private func clearChallengeRecoveryCookies() async throws {
-        let targetedNames: Set<String> = ["_t", "_forum_session"]
+    private func clearCloudflareClearanceCookies() async throws {
+        let targetedNames: Set<String> = ["cf_clearance"]
         try await clearPlatformCookies { cookie in
             isSameSiteCookie(cookie) && targetedNames.contains(cookie.name)
         }

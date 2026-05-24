@@ -54,7 +54,7 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
   - only treats login as ready to sync once it can read `current-username`, same-site auth cookies, and reusable bootstrap HTML
   - converts them into `LoginSyncState`
   - completes login by first syncing the captured WebKit auth-cookie batch into Keychain and Rust, then backfilling missing `current-username` / `csrf-token` from the preferred bootstrap HTML whenever the visible page leaves metadata incomplete
-  - does not hand the authenticated session to SwiftUI until the shared layer has also confirmed a usable CSRF token, so the main tabs no longer see a transient “logged in but missing CSRF” state
+  - completes the native login handoff once bootstrap is synchronized; missing or stale CSRF is now repaired by the shared authenticated-write preflight instead of an eager login-time refresh
   - if the follow-up Rust bootstrap refresh is challenged by Cloudflare again, it clears the partial native session and keeps the WebView login flow open so the user can finish the challenge and sync again
   - clears host-side LinuxDo auth cookies after a successful explicit logout while preserving `cf_clearance`
 - `FireCfClearanceRefreshService.swift`
@@ -78,7 +78,7 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
 - `App/FireAppViewModel.swift`
   - presents the login browser immediately, then runs a lightweight best-effort network warm-up in the background
   - still tries to move the first system-level network prompt, when one appears on-device, out of the in-page login interaction itself, without blocking WebView presentation
-  - restores the persisted session cache, replays Keychain cookies through Rust on cold start, repairs incomplete authenticated session identity, refreshes CSRF when the restored cache is otherwise ready, and keeps the topic browser in sync with login state
+  - restores the persisted session cache, replays Keychain cookies through Rust on cold start, repairs incomplete authenticated session identity through bootstrap refresh when needed, and leaves CSRF repair to the shared authenticated-write preflight
   - holds the onboarding screen in a bootstrap state while cold-start auto-login runs, hiding login actions during restore and only revealing a loading indicator if that bootstrap takes longer than 500ms
   - now builds `FireSessionStore` lazily on a detached task so Rust/logging initialization does not block the first SwiftUI render on the main actor
   - mirrors authenticated LinuxDo cookies into native `HTTPCookieStorage` so inline media/image requests can reuse the restored session

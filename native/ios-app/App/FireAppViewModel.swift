@@ -358,7 +358,6 @@ final class FireAppViewModel: ObservableObject {
                 errorMessage = nil
                 await applySession(try await sessionStore.snapshot())
                 await applySession(try await sessionStore.refreshBootstrapIfNeeded())
-                await applySession(try await sessionStore.refreshCsrfTokenIfNeeded())
                 await refreshHomeFeedIfPossible(force: false)
             } catch {
                 if await handleRecoverableSessionErrorIfNeeded(error) {

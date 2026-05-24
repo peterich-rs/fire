@@ -24,6 +24,7 @@ APP_STORE_CONNECT_API_KEY_PATH="${APP_STORE_CONNECT_API_KEY_PATH:-${ASC_API_KEY_
 APP_STORE_CONNECT_API_KEY_ID="${APP_STORE_CONNECT_API_KEY_ID:-${ASC_API_KEY_ID:-}}"
 APP_STORE_CONNECT_API_ISSUER_ID="${APP_STORE_CONNECT_API_ISSUER_ID:-${ASC_API_KEY_ISSUER_ID:-}}"
 FIRE_UNIFFI_PLATFORM_NAME="${FIRE_UNIFFI_PLATFORM_NAME:-iphoneos}"
+ARCHIVE_CODE_SIGN_IDENTITY="${FIRE_CODE_SIGN_IDENTITY:-${CODE_SIGN_IDENTITY:-${EXPORT_SIGNING_CERTIFICATE:-}}}"
 
 is_truthy() {
   case "${1:-}" in
@@ -123,6 +124,9 @@ if [[ -n "${FIRE_CODE_SIGN_STYLE:-}" ]]; then
 fi
 if [[ -n "${FIRE_PROVISIONING_PROFILE_SPECIFIER:-}" ]]; then
   build_setting_args+=(FIRE_PROVISIONING_PROFILE_SPECIFIER="$FIRE_PROVISIONING_PROFILE_SPECIFIER")
+fi
+if [[ -n "$ARCHIVE_CODE_SIGN_IDENTITY" ]]; then
+  build_setting_args+=(CODE_SIGN_IDENTITY="$ARCHIVE_CODE_SIGN_IDENTITY")
 fi
 
 declare -a archive_args=(xcodebuild)
@@ -258,6 +262,7 @@ cat >"$METADATA_PATH" <<EOF
   "marketing_version": "${FIRE_MARKETING_VERSION:-}",
   "build_number": "${FIRE_BUILD_NUMBER:-}",
   "uniffi_platform_name": "$FIRE_UNIFFI_PLATFORM_NAME",
+  "archive_code_sign_identity": "$ARCHIVE_CODE_SIGN_IDENTITY",
   "archive_path": "$ARCHIVE_PATH",
   "derived_data_path": "$DERIVED_DATA_PATH",
   "code_signing_allowed": "$CODE_SIGNING_ALLOWED",

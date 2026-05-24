@@ -57,6 +57,7 @@ These optional repository variables tune the signed export:
 - `IOS_CODE_SIGN_STYLE`
 - `IOS_PROVISIONING_PROFILE_SPECIFIER`
 - `IOS_EXPORT_SIGNING_CERTIFICATE`
+- `IOS_CODE_SIGN_IDENTITY`, when the archive signing identity must differ from `IOS_EXPORT_SIGNING_CERTIFICATE`
 
 No `.p8`, `.p12`, `.mobileprovision`, or local `Fire-Local-*.xcconfig` file should be committed.
 
@@ -80,6 +81,10 @@ The metadata file records the git SHA, version, build number, archive path, expo
 After that preparation succeeds, the script exports `FIRE_SKIP_UNIFFI_BINDGEN=1` for the Xcode archive step so the target build phase reuses the already prepared bindings and static library instead of doing the same work again.
 
 Use `FIRE_UNIFFI_PLATFORM_NAME=<platform>` only when archiving a non-default platform. Use `FIRE_SKIP_UNIFFI_PREPARE=1` only when another CI step has already populated `native/ios-app/Generated/FireUniFfi` and `native/ios-app/Generated/lib/<platform>/libfire_uniffi.a` before `archive_release.sh` starts.
+
+## Manual distribution signing
+
+When `IOS_CODE_SIGN_STYLE=Manual`, the archive step must use a distribution signing identity, not Xcode's default iOS development identity. The TestFlight workflow maps `IOS_EXPORT_SIGNING_CERTIFICATE` into `FIRE_CODE_SIGN_IDENTITY` for archive signing, so `IOS_EXPORT_SIGNING_CERTIFICATE=Apple Distribution` signs both the archive and exported `.ipa` with the imported distribution certificate.
 
 ## Local TestFlight rehearsal
 

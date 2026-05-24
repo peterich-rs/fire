@@ -93,18 +93,12 @@
         android:textColor="@android:color/holo_red_dark"
         android:visibility="gone" />
 
-    <ScrollView
-        android:id="@+id/postsScrollView"
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/postsRecyclerView"
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_weight="1">
-
-        <LinearLayout
-            android:id="@+id/postsContainer"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:paddingTop="16dp"
-            android:paddingBottom="24dp" />
-    </ScrollView>
+        android:layout_weight="1"
+        android:clipToPadding="false"
+        android:paddingTop="16dp"
+        android:paddingBottom="24dp" />
 </LinearLayout>

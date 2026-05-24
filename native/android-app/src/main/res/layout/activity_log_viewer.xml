@@ -1,42 +1,44 @@
 <?xml version="1.0" encoding="utf-8"?>
-<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
-    android:layout_height="match_parent">
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="24dp">
 
-    <LinearLayout
+    <Button
+        android:id="@+id/refreshLogButton"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:padding="24dp">
+        android:text="@string/action_refresh" />
 
-        <Button
-            android:id="@+id/refreshLogButton"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="@string/action_refresh" />
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/logFileRecyclerView"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_marginTop="16dp"
+        android:layout_weight="0.35"
+        android:clipToPadding="false" />
 
-        <LinearLayout
-            android:id="@+id/logFileListContainer"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:orientation="vertical" />
+    <TextView
+        android:id="@+id/logMetaText"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        android:textAppearance="@style/TextAppearance.AppCompat.Caption"
+        android:textIsSelectable="true" />
 
-        <TextView
-            android:id="@+id/logMetaText"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:textAppearance="@style/TextAppearance.AppCompat.Caption"
-            android:textIsSelectable="true" />
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_marginTop="16dp"
+        android:layout_weight="0.65">
 
         <TextView
             android:id="@+id/logContentText"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
             android:fontFamily="monospace"
             android:textAppearance="@style/TextAppearance.AppCompat.Body1"
             android:textIsSelectable="true" />
-    </LinearLayout>
-</ScrollView>
+    </ScrollView>
+</LinearLayout>

@@ -10,12 +10,16 @@ import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
 import android.widget.Button
 import android.widget.EditText
+import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ProgressBar
-import android.widget.ScrollView
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
+import androidx.recyclerview.widget.DiffUtil
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.ListAdapter
+import androidx.recyclerview.widget.RecyclerView
 import com.fire.app.session.FireSessionStore
 import com.fire.app.session.FireSessionStoreRepository
 import kotlinx.coroutines.launch
@@ -39,15 +43,69 @@ class SearchActivity : AppCompatActivity() {
         USERS(SearchTypeFilterState.USER, R.string.search_filter_users),
     }
 
+    private data class SearchResultListItem(
+        val key: String,
+        val stableId: Long,
+        val contentSignature: String,
+        val buildView: () -> View,
+    )
+
+    private class SearchResultListAdapter :
+        ListAdapter<SearchResultListItem, SearchResultListAdapter.DynamicViewHolder>(DiffCallback) {
+
+        init {
+            setHasStableIds(true)
+        }
+
+        override fun getItemId(position: Int): Long = getItem(position).stableId
+
+        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): DynamicViewHolder {
+            return DynamicViewHolder(FrameLayout(parent.context))
+        }
+
+        override fun onBindViewHolder(holder: DynamicViewHolder, position: Int) {
+            holder.bind(getItem(position).buildView())
+        }
+
+        class DynamicViewHolder(private val container: FrameLayout) : RecyclerView.ViewHolder(container) {
+            fun bind(view: View) {
+                container.removeAllViews()
+                if (view.parent != null) {
+                    (view.parent as? ViewGroup)?.removeView(view)
+                }
+                container.addView(
+                    view,
+                    FrameLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ),
+                )
+            }
+        }
+
+        private object DiffCallback : DiffUtil.ItemCallback<SearchResultListItem>() {
+            override fun areItemsTheSame(
+                oldItem: SearchResultListItem,
+                newItem: SearchResultListItem,
+            ): Boolean = oldItem.key == newItem.key
+
+            override fun areContentsTheSame(
+                oldItem: SearchResultListItem,
+                newItem: SearchResultListItem,
+            ): Boolean = oldItem.contentSignature == newItem.contentSignature
+        }
+    }
+
     private lateinit var sessionStore: FireSessionStore
     private lateinit var queryEditText: EditText
     private lateinit var metaText: TextView
     private lateinit var errorText: TextView
     private lateinit var loadingIndicator: ProgressBar
-    private lateinit var contentContainer: LinearLayout
+    private lateinit var resultList: RecyclerView
     private lateinit var searchButton: Button
     private lateinit var loadMoreButton: Button
     private lateinit var filterButtons: Map<Filter, Button>
+    private val resultListAdapter = SearchResultListAdapter()
 
     private var selectedFilter = Filter.ALL
     private var currentQuery = ""
@@ -192,21 +250,21 @@ class SearchActivity : AppCompatActivity() {
             }
             addView(errorText)
 
-            addView(
-                ScrollView(context).apply {
-                    layoutParams = LinearLayout.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT,
-                        0,
-                        1f,
-                    )
-
-                    contentContainer = LinearLayout(context).apply {
-                        orientation = LinearLayout.VERTICAL
-                        setPadding(dp(16), dp(12), dp(16), dp(16))
-                    }
-                    addView(contentContainer)
-                },
-            )
+            resultList = RecyclerView(context).apply {
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    0,
+                    1f,
+                )
+                clipToPadding = false
+                setPadding(dp(16), dp(12), dp(16), dp(16))
+                layoutManager = LinearLayoutManager(this@SearchActivity)
+                adapter = resultListAdapter
+                itemAnimator = null
+                setItemViewCacheSize(8)
+                recycledViewPool.setMaxRecycledViews(0, 18)
+            }
+            addView(resultList)
 
             loadMoreButton = Button(context).apply {
                 isAllCaps = false
@@ -331,38 +389,86 @@ class SearchActivity : AppCompatActivity() {
     private fun renderResults() {
         renderMeta()
         renderFilters()
-        contentContainer.removeAllViews()
+        resultListAdapter.submitList(searchResultItems())
+        renderLoadMore()
+    }
 
+    private fun searchResultItems(): List<SearchResultListItem> {
         if (currentQuery.isBlank()) {
-            contentContainer.addView(sectionBodyText(getString(R.string.search_enter_query)))
-            renderLoadMore()
-            return
+            return listOf(
+                searchResultItem("empty-query", getString(R.string.search_enter_query)) {
+                    sectionBodyText(getString(R.string.search_enter_query))
+                },
+            )
         }
         if (topics.isEmpty() && posts.isEmpty() && users.isEmpty()) {
-            contentContainer.addView(sectionBodyText(getString(R.string.search_empty)))
-            renderLoadMore()
-            return
+            return listOf(
+                searchResultItem("empty-results", getString(R.string.search_empty)) {
+                    sectionBodyText(getString(R.string.search_empty))
+                },
+            )
         }
 
+        val items = mutableListOf<SearchResultListItem>()
         if (topics.isNotEmpty()) {
-            contentContainer.addView(sectionTitle(getString(R.string.search_topics_section)))
+            items += sectionItem("section:topics", getString(R.string.search_topics_section))
             topics.forEach { topic ->
-                contentContainer.addView(topicRow(topic))
+                items += searchResultItem(
+                    key = "topic:${topic.id}",
+                    contentSignature = topic.toString(),
+                ) {
+                    topicRow(topic)
+                }
             }
         }
         if (posts.isNotEmpty()) {
-            contentContainer.addView(sectionTitle(getString(R.string.search_posts_section)))
+            items += sectionItem("section:posts", getString(R.string.search_posts_section))
             posts.forEach { post ->
-                contentContainer.addView(postRow(post))
+                items += searchResultItem(
+                    key = "post:${post.id}",
+                    contentSignature = post.toString(),
+                ) {
+                    postRow(post)
+                }
             }
         }
         if (users.isNotEmpty()) {
-            contentContainer.addView(sectionTitle(getString(R.string.search_users_section)))
+            items += sectionItem("section:users", getString(R.string.search_users_section))
             users.forEach { user ->
-                contentContainer.addView(userRow(user))
+                items += searchResultItem(
+                    key = "user:${user.id}",
+                    contentSignature = user.toString(),
+                ) {
+                    userRow(user)
+                }
             }
         }
-        renderLoadMore()
+        return items
+    }
+
+    private fun sectionItem(key: String, title: String): SearchResultListItem {
+        return searchResultItem(key, title) {
+            sectionTitle(title)
+        }
+    }
+
+    private fun searchResultItem(
+        key: String,
+        contentSignature: String,
+        buildView: () -> View,
+    ): SearchResultListItem {
+        return SearchResultListItem(
+            key = key,
+            stableId = stableIdFor(key),
+            contentSignature = contentSignature,
+            buildView = buildView,
+        )
+    }
+
+    private fun stableIdFor(key: String): Long {
+        return key.fold(1125899906842597L) { hash, character ->
+            (hash * 31) + character.code
+        }
     }
 
     private fun renderMeta() {

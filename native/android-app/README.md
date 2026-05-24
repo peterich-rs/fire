@@ -32,26 +32,31 @@ Current host-side app wiring lives under `src/main/java/com/fire/app/` plus `src
 - `MainActivity.kt`
   - restores the persisted session snapshot on launch and after login
   - renders a paginated topic browser with feed filters, private-message inbox/sent filters, bookmarks, read history, category-aware Rust-owned topic rows, and a focused selected-topic summary
+  - drives that browser screen as one `RecyclerView` + `ListAdapter` + `DiffUtil` surface so session status, filter chips, topic rows, load-more state, and selected-topic summary update through adapter snapshots instead of `ScrollView`/`LinearLayout` rebuilds
   - opens a native new-topic composer from the feed shell, validates the shared title/body/category/tag constraints, submits through shared Rust `createTopic`, then opens the created topic detail
   - exposes a category notification picker from the feed shell, using bootstrap `site.categories[].notificationLevel` for the current value and shared Rust `setCategoryNotificationLevel` for Muted / Regular / Tracking / Watching / Watching First Post updates
   - opens topic detail in a dedicated screen instead of fetching and rendering it inline in the feed host
 - `DiagnosticsActivity.kt`, `LogViewerActivity.kt`, `RequestTraceDetailActivity.kt`
   - surface a native diagnostics entry point
   - list readable/shared log files from the Rust workspace
+  - render request traces and log files through adapter-backed `RecyclerView` lists so diagnostic browsing stays diffable and low-churn
   - render a reverse-chronological request trace overview and per-request execution-chain/detail pages
 - `NotificationsActivity.kt`
   - opens a native notification center from the host shell
   - renders Rust-backed unread/high-priority counters plus a paginated full notification list
+  - drives the notification rows through a `RecyclerView` + `ListAdapter` + `DiffUtil` list so single-read and mark-all-read updates rebind only the changed rows
   - marks single notifications or the full list read through shared Rust APIs
   - opens native topic detail at the notification post number when `topicId` is present, otherwise falls back to the actor profile when a username is available
 - `SearchActivity.kt`
   - opens a native LinuxDo search surface from the host shell
   - calls the shared Rust `search` API with All / Topics / Posts / Users filters
   - renders topic, post, and user result groups with load-more paging when the backend reports more results
+  - drives the grouped search results through `RecyclerView` + `ListAdapter` + `DiffUtil` so topic/post/user sections and paged rows update through adapter snapshots
   - opens topic results in native topic detail, post results at their floor, and user results in native profile
 - `TopicDetailActivity.kt`
   - loads topic detail on demand from the shared Rust API
   - renders the original post plus Rust-generated flat thread posts in a dedicated native screen
+  - drives that screen with `RecyclerView` + `ListAdapter` + `DiffUtil` so topic-level edits, AI summary inserts, and post floor scroll targets can update the visible list without tearing down the whole hierarchy
   - loads optional Rust-backed topic AI summaries before the post list when the detail payload advertises `summarizable`, `hasCachedSummary`, or `hasSummary`; empty summaries remove the placeholder and failures stay scoped to a retryable summary card
   - opens public profiles from post author names and reply-context rows
   - opens native reply-context dialogs that prioritize Rust-backed recursive reply IDs, batch those IDs through `fetchTopicPosts`, and fall back to `fetchPostReplies` only when the reply-ID tree is empty
@@ -103,13 +108,15 @@ Current browser note:
 - The Android shell now loads the real Rust session/topic APIs through generated Kotlin UniFFI bindings.
 - Network-backed UniFFI APIs now surface to Kotlin as native `suspend fun` calls instead of a synchronous wrapper.
 - The UniFFI boundary now returns all exported host interactions through `FireUniFfiError`; if Rust panics, the boundary logs the panic, returns an `Internal` error, and poisons the current `FireAppCore` so the host can recreate it instead of continuing on corrupted state.
-- `MainActivity` still renders a compact browser shell, but the data path is no longer stubbed.
-- The current browser shell now supports `Load More` pagination, category metadata derived from the shared Rust bootstrap snapshot, and Rust-owned row/status presentation data instead of rebuilding those labels on Android.
+- `MainActivity` renders the compact browser shell through an adapter-backed `RecyclerView`; the data path is no longer stubbed.
+- The current browser shell now supports `Load More` pagination, category metadata derived from the shared Rust bootstrap snapshot, and Rust-owned row/status presentation data in diffable adapter rows instead of rebuilding a vertical container on Android.
 - The browser filter bar now exposes Rust-backed private-message inbox and sent-message lists; rows show Discourse participants when the response provides them and open the same native topic detail screen as normal topic lists.
 - The browser filter bar now also exposes Rust-backed bookmarks and read history. Bookmark rows show bookmark post/name/reminder metadata and open topic detail at `bookmarkedPostNumber` when available; read-history rows open at `lastReadPostNumber`.
 - The main browser shell now exposes category notification-level updates through shared Rust notification bindings and refreshes bootstrap after each accepted change so category `notificationLevel` returns to the server-owned value.
 - The host shell now opens a Rust-backed native notification center with paginated notifications, unread/high-priority counters, single/all mark-read actions, and topic/profile navigation.
+- The host shell now renders the notification list through an adapter-backed `RecyclerView`, so single-read and mark-all-read updates can stay local to changed rows.
 - The host shell now opens a Rust-backed native search screen with result-type filters, paginated result loading, and native navigation from search results into topics, posts, and profiles.
+- The host shell now renders grouped search results through an adapter-backed `RecyclerView` instead of a manual `ScrollView` result container.
 - Topic detail now opens in a dedicated activity instead of being embedded under the feed list.
 - Generated Kotlin topic bindings expose `createTopic(TopicCreateRequestState)` from the shared Rust creation path; Android main now uses it for a native new-topic composer with bootstrap-driven minimum title/body length, default category, category permission, required-tag, and allowed-tag validation.
 - Generated Kotlin topic bindings expose `fetchTopicAiSummary(topicId, skipAgeCheck)` from the shared Rust Discourse AI summary path; Android topic detail renders the returned `TopicAiSummaryState` as a native summary card without blocking the main detail body.

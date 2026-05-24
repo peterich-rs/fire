@@ -7,13 +7,17 @@ import android.os.Bundle
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
+import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ProgressBar
-import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
+import androidx.recyclerview.widget.DiffUtil
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.ListAdapter
+import androidx.recyclerview.widget.RecyclerView
 import com.fire.app.session.FireSessionStore
 import com.fire.app.session.FireSessionStoreRepository
 import kotlinx.coroutines.launch
@@ -23,15 +27,69 @@ import uniffi.fire_uniffi_notifications.NotificationItemState
 import uniffi.fire_uniffi_notifications.NotificationListState
 
 class NotificationsActivity : AppCompatActivity() {
+    private data class NotificationListItem(
+        val key: String,
+        val stableId: Long,
+        val contentSignature: String,
+        val buildView: () -> View,
+    )
+
+    private class NotificationListAdapter :
+        ListAdapter<NotificationListItem, NotificationListAdapter.DynamicViewHolder>(DiffCallback) {
+
+        init {
+            setHasStableIds(true)
+        }
+
+        override fun getItemId(position: Int): Long = getItem(position).stableId
+
+        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): DynamicViewHolder {
+            return DynamicViewHolder(FrameLayout(parent.context))
+        }
+
+        override fun onBindViewHolder(holder: DynamicViewHolder, position: Int) {
+            holder.bind(getItem(position).buildView())
+        }
+
+        class DynamicViewHolder(private val container: FrameLayout) : RecyclerView.ViewHolder(container) {
+            fun bind(view: View) {
+                container.removeAllViews()
+                if (view.parent != null) {
+                    (view.parent as? ViewGroup)?.removeView(view)
+                }
+                container.addView(
+                    view,
+                    FrameLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ),
+                )
+            }
+        }
+
+        private object DiffCallback : DiffUtil.ItemCallback<NotificationListItem>() {
+            override fun areItemsTheSame(
+                oldItem: NotificationListItem,
+                newItem: NotificationListItem,
+            ): Boolean = oldItem.key == newItem.key
+
+            override fun areContentsTheSame(
+                oldItem: NotificationListItem,
+                newItem: NotificationListItem,
+            ): Boolean = oldItem.contentSignature == newItem.contentSignature
+        }
+    }
+
     private lateinit var sessionStore: FireSessionStore
     private lateinit var loadingIndicator: ProgressBar
     private lateinit var titleText: TextView
     private lateinit var metaText: TextView
     private lateinit var errorText: TextView
-    private lateinit var contentContainer: LinearLayout
+    private lateinit var notificationList: RecyclerView
     private lateinit var refreshButton: Button
     private lateinit var markAllReadButton: Button
     private lateinit var loadMoreButton: Button
+    private val notificationListAdapter = NotificationListAdapter()
 
     private val notifications = mutableListOf<NotificationItemState>()
     private var nextOffset: UInt? = null
@@ -43,6 +101,7 @@ class NotificationsActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         sessionStore = FireSessionStoreRepository.get(applicationContext)
         setContentView(buildContentView())
+        renderNotifications(emptyMessage = getString(R.string.notifications_loading))
         loadNotifications(reset = true)
     }
 
@@ -150,21 +209,21 @@ class NotificationsActivity : AppCompatActivity() {
                 },
             )
 
-            addView(
-                ScrollView(context).apply {
-                    layoutParams = LinearLayout.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT,
-                        0,
-                        1f,
-                    )
-
-                    contentContainer = LinearLayout(context).apply {
-                        orientation = LinearLayout.VERTICAL
-                        setPadding(dp(16), dp(12), dp(16), dp(24))
-                    }
-                    addView(contentContainer)
-                },
-            )
+            notificationList = RecyclerView(context).apply {
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    0,
+                    1f,
+                )
+                clipToPadding = false
+                setPadding(dp(16), dp(12), dp(16), dp(24))
+                layoutManager = LinearLayoutManager(this@NotificationsActivity)
+                adapter = notificationListAdapter
+                itemAnimator = null
+                setItemViewCacheSize(8)
+                recycledViewPool.setMaxRecycledViews(0, 18)
+            }
+            addView(notificationList)
         }
     }
 
@@ -191,8 +250,7 @@ class NotificationsActivity : AppCompatActivity() {
                 errorText.text = error.localizedMessage ?: getString(R.string.notifications_error)
                 errorText.visibility = View.VISIBLE
                 if (notifications.isEmpty()) {
-                    contentContainer.removeAllViews()
-                    contentContainer.addView(sectionBodyText(getString(R.string.notifications_error)))
+                    renderNotifications(emptyMessage = getString(R.string.notifications_error))
                 }
             } finally {
                 setLoading(false)
@@ -215,18 +273,54 @@ class NotificationsActivity : AppCompatActivity() {
         nextOffset = page.nextOffset
     }
 
-    private fun renderNotifications() {
+    private fun renderNotifications(emptyMessage: String? = null) {
         titleText.text = getString(R.string.notifications_title)
         renderControls()
+        notificationListAdapter.submitList(notificationListItems(emptyMessage))
+    }
 
-        contentContainer.removeAllViews()
+    private fun notificationListItems(emptyMessage: String?): List<NotificationListItem> {
         if (notifications.isEmpty()) {
-            contentContainer.addView(sectionBodyText(getString(R.string.notifications_empty)))
-            return
+            val message = emptyMessage ?: getString(R.string.notifications_empty)
+            return listOf(
+                notificationListItem(
+                    key = "empty",
+                    stableId = -1L,
+                    contentSignature = message,
+                ) {
+                    sectionBodyText(message)
+                },
+            )
         }
 
-        notifications.forEach { notification ->
-            contentContainer.addView(notificationRow(notification))
+        return notifications.map { notification ->
+            notificationListItem(
+                key = "notification:${notification.id}",
+                stableId = notificationStableId(notification.id),
+                contentSignature = notification.toString(),
+            ) {
+                notificationRow(notification)
+            }
+        }
+    }
+
+    private fun notificationListItem(
+        key: String,
+        stableId: Long,
+        contentSignature: String,
+        buildView: () -> View,
+    ): NotificationListItem {
+        return NotificationListItem(
+            key = key,
+            stableId = stableId,
+            contentSignature = contentSignature,
+            buildView = buildView,
+        )
+    }
+
+    private fun notificationStableId(id: ULong): Long {
+        return id.toString().fold(1125899906842597L) { hash, character ->
+            (hash * 31) + character.code
         }
     }
 

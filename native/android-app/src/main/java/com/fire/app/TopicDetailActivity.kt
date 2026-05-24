@@ -3,7 +3,6 @@ package com.fire.app
 import android.content.Context
 import android.content.Intent
 import android.graphics.Color
-import android.graphics.Rect
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
@@ -12,12 +11,17 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.EditText
+import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
+import androidx.recyclerview.widget.DiffUtil
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.ListAdapter
+import androidx.recyclerview.widget.RecyclerView
 import com.fire.app.databinding.ActivityTopicDetailBinding
 import com.fire.app.session.FireSessionStore
 import com.fire.app.session.FireSessionStoreRepository
@@ -91,6 +95,70 @@ class TopicDetailActivity : AppCompatActivity() {
         val isOriginalPost: Boolean,
     )
 
+    private sealed class TopicAiSummaryRenderState {
+        data object Hidden : TopicAiSummaryRenderState()
+        data object Loading : TopicAiSummaryRenderState()
+        data class Loaded(val summary: TopicAiSummaryState) : TopicAiSummaryRenderState()
+        data class Error(
+            val message: String,
+            val detail: TopicDetailState,
+            val renderGeneration: Int,
+        ) : TopicAiSummaryRenderState()
+    }
+
+    private data class TopicDetailListItem(
+        val key: String,
+        val stableId: Long,
+        val contentSignature: String,
+        val buildView: () -> View,
+    )
+
+    private class TopicDetailListAdapter :
+        ListAdapter<TopicDetailListItem, TopicDetailListAdapter.DynamicViewHolder>(DiffCallback) {
+
+        init {
+            setHasStableIds(true)
+        }
+
+        override fun getItemId(position: Int): Long = getItem(position).stableId
+
+        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): DynamicViewHolder {
+            return DynamicViewHolder(FrameLayout(parent.context))
+        }
+
+        override fun onBindViewHolder(holder: DynamicViewHolder, position: Int) {
+            holder.bind(getItem(position).buildView())
+        }
+
+        class DynamicViewHolder(private val container: FrameLayout) : RecyclerView.ViewHolder(container) {
+            fun bind(view: View) {
+                container.removeAllViews()
+                if (view.parent != null) {
+                    (view.parent as? ViewGroup)?.removeView(view)
+                }
+                container.addView(
+                    view,
+                    FrameLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ),
+                )
+            }
+        }
+
+        private object DiffCallback : DiffUtil.ItemCallback<TopicDetailListItem>() {
+            override fun areItemsTheSame(
+                oldItem: TopicDetailListItem,
+                newItem: TopicDetailListItem,
+            ): Boolean = oldItem.key == newItem.key
+
+            override fun areContentsTheSame(
+                oldItem: TopicDetailListItem,
+                newItem: TopicDetailListItem,
+            ): Boolean = oldItem.contentSignature == newItem.contentSignature
+        }
+    }
+
     private lateinit var binding: ActivityTopicDetailBinding
     private lateinit var sessionStore: FireSessionStore
 
@@ -105,13 +173,22 @@ class TopicDetailActivity : AppCompatActivity() {
     private var canWriteAuthenticatedApi: Boolean = false
     private var currentDetail: TopicDetailState? = null
     private var detailRenderGeneration: Int = 0
-    private var topicAiSummaryView: View? = null
-    private val postViewsByNumber: MutableMap<UInt, View> = mutableMapOf()
+    private var topicAiSummaryState: TopicAiSummaryRenderState = TopicAiSummaryRenderState.Hidden
+    private val topicDetailAdapter = TopicDetailListAdapter()
+    private val postAdapterPositionsByNumber: MutableMap<UInt, Int> = mutableMapOf()
+    private var pendingScrollPostNumber: UInt? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityTopicDetailBinding.inflate(layoutInflater)
         setContentView(binding.root)
+        binding.postsRecyclerView.apply {
+            layoutManager = LinearLayoutManager(this@TopicDetailActivity)
+            adapter = topicDetailAdapter
+            itemAnimator = null
+            setItemViewCacheSize(8)
+            recycledViewPool.setMaxRecycledViews(0, 18)
+        }
 
         topicId = intent.getLongExtra(EXTRA_TOPIC_ID, -1L).takeIf { it > 0 }?.toULong() ?: 0uL
         topicTitle = intent.getStringExtra(EXTRA_TOPIC_TITLE).orEmpty()
@@ -163,7 +240,7 @@ class TopicDetailActivity : AppCompatActivity() {
                 binding.topicNotificationButton.isEnabled = false
                 binding.topicBookmarkButton.isEnabled = false
                 binding.pageMetaText.text = getString(R.string.topic_detail_error)
-                binding.postsContainer.removeAllViews()
+                submitTopicDetailListItems(emptyList())
                 binding.errorText.text = error.localizedMessage ?: getString(R.string.topic_detail_error)
                 binding.errorText.visibility = View.VISIBLE
             } finally {
@@ -197,11 +274,14 @@ class TopicDetailActivity : AppCompatActivity() {
     private fun renderDetail(detail: TopicDetailState) {
         currentDetail = detail
         val renderGeneration = ++detailRenderGeneration
-        topicAiSummaryView = null
+        topicAiSummaryState = if (showsTopicAiSummary(detail)) {
+            TopicAiSummaryRenderState.Loading
+        } else {
+            TopicAiSummaryRenderState.Hidden
+        }
         updateTopicEditButton(detail)
         updateTopicBookmarkButton(detail)
         updateTopicNotificationButton(detail)
-        val timelineRows = buildTimelineRows(detail)
         val tagNames = TopicPresentation.tagNames(detail.tags)
         binding.pageTitleText.text = detail.title
         binding.pageMetaText.text = buildList {
@@ -219,68 +299,213 @@ class TopicDetailActivity : AppCompatActivity() {
             }
         }.joinToString(" · ")
 
-        binding.postsContainer.removeAllViews()
-        postViewsByNumber.clear()
-        if (showsTopicVote(detail)) {
-            binding.postsContainer.addView(topicVotePanelView(detail))
-        }
-        if (showsTopicAiSummary(detail)) {
-            val loadingView = topicAiSummaryLoadingView()
-            topicAiSummaryView = loadingView
-            binding.postsContainer.addView(loadingView)
+        submitTopicDetailList(detail)
+        if (topicAiSummaryState is TopicAiSummaryRenderState.Loading) {
             loadAndRenderTopicAiSummary(detail, renderGeneration)
         }
+    }
+
+    private fun submitTopicDetailList() {
+        submitTopicDetailList(currentDetail)
+    }
+
+    private fun submitTopicDetailList(detail: TopicDetailState?) {
+        if (detail == null) {
+            submitTopicDetailListItems(emptyList())
+            return
+        }
+
+        val timelineRows = buildTimelineRows(detail)
+        val items = mutableListOf<TopicDetailListItem>()
+        postAdapterPositionsByNumber.clear()
+
+        if (showsTopicVote(detail)) {
+            items += listItem(
+                key = "topic-vote:${detail.id}",
+                stableId = -101L,
+                contentSignature = listOf(
+                    detail.id,
+                    detail.voteCount,
+                    detail.userVoted,
+                    detail.canVote,
+                    canWriteAuthenticatedApi,
+                ).joinToString("|"),
+            ) {
+                topicVotePanelView(detail)
+            }
+        }
+
+        topicAiSummaryListItem()?.let { items += it }
+
         if (timelineRows.isEmpty()) {
-            binding.postsContainer.addView(sectionBodyText(getString(R.string.topic_detail_empty_posts)))
+            items += listItem(
+                key = "empty-posts:${detail.id}",
+                stableId = -102L,
+                contentSignature = getString(R.string.topic_detail_empty_posts),
+            ) {
+                sectionBodyText(getString(R.string.topic_detail_empty_posts))
+            }
+            submitTopicDetailListItems(items)
             return
         }
 
         timelineRows.firstOrNull { it.isOriginalPost }?.post?.let { originalPost ->
-            binding.postsContainer.addView(
-                sectionCard(
-                    title = getString(R.string.topic_detail_original_post),
-                    subtitle = null,
-                    accentColor = sectionAccentColor(),
-                ) {
-                    addView(
-                        postCardView(
-                            post = originalPost,
-                            roleLabel = getString(R.string.topic_detail_original_post_badge),
-                            depth = 0,
-                            emphasized = true,
-                        ),
-                    )
-                },
+            items += sectionHeaderListItem(
+                key = "section:original:${detail.id}",
+                stableId = -103L,
+                title = getString(R.string.topic_detail_original_post),
+                subtitle = null,
+                accentColor = sectionAccentColor(),
+            )
+            items += postListItem(
+                post = originalPost,
+                roleLabel = getString(R.string.topic_detail_original_post_badge),
+                depth = 0,
+                emphasized = true,
+                replyTargetPostNumber = null,
+                adapterPosition = items.size,
             )
         }
 
         val replyPosts = timelineRows.filterNot { it.isOriginalPost }
         if (replyPosts.isEmpty()) {
-            binding.postsContainer.addView(
-                sectionBodyText(getString(R.string.topic_detail_no_replies)),
-            )
+            items += listItem(
+                key = "empty-replies:${detail.id}",
+                stableId = -104L,
+                contentSignature = getString(R.string.topic_detail_no_replies),
+            ) {
+                sectionBodyText(getString(R.string.topic_detail_no_replies))
+            }
+            submitTopicDetailListItems(items)
             return
         }
 
-        binding.postsContainer.addView(
-            sectionCard(
-                title = getString(R.string.topic_detail_replies_section),
-                subtitle = getString(R.string.topic_detail_replies_count, replyPosts.size.toString()),
-                accentColor = sectionAccentColor(alpha = 0x66),
+        items += sectionHeaderListItem(
+            key = "section:replies:${detail.id}",
+            stableId = -105L,
+            title = getString(R.string.topic_detail_replies_section),
+            subtitle = getString(R.string.topic_detail_replies_count, replyPosts.size.toString()),
+            accentColor = sectionAccentColor(alpha = 0x66),
+        )
+        replyPosts.forEach { row ->
+            items += postListItem(
+                post = row.post,
+                roleLabel = replyContextLabel(row.post, row.parentPostNumber)
+                    ?: getString(R.string.topic_detail_reply_to_topic),
+                depth = row.depth,
+                emphasized = row.depth == 0,
+                replyTargetPostNumber = row.parentPostNumber,
+                adapterPosition = items.size,
+            )
+        }
+
+        submitTopicDetailListItems(items)
+    }
+
+    private fun submitTopicDetailListItems(items: List<TopicDetailListItem>) {
+        if (items.isEmpty()) {
+            postAdapterPositionsByNumber.clear()
+        }
+        topicDetailAdapter.submitList(items) {
+            drainPendingPostScroll()
+        }
+    }
+
+    private fun topicAiSummaryListItem(): TopicDetailListItem? {
+        return when (val state = topicAiSummaryState) {
+            TopicAiSummaryRenderState.Hidden -> null
+            TopicAiSummaryRenderState.Loading -> listItem(
+                key = "topic-ai-summary",
+                stableId = -106L,
+                contentSignature = "loading",
             ) {
-                replyPosts.forEach { row ->
-                    addView(
-                        postCardView(
-                            post = row.post,
-                            roleLabel = replyContextLabel(row.post, row.parentPostNumber)
-                                ?: getString(R.string.topic_detail_reply_to_topic),
-                            depth = row.depth,
-                            emphasized = row.depth == 0,
-                            replyTargetPostNumber = row.parentPostNumber,
-                        ),
-                    )
-                }
-            },
+                topicAiSummaryLoadingView()
+            }
+            is TopicAiSummaryRenderState.Loaded -> listItem(
+                key = "topic-ai-summary",
+                stableId = -106L,
+                contentSignature = "loaded:${state.summary}",
+            ) {
+                topicAiSummaryCardView(state.summary)
+            }
+            is TopicAiSummaryRenderState.Error -> listItem(
+                key = "topic-ai-summary",
+                stableId = -106L,
+                contentSignature = "error:${state.message}:${state.renderGeneration}",
+            ) {
+                topicAiSummaryErrorView(
+                    message = state.message,
+                    detail = state.detail,
+                    renderGeneration = state.renderGeneration,
+                )
+            }
+        }
+    }
+
+    private fun sectionHeaderListItem(
+        key: String,
+        stableId: Long,
+        title: String,
+        subtitle: String?,
+        accentColor: Int,
+    ): TopicDetailListItem {
+        return listItem(
+            key = key,
+            stableId = stableId,
+            contentSignature = listOf(title, subtitle, accentColor).joinToString("|"),
+        ) {
+            sectionCard(
+                title = title,
+                subtitle = subtitle,
+                accentColor = accentColor,
+            ) {}
+        }
+    }
+
+    private fun postListItem(
+        post: TopicPostState,
+        roleLabel: String?,
+        depth: Int,
+        emphasized: Boolean,
+        replyTargetPostNumber: UInt?,
+        adapterPosition: Int,
+    ): TopicDetailListItem {
+        postAdapterPositionsByNumber[post.postNumber] = adapterPosition
+        return listItem(
+            key = "post:${post.id}:${post.postNumber}",
+            stableId = post.id.toLong(),
+            contentSignature = listOf(
+                post.toString(),
+                roleLabel,
+                depth,
+                emphasized,
+                replyTargetPostNumber,
+                renderBaseUrl,
+                canWriteAuthenticatedApi,
+                enabledReactionIds.joinToString(","),
+            ).joinToString("|"),
+        ) {
+            postCardView(
+                post = post,
+                roleLabel = roleLabel,
+                depth = depth,
+                emphasized = emphasized,
+                replyTargetPostNumber = replyTargetPostNumber,
+            )
+        }
+    }
+
+    private fun listItem(
+        key: String,
+        stableId: Long,
+        contentSignature: String,
+        buildView: () -> View,
+    ): TopicDetailListItem {
+        return TopicDetailListItem(
+            key = key,
+            stableId = stableId,
+            contentSignature = contentSignature,
+            buildView = buildView,
         )
     }
 
@@ -299,33 +524,21 @@ class TopicDetailActivity : AppCompatActivity() {
 
             result.onSuccess { summary ->
                 val trimmedSummary = summary?.summarizedText?.trim().orEmpty()
-                if (summary == null || trimmedSummary.isEmpty()) {
-                    replaceTopicAiSummaryView(null)
+                topicAiSummaryState = if (summary == null || trimmedSummary.isEmpty()) {
+                    TopicAiSummaryRenderState.Hidden
                 } else {
-                    replaceTopicAiSummaryView(topicAiSummaryCardView(summary))
+                    TopicAiSummaryRenderState.Loaded(summary)
                 }
+                submitTopicDetailList()
             }.onFailure { error ->
-                replaceTopicAiSummaryView(
-                    topicAiSummaryErrorView(
-                        message = error.localizedMessage ?: getString(R.string.topic_detail_ai_summary_error),
-                        detail = detail,
-                        renderGeneration = renderGeneration,
-                    ),
+                topicAiSummaryState = TopicAiSummaryRenderState.Error(
+                    message = error.localizedMessage ?: getString(R.string.topic_detail_ai_summary_error),
+                    detail = detail,
+                    renderGeneration = renderGeneration,
                 )
+                submitTopicDetailList()
             }
         }
-    }
-
-    private fun replaceTopicAiSummaryView(nextView: View?) {
-        val previous = topicAiSummaryView
-        val previousIndex = previous?.let { binding.postsContainer.indexOfChild(it) } ?: -1
-        if (previousIndex >= 0) {
-            binding.postsContainer.removeViewAt(previousIndex)
-            if (nextView != null) {
-                binding.postsContainer.addView(nextView, previousIndex)
-            }
-        }
-        topicAiSummaryView = nextView
     }
 
     private fun topicAiSummaryLoadingView(): View {
@@ -357,8 +570,8 @@ class TopicDetailActivity : AppCompatActivity() {
                 Button(context).apply {
                     text = getString(R.string.topic_detail_ai_summary_retry)
                     setOnClickListener {
-                        val loadingView = topicAiSummaryLoadingView()
-                        replaceTopicAiSummaryView(loadingView)
+                        topicAiSummaryState = TopicAiSummaryRenderState.Loading
+                        submitTopicDetailList()
                         loadAndRenderTopicAiSummary(detail, renderGeneration)
                     }
                 },
@@ -519,7 +732,6 @@ class TopicDetailActivity : AppCompatActivity() {
                 topMargin = dp(12)
                 marginStart = dp(minOf(depth, 3) * 18)
             }
-            postViewsByNumber[post.postNumber] = this
 
             addView(
                 View(context).apply {
@@ -2025,7 +2237,7 @@ class TopicDetailActivity : AppCompatActivity() {
         if (postNumber == 0u) {
             return
         }
-        if (postViewsByNumber.containsKey(postNumber)) {
+        if (postAdapterPositionsByNumber.containsKey(postNumber)) {
             scrollToPostNumber(postNumber)
             return
         }
@@ -2041,13 +2253,19 @@ class TopicDetailActivity : AppCompatActivity() {
     }
 
     private fun scrollToPostNumber(postNumber: UInt) {
-        val target = postViewsByNumber[postNumber] ?: return
-        binding.postsScrollView.post {
-            val rect = Rect()
-            target.getDrawingRect(rect)
-            binding.postsScrollView.offsetDescendantRectToMyCoords(target, rect)
-            binding.postsScrollView.smoothScrollTo(0, maxOf(rect.top - dp(12), 0))
+        pendingScrollPostNumber = postNumber
+        drainPendingPostScroll()
+        binding.postsRecyclerView.post {
+            drainPendingPostScroll()
         }
+    }
+
+    private fun drainPendingPostScroll() {
+        val postNumber = pendingScrollPostNumber ?: return
+        val position = postAdapterPositionsByNumber[postNumber] ?: return
+        val layoutManager = binding.postsRecyclerView.layoutManager as? LinearLayoutManager ?: return
+        layoutManager.scrollToPositionWithOffset(position, dp(12))
+        pendingScrollPostNumber = null
     }
 
     private fun showReplyContext(post: TopicPostState) {

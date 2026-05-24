@@ -9,6 +9,8 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.EditText
+import android.widget.FrameLayout
+import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -17,6 +19,10 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
+import androidx.recyclerview.widget.DiffUtil
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.ListAdapter
+import androidx.recyclerview.widget.RecyclerView
 import com.fire.app.databinding.ActivityMainBinding
 import com.fire.app.session.FireSessionStore
 import com.fire.app.session.FireSessionStoreRepository
@@ -77,8 +83,62 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private data class BrowserScreenItem(
+        val key: String,
+        val stableId: Long,
+        val contentSignature: String,
+        val buildView: () -> View,
+    )
+
+    private class BrowserScreenAdapter :
+        ListAdapter<BrowserScreenItem, BrowserScreenAdapter.DynamicViewHolder>(DiffCallback) {
+
+        init {
+            setHasStableIds(true)
+        }
+
+        override fun getItemId(position: Int): Long = getItem(position).stableId
+
+        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): DynamicViewHolder {
+            return DynamicViewHolder(FrameLayout(parent.context))
+        }
+
+        override fun onBindViewHolder(holder: DynamicViewHolder, position: Int) {
+            holder.bind(getItem(position).buildView())
+        }
+
+        class DynamicViewHolder(private val container: FrameLayout) : RecyclerView.ViewHolder(container) {
+            fun bind(view: View) {
+                container.removeAllViews()
+                if (view.parent != null) {
+                    (view.parent as? ViewGroup)?.removeView(view)
+                }
+                container.addView(
+                    view,
+                    FrameLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ),
+                )
+            }
+        }
+
+        private object DiffCallback : DiffUtil.ItemCallback<BrowserScreenItem>() {
+            override fun areItemsTheSame(
+                oldItem: BrowserScreenItem,
+                newItem: BrowserScreenItem,
+            ): Boolean = oldItem.key == newItem.key
+
+            override fun areContentsTheSame(
+                oldItem: BrowserScreenItem,
+                newItem: BrowserScreenItem,
+            ): Boolean = oldItem.contentSignature == newItem.contentSignature
+        }
+    }
+
     private lateinit var binding: ActivityMainBinding
     private lateinit var sessionStore: FireSessionStore
+    private val browserScreenAdapter = BrowserScreenAdapter()
 
     private var currentListSource = BrowserListSource.FEED
     private var currentFeedKind = TopicListKindState.LATEST
@@ -105,43 +165,15 @@ class MainActivity : AppCompatActivity() {
         setContentView(binding.root)
 
         sessionStore = FireSessionStoreRepository.get(applicationContext)
+        binding.root.apply {
+            layoutManager = LinearLayoutManager(this@MainActivity)
+            adapter = browserScreenAdapter
+            itemAnimator = null
+            setItemViewCacheSize(10)
+            recycledViewPool.setMaxRecycledViews(0, 24)
+        }
 
-        binding.restoreButton.setOnClickListener { refreshSessionAndFeed() }
-        binding.openLoginButton.setOnClickListener {
-            loginLauncher.launch(Intent(this, LoginActivity::class.java))
-        }
-        binding.refreshBootstrapButton.setOnClickListener { refreshBootstrap() }
-        binding.logoutButton.setOnClickListener { logout() }
-        binding.openDiagnosticsButton.setOnClickListener {
-            startActivity(Intent(this, DiagnosticsActivity::class.java))
-        }
-        binding.openNotificationsButton.setOnClickListener {
-            startActivity(Intent(this, NotificationsActivity::class.java))
-        }
-        binding.openSearchButton.setOnClickListener {
-            startActivity(Intent(this, SearchActivity::class.java))
-        }
-        binding.createTopicButton.setOnClickListener { showCreateTopicComposer() }
-        binding.categoryNotificationButton.setOnClickListener { showCategoryNotificationPicker() }
-        binding.refreshFeedButton.setOnClickListener { reloadCurrentFeed() }
-        binding.loadMoreButton.setOnClickListener { loadMoreFeed() }
-        binding.copyLastErrorButton.setOnClickListener { copyLastError() }
-
-        binding.latestButton.setOnClickListener { loadFeed(TopicListKindState.LATEST) }
-        binding.newButton.setOnClickListener { loadFeed(TopicListKindState.NEW) }
-        binding.unreadButton.setOnClickListener { loadFeed(TopicListKindState.UNREAD) }
-        binding.unseenButton.setOnClickListener { loadFeed(TopicListKindState.UNSEEN) }
-        binding.hotButton.setOnClickListener { loadFeed(TopicListKindState.HOT) }
-        binding.topButton.setOnClickListener { loadFeed(TopicListKindState.TOP) }
-        binding.privateMessagesInboxButton.setOnClickListener {
-            loadFeed(TopicListKindState.PRIVATE_MESSAGES_INBOX)
-        }
-        binding.privateMessagesSentButton.setOnClickListener {
-            loadFeed(TopicListKindState.PRIVATE_MESSAGES_SENT)
-        }
-        binding.bookmarksButton.setOnClickListener { loadBookmarks() }
-        binding.readHistoryButton.setOnClickListener { loadReadHistory() }
-
+        submitMainScreen()
         refreshSessionAndFeed()
     }
 
@@ -726,104 +758,405 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun renderSession(state: SessionState) {
-        binding.sessionSummaryText.text = buildString {
-            appendLine("Phase: ${state.loginPhase}")
-            appendLine("Has Login: ${state.hasLoginSession}")
-            appendLine("Username: ${state.bootstrap.currentUsername ?: "-"}")
-            appendLine("Bootstrap Ready: ${state.bootstrap.hasPreloadedData}")
-            appendLine("Categories: ${topicCategories.size}")
-            appendLine("Has CSRF: ${state.cookies.csrfToken != null}")
-            appendLine("Read API: ${state.readiness.canReadAuthenticatedApi}")
-            appendLine("Write API: ${state.readiness.canWriteAuthenticatedApi}")
-            appendLine("MessageBus: ${state.readiness.canOpenMessageBus}")
-        }
+        submitMainScreen()
     }
 
     private fun renderLastError() {
-        val errorMessage = lastErrorMessage
-        binding.lastErrorSection.visibility = if (errorMessage.isNullOrBlank()) View.GONE else View.VISIBLE
-        binding.lastErrorText.text = errorMessage.orEmpty()
-        binding.copyLastErrorButton.isEnabled = !errorMessage.isNullOrBlank()
+        submitMainScreen()
     }
 
     private fun renderBrowser() {
-        updateFeedButtonState()
-        binding.browserStatusText.text = browserStatusMessage ?: browserFeedSummary(currentTopicList)
-
-        binding.topicListContainer.removeAllViews()
-        val topicList = currentTopicList
-        if (topicList == null || topicList.rows.isEmpty()) {
-            binding.topicListContainer.addView(
-                sectionBodyText(
-                    if (browserStatusMessage == null) getString(R.string.browser_empty) else browserStatusMessage!!,
-                ),
-            )
-        } else {
-            topicList.rows.forEach { row ->
-                binding.topicListContainer.addView(topicButton(row))
-            }
-        }
-        binding.loadMoreButton.visibility = if (
-            nextFeedPage != null && topicList?.rows?.isNotEmpty() == true
-        ) {
-            View.VISIBLE
-        } else {
-            View.GONE
-        }
-        binding.loadMoreButton.text = if (isLoadingMoreFeed) {
-            getString(R.string.browser_loading_more)
-        } else {
-            getString(R.string.action_load_more)
-        }
-
-        val selectedTopic = selectedTopicRow()
-        binding.topicDetailTitleText.text = selectedTopic?.topic?.title ?: getString(R.string.browser_detail_empty)
-        binding.topicDetailMetaText.text = selectedTopic?.let(::selectedTopicMeta)
-            ?: getString(R.string.browser_detail_dedicated)
-
-        binding.topicDetailContainer.removeAllViews()
-        if (selectedTopic == null) {
-            binding.topicDetailContainer.addView(sectionBodyText(getString(R.string.browser_detail_dedicated)))
-        } else {
-            binding.topicDetailContainer.addView(detailActionButton())
-        }
+        submitMainScreen()
     }
 
     private fun updateFeedButtonState() {
-        listOf(
-            binding.latestButton to TopicListKindState.LATEST,
-            binding.newButton to TopicListKindState.NEW,
-            binding.unreadButton to TopicListKindState.UNREAD,
-            binding.unseenButton to TopicListKindState.UNSEEN,
-            binding.hotButton to TopicListKindState.HOT,
-            binding.topButton to TopicListKindState.TOP,
-            binding.privateMessagesInboxButton to TopicListKindState.PRIVATE_MESSAGES_INBOX,
-            binding.privateMessagesSentButton to TopicListKindState.PRIVATE_MESSAGES_SENT,
-        ).forEach { (button, kind) ->
-            val selected = currentListSource == BrowserListSource.FEED && currentFeedKind == kind
-            button.alpha = if (selected) 1f else 0.75f
-            button.isEnabled = !isBrowserLoading
-        }
-        listOf(
-            binding.bookmarksButton to BrowserListSource.BOOKMARKS,
-            binding.readHistoryButton to BrowserListSource.READ_HISTORY,
-        ).forEach { (button, source) ->
-            val selected = currentListSource == source
-            button.alpha = if (selected) 1f else 0.75f
-            button.isEnabled = !isBrowserLoading
-        }
-        binding.refreshFeedButton.isEnabled = !isBrowserLoading
-        binding.createTopicButton.isEnabled = !isBrowserLoading && session.readiness.canWriteAuthenticatedApi
-        binding.categoryNotificationButton.isEnabled = !isBrowserLoading &&
-            session.readiness.canWriteAuthenticatedApi &&
-            topicCategoriesForNotifications().isNotEmpty()
-        binding.loadMoreButton.isEnabled = !isBrowserLoading && nextFeedPage != null
+        submitMainScreen()
     }
 
     private fun setBrowserLoading(loading: Boolean, message: String? = null) {
         isBrowserLoading = loading
         browserStatusMessage = message
-        updateFeedButtonState()
+    }
+
+    private fun submitMainScreen() {
+        browserScreenAdapter.submitList(buildMainScreenItems())
+    }
+
+    private fun buildMainScreenItems(): List<BrowserScreenItem> {
+        val items = mutableListOf<BrowserScreenItem>()
+        items += browserItem("shell-header", "shell") { shellHeaderView() }
+        items += browserItem("session-summary", sessionSummaryText()) { sessionSummaryView() }
+        items += browserItem("actions", actionControlsSignature()) { actionControlsView() }
+        lastErrorMessage?.let { errorMessage ->
+            items += browserItem("last-error", errorMessage) { lastErrorView(errorMessage) }
+        }
+        items += browserItem("browser-title", currentListTitle()) { browserTitleView() }
+        items += browserItem("feed-filters", feedFiltersSignature()) { feedFilterBarView() }
+        items += browserItem("browser-status", browserStatusText()) { browserStatusView() }
+
+        val topicList = currentTopicList
+        if (topicList == null || topicList.rows.isEmpty()) {
+            items += browserItem("topic-empty", topicEmptyText()) { sectionBodyText(topicEmptyText()) }
+        } else {
+            topicList.rows.forEachIndexed { index, row ->
+                items += topicRowItem(row, index)
+            }
+        }
+
+        if (nextFeedPage != null && topicList?.rows?.isNotEmpty() == true) {
+            items += browserItem("load-more", loadMoreSignature()) { loadMoreButtonView() }
+        }
+
+        val selectedTopic = selectedTopicRow()
+        val detailTitle = selectedTopic?.topic?.title ?: getString(R.string.browser_detail_empty)
+        val detailMeta = selectedTopic?.let(::selectedTopicMeta) ?: getString(R.string.browser_detail_dedicated)
+        items += browserItem("detail-title", detailTitle) { detailTitleView(detailTitle) }
+        items += browserItem("detail-meta", detailMeta) { detailMetaView(detailMeta) }
+        items += browserItem(
+            key = "detail-action",
+            contentSignature = selectedTopic?.topic?.id?.toString() ?: "empty",
+        ) {
+            if (selectedTopic == null) {
+                sectionBodyText(getString(R.string.browser_detail_dedicated))
+            } else {
+                detailActionButton()
+            }
+        }
+
+        return items
+    }
+
+    private fun browserItem(
+        key: String,
+        contentSignature: String,
+        buildView: () -> View,
+    ): BrowserScreenItem {
+        return BrowserScreenItem(
+            key = key,
+            stableId = stableIdFor(key),
+            contentSignature = contentSignature,
+            buildView = buildView,
+        )
+    }
+
+    private fun topicRowItem(row: TopicRowState, index: Int): BrowserScreenItem {
+        val selected = row.topic.id == selectedTopicId
+        return browserItem(
+            key = "topic:${row.topic.id}",
+            contentSignature = listOf(
+                row.toString(),
+                selected,
+                currentListSource,
+                currentFeedKind,
+                topicCategories[row.topic.categoryId]?.displayName(),
+            ).joinToString("|"),
+        ) {
+            topicButton(row, isFirst = index == 0)
+        }
+    }
+
+    private fun stableIdFor(key: String): Long {
+        var hash = 1125899906842597L
+        key.forEach { character ->
+            hash = (hash * 31) + character.code
+        }
+        return hash
+    }
+
+    private fun shellHeaderView(): View {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, 0, 0, dp(12))
+            addView(
+                TextView(context).apply {
+                    text = getString(R.string.app_name)
+                    textSize = 22f
+                },
+            )
+            addView(
+                TextView(context).apply {
+                    text = getString(R.string.shell_subtitle)
+                    textSize = 15f
+                    setPadding(0, dp(8), 0, 0)
+                },
+            )
+        }
+    }
+
+    private fun sessionSummaryView(): View {
+        return TextView(this).apply {
+            text = sessionSummaryText()
+            textSize = 14f
+            setPadding(0, dp(12), 0, dp(12))
+        }
+    }
+
+    private fun sessionSummaryText(): String {
+        return buildString {
+            appendLine("Phase: ${session.loginPhase}")
+            appendLine("Has Login: ${session.hasLoginSession}")
+            appendLine("Username: ${session.bootstrap.currentUsername ?: "-"}")
+            appendLine("Bootstrap Ready: ${session.bootstrap.hasPreloadedData}")
+            appendLine("Categories: ${topicCategories.size}")
+            appendLine("Has CSRF: ${session.cookies.csrfToken != null}")
+            appendLine("Read API: ${session.readiness.canReadAuthenticatedApi}")
+            appendLine("Write API: ${session.readiness.canWriteAuthenticatedApi}")
+            appendLine("MessageBus: ${session.readiness.canOpenMessageBus}")
+        }
+    }
+
+    private fun actionControlsSignature(): String {
+        return listOf(
+            isBrowserLoading,
+            session.readiness.canWriteAuthenticatedApi,
+            topicCategoriesForNotifications().size,
+        ).joinToString("|")
+    }
+
+    private fun actionControlsView(): View {
+        val actions = listOf(
+            getString(R.string.action_restore_session) to Pair(true, { refreshSessionAndFeed() }),
+            getString(R.string.action_open_login) to Pair(true, {
+                loginLauncher.launch(Intent(this, LoginActivity::class.java))
+            }),
+            getString(R.string.action_refresh_bootstrap) to Pair(true, { refreshBootstrap() }),
+            getString(R.string.action_refresh_topics) to Pair(!isBrowserLoading, { reloadCurrentFeed() }),
+            getString(R.string.action_create_topic) to Pair(
+                !isBrowserLoading && session.readiness.canWriteAuthenticatedApi,
+                { showCreateTopicComposer() },
+            ),
+            getString(R.string.action_category_notifications) to Pair(
+                !isBrowserLoading &&
+                    session.readiness.canWriteAuthenticatedApi &&
+                    topicCategoriesForNotifications().isNotEmpty(),
+                { showCategoryNotificationPicker() },
+            ),
+            getString(R.string.action_logout) to Pair(true, { logout() }),
+            getString(R.string.action_open_diagnostics) to Pair(true, {
+                startActivity(Intent(this, DiagnosticsActivity::class.java))
+            }),
+            getString(R.string.action_open_notifications) to Pair(true, {
+                startActivity(Intent(this, NotificationsActivity::class.java))
+            }),
+            getString(R.string.action_open_search) to Pair(true, {
+                startActivity(Intent(this, SearchActivity::class.java))
+            }),
+        )
+
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            actions.forEachIndexed { index, (title, enabledAndAction) ->
+                addView(
+                    browserButton(
+                        text = title,
+                        enabled = enabledAndAction.first,
+                        topMargin = if (index == 0) 0 else dp(12),
+                        onClick = enabledAndAction.second,
+                    ),
+                )
+            }
+        }
+    }
+
+    private fun lastErrorView(errorMessage: String): View {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, dp(16), 0, dp(12))
+            addView(
+                TextView(context).apply {
+                    text = getString(R.string.last_error_title)
+                    textSize = 18f
+                },
+            )
+            addView(
+                TextView(context).apply {
+                    text = errorMessage
+                    textSize = 14f
+                    setPadding(0, dp(8), 0, 0)
+                },
+            )
+            addView(
+                browserButton(
+                    text = getString(R.string.action_copy_last_error),
+                    enabled = true,
+                    topMargin = dp(8),
+                ) {
+                    copyLastError()
+                },
+            )
+        }
+    }
+
+    private fun browserTitleView(): View {
+        return TextView(this).apply {
+            text = getString(R.string.browser_title)
+            textSize = 18f
+            setPadding(0, dp(16), 0, 0)
+        }
+    }
+
+    private fun feedFiltersSignature(): String {
+        return listOf(currentListSource, currentFeedKind, isBrowserLoading).joinToString("|")
+    }
+
+    private fun feedFilterBarView(): View {
+        val filters = listOf(
+            getString(R.string.feed_latest) to Pair(
+                currentListSource == BrowserListSource.FEED && currentFeedKind == TopicListKindState.LATEST,
+                { loadFeed(TopicListKindState.LATEST) },
+            ),
+            getString(R.string.feed_new) to Pair(
+                currentListSource == BrowserListSource.FEED && currentFeedKind == TopicListKindState.NEW,
+                { loadFeed(TopicListKindState.NEW) },
+            ),
+            getString(R.string.feed_unread) to Pair(
+                currentListSource == BrowserListSource.FEED && currentFeedKind == TopicListKindState.UNREAD,
+                { loadFeed(TopicListKindState.UNREAD) },
+            ),
+            getString(R.string.feed_unseen) to Pair(
+                currentListSource == BrowserListSource.FEED && currentFeedKind == TopicListKindState.UNSEEN,
+                { loadFeed(TopicListKindState.UNSEEN) },
+            ),
+            getString(R.string.feed_hot) to Pair(
+                currentListSource == BrowserListSource.FEED && currentFeedKind == TopicListKindState.HOT,
+                { loadFeed(TopicListKindState.HOT) },
+            ),
+            getString(R.string.feed_top) to Pair(
+                currentListSource == BrowserListSource.FEED && currentFeedKind == TopicListKindState.TOP,
+                { loadFeed(TopicListKindState.TOP) },
+            ),
+            getString(R.string.feed_private_messages_inbox) to Pair(
+                currentListSource == BrowserListSource.FEED &&
+                    currentFeedKind == TopicListKindState.PRIVATE_MESSAGES_INBOX,
+                { loadFeed(TopicListKindState.PRIVATE_MESSAGES_INBOX) },
+            ),
+            getString(R.string.feed_private_messages_sent) to Pair(
+                currentListSource == BrowserListSource.FEED &&
+                    currentFeedKind == TopicListKindState.PRIVATE_MESSAGES_SENT,
+                { loadFeed(TopicListKindState.PRIVATE_MESSAGES_SENT) },
+            ),
+            getString(R.string.feed_bookmarks) to Pair(
+                currentListSource == BrowserListSource.BOOKMARKS,
+                { loadBookmarks() },
+            ),
+            getString(R.string.feed_read_history) to Pair(
+                currentListSource == BrowserListSource.READ_HISTORY,
+                { loadReadHistory() },
+            ),
+        )
+
+        return HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
+            setPadding(0, dp(8), 0, 0)
+            addView(
+                LinearLayout(context).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    filters.forEachIndexed { index, (title, selectedAndAction) ->
+                        addView(
+                            filterButton(
+                                text = title,
+                                selected = selectedAndAction.first,
+                                enabled = !isBrowserLoading,
+                                startMargin = if (index == 0) 0 else dp(8),
+                                onClick = selectedAndAction.second,
+                            ),
+                        )
+                    }
+                },
+            )
+        }
+    }
+
+    private fun browserStatusView(): View {
+        return TextView(this).apply {
+            text = browserStatusText()
+            textSize = 14f
+            setPadding(0, dp(12), 0, dp(4))
+        }
+    }
+
+    private fun browserStatusText(): String {
+        return browserStatusMessage ?: browserFeedSummary(currentTopicList)
+    }
+
+    private fun topicEmptyText(): String {
+        return browserStatusMessage ?: getString(R.string.browser_empty)
+    }
+
+    private fun loadMoreSignature(): String {
+        return listOf(nextFeedPage, isBrowserLoading, isLoadingMoreFeed).joinToString("|")
+    }
+
+    private fun loadMoreButtonView(): View {
+        return browserButton(
+            text = if (isLoadingMoreFeed) {
+                getString(R.string.browser_loading_more)
+            } else {
+                getString(R.string.action_load_more)
+            },
+            enabled = !isBrowserLoading && nextFeedPage != null,
+            topMargin = dp(12),
+        ) {
+            loadMoreFeed()
+        }
+    }
+
+    private fun detailTitleView(title: String): View {
+        return TextView(this).apply {
+            text = title
+            textSize = 18f
+            setPadding(0, dp(28), 0, 0)
+        }
+    }
+
+    private fun detailMetaView(meta: String): View {
+        return TextView(this).apply {
+            text = meta
+            textSize = 12f
+            setPadding(0, dp(8), 0, 0)
+        }
+    }
+
+    private fun browserButton(
+        text: String,
+        enabled: Boolean,
+        topMargin: Int,
+        onClick: () -> Unit,
+    ): Button {
+        return Button(this).apply {
+            this.text = text
+            isAllCaps = false
+            isEnabled = enabled
+            setOnClickListener { onClick() }
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ).apply {
+                this.topMargin = topMargin
+            }
+        }
+    }
+
+    private fun filterButton(
+        text: String,
+        selected: Boolean,
+        enabled: Boolean,
+        startMargin: Int,
+        onClick: () -> Unit,
+    ): Button {
+        return Button(this).apply {
+            this.text = text
+            isAllCaps = false
+            alpha = if (selected) 1f else 0.75f
+            isEnabled = enabled
+            setOnClickListener { onClick() }
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ).apply {
+                marginStart = startMargin
+            }
+        }
     }
 
     private fun recordLastError(error: Throwable) {
@@ -870,7 +1203,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun topicButton(row: TopicRowState): View {
+    private fun topicButton(row: TopicRowState, isFirst: Boolean): View {
         val topic = row.topic
         val category = categoryLabelFor(topic.categoryId)
         val lastActivity = listOfNotNull(
@@ -929,7 +1262,7 @@ class MainActivity : AppCompatActivity() {
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT,
             ).apply {
-                topMargin = if (binding.topicListContainer.childCount == 0) 0 else dp(8)
+                topMargin = if (isFirst) 0 else dp(8)
             }
         }
     }

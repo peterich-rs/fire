@@ -48,6 +48,13 @@ const FIRE_ACCEPT_LANGUAGE: &str = "zh-CN,zh;q=0.9,en;q=0.8";
 const FIRE_JSON_ACCEPT: &str = "application/json;q=0.9, text/plain;q=0.8, */*;q=0.5";
 const LOGIN_INVALIDATED_MESSAGE: &str = "登录状态已失效，请重新登录。";
 
+/// Placeholder header value used when a write request needs CSRF but Fire's
+/// preflight has not yet populated the token. Mirrors Discourse's official web
+/// client, which sends `X-CSRF-Token: undefined` so the server can answer with
+/// BAD CSRF and let the client refresh + retry. See
+/// `execute_api_request_with_csrf_retry`.
+const MISSING_CSRF_TOKEN_PLACEHOLDER: &str = "undefined";
+
 #[derive(Debug, Deserialize)]
 struct DiscourseErrorEnvelope {
     #[serde(default)]
@@ -499,10 +506,16 @@ impl FireCore {
             );
 
         if requires_csrf {
+            // Match Discourse's official frontend: send the literal "undefined"
+            // when the cached token is missing instead of failing fast. Writes
+            // are normally guarded by `runAuthenticatedWritePreflight` and
+            // `execute_api_request_with_csrf_retry`, but on the rare path where
+            // both miss, the BAD CSRF retry (`is_bad_csrf_body`) will refresh
+            // and replay just like the web client does.
             let csrf_token = snapshot
                 .cookies
                 .csrf_token
-                .ok_or(FireCoreError::MissingCsrfToken)?;
+                .unwrap_or_else(|| MISSING_CSRF_TOKEN_PLACEHOLDER.to_string());
             builder = builder.header("X-CSRF-Token", csrf_token);
         }
 
@@ -543,10 +556,13 @@ impl FireCore {
             .header("Accept", FIRE_JSON_ACCEPT);
 
         if requires_csrf {
+            // See `build_form_request_with_headers` for rationale: missing
+            // CSRF falls back to "undefined" so writes can still elicit a
+            // BAD CSRF response that the retry path refreshes and replays.
             let csrf_token = snapshot
                 .cookies
                 .csrf_token
-                .ok_or(FireCoreError::MissingCsrfToken)?;
+                .unwrap_or_else(|| MISSING_CSRF_TOKEN_PLACEHOLDER.to_string());
             builder = builder.header("X-CSRF-Token", csrf_token);
         }
 
@@ -1055,5 +1071,59 @@ mod tests {
             call_options_for_profile(FireCallProfile::MessageBusPoll),
             CallOptions::default().call_timeout(MESSAGE_BUS_CALL_TIMEOUT)
         );
+    }
+
+    #[test]
+    fn build_form_request_sends_undefined_csrf_when_token_missing() {
+        let core = FireCore::new(crate::FireCoreConfig {
+            base_url: "https://example.com".into(),
+            workspace_path: None,
+        })
+        .expect("core");
+
+        let traced = core
+            .build_form_request(
+                "test write",
+                Method::POST,
+                "/posts.json",
+                vec![("raw", "hello".into())],
+                true,
+            )
+            .expect("build form request without cached csrf");
+        let csrf_header = traced
+            .request
+            .headers()
+            .get("X-CSRF-Token")
+            .and_then(|value| value.to_str().ok());
+        assert_eq!(csrf_header, Some(MISSING_CSRF_TOKEN_PLACEHOLDER));
+    }
+
+    #[test]
+    fn build_form_request_uses_cached_csrf_when_present() {
+        let core = FireCore::new(crate::FireCoreConfig {
+            base_url: "https://example.com".into(),
+            workspace_path: None,
+        })
+        .expect("core");
+        let _ = core.apply_cookies(fire_models::CookieSnapshot {
+            csrf_token: Some("real-csrf".into()),
+            ..fire_models::CookieSnapshot::default()
+        });
+
+        let traced = core
+            .build_form_request(
+                "test write",
+                Method::POST,
+                "/posts.json",
+                vec![("raw", "hello".into())],
+                true,
+            )
+            .expect("build form request with cached csrf");
+        let csrf_header = traced
+            .request
+            .headers()
+            .get("X-CSRF-Token")
+            .and_then(|value| value.to_str().ok());
+        assert_eq!(csrf_header, Some("real-csrf"));
     }
 }

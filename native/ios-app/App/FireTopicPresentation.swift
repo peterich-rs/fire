@@ -53,10 +53,27 @@ struct FirePreparedTopicTimelineRow: Identifiable, Sendable {
     var id: UInt64 { entry.postId }
 }
 
+struct FireTopicTimelineRowInput: Equatable, Sendable {
+    let postID: UInt64
+    let postNumber: UInt32
+    let replyToPostNumber: UInt32?
+}
+
+struct FireTopicPostRenderInput: Equatable, Sendable {
+    let cooked: String
+}
+
 struct FireTopicDetailRenderState: Sendable {
     let originalRow: FirePreparedTopicTimelineRow?
     let replyRows: [FirePreparedTopicTimelineRow]
     let contentByPostID: [UInt64: FireTopicPostRenderContent]
+}
+
+struct FireTopicDetailRenderCache: Sendable {
+    let baseURLString: String
+    let rowInputs: [FireTopicTimelineRowInput]
+    let contentInputsByPostID: [UInt64: FireTopicPostRenderInput]
+    let renderState: FireTopicDetailRenderState
 }
 
 struct FireReactionOption: Identifiable, Hashable, Sendable {
@@ -126,30 +143,74 @@ enum FireTopicPresentation {
         from detail: TopicDetailState,
         baseURLString: String
     ) -> FireTopicDetailRenderState {
+        detailRenderCache(
+            from: detail,
+            baseURLString: baseURLString
+        ).renderState
+    }
+
+    static func detailRenderCache(
+        from detail: TopicDetailState,
+        baseURLString: String,
+        previous: FireTopicDetailRenderCache? = nil
+    ) -> FireTopicDetailRenderCache {
         let orderedPosts = mergeTopicPosts(
             existing: detail.postStream.posts,
             incoming: [],
             orderedPostIDs: detail.postStream.stream
         )
-        let rows = rebuildTimelineEntries(from: orderedPosts).map(FirePreparedTopicTimelineRow.init)
-        let originalRow = rows.first(where: { $0.entry.isOriginalPost })
-        let replyRows = rows.filter { row in
-            row.entry.postId != originalRow?.entry.postId
+        let rowInputs = orderedPosts.map { post in
+            FireTopicTimelineRowInput(
+                postID: post.id,
+                postNumber: post.postNumber,
+                replyToPostNumber: post.replyToPostNumber
+            )
+        }
+        let contentInputsByPostID = Dictionary(
+            uniqueKeysWithValues: orderedPosts.map { post in
+                (post.id, FireTopicPostRenderInput(cooked: post.cooked))
+            }
+        )
+
+        let originalRow: FirePreparedTopicTimelineRow?
+        let replyRows: [FirePreparedTopicTimelineRow]
+        if previous?.rowInputs == rowInputs {
+            originalRow = previous?.renderState.originalRow
+            replyRows = previous?.renderState.replyRows ?? []
+        } else {
+            let rows = rebuildTimelineEntries(from: orderedPosts).map(FirePreparedTopicTimelineRow.init)
+            let resolvedOriginalRow = rows.first(where: { $0.entry.isOriginalPost })
+            originalRow = resolvedOriginalRow
+            replyRows = rows.filter { row in
+                row.entry.postId != resolvedOriginalRow?.entry.postId
+            }
         }
 
         var contentByPostID: [UInt64: FireTopicPostRenderContent] = [:]
         contentByPostID.reserveCapacity(orderedPosts.count)
+        let canReuseContent = previous?.baseURLString == baseURLString
         for post in orderedPosts {
-            contentByPostID[post.id] = renderContent(
-                from: post.cooked,
-                baseURLString: baseURLString
-            )
+            if canReuseContent,
+               previous?.contentInputsByPostID[post.id] == contentInputsByPostID[post.id],
+               let cachedContent = previous?.renderState.contentByPostID[post.id] {
+                contentByPostID[post.id] = cachedContent
+            } else {
+                contentByPostID[post.id] = renderContent(
+                    from: post.cooked,
+                    baseURLString: baseURLString
+                )
+            }
         }
 
-        return FireTopicDetailRenderState(
-            originalRow: originalRow,
-            replyRows: replyRows,
-            contentByPostID: contentByPostID
+        return FireTopicDetailRenderCache(
+            baseURLString: baseURLString,
+            rowInputs: rowInputs,
+            contentInputsByPostID: contentInputsByPostID,
+            renderState: FireTopicDetailRenderState(
+                originalRow: originalRow,
+                replyRows: replyRows,
+                contentByPostID: contentByPostID
+            )
         )
     }
 

@@ -168,6 +168,82 @@ final class FireTopicPresentationTests: XCTestCase {
         )
     }
 
+    func testDetailRenderCacheReusesRenderedContentForUnchangedPostsAcrossHydration() throws {
+        let initial = FireTopicPresentation.detailRenderCache(
+            from: makeTopicDetail(
+                posts: [
+                    makePost(
+                        postNumber: 1,
+                        replyToPostNumber: nil,
+                        username: "author",
+                        cooked: #"<p>Hello <a class="mention" href="/u/alice">@alice</a></p>"#
+                    ),
+                    makePost(postNumber: 2, replyToPostNumber: 1, username: "reply-a"),
+                ],
+                stream: [1, 2]
+            ),
+            baseURLString: "https://linux.do"
+        )
+
+        let hydrated = FireTopicPresentation.detailRenderCache(
+            from: makeTopicDetail(
+                posts: [
+                    makePost(
+                        postNumber: 1,
+                        replyToPostNumber: nil,
+                        username: "author",
+                        likeCount: 5,
+                        reactions: [TopicReactionState(id: "heart", kind: nil, count: 5, canUndo: nil)],
+                        cooked: #"<p>Hello <a class="mention" href="/u/alice">@alice</a></p>"#
+                    ),
+                    makePost(postNumber: 2, replyToPostNumber: 1, username: "reply-a"),
+                    makePost(postNumber: 3, replyToPostNumber: 2, username: "reply-b"),
+                ],
+                stream: [1, 2, 3]
+            ),
+            baseURLString: "https://linux.do",
+            previous: initial
+        )
+
+        let initialText = try XCTUnwrap(initial.renderState.contentByPostID[1]?.attributedText)
+        let hydratedText = try XCTUnwrap(hydrated.renderState.contentByPostID[1]?.attributedText)
+
+        XCTAssertTrue(initialText === hydratedText)
+        XCTAssertEqual(hydrated.renderState.replyRows.map { $0.entry.postNumber }, [2, 3])
+    }
+
+    func testDetailRenderCacheRebuildsTimelineWhenMissingParentArrives() {
+        let partial = FireTopicPresentation.detailRenderCache(
+            from: makeTopicDetail(
+                posts: [
+                    makePost(postNumber: 1, replyToPostNumber: nil, username: "author"),
+                    makePost(postNumber: 3, replyToPostNumber: 2, username: "reply-b"),
+                ],
+                stream: [1, 2, 3]
+            ),
+            baseURLString: "https://linux.do"
+        )
+
+        XCTAssertEqual(partial.renderState.replyRows.map { $0.entry.postNumber }, [3])
+        XCTAssertEqual(partial.renderState.replyRows.map { $0.entry.depth }, [1])
+
+        let full = FireTopicPresentation.detailRenderCache(
+            from: makeTopicDetail(
+                posts: [
+                    makePost(postNumber: 1, replyToPostNumber: nil, username: "author"),
+                    makePost(postNumber: 2, replyToPostNumber: 1, username: "reply-a"),
+                    makePost(postNumber: 3, replyToPostNumber: 2, username: "reply-b"),
+                ],
+                stream: [1, 2, 3]
+            ),
+            baseURLString: "https://linux.do",
+            previous: partial
+        )
+
+        XCTAssertEqual(full.renderState.replyRows.map { $0.entry.postNumber }, [2, 3])
+        XCTAssertEqual(full.renderState.replyRows.map { $0.entry.depth }, [1, 2])
+    }
+
     func testRenderContentPlainTextOmitsImageAttachmentAltText() {
         let content = FireTopicPresentation.renderContent(
             from: #"<p>Hello&nbsp;Fire</p><img src="/uploads/default/original/1X/fire.png" alt="fire">"#,

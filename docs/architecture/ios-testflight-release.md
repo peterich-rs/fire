@@ -30,6 +30,9 @@ The app now has explicit version build settings:
 - Defaults live in `native/ios-app/Configs/Fire-Shared.xcconfig`.
 - CI passes both values into `archive_release.sh`; the TestFlight workflow defaults the build number to the GitHub run number if the dispatch input is empty.
 - The iOS settings page displays the version, build number, and short git SHA when the build includes one.
+- Release tags use `ios-v<version>-b<build>`, for example `ios-v0.1.0-b123`.
+- `just ios-release-info <version> [build]` prints the version/build/hash/tag coordinates for local checks.
+- `just ios-release-tag <version> <build>` creates the annotated release tag for the current commit; `just ios-release-tag-push <version> <build>` pushes it.
 
 ## Signing and credentials
 
@@ -92,6 +95,23 @@ FIRE_BUILD_NUMBER=1 \
 ```
 
 To upload directly to TestFlight, also provide App Store Connect API key settings and set `TESTFLIGHT_UPLOAD=YES`.
+
+## GitHub TestFlight dispatch
+
+After the workflow has landed on the default branch, use these helpers:
+
+```bash
+just ios-testflight-dry-run 0.1.0
+just ios-testflight-upload 0.1.0
+```
+
+Both commands leave `build_number` empty by default so GitHub Actions uses the run number. Pass an explicit build number when you need to align a build with a release tag:
+
+```bash
+just ios-release-tag 0.1.0 123
+just ios-release-tag-push 0.1.0 123
+just ios-testflight-upload 0.1.0 123 main true
+```
 
 ## Guardrails
 

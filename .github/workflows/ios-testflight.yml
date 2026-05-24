@@ -1,4 +1,5 @@
 name: iOS TestFlight
+run-name: iOS TestFlight ${{ inputs.marketing_version }} (${{ inputs.build_number || github.run_number }}) upload=${{ inputs.upload_to_testflight }}
 
 on:
   workflow_dispatch:

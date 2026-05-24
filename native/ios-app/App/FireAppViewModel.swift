@@ -1603,9 +1603,56 @@ final class FireAppViewModel: ObservableObject {
             }
         }
 
+        // Last chance to self-heal silently: kick the background Turnstile
+        // runtime once and retry. Most "open a topic → CF challenge" reports
+        // are stale-`cf_clearance` cases that the refresh service can fix
+        // without ever showing the manual verification page. Only fall back
+        // to the interactive flow if the silent refresh path is unavailable
+        // or did not produce a usable clearance in time.
+        if await attemptSilentCloudflareRefresh(operation: operation) {
+            do {
+                return try await work()
+            } catch {
+                guard case FireUniFfiError.CloudflareChallenge = error else {
+                    throw error
+                }
+            }
+        }
+
         try await beginCloudflareRecoveryAndWait(operation: operation)
         try Task.checkCancellation()
         return try await work()
+    }
+
+    /// Attempt a single background Turnstile refresh as part of
+    /// `performWithCloudflareRecovery` and return `true` when the platform
+    /// cookies were rotated and the caller should retry the work closure.
+    private func attemptSilentCloudflareRefresh(operation: String) async -> Bool {
+        do {
+            let refreshed = try await FireCfClearanceRefreshService.shared.triggerOneShotRefresh()
+            await applySession(refreshed)
+            FireAPMManager.shared.recordBreadcrumb(
+                target: Self.authDiagnosticsLogTarget,
+                message: "cloudflare recovery silent refresh succeeded operation=\(operation)"
+            )
+            return true
+        } catch let error as FireCfClearanceRefreshError {
+            FireAPMManager.shared.recordBreadcrumb(
+                level: "info",
+                target: Self.authDiagnosticsLogTarget,
+                message: "cloudflare recovery silent refresh skipped operation=\(operation) reason=\(error)"
+            )
+            return false
+        } catch is CancellationError {
+            return false
+        } catch {
+            FireAPMManager.shared.recordBreadcrumb(
+                level: "warn",
+                target: Self.authDiagnosticsLogTarget,
+                message: "cloudflare recovery silent refresh failed operation=\(operation) error=\(error.localizedDescription)"
+            )
+            return false
+        }
     }
 
     private func beginCloudflareRecoveryAndWait(operation: String) async throws {

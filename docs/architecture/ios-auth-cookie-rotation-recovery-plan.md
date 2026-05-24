@@ -45,3 +45,10 @@ This is the main document for the auth/session incident captured in `fire-suppor
 - It captures both landed pieces from the recent work: shared auth rotation tracking and iOS host resync.
 - It preserves the key design choice that `FireSessionStore`, not `FireAppViewModel` or `FireWebViewLoginCoordinator`, owns write-time recovery policy.
 - It matches the added regression coverage for partial auth rotation, CSRF clearing, one-shot host resync, and stale epoch dropping.
+
+## Related Documents
+
+- [ios-cloudflare-silent-refresh.md](ios-cloudflare-silent-refresh.md):
+  describes the silent Turnstile refresh that `performWithCloudflareRecovery`
+  performs before falling back to the manual verification page when a topic
+  detail GET (or any other read) trips a Cloudflare challenge.

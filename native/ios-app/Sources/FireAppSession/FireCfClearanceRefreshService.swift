@@ -115,6 +115,7 @@ final class FireCfClearanceRefreshService: NSObject, WKNavigationDelegate, WKScr
     private var activeBaseURL: String?
     private var activeRuntimeToken: String?
     private var activeUserAgent: String?
+    private var oneShotRefreshWaiters: [UUID: CheckedContinuation<SessionState, Error>] = [:]
     private lazy var urlSession: URLSession = {
         let configuration = URLSessionConfiguration.default
         configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
@@ -151,6 +152,89 @@ final class FireCfClearanceRefreshService: NSObject, WKNavigationDelegate, WKScr
     func setInteractiveRecoveryActive(_ active: Bool) {
         interactiveRecoveryActive = active
         reconfigureRuntime(reason: active ? "interactive_recovery_started" : "interactive_recovery_ended")
+    }
+
+    /// Run a single Turnstile → `/cdn-cgi/.../rc/{chl}` refresh and wait until it
+    /// either rotates the platform cookies or fails.
+    ///
+    /// Used by `performWithCloudflareRecovery` to give a stale `cf_clearance`
+    /// one chance to self-heal silently before falling back to the manual
+    /// Cloudflare verification page. The caller is responsible for ensuring the
+    /// session has a usable bootstrap (`turnstileSitekey` and existing
+    /// `cf_clearance`); without those the refresh runtime cannot start and this
+    /// method returns ``FireCfClearanceRefreshError/preconditionsNotMet``.
+    func triggerOneShotRefresh(
+        timeout: Duration = .seconds(20)
+    ) async throws -> SessionState {
+        guard Self.shouldAutoRefresh(
+            session: session,
+            sceneActive: sceneActive,
+            interactiveRecoveryActive: interactiveRecoveryActive
+        ) else {
+            throw FireCfClearanceRefreshError.preconditionsNotMet
+        }
+
+        let waiterID = UUID()
+        let timeoutTask = Task { [weak self] in
+            do {
+                try await Task.sleep(for: timeout)
+            } catch {
+                return
+            }
+            await self?.failOneShotRefreshWaiter(
+                id: waiterID,
+                error: FireCfClearanceRefreshError.timedOut
+            )
+        }
+
+        defer { timeoutTask.cancel() }
+
+        // Reset failure backoff so the runtime kicks off immediately even if a
+        // recent retry was scheduled.
+        consecutiveFailureCount = 0
+        restartRuntime(reason: "one_shot_refresh")
+
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                oneShotRefreshWaiters[waiterID] = continuation
+                if Task.isCancelled,
+                   let waiter = oneShotRefreshWaiters.removeValue(forKey: waiterID) {
+                    waiter.resume(throwing: CancellationError())
+                }
+            }
+        } onCancel: { [weak self] in
+            Task { [weak self] in
+                await self?.failOneShotRefreshWaiter(
+                    id: waiterID,
+                    error: CancellationError()
+                )
+            }
+        }
+    }
+
+    private func resolveOneShotRefreshWaiters(with session: SessionState) {
+        guard !oneShotRefreshWaiters.isEmpty else { return }
+        let waiters = oneShotRefreshWaiters
+        oneShotRefreshWaiters.removeAll(keepingCapacity: false)
+        for (_, continuation) in waiters {
+            continuation.resume(returning: session)
+        }
+    }
+
+    private func failAllOneShotRefreshWaiters(with error: Error) {
+        guard !oneShotRefreshWaiters.isEmpty else { return }
+        let waiters = oneShotRefreshWaiters
+        oneShotRefreshWaiters.removeAll(keepingCapacity: false)
+        for (_, continuation) in waiters {
+            continuation.resume(throwing: error)
+        }
+    }
+
+    private func failOneShotRefreshWaiter(id: UUID, error: Error) {
+        guard let waiter = oneShotRefreshWaiters.removeValue(forKey: id) else {
+            return
+        }
+        waiter.resume(throwing: error)
     }
 
     nonisolated static func shouldAutoRefresh(
@@ -326,6 +410,9 @@ final class FireCfClearanceRefreshService: NSObject, WKNavigationDelegate, WKScr
         FireAPMManager.shared.recordBreadcrumb(
             target: Self.logTarget,
             message: "cf clearance refresh stopped reason=\(reason)"
+        )
+        failAllOneShotRefreshWaiters(
+            with: FireCfClearanceRefreshError.serviceUnavailable
         )
     }
 
@@ -551,13 +638,21 @@ final class FireCfClearanceRefreshService: NSObject, WKNavigationDelegate, WKScr
         )
 
         let invalidatedGeneration = cancelRuntime(resetFailures: false)
-        guard shouldRun else { return }
+        guard shouldRun else {
+            failAllOneShotRefreshWaiters(
+                with: FireCfClearanceRefreshError.serviceUnavailable
+            )
+            return
+        }
 
         guard consecutiveFailureCount < Self.maxConsecutiveFailures else {
             FireAPMManager.shared.recordBreadcrumb(
                 level: "warning",
                 target: Self.logTarget,
                 message: "cf clearance refresh stopped after \(consecutiveFailureCount) consecutive failures"
+            )
+            failAllOneShotRefreshWaiters(
+                with: FireCfClearanceRefreshError.exhausted
             )
             return
         }
@@ -703,6 +798,8 @@ final class FireCfClearanceRefreshService: NSObject, WKNavigationDelegate, WKScr
                 message: "cf clearance refresh succeeded status=\(response.statusCode)"
             )
 
+            resolveOneShotRefreshWaiters(with: refreshed)
+
             if let onSessionRefreshed {
                 await onSessionRefreshed(refreshed)
             }
@@ -838,4 +935,19 @@ final class FireCfClearanceRefreshService: NSObject, WKNavigationDelegate, WKScr
             userInfo: [NSLocalizedDescriptionKey: "Cloudflare refresh WebView terminated"]
         ))
     }
+}
+
+/// Errors surfaced by ``FireCfClearanceRefreshService/triggerOneShotRefresh(timeout:)``.
+enum FireCfClearanceRefreshError: Error, Equatable {
+    /// The session does not currently allow background refresh (no
+    /// turnstile sitekey, no existing `cf_clearance`, scene inactive, or an
+    /// interactive recovery flow already in progress).
+    case preconditionsNotMet
+    /// The runtime was torn down before a refresh completed (e.g. session
+    /// readiness changed, or the service was stopped externally).
+    case serviceUnavailable
+    /// `maxConsecutiveFailures` were observed without a successful refresh.
+    case exhausted
+    /// The waiter timed out before the runtime produced a refreshed session.
+    case timedOut
 }

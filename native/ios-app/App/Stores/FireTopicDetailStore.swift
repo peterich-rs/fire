@@ -5,16 +5,11 @@ private enum FireTopicDetailSearchDirection {
     case forward
 }
 
-private struct FireTopicRenderStateInput: Equatable {
-    let baseURLString: String
-    let stream: [UInt64]
-    let posts: [TopicPostState]
-}
-
 @MainActor
 final class FireTopicDetailStore: ObservableObject {
     nonisolated private static let topicPostPageSize = 30
-    nonisolated private static let topicPostPrefetchThreshold = 6
+    nonisolated private static let topicPostPrefetchThreshold = 10
+    nonisolated private static let topicPostForwardExpansionSize = 60
     nonisolated private static let replyContextPostBatchSize = 20
 
     @Published private(set) var topicDetails: [UInt64: TopicDetailState] = [:]
@@ -41,7 +36,7 @@ final class FireTopicDetailStore: ObservableObject {
     private var topicPresenceHeartbeatTasks: [UInt64: Task<Void, Never>] = [:]
     private var topicPostPreloadTasks: [UInt64: Task<Void, Never>] = [:]
     private var topicWindowStates: [UInt64: FireTopicDetailWindowState] = [:]
-    private var topicRenderStateInputs: [UInt64: FireTopicRenderStateInput] = [:]
+    private var topicRenderCaches: [UInt64: FireTopicDetailRenderCache] = [:]
     private var topicDetailTargetPostNumbers: [UInt64: UInt32] = [:]
     private var activeTopicDetailOwnerTokens: [UInt64: Set<String>] = [:]
     private var topicAiSummaryTasks: [UInt64: Task<Void, Never>] = [:]
@@ -111,7 +106,7 @@ final class FireTopicDetailStore: ObservableObject {
         activeTopicDetailOwnerTokens = [:]
         topicDetailTargetPostNumbers = [:]
         topicWindowStates = [:]
-        topicRenderStateInputs = [:]
+        topicRenderCaches = [:]
         topicDetails = [:]
         topicRenderStates = [:]
         topicAiSummaries = [:]
@@ -1022,7 +1017,7 @@ final class FireTopicDetailStore: ObservableObject {
     private func evictTopicDetailState(topicId: UInt64, reason: String) {
         let removedDetail = topicDetails.removeValue(forKey: topicId) != nil
         let removedRenderState = topicRenderStates.removeValue(forKey: topicId) != nil
-        topicRenderStateInputs.removeValue(forKey: topicId)
+        topicRenderCaches.removeValue(forKey: topicId)
         let removedWindow = topicWindowStates.removeValue(forKey: topicId) != nil
         let removedPresence = topicPresenceUsersByTopic.removeValue(forKey: topicId) != nil
         let removedAiSummary = topicAiSummaries.removeValue(forKey: topicId) != nil
@@ -1081,17 +1076,18 @@ final class FireTopicDetailStore: ObservableObject {
             topicDetails[topicId] = cachedDetail
         }
 
-        let renderStateInput = FireTopicRenderStateInput(
+        let previousRenderCache = topicRenderCaches[topicId]
+        let renderCache = FireTopicPresentation.detailRenderCache(
+            from: cachedDetail,
             baseURLString: renderBaseURLString,
-            stream: cachedDetail.postStream.stream,
-            posts: cachedDetail.postStream.posts
+            previous: previousRenderCache
         )
-        if topicRenderStateInputs[topicId] != renderStateInput {
-            topicRenderStateInputs[topicId] = renderStateInput
-            topicRenderStates[topicId] = FireTopicPresentation.detailRenderState(
-                from: cachedDetail,
-                baseURLString: renderStateInput.baseURLString
-            )
+        topicRenderCaches[topicId] = renderCache
+
+        if previousRenderCache?.baseURLString != renderCache.baseURLString
+            || previousRenderCache?.rowInputs != renderCache.rowInputs
+            || previousRenderCache?.contentInputsByPostID != renderCache.contentInputsByPostID {
+            topicRenderStates[topicId] = renderCache.renderState
         }
         return cachedDetail
     }
@@ -1903,7 +1899,7 @@ final class FireTopicDetailStore: ObservableObject {
         anchorIndex: Int?
     ) -> Range<Int> {
         let lowerBound = expandBackward ? current.lowerBound - topicPostPageSize : current.lowerBound
-        let upperBound = expandForward ? current.upperBound + topicPostPageSize : current.upperBound
+        let upperBound = expandForward ? current.upperBound + topicPostForwardExpansionSize : current.upperBound
         return boundedRequestedRange(
             lowerBound: lowerBound,
             upperBound: upperBound,

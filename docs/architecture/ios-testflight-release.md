@@ -13,6 +13,7 @@ This document defines the production TestFlight release lane for the native iOS 
 
 - `scripts/ios/archive_release.sh`
   - Default mode remains unsigned archive generation with `CODE_SIGNING_ALLOWED=NO`.
+  - Before regenerating `Fire.xcodeproj`, the script prepares the Release UniFFI Swift bindings, FFI module, and static library for `iphoneos` so generated Swift sources are present when XcodeGen enumerates project files.
   - TestFlight mode is enabled by setting `CODE_SIGNING_ALLOWED=YES` plus `EXPORT_METHOD=app-store-connect`.
   - Direct upload is enabled with `TESTFLIGHT_UPLOAD=YES`; otherwise the script exports a signed `.ipa`.
 - `.github/workflows/ios-release-artifacts.yml`
@@ -71,6 +72,14 @@ No `.p8`, `.p12`, `.mobileprovision`, or local `Fire-Local-*.xcconfig` file shou
 - `build-metadata.json`
 
 The metadata file records the git SHA, version, build number, archive path, export method, export destination, and IPA path when present.
+
+## UniFFI archive preparation
+
+`archive_release.sh` runs `native/ios-app/scripts/sync_uniffi_bindings.sh` before `xcodegen generate` with `PLATFORM_NAME=iphoneos` and the selected archive `CONFIGURATION`. This is required because `Generated/FireUniFfi/*.swift` is ignored by git, but XcodeGen only includes optional source groups that exist at generation time.
+
+After that preparation succeeds, the script exports `FIRE_SKIP_UNIFFI_BINDGEN=1` for the Xcode archive step so the target build phase reuses the already prepared bindings and static library instead of doing the same work again.
+
+Use `FIRE_UNIFFI_PLATFORM_NAME=<platform>` only when archiving a non-default platform. Use `FIRE_SKIP_UNIFFI_PREPARE=1` only when another CI step has already populated `native/ios-app/Generated/FireUniFfi` and `native/ios-app/Generated/lib/<platform>/libfire_uniffi.a` before `archive_release.sh` starts.
 
 ## Local TestFlight rehearsal
 

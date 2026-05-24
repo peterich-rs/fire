@@ -23,6 +23,7 @@ ALLOW_PROVISIONING_UPDATES="${ALLOW_PROVISIONING_UPDATES:-NO}"
 APP_STORE_CONNECT_API_KEY_PATH="${APP_STORE_CONNECT_API_KEY_PATH:-${ASC_API_KEY_PATH:-}}"
 APP_STORE_CONNECT_API_KEY_ID="${APP_STORE_CONNECT_API_KEY_ID:-${ASC_API_KEY_ID:-}}"
 APP_STORE_CONNECT_API_ISSUER_ID="${APP_STORE_CONNECT_API_ISSUER_ID:-${ASC_API_KEY_ISSUER_ID:-}}"
+FIRE_UNIFFI_PLATFORM_NAME="${FIRE_UNIFFI_PLATFORM_NAME:-iphoneos}"
 
 is_truthy() {
   case "${1:-}" in
@@ -55,10 +56,31 @@ if ! command -v xcodegen >/dev/null 2>&1; then
   exit 1
 fi
 
+prepare_uniffi_artifacts() {
+  if is_truthy "${FIRE_SKIP_UNIFFI_PREPARE:-NO}"; then
+    echo "FIRE_SKIP_UNIFFI_PREPARE=1: skipping UniFFI preparation before XcodeGen"
+    return 0
+  fi
+
+  echo "Preparing UniFFI artifacts for $FIRE_UNIFFI_PLATFORM_NAME before XcodeGen"
+  (
+    cd "$IOS_DIR"
+    SRCROOT="$IOS_DIR" \
+      PLATFORM_NAME="$FIRE_UNIFFI_PLATFORM_NAME" \
+      CONFIGURATION="$CONFIGURATION" \
+      FIRE_SKIP_UNIFFI_BINDGEN= \
+      ./scripts/sync_uniffi_bindings.sh
+  )
+
+  export FIRE_SKIP_UNIFFI_BINDGEN=1
+}
+
 pushd "$ROOT_DIR" >/dev/null
 git submodule update --init --recursive
 ./scripts/check_clean_submodules.sh
 popd >/dev/null
+
+prepare_uniffi_artifacts
 
 pushd "$ROOT_DIR" >/dev/null
 xcodegen generate --spec native/ios-app/project.yml
@@ -103,17 +125,31 @@ if [[ -n "${FIRE_PROVISIONING_PROFILE_SPECIFIER:-}" ]]; then
   build_setting_args+=(FIRE_PROVISIONING_PROFILE_SPECIFIER="$FIRE_PROVISIONING_PROFILE_SPECIFIER")
 fi
 
-xcodebuild "${auth_args[@]}" "${provisioning_args[@]}" \
-  -project "$IOS_DIR/Fire.xcodeproj" \
-  -scheme "$SCHEME" \
-  -configuration "$CONFIGURATION" \
-  -destination "$DESTINATION" \
-  -archivePath "$ARCHIVE_PATH" \
-  -derivedDataPath "$DERIVED_DATA_PATH" \
-  CODE_SIGNING_ALLOWED="$CODE_SIGNING_ALLOWED" \
-  FIRE_GIT_SHA="$GIT_SHA" \
-  "${build_setting_args[@]}" \
+declare -a archive_args=(xcodebuild)
+if [[ ${#auth_args[@]} -gt 0 ]]; then
+  archive_args+=("${auth_args[@]}")
+fi
+if [[ ${#provisioning_args[@]} -gt 0 ]]; then
+  archive_args+=("${provisioning_args[@]}")
+fi
+archive_args+=(
+  -project "$IOS_DIR/Fire.xcodeproj"
+  -scheme "$SCHEME"
+  -configuration "$CONFIGURATION"
+  -destination "$DESTINATION"
+  -archivePath "$ARCHIVE_PATH"
+  -derivedDataPath "$DERIVED_DATA_PATH"
+  CODE_SIGNING_ALLOWED="$CODE_SIGNING_ALLOWED"
+  FIRE_GIT_SHA="$GIT_SHA"
+)
+if [[ ${#build_setting_args[@]} -gt 0 ]]; then
+  archive_args+=("${build_setting_args[@]}")
+fi
+archive_args+=(
   archive
+)
+
+"${archive_args[@]}"
 
 mkdir -p "$DSYMS_DIR"
 if [[ -d "$ARCHIVE_PATH/dSYMs" ]]; then
@@ -192,11 +228,21 @@ if [[ -n "$EXPORT_METHOD" ]]; then
   fi
 
   mkdir -p "$EXPORT_PATH"
-  xcodebuild "${auth_args[@]}" "${provisioning_args[@]}" \
-    -exportArchive \
-    -archivePath "$ARCHIVE_PATH" \
-    -exportPath "$EXPORT_PATH" \
+  declare -a export_args=(xcodebuild)
+  if [[ ${#auth_args[@]} -gt 0 ]]; then
+    export_args+=("${auth_args[@]}")
+  fi
+  if [[ ${#provisioning_args[@]} -gt 0 ]]; then
+    export_args+=("${provisioning_args[@]}")
+  fi
+  export_args+=(
+    -exportArchive
+    -archivePath "$ARCHIVE_PATH"
+    -exportPath "$EXPORT_PATH"
     -exportOptionsPlist "$EXPORT_OPTIONS_PLIST"
+  )
+
+  "${export_args[@]}"
 
   if [[ "$EXPORT_DESTINATION" == "export" ]]; then
     IPA_PATH="$(find "$EXPORT_PATH" -maxdepth 1 -name "*.ipa" -print -quit)"
@@ -211,6 +257,7 @@ cat >"$METADATA_PATH" <<EOF
   "git_sha": "$GIT_SHA",
   "marketing_version": "${FIRE_MARKETING_VERSION:-}",
   "build_number": "${FIRE_BUILD_NUMBER:-}",
+  "uniffi_platform_name": "$FIRE_UNIFFI_PLATFORM_NAME",
   "archive_path": "$ARCHIVE_PATH",
   "derived_data_path": "$DERIVED_DATA_PATH",
   "code_signing_allowed": "$CODE_SIGNING_ALLOWED",

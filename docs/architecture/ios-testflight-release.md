@@ -51,6 +51,8 @@ These optional secrets support explicit local-keychain signing on GitHub runners
 - `APPLE_PROVISIONING_PROFILE_BASE64`
 - `APPLE_SIGNING_KEYCHAIN_PASSWORD`
 
+`APPLE_DISTRIBUTION_CERTIFICATE_BASE64` must decode to a `.p12` exported with the Apple Distribution private key included. The workflow now validates that the imported temporary keychain exposes at least one usable code-signing identity before archive starts, so malformed exports fail early with a clear error.
+
 These optional repository variables tune the signed export:
 
 - `IOS_BUNDLE_ID`

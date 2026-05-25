@@ -122,10 +122,17 @@ jobs:
             security create-keychain -p "$keychain_password" "$keychain_path"
             security set-keychain-settings -lut 21600 "$keychain_path"
             security unlock-keychain -p "$keychain_password" "$keychain_path"
-            security import "$certificate_path" -P "$APPLE_DISTRIBUTION_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$keychain_path"
+            security import "$certificate_path" -P "$APPLE_DISTRIBUTION_CERTIFICATE_PASSWORD" -A -f pkcs12 -k "$keychain_path"
             security list-keychains -d user -s "$keychain_path" "$HOME/Library/Keychains/login.keychain-db"
             security default-keychain -d user -s "$keychain_path"
             security set-key-partition-list -S apple-tool:,apple: -k "$keychain_password" "$keychain_path"
+
+            identity_output="$(security find-identity -v -p codesigning "$keychain_path" || true)"
+            echo "$identity_output"
+            if grep -q "0 valid identities found" <<< "$identity_output"; then
+              echo "Imported signing identity is missing a private key or is otherwise unusable. Export the Apple Distribution certificate as a .p12 that includes the private key." >&2
+              exit 1
+            fi
           fi
 
           if [[ -n "${APPLE_PROVISIONING_PROFILE_BASE64}" ]]; then

@@ -86,6 +86,8 @@ Use `FIRE_UNIFFI_PLATFORM_NAME=<platform>` only when archiving a non-default pla
 
 When `IOS_CODE_SIGN_STYLE=Manual`, the archive step must use a distribution signing identity, not Xcode's default iOS development identity. The TestFlight workflow maps `IOS_EXPORT_SIGNING_CERTIFICATE` into `FIRE_CODE_SIGN_IDENTITY` for archive signing, so `IOS_EXPORT_SIGNING_CERTIFICATE=Apple Distribution` signs both the archive and exported `.ipa` with the imported distribution certificate.
 
+`archive_release.sh` also mirrors `FIRE_DEVELOPMENT_TEAM` and `FIRE_CODE_SIGN_STYLE` into global `DEVELOPMENT_TEAM` / `CODE_SIGN_STYLE` overrides during `xcodebuild archive`. This is required for Xcode 14+ Swift package archive products that now participate in signing and otherwise fail with `requires a development team`. The provisioning profile stays app-target-only through `FIRE_PROVISIONING_PROFILE_SPECIFIER`, which avoids pushing manual profile settings down into Swift package targets that do not support provisioning profiles.
+
 ## Local TestFlight rehearsal
 
 Use local ignored signing config for developer-machine archives:

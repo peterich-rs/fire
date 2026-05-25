@@ -283,9 +283,11 @@ Release artifact note:
 
 - `native/ios-app/project.yml` now carries a user-defined `FIRE_GIT_SHA` build setting and writes it into the generated Info.plist as `FireGitSha`.
 - `.github/workflows/ios-release-artifacts.yml` produces an unsigned release archive, collected `dSYMs/`, and `build-metadata.json` for beta crash symbolication rehearsal.
+- The release/TestFlight workflows now run on GitHub Actions `macos-26` and fail early unless the active runner exposes Xcode 26+ with an iPhoneOS 26+ SDK.
 - `FIRE_MARKETING_VERSION` and `FIRE_BUILD_NUMBER` now drive the generated app version and build number through `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION`.
 - The settings page displays the app version, build number, and short `FireGitSha` when the build includes one.
 - `.github/workflows/ios-testflight.yml` is the manual signed release lane for App Store Connect/TestFlight. It can either export a signed `.ipa` artifact or upload directly to TestFlight.
+- `native/ios-app/project.yml` now sets generated Info.plist interface orientations for both iPhone and iPad, including the full iPad multitasking set required by App Store Connect validation for the universal target.
 - The optional `APPLE_DISTRIBUTION_CERTIFICATE_BASE64` secret used by that lane must be a `.p12` export that includes the Apple Distribution private key, not only the certificate.
 - `./scripts/ios/archive_release.sh` prepares Release UniFFI generated sources for `iphoneos` before running XcodeGen, because the generated Swift files must exist before the optional `Generated/FireUniFfi` source group is written into `Fire.xcodeproj`.
 - `just ios-release-info`, `just ios-release-tag`, `just ios-testflight-dry-run`, and `just ios-testflight-upload` are the local release helpers for coordinating version/build/tag and workflow dispatch.

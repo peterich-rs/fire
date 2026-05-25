@@ -17,9 +17,9 @@ This document defines the production TestFlight release lane for the native iOS 
   - TestFlight mode is enabled by setting `CODE_SIGNING_ALLOWED=YES` plus `EXPORT_METHOD=app-store-connect`.
   - Direct upload is enabled with `TESTFLIGHT_UPLOAD=YES`; otherwise the script exports a signed `.ipa`.
 - `.github/workflows/ios-release-artifacts.yml`
-  - Manual unsigned archive/dSYM artifact generation.
+  - Manual unsigned archive/dSYM artifact generation on GitHub Actions `macos-26`.
 - `.github/workflows/ios-testflight.yml`
-  - Manual signed TestFlight archive/export/upload lane.
+  - Manual signed TestFlight archive/export/upload lane on GitHub Actions `macos-26`.
 
 ## Versioning
 
@@ -62,6 +62,8 @@ These optional repository variables tune the signed export:
 - `IOS_CODE_SIGN_IDENTITY`, when the archive signing identity must differ from `IOS_EXPORT_SIGNING_CERTIFICATE`
 
 No `.p8`, `.p12`, `.mobileprovision`, or local `Fire-Local-*.xcconfig` file should be committed.
+
+Both release workflows run `scripts/ios/verify_xcode26_toolchain.sh` before archive work starts so the lane fails early if the active GitHub runner image is not exposing Xcode 26+ and the iPhoneOS 26+ SDK required by App Store Connect since April 28, 2026.
 
 ## Output artifacts
 
@@ -134,5 +136,6 @@ just ios-testflight-upload 0.1.0 123 main true
 ## Guardrails
 
 - The generated Xcode project stays derived from `native/ios-app/project.yml`.
+- The generated Info.plist for the universal app target now declares the iPhone orientations plus the full four-orientation iPad variant required for iPad multitasking validation.
 - Release signing values flow through xcconfig settings or environment overrides, not manual edits to `Fire.xcodeproj`.
 - The default archive script remains safe for CI artifact rehearsal because it does not sign or upload unless explicitly requested.

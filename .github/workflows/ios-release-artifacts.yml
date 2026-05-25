@@ -13,12 +13,16 @@ env:
 jobs:
   archive:
     name: Archive iOS Release Artifacts
-    runs-on: macos-15
+    runs-on: macos-26
 
     steps:
       - uses: actions/checkout@v5
         with:
           submodules: recursive
+
+      - name: Verify Xcode 26 App Store toolchain
+        shell: bash
+        run: ./scripts/ios/verify_xcode26_toolchain.sh
 
       - name: Install Rust toolchain and iOS targets
         shell: bash

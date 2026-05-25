@@ -4,13 +4,14 @@ import XCTest
 final class FireSessionStoreTests: XCTestCase {
     func testRestoreColdStartSessionSkipsEagerCsrfRefreshAfterBootstrap() async throws {
         let fileManager = FileManager.default
-        let workspaceURL = fileManager.temporaryDirectory.appendingPathComponent(
-            "fire-session-store-tests-\(UUID().uuidString)",
+        let workspaceURL = URL(
+            fileURLWithPath: try FireSessionStore.defaultWorkspacePath(fileManager: fileManager),
             isDirectory: true
         )
-        try fileManager.createDirectory(at: workspaceURL, withIntermediateDirectories: true)
+        let sessionFileURL = workspaceURL.appendingPathComponent("session.json", isDirectory: false)
+        try? fileManager.removeItem(at: sessionFileURL)
         defer {
-            try? fileManager.removeItem(at: workspaceURL)
+            try? fileManager.removeItem(at: sessionFileURL)
         }
 
         let store = try FireSessionStore(
@@ -19,7 +20,6 @@ final class FireSessionStoreTests: XCTestCase {
         )
 
         var bootstrapCalls = 0
-        var csrfCalls = 0
 
         let restored = try await store.restoreColdStartSession(
             refreshBootstrapIfNeeded: {
@@ -29,7 +29,6 @@ final class FireSessionStoreTests: XCTestCase {
         )
 
         XCTAssertEqual(bootstrapCalls, 1)
-        XCTAssertEqual(csrfCalls, 0)
         XCTAssertNil(restored.cookies.csrfToken)
         XCTAssertTrue(restored.readiness.canReadAuthenticatedApi)
         XCTAssertFalse(restored.readiness.canWriteAuthenticatedApi)

@@ -76,6 +76,23 @@ struct FireTopicDetailRenderCache: Sendable {
     let renderState: FireTopicDetailRenderState
 }
 
+struct FireTopicRowContentSignature: Hashable, Sendable {
+    let topicID: UInt64
+    let title: String
+    let replyCount: UInt32
+    let views: UInt32
+    let likeCount: UInt32
+    let displayUsername: String
+    let isPinned: Bool
+    let hasAcceptedAnswer: Bool
+    let hasUnreadPosts: Bool
+    let createdTimestampUnixMs: UInt64?
+    let originalPosterAvatarTemplate: String?
+    let tagNames: [String]
+    let categoryDisplayName: String?
+    let categoryColorHex: String?
+}
+
 struct FireReactionOption: Identifiable, Hashable, Sendable {
     let id: String
     let symbol: String
@@ -136,6 +153,28 @@ enum FireTopicPresentation {
             plainText: richContent.plainText,
             attributedText: attributedText,
             imageAttachments: richContent.imageAttachments
+        )
+    }
+
+    static func topicRowContentSignature(
+        _ row: FireTopicRowPresentation,
+        category: FireTopicCategoryPresentation?
+    ) -> FireTopicRowContentSignature {
+        FireTopicRowContentSignature(
+            topicID: row.topic.id,
+            title: row.topic.title,
+            replyCount: row.topic.replyCount,
+            views: row.topic.views,
+            likeCount: row.topic.likeCount,
+            displayUsername: topicRowDisplayUsername(row),
+            isPinned: row.isPinned,
+            hasAcceptedAnswer: row.hasAcceptedAnswer,
+            hasUnreadPosts: row.hasUnreadPosts,
+            createdTimestampUnixMs: row.createdTimestampUnixMs,
+            originalPosterAvatarTemplate: row.originalPosterAvatarTemplate,
+            tagNames: row.tagNames,
+            categoryDisplayName: category?.displayName,
+            categoryColorHex: category?.colorHex
         )
     }
 
@@ -640,6 +679,23 @@ enum FireTopicPresentation {
             return nil
         }
         return replyToPostNumber
+    }
+
+    static func topicRowDisplayUsername(_ row: FireTopicRowPresentation) -> String {
+        row.originalPosterUsername
+            ?? row.topic.lastPosterUsername
+            ?? topicRowFallbackPresentationUsername(row)
+            ?? row.topic.posters.first.map { "User \($0.userId)" }
+            ?? "?"
+    }
+
+    private static func topicRowFallbackPresentationUsername(_ row: FireTopicRowPresentation) -> String? {
+        guard let candidate = row.lastPosterUsername?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !candidate.isEmpty else {
+            return nil
+        }
+
+        return candidate.localizedCaseInsensitiveContains("poster") ? nil : candidate
     }
 
     private static func comparePosts(_ lhs: TopicPostState, _ rhs: TopicPostState) -> Bool {

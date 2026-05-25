@@ -30,7 +30,6 @@ struct FireHomeCollectionView: View {
         let selectedHomeCategoryId: UInt64?
         let selectedHomeTags: [String]
         let topicListDisplayState: FireHomeTopicListDisplayState
-        let topicRows: [FireTopicRowPresentation]
         let currentScopeNextTopicsPage: UInt32?
         let isLoadingTopics: Bool
         let isAppendingTopics: Bool
@@ -54,7 +53,6 @@ struct FireHomeCollectionView: View {
             selectedHomeCategoryId: homeFeedStore.selectedHomeCategoryId,
             selectedHomeTags: homeFeedStore.selectedHomeTags,
             topicListDisplayState: homeFeedStore.topicListDisplayState,
-            topicRows: homeFeedStore.topicRows,
             currentScopeNextTopicsPage: homeFeedStore.currentScopeNextTopicsPage,
             isLoadingTopics: homeFeedStore.isLoadingTopics,
             isAppendingTopics: homeFeedStore.isAppendingTopics
@@ -143,7 +141,12 @@ struct FireHomeCollectionView: View {
             guard let row = homeFeedStore.topicRow(for: topicID) else {
                 return AnyHashable("missing|\(topicID)")
             }
-            return AnyHashable(topicRowContentToken(row))
+            return AnyHashable(
+                FireTopicPresentation.topicRowContentSignature(
+                    row,
+                    category: homeFeedStore.categoryPresentation(for: row.topic.categoryId)
+                )
+            )
         case let .loadingSkeleton(index):
             return AnyHashable(index)
         case .emptyState:
@@ -188,40 +191,6 @@ struct FireHomeCollectionView: View {
            rows.count - furthestIndex <= prefetchThreshold {
             homeFeedStore.loadMoreTopics()
         }
-    }
-
-    private func topicRowContentToken(_ row: FireTopicRowPresentation) -> String {
-        let topic = row.topic
-        let category = homeFeedStore.categoryPresentation(for: topic.categoryId)
-        var parts: [String] = []
-        parts.reserveCapacity(26)
-        parts.append(String(topic.id))
-        parts.append(topic.title)
-        parts.append(topic.slug)
-        parts.append(String(topic.postsCount))
-        parts.append(String(topic.replyCount))
-        parts.append(String(topic.views))
-        parts.append(String(topic.likeCount))
-        parts.append(topic.excerpt ?? "")
-        parts.append(topic.createdAt ?? "")
-        parts.append(topic.lastPostedAt ?? "")
-        parts.append(topic.lastPosterUsername ?? "")
-        parts.append(topic.categoryId.map(String.init) ?? "")
-        parts.append(String(topic.pinned))
-        parts.append(String(topic.closed))
-        parts.append(String(topic.archived))
-        parts.append(String(topic.unseen))
-        parts.append(String(topic.unreadPosts))
-        parts.append(String(topic.newPosts))
-        parts.append(topic.lastReadPostNumber.map(String.init) ?? "")
-        parts.append(String(topic.highestPostNumber))
-        parts.append(row.excerptText ?? "")
-        parts.append(row.originalPosterUsername ?? "")
-        parts.append(row.originalPosterAvatarTemplate ?? "")
-        parts.append(row.tagNames.joined(separator: ","))
-        parts.append(row.statusLabels.joined(separator: ","))
-        parts.append(category.map { "\($0.id)|\($0.displayName)|\($0.colorHex ?? "")" } ?? "")
-        return parts.joined(separator: "\u{1F}")
     }
 
     @ViewBuilder

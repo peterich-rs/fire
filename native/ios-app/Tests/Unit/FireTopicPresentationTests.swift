@@ -1,3 +1,4 @@
+import CoreGraphics
 import XCTest
 @testable import Fire
 
@@ -115,6 +116,43 @@ final class FireTopicPresentationTests: XCTestCase {
         XCTAssertTrue(row.isPinned)
         XCTAssertTrue(row.hasUnreadPosts)
         XCTAssertEqual(row.tagNames, ["rust"])
+    }
+
+    func testTopicRowContentSignatureTracksOnlyVisibleRowFields() {
+        let category = makeCategory(id: 7, name: "Rust", colorHex: "ff5500")
+        let row = makeTopicRow(
+            title: "Fire Native",
+            slug: "fire-native",
+            postsCount: 18,
+            excerpt: "<p>Old hidden excerpt</p>",
+            replyCount: 17
+        )
+        let sameVisibleRow = makeTopicRow(
+            title: "Fire Native",
+            slug: "fire-native-renamed",
+            postsCount: 99,
+            excerpt: "<p>New hidden excerpt</p>",
+            replyCount: 17
+        )
+        let changedVisibleRow = makeTopicRow(
+            title: "Fire Native Updated",
+            slug: "fire-native-renamed",
+            postsCount: 99,
+            excerpt: "<p>New hidden excerpt</p>",
+            replyCount: 18
+        )
+
+        let signature = FireTopicPresentation.topicRowContentSignature(row, category: category)
+        let sameVisibleSignature = FireTopicPresentation.topicRowContentSignature(sameVisibleRow, category: category)
+        let changedVisibleSignature = FireTopicPresentation.topicRowContentSignature(changedVisibleRow, category: category)
+        let changedCategorySignature = FireTopicPresentation.topicRowContentSignature(
+            row,
+            category: makeCategory(id: 7, name: "Swift", colorHex: "3366ff")
+        )
+
+        XCTAssertEqual(signature, sameVisibleSignature)
+        XCTAssertNotEqual(signature, changedVisibleSignature)
+        XCTAssertNotEqual(signature, changedCategorySignature)
     }
 
     func testCompactTimestampFormatsUnixMilliseconds() {

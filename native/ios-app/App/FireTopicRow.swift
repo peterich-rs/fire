@@ -90,25 +90,11 @@ struct FireTopicRow: View {
     }
 
     private var displayUsername: String {
-        row.originalPosterUsername
-            ?? row.topic.lastPosterUsername
-            ?? fallbackPresentationUsername
-            ?? row.topic.posters.first.map { "User \($0.userId)" }
-            ?? "?"
+        FireTopicPresentation.topicRowDisplayUsername(row)
     }
 
     private var avatarTemplate: String? {
         row.originalPosterAvatarTemplate
-    }
-
-    private var fallbackPresentationUsername: String? {
-        guard let candidate = row.lastPosterUsername?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !candidate.isEmpty
-        else {
-            return nil
-        }
-
-        return candidate.localizedCaseInsensitiveContains("poster") ? nil : candidate
     }
 
     private var unreadDot: some View {

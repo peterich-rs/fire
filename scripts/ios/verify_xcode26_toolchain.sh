@@ -2,7 +2,10 @@
 set -euo pipefail
 
 developer_dir="$(xcode-select -p)"
-xcode_version="$(xcodebuild -version | awk '/^Xcode / { print $2; exit }')"
+# Read the full `xcodebuild -version` output first so GitHub Actions `pipefail`
+# shells do not trip xcodebuild's broken-pipe crash when a parser exits early.
+xcode_version_output="$(xcodebuild -version)"
+xcode_version="$(printf '%s\n' "$xcode_version_output" | awk '/^Xcode / { print $2 }')"
 iphoneos_sdk_version="$(xcrun --sdk iphoneos --show-sdk-version)"
 
 echo "Selected DEVELOPER_DIR: $developer_dir"

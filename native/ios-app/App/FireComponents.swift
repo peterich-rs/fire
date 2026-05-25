@@ -719,6 +719,72 @@ final class FireRemoteImageMemoryCache: @unchecked Sendable {
 
 typealias FireAvatarImageMemoryCache = FireRemoteImageMemoryCache
 
+final class FireRemoteImagePrefetchHandle: @unchecked Sendable {
+    let request: FireRemoteImageRequest
+    private let task: Task<Void, Never>
+
+    init(request: FireRemoteImageRequest, task: Task<Void, Never>) {
+        self.request = request
+        self.task = task
+    }
+
+    var isCancelled: Bool {
+        task.isCancelled
+    }
+
+    func cancel() {
+        task.cancel()
+    }
+
+    func waitUntilFinished() async {
+        await task.value
+    }
+}
+
+@MainActor
+final class FireRemoteImagePrefetchCoordinator: ObservableObject {
+    private let pipeline: FireRemoteImagePipeline
+    private var handlesByOwner: [AnyHashable: [FireRemoteImagePrefetchHandle]] = [:]
+
+    init(pipeline: FireRemoteImagePipeline = .shared) {
+        self.pipeline = pipeline
+    }
+
+    deinit {
+        handlesByOwner.values
+            .flatMap { $0 }
+            .forEach { $0.cancel() }
+    }
+
+    func prefetch(_ requests: [FireRemoteImageRequest], owner: AnyHashable) {
+        cancelPrefetch(owner: owner)
+
+        var seenKeys: Set<String> = []
+        let handles = requests.compactMap { request -> FireRemoteImagePrefetchHandle? in
+            guard seenKeys.insert(request.cacheKey).inserted else {
+                return nil
+            }
+            return pipeline.prefetchImage(for: request)
+        }
+
+        if !handles.isEmpty {
+            handlesByOwner[owner] = handles
+        }
+    }
+
+    func cancelPrefetch(owner: AnyHashable) {
+        handlesByOwner.removeValue(forKey: owner)?
+            .forEach { $0.cancel() }
+    }
+
+    func cancelAll() {
+        handlesByOwner.values
+            .flatMap { $0 }
+            .forEach { $0.cancel() }
+        handlesByOwner.removeAll()
+    }
+}
+
 final class FireRemoteImagePipeline: @unchecked Sendable {
     static let shared = FireRemoteImagePipeline()
 
@@ -734,7 +800,9 @@ final class FireRemoteImagePipeline: @unchecked Sendable {
 
     init(
         memoryCache: FireRemoteImageMemoryCache = .shared,
-        dataLoader: @escaping @Sendable (URL) async throws -> Data = FireRemoteImagePipeline.defaultDataLoader
+        dataLoader: @escaping @Sendable (URL) async throws -> Data = {
+            try await FireRemoteImagePipeline.defaultDataLoader(from: $0)
+        }
     ) {
         self.memoryCache = memoryCache
         self.dataLoader = dataLoader
@@ -742,6 +810,27 @@ final class FireRemoteImagePipeline: @unchecked Sendable {
 
     func cachedImage(for request: FireRemoteImageRequest) -> UIImage? {
         memoryCache.image(for: request.cacheKey)
+    }
+
+    func prefetchImage(for request: FireRemoteImageRequest) -> FireRemoteImagePrefetchHandle? {
+        guard cachedImage(for: request) == nil else {
+            return nil
+        }
+
+        let task = Task(priority: .utility) { [weak self] in
+            guard !Task.isCancelled, let self else {
+                return
+            }
+
+            do {
+                _ = try await self.loadImage(for: request)
+            } catch is CancellationError {
+                return
+            } catch {
+                return
+            }
+        }
+        return FireRemoteImagePrefetchHandle(request: request, task: task)
     }
 
     func loadImage(for request: FireRemoteImageRequest) async throws -> UIImage {
@@ -911,6 +1000,23 @@ func fireAvatarURL(
     return URL(string: path, relativeTo: URL(string: baseURLString))?.absoluteURL
 }
 
+func fireAvatarImageRequest(
+    avatarTemplate: String?,
+    size: CGFloat,
+    scale: CGFloat,
+    baseURLString: String = "https://linux.do"
+) -> FireAvatarImageRequest? {
+    guard let avatarURL = fireAvatarURL(
+        avatarTemplate: avatarTemplate,
+        size: size,
+        scale: scale,
+        baseURLString: baseURLString
+    ) else {
+        return nil
+    }
+    return FireAvatarImageRequest(url: avatarURL)
+}
+
 private extension UIImage {
     var fireMemoryCost: Int {
         guard let cgImage else {
@@ -927,15 +1033,12 @@ struct FireAvatarView: View {
     var baseURLString: String = "https://linux.do"
 
     private var avatarRequest: FireAvatarImageRequest? {
-        guard let avatarURL = fireAvatarURL(
+        fireAvatarImageRequest(
             avatarTemplate: avatarTemplate,
             size: size,
             scale: UIScreen.main.scale,
             baseURLString: baseURLString
-        ) else {
-            return nil
-        }
-        return FireAvatarImageRequest(url: avatarURL)
+        )
     }
 
     private var monogram: String {

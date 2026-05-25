@@ -116,6 +116,7 @@ final class FireDiffableListController<SectionID: Hashable, ItemID: Hashable, Ro
     private let canSelectItem: ((ItemID) -> Bool)?
     private let onVisibleItemsChanged: (([ItemID]) -> Void)?
     private let onPrefetchItems: (([ItemID]) -> Void)?
+    private let onCancelPrefetchItems: (([ItemID]) -> Void)?
     private let onScrollMetricsChanged: ((FireCollectionScrollMetrics) -> Void)?
     private let onRefresh: (() async -> Void)?
     private let scrollAnchorRestorePolicy: FireCollectionScrollAnchorRestorePolicy
@@ -149,6 +150,7 @@ final class FireDiffableListController<SectionID: Hashable, ItemID: Hashable, Ro
         canSelectItem: ((ItemID) -> Bool)? = nil,
         onVisibleItemsChanged: (([ItemID]) -> Void)? = nil,
         onPrefetchItems: (([ItemID]) -> Void)? = nil,
+        onCancelPrefetchItems: (([ItemID]) -> Void)? = nil,
         onScrollMetricsChanged: ((FireCollectionScrollMetrics) -> Void)? = nil,
         onRefresh: (() async -> Void)? = nil,
         scrollAnchorRestorePolicy: FireCollectionScrollAnchorRestorePolicy = .whenNotAnimatingDifferences,
@@ -166,6 +168,7 @@ final class FireDiffableListController<SectionID: Hashable, ItemID: Hashable, Ro
         self.canSelectItem = canSelectItem
         self.onVisibleItemsChanged = onVisibleItemsChanged
         self.onPrefetchItems = onPrefetchItems
+        self.onCancelPrefetchItems = onCancelPrefetchItems
         self.onScrollMetricsChanged = onScrollMetricsChanged
         self.onRefresh = onRefresh
         self.scrollAnchorRestorePolicy = scrollAnchorRestorePolicy
@@ -423,6 +426,15 @@ final class FireDiffableListController<SectionID: Hashable, ItemID: Hashable, Ro
             .compactMap { dataSource.itemIdentifier(for: $0) }
         guard !itemIDs.isEmpty else { return }
         onPrefetchItems(itemIDs)
+    }
+
+    func collectionView(_ collectionView: UICollectionView, cancelPrefetchingForItemsAt indexPaths: [IndexPath]) {
+        guard let onCancelPrefetchItems, let dataSource else { return }
+        let itemIDs = indexPaths
+            .sorted()
+            .compactMap { dataSource.itemIdentifier(for: $0) }
+        guard !itemIDs.isEmpty else { return }
+        onCancelPrefetchItems(itemIDs)
     }
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {

@@ -28,6 +28,7 @@ struct FireCollectionHost<SectionID: Hashable, ItemID: Hashable, RowContent: Vie
     let canSelectItem: ((ItemID) -> Bool)?
     let onVisibleItemsChanged: (([ItemID]) -> Void)?
     let onPrefetchItems: (([ItemID]) -> Void)?
+    let onCancelPrefetchItems: (([ItemID]) -> Void)?
     let onScrollMetricsChanged: ((FireCollectionScrollMetrics) -> Void)?
     let onRefresh: (() async -> Void)?
     let scrollAnchorRestorePolicy: FireCollectionScrollAnchorRestorePolicy
@@ -48,6 +49,7 @@ struct FireCollectionHost<SectionID: Hashable, ItemID: Hashable, RowContent: Vie
         canSelectItem: ((ItemID) -> Bool)? = nil,
         onVisibleItemsChanged: (([ItemID]) -> Void)? = nil,
         onPrefetchItems: (([ItemID]) -> Void)? = nil,
+        onCancelPrefetchItems: (([ItemID]) -> Void)? = nil,
         onScrollMetricsChanged: ((FireCollectionScrollMetrics) -> Void)? = nil,
         onRefresh: (() async -> Void)? = nil,
         scrollAnchorRestorePolicy: FireCollectionScrollAnchorRestorePolicy = .whenNotAnimatingDifferences,
@@ -68,6 +70,7 @@ struct FireCollectionHost<SectionID: Hashable, ItemID: Hashable, RowContent: Vie
         self.canSelectItem = canSelectItem
         self.onVisibleItemsChanged = onVisibleItemsChanged
         self.onPrefetchItems = onPrefetchItems
+        self.onCancelPrefetchItems = onCancelPrefetchItems
         self.onScrollMetricsChanged = onScrollMetricsChanged
         self.onRefresh = onRefresh
         self.scrollAnchorRestorePolicy = scrollAnchorRestorePolicy
@@ -92,6 +95,7 @@ struct FireCollectionHost<SectionID: Hashable, ItemID: Hashable, RowContent: Vie
                 canSelectItem: canSelectItem,
                 onVisibleItemsChanged: onVisibleItemsChanged,
                 onPrefetchItems: onPrefetchItems,
+                onCancelPrefetchItems: onCancelPrefetchItems,
                 onScrollMetricsChanged: onScrollMetricsChanged,
                 onRefresh: onRefresh,
                 scrollAnchorRestorePolicy: scrollAnchorRestorePolicy,

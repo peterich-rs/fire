@@ -125,6 +125,7 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
   - now shows live "typing" presence above the quick-reply bar while keeping the actual presence state and heartbeats in the shared layer, and lets reply-presence heartbeats reuse the same CSRF auto-repair path as other authenticated writes
   - now treats `private_message` threads as a distinct native surface, showing participant chips in the header and hiding topic-only controls that do not apply to PMs
   - now renders from store-prepared timeline rows and cached cooked text/image payloads so SwiftUI body updates do not repeatedly join posts to timeline entries or parse post HTML
+  - owns topic post swipe-to-reply at the row level, with policy-tested arbitration for back navigation, trailing controls, rich-text selection, links, image buttons, poll controls, post menus, and horizontal reaction scrollers
 - `App/FirePublicProfileView.swift`
   - now exposes a native private-message entry when the target profile allows direct messages, pre-filling the recipient into the shared PM composer flow
 - `App/FireBackgroundNotificationAlert.swift`
@@ -150,12 +151,12 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
   - now contains the W3 collection-host foundation built around `UICollectionView`, diffable data source snapshots, and `UIHostingConfiguration`
   - `FireCollectionHost.swift` bridges SwiftUI into a reusable collection-backed host while `FireDiffableListController.swift` preserves the top visible item and relative offset across snapshot applies, forwards scroll metrics, and supports native pull-to-refresh
   - `FireListSectionModel.swift` provides the section/item shape shared by later home/notification/topic-detail migrations
-  - `Home/FireHomeCollectionView.swift` is the first W3 migration slice and now drives the authenticated home feed through diffable collection snapshots instead of SwiftUI `List`
+  - `Home/FireHomeCollectionView.swift` is the first W3 migration slice and now drives the authenticated home feed through diffable collection snapshots instead of SwiftUI `List`, with per-row content signatures limiting reconfiguration to visible row fields instead of full topic payload churn
 - `App/FireTopicPresentation.swift`
   - normalizes topic/post timestamps for native presentation
   - extracts inline cooked-image attachments plus enabled reaction options from bootstrap/topic HTML so the native detail view can render media and interaction affordances without a WebView
   - now also prepares topic-detail render caches for iOS-specific row ordering and cooked post content, instead of mutating Rust-owned topic-detail payloads in Swift
-  - now focuses on host-only presentation helpers after topic-row shaping, shared text helpers, and thread flattening moved into Rust
+  - now focuses on host-only presentation helpers after topic-row shaping, shared text helpers, and thread flattening moved into Rust, including iterative/cycle-safe reply timeline construction for deep or malformed partial thread windows
 - `Tests/Unit/`
   - contains only logic-level unit tests for route parsing, avatar URL construction, composer validation, entity ordering/indexing, MessageBus refresh coalescing, topic-detail window math, search result merging, and Swift-owned topic presentation helpers
   - excludes SwiftUI/UIKit rendering, app-hosted feature flows, notification/push registration, startup preload, and collection-view adapter behavior; those belong in integration/UI coverage rather than the unit bundle
@@ -249,7 +250,8 @@ Current UX note:
 - Topic detail now also reports native visible-post reading timings through the shared Rust `/topics/timings` API instead of keeping that reporting path host-specific.
 - Topic detail now also listens to the shared MessageBus reaction/presence channels, refreshes live post state from Rust on matching events, and shows shared reply-presence users in the quick-reply area.
 - Topic detail now also recognizes `private_message` threads, renders participant chips in the header, and hides public-topic-only controls such as vote panels, topic editing, category/tag navigation, and topic notification settings.
-- Topic detail now prepares reply rows plus cooked text/image payloads in the store layer, so SwiftUI body updates reuse cached render content instead of repeating timeline joins and cooked HTML parsing.
+- Topic detail now prepares reply rows plus cooked text/image payloads in the store layer, so SwiftUI body updates reuse cached render content instead of repeating timeline joins and cooked HTML parsing; deep reply chains use iterative DFS/parent-depth resolution with cycle protection instead of recursive parent walks.
+- Topic detail reply swipe now uses row-local gesture arbitration: leading and trailing zones are reserved, interactive child frames are excluded from swipe arming, active rich-text selection cancels the parent gesture, and the composer only opens when the final drag still crosses the reply threshold.
 - Topic detail now shows the shared Rust AI summary card when the backend advertises an available cached or generatable summary; missing summaries simply disappear, and failures stay scoped to the retryable summary card.
 - Topic posts now render a richer native cooked-content surface in the detail screen, including inline emoji attachments, linked-image extraction that prefers the original asset while preserving server-provided aspect ratios, quote/reply metadata blocks, ordered/unordered lists, details/spoilers, simple tables, onebox/video fallbacks, tappable `@mentions` / group mentions / hashtags, and LinuxDo topic/profile/badge links that stay inside the app instead of bouncing to Safari.
 - The app now keeps the in-app notification list synchronized from Rust-owned notification runtime state when MessageBus notification events arrive, instead of only updating the unread badge count.

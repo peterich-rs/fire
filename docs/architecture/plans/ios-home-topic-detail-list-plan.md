@@ -45,6 +45,20 @@ The current branch now includes the core migration described in this plan:
   sheets, fullscreen covers, and the bottom quick-reply bar.
 - the migration reuses the existing topic row/post row styling and swipe to
   reply container so the visual design and gesture reservation stay intact.
+- topic-detail reply swipe is now row-owned by `FirePostRow` and arbitrated by
+  pure `FireTopicReplySwipePolicy` helpers. The gesture reserves the leading
+  back-swipe zone and trailing row-control zone, ignores child regions such as
+  rich text, reply-target buttons, post menus, images, polls, and horizontal
+  reaction scrollers, and only opens the composer when the final drag state
+  still satisfies the reply threshold.
+- home row invalidation now uses a focused `FireTopicRowContentSignature`
+  instead of rebuilding a long joined-string token from the full topic payload,
+  and the collection host no longer treats the entire `topicRows` array as a
+  global content version when per-item tokens can drive row reconfiguration.
+- topic-detail reply ordering now keeps the same DFS visual model, but the
+  expensive parts are iterative and indexed: partial anchored loads resolve
+  reply depth through a memoized `postNumber -> post` lookup with cycle
+  protection, and full loads avoid recursive DFS stack growth on deep threads.
 
 ## Current State
 
@@ -63,6 +77,10 @@ The current branch now includes the core migration described in this plan:
   - scroll-anchor preservation across updates
   - explicit scroll requests for target items that appear after a snapshot update
 - Remaining home work is refinement, not first migration.
+- The current home refinement path is to keep list identity and per-row update
+  tokens narrow: row order changes still flow through diffable section items,
+  while row reconfiguration is limited to visible row fields such as title,
+  counts, author/avatar, timestamp, tags/status chips, and category chip data.
 
 ### Topic Detail
 
@@ -80,6 +98,15 @@ The current branch now includes the core migration described in this plan:
   - `FireTopicPresentation` owns row metadata derivation
   - the view mostly owns composition and gesture wiring
 - The remaining work is cleanup and hardening, not first-host migration.
+- Reply swipe now suppresses active rich-text selection through
+  `FireRichTextView`'s `UITextViewDelegate` selection callback and row-local
+  excluded-region preferences for child controls. This keeps link/text
+  selection, media taps, poll controls, and reaction strip scrolling from
+  arming the parent reply gesture.
+- Reply-tree construction is now hardened for production-shaped data: normal
+  full loads use DFS ordering, partial/anchored loads keep flat floor order,
+  and malformed cyclic parent chains are bounded to a conservative low
+  indentation instead of recursing indefinitely.
 
 ## Goals
 
@@ -260,7 +287,8 @@ These are non-negotiable for the migration:
    Route/comment jumps must continue to retry until the target row exists.
 
 3. Gesture correctness.
-   Reply swipe cannot regress iOS back navigation behavior.
+   Reply swipe cannot regress iOS back navigation behavior or steal gestures
+   from rich-text selection, links, media, polls, menus, or reaction scrollers.
 
 4. Visibility-driven hydration.
    Preload should use explicit host visible items rather than ad hoc geometry
@@ -283,6 +311,9 @@ break back navigation or reply swipe.
 Mitigation:
 
 - migrate the row container and gesture policy together
+- keep row-swipe decisions in pure policy helpers with focused unit coverage
+- reserve row-local leading/trailing zones and explicitly exclude interactive
+  child frames from parent reply-swipe arming
 - verify with targeted interaction tests before removing the old path
 
 ### Anchor / Jump Regressions
@@ -320,6 +351,9 @@ Mitigation:
 - visible-item to preload mapping
 - scroll-anchor restore policy
 - topic-detail route target resolution
+- reply-swipe arbitration: leading/back reserve, trailing-control reserve,
+  interactive-child suppression, rightward horizontal intent, and retreated
+  trigger cancellation
 
 ### Manual / Simulator Verification
 

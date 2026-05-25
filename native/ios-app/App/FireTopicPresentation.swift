@@ -309,15 +309,25 @@ enum FireTopicPresentation {
         minPN: UInt32
     ) -> [FireTopicTimelineEntry] {
         let sorted = posts.sorted(by: comparePosts(_:_:))
+        let postsByNumber = postLookupByPostNumber(sorted)
+        var depthMemo: [UInt32: UInt32] = [:]
+        depthMemo.reserveCapacity(sorted.count)
         return sorted.map { post in
             let parent = normalizedReplyTarget(post.replyToPostNumber)
             let depth: UInt32
             if let pn = parent, pn != post.postNumber {
-                depth = computeDepthWalk(
-                    parentPN: pn, posts: posts, loaded: postNumbers, currentDepth: 1
+                depth = depthForReply(
+                    parentPostNumber: pn,
+                    postsByNumber: postsByNumber,
+                    loaded: postNumbers,
+                    memo: &depthMemo
                 )
             } else {
                 depth = 0
+                depthMemo[post.postNumber] = 0
+            }
+            if depthMemo[post.postNumber] == nil {
+                depthMemo[post.postNumber] = depth
             }
             return FireTopicTimelineEntry(
                 postId: post.id,
@@ -362,14 +372,15 @@ enum FireTopicPresentation {
         }
 
         // Sort children within each group by postNumber
-        for key in childrenByParent.keys {
+        for key in Array(childrenByParent.keys) {
             childrenByParent[key]?.sort(by: comparePosts(_:_:))
         }
         topLevelPosts.sort(by: comparePosts(_:_:))
 
-        // DFS traversal
         var result: [FireTopicTimelineEntry] = []
         var visited: Set<UInt32> = [opPN]
+        visited.reserveCapacity(posts.count)
+        result.reserveCapacity(posts.count)
 
         // Add OP first
         result.append(FireTopicTimelineEntry(
@@ -380,58 +391,119 @@ enum FireTopicPresentation {
             isOriginalPost: true
         ))
 
-        func dfs(post: TopicPostState, depth: UInt32) {
-            guard !visited.contains(post.postNumber) else { return }
-            visited.insert(post.postNumber)
+        func appendDepthFirst(_ roots: [TopicPostState], initialDepth: UInt32) {
+            var stack: [(post: TopicPostState, depth: UInt32)] = roots
+                .reversed()
+                .map { (post: $0, depth: initialDepth) }
+            stack.reserveCapacity(max(stack.count, posts.count))
 
-            let parent = normalizedReplyTarget(post.replyToPostNumber)
-            result.append(FireTopicTimelineEntry(
-                postId: post.id,
-                postNumber: post.postNumber,
-                parentPostNumber: parent,
-                depth: depth,
-                isOriginalPost: false
-            ))
+            while let next = stack.popLast() {
+                let post = next.post
+                guard !visited.contains(post.postNumber) else { continue }
+                visited.insert(post.postNumber)
 
-            if let children = childrenByParent[post.postNumber] {
-                for child in children {
-                    dfs(post: child, depth: depth + 1)
+                let parent = normalizedReplyTarget(post.replyToPostNumber)
+                result.append(FireTopicTimelineEntry(
+                    postId: post.id,
+                    postNumber: post.postNumber,
+                    parentPostNumber: parent,
+                    depth: next.depth,
+                    isOriginalPost: false
+                ))
+
+                if let children = childrenByParent[post.postNumber], !children.isEmpty {
+                    for child in children.reversed() {
+                        stack.append((post: child, depth: next.depth + 1))
+                    }
                 }
             }
         }
 
         // Process top-level posts (depth 1 = direct replies to OP)
-        for post in topLevelPosts {
-            dfs(post: post, depth: 1)
-        }
+        appendDepthFirst(topLevelPosts, initialDepth: 1)
 
         // Handle remaining orphans
         let remaining = posts
             .filter { !visited.contains($0.postNumber) }
             .sorted(by: comparePosts(_:_:))
-        for post in remaining {
-            dfs(post: post, depth: 1)
-        }
+        appendDepthFirst(remaining, initialDepth: 1)
 
         return result
     }
 
-    private static func computeDepthWalk(
-        parentPN: UInt32,
-        posts: [TopicPostState],
+    private static func postLookupByPostNumber(_ posts: [TopicPostState]) -> [UInt32: TopicPostState] {
+        var lookup: [UInt32: TopicPostState] = [:]
+        lookup.reserveCapacity(posts.count)
+        for post in posts where lookup[post.postNumber] == nil {
+            lookup[post.postNumber] = post
+        }
+        return lookup
+    }
+
+    private static func depthForReply(
+        parentPostNumber: UInt32,
+        postsByNumber: [UInt32: TopicPostState],
         loaded: Set<UInt32>,
-        currentDepth: UInt32
+        memo: inout [UInt32: UInt32]
     ) -> UInt32 {
-        guard loaded.contains(parentPN) else { return currentDepth }
-        guard let parentPost = posts.first(where: { $0.postNumber == parentPN }) else {
-            return currentDepth
+        if let cachedDepth = memo[parentPostNumber] {
+            return cachedDepth + 1
         }
-        if let gp = normalizedReplyTarget(parentPost.replyToPostNumber), gp != parentPN {
-            return computeDepthWalk(
-                parentPN: gp, posts: posts, loaded: loaded, currentDepth: currentDepth + 1
-            )
+
+        var chain: [UInt32] = []
+        var currentPostNumber = parentPostNumber
+        var seen: Set<UInt32> = []
+        var baseDepth: UInt32 = 0
+        var cycleStartPostNumber: UInt32?
+
+        while true {
+            if let cachedDepth = memo[currentPostNumber] {
+                baseDepth = cachedDepth
+                break
+            }
+
+            guard loaded.contains(currentPostNumber),
+                  let currentPost = postsByNumber[currentPostNumber] else {
+                baseDepth = 0
+                break
+            }
+
+            guard seen.insert(currentPostNumber).inserted else {
+                cycleStartPostNumber = currentPostNumber
+                break
+            }
+
+            guard let nextParent = normalizedReplyTarget(currentPost.replyToPostNumber),
+                  nextParent != currentPost.postNumber else {
+                memo[currentPostNumber] = 0
+                baseDepth = 0
+                break
+            }
+
+            chain.append(currentPostNumber)
+            currentPostNumber = nextParent
         }
-        return currentDepth
+
+        if let cycleStartPostNumber,
+           let cycleStartIndex = chain.firstIndex(of: cycleStartPostNumber) {
+            for postNumber in chain[cycleStartIndex...] {
+                memo[postNumber] = 0
+            }
+
+            var cycleDepth: UInt32 = 0
+            for postNumber in chain[..<cycleStartIndex].reversed() {
+                cycleDepth += 1
+                memo[postNumber] = cycleDepth
+            }
+            return (memo[parentPostNumber] ?? 0) + 1
+        }
+
+        var resolvedDepth = baseDepth
+        for postNumber in chain.reversed() {
+            resolvedDepth += 1
+            memo[postNumber] = resolvedDepth
+        }
+        return resolvedDepth + 1
     }
 
     static func timelineRows(

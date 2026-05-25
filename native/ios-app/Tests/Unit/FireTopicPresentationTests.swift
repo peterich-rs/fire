@@ -650,6 +650,40 @@ final class FireTopicPresentationTests: XCTestCase {
         XCTAssertEqual(entries[3].depth, 1)
     }
 
+    func testRebuildTimelineEntriesHandlesDeepReplyChainIteratively() {
+        let postCount = 2_000
+        var posts: [TopicPostState] = []
+        posts.reserveCapacity(postCount)
+        for postNumber in 1...postCount {
+            let replyToPostNumber: UInt32? = postNumber == 1 ? nil : UInt32(postNumber - 1)
+            posts.append(makePost(
+                postNumber: UInt32(postNumber),
+                replyToPostNumber: replyToPostNumber,
+                username: "reply-\(postNumber)"
+            ))
+        }
+
+        let entries = FireTopicPresentation.rebuildTimelineEntries(from: posts)
+
+        XCTAssertEqual(entries.count, postCount)
+        XCTAssertEqual(entries.first?.postNumber, 1)
+        XCTAssertEqual(entries.last?.postNumber, UInt32(postCount))
+        XCTAssertEqual(entries.last?.depth, UInt32(postCount - 1))
+    }
+
+    func testRebuildTimelineEntriesPartialCycleDoesNotRecurseForever() {
+        let posts = [
+            makePost(postNumber: 5, replyToPostNumber: 6, username: "cycle-a"),
+            makePost(postNumber: 6, replyToPostNumber: 5, username: "cycle-b"),
+        ]
+
+        let entries = FireTopicPresentation.rebuildTimelineEntries(from: posts)
+
+        XCTAssertEqual(entries.map(\.postNumber), [5, 6])
+        XCTAssertEqual(entries.map(\.parentPostNumber), [6, 5])
+        XCTAssertEqual(entries.map(\.depth), [1, 1])
+    }
+
     func testRebuildTimelineEntriesPartialSetFallsBackDepth() {
         // Simulate an anchored load where parent #3 is not loaded.
         let posts = [

@@ -653,34 +653,34 @@ struct FireTopicDetailCollectionView: View {
         Group {
             if let originalPost,
                let originalRenderContent = originalPostRenderContent {
-                FireSwipeToReplyContainer(enabled: canWriteInteractions) {
-                    onOpenComposer(originalPost)
-                } content: {
-                    FirePostRow(
-                        post: originalPost,
-                        renderContent: originalRenderContent,
-                        depth: 0,
-                        replyContext: nil,
-                        replyTargetPostNumber: nil,
-                        showsThreadLine: false,
-                        baseURLString: baseURLString,
-                        canWriteInteractions: canWriteInteractions,
-                        isMutating: topicDetailStore.isMutatingPost(postId: originalPost.id),
-                        onLinkTapped: onLinkTapped,
-                        onOpenImage: onOpenImage,
-                        onToggleLike: onToggleLike,
-                        onSelectReaction: onSelectReaction,
-                        onEditPost: onEditPost,
-                        onBookmarkPost: onBookmarkPost,
-                        onDeletePost: onDeletePost,
-                        onRecoverPost: onRecoverPost,
-                        onFlagPost: onFlagPost,
-                        onOpenReplyTarget: onOpenPostNumber,
-                        onOpenReplies: onOpenPostReplies,
-                        onVotePoll: onVotePoll,
-                        onUnvotePoll: onUnvotePoll
-                    )
-                }
+                FirePostRow(
+                    post: originalPost,
+                    renderContent: originalRenderContent,
+                    depth: 0,
+                    replyContext: nil,
+                    replyTargetPostNumber: nil,
+                    showsThreadLine: false,
+                    baseURLString: baseURLString,
+                    canWriteInteractions: canWriteInteractions,
+                    canSwipeToReply: canWriteInteractions,
+                    isMutating: topicDetailStore.isMutatingPost(postId: originalPost.id),
+                    onSwipeReply: {
+                        onOpenComposer(originalPost)
+                    },
+                    onLinkTapped: onLinkTapped,
+                    onOpenImage: onOpenImage,
+                    onToggleLike: onToggleLike,
+                    onSelectReaction: onSelectReaction,
+                    onEditPost: onEditPost,
+                    onBookmarkPost: onBookmarkPost,
+                    onDeletePost: onDeletePost,
+                    onRecoverPost: onRecoverPost,
+                    onFlagPost: onFlagPost,
+                    onOpenReplyTarget: onOpenPostNumber,
+                    onOpenReplies: onOpenPostReplies,
+                    onVotePoll: onVotePoll,
+                    onUnvotePoll: onUnvotePoll
+                )
             } else if let excerpt = row.excerptText {
                 Text(excerpt)
                     .font(.subheadline)
@@ -819,41 +819,41 @@ struct FireTopicDetailCollectionView: View {
         VStack(spacing: 0) {
             if let row,
                let post = postLookup[row.entry.postId] {
-                FireSwipeToReplyContainer(enabled: canWriteInteractions) {
-                    onOpenComposer(post)
-                } content: {
-                    FirePostRow(
-                        post: post,
-                        renderContent: renderState?.contentByPostID[row.entry.postId]
-                            ?? FireTopicPresentation.renderContent(
-                                from: post.cooked,
-                                baseURLString: baseURLString
-                        ),
-                        depth: Int(row.entry.depth),
-                        replyContext: replyContextLabel(
-                            for: post,
-                            fallbackPostNumber: row.entry.parentPostNumber
-                        ),
-                        replyTargetPostNumber: post.replyToPostNumber ?? row.entry.parentPostNumber,
-                        showsThreadLine: showsTimelineThreadLine(in: replyRows, at: replyIndex ?? 0),
-                        baseURLString: baseURLString,
-                        canWriteInteractions: canWriteInteractions,
-                        isMutating: topicDetailStore.isMutatingPost(postId: post.id),
-                        onLinkTapped: onLinkTapped,
-                        onOpenImage: onOpenImage,
-                        onToggleLike: onToggleLike,
-                        onSelectReaction: onSelectReaction,
-                        onEditPost: onEditPost,
-                        onBookmarkPost: onBookmarkPost,
-                        onDeletePost: onDeletePost,
-                        onRecoverPost: onRecoverPost,
-                        onFlagPost: onFlagPost,
-                        onOpenReplyTarget: onOpenPostNumber,
-                        onOpenReplies: onOpenPostReplies,
-                        onVotePoll: onVotePoll,
-                        onUnvotePoll: onUnvotePoll
-                    )
-                }
+                FirePostRow(
+                    post: post,
+                    renderContent: renderState?.contentByPostID[row.entry.postId]
+                        ?? FireTopicPresentation.renderContent(
+                            from: post.cooked,
+                            baseURLString: baseURLString
+                    ),
+                    depth: Int(row.entry.depth),
+                    replyContext: replyContextLabel(
+                        for: post,
+                        fallbackPostNumber: row.entry.parentPostNumber
+                    ),
+                    replyTargetPostNumber: post.replyToPostNumber ?? row.entry.parentPostNumber,
+                    showsThreadLine: showsTimelineThreadLine(in: replyRows, at: replyIndex ?? 0),
+                    baseURLString: baseURLString,
+                    canWriteInteractions: canWriteInteractions,
+                    canSwipeToReply: canWriteInteractions,
+                    isMutating: topicDetailStore.isMutatingPost(postId: post.id),
+                    onSwipeReply: {
+                        onOpenComposer(post)
+                    },
+                    onLinkTapped: onLinkTapped,
+                    onOpenImage: onOpenImage,
+                    onToggleLike: onToggleLike,
+                    onSelectReaction: onSelectReaction,
+                    onEditPost: onEditPost,
+                    onBookmarkPost: onBookmarkPost,
+                    onDeletePost: onDeletePost,
+                    onRecoverPost: onRecoverPost,
+                    onFlagPost: onFlagPost,
+                    onOpenReplyTarget: onOpenPostNumber,
+                    onOpenReplies: onOpenPostReplies,
+                    onVotePoll: onVotePoll,
+                    onUnvotePoll: onUnvotePoll
+                )
             } else if let row {
                 FireTopicPostPlaceholder(depth: Int(row.entry.depth))
             }

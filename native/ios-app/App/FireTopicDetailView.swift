@@ -1649,23 +1649,94 @@ enum FireTopicReplySwipeAxis: Equatable {
     case horizontal
     case vertical
     case reservedForNavigationBack
+    case reservedForTrailingControls
+    case suppressedByInteractiveContent
+    case oppositeDirection
 }
 
 enum FireTopicReplySwipePolicy {
     static let backNavigationReservedWidth: CGFloat = 32
+    static let trailingControlsReservedWidth: CGFloat = 44
+    static let horizontalDominanceRatio: CGFloat = 1.35
+    static let minimumPositiveTranslation: CGFloat = 10
+    static let triggerThreshold: CGFloat = 55
+    static let cancelThreshold: CGFloat = 14
+    static let maxOffset: CGFloat = 75
+    static let excludedRegionHitSlop: CGFloat = 6
 
     static func resolvedAxis(
         startLocationX: CGFloat,
+        rowWidth: CGFloat,
         translationWidth: CGFloat,
-        translationHeight: CGFloat
+        translationHeight: CGFloat,
+        isInteractiveContentActive: Bool = false,
+        startsInExcludedRegion: Bool = false
     ) -> FireTopicReplySwipeAxis {
+        if isInteractiveContentActive || startsInExcludedRegion {
+            return .suppressedByInteractiveContent
+        }
+
         if startLocationX <= backNavigationReservedWidth {
             return .reservedForNavigationBack
         }
 
-        return abs(translationWidth) > abs(translationHeight) * 1.2
+        if rowWidth > 0,
+           startLocationX >= rowWidth - trailingControlsReservedWidth {
+            return .reservedForTrailingControls
+        }
+
+        if translationWidth < -minimumPositiveTranslation {
+            return .oppositeDirection
+        }
+
+        let absWidth = abs(translationWidth)
+        let absHeight = abs(translationHeight)
+        return absWidth > absHeight * horizontalDominanceRatio
             ? .horizontal
             : .vertical
+    }
+
+    static func allowsReplyTracking(
+        axis: FireTopicReplySwipeAxis?,
+        translationWidth: CGFloat
+    ) -> Bool {
+        axis == .horizontal && translationWidth >= minimumPositiveTranslation
+    }
+
+    static func startsInExcludedRegion(
+        _ startLocation: CGPoint,
+        excludedFrames: [CGRect]
+    ) -> Bool {
+        excludedFrames.contains {
+            $0.insetBy(dx: -excludedRegionHitSlop, dy: -excludedRegionHitSlop)
+                .contains(startLocation)
+        }
+    }
+
+    static func shouldTriggerReply(
+        offset: CGFloat,
+        translationWidth: CGFloat
+    ) -> Bool {
+        offset >= triggerThreshold && translationWidth >= triggerThreshold
+    }
+
+    static func shouldCancelActiveTrigger(translationWidth: CGFloat) -> Bool {
+        translationWidth < cancelThreshold
+    }
+
+    static func clampedOffset(for translationWidth: CGFloat) -> CGFloat {
+        min(dampenedOffset(for: translationWidth), maxOffset)
+    }
+
+    static func dampenedOffset(for translationWidth: CGFloat) -> CGFloat {
+        guard translationWidth > 0 else {
+            return 0
+        }
+
+        if translationWidth > triggerThreshold {
+            return triggerThreshold + (translationWidth - triggerThreshold) * 0.25
+        }
+        return translationWidth
     }
 }
 
@@ -1678,7 +1749,9 @@ struct FirePostRow: View {
     let showsThreadLine: Bool
     let baseURLString: String
     let canWriteInteractions: Bool
+    let canSwipeToReply: Bool
     let isMutating: Bool
+    let onSwipeReply: () -> Void
     let onLinkTapped: (URL) -> Void
     let onOpenImage: (FireCookedImage) -> Void
     let onToggleLike: (TopicPostState) -> Void
@@ -1695,6 +1768,7 @@ struct FirePostRow: View {
 
     private static let maxVisualDepth = 3
     private static let showsRepliesPanelShortcut = false
+    @State private var isRichTextSelectionActive = false
 
     private var visualDepth: Int {
         max(depth - 1, 0)
@@ -1725,6 +1799,16 @@ struct FirePostRow: View {
     }
 
     var body: some View {
+        FireSwipeToReplyContainer(
+            enabled: canSwipeToReply,
+            isInteractiveContentActive: isRichTextSelectionActive,
+            onSwipeReply: onSwipeReply
+        ) {
+            rowContent
+        }
+    }
+
+    private var rowContent: some View {
         HStack(alignment: .top, spacing: visualDepth > 0 ? 6 : 10) {
             if visualDepth > 0 {
                 Color.clear.frame(width: indentWidth)
@@ -1762,6 +1846,7 @@ struct FirePostRow: View {
                                     .foregroundStyle(FireTheme.accent)
                             }
                             .buttonStyle(.plain)
+                            .fireSwipeReplyExcludedRegion()
                         } else {
                             Text(replyContext)
                                 .font(.caption2.weight(.medium))
@@ -1851,14 +1936,25 @@ struct FirePostRow: View {
                                 .foregroundStyle(FireTheme.tertiaryInk)
                                 .frame(width: 20, height: 20)
                         }
+                        .fireSwipeReplyExcludedRegion()
                     }
                 }
 
                 if let attributedText = renderContent.attributedText, attributedText.length > 0 {
-                    FireRichTextView(attributedString: attributedText) { url in
-                        onLinkTapped(url)
+                    FireRichTextView(
+                        attributedString: attributedText,
+                        onLinkTapped: { url in
+                            onLinkTapped(url)
+                        },
+                        onSelectionActiveChanged: { isActive in
+                            isRichTextSelectionActive = isActive
+                        }
+                    )
+                    .onDisappear {
+                        isRichTextSelectionActive = false
                     }
                     .fixedSize(horizontal: false, vertical: true)
+                    .fireSwipeReplyExcludedRegion()
                 } else {
                     Text(renderContent.plainText)
                         .font(.subheadline)
@@ -1875,6 +1971,7 @@ struct FirePostRow: View {
                                 FireCookedImageCard(image: attachment)
                             }
                             .buttonStyle(.plain)
+                            .fireSwipeReplyExcludedRegion()
                         }
                     }
                 }
@@ -1892,6 +1989,7 @@ struct FirePostRow: View {
                                     onUnvotePoll(post, poll)
                                 }
                             )
+                            .fireSwipeReplyExcludedRegion()
                         }
                     }
                 }
@@ -1908,6 +2006,7 @@ struct FirePostRow: View {
                             .background(FireTheme.accent.opacity(0.10), in: Capsule())
                     }
                     .buttonStyle(.plain)
+                    .fireSwipeReplyExcludedRegion()
                 }
 
                 if !post.reactions.isEmpty {
@@ -1945,6 +2044,7 @@ struct FirePostRow: View {
                             }
                         }
                     }
+                    .fireSwipeReplyExcludedRegion()
                 }
             }
             .padding(.vertical, 8)
@@ -2742,28 +2842,38 @@ private struct FireTopicImageViewer: View {
 
 struct FireSwipeToReplyContainer<Content: View>: View {
     let enabled: Bool
+    let isInteractiveContentActive: Bool
     let onSwipeReply: () -> Void
     @ViewBuilder let content: () -> Content
 
     @State private var offset: CGFloat = 0
+    @State private var rowWidth: CGFloat = 0
+    @State private var excludedFrames: [CGRect] = []
     @State private var gestureDirection: FireTopicReplySwipeAxis? = nil
     @State private var replyTriggered = false
     @State private var swipeReplyTriggerPulse = 0
-
-    private let triggerThreshold: CGFloat = 55
-    private let maxOffset: CGFloat = 75
 
     var body: some View {
         if enabled {
             swipeableContent
         } else {
             content()
+                .coordinateSpace(name: FireSwipeToReplyCoordinateSpace.name)
         }
     }
 
     private var swipeableContent: some View {
         content()
             .offset(x: offset)
+            .coordinateSpace(name: FireSwipeToReplyCoordinateSpace.name)
+            .background {
+                GeometryReader { proxy in
+                    Color.clear.preference(
+                        key: FireSwipeToReplyWidthPreferenceKey.self,
+                        value: proxy.size.width
+                    )
+                }
+            }
             .background(alignment: .leading) {
                 if offset > 4 {
                     replyIndicator
@@ -2772,6 +2882,16 @@ struct FireSwipeToReplyContainer<Content: View>: View {
             .clipped()
             .contentShape(Rectangle())
             .simultaneousGesture(swipeGesture)
+            .onPreferenceChange(FireSwipeToReplyWidthPreferenceKey.self) { width in
+                rowWidth = width
+            }
+            .onPreferenceChange(FireSwipeToReplyExcludedFramesPreferenceKey.self) { frames in
+                excludedFrames = frames
+            }
+            .onChange(of: isInteractiveContentActive) { _, isActive in
+                guard isActive else { return }
+                resetSwipeState(animated: true)
+            }
             .fireSwipeReplyFeedback(trigger: swipeReplyTriggerPulse)
     }
 
@@ -2779,8 +2899,8 @@ struct FireSwipeToReplyContainer<Content: View>: View {
         Image(systemName: "arrowshape.turn.up.left.fill")
             .font(.system(size: 18, weight: .medium))
             .foregroundStyle(replyTriggered ? FireTheme.accent : FireTheme.tertiaryInk)
-            .scaleEffect(min(offset / triggerThreshold, 1.0))
-            .opacity(Double(min(offset / (triggerThreshold * 0.5), 1.0)))
+            .scaleEffect(min(offset / FireTopicReplySwipePolicy.triggerThreshold, 1.0))
+            .opacity(Double(min(offset / (FireTopicReplySwipePolicy.triggerThreshold * 0.5), 1.0)))
             .frame(width: 32, height: 32)
             .padding(.leading, 4)
     }
@@ -2794,35 +2914,109 @@ struct FireSwipeToReplyContainer<Content: View>: View {
                 if gestureDirection == nil {
                     gestureDirection = FireTopicReplySwipePolicy.resolvedAxis(
                         startLocationX: value.startLocation.x,
+                        rowWidth: rowWidth,
                         translationWidth: dx,
-                        translationHeight: dy
+                        translationHeight: dy,
+                        isInteractiveContentActive: isInteractiveContentActive,
+                        startsInExcludedRegion: FireTopicReplySwipePolicy.startsInExcludedRegion(
+                            value.startLocation,
+                            excludedFrames: excludedFrames
+                        )
                     )
                 }
 
-                guard gestureDirection == .horizontal, dx > 0 else { return }
-
-                let dampened = dx > triggerThreshold
-                    ? triggerThreshold + (dx - triggerThreshold) * 0.25
-                    : dx
-                withAnimation(.interactiveSpring()) {
-                    offset = min(dampened, maxOffset)
+                guard FireTopicReplySwipePolicy.allowsReplyTracking(
+                    axis: gestureDirection,
+                    translationWidth: dx
+                ) else {
+                    if FireTopicReplySwipePolicy.shouldCancelActiveTrigger(translationWidth: dx) {
+                        replyTriggered = false
+                    }
+                    return
                 }
 
-                if offset >= triggerThreshold && !replyTriggered {
+                let nextOffset = FireTopicReplySwipePolicy.clampedOffset(for: dx)
+                withAnimation(.interactiveSpring()) {
+                    offset = nextOffset
+                }
+
+                if FireTopicReplySwipePolicy.shouldCancelActiveTrigger(translationWidth: dx) {
+                    replyTriggered = false
+                } else if FireTopicReplySwipePolicy.shouldTriggerReply(
+                    offset: nextOffset,
+                    translationWidth: dx
+                ) && !replyTriggered {
                     replyTriggered = true
                     swipeReplyTriggerPulse += 1
                 }
             }
-            .onEnded { _ in
-                if replyTriggered {
+            .onEnded { value in
+                let shouldOpenComposer = replyTriggered
+                    && FireTopicReplySwipePolicy.shouldTriggerReply(
+                        offset: offset,
+                        translationWidth: value.translation.width
+                    )
+                    && !isInteractiveContentActive
+
+                if shouldOpenComposer {
                     onSwipeReply()
                 }
-                withAnimation(.spring(response: 0.25, dampingFraction: 0.7)) {
-                    offset = 0
-                }
-                gestureDirection = nil
-                replyTriggered = false
+                resetSwipeState(animated: true)
             }
+    }
+
+    private func resetSwipeState(animated: Bool) {
+        if animated {
+            withAnimation(.spring(response: 0.25, dampingFraction: 0.7)) {
+                offset = 0
+            }
+        } else {
+            offset = 0
+        }
+        gestureDirection = nil
+        replyTriggered = false
+    }
+}
+
+private struct FireSwipeToReplyWidthPreferenceKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        let next = nextValue()
+        if next > 0 {
+            value = next
+        }
+    }
+}
+
+private enum FireSwipeToReplyCoordinateSpace {
+    static let name = "FireSwipeToReplyContainer"
+}
+
+private struct FireSwipeToReplyExcludedFramesPreferenceKey: PreferenceKey {
+    static var defaultValue: [CGRect] = []
+
+    static func reduce(value: inout [CGRect], nextValue: () -> [CGRect]) {
+        value.append(contentsOf: nextValue())
+    }
+}
+
+private struct FireSwipeToReplyExcludedRegionModifier: ViewModifier {
+    func body(content: Content) -> some View {
+        content.background {
+            GeometryReader { proxy in
+                Color.clear.preference(
+                    key: FireSwipeToReplyExcludedFramesPreferenceKey.self,
+                    value: [proxy.frame(in: .named(FireSwipeToReplyCoordinateSpace.name))]
+                )
+            }
+        }
+    }
+}
+
+private extension View {
+    func fireSwipeReplyExcludedRegion() -> some View {
+        modifier(FireSwipeToReplyExcludedRegionModifier())
     }
 }
 

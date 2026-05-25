@@ -758,6 +758,200 @@ final class FireTopicPresentationTests: XCTestCase {
         XCTAssertEqual(missing, [40])
     }
 
+    func testReplySwipePolicyReservesNavigationAndTrailingControls() {
+        XCTAssertEqual(
+            FireTopicReplySwipePolicy.resolvedAxis(
+                startLocationX: 20,
+                rowWidth: 320,
+                translationWidth: 80,
+                translationHeight: 4
+            ),
+            .reservedForNavigationBack
+        )
+        XCTAssertEqual(
+            FireTopicReplySwipePolicy.resolvedAxis(
+                startLocationX: 300,
+                rowWidth: 320,
+                translationWidth: 80,
+                translationHeight: 4
+            ),
+            .reservedForTrailingControls
+        )
+    }
+
+    func testReplySwipePolicySuppressesInteractiveTextSelection() {
+        XCTAssertEqual(
+            FireTopicReplySwipePolicy.resolvedAxis(
+                startLocationX: 120,
+                rowWidth: 320,
+                translationWidth: 80,
+                translationHeight: 4,
+                isInteractiveContentActive: true
+            ),
+            .suppressedByInteractiveContent
+        )
+        XCTAssertFalse(
+            FireTopicReplySwipePolicy.allowsReplyTracking(
+                axis: .suppressedByInteractiveContent,
+                translationWidth: 80
+            )
+        )
+    }
+
+    func testReplySwipePolicySuppressesExcludedChildRegions() {
+        let excludedFrames = [
+            CGRect(x: 40, y: 120, width: 220, height: 44),
+            CGRect(x: 12, y: 188, width: 280, height: 96),
+        ]
+
+        XCTAssertTrue(
+            FireTopicReplySwipePolicy.startsInExcludedRegion(
+                CGPoint(x: 38, y: 118),
+                excludedFrames: excludedFrames
+            )
+        )
+        XCTAssertFalse(
+            FireTopicReplySwipePolicy.startsInExcludedRegion(
+                CGPoint(x: 20, y: 20),
+                excludedFrames: excludedFrames
+            )
+        )
+        XCTAssertEqual(
+            FireTopicReplySwipePolicy.resolvedAxis(
+                startLocationX: 80,
+                rowWidth: 320,
+                translationWidth: 80,
+                translationHeight: 4,
+                startsInExcludedRegion: true
+            ),
+            .suppressedByInteractiveContent
+        )
+    }
+
+    func testReplySwipePolicyRequiresRightwardHorizontalIntent() {
+        XCTAssertEqual(
+            FireTopicReplySwipePolicy.resolvedAxis(
+                startLocationX: 120,
+                rowWidth: 320,
+                translationWidth: 18,
+                translationHeight: 30
+            ),
+            .vertical
+        )
+        XCTAssertEqual(
+            FireTopicReplySwipePolicy.resolvedAxis(
+                startLocationX: 120,
+                rowWidth: 320,
+                translationWidth: -80,
+                translationHeight: 4
+            ),
+            .oppositeDirection
+        )
+        XCTAssertFalse(
+            FireTopicReplySwipePolicy.allowsReplyTracking(
+                axis: .horizontal,
+                translationWidth: 4
+            )
+        )
+    }
+
+    func testReplySwipePolicyCancelsRetreatedTriggerBeforeCommit() {
+        let offset = FireTopicReplySwipePolicy.clampedOffset(for: 90)
+
+        XCTAssertEqual(offset, 63.75, accuracy: 0.001)
+        XCTAssertTrue(
+            FireTopicReplySwipePolicy.shouldTriggerReply(
+                offset: offset,
+                translationWidth: 90
+            )
+        )
+        XCTAssertTrue(FireTopicReplySwipePolicy.shouldCancelActiveTrigger(translationWidth: 8))
+        XCTAssertFalse(
+            FireTopicReplySwipePolicy.shouldTriggerReply(
+                offset: offset,
+                translationWidth: 8
+            )
+        )
+    }
+
+    private func makeTopicRow(
+        title: String,
+        slug: String,
+        postsCount: UInt32,
+        excerpt: String?,
+        replyCount: UInt32
+    ) -> TopicRowState {
+        TopicRowState(
+            topic: TopicSummaryState(
+                id: 42,
+                title: title,
+                slug: slug,
+                postsCount: postsCount,
+                replyCount: replyCount,
+                views: 2048,
+                likeCount: 32,
+                excerpt: excerpt,
+                createdAt: "2026-03-28T10:00:00Z",
+                lastPostedAt: "2026-03-28T11:30:00Z",
+                lastPosterUsername: "alice",
+                categoryId: 7,
+                pinned: true,
+                visible: true,
+                closed: false,
+                archived: false,
+                tags: [TopicTagState(id: nil, name: "rust", slug: nil)],
+                posters: [TopicPosterState(userId: 9, description: nil, extras: nil)],
+                participants: [],
+                unseen: false,
+                unreadPosts: 3,
+                newPosts: 1,
+                lastReadPostNumber: nil,
+                highestPostNumber: postsCount,
+                bookmarkedPostNumber: nil,
+                bookmarkId: nil,
+                bookmarkName: nil,
+                bookmarkReminderAt: nil,
+                bookmarkableType: nil,
+                hasAcceptedAnswer: false,
+                canHaveAnswer: true
+            ),
+            excerptText: "Hello Fire",
+            originalPosterUsername: "alice",
+            originalPosterAvatarTemplate: "/user_avatar/linux.do/alice/{size}/1_2.png",
+            tagNames: ["rust"],
+            statusLabels: ["Pinned", "Unread 3", "New 1"],
+            isPinned: true,
+            isClosed: false,
+            isArchived: false,
+            hasAcceptedAnswer: false,
+            hasUnreadPosts: true,
+            createdTimestampUnixMs: 1_711_624_600_000,
+            activityTimestampUnixMs: 1_711_630_000_000,
+            lastPosterUsername: "alice"
+        )
+    }
+
+    private func makeCategory(
+        id: UInt64,
+        name: String,
+        colorHex: String?
+    ) -> TopicCategoryState {
+        TopicCategoryState(
+            id: id,
+            name: name,
+            slug: name.lowercased(),
+            parentCategoryId: nil,
+            colorHex: colorHex,
+            textColorHex: nil,
+            topicTemplate: nil,
+            minimumRequiredTags: 0,
+            requiredTagGroups: [],
+            allowedTags: [],
+            permission: 1,
+            notificationLevel: nil
+        )
+    }
+
     private func makePost(
         postNumber: UInt32,
         replyToPostNumber: UInt32?,

@@ -1364,10 +1364,16 @@ final class FireRichTextEmojiAttachment: NSTextAttachment {
 struct FireRichTextView: UIViewRepresentable {
     let attributedString: NSAttributedString
     let onLinkTapped: ((URL) -> Void)?
+    let onSelectionActiveChanged: ((Bool) -> Void)?
 
-    init(attributedString: NSAttributedString, onLinkTapped: ((URL) -> Void)? = nil) {
+    init(
+        attributedString: NSAttributedString,
+        onLinkTapped: ((URL) -> Void)? = nil,
+        onSelectionActiveChanged: ((Bool) -> Void)? = nil
+    ) {
         self.attributedString = attributedString
         self.onLinkTapped = onLinkTapped
+        self.onSelectionActiveChanged = onSelectionActiveChanged
     }
 
     func makeUIView(context: Context) -> FireRichTextUIView {
@@ -1393,17 +1399,27 @@ struct FireRichTextView: UIViewRepresentable {
             uiView.invalidateIntrinsicContentSize()
         }
         context.coordinator.onLinkTapped = onLinkTapped
+        context.coordinator.onSelectionActiveChanged = onSelectionActiveChanged
     }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(onLinkTapped: onLinkTapped)
+        Coordinator(
+            onLinkTapped: onLinkTapped,
+            onSelectionActiveChanged: onSelectionActiveChanged
+        )
     }
 
     class Coordinator: NSObject, UITextViewDelegate {
         var onLinkTapped: ((URL) -> Void)?
+        var onSelectionActiveChanged: ((Bool) -> Void)?
+        private var lastSelectionActive: Bool?
 
-        init(onLinkTapped: ((URL) -> Void)?) {
+        init(
+            onLinkTapped: ((URL) -> Void)?,
+            onSelectionActiveChanged: ((Bool) -> Void)?
+        ) {
             self.onLinkTapped = onLinkTapped
+            self.onSelectionActiveChanged = onSelectionActiveChanged
         }
 
         func textView(
@@ -1414,6 +1430,28 @@ struct FireRichTextView: UIViewRepresentable {
         ) -> Bool {
             onLinkTapped?(URL)
             return false
+        }
+
+        func textViewDidChangeSelection(_ textView: UITextView) {
+            publishSelectionState(from: textView)
+        }
+
+        func publishSelectionState(from textView: UITextView) {
+            let isSelectionActive = textView.selectedRange.length > 0
+            guard lastSelectionActive != nil else {
+                lastSelectionActive = isSelectionActive
+                if isSelectionActive {
+                    onSelectionActiveChanged?(true)
+                }
+                return
+            }
+
+            guard lastSelectionActive != isSelectionActive else {
+                return
+            }
+
+            lastSelectionActive = isSelectionActive
+            onSelectionActiveChanged?(isSelectionActive)
         }
     }
 }

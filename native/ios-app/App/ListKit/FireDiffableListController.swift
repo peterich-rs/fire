@@ -41,6 +41,18 @@ enum FireCollectionScrollAnchorRestorePolicy {
     }
 }
 
+enum FireCollectionUpdatePolicy {
+    case applyImmediately
+    case deferWhileScrolling
+}
+
+private struct FirePendingSectionUpdate<SectionID: Hashable, ItemID: Hashable> {
+    let sections: [FireListSectionModel<SectionID, ItemID>]
+    let contentVersion: AnyHashable
+    let itemContentTokens: [ItemID: AnyHashable]?
+    let animatingDifferences: Bool
+}
+
 func fireCollectionNeedsLayoutUpdate(
     currentVersion: AnyHashable?,
     incomingVersion: AnyHashable
@@ -107,6 +119,7 @@ final class FireDiffableListController<SectionID: Hashable, ItemID: Hashable, Ro
     private let onScrollMetricsChanged: ((FireCollectionScrollMetrics) -> Void)?
     private let onRefresh: (() async -> Void)?
     private let scrollAnchorRestorePolicy: FireCollectionScrollAnchorRestorePolicy
+    private let updatePolicy: FireCollectionUpdatePolicy
     private var onScrollRequestCompleted: ((ItemID) -> Void)?
     private var listLayout: UICollectionViewLayout
     private var layoutVersion: AnyHashable
@@ -124,6 +137,7 @@ final class FireDiffableListController<SectionID: Hashable, ItemID: Hashable, Ro
     private var isRefreshing = false
     private var handledScrollRequestID: AnyHashable?
     private var animatingScrollRequest: FireCollectionScrollRequest<ItemID>?
+    private var pendingSectionUpdate: FirePendingSectionUpdate<SectionID, ItemID>?
 
     init(
         layout: UICollectionViewLayout,
@@ -138,6 +152,7 @@ final class FireDiffableListController<SectionID: Hashable, ItemID: Hashable, Ro
         onScrollMetricsChanged: ((FireCollectionScrollMetrics) -> Void)? = nil,
         onRefresh: (() async -> Void)? = nil,
         scrollAnchorRestorePolicy: FireCollectionScrollAnchorRestorePolicy = .whenNotAnimatingDifferences,
+        updatePolicy: FireCollectionUpdatePolicy = .applyImmediately,
         scrollRequest: FireCollectionScrollRequest<ItemID>? = nil,
         onScrollRequestCompleted: ((ItemID) -> Void)? = nil,
         rowContent: @escaping (ItemID) -> RowContent
@@ -154,6 +169,7 @@ final class FireDiffableListController<SectionID: Hashable, ItemID: Hashable, Ro
         self.onScrollMetricsChanged = onScrollMetricsChanged
         self.onRefresh = onRefresh
         self.scrollAnchorRestorePolicy = scrollAnchorRestorePolicy
+        self.updatePolicy = updatePolicy
         self.scrollRequest = scrollRequest
         self.onScrollRequestCompleted = onScrollRequestCompleted
         self.rowContent = rowContent
@@ -308,6 +324,40 @@ final class FireDiffableListController<SectionID: Hashable, ItemID: Hashable, Ro
             return
         }
 
+        let isActivelyScrolling = collectionView.map { $0.isDragging || $0.isDecelerating } ?? false
+        if updatePolicy == .deferWhileScrolling,
+           isActivelyScrolling,
+           !currentSections.isEmpty {
+            pendingSectionUpdate = FirePendingSectionUpdate(
+                sections: sections,
+                contentVersion: contentVersion,
+                itemContentTokens: itemContentTokens,
+                animatingDifferences: animatingDifferences
+            )
+            return
+        }
+
+        pendingSectionUpdate = nil
+        applySectionUpdate(
+            sections: sections,
+            contentVersion: contentVersion,
+            itemContentTokens: itemContentTokens,
+            animatingDifferences: animatingDifferences,
+            sectionsChanged: sectionsChanged,
+            reconfiguredItems: reconfiguredItems
+        )
+    }
+
+    private func applySectionUpdate(
+        sections: [FireListSectionModel<SectionID, ItemID>],
+        contentVersion: AnyHashable,
+        itemContentTokens: [ItemID: AnyHashable]?,
+        animatingDifferences: Bool,
+        sectionsChanged: Bool,
+        reconfiguredItems: [ItemID]
+    ) {
+        guard let dataSource else { return }
+
         currentSections = sections
         self.contentVersion = contentVersion
         if let itemContentTokens {
@@ -339,6 +389,19 @@ final class FireDiffableListController<SectionID: Hashable, ItemID: Hashable, Ro
             self.publishVisibleItems()
             self.publishScrollMetrics()
         }
+    }
+
+    private func applyPendingSectionUpdateIfNeeded() {
+        guard let pendingSectionUpdate else {
+            return
+        }
+        self.pendingSectionUpdate = nil
+        setSections(
+            pendingSectionUpdate.sections,
+            contentVersion: pendingSectionUpdate.contentVersion,
+            itemContentTokens: pendingSectionUpdate.itemContentTokens,
+            animatingDifferences: pendingSectionUpdate.animatingDifferences
+        )
     }
 
     func collectionView(_ collectionView: UICollectionView, shouldSelectItemAt indexPath: IndexPath)
@@ -376,17 +439,20 @@ final class FireDiffableListController<SectionID: Hashable, ItemID: Hashable, Ro
 
     func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
         if !decelerate {
+            applyPendingSectionUpdateIfNeeded()
             publishVisibleItems()
             publishScrollMetrics()
         }
     }
 
     func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+        applyPendingSectionUpdateIfNeeded()
         publishVisibleItems()
         publishScrollMetrics()
     }
 
     func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
+        applyPendingSectionUpdateIfNeeded()
         publishVisibleItems()
         publishScrollMetrics()
         completeAnimatedScrollRequestIfNeeded()

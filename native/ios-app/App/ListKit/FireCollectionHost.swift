@@ -31,6 +31,7 @@ struct FireCollectionHost<SectionID: Hashable, ItemID: Hashable, RowContent: Vie
     let onScrollMetricsChanged: ((FireCollectionScrollMetrics) -> Void)?
     let onRefresh: (() async -> Void)?
     let scrollAnchorRestorePolicy: FireCollectionScrollAnchorRestorePolicy
+    let updatePolicy: FireCollectionUpdatePolicy
     let scrollRequest: FireCollectionScrollRequest<ItemID>?
     let onScrollRequestCompleted: ((ItemID) -> Void)?
     let rowContent: (ItemID) -> RowContent
@@ -50,6 +51,7 @@ struct FireCollectionHost<SectionID: Hashable, ItemID: Hashable, RowContent: Vie
         onScrollMetricsChanged: ((FireCollectionScrollMetrics) -> Void)? = nil,
         onRefresh: (() async -> Void)? = nil,
         scrollAnchorRestorePolicy: FireCollectionScrollAnchorRestorePolicy = .whenNotAnimatingDifferences,
+        updatePolicy: FireCollectionUpdatePolicy = .applyImmediately,
         scrollRequest: FireCollectionScrollRequest<ItemID>? = nil,
         onScrollRequestCompleted: ((ItemID) -> Void)? = nil,
         makeLayout: @escaping () -> UICollectionViewLayout,
@@ -69,6 +71,7 @@ struct FireCollectionHost<SectionID: Hashable, ItemID: Hashable, RowContent: Vie
         self.onScrollMetricsChanged = onScrollMetricsChanged
         self.onRefresh = onRefresh
         self.scrollAnchorRestorePolicy = scrollAnchorRestorePolicy
+        self.updatePolicy = updatePolicy
         self.scrollRequest = scrollRequest
         self.onScrollRequestCompleted = onScrollRequestCompleted
         self.makeLayout = makeLayout
@@ -92,6 +95,7 @@ struct FireCollectionHost<SectionID: Hashable, ItemID: Hashable, RowContent: Vie
                 onScrollMetricsChanged: onScrollMetricsChanged,
                 onRefresh: onRefresh,
                 scrollAnchorRestorePolicy: scrollAnchorRestorePolicy,
+                updatePolicy: updatePolicy,
                 scrollRequest: scrollRequest,
                 onScrollRequestCompleted: onScrollRequestCompleted,
                 rowContent: rowContent

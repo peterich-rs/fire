@@ -66,7 +66,7 @@ final class FireTopicDetailStoreTests: XCTestCase {
             anchorIndex: 60
         )
 
-        XCTAssertEqual(range, 45..<105)
+        XCTAssertEqual(range, 45..<135)
     }
 
     func testBoundedRequestedRangeKeepsAnchorInsideWindowCap() {
@@ -190,7 +190,7 @@ final class FireTopicDetailStoreTests: XCTestCase {
     }
 
     @MainActor
-    func testCompleteLoginSyncsCookiesBeforeEnsuringCsrf() async throws {
+    func testCompleteLoginSyncsCookiesAndBootstrapWithoutEagerCsrfRefresh() async throws {
         let captured = FireCapturedLoginState(
             currentURL: "https://linux.do/",
             username: "alice",
@@ -220,16 +220,17 @@ final class FireTopicDetailStoreTests: XCTestCase {
 
         XCTAssertEqual(
             calls,
-            [.applyPlatformCookies, .syncLoginContext, .refreshBootstrapIfNeeded, .refreshCsrfTokenIfNeeded]
+            [.applyPlatformCookies, .syncLoginContext, .refreshBootstrapIfNeeded]
         )
         XCTAssertEqual(appliedCookies, captured.cookies)
-        XCTAssertEqual(finalState.cookies.csrfToken, "csrf-token")
-        XCTAssertTrue(finalState.readiness.hasCsrfToken)
-        XCTAssertTrue(finalState.readiness.canWriteAuthenticatedApi)
+        XCTAssertNil(finalState.cookies.csrfToken)
+        XCTAssertFalse(finalState.readiness.hasCsrfToken)
+        XCTAssertFalse(finalState.readiness.canWriteAuthenticatedApi)
+        XCTAssertTrue(finalState.readiness.canReadAuthenticatedApi)
     }
 
     @MainActor
-    func testCompleteLoginClearsPartialSessionWhenCsrfRefreshChallenges() async {
+    func testCompleteLoginSkipsCsrfRefreshChallengeAfterBootstrapSucceeds() async throws {
         let captured = FireCapturedLoginState(
             currentURL: "https://linux.do/",
             username: "alice",
@@ -245,14 +246,7 @@ final class FireTopicDetailStoreTests: XCTestCase {
         )
         let coordinator = FireWebViewLoginCoordinator(loginSessionStore: store)
 
-        do {
-            _ = try await coordinator.completeLogin(captured)
-            XCTFail("Expected CloudflareChallenge")
-        } catch {
-            guard case FireUniFfiError.CloudflareChallenge = error else {
-                return XCTFail("Unexpected error: \(error)")
-            }
-        }
+        let finalState = try await coordinator.completeLogin(captured)
         let calls = await store.callsSnapshot()
 
         XCTAssertEqual(
@@ -261,10 +255,9 @@ final class FireTopicDetailStoreTests: XCTestCase {
                 .applyPlatformCookies,
                 .syncLoginContext,
                 .refreshBootstrapIfNeeded,
-                .refreshCsrfTokenIfNeeded,
-                .logoutLocal,
             ]
         )
+        XCTAssertNil(finalState.cookies.csrfToken)
     }
 
     private func makePost(

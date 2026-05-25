@@ -115,12 +115,15 @@ if [[ -n "${FIRE_BUILD_NUMBER:-}" ]]; then
 fi
 if [[ -n "${FIRE_DEVELOPMENT_TEAM:-}" ]]; then
   build_setting_args+=(FIRE_DEVELOPMENT_TEAM="$FIRE_DEVELOPMENT_TEAM")
+  # Xcode signs Swift package archive products outside the app target scope.
+  build_setting_args+=(DEVELOPMENT_TEAM="$FIRE_DEVELOPMENT_TEAM")
 fi
 if [[ -n "${FIRE_PRODUCT_BUNDLE_IDENTIFIER:-}" ]]; then
   build_setting_args+=(FIRE_PRODUCT_BUNDLE_IDENTIFIER="$FIRE_PRODUCT_BUNDLE_IDENTIFIER")
 fi
 if [[ -n "${FIRE_CODE_SIGN_STYLE:-}" ]]; then
   build_setting_args+=(FIRE_CODE_SIGN_STYLE="$FIRE_CODE_SIGN_STYLE")
+  build_setting_args+=(CODE_SIGN_STYLE="$FIRE_CODE_SIGN_STYLE")
 fi
 if [[ -n "${FIRE_PROVISIONING_PROFILE_SPECIFIER:-}" ]]; then
   build_setting_args+=(FIRE_PROVISIONING_PROFILE_SPECIFIER="$FIRE_PROVISIONING_PROFILE_SPECIFIER")

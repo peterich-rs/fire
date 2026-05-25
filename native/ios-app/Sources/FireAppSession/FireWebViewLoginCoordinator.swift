@@ -225,8 +225,7 @@ public final class FireWebViewLoginCoordinator {
         _ = try await sessionStore.syncLoginContext(captured)
 
         do {
-            _ = try await sessionStore.refreshBootstrapIfNeeded()
-            return try await sessionStore.refreshCsrfTokenIfNeeded()
+            return try await sessionStore.refreshBootstrapIfNeeded()
         } catch {
             guard case FireUniFfiError.CloudflareChallenge = error else {
                 throw error

@@ -132,17 +132,13 @@ public actor FireSessionStore {
         try await restoreColdStartSession(
             refreshBootstrapIfNeeded: {
                 try await self.refreshBootstrapIfNeeded()
-            },
-            refreshCsrfTokenIfNeeded: {
-                try await self.refreshCsrfTokenIfNeeded()
             }
         )
     }
 
     @discardableResult
     func restoreColdStartSession(
-        refreshBootstrapIfNeeded: () async throws -> SessionState,
-        refreshCsrfTokenIfNeeded: () async throws -> SessionState
+        refreshBootstrapIfNeeded: () async throws -> SessionState
     ) async throws -> SessionState {
         _ = try restorePersistedSessionIfAvailable()
         let secureSecrets = try authCookieStore.load()
@@ -160,12 +156,7 @@ public actor FireSessionStore {
             )
         }
 
-        let restored = try await refreshBootstrapIfNeeded()
-        if shouldRefreshCsrfAfterColdStartRestore(restored) {
-            return try await refreshCsrfTokenIfNeeded()
-        }
-
-        return restored
+        return try await refreshBootstrapIfNeeded()
     }
 
     @discardableResult
@@ -1033,15 +1024,6 @@ public actor FireSessionStore {
         session.readiness.hasCurrentUser
             || session.readiness.hasPreloadedData
             || session.readiness.hasSharedSessionKey
-    }
-
-    private func shouldRefreshCsrfAfterColdStartRestore(_ session: SessionState) -> Bool {
-        // A cold-start restore can still come back without a usable CSRF token
-        // while the authenticated cookies are already usable. Refreshing CSRF
-        // here lets the session leave the "initializing" phase without waiting
-        // for a user-triggered authenticated write.
-        session.readiness.canReadAuthenticatedApi
-            && !session.readiness.hasCsrfToken
     }
 
     private func currentSessionPersistenceState() throws -> SessionPersistenceState {

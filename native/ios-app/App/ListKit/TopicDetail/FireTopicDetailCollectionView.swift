@@ -429,6 +429,7 @@ struct FireTopicDetailCollectionView: View {
             onVisibleItemsChanged: handleVisibleItemsChanged(_:),
             onPrefetchItems: handlePrefetchItems(_:),
             onRefresh: onRefresh,
+            updatePolicy: .deferWhileScrolling,
             scrollRequest: scrollRequest,
             onScrollRequestCompleted: handleScrollRequestCompleted(_:),
             makeLayout: Self.makeLayout,

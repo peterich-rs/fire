@@ -535,7 +535,20 @@ final class FireDiffableListController<SectionID: Hashable, ItemID: Hashable, Ro
         isRefreshing = true
 
         Task { [weak self] in
+            // SwiftUI's native `.refreshable` paces the system refresh control
+            // to remain visible for ~0.5s even when the awaited work returns
+            // immediately. Mirror that pacing here so Home's pull-to-refresh
+            // feel matches the profile tab's `.refreshable` list — without it
+            // a fast cache-warm refresh flashes the spinner for a single
+            // frame and the gesture feels broken.
+            let clock = ContinuousClock()
+            let started = clock.now
             await onRefresh()
+            let elapsed = clock.now - started
+            let minimum: Duration = .milliseconds(500)
+            if elapsed < minimum {
+                try? await Task.sleep(for: minimum - elapsed)
+            }
             await MainActor.run {
                 guard let self else { return }
                 self.collectionView?.refreshControl?.endRefreshing()

@@ -135,6 +135,7 @@ final class FireDiffableListController<SectionID: Hashable, ItemID: Hashable, Ro
     private var lastVisibleItemIDs: [ItemID] = []
     private var lastScrollMetrics: FireCollectionScrollMetrics?
     private var isRefreshing = false
+    private var pendingRefreshCompletionResyncTask: Task<Void, Never>?
     private var handledScrollRequestID: AnyHashable?
     private var animatingScrollRequest: FireCollectionScrollRequest<ItemID>?
     private var pendingSectionUpdate: FirePendingSectionUpdate<SectionID, ItemID>?
@@ -495,6 +496,8 @@ final class FireDiffableListController<SectionID: Hashable, ItemID: Hashable, Ro
     private func triggerRefresh() {
         guard !isRefreshing else { return }
         guard let onRefresh else { return }
+        pendingRefreshCompletionResyncTask?.cancel()
+        pendingRefreshCompletionResyncTask = nil
         isRefreshing = true
 
         Task { [weak self] in
@@ -504,8 +507,45 @@ final class FireDiffableListController<SectionID: Hashable, ItemID: Hashable, Ro
                 self.collectionView?.refreshControl?.endRefreshing()
                 self.isRefreshing = false
                 self.publishScrollMetrics()
+                self.scheduleRefreshCompletionResync()
             }
         }
+    }
+
+    private func scheduleRefreshCompletionResync() {
+        pendingRefreshCompletionResyncTask?.cancel()
+        pendingRefreshCompletionResyncTask = Task { [weak self] in
+            for _ in 0..<6 {
+                try? await Task.sleep(for: .milliseconds(50))
+                guard let self else { return }
+                if self.resyncTopNavigationLayoutIfNeeded() {
+                    return
+                }
+            }
+            self?.pendingRefreshCompletionResyncTask = nil
+        }
+    }
+
+    @discardableResult
+    private func resyncTopNavigationLayoutIfNeeded() -> Bool {
+        guard let collectionView else { return false }
+        guard !collectionView.isDragging, !collectionView.isDecelerating else { return false }
+
+        let topOffsetY = -collectionView.adjustedContentInset.top
+        guard abs(collectionView.contentOffset.y - topOffsetY) <= 2 else { return false }
+
+        // endRefreshing() settles the list back at the top, but large-title
+        // navigation chrome can lag behind that final resting offset.
+        collectionView.setContentOffset(
+            CGPoint(x: collectionView.contentOffset.x, y: topOffsetY),
+            animated: false
+        )
+        navigationController?.view.setNeedsLayout()
+        navigationController?.view.layoutIfNeeded()
+        publishVisibleItems()
+        publishScrollMetrics()
+        pendingRefreshCompletionResyncTask = nil
+        return true
     }
 
     private func currentScrollAnchor() -> FireCollectionScrollAnchor<ItemID>? {

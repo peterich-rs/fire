@@ -148,7 +148,7 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
   - forwards scene-phase transitions into shared diagnostics lifecycle logging, re-syncs APNs registration state for authenticated sessions, flushes logs before `inactive` / `background` so exported diagnostics stay durable, and keeps the current top-level route synchronized into the host-owned APM runtime
 - `App/ListKit/`
   - now contains the W3 collection-host foundation built around `UICollectionView`, diffable data source snapshots, and `UIHostingConfiguration`
-  - `FireCollectionHost.swift` bridges SwiftUI into a reusable collection-backed host while `FireDiffableListController.swift` preserves the top visible item and relative offset across snapshot applies, forwards scroll metrics, and supports native pull-to-refresh
+  - `FireCollectionHost.swift` bridges SwiftUI into a reusable collection-backed host while `FireDiffableListController.swift` preserves the top visible item and relative offset across snapshot applies, forwards scroll metrics, supports native pull-to-refresh, and re-synchronizes top-edge navigation layout after refresh completion for large-title shells like Home
   - `FireListSectionModel.swift` provides the section/item shape shared by later home/notification/topic-detail migrations
   - `Home/FireHomeCollectionView.swift` is the first W3 migration slice and now drives the authenticated home feed through diffable collection snapshots instead of SwiftUI `List`
 - `App/FireTopicPresentation.swift`

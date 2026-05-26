@@ -696,6 +696,13 @@ struct FireTopicDetailView: View {
 
     private var detailNavigationContent: some View {
         detailCollectionContent
+        .simultaneousGesture(
+            TapGesture().onEnded {
+                if isReplyFieldFocused {
+                    dismissKeyboard()
+                }
+            }
+        )
         .navigationTitle("话题")
         .navigationBarTitleDisplayMode(.inline)
         .navigationDestination(item: $selectedRoute) { route in

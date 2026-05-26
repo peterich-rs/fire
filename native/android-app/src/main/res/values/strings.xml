@@ -125,6 +125,8 @@
     <string name="topic_detail_ai_summary_can_regenerate">can regenerate</string>
     <string name="topic_detail_no_replies">No replies yet.</string>
     <string name="topic_detail_replies_section">Replies</string>
+    <string name="topic_detail_load_more_replies">Load more replies</string>
+    <string name="topic_detail_loading_more_replies">Loading replies...</string>
     <string name="topic_detail_floor_title">Floor #%1$s</string>
     <string name="topic_detail_floor_nested_count">%1$s nested replies</string>
     <string name="topic_detail_reply_to_topic">Reply to topic</string>

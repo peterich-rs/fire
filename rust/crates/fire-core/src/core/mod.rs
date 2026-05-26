@@ -117,6 +117,7 @@ pub struct FireCore {
     notifications: Arc<Mutex<notifications::FireNotificationRuntime>>,
     topic_presence: Arc<Mutex<presence::FireTopicPresenceRuntime>>,
     topic_timing: Arc<Mutex<interactions::FireTopicTimingRuntime>>,
+    topic_response: Arc<Mutex<topics::FireTopicResponseRuntime>>,
     csrf_refresh: Arc<TokioMutex<()>>,
 }
 
@@ -169,6 +170,7 @@ impl FireCore {
             notifications: Arc::new(Mutex::new(notifications::FireNotificationRuntime::default())),
             topic_presence: Arc::new(Mutex::new(presence::FireTopicPresenceRuntime::default())),
             topic_timing: Arc::new(Mutex::new(interactions::FireTopicTimingRuntime::default())),
+            topic_response: Arc::new(Mutex::new(topics::FireTopicResponseRuntime::default())),
             csrf_refresh: Arc::new(TokioMutex::new(())),
         })
     }

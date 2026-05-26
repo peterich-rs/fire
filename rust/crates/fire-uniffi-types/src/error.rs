@@ -92,6 +92,14 @@ impl From<FireCoreError> for FireUniFfiError {
             FireCoreError::PostEnqueued { pending_count } => Self::Validation {
                 details: format!("post is pending review (pending_count={pending_count})"),
             },
+            FireCoreError::InvalidTopicResponseCursor {
+                topic_id,
+                session_id,
+            } => Self::Validation {
+                details: format!(
+                    "invalid topic response cursor for topic {topic_id} session {session_id}"
+                ),
+            },
             FireCoreError::InvalidUserNotificationLevel { level } => Self::Validation {
                 details: format!("invalid user notification level: {level}"),
             },

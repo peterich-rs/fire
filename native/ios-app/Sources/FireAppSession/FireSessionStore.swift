@@ -508,6 +508,20 @@ public actor FireSessionStore {
         }
     }
 
+    public func fetchTopicScreen(query: TopicScreenQueryState) async throws -> TopicScreenState {
+        try await runPersistingSessionChanges {
+            try await core.topics().fetchTopicScreen(query: query)
+        }
+    }
+
+    public func fetchTopicResponsePage(
+        query: TopicResponsePageQueryState
+    ) async throws -> TopicResponsePageState {
+        try await runPersistingSessionChanges {
+            try await core.topics().fetchTopicResponsePage(query: query)
+        }
+    }
+
     public func fetchTopicDetail(topicID: UInt64, trackVisit: Bool = true) async throws -> TopicDetailState {
         try await fetchTopicDetail(
             query: TopicDetailQueryState(

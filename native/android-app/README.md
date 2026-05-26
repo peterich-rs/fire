@@ -51,7 +51,7 @@ Current host-side app wiring lives under `src/main/java/com/fire/app/` plus `src
   - opens topic results in native topic detail, post results at their floor, and user results in native profile
 - `TopicDetailActivity.kt`
   - loads topic detail on demand from the shared Rust API
-  - renders the original post plus Rust-generated flat thread posts in a dedicated native screen
+  - renders topic detail as `header + body + response`: the original post stays independent, while replies come from Rust-owned tree rows paged by top-level reply branch
   - loads optional Rust-backed topic AI summaries before the post list when the detail payload advertises `summarizable`, `hasCachedSummary`, or `hasSummary`; empty summaries remove the placeholder and failures stay scoped to a retryable summary card
   - opens public profiles from post author names and reply-context rows
   - opens native reply-context dialogs that prioritize Rust-backed recursive reply IDs, batch those IDs through `fetchTopicPosts`, and fall back to `fetchPostReplies` only when the reply-ID tree is empty
@@ -115,6 +115,7 @@ Current browser note:
 - Generated Kotlin topic bindings expose `fetchTopicAiSummary(topicId, skipAgeCheck)` from the shared Rust Discourse AI summary path; Android topic detail renders the returned `TopicAiSummaryState` as a native summary card without blocking the main detail body.
 - Generated Kotlin topic bindings expose `createPrivateMessage(PrivateMessageCreateRequestState)` from the shared Rust creation path; Android public profiles now use it for single-recipient private messages, validate `minPersonalMessageTitleLength` / `minPersonalMessagePostLength`, and open the created private-message thread.
 - Generated Kotlin topic bindings expose `createReply(TopicReplyRequestState)` from the shared Rust creation path; Android topic detail now uses it for topic replies and floor replies, then reloads and scrolls to the created post.
+- Generated Kotlin topic bindings now also expose `fetchTopicScreen(TopicScreenQueryState)` and `fetchTopicResponsePage(TopicResponsePageQueryState)`; Android topic detail uses them to render `header/body/response`, keep the original post separate from replies, and paginate reply trees by top-level branch instead of flattening the whole topic stream on the host.
 - Generated Kotlin topic bindings expose `updateTopic(TopicUpdateRequestState)` and `updatePost(PostUpdateRequestState)`; Android topic detail now uses them for editable topic metadata and editable post bodies, then reloads the affected detail state.
 - Generated Kotlin topic bindings expose `votePoll(postId, pollName, options)` and `unvotePoll(postId, pollName)`; Android topic detail now renders native poll cards from each post and reloads the affected floor after voting changes.
 - Generated Kotlin topic bindings expose `voteTopic(topicId)`, `unvoteTopic(topicId)`, and `fetchTopicVoters(topicId)`; Android topic detail now renders the topic voting-plugin panel, reloads topic detail after vote changes, and opens native voter-list dialogs.

@@ -1,10 +1,11 @@
 use fire_models::{
     Poll, PollOption, PostActionType, PostFlagRequest, PostReactionUpdate, PostUpdateRequest,
-    PrivateMessageCreateRequest, ReactionUser, ReactionUsersGroup, ResolvedUploadUrl,
-    TopicAiSummary, TopicCreateRequest, TopicDetail, TopicDetailCreatedBy, TopicDetailMeta,
-    TopicDetailQuery, TopicListQuery, TopicPost, TopicPostStream, TopicReaction, TopicReplyRequest,
-    TopicReplyToUser, TopicTimingEntry, TopicTimingsRequest, TopicUpdateRequest, UploadResult,
-    VoteResponse, VotedUser,
+    PrivateMessageCreateRequest, ReactionUser, ReactionUsersGroup, ResolvedUploadUrl, TopicAiSummary,
+    TopicBody, TopicCreateRequest, TopicDetail, TopicDetailCreatedBy, TopicDetailMeta,
+    TopicDetailQuery, TopicHeader, TopicListQuery, TopicPost, TopicPostStream, TopicReaction,
+    TopicReplyRequest, TopicReplyToUser, TopicResponseCursor, TopicResponsePage,
+    TopicResponsePageQuery, TopicResponseRow, TopicScreen, TopicScreenQuery, TopicTimingEntry,
+    TopicTimingsRequest, TopicUpdateRequest, UploadResult, VoteResponse, VotedUser,
 };
 
 use fire_uniffi_types::{TopicListKindState, TopicParticipantState, TopicTagState};
@@ -92,6 +93,25 @@ impl From<TopicDetailQueryState> for TopicDetailQuery {
             filter: value.filter,
             username_filters: value.username_filters,
             filter_top_level_replies: value.filter_top_level_replies,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct TopicScreenQueryState {
+    pub topic_id: u64,
+    pub target_post_number: Option<u32>,
+    pub root_page_size: u16,
+    pub track_visit: bool,
+}
+
+impl From<TopicScreenQueryState> for TopicScreenQuery {
+    fn from(value: TopicScreenQueryState) -> Self {
+        Self {
+            topic_id: value.topic_id,
+            target_post_number: value.target_post_number,
+            root_page_size: value.root_page_size,
+            track_visit: value.track_visit,
         }
     }
 }
@@ -582,6 +602,194 @@ impl From<TopicDetailMeta> for TopicDetailMetaState {
             can_edit: value.can_edit,
             created_by: value.created_by.map(Into::into),
             participants: value.participants.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct TopicHeaderState {
+    pub topic_id: u64,
+    pub title: String,
+    pub slug: String,
+    pub posts_count: u32,
+    pub reply_count: u32,
+    pub category_id: Option<u64>,
+    pub tags: Vec<TopicTagState>,
+    pub views: u32,
+    pub like_count: u32,
+    pub created_at: Option<String>,
+    pub last_read_post_number: Option<u32>,
+    pub bookmarks: Vec<u64>,
+    pub bookmarked: bool,
+    pub bookmark_id: Option<u64>,
+    pub bookmark_name: Option<String>,
+    pub bookmark_reminder_at: Option<String>,
+    pub accepted_answer: bool,
+    pub has_accepted_answer: bool,
+    pub can_vote: bool,
+    pub vote_count: i32,
+    pub user_voted: bool,
+    pub summarizable: bool,
+    pub has_cached_summary: bool,
+    pub has_summary: bool,
+    pub archetype: Option<String>,
+    pub details: TopicDetailMetaState,
+}
+
+impl From<TopicHeader> for TopicHeaderState {
+    fn from(value: TopicHeader) -> Self {
+        Self {
+            topic_id: value.topic_id,
+            title: value.title,
+            slug: value.slug,
+            posts_count: value.posts_count,
+            reply_count: value.reply_count,
+            category_id: value.category_id,
+            tags: value.tags.into_iter().map(Into::into).collect(),
+            views: value.views,
+            like_count: value.like_count,
+            created_at: value.created_at,
+            last_read_post_number: value.last_read_post_number,
+            bookmarks: value.bookmarks,
+            bookmarked: value.bookmarked,
+            bookmark_id: value.bookmark_id,
+            bookmark_name: value.bookmark_name,
+            bookmark_reminder_at: value.bookmark_reminder_at,
+            accepted_answer: value.accepted_answer,
+            has_accepted_answer: value.has_accepted_answer,
+            can_vote: value.can_vote,
+            vote_count: value.vote_count,
+            user_voted: value.user_voted,
+            summarizable: value.summarizable,
+            has_cached_summary: value.has_cached_summary,
+            has_summary: value.has_summary,
+            archetype: value.archetype,
+            details: value.details.into(),
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct TopicBodyState {
+    pub post: TopicPostState,
+}
+
+impl From<TopicBody> for TopicBodyState {
+    fn from(value: TopicBody) -> Self {
+        Self {
+            post: value.post.into(),
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct TopicResponseCursorState {
+    pub topic_id: u64,
+    pub session_id: u64,
+    pub next_root_offset: u32,
+    pub page_size: u16,
+}
+
+impl From<TopicResponseCursor> for TopicResponseCursorState {
+    fn from(value: TopicResponseCursor) -> Self {
+        Self {
+            topic_id: value.topic_id,
+            session_id: value.session_id,
+            next_root_offset: value.next_root_offset,
+            page_size: value.page_size,
+        }
+    }
+}
+
+impl From<TopicResponseCursorState> for TopicResponseCursor {
+    fn from(value: TopicResponseCursorState) -> Self {
+        Self {
+            topic_id: value.topic_id,
+            session_id: value.session_id,
+            next_root_offset: value.next_root_offset,
+            page_size: value.page_size,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct TopicResponsePageQueryState {
+    pub cursor: TopicResponseCursorState,
+}
+
+impl From<TopicResponsePageQueryState> for TopicResponsePageQuery {
+    fn from(value: TopicResponsePageQueryState) -> Self {
+        Self {
+            cursor: value.cursor.into(),
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct TopicResponseRowState {
+    pub post: TopicPostState,
+    pub root_post_number: u32,
+    pub parent_post_number: Option<u32>,
+    pub depth: u16,
+    pub preorder_index: u32,
+    pub has_children: bool,
+    pub descendant_count: u32,
+    pub sibling_index: u16,
+    pub is_last_sibling: bool,
+}
+
+impl From<TopicResponseRow> for TopicResponseRowState {
+    fn from(value: TopicResponseRow) -> Self {
+        Self {
+            post: value.post.into(),
+            root_post_number: value.root_post_number,
+            parent_post_number: value.parent_post_number,
+            depth: value.depth,
+            preorder_index: value.preorder_index,
+            has_children: value.has_children,
+            descendant_count: value.descendant_count,
+            sibling_index: value.sibling_index,
+            is_last_sibling: value.is_last_sibling,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct TopicResponsePageState {
+    pub rows: Vec<TopicResponseRowState>,
+    pub next_cursor: Option<TopicResponseCursorState>,
+    pub total_root_count: u32,
+    pub loaded_root_count: u32,
+    pub total_response_count: u32,
+    pub focused_post_number: Option<u32>,
+}
+
+impl From<TopicResponsePage> for TopicResponsePageState {
+    fn from(value: TopicResponsePage) -> Self {
+        Self {
+            rows: value.rows.into_iter().map(Into::into).collect(),
+            next_cursor: value.next_cursor.map(Into::into),
+            total_root_count: value.total_root_count,
+            loaded_root_count: value.loaded_root_count,
+            total_response_count: value.total_response_count,
+            focused_post_number: value.focused_post_number,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct TopicScreenState {
+    pub header: TopicHeaderState,
+    pub body: TopicBodyState,
+    pub response: TopicResponsePageState,
+}
+
+impl From<TopicScreen> for TopicScreenState {
+    fn from(value: TopicScreen) -> Self {
+        Self {
+            header: value.header.into(),
+            body: value.body.into(),
+            response: value.response.into(),
         }
     }
 }

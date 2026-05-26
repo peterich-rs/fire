@@ -33,6 +33,9 @@ final class FireTopicDetailStore: ObservableObject {
     @Published var errorMessage: String?
 
     private let appViewModel: FireAppViewModel
+    private var topicScreens: [UInt64: TopicScreenState] = [:]
+    private var topicResponseRowsByTopic: [UInt64: [TopicResponseRowState]] = [:]
+    private var topicResponseCursorsByTopic: [UInt64: TopicResponseCursorState] = [:]
     private var pendingTopicDetailRefreshTasks: [UInt64: Task<Void, Never>] = [:]
     private var topicPresenceHeartbeatTasks: [UInt64: Task<Void, Never>] = [:]
     private var topicPostPreloadTasks: [UInt64: Task<Void, Never>] = [:]
@@ -170,6 +173,9 @@ final class FireTopicDetailStore: ObservableObject {
         topicDetailTargetPostNumbers = [:]
         topicWindowStates = [:]
         topicRenderCaches = [:]
+        topicScreens = [:]
+        topicResponseRowsByTopic = [:]
+        topicResponseCursorsByTopic = [:]
         topicDetails = [:]
         topicRenderStates = [:]
         topicAiSummaries = [:]
@@ -209,34 +215,16 @@ final class FireTopicDetailStore: ObservableObject {
             topicDetailTargetPostNumbers[topicId] = targetPostNumber
         }
 
-        let anchorPostNumber = activeAnchorPostNumber(topicId: topicId)
-
         if !force,
-           let cachedDetail = topicDetails[topicId],
-           !needsAnchoredReload(
-               detail: cachedDetail,
-               anchorPostNumber: anchorPostNumber,
-               window: topicWindowStates[topicId]
-           ) {
+           let cachedScreen = topicScreens[topicId],
+           targetPostNumber == nil || detailContainsPostNumber(topicId: topicId, postNumber: targetPostNumber) {
             updateTopicErrorMessage(nil, topicId: topicId)
-            refreshTopicWindowState(
-                topicId: topicId,
-                detail: cachedDetail,
-                anchorPostNumber: anchorPostNumber,
-                requestedRange: topicWindowStates[topicId]?.requestedRange,
-                pendingScrollTarget: targetPostNumber ?? topicWindowStates[topicId]?.pendingScrollTarget
-            )
-            if hasMissingPostsInRequestedRange(topicId: topicId) {
-                await hydrateTopicPostsToTargetIfNeeded(topicId: topicId)
-            }
+            topicScreens[topicId] = cachedScreen
             return
         }
 
-        let hadCachedDetail = topicDetails[topicId] != nil
-        let previousWindow = topicWindowStates[topicId]
-        let pendingScrollTarget = targetPostNumber ?? previousWindow?.pendingScrollTarget
         appViewModel.topicDetailLogger()?.debug(
-            "loading topic detail topic_id=\(topicId) force=\(force) had_cache=\(hadCachedDetail) target_post=\(String(describing: targetPostNumber))"
+            "loading topic screen topic_id=\(topicId) force=\(force) target_post=\(String(describing: targetPostNumber))"
         )
         setLoadingTopic(true, topicId: topicId)
         defer { setLoadingTopic(false, topicId: topicId) }
@@ -244,7 +232,7 @@ final class FireTopicDetailStore: ObservableObject {
         do {
             let sessionStore = try await appViewModel.sessionStoreValue()
             updateTopicErrorMessage(nil, topicId: topicId)
-            let detail = try await performWithTimeout(30, operation: "加载话题详情") { [appViewModel] in
+            let screen = try await performWithTimeout(30, operation: "加载话题详情") { [appViewModel] in
                 try await FireAPMManager.shared.withSpan(
                     .topicDetailInitialLoad,
                     metadata: ["topic_id": String(topicId)]
@@ -252,34 +240,20 @@ final class FireTopicDetailStore: ObservableObject {
                     try await appViewModel.performWithCloudflareRecovery(
                         operation: "加载话题详情"
                     ) {
-                        try await sessionStore.fetchTopicDetailInitial(
-                            query: TopicDetailQueryState(
+                        try await sessionStore.fetchTopicScreen(
+                            query: TopicScreenQueryState(
                                 topicId: topicId,
-                                postNumber: anchorPostNumber,
+                                targetPostNumber: targetPostNumber,
+                                rootPageSize: 10,
                                 trackVisit: true,
-                                filter: nil,
-                                usernameFilters: nil,
-                                filterTopLevelReplies: false
                             )
                         )
                     }
                 }
             }
-            let hydratedDetail = try await prehydrateAnchoredContextBeforeDisplayIfNeeded(
-                detail: detail,
-                topicId: topicId,
-                anchorPostNumber: anchorPostNumber,
-                previousWindow: previousWindow,
-                pendingScrollTarget: pendingScrollTarget,
-                sessionStore: sessionStore
-            )
-            applyTopicDetail(
-                hydratedDetail.detail,
-                topicId: topicId,
-                seededExhaustedPostIDs: hydratedDetail.exhaustedPostIDs
-            )
+            applyTopicScreen(screen, topicId: topicId)
             appViewModel.topicDetailLogger()?.debug(
-                "loaded topic detail topic_id=\(topicId) loaded_posts=\(hydratedDetail.detail.postStream.posts.count) stream_posts=\(hydratedDetail.detail.postStream.stream.count)"
+                "loaded topic screen topic_id=\(topicId) loaded_replies=\(screen.response.rows.count) total_replies=\(screen.response.totalResponseCount)"
             )
         } catch {
             appViewModel.topicDetailLogger()?.error(
@@ -309,23 +283,112 @@ final class FireTopicDetailStore: ObservableObject {
         }
     }
 
+    private func detailContainsPostNumber(topicId: UInt64, postNumber: UInt32?) -> Bool {
+        guard let postNumber else { return true }
+        return topicDetails[topicId]?.postStream.posts.contains(where: { $0.postNumber == postNumber }) == true
+    }
+
+    private func synthesizedTopicDetail(
+        screen: TopicScreenState,
+        responseRows: [TopicResponseRowState]
+    ) -> TopicDetailState {
+        let posts = [screen.body.post] + responseRows.map(\.post)
+        return TopicDetailState(
+            id: screen.header.topicId,
+            title: screen.header.title,
+            slug: screen.header.slug,
+            postsCount: screen.header.postsCount,
+            categoryId: screen.header.categoryId,
+            tags: screen.header.tags,
+            views: screen.header.views,
+            likeCount: screen.header.likeCount,
+            createdAt: screen.header.createdAt,
+            lastReadPostNumber: screen.header.lastReadPostNumber,
+            bookmarks: screen.header.bookmarks,
+            bookmarked: screen.header.bookmarked,
+            bookmarkId: screen.header.bookmarkId,
+            bookmarkName: screen.header.bookmarkName,
+            bookmarkReminderAt: screen.header.bookmarkReminderAt,
+            acceptedAnswer: screen.header.acceptedAnswer,
+            hasAcceptedAnswer: screen.header.hasAcceptedAnswer,
+            canVote: screen.header.canVote,
+            voteCount: screen.header.voteCount,
+            userVoted: screen.header.userVoted,
+            summarizable: screen.header.summarizable,
+            hasCachedSummary: screen.header.hasCachedSummary,
+            hasSummary: screen.header.hasSummary,
+            archetype: screen.header.archetype,
+            postStream: TopicPostStreamState(
+                posts: posts,
+                stream: posts.map(\.id)
+            ),
+            details: screen.header.details
+        )
+    }
+
+    private func applyTopicScreen(_ screen: TopicScreenState, topicId: UInt64) {
+        topicScreens[topicId] = screen
+        topicResponseRowsByTopic[topicId] = screen.response.rows
+        if let cursor = screen.response.nextCursor {
+            topicResponseCursorsByTopic[topicId] = cursor
+        } else {
+            topicResponseCursorsByTopic.removeValue(forKey: topicId)
+        }
+        let detail = synthesizedTopicDetail(screen: screen, responseRows: screen.response.rows)
+        _ = cacheTopicDetail(detail, topicId: topicId)
+        loadTopicAiSummaryIfNeeded(topicId: topicId, detail: detail)
+    }
+
+    private func loadNextTopicResponsePage(topicId: UInt64) async {
+        guard let cursor = topicResponseCursorsByTopic[topicId],
+              let screen = topicScreens[topicId],
+              let sessionStore = try? await appViewModel.sessionStoreValue() else {
+            return
+        }
+
+        setLoadingMoreTopicPosts(true, topicId: topicId)
+        defer { setLoadingMoreTopicPosts(false, topicId: topicId) }
+
+        do {
+            let page = try await appViewModel.performWithCloudflareRecovery(
+                operation: "加载更多帖子"
+            ) {
+                try await sessionStore.fetchTopicResponsePage(
+                    query: TopicResponsePageQueryState(cursor: cursor)
+                )
+            }
+            var rows = topicResponseRowsByTopic[topicId] ?? []
+            rows.append(contentsOf: page.rows)
+            topicResponseRowsByTopic[topicId] = rows
+            if let nextCursor = page.nextCursor {
+                topicResponseCursorsByTopic[topicId] = nextCursor
+            } else {
+                topicResponseCursorsByTopic.removeValue(forKey: topicId)
+            }
+            let detail = synthesizedTopicDetail(screen: screen, responseRows: rows)
+            _ = cacheTopicDetail(detail, topicId: topicId)
+        } catch {
+            if await appViewModel.handleRecoverableSessionErrorIfNeeded(error) {
+                return
+            }
+            updateTopicErrorMessage(error.localizedDescription, topicId: topicId)
+        }
+    }
+
     func clearTopicDetailAnchor(topicId: UInt64) {
         clearTransientAnchor(topicId: topicId)
     }
 
     func pendingScrollTarget(topicId: UInt64) -> UInt32? {
-        topicWindowStates[topicId]?.pendingScrollTarget
+        topicDetailTargetPostNumbers[topicId]
     }
 
     func isScrollTargetExhausted(topicId: UInt64, postNumber: UInt32) -> Bool {
-        guard let window = topicWindowStates[topicId],
-              let detail = topicDetails[topicId] else { return false }
-        return Self.scrollTargetIsExhausted(
-            postNumber: postNumber,
-            window: window,
-            orderedPostIDs: detail.postStream.stream,
-            loadedPostIDs: Set(detail.postStream.posts.map(\.id))
-        )
+        guard let detail = topicDetails[topicId] else { return false }
+        if detail.postStream.posts.contains(where: { $0.postNumber == postNumber }) {
+            return false
+        }
+        return topicResponseCursorsByTopic[topicId] == nil
     }
 
     func markScrollTargetSatisfied(topicId: UInt64, postNumber: UInt32) {
@@ -389,19 +452,7 @@ final class FireTopicDetailStore: ObservableObject {
     }
 
     func hasMoreTopicPosts(topicId: UInt64) -> Bool {
-        guard let detail = topicDetails[topicId],
-              let window = topicWindowStates[topicId] else {
-            return false
-        }
-        let unresolvedPostIDs = FireTopicPresentation.missingPostIDs(
-            orderedPostIDs: detail.postStream.stream,
-            in: window.requestedRange,
-            loadedPostIDs: Set(detail.postStream.posts.map(\.id)),
-            excluding: window.exhaustedPostIDs
-        )
-        return !unresolvedPostIDs.isEmpty
-            || window.requestedRange.lowerBound > 0
-            || window.requestedRange.upperBound < detail.postStream.stream.count
+        topicResponseCursorsByTopic[topicId] != nil
     }
 
     func preloadTopicPostsIfNeeded(
@@ -411,14 +462,16 @@ final class FireTopicDetailStore: ObservableObject {
         guard hasMoreTopicPosts(topicId: topicId) else { return }
         guard !loadingMoreTopicPostIDs.contains(topicId) else { return }
         guard topicPostPreloadTasks[topicId] == nil else { return }
+        guard let detail = topicDetails[topicId],
+              let maxLoadedPostNumber = detail.postStream.posts.map(\.postNumber).max(),
+              visiblePostNumbers.contains(maxLoadedPostNumber) else {
+            return
+        }
 
         topicPostPreloadTasks[topicId] = Task { @MainActor [weak self] in
             guard let self else { return }
             defer { self.topicPostPreloadTasks[topicId] = nil }
-            await self.expandRequestedRangeIfNeeded(
-                topicId: topicId,
-                visiblePostNumbers: visiblePostNumbers
-            )
+            await self.loadNextTopicResponsePage(topicId: topicId)
         }
     }
 
@@ -957,23 +1010,21 @@ final class FireTopicDetailStore: ObservableObject {
         topicId: UInt64,
         sessionStore: FireSessionStore
     ) async throws {
-        let detail = try await performWithTimeout(30, operation: "刷新话题详情") { [appViewModel] in
+        let screen = try await performWithTimeout(30, operation: "刷新话题详情") { [appViewModel] in
             try await appViewModel.performWithCloudflareRecovery(
                 operation: "刷新话题详情"
             ) {
-                try await sessionStore.fetchTopicDetailInitial(
-                    query: TopicDetailQueryState(
+                try await sessionStore.fetchTopicScreen(
+                    query: TopicScreenQueryState(
                         topicId: topicId,
-                        postNumber: nil,
+                        targetPostNumber: nil,
+                        rootPageSize: 10,
                         trackVisit: false,
-                        filter: nil,
-                        usernameFilters: nil,
-                        filterTopLevelReplies: false
                     )
                 )
             }
         }
-        applyTopicDetail(detail, topicId: topicId)
+        applyTopicScreen(screen, topicId: topicId)
     }
 
     private func scheduleTopicDetailRefresh(topicId: UInt64) {
@@ -985,23 +1036,21 @@ final class FireTopicDetailStore: ObservableObject {
             guard self.topicDetails[topicId] != nil else { return }
             let anchorPostNumber = self.activeAnchorPostNumber(topicId: topicId)
             do {
-                let detail = try await self.performWithTimeout(30, operation: "刷新话题详情") { [appViewModel = self.appViewModel] in
+                let screen = try await self.performWithTimeout(30, operation: "刷新话题详情") { [appViewModel = self.appViewModel] in
                     try await appViewModel.performWithCloudflareRecovery(
                         operation: "刷新话题详情"
                     ) {
-                        try await store.fetchTopicDetailInitial(
-                            query: TopicDetailQueryState(
+                        try await store.fetchTopicScreen(
+                            query: TopicScreenQueryState(
                                 topicId: topicId,
-                                postNumber: anchorPostNumber,
+                                targetPostNumber: anchorPostNumber,
+                                rootPageSize: 10,
                                 trackVisit: false,
-                                filter: nil,
-                                usernameFilters: nil,
-                                filterTopLevelReplies: false
                             )
                         )
                     }
                 }
-                self.applyTopicDetail(detail, topicId: topicId)
+                self.applyTopicScreen(screen, topicId: topicId)
             } catch {
                 if await self.appViewModel.handleRecoverableSessionErrorIfNeeded(error) {
                     self.appViewModel.topicDetailLogger()?.notice(
@@ -1097,6 +1146,9 @@ final class FireTopicDetailStore: ObservableObject {
     }
 
     private func evictTopicDetailState(topicId: UInt64, reason: String) {
+        topicScreens.removeValue(forKey: topicId)
+        topicResponseRowsByTopic.removeValue(forKey: topicId)
+        topicResponseCursorsByTopic.removeValue(forKey: topicId)
         let removedDetail = topicDetails.removeValue(forKey: topicId) != nil
         let removedRenderState = topicRenderStates.removeValue(forKey: topicId) != nil
         topicRenderCaches.removeValue(forKey: topicId)
@@ -1161,11 +1213,22 @@ final class FireTopicDetailStore: ObservableObject {
         }
 
         let previousRenderCache = topicRenderCaches[topicId]
-        let renderCache = FireTopicPresentation.detailRenderCache(
-            from: cachedDetail,
-            baseURLString: renderBaseURLString,
-            previous: previousRenderCache
-        )
+        let renderCache: FireTopicDetailRenderCache
+        if let screen = topicScreens[topicId],
+           let responseRows = topicResponseRowsByTopic[topicId] {
+            renderCache = FireTopicPresentation.detailRenderCache(
+                screen: screen,
+                responseRows: responseRows,
+                baseURLString: renderBaseURLString,
+                previous: previousRenderCache
+            )
+        } else {
+            renderCache = FireTopicPresentation.detailRenderCache(
+                from: cachedDetail,
+                baseURLString: renderBaseURLString,
+                previous: previousRenderCache
+            )
+        }
         topicRenderCaches[topicId] = renderCache
 
         let didUpdateRenderState =
@@ -2071,6 +2134,17 @@ final class FireTopicDetailStore: ObservableObject {
         }
 
         detail.postStream.posts[postIndex] = post
+        if var screen = topicScreens[topicId] {
+            if screen.body.post.id == postId {
+                screen.body.post = post
+            }
+            topicScreens[topicId] = screen
+        }
+        if var responseRows = topicResponseRowsByTopic[topicId],
+           let rowIndex = responseRows.firstIndex(where: { $0.post.id == postId }) {
+            responseRows[rowIndex].post = post
+            topicResponseRowsByTopic[topicId] = responseRows
+        }
         _ = cacheTopicDetail(detail, topicId: topicId)
     }
 

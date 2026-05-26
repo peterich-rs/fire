@@ -214,6 +214,75 @@ enum FireTopicPresentation {
         )
     }
 
+    static func detailRenderCache(
+        screen: TopicScreenState,
+        responseRows: [TopicResponseRowState],
+        baseURLString: String,
+        previous: FireTopicDetailRenderCache? = nil
+    ) -> FireTopicDetailRenderCache {
+        let orderedPosts = [screen.body.post] + responseRows.map(\.post)
+        let rowInputs = orderedPosts.map { post in
+            FireTopicTimelineRowInput(
+                postID: post.id,
+                postNumber: post.postNumber,
+                replyToPostNumber: post.replyToPostNumber
+            )
+        }
+        let contentInputsByPostID = Dictionary(
+            uniqueKeysWithValues: orderedPosts.map { post in
+                (post.id, FireTopicPostRenderInput(cooked: post.cooked))
+            }
+        )
+
+        let originalRow = FirePreparedTopicTimelineRow(
+            entry: FireTopicTimelineEntry(
+                postId: screen.body.post.id,
+                postNumber: screen.body.post.postNumber,
+                parentPostNumber: nil,
+                depth: 0,
+                isOriginalPost: true
+            )
+        )
+        let replyRows = responseRows.map { row in
+            FirePreparedTopicTimelineRow(
+                entry: FireTopicTimelineEntry(
+                    postId: row.post.id,
+                    postNumber: row.post.postNumber,
+                    parentPostNumber: row.parentPostNumber,
+                    depth: UInt32(row.depth),
+                    isOriginalPost: false
+                )
+            )
+        }
+
+        var contentByPostID: [UInt64: FireTopicPostRenderContent] = [:]
+        contentByPostID.reserveCapacity(orderedPosts.count)
+        let canReuseContent = previous?.baseURLString == baseURLString
+        for post in orderedPosts {
+            if canReuseContent,
+               previous?.contentInputsByPostID[post.id] == contentInputsByPostID[post.id],
+               let cachedContent = previous?.renderState.contentByPostID[post.id] {
+                contentByPostID[post.id] = cachedContent
+            } else {
+                contentByPostID[post.id] = renderContent(
+                    from: post.cooked,
+                    baseURLString: baseURLString
+                )
+            }
+        }
+
+        return FireTopicDetailRenderCache(
+            baseURLString: baseURLString,
+            rowInputs: rowInputs,
+            contentInputsByPostID: contentInputsByPostID,
+            renderState: FireTopicDetailRenderState(
+                originalRow: originalRow,
+                replyRows: replyRows,
+                contentByPostID: contentByPostID
+            )
+        )
+    }
+
     static func minimumReplyLength(from minPostLength: UInt32) -> Int {
         max(Int(minPostLength), 1)
     }

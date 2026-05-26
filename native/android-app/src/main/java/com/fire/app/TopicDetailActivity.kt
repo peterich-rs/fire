@@ -38,6 +38,11 @@ import uniffi.fire_uniffi_topics.TopicDetailState
 import uniffi.fire_uniffi_topics.TopicPostState
 import uniffi.fire_uniffi_topics.TopicReactionState
 import uniffi.fire_uniffi_topics.TopicReplyRequestState
+import uniffi.fire_uniffi_topics.TopicResponseCursorState
+import uniffi.fire_uniffi_topics.TopicResponsePageQueryState
+import uniffi.fire_uniffi_topics.TopicResponseRowState
+import uniffi.fire_uniffi_topics.TopicScreenQueryState
+import uniffi.fire_uniffi_topics.TopicScreenState
 import uniffi.fire_uniffi_topics.TopicUpdateRequestState
 import uniffi.fire_uniffi_topics.VotedUserState
 
@@ -103,7 +108,11 @@ class TopicDetailActivity : AppCompatActivity() {
     private var minPostLength: UInt = 1u
     private var minTopicTitleLength: UInt = 1u
     private var canWriteAuthenticatedApi: Boolean = false
+    private var currentScreen: TopicScreenState? = null
     private var currentDetail: TopicDetailState? = null
+    private var currentResponseRows: MutableList<TopicResponseRowState> = mutableListOf()
+    private var nextResponseCursor: TopicResponseCursorState? = null
+    private var isLoadingMoreResponsePage: Boolean = false
     private var detailRenderGeneration: Int = 0
     private var topicAiSummaryView: View? = null
     private val postViewsByNumber: MutableMap<UInt, View> = mutableMapOf()
@@ -156,7 +165,10 @@ class TopicDetailActivity : AppCompatActivity() {
                 fetchAndRenderTopicDetail(force = force, targetPostNumber = targetPostNumber)
                 targetPostNumber?.let(::scrollToPostNumber)
             } catch (error: Exception) {
+                currentScreen = null
                 currentDetail = null
+                currentResponseRows.clear()
+                nextResponseCursor = null
                 binding.editTopicButton.visibility = View.GONE
                 binding.editTopicButton.isEnabled = false
                 binding.topicNotificationButton.visibility = View.GONE
@@ -181,27 +193,29 @@ class TopicDetailActivity : AppCompatActivity() {
         minTopicTitleLength = restored.bootstrap.minTopicTitleLength.takeIf { it > 0u } ?: 1u
         canWriteAuthenticatedApi = restored.readiness.canWriteAuthenticatedApi
 
-        val detail = sessionStore.fetchTopicDetail(
-            TopicDetailQueryState(
+        val screen = sessionStore.fetchTopicScreen(
+            TopicScreenQueryState(
                 topicId = topicId,
-                postNumber = targetPostNumber,
+                targetPostNumber = targetPostNumber,
+                rootPageSize = 10.toUShort(),
                 trackVisit = !force,
-                filter = null,
-                usernameFilters = null,
-                filterTopLevelReplies = false,
             ),
         )
-        renderDetail(detail)
+        currentScreen = screen
+        currentResponseRows = screen.response.rows.toMutableList()
+        nextResponseCursor = screen.response.nextCursor
+        renderDetail(screen)
     }
 
-    private fun renderDetail(detail: TopicDetailState) {
+    private fun renderDetail(screen: TopicScreenState) {
+        val detail = synthesizeTopicDetail(screen, currentResponseRows)
         currentDetail = detail
         val renderGeneration = ++detailRenderGeneration
         topicAiSummaryView = null
         updateTopicEditButton(detail)
         updateTopicBookmarkButton(detail)
         updateTopicNotificationButton(detail)
-        val timelineRows = buildTimelineRows(detail)
+        val timelineRows = buildTimelineRows(screen.body.post, currentResponseRows)
         val tagNames = TopicPresentation.tagNames(detail.tags)
         binding.pageTitleText.text = detail.title
         binding.pageMetaText.text = buildList {
@@ -265,7 +279,10 @@ class TopicDetailActivity : AppCompatActivity() {
         binding.postsContainer.addView(
             sectionCard(
                 title = getString(R.string.topic_detail_replies_section),
-                subtitle = getString(R.string.topic_detail_replies_count, replyPosts.size.toString()),
+                subtitle = getString(
+                    R.string.topic_detail_replies_count,
+                    screen.response.totalResponseCount.toString(),
+                ),
                 accentColor = sectionAccentColor(alpha = 0x66),
             ) {
                 replyPosts.forEach { row ->
@@ -278,6 +295,21 @@ class TopicDetailActivity : AppCompatActivity() {
                             emphasized = row.depth == 0,
                             replyTargetPostNumber = row.parentPostNumber,
                         ),
+                    )
+                }
+                if (nextResponseCursor != null) {
+                    addView(
+                        Button(context).apply {
+                            text = getString(
+                                if (isLoadingMoreResponsePage) {
+                                    R.string.topic_detail_loading_more_replies
+                                } else {
+                                    R.string.topic_detail_load_more_replies
+                                },
+                            )
+                            isEnabled = !isLoadingMoreResponsePage
+                            setOnClickListener { loadMoreResponsePage() }
+                        },
                     )
                 }
             },
@@ -396,61 +428,90 @@ class TopicDetailActivity : AppCompatActivity() {
         return parts.takeIf { it.isNotEmpty() }?.joinToString(" · ")
     }
 
-    private fun buildTimelineRows(detail: TopicDetailState): List<TopicTimelineRow> {
-        val posts = detail.postStream.posts.sortedWith(
-            compareBy<TopicPostState> { it.postNumber }.thenBy { it.id },
+    private fun synthesizeTopicDetail(
+        screen: TopicScreenState,
+        responseRows: List<TopicResponseRowState>,
+    ): TopicDetailState {
+        val posts = buildList {
+            add(screen.body.post)
+            addAll(responseRows.map { it.post })
+        }
+        return TopicDetailState(
+            id = screen.header.topicId,
+            title = screen.header.title,
+            slug = screen.header.slug,
+            postsCount = screen.header.postsCount,
+            categoryId = screen.header.categoryId,
+            tags = screen.header.tags,
+            views = screen.header.views,
+            likeCount = screen.header.likeCount,
+            createdAt = screen.header.createdAt,
+            lastReadPostNumber = screen.header.lastReadPostNumber,
+            bookmarks = screen.header.bookmarks,
+            bookmarked = screen.header.bookmarked,
+            bookmarkId = screen.header.bookmarkId,
+            bookmarkName = screen.header.bookmarkName,
+            bookmarkReminderAt = screen.header.bookmarkReminderAt,
+            acceptedAnswer = screen.header.acceptedAnswer,
+            hasAcceptedAnswer = screen.header.hasAcceptedAnswer,
+            canVote = screen.header.canVote,
+            voteCount = screen.header.voteCount,
+            userVoted = screen.header.userVoted,
+            summarizable = screen.header.summarizable,
+            hasCachedSummary = screen.header.hasCachedSummary,
+            hasSummary = screen.header.hasSummary,
+            archetype = screen.header.archetype,
+            postStream = uniffi.fire_uniffi_topics.TopicPostStreamState(
+                posts = posts,
+                stream = posts.map { it.id },
+            ),
+            details = screen.header.details,
         )
-        if (posts.isEmpty()) {
-            return emptyList()
-        }
-
-        val postsByNumber = posts.associateBy { it.postNumber }
-        val originalPostNumber = posts.minOf { it.postNumber }
-
-        return posts.map { post ->
-            val parentPostNumber = normalizedReplyTarget(
-                replyToPostNumber = post.replyToPostNumber,
-                currentPostNumber = post.postNumber,
-            )
-            TopicTimelineRow(
-                post = post,
-                parentPostNumber = parentPostNumber,
-                depth = parentPostNumber?.let { computeReplyDepth(it, postsByNumber) } ?: 0,
-                isOriginalPost = post.postNumber == originalPostNumber,
-            )
-        }
     }
 
-    private fun normalizedReplyTarget(
-        replyToPostNumber: UInt?,
-        currentPostNumber: UInt,
-    ): UInt? {
-        val parentPostNumber = replyToPostNumber ?: return null
-        return parentPostNumber.takeIf { it != 0u && it != currentPostNumber }
+    private fun buildTimelineRows(
+        bodyPost: TopicPostState,
+        responseRows: List<TopicResponseRowState>,
+    ): List<TopicTimelineRow> {
+        val rows = ArrayList<TopicTimelineRow>(responseRows.size + 1)
+        rows += TopicTimelineRow(
+            post = bodyPost,
+            parentPostNumber = null,
+            depth = 0,
+            isOriginalPost = true,
+        )
+        responseRows.forEach { row ->
+            rows += TopicTimelineRow(
+                post = row.post,
+                parentPostNumber = row.parentPostNumber,
+                depth = row.depth.toInt(),
+                isOriginalPost = false,
+            )
+        }
+        return rows
     }
 
-    private fun computeReplyDepth(
-        parentPostNumber: UInt,
-        postsByNumber: Map<UInt, TopicPostState>,
-        currentDepth: Int = 1,
-        visited: MutableSet<UInt> = mutableSetOf(),
-    ): Int {
-        if (!visited.add(parentPostNumber)) {
-            return currentDepth
+    private fun loadMoreResponsePage() {
+        val cursor = nextResponseCursor ?: return
+        if (isLoadingMoreResponsePage) {
+            return
         }
-
-        val parentPost = postsByNumber[parentPostNumber] ?: return currentDepth
-        val grandParentPostNumber = normalizedReplyTarget(
-            replyToPostNumber = parentPost.replyToPostNumber,
-            currentPostNumber = parentPost.postNumber,
-        ) ?: return currentDepth
-
-        return computeReplyDepth(
-            parentPostNumber = grandParentPostNumber,
-            postsByNumber = postsByNumber,
-            currentDepth = currentDepth + 1,
-            visited = visited,
-        )
+        lifecycleScope.launch {
+            isLoadingMoreResponsePage = true
+            try {
+                val page = sessionStore.fetchTopicResponsePage(
+                    TopicResponsePageQueryState(cursor = cursor),
+                )
+                currentResponseRows.addAll(page.rows)
+                nextResponseCursor = page.nextCursor
+                currentScreen?.let(::renderDetail)
+            } catch (error: Exception) {
+                binding.errorText.text = error.localizedMessage ?: getString(R.string.topic_detail_error)
+                binding.errorText.visibility = View.VISIBLE
+            } finally {
+                isLoadingMoreResponsePage = false
+            }
+        }
     }
 
     private fun sectionCard(
@@ -582,7 +643,8 @@ class TopicDetailActivity : AppCompatActivity() {
                                 }
                                 replyContextLabel(
                                     post = post,
-                                    fallbackPostNumber = normalizedReplyTarget(post.replyToPostNumber, post.postNumber),
+                                    fallbackPostNumber = replyTargetPostNumber
+                                        ?: post.replyToPostNumber?.takeIf { it != 0u && it != post.postNumber },
                                 )?.let(::add)
                             }.joinToString(" · ")
                             textSize = 12f

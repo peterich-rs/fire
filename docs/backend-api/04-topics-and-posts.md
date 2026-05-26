@@ -126,10 +126,12 @@
 - 补充说明：
   - `filter_top_level_replies=true` 时，服务端返回可能不包含主贴
   - 当前客户端会在必要时额外请求 `GET /posts/by_number/{topicId}/1` 补回首贴
-  - 当前代码同时保留两种消费方式：
-    - 共享 Rust Core 的“完整详情”路径会继续按缺失的 `post_ids[]` 调用 `GET /t/{topicId}/posts.json`，补齐整条评论流
-    - iOS 帖子详情页的滚动列表路径会先消费首屏 `post_stream.posts`，再依据 `post_stream.stream` 自动分批请求 `GET /t/{topicId}/posts.json?post_ids[]=` 续载后续评论
-  - 进入“只看顶层回复”模式后，后续翻页依赖 `post_stream.stream` 和 `GET /t/{topicId}/posts.json?post_ids[]=`，不是继续用 `post_number + asc`
+  - 当前话题详情页由共享 Rust Core 拆成三个消费段：
+    - `header`：标题与话题元数据，进入详情时可复用首页已有标题，再由详情返回值轻量校正
+    - `body`：固定为 `post_number == 1` 的主贴；如果 `filter_top_level_replies=true` 的负载里缺失，Rust 会额外请求 `GET /posts/by_number/{topicId}/1`
+    - `response`：仅包含 `post_number > 1` 的回复树
+  - 当前回复区分页不再按整条 `post_stream.stream` 平铺补齐，而是由 Rust 先用 `filter_top_level_replies=true` 获取顶层回复根列表，再按根分支分页
+  - 当前 Rust 会按根分支调用 `GET /posts/{postId}/reply-ids.json` 获取整棵回复子树的帖子 ID，再按批次调用 `GET /t/{topicId}/posts.json?post_ids[]=` 拉取该分支的完整帖子并构建树序行
   - 当前 iOS 和 Android 都会消费 `post_stream.posts[].polls` 和 `post_stream.posts[].polls_votes`，用于在 topic detail 渲染原生 poll 卡片并恢复当前用户的已选项
   - 当前共享 Rust 解析 `post_stream.posts[].reply_to_user`，并通过 UniFFI 暴露到 `TopicPostState.reply_to_user` / `replyToUser`；iOS / Android 用它把回复关系显示为 `回复 @username`，缺失时才回退到 `reply_to_post_number`
   - 当前 iOS 也会消费顶层 `archetype` 以及 `details.participants[]`，用于把 `private_message` 线程渲染成私信详情页，并在头部展示会话参与者

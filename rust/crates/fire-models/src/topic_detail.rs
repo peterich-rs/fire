@@ -263,6 +263,92 @@ pub struct TopicPostStream {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TopicScreenQuery {
+    pub topic_id: u64,
+    pub target_post_number: Option<u32>,
+    pub root_page_size: u16,
+    pub track_visit: bool,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TopicScreen {
+    pub header: TopicHeader,
+    pub body: TopicBody,
+    pub response: TopicResponsePage,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TopicHeader {
+    pub topic_id: u64,
+    pub title: String,
+    pub slug: String,
+    pub category_id: Option<u64>,
+    pub tags: Vec<TopicTag>,
+    pub views: u32,
+    pub like_count: u32,
+    pub posts_count: u32,
+    pub reply_count: u32,
+    pub created_at: Option<String>,
+    pub last_read_post_number: Option<u32>,
+    pub bookmarks: Vec<u64>,
+    pub bookmarked: bool,
+    pub bookmark_id: Option<u64>,
+    pub bookmark_name: Option<String>,
+    pub bookmark_reminder_at: Option<String>,
+    pub accepted_answer: bool,
+    pub has_accepted_answer: bool,
+    pub can_vote: bool,
+    pub vote_count: i32,
+    pub user_voted: bool,
+    pub summarizable: bool,
+    pub has_cached_summary: bool,
+    pub has_summary: bool,
+    pub archetype: Option<String>,
+    pub details: TopicDetailMeta,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TopicBody {
+    pub post: TopicPost,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TopicResponseCursor {
+    pub topic_id: u64,
+    pub session_id: u64,
+    pub next_root_offset: u32,
+    pub page_size: u16,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TopicResponsePageQuery {
+    pub cursor: TopicResponseCursor,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TopicResponsePage {
+    pub rows: Vec<TopicResponseRow>,
+    pub next_cursor: Option<TopicResponseCursor>,
+    pub total_root_count: u32,
+    pub loaded_root_count: u32,
+    pub total_response_count: u32,
+    pub focused_post_number: Option<u32>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TopicResponseRow {
+    pub post: TopicPost,
+    pub root_post_number: u32,
+    pub parent_post_number: Option<u32>,
+    pub depth: u16,
+    pub preorder_index: u32,
+    pub has_children: bool,
+    pub descendant_count: u32,
+    pub sibling_index: u16,
+    pub is_last_sibling: bool,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TopicThreadReply {
     pub post_number: u32,
     pub depth: u32,
@@ -512,6 +598,41 @@ pub struct TopicDetail {
 impl TopicDetail {
     pub fn rebuild_timeline_entries(&mut self) {
         self.timeline_entries = build_floor_timeline_entries(&self.post_stream.posts);
+    }
+
+    pub fn reply_count(&self) -> u32 {
+        self.posts_count.saturating_sub(1)
+    }
+
+    pub fn header(&self) -> TopicHeader {
+        TopicHeader {
+            topic_id: self.id,
+            title: self.title.clone(),
+            slug: self.slug.clone(),
+            category_id: self.category_id,
+            tags: self.tags.clone(),
+            views: self.views,
+            like_count: self.like_count,
+            posts_count: self.posts_count,
+            reply_count: self.reply_count(),
+            created_at: self.created_at.clone(),
+            last_read_post_number: self.last_read_post_number,
+            bookmarks: self.bookmarks.clone(),
+            bookmarked: self.bookmarked,
+            bookmark_id: self.bookmark_id,
+            bookmark_name: self.bookmark_name.clone(),
+            bookmark_reminder_at: self.bookmark_reminder_at.clone(),
+            accepted_answer: self.accepted_answer,
+            has_accepted_answer: self.has_accepted_answer,
+            can_vote: self.can_vote,
+            vote_count: self.vote_count,
+            user_voted: self.user_voted,
+            summarizable: self.summarizable,
+            has_cached_summary: self.has_cached_summary,
+            has_summary: self.has_summary,
+            archetype: self.archetype.clone(),
+            details: self.details.clone(),
+        }
     }
 
     pub fn interaction_count(&self) -> u32 {

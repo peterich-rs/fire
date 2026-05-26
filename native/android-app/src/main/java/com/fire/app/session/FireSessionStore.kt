@@ -29,7 +29,11 @@ import uniffi.fire_uniffi_topics.TopicDetailQueryState
 import uniffi.fire_uniffi_topics.TopicDetailState
 import uniffi.fire_uniffi_topics.TopicListQueryState
 import uniffi.fire_uniffi_topics.TopicPostState
+import uniffi.fire_uniffi_topics.TopicResponsePageQueryState
+import uniffi.fire_uniffi_topics.TopicResponsePageState
 import uniffi.fire_uniffi_topics.TopicReplyRequestState
+import uniffi.fire_uniffi_topics.TopicScreenQueryState
+import uniffi.fire_uniffi_topics.TopicScreenState
 import uniffi.fire_uniffi_topics.TopicUpdateRequestState
 import uniffi.fire_uniffi_topics.VoteResponseState
 import uniffi.fire_uniffi_topics.VotedUserState
@@ -247,6 +251,14 @@ class FireSessionStore(
 
     suspend fun fetchTopicDetailInitial(query: TopicDetailQueryState): TopicDetailState = withContext(Dispatchers.IO) {
         core.topics().fetchTopicDetailInitial(query)
+    }
+
+    suspend fun fetchTopicScreen(query: TopicScreenQueryState): TopicScreenState = withContext(Dispatchers.IO) {
+        core.topics().fetchTopicScreen(query)
+    }
+
+    suspend fun fetchTopicResponsePage(query: TopicResponsePageQueryState): TopicResponsePageState = withContext(Dispatchers.IO) {
+        core.topics().fetchTopicResponsePage(query)
     }
 
     suspend fun fetchTopicPosts(topicId: ULong, postIds: List<ULong>): List<TopicPostState> = withContext(Dispatchers.IO) {

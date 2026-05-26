@@ -135,7 +135,14 @@ final class FireDiffableListController<SectionID: Hashable, ItemID: Hashable, Ro
     private var lastVisibleItemIDs: [ItemID] = []
     private var lastScrollMetrics: FireCollectionScrollMetrics?
     private var isRefreshing = false
-    private var pendingRefreshCompletionResyncTask: Task<Void, Never>?
+    // Set when `endRefreshing()` starts the refresh control's retraction animation,
+    // and cleared once the scroll view finishes the post-rebound deceleration (or a
+    // safety timeout fires). While set, we keep deferring our own scroll-anchor
+    // restoration at the top edge so UIKit can own the rebound and SwiftUI's
+    // large-title navigation chrome can track contentOffset/inset transitions
+    // without us interrupting them via setContentOffset(animated: false).
+    private var isSettlingAfterRefresh = false
+    private var refreshSettlingTimeoutTask: Task<Void, Never>?
     private var handledScrollRequestID: AnyHashable?
     private var animatingScrollRequest: FireCollectionScrollRequest<ItemID>?
     private var pendingSectionUpdate: FirePendingSectionUpdate<SectionID, ItemID>?
@@ -370,9 +377,9 @@ final class FireDiffableListController<SectionID: Hashable, ItemID: Hashable, Ro
         let isActivelyScrolling = collectionView.map { $0.isDragging || $0.isDecelerating } ?? false
         let effectiveAnimatingDifferences =
             sectionsChanged && animatingDifferences && !isActivelyScrolling
-        let shouldRestoreScrollAnchor = scrollAnchorRestorePolicy.shouldRestore(
-            animatingDifferences: effectiveAnimatingDifferences
-        )
+        let shouldRestoreScrollAnchor =
+            scrollAnchorRestorePolicy.shouldRestore(animatingDifferences: effectiveAnimatingDifferences)
+            && !shouldDeferScrollAnchorRestoreDuringTopRefresh()
         let scrollAnchor = shouldRestoreScrollAnchor ? currentScrollAnchor() : nil
         var snapshot = NSDiffableDataSourceSnapshot<SectionID, ItemID>()
         for section in sections {
@@ -436,6 +443,11 @@ final class FireDiffableListController<SectionID: Hashable, ItemID: Hashable, Ro
         // scrollViewDidEndScrollingAnimation, so complete the request here so the
         // caller can clear its pending target.
         completeAnimatedScrollRequestIfNeeded()
+        // If the user starts dragging during the post-refresh rebound, UIKit
+        // hands control back to the gesture and our settling window is no
+        // longer meaningful. Clearing it here keeps subsequent snapshot
+        // applies from over-deferring anchor restoration during a real scroll.
+        endPostRefreshSettling()
     }
 
     func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
@@ -443,6 +455,11 @@ final class FireDiffableListController<SectionID: Hashable, ItemID: Hashable, Ro
             applyPendingSectionUpdateIfNeeded()
             publishVisibleItems()
             publishScrollMetrics()
+            // The user lifted their finger and there's no fling, so the scroll
+            // view is settled. Any post-refresh rebound that finishes via this
+            // path should release the settling flag so subsequent diffable
+            // applies are free to restore anchors normally again.
+            endPostRefreshSettling()
         }
     }
 
@@ -450,6 +467,10 @@ final class FireDiffableListController<SectionID: Hashable, ItemID: Hashable, Ro
         applyPendingSectionUpdateIfNeeded()
         publishVisibleItems()
         publishScrollMetrics()
+        // UIKit's post-refresh rebound completes via deceleration; once it
+        // finishes the inset/contentOffset are back in their resting
+        // relationship and we can safely take over anchor restoration again.
+        endPostRefreshSettling()
     }
 
     func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
@@ -457,6 +478,7 @@ final class FireDiffableListController<SectionID: Hashable, ItemID: Hashable, Ro
         publishVisibleItems()
         publishScrollMetrics()
         completeAnimatedScrollRequestIfNeeded()
+        endPostRefreshSettling()
     }
 
     private func publishVisibleItems() {
@@ -496,8 +518,6 @@ final class FireDiffableListController<SectionID: Hashable, ItemID: Hashable, Ro
     private func triggerRefresh() {
         guard !isRefreshing else { return }
         guard let onRefresh else { return }
-        pendingRefreshCompletionResyncTask?.cancel()
-        pendingRefreshCompletionResyncTask = nil
         isRefreshing = true
 
         Task { [weak self] in
@@ -506,46 +526,52 @@ final class FireDiffableListController<SectionID: Hashable, ItemID: Hashable, Ro
                 guard let self else { return }
                 self.collectionView?.refreshControl?.endRefreshing()
                 self.isRefreshing = false
+                self.beginPostRefreshSettling()
                 self.publishScrollMetrics()
-                self.scheduleRefreshCompletionResync()
             }
         }
     }
 
-    private func scheduleRefreshCompletionResync() {
-        pendingRefreshCompletionResyncTask?.cancel()
-        pendingRefreshCompletionResyncTask = Task { [weak self] in
-            for _ in 0..<6 {
-                try? await Task.sleep(for: .milliseconds(50))
-                guard let self else { return }
-                if self.resyncTopNavigationLayoutIfNeeded() {
-                    return
-                }
-            }
-            self?.pendingRefreshCompletionResyncTask = nil
+    // After endRefreshing() the refresh control's retraction animates the
+    // contentInset and contentOffset back toward the natural top edge. UIKit
+    // also drives the SwiftUI large-title navigation chrome from those values,
+    // so calling setContentOffset(animated: false) ourselves during this window
+    // — which restoreScrollAnchor() does when geometry shifts — visibly wedges
+    // Home's "首页" large title against the chips beneath it. Hold the
+    // post-refresh settling flag until the scroll view actually settles so the
+    // anchor-restore guard keeps deferring through the rebound. The timeout is
+    // a safety net for the case where UIKit doesn't emit a settle callback
+    // (e.g. content fits the viewport so deceleration never starts).
+    private func beginPostRefreshSettling() {
+        isSettlingAfterRefresh = true
+        refreshSettlingTimeoutTask?.cancel()
+        refreshSettlingTimeoutTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(500))
+            guard let self else { return }
+            self.endPostRefreshSettling()
         }
     }
 
-    @discardableResult
-    private func resyncTopNavigationLayoutIfNeeded() -> Bool {
+    private func endPostRefreshSettling() {
+        guard isSettlingAfterRefresh else { return }
+        isSettlingAfterRefresh = false
+        refreshSettlingTimeoutTask?.cancel()
+        refreshSettlingTimeoutTask = nil
+    }
+
+    private func shouldDeferScrollAnchorRestoreDuringTopRefresh() -> Bool {
         guard let collectionView else { return false }
-        guard !collectionView.isDragging, !collectionView.isDecelerating else { return false }
+        let refreshControlActive =
+            isRefreshing
+            || isSettlingAfterRefresh
+            || collectionView.refreshControl?.isRefreshing == true
+        guard refreshControlActive else { return false }
 
         let topOffsetY = -collectionView.adjustedContentInset.top
-        guard abs(collectionView.contentOffset.y - topOffsetY) <= 2 else { return false }
-
-        // endRefreshing() settles the list back at the top, but large-title
-        // navigation chrome can lag behind that final resting offset.
-        collectionView.setContentOffset(
-            CGPoint(x: collectionView.contentOffset.x, y: topOffsetY),
-            animated: false
-        )
-        navigationController?.view.setNeedsLayout()
-        navigationController?.view.layoutIfNeeded()
-        publishVisibleItems()
-        publishScrollMetrics()
-        pendingRefreshCompletionResyncTask = nil
-        return true
+        // Let UIKit own the top-edge rebound while the refresh control is still
+        // contributing inset; forcing our own anchor restore here makes Home's
+        // large-title shell easier to wedge into an in-between state.
+        return collectionView.contentOffset.y <= topOffsetY + 1
     }
 
     private func currentScrollAnchor() -> FireCollectionScrollAnchor<ItemID>? {

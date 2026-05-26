@@ -451,6 +451,7 @@ struct FireTopicDetailView: View {
     @State private var selectedRoute: FireAppRoute?
     @State private var profileSheetContext: FireProfileSheetContext?
     @State private var postReplyContext: FirePostReplyContext?
+    @State private var didPickQuickReaction = false
     @FocusState private var isReplyFieldFocused: Bool
 
     init(viewModel: FireAppViewModel, row: FireTopicRowPresentation, scrollToPostNumber: UInt32? = nil) {
@@ -955,6 +956,7 @@ struct FireTopicDetailView: View {
                     onReplySubmitted: {
                         replyDraft = ""
                         composerContext = nil
+                        didPickQuickReaction = false
                         quickReplyError = nil
                         Task {
                             await topicDetailStore.loadTopicDetail(topicId: topic.id, force: true)
@@ -1094,7 +1096,6 @@ struct FireTopicDetailView: View {
         )
         .simultaneousGesture(TapGesture().onEnded {
             timingTracker.recordInteraction()
-            dismissKeyboard()
         })
     }
 
@@ -1155,23 +1156,29 @@ struct FireTopicDetailView: View {
 
             if let composerContext, let targetPost = composerTargetPost {
                 let canChangeTargetReaction = canChangeReaction(for: targetPost)
-                FlowLayout(spacing: 8, fallbackWidth: max(UIScreen.main.bounds.width - 32, 200)) {
-                    Button {
-                        toggleLike(for: targetPost)
-                    } label: {
-                        composerReactionPill(symbol: "❤️", label: "赞")
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(!canChangeTargetReaction)
-
-                    ForEach(nonHeartReactionOptions) { option in
+                if !didPickQuickReaction {
+                    FlowLayout(spacing: 8, fallbackWidth: max(UIScreen.main.bounds.width - 32, 200)) {
                         Button {
-                            toggleReaction(option.id, for: targetPost)
+                            toggleLike(for: targetPost)
+                            didPickQuickReaction = true
                         } label: {
-                            composerReactionPill(symbol: option.symbol, label: option.label)
+                            composerReactionPill(symbol: "❤️")
                         }
                         .buttonStyle(.plain)
                         .disabled(!canChangeTargetReaction)
+                        .accessibilityLabel("赞")
+
+                        ForEach(nonHeartReactionOptions) { option in
+                            Button {
+                                toggleReaction(option.id, for: targetPost)
+                                didPickQuickReaction = true
+                            } label: {
+                                composerReactionPill(symbol: option.symbol)
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(!canChangeTargetReaction)
+                            .accessibilityLabel(option.label)
+                        }
                     }
                 }
 
@@ -1258,19 +1265,16 @@ struct FireTopicDetailView: View {
         .background(.ultraThinMaterial)
     }
 
-    private func composerReactionPill(symbol: String, label: String) -> some View {
-        HStack(spacing: 6) {
-            Text(symbol)
-            Text(label)
-                .font(.caption.weight(.semibold))
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 7)
-        .background(
-            Capsule()
-                .fill(Color(.secondarySystemBackground))
-        )
-        .foregroundStyle(.primary)
+    private func composerReactionPill(symbol: String) -> some View {
+        Text(symbol)
+            .font(.system(size: 22))
+            .frame(minWidth: 36, minHeight: 32)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(
+                Capsule()
+                    .fill(Color(.secondarySystemBackground))
+            )
     }
 
     private func openComposer(replyToPost: TopicPostState?) {
@@ -1280,6 +1284,7 @@ struct FireTopicDetailView: View {
             replyToPostNumber: replyToPost?.postNumber,
             replyToUsername: replyToPost?.username
         )
+        didPickQuickReaction = false
         isReplyFieldFocused = true
     }
 
@@ -1302,6 +1307,7 @@ struct FireTopicDetailView: View {
 
     private func clearComposerTarget() {
         composerContext = nil
+        didPickQuickReaction = false
     }
 
     private func openAdvancedComposer() {
@@ -1343,6 +1349,7 @@ struct FireTopicDetailView: View {
                 )
                 replyDraft = ""
                 composerContext = nil
+                didPickQuickReaction = false
                 dismissKeyboard()
             } catch {
                 let message = error.localizedDescription
@@ -1350,6 +1357,7 @@ struct FireTopicDetailView: View {
                     composerNotice = "回复已提交，等待审核。"
                     replyDraft = ""
                     composerContext = nil
+                    didPickQuickReaction = false
                     dismissKeyboard()
                     return
                 }
@@ -1915,6 +1923,7 @@ struct FirePostRow: View {
                         HStack(spacing: 8) {
                             ForEach(post.reactions, id: \.id) { reaction in
                                 let option = FireTopicPresentation.reactionOption(for: reaction.id)
+                                let isMine = post.currentUserReaction?.id == reaction.id
                                 Button {
                                     if reaction.id == "heart" {
                                         onToggleLike(post)
@@ -1926,7 +1935,8 @@ struct FirePostRow: View {
                                         Text(option.symbol)
                                             .fireLikeEffect(active: reaction.id == "heart" && post.currentUserReaction?.id == "heart")
                                         Text("\(reaction.count)")
-                                            .font(.caption.monospacedDigit())
+                                            .font(.caption.monospacedDigit().weight(isMine ? .semibold : .regular))
+                                            .foregroundStyle(isMine ? FireTheme.accent : FireTheme.subtleInk)
                                             .fireNumericChange(value: reaction.count)
                                     }
                                     .padding(.horizontal, 10)
@@ -1934,14 +1944,22 @@ struct FirePostRow: View {
                                     .background(
                                         Capsule()
                                             .fill(
-                                                post.currentUserReaction?.id == reaction.id
-                                                    ? FireTheme.accent.opacity(0.14)
+                                                isMine
+                                                    ? FireTheme.accent.opacity(0.18)
                                                     : Color(.tertiarySystemFill)
+                                            )
+                                    )
+                                    .overlay(
+                                        Capsule()
+                                            .strokeBorder(
+                                                isMine ? FireTheme.accent.opacity(0.85) : Color.clear,
+                                                lineWidth: 1
                                             )
                                     )
                                 }
                                 .buttonStyle(.plain)
                                 .disabled(!canChangeReaction)
+                                .accessibilityAddTraits(isMine ? AccessibilityTraits.isSelected : AccessibilityTraits())
                             }
                         }
                     }

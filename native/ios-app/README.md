@@ -87,6 +87,7 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
   - now owns the foreground MessageBus transport lifecycle on iOS and forwards runtime refresh work into the bound feature stores instead of publishing home/topic-detail state itself
   - now treats Rust-owned `CloudflareChallenge` errors as the signal to delete stale WebView `cf_clearance`, present the host auth WebView in the LinuxDo browser context, re-sync the browser cookie batch back into Rust, and automatically retry the blocked read/write flow without tearing down the current authenticated snapshot
   - now also treats Rust-owned `LoginRequired` invalidation the same way, clearing host-side auth cookies while preserving `cf_clearance` so passive session loss, explicit logout, and bootstrap-challenged recovery all converge on one reset path
+  - now attempts a single-flight host cookie resync before that reset path on passive reads (home feed, topic detail): if the WebKit cookie store has already rotated `_t` / `_forum_session` past the shared Rust epoch, the resync rotates the shared session in place and the read retries once; otherwise the existing reset/login flow runs
   - now probes login sync readiness from the embedded `WKWebView` and keeps the `完成登录` button disabled until the shared login prerequisites are actually satisfied
   - now also emits host-owned APM spans for cold-start restore, login sync, bootstrap refresh, latest-feed load, topic-detail load, reply submit, notification refresh, and MessageBus start
 - `App/FireMessageBusCoordinator.swift`

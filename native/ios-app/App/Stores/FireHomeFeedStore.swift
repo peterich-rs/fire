@@ -408,6 +408,26 @@ final class FireHomeFeedStore: ObservableObject {
             }
             return true
         } catch {
+            let recoveryOperationDescription = (page == nil && reset)
+                ? "刷新首页话题列表"
+                : "加载更多首页话题"
+            if await appViewModel.attemptReadPathLoginRecovery(
+                operation: recoveryOperationDescription,
+                error: error
+            ) {
+                // Tear down the in-flight gate before recursing; without this
+                // the inner `loadTopics` returns immediately on the
+                // `isLoadingTopics` guard, and the `reset && !force && !rows.isEmpty`
+                // guard would also short-circuit incremental refreshes.
+                isLoadingTopics = false
+                isAppendingTopics = false
+                return await loadTopics(
+                    page: page,
+                    reset: reset,
+                    force: true,
+                    refreshMode: refreshMode
+                )
+            }
             if await appViewModel.handleRecoverableSessionErrorIfNeeded(error) {
                 return false
             }

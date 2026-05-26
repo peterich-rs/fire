@@ -239,6 +239,12 @@ final class FireAppViewModel: ObservableObject {
     private var cachedLoginSyncReadiness: CachedLoginSyncReadiness?
     private var pendingCloudflareRecovery: PendingCloudflareRecovery?
     private var isResettingSession = false
+    /// Single-flight read-path login recovery: at most one resync runs per session
+    /// epoch, and once an epoch's resync has failed we stop retrying it on read
+    /// errors so the caller falls back to the original logout/login flow.
+    private var readPathLoginRecoveryTask: Task<Bool, Never>?
+    private var readPathLoginRecoveryEpoch: UInt64?
+    private var readPathLoginRecoveryAttemptedEpochs: Set<UInt64> = []
     private let loginURL = URL(string: "https://linux.do/login")!
     private let challengeRecoveryStore: (any FireChallengeSessionRecovering)?
     private let loginCoordinatorPreloader: LoginCoordinatorPreloader?
@@ -1652,6 +1658,170 @@ final class FireAppViewModel: ObservableObject {
         }
     }
 
+    /// Read-side recovery for transient `LoginRequired` errors observed during
+    /// passive reads (home feed, topic detail). Discourse occasionally rotates
+    /// `_t` / `_forum_session` between requests, and the WKWebView cookie store
+    /// can be ahead of the shared Rust cookie jar for a short window. Before
+    /// nuking the session and presenting the login WebView, try a single host
+    /// cookie resync per session epoch — if that resync actually replaces the
+    /// auth cookies, the read can be retried in place.
+    ///
+    /// - Parameters:
+    ///   - operation: human-readable name of the originating call site, used
+    ///     for diagnostic breadcrumbs only.
+    ///   - error: the error that was caught. Only `FireUniFfiError.LoginRequired`
+    ///     attempts recovery; everything else returns `false` immediately.
+    /// - Returns: `true` if a host cookie resync rotated the shared session
+    ///   into a new auth epoch. The caller should retry the original read
+    ///   exactly once. `false` means there is nothing more we can do at this
+    ///   layer; the caller should fall back to
+    ///   `handleRecoverableSessionErrorIfNeeded` to reset and present login.
+    @discardableResult
+    func attemptReadPathLoginRecovery(
+        operation: String,
+        error: Error
+    ) async -> Bool {
+        guard case FireUniFfiError.LoginRequired = error else {
+            return false
+        }
+
+        guard !isResettingSession else {
+            return false
+        }
+
+        let logger = await authDiagnosticsLogger()
+
+        let beforeEpoch: UInt64
+        do {
+            beforeEpoch = try await currentSessionEpoch()
+        } catch {
+            logger?.warning(
+                "read-path resync skipped operation=\(operation) reason=epoch_unavailable error=\(error.localizedDescription)"
+            )
+            return false
+        }
+
+        if readPathLoginRecoveryAttemptedEpochs.contains(beforeEpoch) {
+            logger?.notice(
+                "read-path resync skipped operation=\(operation) reason=already_attempted epoch=\(beforeEpoch)"
+            )
+            return false
+        }
+
+        if let existingTask = readPathLoginRecoveryTask,
+            readPathLoginRecoveryEpoch == beforeEpoch {
+            return await existingTask.value
+        }
+
+        let task = Task<Bool, Never> { [weak self] in
+            guard let self else { return false }
+            return await self.runReadPathLoginRecovery(
+                operation: operation,
+                beforeEpoch: beforeEpoch
+            )
+        }
+        readPathLoginRecoveryTask = task
+        readPathLoginRecoveryEpoch = beforeEpoch
+        defer {
+            if readPathLoginRecoveryEpoch == beforeEpoch {
+                readPathLoginRecoveryTask = nil
+                readPathLoginRecoveryEpoch = nil
+            }
+        }
+        return await task.value
+    }
+
+    private func runReadPathLoginRecovery(
+        operation: String,
+        beforeEpoch: UInt64
+    ) async -> Bool {
+        readPathLoginRecoveryAttemptedEpochs.insert(beforeEpoch)
+        let logger = await authDiagnosticsLogger()
+
+        let coordinator: FireWebViewLoginCoordinator
+        do {
+            coordinator = try await loginCoordinatorValue()
+        } catch {
+            logger?.warning(
+                "read-path resync skipped operation=\(operation) epoch=\(beforeEpoch) reason=no_coordinator error=\(error.localizedDescription)"
+            )
+            return false
+        }
+
+        let cookies: [PlatformCookieState]
+        do {
+            cookies = try await coordinator.platformCookiesForSessionResync()
+        } catch {
+            logger?.warning(
+                "read-path resync failed operation=\(operation) epoch=\(beforeEpoch) reason=cookie_fetch_failed error=\(error.localizedDescription)"
+            )
+            return false
+        }
+
+        guard !cookies.isEmpty else {
+            logger?.notice(
+                "read-path resync skipped operation=\(operation) epoch=\(beforeEpoch) reason=no_webview_cookies"
+            )
+            return false
+        }
+
+        let sessionStore: FireSessionStore
+        do {
+            sessionStore = try await sessionStoreValue()
+        } catch {
+            logger?.warning(
+                "read-path resync skipped operation=\(operation) epoch=\(beforeEpoch) reason=no_session_store error=\(error.localizedDescription)"
+            )
+            return false
+        }
+
+        do {
+            _ = try await sessionStore.applyPlatformCookies(cookies)
+        } catch {
+            logger?.warning(
+                "read-path resync failed operation=\(operation) epoch=\(beforeEpoch) reason=apply_failed error=\(error.localizedDescription)"
+            )
+            return false
+        }
+
+        let afterEpoch: UInt64
+        do {
+            afterEpoch = try await sessionStore.currentSessionEpoch()
+        } catch {
+            logger?.warning(
+                "read-path resync inconclusive operation=\(operation) epoch=\(beforeEpoch) reason=post_epoch_unavailable error=\(error.localizedDescription)"
+            )
+            return false
+        }
+
+        let didRotate = afterEpoch != beforeEpoch
+        if didRotate {
+            // Once the resync actually rotated us into a new auth epoch, the
+            // older `attempted` markers no longer protect us from anything;
+            // keep the set small so a long-lived session doesn't accumulate
+            // stale markers.
+            readPathLoginRecoveryAttemptedEpochs = readPathLoginRecoveryAttemptedEpochs
+                .filter { $0 == afterEpoch }
+            FireAPMManager.shared.recordBreadcrumb(
+                target: Self.authDiagnosticsLogTarget,
+                message: "read-path resync rotated auth operation=\(operation) before_epoch=\(beforeEpoch) after_epoch=\(afterEpoch) cookie_count=\(cookies.count)"
+            )
+            logger?.notice(
+                "read-path resync rotated auth operation=\(operation) before_epoch=\(beforeEpoch) after_epoch=\(afterEpoch) cookie_count=\(cookies.count)"
+            )
+        } else {
+            logger?.notice(
+                "read-path resync no_change operation=\(operation) epoch=\(beforeEpoch) cookie_count=\(cookies.count)"
+            )
+        }
+        return didRotate
+    }
+
+    private func currentSessionEpoch() async throws -> UInt64 {
+        let sessionStore = try await sessionStoreValue()
+        return try await sessionStore.currentSessionEpoch()
+    }
+
     @discardableResult
     func handleRecoverableSessionErrorIfNeeded(_ error: Error) async -> Bool {
         if await handleLoginRequiredIfNeeded(error) {
@@ -1748,6 +1918,7 @@ final class FireAppViewModel: ObservableObject {
             with: .failure(FireCloudflareRecoveryError.cancelled)
         )
         stopMessageBus()
+        readPathLoginRecoveryAttemptedEpochs.removeAll()
 
         do {
             let recoveryStore = try await challengeRecoveryStoreValue()

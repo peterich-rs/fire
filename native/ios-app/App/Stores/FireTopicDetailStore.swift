@@ -221,6 +221,20 @@ final class FireTopicDetailStore: ObservableObject {
             appViewModel.topicDetailLogger()?.error(
                 "topic detail load failed topic_id=\(topicId) error=\(error.localizedDescription)"
             )
+            if await appViewModel.attemptReadPathLoginRecovery(
+                operation: "加载话题详情",
+                error: error
+            ) {
+                // Release the in-flight gate before recursing; the inner call
+                // returns immediately on `loadingTopicIDs.contains(topicId)`.
+                loadingTopicIDs.remove(topicId)
+                await loadTopicDetail(
+                    topicId: topicId,
+                    targetPostNumber: targetPostNumber,
+                    force: true
+                )
+                return
+            }
             if await appViewModel.handleRecoverableSessionErrorIfNeeded(error) {
                 if topicDetails[topicId] == nil {
                     errorMessage = error.localizedDescription

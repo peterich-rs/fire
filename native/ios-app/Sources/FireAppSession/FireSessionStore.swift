@@ -1061,6 +1061,12 @@ public actor FireSessionStore {
         )
     }
 
+    /// Read-side helper: returns the current shared session epoch so callers can
+    /// detect whether a host cookie resync actually replaced the auth cookies.
+    public func currentSessionEpoch() throws -> UInt64 {
+        try core.session().sessionEpoch()
+    }
+
     private func refreshCsrfTokenForAuthenticatedWritePreflight() async throws -> AuthenticatedWritePreflightContext {
         _ = try await refreshCsrfTokenIfNeeded()
         return try authenticatedWritePreflightContext()

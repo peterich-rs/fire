@@ -12,6 +12,7 @@ This document is now only a historical umbrella note for the earlier iOS auth/se
 
 - Non-authoritative auth-cookie deletion on an otherwise successful response: [ios-auth-cookie-invalidation-fix.md](ios-auth-cookie-invalidation-fix.md)
 - Partial auth rotation and authenticated-write host resync: [ios-auth-cookie-rotation-recovery-plan.md](ios-auth-cookie-rotation-recovery-plan.md)
+- Read-path single-shot host resync before reset/login: [ios-auth-read-path-resync.md](ios-auth-read-path-resync.md)
 
 ## Historical Note
 

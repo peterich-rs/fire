@@ -30,6 +30,7 @@ struct FireHomeView: View {
                 onScrollMetricsChanged: handleTopicListScrollMetricsChange(_: )
             )
             .navigationTitle("首页")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     HStack(spacing: 14) {

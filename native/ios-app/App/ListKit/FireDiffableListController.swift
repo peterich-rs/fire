@@ -332,9 +332,20 @@ final class FireDiffableListController<SectionID: Hashable, ItemID: Hashable, Ro
             return
         }
 
+        // Suppress diffable applies for the full pull-to-refresh lifecycle
+        // (drag → release → refresh-control showing → onRefresh work →
+        // endRefreshing rebound → deceleration). UIKit owns the contentOffset
+        // and contentInset during all of these phases and SwiftUI's
+        // large-title navigation chrome reads from those same values, so
+        // landing a snapshot apply mid-cycle either flickers visible cells via
+        // reconfigure or wedges the nav chrome into a half-collapsed state.
         let isActivelyScrolling = collectionView.map { $0.isDragging || $0.isDecelerating } ?? false
+        let isInRefreshLifecycle =
+            isRefreshing
+            || isSettlingAfterRefresh
+            || collectionView?.refreshControl?.isRefreshing == true
         if updatePolicy == .deferWhileScrolling,
-           isActivelyScrolling,
+           isActivelyScrolling || isInRefreshLifecycle,
            !currentSections.isEmpty {
             pendingSectionUpdate = FirePendingSectionUpdate(
                 sections: sections,
@@ -452,33 +463,36 @@ final class FireDiffableListController<SectionID: Hashable, ItemID: Hashable, Ro
 
     func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
         if !decelerate {
+            // The user lifted their finger and there's no fling, so the scroll
+            // view is settled. Any post-refresh rebound that finishes via this
+            // path should release the settling flag *before* flushing pending
+            // updates, otherwise the flush would re-defer itself because
+            // isInRefreshLifecycle still treats us as in-flight.
+            endPostRefreshSettling()
             applyPendingSectionUpdateIfNeeded()
             publishVisibleItems()
             publishScrollMetrics()
-            // The user lifted their finger and there's no fling, so the scroll
-            // view is settled. Any post-refresh rebound that finishes via this
-            // path should release the settling flag so subsequent diffable
-            // applies are free to restore anchors normally again.
-            endPostRefreshSettling()
         }
     }
 
     func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
-        applyPendingSectionUpdateIfNeeded()
-        publishVisibleItems()
-        publishScrollMetrics()
         // UIKit's post-refresh rebound completes via deceleration; once it
         // finishes the inset/contentOffset are back in their resting
         // relationship and we can safely take over anchor restoration again.
+        // Clear the settling flag before flushing so the deferred update
+        // actually lands instead of being re-deferred by setSections.
         endPostRefreshSettling()
+        applyPendingSectionUpdateIfNeeded()
+        publishVisibleItems()
+        publishScrollMetrics()
     }
 
     func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
+        endPostRefreshSettling()
         applyPendingSectionUpdateIfNeeded()
         publishVisibleItems()
         publishScrollMetrics()
         completeAnimatedScrollRequestIfNeeded()
-        endPostRefreshSettling()
     }
 
     private func publishVisibleItems() {
@@ -548,7 +562,7 @@ final class FireDiffableListController<SectionID: Hashable, ItemID: Hashable, Ro
         refreshSettlingTimeoutTask = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(500))
             guard let self else { return }
-            self.endPostRefreshSettling()
+            self.endPostRefreshSettlingViaTimeout()
         }
     }
 
@@ -557,6 +571,16 @@ final class FireDiffableListController<SectionID: Hashable, ItemID: Hashable, Ro
         isSettlingAfterRefresh = false
         refreshSettlingTimeoutTask?.cancel()
         refreshSettlingTimeoutTask = nil
+    }
+
+    // The 500ms safety net path: UIKit may not emit a deceleration callback
+    // when the post-refresh rebound is short or the content fits in the
+    // viewport. When the timeout fires, drain any update we deferred during
+    // the refresh lifecycle so the table doesn't get stuck on stale rows.
+    private func endPostRefreshSettlingViaTimeout() {
+        guard isSettlingAfterRefresh else { return }
+        endPostRefreshSettling()
+        applyPendingSectionUpdateIfNeeded()
     }
 
     private func shouldDeferScrollAnchorRestoreDuringTopRefresh() -> Bool {

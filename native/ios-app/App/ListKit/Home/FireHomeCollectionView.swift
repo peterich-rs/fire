@@ -23,6 +23,16 @@ private enum FireHomeCollectionItem: Hashable {
 struct FireHomeCollectionView: View {
     @EnvironmentObject private var homeFeedStore: FireHomeFeedStore
 
+    // contentVersion only tracks state that actually changes the section/item
+    // shape or replaces row content. `isLoadingTopics` toggles on every refresh
+    // and pagination tick without changing what's on screen — keeping it here
+    // would cause a full diffable apply (and therefore a reconfigure pass over
+    // every visible cell) on each toggle, which the user perceives as flicker
+    // during pull-to-refresh. The transient skeleton/loading affordance is
+    // already encoded in `topicListDisplayState`, and the appending footer's
+    // presence is driven by `currentScopeNextTopicsPage` plus the section's
+    // own `.appendingFooter` item; we don't need a separate version bit for
+    // it. Row-level changes still flow through `itemContentToken`.
     private struct FireHomeCollectionContentVersion: Hashable {
         let allCategories: [FireTopicCategoryPresentation]
         let topTags: [String]
@@ -30,10 +40,9 @@ struct FireHomeCollectionView: View {
         let selectedHomeCategoryId: UInt64?
         let selectedHomeTags: [String]
         let topicListDisplayState: FireHomeTopicListDisplayState
-        let topicRows: [FireTopicRowPresentation]
+        let topicRowIDs: [UInt64]
         let currentScopeNextTopicsPage: UInt32?
-        let isLoadingTopics: Bool
-        let isAppendingTopics: Bool
+        let hasAppendingFooter: Bool
     }
 
     let onShowCategoryBrowser: () -> Void
@@ -54,10 +63,10 @@ struct FireHomeCollectionView: View {
             selectedHomeCategoryId: homeFeedStore.selectedHomeCategoryId,
             selectedHomeTags: homeFeedStore.selectedHomeTags,
             topicListDisplayState: homeFeedStore.topicListDisplayState,
-            topicRows: homeFeedStore.topicRows,
+            topicRowIDs: homeFeedStore.topicRows.map(\.topic.id),
             currentScopeNextTopicsPage: homeFeedStore.currentScopeNextTopicsPage,
-            isLoadingTopics: homeFeedStore.isLoadingTopics,
-            isAppendingTopics: homeFeedStore.isAppendingTopics
+            hasAppendingFooter: homeFeedStore.currentScopeNextTopicsPage != nil
+                && homeFeedStore.isAppendingTopics
         )
     }
 
@@ -107,6 +116,13 @@ struct FireHomeCollectionView: View {
             onPrefetchItems: handlePrefetchItems(_:),
             onScrollMetricsChanged: onScrollMetricsChanged,
             onRefresh: onRefresh,
+            // Defer snapshot applies while the user is mid-pull or while UIKit
+            // is animating the post-refresh rebound. Without this, every
+            // intermediate `isLoadingTopics`/`topicRows` toggle during a
+            // refresh fires a diffable apply and a reconfigure pass over every
+            // visible cell, which the user sees as a flicker on top of the
+            // already in-flight large-title transition.
+            updatePolicy: .deferWhileScrolling,
             makeLayout: Self.makeLayout,
             rowContent: rowView(for:)
         )

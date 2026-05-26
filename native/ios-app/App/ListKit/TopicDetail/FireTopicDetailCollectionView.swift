@@ -68,9 +68,21 @@ enum FireTopicDetailCollectionAdapter {
     }
 }
 
+private struct FireTopicDetailCollectionContentVersion: Hashable {
+    let topicID: UInt64
+    let topicListRevision: UInt64
+    let detailError: String
+    let hasMoreTopicPosts: Bool
+    let isLoadingTopic: Bool
+    let isLoadingMoreTopicPosts: Bool
+    let isLoadingTopicAiSummary: Bool
+    let topicAiSummaryError: String
+    let pendingScrollTarget: UInt32?
+    let canWriteInteractions: Bool
+    let baseURLString: String
+}
 
 struct FireTopicDetailCollectionView: View {
-    @EnvironmentObject private var topicDetailStore: FireTopicDetailStore
     @Environment(\.colorScheme) private var colorScheme
 
     let viewModel: FireAppViewModel
@@ -78,10 +90,22 @@ struct FireTopicDetailCollectionView: View {
     let detail: TopicDetailState?
     let renderState: FireTopicDetailRenderState?
     let pendingScrollTarget: UInt32?
+    let detailError: String?
+    let hasMoreTopicPosts: Bool
+    let isLoadingTopic: Bool
+    let isLoadingMoreTopicPosts: Bool
+    let topicAiSummary: TopicAiSummaryState?
+    let isLoadingTopicAiSummary: Bool
+    let topicAiSummaryError: String?
+    let topicListRevision: UInt64
     let canWriteInteractions: Bool
+    let isMutatingPost: (UInt64) -> Bool
     let onVisiblePostNumbersChanged: (Set<UInt32>) -> Void
     let onRefresh: () async -> Void
+    let onLoadTopicDetail: () async -> Void
     let onScrollTargetHandled: (UInt32) -> Void
+    let onPreloadTopicPosts: (Set<UInt32>) -> Void
+    let onReloadTopicAiSummary: () -> Void
     let onOpenComposer: (TopicPostState?) -> Void
     let onOpenPostNumber: (UInt32) -> Void
     let onOpenPostReplies: (TopicPostState) -> Void
@@ -101,10 +125,6 @@ struct FireTopicDetailCollectionView: View {
 
     private var topic: TopicSummaryState {
         row.topic
-    }
-
-    private var detailError: String? {
-        topicDetailStore.errorMessage
     }
 
     private var displayedTopicTitle: String {
@@ -221,18 +241,6 @@ struct FireTopicDetailCollectionView: View {
         return trimmed.isEmpty ? "https://linux.do" : trimmed
     }
 
-    private var hasMoreTopicPosts: Bool {
-        topicDetailStore.hasMoreTopicPosts(topicId: topic.id)
-    }
-
-    private var isLoadingTopic: Bool {
-        topicDetailStore.isLoadingTopic(topicId: topic.id)
-    }
-
-    private var isLoadingMoreTopicPosts: Bool {
-        topicDetailStore.isLoadingMoreTopicPosts(topicId: topic.id)
-    }
-
     private var showsTopicVote: Bool {
         guard let detail, !isPrivateMessageThread else {
             return false
@@ -240,20 +248,24 @@ struct FireTopicDetailCollectionView: View {
         return detail.canVote || detail.userVoted || detail.voteCount > 0
     }
 
-    private var topicAiSummary: TopicAiSummaryState? {
-        topicDetailStore.topicAiSummary(for: topic.id)
-    }
-
-    private var isLoadingTopicAiSummary: Bool {
-        topicDetailStore.isLoadingTopicAiSummary(topicId: topic.id)
-    }
-
-    private var topicAiSummaryError: String? {
-        topicDetailStore.topicAiSummaryError(for: topic.id)
-    }
-
     private var showsTopicAiSummary: Bool {
         topicAiSummary != nil || isLoadingTopicAiSummary || topicAiSummaryError != nil
+    }
+
+    private var contentVersion: FireTopicDetailCollectionContentVersion {
+        FireTopicDetailCollectionContentVersion(
+            topicID: topic.id,
+            topicListRevision: topicListRevision,
+            detailError: detailError ?? "",
+            hasMoreTopicPosts: hasMoreTopicPosts,
+            isLoadingTopic: isLoadingTopic,
+            isLoadingMoreTopicPosts: isLoadingMoreTopicPosts,
+            isLoadingTopicAiSummary: isLoadingTopicAiSummary,
+            topicAiSummaryError: topicAiSummaryError ?? "",
+            pendingScrollTarget: pendingScrollTarget,
+            canWriteInteractions: canWriteInteractions,
+            baseURLString: baseURLString
+        )
     }
 
     private var sections: [FireListSectionModel<FireTopicDetailCollectionSection, FireTopicDetailCollectionItem>] {
@@ -335,7 +347,7 @@ struct FireTopicDetailCollectionView: View {
                 Self.postContentToken(
                     post,
                     renderContent: originalPostRenderContent,
-                    isMutating: topicDetailStore.isMutatingPost(postId: post.id)
+                    isMutating: isMutatingPost(post.id)
                 )
             }
             return AnyHashable([
@@ -387,7 +399,7 @@ struct FireTopicDetailCollectionView: View {
                 post: post,
                 renderContent: renderState?.contentByPostID[row.entry.postId],
                 showsThreadLine: showsTimelineThreadLine(in: replyRows, at: index),
-                isMutating: post.map { topicDetailStore.isMutatingPost(postId: $0.id) } ?? false
+                isMutating: post.map { isMutatingPost($0.id) } ?? false
             )
             return AnyHashable("\(token)|\(canWriteInteractions)")
         case .replyFooter:
@@ -421,6 +433,7 @@ struct FireTopicDetailCollectionView: View {
         let replyIndexByPostID = makeReplyIndexByPostID()
         return FireCollectionHost(
             sections: sections,
+            contentVersion: contentVersion,
             itemContentToken: { item in
                 itemContentToken(for: item, replyIndexByPostID: replyIndexByPostID)
             },
@@ -467,10 +480,7 @@ struct FireTopicDetailCollectionView: View {
             originalPostNumber: originalPost?.postNumber
         )
         guard !postNumbers.isEmpty else { return }
-        topicDetailStore.preloadTopicPostsIfNeeded(
-            topicId: topic.id,
-            visiblePostNumbers: postNumbers
-        )
+        onPreloadTopicPosts(postNumbers)
     }
 
     private func handleScrollRequestCompleted(_ item: FireTopicDetailCollectionItem) {
@@ -634,7 +644,7 @@ struct FireTopicDetailCollectionView: View {
                         .lineLimit(2)
                     Spacer(minLength: 0)
                     Button("重试") {
-                        topicDetailStore.reloadTopicAiSummary(topicId: topic.id)
+                        onReloadTopicAiSummary()
                     }
                     .font(.caption.weight(.semibold))
                 }
@@ -665,7 +675,7 @@ struct FireTopicDetailCollectionView: View {
                         showsThreadLine: false,
                         baseURLString: baseURLString,
                         canWriteInteractions: canWriteInteractions,
-                        isMutating: topicDetailStore.isMutatingPost(postId: originalPost.id),
+                        isMutating: isMutatingPost(originalPost.id),
                         onLinkTapped: onLinkTapped,
                         onOpenImage: onOpenImage,
                         onToggleLike: onToggleLike,
@@ -779,7 +789,7 @@ struct FireTopicDetailCollectionView: View {
 
                 Button("重试") {
                     Task {
-                        await topicDetailStore.loadTopicDetail(topicId: topic.id, force: true)
+                        await onLoadTopicDetail()
                     }
                 }
                 .buttonStyle(.bordered)
@@ -791,7 +801,7 @@ struct FireTopicDetailCollectionView: View {
         } else {
             Button("加载帖子") {
                 Task {
-                    await topicDetailStore.loadTopicDetail(topicId: topic.id, force: true)
+                    await onLoadTopicDetail()
                 }
             }
             .frame(maxWidth: .infinity)
@@ -838,7 +848,7 @@ struct FireTopicDetailCollectionView: View {
                         showsThreadLine: showsTimelineThreadLine(in: replyRows, at: replyIndex ?? 0),
                         baseURLString: baseURLString,
                         canWriteInteractions: canWriteInteractions,
-                        isMutating: topicDetailStore.isMutatingPost(postId: post.id),
+                        isMutating: isMutatingPost(post.id),
                         onLinkTapped: onLinkTapped,
                         onOpenImage: onOpenImage,
                         onToggleLike: onToggleLike,
@@ -884,10 +894,7 @@ struct FireTopicDetailCollectionView: View {
                 .task(id: topic.id) {
                     guard replyRows.isEmpty else { return }
                     let seedVisiblePostNumbers = originalPost.map { Set([$0.postNumber]) } ?? []
-                    topicDetailStore.preloadTopicPostsIfNeeded(
-                        topicId: topic.id,
-                        visiblePostNumbers: seedVisiblePostNumbers
-                    )
+                    onPreloadTopicPosts(seedVisiblePostNumbers)
                 }
         }
     }

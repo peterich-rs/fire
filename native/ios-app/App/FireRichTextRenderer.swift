@@ -1362,10 +1362,16 @@ final class FireRichTextEmojiAttachment: NSTextAttachment {
 
 /// A UIViewRepresentable that displays rich attributed text with interactive links.
 struct FireRichTextView: UIViewRepresentable {
+    let contentID: String
     let attributedString: NSAttributedString
     let onLinkTapped: ((URL) -> Void)?
 
-    init(attributedString: NSAttributedString, onLinkTapped: ((URL) -> Void)? = nil) {
+    init(
+        contentID: String,
+        attributedString: NSAttributedString,
+        onLinkTapped: ((URL) -> Void)? = nil
+    ) {
+        self.contentID = contentID
         self.attributedString = attributedString
         self.onLinkTapped = onLinkTapped
     }
@@ -1388,7 +1394,8 @@ struct FireRichTextView: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: FireRichTextUIView, context: Context) {
-        if uiView.attributedText != attributedString {
+        if uiView.renderedContentID != contentID {
+            uiView.renderedContentID = contentID
             uiView.attributedText = attributedString
             uiView.invalidateIntrinsicContentSize()
         }
@@ -1420,7 +1427,12 @@ struct FireRichTextView: UIViewRepresentable {
 
 /// Custom UITextView that sizes itself to content.
 final class FireRichTextUIView: UITextView {
+    private static let intrinsicHeightCache = NSCache<NSString, NSNumber>()
+
+    var renderedContentID: String?
     private var emojiLoadTasks: [String: Task<Void, Never>] = [:]
+    private var measuredWidth: CGFloat = 0
+    private var cachedIntrinsicHeight: CGFloat?
 
     deinit {
         cancelEmojiLoadTasks()
@@ -1428,27 +1440,67 @@ final class FireRichTextUIView: UITextView {
 
     override var attributedText: NSAttributedString! {
         didSet {
+            resetIntrinsicMeasurement()
             cancelEmojiLoadTasks()
             loadEmojiAttachmentsIfNeeded()
         }
     }
 
     override var intrinsicContentSize: CGSize {
-        let fixedWidth = bounds.width > 0 ? bounds.width : UIScreen.main.bounds.width - 80
-        let size = sizeThatFits(CGSize(width: fixedWidth, height: .greatestFiniteMagnitude))
-        return CGSize(width: UIView.noIntrinsicMetric, height: ceil(size.height))
+        let width = resolvedMeasurementWidth()
+        if let cachedIntrinsicHeight, abs(width - measuredWidth) < 0.5 {
+            return CGSize(width: UIView.noIntrinsicMetric, height: cachedIntrinsicHeight)
+        }
+
+        if let renderedContentID,
+           let cachedHeight = Self.intrinsicHeightCache.object(
+               forKey: intrinsicHeightCacheKey(contentID: renderedContentID, width: width)
+           ) {
+            measuredWidth = width
+            cachedIntrinsicHeight = CGFloat(truncating: cachedHeight)
+            return CGSize(width: UIView.noIntrinsicMetric, height: CGFloat(truncating: cachedHeight))
+        }
+
+        let size = sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude))
+        let resolvedHeight = ceil(size.height)
+        measuredWidth = width
+        cachedIntrinsicHeight = resolvedHeight
+        if let renderedContentID {
+            Self.intrinsicHeightCache.setObject(
+                NSNumber(value: resolvedHeight),
+                forKey: intrinsicHeightCacheKey(contentID: renderedContentID, width: width)
+            )
+        }
+        return CGSize(width: UIView.noIntrinsicMetric, height: resolvedHeight)
     }
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        if bounds.size != intrinsicContentSize {
+        let width = resolvedMeasurementWidth()
+        if abs(width - measuredWidth) >= 0.5 {
+            cachedIntrinsicHeight = nil
             invalidateIntrinsicContentSize()
         }
+    }
+
+    private func resolvedMeasurementWidth() -> CGFloat {
+        let width = bounds.width > 0 ? bounds.width : UIScreen.main.bounds.width - 80
+        return max(width, 1)
     }
 
     private func cancelEmojiLoadTasks() {
         emojiLoadTasks.values.forEach { $0.cancel() }
         emojiLoadTasks.removeAll()
+    }
+
+    private func resetIntrinsicMeasurement() {
+        measuredWidth = 0
+        cachedIntrinsicHeight = nil
+    }
+
+    private func intrinsicHeightCacheKey(contentID: String, width: CGFloat) -> NSString {
+        let scaledWidth = Int((width * UIScreen.main.scale).rounded())
+        return "\(contentID)|w:\(scaledWidth)" as NSString
     }
 
     private func loadEmojiAttachmentsIfNeeded() {
@@ -1521,7 +1573,6 @@ final class FireRichTextUIView: UITextView {
         }
 
         layoutManager.invalidateDisplay(forCharacterRange: changedRange)
-        invalidateIntrinsicContentSize()
         setNeedsLayout()
     }
 }

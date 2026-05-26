@@ -538,6 +538,38 @@ struct FireTopicDetailView: View {
         topicDetailStore.pendingScrollTarget(topicId: topic.id)
     }
 
+    private var detailError: String? {
+        topicDetailStore.errorMessage
+    }
+
+    private var hasMoreTopicPosts: Bool {
+        topicDetailStore.hasMoreTopicPosts(topicId: topic.id)
+    }
+
+    private var isLoadingTopic: Bool {
+        topicDetailStore.isLoadingTopic(topicId: topic.id)
+    }
+
+    private var isLoadingMoreTopicPosts: Bool {
+        topicDetailStore.isLoadingMoreTopicPosts(topicId: topic.id)
+    }
+
+    private var topicAiSummary: TopicAiSummaryState? {
+        topicDetailStore.topicAiSummary(for: topic.id)
+    }
+
+    private var isLoadingTopicAiSummary: Bool {
+        topicDetailStore.isLoadingTopicAiSummary(topicId: topic.id)
+    }
+
+    private var topicAiSummaryError: String? {
+        topicDetailStore.topicAiSummaryError(for: topic.id)
+    }
+
+    private var topicListRevision: UInt64 {
+        topicDetailStore.topicListRevision(topicId: topic.id)
+    }
+
     private var nonHeartReactionOptions: [FireReactionOption] {
         reactionOptions.filter { $0.id != "heart" }
     }
@@ -642,15 +674,37 @@ struct FireTopicDetailView: View {
             detail: detail,
             renderState: renderState,
             pendingScrollTarget: pendingScrollTarget,
+            detailError: detailError,
+            hasMoreTopicPosts: hasMoreTopicPosts,
+            isLoadingTopic: isLoadingTopic,
+            isLoadingMoreTopicPosts: isLoadingMoreTopicPosts,
+            topicAiSummary: topicAiSummary,
+            isLoadingTopicAiSummary: isLoadingTopicAiSummary,
+            topicAiSummaryError: topicAiSummaryError,
+            topicListRevision: topicListRevision,
             canWriteInteractions: canWriteInteractions,
+            isMutatingPost: { topicDetailStore.isMutatingPost(postId: $0) },
             onVisiblePostNumbersChanged: handleVisiblePostNumbersChanged(_:),
             onRefresh: {
                 timingTracker.recordInteraction()
                 topicDetailStore.clearTopicDetailAnchor(topicId: topic.id)
                 await topicDetailStore.loadTopicDetail(topicId: topic.id, force: true)
             },
+            onLoadTopicDetail: {
+                timingTracker.recordInteraction()
+                await topicDetailStore.loadTopicDetail(topicId: topic.id, force: true)
+            },
             onScrollTargetHandled: { postNumber in
                 topicDetailStore.markScrollTargetSatisfied(topicId: topic.id, postNumber: postNumber)
+            },
+            onPreloadTopicPosts: { visiblePostNumbers in
+                topicDetailStore.preloadTopicPostsIfNeeded(
+                    topicId: topic.id,
+                    visiblePostNumbers: visiblePostNumbers
+                )
+            },
+            onReloadTopicAiSummary: {
+                topicDetailStore.reloadTopicAiSummary(topicId: topic.id)
             },
             onOpenComposer: openComposer(replyToPost:),
             onOpenPostNumber: openPostNumber(_:),
@@ -1744,6 +1798,11 @@ struct FirePostRow: View {
             || (post.canDelete && !post.hidden)
     }
 
+    private var richTextContentID: String {
+        let contentHash = post.cooked.hashValue
+        return "post:\(post.id)|hash:\(contentHash)|images:\(renderContent.imageAttachments.count)"
+    }
+
     var body: some View {
         HStack(alignment: .top, spacing: visualDepth > 0 ? 6 : 10) {
             if visualDepth > 0 {
@@ -1875,7 +1934,10 @@ struct FirePostRow: View {
                 }
 
                 if let attributedText = renderContent.attributedText, attributedText.length > 0 {
-                    FireRichTextView(attributedString: attributedText) { url in
+                    FireRichTextView(
+                        contentID: richTextContentID,
+                        attributedString: attributedText
+                    ) { url in
                         onLinkTapped(url)
                     }
                     .fixedSize(horizontal: false, vertical: true)

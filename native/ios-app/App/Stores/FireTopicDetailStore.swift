@@ -29,6 +29,7 @@ final class FireTopicDetailStore: ObservableObject {
     @Published private(set) var loadingTopicAiSummaryIDs: Set<UInt64> = []
     @Published private(set) var unavailableTopicAiSummaryIDs: Set<UInt64> = []
     @Published private(set) var topicAiSummaryErrorsByTopicID: [UInt64: String] = [:]
+    @Published private(set) var topicListRevisions: [UInt64: UInt64] = [:]
     @Published var errorMessage: String?
 
     private let appViewModel: FireAppViewModel
@@ -49,6 +50,68 @@ final class FireTopicDetailStore: ObservableObject {
     private var renderBaseURLString: String {
         let trimmed = appViewModel.session.bootstrap.baseUrl.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? "https://linux.do" : trimmed
+    }
+
+    private func bumpTopicListRevision(topicId: UInt64) {
+        topicListRevisions[topicId, default: 0] &+= 1
+    }
+
+    private func setLoadingTopic(_ isLoading: Bool, topicId: UInt64) {
+        let changed: Bool
+        if isLoading {
+            changed = loadingTopicIDs.insert(topicId).inserted
+        } else {
+            changed = loadingTopicIDs.remove(topicId) != nil
+        }
+        if changed {
+            bumpTopicListRevision(topicId: topicId)
+        }
+    }
+
+    private func setLoadingMoreTopicPosts(_ isLoading: Bool, topicId: UInt64) {
+        let changed: Bool
+        if isLoading {
+            changed = loadingMoreTopicPostIDs.insert(topicId).inserted
+        } else {
+            changed = loadingMoreTopicPostIDs.remove(topicId) != nil
+        }
+        if changed {
+            bumpTopicListRevision(topicId: topicId)
+        }
+    }
+
+    private func setLoadingTopicAiSummary(_ isLoading: Bool, topicId: UInt64) {
+        let changed: Bool
+        if isLoading {
+            changed = loadingTopicAiSummaryIDs.insert(topicId).inserted
+        } else {
+            changed = loadingTopicAiSummaryIDs.remove(topicId) != nil
+        }
+        if changed {
+            bumpTopicListRevision(topicId: topicId)
+        }
+    }
+
+    private func setMutatingPost(
+        _ isMutating: Bool,
+        topicId: UInt64,
+        postId: UInt64
+    ) {
+        let changed: Bool
+        if isMutating {
+            changed = mutatingPostIDs.insert(postId).inserted
+        } else {
+            changed = mutatingPostIDs.remove(postId) != nil
+        }
+        if changed {
+            bumpTopicListRevision(topicId: topicId)
+        }
+    }
+
+    private func updateTopicErrorMessage(_ message: String?, topicId: UInt64) {
+        guard errorMessage != message else { return }
+        errorMessage = message
+        bumpTopicListRevision(topicId: topicId)
     }
 
     func applySession(_ session: SessionState) {
@@ -112,6 +175,7 @@ final class FireTopicDetailStore: ObservableObject {
         topicAiSummaries = [:]
         unavailableTopicAiSummaryIDs = []
         topicAiSummaryErrorsByTopicID = [:]
+        topicListRevisions = [:]
         topicPresenceUsersByTopic = [:]
         loadingMoreTopicPostIDs = []
         loadingTopicIDs = []
@@ -154,7 +218,7 @@ final class FireTopicDetailStore: ObservableObject {
                anchorPostNumber: anchorPostNumber,
                window: topicWindowStates[topicId]
            ) {
-            errorMessage = nil
+            updateTopicErrorMessage(nil, topicId: topicId)
             refreshTopicWindowState(
                 topicId: topicId,
                 detail: cachedDetail,
@@ -174,12 +238,12 @@ final class FireTopicDetailStore: ObservableObject {
         appViewModel.topicDetailLogger()?.debug(
             "loading topic detail topic_id=\(topicId) force=\(force) had_cache=\(hadCachedDetail) target_post=\(String(describing: targetPostNumber))"
         )
-        loadingTopicIDs.insert(topicId)
-        defer { loadingTopicIDs.remove(topicId) }
+        setLoadingTopic(true, topicId: topicId)
+        defer { setLoadingTopic(false, topicId: topicId) }
 
         do {
             let sessionStore = try await appViewModel.sessionStoreValue()
-            errorMessage = nil
+            updateTopicErrorMessage(nil, topicId: topicId)
             let detail = try await performWithTimeout(30, operation: "加载话题详情") { [appViewModel] in
                 try await FireAPMManager.shared.withSpan(
                     .topicDetailInitialLoad,
@@ -227,7 +291,7 @@ final class FireTopicDetailStore: ObservableObject {
             ) {
                 // Release the in-flight gate before recursing; the inner call
                 // returns immediately on `loadingTopicIDs.contains(topicId)`.
-                loadingTopicIDs.remove(topicId)
+                setLoadingTopic(false, topicId: topicId)
                 await loadTopicDetail(
                     topicId: topicId,
                     targetPostNumber: targetPostNumber,
@@ -237,11 +301,11 @@ final class FireTopicDetailStore: ObservableObject {
             }
             if await appViewModel.handleRecoverableSessionErrorIfNeeded(error) {
                 if topicDetails[topicId] == nil {
-                    errorMessage = error.localizedDescription
+                    updateTopicErrorMessage(error.localizedDescription, topicId: topicId)
                 }
                 return
             }
-            errorMessage = error.localizedDescription
+            updateTopicErrorMessage(error.localizedDescription, topicId: topicId)
         }
     }
 
@@ -294,6 +358,10 @@ final class FireTopicDetailStore: ObservableObject {
 
     func topicAiSummaryError(for topicId: UInt64) -> String? {
         topicAiSummaryErrorsByTopicID[topicId]
+    }
+
+    func topicListRevision(topicId: UInt64) -> UInt64 {
+        topicListRevisions[topicId] ?? 0
     }
 
     func isLoadingTopic(topicId: UInt64) -> Bool {
@@ -579,8 +647,8 @@ final class FireTopicDetailStore: ObservableObject {
             return try await sessionStore.fetchPost(postID: postID)
         }
 
-        mutatingPostIDs.insert(postID)
-        defer { mutatingPostIDs.remove(postID) }
+        setMutatingPost(true, topicId: topicID, postId: postID)
+        defer { setMutatingPost(false, topicId: topicID, postId: postID) }
 
         do {
             errorMessage = nil
@@ -779,8 +847,8 @@ final class FireTopicDetailStore: ObservableObject {
             return
         }
 
-        mutatingPostIDs.insert(postId)
-        defer { mutatingPostIDs.remove(postId) }
+        setMutatingPost(true, topicId: topicId, postId: postId)
+        defer { setMutatingPost(false, topicId: topicId, postId: postId) }
 
         do {
             errorMessage = nil
@@ -824,8 +892,8 @@ final class FireTopicDetailStore: ObservableObject {
             return
         }
 
-        mutatingPostIDs.insert(postId)
-        defer { mutatingPostIDs.remove(postId) }
+        setMutatingPost(true, topicId: topicId, postId: postId)
+        defer { setMutatingPost(false, topicId: topicId, postId: postId) }
 
         do {
             errorMessage = nil
@@ -858,8 +926,8 @@ final class FireTopicDetailStore: ObservableObject {
             return
         }
 
-        mutatingPostIDs.insert(postID)
-        defer { mutatingPostIDs.remove(postID) }
+        setMutatingPost(true, topicId: topicID, postId: postID)
+        defer { setMutatingPost(false, topicId: topicID, postId: postID) }
 
         do {
             errorMessage = nil
@@ -1037,6 +1105,7 @@ final class FireTopicDetailStore: ObservableObject {
         let removedAiSummary = topicAiSummaries.removeValue(forKey: topicId) != nil
         let removedAiSummaryUnavailable = unavailableTopicAiSummaryIDs.remove(topicId) != nil
         let removedAiSummaryError = topicAiSummaryErrorsByTopicID.removeValue(forKey: topicId) != nil
+        topicListRevisions.removeValue(forKey: topicId)
         let removedLoadingTopic = loadingTopicIDs.remove(topicId) != nil
         let removedLoadingMore = loadingMoreTopicPostIDs.remove(topicId) != nil
         let removedLoadingAiSummary = loadingTopicAiSummaryIDs.remove(topicId) != nil
@@ -1086,7 +1155,8 @@ final class FireTopicDetailStore: ObservableObject {
             stream: detail.postStream.stream
         )
 
-        if topicDetails[topicId] != cachedDetail {
+        let didUpdateDetail = topicDetails[topicId] != cachedDetail
+        if didUpdateDetail {
             topicDetails[topicId] = cachedDetail
         }
 
@@ -1098,10 +1168,15 @@ final class FireTopicDetailStore: ObservableObject {
         )
         topicRenderCaches[topicId] = renderCache
 
-        if previousRenderCache?.baseURLString != renderCache.baseURLString
+        let didUpdateRenderState =
+            previousRenderCache?.baseURLString != renderCache.baseURLString
             || previousRenderCache?.rowInputs != renderCache.rowInputs
-            || previousRenderCache?.contentInputsByPostID != renderCache.contentInputsByPostID {
+            || previousRenderCache?.contentInputsByPostID != renderCache.contentInputsByPostID
+        if didUpdateRenderState {
             topicRenderStates[topicId] = renderCache.renderState
+        }
+        if didUpdateDetail || didUpdateRenderState {
+            bumpTopicListRevision(topicId: topicId)
         }
         return cachedDetail
     }
@@ -1164,14 +1239,17 @@ final class FireTopicDetailStore: ObservableObject {
         }
 
         topicAiSummaryTasks[topicId]?.cancel()
-        loadingTopicAiSummaryIDs.insert(topicId)
-        unavailableTopicAiSummaryIDs.remove(topicId)
-        topicAiSummaryErrorsByTopicID.removeValue(forKey: topicId)
+        let clearedUnavailable = unavailableTopicAiSummaryIDs.remove(topicId) != nil
+        let clearedError = topicAiSummaryErrorsByTopicID.removeValue(forKey: topicId) != nil
+        setLoadingTopicAiSummary(true, topicId: topicId)
+        if clearedUnavailable || clearedError {
+            bumpTopicListRevision(topicId: topicId)
+        }
 
         topicAiSummaryTasks[topicId] = Task { @MainActor [weak self] in
             guard let self else { return }
             defer {
-                self.loadingTopicAiSummaryIDs.remove(topicId)
+                self.setLoadingTopicAiSummary(false, topicId: topicId)
                 self.topicAiSummaryTasks.removeValue(forKey: topicId)
             }
 
@@ -1188,12 +1266,19 @@ final class FireTopicDetailStore: ObservableObject {
 
                 if let summary,
                    !summary.summarizedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    let didChangeSummary = self.topicAiSummaries[topicId] != summary
                     self.topicAiSummaries[topicId] = summary
-                    self.unavailableTopicAiSummaryIDs.remove(topicId)
-                    self.topicAiSummaryErrorsByTopicID.removeValue(forKey: topicId)
+                    let clearedUnavailable = self.unavailableTopicAiSummaryIDs.remove(topicId) != nil
+                    let clearedError = self.topicAiSummaryErrorsByTopicID.removeValue(forKey: topicId) != nil
+                    if didChangeSummary || clearedUnavailable || clearedError {
+                        self.bumpTopicListRevision(topicId: topicId)
+                    }
                 } else {
-                    self.topicAiSummaries.removeValue(forKey: topicId)
-                    self.unavailableTopicAiSummaryIDs.insert(topicId)
+                    let removedSummary = self.topicAiSummaries.removeValue(forKey: topicId) != nil
+                    let insertedUnavailable = self.unavailableTopicAiSummaryIDs.insert(topicId).inserted
+                    if removedSummary || insertedUnavailable {
+                        self.bumpTopicListRevision(topicId: topicId)
+                    }
                 }
             } catch {
                 if await self.appViewModel.handleRecoverableSessionErrorIfNeeded(error) {
@@ -1202,7 +1287,10 @@ final class FireTopicDetailStore: ObservableObject {
                     )
                     return
                 }
-                self.topicAiSummaryErrorsByTopicID[topicId] = error.localizedDescription
+                if self.topicAiSummaryErrorsByTopicID[topicId] != error.localizedDescription {
+                    self.topicAiSummaryErrorsByTopicID[topicId] = error.localizedDescription
+                    self.bumpTopicListRevision(topicId: topicId)
+                }
                 self.appViewModel.topicDetailLogger()?.error(
                     "topic AI summary load failed topic_id=\(topicId) error=\(error.localizedDescription)"
                 )
@@ -1386,8 +1474,8 @@ final class FireTopicDetailStore: ObservableObject {
             return
         }
 
-        loadingMoreTopicPostIDs.insert(topicId)
-        defer { loadingMoreTopicPostIDs.remove(topicId) }
+        setLoadingMoreTopicPosts(true, topicId: topicId)
+        defer { setLoadingMoreTopicPosts(false, topicId: topicId) }
 
         var hydratedPosts: [TopicPostState] = []
         var hydratedPostIDs: Set<UInt64> = []
@@ -1458,7 +1546,7 @@ final class FireTopicDetailStore: ObservableObject {
                 if await appViewModel.handleRecoverableSessionErrorIfNeeded(error) {
                     return
                 }
-                errorMessage = error.localizedDescription
+                updateTopicErrorMessage(error.localizedDescription, topicId: topicId)
                 return
             }
         }

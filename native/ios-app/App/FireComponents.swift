@@ -861,15 +861,23 @@ struct FireRemoteImage<Content: View, Placeholder: View>: View {
             return
         }
 
-        loadedImage = nil
-        loadedImageKey = nil
-        loadFailed = false
+        if loadedImageKey == request.cacheKey, loadedImage != nil {
+            loadFailed = false
+            return
+        }
 
         if let cachedImage = FireRemoteImagePipeline.shared.cachedImage(for: request) {
             loadedImage = cachedImage
             loadedImageKey = request.cacheKey
+            loadFailed = false
             return
         }
+
+        if loadedImageKey != request.cacheKey {
+            loadedImage = nil
+            loadedImageKey = nil
+        }
+        loadFailed = false
 
         do {
             let image = try await FireRemoteImagePipeline.shared.loadImage(for: request)

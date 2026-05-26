@@ -16,6 +16,44 @@ enum FireCollectionLayouts {
 struct FireCollectionHost<SectionID: Hashable, ItemID: Hashable, RowContent: View>:
     UIViewControllerRepresentable
 {
+    final class Coordinator {
+        private var cachedSections: [FireListSectionModel<SectionID, ItemID>] = []
+        private var cachedContentVersion: AnyHashable?
+        private var cachedItemContentTokens: [ItemID: AnyHashable]?
+
+        func resolveItemContentTokens(
+            sections: [FireListSectionModel<SectionID, ItemID>],
+            contentVersion: AnyHashable,
+            itemContentToken: ((ItemID) -> AnyHashable)?
+        ) -> [ItemID: AnyHashable]? {
+            guard let itemContentToken else {
+                cachedSections = []
+                cachedContentVersion = nil
+                cachedItemContentTokens = nil
+                return nil
+            }
+
+            if cachedSections == sections,
+               cachedContentVersion == contentVersion,
+               let cachedItemContentTokens {
+                return cachedItemContentTokens
+            }
+
+            var tokens: [ItemID: AnyHashable] = [:]
+            tokens.reserveCapacity(sections.reduce(0) { $0 + $1.items.count })
+            for section in sections {
+                for item in section.items {
+                    tokens[item] = itemContentToken(item)
+                }
+            }
+
+            cachedSections = sections
+            cachedContentVersion = contentVersion
+            cachedItemContentTokens = tokens
+            return tokens
+        }
+    }
+
     let sections: [FireListSectionModel<SectionID, ItemID>]
     let layoutVersion: AnyHashable
     let contentVersion: AnyHashable
@@ -78,6 +116,10 @@ struct FireCollectionHost<SectionID: Hashable, ItemID: Hashable, RowContent: Vie
         self.rowContent = rowContent
     }
 
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
     func makeUIViewController(context: Context)
         -> FireDiffableListController<SectionID, ItemID, RowContent>
     {
@@ -120,19 +162,11 @@ struct FireCollectionHost<SectionID: Hashable, ItemID: Hashable, RowContent: Vie
             showsVerticalScrollIndicator: showsVerticalScrollIndicator,
             backgroundColor: backgroundColor
         )
-        let itemContentTokens: [ItemID: AnyHashable]?
-        if let itemContentToken {
-            var tokens: [ItemID: AnyHashable] = [:]
-            tokens.reserveCapacity(sections.reduce(0) { $0 + $1.items.count })
-            for section in sections {
-                for item in section.items {
-                    tokens[item] = itemContentToken(item)
-                }
-            }
-            itemContentTokens = tokens
-        } else {
-            itemContentTokens = nil
-        }
+        let itemContentTokens = context.coordinator.resolveItemContentTokens(
+            sections: sections,
+            contentVersion: contentVersion,
+            itemContentToken: itemContentToken
+        )
         uiViewController.setSections(
             sections,
             contentVersion: contentVersion,

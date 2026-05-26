@@ -58,6 +58,9 @@ struct FireTabRoot: View {
                         .tag(2)
                 }
                 .tint(FireTheme.accent)
+                .toolbar(.visible, for: .tabBar)
+                .toolbarBackground(FireTheme.tabBarBackground, for: .tabBar)
+                .toolbarBackground(.visible, for: .tabBar)
                 .environmentObject(homeFeedStore)
                 .environmentObject(topicDetailStore)
             } else {

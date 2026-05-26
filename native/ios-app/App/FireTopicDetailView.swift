@@ -1073,6 +1073,11 @@ struct FireTopicDetailView: View {
             if isFocused {
                 topicDetailStore.beginTopicReplyPresence(topicId: topic.id)
             } else {
+                // Keyboard went down. The quick-reaction shortcut row is only
+                // relevant while the user is actively engaged with the input,
+                // so collapse it. The reply target header remains so the user
+                // can still resume typing into the same post.
+                didPickQuickReaction = true
                 Task {
                     await topicDetailStore.endTopicReplyPresence(topicId: topic.id)
                 }

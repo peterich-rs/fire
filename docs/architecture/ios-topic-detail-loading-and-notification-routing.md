@@ -4,7 +4,7 @@ Status update (2026-04-19): the incremental payload-reduction slice landed by tr
 
 Status update (2026-04-19, later): topic detail has since also moved onto the shared ListKit collection host via `native/ios-app/App/ListKit/TopicDetail/FireTopicDetailCollectionView.swift`. References below to `ScrollView`, `ScrollViewReader`, or geometry-preference viewport reporting describe the earlier pre-ListKit host unless a section explicitly calls out current code.
 
-Status update (2026-05-26): this document is now partially historical. The active implementation no longer hydrates topic detail by sliding `post_stream.stream` windows on the Swift side; it bootstraps `header + body + response` through shared Rust `fetchTopicScreen`, paginates replies with `fetchTopicResponsePage`, and keeps the original post separate from Rust-owned reply-tree rows.
+Status update (2026-05-26): this document is now partially historical. The active implementation no longer hydrates topic detail by sliding `post_stream.stream` windows on the Swift side; it bootstraps `header + body + response` through shared Rust `fetchTopicScreen`, paginates replies with `fetchTopicResponsePage`, and keeps the original post separate from Rust-owned reply-tree rows. Those response rows now carry Rust-resolved parent relationships and topic-timeline depths (`body = 0`, `root reply = 1`, nested replies increment from there), and Swift drops any in-flight response page whose cursor no longer matches the current screen session.
 
 ## Feasibility Assessment
 

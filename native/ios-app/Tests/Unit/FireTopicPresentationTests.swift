@@ -724,6 +724,42 @@ final class FireTopicPresentationTests: XCTestCase {
         XCTAssertEqual(missing, [40])
     }
 
+    func testCollectionViewReplyContextPrefersResolvedTreeParentWhenItDiffers() {
+        let post = makePost(postNumber: 5, replyToPostNumber: 3, username: "reply")
+
+        XCTAssertEqual(
+            FireTopicDetailCollectionView.replyTargetPostNumber(
+                for: post,
+                preferredPostNumber: 2
+            ),
+            2
+        )
+        XCTAssertEqual(
+            FireTopicDetailCollectionView.replyContextLabel(
+                for: post,
+                preferredPostNumber: 2
+            ),
+            "回复 #2"
+        )
+    }
+
+    func testCollectionViewReplyContextKeepsReplyUserWhenTreeParentMatchesDeclaredParent() {
+        var post = makePost(postNumber: 5, replyToPostNumber: 3, username: "reply")
+        post.replyToUser = TopicReplyToUserState(
+            username: "alice",
+            name: nil,
+            avatarTemplate: nil
+        )
+
+        XCTAssertEqual(
+            FireTopicDetailCollectionView.replyContextLabel(
+                for: post,
+                preferredPostNumber: 3
+            ),
+            "回复 @alice"
+        )
+    }
+
     private func makePost(
         postNumber: UInt32,
         replyToPostNumber: UInt32?,

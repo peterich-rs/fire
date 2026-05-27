@@ -340,6 +340,10 @@ pub struct TopicResponseRow {
     pub post: TopicPost,
     pub root_post_number: u32,
     pub parent_post_number: Option<u32>,
+    /// Visual depth within the topic timeline.
+    ///
+    /// The original post is depth 0, a root reply is depth 1, and each nested reply increments
+    /// by one from there.
     pub depth: u16,
     pub preorder_index: u32,
     pub has_children: bool,

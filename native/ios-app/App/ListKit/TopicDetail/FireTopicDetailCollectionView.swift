@@ -123,6 +123,38 @@ struct FireTopicDetailCollectionView: View {
     let onToggleTopicVote: () async -> Void
     let onShowTopicVoters: () async -> Void
 
+    static func replyTargetPostNumber(
+        for post: TopicPostState,
+        preferredPostNumber: UInt32?
+    ) -> UInt32? {
+        preferredPostNumber ?? post.replyToPostNumber
+    }
+
+    static func replyContextLabel(
+        for post: TopicPostState,
+        preferredPostNumber: UInt32?
+    ) -> String? {
+        let targetPostNumber = replyTargetPostNumber(
+            for: post,
+            preferredPostNumber: preferredPostNumber
+        )
+        guard let targetPostNumber, targetPostNumber > 0 else {
+            return nil
+        }
+
+        let canUseReplyUser = preferredPostNumber == nil
+            || preferredPostNumber == post.replyToPostNumber
+        if canUseReplyUser {
+            let username = post.replyToUser?.username
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if !username.isEmpty {
+                return "回复 @\(username)"
+            }
+        }
+
+        return "回复 #\(targetPostNumber)"
+    }
+
     private var topic: TopicSummaryState {
         row.topic
     }
@@ -840,11 +872,14 @@ struct FireTopicDetailCollectionView: View {
                                 baseURLString: baseURLString
                         ),
                         depth: Int(row.entry.depth),
-                        replyContext: replyContextLabel(
+                        replyContext: Self.replyContextLabel(
                             for: post,
-                            fallbackPostNumber: row.entry.parentPostNumber
+                            preferredPostNumber: row.entry.parentPostNumber
                         ),
-                        replyTargetPostNumber: post.replyToPostNumber ?? row.entry.parentPostNumber,
+                        replyTargetPostNumber: Self.replyTargetPostNumber(
+                            for: post,
+                            preferredPostNumber: row.entry.parentPostNumber
+                        ),
                         showsThreadLine: showsTimelineThreadLine(in: replyRows, at: replyIndex ?? 0),
                         baseURLString: baseURLString,
                         canWriteInteractions: canWriteInteractions,
@@ -904,24 +939,6 @@ struct FireTopicDetailCollectionView: View {
             return false
         }
         return rows[index + 1].entry.depth >= rows[index].entry.depth
-    }
-
-    private func replyContextLabel(
-        for post: TopicPostState,
-        fallbackPostNumber: UInt32?
-    ) -> String? {
-        let targetPostNumber = post.replyToPostNumber ?? fallbackPostNumber
-        guard let targetPostNumber, targetPostNumber > 0 else {
-            return nil
-        }
-
-        let username = post.replyToUser?.username
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if !username.isEmpty {
-            return "回复 @\(username)"
-        }
-
-        return "回复 #\(targetPostNumber)"
     }
 
     private func topicVotePanel(_ detail: TopicDetailState) -> some View {

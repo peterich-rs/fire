@@ -153,6 +153,39 @@ final class FireTopicDetailStoreTests: XCTestCase {
         XCTAssertEqual(nextRange, 430..<630)
     }
 
+    func testLoadedResponsePageAppliesOnlyToCurrentCursor() {
+        let cursor = TopicResponseCursorState(
+            topicId: 42,
+            sessionId: 7,
+            nextRootOffset: 10,
+            pageSize: 10
+        )
+
+        XCTAssertTrue(
+            FireTopicDetailStore.shouldApplyLoadedResponsePage(
+                expectedCursor: cursor,
+                currentCursor: cursor
+            )
+        )
+        XCTAssertFalse(
+            FireTopicDetailStore.shouldApplyLoadedResponsePage(
+                expectedCursor: cursor,
+                currentCursor: nil
+            )
+        )
+        XCTAssertFalse(
+            FireTopicDetailStore.shouldApplyLoadedResponsePage(
+                expectedCursor: cursor,
+                currentCursor: TopicResponseCursorState(
+                    topicId: 42,
+                    sessionId: 8,
+                    nextRootOffset: 0,
+                    pageSize: 10
+                )
+            )
+        )
+    }
+
     func testHydrateRequestedRangeFillsAnchorWindowBeforeFirstRender() async throws {
         let initialDetail = makeTopicDetail(
             posts: [

@@ -1,9 +1,9 @@
 use fire_models::{
     Poll, PollOption, PostActionType, PostFlagRequest, PostReactionUpdate, PostUpdateRequest,
-    PrivateMessageCreateRequest, ReactionUser, ReactionUsersGroup, ResolvedUploadUrl, TopicAiSummary,
-    TopicBody, TopicCreateRequest, TopicDetail, TopicDetailCreatedBy, TopicDetailMeta,
-    TopicDetailQuery, TopicHeader, TopicListQuery, TopicPost, TopicPostStream, TopicReaction,
-    TopicReplyRequest, TopicReplyToUser, TopicResponseCursor, TopicResponsePage,
+    PrivateMessageCreateRequest, ReactionUser, ReactionUsersGroup, ResolvedUploadUrl,
+    TopicAiSummary, TopicBody, TopicCreateRequest, TopicDetail, TopicDetailCreatedBy,
+    TopicDetailMeta, TopicDetailQuery, TopicHeader, TopicListQuery, TopicPost, TopicPostStream,
+    TopicReaction, TopicReplyRequest, TopicReplyToUser, TopicResponseCursor, TopicResponsePage,
     TopicResponsePageQuery, TopicResponseRow, TopicScreen, TopicScreenQuery, TopicTimingEntry,
     TopicTimingsRequest, TopicUpdateRequest, UploadResult, VoteResponse, VotedUser,
 };

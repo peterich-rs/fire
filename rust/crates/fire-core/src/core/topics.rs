@@ -8,7 +8,7 @@ use fire_models::{
 };
 use http::StatusCode;
 use serde_json::Value;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 use super::{network::expect_success, FireCore};
 use crate::{
@@ -230,9 +230,12 @@ impl FireCore {
         let mut root_stream_ids = detail.post_stream.stream.clone();
         root_stream_ids.retain(|post_id| *post_id != body_post.id);
 
-        let missing_root_ids = missing_post_ids_from_ids(&root_stream_ids, &detail.post_stream.posts);
+        let missing_root_ids =
+            missing_post_ids_from_ids(&root_stream_ids, &detail.post_stream.posts);
         if !missing_root_ids.is_empty() {
-            let fetched_roots = self.fetch_topic_posts(query.topic_id, missing_root_ids).await?;
+            let fetched_roots = self
+                .fetch_topic_posts(query.topic_id, missing_root_ids)
+                .await?;
             detail.post_stream.posts = merge_topic_posts(
                 &detail.post_stream.stream,
                 std::mem::take(&mut detail.post_stream.posts),
@@ -252,11 +255,14 @@ impl FireCore {
             detail.post_stream.posts,
         );
 
-        let focus_root_post_number = match query.target_post_number.filter(|post_number| *post_number > 1)
+        let focus_root_post_number = match query
+            .target_post_number
+            .filter(|post_number| *post_number > 1)
         {
-            Some(target_post_number) => {
-                Some(self.resolve_focus_root_post_number(query.topic_id, target_post_number).await?)
-            }
+            Some(target_post_number) => Some(
+                self.resolve_focus_root_post_number(query.topic_id, target_post_number)
+                    .await?,
+            ),
             None => None,
         };
         let focus_root_index = focus_root_post_number
@@ -284,7 +290,9 @@ impl FireCore {
                 session_id,
                 start_offset,
                 page_size,
-                query.target_post_number.filter(|post_number| *post_number > 1),
+                query
+                    .target_post_number
+                    .filter(|post_number| *post_number > 1),
             )
             .await?;
 
@@ -423,7 +431,9 @@ impl FireCore {
             if !visited.insert(current_post_number) {
                 break;
             }
-            let post = self.fetch_post_by_number(topic_id, current_post_number).await?;
+            let post = self
+                .fetch_post_by_number(topic_id, current_post_number)
+                .await?;
             match normalized_reply_target(post.reply_to_post_number) {
                 Some(1) | None => return Ok(post.post_number),
                 Some(parent_post_number) => {
@@ -616,7 +626,8 @@ impl FireCore {
                 session_id,
             });
         };
-        if session.session_id != session_id || session.session_epoch != self.current_session_epoch() {
+        if session.session_id != session_id || session.session_epoch != self.current_session_epoch()
+        {
             return Err(FireCoreError::InvalidTopicResponseCursor {
                 topic_id,
                 session_id,
@@ -870,6 +881,17 @@ fn assemble_topic_response_page(
 }
 
 fn build_branch_index(root_post: TopicPost, branch_posts: Vec<TopicPost>) -> TopicBranchIndex {
+    debug_assert!(
+        {
+            let unique_post_ids = branch_posts
+                .iter()
+                .map(|post| post.id)
+                .collect::<HashSet<_>>();
+            unique_post_ids.len() == branch_posts.len()
+        },
+        "build_branch_index received duplicate post IDs"
+    );
+
     let mut posts_by_id = HashMap::new();
     let mut posts_by_number = HashMap::new();
     for post in branch_posts {
@@ -881,21 +903,16 @@ fn build_branch_index(root_post: TopicPost, branch_posts: Vec<TopicPost>) -> Top
 
     let root_post_number = root_post.post_number;
     let root_post_id = root_post.id;
+    let root_parent_post_number = normalized_reply_target(root_post.reply_to_post_number);
     let mut children_by_parent = BTreeMap::<u32, Vec<u64>>::new();
-    let mut declared_parent_by_id = HashMap::<u64, Option<u32>>::new();
 
     for post in posts_by_id.values() {
-        let declared_parent = normalized_reply_target(post.reply_to_post_number);
-        declared_parent_by_id.insert(post.id, declared_parent);
         if post.id == root_post_id {
             continue;
         }
 
-        let attachment_parent = resolve_attachment_parent_post_number(
-            post,
-            &posts_by_number,
-            root_post_number,
-        );
+        let attachment_parent =
+            resolve_attachment_parent_post_number(post, &posts_by_number, root_post_number);
         children_by_parent
             .entry(attachment_parent)
             .or_default()
@@ -918,11 +935,8 @@ fn build_branch_index(root_post: TopicPost, branch_posts: Vec<TopicPost>) -> Top
         root_post_id,
         TopicResponseNode {
             post_id: root_post_id,
-            parent_post_number: declared_parent_by_id
-                .get(&root_post_id)
-                .copied()
-                .flatten(),
-            depth: 0,
+            parent_post_number: root_parent_post_number,
+            depth: 1,
             preorder_index: 0,
             child_post_ids: Vec::new(),
             descendant_count: 0,
@@ -940,9 +954,9 @@ fn build_branch_index(root_post: TopicPost, branch_posts: Vec<TopicPost>) -> Top
         .unwrap_or_default();
     let root_descendant_count = append_children_preorder(
         &root_children,
-        0,
+        root_post_number,
+        1,
         &posts_by_id,
-        &declared_parent_by_id,
         &children_by_parent,
         &mut visited,
         &mut ordered_post_ids,
@@ -962,9 +976,9 @@ fn build_branch_index(root_post: TopicPost, branch_posts: Vec<TopicPost>) -> Top
     if !orphan_ids.is_empty() {
         let appended_count = append_children_preorder(
             &orphan_ids,
-            0,
+            root_post_number,
+            1,
             &posts_by_id,
-            &declared_parent_by_id,
             &children_by_parent,
             &mut visited,
             &mut ordered_post_ids,
@@ -988,9 +1002,9 @@ fn build_branch_index(root_post: TopicPost, branch_posts: Vec<TopicPost>) -> Top
 #[allow(clippy::too_many_arguments)]
 fn append_children_preorder(
     child_post_ids: &[u64],
+    parent_post_number: u32,
     parent_depth: u16,
     posts_by_id: &HashMap<u64, TopicPost>,
-    declared_parent_by_id: &HashMap<u64, Option<u32>>,
     children_by_parent: &BTreeMap<u32, Vec<u64>>,
     visited: &mut HashSet<u64>,
     ordered_post_ids: &mut Vec<u64>,
@@ -1017,9 +1031,9 @@ fn append_children_preorder(
             .unwrap_or_default();
         let nested_descendant_count = append_children_preorder(
             &grand_children,
+            post.post_number,
             depth,
             posts_by_id,
-            declared_parent_by_id,
             children_by_parent,
             visited,
             ordered_post_ids,
@@ -1031,11 +1045,8 @@ fn append_children_preorder(
             child_post_id,
             TopicResponseNode {
                 post_id: child_post_id,
-                parent_post_number: declared_parent_by_id
-                    .get(&child_post_id)
-                    .copied()
-                    .flatten(),
-                depth: depth.saturating_sub(1),
+                parent_post_number: Some(parent_post_number),
+                depth,
                 preorder_index,
                 child_post_ids: grand_children,
                 descendant_count: nested_descendant_count,
@@ -1058,24 +1069,63 @@ fn resolve_attachment_parent_post_number(
         return root_post_number;
     };
     if declared_parent == root_post_number || declared_parent == post.post_number {
+        if declared_parent == post.post_number {
+            debug!(
+                post_number = post.post_number,
+                declared_parent,
+                root_post_number,
+                "topic response attachment parent fell back to root: post replies to itself"
+            );
+        }
         return root_post_number;
     }
     if !posts_by_number.contains_key(&declared_parent) {
+        debug!(
+            post_number = post.post_number,
+            declared_parent,
+            root_post_number,
+            "topic response attachment parent fell back to root: declared parent missing from branch"
+        );
         return root_post_number;
     }
 
     let mut current_parent = declared_parent;
-    let mut visited = HashSet::from([post.post_number]);
+    let mut visited = [0_u32; TOPIC_PARENT_HOP_LIMIT + 1];
+    visited[0] = post.post_number;
+    let mut visited_len = 1;
     for _ in 0..TOPIC_PARENT_HOP_LIMIT {
-        if !visited.insert(current_parent) {
+        if visited[..visited_len].contains(&current_parent) {
+            debug!(
+                post_number = post.post_number,
+                declared_parent,
+                current_parent,
+                root_post_number,
+                "topic response attachment parent fell back to root: detected reply cycle"
+            );
             return root_post_number;
         }
+        visited[visited_len] = current_parent;
+        visited_len += 1;
         let Some(parent_post) = posts_by_number.get(&current_parent) else {
+            debug!(
+                post_number = post.post_number,
+                declared_parent,
+                current_parent,
+                root_post_number,
+                "topic response attachment parent fell back to root: ancestor disappeared from branch"
+            );
             return root_post_number;
         };
         match normalized_reply_target(parent_post.reply_to_post_number) {
             Some(next_parent) if next_parent == root_post_number => return declared_parent,
             Some(next_parent) if next_parent == parent_post.post_number => {
+                debug!(
+                    post_number = post.post_number,
+                    declared_parent,
+                    current_parent,
+                    root_post_number,
+                    "topic response attachment parent fell back to root: ancestor replies to itself"
+                );
                 return root_post_number;
             }
             Some(next_parent) => {
@@ -1085,6 +1135,13 @@ fn resolve_attachment_parent_post_number(
         }
     }
 
+    debug!(
+        post_number = post.post_number,
+        declared_parent,
+        root_post_number,
+        hop_limit = TOPIC_PARENT_HOP_LIMIT,
+        "topic response attachment parent fell back to root: exceeded parent hop limit"
+    );
     root_post_number
 }
 
@@ -1117,5 +1174,273 @@ fn normalized_root_page_size(page_size: u16) -> u16 {
         DEFAULT_TOPIC_ROOT_PAGE_SIZE
     } else {
         page_size
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_topic_post(post_number: u32, reply_to_post_number: Option<u32>) -> TopicPost {
+        TopicPost {
+            id: u64::from(post_number),
+            username: format!("user-{post_number}"),
+            cooked: format!("<p>{post_number}</p>"),
+            post_number,
+            reply_to_post_number,
+            ..TopicPost::default()
+        }
+    }
+
+    #[test]
+    fn resolve_attachment_parent_falls_back_to_root_when_intermediate_is_missing() {
+        let root_post = make_topic_post(2, Some(1));
+        let post = make_topic_post(5, Some(3));
+        let posts_by_number = HashMap::from([
+            (root_post.post_number, root_post.clone()),
+            (post.post_number, post.clone()),
+        ]);
+
+        let attachment_parent =
+            resolve_attachment_parent_post_number(&post, &posts_by_number, root_post.post_number);
+
+        assert_eq!(attachment_parent, root_post.post_number);
+    }
+
+    #[test]
+    fn resolve_attachment_parent_falls_back_to_root_when_cycle_is_detected() {
+        let root_post = make_topic_post(2, Some(1));
+        let post = make_topic_post(3, Some(4));
+        let parent = make_topic_post(4, Some(3));
+        let posts_by_number = HashMap::from([
+            (root_post.post_number, root_post.clone()),
+            (post.post_number, post.clone()),
+            (parent.post_number, parent),
+        ]);
+
+        let attachment_parent =
+            resolve_attachment_parent_post_number(&post, &posts_by_number, root_post.post_number);
+
+        assert_eq!(attachment_parent, root_post.post_number);
+    }
+
+    #[test]
+    fn resolve_attachment_parent_falls_back_to_root_after_hop_limit() {
+        let root_post = make_topic_post(2, Some(1));
+        let mut posts_by_number = HashMap::from([(root_post.post_number, root_post.clone())]);
+
+        for post_number in 3..=37 {
+            let reply_to_post_number = if post_number == 3 {
+                Some(root_post.post_number)
+            } else {
+                Some(post_number - 1)
+            };
+            let post = make_topic_post(post_number, reply_to_post_number);
+            posts_by_number.insert(post.post_number, post);
+        }
+
+        let post = posts_by_number
+            .get(&37)
+            .expect("missing deep descendant post");
+        let attachment_parent =
+            resolve_attachment_parent_post_number(post, &posts_by_number, root_post.post_number);
+
+        assert_eq!(attachment_parent, root_post.post_number);
+    }
+
+    #[test]
+    fn build_branch_index_preserves_visual_parent_numbers_and_depths() {
+        let root_post = make_topic_post(2, Some(1));
+        let child_post = make_topic_post(3, Some(2));
+        let grandchild_post = make_topic_post(4, Some(3));
+
+        let branch = build_branch_index(
+            root_post.clone(),
+            vec![
+                root_post.clone(),
+                child_post.clone(),
+                grandchild_post.clone(),
+            ],
+        );
+
+        assert_eq!(
+            branch.ordered_post_ids,
+            vec![root_post.id, child_post.id, grandchild_post.id]
+        );
+
+        let root_node = branch
+            .node_by_post_id
+            .get(&root_post.id)
+            .expect("missing root node");
+        assert_eq!(root_node.parent_post_number, Some(1));
+        assert_eq!(root_node.depth, 1);
+
+        let child_node = branch
+            .node_by_post_id
+            .get(&child_post.id)
+            .expect("missing child node");
+        assert_eq!(child_node.parent_post_number, Some(root_post.post_number));
+        assert_eq!(child_node.depth, 2);
+
+        let grandchild_node = branch
+            .node_by_post_id
+            .get(&grandchild_post.id)
+            .expect("missing grandchild node");
+        assert_eq!(
+            grandchild_node.parent_post_number,
+            Some(child_post.post_number)
+        );
+        assert_eq!(grandchild_node.depth, 3);
+    }
+
+    #[test]
+    fn append_children_preorder_reparents_orphan_roots_to_visual_parent() {
+        let root_post = make_topic_post(2, Some(1));
+        let orphan_root = make_topic_post(5, Some(99));
+        let orphan_child = make_topic_post(6, Some(5));
+        let posts_by_id = HashMap::from([
+            (root_post.id, root_post.clone()),
+            (orphan_root.id, orphan_root.clone()),
+            (orphan_child.id, orphan_child.clone()),
+        ]);
+        let children_by_parent = BTreeMap::from([(orphan_root.post_number, vec![orphan_child.id])]);
+        let mut visited = HashSet::from([root_post.id]);
+        let mut ordered_post_ids = vec![root_post.id];
+        let mut node_by_post_id = HashMap::from([(
+            root_post.id,
+            TopicResponseNode {
+                post_id: root_post.id,
+                parent_post_number: Some(1),
+                depth: 1,
+                preorder_index: 0,
+                child_post_ids: Vec::new(),
+                descendant_count: 0,
+                sibling_index: 0,
+                is_last_sibling: true,
+            },
+        )]);
+        let mut preorder_counter = 1;
+
+        let appended_count = append_children_preorder(
+            &[orphan_root.id],
+            root_post.post_number,
+            1,
+            &posts_by_id,
+            &children_by_parent,
+            &mut visited,
+            &mut ordered_post_ids,
+            &mut node_by_post_id,
+            &mut preorder_counter,
+        );
+
+        assert_eq!(appended_count, 2);
+        assert_eq!(
+            ordered_post_ids,
+            vec![root_post.id, orphan_root.id, orphan_child.id]
+        );
+
+        let orphan_root_node = node_by_post_id
+            .get(&orphan_root.id)
+            .expect("missing orphan root node");
+        assert_eq!(
+            orphan_root_node.parent_post_number,
+            Some(root_post.post_number)
+        );
+        assert_eq!(orphan_root_node.depth, 2);
+
+        let orphan_child_node = node_by_post_id
+            .get(&orphan_child.id)
+            .expect("missing orphan child node");
+        assert_eq!(
+            orphan_child_node.parent_post_number,
+            Some(orphan_root.post_number)
+        );
+        assert_eq!(orphan_child_node.depth, 3);
+    }
+
+    #[test]
+    fn ordered_unique_post_ids_drops_zeroes_and_duplicates() {
+        assert_eq!(
+            ordered_unique_post_ids(vec![0, 2, 2, 3, 0, 4, 3]),
+            vec![2, 3, 4]
+        );
+    }
+
+    #[test]
+    fn assemble_topic_response_page_paginates_by_root_branch() {
+        let body_post = make_topic_post(1, None);
+        let first_root = make_topic_post(2, Some(1));
+        let first_child = make_topic_post(3, Some(2));
+        let second_root = make_topic_post(10, Some(1));
+        let first_branch = build_branch_index(
+            first_root.clone(),
+            vec![first_root.clone(), first_child.clone()],
+        );
+        let second_branch = build_branch_index(second_root.clone(), vec![second_root.clone()]);
+        let session = TopicResponseSession {
+            session_id: 7,
+            session_epoch: 1,
+            header: TopicHeader {
+                topic_id: 42,
+                reply_count: 3,
+                ..TopicHeader::default()
+            },
+            body_post_id: body_post.id,
+            root_stream_ids: vec![first_root.id, second_root.id],
+            root_index_by_post_number: HashMap::from([
+                (first_root.post_number, 0),
+                (second_root.post_number, 1),
+            ]),
+            post_by_id: HashMap::from([
+                (body_post.id, body_post),
+                (first_root.id, first_root.clone()),
+                (first_child.id, first_child.clone()),
+                (second_root.id, second_root.clone()),
+            ]),
+            post_id_by_number: HashMap::from([
+                (1, 1),
+                (first_root.post_number, first_root.id),
+                (first_child.post_number, first_child.id),
+                (second_root.post_number, second_root.id),
+            ]),
+            branch_by_root_id: HashMap::from([
+                (first_root.id, first_branch),
+                (second_root.id, second_branch),
+            ]),
+        };
+
+        let page = assemble_topic_response_page(&session, 0, 1, Some(first_child.post_number));
+
+        assert_eq!(page.rows.len(), 2);
+        assert_eq!(page.rows[0].post.post_number, first_root.post_number);
+        assert_eq!(page.rows[0].depth, 1);
+        assert_eq!(page.rows[1].post.post_number, first_child.post_number);
+        assert_eq!(
+            page.rows[1].parent_post_number,
+            Some(first_root.post_number)
+        );
+        assert_eq!(page.rows[1].depth, 2);
+        assert_eq!(page.total_root_count, 2);
+        assert_eq!(page.loaded_root_count, 1);
+        assert_eq!(page.focused_post_number, Some(first_child.post_number));
+        assert_eq!(
+            page.next_cursor,
+            Some(TopicResponseCursor {
+                topic_id: 42,
+                session_id: 7,
+                next_root_offset: 1,
+                page_size: 1,
+            })
+        );
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    #[should_panic(expected = "build_branch_index received duplicate post IDs")]
+    fn build_branch_index_debug_asserts_on_duplicate_post_ids() {
+        let root_post = make_topic_post(2, Some(1));
+        let duplicate = make_topic_post(3, Some(2));
+
+        let _ = build_branch_index(root_post, vec![duplicate.clone(), duplicate]);
     }
 }

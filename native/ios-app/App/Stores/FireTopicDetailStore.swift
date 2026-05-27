@@ -36,6 +36,7 @@ final class FireTopicDetailStore: ObservableObject {
     private var topicScreens: [UInt64: TopicScreenState] = [:]
     private var topicResponseRowsByTopic: [UInt64: [TopicResponseRowState]] = [:]
     private var topicResponseCursorsByTopic: [UInt64: TopicResponseCursorState] = [:]
+    private var topicMaxLoadedPostNumbers: [UInt64: UInt32] = [:]
     private var pendingTopicDetailRefreshTasks: [UInt64: Task<Void, Never>] = [:]
     private var topicPresenceHeartbeatTasks: [UInt64: Task<Void, Never>] = [:]
     private var topicPostPreloadTasks: [UInt64: Task<Void, Never>] = [:]
@@ -176,6 +177,7 @@ final class FireTopicDetailStore: ObservableObject {
         topicScreens = [:]
         topicResponseRowsByTopic = [:]
         topicResponseCursorsByTopic = [:]
+        topicMaxLoadedPostNumbers = [:]
         topicDetails = [:]
         topicRenderStates = [:]
         topicAiSummaries = [:]
@@ -326,6 +328,13 @@ final class FireTopicDetailStore: ObservableObject {
         )
     }
 
+    nonisolated static func shouldApplyLoadedResponsePage(
+        expectedCursor: TopicResponseCursorState,
+        currentCursor: TopicResponseCursorState?
+    ) -> Bool {
+        currentCursor == expectedCursor
+    }
+
     private func applyTopicScreen(_ screen: TopicScreenState, topicId: UInt64) {
         topicScreens[topicId] = screen
         topicResponseRowsByTopic[topicId] = screen.response.rows
@@ -341,7 +350,6 @@ final class FireTopicDetailStore: ObservableObject {
 
     private func loadNextTopicResponsePage(topicId: UInt64) async {
         guard let cursor = topicResponseCursorsByTopic[topicId],
-              let screen = topicScreens[topicId],
               let sessionStore = try? await appViewModel.sessionStoreValue() else {
             return
         }
@@ -356,6 +364,12 @@ final class FireTopicDetailStore: ObservableObject {
                 try await sessionStore.fetchTopicResponsePage(
                     query: TopicResponsePageQueryState(cursor: cursor)
                 )
+            }
+            guard Self.shouldApplyLoadedResponsePage(
+                expectedCursor: cursor,
+                currentCursor: topicResponseCursorsByTopic[topicId]
+            ), let screen = topicScreens[topicId] else {
+                return
             }
             var rows = topicResponseRowsByTopic[topicId] ?? []
             rows.append(contentsOf: page.rows)
@@ -462,8 +476,8 @@ final class FireTopicDetailStore: ObservableObject {
         guard hasMoreTopicPosts(topicId: topicId) else { return }
         guard !loadingMoreTopicPostIDs.contains(topicId) else { return }
         guard topicPostPreloadTasks[topicId] == nil else { return }
-        guard let detail = topicDetails[topicId],
-              let maxLoadedPostNumber = detail.postStream.posts.map(\.postNumber).max(),
+        guard topicDetails[topicId] != nil,
+              let maxLoadedPostNumber = topicMaxLoadedPostNumbers[topicId],
               visiblePostNumbers.contains(maxLoadedPostNumber) else {
             return
         }
@@ -1149,6 +1163,7 @@ final class FireTopicDetailStore: ObservableObject {
         topicScreens.removeValue(forKey: topicId)
         topicResponseRowsByTopic.removeValue(forKey: topicId)
         topicResponseCursorsByTopic.removeValue(forKey: topicId)
+        topicMaxLoadedPostNumbers.removeValue(forKey: topicId)
         let removedDetail = topicDetails.removeValue(forKey: topicId) != nil
         let removedRenderState = topicRenderStates.removeValue(forKey: topicId) != nil
         topicRenderCaches.removeValue(forKey: topicId)
@@ -1210,6 +1225,11 @@ final class FireTopicDetailStore: ObservableObject {
         let didUpdateDetail = topicDetails[topicId] != cachedDetail
         if didUpdateDetail {
             topicDetails[topicId] = cachedDetail
+        }
+        if let maxLoadedPostNumber = cachedDetail.postStream.posts.map(\.postNumber).max() {
+            topicMaxLoadedPostNumbers[topicId] = maxLoadedPostNumber
+        } else {
+            topicMaxLoadedPostNumbers.removeValue(forKey: topicId)
         }
 
         let previousRenderCache = topicRenderCaches[topicId]

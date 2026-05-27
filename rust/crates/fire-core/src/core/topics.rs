@@ -35,7 +35,6 @@ struct TopicResponseSession {
     session_id: u64,
     session_epoch: u64,
     header: TopicHeader,
-    body_post_id: u64,
     root_stream_ids: Vec<u64>,
     root_index_by_post_number: HashMap<u32, usize>,
     post_by_id: HashMap<u64, TopicPost>,
@@ -45,7 +44,6 @@ struct TopicResponseSession {
 
 #[derive(Clone)]
 struct TopicBranchIndex {
-    root_post_id: u64,
     root_post_number: u32,
     ordered_post_ids: Vec<u64>,
     node_by_post_id: HashMap<u64, TopicResponseNode>,
@@ -53,7 +51,6 @@ struct TopicBranchIndex {
 
 #[derive(Clone)]
 struct TopicResponseNode {
-    post_id: u64,
     parent_post_number: Option<u32>,
     depth: u16,
     preorder_index: u32,
@@ -811,7 +808,6 @@ impl TopicResponseSession {
             session_id: 0,
             session_epoch,
             header,
-            body_post_id: body_post.id,
             root_stream_ids,
             root_index_by_post_number,
             post_by_id,
@@ -934,7 +930,6 @@ fn build_branch_index(root_post: TopicPost, branch_posts: Vec<TopicPost>) -> Top
     node_by_post_id.insert(
         root_post_id,
         TopicResponseNode {
-            post_id: root_post_id,
             parent_post_number: root_parent_post_number,
             depth: 1,
             preorder_index: 0,
@@ -992,7 +987,6 @@ fn build_branch_index(root_post: TopicPost, branch_posts: Vec<TopicPost>) -> Top
     }
 
     TopicBranchIndex {
-        root_post_id,
         root_post_number,
         ordered_post_ids,
         node_by_post_id,
@@ -1044,7 +1038,6 @@ fn append_children_preorder(
         node_by_post_id.insert(
             child_post_id,
             TopicResponseNode {
-                post_id: child_post_id,
                 parent_post_number: Some(parent_post_number),
                 depth,
                 preorder_index,
@@ -1309,7 +1302,6 @@ mod tests {
         let mut node_by_post_id = HashMap::from([(
             root_post.id,
             TopicResponseNode {
-                post_id: root_post.id,
                 parent_post_number: Some(1),
                 depth: 1,
                 preorder_index: 0,
@@ -1385,7 +1377,6 @@ mod tests {
                 reply_count: 3,
                 ..TopicHeader::default()
             },
-            body_post_id: body_post.id,
             root_stream_ids: vec![first_root.id, second_root.id],
             root_index_by_post_number: HashMap::from([
                 (first_root.post_number, 0),

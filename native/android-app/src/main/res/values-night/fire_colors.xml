@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="fire_accent">#FFF57336</color>
+    <color name="fire_accent_soft">#FFB9824D</color>
+
+    <color name="fire_text_primary">#FFF3F4F6</color>
+    <color name="fire_text_secondary">#FF9CA3AF</color>
+    <color name="fire_text_tertiary">#FF6B7280</color>
+
+    <color name="fire_background_canvas">#FF141516</color>
+    <color name="fire_background_surface">#FF1E1F21</color>
+    <color name="fire_background_elevated">#FF252629</color>
+
+    <color name="fire_code_background">#FF1E2430</color>
+    <color name="fire_quote_stripe">#4DFF9CA3AF</color>
+
+    <color name="fire_divider">#1FFFFFFF</color>
+
+    <color name="fire_success">#FF5EC98D</color>
+    <color name="fire_warning">#FFEE9C4A</color>
+    <color name="fire_error">#FFF87171</color>
+
+    <color name="fire_link">#FF60A5FA</color>
+</resources>

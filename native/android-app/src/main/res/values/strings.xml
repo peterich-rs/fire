@@ -2,6 +2,9 @@
 <resources>
     <string name="app_name">Fire</string>
     <string name="shell_subtitle">Native host shell for LinuxDo login, session restore, and inline topic browsing.</string>
+    <string name="tab_home">首页</string>
+    <string name="tab_notifications">通知</string>
+    <string name="tab_profile">我的</string>
     <string name="action_restore_session">Restore Session</string>
     <string name="action_open_login">Open Login</string>
     <string name="action_refresh_bootstrap">Refresh Bootstrap</string>

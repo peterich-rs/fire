@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Accent (corresponds to iOS FireTheme.accent) -->
+    <color name="fire_accent">#FFE8632E</color>
+    <color name="fire_accent_soft">#FFF5A666</color>
+
+    <!-- Text (light mode defaults; dark overrides in values-night/) -->
+    <color name="fire_text_primary">#FF1F2937</color>
+    <color name="fire_text_secondary">#FF6B7280</color>
+    <color name="fire_text_tertiary">#FF9CA3AF</color>
+
+    <!-- Backgrounds -->
+    <color name="fire_background_canvas">#FFF5F3F0</color>
+    <color name="fire_background_surface">#FFFFFFFF</color>
+    <color name="fire_background_elevated">#FFFFFFFF</color>
+
+    <!-- Code / quote -->
+    <color name="fire_code_background">#FFEFF3F8</color>
+    <color name="fire_quote_stripe">#33FF6B7280</color>
+
+    <!-- Dividers -->
+    <color name="fire_divider">#1F6B7280</color>
+
+    <!-- Semantic -->
+    <color name="fire_success">#FF3FA873</color>
+    <color name="fire_warning">#FFCC7D33</color>
+    <color name="fire_error">#FFDC2626</color>
+
+    <!-- Link -->
+    <color name="fire_link">#FF2563EB</color>
+</resources>

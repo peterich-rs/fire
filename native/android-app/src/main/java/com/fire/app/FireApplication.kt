@@ -2,10 +2,11 @@ package com.fire.app
 
 import android.app.Application
 import com.fire.app.core.image.FireImageLoader
+import com.fire.app.session.FireSessionStore
 import com.fire.app.session.FireSessionStoreRepository
 
 class FireApplication : Application() {
-    val sessionStore: FireSessionStoreRepository by lazy {
+    val sessionStore: FireSessionStore by lazy {
         FireSessionStoreRepository.get(applicationContext)
     }
 

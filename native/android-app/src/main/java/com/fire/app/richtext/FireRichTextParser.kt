@@ -110,7 +110,7 @@ object FireRichTextParser {
                 val items = tree.childrenOf(node)
                     .filter { it.kind == CookedHtmlNodeKindState.LIST_ITEM }
                     .map { tree.childrenOf(it).flatMap { child -> mapNode(child, tree, baseURLString) } }
-                if (items.isEmpty()) children else listOf(FireRichTextNode.List(ordered = node.ordered == true, items = items))
+                if (items.isEmpty()) children else listOf(FireRichTextNode.ListNode(ordered = node.ordered == true, items = items))
             }
 
             CookedHtmlNodeKindState.LIST_ITEM -> listOf(FireRichTextNode.ListItem(children))
@@ -257,7 +257,7 @@ object FireRichTextParser {
                     extractTextContent(children, includingEmojiFallback)
                 }
                 is FireRichTextNode.Onebox -> listOfNotNull(node.title, node.description, node.url).joinToString("\n")
-                is FireRichTextNode.List -> node.items.joinToString("\n") { extractTextContent(it, includingEmojiFallback) }
+                is FireRichTextNode.ListNode -> node.items.joinToString("\n") { extractTextContent(it, includingEmojiFallback) }
                 is FireRichTextNode.Table -> node.text
                 is FireRichTextNode.Video -> node.title ?: node.url
                 is FireRichTextNode.Divider -> "\n"

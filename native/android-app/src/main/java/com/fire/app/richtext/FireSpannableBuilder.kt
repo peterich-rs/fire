@@ -175,7 +175,7 @@ object FireSpannableBuilder {
                     ensureBlockBoundary(builder)
                 }
 
-                is FireRichTextNode.List -> {
+                is FireRichTextNode.ListNode -> {
                     ensureBlockBoundary(builder)
                     for ((index, item) in node.items.withIndex()) {
                         if (index > 0) builder.append('\n')

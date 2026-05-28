@@ -4,9 +4,14 @@ import com.fire.app.session.FireSessionStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import uniffi.fire_uniffi_topics.TopicListQueryState
+import uniffi.fire_uniffi_topics.TopicScreenQueryState
+import uniffi.fire_uniffi_topics.TopicResponsePageQueryState
+import uniffi.fire_uniffi_topics.TopicResponseCursorState
 import uniffi.fire_uniffi_types.TopicListKindState
 import uniffi.fire_uniffi_types.TopicListState
 import uniffi.fire_uniffi_types.TopicRowState
+import uniffi.fire_uniffi_topics.TopicScreenState
+import uniffi.fire_uniffi_topics.TopicResponsePageState
 
 class TopicRepository(private val sessionStore: FireSessionStore) {
 
@@ -28,6 +33,28 @@ class TopicRepository(private val sessionStore: FireSessionStore) {
                 additionalTags = emptyList(),
                 matchAllTags = false,
             ),
+        )
+    }
+
+    suspend fun fetchTopicScreen(
+        topicId: ULong,
+        targetPostNumber: UInt? = null,
+    ): TopicScreenState = withContext(Dispatchers.Default) {
+        sessionStore.fetchTopicScreen(
+            TopicScreenQueryState(
+                topicId = topicId,
+                targetPostNumber = targetPostNumber,
+                rootPageSize = 10.toUShort(),
+                trackVisit = true,
+            ),
+        )
+    }
+
+    suspend fun fetchTopicResponsePage(
+        cursor: TopicResponseCursorState,
+    ): TopicResponsePageState = withContext(Dispatchers.Default) {
+        sessionStore.fetchTopicResponsePage(
+            TopicResponsePageQueryState(cursor = cursor),
         )
     }
 

@@ -16,7 +16,7 @@
 
     <!-- Code / quote -->
     <color name="fire_code_background">#FFEFF3F8</color>
-    <color name="fire_quote_stripe">#33FF6B7280</color>
+    <color name="fire_quote_stripe">#336B7280</color>
 
     <!-- Dividers -->
     <color name="fire_divider">#1F6B7280</color>

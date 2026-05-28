@@ -2,6 +2,7 @@ package com.fire.app.richtext
 
 import android.content.Context
 import android.graphics.drawable.Drawable
+import android.text.SpannableStringBuilder
 import android.text.Spanned
 import android.util.AttributeSet
 import android.util.LruCache

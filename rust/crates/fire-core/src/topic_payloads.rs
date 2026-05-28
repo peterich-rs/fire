@@ -1113,8 +1113,9 @@ pub(crate) struct RawTopicDetail {
     details: RawTopicDetailMeta,
 }
 
-impl From<RawTopicDetail> for TopicDetail {
-    fn from(value: RawTopicDetail) -> Self {
+impl RawTopicDetail {
+    pub(crate) fn into_topic_detail(self, include_thread_state: bool) -> TopicDetail {
+        let value = self;
         let bookmark_ids = value
             .bookmarks
             .iter()
@@ -1153,9 +1154,15 @@ impl From<RawTopicDetail> for TopicDetail {
                 }
             }
         }
-        let thread = TopicThread::from_posts(&post_stream.posts);
-        let flat_posts = thread.flatten(&post_stream.posts);
-        Self {
+        let (thread, flat_posts) = if include_thread_state {
+            let thread = TopicThread::from_posts(&post_stream.posts);
+            let flat_posts = thread.flatten(&post_stream.posts);
+            (thread, flat_posts)
+        } else {
+            (TopicThread::default(), Vec::new())
+        };
+
+        TopicDetail {
             id: value.id,
             title: value.title,
             slug: value.slug,
@@ -1186,6 +1193,12 @@ impl From<RawTopicDetail> for TopicDetail {
             timeline_entries: Vec::new(),
             details: value.details.into(),
         }
+    }
+}
+
+impl From<RawTopicDetail> for TopicDetail {
+    fn from(value: RawTopicDetail) -> Self {
+        value.into_topic_detail(true)
     }
 }
 
@@ -1557,4 +1570,59 @@ where
             Value::Array(_) => None,
         })
         .collect())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn sample_raw_topic_detail() -> RawTopicDetail {
+        serde_json::from_value(json!({
+            "id": 42,
+            "title": "Topic",
+            "slug": "topic",
+            "posts_count": 2,
+            "post_stream": {
+                "posts": [
+                    {
+                        "id": 101,
+                        "username": "alice",
+                        "cooked": "<p>root</p>",
+                        "post_number": 1,
+                        "reply_count": 1
+                    },
+                    {
+                        "id": 102,
+                        "username": "bob",
+                        "cooked": "<p>reply</p>",
+                        "post_number": 2,
+                        "reply_to_post_number": 1
+                    }
+                ],
+                "stream": [101, 102]
+            },
+            "details": {}
+        }))
+        .expect("sample topic detail should deserialize")
+    }
+
+    #[test]
+    fn lightweight_topic_detail_skips_thread_state() {
+        let detail = sample_raw_topic_detail().into_topic_detail(false);
+
+        assert_eq!(detail.thread, TopicThread::default());
+        assert!(detail.flat_posts.is_empty());
+        assert!(detail.timeline_entries.is_empty());
+        assert_eq!(detail.post_stream.posts.len(), 2);
+    }
+
+    #[test]
+    fn full_topic_detail_preserves_thread_state() {
+        let detail = sample_raw_topic_detail().into_topic_detail(true);
+
+        assert_eq!(detail.thread.original_post_number, Some(1));
+        assert_eq!(detail.flat_posts.len(), 2);
+        assert!(detail.timeline_entries.is_empty());
+    }
 }

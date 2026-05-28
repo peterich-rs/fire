@@ -70,14 +70,7 @@ enum FireTopicDetailCollectionAdapter {
 
 private struct FireTopicDetailCollectionContentVersion: Hashable {
     let topicID: UInt64
-    let topicListRevision: UInt64
-    let detailError: String
-    let hasMoreTopicPosts: Bool
-    let isLoadingTopic: Bool
-    let isLoadingMoreTopicPosts: Bool
-    let isLoadingTopicAiSummary: Bool
-    let topicAiSummaryError: String
-    let pendingScrollTarget: UInt32?
+    let topicCollectionRevision: UInt64
     let canWriteInteractions: Bool
     let baseURLString: String
 }
@@ -97,7 +90,7 @@ struct FireTopicDetailCollectionView: View {
     let topicAiSummary: TopicAiSummaryState?
     let isLoadingTopicAiSummary: Bool
     let topicAiSummaryError: String?
-    let topicListRevision: UInt64
+    let topicCollectionRevision: UInt64
     let canWriteInteractions: Bool
     let postLookup: [UInt64: TopicPostState]
     let isMutatingPost: (UInt64) -> Bool
@@ -293,14 +286,7 @@ struct FireTopicDetailCollectionView: View {
     private var contentVersion: FireTopicDetailCollectionContentVersion {
         FireTopicDetailCollectionContentVersion(
             topicID: topic.id,
-            topicListRevision: topicListRevision,
-            detailError: detailError ?? "",
-            hasMoreTopicPosts: hasMoreTopicPosts,
-            isLoadingTopic: isLoadingTopic,
-            isLoadingMoreTopicPosts: isLoadingMoreTopicPosts,
-            isLoadingTopicAiSummary: isLoadingTopicAiSummary,
-            topicAiSummaryError: topicAiSummaryError ?? "",
-            pendingScrollTarget: pendingScrollTarget,
+            topicCollectionRevision: topicCollectionRevision,
             canWriteInteractions: canWriteInteractions,
             baseURLString: baseURLString
         )

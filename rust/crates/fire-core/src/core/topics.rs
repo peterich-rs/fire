@@ -6,7 +6,7 @@ use fire_models::{
     TopicResponsePage, TopicResponsePageQuery, TopicResponseRow, TopicScreen, TopicScreenQuery,
     TopicThread,
 };
-use futures_util::future::try_join_all;
+use futures_util::{stream, StreamExt, TryStreamExt};
 use http::StatusCode;
 use serde_json::Value;
 use tracing::{debug, info, warn};
@@ -24,6 +24,7 @@ const TOPIC_POST_BATCH_SIZE: usize = 50;
 const FETCH_TOPIC_AI_SUMMARY_OPERATION: &str = "fetch topic ai summary";
 const DEFAULT_TOPIC_ROOT_PAGE_SIZE: u16 = 10;
 const TOPIC_PARENT_HOP_LIMIT: usize = 32;
+const ROOT_BRANCH_LOAD_CONCURRENCY: usize = 4;
 
 #[derive(Default)]
 pub(crate) struct FireTopicResponseRuntime {
@@ -66,7 +67,7 @@ impl FireCore {
         &self,
         query: TopicDetailQuery,
     ) -> Result<TopicDetail, FireCoreError> {
-        let mut result = self.fetch_topic_detail_base(query).await?;
+        let mut result = self.fetch_topic_detail_base(query, true).await?;
         result.rebuild_timeline_entries();
         info!(
             topic_id = result.id,
@@ -176,7 +177,7 @@ impl FireCore {
         &self,
         query: TopicDetailQuery,
     ) -> Result<TopicDetail, FireCoreError> {
-        let mut result = self.fetch_topic_detail_base(query).await?;
+        let mut result = self.fetch_topic_detail_base(query, true).await?;
         if let Err(error) = self
             .hydrate_topic_detail_posts(result.id, &mut result)
             .await
@@ -206,14 +207,17 @@ impl FireCore {
     ) -> Result<TopicScreen, FireCoreError> {
         let page_size = normalized_root_page_size(query.root_page_size);
         let mut detail = self
-            .fetch_topic_detail_base(TopicDetailQuery {
-                topic_id: query.topic_id,
-                post_number: None,
-                track_visit: query.track_visit,
-                filter: None,
-                username_filters: None,
-                filter_top_level_replies: true,
-            })
+            .fetch_topic_detail_base(
+                TopicDetailQuery {
+                    topic_id: query.topic_id,
+                    post_number: None,
+                    track_visit: query.track_visit,
+                    filter: None,
+                    username_filters: None,
+                    filter_top_level_replies: true,
+                },
+                false,
+            )
             .await?;
         let body_post = match detail
             .post_stream
@@ -509,9 +513,11 @@ impl FireCore {
                 ));
             }
 
-            try_join_all(roots_to_load.into_iter().map(|root_post_id| {
+            stream::iter(roots_to_load.into_iter().map(|root_post_id| {
                 self.load_root_branch_into_session(topic_id, session_id, root_post_id)
             }))
+            .buffer_unordered(ROOT_BRANCH_LOAD_CONCURRENCY)
+            .try_collect::<Vec<_>>()
             .await?;
         }
     }
@@ -646,6 +652,7 @@ impl FireCore {
     async fn fetch_topic_detail_base(
         &self,
         query: TopicDetailQuery,
+        include_thread_state: bool,
     ) -> Result<TopicDetail, FireCoreError> {
         info!(
             topic_id = query.topic_id,
@@ -687,7 +694,7 @@ impl FireCore {
         let raw: RawTopicDetail = self
             .read_response_json("fetch topic detail", trace_id, response)
             .await?;
-        Ok(raw.into())
+        Ok(raw.into_topic_detail(include_thread_state))
     }
 
     async fn hydrate_topic_detail_posts(

@@ -1,3 +1,4 @@
+import Combine
 import Photos
 import SwiftUI
 
@@ -566,8 +567,8 @@ struct FireTopicDetailView: View {
         topicDetailStore.topicAiSummaryError(for: topic.id)
     }
 
-    private var topicListRevision: UInt64 {
-        topicDetailStore.topicListRevision(topicId: topic.id)
+    private var topicCollectionRevision: UInt64 {
+        topicDetailStore.topicCollectionRevision(topicId: topic.id)
     }
 
     private var nonHeartReactionOptions: [FireReactionOption] {
@@ -681,7 +682,7 @@ struct FireTopicDetailView: View {
             topicAiSummary: topicAiSummary,
             isLoadingTopicAiSummary: isLoadingTopicAiSummary,
             topicAiSummaryError: topicAiSummaryError,
-            topicListRevision: topicListRevision,
+            topicCollectionRevision: topicCollectionRevision,
             canWriteInteractions: canWriteInteractions,
             postLookup: postLookup,
             isMutatingPost: { topicDetailStore.isMutatingPost(postId: $0) },
@@ -1087,17 +1088,13 @@ struct FireTopicDetailView: View {
                 cachedRenderState = current
             }
         }
-        .onReceive(topicDetailStore.$topicDetails) { dict in
-            cachedDetail = FireTopicDetailViewState.syncedCachedDetail(
-                topicId: topic.id,
-                topicDetails: dict
-            )
-        }
-        .onReceive(topicDetailStore.$topicRenderStates) { dict in
-            cachedRenderState = FireTopicDetailViewState.syncedCachedRenderState(
-                topicId: topic.id,
-                topicRenderStates: dict
-            )
+        .onReceive(
+            topicDetailStore.$topicCollectionRevisions
+                .map { $0[topic.id] ?? 0 }
+                .removeDuplicates()
+        ) { _ in
+            cachedDetail = liveDetail
+            cachedRenderState = liveRenderState
         }
         .task(id: topic.id) {
             timingTracker.start { topicId, topicTimeMs, timings in

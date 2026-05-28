@@ -5,6 +5,31 @@
     app:startDestination="@id/homeFragment">
 
     <fragment
+        android:id="@+id/onboardingFragment"
+        android:name="com.fire.app.ui.auth.OnboardingFragment"
+        android:label="Fire">
+        <action
+            android:id="@+id/action_onboarding_to_loginWebView"
+            app:destination="@id/loginWebViewFragment" />
+        <action
+            android:id="@+id/action_onboarding_to_home"
+            app:destination="@id/homeFragment"
+            app:popUpTo="@id/onboardingFragment"
+            app:popUpToInclusive="true" />
+    </fragment>
+
+    <fragment
+        android:id="@+id/loginWebViewFragment"
+        android:name="com.fire.app.ui.auth.LoginWebViewFragment"
+        android:label="@string/login_title">
+        <action
+            android:id="@+id/action_loginWebView_to_home"
+            app:destination="@id/homeFragment"
+            app:popUpTo="@id/onboardingFragment"
+            app:popUpToInclusive="true" />
+    </fragment>
+
+    <fragment
         android:id="@+id/homeFragment"
         android:name="com.fire.app.ui.home.HomeFragment"
         android:label="@string/tab_home">

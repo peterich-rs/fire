@@ -361,4 +361,8 @@
     <string name="section_replies">回复</string>
     <string name="loading_more_posts">正在加载更多帖子…</string>
     <string name="content_desc_avatar">头像</string>
+    <string name="onboarding_subtitle">LinuxDo 原生客户端</string>
+    <string name="onboarding_login">登录 LinuxDo</string>
+    <string name="onboarding_restore_session">恢复已有会话</string>
+    <string name="onboarding_bootstrapping">正在读取本地登录态…</string>
 </resources>

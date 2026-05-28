@@ -244,6 +244,68 @@ final class FireTopicPresentationTests: XCTestCase {
         XCTAssertEqual(full.renderState.replyRows.map { $0.entry.depth }, [1, 2])
     }
 
+    func testScreenDetailRenderCacheAppendsPageRowsIncrementally() throws {
+        let originalPost = makePost(
+            postNumber: 1,
+            replyToPostNumber: nil,
+            username: "author",
+            cooked: #"<p>Hello <a class="mention" href="/u/alice">@alice</a></p>"#
+        )
+        let initialRows = [
+            makeResponseRow(postNumber: 2, parentPostNumber: 1, depth: 1, username: "reply-a")
+        ]
+        let screen = makeTopicScreen(originalPost: originalPost, responseRows: initialRows)
+
+        let initial = FireTopicPresentation.detailRenderCache(
+            screen: screen,
+            responseRows: initialRows,
+            baseURLString: "https://linux.do"
+        )
+
+        let appended = try XCTUnwrap(
+            FireTopicPresentation.detailRenderCache(
+                screen: screen,
+                appending: [
+                    makeResponseRow(postNumber: 3, parentPostNumber: 2, depth: 2, username: "reply-b"),
+                    makeResponseRow(postNumber: 4, parentPostNumber: 1, depth: 1, username: "reply-c")
+                ],
+                baseURLString: "https://linux.do",
+                previous: initial
+            )
+        )
+
+        let initialOriginal = try XCTUnwrap(initial.renderState.contentByPostID[1]?.attributedText)
+        let appendedOriginal = try XCTUnwrap(appended.renderState.contentByPostID[1]?.attributedText)
+
+        XCTAssertTrue(initialOriginal === appendedOriginal)
+        XCTAssertEqual(appended.renderState.replyRows.map { $0.entry.postNumber }, [2, 3, 4])
+        XCTAssertEqual(appended.rowInputs.map(\.postNumber), [1, 2, 3, 4])
+    }
+
+    func testScreenDetailRenderCacheAppendFallsBackForDuplicateRows() {
+        let originalPost = makePost(postNumber: 1, replyToPostNumber: nil, username: "author")
+        let initialRows = [
+            makeResponseRow(postNumber: 2, parentPostNumber: 1, depth: 1, username: "reply-a")
+        ]
+        let screen = makeTopicScreen(originalPost: originalPost, responseRows: initialRows)
+        let initial = FireTopicPresentation.detailRenderCache(
+            screen: screen,
+            responseRows: initialRows,
+            baseURLString: "https://linux.do"
+        )
+
+        let duplicateAppend = FireTopicPresentation.detailRenderCache(
+            screen: screen,
+            appending: [
+                makeResponseRow(postNumber: 2, parentPostNumber: 1, depth: 1, username: "reply-a")
+            ],
+            baseURLString: "https://linux.do",
+            previous: initial
+        )
+
+        XCTAssertNil(duplicateAppend)
+    }
+
     func testRenderContentPlainTextOmitsImageAttachmentAltText() {
         let content = FireTopicPresentation.renderContent(
             from: #"<p>Hello&nbsp;Fire</p><img src="/uploads/default/original/1X/fire.png" alt="fire">"#,
@@ -835,6 +897,84 @@ final class FireTopicPresentationTests: XCTestCase {
                 canEdit: false,
                 createdBy: nil,
                 participants: []
+            )
+        )
+    }
+
+    private func makeResponseRow(
+        postNumber: UInt32,
+        parentPostNumber: UInt32?,
+        depth: UInt16,
+        username: String
+    ) -> TopicResponseRowState {
+        TopicResponseRowState(
+            post: makePost(
+                postNumber: postNumber,
+                replyToPostNumber: parentPostNumber,
+                username: username
+            ),
+            rootPostNumber: 1,
+            parentPostNumber: parentPostNumber,
+            depth: depth,
+            preorderIndex: postNumber - 1,
+            hasChildren: false,
+            descendantCount: 0,
+            siblingIndex: 0,
+            isLastSibling: true
+        )
+    }
+
+    private func makeTopicScreen(
+        originalPost: TopicPostState,
+        responseRows: [TopicResponseRowState]
+    ) -> TopicScreenState {
+        TopicScreenState(
+            header: TopicHeaderState(
+                topicId: 42,
+                title: "Fire Native",
+                slug: "fire-native",
+                postsCount: UInt32(responseRows.count + 1),
+                replyCount: UInt32(responseRows.count),
+                categoryId: 7,
+                tags: [],
+                views: 128,
+                likeCount: 9,
+                createdAt: "2026-03-28T10:00:00Z",
+                lastReadPostNumber: nil,
+                bookmarks: [],
+                bookmarked: false,
+                bookmarkId: nil,
+                bookmarkName: nil,
+                bookmarkReminderAt: nil,
+                acceptedAnswer: false,
+                hasAcceptedAnswer: false,
+                canVote: false,
+                voteCount: 0,
+                userVoted: false,
+                summarizable: false,
+                hasCachedSummary: false,
+                hasSummary: false,
+                archetype: "regular",
+                details: TopicDetailMetaState(
+                    notificationLevel: nil,
+                    canEdit: false,
+                    createdBy: nil,
+                    participants: []
+                )
+            ),
+            body: TopicBodyState(post: originalPost),
+            response: TopicResponsePageState(
+                rows: responseRows,
+                nextCursor: TopicResponseCursorState(
+                    topicId: 42,
+                    sessionId: 7,
+                    nextRootOffset: UInt32(responseRows.count),
+                    pageSize: 10
+                ),
+                totalRootCount: UInt32(responseRows.count),
+                loadedRootCount: UInt32(responseRows.count),
+                totalResponseCount: UInt32(responseRows.count),
+                focusedPostNumber: nil
             )
         )
     }

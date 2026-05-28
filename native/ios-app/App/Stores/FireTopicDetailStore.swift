@@ -387,19 +387,34 @@ final class FireTopicDetailStore: ObservableObject {
             guard Self.shouldApplyLoadedResponsePage(
                 expectedCursor: cursor,
                 currentCursor: topicResponseCursorsByTopic[topicId]
-            ), let screen = topicScreens[topicId] else {
+            ), var screen = topicScreens[topicId] else {
                 return
             }
-            var rows = topicResponseRowsByTopic[topicId] ?? []
-            rows.append(contentsOf: page.rows)
+
+            let existingRows = topicResponseRowsByTopic[topicId] ?? []
+            let rows = existingRows + page.rows
+
+            screen.response.rows = rows
+            screen.response.nextCursor = page.nextCursor
+            screen.response.totalRootCount = page.totalRootCount
+            screen.response.loadedRootCount = page.loadedRootCount
+            screen.response.totalResponseCount = page.totalResponseCount
+            screen.response.focusedPostNumber = page.focusedPostNumber ?? screen.response.focusedPostNumber
+            topicScreens[topicId] = screen
             topicResponseRowsByTopic[topicId] = rows
+
             if let nextCursor = page.nextCursor {
                 topicResponseCursorsByTopic[topicId] = nextCursor
             } else {
                 topicResponseCursorsByTopic.removeValue(forKey: topicId)
             }
-            let detail = synthesizedTopicDetail(screen: screen, responseRows: rows)
-            _ = cacheTopicDetail(detail, topicId: topicId)
+
+            await appendTopicResponseRows(
+                page.rows,
+                allRows: rows,
+                screen: screen,
+                topicId: topicId
+            )
         } catch {
             if await appViewModel.handleRecoverableSessionErrorIfNeeded(error) {
                 return
@@ -1306,6 +1321,156 @@ final class FireTopicDetailStore: ObservableObject {
 
         scheduleTopicRenderCacheUpdate(detail: cachedDetail, topicId: topicId)
         return cachedDetail
+    }
+
+    private func appendTopicResponseRows(
+        _ newRows: [TopicResponseRowState],
+        allRows: [TopicResponseRowState],
+        screen: TopicScreenState,
+        topicId: UInt64
+    ) async {
+        let detail = incrementallyAppendTopicResponseRows(newRows, topicId: topicId)
+            ?? rebuildTopicDetail(screen: screen, responseRows: allRows, topicId: topicId)
+
+        await buildTopicScreenRenderUpdate(
+            detail: detail,
+            screen: screen,
+            responseRows: allRows,
+            appendedRows: newRows.isEmpty ? nil : newRows,
+            topicId: topicId,
+            clearsLoadingMore: true
+        )
+    }
+
+    private func incrementallyAppendTopicResponseRows(
+        _ newRows: [TopicResponseRowState],
+        topicId: UInt64
+    ) -> TopicDetailState? {
+        guard !newRows.isEmpty,
+              var detail = topicDetails[topicId],
+              var lookup = topicPostLookups[topicId] else {
+            return nil
+        }
+
+        var appendedPosts: [TopicPostState] = []
+        appendedPosts.reserveCapacity(newRows.count)
+
+        for row in newRows {
+            let post = row.post
+            guard lookup[post.id] == nil else {
+                return nil
+            }
+            lookup[post.id] = post
+            appendedPosts.append(post)
+        }
+
+        guard !appendedPosts.isEmpty else {
+            return detail
+        }
+
+        detail.postStream.posts.append(contentsOf: appendedPosts)
+        detail.postStream.stream.append(contentsOf: appendedPosts.map(\.id))
+        topicPostLookups[topicId] = lookup
+
+        if let appendedMax = appendedPosts.lazy.map(\.postNumber).max() {
+            topicMaxLoadedPostNumbers[topicId] = max(topicMaxLoadedPostNumbers[topicId] ?? 0, appendedMax)
+        }
+
+        return detail
+    }
+
+    private func rebuildTopicDetail(
+        screen: TopicScreenState,
+        responseRows: [TopicResponseRowState],
+        topicId: UInt64
+    ) -> TopicDetailState {
+        let detail = synthesizedTopicDetail(screen: screen, responseRows: responseRows)
+        topicPostLookups[topicId] = Dictionary(
+            uniqueKeysWithValues: detail.postStream.posts.map { ($0.id, $0) }
+        )
+
+        if let maxLoadedPostNumber = detail.postStream.posts.lazy.map(\.postNumber).max() {
+            topicMaxLoadedPostNumbers[topicId] = maxLoadedPostNumber
+        } else {
+            topicMaxLoadedPostNumbers.removeValue(forKey: topicId)
+        }
+
+        return detail
+    }
+
+    private func buildTopicScreenRenderUpdate(
+        detail: TopicDetailState,
+        screen: TopicScreenState,
+        responseRows: [TopicResponseRowState],
+        appendedRows: [TopicResponseRowState]?,
+        topicId: UInt64,
+        clearsLoadingMore: Bool
+    ) async {
+        let previousRenderCache = topicRenderCaches[topicId]
+        let baseURLString = renderBaseURLString
+        let generation = topicRenderGenerations[topicId, default: 0] &+ 1
+        topicRenderGenerations[topicId] = generation
+
+        topicRenderTasks[topicId]?.cancel()
+        let renderTask = Task { [weak self] in
+            let renderCache = await Task.detached(priority: .userInitiated) {
+                if let previousRenderCache,
+                   let appendedRows,
+                   let incremental = FireTopicPresentation.detailRenderCache(
+                       screen: screen,
+                       appending: appendedRows,
+                       baseURLString: baseURLString,
+                       previous: previousRenderCache
+                   ) {
+                    return incremental
+                }
+
+                return FireTopicPresentation.detailRenderCache(
+                    screen: screen,
+                    responseRows: responseRows,
+                    baseURLString: baseURLString,
+                    previous: previousRenderCache
+                )
+            }.value
+
+            guard !Task.isCancelled else {
+                return
+            }
+
+            await self?.applyTopicScreenRenderUpdate(
+                detail: detail,
+                renderCache: renderCache,
+                topicId: topicId,
+                generation: generation,
+                clearsLoadingMore: clearsLoadingMore
+            )
+        }
+
+        topicRenderTasks[topicId] = renderTask
+        await renderTask.value
+    }
+
+    private func applyTopicScreenRenderUpdate(
+        detail: TopicDetailState,
+        renderCache: FireTopicDetailRenderCache,
+        topicId: UInt64,
+        generation: UInt64,
+        clearsLoadingMore: Bool
+    ) {
+        guard topicRenderGenerations[topicId] == generation else {
+            return
+        }
+
+        topicRenderTasks[topicId] = nil
+
+        if clearsLoadingMore {
+            loadingMoreTopicPostIDs.remove(topicId)
+        }
+
+        topicDetails[topicId] = detail
+        topicRenderCaches[topicId] = renderCache
+        topicRenderStates[topicId] = renderCache.renderState
+        bumpTopicListRevision(topicId: topicId)
     }
 
     private func scheduleTopicRenderCacheUpdate(

@@ -656,7 +656,6 @@
 				"$(SRCROOT)/../../Cargo.lock",
 				"$(SRCROOT)/../../rust",
 				"$(SRCROOT)/../../third_party/openwire",
-				"$(SRCROOT)/../../third_party/xlog-rs",
 				"$(SRCROOT)/../../rust/crates/fire-uniffi/uniffi.toml",
 			);
 			name = "Sync Fire UniFFI Bindings";

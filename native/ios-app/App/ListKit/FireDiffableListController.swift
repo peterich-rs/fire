@@ -91,6 +91,16 @@ func fireCollectionChangedItems<SectionID: Hashable, ItemID: Hashable>(
         }
 }
 
+func fireCollectionChangedCellRoutingItems<ItemID: Hashable>(
+    changedItems: [ItemID],
+    previousRouting: [ItemID: Bool],
+    incomingRouting: [ItemID: Bool]
+) -> [ItemID] {
+    changedItems.filter { item in
+        previousRouting[item] != incomingRouting[item]
+    }
+}
+
 func fireCollectionScrollRequestDidChange<ItemID: Hashable>(
     current: FireCollectionScrollRequest<ItemID>?,
     incoming: FireCollectionScrollRequest<ItemID>?
@@ -136,6 +146,7 @@ final class FireDiffableListController<SectionID: Hashable, ItemID: Hashable, Ro
     private var hostedCellRegistration: UICollectionView.CellRegistration<UICollectionViewListCell, ItemID>?
     private var currentSections: [FireListSectionModel<SectionID, ItemID>] = []
     private var currentItemContentTokens: [ItemID: AnyHashable] = [:]
+    private var currentNativeCellUsage: [ItemID: Bool] = [:]
     private var lastVisibleItemIDs: [ItemID] = []
     private var lastScrollMetrics: FireCollectionScrollMetrics?
     private var lastContentWidth: CGFloat?
@@ -373,14 +384,15 @@ final class FireDiffableListController<SectionID: Hashable, ItemID: Hashable, Ro
         itemContentTokens: [ItemID: AnyHashable]?,
         animatingDifferences: Bool
     ) {
-        guard let dataSource else { return }
         let sectionsChanged = fireCollectionNeedsSectionUpdate(
             current: currentSections,
             incoming: sections
         )
         let legacyContentChanged = self.contentVersion != contentVersion
+        let incomingNativeCellUsage = resolveNativeCellUsage(for: sections)
 
         let reconfiguredItems: [ItemID]
+        let reloadedItems: [ItemID]
         let contentChanged: Bool
         if let itemContentTokens {
             let changed = fireCollectionChangedItems(
@@ -389,12 +401,23 @@ final class FireDiffableListController<SectionID: Hashable, ItemID: Hashable, Ro
                 previousTokens: currentItemContentTokens,
                 currentTokens: itemContentTokens
             )
-            reconfiguredItems = changed
+            reloadedItems = fireCollectionChangedCellRoutingItems(
+                changedItems: changed,
+                previousRouting: currentNativeCellUsage,
+                incomingRouting: incomingNativeCellUsage
+            )
+            reconfiguredItems = changed.filter { !reloadedItems.contains($0) }
             contentChanged = !changed.isEmpty
         } else {
-            reconfiguredItems = legacyContentChanged
+            let changedItems = legacyContentChanged
                 ? fireCollectionCommonItems(current: currentSections, incoming: sections)
                 : []
+            reloadedItems = fireCollectionChangedCellRoutingItems(
+                changedItems: changedItems,
+                previousRouting: currentNativeCellUsage,
+                incomingRouting: incomingNativeCellUsage
+            )
+            reconfiguredItems = changedItems.filter { !reloadedItems.contains($0) }
             contentChanged = legacyContentChanged
         }
 
@@ -431,8 +454,10 @@ final class FireDiffableListController<SectionID: Hashable, ItemID: Hashable, Ro
             sections: sections,
             contentVersion: contentVersion,
             itemContentTokens: itemContentTokens,
+            nativeCellUsage: incomingNativeCellUsage,
             animatingDifferences: animatingDifferences,
             sectionsChanged: sectionsChanged,
+            reloadedItems: reloadedItems,
             reconfiguredItems: reconfiguredItems
         )
     }
@@ -441,14 +466,17 @@ final class FireDiffableListController<SectionID: Hashable, ItemID: Hashable, Ro
         sections: [FireListSectionModel<SectionID, ItemID>],
         contentVersion: AnyHashable,
         itemContentTokens: [ItemID: AnyHashable]?,
+        nativeCellUsage: [ItemID: Bool],
         animatingDifferences: Bool,
         sectionsChanged: Bool,
+        reloadedItems: [ItemID],
         reconfiguredItems: [ItemID]
     ) {
         guard let dataSource else { return }
 
         currentSections = sections
         self.contentVersion = contentVersion
+        currentNativeCellUsage = nativeCellUsage
         if let itemContentTokens {
             currentItemContentTokens = itemContentTokens
         }
@@ -468,6 +496,9 @@ final class FireDiffableListController<SectionID: Hashable, ItemID: Hashable, Ro
             snapshot.appendSections([section.id])
             snapshot.appendItems(section.items, toSection: section.id)
         }
+        if !reloadedItems.isEmpty {
+            snapshot.reloadItems(reloadedItems)
+        }
         if !reconfiguredItems.isEmpty {
             snapshot.reconfigureItems(reconfiguredItems)
         }
@@ -480,6 +511,23 @@ final class FireDiffableListController<SectionID: Hashable, ItemID: Hashable, Ro
             self.publishVisibleItems()
             self.publishScrollMetrics()
         }
+    }
+
+    private func resolveNativeCellUsage(
+        for sections: [FireListSectionModel<SectionID, ItemID>]
+    ) -> [ItemID: Bool] {
+        guard let shouldUseNativeCell else {
+            return [:]
+        }
+
+        var nativeCellUsage: [ItemID: Bool] = [:]
+        nativeCellUsage.reserveCapacity(sections.reduce(0) { $0 + $1.items.count })
+        for section in sections {
+            for item in section.items {
+                nativeCellUsage[item] = shouldUseNativeCell(item)
+            }
+        }
+        return nativeCellUsage
     }
 
     private func applyPendingSectionUpdateIfNeeded() {

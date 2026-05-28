@@ -422,6 +422,10 @@ struct FireTopicDetailCollectionView: View {
             }
             let row = replyRows[index]
             let post = postLookup[row.entry.postId]
+            let mode = replyCellMode(
+                for: key,
+                replyIndexByPostID: replyIndexByPostID
+            )
             let token = Self.replyRowToken(
                 row: row,
                 post: post,
@@ -429,7 +433,7 @@ struct FireTopicDetailCollectionView: View {
                 showsThreadLine: showsTimelineThreadLine(in: replyRows, at: index),
                 isMutating: post.map { isMutatingPost($0.id) } ?? false
             )
-            return AnyHashable("\(token)|\(canWriteInteractions)")
+            return AnyHashable("\(token)|mode:\(String(reflecting: mode))|\(canWriteInteractions)")
         case .replyFooter:
             return AnyHashable([
                 String(reflecting: replyFooterState),

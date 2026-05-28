@@ -180,6 +180,7 @@ enum FireAPMSpanName: String, CaseIterable {
     case bootstrapRefresh = "bootstrap.refresh"
     case feedLatestInitialLoad = "feed.latest.initial_load"
     case topicDetailInitialLoad = "topic.detail.initial_load"
+    case topicDetailHydration = "topic.detail.hydration"
     case topicReplySubmit = "topic.reply.submit"
     case notificationsRefresh = "notifications.refresh"
     case messageBusStart = "messagebus.start"
@@ -196,6 +197,8 @@ enum FireAPMSpanName: String, CaseIterable {
             "feed.latest.initial_load"
         case .topicDetailInitialLoad:
             "topic.detail.initial_load"
+        case .topicDetailHydration:
+            "topic.detail.hydration"
         case .topicReplySubmit:
             "topic.reply.submit"
         case .notificationsRefresh:

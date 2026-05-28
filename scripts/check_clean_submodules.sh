@@ -4,7 +4,6 @@ set -euo pipefail
 repo_root="$(git rev-parse --show-toplevel)"
 required_submodules=(
   "third_party/openwire"
-  "third_party/xlog-rs"
 )
 
 for path in "${required_submodules[@]}"; do
@@ -22,8 +21,8 @@ for path in "${required_submodules[@]}"; do
   fi
 done
 
-if [[ -n "$(git -C "${repo_root}" status --short --ignore-submodules=all -- third_party/openwire third_party/xlog-rs)" ]]; then
+if [[ -n "$(git -C "${repo_root}" status --short --ignore-submodules=all -- third_party/openwire)" ]]; then
   echo "superproject has uncommitted submodule pointer changes" >&2
-  git -C "${repo_root}" status --short --ignore-submodules=all -- third_party/openwire third_party/xlog-rs >&2
+  git -C "${repo_root}" status --short --ignore-submodules=all -- third_party/openwire >&2
   exit 1
 fi

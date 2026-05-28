@@ -149,6 +149,38 @@ enum FireTopicPresentation {
         ).renderState
     }
 
+    private static func timelineRowInput(for post: TopicPostState) -> FireTopicTimelineRowInput {
+        FireTopicTimelineRowInput(
+            postID: post.id,
+            postNumber: post.postNumber,
+            replyToPostNumber: post.replyToPostNumber
+        )
+    }
+
+    private static func originalTimelineRow(for post: TopicPostState) -> FirePreparedTopicTimelineRow {
+        FirePreparedTopicTimelineRow(
+            entry: FireTopicTimelineEntry(
+                postId: post.id,
+                postNumber: post.postNumber,
+                parentPostNumber: nil,
+                depth: 0,
+                isOriginalPost: true
+            )
+        )
+    }
+
+    private static func replyTimelineRow(from responseRow: TopicResponseRowState) -> FirePreparedTopicTimelineRow {
+        FirePreparedTopicTimelineRow(
+            entry: FireTopicTimelineEntry(
+                postId: responseRow.post.id,
+                postNumber: responseRow.post.postNumber,
+                parentPostNumber: responseRow.parentPostNumber,
+                depth: UInt32(responseRow.depth),
+                isOriginalPost: false
+            )
+        )
+    }
+
     static func detailRenderCache(
         from detail: TopicDetailState,
         baseURLString: String,
@@ -159,13 +191,7 @@ enum FireTopicPresentation {
             incoming: [],
             orderedPostIDs: detail.postStream.stream
         )
-        let rowInputs = orderedPosts.map { post in
-            FireTopicTimelineRowInput(
-                postID: post.id,
-                postNumber: post.postNumber,
-                replyToPostNumber: post.replyToPostNumber
-            )
-        }
+        let rowInputs = orderedPosts.map(timelineRowInput(for:))
         let contentInputsByPostID = Dictionary(
             uniqueKeysWithValues: orderedPosts.map { post in
                 (post.id, FireTopicPostRenderInput(cooked: post.cooked))
@@ -221,38 +247,22 @@ enum FireTopicPresentation {
         previous: FireTopicDetailRenderCache? = nil
     ) -> FireTopicDetailRenderCache {
         let orderedPosts = [screen.body.post] + responseRows.map(\.post)
-        let rowInputs = orderedPosts.map { post in
-            FireTopicTimelineRowInput(
-                postID: post.id,
-                postNumber: post.postNumber,
-                replyToPostNumber: post.replyToPostNumber
-            )
-        }
+        let rowInputs = orderedPosts.map(timelineRowInput(for:))
         let contentInputsByPostID = Dictionary(
             uniqueKeysWithValues: orderedPosts.map { post in
                 (post.id, FireTopicPostRenderInput(cooked: post.cooked))
             }
         )
 
-        let originalRow = FirePreparedTopicTimelineRow(
-            entry: FireTopicTimelineEntry(
-                postId: screen.body.post.id,
-                postNumber: screen.body.post.postNumber,
-                parentPostNumber: nil,
-                depth: 0,
-                isOriginalPost: true
-            )
-        )
-        let replyRows = responseRows.map { row in
-            FirePreparedTopicTimelineRow(
-                entry: FireTopicTimelineEntry(
-                    postId: row.post.id,
-                    postNumber: row.post.postNumber,
-                    parentPostNumber: row.parentPostNumber,
-                    depth: UInt32(row.depth),
-                    isOriginalPost: false
-                )
-            )
+        let originalRow = originalTimelineRow(for: screen.body.post)
+        let replyRows: [FirePreparedTopicTimelineRow]
+        if let previous,
+           previous.rowInputs.count <= rowInputs.count,
+           Array(rowInputs.prefix(previous.rowInputs.count)) == previous.rowInputs {
+            let suffixRows = responseRows.dropFirst(previous.renderState.replyRows.count).map(replyTimelineRow(from:))
+            replyRows = previous.renderState.replyRows + suffixRows
+        } else {
+            replyRows = responseRows.map(replyTimelineRow(from:))
         }
 
         var contentByPostID: [UInt64: FireTopicPostRenderContent] = [:]
@@ -277,6 +287,58 @@ enum FireTopicPresentation {
             contentInputsByPostID: contentInputsByPostID,
             renderState: FireTopicDetailRenderState(
                 originalRow: originalRow,
+                replyRows: replyRows,
+                contentByPostID: contentByPostID
+            )
+        )
+    }
+
+    static func detailRenderCache(
+        screen: TopicScreenState,
+        appending responseRows: [TopicResponseRowState],
+        baseURLString: String,
+        previous: FireTopicDetailRenderCache
+    ) -> FireTopicDetailRenderCache? {
+        guard !responseRows.isEmpty,
+              previous.baseURLString == baseURLString,
+              previous.rowInputs.first == timelineRowInput(for: screen.body.post),
+              previous.rowInputs.count == previous.renderState.replyRows.count + 1 else {
+            return nil
+        }
+
+        var rowInputs = previous.rowInputs
+        rowInputs.reserveCapacity(rowInputs.count + responseRows.count)
+
+        var contentInputsByPostID = previous.contentInputsByPostID
+        contentInputsByPostID.reserveCapacity(contentInputsByPostID.count + responseRows.count)
+
+        var replyRows = previous.renderState.replyRows
+        replyRows.reserveCapacity(replyRows.count + responseRows.count)
+
+        var contentByPostID = previous.renderState.contentByPostID
+        contentByPostID.reserveCapacity(contentByPostID.count + responseRows.count)
+
+        for responseRow in responseRows {
+            let post = responseRow.post
+            guard contentInputsByPostID[post.id] == nil else {
+                return nil
+            }
+
+            rowInputs.append(timelineRowInput(for: post))
+            contentInputsByPostID[post.id] = FireTopicPostRenderInput(cooked: post.cooked)
+            replyRows.append(replyTimelineRow(from: responseRow))
+            contentByPostID[post.id] = renderContent(
+                from: post.cooked,
+                baseURLString: baseURLString
+            )
+        }
+
+        return FireTopicDetailRenderCache(
+            baseURLString: baseURLString,
+            rowInputs: rowInputs,
+            contentInputsByPostID: contentInputsByPostID,
+            renderState: FireTopicDetailRenderState(
+                originalRow: previous.renderState.originalRow ?? originalTimelineRow(for: screen.body.post),
                 replyRows: replyRows,
                 contentByPostID: contentByPostID
             )
@@ -322,6 +384,14 @@ enum FireTopicPresentation {
         incoming: [TopicPostState],
         orderedPostIDs: [UInt64]
     ) -> [TopicPostState] {
+        if incoming.isEmpty,
+           existing.count == orderedPostIDs.count,
+           zip(existing, orderedPostIDs).allSatisfy({ post, postID in
+               post.id == postID
+           }) {
+            return existing
+        }
+
         var postsByID: [UInt64: TopicPostState] = [:]
         for post in existing {
             postsByID[post.id] = post

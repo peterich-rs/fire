@@ -1,3 +1,4 @@
+import Combine
 import Photos
 import SwiftUI
 
@@ -508,7 +509,7 @@ struct FireTopicDetailView: View {
     }
 
     private var postLookup: [UInt64: TopicPostState] {
-        Dictionary(uniqueKeysWithValues: (detail?.postStream.posts ?? []).map { ($0.id, $0) })
+        topicDetailStore.topicPostLookup(for: topic.id)
     }
 
     private var originalRow: FirePreparedTopicTimelineRow? {
@@ -566,8 +567,8 @@ struct FireTopicDetailView: View {
         topicDetailStore.topicAiSummaryError(for: topic.id)
     }
 
-    private var topicListRevision: UInt64 {
-        topicDetailStore.topicListRevision(topicId: topic.id)
+    private var topicCollectionRevision: UInt64 {
+        topicDetailStore.topicCollectionRevision(topicId: topic.id)
     }
 
     private var nonHeartReactionOptions: [FireReactionOption] {
@@ -681,8 +682,9 @@ struct FireTopicDetailView: View {
             topicAiSummary: topicAiSummary,
             isLoadingTopicAiSummary: isLoadingTopicAiSummary,
             topicAiSummaryError: topicAiSummaryError,
-            topicListRevision: topicListRevision,
+            topicCollectionRevision: topicCollectionRevision,
             canWriteInteractions: canWriteInteractions,
+            postLookup: postLookup,
             isMutatingPost: { topicDetailStore.isMutatingPost(postId: $0) },
             onVisiblePostNumbersChanged: handleVisiblePostNumbersChanged(_:),
             onRefresh: {
@@ -698,7 +700,7 @@ struct FireTopicDetailView: View {
                 topicDetailStore.markScrollTargetSatisfied(topicId: topic.id, postNumber: postNumber)
             },
             onPreloadTopicPosts: { visiblePostNumbers in
-                topicDetailStore.preloadTopicPostsIfNeeded(
+                topicDetailStore.handleVisiblePostNumbersChanged(
                     topicId: topic.id,
                     visiblePostNumbers: visiblePostNumbers
                 )
@@ -1086,17 +1088,13 @@ struct FireTopicDetailView: View {
                 cachedRenderState = current
             }
         }
-        .onReceive(topicDetailStore.$topicDetails) { dict in
-            cachedDetail = FireTopicDetailViewState.syncedCachedDetail(
-                topicId: topic.id,
-                topicDetails: dict
-            )
-        }
-        .onReceive(topicDetailStore.$topicRenderStates) { dict in
-            cachedRenderState = FireTopicDetailViewState.syncedCachedRenderState(
-                topicId: topic.id,
-                topicRenderStates: dict
-            )
+        .onReceive(
+            topicDetailStore.$topicCollectionRevisions
+                .map { $0[topic.id] ?? 0 }
+                .removeDuplicates()
+        ) { _ in
+            cachedDetail = liveDetail
+            cachedRenderState = liveRenderState
         }
         .task(id: topic.id) {
             timingTracker.start { topicId, topicTimeMs, timings in
@@ -1172,7 +1170,7 @@ struct FireTopicDetailView: View {
     private func handleVisiblePostNumbersChanged(_ visiblePostNumbers: Set<UInt32>) {
         timingTracker.updateVisiblePostNumbers(visiblePostNumbers)
 
-        topicDetailStore.preloadTopicPostsIfNeeded(
+        topicDetailStore.handleVisiblePostNumbersChanged(
             topicId: topic.id,
             visiblePostNumbers: visiblePostNumbers
         )

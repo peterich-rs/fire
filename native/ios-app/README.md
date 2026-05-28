@@ -252,6 +252,7 @@ Current UX note:
 - Topic detail now also listens to the shared MessageBus reaction/presence channels, refreshes live post state from Rust on matching events, and shows shared reply-presence users in the quick-reply area.
 - Topic detail now also recognizes `private_message` threads, renders participant chips in the header, and hides public-topic-only controls such as vote panels, topic editing, category/tag navigation, and topic notification settings.
 - Topic detail now prepares reply rows plus cooked text/image payloads in the store layer, so SwiftUI body updates reuse cached render content instead of repeating timeline joins and cooked HTML parsing.
+- Topic detail cursor pagination now appends reply rows and cooked-content caches incrementally on a background task, and coalesces detail/render/loading-footer updates into one list revision so large reply threads do not freeze during load-more.
 - Topic detail now shows the shared Rust AI summary card when the backend advertises an available cached or generatable summary; missing summaries simply disappear, and failures stay scoped to the retryable summary card.
 - Topic posts now render a richer native cooked-content surface in the detail screen, including inline emoji attachments, linked-image extraction that prefers the original asset while preserving server-provided aspect ratios, quote/reply metadata blocks, ordered/unordered lists, details/spoilers, simple tables, onebox/video fallbacks, tappable `@mentions` / group mentions / hashtags, and LinuxDo topic/profile/badge links that stay inside the app instead of bouncing to Safari.
 - The app now keeps the in-app notification list synchronized from Rust-owned notification runtime state when MessageBus notification events arrive, instead of only updating the unread badge count.
@@ -298,7 +299,7 @@ Release artifact note:
 
 Current build note:
 
-- The clean verification baseline requires `third_party/openwire` and `third_party/xlog-rs` to be initialized and free of local modifications. Run `./scripts/check_clean_submodules.sh` from the repository root before trusting local build/test results.
+- The clean verification baseline requires `third_party/openwire` to be initialized and free of local modifications. Run `./scripts/check_clean_submodules.sh` from the repository root before trusting local build/test results.
 - `FireTests` contains only pure-logic cases and is the single iOS test bundle. It still boots an iOS Simulator because the bundle remains app-hosted with `Fire.app` as `TEST_HOST`.
 - The simulator/unit-test path above is verified locally after the iOS logic-unit test cleanup.
 - The device `Release` Xcode path is also verified locally.

@@ -24,8 +24,8 @@ homepage = "https://github.com/peterich-rs/fire"
 repository = "https://github.com/peterich-rs/fire.git"
 
 [workspace.dependencies]
-mars-xlog = { path = "third_party/xlog-rs/crates/xlog", default-features = false, features = ["rust-backend", "tracing"] }
-mars-xlog-core = { path = "third_party/xlog-rs/crates/xlog-core" }
+mars-xlog = { version = "0.1.0-preview.2", default-features = false, features = ["rust-backend", "tracing"] }
+mars-xlog-core = "0.1.0-preview.2"
 openwire = { path = "third_party/openwire/crates/openwire", default-features = false, features = ["tls-rustls", "platform-verifier", "json"] }
 async-trait = "0.1.89"
 base64 = "0.22"

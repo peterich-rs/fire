@@ -70,14 +70,7 @@ enum FireTopicDetailCollectionAdapter {
 
 private struct FireTopicDetailCollectionContentVersion: Hashable {
     let topicID: UInt64
-    let topicListRevision: UInt64
-    let detailError: String
-    let hasMoreTopicPosts: Bool
-    let isLoadingTopic: Bool
-    let isLoadingMoreTopicPosts: Bool
-    let isLoadingTopicAiSummary: Bool
-    let topicAiSummaryError: String
-    let pendingScrollTarget: UInt32?
+    let topicCollectionRevision: UInt64
     let canWriteInteractions: Bool
     let baseURLString: String
 }
@@ -97,8 +90,9 @@ struct FireTopicDetailCollectionView: View {
     let topicAiSummary: TopicAiSummaryState?
     let isLoadingTopicAiSummary: Bool
     let topicAiSummaryError: String?
-    let topicListRevision: UInt64
+    let topicCollectionRevision: UInt64
     let canWriteInteractions: Bool
+    let postLookup: [UInt64: TopicPostState]
     let isMutatingPost: (UInt64) -> Bool
     let onVisiblePostNumbersChanged: (Set<UInt32>) -> Void
     let onRefresh: () async -> Void
@@ -219,10 +213,6 @@ struct FireTopicDetailCollectionView: View {
         return participants
     }
 
-    private var postLookup: [UInt64: TopicPostState] {
-        Dictionary(uniqueKeysWithValues: (detail?.postStream.posts ?? []).map { ($0.id, $0) })
-    }
-
     private var originalRow: FirePreparedTopicTimelineRow? {
         renderState?.originalRow
     }
@@ -239,6 +229,15 @@ struct FireTopicDetailCollectionView: View {
             return nil
         }
         return renderState?.contentByPostID[originalRow.entry.postId]
+    }
+
+    private func fallbackRenderContent(for post: TopicPostState) -> FireTopicPostRenderContent {
+        let plainText = post.raw?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return FireTopicPostRenderContent(
+            plainText: plainText.isEmpty ? "加载中…" : plainText,
+            attributedText: nil,
+            imageAttachments: []
+        )
     }
 
     private var replyRows: [FirePreparedTopicTimelineRow] {
@@ -287,14 +286,7 @@ struct FireTopicDetailCollectionView: View {
     private var contentVersion: FireTopicDetailCollectionContentVersion {
         FireTopicDetailCollectionContentVersion(
             topicID: topic.id,
-            topicListRevision: topicListRevision,
-            detailError: detailError ?? "",
-            hasMoreTopicPosts: hasMoreTopicPosts,
-            isLoadingTopic: isLoadingTopic,
-            isLoadingMoreTopicPosts: isLoadingMoreTopicPosts,
-            isLoadingTopicAiSummary: isLoadingTopicAiSummary,
-            topicAiSummaryError: topicAiSummaryError ?? "",
-            pendingScrollTarget: pendingScrollTarget,
+            topicCollectionRevision: topicCollectionRevision,
             canWriteInteractions: canWriteInteractions,
             baseURLString: baseURLString
         )
@@ -693,14 +685,15 @@ struct FireTopicDetailCollectionView: View {
     @ViewBuilder
     private var originalPostRow: some View {
         Group {
-            if let originalPost,
-               let originalRenderContent = originalPostRenderContent {
+            if let originalPost {
+                let renderContent = originalPostRenderContent
+                    ?? fallbackRenderContent(for: originalPost)
                 FireSwipeToReplyContainer(enabled: canWriteInteractions) {
                     onOpenComposer(originalPost)
                 } content: {
                     FirePostRow(
                         post: originalPost,
-                        renderContent: originalRenderContent,
+                        renderContent: renderContent,
                         depth: 0,
                         replyContext: nil,
                         replyTargetPostNumber: nil,
@@ -861,16 +854,14 @@ struct FireTopicDetailCollectionView: View {
         VStack(spacing: 0) {
             if let row,
                let post = postLookup[row.entry.postId] {
+                let renderContent = renderState?.contentByPostID[row.entry.postId]
+                    ?? fallbackRenderContent(for: post)
                 FireSwipeToReplyContainer(enabled: canWriteInteractions) {
                     onOpenComposer(post)
                 } content: {
                     FirePostRow(
                         post: post,
-                        renderContent: renderState?.contentByPostID[row.entry.postId]
-                            ?? FireTopicPresentation.renderContent(
-                                from: post.cooked,
-                                baseURLString: baseURLString
-                        ),
+                        renderContent: renderContent,
                         depth: Int(row.entry.depth),
                         replyContext: Self.replyContextLabel(
                             for: post,

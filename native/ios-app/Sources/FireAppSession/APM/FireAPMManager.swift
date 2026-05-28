@@ -5,6 +5,34 @@ import os.log
 import os.signpost
 import CrashReporter
 
+struct FireAPMSignpostToken {
+    fileprivate let name: StaticString
+    fileprivate let id: OSSignpostID
+}
+
+enum FireAPMSignpost {
+    private static let log = MXMetricManager.makeLogHandle(category: "fire.apm")
+
+    static func begin(_ name: StaticString) -> FireAPMSignpostToken {
+        let token = FireAPMSignpostToken(
+            name: name,
+            id: OSSignpostID(log: log)
+        )
+        os_signpost(.begin, log: log, name: token.name, signpostID: token.id)
+        return token
+    }
+
+    static func end(_ token: FireAPMSignpostToken) {
+        os_signpost(.end, log: log, name: token.name, signpostID: token.id)
+    }
+
+    static func withInterval<T>(_ name: StaticString, operation: () -> T) -> T {
+        let token = begin(name)
+        defer { end(token) }
+        return operation()
+    }
+}
+
 @MainActor
 final class FireAPMManager: NSObject {
     private struct ActiveSpan {

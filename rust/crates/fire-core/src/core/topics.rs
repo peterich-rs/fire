@@ -1,4 +1,7 @@
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::{
+    collections::{BTreeMap, HashMap, HashSet},
+    time::Instant,
+};
 
 use fire_models::{
     TopicAiSummary, TopicBody, TopicDetail, TopicDetailQuery, TopicHeader, TopicListKind,
@@ -6,6 +9,7 @@ use fire_models::{
     TopicResponsePage, TopicResponsePageQuery, TopicResponseRow, TopicScreen, TopicScreenQuery,
     TopicThread,
 };
+use futures_util::{stream, StreamExt, TryStreamExt};
 use http::StatusCode;
 use serde_json::Value;
 use tracing::{debug, info, warn};
@@ -23,6 +27,7 @@ const TOPIC_POST_BATCH_SIZE: usize = 50;
 const FETCH_TOPIC_AI_SUMMARY_OPERATION: &str = "fetch topic ai summary";
 const DEFAULT_TOPIC_ROOT_PAGE_SIZE: u16 = 10;
 const TOPIC_PARENT_HOP_LIMIT: usize = 32;
+const ROOT_BRANCH_LOAD_CONCURRENCY: usize = 4;
 
 #[derive(Default)]
 pub(crate) struct FireTopicResponseRuntime {
@@ -65,7 +70,7 @@ impl FireCore {
         &self,
         query: TopicDetailQuery,
     ) -> Result<TopicDetail, FireCoreError> {
-        let mut result = self.fetch_topic_detail_base(query).await?;
+        let mut result = self.fetch_topic_detail_base(query, true).await?;
         result.rebuild_timeline_entries();
         info!(
             topic_id = result.id,
@@ -175,7 +180,7 @@ impl FireCore {
         &self,
         query: TopicDetailQuery,
     ) -> Result<TopicDetail, FireCoreError> {
-        let mut result = self.fetch_topic_detail_base(query).await?;
+        let mut result = self.fetch_topic_detail_base(query, true).await?;
         if let Err(error) = self
             .hydrate_topic_detail_posts(result.id, &mut result)
             .await
@@ -205,14 +210,17 @@ impl FireCore {
     ) -> Result<TopicScreen, FireCoreError> {
         let page_size = normalized_root_page_size(query.root_page_size);
         let mut detail = self
-            .fetch_topic_detail_base(TopicDetailQuery {
-                topic_id: query.topic_id,
-                post_number: None,
-                track_visit: query.track_visit,
-                filter: None,
-                username_filters: None,
-                filter_top_level_replies: true,
-            })
+            .fetch_topic_detail_base(
+                TopicDetailQuery {
+                    topic_id: query.topic_id,
+                    post_number: None,
+                    track_visit: query.track_visit,
+                    filter: None,
+                    username_filters: None,
+                    filter_top_level_replies: true,
+                },
+                false,
+            )
             .await?;
         let body_post = match detail
             .post_stream
@@ -451,7 +459,7 @@ impl FireCore {
         focused_post_number: Option<u32>,
     ) -> Result<TopicResponsePage, FireCoreError> {
         loop {
-            let root_to_load = {
+            let roots_to_load = {
                 let runtime = self
                     .topic_response
                     .lock()
@@ -477,41 +485,43 @@ impl FireCore {
                 let selected_root_ids = session.root_stream_ids[start_offset..end_offset].to_vec();
                 selected_root_ids
                     .into_iter()
-                    .find(|root_post_id| !session.branch_by_root_id.contains_key(root_post_id))
+                    .filter(|root_post_id| !session.branch_by_root_id.contains_key(root_post_id))
+                    .collect::<Vec<_>>()
             };
 
-            match root_to_load {
-                Some(root_post_id) => {
-                    self.load_root_branch_into_session(topic_id, session_id, root_post_id)
-                        .await?;
+            if roots_to_load.is_empty() {
+                let runtime = self
+                    .topic_response
+                    .lock()
+                    .expect("topic response runtime lock poisoned");
+                let Some(session) = runtime.sessions_by_topic_id.get(&topic_id) else {
+                    return Err(FireCoreError::InvalidTopicResponseCursor {
+                        topic_id,
+                        session_id,
+                    });
+                };
+                if session.session_id != session_id
+                    || session.session_epoch != self.current_session_epoch()
+                {
+                    return Err(FireCoreError::InvalidTopicResponseCursor {
+                        topic_id,
+                        session_id,
+                    });
                 }
-                None => {
-                    let runtime = self
-                        .topic_response
-                        .lock()
-                        .expect("topic response runtime lock poisoned");
-                    let Some(session) = runtime.sessions_by_topic_id.get(&topic_id) else {
-                        return Err(FireCoreError::InvalidTopicResponseCursor {
-                            topic_id,
-                            session_id,
-                        });
-                    };
-                    if session.session_id != session_id
-                        || session.session_epoch != self.current_session_epoch()
-                    {
-                        return Err(FireCoreError::InvalidTopicResponseCursor {
-                            topic_id,
-                            session_id,
-                        });
-                    }
-                    return Ok(assemble_topic_response_page(
-                        session,
-                        start_offset,
-                        page_size,
-                        focused_post_number,
-                    ));
-                }
+                return Ok(assemble_topic_response_page(
+                    session,
+                    start_offset,
+                    page_size,
+                    focused_post_number,
+                ));
             }
+
+            stream::iter(roots_to_load.into_iter().map(|root_post_id| {
+                self.load_root_branch_into_session(topic_id, session_id, root_post_id)
+            }))
+            .buffer_unordered(ROOT_BRANCH_LOAD_CONCURRENCY)
+            .try_collect::<Vec<_>>()
+            .await?;
         }
     }
 
@@ -521,6 +531,7 @@ impl FireCore {
         session_id: u64,
         root_post_id: u64,
     ) -> Result<(), FireCoreError> {
+        let started_at = Instant::now();
         let (root_post, cached_branch_post_ids) = {
             let runtime = self
                 .topic_response
@@ -639,12 +650,22 @@ impl FireCore {
             session.post_by_id.insert(post.id, post);
         }
         session.branch_by_root_id.insert(root_post_id, branch_index);
+        info!(
+            topic_id,
+            session_id,
+            root_post_id,
+            descendant_count = descendant_ids.len(),
+            fetched_descendant_count = missing_descendant_ids.len(),
+            duration_ms = started_at.elapsed().as_millis() as u64,
+            "loaded topic response root branch"
+        );
         Ok(())
     }
 
     async fn fetch_topic_detail_base(
         &self,
         query: TopicDetailQuery,
+        include_thread_state: bool,
     ) -> Result<TopicDetail, FireCoreError> {
         info!(
             topic_id = query.topic_id,
@@ -686,7 +707,7 @@ impl FireCore {
         let raw: RawTopicDetail = self
             .read_response_json("fetch topic detail", trace_id, response)
             .await?;
-        Ok(raw.into())
+        Ok(raw.into_topic_detail(include_thread_state))
     }
 
     async fn hydrate_topic_detail_posts(
@@ -877,6 +898,7 @@ fn assemble_topic_response_page(
 }
 
 fn build_branch_index(root_post: TopicPost, branch_posts: Vec<TopicPost>) -> TopicBranchIndex {
+    let started_at = Instant::now();
     debug_assert!(
         {
             let unique_post_ids = branch_posts
@@ -986,11 +1008,21 @@ fn build_branch_index(root_post: TopicPost, branch_posts: Vec<TopicPost>) -> Top
         }
     }
 
-    TopicBranchIndex {
+    let branch_index = TopicBranchIndex {
         root_post_number,
         ordered_post_ids,
         node_by_post_id,
-    }
+    };
+
+    info!(
+        root_post_id = root_post_id,
+        root_post_number,
+        post_count = branch_index.ordered_post_ids.len(),
+        duration_ms = started_at.elapsed().as_millis() as u64,
+        "built topic response branch index"
+    );
+
+    branch_index
 }
 
 #[allow(clippy::too_many_arguments)]

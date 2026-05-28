@@ -243,16 +243,34 @@ enum FireTopicPresentation {
                 isOriginalPost: true
             )
         )
-        let replyRows = responseRows.map { row in
-            FirePreparedTopicTimelineRow(
-                entry: FireTopicTimelineEntry(
-                    postId: row.post.id,
-                    postNumber: row.post.postNumber,
-                    parentPostNumber: row.parentPostNumber,
-                    depth: UInt32(row.depth),
-                    isOriginalPost: false
+        let replyRows: [FirePreparedTopicTimelineRow]
+        if let previous,
+           previous.rowInputs.count <= rowInputs.count,
+           Array(rowInputs.prefix(previous.rowInputs.count)) == previous.rowInputs {
+            let suffixRows = responseRows.dropFirst(previous.renderState.replyRows.count).map { row in
+                FirePreparedTopicTimelineRow(
+                    entry: FireTopicTimelineEntry(
+                        postId: row.post.id,
+                        postNumber: row.post.postNumber,
+                        parentPostNumber: row.parentPostNumber,
+                        depth: UInt32(row.depth),
+                        isOriginalPost: false
+                    )
                 )
-            )
+            }
+            replyRows = previous.renderState.replyRows + suffixRows
+        } else {
+            replyRows = responseRows.map { row in
+                FirePreparedTopicTimelineRow(
+                    entry: FireTopicTimelineEntry(
+                        postId: row.post.id,
+                        postNumber: row.post.postNumber,
+                        parentPostNumber: row.parentPostNumber,
+                        depth: UInt32(row.depth),
+                        isOriginalPost: false
+                    )
+                )
+            }
         }
 
         var contentByPostID: [UInt64: FireTopicPostRenderContent] = [:]
@@ -322,6 +340,14 @@ enum FireTopicPresentation {
         incoming: [TopicPostState],
         orderedPostIDs: [UInt64]
     ) -> [TopicPostState] {
+        if incoming.isEmpty,
+           existing.count == orderedPostIDs.count,
+           zip(existing, orderedPostIDs).allSatisfy({ post, postID in
+               post.id == postID
+           }) {
+            return existing
+        }
+
         var postsByID: [UInt64: TopicPostState] = [:]
         for post in existing {
             postsByID[post.id] = post

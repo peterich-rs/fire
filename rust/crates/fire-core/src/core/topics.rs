@@ -6,6 +6,7 @@ use fire_models::{
     TopicResponsePage, TopicResponsePageQuery, TopicResponseRow, TopicScreen, TopicScreenQuery,
     TopicThread,
 };
+use futures_util::future::try_join_all;
 use http::StatusCode;
 use serde_json::Value;
 use tracing::{debug, info, warn};
@@ -451,7 +452,7 @@ impl FireCore {
         focused_post_number: Option<u32>,
     ) -> Result<TopicResponsePage, FireCoreError> {
         loop {
-            let root_to_load = {
+            let roots_to_load = {
                 let runtime = self
                     .topic_response
                     .lock()
@@ -477,41 +478,41 @@ impl FireCore {
                 let selected_root_ids = session.root_stream_ids[start_offset..end_offset].to_vec();
                 selected_root_ids
                     .into_iter()
-                    .find(|root_post_id| !session.branch_by_root_id.contains_key(root_post_id))
+                    .filter(|root_post_id| !session.branch_by_root_id.contains_key(root_post_id))
+                    .collect::<Vec<_>>()
             };
 
-            match root_to_load {
-                Some(root_post_id) => {
-                    self.load_root_branch_into_session(topic_id, session_id, root_post_id)
-                        .await?;
+            if roots_to_load.is_empty() {
+                let runtime = self
+                    .topic_response
+                    .lock()
+                    .expect("topic response runtime lock poisoned");
+                let Some(session) = runtime.sessions_by_topic_id.get(&topic_id) else {
+                    return Err(FireCoreError::InvalidTopicResponseCursor {
+                        topic_id,
+                        session_id,
+                    });
+                };
+                if session.session_id != session_id
+                    || session.session_epoch != self.current_session_epoch()
+                {
+                    return Err(FireCoreError::InvalidTopicResponseCursor {
+                        topic_id,
+                        session_id,
+                    });
                 }
-                None => {
-                    let runtime = self
-                        .topic_response
-                        .lock()
-                        .expect("topic response runtime lock poisoned");
-                    let Some(session) = runtime.sessions_by_topic_id.get(&topic_id) else {
-                        return Err(FireCoreError::InvalidTopicResponseCursor {
-                            topic_id,
-                            session_id,
-                        });
-                    };
-                    if session.session_id != session_id
-                        || session.session_epoch != self.current_session_epoch()
-                    {
-                        return Err(FireCoreError::InvalidTopicResponseCursor {
-                            topic_id,
-                            session_id,
-                        });
-                    }
-                    return Ok(assemble_topic_response_page(
-                        session,
-                        start_offset,
-                        page_size,
-                        focused_post_number,
-                    ));
-                }
+                return Ok(assemble_topic_response_page(
+                    session,
+                    start_offset,
+                    page_size,
+                    focused_post_number,
+                ));
             }
+
+            try_join_all(roots_to_load.into_iter().map(|root_post_id| {
+                self.load_root_branch_into_session(topic_id, session_id, root_post_id)
+            }))
+            .await?;
         }
     }
 

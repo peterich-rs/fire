@@ -11,6 +11,8 @@ final class FireTopicDetailStore: ObservableObject {
     nonisolated private static let topicPostPrefetchThreshold = 10
     nonisolated private static let topicPostForwardExpansionSize = 60
     nonisolated private static let replyContextPostBatchSize = 20
+    nonisolated private static let topicPostVisibleRangeDebounce = Duration.milliseconds(120)
+    nonisolated private static let topicPostHydrationIterationLimit = 8
 
     @Published private(set) var topicDetails: [UInt64: TopicDetailState] = [:]
     @Published private(set) var topicRenderStates: [UInt64: FireTopicDetailRenderState] = [:]
@@ -40,8 +42,13 @@ final class FireTopicDetailStore: ObservableObject {
     private var pendingTopicDetailRefreshTasks: [UInt64: Task<Void, Never>] = [:]
     private var topicPresenceHeartbeatTasks: [UInt64: Task<Void, Never>] = [:]
     private var topicPostPreloadTasks: [UInt64: Task<Void, Never>] = [:]
+    private var topicVisibleRangeTasks: [UInt64: Task<Void, Never>] = [:]
+    private var topicRenderTasks: [UInt64: Task<Void, Never>] = [:]
     private var topicWindowStates: [UInt64: FireTopicDetailWindowState] = [:]
     private var topicRenderCaches: [UInt64: FireTopicDetailRenderCache] = [:]
+    private var topicRenderGenerations: [UInt64: UInt64] = [:]
+    private var topicPostLookups: [UInt64: [UInt64: TopicPostState]] = [:]
+    private var pendingVisiblePostNumbersByTopic: [UInt64: Set<UInt32>] = [:]
     private var topicDetailTargetPostNumbers: [UInt64: UInt32] = [:]
     private var activeTopicDetailOwnerTokens: [UInt64: Set<String>] = [:]
     private var topicAiSummaryTasks: [UInt64: Task<Void, Never>] = [:]
@@ -142,6 +149,11 @@ final class FireTopicDetailStore: ObservableObject {
         pendingTopicDetailRefreshTasks = [:]
         topicPostPreloadTasks.values.forEach { $0.cancel() }
         topicPostPreloadTasks = [:]
+        topicVisibleRangeTasks.values.forEach { $0.cancel() }
+        topicVisibleRangeTasks = [:]
+        topicRenderTasks.values.forEach { $0.cancel() }
+        topicRenderTasks = [:]
+        pendingVisiblePostNumbersByTopic = [:]
         loadingTopicIDs.removeAll()
         loadingMoreTopicPostIDs.removeAll()
         loadingPostReplyContextIDs.removeAll()
@@ -168,12 +180,19 @@ final class FireTopicDetailStore: ObservableObject {
         topicPresenceHeartbeatTasks = [:]
         topicPostPreloadTasks.values.forEach { $0.cancel() }
         topicPostPreloadTasks = [:]
+        topicVisibleRangeTasks.values.forEach { $0.cancel() }
+        topicVisibleRangeTasks = [:]
+        topicRenderTasks.values.forEach { $0.cancel() }
+        topicRenderTasks = [:]
         topicAiSummaryTasks.values.forEach { $0.cancel() }
         topicAiSummaryTasks = [:]
         activeTopicDetailOwnerTokens = [:]
         topicDetailTargetPostNumbers = [:]
+        pendingVisiblePostNumbersByTopic = [:]
         topicWindowStates = [:]
         topicRenderCaches = [:]
+        topicRenderGenerations = [:]
+        topicPostLookups = [:]
         topicScreens = [:]
         topicResponseRowsByTopic = [:]
         topicResponseCursorsByTopic = [:]
@@ -421,6 +440,10 @@ final class FireTopicDetailStore: ObservableObject {
         topicRenderStates[topicId]
     }
 
+    func topicPostLookup(for topicId: UInt64) -> [UInt64: TopicPostState] {
+        topicPostLookups[topicId] ?? [:]
+    }
+
     func topicPresenceUsers(for topicId: UInt64) -> [TopicPresenceUserState] {
         topicPresenceUsersByTopic[topicId] ?? []
     }
@@ -486,6 +509,42 @@ final class FireTopicDetailStore: ObservableObject {
             guard let self else { return }
             defer { self.topicPostPreloadTasks[topicId] = nil }
             await self.loadNextTopicResponsePage(topicId: topicId)
+        }
+    }
+
+    func handleVisiblePostNumbersChanged(
+        topicId: UInt64,
+        visiblePostNumbers: Set<UInt32>
+    ) {
+        guard !visiblePostNumbers.isEmpty else { return }
+
+        preloadTopicPostsIfNeeded(
+            topicId: topicId,
+            visiblePostNumbers: visiblePostNumbers
+        )
+
+        guard topicWindowStates[topicId] != nil else {
+            return
+        }
+
+        pendingVisiblePostNumbersByTopic[topicId] = visiblePostNumbers
+        topicVisibleRangeTasks[topicId]?.cancel()
+        topicVisibleRangeTasks[topicId] = Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                try await Task.sleep(for: Self.topicPostVisibleRangeDebounce)
+            } catch {
+                return
+            }
+
+            let latestVisiblePostNumbers =
+                self.pendingVisiblePostNumbersByTopic.removeValue(forKey: topicId)
+                ?? visiblePostNumbers
+            self.topicVisibleRangeTasks[topicId] = nil
+            await self.expandRequestedRangeIfNeeded(
+                topicId: topicId,
+                visiblePostNumbers: latestVisiblePostNumbers
+            )
         }
     }
 
@@ -1164,9 +1223,12 @@ final class FireTopicDetailStore: ObservableObject {
         topicResponseRowsByTopic.removeValue(forKey: topicId)
         topicResponseCursorsByTopic.removeValue(forKey: topicId)
         topicMaxLoadedPostNumbers.removeValue(forKey: topicId)
+        topicPostLookups.removeValue(forKey: topicId)
+        pendingVisiblePostNumbersByTopic.removeValue(forKey: topicId)
         let removedDetail = topicDetails.removeValue(forKey: topicId) != nil
         let removedRenderState = topicRenderStates.removeValue(forKey: topicId) != nil
         topicRenderCaches.removeValue(forKey: topicId)
+        topicRenderGenerations.removeValue(forKey: topicId)
         let removedWindow = topicWindowStates.removeValue(forKey: topicId) != nil
         let removedPresence = topicPresenceUsersByTopic.removeValue(forKey: topicId) != nil
         let removedAiSummary = topicAiSummaries.removeValue(forKey: topicId) != nil
@@ -1179,10 +1241,14 @@ final class FireTopicDetailStore: ObservableObject {
         let refreshTask = pendingTopicDetailRefreshTasks.removeValue(forKey: topicId)
         let presenceTask = topicPresenceHeartbeatTasks.removeValue(forKey: topicId)
         let preloadTask = topicPostPreloadTasks.removeValue(forKey: topicId)
+        let visibleRangeTask = topicVisibleRangeTasks.removeValue(forKey: topicId)
+        let renderTask = topicRenderTasks.removeValue(forKey: topicId)
         let aiSummaryTask = topicAiSummaryTasks.removeValue(forKey: topicId)
         refreshTask?.cancel()
         presenceTask?.cancel()
         preloadTask?.cancel()
+        visibleRangeTask?.cancel()
+        renderTask?.cancel()
         aiSummaryTask?.cancel()
 
         guard removedDetail
@@ -1198,6 +1264,8 @@ final class FireTopicDetailStore: ObservableObject {
             || refreshTask != nil
             || presenceTask != nil
             || preloadTask != nil
+            || visibleRangeTask != nil
+            || renderTask != nil
             || aiSummaryTask != nil
         else {
             return
@@ -1221,10 +1289,14 @@ final class FireTopicDetailStore: ObservableObject {
             ),
             stream: detail.postStream.stream
         )
+        topicPostLookups[topicId] = Dictionary(
+            uniqueKeysWithValues: cachedDetail.postStream.posts.map { ($0.id, $0) }
+        )
 
         let didUpdateDetail = topicDetails[topicId] != cachedDetail
         if didUpdateDetail {
             topicDetails[topicId] = cachedDetail
+            bumpTopicListRevision(topicId: topicId)
         }
         if let maxLoadedPostNumber = cachedDetail.postStream.posts.map(\.postNumber).max() {
             topicMaxLoadedPostNumbers[topicId] = maxLoadedPostNumber
@@ -1232,23 +1304,63 @@ final class FireTopicDetailStore: ObservableObject {
             topicMaxLoadedPostNumbers.removeValue(forKey: topicId)
         }
 
+        scheduleTopicRenderCacheUpdate(detail: cachedDetail, topicId: topicId)
+        return cachedDetail
+    }
+
+    private func scheduleTopicRenderCacheUpdate(
+        detail: TopicDetailState,
+        topicId: UInt64
+    ) {
         let previousRenderCache = topicRenderCaches[topicId]
-        let renderCache: FireTopicDetailRenderCache
-        if let screen = topicScreens[topicId],
-           let responseRows = topicResponseRowsByTopic[topicId] {
-            renderCache = FireTopicPresentation.detailRenderCache(
-                screen: screen,
-                responseRows: responseRows,
-                baseURLString: renderBaseURLString,
-                previous: previousRenderCache
-            )
-        } else {
-            renderCache = FireTopicPresentation.detailRenderCache(
-                from: cachedDetail,
-                baseURLString: renderBaseURLString,
-                previous: previousRenderCache
+        let screen = topicScreens[topicId]
+        let responseRows = topicResponseRowsByTopic[topicId]
+        let baseURLString = renderBaseURLString
+        let generation = topicRenderGenerations[topicId, default: 0] &+ 1
+        topicRenderGenerations[topicId] = generation
+
+        topicRenderTasks[topicId]?.cancel()
+        topicRenderTasks[topicId] = Task { [weak self] in
+            let renderCache = await Task.detached(priority: .userInitiated) {
+                if let screen, let responseRows {
+                    return FireTopicPresentation.detailRenderCache(
+                        screen: screen,
+                        responseRows: responseRows,
+                        baseURLString: baseURLString,
+                        previous: previousRenderCache
+                    )
+                }
+                return FireTopicPresentation.detailRenderCache(
+                    from: detail,
+                    baseURLString: baseURLString,
+                    previous: previousRenderCache
+                )
+            }.value
+
+            guard !Task.isCancelled else {
+                return
+            }
+
+            await self?.applyTopicRenderCache(
+                renderCache,
+                topicId: topicId,
+                generation: generation
             )
         }
+    }
+
+    private func applyTopicRenderCache(
+        _ renderCache: FireTopicDetailRenderCache,
+        topicId: UInt64,
+        generation: UInt64
+    ) {
+        guard topicRenderGenerations[topicId] == generation else {
+            return
+        }
+
+        topicRenderTasks[topicId] = nil
+
+        let previousRenderCache = topicRenderCaches[topicId]
         topicRenderCaches[topicId] = renderCache
 
         let didUpdateRenderState =
@@ -1257,11 +1369,8 @@ final class FireTopicDetailStore: ObservableObject {
             || previousRenderCache?.contentInputsByPostID != renderCache.contentInputsByPostID
         if didUpdateRenderState {
             topicRenderStates[topicId] = renderCache.renderState
-        }
-        if didUpdateDetail || didUpdateRenderState {
             bumpTopicListRevision(topicId: topicId)
         }
-        return cachedDetail
     }
 
     private func applyTopicDetail(
@@ -1563,8 +1672,24 @@ final class FireTopicDetailStore: ObservableObject {
         var hydratedPosts: [TopicPostState] = []
         var hydratedPostIDs: Set<UInt64> = []
         var exhaustedPostIDs: Set<UInt64> = []
+        var iterationCount = 0
 
         while !Task.isCancelled {
+            iterationCount &+= 1
+            if iterationCount > Self.topicPostHydrationIterationLimit {
+                if !hydratedPosts.isEmpty || !exhaustedPostIDs.isEmpty {
+                    applyHydratedTopicPostsIfNeeded(
+                        topicId: topicId,
+                        posts: hydratedPosts,
+                        exhaustedPostIDs: exhaustedPostIDs
+                    )
+                }
+                appViewModel.topicDetailLogger()?.warning(
+                    "topic post hydration hit iteration limit topic_id=\(topicId) iterations=\(iterationCount - 1)"
+                )
+                return
+            }
+
             guard let detail = topicDetails[topicId],
                   let window = topicWindowStates[topicId] else {
                 return

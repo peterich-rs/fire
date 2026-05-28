@@ -8,6 +8,7 @@ authors.workspace = true
 
 [dependencies]
 fire-models = { path = "../fire-models" }
+futures-util.workspace = true
 http.workspace = true
 http-body-util.workspace = true
 mars-xlog.workspace = true

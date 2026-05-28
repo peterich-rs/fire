@@ -508,7 +508,7 @@ struct FireTopicDetailView: View {
     }
 
     private var postLookup: [UInt64: TopicPostState] {
-        Dictionary(uniqueKeysWithValues: (detail?.postStream.posts ?? []).map { ($0.id, $0) })
+        topicDetailStore.topicPostLookup(for: topic.id)
     }
 
     private var originalRow: FirePreparedTopicTimelineRow? {
@@ -683,6 +683,7 @@ struct FireTopicDetailView: View {
             topicAiSummaryError: topicAiSummaryError,
             topicListRevision: topicListRevision,
             canWriteInteractions: canWriteInteractions,
+            postLookup: postLookup,
             isMutatingPost: { topicDetailStore.isMutatingPost(postId: $0) },
             onVisiblePostNumbersChanged: handleVisiblePostNumbersChanged(_:),
             onRefresh: {
@@ -698,7 +699,7 @@ struct FireTopicDetailView: View {
                 topicDetailStore.markScrollTargetSatisfied(topicId: topic.id, postNumber: postNumber)
             },
             onPreloadTopicPosts: { visiblePostNumbers in
-                topicDetailStore.preloadTopicPostsIfNeeded(
+                topicDetailStore.handleVisiblePostNumbersChanged(
                     topicId: topic.id,
                     visiblePostNumbers: visiblePostNumbers
                 )
@@ -1172,7 +1173,7 @@ struct FireTopicDetailView: View {
     private func handleVisiblePostNumbersChanged(_ visiblePostNumbers: Set<UInt32>) {
         timingTracker.updateVisiblePostNumbers(visiblePostNumbers)
 
-        topicDetailStore.preloadTopicPostsIfNeeded(
+        topicDetailStore.handleVisiblePostNumbersChanged(
             topicId: topic.id,
             visiblePostNumbers: visiblePostNumbers
         )

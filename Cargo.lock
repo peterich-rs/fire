@@ -807,6 +807,7 @@ version = "0.1.0"
 dependencies = [
  "ego-tree",
  "fire-models",
+ "futures-util",
  "html5ever",
  "http",
  "http-body-util",

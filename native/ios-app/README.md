@@ -299,7 +299,7 @@ Release artifact note:
 
 Current build note:
 
-- The clean verification baseline requires `third_party/openwire` and `third_party/xlog-rs` to be initialized and free of local modifications. Run `./scripts/check_clean_submodules.sh` from the repository root before trusting local build/test results.
+- The clean verification baseline requires `third_party/openwire` to be initialized and free of local modifications. Run `./scripts/check_clean_submodules.sh` from the repository root before trusting local build/test results.
 - `FireTests` contains only pure-logic cases and is the single iOS test bundle. It still boots an iOS Simulator because the bundle remains app-hosted with `Fire.app` as `TEST_HOST`.
 - The simulator/unit-test path above is verified locally after the iOS logic-unit test cleanup.
 - The device `Release` Xcode path is also verified locally.

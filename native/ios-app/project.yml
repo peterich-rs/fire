@@ -109,7 +109,6 @@ targets:
           - $(SRCROOT)/../../Cargo.lock
           - $(SRCROOT)/../../rust
           - $(SRCROOT)/../../third_party/openwire
-          - $(SRCROOT)/../../third_party/xlog-rs
           - $(SRCROOT)/../../rust/crates/fire-uniffi/uniffi.toml
         outputFiles:
           - $(SRCROOT)/Generated/FireUniFfi/fire_uniffi.swift

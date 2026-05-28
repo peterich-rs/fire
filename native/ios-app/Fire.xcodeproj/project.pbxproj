@@ -181,7 +181,7 @@
 		46C35F105D036EECAAE7B93D /* FireRouteParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireRouteParserTests.swift; sourceTree = "<group>"; };
 		46CF09F1CBAC6CFAA0E9128A /* FireAppRoute.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireAppRoute.swift; sourceTree = "<group>"; };
 		48A7EA25CD5ADF94676BE48E /* fire_uniffi_session.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = fire_uniffi_session.swift; sourceTree = "<group>"; };
-		48CAB0E38556929FC140E25D /* Fire.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Fire.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		48CAB0E38556929FC140E25D /* Fire.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Fire.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		502CE714A74D91C33212BF57 /* FireNotificationStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireNotificationStore.swift; sourceTree = "<group>"; };
 		51431D8CC0EBCA6C0E79380C /* FireBackgroundNotificationAlert.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireBackgroundNotificationAlert.swift; sourceTree = "<group>"; };
 		52BB1F5B0970DC2504ACD989 /* FirePushRegistrationCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FirePushRegistrationCoordinator.swift; sourceTree = "<group>"; };
@@ -623,6 +623,7 @@
 				LastUpgradeCheck = 1430;
 				TargetAttributes = {
 					87BF3D86E2CA36A3D645AA33 = {
+						DevelopmentTeam = "$(FIRE_DEVELOPMENT_TEAM)";
 						ProvisioningStyle = "$(FIRE_CODE_SIGN_STYLE)";
 					};
 				};
@@ -855,16 +856,30 @@
 				DEVELOPMENT_TEAM = "$(FIRE_DEVELOPMENT_TEAM)";
 				FIRE_GIT_SHA = "$(FIRE_GIT_SHA)";
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_BGTaskSchedulerPermittedIdentifiers = "com.fire.app.ios.notification-alert-refresh";
+				INFOPLIST_KEY_BGTaskSchedulerPermittedIdentifiers = (
+					"com.fire.app.ios.notification-alert-refresh",
+				);
 				INFOPLIST_KEY_CFBundleDisplayName = "$(FIRE_DISPLAY_NAME)";
 				INFOPLIST_KEY_CFBundleURLTypes = "[[\"CFBundleURLSchemes\": [\"fire\"], \"CFBundleURLName\": \"fire\"]]";
 				INFOPLIST_KEY_FireGitSha = "$(FIRE_GIT_SHA)";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Fire 需要把你在帖子里查看的图片保存到相册。";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
-				INFOPLIST_KEY_UIBackgroundModes = "fetch remote-notification";
+				INFOPLIST_KEY_UIBackgroundModes = (
+					fetch,
+					"remote-notification",
+				);
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = (
+					UIInterfaceOrientationPortrait,
+					UIInterfaceOrientationLandscapeLeft,
+					UIInterfaceOrientationLandscapeRight,
+				);
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = (
+					UIInterfaceOrientationPortrait,
+					UIInterfaceOrientationPortraitUpsideDown,
+					UIInterfaceOrientationLandscapeLeft,
+					UIInterfaceOrientationLandscapeRight,
+				);
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -883,7 +898,10 @@
 				PRODUCT_NAME = Fire;
 				PROVISIONING_PROFILE_SPECIFIER = "$(FIRE_PROVISIONING_PROFILE_SPECIFIER)";
 				SDKROOT = iphoneos;
-				SWIFT_INCLUDE_PATHS = "$(inherited) $(SRCROOT)/Generated";
+				SWIFT_INCLUDE_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/Generated",
+				);
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Debug;
@@ -900,7 +918,10 @@
 					"@loader_path/Frameworks",
 				);
 				SDKROOT = iphoneos;
-				SWIFT_INCLUDE_PATHS = "$(inherited) $(SRCROOT)/Generated";
+				SWIFT_INCLUDE_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/Generated",
+				);
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Fire.app/Fire";
 			};
@@ -918,7 +939,10 @@
 					"@loader_path/Frameworks",
 				);
 				SDKROOT = iphoneos;
-				SWIFT_INCLUDE_PATHS = "$(inherited) $(SRCROOT)/Generated";
+				SWIFT_INCLUDE_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/Generated",
+				);
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Fire.app/Fire";
 			};
@@ -1050,19 +1074,33 @@
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = "$(FIRE_CODE_SIGN_STYLE)";
 				CURRENT_PROJECT_VERSION = "$(FIRE_BUILD_NUMBER)";
-				DEVELOPMENT_TEAM = YHK2G6Y994;
+				DEVELOPMENT_TEAM = "$(FIRE_DEVELOPMENT_TEAM)";
 				FIRE_GIT_SHA = "$(FIRE_GIT_SHA)";
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_BGTaskSchedulerPermittedIdentifiers = "com.fire.app.ios.notification-alert-refresh";
+				INFOPLIST_KEY_BGTaskSchedulerPermittedIdentifiers = (
+					"com.fire.app.ios.notification-alert-refresh",
+				);
 				INFOPLIST_KEY_CFBundleDisplayName = "$(FIRE_DISPLAY_NAME)";
 				INFOPLIST_KEY_CFBundleURLTypes = "[[\"CFBundleURLSchemes\": [\"fire\"], \"CFBundleURLName\": \"fire\"]]";
 				INFOPLIST_KEY_FireGitSha = "$(FIRE_GIT_SHA)";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Fire 需要把你在帖子里查看的图片保存到相册。";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
-				INFOPLIST_KEY_UIBackgroundModes = "fetch remote-notification";
+				INFOPLIST_KEY_UIBackgroundModes = (
+					fetch,
+					"remote-notification",
+				);
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = (
+					UIInterfaceOrientationPortrait,
+					UIInterfaceOrientationLandscapeLeft,
+					UIInterfaceOrientationLandscapeRight,
+				);
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = (
+					UIInterfaceOrientationPortrait,
+					UIInterfaceOrientationPortraitUpsideDown,
+					UIInterfaceOrientationLandscapeLeft,
+					UIInterfaceOrientationLandscapeRight,
+				);
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -1081,7 +1119,10 @@
 				PRODUCT_NAME = Fire;
 				PROVISIONING_PROFILE_SPECIFIER = "$(FIRE_PROVISIONING_PROFILE_SPECIFIER)";
 				SDKROOT = iphoneos;
-				SWIFT_INCLUDE_PATHS = "$(inherited) $(SRCROOT)/Generated";
+				SWIFT_INCLUDE_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/Generated",
+				);
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Release;

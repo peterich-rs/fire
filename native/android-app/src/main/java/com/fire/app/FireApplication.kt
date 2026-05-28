@@ -1,6 +1,7 @@
 package com.fire.app
 
 import android.app.Application
+import com.fire.app.core.image.FireImageLoader
 import com.fire.app.session.FireSessionStoreRepository
 
 class FireApplication : Application() {
@@ -11,6 +12,7 @@ class FireApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         instance = this
+        FireImageLoader.initialize(this)
     }
 
     companion object {

@@ -1,4 +1,7 @@
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::{
+    collections::{BTreeMap, HashMap, HashSet},
+    time::Instant,
+};
 
 use fire_models::{
     TopicAiSummary, TopicBody, TopicDetail, TopicDetailQuery, TopicHeader, TopicListKind,
@@ -528,6 +531,7 @@ impl FireCore {
         session_id: u64,
         root_post_id: u64,
     ) -> Result<(), FireCoreError> {
+        let started_at = Instant::now();
         let (root_post, cached_branch_post_ids) = {
             let runtime = self
                 .topic_response
@@ -646,6 +650,15 @@ impl FireCore {
             session.post_by_id.insert(post.id, post);
         }
         session.branch_by_root_id.insert(root_post_id, branch_index);
+        info!(
+            topic_id,
+            session_id,
+            root_post_id,
+            descendant_count = descendant_ids.len(),
+            fetched_descendant_count = missing_descendant_ids.len(),
+            duration_ms = started_at.elapsed().as_millis() as u64,
+            "loaded topic response root branch"
+        );
         Ok(())
     }
 
@@ -885,6 +898,7 @@ fn assemble_topic_response_page(
 }
 
 fn build_branch_index(root_post: TopicPost, branch_posts: Vec<TopicPost>) -> TopicBranchIndex {
+    let started_at = Instant::now();
     debug_assert!(
         {
             let unique_post_ids = branch_posts
@@ -994,11 +1008,21 @@ fn build_branch_index(root_post: TopicPost, branch_posts: Vec<TopicPost>) -> Top
         }
     }
 
-    TopicBranchIndex {
+    let branch_index = TopicBranchIndex {
         root_post_number,
         ordered_post_ids,
         node_by_post_id,
-    }
+    };
+
+    info!(
+        root_post_id = root_post_id,
+        root_post_number,
+        post_count = branch_index.ordered_post_ids.len(),
+        duration_ms = started_at.elapsed().as_millis() as u64,
+        "built topic response branch index"
+    );
+
+    branch_index
 }
 
 #[allow(clippy::too_many_arguments)]

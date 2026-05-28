@@ -392,6 +392,7 @@ final class FireDiffableListController<SectionID: Hashable, ItemID: Hashable, Ro
             scrollAnchorRestorePolicy.shouldRestore(animatingDifferences: effectiveAnimatingDifferences)
             && !shouldDeferScrollAnchorRestoreDuringTopRefresh()
         let scrollAnchor = shouldRestoreScrollAnchor ? currentScrollAnchor() : nil
+        let snapshotApplySignpost = FireAPMSignpost.begin("collection.snapshot_apply")
         var snapshot = NSDiffableDataSourceSnapshot<SectionID, ItemID>()
         for section in sections {
             snapshot.appendSections([section.id])
@@ -402,6 +403,7 @@ final class FireDiffableListController<SectionID: Hashable, ItemID: Hashable, Ro
         }
 
         dataSource.apply(snapshot, animatingDifferences: effectiveAnimatingDifferences) { [weak self] in
+            FireAPMSignpost.end(snapshotApplySignpost)
             guard let self else { return }
             self.restoreScrollAnchor(scrollAnchor)
             self.applyScrollRequestIfNeeded()

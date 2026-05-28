@@ -40,10 +40,12 @@ struct FireCollectionHost<SectionID: Hashable, ItemID: Hashable, RowContent: Vie
             }
 
             var tokens: [ItemID: AnyHashable] = [:]
-            tokens.reserveCapacity(sections.reduce(0) { $0 + $1.items.count })
-            for section in sections {
-                for item in section.items {
-                    tokens[item] = itemContentToken(item)
+            FireAPMSignpost.withInterval("collection.item_token_resolve") {
+                tokens.reserveCapacity(sections.reduce(0) { $0 + $1.items.count })
+                for section in sections {
+                    for item in section.items {
+                        tokens[item] = itemContentToken(item)
+                    }
                 }
             }
 

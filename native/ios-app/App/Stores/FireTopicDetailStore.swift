@@ -1952,101 +1952,106 @@ final class FireTopicDetailStore: ObservableObject {
         }
         defer { hydratingTopicPostIDs.remove(topicId) }
 
-        var hydratedPosts: [TopicPostState] = []
-        var hydratedPostIDs: Set<UInt64> = []
-        var exhaustedPostIDs: Set<UInt64> = []
-        var iterationCount = 0
+        await FireAPMManager.shared.withSpan(
+            .topicDetailHydration,
+            metadata: ["topic_id": String(topicId)]
+        ) {
+            var hydratedPosts: [TopicPostState] = []
+            var hydratedPostIDs: Set<UInt64> = []
+            var exhaustedPostIDs: Set<UInt64> = []
+            var iterationCount = 0
 
-        while !Task.isCancelled {
-            iterationCount &+= 1
-            if iterationCount > Self.topicPostHydrationIterationLimit {
-                if !hydratedPosts.isEmpty || !exhaustedPostIDs.isEmpty {
-                    await applyHydratedTopicPostsIfNeeded(
-                        topicId: topicId,
-                        posts: hydratedPosts,
-                        exhaustedPostIDs: exhaustedPostIDs
+            while !Task.isCancelled {
+                iterationCount &+= 1
+                if iterationCount > Self.topicPostHydrationIterationLimit {
+                    if !hydratedPosts.isEmpty || !exhaustedPostIDs.isEmpty {
+                        await applyHydratedTopicPostsIfNeeded(
+                            topicId: topicId,
+                            posts: hydratedPosts,
+                            exhaustedPostIDs: exhaustedPostIDs
+                        )
+                    }
+                    appViewModel.topicDetailLogger()?.warning(
+                        "topic post hydration hit iteration limit topic_id=\(topicId) iterations=\(iterationCount - 1)"
                     )
-                }
-                appViewModel.topicDetailLogger()?.warning(
-                    "topic post hydration hit iteration limit topic_id=\(topicId) iterations=\(iterationCount - 1)"
-                )
-                return
-            }
-
-            guard let detail = topicDetails[topicId],
-                  let window = topicWindowStates[topicId] else {
-                return
-            }
-
-            let missingPostIDs = FireTopicPresentation.missingPostIDs(
-                orderedPostIDs: detail.postStream.stream,
-                in: window.requestedRange,
-                loadedPostIDs: Set(detail.postStream.posts.map(\.id)).union(hydratedPostIDs),
-                excluding: window.exhaustedPostIDs.union(exhaustedPostIDs)
-            )
-            guard !missingPostIDs.isEmpty else {
-                if !hydratedPosts.isEmpty || !exhaustedPostIDs.isEmpty {
-                    await applyHydratedTopicPostsIfNeeded(
-                        topicId: topicId,
-                        posts: hydratedPosts,
-                        exhaustedPostIDs: exhaustedPostIDs
-                    )
-                    hydratedPosts.removeAll()
-                    hydratedPostIDs.removeAll()
-                    exhaustedPostIDs.removeAll()
-                    continue
-                }
-                if advanceRequestedRangeTowardPendingScrollTargetIfNeeded(
-                    topicId: topicId,
-                    detail: detail,
-                    window: window
-                ) {
-                    continue
-                }
-                await applyHydratedTopicPostsIfNeeded(
-                    topicId: topicId,
-                    posts: hydratedPosts,
-                    exhaustedPostIDs: exhaustedPostIDs
-                )
-                return
-            }
-
-            let batchPostIDs = Array(missingPostIDs.prefix(Self.topicPostPageSize))
-
-            do {
-                let fetchedPosts = try await appViewModel.performWithCloudflareRecovery(
-                    operation: "加载更多帖子"
-                ) {
-                    try await sessionStore.fetchTopicPosts(
-                        topicID: topicId,
-                        postIDs: batchPostIDs
-                    )
-                }
-                let returnedPostIDs = Set(fetchedPosts.map(\.id))
-                exhaustedPostIDs.formUnion(
-                    batchPostIDs.filter { !returnedPostIDs.contains($0) }
-                )
-                hydratedPosts.append(contentsOf: fetchedPosts)
-                hydratedPostIDs.formUnion(returnedPostIDs)
-            } catch {
-                await applyHydratedTopicPostsIfNeeded(
-                    topicId: topicId,
-                    posts: hydratedPosts,
-                    exhaustedPostIDs: exhaustedPostIDs
-                )
-                if await appViewModel.handleRecoverableSessionErrorIfNeeded(error) {
                     return
                 }
-                updateTopicErrorMessage(error.localizedDescription, topicId: topicId)
-                return
-            }
-        }
 
-        await applyHydratedTopicPostsIfNeeded(
-            topicId: topicId,
-            posts: hydratedPosts,
-            exhaustedPostIDs: exhaustedPostIDs
-        )
+                guard let detail = topicDetails[topicId],
+                      let window = topicWindowStates[topicId] else {
+                    return
+                }
+
+                let missingPostIDs = FireTopicPresentation.missingPostIDs(
+                    orderedPostIDs: detail.postStream.stream,
+                    in: window.requestedRange,
+                    loadedPostIDs: Set(detail.postStream.posts.map(\.id)).union(hydratedPostIDs),
+                    excluding: window.exhaustedPostIDs.union(exhaustedPostIDs)
+                )
+                guard !missingPostIDs.isEmpty else {
+                    if !hydratedPosts.isEmpty || !exhaustedPostIDs.isEmpty {
+                        await applyHydratedTopicPostsIfNeeded(
+                            topicId: topicId,
+                            posts: hydratedPosts,
+                            exhaustedPostIDs: exhaustedPostIDs
+                        )
+                        hydratedPosts.removeAll()
+                        hydratedPostIDs.removeAll()
+                        exhaustedPostIDs.removeAll()
+                        continue
+                    }
+                    if advanceRequestedRangeTowardPendingScrollTargetIfNeeded(
+                        topicId: topicId,
+                        detail: detail,
+                        window: window
+                    ) {
+                        continue
+                    }
+                    await applyHydratedTopicPostsIfNeeded(
+                        topicId: topicId,
+                        posts: hydratedPosts,
+                        exhaustedPostIDs: exhaustedPostIDs
+                    )
+                    return
+                }
+
+                let batchPostIDs = Array(missingPostIDs.prefix(Self.topicPostPageSize))
+
+                do {
+                    let fetchedPosts = try await appViewModel.performWithCloudflareRecovery(
+                        operation: "加载更多帖子"
+                    ) {
+                        try await sessionStore.fetchTopicPosts(
+                            topicID: topicId,
+                            postIDs: batchPostIDs
+                        )
+                    }
+                    let returnedPostIDs = Set(fetchedPosts.map(\.id))
+                    exhaustedPostIDs.formUnion(
+                        batchPostIDs.filter { !returnedPostIDs.contains($0) }
+                    )
+                    hydratedPosts.append(contentsOf: fetchedPosts)
+                    hydratedPostIDs.formUnion(returnedPostIDs)
+                } catch {
+                    await applyHydratedTopicPostsIfNeeded(
+                        topicId: topicId,
+                        posts: hydratedPosts,
+                        exhaustedPostIDs: exhaustedPostIDs
+                    )
+                    if await appViewModel.handleRecoverableSessionErrorIfNeeded(error) {
+                        return
+                    }
+                    updateTopicErrorMessage(error.localizedDescription, topicId: topicId)
+                    return
+                }
+            }
+
+            await applyHydratedTopicPostsIfNeeded(
+                topicId: topicId,
+                posts: hydratedPosts,
+                exhaustedPostIDs: exhaustedPostIDs
+            )
+        }
     }
 
     private func advanceRequestedRangeTowardPendingScrollTargetIfNeeded(

@@ -34,10 +34,10 @@ final class FirePostCellLayoutCalculatorTests: XCTestCase {
         XCTAssertEqual(layout.avatarFrame.origin.y, 0, accuracy: 0.01)
         XCTAssertEqual(layout.avatarFrame.width, 32, accuracy: 0.01)
         XCTAssertEqual(layout.metaFrame.minY, 8, accuracy: 0.01)
-        XCTAssertEqual(layout.textFrame?.minY ?? -.greatestFiniteMagnitude, 34, accuracy: 0.01)
+        XCTAssertEqual(layout.textFrame?.minY ?? -.greatestFiniteMagnitude, 36, accuracy: 0.01)
         XCTAssertEqual(layout.dividerFrame?.minX ?? -.greatestFiniteMagnitude, 16, accuracy: 0.01)
         XCTAssertEqual(layout.dividerFrame?.width ?? -.greatestFiniteMagnitude, 288, accuracy: 0.01)
-        XCTAssertEqual(layout.totalHeight, 82.5, accuracy: 0.01)
+        XCTAssertEqual(layout.totalHeight, 84.5, accuracy: 0.01)
         XCTAssertEqual(layout.threadLineFrame?.minY ?? -.greatestFiniteMagnitude, 38, accuracy: 0.01)
     }
 

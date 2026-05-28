@@ -90,8 +90,15 @@ final class FirePostCollectionViewCell: UICollectionViewCell, UIGestureRecognize
         usernameLabel.adjustsFontForContentSizeCategory = true
         usernameLabel.setContentHuggingPriority(.required, for: .horizontal)
 
+        var replyContextConfiguration = UIButton.Configuration.plain()
+        replyContextConfiguration.contentInsets = .zero
+        replyContextConfiguration.baseForegroundColor = .systemBlue
+        replyContextButton.configuration = replyContextConfiguration
         replyContextButton.isHidden = true
         replyContextButton.titleLabel?.adjustsFontForContentSizeCategory = true
+        replyContextButton.contentHorizontalAlignment = .leading
+        replyContextButton.contentVerticalAlignment = .center
+        replyContextButton.backgroundColor = .clear
         replyContextButton.setContentHuggingPriority(.required, for: .horizontal)
 
         timestampLabel.textColor = .tertiaryLabel
@@ -118,7 +125,7 @@ final class FirePostCollectionViewCell: UICollectionViewCell, UIGestureRecognize
         menuButton.accessibilityLabel = "帖子操作"
 
         metaStack.axis = .horizontal
-        metaStack.alignment = .firstBaseline
+        metaStack.alignment = .center
         metaStack.spacing = 6
         metaStack.addArrangedSubview(usernameLabel)
         metaStack.addArrangedSubview(replyContextButton)

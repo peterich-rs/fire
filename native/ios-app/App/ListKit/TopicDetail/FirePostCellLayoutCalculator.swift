@@ -88,7 +88,7 @@ enum FirePostCellLayoutCalculator {
         }
 
         // Meta line
-        let metaHeight: CGFloat = 18
+        let metaHeight: CGFloat = 20
         let metaFrame = CGRect(
             x: contentLeading,
             y: cursorY,

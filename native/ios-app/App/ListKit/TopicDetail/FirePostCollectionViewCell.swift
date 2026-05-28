@@ -9,6 +9,18 @@ final class FirePostCollectionViewCell: UICollectionViewCell, UIGestureRecognize
     private static let replySwipeTriggerThreshold: CGFloat = 55
     private static let replySwipeMaxOffset: CGFloat = 75
     private static let replyIndicatorSize = CGSize(width: 32, height: 32)
+    private static let accentTextColor = UIColor { traits in
+        if traits.userInterfaceStyle == .dark {
+            return UIColor(red: 0.96, green: 0.45, blue: 0.22, alpha: 1)
+        }
+        return UIColor(red: 0.91, green: 0.39, blue: 0.18, alpha: 1)
+    }
+    private static let tertiaryInkColor = UIColor { traits in
+        if traits.userInterfaceStyle == .dark {
+            return UIColor(red: 0.62, green: 0.63, blue: 0.67, alpha: 1)
+        }
+        return UIColor(red: 0.52, green: 0.52, blue: 0.55, alpha: 1)
+    }
 
     // MARK: - Subviews
 
@@ -17,7 +29,7 @@ final class FirePostCollectionViewCell: UICollectionViewCell, UIGestureRecognize
     private let avatarContainerView = UIView()
     private let threadLineView = UIView()
     private let usernameLabel = UILabel()
-    private let replyContextButton = UIButton(type: .system)
+    private let replyContextButton = UIButton(type: .custom)
     private let timestampLabel = UILabel()
     private let acceptedAnswerLabel = UILabel()
     private let postNumberLabel = UILabel()
@@ -88,17 +100,19 @@ final class FirePostCollectionViewCell: UICollectionViewCell, UIGestureRecognize
         // Meta line
         usernameLabel.textColor = .label
         usernameLabel.adjustsFontForContentSizeCategory = true
+        usernameLabel.numberOfLines = 1
+        usernameLabel.lineBreakMode = .byTruncatingTail
+        usernameLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         usernameLabel.setContentHuggingPriority(.required, for: .horizontal)
 
-        var replyContextConfiguration = UIButton.Configuration.plain()
-        replyContextConfiguration.contentInsets = .zero
-        replyContextConfiguration.baseForegroundColor = .systemBlue
-        replyContextButton.configuration = replyContextConfiguration
         replyContextButton.isHidden = true
         replyContextButton.titleLabel?.adjustsFontForContentSizeCategory = true
+        replyContextButton.titleLabel?.numberOfLines = 1
+        replyContextButton.titleLabel?.lineBreakMode = .byTruncatingTail
         replyContextButton.contentHorizontalAlignment = .leading
         replyContextButton.contentVerticalAlignment = .center
         replyContextButton.backgroundColor = .clear
+        replyContextButton.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         replyContextButton.setContentHuggingPriority(.required, for: .horizontal)
 
         timestampLabel.textColor = .tertiaryLabel
@@ -178,10 +192,11 @@ final class FirePostCollectionViewCell: UICollectionViewCell, UIGestureRecognize
             for: UIFont.systemFont(ofSize: subheadlinePointSize, weight: .semibold)
         )
 
-        let captionPointSize = UIFont.preferredFont(forTextStyle: .caption2).pointSize
-        replyContextButton.titleLabel?.font = UIFontMetrics(forTextStyle: .caption2).scaledFont(
-            for: UIFont.systemFont(ofSize: captionPointSize, weight: .medium)
+        replyContextButton.titleLabel?.font = UIFontMetrics(forTextStyle: .subheadline).scaledFont(
+            for: UIFont.systemFont(ofSize: subheadlinePointSize, weight: .medium)
         )
+
+        let captionPointSize = UIFont.preferredFont(forTextStyle: .caption2).pointSize
         timestampLabel.font = UIFont.preferredFont(forTextStyle: .caption2)
         acceptedAnswerLabel.font = UIFontMetrics(forTextStyle: .caption2).scaledFont(
             for: UIFont.systemFont(ofSize: captionPointSize, weight: .medium)
@@ -196,8 +211,11 @@ final class FirePostCollectionViewCell: UICollectionViewCell, UIGestureRecognize
         contentView.backgroundColor = .systemBackground
         threadLineView.backgroundColor = .separator
         dividerView.backgroundColor = .separator
-        replyContextButton.tintColor = .systemBlue
-        menuButton.tintColor = .tertiaryLabel
+        replyContextButton.setTitleColor(Self.accentTextColor, for: .normal)
+        replyContextButton.tintColor = Self.accentTextColor
+        timestampLabel.textColor = Self.tertiaryInkColor
+        postNumberLabel.textColor = Self.tertiaryInkColor
+        menuButton.tintColor = Self.tertiaryInkColor
         replyIndicatorView.tintColor = replyTriggered ? .systemBlue : .tertiaryLabel
     }
 

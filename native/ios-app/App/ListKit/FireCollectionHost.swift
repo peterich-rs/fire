@@ -70,10 +70,13 @@ struct FireCollectionHost<SectionID: Hashable, ItemID: Hashable, RowContent: Vie
     let onPrefetchItems: (([ItemID]) -> Void)?
     let onScrollMetricsChanged: ((FireCollectionScrollMetrics) -> Void)?
     let onRefresh: (() async -> Void)?
+    let onContentWidthChanged: ((CGFloat) -> Void)?
     let scrollAnchorRestorePolicy: FireCollectionScrollAnchorRestorePolicy
     let updatePolicy: FireCollectionUpdatePolicy
     let scrollRequest: FireCollectionScrollRequest<ItemID>?
     let onScrollRequestCompleted: ((ItemID) -> Void)?
+    let shouldUseNativeCell: ((ItemID) -> Bool)?
+    let nativeCellProvider: ((UICollectionView, IndexPath, ItemID) -> UICollectionViewCell?)?
     let rowContent: (ItemID) -> RowContent
 
     init(
@@ -90,10 +93,13 @@ struct FireCollectionHost<SectionID: Hashable, ItemID: Hashable, RowContent: Vie
         onPrefetchItems: (([ItemID]) -> Void)? = nil,
         onScrollMetricsChanged: ((FireCollectionScrollMetrics) -> Void)? = nil,
         onRefresh: (() async -> Void)? = nil,
+        onContentWidthChanged: ((CGFloat) -> Void)? = nil,
         scrollAnchorRestorePolicy: FireCollectionScrollAnchorRestorePolicy = .whenNotAnimatingDifferences,
         updatePolicy: FireCollectionUpdatePolicy = .applyImmediately,
         scrollRequest: FireCollectionScrollRequest<ItemID>? = nil,
         onScrollRequestCompleted: ((ItemID) -> Void)? = nil,
+        shouldUseNativeCell: ((ItemID) -> Bool)? = nil,
+        nativeCellProvider: ((UICollectionView, IndexPath, ItemID) -> UICollectionViewCell?)? = nil,
         makeLayout: @escaping () -> UICollectionViewLayout,
         rowContent: @escaping (ItemID) -> RowContent
     ) {
@@ -110,10 +116,13 @@ struct FireCollectionHost<SectionID: Hashable, ItemID: Hashable, RowContent: Vie
         self.onPrefetchItems = onPrefetchItems
         self.onScrollMetricsChanged = onScrollMetricsChanged
         self.onRefresh = onRefresh
+        self.onContentWidthChanged = onContentWidthChanged
         self.scrollAnchorRestorePolicy = scrollAnchorRestorePolicy
         self.updatePolicy = updatePolicy
         self.scrollRequest = scrollRequest
         self.onScrollRequestCompleted = onScrollRequestCompleted
+        self.shouldUseNativeCell = shouldUseNativeCell
+        self.nativeCellProvider = nativeCellProvider
         self.makeLayout = makeLayout
         self.rowContent = rowContent
     }
@@ -138,10 +147,13 @@ struct FireCollectionHost<SectionID: Hashable, ItemID: Hashable, RowContent: Vie
                 onPrefetchItems: onPrefetchItems,
                 onScrollMetricsChanged: onScrollMetricsChanged,
                 onRefresh: onRefresh,
+                onContentWidthChanged: onContentWidthChanged,
                 scrollAnchorRestorePolicy: scrollAnchorRestorePolicy,
                 updatePolicy: updatePolicy,
                 scrollRequest: scrollRequest,
                 onScrollRequestCompleted: onScrollRequestCompleted,
+                shouldUseNativeCell: shouldUseNativeCell,
+                nativeCellProvider: nativeCellProvider,
                 rowContent: rowContent
             )
         return controller
@@ -152,6 +164,11 @@ struct FireCollectionHost<SectionID: Hashable, ItemID: Hashable, RowContent: Vie
         context: Context
     ) {
         uiViewController.updateRowContent(rowContent)
+        uiViewController.updateNativeCellRouting(
+            shouldUseNativeCell: shouldUseNativeCell,
+            nativeCellProvider: nativeCellProvider
+        )
+        uiViewController.updateOnContentWidthChanged(onContentWidthChanged)
         uiViewController.updateScrollRequest(
             scrollRequest,
             onCompleted: onScrollRequestCompleted

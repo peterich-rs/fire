@@ -112,12 +112,15 @@ final class FireDiffableListController<SectionID: Hashable, ItemID: Hashable, Ro
     UICollectionViewDataSourcePrefetching
 {
     private var rowContent: (ItemID) -> RowContent
+    private var shouldUseNativeCell: ((ItemID) -> Bool)?
+    private var nativeCellProvider: ((UICollectionView, IndexPath, ItemID) -> UICollectionViewCell?)?
     private let onSelectItem: ((ItemID) -> Void)?
     private let canSelectItem: ((ItemID) -> Bool)?
     private let onVisibleItemsChanged: (([ItemID]) -> Void)?
     private let onPrefetchItems: (([ItemID]) -> Void)?
     private let onScrollMetricsChanged: ((FireCollectionScrollMetrics) -> Void)?
     private let onRefresh: (() async -> Void)?
+    private var onContentWidthChanged: ((CGFloat) -> Void)?
     private let scrollAnchorRestorePolicy: FireCollectionScrollAnchorRestorePolicy
     private let updatePolicy: FireCollectionUpdatePolicy
     private var onScrollRequestCompleted: ((ItemID) -> Void)?
@@ -130,10 +133,12 @@ final class FireDiffableListController<SectionID: Hashable, ItemID: Hashable, Ro
 
     private var collectionView: UICollectionView?
     private var dataSource: UICollectionViewDiffableDataSource<SectionID, ItemID>?
+    private var hostedCellRegistration: UICollectionView.CellRegistration<UICollectionViewListCell, ItemID>?
     private var currentSections: [FireListSectionModel<SectionID, ItemID>] = []
     private var currentItemContentTokens: [ItemID: AnyHashable] = [:]
     private var lastVisibleItemIDs: [ItemID] = []
     private var lastScrollMetrics: FireCollectionScrollMetrics?
+    private var lastContentWidth: CGFloat?
     private var isRefreshing = false
     // Set when `endRefreshing()` starts the refresh control's retraction animation,
     // and cleared once the scroll view finishes the post-rebound deceleration (or a
@@ -146,6 +151,7 @@ final class FireDiffableListController<SectionID: Hashable, ItemID: Hashable, Ro
     private var handledScrollRequestID: AnyHashable?
     private var animatingScrollRequest: FireCollectionScrollRequest<ItemID>?
     private var pendingSectionUpdate: FirePendingSectionUpdate<SectionID, ItemID>?
+    private var didRegisterNativeCell = false
 
     init(
         layout: UICollectionViewLayout,
@@ -159,10 +165,13 @@ final class FireDiffableListController<SectionID: Hashable, ItemID: Hashable, Ro
         onPrefetchItems: (([ItemID]) -> Void)? = nil,
         onScrollMetricsChanged: ((FireCollectionScrollMetrics) -> Void)? = nil,
         onRefresh: (() async -> Void)? = nil,
+        onContentWidthChanged: ((CGFloat) -> Void)? = nil,
         scrollAnchorRestorePolicy: FireCollectionScrollAnchorRestorePolicy = .whenNotAnimatingDifferences,
         updatePolicy: FireCollectionUpdatePolicy = .applyImmediately,
         scrollRequest: FireCollectionScrollRequest<ItemID>? = nil,
         onScrollRequestCompleted: ((ItemID) -> Void)? = nil,
+        shouldUseNativeCell: ((ItemID) -> Bool)? = nil,
+        nativeCellProvider: ((UICollectionView, IndexPath, ItemID) -> UICollectionViewCell?)? = nil,
         rowContent: @escaping (ItemID) -> RowContent
     ) {
         self.listLayout = layout
@@ -176,10 +185,13 @@ final class FireDiffableListController<SectionID: Hashable, ItemID: Hashable, Ro
         self.onPrefetchItems = onPrefetchItems
         self.onScrollMetricsChanged = onScrollMetricsChanged
         self.onRefresh = onRefresh
+        self.onContentWidthChanged = onContentWidthChanged
         self.scrollAnchorRestorePolicy = scrollAnchorRestorePolicy
         self.updatePolicy = updatePolicy
         self.scrollRequest = scrollRequest
         self.onScrollRequestCompleted = onScrollRequestCompleted
+        self.shouldUseNativeCell = shouldUseNativeCell
+        self.nativeCellProvider = nativeCellProvider
         self.rowContent = rowContent
         super.init(nibName: nil, bundle: nil)
     }
@@ -202,6 +214,23 @@ final class FireDiffableListController<SectionID: Hashable, ItemID: Hashable, Ro
         view = collectionView
     }
 
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        publishContentWidthChangeIfNeeded()
+    }
+
+    private func publishContentWidthChangeIfNeeded() {
+        guard let collectionView else { return }
+        let width = collectionView.bounds.width
+            - collectionView.adjustedContentInset.left
+            - collectionView.adjustedContentInset.right
+        guard width > 0, width != lastContentWidth else {
+            return
+        }
+        lastContentWidth = width
+        onContentWidthChanged?(width)
+    }
+
     override func viewDidLoad() {
         super.viewDidLoad()
 
@@ -218,7 +247,7 @@ final class FireDiffableListController<SectionID: Hashable, ItemID: Hashable, Ro
             collectionView.refreshControl = refreshControl
         }
 
-        let registration = UICollectionView.CellRegistration<UICollectionViewListCell, ItemID> {
+        let hostedReg = UICollectionView.CellRegistration<UICollectionViewListCell, ItemID> {
             [weak self] cell, _, itemID in
             guard let self else { return }
             cell.backgroundConfiguration = UIBackgroundConfiguration.clear()
@@ -227,14 +256,28 @@ final class FireDiffableListController<SectionID: Hashable, ItemID: Hashable, Ro
             }
             .margins(.all, 0)
         }
+        hostedCellRegistration = hostedReg
+
+        ensureNativeCellRegisteredIfNeeded()
 
         dataSource = UICollectionViewDiffableDataSource<SectionID, ItemID>(
             collectionView: collectionView
-        ) { collectionView, indexPath, itemID in
-            collectionView.dequeueConfiguredReusableCell(
-                using: registration,
-                for: indexPath,
-                item: itemID
+        ) { [weak self] collectionView, indexPath, itemID in
+            guard let self else {
+                return collectionView.dequeueConfiguredReusableCell(
+                    using: hostedReg, for: indexPath, item: itemID
+                )
+            }
+
+            if let shouldUseNativeCell = self.shouldUseNativeCell,
+               shouldUseNativeCell(itemID),
+               let nativeCellProvider = self.nativeCellProvider,
+               let nativeCell = nativeCellProvider(collectionView, indexPath, itemID) {
+                return nativeCell
+            }
+
+            return collectionView.dequeueConfiguredReusableCell(
+                using: hostedReg, for: indexPath, item: itemID
             )
         }
     }
@@ -255,6 +298,33 @@ final class FireDiffableListController<SectionID: Hashable, ItemID: Hashable, Ro
 
     func updateRowContent(_ rowContent: @escaping (ItemID) -> RowContent) {
         self.rowContent = rowContent
+    }
+
+    func updateNativeCellRouting(
+        shouldUseNativeCell: ((ItemID) -> Bool)?,
+        nativeCellProvider: ((UICollectionView, IndexPath, ItemID) -> UICollectionViewCell?)?
+    ) {
+        self.shouldUseNativeCell = shouldUseNativeCell
+        self.nativeCellProvider = nativeCellProvider
+        ensureNativeCellRegisteredIfNeeded()
+    }
+
+    private func ensureNativeCellRegisteredIfNeeded() {
+        guard !didRegisterNativeCell,
+              shouldUseNativeCell != nil || nativeCellProvider != nil,
+              let collectionView else {
+            return
+        }
+
+        collectionView.register(
+            FirePostCollectionViewCell.self,
+            forCellWithReuseIdentifier: FirePostCollectionViewCell.reuseID
+        )
+        didRegisterNativeCell = true
+    }
+
+    func updateOnContentWidthChanged(_ handler: ((CGFloat) -> Void)?) {
+        self.onContentWidthChanged = handler
     }
 
     func updateAppearance(

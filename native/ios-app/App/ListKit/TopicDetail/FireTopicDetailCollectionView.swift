@@ -73,10 +73,13 @@ private struct FireTopicDetailCollectionContentVersion: Hashable {
     let topicCollectionRevision: UInt64
     let canWriteInteractions: Bool
     let baseURLString: String
+    let replyLayoutSnapshotRevision: UInt64
 }
 
 struct FireTopicDetailCollectionView: View {
     @Environment(\.colorScheme) private var colorScheme
+    @StateObject private var layoutManager = FirePostLayoutManager()
+    @State private var contentWidth: CGFloat?
 
     let viewModel: FireAppViewModel
     let row: FireTopicRowPresentation
@@ -288,7 +291,8 @@ struct FireTopicDetailCollectionView: View {
             topicID: topic.id,
             topicCollectionRevision: topicCollectionRevision,
             canWriteInteractions: canWriteInteractions,
-            baseURLString: baseURLString
+            baseURLString: baseURLString,
+            replyLayoutSnapshotRevision: layoutManager.currentSnapshotRevision
         )
     }
 
@@ -466,14 +470,27 @@ struct FireTopicDetailCollectionView: View {
             onVisibleItemsChanged: handleVisibleItemsChanged(_:),
             onPrefetchItems: handlePrefetchItems(_:),
             onRefresh: onRefresh,
+            onContentWidthChanged: handleContentWidthChanged(_:),
             updatePolicy: .deferWhileScrolling,
             scrollRequest: scrollRequest,
             onScrollRequestCompleted: handleScrollRequestCompleted(_:),
+            shouldUseNativeCell: { item in
+                shouldUseNativeCell(for: item, replyIndexByPostID: replyIndexByPostID)
+            },
+            nativeCellProvider: { collectionView, indexPath, item in
+                nativeCellProvider(collectionView: collectionView, indexPath: indexPath, item: item, replyIndexByPostID: replyIndexByPostID)
+            },
             makeLayout: Self.makeLayout,
             rowContent: { item in
                 rowView(for: item, replyIndexByPostID: replyIndexByPostID)
             }
         )
+        .onChange(of: topicCollectionRevision) { _, _ in
+            enqueueLayoutsForAllReplies()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIContentSizeCategory.didChangeNotification)) { _ in
+            handleContentSizeCategoryChanged()
+        }
     }
 
     private func makeReplyIndexByPostID() -> [UInt64: Int] {
@@ -505,6 +522,266 @@ struct FireTopicDetailCollectionView: View {
         )
         guard !postNumbers.isEmpty else { return }
         onPreloadTopicPosts(postNumbers)
+
+        // Enqueue layout calculation for prefetched reply items
+        let replyIndexByPostID = makeReplyIndexByPostID()
+        for item in items {
+            guard case let .reply(key) = item,
+                  let index = replyIndexByPostID[key.postID],
+                  index < replyRows.count,
+                  let post = postLookup[key.postID],
+                  let renderContent = renderState?.contentByPostID[key.postID] else {
+                continue
+            }
+            enqueueLayoutIfNeeded(
+                post: post,
+                renderContent: renderContent,
+                replyRow: replyRows[index],
+                replyIndex: index
+            )
+        }
+    }
+
+    private func handleContentWidthChanged(_ width: CGFloat) {
+        if contentWidth != width {
+            contentWidth = width
+            let newTrait = makeTraitSignature(for: width)
+            layoutManager.updateTraitSignature(newTrait)
+            enqueueLayoutsForAllReplies()
+        }
+    }
+
+    private func handleContentSizeCategoryChanged() {
+        guard let contentWidth else {
+            return
+        }
+
+        let trait = makeTraitSignature(for: contentWidth)
+        layoutManager.updateTraitSignature(trait)
+        enqueueLayoutsForAllReplies()
+    }
+
+    private func makeTraitSignature(for width: CGFloat) -> FirePostLayoutTraitSignature {
+        FirePostLayoutTraitSignature(
+            contentWidthPixels: Int(width.rounded()),
+            contentSizeCategory: UIApplication.shared.preferredContentSizeCategory.rawValue
+        )
+    }
+
+    private func shouldUseNativeCell(
+        for item: FireTopicDetailCollectionItem,
+        replyIndexByPostID: [UInt64: Int]
+    ) -> Bool {
+        guard case let .reply(key) = item else {
+            return false
+        }
+
+        guard let index = replyIndexByPostID[key.postID],
+              index < replyRows.count,
+              postLookup[key.postID] != nil else {
+            return false
+        }
+
+        let mode = replyCellMode(
+            for: key,
+            replyIndexByPostID: replyIndexByPostID
+        )
+
+        switch mode {
+        case .native:
+            return true
+        case .hostedPoll, .hostedPlaceholder, .hostedLayoutMiss:
+            return false
+        }
+    }
+
+    private func replyCellMode(
+        for key: FireTopicDetailCollectionReplyKey,
+        replyIndexByPostID: [UInt64: Int]
+    ) -> FireReplyCellMode {
+        guard let index = replyIndexByPostID[key.postID],
+              index < replyRows.count else {
+            return .hostedPlaceholder
+        }
+
+        guard let post = postLookup[key.postID] else {
+            return .hostedPlaceholder
+        }
+
+        if !post.polls.isEmpty {
+            return .hostedPoll
+        }
+
+        guard let layoutKey = makeLayoutKey(
+            post: post,
+            renderContent: renderState?.contentByPostID[post.id],
+            replyRow: replyRows[index],
+            replyIndex: index
+        ) else {
+            return .hostedLayoutMiss
+        }
+
+        if layoutManager.layout(forKey: layoutKey) != nil {
+            return .native
+        }
+
+        return .hostedLayoutMiss
+    }
+
+    private func nativeCellProvider(
+        collectionView: UICollectionView,
+        indexPath: IndexPath,
+        item: FireTopicDetailCollectionItem,
+        replyIndexByPostID: [UInt64: Int]
+    ) -> UICollectionViewCell? {
+        guard case let .reply(key) = item,
+              let index = replyIndexByPostID[key.postID],
+              index < replyRows.count,
+              let post = postLookup[key.postID] else {
+            return nil
+        }
+
+        let renderContent = renderState?.contentByPostID[post.id] ?? fallbackRenderContent(for: post)
+        guard let layoutKey = makeLayoutKey(
+            post: post,
+            renderContent: renderContent,
+            replyRow: replyRows[index],
+            replyIndex: index
+        ) else {
+            return nil
+        }
+
+        guard let layout = layoutManager.layout(forKey: layoutKey) else {
+            return nil
+        }
+
+        let cell = collectionView.dequeueReusableCell(
+            withReuseIdentifier: FirePostCollectionViewCell.reuseID,
+            for: indexPath
+        ) as? FirePostCollectionViewCell
+
+        guard let cell else { return nil }
+
+        let showsDivider = index != replyRows.count - 1
+        let payload = FirePostCellRenderPayload(
+            post: post,
+            renderContent: renderContent,
+            baseURLString: baseURLString,
+            canWriteInteractions: canWriteInteractions,
+            isMutating: isMutatingPost(post.id),
+            replyContext: Self.replyContextLabel(
+                for: post,
+                preferredPostNumber: replyRows[index].entry.parentPostNumber
+            ),
+            replyTargetPostNumber: Self.replyTargetPostNumber(
+                for: post,
+                preferredPostNumber: replyRows[index].entry.parentPostNumber
+            ),
+            showsDivider: showsDivider
+        )
+
+        let callbacks = FirePostCellCallbacks(
+            onLinkTapped: onLinkTapped,
+            onOpenImage: onOpenImage,
+            onToggleLike: onToggleLike,
+            onSelectReaction: onSelectReaction,
+            onEditPost: onEditPost,
+            onBookmarkPost: onBookmarkPost,
+            onDeletePost: onDeletePost,
+            onRecoverPost: onRecoverPost,
+            onFlagPost: onFlagPost,
+            onOpenReplyTarget: onOpenPostNumber,
+            onOpenReplies: onOpenPostReplies,
+            onVotePoll: onVotePoll,
+            onUnvotePoll: onUnvotePoll,
+            onSwipeReply: { post in
+                onOpenComposer(post)
+            }
+        )
+
+        cell.bind(layout: layout, payload: payload, callbacks: callbacks)
+        return cell
+    }
+
+    private func makeLayoutKey(
+        post: TopicPostState,
+        renderContent: FireTopicPostRenderContent?,
+        replyRow: FirePreparedTopicTimelineRow,
+        replyIndex: Int
+    ) -> FirePostCellLayoutKey? {
+        guard let contentWidth, contentWidth > 0 else {
+            return nil
+        }
+
+        let contentHash = post.cooked.hashValue
+        let textContentID = "post:\(post.id)|hash:\(contentHash)|images:\(renderContent?.imageAttachments.count ?? 0)"
+        let imageSignature = renderContent?.imageAttachments.map(\.id) ?? []
+        let hasReactions = !post.reactions.isEmpty
+        let showsDivider = replyIndex != replyRows.count - 1
+
+        let trait = makeTraitSignature(for: contentWidth)
+
+        return FirePostCellLayoutKey(
+            postID: post.id,
+            depth: Int(replyRow.entry.depth),
+            showsThreadLine: showsTimelineThreadLine(in: replyRows, at: replyIndex),
+            showsDivider: showsDivider,
+            replyTargetPostNumber: replyRow.entry.parentPostNumber,
+            replyContext: Self.replyContextLabel(
+                for: post,
+                preferredPostNumber: replyRow.entry.parentPostNumber
+            ),
+            textContentID: textContentID,
+            imageSignature: imageSignature,
+            pollSignature: post.polls.map { UInt64(bitPattern: Int64($0.name.hashValue)) },
+            hasReactions: hasReactions,
+            acceptedAnswer: post.acceptedAnswer,
+            trait: trait
+        )
+    }
+
+    private func enqueueLayoutIfNeeded(
+        post: TopicPostState,
+        renderContent: FireTopicPostRenderContent,
+        replyRow: FirePreparedTopicTimelineRow,
+        replyIndex: Int
+    ) {
+        guard post.polls.isEmpty,
+              let key = makeLayoutKey(
+            post: post,
+            renderContent: renderContent,
+            replyRow: replyRow,
+            replyIndex: replyIndex
+        ) else {
+            return
+        }
+
+        guard layoutManager.layout(forKey: key) == nil else {
+            return
+        }
+
+        let trait = key.trait
+        layoutManager.enqueueCalculation(
+            key: key,
+            attributedText: renderContent.attributedText,
+            images: renderContent.imageAttachments,
+            trait: trait
+        )
+    }
+
+    private func enqueueLayoutsForAllReplies() {
+        for (index, row) in replyRows.enumerated() {
+            guard let post = postLookup[row.entry.postId],
+                  let renderContent = renderState?.contentByPostID[row.entry.postId] else {
+                continue
+            }
+            enqueueLayoutIfNeeded(
+                post: post,
+                renderContent: renderContent,
+                replyRow: row,
+                replyIndex: index
+            )
+        }
     }
 
     private func handleScrollRequestCompleted(_ item: FireTopicDetailCollectionItem) {

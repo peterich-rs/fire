@@ -25,6 +25,7 @@ Current host-side app wiring lives under `src/main/java/com/fire/app/` plus `src
   - reads the current `WebView` cookie batch, `current-username`, `Discourse.User.current().username`, `csrf-token`, page HTML, and the live browser user agent
   - converts them into `LoginSyncState`
   - completes login by syncing into Rust, refreshing bootstrap after sync, and rejecting sessions that still cannot resolve the current user
+  - also exposes browser-context cookie sync for Cloudflare recovery WebViews so `cf_clearance` can be persisted into the native Rust session without closing the browser surface
 - `TopicPresentation.kt`
   - extracts `site.categories` from bootstrap `preloadedJson`
   - parses `more_topics_url` into a native feed page cursor
@@ -82,6 +83,9 @@ Current host-side app wiring lives under `src/main/java/com/fire/app/` plus `src
   - pads the login chrome with the real status-bar inset so the close and sync controls remain tappable under the immersive shell
   - syncs cookies, page HTML, CSRF, username, and browser user agent through `FireWebViewLoginCoordinator`
   - routes successful login back to Home while clearing onboarding from the back stack
+- `CloudflareChallengeActivity.kt`
+  - opens a full-screen LinuxDo WebView for non-topic Cloudflare challenges, using `https://linux.do/` as the recovery URL
+  - syncs WebView cookies back through `FireWebViewLoginCoordinator` as soon as `cf_clearance` appears, but leaves the WebView open so the current user flow is not interrupted
 
 Expected integration flow:
 
@@ -111,6 +115,7 @@ Current browser note:
 - The main navigation shell is native and Rust-backed; the data path is no longer stubbed.
 - The current browser shell now supports `Load More` pagination, category metadata derived from the shared Rust bootstrap snapshot, and Rust-owned row/status presentation data instead of rebuilding those labels on Android.
 - The Android home feed now treats feed kind and selected row tag as one Paging scope: selecting Latest / New / Unread / Unseen / Hot / Top or tapping a row `#tag` invalidates the current list and reloads through the shared Rust topic-list query; the visible tag chip clears the tag filter.
+- Android now handles shared Rust `CloudflareChallenge` errors without forcing a login reset: topic detail swaps the content area under its toolbar to `https://linux.do/t/{topicId}`, while home/bookmarks/private messages/notifications/search/profile open `https://linux.do/` in `CloudflareChallengeActivity`; both paths sync `cf_clearance` to Rust and keep the WebView visible.
 - The browser filter bar now exposes Rust-backed private-message inbox and sent-message lists; rows show Discourse participants when the response provides them and open the same native topic detail screen as normal topic lists.
 - The browser filter bar now also exposes Rust-backed bookmarks and read history. Bookmark rows show bookmark post/name/reminder metadata and open topic detail at `bookmarkedPostNumber` when available; read-history rows open at `lastReadPostNumber`.
 - The main browser shell now exposes category notification-level updates through shared Rust notification bindings and refreshes bootstrap after each accepted change so category `notificationLevel` returns to the server-owned value.

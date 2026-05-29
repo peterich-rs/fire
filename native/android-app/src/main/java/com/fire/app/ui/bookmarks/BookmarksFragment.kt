@@ -8,10 +8,12 @@ import android.widget.ProgressBar
 import android.widget.TextView
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
+import androidx.paging.LoadState
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.fire.app.R
 import com.fire.app.session.FireSessionStoreRepository
+import com.fire.app.ui.cloudflare.CloudflareChallengeSupport
 import com.fire.app.ui.home.TopicListAdapter
 import com.fire.app.ui.topicdetail.TopicDetailActivity
 import kotlinx.coroutines.flow.collectLatest
@@ -53,6 +55,12 @@ class BookmarksFragment : Fragment() {
 
         recyclerView.layoutManager = LinearLayoutManager(requireContext())
         recyclerView.adapter = adapter
+        adapter.addLoadStateListener { loadStates ->
+            listOf(loadStates.refresh, loadStates.append, loadStates.prepend)
+                .filterIsInstance<LoadState.Error>()
+                .firstOrNull { CloudflareChallengeSupport.isChallenge(it.error) }
+                ?.let { context?.let(CloudflareChallengeSupport::openSiteRoot) }
+        }
 
         // Get username and set up paging
         viewLifecycleOwner.lifecycleScope.launch {

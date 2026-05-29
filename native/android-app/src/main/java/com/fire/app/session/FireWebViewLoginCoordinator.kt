@@ -46,6 +46,10 @@ class FireWebViewLoginCoordinator(
         return sessionStore.logout()
     }
 
+    suspend fun syncBrowserContext(webView: WebView): SessionState {
+        return sessionStore.syncLoginContext(captureLoginState(webView))
+    }
+
     suspend fun captureLoginState(webView: WebView): FireCapturedLoginState = withContext(Dispatchers.Main) {
         val currentUrl = webView.url ?: loginBaseUrl
         val urlHost = runCatching { URI(currentUrl).host }.getOrNull()

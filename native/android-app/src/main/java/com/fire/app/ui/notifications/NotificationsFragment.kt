@@ -17,6 +17,7 @@ import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import com.fire.app.MainActivity
 import com.fire.app.R
 import com.fire.app.session.FireSessionStoreRepository
+import com.fire.app.ui.cloudflare.CloudflareChallengeSupport
 import com.fire.app.ui.topicdetail.TopicDetailActivity
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
@@ -59,6 +60,12 @@ class NotificationsFragment : Fragment() {
         recyclerView.adapter = adapter
         adapter.addLoadStateListener { loadStates ->
             val refresh = loadStates.refresh
+            val challengeError = listOf(loadStates.refresh, loadStates.append, loadStates.prepend)
+                .filterIsInstance<LoadState.Error>()
+                .firstOrNull { CloudflareChallengeSupport.isChallenge(it.error) }
+            if (challengeError != null) {
+                context?.let(CloudflareChallengeSupport::openSiteRoot)
+            }
             val isInitialLoading = refresh is LoadState.Loading && adapter.itemCount == 0
             loadingView.visibility = if (isInitialLoading) View.VISIBLE else View.GONE
             emptyView.visibility = when {
@@ -115,6 +122,12 @@ class NotificationsFragment : Fragment() {
                     if (!error.isNullOrBlank()) {
                         Toast.makeText(requireContext(), error, Toast.LENGTH_SHORT).show()
                     }
+                }
+            }
+
+            viewLifecycleOwner.lifecycleScope.launch {
+                vm.cloudflareChallenge.collect {
+                    CloudflareChallengeSupport.openSiteRoot(requireContext())
                 }
             }
 

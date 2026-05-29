@@ -2,9 +2,12 @@ package com.fire.app.ui.search
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.fire.app.cloudflare.CloudflareChallengeDetector
 import com.fire.app.data.repository.SearchRepository
 import com.fire.app.session.FireSessionStore
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -30,6 +33,9 @@ class SearchViewModel(
 
     private val _error = MutableStateFlow<String?>(null)
     val error = _error.asStateFlow()
+
+    private val _cloudflareChallenge = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    val cloudflareChallenge = _cloudflareChallenge.asSharedFlow()
 
     init {
         viewModelScope.launch {
@@ -72,7 +78,9 @@ class SearchViewModel(
                     groupedResult = more.groupedResult,
                 )
                 _results.value = merged
-            } catch (_: Exception) { }
+            } catch (e: Exception) {
+                handleError(e, showMessage = false)
+            }
         }
     }
 
@@ -84,10 +92,21 @@ class SearchViewModel(
                 val result = repository.search(q, null, filter)
                 _results.value = result
             } catch (e: Exception) {
-                _error.value = e.message
+                handleError(e)
             } finally {
                 _isLoading.value = false
             }
+        }
+    }
+
+    private fun handleError(error: Exception, showMessage: Boolean = true) {
+        if (CloudflareChallengeDetector.isChallenge(error)) {
+            _cloudflareChallenge.tryEmit(Unit)
+            if (showMessage) {
+                _error.value = null
+            }
+        } else if (showMessage) {
+            _error.value = error.message
         }
     }
 

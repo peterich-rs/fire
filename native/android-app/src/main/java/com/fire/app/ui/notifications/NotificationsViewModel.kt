@@ -6,11 +6,14 @@ import androidx.paging.Pager
 import androidx.paging.PagingConfig
 import androidx.paging.PagingData
 import androidx.paging.cachedIn
+import com.fire.app.cloudflare.CloudflareChallengeDetector
 import com.fire.app.data.paging.NotificationPagingSource
 import com.fire.app.data.repository.NotificationRepository
 import com.fire.app.session.FireSessionStore
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import uniffi.fire_uniffi_notifications.NotificationCenterState
@@ -28,6 +31,9 @@ class NotificationsViewModel(
 
     private val _error = MutableStateFlow<String?>(null)
     val error = _error.asStateFlow()
+
+    private val _cloudflareChallenge = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    val cloudflareChallenge = _cloudflareChallenge.asSharedFlow()
 
     private val pagingFlow: Flow<PagingData<NotificationItemState>> = Pager(
         config = PagingConfig(
@@ -50,7 +56,7 @@ class NotificationsViewModel(
                 _notificationCenter.value = state
                 _error.value = null
             } catch (e: Exception) {
-                _error.value = e.localizedMessage
+                handleError(e)
             }
         }
     }
@@ -62,7 +68,7 @@ class NotificationsViewModel(
                 _notificationCenter.value = state
                 _error.value = null
             } catch (e: Exception) {
-                _error.value = e.localizedMessage
+                handleError(e)
             }
         }
     }
@@ -74,7 +80,7 @@ class NotificationsViewModel(
                 _notificationCenter.value = state
                 _error.value = null
             } catch (e: Exception) {
-                _error.value = e.localizedMessage
+                handleError(e)
             }
         }
     }
@@ -87,10 +93,19 @@ class NotificationsViewModel(
                 _notificationCenter.value = repository.fetchNotificationState()
                 _error.value = null
             } catch (e: Exception) {
-                _error.value = e.localizedMessage
+                handleError(e)
             } finally {
                 _isRefreshing.value = false
             }
+        }
+    }
+
+    private fun handleError(error: Exception) {
+        if (CloudflareChallengeDetector.isChallenge(error)) {
+            _cloudflareChallenge.tryEmit(Unit)
+            _error.value = null
+        } else {
+            _error.value = error.localizedMessage
         }
     }
 

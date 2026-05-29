@@ -10,6 +10,7 @@ import com.fire.app.richtext.FireRichTextContent
 import com.fire.app.richtext.FireRichTextParser
 import com.fire.app.richtext.FireSpannableBuilder
 import com.fire.app.session.FireSessionStore
+import com.fire.app.cloudflare.CloudflareChallengeDetector
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -47,6 +48,9 @@ class TopicDetailViewModel(
 
     private val _scrollTargetPostNumber = MutableSharedFlow<UInt>(extraBufferCapacity = 1)
     val scrollTargetPostNumber = _scrollTargetPostNumber.asSharedFlow()
+
+    private val _cloudflareChallenge = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    val cloudflareChallenge = _cloudflareChallenge.asSharedFlow()
 
     private var cursor: TopicResponseCursorState? = null
     private var screen: TopicScreenState? = null
@@ -112,7 +116,12 @@ class TopicDetailViewModel(
                     ?.takeIf { it > 0u }
                     ?.let { scrollToPostWhenLoaded(it) }
             } catch (e: Exception) {
-                _errorMessage.value = e.localizedMessage ?: "加载话题详情失败"
+                if (CloudflareChallengeDetector.isChallenge(e)) {
+                    _cloudflareChallenge.tryEmit(Unit)
+                    _errorMessage.value = null
+                } else {
+                    _errorMessage.value = e.localizedMessage ?: "加载话题详情失败"
+                }
             } finally {
                 _isLoading.value = false
             }
@@ -241,7 +250,12 @@ class TopicDetailViewModel(
             preloadRenderContent(page.rows.map { it.post })
             page.rows.isNotEmpty()
         } catch (e: Exception) {
-            _errorMessage.value = e.localizedMessage ?: "加载更多帖子失败"
+            if (CloudflareChallengeDetector.isChallenge(e)) {
+                _cloudflareChallenge.tryEmit(Unit)
+                _errorMessage.value = null
+            } else {
+                _errorMessage.value = e.localizedMessage ?: "加载更多帖子失败"
+            }
             false
         } finally {
             _isLoadingMore.value = false

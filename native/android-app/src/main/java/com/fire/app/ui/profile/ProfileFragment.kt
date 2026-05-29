@@ -12,6 +12,7 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.fire.app.R
 import com.fire.app.session.FireSessionStoreRepository
+import com.fire.app.ui.cloudflare.CloudflareChallengeSupport
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
@@ -87,6 +88,12 @@ class ProfileFragment : Fragment() {
                         emptyView.text = err.ifBlank { getString(R.string.profile_error) }
                         emptyView.visibility = View.VISIBLE
                     }
+                }
+            }
+
+            viewLifecycleOwner.lifecycleScope.launch {
+                vm.cloudflareChallenge.collect {
+                    CloudflareChallengeSupport.openSiteRoot(requireContext())
                 }
             }
         }

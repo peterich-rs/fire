@@ -106,7 +106,9 @@
 
 ### 交互式 Cloudflare 恢复
 
-- 用途：在浏览器上下文内完成 Cloudflare 验证并恢复原始操作。Fire iOS 的交互式恢复会先删除 `WKHTTPCookieStore` 中旧的 `cf_clearance`，再复用登录 URL 和登录页 readiness 探测；当页面拿到用户名、同站 auth Cookie 和可复用 bootstrap，且 WebView 不再 loading 后，宿主按普通登录按钮可用状态自动执行登录同步并重试原操作。
+- 用途：在浏览器上下文内完成 Cloudflare 验证并把新的浏览器 Cookie 回灌到共享 Rust session。
+- Fire iOS 的交互式恢复会先删除 `WKHTTPCookieStore` 中旧的 `cf_clearance`，再复用登录 URL 和登录页 readiness 探测；当页面拿到用户名、同站 auth Cookie 和可复用 bootstrap，且 WebView 不再 loading 后，宿主按普通登录按钮可用状态自动执行登录同步并重试原操作。
+- Fire Android 不自动关闭挑战 WebView，也不在挑战完成后立即重试当前 native 操作：topic detail 在当前详情页 toolbar 下加载 `https://linux.do/t/{topicId}`，其他页面加载 `https://linux.do/`；一旦 WebView Cookie 中出现 `cf_clearance`，宿主调用 `sync_login_context` 同步到 Rust，WebView 保持可见，后续新开的 native 页面继续走原生读取链路。
 - 认证：匿名可访问
 - 响应：HTML 页面，不是 JSON
 - 识别：共享层只把 `403` 且响应头指向 Cloudflare HTML challenge 的回包归类为 `CloudflareChallenge`；优先使用 `cf-mitigated: challenge`，缺失时再用 HTML 中的 `cf_chl_opt`、`challenge-platform`、`Just a moment` 等特征兜底

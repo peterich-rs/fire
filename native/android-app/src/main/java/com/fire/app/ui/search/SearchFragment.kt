@@ -14,6 +14,7 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.fire.app.R
 import com.fire.app.session.FireSessionStoreRepository
+import com.fire.app.ui.cloudflare.CloudflareChallengeSupport
 import com.fire.app.ui.topicdetail.TopicDetailActivity
 import com.google.android.material.chip.Chip
 import com.google.android.material.chip.ChipGroup
@@ -162,6 +163,12 @@ class SearchFragment : Fragment() {
                         emptyView.text = getString(R.string.search_error)
                         emptyView.visibility = View.VISIBLE
                     }
+                }
+            }
+
+            viewLifecycleOwner.lifecycleScope.launch {
+                vm.cloudflareChallenge.collect {
+                    CloudflareChallengeSupport.openSiteRoot(requireContext())
                 }
             }
         }

@@ -2,9 +2,12 @@ package com.fire.app.ui.profile
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.fire.app.cloudflare.CloudflareChallengeDetector
 import com.fire.app.data.repository.UserRepository
 import com.fire.app.session.FireSessionStore
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import uniffi.fire_uniffi_user.UserProfileState
@@ -26,6 +29,9 @@ class ProfileViewModel(
     private val _error = MutableStateFlow<String?>(null)
     val error = _error.asStateFlow()
 
+    private val _cloudflareChallenge = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    val cloudflareChallenge = _cloudflareChallenge.asSharedFlow()
+
     fun loadProfile(username: String?) {
         val normalized = username.normalizedUsername()
         if (normalized == null) {
@@ -46,7 +52,7 @@ class ProfileViewModel(
                     ?: throw IllegalStateException("无法确定当前登录用户")
                 fetchProfile(username)
             } catch (e: Exception) {
-                _error.value = e.message
+                handleError(e)
             } finally {
                 _isLoading.value = false
             }
@@ -62,7 +68,7 @@ class ProfileViewModel(
             try {
                 fetchProfile(username)
             } catch (e: Exception) {
-                _error.value = e.message
+                handleError(e)
             } finally {
                 _isLoading.value = false
             }
@@ -84,7 +90,20 @@ class ProfileViewModel(
                     repository.followUser(profile.username)
                 }
                 _profile.value = repository.fetchUserProfile(profile.username)
-            } catch (_: Exception) { }
+            } catch (e: Exception) {
+                handleError(e, showMessage = false)
+            }
+        }
+    }
+
+    private fun handleError(error: Exception, showMessage: Boolean = true) {
+        if (CloudflareChallengeDetector.isChallenge(error)) {
+            _cloudflareChallenge.tryEmit(Unit)
+            if (showMessage) {
+                _error.value = null
+            }
+        } else if (showMessage) {
+            _error.value = error.message
         }
     }
 

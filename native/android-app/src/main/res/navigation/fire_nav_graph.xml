@@ -68,6 +68,9 @@
         <action
             android:id="@+id/action_profile_to_privateMessages"
             app:destination="@id/privateMessagesFragment" />
+        <deepLink
+            app:uri="fire://profile/{username}"
+            app:action="android.intent.action.VIEW" />
     </fragment>
 
     <fragment

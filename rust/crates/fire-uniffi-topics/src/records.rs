@@ -102,6 +102,7 @@ pub struct TopicScreenQueryState {
     pub topic_id: u64,
     pub target_post_number: Option<u32>,
     pub root_page_size: u16,
+    pub row_page_size: u16,
     pub track_visit: bool,
 }
 
@@ -111,6 +112,7 @@ impl From<TopicScreenQueryState> for TopicScreenQuery {
             topic_id: value.topic_id,
             target_post_number: value.target_post_number,
             root_page_size: value.root_page_size,
+            row_page_size: value.row_page_size,
             track_visit: value.track_visit,
         }
     }
@@ -687,7 +689,9 @@ pub struct TopicResponseCursorState {
     pub topic_id: u64,
     pub session_id: u64,
     pub next_root_offset: u32,
+    pub next_branch_offset: u32,
     pub page_size: u16,
+    pub row_page_size: u16,
 }
 
 impl From<TopicResponseCursor> for TopicResponseCursorState {
@@ -696,7 +700,9 @@ impl From<TopicResponseCursor> for TopicResponseCursorState {
             topic_id: value.topic_id,
             session_id: value.session_id,
             next_root_offset: value.next_root_offset,
+            next_branch_offset: value.next_branch_offset,
             page_size: value.page_size,
+            row_page_size: value.row_page_size,
         }
     }
 }
@@ -707,7 +713,9 @@ impl From<TopicResponseCursorState> for TopicResponseCursor {
             topic_id: value.topic_id,
             session_id: value.session_id,
             next_root_offset: value.next_root_offset,
+            next_branch_offset: value.next_branch_offset,
             page_size: value.page_size,
+            row_page_size: value.row_page_size,
         }
     }
 }

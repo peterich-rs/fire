@@ -7,10 +7,9 @@ import android.view.ViewGroup
 import android.widget.ImageView
 import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
-import coil.ImageLoader
-import coil.request.ImageRequest
 import com.fire.app.R
 import com.fire.app.TopicPresentation
+import com.fire.app.core.image.FireImageLoader
 import com.fire.app.richtext.FireRichTextParser
 import com.fire.app.richtext.FireRichTextView
 import com.fire.app.richtext.FireSpannableBuilder
@@ -88,12 +87,7 @@ class PostViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
             val baseUrl = "https://linux.do"
             val size = 72
             val url = buildAvatarUrl(baseUrl, avatarTemplate, size)
-            val request = ImageRequest.Builder(avatar.context)
-                .data(url)
-                .crossfade(true)
-                .target(avatar)
-                .build()
-            ImageLoader.Builder(avatar.context).build().enqueue(request)
+            FireImageLoader.load(url, avatar)
         }
 
         // Actions

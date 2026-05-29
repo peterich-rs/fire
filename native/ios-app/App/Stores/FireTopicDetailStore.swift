@@ -271,6 +271,7 @@ final class FireTopicDetailStore: ObservableObject {
                                 topicId: topicId,
                                 targetPostNumber: targetPostNumber,
                                 rootPageSize: 10,
+                                rowPageSize: 40,
                                 trackVisit: true,
                             )
                         )
@@ -1124,6 +1125,7 @@ final class FireTopicDetailStore: ObservableObject {
                         topicId: topicId,
                         targetPostNumber: nil,
                         rootPageSize: 10,
+                        rowPageSize: 40,
                         trackVisit: false,
                     )
                 )
@@ -1150,6 +1152,7 @@ final class FireTopicDetailStore: ObservableObject {
                                 topicId: topicId,
                                 targetPostNumber: anchorPostNumber,
                                 rootPageSize: 10,
+                                rowPageSize: 40,
                                 trackVisit: false,
                             )
                         )
@@ -2589,23 +2592,126 @@ final class FireTopicDetailStore: ObservableObject {
         operation: String,
         _ body: @escaping () async throws -> T
     ) async throws -> T {
-        let work = Task { try await body() }
-        let timer = Task {
-            try? await Task.sleep(for: .seconds(seconds))
-            work.cancel()
-        }
-        defer { timer.cancel() }
+        let coordinator = FireTopicDetailTimeoutCoordinator<T>()
         do {
-            return try await work.value
-        } catch {
-            if work.isCancelled && !Task.isCancelled {
+            return try await withTaskCancellationHandler {
+                try await withCheckedThrowingContinuation { continuation in
+                    coordinator.start(
+                        continuation: continuation,
+                        seconds: seconds,
+                        operation: operation,
+                        body: body
+                    )
+                }
+            } onCancel: {
+                coordinator.cancel()
+            }
+        } catch let error as FireTopicDetailTimeoutError {
+            if !Task.isCancelled {
                 appViewModel.topicDetailLogger()?.error(
                     "topic detail fetch timed out operation=\(operation) seconds=\(seconds)"
                 )
-                throw FireTopicDetailTimeoutError(operation: operation, seconds: seconds)
             }
             throw error
+        } catch {
+            throw error
         }
+    }
+}
+
+private final class FireTopicDetailTimeoutCoordinator<T>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<T, Error>?
+    private var workTask: Task<Void, Never>?
+    private var timeoutTask: Task<Void, Never>?
+
+    func start(
+        continuation: CheckedContinuation<T, Error>,
+        seconds: Double,
+        operation: String,
+        body: @escaping () async throws -> T
+    ) {
+        lock.lock()
+        self.continuation = continuation
+        lock.unlock()
+
+        let workTask = Task { [weak self] in
+            do {
+                let value = try await body()
+                self?.finish(.success(value), cancelWork: false, cancelTimeout: true)
+            } catch {
+                self?.finish(.failure(error), cancelWork: false, cancelTimeout: true)
+            }
+        }
+        setWorkTask(workTask)
+
+        let timeoutTask = Task { [weak self] in
+            do {
+                try await Task.sleep(for: .seconds(seconds))
+            } catch {
+                return
+            }
+            self?.finish(
+                .failure(FireTopicDetailTimeoutError(operation: operation, seconds: seconds)),
+                cancelWork: true,
+                cancelTimeout: false
+            )
+        }
+        setTimeoutTask(timeoutTask)
+    }
+
+    func cancel() {
+        finish(.failure(CancellationError()), cancelWork: true, cancelTimeout: true)
+    }
+
+    private func setWorkTask(_ task: Task<Void, Never>) {
+        lock.lock()
+        if continuation == nil {
+            lock.unlock()
+            task.cancel()
+            return
+        }
+        workTask = task
+        lock.unlock()
+    }
+
+    private func setTimeoutTask(_ task: Task<Void, Never>) {
+        lock.lock()
+        if continuation == nil {
+            lock.unlock()
+            task.cancel()
+            return
+        }
+        timeoutTask = task
+        lock.unlock()
+    }
+
+    @discardableResult
+    private func finish(
+        _ result: Result<T, Error>,
+        cancelWork: Bool,
+        cancelTimeout: Bool
+    ) -> Bool {
+        lock.lock()
+        guard let continuation else {
+            lock.unlock()
+            return false
+        }
+        self.continuation = nil
+        let workTask = self.workTask
+        let timeoutTask = self.timeoutTask
+        self.workTask = nil
+        self.timeoutTask = nil
+        lock.unlock()
+
+        if cancelWork {
+            workTask?.cancel()
+        }
+        if cancelTimeout {
+            timeoutTask?.cancel()
+        }
+        continuation.resume(with: result)
+        return true
     }
 }
 

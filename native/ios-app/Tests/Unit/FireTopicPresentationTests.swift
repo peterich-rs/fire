@@ -969,7 +969,9 @@ final class FireTopicPresentationTests: XCTestCase {
                     topicId: 42,
                     sessionId: 7,
                     nextRootOffset: UInt32(responseRows.count),
-                    pageSize: 10
+                    nextBranchOffset: 0,
+                    pageSize: 10,
+                    rowPageSize: 40
                 ),
                 totalRootCount: UInt32(responseRows.count),
                 loadedRootCount: UInt32(responseRows.count),

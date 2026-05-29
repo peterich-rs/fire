@@ -267,6 +267,7 @@ pub struct TopicScreenQuery {
     pub topic_id: u64,
     pub target_post_number: Option<u32>,
     pub root_page_size: u16,
+    pub row_page_size: u16,
     pub track_visit: bool,
 }
 
@@ -317,7 +318,9 @@ pub struct TopicResponseCursor {
     pub topic_id: u64,
     pub session_id: u64,
     pub next_root_offset: u32,
+    pub next_branch_offset: u32,
     pub page_size: u16,
+    pub row_page_size: u16,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

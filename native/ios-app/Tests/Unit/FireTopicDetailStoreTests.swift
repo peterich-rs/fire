@@ -158,7 +158,9 @@ final class FireTopicDetailStoreTests: XCTestCase {
             topicId: 42,
             sessionId: 7,
             nextRootOffset: 10,
-            pageSize: 10
+            nextBranchOffset: 0,
+            pageSize: 10,
+            rowPageSize: 40
         )
 
         XCTAssertTrue(
@@ -180,7 +182,9 @@ final class FireTopicDetailStoreTests: XCTestCase {
                     topicId: 42,
                     sessionId: 8,
                     nextRootOffset: 0,
-                    pageSize: 10
+                    nextBranchOffset: 0,
+                    pageSize: 10,
+                    rowPageSize: 40
                 )
             )
         )

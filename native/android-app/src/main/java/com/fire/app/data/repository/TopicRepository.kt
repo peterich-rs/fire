@@ -46,6 +46,7 @@ class TopicRepository(private val sessionStore: FireSessionStore) {
                 topicId = topicId,
                 targetPostNumber = targetPostNumber,
                 rootPageSize = 10.toUShort(),
+                rowPageSize = 40.toUShort(),
                 trackVisit = true,
             ),
         )

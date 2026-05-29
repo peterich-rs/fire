@@ -46,8 +46,17 @@ class HeaderAdapter : RecyclerView.Adapter<HeaderAdapter.HeaderViewHolder>() {
 
     var detail: TopicDetailState? = null
         set(value) {
+            val oldValue = field
+            if (oldValue != null && value != null && oldValue.hasSameHeaderContent(value)) {
+                field = value
+                return
+            }
             field = value
-            notifyDataSetChanged()
+            when {
+                oldValue == null && value != null -> notifyItemInserted(0)
+                oldValue != null && value == null -> notifyItemRemoved(0)
+                oldValue != null && value != null -> notifyItemChanged(0)
+            }
         }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): HeaderViewHolder {
@@ -61,6 +70,15 @@ class HeaderAdapter : RecyclerView.Adapter<HeaderAdapter.HeaderViewHolder>() {
     }
 
     override fun getItemCount(): Int = if (detail != null) 1 else 0
+
+    private fun TopicDetailState.hasSameHeaderContent(other: TopicDetailState): Boolean {
+        return title == other.title &&
+            tags == other.tags &&
+            categoryId == other.categoryId &&
+            postsCount == other.postsCount &&
+            views == other.views &&
+            likeCount == other.likeCount
+    }
 
     class HeaderViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
         private val titleText: android.widget.TextView = itemView.findViewById(R.id.topic_title)
@@ -109,9 +127,14 @@ class LoadingFooterAdapter : RecyclerView.Adapter<LoadingFooterAdapter.FooterVie
 
     var isLoading: Boolean = false
         set(value) {
-            val changed = field != value
+            val oldValue = field
+            if (oldValue == value) return
             field = value
-            if (changed) notifyDataSetChanged()
+            if (value) {
+                notifyItemInserted(0)
+            } else {
+                notifyItemRemoved(0)
+            }
         }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): FooterViewHolder {

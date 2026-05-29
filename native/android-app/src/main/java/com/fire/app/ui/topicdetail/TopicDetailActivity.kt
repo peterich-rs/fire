@@ -38,6 +38,7 @@ class TopicDetailActivity : AppCompatActivity() {
     private val headerAdapter = HeaderAdapter()
     private val postListAdapter = PostListAdapter { /* post click handler */ }
     private val loadingFooterAdapter = LoadingFooterAdapter()
+    private var loadMorePostsPosted = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -78,7 +79,7 @@ class TopicDetailActivity : AppCompatActivity() {
                 val totalItemCount = layoutManager.itemCount
                 val lastVisible = layoutManager.findLastVisibleItemPosition()
                 if (lastVisible >= totalItemCount - 5) {
-                    viewModel?.loadMorePosts()
+                    scheduleLoadMorePosts(rv)
                 }
             }
         })
@@ -144,6 +145,15 @@ class TopicDetailActivity : AppCompatActivity() {
     private fun loadRoute(route: TopicDetailRoute) {
         val targetPostNumber = route.targetPostNumber.takeIf { it > 0 }?.toUInt()
         viewModel?.loadTopicDetail(route.topicId.toULong(), targetPostNumber)
+    }
+
+    private fun scheduleLoadMorePosts(rv: RecyclerView) {
+        if (loadMorePostsPosted) return
+        loadMorePostsPosted = true
+        rv.post {
+            loadMorePostsPosted = false
+            viewModel?.loadMorePosts()
+        }
     }
 
     private fun applySystemBarInsets() {

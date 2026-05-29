@@ -18,6 +18,7 @@ class TopicRepository(private val sessionStore: FireSessionStore) {
     suspend fun fetchTopicList(
         kind: TopicListKindState = TopicListKindState.LATEST,
         page: UInt? = null,
+        tag: String? = null,
     ): TopicListState = withContext(Dispatchers.Default) {
         sessionStore.fetchTopicList(
             TopicListQueryState(
@@ -29,7 +30,7 @@ class TopicRepository(private val sessionStore: FireSessionStore) {
                 categorySlug = null,
                 categoryId = null,
                 parentCategorySlug = null,
-                tag = null,
+                tag = tag,
                 additionalTags = emptyList(),
                 matchAllTags = false,
             ),

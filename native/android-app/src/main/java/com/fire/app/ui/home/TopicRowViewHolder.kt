@@ -1,5 +1,11 @@
 package com.fire.app.ui.home
 
+import android.graphics.Color
+import android.text.SpannableString
+import android.text.Spanned
+import android.text.TextPaint
+import android.text.method.LinkMovementMethod
+import android.text.style.ClickableSpan
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -17,9 +23,14 @@ class TopicRowViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
     private val categoryChip: TextView = itemView.findViewById(R.id.topic_category)
     private val tagText: TextView = itemView.findViewById(R.id.topic_tags)
 
-    fun bind(row: TopicRowState, onClick: (TopicRowState) -> Unit) {
+    fun bind(
+        row: TopicRowState,
+        onClick: (TopicRowState) -> Unit,
+        onTagClick: (String) -> Unit,
+    ) {
         val topic = row.topic
         titleText.text = topic.title
+        categoryChip.visibility = View.GONE
 
         val meta = buildList {
             add("${topic.postsCount} 帖")
@@ -34,11 +45,51 @@ class TopicRowViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
         excerptText.visibility = if (excerpt != null) View.VISIBLE else View.GONE
         excerptText.text = excerpt
 
-        val tags = row.tagNames
-        tagText.visibility = if (tags.isEmpty()) View.GONE else View.VISIBLE
-        tagText.text = tags.joinToString(" ") { "#$it" }
+        bindTags(row.tagNames, onTagClick)
 
         itemView.setOnClickListener { onClick(row) }
+    }
+
+    private fun bindTags(tags: List<String>, onTagClick: (String) -> Unit) {
+        if (tags.isEmpty()) {
+            tagText.visibility = View.GONE
+            tagText.text = null
+            tagText.movementMethod = null
+            tagText.isClickable = false
+            return
+        }
+
+        val labels = tags.map { tag -> "#$tag" }
+        val text = labels.joinToString(" ")
+        val spannable = SpannableString(text)
+        var start = 0
+
+        tags.forEachIndexed { index, tag ->
+            val label = labels[index]
+            val end = start + label.length
+            spannable.setSpan(
+                object : ClickableSpan() {
+                    override fun onClick(widget: View) {
+                        onTagClick(tag)
+                    }
+
+                    override fun updateDrawState(ds: TextPaint) {
+                        ds.color = tagText.currentTextColor
+                        ds.isUnderlineText = false
+                    }
+                },
+                start,
+                end,
+                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE,
+            )
+            start = end + 1
+        }
+
+        tagText.visibility = View.VISIBLE
+        tagText.text = spannable
+        tagText.movementMethod = LinkMovementMethod.getInstance()
+        tagText.highlightColor = Color.TRANSPARENT
+        tagText.isClickable = true
     }
 
     companion object {

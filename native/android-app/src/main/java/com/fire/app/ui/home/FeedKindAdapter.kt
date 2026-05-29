@@ -1,17 +1,14 @@
 package com.fire.app.ui.home
 
-import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
-import com.fire.app.R
 import com.google.android.material.chip.Chip
 import uniffi.fire_uniffi_types.TopicListKindState
 
 class FeedKindAdapter(
     private val kinds: List<TopicListKindState>,
-    private val selectedKind: TopicListKindState,
+    private var selectedKind: TopicListKindState,
     private val onKindSelected: (TopicListKindState) -> Unit,
 ) : RecyclerView.Adapter<FeedKindAdapter.KindViewHolder>() {
 
@@ -29,7 +26,7 @@ class FeedKindAdapter(
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): KindViewHolder {
         val chip = Chip(parent.context).apply {
             isClickable = true
-            isCheckable = false
+            isCheckable = true
         }
         chip.layoutParams = ViewGroup.LayoutParams(
             ViewGroup.LayoutParams.WRAP_CONTENT,
@@ -43,10 +40,32 @@ class FeedKindAdapter(
         val chip = holder.itemView as Chip
         chip.text = displayNames[kind] ?: kind.name
         chip.isChecked = kind == selectedKind
-        chip.setOnClickListener { onKindSelected(kind) }
+        chip.setOnClickListener {
+            onKindSelected(kind)
+            if (kind == selectedKind) {
+                chip.isChecked = true
+            }
+        }
     }
 
     override fun getItemCount(): Int = kinds.size
+
+    fun updateSelectedKind(kind: TopicListKindState) {
+        if (selectedKind == kind) return
+
+        val previousKind = selectedKind
+        selectedKind = kind
+
+        val previousIndex = kinds.indexOf(previousKind)
+        if (previousIndex >= 0) {
+            notifyItemChanged(previousIndex)
+        }
+
+        val nextIndex = kinds.indexOf(kind)
+        if (nextIndex >= 0) {
+            notifyItemChanged(nextIndex)
+        }
+    }
 
     class KindViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView)
 }

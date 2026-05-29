@@ -6,6 +6,7 @@ import androidx.recyclerview.widget.DiffUtil
 import uniffi.fire_uniffi_types.TopicRowState
 
 class TopicListAdapter(
+    private val onTagClick: (String) -> Unit = {},
     private val onTopicClick: (TopicRowState) -> Unit,
 ) : PagingDataAdapter<TopicRowState, TopicRowViewHolder>(TopicRowDiffCallback) {
 
@@ -15,7 +16,7 @@ class TopicListAdapter(
 
     override fun onBindViewHolder(holder: TopicRowViewHolder, position: Int) {
         val row = getItem(position) ?: return
-        holder.bind(row, onTopicClick)
+        holder.bind(row, onTopicClick, onTagClick)
     }
 
     companion object {

@@ -8,7 +8,6 @@ import android.widget.ProgressBar
 import android.widget.TextView
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
-import androidx.navigation.fragment.findNavController
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.fire.app.R
@@ -47,23 +46,11 @@ class ProfileFragment : Fragment() {
         recyclerView.layoutManager = LinearLayoutManager(requireContext())
         recyclerView.adapter = adapter
 
-        val username = ProfileFragmentArgs.fromBundle(requireArguments()).username
-            ?: run {
-                // Default to logged-in user's profile
-                viewLifecycleOwner.lifecycleScope.launch {
-                    val session = sessionStore.snapshot()
-                    val name = session.bootstrap.currentUsername ?: return@launch
-                    viewModel?.loadProfile(name)
-                }
-                return@run null
-            }
-
-        if (username != null) {
-            viewModel?.loadProfile(username)
-        }
-
         observeViewModel()
         setupNavigation()
+
+        val username = ProfileFragmentArgs.fromBundle(requireArguments()).username
+        viewModel?.loadProfile(username)
     }
 
     private fun observeViewModel() {
@@ -71,6 +58,7 @@ class ProfileFragment : Fragment() {
             viewLifecycleOwner.lifecycleScope.launch {
                 vm.profile.collect { profile ->
                     if (profile != null) {
+                        emptyView.visibility = View.GONE
                         updateProfileRows()
                     }
                 }
@@ -87,12 +75,16 @@ class ProfileFragment : Fragment() {
             viewLifecycleOwner.lifecycleScope.launch {
                 vm.isLoading.collect { loading ->
                     loadingView.visibility = if (loading) View.VISIBLE else View.GONE
+                    if (loading) {
+                        emptyView.visibility = View.GONE
+                    }
                 }
             }
 
             viewLifecycleOwner.lifecycleScope.launch {
                 vm.error.collect { err ->
                     if (err != null) {
+                        emptyView.text = err.ifBlank { getString(R.string.profile_error) }
                         emptyView.visibility = View.VISIBLE
                     }
                 }

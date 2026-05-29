@@ -20,10 +20,11 @@ class SessionRepository(private val sessionStore: FireSessionStore) {
     suspend fun restoreSession(): SessionState? = withContext(Dispatchers.IO) {
         val restored = sessionStore.restorePersistedSessionIfAvailable()
         if (restored != null) {
-            _session.value = restored
-            _isAuthenticated.value = restored.readiness.canReadAuthenticatedApi
+            val refreshed = sessionStore.refreshBootstrapIfNeeded()
+            _session.value = refreshed
+            _isAuthenticated.value = refreshed.readiness.canReadAuthenticatedApi
         }
-        restored
+        _session.value
     }
 
     suspend fun refreshCsrfIfNeeded(): SessionState = withContext(Dispatchers.Default) {

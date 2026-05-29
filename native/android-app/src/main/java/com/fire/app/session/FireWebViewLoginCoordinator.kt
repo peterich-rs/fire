@@ -21,17 +21,25 @@ class FireWebViewLoginCoordinator(
 
     suspend fun completeLogin(webView: WebView): SessionState {
         val captured = captureLoginState(webView)
-        val state = sessionStore.syncLoginContext(captured)
-        val bootstrapped = if (state.bootstrap.hasPreloadedData) {
-            state
-        } else {
-            sessionStore.refreshBootstrapIfNeeded()
-        }
-        return if (bootstrapped.readiness.hasCsrfToken) {
+        sessionStore.syncLoginContext(captured)
+        val bootstrapped = sessionStore.refreshBootstrapIfNeeded()
+        val ready = if (bootstrapped.readiness.hasCsrfToken) {
             bootstrapped
         } else {
             sessionStore.refreshCsrfTokenIfNeeded()
         }
+        val resolved = if (ready.readiness.hasCurrentUser) {
+            ready
+        } else {
+            sessionStore.refreshBootstrap()
+        }
+        val csrfReady = if (resolved.readiness.hasCsrfToken) {
+            resolved
+        } else {
+            sessionStore.refreshCsrfTokenIfNeeded()
+        }
+        check(csrfReady.readiness.hasCurrentUser) { "登录会话缺少当前用户" }
+        return csrfReady
     }
 
     suspend fun logout(): SessionState {
@@ -46,7 +54,12 @@ class FireWebViewLoginCoordinator(
             """
             (function() {
               var meta = document.querySelector('meta[name="current-username"]');
-              return JSON.stringify(meta && meta.content ? meta.content : null);
+              if (meta && meta.content) return meta.content;
+              try {
+                var currentUser = window.Discourse && Discourse.User && Discourse.User.current && Discourse.User.current();
+                if (currentUser && currentUser.username) return currentUser.username;
+              } catch (e) {}
+              return null;
             })();
             """.trimIndent(),
         )
@@ -54,12 +67,12 @@ class FireWebViewLoginCoordinator(
             """
             (function() {
               var meta = document.querySelector('meta[name="csrf-token"]');
-              return JSON.stringify(meta && meta.content ? meta.content : null);
+              return meta && meta.content ? meta.content : null;
             })();
             """.trimIndent(),
         )
         val htmlJson = webView.evaluateJavascriptSuspend(
-            """JSON.stringify(document.documentElement.outerHTML)""",
+            """document.documentElement ? document.documentElement.outerHTML : null""",
         )
 
         FireCapturedLoginState(

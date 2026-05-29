@@ -8,6 +8,11 @@ import uniffi.fire_uniffi_notifications.NotificationListState
 
 class NotificationRepository(private val sessionStore: FireSessionStore) {
 
+    suspend fun fetchRecentNotifications(limit: UInt? = null): NotificationListState =
+        withContext(Dispatchers.Default) {
+            sessionStore.fetchRecentNotifications(limit)
+        }
+
     suspend fun fetchNotifications(
         limit: UInt? = null,
         offset: UInt? = null,

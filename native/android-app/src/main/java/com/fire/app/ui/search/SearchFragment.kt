@@ -14,6 +14,7 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.fire.app.R
 import com.fire.app.session.FireSessionStoreRepository
+import com.fire.app.ui.topicdetail.TopicDetailActivity
 import com.google.android.material.chip.Chip
 import com.google.android.material.chip.ChipGroup
 import kotlinx.coroutines.flow.debounce
@@ -54,23 +55,19 @@ class SearchFragment : Fragment() {
 
         adapter = SearchResultsAdapter(
             onTopicClick = { topic ->
-                val action = SearchFragmentDirections.actionSearchFragmentToTopicDetailFragment(
+                TopicDetailActivity.start(
+                    context = requireContext(),
                     topicId = topic.id.toLong(),
-                    topicSlug = topic.slug,
                     topicTitle = topic.title,
-                    targetPostNumber = -1,
                 )
-                findNavController().navigate(action)
             },
             onPostClick = { post ->
                 val topicId = post.topicId ?: return@SearchResultsAdapter
-                val action = SearchFragmentDirections.actionSearchFragmentToTopicDetailFragment(
+                TopicDetailActivity.start(
+                    context = requireContext(),
                     topicId = topicId.toLong(),
-                    topicSlug = null,
-                    topicTitle = null,
                     targetPostNumber = post.postNumber.toInt(),
                 )
-                findNavController().navigate(action)
             },
             onUserClick = { user ->
                 val action = SearchFragmentDirections.actionSearchFragmentToProfileFragment(

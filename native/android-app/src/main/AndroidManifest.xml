@@ -21,7 +21,21 @@
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="fire" />
+                <data
+                    android:scheme="fire"
+                    android:host="profile" />
+            </intent-filter>
+        </activity>
+        <activity
+            android:name=".ui.topicdetail.TopicDetailActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="fire"
+                    android:host="topic" />
             </intent-filter>
         </activity>
     </application>

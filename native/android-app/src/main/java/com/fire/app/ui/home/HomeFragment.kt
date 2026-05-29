@@ -8,13 +8,12 @@ import android.widget.ProgressBar
 import android.widget.TextView
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
-import androidx.navigation.fragment.findNavController
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.fire.app.R
-import com.fire.app.TopicPresentation
 import com.fire.app.core.ext.optimizeForPaging
 import com.fire.app.session.FireSessionStoreRepository
+import com.fire.app.ui.topicdetail.TopicDetailActivity
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import uniffi.fire_uniffi_types.TopicListKindState
@@ -49,15 +48,11 @@ class HomeFragment : Fragment() {
         viewModel = HomeViewModel.create(sessionStore)
 
         adapter = TopicListAdapter { row ->
-            val topicId = row.topic.id
-            val title = row.topic.title
-            val action = HomeFragmentDirections.actionHomeToTopicDetail(
-                topicId = topicId.toLong(),
-                topicTitle = title,
-                topicSlug = row.topic.slug,
-                targetPostNumber = -1,
+            TopicDetailActivity.start(
+                context = requireContext(),
+                topicId = row.topic.id.toLong(),
+                topicTitle = row.topic.title,
             )
-            findNavController().navigate(action)
         }
 
         recyclerView.layoutManager = LinearLayoutManager(requireContext())

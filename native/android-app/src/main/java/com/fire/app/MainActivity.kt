@@ -3,6 +3,9 @@ package com.fire.app
 import android.os.Bundle
 import android.view.View
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.updatePadding
 import androidx.lifecycle.lifecycleScope
 import androidx.navigation.fragment.NavHostFragment
 import androidx.navigation.ui.setupWithNavController
@@ -20,6 +23,7 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
+        applySystemBarInsets()
 
         val navHostFragment = supportFragmentManager
             .findFragmentById(R.id.nav_host_fragment) as NavHostFragment
@@ -43,7 +47,7 @@ class MainActivity : AppCompatActivity() {
             val state = withContext(Dispatchers.IO) {
                 runCatching { sessionStore.notificationState() }.getOrNull()
             }
-            val unreadCount = state?.counters?.unread?.toInt() ?: 0
+            val unreadCount = state?.counters?.allUnread?.toInt() ?: 0
             val badge = binding.bottomNav.getOrCreateBadge(R.id.notificationsFragment)
             if (unreadCount > 0) {
                 badge.number = unreadCount
@@ -52,5 +56,24 @@ class MainActivity : AppCompatActivity() {
                 badge.isVisible = false
             }
         }
+    }
+
+    private fun applySystemBarInsets() {
+        val root = binding.root
+        val initialLeft = root.paddingLeft
+        val initialTop = root.paddingTop
+        val initialRight = root.paddingRight
+        val initialBottom = root.paddingBottom
+        ViewCompat.setOnApplyWindowInsetsListener(root) { view, insets ->
+            val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            view.updatePadding(
+                left = initialLeft + systemBars.left,
+                top = initialTop + systemBars.top,
+                right = initialRight + systemBars.right,
+                bottom = initialBottom + systemBars.bottom,
+            )
+            insets
+        }
+        ViewCompat.requestApplyInsets(root)
     }
 }

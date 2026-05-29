@@ -23,35 +23,73 @@ class NotificationsViewModel(
     private val _notificationCenter = MutableStateFlow<NotificationCenterState?>(null)
     val notificationCenter = _notificationCenter.asStateFlow()
 
+    private val _isRefreshing = MutableStateFlow(false)
+    val isRefreshing = _isRefreshing.asStateFlow()
+
+    private val _error = MutableStateFlow<String?>(null)
+    val error = _error.asStateFlow()
+
+    private val pagingFlow: Flow<PagingData<NotificationItemState>> = Pager(
+        config = PagingConfig(
+            pageSize = 30,
+            prefetchDistance = 10,
+            enablePlaceholders = false,
+        ),
+        pagingSourceFactory = { NotificationPagingSource(repository) },
+    ).flow.cachedIn(viewModelScope)
+
     fun notificationPagingFlow(): Flow<PagingData<NotificationItemState>> {
-        return Pager(
-            config = PagingConfig(
-                pageSize = 30,
-                prefetchDistance = 10,
-                enablePlaceholders = false,
-            ),
-            pagingSourceFactory = { NotificationPagingSource(repository) },
-        ).flow.cachedIn(viewModelScope)
+        return pagingFlow
     }
 
     fun markAllRead() {
         viewModelScope.launch {
-            val state = repository.markNotificationsRead()
-            _notificationCenter.value = state
+            try {
+                val state = repository.markNotificationsRead()
+                _notificationCenter.value = state
+                _error.value = null
+            } catch (e: Exception) {
+                _error.value = e.localizedMessage
+            }
         }
     }
 
     fun markRead(id: ULong) {
         viewModelScope.launch {
-            val state = repository.markNotificationRead(id)
-            _notificationCenter.value = state
+            try {
+                val state = repository.markNotificationRead(id)
+                _notificationCenter.value = state
+                _error.value = null
+            } catch (e: Exception) {
+                _error.value = e.localizedMessage
+            }
         }
     }
 
     fun refreshNotificationCenter() {
         viewModelScope.launch {
-            val state = repository.fetchNotificationState()
-            _notificationCenter.value = state
+            try {
+                val state = repository.fetchNotificationState()
+                _notificationCenter.value = state
+                _error.value = null
+            } catch (e: Exception) {
+                _error.value = e.localizedMessage
+            }
+        }
+    }
+
+    fun refreshRecentNotifications() {
+        viewModelScope.launch {
+            _isRefreshing.value = true
+            try {
+                repository.fetchRecentNotifications()
+                _notificationCenter.value = repository.fetchNotificationState()
+                _error.value = null
+            } catch (e: Exception) {
+                _error.value = e.localizedMessage
+            } finally {
+                _isRefreshing.value = false
+            }
         }
     }
 

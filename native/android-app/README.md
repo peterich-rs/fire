@@ -22,27 +22,28 @@ Current host-side app wiring lives under `src/main/java/com/fire/app/` plus `src
   - keeps release Android `.so` packaging separate from host bindgen input so Linux CI is not broken by the workspace `strip = true` release profile
   - writes variant-specific generated sources and JNI libraries into the Gradle build directory (Kotlin bindings land under `build/generated/source/uniffi/<buildType>/kotlin/`, mirroring the AGP convention for generated sources such as `build/generated/source/buildConfig`)
 - `FireWebViewLoginCoordinator.kt`
-  - reads the current `WebView` cookie batch, `current-username`, `csrf-token`, page HTML, and the live browser user agent
+  - reads the current `WebView` cookie batch, `current-username`, `Discourse.User.current().username`, `csrf-token`, page HTML, and the live browser user agent
   - converts them into `LoginSyncState`
-  - completes login by syncing into Rust and backfilling bootstrap if the page is not reusable
+  - completes login by syncing into Rust, refreshing bootstrap after sync, and rejecting sessions that still cannot resolve the current user
 - `TopicPresentation.kt`
   - extracts `site.categories` from bootstrap `preloadedJson`
   - parses `more_topics_url` into a native feed page cursor
   - normalizes topic/post timestamps for inline rendering
 - `MainActivity.kt`
   - hosts the Navigation Component `NavHostFragment` and bottom navigation shell
+  - applies system-bar insets at the shell root so tab content stays inside the Android safe area on edge-to-edge Android releases
   - starts the graph at `OnboardingFragment`; onboarding restores the persisted Rust session and routes authenticated users to Home
   - hides bottom navigation on onboarding/login destinations so unauthenticated users cannot jump into API-backed tabs
-  - refreshes the notification badge from Rust-backed counters when the shell starts
+  - refreshes the notification badge from Rust-backed `allUnread` counters when the shell starts or notification state changes
 - `DiagnosticsActivity.kt`, `LogViewerActivity.kt`, `RequestTraceDetailActivity.kt`
   - surface a native diagnostics entry point
   - list readable/shared log files from the Rust workspace
   - render a reverse-chronological request trace overview and per-request execution-chain/detail pages
-- `NotificationsActivity.kt`
-  - opens a native notification center from the host shell
-  - renders Rust-backed unread/high-priority counters plus a paginated full notification list
+- `NotificationsFragment.kt`
+  - backs the bottom notification tab with Rust recent/full notification APIs and the shared notification runtime state
+  - renders a paginated full notification list while refreshing the recent notification state for counters
   - marks single notifications or the full list read through shared Rust APIs
-  - opens native topic detail at the notification post number when `topicId` is present, otherwise falls back to the actor profile when a username is available
+  - opens `TopicDetailActivity` at the notification post number when `topicId` is present, otherwise falls back to the actor profile when a username is available
 - `SearchActivity.kt`
   - opens a native LinuxDo search surface from the host shell
   - calls the shared Rust `search` API with All / Topics / Posts / Users filters
@@ -50,6 +51,7 @@ Current host-side app wiring lives under `src/main/java/com/fire/app/` plus `src
   - opens topic results in native topic detail, post results at their floor, and user results in native profile
 - `TopicDetailActivity.kt`
   - loads topic detail on demand from the shared Rust API
+  - owns topic detail as a dedicated Android page instead of embedding it in the main tab `NavHostFragment`
   - renders topic detail as `header + body + response`: the original post stays independent, while replies come from Rust-owned tree rows paged by top-level reply branch
   - loads optional Rust-backed topic AI summaries before the post list when the detail payload advertises `summarizable`, `hasCachedSummary`, or `hasSummary`; empty summaries remove the placeholder and failures stay scoped to a retryable summary card
   - opens public profiles from post author names and reply-context rows
@@ -85,7 +87,7 @@ Expected integration flow:
 
 1. Run `./gradlew assembleDebug` or `./gradlew assembleRelease`; Gradle will invoke the matching UniFFI sync task before `preDebugBuild` / `preReleaseBuild`.
 2. Keep the files in `src/main/java/com/fire/app/session/` in the same Android module.
-3. Let the navigation graph start at `OnboardingFragment`; it restores the persisted session through `SessionRepository.restoreSession()`.
+3. Let the navigation graph start at `OnboardingFragment`; it restores the persisted session through `SessionRepository.restoreSession()`, then refreshes bootstrap when needed so `currentUsername`, current user id, site settings, and notification channels are available before tab screens read them.
 4. Route unauthenticated users into `LoginWebViewFragment` and drive the login `WebView` through `FireWebViewLoginCoordinator.completeLogin(webView)`.
 5. After login or restore, navigate to `homeFragment` and use the bottom navigation tabs for API-backed screens.
 6. On explicit logout, call `FireSessionStore.logout()`, clear host-side `CookieManager` entries if desired, and reset navigation back to onboarding.
@@ -111,7 +113,7 @@ Current browser note:
 - The browser filter bar now exposes Rust-backed private-message inbox and sent-message lists; rows show Discourse participants when the response provides them and open the same native topic detail screen as normal topic lists.
 - The browser filter bar now also exposes Rust-backed bookmarks and read history. Bookmark rows show bookmark post/name/reminder metadata and open topic detail at `bookmarkedPostNumber` when available; read-history rows open at `lastReadPostNumber`.
 - The main browser shell now exposes category notification-level updates through shared Rust notification bindings and refreshes bootstrap after each accepted change so category `notificationLevel` returns to the server-owned value.
-- The host shell now opens a Rust-backed native notification center with paginated notifications, unread/high-priority counters, single/all mark-read actions, and topic/profile navigation.
+- The host shell notification tab now uses Rust-backed recent/full notification state with paginated notifications, unread/high-priority counters, single/all mark-read actions, and topic/profile navigation.
 - The host shell now opens a Rust-backed native search screen with result-type filters, paginated result loading, and native navigation from search results into topics, posts, and profiles.
 - Topic detail now opens in a dedicated activity instead of being embedded under the feed list.
 - Generated Kotlin topic bindings expose `createTopic(TopicCreateRequestState)` from the shared Rust creation path; Android main now uses it for a native new-topic composer with bootstrap-driven minimum title/body length, default category, category permission, required-tag, and allowed-tag validation.

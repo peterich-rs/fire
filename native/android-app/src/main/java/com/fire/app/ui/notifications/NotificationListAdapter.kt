@@ -35,13 +35,11 @@ class NotificationListAdapter(
         private val unreadIndicator: View = itemView.findViewById(R.id.unread_indicator)
 
         fun bind(item: NotificationItemState, onClick: (NotificationItemState) -> Unit) {
-            titleText.text = item.fancyTitle ?: itemView.context.getString(
-                R.string.notifications_item_fallback, item.id.toString(),
-            )
+            titleText.text = item.displayDescription()
 
             val time = item.createdAt?.let { TopicPresentation.formatTimestamp(it) }
             metaText.text = buildList {
-                item.data.displayUsername?.let { add(it) }
+                item.resolvedUsername()?.let { add(it) }
                 time?.let { add(it) }
                 if (item.highPriority) add(itemView.context.getString(R.string.notifications_high_priority))
             }.joinToString(" · ")
@@ -57,6 +55,8 @@ class NotificationListAdapter(
                     .target(avatar)
                     .build()
                 ImageLoader.Builder(avatar.context).build().enqueue(request)
+            } else {
+                avatar.setImageDrawable(null)
             }
 
             itemView.setOnClickListener { onClick(item) }
@@ -65,6 +65,40 @@ class NotificationListAdapter(
         private fun buildAvatarUrl(template: String, size: Int): String {
             if (template.startsWith("http")) return template.replace("{size}", size.toString())
             return "https://linux.do/${template.trimStart('/').replace("{size}", size.toString())}"
+        }
+
+        private fun NotificationItemState.resolvedUsername(): String? {
+            return listOf(
+                data.displayUsername,
+                data.username,
+                data.originalUsername,
+            ).firstNotNullOfOrNull { value ->
+                value?.trim()?.takeIf { it.isNotEmpty() && !it.equals("null", ignoreCase = true) }
+            }
+        }
+
+        private fun NotificationItemState.displayDescription(): String {
+            val actor = resolvedUsername() ?: "Someone"
+            val title = fancyTitle ?: data.topicTitle
+            val suffix = title?.takeIf { it.isNotBlank() }?.let { ": $it" }.orEmpty()
+            return when (notificationType) {
+                1 -> "$actor mentioned you$suffix"
+                2 -> "$actor replied to you$suffix"
+                3 -> "$actor quoted your post$suffix"
+                5 -> "$actor liked your post$suffix"
+                6 -> "$actor sent you a message$suffix"
+                12 -> data.badgeName?.let { "You earned badge: $it" }
+                    ?: itemView.context.getString(R.string.notifications_item_fallback, id.toString())
+                24 -> "Bookmark reminder$suffix"
+                25 -> "$actor reacted to your post$suffix"
+                800 -> "$actor followed you"
+                801 -> "$actor created a topic$suffix"
+                802 -> "$actor replied$suffix"
+                else -> title ?: itemView.context.getString(
+                    R.string.notifications_item_fallback,
+                    id.toString(),
+                )
+            }
         }
     }
 

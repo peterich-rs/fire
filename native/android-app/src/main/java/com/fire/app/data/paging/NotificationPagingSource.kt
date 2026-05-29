@@ -10,9 +10,7 @@ class NotificationPagingSource(
 ) : PagingSource<UInt, NotificationItemState>() {
 
     override fun getRefreshKey(state: PagingState<UInt, NotificationItemState>): UInt? {
-        return state.anchorPosition?.let { position ->
-            state.closestItemToPosition(position)?.id?.toUInt()
-        }
+        return null
     }
 
     override suspend fun load(params: LoadParams<UInt>): LoadResult<UInt, NotificationItemState> {
@@ -29,7 +27,7 @@ class NotificationPagingSource(
             )
             LoadResult.Page(
                 data = result.notifications,
-                prevKey = if (offset == 0u) null else offset,
+                prevKey = null,
                 nextKey = result.nextOffset,
             )
         } catch (e: Exception) {

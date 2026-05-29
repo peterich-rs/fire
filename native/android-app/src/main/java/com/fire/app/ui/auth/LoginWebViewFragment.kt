@@ -14,10 +14,7 @@ import android.widget.Toast
 import android.widget.ImageView
 import android.widget.ProgressBar
 import android.widget.TextView
-import androidx.core.view.ViewCompat
-import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.isVisible
-import androidx.core.view.updatePadding
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import androidx.navigation.fragment.findNavController
@@ -51,7 +48,6 @@ class LoginWebViewFragment : Fragment() {
         val sessionStore = FireSessionStoreRepository.get(requireContext())
         loginCoordinator = FireWebViewLoginCoordinator(sessionStore)
 
-        val chrome: View = view.findViewById(R.id.login_chrome)
         val webView: WebView = view.findViewById(R.id.login_webview)
         val loadingIndicator: ProgressBar = view.findViewById(R.id.loading_indicator)
         val closeButton: ImageView = view.findViewById(R.id.close_button)
@@ -59,7 +55,6 @@ class LoginWebViewFragment : Fragment() {
         val pageTitleText: TextView = view.findViewById(R.id.page_title_text)
         val pageUrlText: TextView = view.findViewById(R.id.page_url_text)
 
-        applySystemBarInsets(view, chrome)
         configureLoginWebView(webView)
 
         webView.webViewClient = object : WebViewClientCompat() {
@@ -154,24 +149,6 @@ class LoginWebViewFragment : Fragment() {
         val webView = view?.findViewById<WebView>(R.id.login_webview)
         webView?.destroy()
         super.onDestroyView()
-    }
-
-    private fun applySystemBarInsets(root: View, chrome: View) {
-        val initialLeft = chrome.paddingLeft
-        val initialTop = chrome.paddingTop
-        val initialRight = chrome.paddingRight
-        val initialBottom = chrome.paddingBottom
-        ViewCompat.setOnApplyWindowInsetsListener(root) { _, insets ->
-            val statusBars = insets.getInsets(WindowInsetsCompat.Type.statusBars())
-            chrome.updatePadding(
-                left = initialLeft,
-                top = initialTop + statusBars.top,
-                right = initialRight,
-                bottom = initialBottom,
-            )
-            insets
-        }
-        ViewCompat.requestApplyInsets(root)
     }
 
     @Suppress("DEPRECATION")

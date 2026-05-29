@@ -26,19 +26,52 @@ class ProfileViewModel(
     private val _error = MutableStateFlow<String?>(null)
     val error = _error.asStateFlow()
 
-    fun loadProfile(username: String) {
+    fun loadProfile(username: String?) {
+        val normalized = username.normalizedUsername()
+        if (normalized == null) {
+            loadCurrentProfile()
+        } else {
+            loadProfileForUsername(normalized)
+        }
+    }
+
+    fun loadCurrentProfile() {
         viewModelScope.launch {
             _isLoading.value = true
             _error.value = null
+            _profile.value = null
+            _summary.value = null
             try {
-                _profile.value = repository.fetchUserProfile(username)
-                _summary.value = repository.fetchUserSummary(username)
+                val username = repository.currentUsername()
+                    ?: throw IllegalStateException("无法确定当前登录用户")
+                fetchProfile(username)
             } catch (e: Exception) {
                 _error.value = e.message
             } finally {
                 _isLoading.value = false
             }
         }
+    }
+
+    private fun loadProfileForUsername(username: String) {
+        viewModelScope.launch {
+            _isLoading.value = true
+            _error.value = null
+            _profile.value = null
+            _summary.value = null
+            try {
+                fetchProfile(username)
+            } catch (e: Exception) {
+                _error.value = e.message
+            } finally {
+                _isLoading.value = false
+            }
+        }
+    }
+
+    private suspend fun fetchProfile(username: String) {
+        _profile.value = repository.fetchUserProfile(username)
+        _summary.value = repository.fetchUserSummary(username)
     }
 
     fun toggleFollow() {
@@ -53,6 +86,11 @@ class ProfileViewModel(
                 _profile.value = repository.fetchUserProfile(profile.username)
             } catch (_: Exception) { }
         }
+    }
+
+    private fun String?.normalizedUsername(): String? {
+        val trimmed = this?.trim()
+        return trimmed?.takeIf { it.isNotEmpty() && !it.equals("null", ignoreCase = true) }
     }
 
     companion object {

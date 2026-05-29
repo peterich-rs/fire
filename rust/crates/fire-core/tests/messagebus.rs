@@ -83,6 +83,10 @@ async fn start_message_bus_polls_cross_origin_and_updates_checkpoints() {
     let first = requests[0].to_ascii_lowercase();
     assert!(first.contains(&format!("post /message-bus/{client_id}/poll")));
     assert!(first.contains("x-shared-session-key: shared-session"));
+    assert!(first.contains("accept: text/plain, */*; q=0.01"));
+    assert!(first.contains("dont-chunk: true"));
+    assert!(first.contains("__seq="));
+    assert!(!first.contains("discourse-background"));
     assert!(first.contains("%2flatest=5"));
     assert!(first.contains("%2fnotification%2f1=42"));
 
@@ -147,7 +151,10 @@ async fn start_message_bus_without_subscriptions_waits_for_later_subscribe() {
         raw_json_response(
             200,
             "application/json",
-            r#"[{"channel":"/topic/123","message_id":9,"data":{"type":"append","reload_topic":true}}]"#,
+            r#"[
+  {"channel":"/topic/123","message_id":9,"data":{"type":"append","reload_topic":true}},
+  {"channel":"/polls/123","message_id":10,"data":{"poll_name":"poll","post_id":9001}}
+]"#,
         ),
         raw_json_response(200, "application/json", "[]"),
     ])
@@ -168,15 +175,31 @@ async fn start_message_bus_without_subscriptions_waits_for_later_subscribe() {
         scope: MessageBusSubscriptionScope::Transient,
     })
     .expect("subscribe topic detail");
+    core.subscribe_message_bus_channel(MessageBusSubscription {
+        owner_token: "test-topic-polls-owner".into(),
+        channel: "/polls/123".into(),
+        last_message_id: Some(0),
+        scope: MessageBusSubscriptionScope::Transient,
+    })
+    .expect("subscribe topic polls");
 
     let event = timeout(Duration::from_secs(2), receiver.recv())
         .await
         .expect("topic detail event timeout")
         .expect("topic detail event missing");
+    let polls_event = timeout(Duration::from_secs(2), receiver.recv())
+        .await
+        .expect("topic polls event timeout")
+        .expect("topic polls event missing");
 
     assert_eq!(event.kind, MessageBusEventKind::TopicDetail);
     assert_eq!(event.topic_id, Some(123));
     assert_eq!(event.message_id, 9);
+    assert_eq!(polls_event.kind, MessageBusEventKind::TopicDetail);
+    assert_eq!(polls_event.topic_id, Some(123));
+    assert_eq!(polls_event.message_id, 10);
+    assert_eq!(polls_event.detail_event_type.as_deref(), Some("polls"));
+    assert!(polls_event.refresh_stream);
 
     core.stop_message_bus(true);
 
@@ -188,6 +211,7 @@ async fn start_message_bus_without_subscriptions_waits_for_later_subscribe() {
     let first = requests[0].to_ascii_lowercase();
     assert!(first.contains(&format!("post /message-bus/{client_id}/poll")));
     assert!(first.contains("%2ftopic%2f123=-1"));
+    assert!(first.contains("%2fpolls%2f123=0"));
 }
 
 #[tokio::test]

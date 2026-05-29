@@ -139,6 +139,7 @@ impl FireCore {
         let mut params = Vec::new();
         if let Some(page) = query.page {
             if page > 0 {
+                params.push(("no_definitions", "true".to_string()));
                 params.push(("page", page.to_string()));
             }
         }
@@ -234,6 +235,21 @@ impl FireCore {
                     topic_id: query.topic_id,
                     post_number: None,
                     track_visit: query.track_visit,
+                    force_load: query.force_load,
+                    filter: None,
+                    username_filters: None,
+                    filter_top_level_replies: false,
+                },
+                false,
+            )
+            .await?;
+        let top_level_detail = self
+            .fetch_topic_detail_base(
+                TopicDetailQuery {
+                    topic_id: query.topic_id,
+                    post_number: None,
+                    track_visit: false,
+                    force_load: false,
                     filter: None,
                     username_filters: None,
                     filter_top_level_replies: true,
@@ -251,7 +267,13 @@ impl FireCore {
             Some(post) => post,
             None => self.fetch_post_by_number(query.topic_id, 1).await?,
         };
-        let mut root_stream_ids = detail.post_stream.stream.clone();
+        let merge_order = detail.post_stream.stream.clone();
+        detail.post_stream.posts = merge_topic_posts(
+            &merge_order,
+            std::mem::take(&mut detail.post_stream.posts),
+            top_level_detail.post_stream.posts,
+        );
+        let mut root_stream_ids = top_level_detail.post_stream.stream;
         root_stream_ids.retain(|post_id| *post_id != body_post.id);
 
         let focus_root_post = match query
@@ -399,6 +421,7 @@ impl FireCore {
             .iter()
             .copied()
             .map(|post_id| ("post_ids[]", post_id.to_string()))
+            .chain(std::iter::once(("include_suggested", "false".to_string())))
             .collect::<Vec<_>>();
         let traced = self.build_json_get_request("fetch topic posts", &path, params, &[])?;
         let (trace_id, response) = self.execute_request(traced).await?;
@@ -773,6 +796,9 @@ impl FireCore {
         let mut params = Vec::new();
         if query.track_visit {
             params.push(("track_visit", "true".to_string()));
+        }
+        if query.force_load {
+            params.push(("forceLoad", "true".to_string()));
         }
         if let Some(filter) = query.filter {
             params.push(("filter", filter));

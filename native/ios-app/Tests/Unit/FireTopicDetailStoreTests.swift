@@ -340,6 +340,7 @@ final class FireTopicDetailStoreTests: XCTestCase {
     ) -> TopicDetailState {
         TopicDetailState(
             id: 42,
+            messageBusLastId: nil,
             title: "Fire Native",
             slug: "fire-native",
             postsCount: UInt32(max(stream.count, posts.count)),

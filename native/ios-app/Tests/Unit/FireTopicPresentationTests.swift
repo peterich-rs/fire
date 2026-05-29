@@ -868,6 +868,7 @@ final class FireTopicPresentationTests: XCTestCase {
     ) -> TopicDetailState {
         TopicDetailState(
             id: 42,
+            messageBusLastId: nil,
             title: "Fire Native",
             slug: "fire-native",
             postsCount: UInt32(max(stream.count, posts.count)),
@@ -931,6 +932,7 @@ final class FireTopicPresentationTests: XCTestCase {
         TopicScreenState(
             header: TopicHeaderState(
                 topicId: 42,
+                messageBusLastId: nil,
                 title: "Fire Native",
                 slug: "fire-native",
                 postsCount: UInt32(responseRows.count + 1),

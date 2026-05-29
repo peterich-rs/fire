@@ -45,12 +45,13 @@ use crate::{
 
 const MESSAGE_BUS_OPERATION: &str = "message bus poll";
 const INITIAL_MESSAGE_ID: i64 = -1;
-const MAX_BACKOFF_DELAY: Duration = Duration::from_secs(30);
+const MAX_BACKOFF_DELAY: Duration = Duration::from_secs(15);
 const MESSAGE_BUS_MIN_RESTART_INTERVAL: Duration = Duration::from_millis(150);
 const BOOTSTRAP_TRACKING_OWNER_TOKEN: &str = "__bootstrap_tracking__";
 const BOOTSTRAP_NOTIFICATION_OWNER_TOKEN: &str = "__bootstrap_notification__";
 
 static FOREGROUND_CLIENT_COUNTER: AtomicU64 = AtomicU64::new(1);
+static MESSAGE_BUS_SEQUENCE_COUNTER: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Default)]
 pub(crate) struct FireMessageBusRuntime {
@@ -88,6 +89,7 @@ struct MessageBusPollContext {
     topic_presence: Arc<Mutex<FireTopicPresenceRuntime>>,
     event_sender: UnboundedSender<MessageBusEvent>,
     client_id: String,
+    mode: MessageBusClientMode,
     task_token: u64,
 }
 
@@ -244,6 +246,7 @@ impl FireCore {
             &snapshot,
             self.snapshot_with_epoch().1,
             &client_id,
+            MessageBusClientMode::IosBackground,
             &[(channel.clone(), last_message_id)],
         )?;
         debug!(
@@ -327,6 +330,9 @@ fn spawn_poll_task(
     let subscription_updates = subscription_updates_receiver(runtime);
     runtime.poll_task_token = runtime.poll_task_token.saturating_add(1);
     let task_token = runtime.poll_task_token;
+    let mode = runtime
+        .active_mode
+        .ok_or(FireCoreError::MessageBusNotStarted)?;
     let context = MessageBusPollContext {
         base_url: core.base_url.clone(),
         network: core.network.clone(),
@@ -337,6 +343,7 @@ fn spawn_poll_task(
         topic_presence: Arc::clone(&core.topic_presence),
         event_sender,
         client_id,
+        mode,
         task_token,
     };
     Ok(runtime_handle.spawn(async move {
@@ -526,6 +533,7 @@ fn build_message_bus_poll_request(
         &state.snapshot,
         state.epoch,
         &context.client_id,
+        context.mode,
         subscriptions,
     )
 }
@@ -536,6 +544,7 @@ fn build_message_bus_poll_request_for_snapshot(
     snapshot: &SessionSnapshot,
     epoch: u64,
     client_id: &str,
+    mode: MessageBusClientMode,
     subscriptions: &[(String, i64)],
 ) -> Result<TracedRequest, FireCoreError> {
     let poll_base_url = message_bus_poll_base_url(base_url, &snapshot.bootstrap)?;
@@ -546,17 +555,23 @@ fn build_message_bus_poll_request_for_snapshot(
     for (channel, last_message_id) in subscriptions {
         serializer.append_pair(channel, &last_message_id.to_string());
     }
+    let sequence = MESSAGE_BUS_SEQUENCE_COUNTER.fetch_add(1, Ordering::SeqCst);
+    serializer.append_pair("__seq", &sequence.to_string());
 
     let mut builder = Request::builder()
         .method(Method::POST)
         .uri(uri.as_str())
-        .header("Accept", "application/json")
+        .header("Accept", "text/plain, */*; q=0.01")
         .header(
             "Content-Type",
-            "application/x-www-form-urlencoded; charset=utf-8",
+            "application/x-www-form-urlencoded; charset=UTF-8",
         )
         .header("X-SILENCE-LOGGER", "true")
-        .header("Discourse-Background", "true");
+        .header("Dont-Chunk", "true");
+
+    if mode == MessageBusClientMode::IosBackground {
+        builder = builder.header("Discourse-Background", "true");
+    }
 
     if !same_origin {
         let shared_session_key = snapshot
@@ -941,6 +956,19 @@ fn message_bus_event_from_raw(message: &RawMessageBusMessage) -> MessageBusEvent
         };
     }
 
+    if let Some(topic_id) = topic_polls_topic_id_from_channel(&message.channel) {
+        return MessageBusEvent {
+            channel: message.channel.clone(),
+            message_id: message.message_id,
+            kind: MessageBusEventKind::TopicDetail,
+            topic_id: Some(topic_id),
+            detail_event_type: Some("polls".to_string()),
+            refresh_stream: true,
+            payload_json,
+            ..MessageBusEvent::default()
+        };
+    }
+
     if let Some(topic_id) = topic_id_from_channel(&message.channel) {
         return MessageBusEvent {
             channel: message.channel.clone(),
@@ -1156,7 +1184,8 @@ fn now_unix_ms() -> u64 {
 }
 
 fn backoff_delay(failure_count: u32) -> Duration {
-    let seconds = 2_u64.saturating_pow(failure_count.min(5));
+    let exponent = failure_count.saturating_sub(1).min(4);
+    let seconds = 2_u64.saturating_pow(exponent);
     let base_delay = Duration::from_secs(seconds).min(MAX_BACKOFF_DELAY);
     let base_delay_ms = base_delay.as_millis() as u64;
     let jitter_window_ms = base_delay_ms / 4;
@@ -1323,6 +1352,14 @@ fn topic_reaction_topic_id_from_channel(channel: &str) -> Option<u64> {
     let mut parts = channel.trim_matches('/').split('/');
     match (parts.next(), parts.next(), parts.next(), parts.next()) {
         (Some("topic"), Some(topic_id), Some("reactions"), None) => topic_id.parse::<u64>().ok(),
+        _ => None,
+    }
+}
+
+fn topic_polls_topic_id_from_channel(channel: &str) -> Option<u64> {
+    let mut parts = channel.trim_matches('/').split('/');
+    match (parts.next(), parts.next(), parts.next()) {
+        (Some("polls"), Some(topic_id), None) => topic_id.parse::<u64>().ok(),
         _ => None,
     }
 }

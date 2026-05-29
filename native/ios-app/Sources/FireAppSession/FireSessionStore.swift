@@ -528,6 +528,7 @@ public actor FireSessionStore {
                 topicId: topicID,
                 postNumber: nil,
                 trackVisit: trackVisit,
+                forceLoad: trackVisit,
                 filter: nil,
                 usernameFilters: nil,
                 filterTopLevelReplies: false
@@ -931,12 +932,16 @@ public actor FireSessionStore {
         try core.messagebus().stopMessageBus(clearSubscriptions: clearSubscriptions)
     }
 
-    public func subscribeTopicDetailChannel(topicId: UInt64, ownerToken: String) throws {
+    public func subscribeTopicDetailChannel(
+        topicId: UInt64,
+        ownerToken: String,
+        lastMessageId: Int64?
+    ) throws {
         try core.messagebus().subscribeChannel(
             subscription: MessageBusSubscriptionState(
                 ownerToken: ownerToken,
                 channel: "/topic/\(topicId)",
-                lastMessageId: nil,
+                lastMessageId: lastMessageId,
                 scope: .transient
             )
         )
@@ -959,6 +964,21 @@ public actor FireSessionStore {
 
     public func unsubscribeTopicReactionChannel(topicId: UInt64, ownerToken: String) throws {
         try core.messagebus().unsubscribeChannel(ownerToken: ownerToken, channel: "/topic/\(topicId)/reactions")
+    }
+
+    public func subscribeTopicPollsChannel(topicId: UInt64, ownerToken: String) throws {
+        try core.messagebus().subscribeChannel(
+            subscription: MessageBusSubscriptionState(
+                ownerToken: ownerToken,
+                channel: "/polls/\(topicId)",
+                lastMessageId: 0,
+                scope: .transient
+            )
+        )
+    }
+
+    public func unsubscribeTopicPollsChannel(topicId: UInt64, ownerToken: String) throws {
+        try core.messagebus().unsubscribeChannel(ownerToken: ownerToken, channel: "/polls/\(topicId)")
     }
 
     public func topicReplyPresenceState(topicId: UInt64) throws -> TopicPresenceState {

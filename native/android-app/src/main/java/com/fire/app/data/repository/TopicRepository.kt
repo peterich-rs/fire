@@ -46,6 +46,8 @@ class TopicRepository(private val sessionStore: FireSessionStore) {
     suspend fun fetchTopicScreen(
         topicId: ULong,
         targetPostNumber: UInt? = null,
+        forceLoad: Boolean = true,
+        trackVisit: Boolean = true,
     ): TopicScreenState = withContext(Dispatchers.Default) {
         sessionStore.fetchTopicScreen(
             TopicScreenQueryState(
@@ -53,7 +55,8 @@ class TopicRepository(private val sessionStore: FireSessionStore) {
                 targetPostNumber = targetPostNumber,
                 rootPageSize = 10.toUShort(),
                 rowPageSize = 40.toUShort(),
-                trackVisit = true,
+                trackVisit = trackVisit,
+                forceLoad = forceLoad,
             ),
         )
     }

@@ -70,6 +70,7 @@
 ```json
 {
   "id": 123,
+  "message_bus_last_id": 456789,
   "title": "Topic title",
   "slug": "topic-title",
   "posts_count": 10,
@@ -103,6 +104,7 @@
 
 客户端实际关心的补充字段：
 
+- `message_bus_last_id`
 - `bookmarks`
 - `bookmarked`
 - `bookmark_id`
@@ -121,6 +123,7 @@
 - `accepted_answer` 在 topic detail 里常见为对象 `{ post_number, username, ... }`，未采纳时才可能是 `false`
 - `bookmarks` 实际是书签对象数组，不是单纯的 ID 列表；常见字段包括 `id`、`bookmarkable_type`、`bookmarkable_id`、`name`、`reminder_at`
 - 当前客户端会把顶层 `bookmarks[]` 里的首个对象拍平到 `bookmarked` / `bookmark_id` / `bookmark_name` / `bookmark_reminder_at`，同时也会把帖子级书签信息注入各个 `Post`
+- `message_bus_last_id` 是 topic detail payload 顶层字段，详情页订阅 `/topic/{topicId}` 时用它作为初始 MessageBus checkpoint；缺失时宿主应回退到通用 bootstrap tracking 位点或 `-1`
 - `details` 可能为 `null`
 - 私信线程通常会带 `archetype = "private_message"`，并在 `details.participants[]` 里返回会话参与者
 - `category_id`、`notification_level`、`vote_count` 以及帖子内多数字段在实际返回里都应按“可空/可字符串化标量”容错，而不要假设总是稳定的 JSON 标量类型

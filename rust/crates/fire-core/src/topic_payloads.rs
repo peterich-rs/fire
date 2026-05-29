@@ -1069,6 +1069,8 @@ struct RawBookmarkEntry {
 pub(crate) struct RawTopicDetail {
     #[serde(default, deserialize_with = "deserialize_default_u64")]
     id: u64,
+    #[serde(default, deserialize_with = "deserialize_optional_i64")]
+    message_bus_last_id: Option<i64>,
     #[serde(default, deserialize_with = "deserialize_default_string")]
     title: String,
     #[serde(default, deserialize_with = "deserialize_default_string")]
@@ -1164,6 +1166,7 @@ impl RawTopicDetail {
 
         TopicDetail {
             id: value.id,
+            message_bus_last_id: value.message_bus_last_id,
             title: value.title,
             slug: value.slug,
             posts_count: value.posts_count,
@@ -1455,6 +1458,20 @@ where
         Some(Value::Number(value)) => value.as_i64().and_then(|value| i32::try_from(value).ok()),
         Some(Value::String(value)) => value.parse::<i32>().ok(),
         Some(Value::Bool(value)) => Some(i32::from(value)),
+        Some(Value::Array(_)) | Some(Value::Object(_)) => None,
+    })
+}
+
+fn deserialize_optional_i64<'de, D>(deserializer: D) -> Result<Option<i64>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = Option::<Value>::deserialize(deserializer)?;
+    Ok(match value {
+        None | Some(Value::Null) => None,
+        Some(Value::Number(value)) => value.as_i64(),
+        Some(Value::String(value)) => value.parse::<i64>().ok(),
+        Some(Value::Bool(value)) => Some(i64::from(value)),
         Some(Value::Array(_)) | Some(Value::Object(_)) => None,
     })
 }

@@ -188,6 +188,7 @@ async fn report_topic_timings_refreshes_csrf_after_partial_network_auth_rotation
             topic_id: 123,
             post_number: None,
             track_visit: true,
+            force_load: false,
             filter: None,
             username_filters: None,
             filter_top_level_replies: false,

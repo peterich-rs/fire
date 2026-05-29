@@ -10,6 +10,7 @@ pub struct TopicDetailQuery {
     pub topic_id: u64,
     pub post_number: Option<u32>,
     pub track_visit: bool,
+    pub force_load: bool,
     pub filter: Option<String>,
     pub username_filters: Option<String>,
     pub filter_top_level_replies: bool,
@@ -269,6 +270,7 @@ pub struct TopicScreenQuery {
     pub root_page_size: u16,
     pub row_page_size: u16,
     pub track_visit: bool,
+    pub force_load: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -281,6 +283,7 @@ pub struct TopicScreen {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TopicHeader {
     pub topic_id: u64,
+    pub message_bus_last_id: Option<i64>,
     pub title: String,
     pub slug: String,
     pub category_id: Option<u64>,
@@ -569,6 +572,7 @@ pub struct TopicAiSummary {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TopicDetail {
     pub id: u64,
+    pub message_bus_last_id: Option<i64>,
     pub title: String,
     pub slug: String,
     pub posts_count: u32,
@@ -614,6 +618,7 @@ impl TopicDetail {
     pub fn header(&self) -> TopicHeader {
         TopicHeader {
             topic_id: self.id,
+            message_bus_last_id: self.message_bus_last_id,
             title: self.title.clone(),
             slug: self.slug.clone(),
             category_id: self.category_id,

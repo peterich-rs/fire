@@ -273,6 +273,7 @@ final class FireTopicDetailStore: ObservableObject {
                                 rootPageSize: 10,
                                 rowPageSize: 40,
                                 trackVisit: true,
+                                forceLoad: true
                             )
                         )
                     }
@@ -322,6 +323,7 @@ final class FireTopicDetailStore: ObservableObject {
         let posts = [screen.body.post] + responseRows.map(\.post)
         return TopicDetailState(
             id: screen.header.topicId,
+            messageBusLastId: screen.header.messageBusLastId,
             title: screen.header.title,
             slug: screen.header.slug,
             postsCount: screen.header.postsCount,
@@ -643,9 +645,16 @@ final class FireTopicDetailStore: ObservableObject {
         guard let store = appViewModel.currentSessionStore() else { return }
 
         do {
-            try await store.subscribeTopicDetailChannel(topicId: topicId, ownerToken: ownerToken)
+            let lastMessageId = topicScreens[topicId]?.header.messageBusLastId
+            try await store.subscribeTopicDetailChannel(
+                topicId: topicId,
+                ownerToken: ownerToken,
+                lastMessageId: lastMessageId
+            )
             try await store.subscribeTopicReactionChannel(topicId: topicId, ownerToken: ownerToken)
+            try await store.subscribeTopicPollsChannel(topicId: topicId, ownerToken: ownerToken)
         } catch {
+            try? await store.unsubscribeTopicPollsChannel(topicId: topicId, ownerToken: ownerToken)
             try? await store.unsubscribeTopicReactionChannel(topicId: topicId, ownerToken: ownerToken)
             try? await store.unsubscribeTopicDetailChannel(topicId: topicId, ownerToken: ownerToken)
             return
@@ -666,6 +675,7 @@ final class FireTopicDetailStore: ObservableObject {
                 await self.endTopicReplyPresence(topicId: topicId)
                 self.topicPresenceUsersByTopic[topicId] = []
                 try? await store.unsubscribeTopicReplyPresenceChannel(topicId: topicId, ownerToken: ownerToken)
+                try? await store.unsubscribeTopicPollsChannel(topicId: topicId, ownerToken: ownerToken)
                 try? await store.unsubscribeTopicReactionChannel(topicId: topicId, ownerToken: ownerToken)
                 try? await store.unsubscribeTopicDetailChannel(topicId: topicId, ownerToken: ownerToken)
             }
@@ -1127,6 +1137,7 @@ final class FireTopicDetailStore: ObservableObject {
                         rootPageSize: 10,
                         rowPageSize: 40,
                         trackVisit: false,
+                        forceLoad: false
                     )
                 )
             }
@@ -1154,6 +1165,7 @@ final class FireTopicDetailStore: ObservableObject {
                                 rootPageSize: 10,
                                 rowPageSize: 40,
                                 trackVisit: false,
+                                forceLoad: false
                             )
                         )
                     }

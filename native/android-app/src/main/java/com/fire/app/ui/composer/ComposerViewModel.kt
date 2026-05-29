@@ -22,6 +22,9 @@ class ComposerViewModel(
     private val _result = MutableStateFlow<TopicPostState?>(null)
     val result = _result.asStateFlow()
 
+    private val _topicCreated = MutableStateFlow<ULong?>(null)
+    val topicCreated = _topicCreated.asStateFlow()
+
     private val _error = MutableStateFlow<String?>(null)
     val error = _error.asStateFlow()
 
@@ -30,6 +33,7 @@ class ComposerViewModel(
         viewModelScope.launch {
             _isSubmitting.value = true
             _error.value = null
+            _result.value = null
             try {
                 val input = TopicReplyRequestState(
                     topicId = topicId,
@@ -46,11 +50,12 @@ class ComposerViewModel(
         }
     }
 
-    fun submitTopic(title: String, body: String, categoryId: ULong?, tags: List<String>) {
+    fun submitTopic(title: String, body: String, categoryId: ULong, tags: List<String>) {
         if (_isSubmitting.value) return
         viewModelScope.launch {
             _isSubmitting.value = true
             _error.value = null
+            _topicCreated.value = null
             try {
                 val input = TopicCreateRequestState(
                     title = title,
@@ -59,7 +64,7 @@ class ComposerViewModel(
                     tags = tags,
                 )
                 val topicId = sessionStore.createTopic(input)
-                // Result is just the topic ID; the caller can navigate to the topic
+                _topicCreated.value = topicId
             } catch (e: Exception) {
                 _error.value = e.message
             } finally {
@@ -77,7 +82,7 @@ class ComposerViewModel(
                 val input = PrivateMessageCreateRequestState(
                     title = title,
                     raw = body,
-                    targetRecipients = targetUsername,
+                    targetRecipients = listOf(targetUsername),
                 )
                 sessionStore.createPrivateMessage(input)
             } catch (e: Exception) {

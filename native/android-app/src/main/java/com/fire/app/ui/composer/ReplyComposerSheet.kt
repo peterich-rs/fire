@@ -8,15 +8,19 @@ import android.view.ViewGroup
 import android.widget.EditText
 import android.widget.ProgressBar
 import android.widget.TextView
+import android.widget.Toast
+import androidx.lifecycle.lifecycleScope
 import com.fire.app.R
 import com.fire.app.session.FireSessionStoreRepository
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.launch
 
 class ReplyComposerSheet : BottomSheetDialogFragment() {
 
     private var topicId: ULong = 0u
     private var replyToPostNumber: UInt? = null
-    private var onReplySubmitted: ((Unit) -> Unit)? = null
+    private var onReplySubmitted: (() -> Unit)? = null
 
     private lateinit var bodyInput: EditText
     private lateinit var submitButton: TextView
@@ -62,9 +66,31 @@ class ReplyComposerSheet : BottomSheetDialogFragment() {
             viewModel?.submitReply(topicId, body, replyToPostNumber)
         }
 
-        viewLifecycleOwner.lifecycleScope?.let { scope ->
-            viewModel?.let { vm ->
-                kotlinx.coroutines.flow.collectLatest
+        viewModel?.let { vm ->
+            viewLifecycleOwner.lifecycleScope.launch {
+                vm.isSubmitting.collectLatest { submitting ->
+                    progressBar.visibility = if (submitting) View.VISIBLE else View.GONE
+                    submitButton.isEnabled = !submitting
+                }
+            }
+            viewLifecycleOwner.lifecycleScope.launch {
+                vm.result.collectLatest { result ->
+                    if (result != null) {
+                        onReplySubmitted?.invoke()
+                        dismiss()
+                    }
+                }
+            }
+            viewLifecycleOwner.lifecycleScope.launch {
+                vm.error.collectLatest { error ->
+                    if (error != null) {
+                        Toast.makeText(
+                            requireContext(),
+                            error.ifBlank { getString(R.string.topic_detail_reply_error) },
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                    }
+                }
             }
         }
     }
@@ -84,7 +110,7 @@ class ReplyComposerSheet : BottomSheetDialogFragment() {
         fun newInstance(
             topicId: Long,
             replyToPostNumber: Int? = null,
-            onReplySubmitted: ((Unit) -> Unit)? = null,
+            onReplySubmitted: (() -> Unit)? = null,
         ): ReplyComposerSheet {
             return ReplyComposerSheet().apply {
                 arguments = Bundle().apply {

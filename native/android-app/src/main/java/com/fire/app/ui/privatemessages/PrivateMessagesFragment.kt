@@ -49,7 +49,7 @@ class PrivateMessagesFragment : Fragment() {
                 topicId = row.topic.id.toLong(),
                 topicSlug = row.topic.slug,
                 topicTitle = row.topic.title,
-                targetPostNumber = null,
+                targetPostNumber = -1,
             )
             findNavController().navigate(action)
         }

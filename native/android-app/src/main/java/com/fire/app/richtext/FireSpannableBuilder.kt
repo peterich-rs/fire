@@ -49,14 +49,11 @@ object FireSpannableBuilder {
         nodes: List<FireRichTextNode>,
         context: Context,
     ): SpannableStringBuilder {
-        val attrs = intArrayOf(R.attr.colorPrimary, R.attr.colorPrimaryDark)
-        val ta = context.theme.obtainStyledAttributes(attrs)
-        val accent = ta.getColor(0, 0xFFE8632E.toInt())
+        val accent = context.getColor(R.color.fire_accent)
         val textPrimary = context.getColor(R.color.fire_text_primary)
         val codeBg = context.getColor(R.color.fire_code_background)
         val quoteStripe = context.getColor(R.color.fire_quote_stripe)
         val linkColor = context.getColor(R.color.fire_link)
-        ta.recycle()
 
         val renderContext = RenderContext(
             textColor = textPrimary,
@@ -345,7 +342,7 @@ object FireSpannableBuilder {
     private fun ensureBlockBoundary(builder: SpannableStringBuilder) {
         trimTrailingSpaces(builder)
         if (builder.isEmpty()) return
-        val trailingNewlines = builder.reversed().takeWhile { it == '\n' }.count
+        val trailingNewlines = builder.reversed().takeWhile { it == '\n' }.count()
         for (i in trailingNewlines until 2) {
             builder.append('\n')
         }

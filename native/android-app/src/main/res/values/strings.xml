@@ -64,6 +64,7 @@
     <string name="create_topic_no_categories">No writable topic categories are available.</string>
     <string name="create_topic_title_min_length">Title must be at least %1$s characters.</string>
     <string name="create_topic_body_min_length">Body must be at least %1$s characters.</string>
+    <string name="create_topic_error">Unable to create topic.</string>
     <string name="create_topic_tags_required">This category requires at least %1$s tag(s).</string>
     <string name="create_topic_tags_not_allowed">These tags are not allowed in the selected category: %1$s</string>
     <string name="create_topic_category_required_tags">%1$s required tag(s)</string>

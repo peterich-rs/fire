@@ -30,11 +30,10 @@ Current host-side app wiring lives under `src/main/java/com/fire/app/` plus `src
   - parses `more_topics_url` into a native feed page cursor
   - normalizes topic/post timestamps for inline rendering
 - `MainActivity.kt`
-  - restores the persisted session snapshot on launch and after login
-  - renders a paginated topic browser with feed filters, private-message inbox/sent filters, bookmarks, read history, category-aware Rust-owned topic rows, and a focused selected-topic summary
-  - opens a native new-topic composer from the feed shell, validates the shared title/body/category/tag constraints, submits through shared Rust `createTopic`, then opens the created topic detail
-  - exposes a category notification picker from the feed shell, using bootstrap `site.categories[].notificationLevel` for the current value and shared Rust `setCategoryNotificationLevel` for Muted / Regular / Tracking / Watching / Watching First Post updates
-  - opens topic detail in a dedicated screen instead of fetching and rendering it inline in the feed host
+  - hosts the Navigation Component `NavHostFragment` and bottom navigation shell
+  - starts the graph at `OnboardingFragment`; onboarding restores the persisted Rust session and routes authenticated users to Home
+  - hides bottom navigation on onboarding/login destinations so unauthenticated users cannot jump into API-backed tabs
+  - refreshes the notification badge from Rust-backed counters when the shell starts
 - `DiagnosticsActivity.kt`, `LogViewerActivity.kt`, `RequestTraceDetailActivity.kt`
   - surface a native diagnostics entry point
   - list readable/shared log files from the Rust workspace
@@ -74,20 +73,20 @@ Current host-side app wiring lives under `src/main/java/com/fire/app/` plus `src
 - `FireCookedHtmlRenderer.kt`
   - renders topic-detail cooked post bodies from the shared Rust `parseCookedHtml` AST instead of reparsing raw HTML in Kotlin
   - currently covers native paragraph, heading, quote, list, code block, details/spoiler, table text fallback, link/mention/hashtag spans, and image/onebox/iframe/attachment fallback cards; compact reply-context rows still use the shared plain-text helper for previews
-- `LoginActivity.kt`
-  - presents login as a full-screen activity with visible page title, URL, and loading state
-  - exposes back, forward, home, and reload controls
-  - routes the system back button to `WebView.goBack()` before closing the activity
+- `LoginWebViewFragment.kt`
+  - presents login inside the main navigation graph with visible page title, URL, and loading state
   - enables third-party cookies and DOM storage so OAuth-style login hops can round-trip cleanly
+  - syncs cookies, page HTML, CSRF, username, and browser user agent through `FireWebViewLoginCoordinator`
+  - routes successful login back to Home while clearing onboarding from the back stack
 
 Expected integration flow:
 
 1. Run `./gradlew assembleDebug` or `./gradlew assembleRelease`; Gradle will invoke the matching UniFFI sync task before `preDebugBuild` / `preReleaseBuild`.
 2. Keep the files in `src/main/java/com/fire/app/session/` in the same Android module.
-3. Create a single `FireSessionStore` instance during app startup and call `restorePersistedSessionIfAvailable()`.
-4. Drive the login `WebView` through `FireWebViewLoginCoordinator.completeLogin(webView)`.
-5. After login or restore, render the inline topic browser from `MainActivity`.
-6. On explicit logout, call `FireWebViewLoginCoordinator.logout()` and clear host-side `CookieManager` entries if desired.
+3. Let the navigation graph start at `OnboardingFragment`; it restores the persisted session through `SessionRepository.restoreSession()`.
+4. Route unauthenticated users into `LoginWebViewFragment` and drive the login `WebView` through `FireWebViewLoginCoordinator.completeLogin(webView)`.
+5. After login or restore, navigate to `homeFragment` and use the bottom navigation tabs for API-backed screens.
+6. On explicit logout, call `FireSessionStore.logout()`, clear host-side `CookieManager` entries if desired, and reset navigation back to onboarding.
 
 Workspace note:
 
@@ -103,7 +102,7 @@ Current browser note:
 - The Android shell now loads the real Rust session/topic APIs through generated Kotlin UniFFI bindings.
 - Network-backed UniFFI APIs now surface to Kotlin as native `suspend fun` calls instead of a synchronous wrapper.
 - The UniFFI boundary now returns all exported host interactions through `FireUniFfiError`; if Rust panics, the boundary logs the panic, returns an `Internal` error, and poisons the current `FireAppCore` so the host can recreate it instead of continuing on corrupted state.
-- `MainActivity` still renders a compact browser shell, but the data path is no longer stubbed.
+- The main navigation shell is native and Rust-backed; the data path is no longer stubbed.
 - The current browser shell now supports `Load More` pagination, category metadata derived from the shared Rust bootstrap snapshot, and Rust-owned row/status presentation data instead of rebuilding those labels on Android.
 - The browser filter bar now exposes Rust-backed private-message inbox and sent-message lists; rows show Discourse participants when the response provides them and open the same native topic detail screen as normal topic lists.
 - The browser filter bar now also exposes Rust-backed bookmarks and read history. Bookmark rows show bookmark post/name/reminder metadata and open topic detail at `bookmarkedPostNumber` when available; read-history rows open at `lastReadPostNumber`.
@@ -132,7 +131,7 @@ Note:
 - The generated Kotlin bindings are configured by `rust/crates/fire-uniffi/uniffi.toml`, split across `uniffi.fire_uniffi`, `uniffi.fire_uniffi_diagnostics`, `uniffi.fire_uniffi_messagebus`, `uniffi.fire_uniffi_notifications`, `uniffi.fire_uniffi_search`, `uniffi.fire_uniffi_session`, `uniffi.fire_uniffi_topics`, `uniffi.fire_uniffi_types`, and `uniffi.fire_uniffi_user` (one per namespace), and load `libfire_uniffi.so` through JNA (single cdylib shared across every namespace).
 - Android Rust targets now inherit `-Wl,-z,max-page-size=16384` from `.cargo/config.toml` so packaged shared libraries are aligned for Android 15+ 16 KB page-size compatibility.
 - `assembleDebug` now packages Rust debug `.so` outputs and `assembleRelease` packages Rust release `.so` outputs.
-- Build with a full JDK that includes `jlink`. On this machine, `ANDROID_HOME=$HOME/Library/Android/sdk ANDROID_SDK_ROOT=$HOME/Library/Android/sdk JAVA_HOME=/Library/Java/JavaVirtualMachines/temurin-17.jdk/Contents/Home ./gradlew assembleDebug` and `./gradlew assembleRelease` are verified working.
+- Build with a full JDK that includes `jlink`. On this machine, `ANDROID_HOME=/Users/Shared/Android/sdk ANDROID_SDK_ROOT=/Users/Shared/Android/sdk JAVA_HOME=/Library/Java/JavaVirtualMachines/temurin-21.jdk/Contents/Home ./gradlew assembleDebug` and `./gradlew assembleRelease` are verified working.
 - The Gradle build expects an Android SDK/NDK installation. By default the sync script resolves the NDK from `$ANDROID_NDK_HOME`, `$ANDROID_NDK_ROOT`, or `$ANDROID_HOME/ndk/28.2.13676358`.
 - Async UniFFI bindings rely on `kotlinx-coroutines-core`, which is now declared directly by this module.
 - Android does not have an iOS-style runtime "internet permission" prompt for ordinary web access. `android.permission.INTERNET` is a normal install-time permission, so there is no separate network-permission preflight to mirror.

@@ -1,13 +1,13 @@
 package com.fire.app
 
 import android.os.Bundle
+import android.view.View
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import androidx.navigation.fragment.NavHostFragment
 import androidx.navigation.ui.setupWithNavController
 import com.fire.app.databinding.ActivityMainBinding
 import com.fire.app.session.FireSessionStoreRepository
-import com.google.android.material.badge.BadgeDrawable
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -26,6 +26,13 @@ class MainActivity : AppCompatActivity() {
         val navController = navHostFragment.navController
 
         binding.bottomNav.setupWithNavController(navController)
+        navController.addOnDestinationChangedListener { _, destination, _ ->
+            binding.bottomNav.visibility = when (destination.id) {
+                R.id.onboardingFragment,
+                R.id.loginWebViewFragment -> View.GONE
+                else -> View.VISIBLE
+            }
+        }
 
         refreshNotificationBadge()
     }

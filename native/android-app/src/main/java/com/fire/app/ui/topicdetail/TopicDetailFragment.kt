@@ -72,7 +72,7 @@ class TopicDetailFragment : Fragment() {
         })
 
         val topicId = args.topicId.toULong()
-        val targetPostNumber = args.targetPostNumber?.toUInt()
+        val targetPostNumber = args.targetPostNumber.takeIf { it > 0 }?.toUInt()
 
         viewModel?.let { vm ->
             viewLifecycleOwner.lifecycleScope.launch {

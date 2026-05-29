@@ -2,7 +2,7 @@
 <navigation xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/fire_nav_graph"
-    app:startDestination="@id/homeFragment">
+    app:startDestination="@id/onboardingFragment">
 
     <fragment
         android:id="@+id/onboardingFragment"
@@ -93,8 +93,7 @@
         <argument
             android:name="targetPostNumber"
             app:argType="integer"
-            app:nullable="true"
-            android:defaultValue="@null" />
+            android:defaultValue="-1" />
         <action
             android:id="@+id/action_topicDetail_to_profile"
             app:destination="@id/profileFragment" />

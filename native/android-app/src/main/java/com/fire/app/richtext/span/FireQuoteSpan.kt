@@ -27,7 +27,7 @@ class FireQuoteSpan(
         start: Int,
         end: Int,
         first: Boolean,
-        layout: Layout?,
+        layout: Layout,
     ) {
         val style = p.style
         val color = p.color

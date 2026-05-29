@@ -52,7 +52,7 @@ class ProfileFragment : Fragment() {
                 // Default to logged-in user's profile
                 viewLifecycleOwner.lifecycleScope.launch {
                     val session = sessionStore.snapshot()
-                    val name = session.currentUser?.username ?: return@launch
+                    val name = session.bootstrap.currentUsername ?: return@launch
                     viewModel?.loadProfile(name)
                 }
                 return@run null

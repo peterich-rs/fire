@@ -75,7 +75,7 @@ class NotificationsFragment : Fragment() {
                     topicId = topicId.toLong(),
                     topicSlug = item.slug,
                     topicTitle = item.fancyTitle,
-                    targetPostNumber = item.postNumber?.toInt(),
+                    targetPostNumber = item.postNumber?.toInt() ?: -1,
                 )
             findNavController().navigate(action)
         }

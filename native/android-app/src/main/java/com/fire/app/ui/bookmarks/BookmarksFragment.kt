@@ -48,7 +48,7 @@ class BookmarksFragment : Fragment() {
                 topicId = row.topic.id.toLong(),
                 topicSlug = row.topic.slug,
                 topicTitle = row.topic.title,
-                targetPostNumber = null,
+                targetPostNumber = -1,
             )
             findNavController().navigate(action)
         }
@@ -59,7 +59,7 @@ class BookmarksFragment : Fragment() {
         // Get username and set up paging
         viewLifecycleOwner.lifecycleScope.launch {
             val session = sessionStore.snapshot()
-            val username = session.currentUser?.username ?: return@launch
+            val username = session.bootstrap.currentUsername ?: return@launch
             viewModel = BookmarksViewModel.create(sessionStore, username)
 
             viewModel?.bookmarksPagingFlow()?.collectLatest { pagingData ->

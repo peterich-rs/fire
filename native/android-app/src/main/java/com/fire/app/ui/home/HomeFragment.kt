@@ -55,7 +55,7 @@ class HomeFragment : Fragment() {
                 topicId = topicId.toLong(),
                 topicTitle = title,
                 topicSlug = row.topic.slug,
-                targetPostNumber = null,
+                targetPostNumber = -1,
             )
             findNavController().navigate(action)
         }

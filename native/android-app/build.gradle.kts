@@ -3,6 +3,7 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 plugins {
     id("com.android.application") version "8.11.2"
     id("org.jetbrains.kotlin.android") version "2.2.0"
+    id("androidx.navigation.safeargs.kotlin") version "2.8.9"
 }
 
 val fireRepoRoot = rootDir.parentFile?.parentFile

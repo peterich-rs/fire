@@ -58,7 +58,7 @@ class SearchFragment : Fragment() {
                     topicId = topic.id.toLong(),
                     topicSlug = topic.slug,
                     topicTitle = topic.title,
-                    targetPostNumber = null,
+                    targetPostNumber = -1,
                 )
                 findNavController().navigate(action)
             },

@@ -22,7 +22,7 @@ class FireCfClearanceService(private val sessionStore: FireSessionStore) {
     fun pollClearanceStatus(intervalMs: Long = 5000): Flow<Boolean> = flow {
         while (true) {
             val state = sessionStore.snapshot()
-            val canRead = state.canReadAuthenticatedApi
+            val canRead = state.readiness.canReadAuthenticatedApi
             emit(canRead)
             if (canRead) break
             delay(intervalMs)

@@ -1,0 +1,39 @@
+package com.fire.app.data.paging
+
+import androidx.paging.PagingSource
+import androidx.paging.PagingState
+import com.fire.app.data.repository.NotificationRepository
+import uniffi.fire_uniffi_notifications.NotificationItemState
+
+class NotificationPagingSource(
+    private val repository: NotificationRepository,
+) : PagingSource<UInt, NotificationItemState>() {
+
+    override fun getRefreshKey(state: PagingState<UInt, NotificationItemState>): UInt? {
+        return state.anchorPosition?.let { position ->
+            state.closestItemToPosition(position)?.id?.toUInt()
+        }
+    }
+
+    override suspend fun load(params: LoadParams<UInt>): LoadResult<UInt, NotificationItemState> {
+        val offset = when (params) {
+            is LoadParams.Refresh -> params.key ?: 0u
+            is LoadParams.Append -> params.key
+            is LoadParams.Prepend -> return LoadResult.Page(emptyList(), null, null)
+        }
+
+        return try {
+            val result = repository.fetchNotifications(
+                limit = params.loadSize.toUInt(),
+                offset = offset,
+            )
+            LoadResult.Page(
+                data = result.notifications,
+                prevKey = if (offset == 0u) null else offset,
+                nextKey = result.nextOffset,
+            )
+        } catch (e: Exception) {
+            LoadResult.Error(e)
+        }
+    }
+}

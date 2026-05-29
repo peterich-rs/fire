@@ -272,9 +272,11 @@ impl FireCore {
         };
         let focus_root_index = focus_root_post_number
             .and_then(|post_number| session.root_index_by_post_number.get(&post_number).copied());
-        let start_offset = focus_root_index
-            .map(|index| index.saturating_sub(usize::from(page_size.saturating_sub(1))))
-            .unwrap_or(0);
+        let initial_page_size = initial_topic_response_page_size(
+            page_size,
+            focus_root_index,
+            session.root_stream_ids.len(),
+        );
 
         let session_id = {
             let mut runtime = self
@@ -293,7 +295,8 @@ impl FireCore {
             .load_topic_response_page(
                 query.topic_id,
                 session_id,
-                start_offset,
+                0,
+                initial_page_size,
                 page_size,
                 query
                     .target_post_number
@@ -316,6 +319,7 @@ impl FireCore {
             query.cursor.topic_id,
             query.cursor.session_id,
             query.cursor.next_root_offset as usize,
+            normalized_root_page_size(query.cursor.page_size),
             normalized_root_page_size(query.cursor.page_size),
             None,
         )
@@ -456,6 +460,7 @@ impl FireCore {
         session_id: u64,
         start_offset: usize,
         page_size: u16,
+        cursor_page_size: u16,
         focused_post_number: Option<u32>,
     ) -> Result<TopicResponsePage, FireCoreError> {
         loop {
@@ -512,6 +517,7 @@ impl FireCore {
                     session,
                     start_offset,
                     page_size,
+                    cursor_page_size,
                     focused_post_number,
                 ));
             }
@@ -847,6 +853,7 @@ fn assemble_topic_response_page(
     session: &TopicResponseSession,
     start_offset: usize,
     page_size: u16,
+    cursor_page_size: u16,
     focused_post_number: Option<u32>,
 ) -> TopicResponsePage {
     let end_offset = start_offset
@@ -884,7 +891,7 @@ fn assemble_topic_response_page(
         topic_id: session.header.topic_id,
         session_id: session.session_id,
         next_root_offset: end_offset as u32,
-        page_size,
+        page_size: cursor_page_size,
     });
 
     TopicResponsePage {
@@ -899,20 +906,10 @@ fn assemble_topic_response_page(
 
 fn build_branch_index(root_post: TopicPost, branch_posts: Vec<TopicPost>) -> TopicBranchIndex {
     let started_at = Instant::now();
-    debug_assert!(
-        {
-            let unique_post_ids = branch_posts
-                .iter()
-                .map(|post| post.id)
-                .collect::<HashSet<_>>();
-            unique_post_ids.len() == branch_posts.len()
-        },
-        "build_branch_index received duplicate post IDs"
-    );
 
     let mut posts_by_id = HashMap::new();
     let mut posts_by_number = HashMap::new();
-    for post in branch_posts {
+    for post in deduplicate_topic_posts_by_id(branch_posts) {
         posts_by_number.insert(post.post_number, post.clone());
         posts_by_id.insert(post.id, post);
     }
@@ -1202,6 +1199,33 @@ fn normalized_root_page_size(page_size: u16) -> u16 {
     }
 }
 
+fn initial_topic_response_page_size(
+    page_size: u16,
+    focus_root_index: Option<usize>,
+    total_root_count: usize,
+) -> u16 {
+    let default_page_size = usize::from(page_size);
+    let focused_page_size = focus_root_index
+        .map(|index| index.saturating_add(1))
+        .unwrap_or(default_page_size);
+    let requested_page_size = default_page_size
+        .max(focused_page_size)
+        .min(total_root_count.max(default_page_size))
+        .min(usize::from(u16::MAX));
+    u16::try_from(requested_page_size).unwrap_or(u16::MAX)
+}
+
+fn deduplicate_topic_posts_by_id(posts: Vec<TopicPost>) -> Vec<TopicPost> {
+    let mut seen_post_ids = HashSet::new();
+    let mut deduplicated = Vec::with_capacity(posts.len());
+    for post in posts {
+        if seen_post_ids.insert(post.id) {
+            deduplicated.push(post);
+        }
+    }
+    deduplicated
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1391,6 +1415,14 @@ mod tests {
     }
 
     #[test]
+    fn initial_topic_response_page_size_expands_to_focused_root_without_changing_default() {
+        assert_eq!(initial_topic_response_page_size(10, None, 100), 10);
+        assert_eq!(initial_topic_response_page_size(10, Some(3), 100), 10);
+        assert_eq!(initial_topic_response_page_size(10, Some(12), 100), 13);
+        assert_eq!(initial_topic_response_page_size(10, Some(12), 8), 10);
+    }
+
+    #[test]
     fn assemble_topic_response_page_paginates_by_root_branch() {
         let body_post = make_topic_post(1, None);
         let first_root = make_topic_post(2, Some(1));
@@ -1432,7 +1464,7 @@ mod tests {
             ]),
         };
 
-        let page = assemble_topic_response_page(&session, 0, 1, Some(first_child.post_number));
+        let page = assemble_topic_response_page(&session, 0, 1, 1, Some(first_child.post_number));
 
         assert_eq!(page.rows.len(), 2);
         assert_eq!(page.rows[0].post.post_number, first_root.post_number);
@@ -1457,13 +1489,16 @@ mod tests {
         );
     }
 
-    #[cfg(debug_assertions)]
     #[test]
-    #[should_panic(expected = "build_branch_index received duplicate post IDs")]
-    fn build_branch_index_debug_asserts_on_duplicate_post_ids() {
+    fn build_branch_index_deduplicates_duplicate_post_ids() {
         let root_post = make_topic_post(2, Some(1));
-        let duplicate = make_topic_post(3, Some(2));
+        let child_post = make_topic_post(3, Some(2));
 
-        let _ = build_branch_index(root_post, vec![duplicate.clone(), duplicate]);
+        let branch = build_branch_index(
+            root_post.clone(),
+            vec![root_post.clone(), child_post.clone(), child_post.clone()],
+        );
+
+        assert_eq!(branch.ordered_post_ids, vec![root_post.id, child_post.id]);
     }
 }

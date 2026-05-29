@@ -98,7 +98,7 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
 - `App/Stores/FireTopicDetailStore.swift`
   - owns topic-detail cache, anchor post numbers, post hydration/pagination, reply presence, and topic-detail mutation flags
   - now builds a host-only render cache for timeline rows plus cooked text/image payloads, and drops duplicated Swift-owned `thread` / `flatPosts` copies after receipt to keep Rust as the domain owner
-  - now consumes Rust-owned `TopicScreen` / `TopicResponsePage` results, keeping topic detail split into `header + body + response` and paging replies by top-level branch instead of hydrating arbitrary `post_stream` windows on the host
+  - now consumes Rust-owned `TopicScreen` / `TopicResponsePage` results, keeping topic detail split into `header + body + response` and paging replies by top-level branch instead of hydrating arbitrary `post_stream` windows on the host; targeted opens still keep the response anchored from the first reply while Rust expands the initial response through the target branch
   - now caches Rust-fetched per-post reply context from `fetchPostReplyIds` / batched `fetchTopicPosts` plus `fetchPostReplyHistory`, falling back to `fetchPostReplies` only when the reply-ID tree is empty, and hydrates any returned posts back into the active topic detail cache when they belong to the current stream
   - now loads Rust-fetched topic AI summaries non-blockingly when the detail payload advertises `summarizable`, `hasCachedSummary`, or `hasSummary`, caching success/unavailable/error state per topic without blocking the main detail body
   - keeps topic-detail subscription, presence heartbeat, quick reply, reaction toggles, and post-edit refresh reconciliation out of `FireAppViewModel`

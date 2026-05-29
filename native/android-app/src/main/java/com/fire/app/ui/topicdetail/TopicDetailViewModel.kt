@@ -62,7 +62,7 @@ class TopicDetailViewModel(
             _isLoading.value = true
             _errorMessage.value = null
             try {
-                val fetched = topicRepository.fetchTopicScreen(topicId, null)
+                val fetched = topicRepository.fetchTopicScreen(topicId, targetPostNumber)
                 screen = fetched
                 responseRows = fetched.response.rows.toMutableList()
                 cursor = fetched.response.nextCursor

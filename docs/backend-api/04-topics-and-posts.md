@@ -90,7 +90,7 @@
 
 - 用途：分类筛选话题列表
 - Query：
-  - `tags[]?: string[]`
+  - `tags[]?: string[]`，分类内按标签过滤时使用；当前共享 Rust 层会把 `TopicListQuery.tag` 与 `additional_tags[]` 都编码成重复的 `tags[]`
   - `page?: integer`
   - `period?: string`
   - `order?: string`
@@ -100,7 +100,7 @@
 ### `GET /tag/{tag}/l/{filter}.json`
 
 - 用途：标签筛选话题列表
-- 宿主备注：Android 首页 row tag 点击会把所选标签作为 `TopicListQuery.tag` 传入共享 Rust 层，并与当前 Latest / New / Unread / Unseen / Hot / Top 筛选组合成 `/tag/{tag}/l/{filter}.json`。
+- 宿主备注：iOS / Android 首页 row tag 点击会把第一个标签作为 `TopicListQuery.tag` 传入共享 Rust 层，并与当前 Latest / New / Unread / Unseen / Hot / Top 筛选组合成 `/tag/{tag}/l/{filter}.json`；多标签会把剩余标签作为重复的 `tags[]`，并设置 `match_all_tags=true`。
 - Query：
   - `tags[]?: string[]`，多标签时追加剩余标签
   - `match_all_tags?: "true"`

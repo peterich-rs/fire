@@ -9,7 +9,12 @@ import uniffi.fire_uniffi_types.TopicRowState
 class TopicListPagingSource(
     private val repository: TopicRepository,
     private val kind: TopicListKindState,
+    private val categorySlug: String? = null,
+    private val categoryId: ULong? = null,
+    private val parentCategorySlug: String? = null,
     private val tag: String? = null,
+    private val additionalTags: List<String> = emptyList(),
+    private val matchAllTags: Boolean = false,
 ) : PagingSource<UInt, TopicRowState>() {
 
     override fun getRefreshKey(state: PagingState<UInt, TopicRowState>): UInt? {
@@ -24,13 +29,18 @@ class TopicListPagingSource(
         return try {
             val response = repository.fetchTopicList(
                 kind = kind,
-                page = page,
+                page = params.key,
+                categorySlug = categorySlug,
+                categoryId = categoryId,
+                parentCategorySlug = parentCategorySlug,
                 tag = tag,
+                additionalTags = additionalTags,
+                matchAllTags = matchAllTags,
             )
             val rows = response.rows
             LoadResult.Page(
                 data = rows,
-                prevKey = if (page == 0u) null else page,
+                prevKey = if (page == 0u) null else page - 1u,
                 nextKey = response.nextPage,
             )
         } catch (e: Exception) {

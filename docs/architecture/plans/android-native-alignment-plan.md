@@ -643,6 +643,7 @@ implementation("io.coil-kt:coil:2.7.0")
 - 分页预取加载
 - Category / Tag 筛选
 - Topic 行点击 → 导航到 TopicDetail
+- 当前 Android 首页实现已补齐父分类 tab、多个已选标签 chip、下拉刷新状态、读请求后的 session 持久化，以及基于 Rust MessageBus 事件的 debounced Paging refresh；分类 + 标签请求复用共享 Rust 的 `TopicListQuery` 编码。
 
 **验证**：冷启动 → 登录 → 首页列表加载 → 下拉刷新 → 滚动分页 → 切换分类。
 

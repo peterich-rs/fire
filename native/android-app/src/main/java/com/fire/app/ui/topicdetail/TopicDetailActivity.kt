@@ -80,7 +80,7 @@ class TopicDetailActivity : AppCompatActivity() {
             finish()
         }
         binding.topicDetailToolbar.title = parsedRoute.title
-            ?: getString(R.string.topic_detail_title_fallback, parsedRoute.topicId)
+            ?: getString(R.string.topic_detail_title_fallback, parsedRoute.topicId.toString())
 
         val sessionStore = FireSessionStoreRepository.get(this)
         viewModel = TopicDetailViewModel.create(sessionStore)

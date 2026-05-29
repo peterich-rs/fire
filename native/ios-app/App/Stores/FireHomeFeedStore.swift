@@ -361,6 +361,7 @@ final class FireHomeFeedStore: ObservableObject {
             let fetchWithRecovery: () async throws -> TopicListState = {
                 try await self.appViewModel.performWithCloudflareRecovery(
                     operation: operationDescription,
+                    originURL: self.appViewModel.siteRootRecoveryURL,
                     work: fetch
                 )
             }

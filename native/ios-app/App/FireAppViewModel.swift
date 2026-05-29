@@ -50,6 +50,7 @@ struct FireCloudflareChallengeContext: Equatable {
     let id: UUID
     let operation: String
     let message: String
+    let originURL: URL?
 }
 
 enum FireAuthPresentationState: Identifiable, Equatable {
@@ -1412,6 +1413,19 @@ final class FireAppViewModel: ObservableObject {
         await refreshHomeFeedIfPossible(force: force)
     }
 
+    var siteRootRecoveryURL: URL? {
+        let trimmed = session.bootstrap.baseUrl.trimmingCharacters(in: .whitespacesAndNewlines)
+        let rawURL = trimmed.isEmpty ? "https://linux.do/" : trimmed
+        if rawURL.hasSuffix("/") {
+            return URL(string: rawURL)
+        }
+        return URL(string: "\(rawURL)/")
+    }
+
+    var authPresentationURL: URL {
+        pendingCloudflareRecovery?.context.originURL ?? loginURL
+    }
+
     private func clearTopicState() {
         homeFeedStore?.reset(resetTopicKind: true)
         topicDetailStore?.reset()
@@ -1589,6 +1603,7 @@ final class FireAppViewModel: ObservableObject {
 
     func performWithCloudflareRecovery<T>(
         operation: String,
+        originURL: URL? = nil,
         work: @escaping () async throws -> T
     ) async throws -> T {
         do {
@@ -1609,12 +1624,15 @@ final class FireAppViewModel: ObservableObject {
             }
         }
 
-        try await beginCloudflareRecoveryAndWait(operation: operation)
+        try await beginCloudflareRecoveryAndWait(
+            operation: operation,
+            originURL: originURL ?? siteRootRecoveryURL
+        )
         try Task.checkCancellation()
         return try await work()
     }
 
-    private func beginCloudflareRecoveryAndWait(operation: String) async throws {
+    private func beginCloudflareRecoveryAndWait(operation: String, originURL: URL?) async throws {
         if pendingCloudflareRecovery == nil {
             let initialCookieSnapshot = await currentCloudflareRecoveryCookieSnapshot()
 
@@ -1625,7 +1643,8 @@ final class FireAppViewModel: ObservableObject {
             let context = FireCloudflareChallengeContext(
                 id: UUID(),
                 operation: operation,
-                message: "\(operation) 需要先完成 Cloudflare 验证。完成后会自动重试。"
+                message: "\(operation) 需要先完成 Cloudflare 验证。完成后会自动重试。",
+                originURL: originURL
             )
             pendingCloudflareRecovery = PendingCloudflareRecovery(
                 context: context,
@@ -1873,7 +1892,8 @@ final class FireAppViewModel: ObservableObject {
     @discardableResult
     func handleCloudflareChallengeIfNeeded(
         _ error: Error,
-        message: String? = FireTopicInteractionError.requiresCloudflareVerification.errorDescription
+        message: String? = FireTopicInteractionError.requiresCloudflareVerification.errorDescription,
+        originURL: URL? = nil
     ) async -> Bool {
         guard case FireUniFfiError.CloudflareChallenge = error else {
             return false
@@ -1890,7 +1910,8 @@ final class FireAppViewModel: ObservableObject {
             let context = FireCloudflareChallengeContext(
                 id: UUID(),
                 operation: operation,
-                message: message ?? error.localizedDescription
+                message: message ?? error.localizedDescription,
+                originURL: originURL ?? siteRootRecoveryURL
             )
             pendingCloudflareRecovery = PendingCloudflareRecovery(
                 context: context,

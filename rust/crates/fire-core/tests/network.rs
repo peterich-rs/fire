@@ -99,6 +99,41 @@ async fn fetch_topic_list_parses_latest_payload() {
 }
 
 #[tokio::test]
+async fn fetch_topic_list_category_scope_sends_primary_and_additional_tags() {
+    let responses = vec![raw_json_response(
+        200,
+        "application/json",
+        &sample_latest_json(),
+    )];
+    let server = TestServer::spawn(responses).await.expect("server");
+    let core = FireCore::new(FireCoreConfig {
+        base_url: server.base_url(),
+        workspace_path: None,
+    })
+    .expect("core");
+
+    let _response = core
+        .fetch_topic_list(TopicListQuery {
+            kind: TopicListKind::Latest,
+            page: Some(2),
+            category_slug: Some("rust".into()),
+            category_id: Some(2),
+            parent_category_slug: Some("dev".into()),
+            tag: Some("swift".into()),
+            additional_tags: vec!["ios".into()],
+            match_all_tags: true,
+            ..TopicListQuery::default()
+        })
+        .await
+        .expect("topic list");
+    let requests = server.shutdown_with_requests().await;
+
+    assert!(requests[0].contains(
+        "GET /c/dev/rust/2/l/latest.json?page=2&tags%5B%5D=swift&tags%5B%5D=ios&match_all_tags=true HTTP/1.1"
+    ));
+}
+
+#[tokio::test]
 async fn fetch_private_message_mailboxes_use_username_routes_and_parse_participants() {
     let payload = r#"{
   "topic_list": {

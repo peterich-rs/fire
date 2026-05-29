@@ -159,6 +159,17 @@ impl FireCore {
         if let Some(ascending) = query.ascending {
             params.push(("ascending", ascending.to_string()));
         }
+        let primary_tag_as_query_param = query.category_slug.is_some().then(|| {
+            query
+                .tag
+                .as_ref()
+                .map(|tag| tag.trim())
+                .filter(|tag| !tag.is_empty())
+                .map(ToOwned::to_owned)
+        });
+        for tag in primary_tag_as_query_param.into_iter().flatten() {
+            params.push(("tags[]", tag));
+        }
         for tag in &query.additional_tags {
             params.push(("tags[]", tag.clone()));
         }

@@ -18,21 +18,27 @@ class TopicRepository(private val sessionStore: FireSessionStore) {
     suspend fun fetchTopicList(
         kind: TopicListKindState = TopicListKindState.LATEST,
         page: UInt? = null,
+        categorySlug: String? = null,
+        categoryId: ULong? = null,
+        parentCategorySlug: String? = null,
         tag: String? = null,
+        additionalTags: List<String> = emptyList(),
+        matchAllTags: Boolean = false,
+        topicIds: List<ULong> = emptyList(),
     ): TopicListState = withContext(Dispatchers.Default) {
         sessionStore.fetchTopicList(
             TopicListQueryState(
                 kind = kind,
                 page = page,
-                topicIds = emptyList(),
+                topicIds = topicIds,
                 order = null,
                 ascending = null,
-                categorySlug = null,
-                categoryId = null,
-                parentCategorySlug = null,
+                categorySlug = categorySlug,
+                categoryId = categoryId,
+                parentCategorySlug = parentCategorySlug,
                 tag = tag,
-                additionalTags = emptyList(),
-                matchAllTags = false,
+                additionalTags = additionalTags,
+                matchAllTags = matchAllTags,
             ),
         )
     }

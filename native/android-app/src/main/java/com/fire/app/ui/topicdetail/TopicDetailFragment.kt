@@ -14,6 +14,7 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.fire.app.R
 import com.fire.app.session.FireSessionStoreRepository
+import com.fire.app.ui.composer.ReplyComposerSheet
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
@@ -119,5 +120,12 @@ class TopicDetailFragment : Fragment() {
         requireActivity().title = topicTitle
 
         viewModel?.loadTopicDetail(topicId, targetPostNumber)
+
+        replyFab.setOnClickListener {
+            val sheet = ReplyComposerSheet.newInstance(args.topicId) {
+                viewModel?.loadTopicDetail(args.topicId.toULong())
+            }
+            sheet.show(childFragmentManager, "reply_composer")
+        }
     }
 }

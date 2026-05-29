@@ -25,6 +25,7 @@ import uniffi.fire_uniffi_topics.TopicScreenState
 class TopicDetailViewModel(
     private val sessionRepository: SessionRepository,
     private val topicRepository: TopicRepository,
+    private val sessionStore: FireSessionStore,
 ) : ViewModel() {
 
     private val _detail = MutableStateFlow<TopicDetailState?>(null)
@@ -171,6 +172,46 @@ class TopicDetailViewModel(
         return content
     }
 
+    fun likePost(postId: ULong) {
+        viewModelScope.launch {
+            try {
+                sessionStore.likePost(postId)
+                // Reload to get updated like count
+                _detail.value?.let { current ->
+                    _detail.value = current // trigger re-render
+                }
+            } catch (_: Exception) { }
+        }
+    }
+
+    fun unlikePost(postId: ULong) {
+        viewModelScope.launch {
+            try {
+                sessionStore.unlikePost(postId)
+            } catch (_: Exception) { }
+        }
+    }
+
+    fun bookmarkPost(postId: ULong, bookmarked: Boolean, bookmarkId: ULong?) {
+        viewModelScope.launch {
+            try {
+                if (bookmarked && bookmarkId != null) {
+                    sessionStore.deleteBookmark(bookmarkId)
+                } else {
+                    sessionStore.createBookmark(postId, "Post")
+                }
+            } catch (_: Exception) { }
+        }
+    }
+
+    fun deletePost(postId: ULong) {
+        viewModelScope.launch {
+            try {
+                sessionStore.deletePost(postId)
+            } catch (_: Exception) { }
+        }
+    }
+
     private fun preloadRenderContent(posts: List<TopicPostState>) {
         viewModelScope.launch(Dispatchers.Default) {
             for (post in posts) {
@@ -197,7 +238,7 @@ class TopicDetailViewModel(
         fun create(sessionStore: FireSessionStore): TopicDetailViewModel {
             val sessionRepo = SessionRepository(sessionStore)
             val topicRepo = TopicRepository(sessionStore)
-            return TopicDetailViewModel(sessionRepo, topicRepo)
+            return TopicDetailViewModel(sessionRepo, topicRepo, sessionStore)
         }
     }
 }

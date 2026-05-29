@@ -57,6 +57,11 @@
         android:id="@+id/profileFragment"
         android:name="com.fire.app.ui.profile.ProfileFragment"
         android:label="@string/tab_profile">
+        <argument
+            android:name="username"
+            app:argType="string"
+            app:nullable="true"
+            android:defaultValue="@null" />
         <action
             android:id="@+id/action_profile_to_bookmarks"
             app:destination="@id/bookmarksFragment" />
@@ -101,7 +106,14 @@
     <fragment
         android:id="@+id/searchFragment"
         android:name="com.fire.app.ui.search.SearchFragment"
-        android:label="@string/search_title" />
+        android:label="@string/search_title">
+        <action
+            android:id="@+id/action_searchFragment_to_topicDetailFragment"
+            app:destination="@id/topicDetailFragment" />
+        <action
+            android:id="@+id/action_searchFragment_to_profileFragment"
+            app:destination="@id/profileFragment" />
+    </fragment>
 
     <fragment
         android:id="@+id/bookmarksFragment"

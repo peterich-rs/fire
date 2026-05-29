@@ -88,7 +88,7 @@ async fn fetch_notifications_reconciles_full_list_with_recent_list() {
         .await
         .expect("fetch recent notifications");
     let state = core.notification_state();
-    let _ = server.shutdown().await;
+    let requests = server.shutdown_with_requests().await;
 
     assert!(state.has_loaded_full);
     assert!(state.has_loaded_recent);
@@ -98,6 +98,37 @@ async fn fetch_notifications_reconciles_full_list_with_recent_list() {
     assert!(state.full[1].read);
     assert_eq!(state.recent[0].id, 101);
     assert_eq!(state.recent[0].fancy_title.as_deref(), Some("Urgent Topic"));
+
+    assert!(requests[0].contains("GET /notifications?limit=60 "));
+    assert!(requests[1]
+        .contains("GET /notifications?recent=true&limit=30&bump_last_seen_reviewable=true"));
+}
+
+#[tokio::test]
+async fn fetch_notifications_clamps_limit_and_omits_zero_offset() {
+    let server = TestServer::spawn(vec![raw_json_response(
+        200,
+        "application/json",
+        &notification_page_json(
+            &[notification_json(100, false, false, "Topic A")],
+            1,
+            Some(100),
+            None,
+        ),
+    )])
+    .await
+    .expect("server");
+    let core = authenticated_core(&server.base_url());
+
+    let page = core
+        .fetch_notifications(Some(90), Some(0))
+        .await
+        .expect("fetch notifications");
+    let requests = server.shutdown_with_requests().await;
+
+    assert_eq!(page.notifications.len(), 1);
+    assert!(requests[0].contains("GET /notifications?limit=60 "));
+    assert!(!requests[0].contains("offset=0"));
 }
 
 #[tokio::test]

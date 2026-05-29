@@ -22,8 +22,8 @@ class NotificationPagingSource(
 
         return try {
             val result = repository.fetchNotifications(
-                limit = params.loadSize.toUInt(),
-                offset = offset,
+                limit = minOf(params.loadSize, API_PAGE_SIZE).toUInt(),
+                offset = offset.takeIf { it > 0u },
             )
             LoadResult.Page(
                 data = result.notifications,
@@ -33,5 +33,9 @@ class NotificationPagingSource(
         } catch (e: Exception) {
             LoadResult.Error(e)
         }
+    }
+
+    private companion object {
+        const val API_PAGE_SIZE = 60
     }
 }

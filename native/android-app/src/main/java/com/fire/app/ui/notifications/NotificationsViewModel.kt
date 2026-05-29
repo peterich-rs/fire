@@ -31,8 +31,9 @@ class NotificationsViewModel(
 
     private val pagingFlow: Flow<PagingData<NotificationItemState>> = Pager(
         config = PagingConfig(
-            pageSize = 30,
-            prefetchDistance = 10,
+            pageSize = 20,
+            prefetchDistance = 5,
+            initialLoadSize = 20,
             enablePlaceholders = false,
         ),
         pagingSourceFactory = { NotificationPagingSource(repository) },

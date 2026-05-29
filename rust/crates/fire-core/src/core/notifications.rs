@@ -125,6 +125,7 @@ impl FireCore {
     ) -> Result<NotificationListResponse, FireCoreError> {
         ensure_notification_session(self)?;
         let limit = normalized_limit(limit, DEFAULT_FULL_LIMIT);
+        let offset = offset.filter(|value| *value > 0);
         info!(limit, offset = ?offset, "fetching notifications page");
 
         let mut query_params = vec![("limit", limit.to_string())];
@@ -305,7 +306,10 @@ fn ensure_notification_session(core: &FireCore) -> Result<(), FireCoreError> {
 }
 
 fn normalized_limit(limit: Option<u32>, default_value: u32) -> u32 {
-    limit.filter(|value| *value > 0).unwrap_or(default_value)
+    limit
+        .filter(|value| *value > 0)
+        .map(|value| value.min(default_value))
+        .unwrap_or(default_value)
 }
 
 fn apply_recent_page(runtime: &mut FireNotificationRuntime, page: &NotificationListResponse) {

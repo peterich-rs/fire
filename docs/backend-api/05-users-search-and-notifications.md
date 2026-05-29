@@ -465,11 +465,20 @@
 
 - 用途 2：完整分页通知
 - Query：
+- `limit` 可按调用方配置；共享 Rust 层无显式参数时使用默认/上限 `60`。Android 通知历史列表当前首屏和后续页传 `20`，由 Paging 3 根据首屏填充和滚动尾部自动拉取后续页。
 
 ```json
 {
-  "limit": 60,
-  "offset": 60
+  "limit": 20
+}
+```
+
+- 首页不传 `offset`；后续页使用响应里的 `load_more_notifications` / `next_offset`：
+
+```json
+{
+  "limit": 20,
+  "offset": 20
 }
 ```
 

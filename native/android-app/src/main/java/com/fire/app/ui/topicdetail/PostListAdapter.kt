@@ -42,7 +42,9 @@ class PostListAdapter(
     }
 }
 
-class HeaderAdapter : RecyclerView.Adapter<HeaderAdapter.HeaderViewHolder>() {
+class HeaderAdapter(
+    private val onPostClick: (TopicPostState) -> Unit,
+) : RecyclerView.Adapter<HeaderAdapter.HeaderViewHolder>() {
 
     var detail: TopicDetailState? = null
         set(value) {
@@ -62,7 +64,7 @@ class HeaderAdapter : RecyclerView.Adapter<HeaderAdapter.HeaderViewHolder>() {
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): HeaderViewHolder {
         val view = LayoutInflater.from(parent.context)
             .inflate(R.layout.item_topic_header, parent, false)
-        return HeaderViewHolder(view)
+        return HeaderViewHolder(view, onPostClick)
     }
 
     override fun onBindViewHolder(holder: HeaderViewHolder, position: Int) {
@@ -77,15 +79,25 @@ class HeaderAdapter : RecyclerView.Adapter<HeaderAdapter.HeaderViewHolder>() {
             categoryId == other.categoryId &&
             postsCount == other.postsCount &&
             views == other.views &&
-            likeCount == other.likeCount
+            likeCount == other.likeCount &&
+            originalPost() == other.originalPost()
     }
 
-    class HeaderViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
+    private fun TopicDetailState.originalPost(): TopicPostState? {
+        return postStream.posts.minByOrNull { it.postNumber }
+    }
+
+    class HeaderViewHolder(
+        itemView: View,
+        private val onPostClick: (TopicPostState) -> Unit,
+    ) : RecyclerView.ViewHolder(itemView) {
         private val titleText: android.widget.TextView = itemView.findViewById(R.id.topic_title)
         private val chips: ChipGroup = itemView.findViewById(R.id.topic_chips)
         private val statReplies: android.widget.TextView = itemView.findViewById(R.id.stat_replies)
         private val statViews: android.widget.TextView = itemView.findViewById(R.id.stat_views)
         private val statLikes: android.widget.TextView = itemView.findViewById(R.id.stat_likes)
+        private val originalPostContainer: View = itemView.findViewById(R.id.original_post_container)
+        private val originalPostHolder = PostViewHolder(originalPostContainer)
 
         fun bind(detail: TopicDetailState) {
             titleText.text = detail.title.trim()
@@ -119,6 +131,23 @@ class HeaderAdapter : RecyclerView.Adapter<HeaderAdapter.HeaderViewHolder>() {
             statReplies.text = "${maxOf(detail.postsCount, 1u) - 1u}"
             statViews.text = "${detail.views}"
             statLikes.text = "${detail.likeCount}"
+
+            val originalPost = detail.postStream.posts.minByOrNull { it.postNumber }
+            if (originalPost != null) {
+                originalPostContainer.visibility = View.VISIBLE
+                originalPostContainer.setPadding(
+                    0,
+                    originalPostContainer.paddingTop,
+                    0,
+                    originalPostContainer.paddingBottom,
+                )
+                originalPostHolder.bind(
+                    PostRow(post = originalPost, depth = 0),
+                    onPostClick,
+                )
+            } else {
+                originalPostContainer.visibility = View.GONE
+            }
         }
     }
 }

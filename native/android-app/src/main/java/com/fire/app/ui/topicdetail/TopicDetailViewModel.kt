@@ -66,16 +66,13 @@ class TopicDetailViewModel(
                 val bodyPost = fetched.body.post
                 val allPosts = listOf(bodyPost) + fetched.response.rows.map { it.post }
 
-                val rows = buildList {
-                    add(PostRow(post = bodyPost, depth = 0))
-                    for (row in fetched.response.rows) {
-                        add(PostRow(
-                            post = row.post,
-                            depth = row.depth.toInt(),
-                            parentPostNumber = row.parentPostNumber,
-                            hasChildren = row.hasChildren,
-                        ))
-                    }
+                val rows = fetched.response.rows.map { row ->
+                    PostRow(
+                        post = row.post,
+                        depth = row.depth.toInt(),
+                        parentPostNumber = row.parentPostNumber,
+                        hasChildren = row.hasChildren,
+                    )
                 }
 
                 val detailState = TopicDetailState(
@@ -144,7 +141,10 @@ class TopicDetailViewModel(
                 _postRows.value = _postRows.value + newRows
 
                 _detail.value?.let { current ->
-                    val allPosts = _postRows.value.map { it.post }
+                    val allPosts = buildList {
+                        screen?.body?.post?.let { add(it) }
+                        addAll(_postRows.value.map { it.post })
+                    }
                     _detail.value = current.copy(
                         postStream = current.postStream.copy(
                             posts = allPosts,

@@ -35,7 +35,7 @@ class TopicDetailActivity : AppCompatActivity() {
     private var viewModel: TopicDetailViewModel? = null
     private var route: TopicDetailRoute? = null
 
-    private val headerAdapter = HeaderAdapter()
+    private val headerAdapter = HeaderAdapter { /* original post click handler */ }
     private val postListAdapter = PostListAdapter { /* post click handler */ }
     private val loadingFooterAdapter = LoadingFooterAdapter()
     private var loadMorePostsPosted = false

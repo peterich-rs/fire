@@ -22,11 +22,12 @@
         android:layout_marginTop="8dp"
         android:visibility="gone" />
 
-    <View
+    <include
+        android:id="@+id/original_post_container"
+        layout="@layout/item_post"
         android:layout_width="match_parent"
-        android:layout_height="1dp"
-        android:layout_marginTop="12dp"
-        android:background="@color/fire_divider" />
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp" />
 
     <LinearLayout
         android:layout_width="match_parent"

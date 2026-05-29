@@ -306,6 +306,43 @@ final class FireTopicPresentationTests: XCTestCase {
         XCTAssertNil(duplicateAppend)
     }
 
+    func testScreenDetailRenderCacheDeduplicatesOverlappingRows() {
+        let originalPost = makePost(postNumber: 1, replyToPostNumber: nil, username: "author")
+        let rows = [
+            makeResponseRow(postNumber: 2, parentPostNumber: 1, depth: 1, username: "reply-old"),
+            makeResponseRow(postNumber: 2, parentPostNumber: 1, depth: 1, username: "reply-new")
+        ]
+        let screen = makeTopicScreen(originalPost: originalPost, responseRows: rows)
+
+        let renderCache = FireTopicPresentation.detailRenderCache(
+            screen: screen,
+            responseRows: rows,
+            baseURLString: "https://linux.do"
+        )
+
+        XCTAssertEqual(renderCache.renderState.replyRows.map { $0.entry.postNumber }, [2])
+        XCTAssertEqual(renderCache.renderState.contentByPostID[2]?.plainText, "reply-new")
+    }
+
+    func testDetailRenderCacheDeduplicatesDuplicatePostsAndStreamIDs() {
+        let detail = makeTopicDetail(
+            posts: [
+                makePost(postNumber: 1, replyToPostNumber: nil, username: "author"),
+                makePost(postNumber: 2, replyToPostNumber: 1, username: "reply-old"),
+                makePost(postNumber: 2, replyToPostNumber: 1, username: "reply-new")
+            ],
+            stream: [1, 2, 2]
+        )
+
+        let renderCache = FireTopicPresentation.detailRenderCache(
+            from: detail,
+            baseURLString: "https://linux.do"
+        )
+
+        XCTAssertEqual(renderCache.renderState.replyRows.map { $0.entry.postNumber }, [2])
+        XCTAssertEqual(renderCache.renderState.contentByPostID[2]?.plainText, "reply-new")
+    }
+
     func testRenderContentPlainTextOmitsImageAttachmentAltText() {
         let content = FireTopicPresentation.renderContent(
             from: #"<p>Hello&nbsp;Fire</p><img src="/uploads/default/original/1X/fire.png" alt="fire">"#,

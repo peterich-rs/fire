@@ -320,7 +320,14 @@ final class FireTopicDetailStore: ObservableObject {
         screen: TopicScreenState,
         responseRows: [TopicResponseRowState]
     ) -> TopicDetailState {
-        let posts = [screen.body.post] + responseRows.map(\.post)
+        let responseRows = FireTopicPresentation
+            .uniqueResponseRowsPreservingOrder(responseRows)
+            .filter { row in
+                row.post.id != screen.body.post.id
+            }
+        let posts = FireTopicPresentation.uniqueTopicPostsPreservingOrder(
+            [screen.body.post] + responseRows.map(\.post)
+        )
         return TopicDetailState(
             id: screen.header.topicId,
             messageBusLastId: screen.header.messageBusLastId,
@@ -411,7 +418,11 @@ final class FireTopicDetailStore: ObservableObject {
             }
 
             let existingRows = topicResponseRowsByTopic[topicId] ?? []
-            let rows = existingRows + page.rows
+            let rows = FireTopicPresentation.uniqueResponseRowsPreservingOrder(
+                existingRows + page.rows
+            ).filter { row in
+                row.post.id != screen.body.post.id
+            }
 
             screen.response.rows = rows
             screen.response.nextCursor = page.nextCursor
@@ -1328,16 +1339,17 @@ final class FireTopicDetailStore: ObservableObject {
         topicId: UInt64
     ) -> TopicDetailState {
         var preparedDetail = detail
+        let stream = FireTopicPresentation.uniqueTopicPostIDsPreservingOrder(detail.postStream.stream)
         preparedDetail.postStream = TopicPostStreamState(
             posts: FireTopicPresentation.mergeTopicPosts(
                 existing: detail.postStream.posts,
                 incoming: [],
-                orderedPostIDs: detail.postStream.stream
+                orderedPostIDs: stream
             ),
-            stream: detail.postStream.stream
+            stream: stream
         )
-        topicPostLookups[topicId] = Dictionary(
-            uniqueKeysWithValues: preparedDetail.postStream.posts.map { ($0.id, $0) }
+        topicPostLookups[topicId] = FireTopicPresentation.topicPostsByID(
+            preparedDetail.postStream.posts
         )
 
         if let maxLoadedPostNumber = preparedDetail.postStream.posts.lazy.map(\.postNumber).max() {
@@ -1427,8 +1439,8 @@ final class FireTopicDetailStore: ObservableObject {
         topicId: UInt64
     ) -> TopicDetailState {
         let detail = synthesizedTopicDetail(screen: screen, responseRows: responseRows)
-        topicPostLookups[topicId] = Dictionary(
-            uniqueKeysWithValues: detail.postStream.posts.map { ($0.id, $0) }
+        topicPostLookups[topicId] = FireTopicPresentation.topicPostsByID(
+            detail.postStream.posts
         )
 
         if let maxLoadedPostNumber = detail.postStream.posts.lazy.map(\.postNumber).max() {
@@ -2100,10 +2112,12 @@ final class FireTopicDetailStore: ObservableObject {
         in range: Range<Int>,
         detail: TopicDetailState
     ) -> [UInt32] {
+        let stream = FireTopicPresentation.uniqueTopicPostIDsPreservingOrder(detail.postStream.stream)
         let indexByPostID = Dictionary(
-            uniqueKeysWithValues: detail.postStream.stream.enumerated().map { index, postID in
+            stream.enumerated().map { index, postID in
                 (postID, index)
-            }
+            },
+            uniquingKeysWith: { first, _ in first }
         )
         return detail.postStream.posts.compactMap { post in
             guard let index = indexByPostID[post.id],

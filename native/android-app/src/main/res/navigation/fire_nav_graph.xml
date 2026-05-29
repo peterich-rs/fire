@@ -118,11 +118,19 @@
     <fragment
         android:id="@+id/bookmarksFragment"
         android:name="com.fire.app.ui.bookmarks.BookmarksFragment"
-        android:label="@string/feed_bookmarks" />
+        android:label="@string/feed_bookmarks">
+        <action
+            android:id="@+id/action_bookmarksFragment_to_topicDetailFragment"
+            app:destination="@id/topicDetailFragment" />
+    </fragment>
 
     <fragment
         android:id="@+id/privateMessagesFragment"
         android:name="com.fire.app.ui.privatemessages.PrivateMessagesFragment"
-        android:label="@string/feed_private_messages_inbox" />
+        android:label="@string/feed_private_messages_inbox">
+        <action
+            android:id="@+id/action_privateMessagesFragment_to_topicDetailFragment"
+            app:destination="@id/topicDetailFragment" />
+    </fragment>
 
 </navigation>

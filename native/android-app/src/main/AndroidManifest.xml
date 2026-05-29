@@ -11,30 +11,6 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.Fire">
         <activity
-            android:name=".LoginActivity"
-            android:exported="false" />
-        <activity
-            android:name=".DiagnosticsActivity"
-            android:exported="false" />
-        <activity
-            android:name=".LogViewerActivity"
-            android:exported="false" />
-        <activity
-            android:name=".RequestTraceDetailActivity"
-            android:exported="false" />
-        <activity
-            android:name=".NotificationsActivity"
-            android:exported="false" />
-        <activity
-            android:name=".SearchActivity"
-            android:exported="false" />
-        <activity
-            android:name=".ProfileActivity"
-            android:exported="false" />
-        <activity
-            android:name=".TopicDetailActivity"
-            android:exported="false" />
-        <activity
             android:name=".MainActivity"
             android:exported="true">
             <intent-filter>

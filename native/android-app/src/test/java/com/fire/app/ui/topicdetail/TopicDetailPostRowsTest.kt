@@ -1,0 +1,91 @@
+package com.fire.app.ui.topicdetail
+
+import org.junit.Assert.assertEquals
+import org.junit.Test
+import uniffi.fire_uniffi_topics.TopicPostState
+import uniffi.fire_uniffi_topics.TopicResponseRowState
+
+class TopicDetailPostRowsTest {
+    @Test
+    fun uniqueResponseRows_excludesBodyPostAndKeepsLatestDuplicateValue() {
+        val body = post(id = 1uL, postNumber = 1u, username = "author")
+        val firstReply = post(id = 2uL, postNumber = 2u, username = "reply-old")
+        val refreshedReply = post(id = 2uL, postNumber = 2u, username = "reply-new")
+        val secondReply = post(id = 3uL, postNumber = 3u, username = "reply-b")
+
+        val rows = TopicDetailPostRows.uniqueResponseRows(
+            rows = listOf(row(body), row(firstReply), row(refreshedReply), row(secondReply)),
+            bodyPostId = body.id,
+        )
+
+        assertEquals(listOf(2uL, 3uL), rows.map { it.post.id })
+        assertEquals(listOf("reply-new", "reply-b"), rows.map { it.post.username })
+    }
+
+    @Test
+    fun postsForDetail_keepsBodyPostAndDeduplicatesResponseRows() {
+        val body = post(id = 1uL, postNumber = 1u, username = "author")
+        val duplicateBody = post(id = 1uL, postNumber = 1u, username = "duplicate-author")
+        val firstReply = post(id = 2uL, postNumber = 2u, username = "reply-old")
+        val refreshedReply = post(id = 2uL, postNumber = 2u, username = "reply-new")
+
+        val posts = TopicDetailPostRows.postsForDetail(
+            bodyPost = body,
+            responseRows = listOf(row(duplicateBody), row(firstReply), row(refreshedReply)),
+        )
+
+        assertEquals(listOf(1uL, 2uL), posts.map { it.id })
+        assertEquals(listOf("author", "reply-new"), posts.map { it.username })
+    }
+
+    private fun post(
+        id: ULong,
+        postNumber: UInt,
+        username: String,
+    ): TopicPostState {
+        return TopicPostState(
+            id = id,
+            username = username,
+            name = null,
+            avatarTemplate = null,
+            cooked = "<p>$username</p>",
+            raw = null,
+            postNumber = postNumber,
+            postType = 1,
+            createdAt = "2026-03-28T10:00:00Z",
+            updatedAt = "2026-03-28T10:00:00Z",
+            likeCount = 0u,
+            replyCount = 0u,
+            replyToPostNumber = null,
+            replyToUser = null,
+            bookmarked = false,
+            bookmarkId = null,
+            bookmarkName = null,
+            bookmarkReminderAt = null,
+            reactions = emptyList(),
+            currentUserReaction = null,
+            polls = emptyList(),
+            acceptedAnswer = false,
+            canAcceptAnswer = false,
+            canUnacceptAnswer = false,
+            canEdit = false,
+            canDelete = false,
+            canRecover = false,
+            hidden = false,
+        )
+    }
+
+    private fun row(post: TopicPostState): TopicResponseRowState {
+        return TopicResponseRowState(
+            post = post,
+            rootPostNumber = 1u,
+            parentPostNumber = 1u,
+            depth = 1u.toUShort(),
+            preorderIndex = post.postNumber - 1u,
+            hasChildren = false,
+            descendantCount = 0u,
+            siblingIndex = 0u.toUShort(),
+            isLastSibling = true,
+        )
+    }
+}

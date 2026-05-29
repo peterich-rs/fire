@@ -95,14 +95,19 @@ class TopicDetailViewModel(
     }
 
     private fun applyFetchedScreen(fetched: TopicScreenState): List<TopicPostState> {
-        screen = fetched
-        responseRows = fetched.response.rows.toMutableList()
+        val bodyPost = fetched.body.post
+        val normalizedResponseRows = TopicDetailPostRows.uniqueResponseRows(
+            rows = fetched.response.rows,
+            bodyPostId = bodyPost.id,
+        )
+        val normalizedResponse = fetched.response.copy(rows = normalizedResponseRows)
+        screen = fetched.copy(response = normalizedResponse)
+        responseRows = normalizedResponseRows.toMutableList()
         cursor = fetched.response.nextCursor
 
         val header = fetched.header
-        val bodyPost = fetched.body.post
-        val allPosts = listOf(bodyPost) + fetched.response.rows.map { it.post }
-        val rows = fetched.response.rows.map(::postRow)
+        val allPosts = TopicDetailPostRows.postsForDetail(bodyPost, normalizedResponseRows)
+        val rows = normalizedResponseRows.map(::postRow)
 
         _detail.value = TopicDetailState(
             id = header.topicId,
@@ -317,17 +322,22 @@ class TopicDetailViewModel(
             val page = topicRepository.fetchTopicResponsePage(currentCursor)
             if (cursor != currentCursor) return false
 
-            responseRows.addAll(page.rows)
+            val bodyPost = screen?.body?.post
+            val previousResponseRows = responseRows.toList()
+            val mergedResponseRows = TopicDetailPostRows.uniqueResponseRows(
+                rows = previousResponseRows + page.rows,
+                bodyPostId = bodyPost?.id,
+            )
+            responseRows = mergedResponseRows.toMutableList()
             cursor = page.nextCursor
 
-            val newRows = page.rows.map(::postRow)
-            _postRows.value = _postRows.value + newRows
+            val rows = mergedResponseRows.map(::postRow)
+            _postRows.value = rows
 
             _detail.value?.let { current ->
-                val allPosts = buildList {
-                    screen?.body?.post?.let { add(it) }
-                    addAll(_postRows.value.map { it.post })
-                }
+                val allPosts = bodyPost
+                    ?.let { TopicDetailPostRows.postsForDetail(it, mergedResponseRows) }
+                    ?: TopicDetailPostRows.uniquePosts(rows.map { it.post })
                 _detail.value = current.copy(
                     postStream = current.postStream.copy(
                         posts = allPosts,
@@ -335,7 +345,7 @@ class TopicDetailViewModel(
                     ),
                 )
             }
-            preloadRenderContent(page.rows.map { it.post })
+            preloadRenderContent(mergedResponseRows.map { it.post })
             page.rows.isNotEmpty()
         } catch (e: Exception) {
             if (CloudflareChallengeDetector.isChallenge(e)) {
@@ -382,5 +392,38 @@ class TopicDetailViewModel(
             val messageBusCoordinator = FireMessageBusCoordinator(sessionStore)
             return TopicDetailViewModel(sessionRepo, topicRepo, sessionStore, messageBusCoordinator)
         }
+    }
+}
+
+object TopicDetailPostRows {
+    fun uniqueResponseRows(
+        rows: List<TopicResponseRowState>,
+        bodyPostId: ULong? = null,
+    ): List<TopicResponseRowState> {
+        val rowsByPostId = LinkedHashMap<ULong, TopicResponseRowState>(rows.size)
+        for (row in rows) {
+            if (row.post.id == bodyPostId) continue
+            rowsByPostId[row.post.id] = row
+        }
+        return rowsByPostId.values.toList()
+    }
+
+    fun postsForDetail(
+        bodyPost: TopicPostState,
+        responseRows: List<TopicResponseRowState>,
+    ): List<TopicPostState> {
+        return uniquePosts(
+            listOf(bodyPost) + responseRows
+                .filter { it.post.id != bodyPost.id }
+                .map { it.post },
+        )
+    }
+
+    fun uniquePosts(posts: List<TopicPostState>): List<TopicPostState> {
+        val postsById = LinkedHashMap<ULong, TopicPostState>(posts.size)
+        for (post in posts) {
+            postsById[post.id] = post
+        }
+        return postsById.values.toList()
     }
 }

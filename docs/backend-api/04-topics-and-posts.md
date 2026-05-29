@@ -140,6 +140,7 @@
     - `header`：标题与话题元数据，进入详情时可复用首页已有标题，再由详情返回值轻量校正
     - `body`：固定为 `post_number == 1` 的主贴；如果 `filter_top_level_replies=true` 的负载里缺失，Rust 会额外请求 `GET /posts/by_number/{topicId}/1`
     - `response`：仅包含 `post_number > 1` 的回复树
+  - iOS / Android 渲染详情前会按 `post.id` 对 `body` 与 `response.rows` 做归一化，避免重叠窗口或刷新响应把同一帖子重复提交到列表层
   - `fetchTopicScreen` 首个详情请求按 Web 形态发起：`GET /t/{topicId}.json?track_visit=true&forceLoad=true`，不携带 `filter_top_level_replies`
   - 首个详情响应返回后，Rust 再发起内部回复索引请求：`GET /t/{topicId}.json?filter_top_level_replies=true`；该请求只用于获取顶层回复根列表，不携带 `track_visit`、`forceLoad` 或 `Discourse-Track-View*`
   - 当前回复区分页不再按整条 `post_stream.stream` 平铺补齐，而是用顶层回复根列表按根分支分页

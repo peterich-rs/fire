@@ -71,6 +71,8 @@ fire/
 
 - `openwire` is the shared Rust network layer, with one shared `Client` per `FireCore` instance now carrying both regular API traffic and MessageBus transport.
 - Fire scopes MessageBus-specific execution differences through per-call overrides on that shared client; transport-level HTTP/2 keep-alive remains a shared client policy.
+- Fire attaches OpenWire's built-in `LoggerInterceptor` to the shared client at header level; the interceptor writes into Fire's tracing/Xlog pipeline and redacts cookies, auth headers, and CSRF tokens.
+- Android injects a Rustls connector backed by bundled Mozilla `webpki-roots` and does not enable OpenWire's platform verifier feature for Android targets; non-Android Fire targets keep the platform verifier feature unless they override the connector explicitly.
 - `mars-xlog` is the shared logging backend.
 - `references/fluxdo` is a reference submodule, not a build dependency.
 - `third_party/` stores build dependencies as submodules so the superproject can be pushed cleanly to GitHub.
@@ -128,7 +130,7 @@ fire/
 The intended native integration order is:
 
 1. Open LinuxDo login in `WKWebView` / `WebView`.
-2. After login or Cloudflare verification, read the platform cookie store, the current page HTML/meta, and the live WebView/browser user agent. Hosts should use a browser-compatible fallback user agent and a default persistent browser store for embedded auth/challenge WebViews before a live value has been captured.
+2. After login or Cloudflare verification, read the platform cookie store, the current page HTML/meta, and the live WebView/browser user agent. Hosts should use a browser-compatible fallback user agent and a default persistent browser store for embedded auth/challenge WebViews before a live value has been captured. Android login WebViews should enable AndroidX WebKit Safe Browsing, block non-web schemes and local file/content access, and apply system-bar insets to host chrome when the shell is immersive.
 3. Call `sync_login_context` in Rust with the full same-site browser cookie batch, optional username, CSRF, the preferred homepage HTML captured through the browser context, and the WebView/browser user agent.
 4. Persist the latest session snapshot through the host-appropriate session policy:
   - iOS currently writes the full `session.json` snapshot during the active diagnostics-heavy development phase, keeps the full same-site browser cookie batch in Keychain with expiry metadata, and gates both writes off Rust-owned snapshot/auth-cookie persistence revisions instead of diffing exported session JSON in Swift. Cookie identity follows the shared Rust model: `(name, normalizedDomain, path)`, with a leading `.` stripped from the identity domain.

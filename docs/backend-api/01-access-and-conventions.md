@@ -55,7 +55,7 @@ Discourse-Present: true
 
 - 非 `GET` 请求默认需要 `X-CSRF-Token`
 - 首页 HTML 请求不带 `X-Requested-With`，`Accept` 为 `text/html`，但仍会带浏览器风格 `User-Agent` 与 `Accept-Language`
-- 宿主登录/验证 WebView 应尽量使用系统 `WKWebView` 默认浏览器环境：默认持久化 `WKWebsiteDataStore`、浏览器兼容 UA、JavaScript、新窗口处理和同一浏览器上下文内的 Cookie；iOS 当前默认使用 Mobile Safari 风格 UA，并在登录同步时把实际 `navigator.userAgent` 保存进共享会话
+- 宿主登录/验证 WebView 应尽量使用系统浏览器环境：iOS 使用默认持久化 `WKWebsiteDataStore`、浏览器兼容 UA、JavaScript、新窗口处理和同一浏览器上下文内的 Cookie；Android 使用持久化 `WebView` Cookie、JavaScript、DOM storage、AndroidX WebKit Safe Browsing，并禁止非 Web scheme、file/content 访问和 mixed content；iOS 当前默认使用 Mobile Safari 风格 UA，并在登录同步时把实际 `navigator.userAgent` 保存进共享会话
 - 这不能绕过第三方 OAuth 的嵌入式浏览器限制。Google OAuth 在 `WKWebView` 里可能直接返回 `disallowed_useragent`；如要支持这类登录，需要系统认证会话 / Safari fallback，并且还要有服务端 redirect 或 Cookie 交换能力把登录态带回 Fire 可读取的会话。
 - MessageBus 请求不需要 CSRF，但可能需要 `X-Shared-Session-Key`
 - `X-SILENCE-LOGGER`、`Discourse-Background` 是客户端内部使用的静默/后台标记，不是通用必需头

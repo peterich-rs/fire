@@ -37,6 +37,7 @@
   - iOS 当前把登录页收口做成“自动探测、按 readiness 同步”：实时探测会先轻量检查当前页的用户名 / bootstrap 标记与同站 auth Cookie，只在 auth Cookie 已就绪但当前页元数据仍不完整时，才补一次浏览器上下文内的首页 `fetch("/")`；只有最终同时拿到 `current-username`、有效 `_t` / `_forum_session` Cookie，以及可复用的首页 bootstrap HTML 时，才允许普通登录点击“完成登录”
   - iOS 登录与 Cloudflare 验证 WebView 使用同一套 auth-browser profile：默认持久化 `WKWebsiteDataStore`、不自定义进程池、浏览器兼容 UA、JavaScript、新窗口处理、inline media 设置、调试可检查 WebView，以及少量浏览器兼容 polyfill；完成登录时再读取实际 `navigator.userAgent`，通过 `sync_login_context.browser_user_agent` 交给共享层保存，并由 `SessionState.browser_user_agent` 暴露回宿主
   - iOS 登录 `WKWebView` 现在会显式开启 `window.open` / 新窗口请求，并把 `target="_blank"` 或脚本弹出的登录跳转收口到当前浏览器上下文继续导航，避免第三方登录选择页因为缺少 `WKUIDelegate` 而直接失效
+  - Android 登录 `WebView` 当前显式启用 AndroidX WebKit Safe Browsing、持久化 Cookie、JavaScript 和 DOM storage，并禁止非 Web scheme、file/content 访问和 mixed content；沉浸式壳层下登录顶部 chrome 会应用真实状态栏 inset，保证关闭和登录同步按钮可点击
   - iOS 的交互式 Cloudflare 恢复不再单独打开 `/challenge` 页面，而是复用登录 URL 和同一个 auth-browser profile；当登录上下文满足普通登录“完成登录”按钮的同一套可用条件（WebView 已停止 loading、用户名、同站 auth Cookie、可复用 bootstrap、且当前没有同步任务）时，会自动执行一次 `completeLogin` 并恢复原始操作
   - 这个 WebView profile 只用于让 LinuxDo 登录、Cloudflare challenge 和普通站内跳转尽量接近系统 `WKWebView` 浏览器环境，不能绕过第三方 OAuth 的嵌入式浏览器限制。Google OAuth 仍可能在 `WKWebView` 中返回 `disallowed_useragent`；如需支持 Google 登录，需要系统认证会话 / Safari fallback，并配套服务端 redirect 或 Cookie 交换能力。
   - iOS 当前在真正提交登录时仍会优先通过浏览器上下文内的 `fetch("/")` 抓首页 HTML；只有这份首页 HTML 不够完整时，才回退到当前页面 `document.documentElement.outerHTML`，并会用优选后的 HTML 回填缺失的 `current-username` / `csrf-token`

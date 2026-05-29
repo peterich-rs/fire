@@ -6,17 +6,26 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.webkit.CookieManager
+import android.webkit.WebSettings
 import android.webkit.WebChromeClient
-import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
-import android.webkit.WebViewClient
+import android.webkit.WebView
+import android.widget.Toast
 import android.widget.ImageView
 import android.widget.ProgressBar
 import android.widget.TextView
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.isVisible
+import androidx.core.view.updatePadding
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import androidx.navigation.fragment.findNavController
+import androidx.webkit.SafeBrowsingResponseCompat
+import androidx.webkit.WebResourceErrorCompat
+import androidx.webkit.WebSettingsCompat
+import androidx.webkit.WebViewClientCompat
+import androidx.webkit.WebViewFeature
 import com.fire.app.R
 import com.fire.app.session.FireSessionStoreRepository
 import com.fire.app.session.FireWebViewLoginCoordinator
@@ -42,51 +51,82 @@ class LoginWebViewFragment : Fragment() {
         val sessionStore = FireSessionStoreRepository.get(requireContext())
         loginCoordinator = FireWebViewLoginCoordinator(sessionStore)
 
-        val webView: android.webkit.WebView = view.findViewById(R.id.login_webview)
+        val chrome: View = view.findViewById(R.id.login_chrome)
+        val webView: WebView = view.findViewById(R.id.login_webview)
         val loadingIndicator: ProgressBar = view.findViewById(R.id.loading_indicator)
         val closeButton: ImageView = view.findViewById(R.id.close_button)
         val syncButton: MaterialButton = view.findViewById(R.id.sync_button)
         val pageTitleText: TextView = view.findViewById(R.id.page_title_text)
         val pageUrlText: TextView = view.findViewById(R.id.page_url_text)
 
-        CookieManager.getInstance().setAcceptCookie(true)
-        CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true)
+        applySystemBarInsets(view, chrome)
+        configureLoginWebView(webView)
 
-        webView.settings.javaScriptEnabled = true
-        webView.settings.domStorageEnabled = true
-        webView.settings.javaScriptCanOpenWindowsAutomatically = true
-
-        webView.webViewClient = object : WebViewClient() {
-            override fun onPageStarted(view: android.webkit.WebView?, url: String?, favicon: Bitmap?) {
+        webView.webViewClient = object : WebViewClientCompat() {
+            override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                 super.onPageStarted(view, url, favicon)
                 loadingIndicator.isVisible = true
                 updateChrome(webView, pageTitleText, pageUrlText)
             }
 
-            override fun onPageFinished(view: android.webkit.WebView?, url: String?) {
+            override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
                 loadingIndicator.isVisible = false
                 updateChrome(webView, pageTitleText, pageUrlText)
             }
 
             override fun onReceivedError(
-                view: android.webkit.WebView?,
-                request: WebResourceRequest?,
-                error: WebResourceError?,
+                view: WebView,
+                request: WebResourceRequest,
+                error: WebResourceErrorCompat,
             ) {
                 super.onReceivedError(view, request, error)
+                if (request.isForMainFrame) {
+                    loadingIndicator.isVisible = false
+                    updateChrome(webView, pageTitleText, pageUrlText)
+                }
+            }
+
+            override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
+                val scheme = request.url.scheme?.lowercase()
+                if (scheme == "http" || scheme == "https") {
+                    return false
+                }
+                Toast.makeText(
+                    requireContext(),
+                    R.string.login_blocked_external_navigation,
+                    Toast.LENGTH_SHORT,
+                ).show()
+                return true
+            }
+
+            override fun onSafeBrowsingHit(
+                view: WebView,
+                request: WebResourceRequest,
+                threatType: Int,
+                callback: SafeBrowsingResponseCompat,
+            ) {
                 loadingIndicator.isVisible = false
-                updateChrome(webView, pageTitleText, pageUrlText)
+                Toast.makeText(
+                    requireContext(),
+                    R.string.login_safe_browsing_blocked,
+                    Toast.LENGTH_LONG,
+                ).show()
+                if (WebViewFeature.isFeatureSupported(WebViewFeature.SAFE_BROWSING_RESPONSE_BACK_TO_SAFETY)) {
+                    callback.backToSafety(true)
+                } else {
+                    callback.showInterstitial(true)
+                }
             }
         }
 
         webView.webChromeClient = object : WebChromeClient() {
-            override fun onReceivedTitle(view: android.webkit.WebView?, title: String?) {
+            override fun onReceivedTitle(view: WebView?, title: String?) {
                 super.onReceivedTitle(view, title)
                 updateChrome(webView, pageTitleText, pageUrlText)
             }
 
-            override fun onProgressChanged(view: android.webkit.WebView?, newProgress: Int) {
+            override fun onProgressChanged(view: WebView?, newProgress: Int) {
                 super.onProgressChanged(view, newProgress)
                 loadingIndicator.isVisible = newProgress < 100
                 loadingIndicator.progress = newProgress
@@ -111,13 +151,55 @@ class LoginWebViewFragment : Fragment() {
     }
 
     override fun onDestroyView() {
-        val webView = view?.findViewById<android.webkit.WebView>(R.id.login_webview)
+        val webView = view?.findViewById<WebView>(R.id.login_webview)
         webView?.destroy()
         super.onDestroyView()
     }
 
+    private fun applySystemBarInsets(root: View, chrome: View) {
+        val initialLeft = chrome.paddingLeft
+        val initialTop = chrome.paddingTop
+        val initialRight = chrome.paddingRight
+        val initialBottom = chrome.paddingBottom
+        ViewCompat.setOnApplyWindowInsetsListener(root) { _, insets ->
+            val statusBars = insets.getInsets(WindowInsetsCompat.Type.statusBars())
+            chrome.updatePadding(
+                left = initialLeft,
+                top = initialTop + statusBars.top,
+                right = initialRight,
+                bottom = initialBottom,
+            )
+            insets
+        }
+        ViewCompat.requestApplyInsets(root)
+    }
+
+    @Suppress("DEPRECATION")
+    private fun configureLoginWebView(webView: WebView) {
+        CookieManager.getInstance().setAcceptCookie(true)
+        CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true)
+
+        webView.settings.apply {
+            javaScriptEnabled = true
+            domStorageEnabled = true
+            javaScriptCanOpenWindowsAutomatically = false
+            setSupportMultipleWindows(false)
+            allowFileAccess = false
+            allowContentAccess = false
+            allowFileAccessFromFileURLs = false
+            allowUniversalAccessFromFileURLs = false
+            mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
+            mediaPlaybackRequiresUserGesture = true
+            setGeolocationEnabled(false)
+        }
+
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.SAFE_BROWSING_ENABLE)) {
+            WebSettingsCompat.setSafeBrowsingEnabled(webView.settings, true)
+        }
+    }
+
     private fun updateChrome(
-        webView: android.webkit.WebView,
+        webView: WebView,
         pageTitleText: TextView,
         pageUrlText: TextView,
     ) {

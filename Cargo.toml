@@ -26,7 +26,7 @@ repository = "https://github.com/peterich-rs/fire.git"
 [workspace.dependencies]
 mars-xlog = { version = "0.1.0-preview.2", default-features = false, features = ["rust-backend", "tracing"] }
 mars-xlog-core = "0.1.0-preview.2"
-openwire = { path = "third_party/openwire/crates/openwire", default-features = false, features = ["tls-rustls", "platform-verifier", "json"] }
+openwire = { path = "third_party/openwire/crates/openwire", default-features = false, features = ["tls-rustls", "json"] }
 async-trait = "0.1.89"
 base64 = "0.22"
 bytes = "1.10.1"
@@ -47,6 +47,7 @@ rustls-webpki = "0.103.10"
 rustls-native-certs = "0.8.2"
 rustls-pemfile = "2.2.0"
 rustls-platform-verifier = "0.6.2"
+webpki-roots = "1.0.7"
 regex = "1.12"
 ego-tree = "0.11"
 html5ever = "0.39.0"

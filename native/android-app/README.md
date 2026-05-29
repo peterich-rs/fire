@@ -76,6 +76,8 @@ Current host-side app wiring lives under `src/main/java/com/fire/app/` plus `src
 - `LoginWebViewFragment.kt`
   - presents login inside the main navigation graph with visible page title, URL, and loading state
   - enables third-party cookies and DOM storage so OAuth-style login hops can round-trip cleanly
+  - applies AndroidX WebKit Safe Browsing, blocks non-web schemes, disables file/content access, and rejects mixed content for the embedded login browser
+  - pads the login chrome with the real status-bar inset so the close and sync controls remain tappable under the immersive shell
   - syncs cookies, page HTML, CSRF, username, and browser user agent through `FireWebViewLoginCoordinator`
   - routes successful login back to Home while clearing onboarding from the back stack
 
@@ -93,6 +95,8 @@ Workspace note:
 - The Android host now passes `filesDir/fire` into Rust as the workspace root.
 - Rust now initializes shared logging under `filesDir/fire/logs` and keeps xlog cache files under `filesDir/fire/cache/xlog`.
 - Rust also mirrors tracing output into `filesDir/fire/diagnostics/fire-readable.log`.
+- The shared OpenWire client attaches OpenWire's built-in logger interceptor at header level; logs flow through the Rust tracing/Xlog pipeline with cookies, auth headers, and CSRF redacted.
+- Android Rust networking explicitly uses a Rustls connector backed by the bundled Mozilla `webpki-roots` set, and the Android target does not enable OpenWire's platform verifier feature.
 - Debug builds may also mirror that shared pipeline into Logcat, while release builds keep the shared logs in Xlog/readable-log files only.
 - Rust can resolve relative paths inside that workspace for shared file ownership such as logs, caches, or exports.
 - The current persisted session file remains `filesDir/fire/session.json`.
@@ -131,12 +135,12 @@ Note:
 - The generated Kotlin bindings are configured by `rust/crates/fire-uniffi/uniffi.toml`, split across `uniffi.fire_uniffi`, `uniffi.fire_uniffi_diagnostics`, `uniffi.fire_uniffi_messagebus`, `uniffi.fire_uniffi_notifications`, `uniffi.fire_uniffi_search`, `uniffi.fire_uniffi_session`, `uniffi.fire_uniffi_topics`, `uniffi.fire_uniffi_types`, and `uniffi.fire_uniffi_user` (one per namespace), and load `libfire_uniffi.so` through JNA (single cdylib shared across every namespace).
 - Android Rust targets now inherit `-Wl,-z,max-page-size=16384` from `.cargo/config.toml` so packaged shared libraries are aligned for Android 15+ 16 KB page-size compatibility.
 - `assembleDebug` now packages Rust debug `.so` outputs and `assembleRelease` packages Rust release `.so` outputs.
-- Build with a full JDK that includes `jlink`. On this machine, `ANDROID_HOME=/Users/Shared/Android/sdk ANDROID_SDK_ROOT=/Users/Shared/Android/sdk JAVA_HOME=/Library/Java/JavaVirtualMachines/temurin-21.jdk/Contents/Home ./gradlew assembleDebug` and `./gradlew assembleRelease` are verified working.
-- The Gradle build expects an Android SDK/NDK installation. By default the sync script resolves the NDK from `$ANDROID_NDK_HOME`, `$ANDROID_NDK_ROOT`, or `$ANDROID_HOME/ndk/28.2.13676358`.
+- Build with a full JDK that includes `jlink`, plus an Android SDK/NDK installation. Set `JAVA_HOME`, `ANDROID_HOME`, and `ANDROID_SDK_ROOT` according to the local environment before running `./gradlew assembleDebug` or `./gradlew assembleRelease`.
+- The Gradle build expects an Android NDK installation. The sync script resolves the NDK from `$ANDROID_NDK_HOME`, `$ANDROID_NDK_ROOT`, or an installed NDK under `$ANDROID_HOME/ndk`.
 - Async UniFFI bindings rely on `kotlinx-coroutines-core`, which is now declared directly by this module.
 - Android does not have an iOS-style runtime "internet permission" prompt for ordinary web access. `android.permission.INTERNET` is a normal install-time permission, so there is no separate network-permission preflight to mirror.
 
-Unit test coverage now starts with `src/test/java/com/fire/app/TopicPresentationTest.kt`, and CI runs `./gradlew clean testDebugUnitTest assembleDebug` followed by a separate `./gradlew assembleRelease` invocation. Keeping debug/unit and release in separate Gradle processes still matches the currently verified local path and avoids a flaky combined-variant native-lib packaging failure on this machine, while skipping the second `clean` lets the release pass reuse the already prepared Gradle state instead of rebuilding from an empty workspace.
+Unit test coverage now starts with `src/test/java/com/fire/app/TopicPresentationTest.kt`, and CI runs `./gradlew clean testDebugUnitTest assembleDebug` followed by a separate `./gradlew assembleRelease` invocation. Keeping debug/unit and release in separate Gradle processes isolates variant-specific native-library packaging, while skipping the second `clean` lets the release pass reuse the already prepared Gradle state instead of rebuilding from an empty workspace.
 
 Planned responsibilities beyond the current wiring:
 

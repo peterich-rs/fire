@@ -1,14 +1,14 @@
 use std::sync::{Arc, RwLock};
 
 use http::{
-    header::{HeaderMap, HeaderValue, ACCEPT_LANGUAGE, ORIGIN, REFERER, USER_AGENT},
+    header::{HeaderMap, HeaderName, HeaderValue, ACCEPT_LANGUAGE, ORIGIN, REFERER, USER_AGENT},
     Method, Request, Response, StatusCode,
 };
 #[cfg(debug_assertions)]
 use openwire::ProxyRules;
 use openwire::{
-    BoxFuture, Call, CallOptions, Client, Exchange, Interceptor, Next, RequestBody, ResponseBody,
-    WireError,
+    BoxFuture, Call, CallOptions, Client, Exchange, HttpLogger, Interceptor,
+    LogLevel as OpenWireLogLevel, LoggerInterceptor, Next, RequestBody, ResponseBody, WireError,
 };
 use serde::{de::DeserializeOwned, Deserialize};
 use tracing::{debug, info, warn};
@@ -125,6 +125,9 @@ pub(crate) struct FireTraceSnapshotInterceptor {
     diagnostics: Arc<FireDiagnosticsStore>,
 }
 
+#[derive(Clone, Copy)]
+struct FireOpenWireHttpLogger;
+
 impl FireTraceSnapshotInterceptor {
     pub(crate) fn new(diagnostics: Arc<FireDiagnosticsStore>) -> Self {
         Self { diagnostics }
@@ -192,6 +195,34 @@ impl Interceptor for FireTraceSnapshotInterceptor {
     }
 }
 
+impl HttpLogger for FireOpenWireHttpLogger {
+    fn log(&self, message: &str) {
+        debug!(target: "openwire::http", "{}", message);
+    }
+}
+
+fn fire_openwire_logger_interceptor() -> LoggerInterceptor {
+    LoggerInterceptor::with_logger(OpenWireLogLevel::Headers, FireOpenWireHttpLogger)
+        .redact_header(HeaderName::from_static("x-csrf-token"))
+}
+
+#[cfg(target_os = "android")]
+fn android_tls_connector() -> openwire::RustlsTlsConnector {
+    let roots = rustls::RootCertStore::from_iter(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+    let root_count = roots.len();
+    info!(
+        target: "fire.network",
+        tls_backend = "rustls",
+        verifier_backend = "webpki-roots",
+        root_count,
+        "configured Android OpenWire TLS verifier"
+    );
+    let config = rustls::ClientConfig::builder()
+        .with_root_certificates(roots)
+        .with_no_client_auth();
+    openwire::RustlsTlsConnector::from_config(config)
+}
+
 pub(crate) struct TracedRequest {
     pub(crate) trace_id: u64,
     pub(crate) operation: &'static str,
@@ -211,6 +242,7 @@ impl FireNetworkLayer {
                 base_url.clone(),
                 Arc::clone(&session),
             ))
+            .application_interceptor(fire_openwire_logger_interceptor())
             .network_interceptor(FireTraceSnapshotInterceptor::new(Arc::clone(&diagnostics)))
             .connect_timeout(NETWORK_CONNECT_TIMEOUT)
             .call_timeout(NETWORK_CALL_TIMEOUT)
@@ -223,6 +255,8 @@ impl FireNetworkLayer {
             )));
         #[cfg(debug_assertions)]
         let builder = builder.proxy_selector(ProxyRules::new().use_system_proxy(true));
+        #[cfg(target_os = "android")]
+        let builder = builder.tls_connector(android_tls_connector());
         let client = builder
             .build()
             .map_err(|source| FireCoreError::ClientBuild { source })?;

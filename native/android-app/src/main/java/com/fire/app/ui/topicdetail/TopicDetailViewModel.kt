@@ -11,7 +11,9 @@ import com.fire.app.richtext.FireRichTextParser
 import com.fire.app.richtext.FireSpannableBuilder
 import com.fire.app.session.FireSessionStore
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import uniffi.fire_uniffi_topics.TopicDetailState
@@ -43,6 +45,9 @@ class TopicDetailViewModel(
     private val _postRows = MutableStateFlow<List<PostRow>>(emptyList())
     val postRows = _postRows.asStateFlow()
 
+    private val _scrollTargetPostNumber = MutableSharedFlow<UInt>(extraBufferCapacity = 1)
+    val scrollTargetPostNumber = _scrollTargetPostNumber.asSharedFlow()
+
     private var cursor: TopicResponseCursorState? = null
     private var screen: TopicScreenState? = null
     private var responseRows: MutableList<TopicResponseRowState> = mutableListOf()
@@ -57,7 +62,7 @@ class TopicDetailViewModel(
             _isLoading.value = true
             _errorMessage.value = null
             try {
-                val fetched = topicRepository.fetchTopicScreen(topicId, targetPostNumber)
+                val fetched = topicRepository.fetchTopicScreen(topicId, null)
                 screen = fetched
                 responseRows = fetched.response.rows.toMutableList()
                 cursor = fetched.response.nextCursor
@@ -66,14 +71,7 @@ class TopicDetailViewModel(
                 val bodyPost = fetched.body.post
                 val allPosts = listOf(bodyPost) + fetched.response.rows.map { it.post }
 
-                val rows = fetched.response.rows.map { row ->
-                    PostRow(
-                        post = row.post,
-                        depth = row.depth.toInt(),
-                        parentPostNumber = row.parentPostNumber,
-                        hasChildren = row.hasChildren,
-                    )
-                }
+                val rows = fetched.response.rows.map(::postRow)
 
                 val detailState = TopicDetailState(
                     id = header.topicId,
@@ -110,6 +108,9 @@ class TopicDetailViewModel(
                 _detail.value = detailState
                 _postRows.value = rows
                 preloadRenderContent(allPosts)
+                targetPostNumber
+                    ?.takeIf { it > 0u }
+                    ?.let { scrollToPostWhenLoaded(it) }
             } catch (e: Exception) {
                 _errorMessage.value = e.localizedMessage ?: "加载话题详情失败"
             } finally {
@@ -119,45 +120,9 @@ class TopicDetailViewModel(
     }
 
     fun loadMorePosts() {
-        val currentCursor = cursor ?: return
         if (_isLoadingMore.value) return
         viewModelScope.launch {
-            _isLoadingMore.value = true
-            try {
-                val page = topicRepository.fetchTopicResponsePage(currentCursor)
-                if (cursor != currentCursor) return@launch
-
-                responseRows.addAll(page.rows)
-                cursor = page.nextCursor
-
-                val newRows = page.rows.map { row ->
-                    PostRow(
-                        post = row.post,
-                        depth = row.depth.toInt(),
-                        parentPostNumber = row.parentPostNumber,
-                        hasChildren = row.hasChildren,
-                    )
-                }
-                _postRows.value = _postRows.value + newRows
-
-                _detail.value?.let { current ->
-                    val allPosts = buildList {
-                        screen?.body?.post?.let { add(it) }
-                        addAll(_postRows.value.map { it.post })
-                    }
-                    _detail.value = current.copy(
-                        postStream = current.postStream.copy(
-                            posts = allPosts,
-                            stream = allPosts.map { it.id },
-                        ),
-                    )
-                }
-                preloadRenderContent(page.rows.map { it.post })
-            } catch (e: Exception) {
-                _errorMessage.value = e.localizedMessage ?: "加载更多帖子失败"
-            } finally {
-                _isLoadingMore.value = false
-            }
+            loadMorePostsPage()
         }
     }
 
@@ -225,6 +190,73 @@ class TopicDetailViewModel(
         }
     }
 
+    private suspend fun scrollToPostWhenLoaded(postNumber: UInt) {
+        if (hasLoadedPostNumber(postNumber)) {
+            _scrollTargetPostNumber.emit(postNumber)
+            return
+        }
+
+        var remainingPages = TARGET_HYDRATION_PAGE_LIMIT
+        while (remainingPages > 0 && cursor != null && !hasLoadedPostNumber(postNumber)) {
+            remainingPages -= 1
+            if (!loadMorePostsPage()) break
+        }
+
+        if (hasLoadedPostNumber(postNumber)) {
+            _scrollTargetPostNumber.emit(postNumber)
+        }
+    }
+
+    private fun hasLoadedPostNumber(postNumber: UInt): Boolean {
+        if (screen?.body?.post?.postNumber == postNumber) return true
+        return _postRows.value.any { row -> row.post.postNumber == postNumber }
+    }
+
+    private suspend fun loadMorePostsPage(): Boolean {
+        val currentCursor = cursor ?: return false
+        if (_isLoadingMore.value) return false
+        _isLoadingMore.value = true
+        return try {
+            val page = topicRepository.fetchTopicResponsePage(currentCursor)
+            if (cursor != currentCursor) return false
+
+            responseRows.addAll(page.rows)
+            cursor = page.nextCursor
+
+            val newRows = page.rows.map(::postRow)
+            _postRows.value = _postRows.value + newRows
+
+            _detail.value?.let { current ->
+                val allPosts = buildList {
+                    screen?.body?.post?.let { add(it) }
+                    addAll(_postRows.value.map { it.post })
+                }
+                _detail.value = current.copy(
+                    postStream = current.postStream.copy(
+                        posts = allPosts,
+                        stream = allPosts.map { it.id },
+                    ),
+                )
+            }
+            preloadRenderContent(page.rows.map { it.post })
+            page.rows.isNotEmpty()
+        } catch (e: Exception) {
+            _errorMessage.value = e.localizedMessage ?: "加载更多帖子失败"
+            false
+        } finally {
+            _isLoadingMore.value = false
+        }
+    }
+
+    private fun postRow(row: TopicResponseRowState): PostRow {
+        return PostRow(
+            post = row.post,
+            depth = row.depth.toInt(),
+            parentPostNumber = row.parentPostNumber,
+            hasChildren = row.hasChildren,
+        )
+    }
+
     private fun parsePostContent(post: TopicPostState): FireRichTextContent? {
         val cooked = post.cooked.ifBlank { return null }
         return try {
@@ -235,6 +267,8 @@ class TopicDetailViewModel(
     }
 
     companion object {
+        private const val TARGET_HYDRATION_PAGE_LIMIT = 20
+
         fun create(sessionStore: FireSessionStore): TopicDetailViewModel {
             val sessionRepo = SessionRepository(sessionStore)
             val topicRepo = TopicRepository(sessionStore)

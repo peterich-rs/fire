@@ -39,6 +39,7 @@ class TopicDetailActivity : AppCompatActivity() {
     private val postListAdapter = PostListAdapter { /* post click handler */ }
     private val loadingFooterAdapter = LoadingFooterAdapter()
     private var loadMorePostsPosted = false
+    private var pendingScrollTargetPostNumber: UInt? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -131,7 +132,15 @@ class TopicDetailActivity : AppCompatActivity() {
 
         lifecycleScope.launch {
             vm.postRows.collectLatest { rows ->
-                postListAdapter.submitList(rows)
+                postListAdapter.submitList(rows) {
+                    pendingScrollTargetPostNumber?.let { scrollToPostNumber(it) }
+                }
+            }
+        }
+
+        lifecycleScope.launch {
+            vm.scrollTargetPostNumber.collectLatest { postNumber ->
+                scrollToPostNumber(postNumber)
             }
         }
 
@@ -153,6 +162,29 @@ class TopicDetailActivity : AppCompatActivity() {
         rv.post {
             loadMorePostsPosted = false
             viewModel?.loadMorePosts()
+        }
+    }
+
+    private fun scrollToPostNumber(postNumber: UInt) {
+        pendingScrollTargetPostNumber = postNumber
+        val adapterPosition = if (postNumber <= 1u) {
+            0
+        } else {
+            val rowIndex = postListAdapter.currentList.indexOfFirst {
+                it.post.postNumber == postNumber
+            }
+            if (rowIndex < 0) return
+            headerAdapter.itemCount + rowIndex
+        }
+        pendingScrollTargetPostNumber = null
+
+        recyclerView.post {
+            val layoutManager = recyclerView.layoutManager as? LinearLayoutManager
+            if (layoutManager != null) {
+                layoutManager.scrollToPositionWithOffset(adapterPosition, 0)
+            } else {
+                recyclerView.scrollToPosition(adapterPosition)
+            }
         }
     }
 

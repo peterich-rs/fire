@@ -688,87 +688,89 @@ struct FireTopicDetailView: View {
     }
 
     private var detailCollectionContent: some View {
-        FireTopicDetailCollectionView(
-            viewModel: viewModel,
-            row: row,
-            detail: detail,
-            renderState: renderState,
-            pendingScrollTarget: pendingScrollTarget,
-            detailError: detailError,
-            hasMoreTopicPosts: hasMoreTopicPosts,
-            isLoadingTopic: isLoadingTopic,
-            isLoadingMoreTopicPosts: isLoadingMoreTopicPosts,
-            topicAiSummary: topicAiSummary,
-            isLoadingTopicAiSummary: isLoadingTopicAiSummary,
-            topicAiSummaryError: topicAiSummaryError,
-            topicCollectionRevision: topicCollectionRevision,
-            canWriteInteractions: canWriteInteractions,
-            postLookup: postLookup,
-            isMutatingPost: { topicDetailStore.isMutatingPost(postId: $0) },
-            onVisiblePostNumbersChanged: handleVisiblePostNumbersChanged(_:),
-            onRefresh: {
-                timingTracker.recordInteraction()
-                topicDetailStore.clearTopicDetailAnchor(topicId: topic.id)
-                await loadTopicDetail(force: true)
-            },
-            onLoadTopicDetail: {
-                timingTracker.recordInteraction()
-                await loadTopicDetail(force: true)
-            },
-            onScrollTargetHandled: { postNumber in
-                topicDetailStore.markScrollTargetSatisfied(topicId: topic.id, postNumber: postNumber)
-            },
-            onPreloadTopicPosts: { visiblePostNumbers in
-                topicDetailStore.handleVisiblePostNumbersChanged(
-                    topicId: topic.id,
-                    visiblePostNumbers: visiblePostNumbers
-                )
-            },
-            onLoadMoreTopicPosts: {
-                topicDetailStore.loadMoreTopicPostsIfNeeded(topicId: topic.id)
-            },
-            onReloadTopicAiSummary: {
-                topicDetailStore.reloadTopicAiSummary(topicId: topic.id)
-            },
-            onOpenComposer: openComposer(replyToPost:),
-            onOpenPostNumber: openPostNumber(_:),
-            onOpenPostReplies: openPostReplies(for:),
-            onLinkTapped: handleRichTextLink,
-            onOpenImage: { selectedImage = $0 },
-            onToggleLike: { toggleLike(for: $0) },
-            onSelectReaction: { post, reactionId in
-                toggleReaction(reactionId, for: post)
-            },
-            onEditPost: { post in
-                postEditorContext = FirePostEditorContext(postID: post.id, postNumber: post.postNumber)
-            },
-            onBookmarkPost: { post in
-                bookmarkEditorContext = postBookmarkContext(for: post)
-            },
-            onDeletePost: { post in
-                pendingPostDeletion = FirePostManagementContext(
-                    postID: post.id,
-                    postNumber: post.postNumber
-                )
-            },
-            onRecoverPost: { post in
-                recoverPost(post)
-            },
-            onFlagPost: { post in
-                postFlagContext = FirePostManagementContext(
-                    postID: post.id,
-                    postNumber: post.postNumber,
-                    username: post.username
-                )
-            },
-            onVotePoll: { post, poll, options in
-                submitPollVote(for: post, poll: poll, options: options)
-            },
-            onUnvotePoll: { post, poll in
-                removePollVote(for: post, poll: poll)
-            },
-            onToggleTopicVote: toggleTopicVote,
-            onShowTopicVoters: presentTopicVoters
+        FireTopicDetailListHost(
+            configuration: FireTopicDetailRuntimeConfiguration(
+                row: row,
+                baseURLString: baseURLString,
+                detail: detail,
+                renderState: renderState,
+                pendingScrollTarget: pendingScrollTarget,
+                detailError: detailError,
+                hasMoreTopicPosts: hasMoreTopicPosts,
+                isLoadingTopic: isLoadingTopic,
+                isLoadingMoreTopicPosts: isLoadingMoreTopicPosts,
+                topicAiSummary: topicAiSummary,
+                isLoadingTopicAiSummary: isLoadingTopicAiSummary,
+                topicAiSummaryError: topicAiSummaryError,
+                topicCollectionRevision: topicCollectionRevision,
+                canWriteInteractions: canWriteInteractions,
+                postLookup: postLookup,
+                isMutatingPost: { topicDetailStore.isMutatingPost(postId: $0) },
+                onVisiblePostNumbersChanged: handleVisiblePostNumbersChanged(_:),
+                onRefresh: {
+                    timingTracker.recordInteraction()
+                    topicDetailStore.clearTopicDetailAnchor(topicId: topic.id)
+                    await loadTopicDetail(force: true)
+                },
+                onLoadTopicDetail: {
+                    timingTracker.recordInteraction()
+                    await loadTopicDetail(force: true)
+                },
+                onScrollTargetHandled: { postNumber in
+                    topicDetailStore.markScrollTargetSatisfied(topicId: topic.id, postNumber: postNumber)
+                },
+                onPreloadTopicPosts: { visiblePostNumbers in
+                    topicDetailStore.handleVisiblePostNumbersChanged(
+                        topicId: topic.id,
+                        visiblePostNumbers: visiblePostNumbers
+                    )
+                },
+                onLoadMoreTopicPosts: {
+                    topicDetailStore.loadMoreTopicPostsIfNeeded(topicId: topic.id)
+                },
+                onReloadTopicAiSummary: {
+                    topicDetailStore.reloadTopicAiSummary(topicId: topic.id)
+                },
+                onOpenComposer: openComposer(replyToPost:),
+                onOpenPostNumber: openPostNumber(_:),
+                onOpenPostReplies: openPostReplies(for:),
+                onLinkTapped: handleRichTextLink,
+                onOpenImage: { selectedImage = $0 },
+                onToggleLike: { toggleLike(for: $0) },
+                onSelectReaction: { post, reactionId in
+                    toggleReaction(reactionId, for: post)
+                },
+                onEditPost: { post in
+                    postEditorContext = FirePostEditorContext(postID: post.id, postNumber: post.postNumber)
+                },
+                onBookmarkPost: { post in
+                    bookmarkEditorContext = postBookmarkContext(for: post)
+                },
+                onDeletePost: { post in
+                    pendingPostDeletion = FirePostManagementContext(
+                        postID: post.id,
+                        postNumber: post.postNumber
+                    )
+                },
+                onRecoverPost: { post in
+                    recoverPost(post)
+                },
+                onFlagPost: { post in
+                    postFlagContext = FirePostManagementContext(
+                        postID: post.id,
+                        postNumber: post.postNumber,
+                        username: post.username
+                    )
+                },
+                onVotePoll: { post, poll, options in
+                    submitPollVote(for: post, poll: poll, options: options)
+                },
+                onUnvotePoll: { post, poll in
+                    removePollVote(for: post, poll: poll)
+                },
+                onToggleTopicVote: toggleTopicVote,
+                onShowTopicVoters: presentTopicVoters
+            )
         )
     }
 
@@ -1070,12 +1072,9 @@ struct FireTopicDetailView: View {
             guard let pendingScrollTarget else {
                 return
             }
-            guard FireTopicDetailCollectionAdapter.scrollItem(
-                for: pendingScrollTarget,
-                topicID: topic.id,
-                originalPostNumber: originalPost?.postNumber,
-                replyRows: replyRows
-            ) == nil else {
+            let targetIsLoaded = originalPost?.postNumber == pendingScrollTarget
+                || replyRows.contains { $0.entry.postNumber == pendingScrollTarget }
+            guard !targetIsLoaded else {
                 return
             }
             if topicDetailStore.isScrollTargetExhausted(topicId: topic.id, postNumber: pendingScrollTarget) {

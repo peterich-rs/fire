@@ -7,10 +7,14 @@ use fire_uniffi_types::{run_on_ffi_runtime, FireUniFfiError, SharedFireCore, Top
 pub mod records;
 
 pub use records::{
-    PollOptionState, PollState, PostActionTypeState, PostFlagRequestState, PostReactionUpdateState,
-    PostUpdateRequestState, PrivateMessageCreateRequestState, ReactionUserState,
-    ReactionUsersGroupState, ResolvedUploadUrlState, TopicAiSummaryState, TopicBodyState,
-    TopicCreateRequestState, TopicDetailCreatedByState, TopicDetailMetaState,
+    FeedSnapshotSourceState, PollOptionState, PollState, PostActionTypeState, PostFlagRequestState,
+    PostReactionUpdateState, PostUpdateRequestState, PrivateMessageCreateRequestState,
+    ReactionUserState, ReactionUsersGroupState, ResolvedUploadUrlState, TopicAiSummaryState,
+    TopicBodyState, TopicCreateRequestState, TopicDetailCreatedByState, TopicDetailCursorState,
+    TopicDetailFeedItemKindState, TopicDetailFeedItemState, TopicDetailFeedLoadStateState,
+    TopicDetailFeedPatchOperationKindState, TopicDetailFeedPatchOperationState,
+    TopicDetailFeedPatchState, TopicDetailFeedQueryState, TopicDetailFeedSnapshotState,
+    TopicDetailLoadPolicyState, TopicDetailLoadedRangeState, TopicDetailMetaState,
     TopicDetailQueryState, TopicDetailState, TopicHeaderState, TopicListQueryState, TopicPostState,
     TopicPostStreamState, TopicReactionState, TopicReplyRequestState, TopicReplyToUserState,
     TopicResponseCursorState, TopicResponsePageQueryState, TopicResponsePageState,
@@ -82,6 +86,47 @@ impl FireTopicsHandle {
         })
         .await?;
         Ok(response.into())
+    }
+
+    pub async fn load_topic_detail_feed(
+        &self,
+        query: TopicDetailFeedQueryState,
+    ) -> Result<TopicDetailFeedSnapshotState, FireUniFfiError> {
+        let inner = self.shared.core.clone();
+        let panic_state = self.shared.panic_state.clone();
+        let response = run_on_ffi_runtime("load_topic_detail_feed", panic_state, async move {
+            inner.load_topic_detail_feed(query.into()).await
+        })
+        .await?;
+        Ok(response.into())
+    }
+
+    pub async fn refresh_topic_detail_feed(
+        &self,
+        query: TopicDetailFeedQueryState,
+    ) -> Result<TopicDetailFeedSnapshotState, FireUniFfiError> {
+        let inner = self.shared.core.clone();
+        let panic_state = self.shared.panic_state.clone();
+        let response = run_on_ffi_runtime("refresh_topic_detail_feed", panic_state, async move {
+            inner.refresh_topic_detail_feed(query.into()).await
+        })
+        .await?;
+        Ok(response.into())
+    }
+
+    pub fn cached_topic_detail_feed(
+        &self,
+        topic_id: u64,
+    ) -> Result<Option<TopicDetailFeedSnapshotState>, FireUniFfiError> {
+        let inner = self.shared.core.clone();
+        let panic_state = self.shared.panic_state.clone();
+        let response = fire_uniffi_types::run_fallible(
+            &panic_state,
+            &inner,
+            "cached_topic_detail_feed",
+            move |core| core.cached_topic_detail_feed(topic_id),
+        )?;
+        Ok(response.map(Into::into))
     }
 
     pub async fn fetch_topic_response_page(

@@ -8,6 +8,7 @@ authors.workspace = true
 
 [dependencies]
 fire-models = { path = "../fire-models" }
+fire-store = { path = "../fire-store" }
 futures-util.workspace = true
 http.workspace = true
 http-body-util.workspace = true
@@ -20,6 +21,7 @@ html5ever.workspace = true
 scraper.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+sha1.workspace = true
 thiserror.workspace = true
 time.workspace = true
 tokio.workspace = true

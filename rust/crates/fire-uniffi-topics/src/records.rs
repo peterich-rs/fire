@@ -1,11 +1,15 @@
 use fire_models::{
-    Poll, PollOption, PostActionType, PostFlagRequest, PostReactionUpdate, PostUpdateRequest,
-    PrivateMessageCreateRequest, ReactionUser, ReactionUsersGroup, ResolvedUploadUrl,
-    TopicAiSummary, TopicBody, TopicCreateRequest, TopicDetail, TopicDetailCreatedBy,
-    TopicDetailMeta, TopicDetailQuery, TopicHeader, TopicListQuery, TopicPost, TopicPostStream,
-    TopicReaction, TopicReplyRequest, TopicReplyToUser, TopicResponseCursor, TopicResponsePage,
-    TopicResponsePageQuery, TopicResponseRow, TopicScreen, TopicScreenQuery, TopicTimingEntry,
-    TopicTimingsRequest, TopicUpdateRequest, UploadResult, VoteResponse, VotedUser,
+    FeedSnapshotSource, Poll, PollOption, PostActionType, PostFlagRequest, PostReactionUpdate,
+    PostUpdateRequest, PrivateMessageCreateRequest, ReactionUser, ReactionUsersGroup,
+    ResolvedUploadUrl, TopicAiSummary, TopicBody, TopicCreateRequest, TopicDetail,
+    TopicDetailCreatedBy, TopicDetailCursor, TopicDetailFeedItem, TopicDetailFeedItemKind,
+    TopicDetailFeedLoadState, TopicDetailFeedPatch, TopicDetailFeedPatchOperation,
+    TopicDetailFeedPatchOperationKind, TopicDetailFeedQuery, TopicDetailFeedSnapshot,
+    TopicDetailLoadPolicy, TopicDetailLoadedRange, TopicDetailMeta, TopicDetailQuery, TopicHeader,
+    TopicListQuery, TopicPost, TopicPostStream, TopicReaction, TopicReplyRequest, TopicReplyToUser,
+    TopicResponseCursor, TopicResponsePage, TopicResponsePageQuery, TopicResponseRow, TopicScreen,
+    TopicScreenQuery, TopicTimingEntry, TopicTimingsRequest, TopicUpdateRequest, UploadResult,
+    VoteResponse, VotedUser,
 };
 
 use fire_uniffi_types::{TopicListKindState, TopicParticipantState, TopicTagState};
@@ -96,6 +100,154 @@ impl From<TopicDetailQueryState> for TopicDetailQuery {
             filter: value.filter,
             username_filters: value.username_filters,
             filter_top_level_replies: value.filter_top_level_replies,
+        }
+    }
+}
+
+#[derive(uniffi::Enum, Debug, Clone, Copy)]
+pub enum TopicDetailLoadPolicyState {
+    CacheFirstThenRefresh,
+    NetworkFirst,
+    CacheOnly,
+    ForceRefresh,
+}
+
+impl From<TopicDetailLoadPolicy> for TopicDetailLoadPolicyState {
+    fn from(value: TopicDetailLoadPolicy) -> Self {
+        match value {
+            TopicDetailLoadPolicy::CacheFirstThenRefresh => Self::CacheFirstThenRefresh,
+            TopicDetailLoadPolicy::NetworkFirst => Self::NetworkFirst,
+            TopicDetailLoadPolicy::CacheOnly => Self::CacheOnly,
+            TopicDetailLoadPolicy::ForceRefresh => Self::ForceRefresh,
+        }
+    }
+}
+
+impl From<TopicDetailLoadPolicyState> for TopicDetailLoadPolicy {
+    fn from(value: TopicDetailLoadPolicyState) -> Self {
+        match value {
+            TopicDetailLoadPolicyState::CacheFirstThenRefresh => Self::CacheFirstThenRefresh,
+            TopicDetailLoadPolicyState::NetworkFirst => Self::NetworkFirst,
+            TopicDetailLoadPolicyState::CacheOnly => Self::CacheOnly,
+            TopicDetailLoadPolicyState::ForceRefresh => Self::ForceRefresh,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct TopicDetailFeedQueryState {
+    pub topic_id: u64,
+    pub target_post_number: Option<u32>,
+    pub policy: TopicDetailLoadPolicyState,
+}
+
+impl From<TopicDetailFeedQueryState> for TopicDetailFeedQuery {
+    fn from(value: TopicDetailFeedQueryState) -> Self {
+        Self {
+            topic_id: value.topic_id,
+            target_post_number: value.target_post_number,
+            policy: value.policy.into(),
+        }
+    }
+}
+
+#[derive(uniffi::Enum, Debug, Clone, Copy)]
+pub enum TopicDetailFeedItemKindState {
+    Header,
+    OriginalPost,
+    Reply,
+    Loading,
+    Error,
+    Footer,
+    Gap,
+    Notice,
+    Unknown,
+}
+
+impl From<TopicDetailFeedItemKind> for TopicDetailFeedItemKindState {
+    fn from(value: TopicDetailFeedItemKind) -> Self {
+        match value {
+            TopicDetailFeedItemKind::Header => Self::Header,
+            TopicDetailFeedItemKind::OriginalPost => Self::OriginalPost,
+            TopicDetailFeedItemKind::Reply => Self::Reply,
+            TopicDetailFeedItemKind::Loading => Self::Loading,
+            TopicDetailFeedItemKind::Error => Self::Error,
+            TopicDetailFeedItemKind::Footer => Self::Footer,
+            TopicDetailFeedItemKind::Gap => Self::Gap,
+            TopicDetailFeedItemKind::Notice => Self::Notice,
+            TopicDetailFeedItemKind::Unknown => Self::Unknown,
+        }
+    }
+}
+
+#[derive(uniffi::Enum, Debug, Clone, Copy)]
+pub enum FeedSnapshotSourceState {
+    Network,
+    ProcessedCache,
+    StaleIfError,
+    EmptyCacheError,
+    LocalFixture,
+}
+
+impl From<FeedSnapshotSource> for FeedSnapshotSourceState {
+    fn from(value: FeedSnapshotSource) -> Self {
+        match value {
+            FeedSnapshotSource::Network => Self::Network,
+            FeedSnapshotSource::ProcessedCache => Self::ProcessedCache,
+            FeedSnapshotSource::StaleIfError => Self::StaleIfError,
+            FeedSnapshotSource::EmptyCacheError => Self::EmptyCacheError,
+            FeedSnapshotSource::LocalFixture => Self::LocalFixture,
+        }
+    }
+}
+
+#[derive(uniffi::Enum, Debug, Clone, Copy)]
+pub enum TopicDetailFeedLoadStateState {
+    Ready,
+    Loading,
+    EmptyCacheError,
+    StaleWithError,
+}
+
+impl From<TopicDetailFeedLoadState> for TopicDetailFeedLoadStateState {
+    fn from(value: TopicDetailFeedLoadState) -> Self {
+        match value {
+            TopicDetailFeedLoadState::Ready => Self::Ready,
+            TopicDetailFeedLoadState::Loading => Self::Loading,
+            TopicDetailFeedLoadState::EmptyCacheError => Self::EmptyCacheError,
+            TopicDetailFeedLoadState::StaleWithError => Self::StaleWithError,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct TopicDetailLoadedRangeState {
+    pub first_post_number: u32,
+    pub last_post_number: u32,
+}
+
+impl From<TopicDetailLoadedRange> for TopicDetailLoadedRangeState {
+    fn from(value: TopicDetailLoadedRange) -> Self {
+        Self {
+            first_post_number: value.first_post_number,
+            last_post_number: value.last_post_number,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct TopicDetailCursorState {
+    pub next_response_cursor: Option<TopicResponseCursorState>,
+    pub loaded_ranges: Vec<TopicDetailLoadedRangeState>,
+    pub has_more: bool,
+}
+
+impl From<TopicDetailCursor> for TopicDetailCursorState {
+    fn from(value: TopicDetailCursor) -> Self {
+        Self {
+            next_response_cursor: value.next_response_cursor.map(Into::into),
+            loaded_ranges: value.loaded_ranges.into_iter().map(Into::into).collect(),
+            has_more: value.has_more,
         }
     }
 }
@@ -805,6 +957,125 @@ impl From<TopicScreen> for TopicScreenState {
             header: value.header.into(),
             body: value.body.into(),
             response: value.response.into(),
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct TopicDetailFeedItemState {
+    pub item_id: String,
+    pub kind: TopicDetailFeedItemKindState,
+    pub ordinal: u32,
+    pub post_id: Option<u64>,
+    pub content_revision: String,
+    pub header: Option<TopicHeaderState>,
+    pub post: Option<TopicPostState>,
+    pub response_row: Option<TopicResponseRowState>,
+    pub title: Option<String>,
+    pub message: Option<String>,
+    pub retryable: bool,
+}
+
+impl From<TopicDetailFeedItem> for TopicDetailFeedItemState {
+    fn from(value: TopicDetailFeedItem) -> Self {
+        Self {
+            item_id: value.item_id,
+            kind: value.kind.into(),
+            ordinal: value.ordinal,
+            post_id: value.post_id,
+            content_revision: value.content_revision,
+            header: value.header.map(Into::into),
+            post: value.post.map(Into::into),
+            response_row: value.response_row.map(Into::into),
+            title: value.title,
+            message: value.message,
+            retryable: value.retryable,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct TopicDetailFeedSnapshotState {
+    pub topic_id: u64,
+    pub revision: u64,
+    pub items: Vec<TopicDetailFeedItemState>,
+    pub cursor: TopicDetailCursorState,
+    pub source: FeedSnapshotSourceState,
+    pub load_state: TopicDetailFeedLoadStateState,
+    pub stale_error_message: Option<String>,
+    pub updated_at_ms: u64,
+}
+
+impl From<TopicDetailFeedSnapshot> for TopicDetailFeedSnapshotState {
+    fn from(value: TopicDetailFeedSnapshot) -> Self {
+        Self {
+            topic_id: value.topic_id,
+            revision: value.revision,
+            items: value.items.into_iter().map(Into::into).collect(),
+            cursor: value.cursor.into(),
+            source: value.source.into(),
+            load_state: value.load_state.into(),
+            stale_error_message: value.stale_error_message,
+            updated_at_ms: value.updated_at_ms,
+        }
+    }
+}
+
+#[derive(uniffi::Enum, Debug, Clone, Copy)]
+pub enum TopicDetailFeedPatchOperationKindState {
+    Insert,
+    Delete,
+    Replace,
+    Reload,
+    Unknown,
+}
+
+impl From<TopicDetailFeedPatchOperationKind> for TopicDetailFeedPatchOperationKindState {
+    fn from(value: TopicDetailFeedPatchOperationKind) -> Self {
+        match value {
+            TopicDetailFeedPatchOperationKind::Insert => Self::Insert,
+            TopicDetailFeedPatchOperationKind::Delete => Self::Delete,
+            TopicDetailFeedPatchOperationKind::Replace => Self::Replace,
+            TopicDetailFeedPatchOperationKind::Reload => Self::Reload,
+            TopicDetailFeedPatchOperationKind::Unknown => Self::Unknown,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct TopicDetailFeedPatchOperationState {
+    pub kind: TopicDetailFeedPatchOperationKindState,
+    pub index: u32,
+    pub delete_count: u32,
+    pub items: Vec<TopicDetailFeedItemState>,
+}
+
+impl From<TopicDetailFeedPatchOperation> for TopicDetailFeedPatchOperationState {
+    fn from(value: TopicDetailFeedPatchOperation) -> Self {
+        Self {
+            kind: value.kind.into(),
+            index: value.index,
+            delete_count: value.delete_count,
+            items: value.items.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct TopicDetailFeedPatchState {
+    pub topic_id: u64,
+    pub base_revision: u64,
+    pub new_revision: u64,
+    pub operations: Vec<TopicDetailFeedPatchOperationState>,
+}
+
+impl From<TopicDetailFeedPatch> for TopicDetailFeedPatchState {
+    fn from(value: TopicDetailFeedPatch) -> Self {
+        Self {
+            topic_id: value.topic_id,
+            base_revision: value.base_revision,
+            new_revision: value.new_revision,
+            operations: value.operations.into_iter().map(Into::into).collect(),
         }
     }
 }

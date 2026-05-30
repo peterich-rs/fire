@@ -9,16 +9,19 @@ mod presence;
 mod rate_limit;
 mod search;
 mod session;
+mod topic_feed;
 mod topics;
 mod users;
 
 use std::{
+    fs,
     path::{Path, PathBuf},
     sync::{Arc, Mutex, RwLock},
     time::Duration,
 };
 
 use fire_models::{BootstrapArtifacts, CookieSnapshot, SessionSnapshot};
+use fire_store::FireStore;
 use openwire::Client;
 use tokio::sync::Mutex as TokioMutex;
 use tracing::info;
@@ -47,6 +50,8 @@ const CLIENT_POOL_MAX_IDLE_PER_HOST: usize = 4;
 const MESSAGE_BUS_HTTP2_KEEP_ALIVE_INTERVAL: Duration = Duration::from_secs(30);
 
 type FireAuthKey = (Option<String>, Option<String>);
+const FIRE_STORE_DIR_NAME: &str = "cache";
+const FIRE_TOPIC_FEED_STORE_FILE_NAME: &str = "topic-feed.sqlite3";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FireAuthRecoveryHintReason {
@@ -90,6 +95,21 @@ impl FireAuthRotation {
     }
 }
 
+fn open_topic_feed_store(workspace_path: Option<&Path>) -> Result<FireStore, FireCoreError> {
+    let Some(workspace_path) = workspace_path else {
+        return Ok(FireStore::open_in_memory()?);
+    };
+
+    let cache_dir = workspace_path.join(FIRE_STORE_DIR_NAME);
+    fs::create_dir_all(&cache_dir).map_err(|source| FireCoreError::WorkspaceIo {
+        path: cache_dir.clone(),
+        source,
+    })?;
+    Ok(FireStore::open(
+        cache_dir.join(FIRE_TOPIC_FEED_STORE_FILE_NAME),
+    )?)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct FireResponseAuthChange {
     pub(crate) request_trace_id: u64,
@@ -118,6 +138,7 @@ pub struct FireCore {
     topic_presence: Arc<Mutex<presence::FireTopicPresenceRuntime>>,
     topic_timing: Arc<Mutex<interactions::FireTopicTimingRuntime>>,
     topic_response: Arc<Mutex<topics::FireTopicResponseRuntime>>,
+    topic_feed_store: Arc<Mutex<FireStore>>,
     csrf_refresh: Arc<TokioMutex<()>>,
 }
 
@@ -159,6 +180,7 @@ impl FireCore {
             Arc::clone(&diagnostics),
             cookie_jar,
         )?;
+        let topic_feed_store = open_topic_feed_store(workspace_path.as_deref())?;
 
         Ok(Self {
             base_url,
@@ -171,6 +193,7 @@ impl FireCore {
             topic_presence: Arc::new(Mutex::new(presence::FireTopicPresenceRuntime::default())),
             topic_timing: Arc::new(Mutex::new(interactions::FireTopicTimingRuntime::default())),
             topic_response: Arc::new(Mutex::new(topics::FireTopicResponseRuntime::default())),
+            topic_feed_store: Arc::new(Mutex::new(topic_feed_store)),
             csrf_refresh: Arc::new(TokioMutex::new(())),
         })
     }

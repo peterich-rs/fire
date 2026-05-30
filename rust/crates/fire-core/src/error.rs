@@ -66,6 +66,8 @@ pub enum FireCoreError {
     DiagnosticsIo { path: PathBuf, source: io::Error },
     #[error("logger workspace mismatch: expected {expected}, found {found}")]
     LoggerWorkspaceMismatch { expected: PathBuf, found: PathBuf },
+    #[error("store error: {0}")]
+    Store(#[from] fire_store::FireStoreError),
     #[error("csrf response did not contain a usable token")]
     InvalidCsrfResponse,
     #[error("failed to serialize persisted session: {0}")]

@@ -520,6 +520,26 @@ public actor FireSessionStore {
         }
     }
 
+    public func loadTopicDetailFeed(
+        query: TopicDetailFeedQueryState
+    ) async throws -> TopicDetailFeedSnapshotState {
+        try await runPersistingSessionChanges {
+            try await core.topics().loadTopicDetailFeed(query: query)
+        }
+    }
+
+    public func refreshTopicDetailFeed(
+        query: TopicDetailFeedQueryState
+    ) async throws -> TopicDetailFeedSnapshotState {
+        try await runPersistingSessionChanges {
+            try await core.topics().refreshTopicDetailFeed(query: query)
+        }
+    }
+
+    public func cachedTopicDetailFeed(topicID: UInt64) throws -> TopicDetailFeedSnapshotState? {
+        try core.topics().cachedTopicDetailFeed(topicId: topicID)
+    }
+
     public func fetchTopicResponsePage(
         query: TopicResponsePageQueryState
     ) async throws -> TopicResponsePageState {

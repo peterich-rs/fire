@@ -10,6 +10,17 @@ private struct FireTopicResponseAppendUpdate {
     let appendedRows: [TopicResponseRowState]
 }
 
+private enum FireTopicDetailFeedBridgeError: LocalizedError {
+    case missingRenderableSnapshot(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .missingRenderableSnapshot(let message):
+            return message
+        }
+    }
+}
+
 @MainActor
 final class FireTopicDetailStore: ObservableObject {
     nonisolated private static let topicPostPageSize = 30
@@ -275,16 +286,14 @@ final class FireTopicDetailStore: ObservableObject {
                         operation: "加载话题详情",
                         originURL: recoveryURL
                     ) {
-                        try await sessionStore.fetchTopicScreen(
-                            query: TopicScreenQueryState(
+                        let snapshot = try await sessionStore.loadTopicDetailFeed(
+                            query: TopicDetailFeedQueryState(
                                 topicId: topicId,
                                 targetPostNumber: targetPostNumber,
-                                rootPageSize: 10,
-                                rowPageSize: 40,
-                                trackVisit: true,
-                                forceLoad: true
+                                policy: force ? .forceRefresh : .networkFirst
                             )
                         )
+                        return try Self.topicScreen(from: snapshot)
                     }
                 }
             }
@@ -353,6 +362,38 @@ final class FireTopicDetailStore: ObservableObject {
         appViewModel.cloudflareRecoveryTopicURL(
             topicId: topicId,
             topicSlug: bestKnownTopicRecoverySlug(topicId: topicId)
+        )
+    }
+
+    nonisolated static func topicScreen(from snapshot: TopicDetailFeedSnapshotState) throws -> TopicScreenState {
+        guard let header = snapshot.items.first(where: { $0.kind == .header })?.header,
+              let originalPost = snapshot.items.first(where: { $0.kind == .originalPost })?.post else {
+            let message = snapshot.staleErrorMessage
+                ?? snapshot.items.first(where: { $0.kind == .error || $0.kind == .notice })?.message
+                ?? "Topic feed snapshot is missing renderable topic data."
+            throw FireTopicDetailFeedBridgeError.missingRenderableSnapshot(message)
+        }
+
+        let responseRows = FireTopicPresentation.uniqueResponseRowsPreservingOrder(
+            snapshot.items.compactMap { item in
+                item.kind == .reply ? item.responseRow : nil
+            }
+        ).filter { row in
+            row.post.id != originalPost.id
+        }
+        let totalResponseCount = max(header.replyCount, UInt32(responseRows.count))
+        let totalRootCount = max(UInt32(responseRows.count), totalResponseCount)
+        return TopicScreenState(
+            header: header,
+            body: TopicBodyState(post: originalPost),
+            response: TopicResponsePageState(
+                rows: responseRows,
+                nextCursor: snapshot.cursor.nextResponseCursor,
+                totalRootCount: totalRootCount,
+                loadedRootCount: UInt32(responseRows.count),
+                totalResponseCount: totalResponseCount,
+                focusedPostNumber: nil
+            )
         )
     }
 

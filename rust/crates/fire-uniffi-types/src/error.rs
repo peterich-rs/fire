@@ -124,6 +124,9 @@ impl From<FireCoreError> for FireUniFfiError {
                     found.display()
                 ),
             },
+            FireCoreError::Store(source) => Self::Storage {
+                details: source.to_string(),
+            },
             FireCoreError::InvalidCsrfResponse => Self::Validation {
                 details: "csrf response did not contain a usable token".to_string(),
             },

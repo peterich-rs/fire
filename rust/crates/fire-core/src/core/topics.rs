@@ -1131,6 +1131,65 @@ fn roots_needed_for_response_page(
     requests
 }
 
+fn roots_needed_for_response_page(
+    session: &TopicResponseSession,
+    start_offset: usize,
+    branch_offset: usize,
+    page_size: u16,
+    row_page_size: u16,
+) -> Vec<BranchLoadRequest> {
+    let row_limit = usize::from(row_page_size).max(1);
+    let root_limit = usize::from(page_size).max(1);
+    let mut requests = Vec::new();
+    let mut remaining_rows = row_limit;
+    let mut current_root_offset = start_offset;
+    let mut current_branch_offset = branch_offset;
+    let mut considered_roots = 0_usize;
+
+    while remaining_rows > 0
+        && current_root_offset < session.root_stream_ids.len()
+        && considered_roots < root_limit
+    {
+        let root_post_id = session.root_stream_ids[current_root_offset];
+        let loaded_rows = session
+            .branch_by_root_id
+            .get(&root_post_id)
+            .map(|branch| branch.ordered_post_ids.len())
+            .unwrap_or(0);
+        let total_rows = session
+            .branch_reply_ids_by_root_id
+            .get(&root_post_id)
+            .map(|ids| ids.len().saturating_add(1));
+        let required_rows = current_branch_offset.saturating_add(remaining_rows);
+        let required_loaded_rows = total_rows
+            .map(|total| required_rows.min(total))
+            .unwrap_or(required_rows.max(1));
+
+        if loaded_rows < required_loaded_rows {
+            requests.push(BranchLoadRequest {
+                root_post_id,
+                required_row_count: required_loaded_rows,
+            });
+            break;
+        }
+
+        let available_rows = loaded_rows.saturating_sub(current_branch_offset);
+        let consumed_rows = available_rows.min(remaining_rows);
+        remaining_rows = remaining_rows.saturating_sub(consumed_rows);
+
+        let branch_total_rows = total_rows.unwrap_or(loaded_rows);
+        if current_branch_offset.saturating_add(consumed_rows) < branch_total_rows {
+            break;
+        }
+
+        current_root_offset = current_root_offset.saturating_add(1);
+        current_branch_offset = 0;
+        considered_roots = considered_roots.saturating_add(1);
+    }
+
+    requests
+}
+
 fn assemble_topic_response_page(
     session: &TopicResponseSession,
     start_offset: usize,
@@ -1527,18 +1586,10 @@ fn normalized_response_row_page_size(page_size: u16) -> u16 {
 
 fn initial_topic_response_page_size(
     page_size: u16,
-    focus_root_index: Option<usize>,
-    total_root_count: usize,
+    _focus_root_index: Option<usize>,
+    _total_root_count: usize,
 ) -> u16 {
-    let default_page_size = usize::from(page_size);
-    let focused_page_size = focus_root_index
-        .map(|index| index.saturating_add(1))
-        .unwrap_or(default_page_size);
-    let requested_page_size = default_page_size
-        .max(focused_page_size)
-        .min(total_root_count.max(default_page_size))
-        .min(usize::from(u16::MAX));
-    u16::try_from(requested_page_size).unwrap_or(u16::MAX)
+    page_size
 }
 
 fn deduplicate_topic_posts_by_id(posts: Vec<TopicPost>) -> Vec<TopicPost> {
@@ -1741,10 +1792,10 @@ mod tests {
     }
 
     #[test]
-    fn initial_topic_response_page_size_expands_to_focused_root_without_changing_default() {
+    fn initial_topic_response_page_size_stays_on_requested_root_page() {
         assert_eq!(initial_topic_response_page_size(10, None, 100), 10);
         assert_eq!(initial_topic_response_page_size(10, Some(3), 100), 10);
-        assert_eq!(initial_topic_response_page_size(10, Some(12), 100), 13);
+        assert_eq!(initial_topic_response_page_size(10, Some(12), 100), 10);
         assert_eq!(initial_topic_response_page_size(10, Some(12), 8), 10);
     }
 

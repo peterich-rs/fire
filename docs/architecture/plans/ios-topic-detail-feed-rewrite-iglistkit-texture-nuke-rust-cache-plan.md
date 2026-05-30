@@ -1,0 +1,1428 @@
+# iOS Topic Detail Feed Rewrite: IGListKit + Texture + Nuke + Rust Cache
+
+Status: implementation branch active (2026-05-30)
+
+Implementation update (2026-05-30):
+
+- Phase 0 proved the local toolchain is Xcode 26.3 / Swift 6.2.4, but the
+  current Fire target does not pass a strict Swift 6 audit. The audit failed in
+  generated UniFFI Swift compilation before the Nuke 13 package could become a
+  production dependency. The v1 branch therefore stays on the Swift 5.10 path.
+- Texture remains dependency-gated: it has no official SPM package, and Fire did
+  not accept a CocoaPods workflow change as an implicit side effect of this
+  branch. The Swift 5.10 implementation keeps the post-row wrapper boundary
+  named `FirePostTextureCell` as a compatibility boundary over the existing native
+  cell until a reproducible Texture binary package or explicit CocoaPods change
+  lands.
+- The Rust v1 storage and feed contract are implemented through
+  `rust/crates/fire-store`, `TopicDetailFeedSnapshot`, UniFFI feed records, and
+  `FireTopicsHandle.loadTopicDetailFeed` / `refreshTopicDetailFeed` /
+  `cachedTopicDetailFeed`.
+- iOS initial topic-detail load now goes through the Rust feed repository and
+  bridges the returned feed snapshot back into the existing `TopicScreenState`
+  render path. The runtime surface uses a dedicated UIKit collection controller
+  under `App/TopicDetailRuntime/` with stable runtime items, UIKit cells, native
+  post cells, explicit image prefetch coordination, and no repeated SwiftUI post
+  rows.
+- `native/ios-app/project.yml` now links `libsqlite3.tbd` because the Rust
+  `rusqlite` store is linked into `libfire_uniffi.a`.
+
+## Summary
+
+This plan replaces the current iOS topic-detail reading surface instead of
+patching it again. The goal is a durable mobile feed architecture for topic
+detail: stable list ownership, native rendering, local data sources, explicit
+cache policy, and narrow update surfaces.
+
+The desired Path A target design is:
+
+- iOS topic detail uses a dedicated UIKit list controller, not the existing
+  SwiftUI/ListKit runtime path.
+- IGListKit owns feed object diffing, section-controller boundaries, working
+  range, display callbacks, and adapter performance metrics, if Phase 0 proves
+  that Texture cells still deliver enough benefit without `ASCollectionNode`
+  owning the range controller.
+- Texture/AsyncDisplayKit is added for post row rendering: async text layout,
+  async drawing, placeholder-backed nodes, and reusable node composition.
+- Nuke becomes the only topic-detail image pipeline for avatars and cooked
+  images. Image loads update image nodes/views locally and do not trigger feed
+  object replacement or whole-cell reconfiguration.
+- Rust grows a database-backed repository layer that stores processed domain
+  rows, render blocks, and feed snapshots first, so iOS consumes composed data
+  from a mobile-style repository graph instead of rebuilding topic detail from
+  transient network responses. Raw response replay is a later privacy-gated
+  extension, not a v1 requirement.
+
+This is intentionally a reset of the topic-detail stack. The plan does not try
+to keep the existing dynamic SwiftUI hosted/native reply-cell switching alive.
+Home list remains out of scope for this rewrite.
+
+## Source Facts Checked
+
+- Fire iOS currently uses XcodeGen with Swift 5.10 in
+  `native/ios-app/project.yml`; iOS deployment target is 17.0.
+- IGListKit 5.2.0 is the current GitHub release as of 2026-05-30. Its README
+  describes a data-driven `UICollectionView` framework with reusable
+  components, custom diffing behavior, Swift interop, and SPM support:
+  <https://github.com/Instagram/IGListKit>. Its package exposes `IGListDiffKit`,
+  `IGListKit`, and `IGListSwiftKit` products:
+  <https://raw.githubusercontent.com/Instagram/IGListKit/5.2.0/Package.swift>.
+- IGListKit exposes `ListAdapter`, section controllers, working range, display,
+  update, and performance delegates. Working range is intended for preparing
+  content near the viewport, including image decoding and text-cache warming:
+  <https://instagram.github.io/IGListKit/Classes/IGListAdapter.html> and
+  <https://instagram.github.io/IGListKit/Protocols/IGListWorkingRangeDelegate.html>.
+- Texture 3.2.0 is the current GitHub release. Its README states that nodes move
+  image decoding, text sizing/rendering, layout, and drawing work off the main
+  thread: <https://github.com/TextureGroup/Texture>.
+- Texture's `ASCollectionNode` documentation says `nodeBlock` is preferred for
+  concurrent preparation, but using `ASCollectionNode` as the main list would
+  conflict with a full IGListAdapter-owned `UICollectionView` architecture:
+  <https://texturegroup.org/docs/containers-ascollectionnode.html>.
+- Texture official installation is CocoaPods or Carthage, not SPM. The podspec
+  exposes `Texture/Core`, `Texture/PINRemoteImage`, and `Texture/IGListKit`
+  subspecs, but `Texture/IGListKit` still depends on IGListKit `~> 4.0`, so Fire
+  should not use that subspec for this rewrite:
+  <https://raw.githubusercontent.com/TextureGroup/Texture/3.2.0/Texture.podspec>.
+- Texture placeholders are first-class: any `ASDisplayNode` subclass can provide
+  `placeholderImage`; `ASNetworkImageNode` also has persistent default images.
+  Fire will use Texture placeholders but not Texture network image loading:
+  <https://texturegroup.org/docs/placeholder-fade-duration.html>.
+- Nuke 13.0.6 is the current GitHub release as of 2026-05-30. Nuke provides
+  memory/disk cache, image processing/decompression, request coalescing,
+  priorities, prefetching, resumable downloads, progressive images, UIKit/AppKit
+  components, SwiftUI components, and async/await:
+  <https://github.com/kean/Nuke>.
+- Nuke 13 requires Xcode 26.0+ and iOS 15+. Its `Package.swift` uses
+  `swift-tools-version: 6.0`; Fire's deployment target is already high enough,
+  but Fire's target setting is still `SWIFT_VERSION: "5.10"`, so Nuke 13 is
+  gated by a Swift 6 compiler/concurrency migration audit before the package is
+  pinned: <https://raw.githubusercontent.com/kean/Nuke/13.0.6/Package.swift>.
+- If that audit blocks v1, the Nuke 12.x line remains the Swift 5.10-compatible
+  image-pipeline fallback while the wrapper architecture stays the same:
+  <https://raw.githubusercontent.com/kean/Nuke/12.8.0/Package.swift>.
+- The current local toolchain check for this planning revision used Xcode 26.3
+  and Apple Swift 6.2.4. That proves the machine can run the spike, not that the
+  current Fire target is already Swift 6 clean.
+
+## Problem Statement
+
+Topic detail is now a high-volume feed with comment rows, images, rich text,
+reply trees, mutation state, MessageBus updates, pagination, and route-target
+scrolling. The current implementation has been repaired several times because
+it mixes responsibilities at the wrong layer:
+
+- SwiftUI shell state and scroll-time row rendering are still too coupled.
+- `FireCollectionHost` and `FireDiffableListController` provide a local custom
+  list framework, but topic detail has outgrown that generic abstraction.
+- Reply rows dynamically switch between hosted SwiftUI and native cells based on
+  layout availability, which creates inconsistent lifecycle and update behavior.
+- Rich text parsing, layout, image loading, and topic-row identity are split
+  across SwiftUI views, UIKit cells, and Rust outputs without a single feed
+  contract.
+- Image loading is view-driven; placeholder/image state can cause row-level
+  updates or flash when cells are reused.
+- Rust currently orchestrates APIs and builds models, but it does not persist
+  raw responses or processed feed snapshots in a complete database-backed
+  repository layer.
+
+The desired outcome is not just fixing a blank area on back-scroll. The desired
+outcome is a topic-detail architecture that behaves like a mature mobile feed:
+local-first data, deterministic identity, explicit diffing, stable native cells,
+observable performance, and bounded updates.
+
+## Non-Negotiable Decisions
+
+1. Replace topic-detail list runtime instead of patching `FireCollectionHost`.
+2. Do not dynamically switch a reply row between SwiftUI hosted and native cell
+   classes.
+3. Do not use SwiftUI for repeated post rows in topic detail.
+4. Use UIKit on iOS. AppKit is only a future portability consideration; this iOS
+   target should not introduce AppKit code.
+5. Use IGListKit/IGListDiffKit for feed diffing; Phase 0 decides whether
+   IGListKit or Texture owns the physical collection container.
+6. Use Texture for post-row rendering nodes, text layout/drawing, placeholder
+   behavior, and async rendering work.
+7. Use Nuke for all topic-detail image network/cache/prefetch behavior.
+8. Store processed domain/feed data in Rust-owned storage for v1; raw network
+   response caching is deferred until its privacy and encryption gates pass.
+9. Treat old topic-detail SwiftUI/ListKit code as removable once parity is met.
+10. Keep home feed out of this rewrite.
+
+## Architecture Overview
+
+This overview shows Path A, the desired architecture if Phase 0 validates it.
+If Phase 0 selects Path B, `ASCollectionNode` replaces the `UICollectionView` /
+`ListAdapter` container while the feed contract, Rust repository layer, Nuke
+image service, and Texture row renderer remain conceptually the same.
+
+```text
+iOS SwiftUI shell
+  FireTopicDetailScreen
+    - navigation, sheets, quick reply, image viewer presentation
+    - embeds FireTopicDetailListHost
+
+iOS UIKit feed
+  FireTopicDetailListViewController
+    - UICollectionView
+    - IGListKit ListAdapter
+    - ListAdapterDataSource
+    - ListAdapterPerformanceDelegate
+    - scroll anchor and route-target coordinator
+
+iOS IGListKit sections
+  TopicHeaderSectionController
+  TopicOriginalPostSectionController
+  TopicReplySectionController
+  TopicFooterSectionController
+  TopicStatusSectionController
+
+iOS Texture rendering
+  FirePostTextureCell
+    - owns FirePostNode
+  FirePostNode
+    - ASTextNode / ASTextNode2 for cooked content
+    - ASImageNode for avatars and images
+    - ASButtonNode / ASControlNode for interactions
+    - placeholder nodes for image and text display readiness
+
+iOS image pipeline
+  FireNukeImagePipeline
+    - ImagePipeline
+    - ImagePrefetcher
+    - memory/disk caches
+    - cookie/header-aware URLSession configuration where required
+
+Rust repository layer
+  fire-store
+    - SQLite database and schema migrations
+    - processed topic-detail post/render/feed tables
+    - optional v2+ raw response cache
+  fire-core repositories
+    - TopicRepository
+    - TopicDetailRepository
+    - TopicRenderRepository
+    - PostRepository
+    - MessageBusMergeRepository
+  UniFFI feed API
+    - TopicDetailFeedSnapshotState
+    - TopicDetailFeedPatchState
+    - TopicDetailLoadPolicyState
+```
+
+## iOS Dependency Strategy
+
+### Toolchain
+
+The target architecture uses Nuke 13.x, which requires an Xcode 26+ toolchain.
+Treat this as a hard Phase 0 gate, not a routine package bump. Fire currently
+sets `SWIFT_VERSION: "5.10"` in `native/ios-app/project.yml`; Phase 0 must build
+the existing app with the Swift 6 compiler and strict concurrency checking,
+record all warnings/errors, and estimate the migration.
+
+The strict concurrency audit must call out at least:
+
+- current `@unchecked Sendable` wrappers around the image pipeline and memory
+  cache
+- MessageBus callback bridging
+- topic-detail layout and timeout helpers
+- topic presentation/render content types
+- Cloudflare recovery waiter state
+- UniFFI-generated Swift bindings and any callbacks crossing Swift concurrency
+  domains
+
+If the Swift 6 migration is larger than a focused two-to-three-day slice, split
+it into Phase 0.5 and keep v1 on Swift 5.10 with Nuke 12.x. In that case Nuke
+13.x remains the follow-up target after the compiler migration lands. Do not
+start the topic-detail rewrite on Nuke 13 while compiler migration risk is still
+unknown.
+
+### IGListKit
+
+Add IGListKit through XcodeGen's `packages` block:
+
+```yaml
+IGListKit:
+  url: https://github.com/Instagram/IGListKit.git
+  exactVersion: 5.2.0
+```
+
+The Fire target depends on the IGListKit product. Topic detail must use:
+
+- `ListAdapter`
+- `ListAdapterDataSource`
+- `ListSectionController`
+- `ListDiffable`
+- `ListWorkingRangeDelegate`
+- `ListDisplayDelegate`
+- `ListAdapterPerformanceDelegate`
+- `ListAdapterUpdateListener`
+
+Phase 0 must also prove IGListKit 5.2.0 resolves through SPM alongside the
+selected Texture/Core integration. Verify there are no Objective-C source,
+module, or transitive IGListKit collisions when Texture/Core is present as a
+local XCFramework/SPM package or, if needed for the spike only, through
+CocoaPods.
+
+### Nuke
+
+Add Nuke 13 through XcodeGen's `packages` block only after the Swift 6 compiler
+gate passes:
+
+```yaml
+Nuke:
+  url: https://github.com/kean/Nuke.git
+  exactVersion: 13.0.6
+```
+
+Use the core `Nuke` module and `NukeExtensions` where useful. Avoid `NukeUI` in
+topic-detail rows because the repeated hot path should be UIKit/Texture, not
+SwiftUI. Fullscreen image viewer can adopt Nuke separately later.
+
+If Phase 0.5 keeps the app on Swift 5.10 for v1, pin an appropriate Nuke 12.x
+release instead and keep the `FireTopicImagePipeline` wrapper API stable so the
+later Nuke 13 upgrade is contained inside that service.
+
+### Texture
+
+Texture does not offer an official SPM integration. Phase 0 must first evaluate
+whether `Texture/Core` 3.2.0 can be built reproducibly as a local XCFramework and
+exposed through a local Swift package or binary target. That path keeps Fire on
+the current XcodeGen + SPM workflow and is preferred if it builds cleanly for
+simulator, device, Debug, and Release.
+
+CocoaPods is the fallback spike path only if a reproducible local XCFramework is
+not viable:
+
+```ruby
+target 'Fire' do
+  pod 'Texture/Core', '3.2.0'
+end
+```
+
+Do not use `Texture/IGListKit` because its podspec currently pins IGListKit
+`~> 4.0`. Do not use `Texture/PINRemoteImage` because Nuke is the selected image
+pipeline.
+
+If CocoaPods is selected after the spike, it changes the iOS workflow and must be
+documented before any production code lands: `pod install` runs after XcodeGen
+and before build, `.xcworkspace` becomes the build entrypoint, CI/archive scripts
+must be updated, and developer setup docs must describe the new step. Do not
+accept CocoaPods implicitly as a side effect of the Texture spike.
+
+## Phase 0 Architecture Gate
+
+This rewrite has no production rollback path. It is a new implementation branch:
+if the selected architecture does not prove viable, do not merge the branch. The
+Phase 0 spike must choose exactly one of these paths before Phase 1 production
+work starts:
+
+- Path A: IGListKit owns the physical `UICollectionView`; Texture renders
+  content inside cells. IGListKit working range, display callbacks, and adapter
+  updates are the viewport lifecycle source.
+- Path B: Texture `ASCollectionNode` owns the physical container; IGListKit is
+  reduced to `IGListDiffKit` and/or a small Fire diffing facade. Texture range
+  controller semantics are the viewport lifecycle source.
+
+Path A remains the desired main path only if the spike proves that
+Texture-backed cells inside an IGListKit-owned collection deliver enough
+off-main-thread text/layout/drawing benefit without `ASCollectionNode` managing
+the range controller.
+
+Phase 0 acceptance measurements:
+
+- Debug and Release builds succeed for the chosen dependency graph.
+- A 500-row fixture with mixed rich text and images scrolls down and back without
+  blank post bodies or visible placeholder churn after cached images are ready.
+- Measured row layout/display work shows a material off-main-thread benefit over
+  the current UIKit/SwiftUI path; otherwise Texture inside IGListKit is not
+  justified.
+- Working-range entry/exit or Texture range-controller callbacks can warm text
+  layout and image prefetch before display.
+- Placeholder behavior is deterministic for first display, reuse, and cached
+  redisplay.
+- The chosen lifecycle model has one owner for sizing, prefetch, display, and
+  cancellation. A half-bridge between Path A and Path B is not acceptable.
+
+## iOS Topic Detail Runtime
+
+### Screen Boundary
+
+Keep a thin SwiftUI screen wrapper:
+
+- `FireTopicDetailScreen` owns navigation title, toolbar, quick-reply bar,
+  composer sheets, image viewer presentation, and route injection.
+- `FireTopicDetailListHost: UIViewControllerRepresentable` embeds
+  `FireTopicDetailListViewController`.
+- The SwiftUI wrapper passes only high-level commands and observes feed state
+  handles. It does not build repeated post rows.
+
+### Path A List Controller
+
+`FireTopicDetailListViewController` owns:
+
+- `UICollectionView`
+- IGListKit `ListAdapter`
+- adapter data source
+- scroll coordination
+- content inset and keyboard adjustment
+- route target scrolling
+- pull-to-refresh
+- local pending-command queue
+- performance events
+
+It does not own API parsing or business rules. It consumes
+`TopicDetailFeedSnapshotState` and sends commands to the Rust-backed topic detail
+view model.
+
+If Phase 0 selects Path B, replace this controller shape with a
+Texture-container host:
+
+- `FireTopicDetailNodeViewController` owns `ASCollectionNode`
+- Texture range-controller callbacks replace IGListKit working range/display as
+  the preload/display source
+- Fire uses `IGListDiffKit` or an equivalent Fire facade to compute insert,
+  delete, move, and reload operations before applying them to the node container
+- placeholder behavior follows Texture container lifecycle, not IGListKit cell
+  reuse assumptions
+
+### Feed Objects
+
+Every Path A list object implements `ListDiffable` through a small class wrapper.
+Use classes because IGListKit diffable identity/equality are Objective-C-oriented
+and classes avoid repeated boxing churn. Path B uses the same identity/equality
+contract but can feed it into `IGListDiffKit` or a Fire facade before applying
+operations to `ASCollectionNode`.
+
+Primary objects:
+
+- `TopicDetailHeaderObject`
+- `TopicDetailOriginalPostObject`
+- `TopicDetailReplyObject`
+- `TopicDetailLoadingObject`
+- `TopicDetailErrorObject`
+- `TopicDetailFooterObject`
+- `TopicDetailGapObject`
+- `TopicDetailNoticeObject`
+
+Identity rules:
+
+- topic header: `topic-header:{topic_id}`
+- original post: `post:{post_id}:original`
+- reply: `post:{post_id}:reply`
+- pagination footer: `footer:{topic_id}:{cursor_epoch}`
+- loading/error: stable per topic and slot
+- gap/range placeholder: `gap:{topic_id}:{before_post_number}:{after_post_number}`
+
+Equality rules must separate content changes from local display state:
+
+- Include text content revision, metadata revision, permissions revision, poll
+  revision, reaction revision, and layout-affecting media metadata.
+- Do not include Nuke image task progress, decoded image availability, transient
+  placeholder visibility, or visible-range state.
+- Do not include timestamps that only change because "now" advanced; format
+  relative times through a periodic visible-cell refresh path, not list object
+  replacement.
+
+### Path A Section Controllers
+
+Each feed object maps to one section controller. Avoid giant switch-based cells.
+
+`TopicDetailReplySectionController` owns:
+
+- `sizeForItem(at:)`
+- `cellForItem(at:)`
+- `didUpdate(to:)`
+- `didSelectItem(at:)`
+- working-range entry/exit
+- display entry/exit
+- route-anchor metadata
+- mutation callbacks
+
+For post rows, `cellForItem` always returns `FirePostTextureCell`. There is no
+hosted SwiftUI fallback. Missing render data is represented by a real
+placeholder model and rendered by the same cell class.
+
+If Phase 0 selects Path B, use one node-controller/builder per feed object kind
+instead of IGListKit section controllers, but keep the same feed object identity
+and equality rules. Missing render data is still represented by a real
+placeholder model and rendered by the same post-node class.
+
+### Updates
+
+Use the selected container's structural update API for feed changes. In Path A
+that means IGListKit updates; in Path B that means `ASCollectionNode` batch
+updates driven by the diff facade:
+
+- initial snapshot
+- append loaded response rows
+- remove loading footer
+- insert gap rows
+- apply moderation/delete/recover structural changes
+- insert MessageBus-derived posts
+
+Use local cell/node updates for non-structural state:
+
+- image load success/failure/progress
+- placeholder fade
+- avatar load
+- visible timestamp refresh
+- highlighted reply target flash
+- gesture state
+- Nuke retry state
+
+The core rule: an image or placeholder state change must never replace the feed
+object just to update pixels.
+
+## Texture Rendering Design
+
+### Cell and Node Shape
+
+`FirePostTextureCell` is a plain `UICollectionViewCell` managed by IGListKit. It
+owns one root `FirePostNode`.
+
+`FirePostNode` is a Texture node tree:
+
+- `FirePostAvatarNode`
+- `FirePostMetaNode`
+- `FirePostCookedTextNode`
+- `FirePostMediaStripNode`
+- `FirePostPollNode`
+- `FirePostReactionBarNode`
+- `FirePostActionButtonNode`
+- `FirePostThreadLineNode`
+- `FirePostPlaceholderNode`
+
+The node tree is rebuilt only when the post render model identity changes. For
+small deltas, update the affected child node.
+
+### Text
+
+Rust provides platform-neutral rich text blocks from cooked HTML:
+
+- paragraph
+- heading
+- quote
+- code/code block
+- list/list item
+- link
+- mention
+- hashtag
+- emoji
+- spoiler/details
+- table fallback text
+- media references
+
+iOS maps those blocks to Texture attributed strings. Use `ASTextNode` or
+`ASTextNode2` after a spike. The first implementation should prefer the more
+stable Texture text node API unless `ASTextNode2` provides a measured win without
+regressions.
+
+### Layout
+
+Path A IGListKit section controllers need a synchronous size. Texture can
+calculate node layout asynchronously, but the section controller must have a
+deterministic answer. Path B can lean further on Texture node measurement, but it
+must still preserve stable estimated heights for route scrolling and placeholder
+behavior.
+
+Use a two-tier layout cache:
+
+- Rust processed feed snapshot includes estimated text/media metrics and stable
+  aspect ratios.
+- iOS `FirePostTextureLayoutCache` stores measured `ASLayout`/height by
+  `(post_id, content_revision, width_class, content_size_category)`.
+
+When a layout is missing:
+
+- return a stable estimated height based on Rust metrics
+- render a placeholder-backed `FirePostNode`
+- enqueue layout measurement in working range
+- when the exact height resolves, invalidate layout for that section only
+- do not apply a full feed snapshot
+
+### Placeholders
+
+Use placeholders deliberately:
+
+- avatar: default monogram or cached image
+- cooked image: fixed aspect-ratio shimmer/solid placeholder
+- text not measured: block skeleton matching estimated line count
+- deleted/hidden post: stable compact placeholder
+- unloaded gap: explicit range placeholder row
+
+Texture placeholders should cover display readiness, not data loading policy.
+Data loading state remains in the feed object.
+
+### Gestures and Interactions
+
+The native row owns gesture arbitration:
+
+- swipe-to-reply is a cell-level pan recognizer with explicit excluded regions
+- links are handled by `ASTextNode` link callbacks or a custom hit-test map
+- image tap opens the viewer through the screen coordinator
+- reaction capsules are `ASButtonNode`/`ASControlNode`
+- ellipsis uses a UIKit `UIButton` or node-backed control that presents a
+  `UIMenu`
+- text selection is a v1 requirement for cooked post text
+
+Text selection must be deliberate. Use Texture `ASTextNode` for the normal
+display path unless Phase 0 selects another measured text node, but provide a
+dedicated selectable `UITextView` overlay/subview or equivalent selectable text
+mode for selection. This must not become an accidental full-row UIKit renderer
+fallback. Swipe-to-reply and other row gestures must suppress arming while text
+selection is active, matching the current production-grade gesture arbitration
+expectation.
+
+### Accessibility
+
+Native/Texture rows must explicitly provide:
+
+- post author, post number, timestamp, accepted-answer state
+- body text accessibility label
+- link accessibility actions
+- image alt text and index
+- reaction selected state
+- menu button label
+- reply target label
+- Dynamic Type invalidation
+- high contrast and reduce motion behavior
+
+## Nuke Image Pipeline
+
+### Pipeline Ownership
+
+Create `FireTopicImagePipeline` as the single iOS topic-detail image service.
+It wraps Nuke `ImagePipeline`, `ImagePrefetcher`, and cache configuration.
+
+Responsibilities:
+
+- avatar requests
+- cooked image requests
+- emoji/custom reaction image requests if needed
+- prefetch scheduling from working range
+- cancellation on working-range exit
+- retry policy
+- request priority changes from preload/display/visible transitions
+- decoded image cache sizing
+- disk cache sizing
+- cache key normalization
+- auth/cookie/header configuration where LinuxDo requires session context
+
+### Cache Policy
+
+Use separate request categories:
+
+- `avatar`: small, high reuse, memory priority high, disk enabled
+- `cookedImage`: large, downsampled to target display size, memory priority
+  bounded, disk enabled
+- `emoji`: tiny, high reuse, disk enabled
+
+Suggested initial limits:
+
+- memory image cache: 96 MB decoded images for topic detail
+- disk data cache: 512 MB shared Fire image data cache
+- max cooked image decode target: current screen scale and rendered bounds, not
+  original upload dimensions
+- cancel network requests when rows leave working range unless already visible
+
+### Local Updates
+
+Image load callbacks update only the relevant `ASImageNode`:
+
+- set image
+- clear or fade placeholder
+- update failure overlay
+- update retry button
+
+They must not:
+
+- mutate the Rust feed snapshot
+- call `adapter.performUpdates` for the row
+- rebuild the full `FirePostNode`
+- invalidate row height unless image metadata changed from unknown to known
+
+### Prefetch
+
+Wire prefetch from the selected container lifecycle. Path A uses IGListKit
+working/display range; Path B uses Texture range-controller callbacks:
+
+- entering working range: prefetch avatar and first cooked image
+- entering display range: raise priority for all images in the row
+- visible: attach image tasks to node and allow progressive display if enabled
+- exiting working range: cancel prefetch-only tasks
+
+Image URLs and target sizes come from the processed feed snapshot, not from view
+inspection.
+
+## Rust Database and Repository Architecture
+
+### New Crate
+
+Add a new workspace crate:
+
+```text
+rust/crates/fire-store/
+```
+
+Responsibilities:
+
+- database connection lifecycle
+- SQLite migrations
+- processed domain entity storage
+- feed snapshot storage
+- cache metadata and eviction
+- optional raw HTTP response cache in a later phase
+- encryption/key configuration boundary before private raw response caching ships
+- deterministic test fixtures
+
+Recommended storage engine: SQLite through `rusqlite` or an equivalent mature
+Rust SQLite binding after an iOS/Android build spike. SQLite is the right default
+because Fire needs relational queries, migrations, indexed post/topic lookup,
+range reads, TTL eviction, and cross-platform mobile support. Key-value stores
+are insufficient for topic detail composition and invalidation.
+
+### Versioned Store Scope
+
+Phase 1/2 must stay focused on processed topic-detail data:
+
+- v1 required tables: `topic_posts`, `topic_response_rows`,
+  `post_render_blocks`, `topic_detail_snapshots`, and
+  `topic_detail_feed_items`
+- v2 deferred tables: `http_response_cache` and a normalized `topics` table for
+  broader topic-list reuse
+- v3 deferred capability: SQLCipher or equivalent encrypted SQLite for private
+  raw response caching
+
+The immediate value is local-first rendering from processed domain data and feed
+snapshots. Raw response replay is useful for debugging and parser replay, but it
+is larger and more sensitive; do not make it a Phase 1 exit criterion.
+
+### At-Rest Protection
+
+Raw responses can include private messages, cookies-adjacent headers, usernames,
+draft metadata, and moderation data. Storage must be privacy-classed.
+
+Target before v3 private raw response caching ships:
+
+- platform creates or retrieves a database encryption key from Keychain/Keystore
+- Rust receives the key through `FireStoreConfig`
+- database uses SQLCipher or an equivalent encrypted SQLite build after a build
+  spike
+- if SQLCipher cannot be shipped, raw private response caching must remain
+  disabled until encryption lands
+- iOS database files also use `NSFileProtectionCompleteUntilFirstUserAuthentication`
+- diagnostic export redacts raw bodies by default
+
+Processed v1 snapshots still need auth-scope isolation and file protection, but
+they do not require raw body replay or SQLCipher to prove the feed architecture.
+
+### Deferred Raw Network Tables
+
+Store complete raw response material needed to replay parsing and debug cache
+behavior without issuing the network request again. This table is v2+ work and
+must not block the first processed-cache implementation.
+
+```text
+http_response_cache
+  cache_key TEXT PRIMARY KEY
+  auth_scope_hash TEXT NOT NULL
+  method TEXT NOT NULL
+  url TEXT NOT NULL
+  vary_headers_json TEXT NOT NULL
+  request_headers_json TEXT
+  status INTEGER NOT NULL
+  response_headers_json TEXT NOT NULL
+  body BLOB NOT NULL
+  body_encoding TEXT NOT NULL
+  content_type TEXT
+  etag TEXT
+  last_modified TEXT
+  cache_control TEXT
+  fetched_at_ms INTEGER NOT NULL
+  expires_at_ms INTEGER
+  stale_if_error_until_ms INTEGER
+  trace_id INTEGER
+  privacy_class TEXT NOT NULL
+  schema_version INTEGER NOT NULL
+```
+
+Raw cache policy:
+
+- never share authenticated raw cache across auth scopes
+- `force_load` bypasses read but can still write
+- Cloudflare challenge responses are not cached as successful topic data
+- 4xx/5xx caching is explicit and short-lived only when useful for backoff
+- support stale-if-error for read-only topic surfaces
+
+### Domain Tables
+
+Store normalized, processed, platform-neutral v1 data:
+
+```text
+topic_posts
+  post_id INTEGER PRIMARY KEY
+  topic_id INTEGER NOT NULL
+  post_number INTEGER NOT NULL
+  user_id INTEGER
+  username TEXT NOT NULL
+  avatar_template TEXT
+  cooked_html TEXT NOT NULL
+  raw_markdown TEXT
+  created_at TEXT
+  updated_at TEXT
+  reply_to_post_number INTEGER
+  hidden INTEGER NOT NULL
+  deleted INTEGER NOT NULL
+  permissions_json TEXT NOT NULL
+  reactions_json TEXT NOT NULL
+  polls_json TEXT NOT NULL
+  raw_revision TEXT NOT NULL
+
+topic_response_rows
+  topic_id INTEGER NOT NULL
+  post_id INTEGER NOT NULL
+  parent_post_number INTEGER
+  depth INTEGER NOT NULL
+  preorder_index INTEGER NOT NULL
+  root_post_id INTEGER
+  branch_offset INTEGER
+  PRIMARY KEY (topic_id, post_id)
+
+post_render_blocks
+  post_id INTEGER PRIMARY KEY
+  render_revision TEXT NOT NULL
+  plain_text TEXT NOT NULL
+  blocks_json TEXT NOT NULL
+  images_json TEXT NOT NULL
+  links_json TEXT NOT NULL
+  estimated_metrics_json TEXT NOT NULL
+```
+
+A normalized `topics` table is deferred to v2 because topic-list persistence is
+outside this topic-detail rewrite. In v1, topic header/title/category/tag data
+needed by the detail screen can live in the snapshot/feed-item payload until a
+broader topic repository adopts the store.
+
+### Feed Snapshot Tables
+
+Store composed, upper-layer-friendly feed data:
+
+```text
+topic_detail_snapshots
+  topic_id INTEGER PRIMARY KEY
+  snapshot_revision INTEGER NOT NULL
+  body_post_id INTEGER
+  cursor_json TEXT NOT NULL
+  loaded_ranges_json TEXT NOT NULL
+  has_more INTEGER NOT NULL
+  load_state TEXT NOT NULL
+  updated_at_ms INTEGER NOT NULL
+
+topic_detail_feed_items
+  topic_id INTEGER NOT NULL
+  ordinal INTEGER NOT NULL
+  item_id TEXT NOT NULL
+  item_kind TEXT NOT NULL
+  post_id INTEGER
+  content_revision TEXT NOT NULL
+  payload_json TEXT NOT NULL
+  PRIMARY KEY (topic_id, ordinal)
+```
+
+The feed snapshot is not iOS-specific. It is a mobile presentation contract that
+Android can eventually consume too.
+
+### Repository Graph
+
+Split Rust into data sources and repositories, but keep v1 topic-detail scoped:
+
+```text
+RemoteDataSources
+  DiscourseTopicRemoteDataSource
+  DiscoursePostRemoteDataSource
+  MessageBusRemoteDataSource
+
+V1 LocalDataSources
+  PostEntityDataSource
+  TopicRenderDataSource
+  TopicFeedSnapshotDataSource
+
+Deferred LocalDataSources
+  RawHttpCacheDataSource
+  TopicEntityDataSource
+
+V1 Repositories
+  TopicDetailRepository
+  TopicResponseRepository
+  TopicRenderRepository
+  PostMutationRepository
+  MessageBusMergeRepository
+
+Deferred Repositories
+  TopicListRepository
+
+V1 Use Cases
+  LoadTopicDetailFeed
+  RefreshTopicDetailFeed
+  LoadMoreTopicResponses
+  JumpToPostInTopic
+  ApplyTopicMessageBusEvent
+  MutatePostReaction
+  MutatePostBookmark
+```
+
+The repositories compose data sources. Network code remains in Rust and still
+uses the existing session, CSRF, Cloudflare, and openwire boundaries.
+
+### UniFFI API Shape
+
+Expose feed-oriented APIs rather than raw topic detail blobs:
+
+```rust
+pub struct TopicDetailFeedQuery {
+    pub topic_id: u64,
+    pub target_post_number: Option<u32>,
+    pub policy: TopicDetailLoadPolicy,
+}
+
+pub enum TopicDetailLoadPolicy {
+    CacheFirstThenRefresh,
+    NetworkFirst,
+    CacheOnly,
+    ForceRefresh,
+}
+
+pub struct TopicDetailFeedSnapshot {
+    pub topic_id: u64,
+    pub revision: u64,
+    pub items: Vec<TopicDetailFeedItem>,
+    pub cursor: TopicDetailCursor,
+    pub source: FeedSnapshotSource,
+}
+
+pub struct TopicDetailFeedPatch {
+    pub topic_id: u64,
+    pub base_revision: u64,
+    pub new_revision: u64,
+    pub operations: Vec<TopicDetailFeedPatchOperation>,
+}
+```
+
+iOS can initially receive only full snapshots from Rust, but the v1 UniFFI type
+surface must include `TopicDetailFeedPatch`. The iOS adapter must route both
+snapshots and future patches through a single feed-apply layer:
+
+- `apply(snapshot:)` replaces the current revision by diffing stable feed object
+  identities.
+- `apply(patch:)` validates `base_revision`, applies operations to the current
+  object list, and then asks the selected container to perform structural
+  updates.
+
+Phase 3 code must not assume "every Rust update is a full snapshot." If patch
+delivery is not implemented yet, the patch entrypoint can be tested with local
+fixture patches and left unused by live Rust until the database layer is stable.
+
+### Cache Modes
+
+Topic detail load should support:
+
+- cache-only: render offline or during app restore
+- cache-first-then-refresh: immediate local snapshot, network refresh in
+  background
+- network-first: user pull-to-refresh
+- force-refresh: debug/manual recovery path
+- stale-if-error: show cached snapshot if network/Cloudflare fails
+
+### Error and Offline Behavior
+
+The repository and iOS feed must distinguish empty-cache failures from stale
+cache refresh failures:
+
+- no cached snapshot plus network failure: emit a full-screen
+  `TopicDetailErrorObject` with a retry button; do not render an empty list as if
+  the topic has no replies
+- cached snapshot plus refresh failure: keep rendering the stale snapshot, mark
+  the snapshot source as stale-if-error, and show a non-blocking notice with
+  retry affordance
+- user retry and pull-to-refresh are required retry paths
+- automatic retry may use bounded backoff only for transient non-auth failures;
+  do not auto-loop on login-required, permission, not-found, or Cloudflare
+  recovery states
+
+Cloudflare remains a host-owned browser recovery path. Rust continues to
+classify challenge responses as `CloudflareChallenge`; iOS opens the existing
+topic HTML recovery URL (`/t/{slug}/{topicId}` when a slug is known, otherwise
+`/t/{topicId}`), completes the browser challenge, syncs the cookie batch back
+into Rust, and retries the repository operation. Cloudflare challenge HTML must
+not be cached as successful topic data.
+
+### MessageBus and Mutations
+
+MessageBus events and post mutations write through repositories:
+
+- apply event to raw/event log table
+- merge into domain entities
+- rebuild affected feed items
+- emit snapshot/patch revision
+- iOS receives a bounded update, not a full topic-detail rebuild unless
+  necessary
+
+## Data Flow
+
+### First Open
+
+1. iOS asks Rust `load_topic_detail_feed(policy: CacheFirstThenRefresh)`.
+2. Rust checks `topic_detail_snapshots`.
+3. If present, Rust returns local snapshot immediately.
+4. Rust refreshes network in background unless TTL is fresh.
+5. Domain entities and render blocks are updated.
+6. Feed snapshot revision is rebuilt.
+7. iOS receives new feed objects and performs selected-container updates.
+8. If v2 raw response caching is enabled and privacy gates pass, Rust may also
+   store the raw response in `http_response_cache`.
+
+### Back Scroll
+
+1. The selected container asks visible cells/nodes by existing object identity.
+2. The Path A `FirePostTextureCell` or Path B post cell node reuses local node
+   state where possible.
+3. Nuke synchronously supplies cached decoded images when available.
+4. Missing images show fixed placeholders and attach image tasks.
+5. Nuke completion updates only the target image node.
+6. No full snapshot is applied because an image arrived.
+
+### Load More Replies
+
+1. The selected container's preload range enters the footer or near-tail reply.
+2. iOS sends `load_more_topic_responses(topic_id, cursor)`.
+3. Rust fetches, normalizes posts/rows, updates cursor, and stores raw response
+   only if the v2 raw cache is enabled.
+4. Rust returns patch or snapshot with appended feed items.
+5. The selected container inserts new reply objects with stable identities.
+6. Texture/Nuke prefetch begins as rows enter preload range.
+
+### Route to Target Post
+
+1. SwiftUI route passes `target_post_number`.
+2. Rust resolves whether the post is cached.
+3. If cached, snapshot includes target item identity.
+4. If not cached, Rust loads the required window and persists it.
+5. iOS waits for the selected container update completion and scrolls to the
+   object ID.
+6. The row highlights locally through the cell/node, not by changing feed data.
+
+## Migration Plan
+
+### Phase 0. Spike and Toolchain Gate
+
+Deliverables:
+
+- run and record baseline toolchain checks:
+  - `xcodebuild -version`
+  - `swift --version`
+  - `scripts/ios/verify_xcode26_toolchain.sh`
+- build the current Fire app with the Swift 6 compiler and strict concurrency
+  checking enabled; record all warnings/errors and estimate migration work
+- add IGListKit 5.2.0 through SPM in a scratch branch
+- add Nuke 13.0.6 through SPM in a scratch branch only if the Swift 6 gate is
+  acceptable; otherwise add Nuke 12.x for the Swift 5.10 v1 path
+- evaluate `Texture/Core` 3.2.0 as a reproducible local XCFramework exposed to
+  Fire through local SPM/binary-target wiring
+- if the XCFramework route fails, evaluate `Texture/Core` 3.2.0 through
+  CocoaPods and document the exact XcodeGen, `pod install`, workspace, CI, and
+  archive workflow changes that would be required
+- prove a minimal Path A screen:
+  `UICollectionView + IGListKit ListAdapter + Texture-backed cell + Nuke image
+  node`
+- prove a minimal Path B screen if Path A does not meet the measurements:
+  `ASCollectionNode + Texture cells + IGListDiffKit/Fire diff facade + Nuke`
+
+Minimum command log to include in the Phase 0 notes:
+
+```bash
+xcodebuild -version
+swift --version
+scripts/ios/verify_xcode26_toolchain.sh
+xcodegen generate --spec native/ios-app/project.yml
+xcodebuild \
+  -project native/ios-app/Fire.xcodeproj \
+  -scheme Fire \
+  -destination 'generic/platform=iOS Simulator' \
+  -derivedDataPath /tmp/fire-ios-swift6-audit \
+  CODE_SIGNING_ALLOWED=NO \
+  SWIFT_VERSION=6.0 \
+  SWIFT_STRICT_CONCURRENCY=complete \
+  build
+```
+
+The Texture spike notes must also record the exact XCFramework creation and local
+SPM consumption commands. If CocoaPods is evaluated, record the exact
+`pod install` and `xcodebuild -workspace` commands, plus the CI/archive scripts
+that would need to switch from `Fire.xcodeproj` to `Fire.xcworkspace`.
+
+Exit criteria:
+
+- dependency graph builds in Debug and Release
+- Phase 0 explicitly chooses Path A or Path B before production implementation
+  starts
+- the selected path has one owner for viewport lifecycle, working range,
+  placeholder behavior, sizing, and cancellation
+- no decision depends on unverified package compatibility
+- if neither Path A nor Path B meets the measurements, the branch is not merged
+- docs record exact commands for XcodeGen, dependency installation, and build
+
+### Phase 0.5. Swift 6 Migration if Needed
+
+Create this phase only if Phase 0 shows that Swift 6 strict concurrency work is
+larger than two to three days.
+
+Deliverables:
+
+- fix or isolate strict concurrency warnings/errors in current Fire app code
+- replace unnecessary `@unchecked Sendable` usage with actor, lock, value-type,
+  or `@MainActor` boundaries where appropriate
+- confirm UniFFI-generated Swift bindings compile under the selected Swift 6
+  mode or document the generator/runtime limitation
+- keep the topic-detail rewrite on Swift 5.10 + Nuke 12.x until this phase lands
+
+Exit criteria:
+
+- current app builds cleanly under the intended Swift 6 settings
+- Nuke 13 package resolution/build is unblocked
+- no topic-detail rewrite code depends on temporary compiler suppressions
+
+### Phase 1. Rust Store Foundation
+
+Deliverables:
+
+- `rust/crates/fire-store`
+- database config and migration runner
+- v1 domain tables: `topic_posts`, `topic_response_rows`, and
+  `post_render_blocks`
+- v1 feed tables: `topic_detail_snapshots` and `topic_detail_feed_items`
+- test database fixtures
+- repository traits and local data source implementations for processed topic
+  detail data
+- file-protection/auth-scope handling for processed snapshots
+- v2/v3 notes for raw response cache, normalized topics, and encryption spikes
+
+Exit criteria:
+
+- processed posts/render blocks round-trip through SQLite
+- feed snapshots and feed items round-trip through SQLite
+- cache invalidation, stale-if-error over processed snapshots, and auth-scope
+  isolation are tested
+- no test or production path requires `http_response_cache`, normalized `topics`,
+  or SQLCipher to prove the v1 topic-detail store
+
+### Phase 2. Rust Topic Detail Repository
+
+Deliverables:
+
+- `TopicDetailRepository`
+- `TopicResponseRepository`
+- `TopicRenderRepository`
+- `LoadTopicDetailFeed`
+- `LoadMoreTopicResponses`
+- `RefreshTopicDetailFeed`
+- feed snapshot model
+- UniFFI records for feed snapshots and feed patches
+- processed-cache stale-if-error policy
+- empty-cache error classification for offline/network failures
+- Cloudflare challenge propagation through repository operations
+
+Exit criteria:
+
+- current network topic-detail tests pass through repository path
+- cache-first load returns a snapshot without network after first fetch
+- stale-if-error test proves cached topic renders after network failure with a
+  non-blocking stale/error state
+- empty-cache network failure test emits an error feed state with retry metadata
+- duplicate post protection remains covered
+
+### Phase 3. iOS Topic Detail List Host
+
+Deliverables:
+
+- `FireTopicDetailListHost`
+- Path A: `FireTopicDetailListViewController`, IGListKit adapter, and data
+  source
+- Path B: `FireTopicDetailNodeViewController`, `ASCollectionNode`, and
+  diff-facade data source
+- feed object wrappers
+- snapshot/patch apply layer even if live Rust initially emits snapshots only
+- Path A section controllers or Path B node builders for header, original post,
+  reply, footer, loading, and error
+- scroll/route coordinator
+- pull-to-refresh bridge
+
+Exit criteria:
+
+- topic detail can render using static fixture feed snapshot
+- local fixture patch can update the selected container through the same apply
+  layer
+- route target scrolling works in fixture mode
+- no SwiftUI repeated post row is used in the new runtime
+
+### Phase 4. Texture Post Rows
+
+Deliverables:
+
+- Path A `FirePostTextureCell`, or Path B equivalent post `ASCellNode` wrapper
+- `FirePostNode`
+- `FirePostCookedTextNode`
+- `FirePostMediaNode`
+- `FirePostReactionNode`
+- native menu/action controls
+- gesture arbitration
+- dedicated selectable cooked-text mode using a selectable text subview/overlay
+- Dynamic Type and accessibility pass
+
+Exit criteria:
+
+- common post rows render without `UIHostingConfiguration`
+- layout miss uses same cell class and stable placeholder
+- local cell/node updates cover image and highlight state
+- native actions match old topic-detail behavior
+- cooked post text can be selected without replacing the row with a UIKit
+  fallback renderer
+- swipe-to-reply is suppressed while text selection is active
+
+### Phase 5. Nuke Topic Image Pipeline
+
+Deliverables:
+
+- `FireTopicImagePipeline`
+- request builders for avatar/cooked image/emoji
+- Nuke memory/disk cache configuration using Nuke 13 after Swift 6 readiness, or
+  Nuke 12.x for the Swift 5.10 v1 path
+- prefetch coordinator wired to the selected container preload/display callbacks
+- Texture `ASImageNode` adapter
+- placeholder/failure/retry states
+
+Exit criteria:
+
+- image completion updates only image nodes
+- scrolling back through cached images does not trigger row reload
+- prefetch and cancellation are observable in logs/APM
+
+### Phase 6. Integrate Live Data and Mutations
+
+Deliverables:
+
+- Swift view model bridge to Rust feed repository APIs
+- mutation write-through for like/reaction/bookmark/delete/recover
+- MessageBus merge path to repository
+- snapshot/patch refresh into selected-container feed objects
+- APM spans for repository, container update, node layout, and image pipeline
+
+Exit criteria:
+
+- live LinuxDo topic detail supports initial load, pagination, reply action,
+  reaction, bookmark, delete/recover where permissions allow
+- MessageBus updates do not full-rebuild the feed unless required
+
+### Phase 7. Remove Old Topic Detail Runtime
+
+Deliverables:
+
+- remove topic-detail usage of `FireTopicDetailCollectionView`
+- remove reply-row dynamic hosted/native routing
+- remove topic-detail-specific layout-manager code made obsolete by Texture
+- keep generic `FireCollectionHost`/ListKit for Home and Bookmarks; those
+  surfaces currently use the shared collection host and are not part of this
+  rewrite
+- update docs to mark the old topic-detail ListKit route superseded
+
+Exit criteria:
+
+- app has one topic-detail runtime
+- no `.reply` row path uses SwiftUI hosted cells
+- docs and README describe the new architecture
+
+## Verification Plan
+
+### Documentation Checks
+
+- plan no longer presents CocoaPods as the default Texture implementation path
+- Phase 0 has explicit Path A/Path B pass/fail criteria and no production
+  rollback path
+- Phase 1 storage scope matches the v1/v2/v3 table boundaries
+- feasibility commands are documented for toolchain checks, strict-concurrency
+  build, IGListKit, Nuke 13/Nuke 12, and Texture XCFramework/CocoaPods spikes
+
+### Rust
+
+- unit tests for processed snapshot cache key construction and auth-scope
+  isolation
+- migration tests from empty database through latest schema
+- repository tests with recorded topic-detail JSON
+- stale-if-error tests
+- force-refresh bypass tests
+- MessageBus merge tests
+- duplicate post and response-row dedupe tests
+- UniFFI snapshot serialization tests
+
+Commands:
+
+```bash
+cargo test -p fire-store
+cargo test -p fire-core topics
+cargo test -p fire-uniffi-topics
+```
+
+### iOS Unit Tests
+
+- feed object identity/equality tests
+- Path A section-controller or Path B node-builder sizing fallback tests
+- image request/cache-key tests
+- route target coordinator tests
+- placeholder state tests
+- mutation callback tests
+
+### iOS Integration and Manual Tests
+
+- cold open topic detail
+- offline first open with no cache shows full-screen retryable error
+- warm cache open topic detail in airplane mode
+- cached snapshot stays visible when refresh fails and shows a non-blocking stale
+  notice
+- Cloudflare challenge during initial load and pagination runs topic HTML
+  recovery, syncs cookies, and retries the repository operation
+- long thread scroll down and back up repeatedly
+- image-heavy thread scroll and back-scroll without row reloads for image
+  completion
+- text selection plus swipe-to-reply coexistence
+- reply tree with nested replies
+- route open to a post number not in the first cached window
+- pull-to-refresh while scrolled
+- MessageBus update while visible
+- delete/recover/like/bookmark mutation
+- memory warning behavior
+- app background/foreground restore
+
+### Performance Targets
+
+Initial targets for staff-level acceptance:
+
+- cached topic detail first paint under 250 ms on a recent iPhone simulator
+- no blank post body after back-scroll in a 500-row scroll loop
+- no whole-feed update for image load completion
+- selected-container update p95 under 12 ms for append patches of 40 rows
+- main-thread work per visible row bind under 4 ms p95
+- image decode off main thread
+- no unbounded memory growth after 10 open/close cycles of image-heavy topics
+- support bundle can prove cache source: processed cache, network,
+  stale-if-error, or raw cache when the v2 raw cache is enabled
+
+## Observability
+
+Add APM spans and counters:
+
+- `topic_feed.load.cache_read`
+- `topic_feed.load.network`
+- `topic_feed.repository.compose`
+- `topic_feed.snapshot.emit`
+- `topic_feed.container.update`
+- `topic_feed.section.size`
+- `topic_feed.node.layout`
+- `topic_feed.node.display`
+- `topic_feed.image.prefetch`
+- `topic_feed.image.visible_load`
+- `topic_feed.image.cache_hit`
+- `topic_feed.image.cache_miss`
+
+The diagnostics page should expose:
+
+- current topic feed revision
+- source of current snapshot
+- database size
+- raw cache entry count when v2 raw cache is enabled
+- processed cache entry count
+- image memory/disk cache estimates
+- last container update duration
+- last node layout duration
+- visible item count
+
+## Risks and Mitigations
+
+### Texture Maintenance and Dependency Shape
+
+Texture is powerful but older and does not ship official SPM. It also carries a
+different lifecycle model than IGListKit. Mitigation: run the Phase 0 spike
+before touching production code, use `Texture/Core` only, prefer a reproducible
+local XCFramework/SPM integration, and accept CocoaPods only after documenting
+the resulting workflow and CI/archive changes.
+
+### IGListKit + Texture Bridge
+
+A full IGListAdapter-owned `UICollectionView` means Texture's `ASCollectionNode`
+is not the outer container. Mitigation: Phase 0 must choose Path A or Path B from
+the architecture gate. Path A uses IGListKit working range as the explicit
+preload/display signal and proves Texture cells still provide enough benefit.
+Path B moves physical containment to `ASCollectionNode` and restricts IGListKit
+to diffing/facade usage. These are different architectures with different cell
+lifecycle, working-range, and placeholder semantics; do not implement a hybrid.
+
+### Nuke 13 Toolchain
+
+Nuke 13 requires Xcode 26+. Mitigation: make Swift 6 compiler/concurrency
+readiness part of Phase 0. If strict concurrency migration is too large, ship v1
+with Nuke 12.x on Swift 5.10 and upgrade to Nuke 13 after Phase 0.5 lands. Do
+not mix the feed rewrite with unresolved compiler migration work.
+
+### Database Scope Creep
+
+Raw cache, processed entities, and feed snapshots can become a second product.
+Mitigation: implement only processed topic-detail tables in v1, defer raw
+responses and normalized topic-list tables to v2, and defer encrypted private raw
+response caching to v3. Design repository interfaces so topic list,
+notifications, search, and profile activity can adopt later without expanding
+the first slice.
+
+### Privacy
+
+Raw network cache increases sensitivity. Mitigation: encryption/key management
+is part of the store foundation. Raw private caching must not ship without an
+accepted at-rest protection story.
+
+### Visual Parity
+
+SwiftUI row behavior currently hides many details. Mitigation: snapshot fixture
+tests, accessibility checks, and manual parity cases are required before removing
+old runtime.
+
+## Open Questions for Phase 0
+
+- Can `Texture/Core` 3.2.0 be built reproducibly as a local XCFramework and
+  consumed through local SPM/binary-target wiring for simulator/device and
+  Debug/Release?
+- If the XCFramework path fails, does `Texture/Core` 3.2.0 build cleanly through
+  CocoaPods alongside XcodeGen and SPM packages, and what exact CI/archive
+  workflow changes are required?
+- Does Path A provide enough async text/layout benefit without `ASCollectionNode`
+  owning the outer range controller, or must Phase 0 select Path B before any
+  production implementation?
+- Should the first implementation use `ASTextNode` or `ASTextNode2` for cooked
+  rich text?
+- Which encrypted SQLite option is acceptable for both iOS and Android build
+  pipelines?
+- Should Nuke image cache be app-wide immediately or topic-detail scoped first
+  with a later migration for home and profile surfaces?
+
+## Final Target State
+
+When this rewrite is complete, topic detail should look like a native mobile
+feed rather than a patched SwiftUI composition:
+
+- Rust can load a topic from cache, network, or stale data through explicit
+  repositories.
+- iOS receives a feed snapshot with stable item identities and render metadata.
+- The Phase 0-selected container applies structural changes and owns viewport
+  lifecycle.
+- Texture renders post rows with async text/layout/drawing and placeholders.
+- Nuke loads and caches images with local node updates.
+- Scroll, back-scroll, image loading, pagination, MessageBus, and mutations all
+  have bounded update paths.
+- The old topic-detail ListKit/SwiftUI repeated-row runtime is gone.

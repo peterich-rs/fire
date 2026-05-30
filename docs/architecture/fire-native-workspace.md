@@ -38,6 +38,7 @@ fire/
     crates/
       fire-models/
       fire-core/
+      fire-store/
       fire-uniffi/
   third_party/
     openwire/
@@ -101,10 +102,12 @@ fire/
 - `fire-models`
   - defines the shared login/session snapshot, notification models, and topic/private-message-facing models
 - `fire-core`
-  - owns session sync, bootstrap parsing, auth refresh/logout, persistence, diagnostics, one shared `openwire` client for API and MessageBus transport, topic list/detail reads (including category/tag scoped lists and private-message mailboxes), search reads, reply/reaction/topic/private-message write paths, draft APIs, upload APIs, the Rust MessageBus poll/subscription runtime, notification fetch/state/mark-read reconciliation, topic-reply presence, and `/topics/timings` request shaping
+  - owns session sync, bootstrap parsing, auth refresh/logout, persistence, diagnostics, one shared `openwire` client for API and MessageBus transport, topic list/detail reads (including category/tag scoped lists and private-message mailboxes), topic-detail feed repository orchestration over the Rust processed cache, search reads, reply/reaction/topic/private-message write paths, draft APIs, upload APIs, the Rust MessageBus poll/subscription runtime, notification fetch/state/mark-read reconciliation, topic-reply presence, and `/topics/timings` request shaping
   - finalizes network traces in Rust with terminal outcomes (`Succeeded`, `Failed`, or `Cancelled`); hosts should treat timeline events as intermediate diagnostics instead of completion signals
+- `fire-store`
+  - owns the shared SQLite storage foundation for processed topic-detail feed snapshots, feed items, posts, response rows, and render blocks, keyed by topic id plus auth-scope hash so different LinuxDo sessions do not share cached topic content
 - `fire-uniffi`
-  - exports the shared async API surface, search APIs, notification list/state APIs, MessageBus callback interface, and error model to Swift/Kotlin
+  - exports the shared async API surface, topic-detail feed snapshot/cache APIs, search APIs, notification list/state APIs, MessageBus callback interface, and error model to Swift/Kotlin
 - `native/ios-app` and `native/android-app`
   - host WebView login, cookie capture, native UI state, the current topic browser/detail shells, native composer/private-message UX, and native notification surfaces over the shared Rust notification APIs
   - Android topic detail now opens a native public profile screen from author names; that screen consumes the shared Rust user APIs for profile, summary, followers/following, and follow/unfollow
@@ -157,6 +160,7 @@ File ownership convention:
   - `diagnostics/fire-readable.log` for a plaintext tracing mirror
   - `diagnostics/support-bundles/` for locally exported diagnostics bundles
   - `cache/xlog/` for Xlog cache and mmap spill files
+  - `cache/topic-feed.sqlite3` for Rust-owned processed topic-detail feed snapshots
   - `session.json` for the persisted session snapshot triggered by the host shell
 - iOS now also owns `ios-apm/` under the same workspace root for beta crash/APM files. That directory is explicitly host-owned and must not be treated as shared Rust diagnostics state.
 - Debug builds may also mirror shared logs into the platform console for local development, but release builds keep shared logging file-only through Xlog/readable-log artifacts.

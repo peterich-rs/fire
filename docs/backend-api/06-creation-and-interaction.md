@@ -276,7 +276,7 @@
   - 服务端也可能返回 `"/discourse-presence/reply/{topicId}": null`；Fire 会将其视为空 Presence 快照，按 `users = []`、`message_id = -1` 处理，而不是把它当成解析错误
   - 若 `last_message_id` / `message_id` 缺失、为 `null` 或是字符串数字，Fire 共享层会尽量解析；无法解析时回退为 `-1`
   - `users[]` 中单个成员如果缺少可用 `id` / `username`，Fire 会跳过坏项，不让整次 Presence bootstrap 失败
-  - 宿主层不要在“话题详情首次加载尚未确认成功”之前抢先 bootstrap Presence。对不存在、不可见或无权限的话题，Linux.do 观测上可能在 `GET /presence/get` 返回 `null` 快照的同时附带 `discourse-logged-out: 1` 和 `Set-Cookie: _t=; Max-Age=0`；当前 Fire 会按显式失效路径收口并清掉登录态
+  - 宿主层不要在“话题详情首次加载尚未确认成功”之前抢先 bootstrap Presence。对不存在、不可见或无权限的话题，Linux.do 观测上可能在 `GET /presence/get` 返回 `null` 快照的同时附带 `discourse-logged-out: 1` 和 `Set-Cookie: _t=; Max-Age=0`；当前 Fire 不再把这类普通权限 `403` 直接当成登录失效，只有 body 明确 `error_type=not_logged_in` 时才清理本地登录态
 
 ### `POST /presence/update`
 

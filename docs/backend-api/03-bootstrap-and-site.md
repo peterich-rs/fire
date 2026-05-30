@@ -95,8 +95,9 @@
 
 - Linux.do/Discourse 不一定等写接口才暴露登录态问题，但这里要区分“显式失效”和“auth 上下文轮换”两类现象。
 - 当前 Fire 仍把这些当作强失效信号：
-  - `discourse-logged-out: 1`
   - `401` / `403` 且 body 里有 `error_type=not_logged_in`
+  - 成功响应或 `401` 响应上的 `discourse-logged-out: 1`
+- 普通资源权限 `403` 不能只凭 `discourse-logged-out: 1` 或 auth Cookie 删除判定为后台剔除登录态；例如 `error_type=invalid_access` 仍按普通 `HttpStatus` 暴露，保留本地会话。
 - 成功响应里的 auth Cookie 删除不再单独作为登出依据；仅靠 `Set-Cookie: _t=; Max-Age=0` 或 `_forum_session=; Max-Age=0`，Fire 只保留诊断线索，不会直接清掉本地登录态。
 - Fire 共享层现在会在 `sync_login_context`、`apply_platform_cookies`、以及网络 `Set-Cookie` 导致 auth key `(_t, _forum_session)` 变化时推进 session epoch；晚到的旧请求响应仍会作为 stale response 整批丢弃。
 - 如果 auth key 变化但同一批更新没有带来新的 CSRF，Fire 会立即清掉旧 CSRF，让下一次认证写请求先刷新 token。

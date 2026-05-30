@@ -9,7 +9,7 @@ This document is now a narrow historical note for the older false-positive logou
 
 ## Final Rule
 
-- `discourse-logged-out` and `error_type: "not_logged_in"` remain the strong login invalidation signals.
+- `error_type: "not_logged_in"` remains the strong login invalidation signal for 401/403. `discourse-logged-out` is still strong on successful/401 responses, but not on ordinary 403 `invalid_access`.
 - A `200` response that only sends `Set-Cookie: _t=; Max-Age=0` or `Set-Cookie: _forum_session=; Max-Age=0` is diagnostic only; Fire keeps local login state until stronger evidence arrives.
 - Stale-response epoch protection remains separate and unchanged.
 - Host-applied full cookie replacement can still change auth state; this fix only narrows network `Set-Cookie` deletion semantics.

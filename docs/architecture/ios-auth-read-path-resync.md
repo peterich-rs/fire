@@ -9,7 +9,7 @@ This document describes the v0.1.0 hotfix that prevents passive reads (home feed
 
 - Users on the v0.1.0 TestFlight build reported that a successful day of browsing would suddenly drop them back into the WebView login flow.
 - The most common triggers were a passive home feed pull or a topic detail open, not an explicit write.
-- The shared layer correctly classified `403 not_logged_in` and `discourse-logged-out` responses as `LoginRequired`, but on the read path iOS treated every `LoginRequired` as authoritative logout evidence.
+- The shared layer correctly classified `403 not_logged_in` as `LoginRequired`, and at the time also treated `discourse-logged-out` responses as `LoginRequired`; the current rule no longer applies that header to ordinary 403 `invalid_access`.
 - Empirically, a fraction of those errors were transient: the WebKit cookie store already held a freshly rotated `_t` / `_forum_session` while the shared Rust cookie jar had not yet observed the rotation.
 - There was no read-path equivalent of the authenticated-write host resync, so a single transient mismatch was enough to nuke the session.
 

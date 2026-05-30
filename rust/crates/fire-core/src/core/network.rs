@@ -970,7 +970,9 @@ fn response_login_invalidation_error(
     body: &str,
 ) -> Option<FireCoreError> {
     let login_required_message = not_logged_in_message(status.as_u16(), body);
-    if !invalidation.any() && login_required_message.is_none() {
+    let header_invalidates_login =
+        invalidation.any() && (status.is_success() || status == StatusCode::UNAUTHORIZED);
+    if !header_invalidates_login && login_required_message.is_none() {
         return None;
     }
 
@@ -986,6 +988,7 @@ fn response_login_invalidation_error(
         discourse_logged_out = invalidation.discourse_logged_out,
         cleared_t_cookie = invalidation.cleared_t_cookie,
         cleared_forum_session = invalidation.cleared_forum_session,
+        header_invalidates_login,
         body_prefix = %body.chars().take(200).collect::<String>(),
         "response invalidated login session"
     );

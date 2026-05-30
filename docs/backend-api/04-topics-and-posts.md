@@ -148,7 +148,7 @@
   - iOS / Android 首次打开详情时会按 Web 行为请求 `track_visit=true&forceLoad=true`；MessageBus 触发的详情刷新使用 `track_visit=false&forceLoad=false`，避免把后台刷新当成一次新的浏览访问
   - Fire 会解析顶层 `message_bus_last_id` 并通过 `TopicHeader.message_bus_last_id` / `TopicDetail.message_bus_last_id` 暴露给宿主，详情页订阅 `/topic/{topicId}` 时用它作为初始 MessageBus checkpoint
   - 带目标楼层进入详情时，Rust 只预取首个根页和目标楼层所在 anchor root，不再为了 anchor 一次性补齐目标之前的全部顶层回复；目标楼层仍保留在同一个 response session 里，宿主可继续通过 cursor 分页定位
-  - 当前 Rust 会按根分支调用 `GET /posts/{postId}/reply-ids.json` 获取整棵回复子树的帖子 ID，但只按 `row_page_size` 预算批量调用 `GET /t/{topicId}/posts.json?post_ids[]=` 拉取本页需要的帖子；大型回复子树通过 `next_branch_offset` 在同一 root 内继续分页
+  - 当前 Rust 会按根分支调用 `GET /posts/{postId}/reply-ids.json` 获取整棵回复子树的帖子 ID，但只按 `row_page_size` 预算批量调用 `GET /t/{topicId}/posts.json?post_ids[]=` 拉取本页需要的帖子；大型回复子树通过 `next_branch_offset` 在同一 root 内继续分页。同一 topic response session 内，`fetch_topic_posts` 会先复用已缓存的 post，再只请求缺失的 `post_ids[]`，并把新返回的帖子回填到 session cache，减少回复面板、Swift 补水和 Rust 回复树分页之间的重复请求。
   - 当前 iOS 和 Android 都会消费 `post_stream.posts[].polls` 和 `post_stream.posts[].polls_votes`，用于在 topic detail 渲染原生 poll 卡片并恢复当前用户的已选项
   - 当前共享 Rust 解析 `post_stream.posts[].reply_to_user`，并通过 UniFFI 暴露到 `TopicPostState.reply_to_user` / `replyToUser`；iOS / Android 用它把回复关系显示为 `回复 @username`，缺失时才回退到 `reply_to_post_number`
   - 当前 iOS 也会消费顶层 `archetype` 以及 `details.participants[]`，用于把 `private_message` 线程渲染成私信详情页，并在头部展示会话参与者
@@ -205,6 +205,7 @@
 
 - 补充说明：
   - Web 在按 `post_ids[]` 补帖子时会带 `include_suggested=false`；Fire 共享 Rust 层同样附加该参数，避免服务端返回建议话题等详情页当前不消费的额外负载
+  - 当当前 topic 已有活跃 response session 时，Fire 会按 `topic_id + post_id` 复用 session 内已加载的帖子；请求只包含缺失 ID，成功回包会继续写回 session cache
   - 当前客户端会消费顶层 `user_badges`，并把它注入帖子徽章渲染
   - `post_stream.gaps` 用于处理被屏蔽用户、缺口分页等异常帖子流场景
 
@@ -483,7 +484,7 @@
 - 当前 Fire 行为：
   - 共享 Rust 通过 `fetch_post_reply_ids(post_id)` 调用该接口，兼容对象数组和数字 ID 数组，并过滤无效 ID
   - UniFFI topics namespace 暴露 `fetchPostReplyIds(postId:)`
-  - iOS / Android 话题详情页在 `reply_count > 0` 的帖子下优先读取这组回复树 ID，然后按批次调用 `GET /t/{topicId}/posts.json?post_ids[]=...` 拉取完整帖子并在原生回复上下文中展示；如果 ID 列表为空，再回退到 `GET /posts/{postId}/replies`
+  - iOS / Android 话题详情页在 `reply_count > 0` 的帖子下优先读取这组回复树 ID，然后按批次调用 `GET /t/{topicId}/posts.json?post_ids[]=...` 拉取完整帖子并在原生回复上下文中展示；如果 ID 列表为空，再回退到 `GET /posts/{postId}/replies`。同一 topic response session 内已加载的帖子会被 Rust 复用，不会为回复面板再重复发送相同 `post_ids[]` 请求。
 
 ### `POST /post_actions`
 

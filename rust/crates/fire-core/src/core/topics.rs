@@ -424,12 +424,32 @@ impl FireCore {
         topic_id: u64,
         post_ids: Vec<u64>,
     ) -> Result<Vec<TopicPost>, FireCoreError> {
-        if post_ids.is_empty() {
+        let requested_post_ids = ordered_unique_post_ids(post_ids);
+        if requested_post_ids.is_empty() {
             return Ok(Vec::new());
         }
 
+        let cached_posts =
+            self.cached_topic_posts_for_active_response_session(topic_id, &requested_post_ids);
+        let cached_post_ids = cached_posts
+            .iter()
+            .map(|post| post.id)
+            .collect::<HashSet<_>>();
+        let missing_post_ids = requested_post_ids
+            .iter()
+            .copied()
+            .filter(|post_id| !cached_post_ids.contains(post_id))
+            .collect::<Vec<_>>();
+        if missing_post_ids.is_empty() {
+            return Ok(topic_posts_for_requested_ids(
+                &requested_post_ids,
+                cached_posts,
+                Vec::new(),
+            ));
+        }
+
         let path = format!("/t/{topic_id}/posts.json");
-        let params = post_ids
+        let params = missing_post_ids
             .iter()
             .copied()
             .map(|post_id| ("post_ids[]", post_id.to_string()))
@@ -447,7 +467,53 @@ impl FireCore {
                 source,
             }
         })?;
-        Ok(post_stream.posts)
+        let fetched_posts = post_stream.posts;
+        self.cache_topic_posts_for_active_response_session(topic_id, &fetched_posts);
+        if cached_posts.is_empty() {
+            return Ok(fetched_posts);
+        }
+        Ok(topic_posts_for_requested_ids(
+            &requested_post_ids,
+            cached_posts,
+            fetched_posts,
+        ))
+    }
+
+    fn cached_topic_posts_for_active_response_session(
+        &self,
+        topic_id: u64,
+        post_ids: &[u64],
+    ) -> Vec<TopicPost> {
+        let current_epoch = self.current_session_epoch();
+        let runtime = self
+            .topic_response
+            .lock()
+            .expect("topic response runtime lock poisoned");
+        let Some(session) = runtime.sessions_by_topic_id.get(&topic_id) else {
+            return Vec::new();
+        };
+        if session.session_epoch != current_epoch {
+            return Vec::new();
+        }
+        session.posts_for_ids(post_ids)
+    }
+
+    fn cache_topic_posts_for_active_response_session(&self, topic_id: u64, posts: &[TopicPost]) {
+        if posts.is_empty() {
+            return;
+        }
+        let current_epoch = self.current_session_epoch();
+        let mut runtime = self
+            .topic_response
+            .lock()
+            .expect("topic response runtime lock poisoned");
+        let Some(session) = runtime.sessions_by_topic_id.get_mut(&topic_id) else {
+            return;
+        };
+        if session.session_epoch != current_epoch {
+            return;
+        }
+        session.merge_posts(posts.iter().cloned());
     }
 
     async fn fetch_post_by_number(
@@ -931,6 +997,30 @@ fn merge_topic_posts(
     merged_posts
 }
 
+fn topic_posts_for_requested_ids(
+    requested_post_ids: &[u64],
+    cached_posts: Vec<TopicPost>,
+    fetched_posts: Vec<TopicPost>,
+) -> Vec<TopicPost> {
+    let mut posts_by_id: HashMap<u64, TopicPost> = cached_posts
+        .into_iter()
+        .chain(fetched_posts)
+        .map(|post| (post.id, post))
+        .collect();
+
+    let mut ordered_posts = Vec::with_capacity(posts_by_id.len());
+    for post_id in requested_post_ids {
+        if let Some(post) = posts_by_id.remove(post_id) {
+            ordered_posts.push(post);
+        }
+    }
+
+    let mut trailing_posts: Vec<TopicPost> = posts_by_id.into_values().collect();
+    trailing_posts.sort_by_key(|post| (post.post_number, post.id));
+    ordered_posts.extend(trailing_posts);
+    ordered_posts
+}
+
 impl TopicResponseSession {
     fn new(
         session_epoch: u64,
@@ -965,6 +1055,20 @@ impl TopicResponseSession {
     fn with_session_id(mut self, session_id: u64) -> Self {
         self.session_id = session_id;
         self
+    }
+
+    fn posts_for_ids(&self, post_ids: &[u64]) -> Vec<TopicPost> {
+        post_ids
+            .iter()
+            .filter_map(|post_id| self.post_by_id.get(post_id).cloned())
+            .collect()
+    }
+
+    fn merge_posts(&mut self, posts: impl IntoIterator<Item = TopicPost>) {
+        for post in posts {
+            self.post_id_by_number.insert(post.post_number, post.id);
+            self.post_by_id.insert(post.id, post);
+        }
     }
 }
 

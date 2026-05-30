@@ -17,7 +17,7 @@ This is the main document for the auth/session incident captured in `fire-suppor
 - Any auth-key change `(_t, _forum_session)` now counts as an auth-context change, regardless of whether it came from platform sync or network `Set-Cookie`.
 - Auth-context change advances the shared session epoch.
 - If the same mutation did not also install a fresh CSRF token, Fire clears the stale CSRF token immediately.
-- Strong logout still only comes from explicit server evidence such as `discourse-logged-out` or `error_type: "not_logged_in"`.
+- Strong logout still only comes from explicit server evidence: `error_type: "not_logged_in"` on 401/403, or `discourse-logged-out` on successful/401 responses. Ordinary 403 `invalid_access` remains an access error even if it carries `discourse-logged-out`.
 - A partial network rotation records a runtime-only auth recovery hint so later writes can distinguish this case from explicit logout and from the older cookie deletion bug.
 
 ### Authenticated-write recovery

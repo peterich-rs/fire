@@ -50,6 +50,7 @@ struct FireCloudflareChallengeContext: Equatable {
     let id: UUID
     let operation: String
     let message: String
+    let originURL: URL?
 }
 
 enum FireAuthPresentationState: Identifiable, Equatable {
@@ -341,11 +342,13 @@ final class FireAppViewModel: ObservableObject {
                     self.errorMessage = nil
                     let restoredSession = try await sessionStore.restoreColdStartSession()
                     guard self.initialStateLoadGeneration == generation else { return }
-                    await self.applySession(restoredSession)
+                    await self.applySession(restoredSession, activateMessageBus: false)
                     guard self.initialStateLoadGeneration == generation else { return }
-                    await self.refreshHomeFeedIfPossible(force: true)
+                    let didLoadHomeFeed = await self.refreshHomeFeedIfPossible(force: true)
                     guard self.initialStateLoadGeneration == generation else { return }
-                    await self.notificationStore?.loadRecent(force: false)
+                    if didLoadHomeFeed {
+                        await self.ensureMessageBusActiveIfPossible()
+                    }
                 }
             } catch {
                 guard self.initialStateLoadGeneration == generation else { return }
@@ -414,12 +417,17 @@ final class FireAppViewModel: ObservableObject {
                     let loginCoordinator = try await loginCoordinatorValue()
                     let shouldResolveRecovery = pendingCloudflareRecovery != nil
                     errorMessage = nil
-                    await applySession(try await loginCoordinator.completeLogin(from: webView))
+                    await applySession(
+                        try await loginCoordinator.completeLogin(from: webView),
+                        activateMessageBus: false
+                    )
                     setAuthPresentationState(nil)
                     if shouldResolveRecovery {
                         resolvePendingCloudflareRecovery(with: .success(()))
                     }
-                    await refreshHomeFeedIfPossible(force: true)
+                    if await refreshHomeFeedIfPossible(force: true) {
+                        await ensureMessageBusActiveIfPossible()
+                    }
                     canSyncLoginSession = false
                     cachedLoginSyncReadiness = nil
                 }
@@ -539,11 +547,13 @@ final class FireAppViewModel: ObservableObject {
 
     func loadTopicDetail(
         topicId: UInt64,
+        topicSlug: String? = nil,
         targetPostNumber: UInt32? = nil,
         force: Bool = false
     ) async {
         await topicDetailStore?.loadTopicDetail(
             topicId: topicId,
+            topicSlug: topicSlug,
             targetPostNumber: targetPostNumber,
             force: force
         )
@@ -929,7 +939,8 @@ final class FireAppViewModel: ObservableObject {
         topicID: UInt64,
         postID: UInt64,
         pollName: String,
-        options: [String]
+        options: [String],
+        recoveryOriginURL: URL? = nil
     ) async throws -> PollState {
         let sessionStore = try await sessionStoreValue()
         guard canStartAuthenticatedMutation else {
@@ -941,7 +952,7 @@ final class FireAppViewModel: ObservableObject {
 
         do {
             errorMessage = nil
-            let poll = try await performWriteWithCloudflareRetry {
+            let poll = try await performWriteWithCloudflareRetry(originURL: recoveryOriginURL) {
                 try await sessionStore.votePoll(
                     postID: postID,
                     pollName: pollName,
@@ -959,7 +970,8 @@ final class FireAppViewModel: ObservableObject {
     func unvotePoll(
         topicID: UInt64,
         postID: UInt64,
-        pollName: String
+        pollName: String,
+        recoveryOriginURL: URL? = nil
     ) async throws -> PollState {
         let sessionStore = try await sessionStoreValue()
         guard canStartAuthenticatedMutation else {
@@ -971,7 +983,7 @@ final class FireAppViewModel: ObservableObject {
 
         do {
             errorMessage = nil
-            let poll = try await performWriteWithCloudflareRetry {
+            let poll = try await performWriteWithCloudflareRetry(originURL: recoveryOriginURL) {
                 try await sessionStore.unvotePoll(postID: postID, pollName: pollName)
             }
             await topicDetailStore?.refreshTopicDetailAfterMutation(topicId: topicID)
@@ -982,7 +994,11 @@ final class FireAppViewModel: ObservableObject {
         }
     }
 
-    func voteTopic(topicID: UInt64, voted: Bool) async throws -> VoteResponseState {
+    func voteTopic(
+        topicID: UInt64,
+        voted: Bool,
+        recoveryOriginURL: URL? = nil
+    ) async throws -> VoteResponseState {
         let sessionStore = try await sessionStoreValue()
         guard canStartAuthenticatedMutation else {
             throw FireTopicInteractionError.requiresAuthenticatedWrite
@@ -990,7 +1006,7 @@ final class FireAppViewModel: ObservableObject {
 
         do {
             errorMessage = nil
-            let response = try await performWriteWithCloudflareRetry {
+            let response = try await performWriteWithCloudflareRetry(originURL: recoveryOriginURL) {
                 if voted {
                     try await sessionStore.voteTopic(topicID: topicID)
                 } else {
@@ -1412,6 +1428,46 @@ final class FireAppViewModel: ObservableObject {
         await refreshHomeFeedIfPossible(force: force)
     }
 
+    var siteRootRecoveryURL: URL? {
+        let trimmed = session.bootstrap.baseUrl.trimmingCharacters(in: .whitespacesAndNewlines)
+        let rawURL = trimmed.isEmpty ? "https://linux.do/" : trimmed
+        if rawURL.hasSuffix("/") {
+            return URL(string: rawURL)
+        }
+        return URL(string: "\(rawURL)/")
+    }
+
+    func cloudflareRecoveryTopicURL(topicId: UInt64, topicSlug: String?) -> URL {
+        Self.cloudflareRecoveryTopicURL(
+            baseURL: session.bootstrap.baseUrl,
+            topicId: topicId,
+            topicSlug: topicSlug
+        )
+    }
+
+    nonisolated static func cloudflareRecoveryTopicURL(
+        baseURL: String,
+        topicId: UInt64,
+        topicSlug: String?
+    ) -> URL {
+        let trimmedBaseURL = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        let rawBaseURL = trimmedBaseURL.isEmpty ? "https://linux.do/" : trimmedBaseURL
+        let normalizedBaseURL = rawBaseURL.hasSuffix("/") ? rawBaseURL : "\(rawBaseURL)/"
+        let rootURL = URL(string: normalizedBaseURL) ?? URL(string: "https://linux.do/")!
+        let trimmedSlug = topicSlug?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
+        var topicURL = rootURL.appendingPathComponent("t")
+        if !trimmedSlug.isEmpty {
+            topicURL.appendPathComponent(trimmedSlug)
+        }
+        topicURL.appendPathComponent(String(topicId))
+        return topicURL
+    }
+
+    var authPresentationURL: URL {
+        pendingCloudflareRecovery?.context.originURL ?? loginURL
+    }
+
     private func clearTopicState() {
         homeFeedStore?.reset(resetTopicKind: true)
         topicDetailStore?.reset()
@@ -1429,7 +1485,7 @@ final class FireAppViewModel: ObservableObject {
         initialStateTask = nil
     }
 
-    private func applySession(_ session: SessionState) async {
+    private func applySession(_ session: SessionState, activateMessageBus: Bool = true) async {
         let shouldMirrorCookies = session.cookies != self.session.cookies
             || session.bootstrap.baseUrl != self.session.bootstrap.baseUrl
         self.session = session
@@ -1446,7 +1502,7 @@ final class FireAppViewModel: ObservableObject {
         }
 
         // Reconcile MessageBus lifecycle
-        if session.readiness.canOpenMessageBus && !isMessageBusActive {
+        if session.readiness.canOpenMessageBus && activateMessageBus && !isMessageBusActive {
             await startMessageBus()
         } else if !session.readiness.canOpenMessageBus && isMessageBusActive {
             stopMessageBus()
@@ -1575,11 +1631,13 @@ final class FireAppViewModel: ObservableObject {
 
     func performWriteWithCloudflareRetry<T>(
         operationDescription: String = "执行当前操作",
+        originURL: URL? = nil,
         operation: @escaping () async throws -> T
     ) async throws -> T {
         do {
             return try await performWithCloudflareRecovery(
                 operation: operationDescription,
+                originURL: originURL,
                 work: operation
             )
         } catch is FireCloudflareRecoveryError {
@@ -1589,6 +1647,7 @@ final class FireAppViewModel: ObservableObject {
 
     func performWithCloudflareRecovery<T>(
         operation: String,
+        originURL: URL? = nil,
         work: @escaping () async throws -> T
     ) async throws -> T {
         do {
@@ -1609,12 +1668,15 @@ final class FireAppViewModel: ObservableObject {
             }
         }
 
-        try await beginCloudflareRecoveryAndWait(operation: operation)
+        try await beginCloudflareRecoveryAndWait(
+            operation: operation,
+            originURL: originURL ?? siteRootRecoveryURL
+        )
         try Task.checkCancellation()
         return try await work()
     }
 
-    private func beginCloudflareRecoveryAndWait(operation: String) async throws {
+    private func beginCloudflareRecoveryAndWait(operation: String, originURL: URL?) async throws {
         if pendingCloudflareRecovery == nil {
             let initialCookieSnapshot = await currentCloudflareRecoveryCookieSnapshot()
 
@@ -1625,7 +1687,8 @@ final class FireAppViewModel: ObservableObject {
             let context = FireCloudflareChallengeContext(
                 id: UUID(),
                 operation: operation,
-                message: "\(operation) 需要先完成 Cloudflare 验证。完成后会自动重试。"
+                message: "\(operation) 需要先完成 Cloudflare 验证。完成后会自动重试。",
+                originURL: originURL
             )
             pendingCloudflareRecovery = PendingCloudflareRecovery(
                 context: context,
@@ -1873,7 +1936,8 @@ final class FireAppViewModel: ObservableObject {
     @discardableResult
     func handleCloudflareChallengeIfNeeded(
         _ error: Error,
-        message: String? = FireTopicInteractionError.requiresCloudflareVerification.errorDescription
+        message: String? = FireTopicInteractionError.requiresCloudflareVerification.errorDescription,
+        originURL: URL? = nil
     ) async -> Bool {
         guard case FireUniFfiError.CloudflareChallenge = error else {
             return false
@@ -1890,7 +1954,8 @@ final class FireAppViewModel: ObservableObject {
             let context = FireCloudflareChallengeContext(
                 id: UUID(),
                 operation: operation,
-                message: message ?? error.localizedDescription
+                message: message ?? error.localizedDescription,
+                originURL: originURL ?? siteRootRecoveryURL
             )
             pendingCloudflareRecovery = PendingCloudflareRecovery(
                 context: context,
@@ -2180,8 +2245,9 @@ final class FireAppViewModel: ObservableObject {
         await startMessageBus()
     }
 
-    func refreshHomeFeedIfPossible(force: Bool) async {
-        await homeFeedStore?.refreshTopicsIfPossible(force: force)
+    @discardableResult
+    func refreshHomeFeedIfPossible(force: Bool) async -> Bool {
+        await homeFeedStore?.refreshTopicsIfPossible(force: force) ?? false
     }
 
     func pruneTopicDetailState(retainingVisibleTopicIDs visibleTopicIDs: Set<UInt64>) {
@@ -2362,10 +2428,11 @@ final class FireAppViewModel: ObservableObject {
         bookmarkableType: String,
         name: String? = nil,
         reminderAt: String? = nil,
-        autoDeletePreference: Int32? = nil
+        autoDeletePreference: Int32? = nil,
+        recoveryOriginURL: URL? = nil
     ) async throws -> UInt64 {
         let sessionStore = try await sessionStoreValue()
-        return try await performWriteWithCloudflareRetry {
+        return try await performWriteWithCloudflareRetry(originURL: recoveryOriginURL) {
             try await sessionStore.createBookmark(
                 bookmarkableID: bookmarkableID,
                 bookmarkableType: bookmarkableType,
@@ -2380,10 +2447,11 @@ final class FireAppViewModel: ObservableObject {
         bookmarkID: UInt64,
         name: String? = nil,
         reminderAt: String? = nil,
-        autoDeletePreference: Int32? = nil
+        autoDeletePreference: Int32? = nil,
+        recoveryOriginURL: URL? = nil
     ) async throws {
         let sessionStore = try await sessionStoreValue()
-        try await performWriteWithCloudflareRetry {
+        try await performWriteWithCloudflareRetry(originURL: recoveryOriginURL) {
             try await sessionStore.updateBookmark(
                 bookmarkID: bookmarkID,
                 name: name,
@@ -2393,19 +2461,20 @@ final class FireAppViewModel: ObservableObject {
         }
     }
 
-    func deleteBookmark(bookmarkID: UInt64) async throws {
+    func deleteBookmark(bookmarkID: UInt64, recoveryOriginURL: URL? = nil) async throws {
         let sessionStore = try await sessionStoreValue()
-        try await performWriteWithCloudflareRetry {
+        try await performWriteWithCloudflareRetry(originURL: recoveryOriginURL) {
             try await sessionStore.deleteBookmark(bookmarkID: bookmarkID)
         }
     }
 
     func setTopicNotificationLevel(
         topicID: UInt64,
-        notificationLevel: Int32
+        notificationLevel: Int32,
+        recoveryOriginURL: URL? = nil
     ) async throws {
         let sessionStore = try await sessionStoreValue()
-        try await performWriteWithCloudflareRetry {
+        try await performWriteWithCloudflareRetry(originURL: recoveryOriginURL) {
             try await sessionStore.setTopicNotificationLevel(
                 topicID: topicID,
                 notificationLevel: notificationLevel

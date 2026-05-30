@@ -66,6 +66,7 @@ pub struct TopicDetailQueryState {
     pub topic_id: u64,
     pub post_number: Option<u32>,
     pub track_visit: bool,
+    pub force_load: bool,
     pub filter: Option<String>,
     pub username_filters: Option<String>,
     pub filter_top_level_replies: bool,
@@ -77,6 +78,7 @@ impl From<TopicDetailQuery> for TopicDetailQueryState {
             topic_id: value.topic_id,
             post_number: value.post_number,
             track_visit: value.track_visit,
+            force_load: value.force_load,
             filter: value.filter,
             username_filters: value.username_filters,
             filter_top_level_replies: value.filter_top_level_replies,
@@ -90,6 +92,7 @@ impl From<TopicDetailQueryState> for TopicDetailQuery {
             topic_id: value.topic_id,
             post_number: value.post_number,
             track_visit: value.track_visit,
+            force_load: value.force_load,
             filter: value.filter,
             username_filters: value.username_filters,
             filter_top_level_replies: value.filter_top_level_replies,
@@ -102,7 +105,9 @@ pub struct TopicScreenQueryState {
     pub topic_id: u64,
     pub target_post_number: Option<u32>,
     pub root_page_size: u16,
+    pub row_page_size: u16,
     pub track_visit: bool,
+    pub force_load: bool,
 }
 
 impl From<TopicScreenQueryState> for TopicScreenQuery {
@@ -111,7 +116,9 @@ impl From<TopicScreenQueryState> for TopicScreenQuery {
             topic_id: value.topic_id,
             target_post_number: value.target_post_number,
             root_page_size: value.root_page_size,
+            row_page_size: value.row_page_size,
             track_visit: value.track_visit,
+            force_load: value.force_load,
         }
     }
 }
@@ -609,6 +616,7 @@ impl From<TopicDetailMeta> for TopicDetailMetaState {
 #[derive(uniffi::Record, Debug, Clone)]
 pub struct TopicHeaderState {
     pub topic_id: u64,
+    pub message_bus_last_id: Option<i64>,
     pub title: String,
     pub slug: String,
     pub posts_count: u32,
@@ -640,6 +648,7 @@ impl From<TopicHeader> for TopicHeaderState {
     fn from(value: TopicHeader) -> Self {
         Self {
             topic_id: value.topic_id,
+            message_bus_last_id: value.message_bus_last_id,
             title: value.title,
             slug: value.slug,
             posts_count: value.posts_count,
@@ -687,7 +696,9 @@ pub struct TopicResponseCursorState {
     pub topic_id: u64,
     pub session_id: u64,
     pub next_root_offset: u32,
+    pub next_branch_offset: u32,
     pub page_size: u16,
+    pub row_page_size: u16,
 }
 
 impl From<TopicResponseCursor> for TopicResponseCursorState {
@@ -696,7 +707,9 @@ impl From<TopicResponseCursor> for TopicResponseCursorState {
             topic_id: value.topic_id,
             session_id: value.session_id,
             next_root_offset: value.next_root_offset,
+            next_branch_offset: value.next_branch_offset,
             page_size: value.page_size,
+            row_page_size: value.row_page_size,
         }
     }
 }
@@ -707,7 +720,9 @@ impl From<TopicResponseCursorState> for TopicResponseCursor {
             topic_id: value.topic_id,
             session_id: value.session_id,
             next_root_offset: value.next_root_offset,
+            next_branch_offset: value.next_branch_offset,
             page_size: value.page_size,
+            row_page_size: value.row_page_size,
         }
     }
 }
@@ -797,6 +812,7 @@ impl From<TopicScreen> for TopicScreenState {
 #[derive(uniffi::Record, Debug, Clone)]
 pub struct TopicDetailState {
     pub id: u64,
+    pub message_bus_last_id: Option<i64>,
     pub title: String,
     pub slug: String,
     pub posts_count: u32,
@@ -828,6 +844,7 @@ impl From<TopicDetail> for TopicDetailState {
     fn from(value: TopicDetail) -> Self {
         Self {
             id: value.id,
+            message_bus_last_id: value.message_bus_last_id,
             title: value.title,
             slug: value.slug,
             posts_count: value.posts_count,

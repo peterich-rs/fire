@@ -265,7 +265,7 @@ struct FireAuthScreen: View {
     }
 
     private var url: URL {
-        URL(string: "https://linux.do/login")!
+        viewModel.authPresentationURL
     }
 
     private var route: String {

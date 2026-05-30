@@ -15,6 +15,7 @@
 - Query：
   - `topic_ids?: string`，逗号分隔，例如 `1,2,3`
   - `page?: integer`
+  - `no_definitions?: true`，分页请求使用；Web 观测到 `GET /latest.json?no_definitions=true&page=1`
   - `order?: string`
   - `ascending?: "true" | "false"`
 - 响应：`TopicListResponse`
@@ -24,6 +25,7 @@
 - 用途：新话题列表
 - Query：
   - `page?: integer`
+  - `no_definitions?: true`，分页请求使用
   - `order?: string`
   - `ascending?: "true" | "false"`
 - 响应：`TopicListResponse`
@@ -33,6 +35,7 @@
 - 用途：未读话题列表
 - Query：
   - `page?: integer`
+  - `no_definitions?: true`，分页请求使用
   - `order?: string`
   - `ascending?: "true" | "false"`
 - 响应：`TopicListResponse`
@@ -42,6 +45,7 @@
 - 用途：未看过话题列表
 - Query：
   - `page?: integer`
+  - `no_definitions?: true`，分页请求使用
   - `order?: string`
   - `ascending?: "true" | "false"`
 - 响应：`TopicListResponse`
@@ -51,6 +55,7 @@
 - 用途：热门话题列表
 - Query：
   - `page?: integer`
+  - `no_definitions?: true`，分页请求使用
   - `order?: string`
   - `ascending?: "true" | "false"`
 - 响应：`TopicListResponse`
@@ -73,6 +78,7 @@
   - `hot`
 - Query：
   - `page?: integer`
+  - `no_definitions?: true`，分页请求使用
   - `period?: string`
   - `order?: string`
   - `ascending?: "true" | "false"`
@@ -90,8 +96,9 @@
 
 - 用途：分类筛选话题列表
 - Query：
-  - `tags[]?: string[]`
+  - `tags[]?: string[]`，分类内按标签过滤时使用；当前共享 Rust 层会把 `TopicListQuery.tag` 与 `additional_tags[]` 都编码成重复的 `tags[]`
   - `page?: integer`
+  - `no_definitions?: true`，分页请求使用
   - `period?: string`
   - `order?: string`
   - `ascending?: "true" | "false"`
@@ -100,11 +107,12 @@
 ### `GET /tag/{tag}/l/{filter}.json`
 
 - 用途：标签筛选话题列表
-- 宿主备注：Android 首页 row tag 点击会把所选标签作为 `TopicListQuery.tag` 传入共享 Rust 层，并与当前 Latest / New / Unread / Unseen / Hot / Top 筛选组合成 `/tag/{tag}/l/{filter}.json`。
+- 宿主备注：iOS / Android 首页 row tag 点击会把第一个标签作为 `TopicListQuery.tag` 传入共享 Rust 层，并与当前 Latest / New / Unread / Unseen / Hot / Top 筛选组合成 `/tag/{tag}/l/{filter}.json`；多标签会把剩余标签作为重复的 `tags[]`，并设置 `match_all_tags=true`。
 - Query：
   - `tags[]?: string[]`，多标签时追加剩余标签
   - `match_all_tags?: "true"`
   - `page?: integer`
+  - `no_definitions?: true`，分页请求使用
   - `period?: string`
   - `order?: string`
   - `ascending?: "true" | "false"`
@@ -117,6 +125,7 @@
 - 用途：按数字 ID 获取话题详情
 - Query：
   - `track_visit?: true`
+  - `forceLoad?: true`
   - `filter?: string`
   - `username_filters?: string`
   - `filter_top_level_replies?: true`
@@ -131,9 +140,15 @@
     - `header`：标题与话题元数据，进入详情时可复用首页已有标题，再由详情返回值轻量校正
     - `body`：固定为 `post_number == 1` 的主贴；如果 `filter_top_level_replies=true` 的负载里缺失，Rust 会额外请求 `GET /posts/by_number/{topicId}/1`
     - `response`：仅包含 `post_number > 1` 的回复树
-  - 当前回复区分页不再按整条 `post_stream.stream` 平铺补齐，而是由 Rust 先用 `filter_top_level_replies=true` 获取顶层回复根列表，再按根分支分页
-  - 带目标楼层进入详情时，`fetchTopicScreen` 仍从回复区开头返回，并把首批根分支扩展到目标楼层所在根分支；这样目标楼层之前的回复仍在同一个 response session 内可见，后续 `fetchTopicResponsePage` 继续从已返回根分支之后分页
-  - 当前 Rust 会按根分支调用 `GET /posts/{postId}/reply-ids.json` 获取整棵回复子树的帖子 ID，再按批次调用 `GET /t/{topicId}/posts.json?post_ids[]=` 拉取该分支的完整帖子并构建树序行
+  - iOS / Android 渲染详情前会按 `post.id` 对 `body` 与 `response.rows` 做归一化，避免重叠窗口或刷新响应把同一帖子重复提交到列表层
+  - `fetchTopicScreen` 首个详情请求按 Web 形态发起：`GET /t/{topicId}.json?track_visit=true&forceLoad=true`，不携带 `filter_top_level_replies`
+  - 首个详情响应返回后，Rust 再发起内部回复索引请求：`GET /t/{topicId}.json?filter_top_level_replies=true`；该请求只用于获取顶层回复根列表，不携带 `track_visit`、`forceLoad` 或 `Discourse-Track-View*`
+  - 当前回复区分页不再按整条 `post_stream.stream` 平铺补齐，而是用顶层回复根列表按根分支分页
+  - `fetchTopicScreen` / `fetchTopicResponsePage` 同时接受 `root_page_size` 和 `row_page_size`：前者限制一次最多推进多少个顶层回复根，后者限制一次最多返回多少条可渲染回复行
+  - iOS / Android 首次打开详情时会按 Web 行为请求 `track_visit=true&forceLoad=true`；MessageBus 触发的详情刷新使用 `track_visit=false&forceLoad=false`，避免把后台刷新当成一次新的浏览访问
+  - Fire 会解析顶层 `message_bus_last_id` 并通过 `TopicHeader.message_bus_last_id` / `TopicDetail.message_bus_last_id` 暴露给宿主，详情页订阅 `/topic/{topicId}` 时用它作为初始 MessageBus checkpoint
+  - 带目标楼层进入详情时，Rust 只预取首个根页和目标楼层所在 anchor root，不再为了 anchor 一次性补齐目标之前的全部顶层回复；目标楼层仍保留在同一个 response session 里，宿主可继续通过 cursor 分页定位
+  - 当前 Rust 会按根分支调用 `GET /posts/{postId}/reply-ids.json` 获取整棵回复子树的帖子 ID，但只按 `row_page_size` 预算批量调用 `GET /t/{topicId}/posts.json?post_ids[]=` 拉取本页需要的帖子；大型回复子树通过 `next_branch_offset` 在同一 root 内继续分页
   - 当前 iOS 和 Android 都会消费 `post_stream.posts[].polls` 和 `post_stream.posts[].polls_votes`，用于在 topic detail 渲染原生 poll 卡片并恢复当前用户的已选项
   - 当前共享 Rust 解析 `post_stream.posts[].reply_to_user`，并通过 UniFFI 暴露到 `TopicPostState.reply_to_user` / `replyToUser`；iOS / Android 用它把回复关系显示为 `回复 @username`，缺失时才回退到 `reply_to_post_number`
   - 当前 iOS 也会消费顶层 `archetype` 以及 `details.participants[]`，用于把 `private_message` 线程渲染成私信详情页，并在头部展示会话参与者
@@ -157,7 +172,8 @@
 
 ```json
 {
-  "post_ids[]": [111, 112, 113]
+  "post_ids[]": [111, 112, 113],
+  "include_suggested": false
 }
 ```
 
@@ -188,6 +204,7 @@
 ```
 
 - 补充说明：
+  - Web 在按 `post_ids[]` 补帖子时会带 `include_suggested=false`；Fire 共享 Rust 层同样附加该参数，避免服务端返回建议话题等详情页当前不消费的额外负载
   - 当前客户端会消费顶层 `user_badges`，并把它注入帖子徽章渲染
   - `post_stream.gaps` 用于处理被屏蔽用户、缺口分页等异常帖子流场景
 

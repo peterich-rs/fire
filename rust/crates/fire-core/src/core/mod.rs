@@ -41,7 +41,7 @@ use crate::{
 
 const NETWORK_CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 const NETWORK_CALL_TIMEOUT: Duration = Duration::from_secs(30);
-const MESSAGE_BUS_CALL_TIMEOUT: Duration = Duration::from_secs(75);
+const MESSAGE_BUS_CALL_TIMEOUT: Duration = Duration::from_secs(35);
 const CLIENT_MAX_CONNECTIONS_PER_HOST: usize = 8;
 const CLIENT_POOL_MAX_IDLE_PER_HOST: usize = 4;
 const MESSAGE_BUS_HTTP2_KEEP_ALIVE_INTERVAL: Duration = Duration::from_secs(30);

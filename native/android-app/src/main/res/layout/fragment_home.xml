@@ -6,6 +6,14 @@
     android:orientation="vertical">
 
     <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/category_bar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:clipToPadding="false"
+        android:paddingHorizontal="12dp"
+        android:paddingTop="8dp" />
+
+    <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/feed_kind_bar"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -13,22 +21,37 @@
         android:paddingHorizontal="12dp"
         android:paddingVertical="8dp" />
 
-    <com.google.android.material.chip.Chip
-        android:id="@+id/selected_tag_chip"
-        android:layout_width="wrap_content"
+    <HorizontalScrollView
+        android:id="@+id/selected_tags_scroll"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginHorizontal="12dp"
-        android:layout_marginBottom="8dp"
-        android:visibility="gone"
-        app:closeIconVisible="true" />
+        android:clipToPadding="false"
+        android:paddingHorizontal="12dp"
+        android:paddingBottom="8dp"
+        android:visibility="gone">
 
-    <androidx.recyclerview.widget.RecyclerView
-        android:id="@+id/topic_list"
+        <com.google.android.material.chip.ChipGroup
+            android:id="@+id/selected_tags_group"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            app:singleLine="true" />
+
+    </HorizontalScrollView>
+
+    <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+        android:id="@+id/swipe_refresh"
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_weight="1"
-        android:clipToPadding="false"
-        android:paddingHorizontal="12dp" />
+        android:layout_weight="1">
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/topic_list"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:clipToPadding="false"
+            android:paddingHorizontal="12dp" />
+
+    </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
 
     <ProgressBar
         android:id="@+id/loading_view"

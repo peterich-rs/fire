@@ -186,16 +186,19 @@ enum FireTopicPresentation {
         baseURLString: String,
         previous: FireTopicDetailRenderCache? = nil
     ) -> FireTopicDetailRenderCache {
-        let orderedPosts = mergeTopicPosts(
-            existing: detail.postStream.posts,
-            incoming: [],
-            orderedPostIDs: detail.postStream.stream
+        let orderedPosts = uniqueTopicPostsPreservingOrder(
+            mergeTopicPosts(
+                existing: detail.postStream.posts,
+                incoming: [],
+                orderedPostIDs: detail.postStream.stream
+            )
         )
         let rowInputs = orderedPosts.map(timelineRowInput(for:))
         let contentInputsByPostID = Dictionary(
-            uniqueKeysWithValues: orderedPosts.map { post in
+            orderedPosts.map { post in
                 (post.id, FireTopicPostRenderInput(cooked: post.cooked))
-            }
+            },
+            uniquingKeysWith: { _, newest in newest }
         )
 
         let originalRow: FirePreparedTopicTimelineRow?
@@ -246,12 +249,18 @@ enum FireTopicPresentation {
         baseURLString: String,
         previous: FireTopicDetailRenderCache? = nil
     ) -> FireTopicDetailRenderCache {
-        let orderedPosts = [screen.body.post] + responseRows.map(\.post)
+        let responseRows = uniqueResponseRowsPreservingOrder(responseRows).filter { row in
+            row.post.id != screen.body.post.id
+        }
+        let orderedPosts = uniqueTopicPostsPreservingOrder(
+            [screen.body.post] + responseRows.map(\.post)
+        )
         let rowInputs = orderedPosts.map(timelineRowInput(for:))
         let contentInputsByPostID = Dictionary(
-            uniqueKeysWithValues: orderedPosts.map { post in
+            orderedPosts.map { post in
                 (post.id, FireTopicPostRenderInput(cooked: post.cooked))
-            }
+            },
+            uniquingKeysWith: { _, newest in newest }
         )
 
         let originalRow = originalTimelineRow(for: screen.body.post)
@@ -384,6 +393,7 @@ enum FireTopicPresentation {
         incoming: [TopicPostState],
         orderedPostIDs: [UInt64]
     ) -> [TopicPostState] {
+        let orderedPostIDs = uniqueTopicPostIDsPreservingOrder(orderedPostIDs)
         if incoming.isEmpty,
            existing.count == orderedPostIDs.count,
            zip(existing, orderedPostIDs).allSatisfy({ post, postID in
@@ -411,6 +421,60 @@ enum FireTopicPresentation {
         let trailingPosts = postsByID.values.sorted(by: comparePosts(_:_:))
         mergedPosts.append(contentsOf: trailingPosts)
         return mergedPosts
+    }
+
+    static func uniqueTopicPostsPreservingOrder(_ posts: [TopicPostState]) -> [TopicPostState] {
+        var orderedPostIDs: [UInt64] = []
+        orderedPostIDs.reserveCapacity(posts.count)
+        var postsByID: [UInt64: TopicPostState] = [:]
+        postsByID.reserveCapacity(posts.count)
+
+        for post in posts {
+            if postsByID[post.id] == nil {
+                orderedPostIDs.append(post.id)
+            }
+            postsByID[post.id] = post
+        }
+
+        return orderedPostIDs.compactMap { postsByID[$0] }
+    }
+
+    static func uniqueResponseRowsPreservingOrder(
+        _ rows: [TopicResponseRowState]
+    ) -> [TopicResponseRowState] {
+        var orderedPostIDs: [UInt64] = []
+        orderedPostIDs.reserveCapacity(rows.count)
+        var rowsByPostID: [UInt64: TopicResponseRowState] = [:]
+        rowsByPostID.reserveCapacity(rows.count)
+
+        for row in rows {
+            if rowsByPostID[row.post.id] == nil {
+                orderedPostIDs.append(row.post.id)
+            }
+            rowsByPostID[row.post.id] = row
+        }
+
+        return orderedPostIDs.compactMap { rowsByPostID[$0] }
+    }
+
+    static func uniqueTopicPostIDsPreservingOrder(_ postIDs: [UInt64]) -> [UInt64] {
+        var seenPostIDs = Set<UInt64>()
+        seenPostIDs.reserveCapacity(postIDs.count)
+        var orderedPostIDs: [UInt64] = []
+        orderedPostIDs.reserveCapacity(postIDs.count)
+
+        for postID in postIDs where seenPostIDs.insert(postID).inserted {
+            orderedPostIDs.append(postID)
+        }
+
+        return orderedPostIDs
+    }
+
+    static func topicPostsByID(_ posts: [TopicPostState]) -> [UInt64: TopicPostState] {
+        Dictionary(
+            posts.map { ($0.id, $0) },
+            uniquingKeysWith: { _, newest in newest }
+        )
     }
 
     // MARK: - Timeline Entries
@@ -577,7 +641,7 @@ enum FireTopicPresentation {
         entries: [FireTopicTimelineEntry],
         posts: [TopicPostState]
     ) -> [FireTopicTimelineRow] {
-        let postsByID = Dictionary(uniqueKeysWithValues: posts.map { ($0.id, $0) })
+        let postsByID = topicPostsByID(posts)
         return entries.map { entry in
             FireTopicTimelineRow(entry: entry, post: postsByID[entry.postId])
         }

@@ -9,6 +9,11 @@ import uniffi.fire_uniffi_diagnostics.LogFileDetailState
 import uniffi.fire_uniffi_diagnostics.LogFileSummaryState
 import uniffi.fire_uniffi_diagnostics.NetworkTraceDetailState
 import uniffi.fire_uniffi_diagnostics.NetworkTraceSummaryState
+import uniffi.fire_uniffi_messagebus.MessageBusClientModeState
+import uniffi.fire_uniffi_messagebus.MessageBusEventHandler
+import uniffi.fire_uniffi_messagebus.MessageBusSubscriptionScopeState
+import uniffi.fire_uniffi_messagebus.MessageBusSubscriptionState
+import uniffi.fire_uniffi_messagebus.TopicPresenceState
 import uniffi.fire_uniffi_notifications.NotificationCenterState
 import uniffi.fire_uniffi_notifications.NotificationListState
 import uniffi.fire_uniffi_search.SearchQueryState
@@ -242,7 +247,9 @@ class FireSessionStore(
     }
 
     suspend fun fetchTopicList(query: TopicListQueryState): TopicListState = withContext(Dispatchers.IO) {
-        core.topics().fetchTopicList(query)
+        val response = core.topics().fetchTopicList(query)
+        persistCurrentSession()
+        response
     }
 
     suspend fun fetchTopicDetail(query: TopicDetailQueryState): TopicDetailState = withContext(Dispatchers.IO) {
@@ -259,6 +266,73 @@ class FireSessionStore(
 
     suspend fun fetchTopicResponsePage(query: TopicResponsePageQueryState): TopicResponsePageState = withContext(Dispatchers.IO) {
         core.topics().fetchTopicResponsePage(query)
+    }
+
+    suspend fun startMessageBus(handler: MessageBusEventHandler): String = withContext(Dispatchers.IO) {
+        val clientId = core.messagebus().startMessageBus(MessageBusClientModeState.FOREGROUND, handler)
+        persistCurrentSession()
+        clientId
+    }
+
+    fun stopMessageBus(clearSubscriptions: Boolean = false) {
+        core.messagebus().stopMessageBus(clearSubscriptions)
+    }
+
+    fun subscribeTopicDetailChannel(topicId: ULong, ownerToken: String, lastMessageId: Long?) {
+        core.messagebus().subscribeChannel(
+            MessageBusSubscriptionState(
+                ownerToken = ownerToken,
+                channel = "/topic/$topicId",
+                lastMessageId = lastMessageId,
+                scope = MessageBusSubscriptionScopeState.TRANSIENT,
+            ),
+        )
+    }
+
+    fun unsubscribeTopicDetailChannel(topicId: ULong, ownerToken: String) {
+        core.messagebus().unsubscribeChannel(ownerToken = ownerToken, channel = "/topic/$topicId")
+    }
+
+    fun subscribeTopicReactionChannel(topicId: ULong, ownerToken: String) {
+        core.messagebus().subscribeChannel(
+            MessageBusSubscriptionState(
+                ownerToken = ownerToken,
+                channel = "/topic/$topicId/reactions",
+                lastMessageId = null,
+                scope = MessageBusSubscriptionScopeState.TRANSIENT,
+            ),
+        )
+    }
+
+    fun unsubscribeTopicReactionChannel(topicId: ULong, ownerToken: String) {
+        core.messagebus().unsubscribeChannel(ownerToken = ownerToken, channel = "/topic/$topicId/reactions")
+    }
+
+    fun subscribeTopicPollsChannel(topicId: ULong, ownerToken: String) {
+        core.messagebus().subscribeChannel(
+            MessageBusSubscriptionState(
+                ownerToken = ownerToken,
+                channel = "/polls/$topicId",
+                lastMessageId = 0,
+                scope = MessageBusSubscriptionScopeState.TRANSIENT,
+            ),
+        )
+    }
+
+    fun unsubscribeTopicPollsChannel(topicId: ULong, ownerToken: String) {
+        core.messagebus().unsubscribeChannel(ownerToken = ownerToken, channel = "/polls/$topicId")
+    }
+
+    suspend fun bootstrapTopicReplyPresence(topicId: ULong, ownerToken: String): TopicPresenceState =
+        withContext(Dispatchers.IO) {
+            core.messagebus().bootstrapTopicReplyPresence(topicId, ownerToken)
+        }
+
+    fun unsubscribeTopicReplyPresenceChannel(topicId: ULong, ownerToken: String) {
+        core.messagebus().unsubscribeChannel(
+            ownerToken = ownerToken,
+            channel = "/presence/discourse-presence/reply/$topicId",
+        )
     }
 
     suspend fun fetchTopicPosts(topicId: ULong, postIds: List<ULong>): List<TopicPostState> = withContext(Dispatchers.IO) {

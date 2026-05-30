@@ -163,9 +163,10 @@ final class FireHomeFeedStore: ObservableObject {
         await refreshTopicsIfPossible(force: true)
     }
 
-    func refreshTopicsIfPossible(force: Bool) async {
+    @discardableResult
+    func refreshTopicsIfPossible(force: Bool) async -> Bool {
         cancelPendingTopicListRefresh()
-        await loadTopics(page: nil, reset: true, force: force, refreshMode: .full)
+        return await loadTopics(page: nil, reset: true, force: force, refreshMode: .full)
     }
 
     func loadMoreTopics() {
@@ -361,6 +362,7 @@ final class FireHomeFeedStore: ObservableObject {
             let fetchWithRecovery: () async throws -> TopicListState = {
                 try await self.appViewModel.performWithCloudflareRecovery(
                     operation: operationDescription,
+                    originURL: self.appViewModel.siteRootRecoveryURL,
                     work: fetch
                 )
             }
@@ -405,6 +407,9 @@ final class FireHomeFeedStore: ObservableObject {
                     for: requestedScope,
                     at: topicListRefreshClock.now
                 )
+                Task { [appViewModel] in
+                    await appViewModel.ensureMessageBusActiveIfPossible()
+                }
             }
             return true
         } catch {

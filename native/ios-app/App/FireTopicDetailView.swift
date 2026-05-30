@@ -596,6 +596,13 @@ struct FireTopicDetailView: View {
         return URL(string: "\(baseURLString)/t/\(trimmedSlug.isEmpty ? "topic-\(topic.id)" : trimmedSlug)/\(topic.id)")
     }
 
+    private var topicCloudflareRecoveryURL: URL {
+        viewModel.cloudflareRecoveryTopicURL(
+            topicId: topic.id,
+            topicSlug: displayedTopicSlug
+        )
+    }
+
     private var currentTopicNotificationLevel: FireTopicNotificationLevelOption {
         FireTopicNotificationLevelOption(rawValue: Int32(detail?.details.notificationLevel ?? 1)) ?? .regular
     }
@@ -664,6 +671,18 @@ struct FireTopicDetailView: View {
             && (post.currentUserReaction?.canUndo ?? true)
     }
 
+    private func loadTopicDetail(
+        targetPostNumber: UInt32? = nil,
+        force: Bool = false
+    ) async {
+        await topicDetailStore.loadTopicDetail(
+            topicId: topic.id,
+            topicSlug: displayedTopicSlug,
+            targetPostNumber: targetPostNumber,
+            force: force
+        )
+    }
+
     var body: some View {
         detailLifecycleContent
     }
@@ -690,11 +709,11 @@ struct FireTopicDetailView: View {
             onRefresh: {
                 timingTracker.recordInteraction()
                 topicDetailStore.clearTopicDetailAnchor(topicId: topic.id)
-                await topicDetailStore.loadTopicDetail(topicId: topic.id, force: true)
+                await loadTopicDetail(force: true)
             },
             onLoadTopicDetail: {
                 timingTracker.recordInteraction()
-                await topicDetailStore.loadTopicDetail(topicId: topic.id, force: true)
+                await loadTopicDetail(force: true)
             },
             onScrollTargetHandled: { postNumber in
                 topicDetailStore.markScrollTargetSatisfied(topicId: topic.id, postNumber: postNumber)
@@ -704,6 +723,9 @@ struct FireTopicDetailView: View {
                     topicId: topic.id,
                     visiblePostNumbers: visiblePostNumbers
                 )
+            },
+            onLoadMoreTopicPosts: {
+                topicDetailStore.loadMoreTopicPostsIfNeeded(topicId: topic.id)
             },
             onReloadTopicAiSummary: {
                 topicDetailStore.reloadTopicAiSummary(topicId: topic.id)
@@ -890,22 +912,27 @@ struct FireTopicDetailView: View {
                         try await viewModel.updateBookmark(
                             bookmarkID: bookmarkID,
                             name: name,
-                            reminderAt: reminderAt
+                            reminderAt: reminderAt,
+                            recoveryOriginURL: topicCloudflareRecoveryURL
                         )
                     } else {
                         _ = try await viewModel.createBookmark(
                             bookmarkableID: context.bookmarkableID,
                             bookmarkableType: context.bookmarkableType,
                             name: name,
-                            reminderAt: reminderAt
+                            reminderAt: reminderAt,
+                            recoveryOriginURL: topicCloudflareRecoveryURL
                         )
                     }
-                    await topicDetailStore.loadTopicDetail(topicId: topic.id, force: true)
+                    await loadTopicDetail(force: true)
                 },
                 onDelete: context.bookmarkID.map { bookmarkID in
                     {
-                        try await viewModel.deleteBookmark(bookmarkID: bookmarkID)
-                        await topicDetailStore.loadTopicDetail(topicId: topic.id, force: true)
+                        try await viewModel.deleteBookmark(
+                            bookmarkID: bookmarkID,
+                            recoveryOriginURL: topicCloudflareRecoveryURL
+                        )
+                        await loadTopicDetail(force: true)
                     }
                 }
             )
@@ -919,7 +946,7 @@ struct FireTopicDetailView: View {
                     postNumber: context.postNumber,
                     onSaved: {
                         Task {
-                            await topicDetailStore.loadTopicDetail(topicId: topic.id, force: true)
+                            await loadTopicDetail(force: true)
                         }
                     }
                 )
@@ -954,7 +981,7 @@ struct FireTopicDetailView: View {
                     initialTags: detail?.tags.map(\.name) ?? row.tagNames,
                     onSaved: {
                         Task {
-                            await topicDetailStore.loadTopicDetail(topicId: topic.id, force: true)
+                            await loadTopicDetail(force: true)
                         }
                     }
                 )
@@ -1022,7 +1049,7 @@ struct FireTopicDetailView: View {
                         didPickQuickReaction = false
                         quickReplyError = nil
                         Task {
-                            await topicDetailStore.loadTopicDetail(topicId: topic.id, force: true)
+                            await loadTopicDetail(force: true)
                         }
                     },
                     onSubmissionNotice: { message in
@@ -1105,8 +1132,7 @@ struct FireTopicDetailView: View {
                 )
             }
             await timingTracker.setSceneActive(scenePhase == .active)
-            await topicDetailStore.loadTopicDetail(
-                topicId: topic.id,
+            await loadTopicDetail(
                 targetPostNumber: scrollToPostNumber
             )
         }
@@ -1358,10 +1384,7 @@ struct FireTopicDetailView: View {
         }
 
         Task {
-            await topicDetailStore.loadTopicDetail(
-                topicId: topic.id,
-                targetPostNumber: postNumber
-            )
+            await loadTopicDetail(targetPostNumber: postNumber)
         }
     }
 
@@ -1547,9 +1570,10 @@ struct FireTopicDetailView: View {
         do {
             try await viewModel.setTopicNotificationLevel(
                 topicID: topic.id,
-                notificationLevel: option.rawValue
+                notificationLevel: option.rawValue,
+                recoveryOriginURL: topicCloudflareRecoveryURL
             )
-            await topicDetailStore.loadTopicDetail(topicId: topic.id, force: true)
+            await loadTopicDetail(force: true)
         } catch {
             composerNotice = error.localizedDescription
         }
@@ -1560,7 +1584,8 @@ struct FireTopicDetailView: View {
         do {
             _ = try await viewModel.voteTopic(
                 topicID: topic.id,
-                voted: !detail.userVoted
+                voted: !detail.userVoted,
+                recoveryOriginURL: topicCloudflareRecoveryURL
             )
         } catch {
             composerNotice = error.localizedDescription
@@ -1591,7 +1616,8 @@ struct FireTopicDetailView: View {
                     topicID: topic.id,
                     postID: post.id,
                     pollName: poll.name,
-                    options: options
+                    options: options,
+                    recoveryOriginURL: topicCloudflareRecoveryURL
                 )
             } catch {
                 composerNotice = error.localizedDescription
@@ -1605,7 +1631,8 @@ struct FireTopicDetailView: View {
                 _ = try await viewModel.unvotePoll(
                     topicID: topic.id,
                     postID: post.id,
-                    pollName: poll.name
+                    pollName: poll.name,
+                    recoveryOriginURL: topicCloudflareRecoveryURL
                 )
             } catch {
                 composerNotice = error.localizedDescription

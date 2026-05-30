@@ -6,6 +6,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.ProgressBar
 import android.widget.TextView
+import android.widget.Toast
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
@@ -13,12 +14,14 @@ import androidx.lifecycle.repeatOnLifecycle
 import androidx.paging.LoadState
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import com.fire.app.R
 import com.fire.app.core.ext.optimizeForPaging
 import com.fire.app.session.FireSessionStoreRepository
 import com.fire.app.ui.cloudflare.CloudflareChallengeSupport
 import com.fire.app.ui.topicdetail.TopicDetailActivity
 import com.google.android.material.chip.Chip
+import com.google.android.material.chip.ChipGroup
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import uniffi.fire_uniffi_types.TopicListKindState
@@ -29,9 +32,13 @@ class HomeFragment : Fragment() {
     private lateinit var adapter: TopicListAdapter
     private lateinit var emptyView: TextView
     private lateinit var loadingView: ProgressBar
+    private lateinit var swipeRefresh: SwipeRefreshLayout
+    private lateinit var categoryBar: RecyclerView
+    private lateinit var categoryAdapter: HomeCategoryAdapter
     private lateinit var feedKindBar: RecyclerView
     private lateinit var feedKindAdapter: FeedKindAdapter
-    private lateinit var selectedTagChip: Chip
+    private lateinit var selectedTagsScroll: View
+    private lateinit var selectedTagsGroup: ChipGroup
 
     private var viewModel: HomeViewModel? = null
 
@@ -49,8 +56,11 @@ class HomeFragment : Fragment() {
         recyclerView = view.findViewById(R.id.topic_list)
         emptyView = view.findViewById(R.id.empty_view)
         loadingView = view.findViewById(R.id.loading_view)
+        swipeRefresh = view.findViewById(R.id.swipe_refresh)
+        categoryBar = view.findViewById(R.id.category_bar)
         feedKindBar = view.findViewById(R.id.feed_kind_bar)
-        selectedTagChip = view.findViewById(R.id.selected_tag_chip)
+        selectedTagsScroll = view.findViewById(R.id.selected_tags_scroll)
+        selectedTagsGroup = view.findViewById(R.id.selected_tags_group)
 
         val sessionStore = FireSessionStoreRepository.get(requireContext())
         viewModel = HomeViewModel.create(sessionStore)
@@ -73,14 +83,34 @@ class HomeFragment : Fragment() {
         recyclerView.adapter = adapter
         recyclerView.optimizeForPaging()
         adapter.addLoadStateListener { loadStates ->
+            val refresh = loadStates.refresh
             listOf(loadStates.refresh, loadStates.append, loadStates.prepend)
                 .filterIsInstance<LoadState.Error>()
                 .firstOrNull { CloudflareChallengeSupport.isChallenge(it.error) }
                 ?.let { context?.let(CloudflareChallengeSupport::openSiteRoot) }
+
+            val isInitialLoading = refresh is LoadState.Loading && adapter.itemCount == 0
+            loadingView.visibility = if (isInitialLoading) View.VISIBLE else View.GONE
+            emptyView.visibility = when {
+                refresh is LoadState.Error -> {
+                    emptyView.text = refresh.error.localizedMessage
+                        ?: getString(R.string.browser_empty)
+                    View.VISIBLE
+                }
+                refresh is LoadState.NotLoading && adapter.itemCount == 0 -> {
+                    emptyView.text = getString(R.string.browser_empty)
+                    View.VISIBLE
+                }
+                else -> View.GONE
+            }
+            if (refresh !is LoadState.Loading) {
+                swipeRefresh.isRefreshing = false
+            }
         }
 
+        setupCategoryBar()
         setupFeedKindBar()
-        setupSelectedTagChip()
+        setupSwipeRefresh()
 
         viewModel?.let { vm ->
             viewLifecycleOwner.lifecycleScope.launch {
@@ -96,8 +126,33 @@ class HomeFragment : Fragment() {
                         }
                     }
                     launch {
-                        vm.selectedTag.collectLatest { tag ->
-                            renderSelectedTag(tag)
+                        vm.session.collectLatest { session ->
+                            categoryAdapter.updateCategories(session?.bootstrap?.categories.orEmpty())
+                        }
+                    }
+                    launch {
+                        vm.selectedCategoryId.collectLatest { categoryId ->
+                            categoryAdapter.updateSelectedCategory(categoryId)
+                        }
+                    }
+                    launch {
+                        vm.selectedTags.collectLatest { tags ->
+                            renderSelectedTags(tags)
+                        }
+                    }
+                    launch {
+                        vm.topicListRefreshEvents.collect {
+                            adapter.refresh()
+                        }
+                    }
+                    launch {
+                        vm.cloudflareChallenge.collect {
+                            CloudflareChallengeSupport.openSiteRoot(requireContext())
+                        }
+                    }
+                    launch {
+                        vm.error.collect { error ->
+                            Toast.makeText(requireContext(), error, Toast.LENGTH_SHORT).show()
                         }
                     }
                 }
@@ -105,6 +160,18 @@ class HomeFragment : Fragment() {
         }
 
         viewModel?.restoreSession()
+    }
+
+    private fun setupCategoryBar() {
+        categoryAdapter = HomeCategoryAdapter(
+            categories = emptyList(),
+            selectedCategoryId = viewModel?.selectedCategoryId?.value,
+        ) { categoryId ->
+            viewModel?.selectCategory(categoryId)
+            recyclerView.scrollToPosition(0)
+        }
+        categoryBar.layoutManager = LinearLayoutManager(requireContext(), LinearLayoutManager.HORIZONTAL, false)
+        categoryBar.adapter = categoryAdapter
     }
 
     private fun setupFeedKindBar() {
@@ -117,25 +184,30 @@ class HomeFragment : Fragment() {
         feedKindBar.adapter = feedKindAdapter
     }
 
-    private fun setupSelectedTagChip() {
-        selectedTagChip.isCheckable = false
-        selectedTagChip.setOnClickListener {
-            viewModel?.clearTag()
-            recyclerView.scrollToPosition(0)
-        }
-        selectedTagChip.setOnCloseIconClickListener {
-            viewModel?.clearTag()
-            recyclerView.scrollToPosition(0)
+    private fun setupSwipeRefresh() {
+        swipeRefresh.setOnRefreshListener {
+            adapter.refresh()
         }
     }
 
-    private fun renderSelectedTag(tag: String?) {
-        if (tag == null) {
-            selectedTagChip.visibility = View.GONE
-            selectedTagChip.text = null
-        } else {
-            selectedTagChip.visibility = View.VISIBLE
-            selectedTagChip.text = "#$tag"
+    private fun renderSelectedTags(tags: List<String>) {
+        selectedTagsGroup.removeAllViews()
+        selectedTagsScroll.visibility = if (tags.isEmpty()) View.GONE else View.VISIBLE
+        for (tag in tags) {
+            val chip = Chip(requireContext()).apply {
+                text = "#$tag"
+                isCheckable = false
+                isCloseIconVisible = true
+                setOnClickListener {
+                    viewModel?.removeTag(tag)
+                    recyclerView.scrollToPosition(0)
+                }
+                setOnCloseIconClickListener {
+                    viewModel?.removeTag(tag)
+                    recyclerView.scrollToPosition(0)
+                }
+            }
+            selectedTagsGroup.addView(chip)
         }
     }
 }

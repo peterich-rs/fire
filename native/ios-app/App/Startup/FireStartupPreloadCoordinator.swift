@@ -19,14 +19,13 @@ protocol FireStartupPreloadNotificationsLoader: AnyObject {
     func loadRecent(force: Bool) async
 }
 
-/// Preloads the two off-screen tab stores at background priority once the
-/// session is authenticated, so switching to Notifications or Profile
-/// shortly after cold launch shows populated content instead of an empty
-/// state.
+/// Opt-in helper for warming the two off-screen tab stores at background
+/// priority. The production tab root intentionally does not invoke this during
+/// cold launch so Notifications and Profile stay lazy-loaded behind their
+/// selected tabs.
 ///
 /// Stateless. The owner is responsible for deciding *when* to invoke
-/// `preloadOffScreenTabs` (in this app: from `FireTabRoot.swift`'s
-/// `.task(id: isAuthenticated)` block).
+/// `preloadOffScreenTabs`.
 @MainActor
 final class FireStartupPreloadCoordinator {
     private let profile: FireStartupPreloadProfileLoader

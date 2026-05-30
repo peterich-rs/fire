@@ -2,7 +2,46 @@ import XCTest
 @testable import Fire
 
 final class FireSessionStoreTests: XCTestCase {
-    func testRestoreColdStartSessionSkipsEagerCsrfRefreshAfterBootstrap() async throws {
+    func testRestoreColdStartSessionDefersNativeBootstrapRefresh() async throws {
+        let fileManager = FileManager.default
+        let workspaceURL = URL(
+            fileURLWithPath: try FireSessionStore.defaultWorkspacePath(fileManager: fileManager),
+            isDirectory: true
+        )
+        let sessionFileURL = workspaceURL.appendingPathComponent("session.json", isDirectory: false)
+        try? fileManager.removeItem(at: sessionFileURL)
+        defer {
+            try? fileManager.removeItem(at: sessionFileURL)
+        }
+
+        let store = try FireSessionStore(
+            workspacePath: workspaceURL.path,
+            authCookieStore: MockAuthCookieSecureStore(
+                secrets: FireAuthCookieSecrets(
+                    tToken: "token",
+                    forumSession: "forum",
+                    cfClearance: "clearance"
+                )
+            )
+        )
+
+        var bootstrapCalls = 0
+
+        let restored = try await store.restoreColdStartSession(
+            refreshBootstrapIfNeeded: {
+                bootstrapCalls += 1
+                return Self.makeSessionState(csrfToken: nil)
+            }
+        )
+
+        XCTAssertEqual(bootstrapCalls, 0)
+        XCTAssertNil(restored.cookies.csrfToken)
+        XCTAssertTrue(restored.readiness.canReadAuthenticatedApi)
+        XCTAssertFalse(restored.readiness.canWriteAuthenticatedApi)
+        XCTAssertFalse(restored.readiness.hasCurrentUser)
+    }
+
+    func testRestoreColdStartSessionCanStillRefreshBootstrapWhenExplicitlyRequested() async throws {
         let fileManager = FileManager.default
         let workspaceURL = URL(
             fileURLWithPath: try FireSessionStore.defaultWorkspacePath(fileManager: fileManager),
@@ -25,13 +64,15 @@ final class FireSessionStoreTests: XCTestCase {
             refreshBootstrapIfNeeded: {
                 bootstrapCalls += 1
                 return Self.makeSessionState(csrfToken: nil)
-            }
+            },
+            refreshBootstrapDuringRestore: true
         )
 
         XCTAssertEqual(bootstrapCalls, 1)
         XCTAssertNil(restored.cookies.csrfToken)
         XCTAssertTrue(restored.readiness.canReadAuthenticatedApi)
         XCTAssertFalse(restored.readiness.canWriteAuthenticatedApi)
+        XCTAssertTrue(restored.readiness.hasCurrentUser)
     }
 
     private static func makeSessionState(csrfToken: String?) -> SessionState {
@@ -90,8 +131,10 @@ final class FireSessionStoreTests: XCTestCase {
 }
 
 private struct MockAuthCookieSecureStore: FireAuthCookieSecureStore {
+    var secrets = FireAuthCookieSecrets()
+
     func load() throws -> FireAuthCookieSecrets {
-        FireAuthCookieSecrets()
+        secrets
     }
 
     func save(_ secrets: FireAuthCookieSecrets) throws {

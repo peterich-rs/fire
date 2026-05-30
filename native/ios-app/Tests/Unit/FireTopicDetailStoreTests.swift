@@ -158,7 +158,9 @@ final class FireTopicDetailStoreTests: XCTestCase {
             topicId: 42,
             sessionId: 7,
             nextRootOffset: 10,
-            pageSize: 10
+            nextBranchOffset: 0,
+            pageSize: 10,
+            rowPageSize: 40
         )
 
         XCTAssertTrue(
@@ -180,10 +182,88 @@ final class FireTopicDetailStoreTests: XCTestCase {
                     topicId: 42,
                     sessionId: 8,
                     nextRootOffset: 0,
-                    pageSize: 10
+                    nextBranchOffset: 0,
+                    pageSize: 10,
+                    rowPageSize: 40
                 )
             )
         )
+    }
+
+    func testCloudflareRecoveryTopicURLUsesCanonicalTopicHTMLRouteWhenSlugIsKnown() {
+        let url = FireAppViewModel.cloudflareRecoveryTopicURL(
+            baseURL: "https://linux.do",
+            topicId: 42,
+            topicSlug: "fire-native"
+        )
+
+        XCTAssertEqual(url.absoluteString, "https://linux.do/t/fire-native/42")
+    }
+
+    func testCloudflareRecoveryTopicURLFallsBackToTopicIDHTMLRouteWithoutSlug() {
+        let url = FireAppViewModel.cloudflareRecoveryTopicURL(
+            baseURL: "https://linux.do/",
+            topicId: 42,
+            topicSlug: "   "
+        )
+
+        XCTAssertEqual(url.absoluteString, "https://linux.do/t/42")
+    }
+
+    func testResponsePagePrefetchUsesRenderedResponseTailInsteadOfMaxPostNumber() {
+        let loadedPostNumbers: [UInt32] = [1, 100] + Array(UInt32(2)...UInt32(20))
+
+        XCTAssertTrue(
+            FireTopicDetailStore.shouldPrefetchNextTopicResponsePage(
+                visiblePostNumbers: [20],
+                loadedResponsePostNumbers: loadedPostNumbers
+            )
+        )
+        XCTAssertFalse(
+            FireTopicDetailStore.shouldPrefetchNextTopicResponsePage(
+                visiblePostNumbers: [100],
+                loadedResponsePostNumbers: loadedPostNumbers
+            )
+        )
+    }
+
+    func testAppendableTopicResponseRowsFiltersPureOverlap() {
+        let existingRows = [
+            makeResponseRow(postNumber: 2, parentPostNumber: 1, depth: 1, username: "reply-a"),
+            makeResponseRow(postNumber: 3, parentPostNumber: 2, depth: 2, username: "reply-b")
+        ]
+        let incomingRows = [
+            existingRows[1],
+            makeResponseRow(postNumber: 4, parentPostNumber: 1, depth: 1, username: "reply-c")
+        ]
+        let existingPosts = FireTopicPresentation.topicPostsByID(existingRows.map(\.post))
+
+        let appendableRows = FireTopicDetailStore.appendableTopicResponseRows(
+            existingRows: existingRows,
+            incomingRows: incomingRows,
+            existingPostsByID: existingPosts
+        )
+
+        XCTAssertEqual(appendableRows?.map { $0.post.postNumber }, [4])
+    }
+
+    func testAppendableTopicResponseRowsRejectsChangedOverlap() {
+        let existingRows = [
+            makeResponseRow(postNumber: 2, parentPostNumber: 1, depth: 1, username: "reply-a")
+        ]
+        let incomingRows = [
+            makeResponseRow(postNumber: 2, parentPostNumber: 1, depth: 1, username: "reply-updated"),
+            makeResponseRow(postNumber: 3, parentPostNumber: 1, depth: 1, username: "reply-b")
+        ]
+        let existingPosts = FireTopicPresentation.topicPostsByID(existingRows.map(\.post))
+
+        let appendableRows = FireTopicDetailStore.appendableTopicResponseRows(
+            existingRows: existingRows,
+            incomingRows: incomingRows,
+            existingPostsByID: existingPosts
+        )
+
+        XCTAssertNil(appendableRows)
     }
 
     func testHydrateRequestedRangeFillsAnchorWindowBeforeFirstRender() async throws {
@@ -293,6 +373,29 @@ final class FireTopicDetailStoreTests: XCTestCase {
         XCTAssertNil(finalState.cookies.csrfToken)
     }
 
+    private func makeResponseRow(
+        postNumber: UInt32,
+        parentPostNumber: UInt32?,
+        depth: UInt16,
+        username: String
+    ) -> TopicResponseRowState {
+        TopicResponseRowState(
+            post: makePost(
+                postNumber: postNumber,
+                replyToPostNumber: parentPostNumber,
+                username: username
+            ),
+            rootPostNumber: 1,
+            parentPostNumber: parentPostNumber,
+            depth: depth,
+            preorderIndex: postNumber - 1,
+            hasChildren: false,
+            descendantCount: 0,
+            siblingIndex: 0,
+            isLastSibling: true
+        )
+    }
+
     private func makePost(
         postNumber: UInt32,
         replyToPostNumber: UInt32?,
@@ -336,6 +439,7 @@ final class FireTopicDetailStoreTests: XCTestCase {
     ) -> TopicDetailState {
         TopicDetailState(
             id: 42,
+            messageBusLastId: nil,
             title: "Fire Native",
             slug: "fire-native",
             postsCount: UInt32(max(stream.count, posts.count)),

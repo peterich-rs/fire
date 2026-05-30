@@ -4,6 +4,7 @@ import UIKit
 struct FireProfileView: View {
     @ObservedObject var viewModel: FireAppViewModel
     @ObservedObject var profileViewModel: FireProfileViewModel
+    let isActive: Bool
     @State private var copiedErrorMessage = false
     @State private var selectedRoute: FireAppRoute?
     private static let recentActivityPreviewLimit = 3
@@ -18,6 +19,13 @@ struct FireProfileView: View {
 
     private var displayUsername: String {
         profileViewModel.currentUsername ?? viewModel.session.profileDisplayName
+    }
+
+    private var profileLoadTrigger: FireProfileLoadTrigger {
+        FireProfileLoadTrigger(
+            username: profileViewModel.currentUsername,
+            isActive: isActive
+        )
     }
 
     private var displayName: String {
@@ -323,7 +331,10 @@ struct FireProfileView: View {
             .refreshable {
                 await profileViewModel.refreshAll()
             }
-            .task(id: profileViewModel.currentUsername) {
+            .task(id: profileLoadTrigger) {
+                guard isActive else {
+                    return
+                }
                 profileViewModel.syncWithCurrentSession()
             }
         }
@@ -577,6 +588,11 @@ struct FireProfileView: View {
 
         return RelativeDateTimeFormatter().localizedString(for: date, relativeTo: Date())
     }
+}
+
+private struct FireProfileLoadTrigger: Equatable {
+    let username: String?
+    let isActive: Bool
 }
 
 private struct FireSettingsView: View {

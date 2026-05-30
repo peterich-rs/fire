@@ -11,7 +11,7 @@ use fire_core::{
 };
 use fire_models::{
     LoginSyncInput, PlatformCookie, TopicDetailQuery, TopicListKind, TopicListQuery,
-    TopicReplyRequest, TopicTag,
+    TopicReplyRequest, TopicScreenQuery, TopicTag,
 };
 use serde_json::{json, Value};
 use tokio::time::{sleep, Duration};
@@ -96,6 +96,41 @@ async fn fetch_topic_list_parses_latest_payload() {
         response.rows[0].last_poster_username.as_deref(),
         Some("alice")
     );
+}
+
+#[tokio::test]
+async fn fetch_topic_list_category_scope_sends_primary_and_additional_tags() {
+    let responses = vec![raw_json_response(
+        200,
+        "application/json",
+        &sample_latest_json(),
+    )];
+    let server = TestServer::spawn(responses).await.expect("server");
+    let core = FireCore::new(FireCoreConfig {
+        base_url: server.base_url(),
+        workspace_path: None,
+    })
+    .expect("core");
+
+    let _response = core
+        .fetch_topic_list(TopicListQuery {
+            kind: TopicListKind::Latest,
+            page: Some(2),
+            category_slug: Some("rust".into()),
+            category_id: Some(2),
+            parent_category_slug: Some("dev".into()),
+            tag: Some("swift".into()),
+            additional_tags: vec!["ios".into()],
+            match_all_tags: true,
+            ..TopicListQuery::default()
+        })
+        .await
+        .expect("topic list");
+    let requests = server.shutdown_with_requests().await;
+
+    assert!(requests[0].contains(
+        "GET /c/dev/rust/2/l/latest.json?no_definitions=true&page=2&tags%5B%5D=swift&tags%5B%5D=ios&match_all_tags=true HTTP/1.1"
+    ));
 }
 
 #[tokio::test]
@@ -221,8 +256,11 @@ async fn fetch_private_message_mailboxes_use_username_routes_and_parse_participa
     assert_eq!(inbox.next_page, Some(2));
     assert_eq!(sent.topics[0].id, 456);
     assert_eq!(requests.len(), 2);
-    assert!(requests[0].contains("GET /topics/private-messages/alice.json?page=2 HTTP/1.1"));
-    assert!(requests[1].contains("GET /topics/private-messages-sent/alice.json?page=3 HTTP/1.1"));
+    assert!(requests[0]
+        .contains("GET /topics/private-messages/alice.json?no_definitions=true&page=2 HTTP/1.1"));
+    assert!(requests[1].contains(
+        "GET /topics/private-messages-sent/alice.json?no_definitions=true&page=3 HTTP/1.1"
+    ));
 }
 
 #[tokio::test]
@@ -615,6 +653,7 @@ async fn fetch_topic_detail_partial_auth_rotation_advances_epoch_and_clears_csrf
             topic_id: 123,
             post_number: None,
             track_visit: true,
+            force_load: false,
             filter: None,
             username_filters: None,
             filter_top_level_replies: false,
@@ -983,16 +1022,18 @@ async fn fetch_topic_detail_parses_detail_payload() {
             topic_id: 123,
             post_number: None,
             track_visit: true,
+            force_load: true,
             filter: None,
             username_filters: None,
             filter_top_level_replies: false,
         })
         .await
         .expect("detail");
-    let _ = server.shutdown().await;
+    let requests = server.shutdown_with_requests().await;
 
     assert_eq!(detail.id, 123);
     assert_eq!(detail.title, "Fire topic");
+    assert!(requests[0].contains("GET /t/123.json?track_visit=true&forceLoad=true HTTP/1.1"));
     assert_eq!(
         detail.tags,
         vec![
@@ -1024,6 +1065,73 @@ async fn fetch_topic_detail_parses_detail_payload() {
             .map(|value| value.username.as_str()),
         Some("alice")
     );
+}
+
+#[tokio::test]
+async fn fetch_topic_screen_opens_web_detail_before_internal_top_level_filter() {
+    let mut top_level_payload: Value =
+        serde_json::from_str(&sample_topic_detail_json()).expect("detail fixture json");
+    top_level_payload
+        .as_object_mut()
+        .expect("detail fixture object")
+        .get_mut("post_stream")
+        .and_then(Value::as_object_mut)
+        .expect("post stream object")
+        .extend([
+            ("stream".into(), json!([9002])),
+            (
+                "posts".into(),
+                json!([
+                    {
+                        "id": 9002,
+                        "username": "bob",
+                        "cooked": "<p>First reply</p>",
+                        "post_number": 2,
+                        "reply_to_post_number": 1,
+                        "reply_count": 0
+                    }
+                ]),
+            ),
+        ]);
+    let top_level_body = top_level_payload.to_string();
+    let responses = vec![
+        raw_json_response(200, "application/json", &sample_topic_detail_json()),
+        raw_json_response(200, "application/json", &top_level_body),
+    ];
+    let server = TestServer::spawn(responses).await.expect("server");
+    let core = FireCore::new(FireCoreConfig {
+        base_url: server.base_url(),
+        workspace_path: None,
+    })
+    .expect("core");
+
+    let screen = core
+        .fetch_topic_screen(TopicScreenQuery {
+            topic_id: 123,
+            target_post_number: None,
+            root_page_size: 10,
+            row_page_size: 40,
+            track_visit: true,
+            force_load: true,
+        })
+        .await
+        .expect("topic screen");
+    let requests = server.shutdown_with_requests().await;
+
+    assert_eq!(screen.body.post.post_number, 1);
+    assert_eq!(screen.response.rows.len(), 1);
+    assert_eq!(screen.response.rows[0].post.post_number, 2);
+    assert_eq!(requests.len(), 2);
+    let first_request_headers = requests[0].to_ascii_lowercase();
+    let second_request_headers = requests[1].to_ascii_lowercase();
+    assert!(requests[0].contains("GET /t/123.json?track_visit=true&forceLoad=true HTTP/1.1"));
+    assert!(!requests[0].contains("filter_top_level_replies"));
+    assert!(first_request_headers.contains("discourse-track-view: 1"));
+    assert!(first_request_headers.contains("discourse-track-view-topic-id: 123"));
+    assert!(requests[1].contains("GET /t/123.json?filter_top_level_replies=true HTTP/1.1"));
+    assert!(!requests[1].contains("track_visit=true"));
+    assert!(!requests[1].contains("forceLoad=true"));
+    assert!(!second_request_headers.contains("discourse-track-view: 1"));
 }
 
 #[tokio::test]
@@ -1164,6 +1272,7 @@ async fn fetch_private_message_detail_parses_detail_participants() {
             topic_id: 123,
             post_number: None,
             track_visit: false,
+            force_load: false,
             filter: None,
             username_filters: None,
             filter_top_level_replies: false,
@@ -1234,6 +1343,7 @@ async fn fetch_topic_detail_hydrates_missing_posts_from_stream() {
             topic_id: 123,
             post_number: None,
             track_visit: false,
+            force_load: false,
             filter: None,
             username_filters: None,
             filter_top_level_replies: false,
@@ -1266,7 +1376,7 @@ async fn fetch_topic_detail_hydrates_missing_posts_from_stream() {
     assert_eq!(requests.len(), 2);
     assert!(requests[0].contains("GET /t/123.json HTTP/1.1"));
     assert!(requests[1]
-        .contains("GET /t/123/posts.json?post_ids%5B%5D=9002&post_ids%5B%5D=9003 HTTP/1.1"));
+        .contains("GET /t/123/posts.json?post_ids%5B%5D=9002&post_ids%5B%5D=9003&include_suggested=false HTTP/1.1"));
 }
 
 #[tokio::test]
@@ -1298,6 +1408,7 @@ async fn fetch_topic_detail_initial_keeps_partial_post_stream() {
             topic_id: 123,
             post_number: None,
             track_visit: false,
+            force_load: false,
             filter: None,
             username_filters: None,
             filter_top_level_replies: false,
@@ -1356,7 +1467,7 @@ async fn fetch_topic_posts_parses_batch_response() {
     assert_eq!(posts[1].reply_to_post_number, Some(1));
     assert_eq!(requests.len(), 1);
     assert!(requests[0]
-        .contains("GET /t/123/posts.json?post_ids%5B%5D=9002&post_ids%5B%5D=9003 HTTP/1.1"));
+        .contains("GET /t/123/posts.json?post_ids%5B%5D=9002&post_ids%5B%5D=9003&include_suggested=false HTTP/1.1"));
 }
 
 #[tokio::test]
@@ -1402,6 +1513,7 @@ async fn fetch_topic_detail_tolerates_object_bookmarks_and_accepted_answer_metad
             topic_id: 123,
             post_number: None,
             track_visit: true,
+            force_load: false,
             filter: None,
             username_filters: None,
             filter_top_level_replies: false,
@@ -1497,6 +1609,7 @@ async fn fetch_topic_detail_tolerates_null_scalars_and_null_details() {
             topic_id: 123,
             post_number: None,
             track_visit: true,
+            force_load: false,
             filter: None,
             username_filters: None,
             filter_top_level_replies: false,
@@ -1562,6 +1675,7 @@ async fn fetch_topic_detail_tolerates_malformed_optional_nested_records() {
             topic_id: 123,
             post_number: None,
             track_visit: true,
+            force_load: false,
             filter: None,
             username_filters: None,
             filter_top_level_replies: false,

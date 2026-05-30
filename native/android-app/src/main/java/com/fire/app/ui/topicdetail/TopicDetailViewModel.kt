@@ -6,12 +6,15 @@ import androidx.lifecycle.viewModelScope
 import com.fire.app.TopicPresentation
 import com.fire.app.data.repository.SessionRepository
 import com.fire.app.data.repository.TopicRepository
+import com.fire.app.messagebus.FireMessageBusCoordinator
 import com.fire.app.richtext.FireRichTextContent
 import com.fire.app.richtext.FireRichTextParser
 import com.fire.app.richtext.FireSpannableBuilder
 import com.fire.app.session.FireSessionStore
 import com.fire.app.cloudflare.CloudflareChallengeDetector
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -29,6 +32,7 @@ class TopicDetailViewModel(
     private val sessionRepository: SessionRepository,
     private val topicRepository: TopicRepository,
     private val sessionStore: FireSessionStore,
+    private val messageBusCoordinator: FireMessageBusCoordinator,
 ) : ViewModel() {
 
     private val _detail = MutableStateFlow<TopicDetailState?>(null)
@@ -55,6 +59,10 @@ class TopicDetailViewModel(
     private var cursor: TopicResponseCursorState? = null
     private var screen: TopicScreenState? = null
     private var responseRows: MutableList<TopicResponseRowState> = mutableListOf()
+    private var messageBusJob: Job? = null
+    private var pendingMessageBusRefreshJob: Job? = null
+    private var subscribedTopicId: ULong? = null
+    private var subscribedOwnerToken: String? = null
 
     val hasMorePosts: Boolean get() = cursor != null
 
@@ -67,51 +75,9 @@ class TopicDetailViewModel(
             _errorMessage.value = null
             try {
                 val fetched = topicRepository.fetchTopicScreen(topicId, targetPostNumber)
-                screen = fetched
-                responseRows = fetched.response.rows.toMutableList()
-                cursor = fetched.response.nextCursor
-
-                val header = fetched.header
-                val bodyPost = fetched.body.post
-                val allPosts = listOf(bodyPost) + fetched.response.rows.map { it.post }
-
-                val rows = fetched.response.rows.map(::postRow)
-
-                val detailState = TopicDetailState(
-                    id = header.topicId,
-                    title = header.title,
-                    slug = header.slug,
-                    postsCount = header.postsCount,
-                    categoryId = header.categoryId,
-                    tags = header.tags,
-                    views = header.views,
-                    likeCount = header.likeCount,
-                    createdAt = header.createdAt,
-                    lastReadPostNumber = header.lastReadPostNumber,
-                    bookmarks = header.bookmarks,
-                    bookmarked = header.bookmarked,
-                    bookmarkId = header.bookmarkId,
-                    bookmarkName = header.bookmarkName,
-                    bookmarkReminderAt = header.bookmarkReminderAt,
-                    acceptedAnswer = header.acceptedAnswer,
-                    hasAcceptedAnswer = header.hasAcceptedAnswer,
-                    canVote = header.canVote,
-                    voteCount = header.voteCount,
-                    userVoted = header.userVoted,
-                    summarizable = header.summarizable,
-                    hasCachedSummary = header.hasCachedSummary,
-                    hasSummary = header.hasSummary,
-                    archetype = header.archetype,
-                    postStream = TopicPostStreamState(
-                        posts = allPosts,
-                        stream = allPosts.map { it.id },
-                    ),
-                    details = header.details,
-                )
-
-                _detail.value = detailState
-                _postRows.value = rows
+                val allPosts = applyFetchedScreen(fetched)
                 preloadRenderContent(allPosts)
+                maintainTopicDetailMessageBus(topicId, fetched.header.messageBusLastId)
                 targetPostNumber
                     ?.takeIf { it > 0u }
                     ?.let { scrollToPostWhenLoaded(it) }
@@ -124,6 +90,133 @@ class TopicDetailViewModel(
                 }
             } finally {
                 _isLoading.value = false
+            }
+        }
+    }
+
+    private fun applyFetchedScreen(fetched: TopicScreenState): List<TopicPostState> {
+        val bodyPost = fetched.body.post
+        val normalizedResponseRows = TopicDetailPostRows.uniqueResponseRows(
+            rows = fetched.response.rows,
+            bodyPostId = bodyPost.id,
+        )
+        val normalizedResponse = fetched.response.copy(rows = normalizedResponseRows)
+        screen = fetched.copy(response = normalizedResponse)
+        responseRows = normalizedResponseRows.toMutableList()
+        cursor = fetched.response.nextCursor
+
+        val header = fetched.header
+        val allPosts = TopicDetailPostRows.postsForDetail(bodyPost, normalizedResponseRows)
+        val rows = normalizedResponseRows.map(::postRow)
+
+        _detail.value = TopicDetailState(
+            id = header.topicId,
+            messageBusLastId = header.messageBusLastId,
+            title = header.title,
+            slug = header.slug,
+            postsCount = header.postsCount,
+            categoryId = header.categoryId,
+            tags = header.tags,
+            views = header.views,
+            likeCount = header.likeCount,
+            createdAt = header.createdAt,
+            lastReadPostNumber = header.lastReadPostNumber,
+            bookmarks = header.bookmarks,
+            bookmarked = header.bookmarked,
+            bookmarkId = header.bookmarkId,
+            bookmarkName = header.bookmarkName,
+            bookmarkReminderAt = header.bookmarkReminderAt,
+            acceptedAnswer = header.acceptedAnswer,
+            hasAcceptedAnswer = header.hasAcceptedAnswer,
+            canVote = header.canVote,
+            voteCount = header.voteCount,
+            userVoted = header.userVoted,
+            summarizable = header.summarizable,
+            hasCachedSummary = header.hasCachedSummary,
+            hasSummary = header.hasSummary,
+            archetype = header.archetype,
+            postStream = TopicPostStreamState(
+                posts = allPosts,
+                stream = allPosts.map { it.id },
+            ),
+            details = header.details,
+        )
+        _postRows.value = rows
+        return allPosts
+    }
+
+    private fun maintainTopicDetailMessageBus(topicId: ULong, lastMessageId: Long?) {
+        if (subscribedTopicId == topicId && messageBusJob != null) return
+
+        releaseTopicDetailMessageBus()
+        val ownerToken = "android_topic_detail_$topicId"
+        subscribedTopicId = topicId
+        subscribedOwnerToken = ownerToken
+
+        runCatching {
+            sessionStore.subscribeTopicDetailChannel(topicId, ownerToken, lastMessageId)
+            sessionStore.subscribeTopicReactionChannel(topicId, ownerToken)
+            sessionStore.subscribeTopicPollsChannel(topicId, ownerToken)
+        }.onFailure {
+            releaseTopicDetailMessageBus()
+            return
+        }
+
+        viewModelScope.launch {
+            runCatching { sessionStore.bootstrapTopicReplyPresence(topicId, ownerToken) }
+        }
+
+        messageBusJob = viewModelScope.launch {
+            messageBusCoordinator.topicDetailEvents(topicId).collect {
+                scheduleTopicDetailRefresh(topicId)
+            }
+        }
+    }
+
+    private fun scheduleTopicDetailRefresh(topicId: ULong) {
+        pendingMessageBusRefreshJob?.cancel()
+        pendingMessageBusRefreshJob = viewModelScope.launch {
+            delay(1_500L)
+            refreshTopicDetailFromMessageBus(topicId)
+        }
+    }
+
+    private suspend fun refreshTopicDetailFromMessageBus(topicId: ULong) {
+        if (_isLoading.value) return
+        try {
+            val fetched = topicRepository.fetchTopicScreen(
+                topicId = topicId,
+                targetPostNumber = null,
+                forceLoad = false,
+                trackVisit = false,
+            )
+            val allPosts = applyFetchedScreen(fetched)
+            preloadRenderContent(allPosts)
+        } catch (e: Exception) {
+            if (CloudflareChallengeDetector.isChallenge(e)) {
+                _cloudflareChallenge.tryEmit(Unit)
+                _errorMessage.value = null
+            }
+        }
+    }
+
+    private fun releaseTopicDetailMessageBus() {
+        pendingMessageBusRefreshJob?.cancel()
+        pendingMessageBusRefreshJob = null
+        messageBusJob?.cancel()
+        messageBusJob = null
+
+        val topicId = subscribedTopicId
+        val ownerToken = subscribedOwnerToken
+        subscribedTopicId = null
+        subscribedOwnerToken = null
+
+        if (topicId != null && ownerToken != null) {
+            runCatching {
+                sessionStore.unsubscribeTopicDetailChannel(topicId, ownerToken)
+                sessionStore.unsubscribeTopicReactionChannel(topicId, ownerToken)
+                sessionStore.unsubscribeTopicPollsChannel(topicId, ownerToken)
+                sessionStore.unsubscribeTopicReplyPresenceChannel(topicId, ownerToken)
             }
         }
     }
@@ -229,17 +322,22 @@ class TopicDetailViewModel(
             val page = topicRepository.fetchTopicResponsePage(currentCursor)
             if (cursor != currentCursor) return false
 
-            responseRows.addAll(page.rows)
+            val bodyPost = screen?.body?.post
+            val previousResponseRows = responseRows.toList()
+            val mergedResponseRows = TopicDetailPostRows.uniqueResponseRows(
+                rows = previousResponseRows + page.rows,
+                bodyPostId = bodyPost?.id,
+            )
+            responseRows = mergedResponseRows.toMutableList()
             cursor = page.nextCursor
 
-            val newRows = page.rows.map(::postRow)
-            _postRows.value = _postRows.value + newRows
+            val rows = mergedResponseRows.map(::postRow)
+            _postRows.value = rows
 
             _detail.value?.let { current ->
-                val allPosts = buildList {
-                    screen?.body?.post?.let { add(it) }
-                    addAll(_postRows.value.map { it.post })
-                }
+                val allPosts = bodyPost
+                    ?.let { TopicDetailPostRows.postsForDetail(it, mergedResponseRows) }
+                    ?: TopicDetailPostRows.uniquePosts(rows.map { it.post })
                 _detail.value = current.copy(
                     postStream = current.postStream.copy(
                         posts = allPosts,
@@ -247,7 +345,7 @@ class TopicDetailViewModel(
                     ),
                 )
             }
-            preloadRenderContent(page.rows.map { it.post })
+            preloadRenderContent(mergedResponseRows.map { it.post })
             page.rows.isNotEmpty()
         } catch (e: Exception) {
             if (CloudflareChallengeDetector.isChallenge(e)) {
@@ -280,13 +378,52 @@ class TopicDetailViewModel(
         }
     }
 
+    override fun onCleared() {
+        releaseTopicDetailMessageBus()
+        super.onCleared()
+    }
+
     companion object {
         private const val TARGET_HYDRATION_PAGE_LIMIT = 20
 
         fun create(sessionStore: FireSessionStore): TopicDetailViewModel {
             val sessionRepo = SessionRepository(sessionStore)
             val topicRepo = TopicRepository(sessionStore)
-            return TopicDetailViewModel(sessionRepo, topicRepo, sessionStore)
+            val messageBusCoordinator = FireMessageBusCoordinator(sessionStore)
+            return TopicDetailViewModel(sessionRepo, topicRepo, sessionStore, messageBusCoordinator)
         }
+    }
+}
+
+object TopicDetailPostRows {
+    fun uniqueResponseRows(
+        rows: List<TopicResponseRowState>,
+        bodyPostId: ULong? = null,
+    ): List<TopicResponseRowState> {
+        val rowsByPostId = LinkedHashMap<ULong, TopicResponseRowState>(rows.size)
+        for (row in rows) {
+            if (row.post.id == bodyPostId) continue
+            rowsByPostId[row.post.id] = row
+        }
+        return rowsByPostId.values.toList()
+    }
+
+    fun postsForDetail(
+        bodyPost: TopicPostState,
+        responseRows: List<TopicResponseRowState>,
+    ): List<TopicPostState> {
+        return uniquePosts(
+            listOf(bodyPost) + responseRows
+                .filter { it.post.id != bodyPost.id }
+                .map { it.post },
+        )
+    }
+
+    fun uniquePosts(posts: List<TopicPostState>): List<TopicPostState> {
+        val postsById = LinkedHashMap<ULong, TopicPostState>(posts.size)
+        for (post in posts) {
+            postsById[post.id] = post
+        }
+        return postsById.values.toList()
     }
 }

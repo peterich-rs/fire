@@ -306,6 +306,43 @@ final class FireTopicPresentationTests: XCTestCase {
         XCTAssertNil(duplicateAppend)
     }
 
+    func testScreenDetailRenderCacheDeduplicatesOverlappingRows() {
+        let originalPost = makePost(postNumber: 1, replyToPostNumber: nil, username: "author")
+        let rows = [
+            makeResponseRow(postNumber: 2, parentPostNumber: 1, depth: 1, username: "reply-old"),
+            makeResponseRow(postNumber: 2, parentPostNumber: 1, depth: 1, username: "reply-new")
+        ]
+        let screen = makeTopicScreen(originalPost: originalPost, responseRows: rows)
+
+        let renderCache = FireTopicPresentation.detailRenderCache(
+            screen: screen,
+            responseRows: rows,
+            baseURLString: "https://linux.do"
+        )
+
+        XCTAssertEqual(renderCache.renderState.replyRows.map { $0.entry.postNumber }, [2])
+        XCTAssertEqual(renderCache.renderState.contentByPostID[2]?.plainText, "reply-new")
+    }
+
+    func testDetailRenderCacheDeduplicatesDuplicatePostsAndStreamIDs() {
+        let detail = makeTopicDetail(
+            posts: [
+                makePost(postNumber: 1, replyToPostNumber: nil, username: "author"),
+                makePost(postNumber: 2, replyToPostNumber: 1, username: "reply-old"),
+                makePost(postNumber: 2, replyToPostNumber: 1, username: "reply-new")
+            ],
+            stream: [1, 2, 2]
+        )
+
+        let renderCache = FireTopicPresentation.detailRenderCache(
+            from: detail,
+            baseURLString: "https://linux.do"
+        )
+
+        XCTAssertEqual(renderCache.renderState.replyRows.map { $0.entry.postNumber }, [2])
+        XCTAssertEqual(renderCache.renderState.contentByPostID[2]?.plainText, "reply-new")
+    }
+
     func testRenderContentPlainTextOmitsImageAttachmentAltText() {
         let content = FireTopicPresentation.renderContent(
             from: #"<p>Hello&nbsp;Fire</p><img src="/uploads/default/original/1X/fire.png" alt="fire">"#,
@@ -868,6 +905,7 @@ final class FireTopicPresentationTests: XCTestCase {
     ) -> TopicDetailState {
         TopicDetailState(
             id: 42,
+            messageBusLastId: nil,
             title: "Fire Native",
             slug: "fire-native",
             postsCount: UInt32(max(stream.count, posts.count)),
@@ -931,6 +969,7 @@ final class FireTopicPresentationTests: XCTestCase {
         TopicScreenState(
             header: TopicHeaderState(
                 topicId: 42,
+                messageBusLastId: nil,
                 title: "Fire Native",
                 slug: "fire-native",
                 postsCount: UInt32(responseRows.count + 1),
@@ -969,7 +1008,9 @@ final class FireTopicPresentationTests: XCTestCase {
                     topicId: 42,
                     sessionId: 7,
                     nextRootOffset: UInt32(responseRows.count),
-                    pageSize: 10
+                    nextBranchOffset: 0,
+                    pageSize: 10,
+                    rowPageSize: 40
                 ),
                 totalRootCount: UInt32(responseRows.count),
                 loadedRootCount: UInt32(responseRows.count),

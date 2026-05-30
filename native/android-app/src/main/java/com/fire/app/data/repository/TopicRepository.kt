@@ -18,21 +18,27 @@ class TopicRepository(private val sessionStore: FireSessionStore) {
     suspend fun fetchTopicList(
         kind: TopicListKindState = TopicListKindState.LATEST,
         page: UInt? = null,
+        categorySlug: String? = null,
+        categoryId: ULong? = null,
+        parentCategorySlug: String? = null,
         tag: String? = null,
+        additionalTags: List<String> = emptyList(),
+        matchAllTags: Boolean = false,
+        topicIds: List<ULong> = emptyList(),
     ): TopicListState = withContext(Dispatchers.Default) {
         sessionStore.fetchTopicList(
             TopicListQueryState(
                 kind = kind,
                 page = page,
-                topicIds = emptyList(),
+                topicIds = topicIds,
                 order = null,
                 ascending = null,
-                categorySlug = null,
-                categoryId = null,
-                parentCategorySlug = null,
+                categorySlug = categorySlug,
+                categoryId = categoryId,
+                parentCategorySlug = parentCategorySlug,
                 tag = tag,
-                additionalTags = emptyList(),
-                matchAllTags = false,
+                additionalTags = additionalTags,
+                matchAllTags = matchAllTags,
             ),
         )
     }
@@ -40,13 +46,17 @@ class TopicRepository(private val sessionStore: FireSessionStore) {
     suspend fun fetchTopicScreen(
         topicId: ULong,
         targetPostNumber: UInt? = null,
+        forceLoad: Boolean = true,
+        trackVisit: Boolean = true,
     ): TopicScreenState = withContext(Dispatchers.Default) {
         sessionStore.fetchTopicScreen(
             TopicScreenQueryState(
                 topicId = topicId,
                 targetPostNumber = targetPostNumber,
                 rootPageSize = 10.toUShort(),
-                trackVisit = true,
+                rowPageSize = 40.toUShort(),
+                trackVisit = trackVisit,
+                forceLoad = forceLoad,
             ),
         )
     }

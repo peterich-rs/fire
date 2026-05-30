@@ -45,7 +45,8 @@ const FIRE_USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) A
 ))]
 const FIRE_USER_AGENT: &str = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 const FIRE_ACCEPT_LANGUAGE: &str = "zh-CN,zh;q=0.9,en;q=0.8";
-const FIRE_JSON_ACCEPT: &str = "application/json;q=0.9, text/plain;q=0.8, */*;q=0.5";
+const FIRE_JSON_ACCEPT: &str = "application/json, text/javascript, */*; q=0.01";
+const FIRE_MESSAGE_BUS_ACCEPT: &str = "text/plain, */*; q=0.01";
 const LOGIN_INVALIDATED_MESSAGE: &str = "登录状态已失效，请重新登录。";
 
 /// Placeholder header value used when a write request needs CSRF but Fire's
@@ -120,6 +121,16 @@ pub(crate) struct FireCommonHeaderInterceptor {
     session: Arc<RwLock<super::FireSessionRuntimeState>>,
 }
 
+struct FireCommonProfileHeaderContext<'a> {
+    profile: FireRequestProfile,
+    origin: &'a str,
+    referer: &'a str,
+    same_origin: bool,
+    user_agent: &'a str,
+    has_login_session: bool,
+    csrf_token: Option<&'a str>,
+}
+
 #[derive(Clone)]
 pub(crate) struct FireTraceSnapshotInterceptor {
     diagnostics: Arc<FireDiagnosticsStore>,
@@ -148,18 +159,23 @@ impl FireCommonHeaderInterceptor {
             return;
         };
         let snapshot = read_rwlock(&self.session, "session").snapshot.clone();
-        apply_common_profile_headers(
-            request.headers_mut(),
+        let same_origin = request_uri_origin(request)
+            .as_deref()
+            .is_none_or(|request_origin| request_origin == self.origin);
+        let context = FireCommonProfileHeaderContext {
             profile,
-            &self.origin,
-            &self.referer,
-            snapshot
+            origin: &self.origin,
+            referer: &self.referer,
+            same_origin,
+            user_agent: snapshot
                 .browser_user_agent
                 .as_deref()
                 .filter(|value| !value.is_empty())
                 .unwrap_or(FIRE_USER_AGENT),
-            snapshot.cookies.has_login_session(),
-        );
+            has_login_session: snapshot.cookies.has_login_session(),
+            csrf_token: snapshot.cookies.csrf_token.as_deref(),
+        };
+        apply_common_profile_headers(request.headers_mut(), context);
     }
 }
 
@@ -1036,29 +1052,59 @@ pub(crate) fn request_referer(base_url: &Url) -> String {
 
 fn apply_common_profile_headers(
     headers: &mut HeaderMap,
-    profile: FireRequestProfile,
-    origin: &str,
-    referer: &str,
-    user_agent: &str,
-    has_login_session: bool,
+    context: FireCommonProfileHeaderContext<'_>,
 ) {
-    insert_string_header_if_missing(headers, USER_AGENT.as_str(), user_agent);
+    insert_string_header_if_missing(headers, USER_AGENT.as_str(), context.user_agent);
     insert_static_header_if_missing(headers, ACCEPT_LANGUAGE.as_str(), FIRE_ACCEPT_LANGUAGE);
 
-    match profile {
+    match context.profile {
         FireRequestProfile::HomeHtml => {}
         FireRequestProfile::JsonApi => {
-            insert_string_header_if_missing(headers, ORIGIN.as_str(), origin);
-            insert_string_header_if_missing(headers, REFERER.as_str(), referer);
+            insert_string_header_if_missing(headers, REFERER.as_str(), context.referer);
             insert_static_header_if_missing(headers, "X-Requested-With", "XMLHttpRequest");
-            apply_login_headers(headers, has_login_session);
+            insert_static_header_if_missing(headers, "Sec-Fetch-Dest", "empty");
+            insert_static_header_if_missing(headers, "Sec-Fetch-Mode", "cors");
+            insert_static_header_if_missing(
+                headers,
+                "Sec-Fetch-Site",
+                if context.same_origin {
+                    "same-origin"
+                } else {
+                    "cross-site"
+                },
+            );
+            insert_static_header_if_missing(headers, "Priority", "u=1, i");
+            if let Some(csrf_token) = context.csrf_token.filter(|value| !value.is_empty()) {
+                insert_string_header_if_missing(headers, "X-CSRF-Token", csrf_token);
+            }
+            apply_login_headers(headers, context.has_login_session);
         }
         FireRequestProfile::MessageBusPoll => {
-            insert_string_header_if_missing(headers, ORIGIN.as_str(), origin);
-            insert_string_header_if_missing(headers, REFERER.as_str(), referer);
-            apply_login_headers(headers, has_login_session);
+            insert_string_header_if_missing(headers, ORIGIN.as_str(), context.origin);
+            insert_string_header_if_missing(headers, REFERER.as_str(), context.referer);
+            insert_static_header_if_missing(headers, "Accept", FIRE_MESSAGE_BUS_ACCEPT);
+            insert_static_header_if_missing(headers, "Sec-Fetch-Dest", "empty");
+            insert_static_header_if_missing(headers, "Sec-Fetch-Mode", "cors");
+            insert_static_header_if_missing(
+                headers,
+                "Sec-Fetch-Site",
+                if context.same_origin {
+                    "same-origin"
+                } else {
+                    "cross-site"
+                },
+            );
+            insert_static_header_if_missing(headers, "Priority", "u=1, i");
+            apply_login_headers(headers, context.has_login_session);
         }
     }
+}
+
+fn request_uri_origin(request: &Request<RequestBody>) -> Option<String> {
+    let uri = request.uri();
+    let scheme = uri.scheme_str()?;
+    let authority = uri.authority()?.as_str();
+    Some(format!("{scheme}://{authority}"))
 }
 
 fn apply_login_headers(headers: &mut HeaderMap, has_login_session: bool) {

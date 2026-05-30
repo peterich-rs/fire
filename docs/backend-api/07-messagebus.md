@@ -26,18 +26,28 @@
   - 跨域独立轮询域：依赖 `X-Shared-Session-Key`
 - `Content-Type`: `application/x-www-form-urlencoded`
 - 关键请求头：
-  - `Accept: application/json`
+  - `Accept: text/plain, */*; q=0.01`
+  - `Content-Type: application/x-www-form-urlencoded; charset=UTF-8`
+  - `Origin: https://linux.do`
+  - `Referer: https://linux.do/`
   - `X-Shared-Session-Key: <meta shared_session_key>`，跨域时需要
   - `X-SILENCE-LOGGER: true`
-  - `Discourse-Background: true`
+  - `Dont-Chunk: true`
+  - `Sec-Fetch-Dest: empty`
+  - `Sec-Fetch-Mode: cors`
+  - `Sec-Fetch-Site: cross-site`，同域 poll 时为 `same-origin`
+  - `Priority: u=1, i`
+  - `Discourse-Logged-In: true` / `Discourse-Present: true`，已登录前台 poll 会带
+  - `Discourse-Background: true` 只用于 iOS 后台 `notification-alert` 单次拉取；前台 poll 不带
 
-- Body 本质上是“频道 -> last_message_id”的字典：
+- Body 本质上是“频道 -> last_message_id”的字典，外加递增的 `__seq`：
 
 ```json
 {
   "/latest": "-1",
   "/new": "100",
-  "/topic/123": "999"
+  "/topic/123": "999",
+  "__seq": "117"
 }
 ```
 
@@ -48,7 +58,7 @@
   - `channel="/__status"` 时，`data` 里的 `channel -> last_message_id` 映射要回写到本地订阅位点
 - Fire 当前实现维持单个前台轮询任务；订阅变更不会再为每个 `subscribe/unsubscribe` 直接重建 task，而是唤醒已有轮询并在 `150ms` 的最小重启间隔后合并到下一次 poll
 - Fire 当前在本地运行时按 `channel -> owner_token[]` 跟踪订阅归属；同一频道可以被多个页面/生命周期共同持有，只有最后一个 owner 释放时才真正从下一次 poll 中移除
-- `MESSAGE_BUS_CALL_TIMEOUT=75s` 触发的非连接超时会被视为一次正常长轮询周期结束，不累计失败退避；`429/502/503/504` 仍记录为服务端侧异常并进入退避
+- `MESSAGE_BUS_CALL_TIMEOUT=35s` 触发的非连接超时会被视为一次正常长轮询周期结束，不累计失败退避；`429/502/503/504` 仍记录为服务端侧异常并进入退避。失败退避从 `1s` 起步，封顶 `15s`
 
 ```json
 [
@@ -71,6 +81,7 @@
 
 - `/latest`
   - `message_type="latest"`，表示已有话题收到新回复
+  - iOS 首页在全局 Latest、无分类、无标签时会用 `topic_ids` 做增量回拉并合并到现有列表；Android 首页当前在收到匹配事件后按同样的 debounce / 最小间隔策略刷新 Paging 列表。
 - `/new`
   - `message_type="new_topic"`，表示有新话题创建
 
@@ -97,9 +108,20 @@
 - `/topic/{topicId}/reactions`
   - 帖子回应更新
 
+- `/polls/{topicId}`
+  - 投票结果或投票状态更新
+  - Fire 将其映射为 `TopicDetail` 事件，`detail_event_type="polls"`，并设置 `refresh_stream=true`
+
 - `/presence/discourse-presence/reply/{topicId}`
   - 正在输入/Presence 推送
   - 通常要先订阅，再 `GET /presence/get`，最后用响应里的 `last_message_id` 重新订阅
+
+- 当前 iOS / Android 详情页进入后会同时持有：
+  - `/topic/{topicId}`，初始 last id 来自详情 payload 顶层 `message_bus_last_id`
+  - `/topic/{topicId}/reactions`
+  - `/polls/{topicId}`，初始 last id 为 `0`
+  - `/presence/discourse-presence/reply/{topicId}`，先订阅再 bootstrap Presence
+- 详情页收到 topic / reaction / polls / presence 事件后不会立即反复刷新，而是做短 debounce；刷新详情时使用 `track_visit=false&forceLoad=false`
 
 ### 通知
 

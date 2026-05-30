@@ -7,8 +7,8 @@ import android.text.Spanned
 import android.util.AttributeSet
 import android.util.LruCache
 import androidx.appcompat.widget.AppCompatTextView
-import coil.ImageLoader
 import coil.request.ImageRequest
+import com.fire.app.core.image.FireImageLoader
 
 class FireRichTextView @JvmOverloads constructor(
     context: Context,
@@ -22,8 +22,6 @@ class FireRichTextView @JvmOverloads constructor(
     private var emojiLoadJobs = mutableMapOf<String, Drawable?>()
     private var measuredWidth: Int = 0
     private var cachedIntrinsicHeight: Int? = null
-
-    private val imageLoader by lazy { ImageLoader.Builder(context).build() }
 
     init {
         isClickable = true
@@ -74,7 +72,7 @@ class FireRichTextView @JvmOverloads constructor(
                     applyEmojiDrawable(url, drawable, placeholder)
                 }
                 .build()
-            imageLoader.enqueue(request)
+            FireImageLoader.loader().enqueue(request)
         }
     }
 

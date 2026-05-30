@@ -6,13 +6,14 @@
 
 ## 启动前置数据
 
-- 进入长轮询前，当前客户端通常会先从首页 `GET /` 提取：
+- 进入长轮询前，当前客户端通常会从登录 WebView 捕获的首页 HTML、已持久化 bootstrap，或显式 bootstrap 刷新结果中获得：
   - `siteSettings.long_polling_base_url`
   - HTML `<meta name="shared_session_key" ...>`，仅跨域长轮询场景需要；同域 `linux.do` 常为空
   - `topicTrackingStateMeta`
   - `currentUser.notification_channel_position`
 - 前台 `clientId` 是单例，并在上传、Presence、MessageBus 之间复用
 - iOS 后台通知拉取会生成单独的临时 `clientId`（例如 `ios_bg_<timestamp>`）
+- iOS 前台冷启动不会为了 MessageBus 单独 native `GET /` 刷新 bootstrap；它会等首次首页话题列表请求结束后再启动 MessageBus，避免 bootstrap、首页列表、通知/个人页预热和长轮询在同一个启动窗口内并发。
 
 ## 轮询入口
 

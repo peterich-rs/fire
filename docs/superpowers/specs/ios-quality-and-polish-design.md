@@ -86,7 +86,9 @@ Indicative shape (final wiring decided in plan):
 }
 ```
 
-The implementation extracts this trigger into a small `FireStartupPreloadCoordinator` taking protocol-shaped collaborators (a profile-loader and a notifications-loader). `FireTabRoot.swift` calls the coordinator from inside the `.task(id:)` closure; this keeps `FireTabRoot` lean and the logic unit-testable. (Exact file/protocol names finalised in the plan.)
+Superseded on 2026-05-30: the production app no longer calls this startup preload path. Launch traces showed notification/profile preloads creating avoidable authenticated reads during the Cloudflare-sensitive startup window, so `FireTabRoot.swift` now keeps Notifications and Profile lazy behind selected-tab checks.
+
+The original implementation extracted this trigger into a small `FireStartupPreloadCoordinator` taking protocol-shaped collaborators (a profile-loader and a notifications-loader). The coordinator remains historical context and should not be wired back into cold launch without a new CF-risk review.
 
 ### Key decisions
 

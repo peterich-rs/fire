@@ -506,6 +506,7 @@
   - 当前未读角标和 recent 同步不只依赖该接口
   - 首次计数来自 `currentUser`
   - 实时增量依赖 MessageBus `/notification/{userId}`，详见 [07. MessageBus 长轮询](07-messagebus.md)
+  - iOS 冷启动不再预拉 recent 通知列表；只有用户进入通知 Tab 或手动刷新时才调用该接口
   - Android 通知中心使用完整分页通知列表，展示未读/全局未读/高优先级计数；点击单条通知会先 `markNotificationRead(id)`，再优先按 `topic_id` + `post_number` 打开原生话题详情楼层，缺少话题目标时回退到 `display_username` / `username` / `original_username` 用户资料
   - Android 通知中心的全部标已读按钮调用 `markAllNotificationsRead()`，并同步本地列表 read 状态
   - `inviteeAccepted` / `following` 当前会跳转到公开用户页，用户名优先取 `display_username`，否则回退 `username` / `original_username`

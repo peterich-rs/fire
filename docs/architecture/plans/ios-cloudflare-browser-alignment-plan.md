@@ -2,17 +2,19 @@
 
 ## Feasibility Assessment
 
-The current iOS host already centralizes Cloudflare recovery state, auth presentation, and startup sequencing inside `native/ios-app/App/FireAppViewModel.swift` (lines 49-55, 224, 309-355, 1431-1458, 1590-1917, 2148-2159). The recovery UI already sits on a reusable `FireLoginWebView` / `FireWebViewBox` / probe bridge stack in `native/ios-app/App/FireLoginWebView.swift` (lines 1-425), topic detail already knows how to build a browser HTML topic route in `native/ios-app/App/FireTopicDetailView.swift` (lines 585-596), and the shared Rust client already injects browser-style `User-Agent`, `Origin`, and `Referer` for JSON API and MessageBus requests in `rust/crates/fire-core/src/core/network.rs` (lines 111-156, 986-1024). The main gap is not capability but data threading: `FireTopicDetailStore.loadTopicDetail` currently receives only `topicId`, so the first topic-detail-triggered recovery cannot choose a canonical topic page unless slug / preview data is carried in from the view layer. Fully feasible.
+Status update (2026-05-30): the topic-detail origin-threading slice has landed. `FireTopicDetailView` now passes the best known slug into `FireTopicDetailStore`, the store caches the recovery slug per topic, and topic-rooted reads/writes pass a canonical topic HTML URL into `performWithCloudflareRecovery`. Remaining items in this plan, such as splitting recovery into a separate sheet and adding cooldown suppression, are still future work.
+
+The iOS host already centralizes Cloudflare recovery state, auth presentation, and startup sequencing inside `native/ios-app/App/FireAppViewModel.swift`. The recovery UI already sits on a reusable `FireLoginWebView` / `FireWebViewBox` / probe bridge stack in `native/ios-app/App/FireLoginWebView.swift`, and the shared Rust client already injects browser-style `User-Agent`, `Origin`, and `Referer` for JSON API and MessageBus requests in `rust/crates/fire-core/src/core/network.rs`.
 
 ## Current Surface Inventory
 
-- `native/ios-app/App/FireAppViewModel.swift` `FireCloudflareChallengeContext` -- current Cloudflare context carries `operation` and `message`, but no origin URL.
+- `native/ios-app/App/FireAppViewModel.swift` `FireCloudflareChallengeContext` -- Cloudflare context carries `operation`, `message`, and an optional browser HTML origin URL.
 - `native/ios-app/App/FireAppViewModel.swift` `FireAuthPresentationState` -- current presentation state has only `.login`, so explicit login and interactive Cloudflare recovery share one surface contract.
 - `native/ios-app/App/FireAppViewModel.swift` `loadInitialState()` -- restores session, refreshes home feed, and refreshes notifications back-to-back with no browser-like gaps.
 - `native/ios-app/App/FireAppViewModel.swift` `applySession(_:)` / `startMessageBus()` -- starts MessageBus immediately once readiness flips to `canOpenMessageBus`.
-- `native/ios-app/App/FireAppViewModel.swift` `performWithCloudflareRecovery(operation:work:)` -- retries once after cookie sync, then always escalates to interactive recovery.
-- `native/ios-app/App/FireAppViewModel.swift` `beginCloudflareRecoveryAndWait(operation:)` -- coalesces waiters, deletes stale `cf_clearance`, and currently presents `.login`.
-- `native/ios-app/App/FireAppViewModel.swift` `handleCloudflareChallengeIfNeeded(_:)` -- generic Cloudflare handler that also presents `.login`.
+- `native/ios-app/App/FireAppViewModel.swift` `performWithCloudflareRecovery(operation:originURL:work:)` -- retries once after cookie sync, then escalates to interactive recovery with a browser HTML origin URL.
+- `native/ios-app/App/FireAppViewModel.swift` `beginCloudflareRecoveryAndWait(operation:originURL:)` -- coalesces waiters, deletes stale `cf_clearance`, records the origin URL, and currently presents `.login`.
+- `native/ios-app/App/FireAppViewModel.swift` `handleCloudflareChallengeIfNeeded(_:message:originURL:)` -- generic Cloudflare handler that records an origin URL and also presents `.login`.
 - `native/ios-app/App/FireAppViewModel.swift` `completeLogin(from:)` / `dismissAuthPresentation()` -- current completion and cancellation path for both login and recovery.
 - `native/ios-app/App/FireLoginWebView.swift` `FireAuthScreen` -- full-screen login/recovery container that already owns address bar, banners, embedded WebView, and bottom action area.
 - `native/ios-app/App/FireLoginWebView.swift` `FireAuthBottomBar` -- current action bar already supports the automatic post-recovery sync copy.
@@ -335,34 +337,35 @@ Rationale: loop suppression belongs in the central recovery coordinator, not in 
 
 ## Phase 4: Pace Startup And Audit Header Parity
 
+Status update (2026-05-30): startup pacing now favors lazy off-screen tabs instead of small fixed gaps. Cold-start session restore no longer native-refreshes bootstrap through `GET /`; it applies the restored session without starting MessageBus, loads the first home topic list, and only then starts MessageBus. Notifications and Profile are gated by the selected tab, so `GET /notifications` and profile summary/action requests do not run during cold launch.
+
 **File: `native/ios-app/App/FireAppViewModel.swift` (lines 309-355, 1287-1458)**
 
-- Add a 300 ms gap after `restoreColdStartSession()` and a 200 ms gap after the first home-feed refresh in `loadInitialState()`.
-- Delay MessageBus start by 1 second after a newly applied authenticated session becomes `canOpenMessageBus`.
-- Cancel or ignore delayed MessageBus start tasks if session readiness changes before the delay elapses.
+- Do not preload off-screen Notifications/Profile data during cold launch.
+- Restore persisted session/cookies without an eager native `GET /` bootstrap refresh.
+- Apply the restored session without starting MessageBus, load the first home-feed page, then start MessageBus.
+- Keep notification/profile fetches behind selected-tab checks.
 - Align `prepareLoginNetworkAccess()` with browser-style navigation headers that are appropriate for a navigation warmup: explicit browser `User-Agent` and `Accept: text/html`; do not invent `Origin` for a plain GET navigation warmup.
 
 ```swift
-await self.applySession(restoredSession)
-try? await Task.sleep(for: .milliseconds(300))
+await self.applySession(restoredSession, activateMessageBus: false)
 await self.refreshHomeFeedIfPossible(force: true)
-try? await Task.sleep(for: .milliseconds(200))
-await self.notificationStore?.loadRecent(force: false)
+await self.ensureMessageBusActiveIfPossible()
 ```
 
-Rationale: the cold-start sequence is already serial; adding small gaps is sufficient to reduce the burst profile.
+Rationale: the risky burst was not just timing; off-screen tab requests added avoidable authenticated reads. Lazy loading removes those requests from launch entirely, while keeping MessageBus behind the first home list reduces the remaining startup burst.
 
 **File: `native/ios-app/App/Stores/FireHomeFeedStore.swift`**
 
-- No code change expected in this phase.
-- The store already executes only when `FireAppViewModel` invokes it.
+- `refreshTopicsIfPossible(force:)` returns whether a first-page refresh actually completed.
+- Successful first-page refreshes opportunistically ensure MessageBus is active, so a manual retry after a failed launch can still bring realtime sync online.
 
-Rationale: startup pacing is a caller concern here, not a store concern.
+Rationale: startup pacing is a caller concern, but the home store is the place that knows when a first-page refresh has actually succeeded.
 
 **File: `native/ios-app/App/Stores/FireNotificationStore.swift`**
 
 - No code change expected in this phase.
-- Notification timing remains entirely controlled by `loadInitialState()`.
+- Notification timing is controlled by selected-tab gating in `FireNotificationsView` plus explicit refresh actions.
 
 Rationale: keeping timing outside the store avoids accidental duplication with manual refresh paths.
 
@@ -431,11 +434,11 @@ Rationale: the current architecture doc will otherwise continue to describe outd
 - Header policy: do not add fake `Origin` headers to plain navigation warmups; keep `Origin` / `Referer` on JSON API, MessageBus, and rc POST requests where they already exist.
 - Topic-detail policy: recovery URLs must be browser HTML routes only; the native retry remains responsible for `track_visit`, reply filtering, and target-post restoration.
 - Dependency impact: no new packages or frameworks are required.
-- Documentation sync: `docs/architecture/fire-native-workspace.md` must be updated in the same implementation branch because it currently documents the pre-change login-URL recovery behavior.
+- Documentation sync: `docs/architecture/fire-native-workspace.md`, `docs/backend-api.md`, and `docs/backend-api/0*-*.md` should describe origin-aware recovery; the topic-detail origin-threading slice updated those docs on 2026-05-30.
 
 ## File Change Summary
 
-- `docs/architecture/fire-native-workspace.md` -- update the long-lived recovery rule after implementation so it no longer says Cloudflare recovery always opens the login URL.
+- `docs/architecture/fire-native-workspace.md` -- long-lived recovery rule now documents topic-detail HTML recovery URLs instead of login-URL-only recovery.
 - `docs/architecture/plans/ios-cloudflare-browser-alignment-plan.md` -- record the phased implementation plan for browser-like Cloudflare recovery and startup pacing.
 - `native/ios-app/App/FireAppViewModel.swift` -- split auth presentation modes, thread recovery origins, add cooldown gating, and pace startup/MessageBus activation.
 - `native/ios-app/App/FireLoginWebView.swift` -- add the half-sheet Cloudflare recovery surface on top of the existing embedded WebView stack.

@@ -54,9 +54,10 @@
    获取首页 HTML，提取 `csrf-token`、`data-preloaded`，以及跨域长轮询场景下可能存在的 `shared_session_key`
    如果当前页 `data-preloaded` 缺少 `site` / `siteSettings` 这类站点级字段，继续回源 `GET /` 刷新到完整 bootstrap，而不要把局部 preloaded 直接当成初始化完成
    当前 Fire 实现还会在 `site` 元数据仍缺失时自动补一次 `GET /site.json`
+   iOS 冷启动热路径不会为了补齐 bootstrap 主动 native `GET /`；它先恢复 Cookie/持久化 snapshot 并加载首页列表，把完整 bootstrap 刷新留给登录完成、手动刷新或显式需要完整站点元数据的路径
 2. 如需写操作，优先复用首页 HTML / 登录 WebView 中已有的 CSRF；缺失或收到 `BAD CSRF` 时再 `GET /session/csrf`
    获取最新 CSRF
 3. 使用 Cookie Session 调用主站 API
 4. 如需实时能力，先持久化 `siteSettings.long_polling_base_url`、`topicTrackingStateMeta`，以及跨域长轮询场景下可能存在的 `shared_session_key`
 5. 使用单例 `clientId` 调用 `POST /message-bus/{clientId}/poll`
-6. 如遇 Cloudflare 挑战，宿主先删除 WebView Cookie Store 中旧的 `cf_clearance`，再在宿主 auth WebView 的 LinuxDo 登录上下文中完成验证；当登录页 readiness 满足用户名、同站 auth Cookie 和可复用 bootstrap 后，把浏览器 Cookie 批量同步回共享层并重试原操作
+6. 如遇 Cloudflare 挑战，宿主先删除 WebView Cookie Store 中旧的 `cf_clearance`，再在宿主 auth WebView 中打开浏览器 HTML 恢复 URL；iOS topic detail 使用对应的 `/t/{slug}/{topicId}` 或 `/t/{topicId}`，其他读面默认站点 root，显式登录仍走 `/login`。当 readiness 满足用户名、同站 auth Cookie 和可复用 bootstrap 后，把浏览器 Cookie 批量同步回共享层并重试原操作

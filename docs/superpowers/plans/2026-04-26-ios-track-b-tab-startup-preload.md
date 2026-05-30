@@ -1,5 +1,7 @@
 # iOS Track B — Tab Startup Preload Implementation Plan
 
+> **Superseded (2026-05-30):** this preload strategy was removed from the production startup path after launch traces showed authenticated notification/profile reads increasing Cloudflare risk. `FireTabRoot` now gates Notifications and Profile by selected tab, and `FireAppViewModel.loadInitialState()` starts MessageBus only after the first home topic list finishes. Keep this file as historical implementation context only; do not reintroduce startup preloading without a new CF-risk review.
+
 > **For agentic workers:** Follow `docs/superpowers/plans/2026-04-28-ios-quality-and-polish-orchestration.md` for subagent roles, `manage_todo_list` tracking, artifact bundling, commit ownership, and the unified-PR rule. Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans. Treat the checkboxes here as execution notes only.
 
 **Goal:** After the session becomes authenticated (cold launch or re-login), kick off a background-priority preload of the two off-screen tab stores — `FireProfileViewModel` and `FireNotificationStore` — so users tapping the Notifications or Profile tab shortly after Home loads do not see an empty state.

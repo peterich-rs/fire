@@ -1,3 +1,4 @@
+import Nuke
 import SwiftUI
 import UIKit
 
@@ -720,83 +721,43 @@ final class FireRemoteImageMemoryCache: @unchecked Sendable {
 typealias FireAvatarImageMemoryCache = FireRemoteImageMemoryCache
 
 final class FireRemoteImagePipeline: @unchecked Sendable {
-    static let shared = FireRemoteImagePipeline()
+    static let shared = FireRemoteImagePipeline(pipeline: makeDefaultPipeline())
 
-    private struct InFlightLoad {
-        let id: UUID
-        let task: Task<UIImage, Error>
-    }
+    private let pipeline: ImagePipeline
+    private let prefetcher: ImagePrefetcher
 
-    private let memoryCache: FireRemoteImageMemoryCache
-    private let dataLoader: @Sendable (URL) async throws -> Data
-    private let lock = NSLock()
-    private var inFlightLoads: [String: InFlightLoad] = [:]
-
-    init(
-        memoryCache: FireRemoteImageMemoryCache = .shared,
-        dataLoader: @escaping @Sendable (URL) async throws -> Data = FireRemoteImagePipeline.defaultDataLoader
-    ) {
-        self.memoryCache = memoryCache
-        self.dataLoader = dataLoader
+    init(pipeline: ImagePipeline = makeDefaultPipeline()) {
+        self.pipeline = pipeline
+        self.prefetcher = ImagePrefetcher(pipeline: pipeline)
     }
 
     func cachedImage(for request: FireRemoteImageRequest) -> UIImage? {
-        memoryCache.image(for: request.cacheKey)
+        pipeline.cache.cachedImage(for: nukeRequest(for: request))?.image
     }
 
     func loadImage(for request: FireRemoteImageRequest) async throws -> UIImage {
-        if let cachedImage = cachedImage(for: request) {
-            return cachedImage
-        }
+        try await pipeline.image(for: nukeRequest(for: request))
+    }
 
-        let load = withLock { () -> InFlightLoad in
-            if let existingLoad = inFlightLoads[request.cacheKey] {
-                return existingLoad
-            }
+    func prefetch(_ requests: [FireRemoteImageRequest]) {
+        prefetcher.startPrefetching(with: requests.map(nukeRequest(for:)))
+    }
 
-            let load = InFlightLoad(
-                id: UUID(),
-                task: Task(priority: .userInitiated) { [memoryCache, dataLoader] in
-                    let data = try await dataLoader(request.url)
-                    guard let image = UIImage(data: data) else {
-                        throw FireRemoteImagePipelineError.invalidImageData
-                    }
-                    let preparedImage = image.preparingForDisplay() ?? image
-                    memoryCache.insert(preparedImage, for: request.cacheKey)
-                    return preparedImage
-                }
+    func stopPrefetching(_ requests: [FireRemoteImageRequest]) {
+        prefetcher.stopPrefetching(with: requests.map(nukeRequest(for:)))
+    }
+
+    private static func makeDefaultPipeline() -> ImagePipeline {
+        ImagePipeline(
+            configuration: .withDataCache(
+                name: "com.fire.remote-images",
+                sizeLimit: 128 * 1024 * 1024
             )
-            inFlightLoads[request.cacheKey] = load
-            return load
-        }
-
-        defer {
-            withLock {
-                guard inFlightLoads[request.cacheKey]?.id == load.id else {
-                    return
-                }
-                inFlightLoads.removeValue(forKey: request.cacheKey)
-            }
-        }
-
-        let image = try await load.task.value
-        memoryCache.insert(image, for: request.cacheKey)
-        return image
+        )
     }
 
-    private static func defaultDataLoader(from url: URL) async throws -> Data {
-        let (data, response) = try await URLSession.shared.data(from: url)
-        if let httpResponse = response as? HTTPURLResponse,
-           !(200..<300).contains(httpResponse.statusCode) {
-            throw FireRemoteImagePipelineError.badServerResponse
-        }
-        return data
-    }
-
-    private func withLock<T>(_ body: () -> T) -> T {
-        lock.lock()
-        defer { lock.unlock() }
-        return body()
+    private func nukeRequest(for request: FireRemoteImageRequest) -> ImageRequest {
+        ImageRequest(url: request.url)
     }
 }
 

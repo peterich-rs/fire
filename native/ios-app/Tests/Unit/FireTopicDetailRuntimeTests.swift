@@ -63,14 +63,14 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
         let request = FireTopicImageRequestBuilder.avatarRequest(
             avatarTemplate: "/user_avatar/linux.do/alice/{size}/1_2.png",
             username: "alice",
-            size: 40,
-            scale: 2,
+            depth: 0,
             baseURLString: "https://linux.do"
         )
+        let expectedPixelSize = Int(FirePostCellLayoutCalculator.avatarSizeRoot * UIScreen.main.scale)
 
         XCTAssertEqual(
             request?.url.absoluteString,
-            "https://linux.do/user_avatar/linux.do/alice/80/1_2.png"
+            "https://linux.do/user_avatar/linux.do/alice/\(expectedPixelSize)/1_2.png"
         )
     }
 

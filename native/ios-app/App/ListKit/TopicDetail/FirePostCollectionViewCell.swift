@@ -1,3 +1,4 @@
+import AsyncDisplayKit
 import UIKit
 
 final class FirePostCollectionViewCell: UICollectionViewCell, UIGestureRecognizerDelegate {
@@ -47,7 +48,7 @@ final class FirePostCollectionViewCell: UICollectionViewCell, UIGestureRecognize
     private var currentLayout: FirePostCellLayout?
     private var currentPayload: FirePostCellRenderPayload?
     private var currentCallbacks: FirePostCellCallbacks?
-    private var imageViews: [UIImageView] = []
+    private var imageNodes: [ASImageNode] = []
     private var imageTasks: [String: Task<Void, Never>] = [:]
     private var avatarTask: Task<Void, Never>?
     private var emojiLoadTasks: [String: Task<Void, Never>] = [:]
@@ -404,8 +405,8 @@ final class FirePostCollectionViewCell: UICollectionViewCell, UIGestureRecognize
         cancelImageTasks()
         emojiLoadTasks.values.forEach { $0.cancel() }
         emojiLoadTasks.removeAll()
-        imageViews.forEach { $0.removeFromSuperview() }
-        imageViews = []
+        imageNodes.forEach { $0.view.removeFromSuperview() }
+        imageNodes = []
         imageContainerView.isHidden = true
         imageContainerView.frame = .zero
 
@@ -480,46 +481,48 @@ final class FirePostCollectionViewCell: UICollectionViewCell, UIGestureRecognize
         containerFrame: CGRect
     ) {
         cancelImageTasks()
-        imageViews.forEach { $0.removeFromSuperview() }
-        imageViews = []
+        imageNodes.forEach { $0.view.removeFromSuperview() }
+        imageNodes = []
 
         for (index, image) in images.enumerated() {
             guard index < frames.count else { break }
-            let imageView = UIImageView()
-            imageView.contentMode = .scaleAspectFit
-            imageView.clipsToBounds = true
-            imageView.layer.cornerRadius = 16
-            imageView.layer.borderColor = UIColor.separator.cgColor
-            imageView.layer.borderWidth = 0.5
-            imageView.frame = CGRect(
+            let imageNode = ASImageNode()
+            imageNode.contentMode = .scaleAspectFit
+            imageNode.clipsToBounds = true
+            imageNode.cornerRadius = 16
+            imageNode.borderColor = UIColor.separator.cgColor
+            imageNode.borderWidth = 0.5
+            imageNode.placeholderEnabled = true
+            imageNode.placeholderColor = .tertiarySystemFill
+            imageNode.frame = CGRect(
                 x: frames[index].minX - containerFrame.minX,
                 y: frames[index].minY - containerFrame.minY,
                 width: frames[index].width,
                 height: frames[index].height
             )
-            imageView.backgroundColor = .tertiarySystemFill
-            imageView.isUserInteractionEnabled = true
-            imageView.tag = index
-            imageView.isAccessibilityElement = true
-            imageView.accessibilityTraits = [.image, .button]
+            imageNode.backgroundColor = .tertiarySystemFill
+            imageNode.isUserInteractionEnabled = true
+            imageNode.view.tag = index
+            imageNode.view.isAccessibilityElement = true
+            imageNode.view.accessibilityTraits = [.image, .button]
             let altText = image.altText?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            imageView.accessibilityLabel = altText.isEmpty ? "帖子图片" : altText
+            imageNode.view.accessibilityLabel = altText.isEmpty ? "帖子图片" : altText
 
             let tapGesture = UITapGestureRecognizer(target: self, action: #selector(handleImageTap(_:)))
-            imageView.addGestureRecognizer(tapGesture)
+            imageNode.view.addGestureRecognizer(tapGesture)
 
-            imageContainerView.addSubview(imageView)
-            imageViews.append(imageView)
+            imageContainerView.addSubview(imageNode.view)
+            imageNodes.append(imageNode)
 
-            loadImage(into: imageView, url: image.url, cacheKey: image.id)
+            loadImage(into: imageNode, url: image.url, cacheKey: image.id)
         }
     }
 
-    private func loadImage(into imageView: UIImageView, url: URL, cacheKey: String) {
+    private func loadImage(into imageNode: ASImageNode, url: URL, cacheKey: String) {
         let request = FireRemoteImageRequest(url: url)
         if let cached = FireRemoteImagePipeline.shared.cachedImage(for: request) {
-            imageView.image = cached
-            imageView.backgroundColor = .clear
+            imageNode.image = cached
+            imageNode.backgroundColor = .clear
             return
         }
 
@@ -528,8 +531,8 @@ final class FirePostCollectionViewCell: UICollectionViewCell, UIGestureRecognize
                 let image = try await FireRemoteImagePipeline.shared.loadImage(for: request)
                 guard !Task.isCancelled else { return }
                 _ = await MainActor.run {
-                    imageView.image = image
-                    imageView.backgroundColor = .clear
+                    imageNode.image = image
+                    imageNode.backgroundColor = .clear
                     self?.imageTasks.removeValue(forKey: cacheKey)
                 }
             } catch {

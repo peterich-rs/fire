@@ -1,8 +1,10 @@
+import AsyncDisplayKit
 import UIKit
 
 final class FirePostRichTextContainerView: UIView {
-    private let textView = FireRichTextUIView()
+    private let textNode = ASTextNode()
     private var linkDelegate: RichTextLinkDelegate?
+    private var renderedContentID: String?
 
     var onLinkTapped: ((URL) -> Void)?
 
@@ -17,24 +19,17 @@ final class FirePostRichTextContainerView: UIView {
     }
 
     private func setupSubviews() {
-        textView.isEditable = false
-        textView.isScrollEnabled = false
-        textView.textContainerInset = .zero
-        textView.textContainer.lineFragmentPadding = 0
-        textView.backgroundColor = .clear
-        textView.linkTextAttributes = [
-            .foregroundColor: UIColor.systemBlue,
-            .underlineStyle: NSUnderlineStyle.single.rawValue,
-        ]
-        textView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        textView.setContentHuggingPriority(.defaultHigh, for: .vertical)
-
         linkDelegate = RichTextLinkDelegate(handler: { [weak self] url in
             self?.onLinkTapped?(url)
         })
-        textView.delegate = linkDelegate
+        textNode.delegate = linkDelegate
+        textNode.isUserInteractionEnabled = true
+        textNode.backgroundColor = .clear
+        textNode.linkAttributeNames = [NSAttributedString.Key.link.rawValue]
+        textNode.placeholderEnabled = true
+        textNode.placeholderColor = .tertiarySystemFill
 
-        addSubview(textView)
+        addSubview(textNode.view)
     }
 
     func configure(
@@ -42,40 +37,42 @@ final class FirePostRichTextContainerView: UIView {
         contentID: String,
         containerSize: CGSize
     ) {
-        if textView.renderedContentID != contentID {
-            textView.renderedContentID = contentID
-            textView.attributedText = attributedText
+        if renderedContentID != contentID {
+            renderedContentID = contentID
+            textNode.attributedText = attributedText
         }
-        textView.frame = CGRect(origin: .zero, size: CGSize(width: containerSize.width, height: containerSize.height))
-        textView.invalidateIntrinsicContentSize()
+        textNode.frame = CGRect(origin: .zero, size: CGSize(width: containerSize.width, height: containerSize.height))
     }
 
     func resetContent() {
-        textView.renderedContentID = nil
-        textView.attributedText = NSAttributedString(string: "")
-        textView.invalidateIntrinsicContentSize()
+        renderedContentID = nil
+        textNode.attributedText = nil
     }
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        textView.frame = bounds
+        textNode.frame = bounds
     }
 }
 
-private final class RichTextLinkDelegate: NSObject, UITextViewDelegate {
+private final class RichTextLinkDelegate: NSObject, ASTextNodeDelegate {
     private let handler: (URL) -> Void
 
     init(handler: @escaping (URL) -> Void) {
         self.handler = handler
     }
 
-    func textView(
-        _ textView: UITextView,
-        shouldInteractWith url: URL,
-        in characterRange: NSRange,
-        interaction: UITextItemInteraction
-    ) -> Bool {
-        handler(url)
-        return false
+    func textNode(
+        _ textNode: ASTextNode,
+        tappedLinkAttribute attribute: String,
+        value: Any,
+        at point: CGPoint,
+        textRange: NSRange
+    ) {
+        if let url = value as? URL {
+            handler(url)
+        } else if let string = value as? String, let url = URL(string: string) {
+            handler(url)
+        }
     }
 }

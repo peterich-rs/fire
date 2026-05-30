@@ -78,6 +78,10 @@ fire/
 - `references/fluxdo` is a reference submodule, not a build dependency.
 - `third_party/` stores build dependencies as submodules so the superproject can be pushed cleanly to GitHub.
 - The root Cargo workspace owns only the local Fire crates.
+- iOS dependencies are owned by `native/ios-app/project.yml` and regenerated
+  through XcodeGen. Topic detail currently pins IGListKit 5.2.0 and Nuke 12.8.0
+  through SPM, and consumes Texture 3.2.0 through the local
+  `native/ios-app/LocalPackages/TextureCore` binary Swift package.
 
 ## Clean Worktree Workflow
 

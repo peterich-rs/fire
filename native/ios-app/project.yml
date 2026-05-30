@@ -14,8 +14,6 @@ packages:
   Nuke:
     url: https://github.com/kean/Nuke.git
     exactVersion: 12.8.0
-  TextureCore:
-    path: LocalPackages/TextureCore
 fileGroups:
   - Configs/Fire-Debug.xcconfig
   - Configs/Fire-Local-Debug.example.xcconfig
@@ -68,8 +66,9 @@ targets:
         product: IGListKit
       - package: Nuke
         product: Nuke
-      - package: TextureCore
-        product: AsyncDisplayKit
+      - framework: LocalPackages/TextureCore/Artifacts/AsyncDisplayKit.xcframework
+        embed: true
+        codeSign: true
     settings:
       base:
         CODE_SIGN_STYLE: $(FIRE_CODE_SIGN_STYLE)

@@ -1,7 +1,14 @@
 # TextureCore
 
-This local package exposes Texture 3.2.0 `AsyncDisplayKit.framework` as a
-checked-in XCFramework binary target for the iOS app.
+This directory stores the checked-in Texture 3.2.0
+`AsyncDisplayKit.xcframework` used by the iOS app.
+
+The Fire target links and embeds
+`Artifacts/AsyncDisplayKit.xcframework` directly from
+`native/ios-app/project.yml`. It is intentionally not referenced through a
+local SwiftPM binary package, because Xcode can report a missing
+`AsyncDisplayKit` package product when that local package product is not
+resolved in the workspace.
 
 Fire intentionally uses `Texture/Core` only. Do not add `Texture/IGListKit`
 because that subspec depends on IGListKit 4.x, and do not add

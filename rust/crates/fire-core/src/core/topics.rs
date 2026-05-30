@@ -72,6 +72,18 @@ struct BranchLoadRequest {
     required_row_count: usize,
 }
 
+#[derive(Clone, Copy)]
+struct TopicResponsePageLoadRequest {
+    topic_id: u64,
+    session_id: u64,
+    start_offset: usize,
+    branch_offset: usize,
+    page_size: u16,
+    cursor_page_size: u16,
+    row_page_size: u16,
+    focused_post_number: Option<u32>,
+}
+
 impl FireCore {
     pub async fn fetch_topic_detail_initial(
         &self,
@@ -369,18 +381,18 @@ impl FireCore {
         };
 
         let response = self
-            .load_topic_response_page(
-                query.topic_id,
+            .load_topic_response_page(TopicResponsePageLoadRequest {
+                topic_id: query.topic_id,
                 session_id,
-                0,
-                0,
-                initial_page_size,
-                page_size,
+                start_offset: 0,
+                branch_offset: 0,
+                page_size: initial_page_size,
+                cursor_page_size: page_size,
                 row_page_size,
-                query
+                focused_post_number: query
                     .target_post_number
                     .filter(|post_number| *post_number > 1),
-            )
+            })
             .await?;
 
         Ok(TopicScreen {
@@ -394,16 +406,16 @@ impl FireCore {
         &self,
         query: TopicResponsePageQuery,
     ) -> Result<TopicResponsePage, FireCoreError> {
-        self.load_topic_response_page(
-            query.cursor.topic_id,
-            query.cursor.session_id,
-            query.cursor.next_root_offset as usize,
-            query.cursor.next_branch_offset as usize,
-            normalized_root_page_size(query.cursor.page_size),
-            normalized_root_page_size(query.cursor.page_size),
-            normalized_response_row_page_size(query.cursor.row_page_size),
-            None,
-        )
+        self.load_topic_response_page(TopicResponsePageLoadRequest {
+            topic_id: query.cursor.topic_id,
+            session_id: query.cursor.session_id,
+            start_offset: query.cursor.next_root_offset as usize,
+            branch_offset: query.cursor.next_branch_offset as usize,
+            page_size: normalized_root_page_size(query.cursor.page_size),
+            cursor_page_size: normalized_root_page_size(query.cursor.page_size),
+            row_page_size: normalized_response_row_page_size(query.cursor.row_page_size),
+            focused_post_number: None,
+        })
         .await
     }
 
@@ -538,15 +550,19 @@ impl FireCore {
 
     async fn load_topic_response_page(
         &self,
-        topic_id: u64,
-        session_id: u64,
-        start_offset: usize,
-        branch_offset: usize,
-        page_size: u16,
-        cursor_page_size: u16,
-        row_page_size: u16,
-        focused_post_number: Option<u32>,
+        request: TopicResponsePageLoadRequest,
     ) -> Result<TopicResponsePage, FireCoreError> {
+        let TopicResponsePageLoadRequest {
+            topic_id,
+            session_id,
+            start_offset,
+            branch_offset,
+            page_size,
+            cursor_page_size,
+            row_page_size,
+            focused_post_number,
+        } = request;
+
         loop {
             let roots_to_load = {
                 let runtime = self

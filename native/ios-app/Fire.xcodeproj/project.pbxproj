@@ -23,6 +23,7 @@
 		2264C8107D1350906282A04E /* FireSearchStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B17BF0CB4137B71949AACC0C /* FireSearchStoreTests.swift */; };
 		22D6B9CAC8373C14BBFA616A /* FireComposerValidationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A67A6C835A2196246871D5FD /* FireComposerValidationTests.swift */; };
 		23B6D938A84DB421F8549AD0 /* FireBackgroundNotificationAlert.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51431D8CC0EBCA6C0E79380C /* FireBackgroundNotificationAlert.swift */; };
+		2697DC8A389656A42CCEE78F /* IGListKit in Frameworks */ = {isa = PBXBuildFile; productRef = D3EDB2043503A9C462582DD2 /* IGListKit */; };
 		26E51A13E796BFEF885FBD28 /* fire_uniffi_topics.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDCE76B3F360C1C5631A950C /* fire_uniffi_topics.swift */; };
 		2C5CE663E30B00720A75CD0A /* FireProfileHeaderComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E8372AD9A5A2CC34FBD3AEF /* FireProfileHeaderComponents.swift */; };
 		3330A9C7E4C8BA80778F79EB /* FireAppRouteTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 299683BEDEC559B03C136C34 /* FireAppRouteTests.swift */; };
@@ -45,6 +46,7 @@
 		5A95F9C29909968BF4B17AD7 /* FireAuthCookieKeychainStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C313FFDD8D569FA6D9B1C0E0 /* FireAuthCookieKeychainStore.swift */; };
 		5B4072DC893E7612141A8F34 /* FireComposerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77FD6C1C577852A9B0EC2532 /* FireComposerView.swift */; };
 		5CACD8BFBDA8FDF7D7CBF4E7 /* FireMotionReduceMotion.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA23C0E50E7A412A73AF80E6 /* FireMotionReduceMotion.swift */; };
+		5D343E985D5E1E682196187C /* Nuke in Frameworks */ = {isa = PBXBuildFile; productRef = 3F5DB59F34DC2099A84C0F6F /* Nuke */; };
 		5E556FC12993F27449D2B973 /* FireAPMManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 129694A5F35FF78B3F810049 /* FireAPMManager.swift */; };
 		5E90D968B32A1D692D9351AC /* FireDeveloperToolsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1481ACDF04D249FF61B1D0DF /* FireDeveloperToolsView.swift */; };
 		5FA66113E53795C8DC6D0563 /* FireProfileActivityTimelineView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35E67F65FB748821001726D /* FireProfileActivityTimelineView.swift */; };
@@ -75,6 +77,7 @@
 		8D77430DC1266A1EDEF3A6E4 /* FireAppViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFA66CA083BF4889AE258926 /* FireAppViewModel.swift */; };
 		8DBFF3B45C163E090C28C98B /* FirePostRichTextContainerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 97E555B5E61F0CF3811D4091 /* FirePostRichTextContainerView.swift */; };
 		8F10E1B26BE2D5FC5F2D6C1B /* FireProfileStatsRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6210541C2E8219CE500CFC04 /* FireProfileStatsRow.swift */; };
+		9067EC47DC744246AF243836 /* AsyncDisplayKit in Frameworks */ = {isa = PBXBuildFile; productRef = 9D7508458AF25AFB8A79431B /* AsyncDisplayKit */; };
 		91BA9CDF0E86830FEB1951B0 /* FireAPMMainThreadStallMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20BDF82CCD1BF22BB3C7729 /* FireAPMMainThreadStallMonitor.swift */; };
 		91D663B17D38F3869A292938 /* FireStartupPreloadCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D652EEF09E7E34B609EE2C7 /* FireStartupPreloadCoordinator.swift */; };
 		92865B212211D893E4EFB5D2 /* FireAvatarURLTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D2C1B5E7EE9786EBC541FAF /* FireAvatarURLTests.swift */; };
@@ -128,6 +131,7 @@
 		E5B65BD5052ECA7E877B71A1 /* FireAPMDiagnosticsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 746AD2CF6410CEA9D5DB74F9 /* FireAPMDiagnosticsView.swift */; };
 		E60D57A49519AD07A4834489 /* FireAPMResourceSampler.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6DEF53357E681E40E482813 /* FireAPMResourceSampler.swift */; };
 		E67F86DADDE88559438DE849 /* CoreFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 08F96260D49AF4E41AB4739C /* CoreFoundation.framework */; };
+		ED9CD3DE021ED54FED139F8A /* FireTopicDetailRuntimeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7523D63E40FC490B6E3F1ED /* FireTopicDetailRuntimeTests.swift */; };
 		F171E34C843A4BD06FB50408 /* FireBookmarksView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3CE19EEF18F20BE710E4B7E4 /* FireBookmarksView.swift */; };
 		F31A70760B997F5ADFB7C489 /* FireListSectionModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFB6B1F10783D1D78B2D1F63 /* FireListSectionModel.swift */; };
 		F53E86700CE39C9DD948CFF6 /* fire_uniffi_diagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1800DA0F94ED3D7B3099DB89 /* fire_uniffi_diagnostics.swift */; };
@@ -167,6 +171,7 @@
 		1FC1DB73221DE5E0CE4B0BB6 /* FireDiagnosticsShared.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireDiagnosticsShared.swift; sourceTree = "<group>"; };
 		24E7CCCA8B867D5E6B0CE198 /* FirePostCellLayoutCalculator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FirePostCellLayoutCalculator.swift; sourceTree = "<group>"; };
 		25FD219C2BFB0727FD0D3DD2 /* FireSearchStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireSearchStore.swift; sourceTree = "<group>"; };
+		2778D657AFC9A06FA81BFA70 /* TextureCore */ = {isa = PBXFileReference; lastKnownFileType = folder; name = TextureCore; path = LocalPackages/TextureCore; sourceTree = SOURCE_ROOT; };
 		27F174773C4A2B3D0A4D29DD /* FireComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireComponents.swift; sourceTree = "<group>"; };
 		28173F6627151D10C47ED415 /* FireTopicDetailListViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireTopicDetailListViewController.swift; sourceTree = "<group>"; };
 		292A9A11D19C39A02BC00B38 /* FireProfileActivityRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireProfileActivityRow.swift; sourceTree = "<group>"; };
@@ -238,6 +243,7 @@
 		B17BF0CB4137B71949AACC0C /* FireSearchStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireSearchStoreTests.swift; sourceTree = "<group>"; };
 		B220305F1DFD0C508260CFA9 /* FirePostCellLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FirePostCellLayout.swift; sourceTree = "<group>"; };
 		B5E5271F93B7DF18859B101F /* FireWebViewLoginCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireWebViewLoginCoordinator.swift; sourceTree = "<group>"; };
+		B7523D63E40FC490B6E3F1ED /* FireTopicDetailRuntimeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireTopicDetailRuntimeTests.swift; sourceTree = "<group>"; };
 		BABD32407FB273553E9394B3 /* FireProfileBadgeChip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireProfileBadgeChip.swift; sourceTree = "<group>"; };
 		BADC2ED47CF65AD5BE795908 /* FireEntityStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireEntityStateTests.swift; sourceTree = "<group>"; };
 		BC115AA696CF29500E0027DD /* FireHomeCollectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireHomeCollectionView.swift; sourceTree = "<group>"; };
@@ -296,6 +302,9 @@
 				B60BA6BB8CA2D0C13005AE77 /* libsqlite3.tbd in Frameworks */,
 				A7657EA99808CEBE3F038176 /* CrashReporter in Frameworks */,
 				3E86B05D0E10C74BB865A0F9 /* ConfettiSwiftUI in Frameworks */,
+				2697DC8A389656A42CCEE78F /* IGListKit in Frameworks */,
+				5D343E985D5E1E682196187C /* Nuke in Frameworks */,
+				9067EC47DC744246AF243836 /* AsyncDisplayKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -487,6 +496,7 @@
 				46C35F105D036EECAAE7B93D /* FireRouteParserTests.swift */,
 				B17BF0CB4137B71949AACC0C /* FireSearchStoreTests.swift */,
 				43F4BF80B28464550781CD36 /* FireSessionStoreTests.swift */,
+				B7523D63E40FC490B6E3F1ED /* FireTopicDetailRuntimeTests.swift */,
 				DFBA718C5E89D3669A9C6D22 /* FireTopicDetailStoreTests.swift */,
 				859219285EC36B189AF68256 /* FireTopicListMessageBusRefreshTests.swift */,
 				9189433D7C9260885742A5BA /* FireTopicPresentationTests.swift */,
@@ -516,6 +526,7 @@
 				BD212BBA5E9DA62F41FF41F4 /* Configs */,
 				32338F9E71B0E67C5112C300 /* FireAppSession */,
 				F6A48714E0F87937027A25E4 /* FireUniFfi */,
+				D53FE355016F43C6D9B8E2F9 /* Packages */,
 				8FCD2C1B029D07F4C1B82746 /* Unit */,
 				D5EBFF4F5452417E0754E6D0 /* Frameworks */,
 				1D88C155B3075FF19641DF3E /* Products */,
@@ -566,6 +577,14 @@
 				EAE00F2C2E4EB9A7A99D327A /* FireRouteParser.swift */,
 			);
 			path = Routing;
+			sourceTree = "<group>";
+		};
+		D53FE355016F43C6D9B8E2F9 /* Packages */ = {
+			isa = PBXGroup;
+			children = (
+				2778D657AFC9A06FA81BFA70 /* TextureCore */,
+			);
+			name = Packages;
 			sourceTree = "<group>";
 		};
 		D5EBFF4F5452417E0754E6D0 /* Frameworks */ = {
@@ -635,6 +654,9 @@
 			packageProductDependencies = (
 				601B450FB4E87A5243FAE5F9 /* CrashReporter */,
 				2DFDD7AEF71DAD503CDB00B8 /* ConfettiSwiftUI */,
+				D3EDB2043503A9C462582DD2 /* IGListKit */,
+				3F5DB59F34DC2099A84C0F6F /* Nuke */,
+				9D7508458AF25AFB8A79431B /* AsyncDisplayKit */,
 			);
 			productName = Fire;
 			productReference = 48CAB0E38556929FC140E25D /* Fire.app */;
@@ -667,6 +689,9 @@
 			packageReferences = (
 				2C7045D74786E79E8664E95B /* XCRemoteSwiftPackageReference "ConfettiSwiftUI" */,
 				9F8D6D7CFB3643BCA8C9F545 /* XCRemoteSwiftPackageReference "plcrashreporter" */,
+				1499917CB4613EC0915E4C87 /* XCRemoteSwiftPackageReference "IGListKit" */,
+				0B33AAACF1C3CFC774277ECB /* XCRemoteSwiftPackageReference "Nuke" */,
+				B215E11C6EDFCEA7A33AD54B /* XCLocalSwiftPackageReference "LocalPackages/TextureCore" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 1D88C155B3075FF19641DF3E /* Products */;
@@ -745,6 +770,7 @@
 				4F0305B9162423D8D821A304 /* FireRouteParserTests.swift in Sources */,
 				2264C8107D1350906282A04E /* FireSearchStoreTests.swift in Sources */,
 				937A11B4C74174E2B823F917 /* FireSessionStoreTests.swift in Sources */,
+				ED9CD3DE021ED54FED139F8A /* FireTopicDetailRuntimeTests.swift in Sources */,
 				E29EFDDF900994EACCA13358 /* FireTopicDetailStoreTests.swift in Sources */,
 				9F734046F02B45409AD5F1C6 /* FireTopicListMessageBusRefreshTests.swift in Sources */,
 				FFCC342F97F349220632A787 /* FireTopicPresentationTests.swift in Sources */,
@@ -1191,7 +1217,30 @@
 		};
 /* End XCConfigurationList section */
 
+/* Begin XCLocalSwiftPackageReference section */
+		B215E11C6EDFCEA7A33AD54B /* XCLocalSwiftPackageReference "LocalPackages/TextureCore" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = LocalPackages/TextureCore;
+		};
+/* End XCLocalSwiftPackageReference section */
+
 /* Begin XCRemoteSwiftPackageReference section */
+		0B33AAACF1C3CFC774277ECB /* XCRemoteSwiftPackageReference "Nuke" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/kean/Nuke.git";
+			requirement = {
+				kind = exactVersion;
+				version = 12.8.0;
+			};
+		};
+		1499917CB4613EC0915E4C87 /* XCRemoteSwiftPackageReference "IGListKit" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/Instagram/IGListKit.git";
+			requirement = {
+				kind = exactVersion;
+				version = 5.2.0;
+			};
+		};
 		2C7045D74786E79E8664E95B /* XCRemoteSwiftPackageReference "ConfettiSwiftUI" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/simibac/ConfettiSwiftUI.git";
@@ -1216,10 +1265,24 @@
 			package = 2C7045D74786E79E8664E95B /* XCRemoteSwiftPackageReference "ConfettiSwiftUI" */;
 			productName = ConfettiSwiftUI;
 		};
+		3F5DB59F34DC2099A84C0F6F /* Nuke */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 0B33AAACF1C3CFC774277ECB /* XCRemoteSwiftPackageReference "Nuke" */;
+			productName = Nuke;
+		};
 		601B450FB4E87A5243FAE5F9 /* CrashReporter */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 9F8D6D7CFB3643BCA8C9F545 /* XCRemoteSwiftPackageReference "plcrashreporter" */;
 			productName = CrashReporter;
+		};
+		9D7508458AF25AFB8A79431B /* AsyncDisplayKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = AsyncDisplayKit;
+		};
+		D3EDB2043503A9C462582DD2 /* IGListKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 1499917CB4613EC0915E4C87 /* XCRemoteSwiftPackageReference "IGListKit" */;
+			productName = IGListKit;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

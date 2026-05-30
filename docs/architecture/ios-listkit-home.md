@@ -23,8 +23,10 @@ foundation instead of SwiftUI `List`.
   - "fill viewport" auto-prefetch when the first page is short
   - topic navigation into `FireTopicDetailView`
 
-This slice does not yet migrate notifications/history or topic detail to
-collection-backed hosts.
+At the time this slice landed it did not yet migrate notifications/history or
+topic detail to collection-backed hosts. Current topic detail now uses
+`FireTopicDetailCollectionView`, including scroll-metric pagination triggers
+and always-on anchor restoration for response-page appends.
 
 ## Runtime Shape
 
@@ -78,6 +80,10 @@ reuse it without inheriting home-specific behavior.
   resolves through SwiftUI `NavigationStack`.
 - Snapshot updates preserve the user's top visible item instead of jumping
   back to the start when home rows patch after refresh.
+- Topic detail reuses the same collection-host mechanics for its reading
+  surface. Its next-page trigger is based on rendered response-tail proximity
+  and remaining scroll distance rather than max `postNumber`, because Rust
+  response rows arrive in branch/preorder order.
 
 ## Verification
 

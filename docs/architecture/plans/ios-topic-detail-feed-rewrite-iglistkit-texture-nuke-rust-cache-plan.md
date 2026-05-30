@@ -1347,6 +1347,8 @@ Initial targets for staff-level acceptance:
 - no whole-feed update for image load completion
 - selected-container update p95 under 12 ms for append patches of 40 rows
 - main-thread work per visible row bind under 4 ms p95
+- no IGListKit update is performed for an unchanged runtime snapshot
+- visible-post reporting is deduplicated so scroll events that keep the same visible set do not recreate hydration debounce tasks
 - image decode off main thread
 - no unbounded memory growth after 10 open/close cycles of image-heavy topics
 - support bundle can prove cache source: processed cache, network,

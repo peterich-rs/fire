@@ -41,10 +41,49 @@ struct FireCookedImage: Identifiable, Hashable, Sendable {
     }
 }
 
+struct FireTopicPostRenderSignature: Hashable, Sendable {
+    let sourceLength: Int
+    let sourceChecksum: UInt64
+    let imageIDs: [String]
+
+    var token: String {
+        var parts: [String] = []
+        parts.reserveCapacity(imageIDs.count + 2)
+        parts.append(String(sourceLength))
+        parts.append(String(sourceChecksum, radix: 16))
+        parts.append(contentsOf: imageIDs)
+        return parts.joined(separator: ":")
+    }
+
+    static func make(source: String, imageAttachments: [FireCookedImage]) -> Self {
+        FireTopicPostRenderSignature(
+            sourceLength: source.utf8.count,
+            sourceChecksum: stableChecksum(source),
+            imageIDs: imageAttachments.map(\.id)
+        )
+    }
+
+    private static func stableChecksum(_ value: String) -> UInt64 {
+        var hash: UInt64 = 0xcbf29ce484222325
+        for byte in value.utf8 {
+            hash ^= UInt64(byte)
+            hash &*= 0x100000001b3
+        }
+        hash ^= hash >> 33
+        hash &*= 0xff51afd7ed558ccd
+        hash ^= hash >> 33
+        hash &*= 0xc4ceb9fe1a85ec53
+        hash ^= hash >> 33
+        return hash
+    }
+}
+
+// NSAttributedString is not Sendable; render content is built during cache preparation and then shared immutably.
 struct FireTopicPostRenderContent: @unchecked Sendable {
     let plainText: String
     let attributedText: NSAttributedString?
     let imageAttachments: [FireCookedImage]
+    let signature: FireTopicPostRenderSignature
 }
 
 struct FirePreparedTopicTimelineRow: Identifiable, Sendable {
@@ -135,7 +174,11 @@ enum FireTopicPresentation {
         return FireTopicPostRenderContent(
             plainText: richContent.plainText,
             attributedText: attributedText,
-            imageAttachments: richContent.imageAttachments
+            imageAttachments: richContent.imageAttachments,
+            signature: FireTopicPostRenderSignature.make(
+                source: html,
+                imageAttachments: richContent.imageAttachments
+            )
         )
     }
 

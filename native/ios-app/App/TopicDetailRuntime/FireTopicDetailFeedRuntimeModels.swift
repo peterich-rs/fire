@@ -23,6 +23,7 @@ struct FireTopicDetailRuntimeItem: Hashable, @unchecked Sendable {
     let kind: FireTopicDetailRuntimeItemKind
     let postID: UInt64?
     let postNumber: UInt32?
+    let replyIndex: Int?
     let contentToken: AnyHashable
 
     static func == (lhs: Self, rhs: Self) -> Bool {
@@ -31,6 +32,15 @@ struct FireTopicDetailRuntimeItem: Hashable, @unchecked Sendable {
 
     func hash(into hasher: inout Hasher) {
         hasher.combine(id)
+    }
+
+    func hasSameRenderedContent(as other: Self) -> Bool {
+        id == other.id
+            && kind == other.kind
+            && postID == other.postID
+            && postNumber == other.postNumber
+            && replyIndex == other.replyIndex
+            && contentToken == other.contentToken
     }
 }
 
@@ -50,6 +60,9 @@ struct FireTopicDetailRuntimePostContext {
 }
 
 struct FireTopicDetailRuntimeConfiguration {
+    let viewModel: FireAppViewModel?
+    let displayedCategory: FireTopicCategoryPresentation?
+    let currentUsername: String?
     let row: FireTopicRowPresentation
     let baseURLString: String
     let detail: TopicDetailState?
@@ -114,6 +127,76 @@ struct FireTopicDetailRuntimeConfiguration {
         detail?.views ?? topic.views
     }
 
+    var displayedCategoryId: UInt64? {
+        detail?.categoryId ?? topic.categoryId
+    }
+
+    var displayedTagNames: [String] {
+        let detailTags = detail?.tags
+            .map(\.name)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty } ?? []
+        return detailTags.isEmpty ? row.tagNames : detailTags
+    }
+
+    var isPrivateMessageThread: Bool {
+        FireTopicPresentation.isPrivateMessageArchetype(detail?.archetype)
+    }
+
+    var displayedParticipants: [TopicParticipantState] {
+        guard isPrivateMessageThread else {
+            return []
+        }
+
+        let source = !(detail?.details.participants.isEmpty ?? true)
+            ? detail?.details.participants ?? []
+            : topic.participants
+        let currentUsername = currentUsername?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        var participants: [TopicParticipantState] = []
+        for participant in source {
+            let normalizedUsername = participant.username?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if let currentUsername,
+               normalizedUsername?.caseInsensitiveCompare(currentUsername) == .orderedSame {
+                continue
+            }
+
+            let stableID = normalizedUsername?.lowercased() ?? "id:\(participant.userId)"
+            if participants.contains(where: {
+                ($0.username?.lowercased() ?? "id:\($0.userId)") == stableID
+            }) {
+                continue
+            }
+            participants.append(participant)
+        }
+        return participants
+    }
+
+    var displayedInteractionCount: UInt32? {
+        detail.map(FireTopicPresentation.interactionCount(for:))
+    }
+
+    var loadedReplyCount: Int {
+        replyRows.count
+    }
+
+    var displayedFloorCount: Int {
+        replyRows.count
+    }
+
+    var totalReplyCount: Int {
+        detail.map { max(Int($0.postsCount) - 1, 0) } ?? Int(topic.replyCount)
+    }
+
+    var showsTopicVote: Bool {
+        guard let detail, !isPrivateMessageThread else {
+            return false
+        }
+        return detail.canVote || detail.userVoted || detail.voteCount > 0
+    }
+
     var originalRow: FirePreparedTopicTimelineRow? {
         renderState?.originalRow
     }
@@ -149,7 +232,11 @@ struct FireTopicDetailRuntimeConfiguration {
         return FireTopicPostRenderContent(
             plainText: plainText.isEmpty ? "加载中…" : plainText,
             attributedText: nil,
-            imageAttachments: []
+            imageAttachments: [],
+            signature: FireTopicPostRenderSignature.make(
+                source: plainText.isEmpty ? "加载中…" : plainText,
+                imageAttachments: []
+            )
         )
     }
 
@@ -165,7 +252,17 @@ struct FireTopicDetailRuntimeConfiguration {
             kind: .header,
             postID: nil,
             postNumber: nil,
-            contentToken: AnyHashable("\(displayedTopicTitle)|\(row.statusLabels.joined(separator: ","))")
+            replyIndex: nil,
+            contentToken: AnyHashable([
+                displayedTopicTitle,
+                displayedCategory.map { "\($0.id)|\($0.slug)|\($0.displayName)|\($0.colorHex ?? "")" } ?? "",
+                displayedTagNames.joined(separator: ","),
+                displayedParticipants.map {
+                    "\($0.userId)|\($0.username ?? "")|\($0.name ?? "")"
+                }.joined(separator: ";"),
+                row.statusLabels.joined(separator: ","),
+                String(isPrivateMessageThread),
+            ])
         ))
 
         if topicAiSummary != nil || isLoadingTopicAiSummary || topicAiSummaryError != nil {
@@ -174,7 +271,12 @@ struct FireTopicDetailRuntimeConfiguration {
                 kind: .aiSummary,
                 postID: nil,
                 postNumber: nil,
-                contentToken: AnyHashable("\(topicAiSummary?.summarizedText ?? "")|\(isLoadingTopicAiSummary)|\(topicAiSummaryError ?? "")")
+                replyIndex: nil,
+                contentToken: AnyHashable([
+                    topicAiSummary.map(Self.topicAiSummaryContentToken(_:)) ?? "",
+                    String(isLoadingTopicAiSummary),
+                    topicAiSummaryError ?? "",
+                ])
             ))
         }
 
@@ -183,6 +285,7 @@ struct FireTopicDetailRuntimeConfiguration {
             kind: .originalPost,
             postID: originalPost?.id,
             postNumber: originalPost?.postNumber,
+            replyIndex: nil,
             contentToken: AnyHashable(originalPost.map { postContentToken($0, renderContent: originalPostRenderContent) } ?? "missing")
         ))
 
@@ -191,15 +294,42 @@ struct FireTopicDetailRuntimeConfiguration {
             kind: .stats,
             postID: nil,
             postNumber: nil,
-            contentToken: AnyHashable("\(displayedReplyCount)|\(displayedViewsCount)")
+            replyIndex: nil,
+            contentToken: AnyHashable([
+                String(displayedReplyCount),
+                String(displayedViewsCount),
+                displayedInteractionCount.map(String.init) ?? "",
+            ])
         ))
+
+        if showsTopicVote {
+            items.append(.init(
+                id: "topic-vote:\(topic.id)",
+                kind: .topicVote,
+                postID: nil,
+                postNumber: nil,
+                replyIndex: nil,
+                contentToken: AnyHashable([
+                    String(detail?.canVote ?? false),
+                    String(detail?.userVoted ?? false),
+                    String(detail?.voteCount ?? 0),
+                    String(canWriteInteractions),
+                ])
+            ))
+        }
 
         items.append(.init(
             id: "replies-header:\(topic.id)",
             kind: .repliesHeader,
             postID: nil,
             postNumber: nil,
-            contentToken: AnyHashable("\(replyRows.count)|\(detail?.postsCount ?? topic.replyCount)")
+            replyIndex: nil,
+            contentToken: AnyHashable([
+                String(loadedReplyCount),
+                String(totalReplyCount),
+                String(displayedFloorCount),
+                String(detail != nil),
+            ])
         ))
 
         if detail == nil {
@@ -208,6 +338,7 @@ struct FireTopicDetailRuntimeConfiguration {
                 kind: .bodyState,
                 postID: nil,
                 postNumber: nil,
+                replyIndex: nil,
                 contentToken: AnyHashable("\(isLoadingTopic)|\(detailError ?? "")")
             ))
         } else {
@@ -219,6 +350,7 @@ struct FireTopicDetailRuntimeConfiguration {
                     kind: .reply,
                     postID: row.entry.postId,
                     postNumber: row.entry.postNumber,
+                    replyIndex: index,
                     contentToken: AnyHashable("\(index)|\(post.map { postContentToken($0, renderContent: renderContent) } ?? "missing")")
                 ))
             }
@@ -229,6 +361,7 @@ struct FireTopicDetailRuntimeConfiguration {
                     kind: .replyFooter,
                     postID: nil,
                     postNumber: nil,
+                    replyIndex: nil,
                     contentToken: AnyHashable("\(String(reflecting: replyFooterState))")
                 ))
             }
@@ -252,9 +385,13 @@ struct FireTopicDetailRuntimeConfiguration {
             )
 
         case .reply:
+            // The runtime item carries its reply index; keep the bounds checks here so stale items cannot index replyRows.
             guard let postID = item.postID,
                   let post = postLookup[postID],
-                  let index = replyRows.firstIndex(where: { $0.entry.postId == postID }) else {
+                  let index = item.replyIndex,
+                  index >= 0,
+                  index < replyRows.count,
+                  replyRows[index].entry.postId == postID else {
                 return nil
             }
             let row = replyRows[index]
@@ -287,15 +424,50 @@ struct FireTopicDetailRuntimeConfiguration {
         _ post: TopicPostState,
         renderContent: FireTopicPostRenderContent?
     ) -> String {
-        "\(post.id)|\(post.cooked.hashValue)|\(post.likeCount)|\(post.reactions.count)|\(post.polls.count)|\(renderContent?.imageAttachments.count ?? 0)|\(isMutatingPost(post.id))"
+        var parts: [String] = []
+        parts.reserveCapacity(23)
+        parts.append(String(post.id))
+        parts.append(String(post.postNumber))
+        parts.append(post.username)
+        parts.append(post.avatarTemplate ?? "")
+        parts.append(post.createdAt ?? "")
+        parts.append(post.updatedAt ?? "")
+        parts.append(renderContent?.signature.token ?? "pending")
+        parts.append(String(post.likeCount))
+        parts.append(String(post.replyCount))
+        parts.append(String(reflecting: post.reactions))
+        parts.append(post.currentUserReaction?.id ?? "")
+        parts.append(String(reflecting: post.polls))
+        parts.append(String(post.acceptedAnswer))
+        parts.append(String(post.canEdit))
+        parts.append(String(post.canDelete))
+        parts.append(String(post.canRecover))
+        parts.append(String(post.hidden))
+        parts.append(String(post.bookmarked))
+        parts.append(String(post.bookmarkId ?? 0))
+        parts.append(post.bookmarkName ?? "")
+        parts.append(post.bookmarkReminderAt ?? "")
+        parts.append(String(canWriteInteractions))
+        parts.append(String(isMutatingPost(post.id)))
+        return parts.joined(separator: "\u{1F}")
     }
 
     private func showsTimelineThreadLine(at index: Int) -> Bool {
-        guard index >= 0, index < replyRows.count else { return false }
-        if index < replyRows.count - 1 {
-            return true
+        guard index >= 0, index < replyRows.count - 1 else {
+            return false
         }
-        return replyRows[index].entry.depth > 1
+        return replyRows[index + 1].entry.depth >= replyRows[index].entry.depth
+    }
+
+    private static func topicAiSummaryContentToken(_ summary: TopicAiSummaryState) -> String {
+        [
+            summary.summarizedText,
+            summary.algorithm ?? "",
+            String(summary.outdated),
+            String(summary.canRegenerate),
+            String(summary.newPostsSinceSummary),
+            summary.updatedAt ?? "",
+        ].joined(separator: "\u{1F}")
     }
 }
 

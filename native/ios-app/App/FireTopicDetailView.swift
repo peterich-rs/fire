@@ -690,6 +690,9 @@ struct FireTopicDetailView: View {
     private var detailCollectionContent: some View {
         FireTopicDetailListHost(
             configuration: FireTopicDetailRuntimeConfiguration(
+                viewModel: viewModel,
+                displayedCategory: viewModel.categoryPresentation(for: detail?.categoryId ?? topic.categoryId),
+                currentUsername: viewModel.session.bootstrap.currentUsername,
                 row: row,
                 baseURLString: baseURLString,
                 detail: detail,
@@ -1823,8 +1826,7 @@ struct FirePostRow: View {
     }
 
     private var richTextContentID: String {
-        let contentHash = post.cooked.hashValue
-        return "post:\(post.id)|hash:\(contentHash)|images:\(renderContent.imageAttachments.count)"
+        "post:\(post.id)|render:\(renderContent.signature.token)"
     }
 
     var body: some View {

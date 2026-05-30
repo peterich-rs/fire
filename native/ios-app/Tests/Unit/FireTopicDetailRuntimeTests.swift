@@ -36,6 +36,7 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
             "reply:300:3",
         ])
         XCTAssertEqual(snapshot.replyIndexByPostID, [firstReply.id: 0, secondReply.id: 1])
+        XCTAssertEqual(snapshot.items.first(where: { $0.id == "reply:300:3" })?.replyIndex, 1)
         XCTAssertEqual(configuration.scrollItem(for: 3)?.id, "reply:300:3")
         XCTAssertNil(configuration.scrollItem(for: 404))
     }
@@ -57,6 +58,126 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
 
         XCTAssertEqual(snapshot.items.last?.kind, .replyFooter)
         XCTAssertEqual(snapshot.items.last?.id, "reply-footer:42")
+    }
+
+    func testSnapshotIncludesTopicVoteWhenTopicCanVote() {
+        let original = makePost(id: 100, postNumber: 1, username: "alice")
+        let renderState = FireTopicDetailRenderState(
+            originalRow: makeTimelineRow(post: original, depth: 0, isOriginalPost: true),
+            replyRows: [],
+            contentByPostID: [original.id: makeRenderContent("Original")]
+        )
+        let configuration = makeConfiguration(
+            detail: makeTopicDetail(posts: [original], canVote: true, voteCount: 3, userVoted: true),
+            renderState: renderState,
+            postLookup: [original.id: original]
+        )
+
+        let snapshot = configuration.makeSnapshot()
+
+        XCTAssertTrue(snapshot.items.contains(where: { $0.kind == .topicVote && $0.id == "topic-vote:42" }))
+        XCTAssertLessThan(
+            snapshot.items.firstIndex(where: { $0.kind == .stats }) ?? .max,
+            snapshot.items.firstIndex(where: { $0.kind == .topicVote }) ?? .min
+        )
+    }
+
+    func testThreadLineStopsWhenNextReplyIsShallower() {
+        let original = makePost(id: 100, postNumber: 1, username: "alice")
+        let nestedReply = makePost(id: 200, postNumber: 2, username: "bob", replyToPostNumber: 1)
+        let shallowReply = makePost(id: 300, postNumber: 3, username: "carol", replyToPostNumber: 1)
+        let renderState = FireTopicDetailRenderState(
+            originalRow: makeTimelineRow(post: original, depth: 0, isOriginalPost: true),
+            replyRows: [
+                makeTimelineRow(post: nestedReply, parentPostNumber: 1, depth: 2),
+                makeTimelineRow(post: shallowReply, parentPostNumber: 1, depth: 1),
+            ],
+            contentByPostID: [
+                original.id: makeRenderContent("Original"),
+                nestedReply.id: makeRenderContent("Nested"),
+                shallowReply.id: makeRenderContent("Shallow"),
+            ]
+        )
+        let configuration = makeConfiguration(
+            detail: makeTopicDetail(posts: [original, nestedReply, shallowReply]),
+            renderState: renderState,
+            postLookup: [original.id: original, nestedReply.id: nestedReply, shallowReply.id: shallowReply]
+        )
+
+        let snapshot = configuration.makeSnapshot()
+        let nestedItem = snapshot.items.first { $0.id == "reply:200:2" }
+
+        XCTAssertEqual(nestedItem.flatMap(configuration.postContext(for:))?.showsThreadLine, false)
+    }
+
+    func testRenderSignatureIsStableAndContentSensitive() throws {
+        let image = FireCookedImage(
+            url: try XCTUnwrap(URL(string: "https://linux.do/uploads/default/original/1x/image.png")),
+            altText: "sample",
+            width: 120,
+            height: 80
+        )
+
+        let first = FireTopicPostRenderSignature.make(source: "<p>Hello</p>", imageAttachments: [image])
+        let second = FireTopicPostRenderSignature.make(source: "<p>Hello</p>", imageAttachments: [image])
+        let changedText = FireTopicPostRenderSignature.make(source: "<p>Hello!</p>", imageAttachments: [image])
+        let changedImages = FireTopicPostRenderSignature.make(source: "<p>Hello</p>", imageAttachments: [])
+
+        XCTAssertEqual(first, second)
+        XCTAssertEqual(first.token, second.token)
+        XCTAssertNotEqual(first, changedText)
+        XCTAssertNotEqual(first, changedImages)
+    }
+
+    func testItemsHaveSameRenderedContentMatchesOnlyEquivalentSnapshots() {
+        let item = makeRuntimeItem(contentToken: "render-a", replyIndex: 0)
+        let same = makeRuntimeItem(contentToken: "render-a", replyIndex: 0)
+        let changedToken = makeRuntimeItem(contentToken: "render-b", replyIndex: 0)
+        let changedReplyIndex = makeRuntimeItem(contentToken: "render-a", replyIndex: 1)
+
+        XCTAssertTrue(FireTopicDetailListViewController.itemsHaveSameRenderedContent([item], [same]))
+        XCTAssertFalse(FireTopicDetailListViewController.itemsHaveSameRenderedContent([item], [changedToken]))
+        XCTAssertFalse(FireTopicDetailListViewController.itemsHaveSameRenderedContent([item], [changedReplyIndex]))
+        XCTAssertFalse(FireTopicDetailListViewController.itemsHaveSameRenderedContent([item], [item, same]))
+    }
+
+    func testAnimatedUpdatePolicyAllowsOnlySmallIdleAttachedUpdates() {
+        XCTAssertTrue(FireTopicDetailListViewController.allowsAnimatedUpdate(
+            isViewAttached: true,
+            isScrollInteractionActive: false,
+            hasCurrentItems: true,
+            itemDelta: 4
+        ))
+        XCTAssertFalse(FireTopicDetailListViewController.allowsAnimatedUpdate(
+            isViewAttached: true,
+            isScrollInteractionActive: false,
+            hasCurrentItems: true,
+            itemDelta: 5
+        ))
+        XCTAssertTrue(FireTopicDetailListViewController.allowsAnimatedUpdate(
+            isViewAttached: true,
+            isScrollInteractionActive: false,
+            hasCurrentItems: true,
+            itemDelta: -4
+        ))
+        XCTAssertFalse(FireTopicDetailListViewController.allowsAnimatedUpdate(
+            isViewAttached: true,
+            isScrollInteractionActive: true,
+            hasCurrentItems: true,
+            itemDelta: 1
+        ))
+        XCTAssertFalse(FireTopicDetailListViewController.allowsAnimatedUpdate(
+            isViewAttached: false,
+            isScrollInteractionActive: false,
+            hasCurrentItems: true,
+            itemDelta: 1
+        ))
+        XCTAssertFalse(FireTopicDetailListViewController.allowsAnimatedUpdate(
+            isViewAttached: true,
+            isScrollInteractionActive: false,
+            hasCurrentItems: false,
+            itemDelta: 1
+        ))
     }
 
     func testImageRequestBuilderUsesSharedAvatarResolution() {
@@ -148,6 +269,20 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
         XCTAssertNil(screen.response.nextCursor)
     }
 
+    private func makeRuntimeItem(
+        contentToken: String,
+        replyIndex: Int?
+    ) -> FireTopicDetailRuntimeItem {
+        FireTopicDetailRuntimeItem(
+            id: "reply:200:2",
+            kind: .reply,
+            postID: 200,
+            postNumber: 2,
+            replyIndex: replyIndex,
+            contentToken: AnyHashable(contentToken)
+        )
+    }
+
     private func makeConfiguration(
         detail: TopicDetailState?,
         renderState: FireTopicDetailRenderState?,
@@ -156,6 +291,9 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
         isLoadingMoreTopicPosts: Bool = false
     ) -> FireTopicDetailRuntimeConfiguration {
         FireTopicDetailRuntimeConfiguration(
+            viewModel: nil,
+            displayedCategory: nil,
+            currentUsername: nil,
             row: makeTopicRow(),
             baseURLString: "https://linux.do",
             detail: detail,
@@ -249,7 +387,12 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
         )
     }
 
-    private func makeTopicDetail(posts: [TopicPostState]) -> TopicDetailState {
+    private func makeTopicDetail(
+        posts: [TopicPostState],
+        canVote: Bool = false,
+        voteCount: Int32 = 0,
+        userVoted: Bool = false
+    ) -> TopicDetailState {
         TopicDetailState(
             id: 42,
             messageBusLastId: nil,
@@ -269,9 +412,9 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
             bookmarkReminderAt: nil,
             acceptedAnswer: false,
             hasAcceptedAnswer: false,
-            canVote: false,
-            voteCount: 0,
-            userVoted: false,
+            canVote: canVote,
+            voteCount: voteCount,
+            userVoted: userVoted,
             summarizable: false,
             hasCachedSummary: false,
             hasSummary: false,
@@ -369,6 +512,11 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
     }
 
     private func makeRenderContent(_ plainText: String) -> FireTopicPostRenderContent {
-        FireTopicPostRenderContent(plainText: plainText, attributedText: nil, imageAttachments: [])
+        FireTopicPostRenderContent(
+            plainText: plainText,
+            attributedText: nil,
+            imageAttachments: [],
+            signature: FireTopicPostRenderSignature.make(source: plainText, imageAttachments: [])
+        )
     }
 }

@@ -242,7 +242,11 @@ struct FireTopicDetailCollectionView: View {
         return FireTopicPostRenderContent(
             plainText: plainText.isEmpty ? "加载中…" : plainText,
             attributedText: nil,
-            imageAttachments: []
+            imageAttachments: [],
+            signature: FireTopicPostRenderSignature.make(
+                source: plainText.isEmpty ? "加载中…" : plainText,
+                imageAttachments: []
+            )
         )
     }
 
@@ -772,8 +776,7 @@ struct FireTopicDetailCollectionView: View {
             return nil
         }
 
-        let contentHash = post.cooked.hashValue
-        let textContentID = "post:\(post.id)|hash:\(contentHash)|images:\(renderContent?.imageAttachments.count ?? 0)"
+        let textContentID = "post:\(post.id)|render:\(renderContent?.signature.token ?? "pending")"
         let imageSignature = renderContent?.imageAttachments.map(\.id) ?? []
         let hasReactions = !post.reactions.isEmpty
         let showsDivider = replyIndex != replyRows.count - 1
@@ -1377,7 +1380,7 @@ struct FireTopicDetailCollectionView: View {
         parts.append(post.username)
         parts.append(post.avatarTemplate ?? "")
         parts.append(post.createdAt ?? "")
-        parts.append(String(post.cooked.hashValue))
+        parts.append(renderContent?.signature.token ?? "pending")
         parts.append(String(post.replyCount))
         parts.append(String(post.replyToPostNumber ?? 0))
         parts.append(post.replyToUser?.username ?? "")
@@ -1395,7 +1398,7 @@ struct FireTopicDetailCollectionView: View {
         parts.append(String(reflecting: post.reactions))
         parts.append(String(reflecting: post.currentUserReaction))
         parts.append(String(reflecting: post.polls))
-        parts.append(String(renderContent?.plainText.hashValue ?? 0))
+        parts.append(String(renderContent?.plainText.utf8.count ?? 0))
         parts.append(imageToken)
         parts.append(String(isMutating))
         return parts.joined(separator: "\u{1F}")

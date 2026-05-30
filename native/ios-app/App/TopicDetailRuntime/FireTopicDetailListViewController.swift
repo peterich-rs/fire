@@ -1,5 +1,8 @@
 import IGListKit
+import SwiftUI
 import UIKit
+
+private let fireTopicDetailAnimatedUpdateItemDeltaLimit = 4
 
 @MainActor
 final class FireTopicDetailListViewController: UIViewController,
@@ -18,7 +21,10 @@ final class FireTopicDetailListViewController: UIViewController,
     private var currentItems: [FireTopicDetailRuntimeItem] = []
     private var currentObjects: [FireTopicDetailListObject] = []
     private var layoutCache: [FirePostCellLayoutKey: FirePostCellLayout] = [:]
+    private var hostedHeightCache: [FireTopicDetailHostedHeightKey: CGFloat] = [:]
     private var handledScrollTarget: UInt32?
+    private var lastPublishedVisiblePostNumbers: Set<UInt32> = []
+    private var lastLoadMoreProbe: (itemCount: Int, visibleMaxSection: Int)?
     private let imagePrefetchCoordinator = FireTopicImagePrefetchCoordinator()
 
     override func loadView() {
@@ -54,14 +60,54 @@ final class FireTopicDetailListViewController: UIViewController,
         self.configuration = configuration
 
         let runtimeSnapshot = configuration.makeSnapshot()
+        guard !Self.itemsHaveSameRenderedContent(runtimeSnapshot.items, currentItems) else {
+            handlePendingScrollTargetIfNeeded()
+            publishVisiblePostNumbersIfChanged()
+            return
+        }
+
+        let animated = shouldAnimateUpdate(to: runtimeSnapshot.items)
         currentItems = runtimeSnapshot.items
         currentObjects = runtimeSnapshot.items.map(FireTopicDetailListObject.init(item:))
+        lastLoadMoreProbe = nil
 
-        adapter.performUpdates(animated: true) { [weak self] _ in
+        adapter.performUpdates(animated: animated) { [weak self] _ in
             guard let self else { return }
-            self.publishVisiblePostNumbers()
+            self.publishVisiblePostNumbersIfChanged()
             self.handlePendingScrollTargetIfNeeded()
         }
+    }
+
+    nonisolated static func itemsHaveSameRenderedContent(
+        _ lhs: [FireTopicDetailRuntimeItem],
+        _ rhs: [FireTopicDetailRuntimeItem]
+    ) -> Bool {
+        lhs.count == rhs.count
+            && zip(lhs, rhs).allSatisfy { $0.hasSameRenderedContent(as: $1) }
+    }
+
+    nonisolated static func allowsAnimatedUpdate(
+        isViewAttached: Bool,
+        isScrollInteractionActive: Bool,
+        hasCurrentItems: Bool,
+        itemDelta: Int
+    ) -> Bool {
+        let absoluteItemDelta = abs(itemDelta)
+        return isViewAttached
+            && !isScrollInteractionActive
+            && hasCurrentItems
+            && absoluteItemDelta <= fireTopicDetailAnimatedUpdateItemDeltaLimit
+    }
+
+    private func shouldAnimateUpdate(to items: [FireTopicDetailRuntimeItem]) -> Bool {
+        Self.allowsAnimatedUpdate(
+            isViewAttached: collectionView.window != nil,
+            isScrollInteractionActive: collectionView.isDragging
+                || collectionView.isDecelerating
+                || collectionView.isTracking,
+            hasCurrentItems: !currentItems.isEmpty,
+            itemDelta: abs(items.count - currentItems.count)
+        )
     }
 
     // MARK: - ListAdapterDataSource
@@ -81,7 +127,7 @@ final class FireTopicDetailListViewController: UIViewController,
     // MARK: - ListAdapterUpdateListener
 
     func listAdapter(_ listAdapter: ListAdapter, didFinish update: IGListAdapterUpdateType, animated: Bool) {
-        publishVisiblePostNumbers()
+        publishVisiblePostNumbersIfChanged(force: true)
     }
 
     // MARK: - ListAdapterPerformanceDelegate
@@ -139,6 +185,16 @@ final class FireTopicDetailListViewController: UIViewController,
                 for: sectionController,
                 at: index
             )
+        }
+
+        if shouldUseHostedCell(for: item, configuration: configuration) {
+            let cell = collectionContext.dequeueReusableCell(
+                of: FireTopicDetailHostingCell.self,
+                for: sectionController,
+                at: index
+            ) as! FireTopicDetailHostingCell
+            cell.configure(configuration: configuration, item: item)
+            return cell
         }
 
         if let postContext = configuration.postContext(for: item),
@@ -208,6 +264,12 @@ final class FireTopicDetailListViewController: UIViewController,
         collectionContext: ListCollectionContext?
     ) -> CGSize {
         let width = collectionContext?.containerSize.width ?? collectionView.bounds.width
+        if let configuration, shouldUseHostedCell(for: item, configuration: configuration) {
+            return CGSize(
+                width: width,
+                height: hostedRowHeight(for: item, configuration: configuration, width: width)
+            )
+        }
         if let configuration,
            let context = configuration.postContext(for: item),
            let layout = layout(for: context, item: item, containerWidth: width) {
@@ -271,6 +333,51 @@ final class FireTopicDetailListViewController: UIViewController,
         )
     }
 
+    private func shouldUseHostedCell(
+        for item: FireTopicDetailRuntimeItem,
+        configuration: FireTopicDetailRuntimeConfiguration
+    ) -> Bool {
+        switch item.kind {
+        case .header, .aiSummary, .stats, .topicVote, .repliesHeader, .bodyState, .replyFooter, .notice:
+            return true
+        case .originalPost:
+            return true
+        case .reply:
+            return configuration.postContext(for: item)?.post.polls.isEmpty == false
+        }
+    }
+
+    private func hostedRowHeight(
+        for item: FireTopicDetailRuntimeItem,
+        configuration: FireTopicDetailRuntimeConfiguration,
+        width: CGFloat
+    ) -> CGFloat {
+        let resolvedWidth = max(width, 1)
+        let key = FireTopicDetailHostedHeightKey(
+            itemID: item.id,
+            contentToken: item.contentToken,
+            widthPixels: Int(resolvedWidth.rounded(.up)),
+            contentSizeCategory: traitCollection.preferredContentSizeCategory.rawValue,
+            userInterfaceStyle: traitCollection.userInterfaceStyle.rawValue
+        )
+        if let cached = hostedHeightCache[key] {
+            return cached
+        }
+
+        let colorScheme: ColorScheme = traitCollection.userInterfaceStyle == .dark ? .dark : .light
+        let controller = UIHostingController(
+            rootView: FireTopicDetailHostedRow(configuration: configuration, item: item)
+                .environment(\.colorScheme, colorScheme)
+        )
+        controller.view.backgroundColor = .clear
+        let measuredSize = controller.sizeThatFits(
+            in: CGSize(width: resolvedWidth, height: CGFloat.greatestFiniteMagnitude)
+        )
+        let height = ceil(max(measuredSize.height, estimatedHeight(for: item)))
+        hostedHeightCache[key] = height
+        return height
+    }
+
     private func layout(
         for context: FireTopicDetailRuntimePostContext,
         item: FireTopicDetailRuntimeItem,
@@ -289,7 +396,7 @@ final class FireTopicDetailListViewController: UIViewController,
             showsDivider: context.showsDivider,
             replyTargetPostNumber: context.replyTargetPostNumber,
             replyContext: context.replyContext,
-            textContentID: "post:\(context.post.id)|\(context.post.cooked.hashValue)|\(context.renderContent.imageAttachments.count)",
+            textContentID: "post:\(context.post.id)|render:\(context.renderContent.signature.token)",
             imageSignature: context.renderContent.imageAttachments.map(\.id),
             pollSignature: context.post.polls.map { UInt64(bitPattern: Int64($0.name.hashValue)) },
             hasReactions: !context.post.reactions.isEmpty,
@@ -335,8 +442,7 @@ final class FireTopicDetailListViewController: UIViewController,
         guard let configuration,
               let target = configuration.pendingScrollTarget,
               handledScrollTarget != target,
-              let item = configuration.scrollItem(for: target),
-              let section = currentItems.firstIndex(of: item) else {
+              let section = currentItems.firstIndex(where: { $0.postNumber == target }) else {
             return
         }
         handledScrollTarget = target
@@ -348,12 +454,16 @@ final class FireTopicDetailListViewController: UIViewController,
         configuration.onScrollTargetHandled(target)
     }
 
-    private func publishVisiblePostNumbers() {
+    private func publishVisiblePostNumbersIfChanged(force: Bool = false) {
         guard let configuration else { return }
         let postNumbers = Set(collectionView.indexPathsForVisibleItems.compactMap { indexPath -> UInt32? in
             guard indexPath.section < currentItems.count else { return nil }
             return currentItems[indexPath.section].postNumber
         })
+        guard force || postNumbers != lastPublishedVisiblePostNumbers else {
+            return
+        }
+        lastPublishedVisiblePostNumbers = postNumbers
         configuration.onVisiblePostNumbersChanged(postNumbers)
     }
 
@@ -365,6 +475,12 @@ final class FireTopicDetailListViewController: UIViewController,
             return
         }
         let visibleMaxSection = collectionView.indexPathsForVisibleItems.map(\.section).max() ?? 0
+        let probe = (itemCount: currentItems.count, visibleMaxSection: visibleMaxSection)
+        guard lastLoadMoreProbe?.itemCount != probe.itemCount
+            || lastLoadMoreProbe?.visibleMaxSection != probe.visibleMaxSection else {
+            return
+        }
+        lastLoadMoreProbe = probe
         if currentItems.count - visibleMaxSection <= 8 {
             configuration.onLoadMoreTopicPosts()
         }
@@ -406,15 +522,25 @@ final class FireTopicDetailListViewController: UIViewController,
         switch item.kind {
         case .header: 74
         case .aiSummary: 96
+        case .topicVote: 96
+        case .originalPost: 44
         case .stats, .repliesHeader, .replyFooter, .bodyState, .notice: 48
         default: 44
         }
     }
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
-        publishVisiblePostNumbers()
+        publishVisiblePostNumbersIfChanged()
         loadMoreIfNeeded()
     }
+}
+
+private struct FireTopicDetailHostedHeightKey: Hashable {
+    let itemID: String
+    let contentToken: AnyHashable
+    let widthPixels: Int
+    let contentSizeCategory: String
+    let userInterfaceStyle: Int
 }
 
 private final class FireTopicDetailListObject: NSObject, ListDiffable {
@@ -436,6 +562,7 @@ private final class FireTopicDetailListObject: NSObject, ListDiffable {
             && item.kind == other.item.kind
             && item.postID == other.item.postID
             && item.postNumber == other.item.postNumber
+            && item.replyIndex == other.item.replyIndex
             && item.contentToken == other.item.contentToken
     }
 }

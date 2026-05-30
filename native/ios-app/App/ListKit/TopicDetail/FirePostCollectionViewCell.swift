@@ -140,7 +140,7 @@ final class FirePostCollectionViewCell: UICollectionViewCell, UIGestureRecognize
         menuButton.accessibilityLabel = "帖子操作"
 
         metaStack.axis = .horizontal
-        metaStack.alignment = .center
+        metaStack.alignment = .firstBaseline
         metaStack.spacing = 6
         metaStack.addArrangedSubview(usernameLabel)
         metaStack.addArrangedSubview(replyContextButton)
@@ -217,7 +217,7 @@ final class FirePostCollectionViewCell: UICollectionViewCell, UIGestureRecognize
         timestampLabel.textColor = Self.tertiaryInkColor
         postNumberLabel.textColor = Self.tertiaryInkColor
         menuButton.tintColor = Self.tertiaryInkColor
-        replyIndicatorView.tintColor = replyTriggered ? .systemBlue : .tertiaryLabel
+        replyIndicatorView.tintColor = replyTriggered ? Self.accentTextColor : .tertiaryLabel
     }
 
     override func layoutSubviews() {
@@ -288,8 +288,9 @@ final class FirePostCollectionViewCell: UICollectionViewCell, UIGestureRecognize
         timestampLabel.accessibilityLabel = timestampLabel.text
         acceptedAnswerLabel.isHidden = !post.acceptedAnswer
         acceptedAnswerLabel.text = nil
+        acceptedAnswerLabel.attributedText = nil
         if post.acceptedAnswer {
-            acceptedAnswerLabel.text = "✓ 已采纳"
+            acceptedAnswerLabel.attributedText = acceptedAnswerAttributedText()
             acceptedAnswerLabel.accessibilityLabel = "已采纳"
         } else {
             acceptedAnswerLabel.accessibilityLabel = nil
@@ -313,7 +314,7 @@ final class FirePostCollectionViewCell: UICollectionViewCell, UIGestureRecognize
         if let textFrame = layout.textFrame, let attrText = payload.renderContent.attributedText, attrText.length > 0 {
             richTextContainer.isHidden = false
             richTextContainer.frame = textFrame
-            let contentID = "post:\(post.id)|hash:\(post.cooked.hashValue)|images:\(payload.renderContent.imageAttachments.count)"
+            let contentID = "post:\(post.id)|render:\(payload.renderContent.signature.token)"
             richTextContainer.configure(
                 attributedText: attrText,
                 contentID: contentID,
@@ -391,6 +392,7 @@ final class FirePostCollectionViewCell: UICollectionViewCell, UIGestureRecognize
         timestampLabel.accessibilityLabel = nil
         acceptedAnswerLabel.isHidden = true
         acceptedAnswerLabel.text = nil
+        acceptedAnswerLabel.attributedText = nil
         acceptedAnswerLabel.accessibilityLabel = nil
         postNumberLabel.text = nil
         postNumberLabel.accessibilityLabel = nil
@@ -628,19 +630,20 @@ final class FirePostCollectionViewCell: UICollectionViewCell, UIGestureRecognize
             let button = UIButton(type: .system)
             let symbolString = option.symbol
             let countString = "\(reaction.count)"
-            let title = "\(symbolString) \(countString)"
-            button.setTitle(title, for: .normal)
-
-            let fontSize: CGFloat = 14
-            let font = UIFont.systemFont(ofSize: fontSize, weight: isMine ? .semibold : .regular)
-            button.titleLabel?.font = font
+            var configuration = UIButton.Configuration.plain()
+            configuration.contentInsets = NSDirectionalEdgeInsets(top: 6, leading: 10, bottom: 6, trailing: 10)
+            button.configuration = configuration
             button.titleLabel?.adjustsFontForContentSizeCategory = true
+            button.setAttributedTitle(
+                reactionAttributedTitle(symbol: symbolString, count: countString, isMine: isMine),
+                for: .normal
+            )
 
             if isMine {
-                button.setTitleColor(.systemBlue, for: .normal)
-                button.backgroundColor = UIColor.systemBlue.withAlphaComponent(0.18)
+                button.setTitleColor(Self.accentTextColor, for: .normal)
+                button.backgroundColor = Self.accentTextColor.withAlphaComponent(0.18)
                 button.layer.borderWidth = 1
-                button.layer.borderColor = UIColor.systemBlue.withAlphaComponent(0.85).cgColor
+                button.layer.borderColor = Self.accentTextColor.withAlphaComponent(0.85).cgColor
             } else {
                 button.setTitleColor(.secondaryLabel, for: .normal)
                 button.backgroundColor = .tertiarySystemFill
@@ -649,9 +652,6 @@ final class FirePostCollectionViewCell: UICollectionViewCell, UIGestureRecognize
 
             button.layer.cornerRadius = 14
             button.layer.masksToBounds = true
-            var configuration = UIButton.Configuration.plain()
-            configuration.contentInsets = NSDirectionalEdgeInsets(top: 6, leading: 10, bottom: 6, trailing: 10)
-            button.configuration = configuration
             button.setContentCompressionResistancePriority(.required, for: .horizontal)
             button.setContentHuggingPriority(.required, for: .horizontal)
 
@@ -681,6 +681,58 @@ final class FirePostCollectionViewCell: UICollectionViewCell, UIGestureRecognize
             reactionStack.removeArrangedSubview(arrangedSubview)
             arrangedSubview.removeFromSuperview()
         }
+    }
+
+    private func acceptedAnswerAttributedText() -> NSAttributedString {
+        let font = acceptedAnswerLabel.font ?? UIFont.preferredFont(forTextStyle: .caption2)
+        let result = NSMutableAttributedString()
+
+        if let image = UIImage(
+            systemName: "checkmark.circle.fill",
+            withConfiguration: UIImage.SymbolConfiguration(font: font)
+        )?.withTintColor(.systemGreen, renderingMode: .alwaysOriginal) {
+            result.append(NSAttributedString(attachment: NSTextAttachment(image: image)))
+            result.append(NSAttributedString(string: " "))
+        }
+
+        result.append(NSAttributedString(
+            string: "已采纳",
+            attributes: [
+                .font: font,
+                .foregroundColor: UIColor.systemGreen,
+            ]
+        ))
+        return result
+    }
+
+    private func reactionAttributedTitle(
+        symbol: String,
+        count: String,
+        isMine: Bool
+    ) -> NSAttributedString {
+        let captionFont = UIFont.preferredFont(forTextStyle: .caption1)
+        let countFont = UIFontMetrics(forTextStyle: .caption1).scaledFont(
+            for: UIFont.monospacedDigitSystemFont(
+                ofSize: captionFont.pointSize,
+                weight: isMine ? .semibold : .regular
+            )
+        )
+        let color = isMine ? Self.accentTextColor : UIColor.secondaryLabel
+        let result = NSMutableAttributedString(
+            string: "\(symbol) ",
+            attributes: [
+                .font: captionFont,
+                .foregroundColor: color,
+            ]
+        )
+        result.append(NSAttributedString(
+            string: count,
+            attributes: [
+                .font: countFont,
+                .foregroundColor: color,
+            ]
+        ))
+        return result
     }
 
     // MARK: - Swipe to Reply

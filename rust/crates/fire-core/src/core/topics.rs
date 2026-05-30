@@ -1423,10 +1423,18 @@ fn normalized_response_row_page_size(page_size: u16) -> u16 {
 
 fn initial_topic_response_page_size(
     page_size: u16,
-    _focus_root_index: Option<usize>,
-    _total_root_count: usize,
+    focus_root_index: Option<usize>,
+    total_root_count: usize,
 ) -> u16 {
-    page_size
+    let default_page_size = usize::from(page_size);
+    let focused_page_size = focus_root_index
+        .map(|index| index.saturating_add(1))
+        .unwrap_or(default_page_size);
+    let requested_page_size = default_page_size
+        .max(focused_page_size)
+        .min(total_root_count.max(default_page_size))
+        .min(usize::from(u16::MAX));
+    u16::try_from(requested_page_size).unwrap_or(u16::MAX)
 }
 
 fn deduplicate_topic_posts_by_id(posts: Vec<TopicPost>) -> Vec<TopicPost> {
@@ -1629,10 +1637,10 @@ mod tests {
     }
 
     #[test]
-    fn initial_topic_response_page_size_stays_on_requested_root_page() {
+    fn initial_topic_response_page_size_expands_to_focused_root_without_changing_default() {
         assert_eq!(initial_topic_response_page_size(10, None, 100), 10);
         assert_eq!(initial_topic_response_page_size(10, Some(3), 100), 10);
-        assert_eq!(initial_topic_response_page_size(10, Some(12), 100), 10);
+        assert_eq!(initial_topic_response_page_size(10, Some(12), 100), 13);
         assert_eq!(initial_topic_response_page_size(10, Some(12), 8), 10);
     }
 

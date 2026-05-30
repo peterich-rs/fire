@@ -36,8 +36,8 @@ Implementation update (2026-05-30):
   collection controller under `App/TopicDetailRuntime/` with stable runtime
   items, section controllers, native post cells, explicit image prefetch
   coordination, and no repeated SwiftUI post rows.
-- `native/ios-app/project.yml` now links `libsqlite3.tbd` because the Rust
-  `rusqlite` store is linked into `libfire_uniffi.a`.
+- The Rust `fire-store` cache uses bundled `rusqlite` SQLite so iOS and Android
+  UniFFI builds do not depend on platform `libsqlite3` linker availability.
 
 ## Summary
 

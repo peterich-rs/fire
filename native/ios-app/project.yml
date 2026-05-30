@@ -57,7 +57,6 @@ targets:
       - sdk: Foundation.framework
       - sdk: CoreFoundation.framework
       - sdk: libiconv.tbd
-      - sdk: libsqlite3.tbd
       - package: CrashReporter
         product: CrashReporter
       - package: ConfettiSwiftUI

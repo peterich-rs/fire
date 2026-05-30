@@ -109,7 +109,6 @@
 		AFA0A6BA1AC5282B233D218F /* FireRecipientTokenField.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73775E8E299DC2577C64DC6E /* FireRecipientTokenField.swift */; };
 		B21E0A6B519EA414B836E4BE /* FireProfileTrustLevelPill.swift in Sources */ = {isa = PBXBuildFile; fileRef = F02D3C136EFF0589DC131FB9 /* FireProfileTrustLevelPill.swift */; };
 		B4AA77D05D86AB070BE06A93 /* FireNotificationStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 502CE714A74D91C33212BF57 /* FireNotificationStore.swift */; };
-		B60BA6BB8CA2D0C13005AE77 /* libsqlite3.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = 932B2F9C6DF9B6990773D937 /* libsqlite3.tbd */; };
 		BD294B1545CC5167CAB3620E /* fire_uniffi_search.swift in Sources */ = {isa = PBXBuildFile; fileRef = C37B06D0B580C355652E1934 /* fire_uniffi_search.swift */; };
 		BE531BCFF96A8C23E0180F6B /* FireLogDiagnosticsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 429B9F8B7087E197A8366D2D /* FireLogDiagnosticsView.swift */; };
 		C02B0FA4DC635EE4FF05F19F /* SessionState+Helpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5F3291447D7DA0AEF9AA413 /* SessionState+Helpers.swift */; };
@@ -239,7 +238,6 @@
 		9267FBC4BA4FD365E6F4E371 /* FireTopicDetailStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireTopicDetailStore.swift; sourceTree = "<group>"; };
 		92A16F4854521A901D87D1DD /* FireTagPickerSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireTagPickerSheet.swift; sourceTree = "<group>"; };
 		92C90A87682AF244F048541F /* FireNetworkDiagnosticsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireNetworkDiagnosticsView.swift; sourceTree = "<group>"; };
-		932B2F9C6DF9B6990773D937 /* libsqlite3.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libsqlite3.tbd; path = usr/lib/libsqlite3.tbd; sourceTree = SDKROOT; };
 		97B0FC401C941BC8F73B959A /* Fire-Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = "Fire-Release.xcconfig"; sourceTree = "<group>"; };
 		97E555B5E61F0CF3811D4091 /* FirePostRichTextContainerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FirePostRichTextContainerView.swift; sourceTree = "<group>"; };
 		97FFE2A260FE7B5682493795 /* FireNetworkTraceDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireNetworkTraceDetailView.swift; sourceTree = "<group>"; };
@@ -314,7 +312,6 @@
 				178E55B850EED60EE530A0F2 /* Foundation.framework in Frameworks */,
 				E67F86DADDE88559438DE849 /* CoreFoundation.framework in Frameworks */,
 				9726B24BBA832290EA063E8F /* libiconv.tbd in Frameworks */,
-				B60BA6BB8CA2D0C13005AE77 /* libsqlite3.tbd in Frameworks */,
 				A7657EA99808CEBE3F038176 /* CrashReporter in Frameworks */,
 				3E86B05D0E10C74BB865A0F9 /* ConfettiSwiftUI in Frameworks */,
 				2697DC8A389656A42CCEE78F /* IGListKit in Frameworks */,
@@ -600,7 +597,6 @@
 				08F96260D49AF4E41AB4739C /* CoreFoundation.framework */,
 				9B970247E0258DD4D4F34101 /* Foundation.framework */,
 				FD5A94769988E39B8BEA7B56 /* libiconv.tbd */,
-				932B2F9C6DF9B6990773D937 /* libsqlite3.tbd */,
 				E69013450F80AEC210D5512D /* Security.framework */,
 			);
 			name = Frameworks;

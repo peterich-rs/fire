@@ -22,7 +22,7 @@ pub(crate) fn run(connection: &Connection) -> Result<(), FireStoreError> {
     if current_version < 1 {
         connection.execute_batch(MIGRATION_1)?;
         connection.execute(
-            "INSERT INTO schema_migrations (version, applied_at_ms) VALUES (1, ?1)",
+            "INSERT OR IGNORE INTO schema_migrations (version, applied_at_ms) VALUES (1, ?1)",
             [now_ms()],
         )?;
     }
@@ -35,7 +35,7 @@ fn now_ms() -> i64 {
 }
 
 const MIGRATION_1: &str = r#"
-CREATE TABLE topic_posts (
+CREATE TABLE IF NOT EXISTS topic_posts (
     auth_scope_hash TEXT NOT NULL,
     post_id INTEGER NOT NULL,
     topic_id INTEGER NOT NULL,
@@ -59,10 +59,10 @@ CREATE TABLE topic_posts (
     PRIMARY KEY (auth_scope_hash, post_id)
 );
 
-CREATE INDEX topic_posts_by_topic
+CREATE INDEX IF NOT EXISTS topic_posts_by_topic
     ON topic_posts (auth_scope_hash, topic_id, post_number);
 
-CREATE TABLE topic_response_rows (
+CREATE TABLE IF NOT EXISTS topic_response_rows (
     auth_scope_hash TEXT NOT NULL,
     topic_id INTEGER NOT NULL,
     post_id INTEGER NOT NULL,
@@ -76,10 +76,10 @@ CREATE TABLE topic_response_rows (
     PRIMARY KEY (auth_scope_hash, topic_id, post_id)
 );
 
-CREATE INDEX topic_response_rows_by_preorder
+CREATE INDEX IF NOT EXISTS topic_response_rows_by_preorder
     ON topic_response_rows (auth_scope_hash, topic_id, preorder_index);
 
-CREATE TABLE post_render_blocks (
+CREATE TABLE IF NOT EXISTS post_render_blocks (
     auth_scope_hash TEXT NOT NULL,
     post_id INTEGER NOT NULL,
     render_revision TEXT NOT NULL,
@@ -92,7 +92,7 @@ CREATE TABLE post_render_blocks (
     PRIMARY KEY (auth_scope_hash, post_id)
 );
 
-CREATE TABLE topic_detail_snapshots (
+CREATE TABLE IF NOT EXISTS topic_detail_snapshots (
     auth_scope_hash TEXT NOT NULL,
     topic_id INTEGER NOT NULL,
     snapshot_revision INTEGER NOT NULL,
@@ -107,7 +107,7 @@ CREATE TABLE topic_detail_snapshots (
     PRIMARY KEY (auth_scope_hash, topic_id)
 );
 
-CREATE TABLE topic_detail_feed_items (
+CREATE TABLE IF NOT EXISTS topic_detail_feed_items (
     auth_scope_hash TEXT NOT NULL,
     topic_id INTEGER NOT NULL,
     ordinal INTEGER NOT NULL,
@@ -120,6 +120,6 @@ CREATE TABLE topic_detail_feed_items (
     PRIMARY KEY (auth_scope_hash, topic_id, ordinal)
 );
 
-CREATE UNIQUE INDEX topic_detail_feed_items_by_id
+CREATE UNIQUE INDEX IF NOT EXISTS topic_detail_feed_items_by_id
     ON topic_detail_feed_items (auth_scope_hash, topic_id, item_id);
 "#;

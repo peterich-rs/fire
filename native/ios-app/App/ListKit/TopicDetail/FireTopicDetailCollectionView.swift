@@ -77,6 +77,8 @@ private struct FireTopicDetailCollectionContentVersion: Hashable {
 }
 
 struct FireTopicDetailCollectionView: View {
+    private static let nextPageVisibleReplyThreshold = 8
+
     @Environment(\.colorScheme) private var colorScheme
     @StateObject private var layoutManager = FirePostLayoutManager()
     @State private var contentWidth: CGFloat?
@@ -102,6 +104,7 @@ struct FireTopicDetailCollectionView: View {
     let onLoadTopicDetail: () async -> Void
     let onScrollTargetHandled: (UInt32) -> Void
     let onPreloadTopicPosts: (Set<UInt32>) -> Void
+    let onLoadMoreTopicPosts: () -> Void
     let onReloadTopicAiSummary: () -> Void
     let onOpenComposer: (TopicPostState?) -> Void
     let onOpenPostNumber: (UInt32) -> Void
@@ -473,8 +476,10 @@ struct FireTopicDetailCollectionView: View {
             animatingDifferences: true,
             onVisibleItemsChanged: handleVisibleItemsChanged(_:),
             onPrefetchItems: handlePrefetchItems(_:),
+            onScrollMetricsChanged: handleScrollMetricsChanged(_:),
             onRefresh: onRefresh,
             onContentWidthChanged: handleContentWidthChanged(_:),
+            scrollAnchorRestorePolicy: .always,
             updatePolicy: .deferWhileScrolling,
             scrollRequest: scrollRequest,
             onScrollRequestCompleted: handleScrollRequestCompleted(_:),
@@ -517,6 +522,7 @@ struct FireTopicDetailCollectionView: View {
                 originalPostNumber: originalPost?.postNumber
             )
         )
+        loadMoreTopicPostsIfNeeded(for: items)
     }
 
     private func handlePrefetchItems(_ items: [FireTopicDetailCollectionItem]) {
@@ -526,6 +532,7 @@ struct FireTopicDetailCollectionView: View {
         )
         guard !postNumbers.isEmpty else { return }
         onPreloadTopicPosts(postNumbers)
+        loadMoreTopicPostsIfNeeded(for: items)
 
         // Enqueue layout calculation for prefetched reply items
         let replyIndexByPostID = makeReplyIndexByPostID()
@@ -544,6 +551,54 @@ struct FireTopicDetailCollectionView: View {
                 replyIndex: index
             )
         }
+    }
+
+    private func handleScrollMetricsChanged(_ metrics: FireCollectionScrollMetrics) {
+        guard shouldLoadMoreTopicPostsFromScrollMetrics(metrics) else {
+            return
+        }
+        onLoadMoreTopicPosts()
+    }
+
+    private func loadMoreTopicPostsIfNeeded(for items: [FireTopicDetailCollectionItem]) {
+        guard shouldLoadMoreTopicPosts(for: items) else {
+            return
+        }
+        onLoadMoreTopicPosts()
+    }
+
+    private func shouldLoadMoreTopicPosts(for items: [FireTopicDetailCollectionItem]) -> Bool {
+        guard detail != nil,
+              hasMoreTopicPosts,
+              !isLoadingMoreTopicPosts else {
+            return false
+        }
+
+        let replyIndexByPostID = makeReplyIndexByPostID()
+        let maxVisibleReplyIndex = items.compactMap { item -> Int? in
+            guard case let .reply(key) = item else {
+                return nil
+            }
+            return replyIndexByPostID[key.postID]
+        }.max()
+
+        guard let maxVisibleReplyIndex else {
+            return false
+        }
+
+        return replyRows.count - maxVisibleReplyIndex <= Self.nextPageVisibleReplyThreshold + 1
+    }
+
+    private func shouldLoadMoreTopicPostsFromScrollMetrics(_ metrics: FireCollectionScrollMetrics) -> Bool {
+        guard detail != nil,
+              hasMoreTopicPosts,
+              !isLoadingMoreTopicPosts,
+              metrics.contentHeight > 0 else {
+            return false
+        }
+
+        let threshold = max(metrics.visibleHeight * 1.25, 480)
+        return metrics.remainingDistanceToBottom <= threshold
     }
 
     private func handleContentWidthChanged(_ width: CGFloat) {

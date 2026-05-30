@@ -43,7 +43,8 @@ struct FireTabRoot: View {
 
                     FireNotificationsView(
                         appViewModel: viewModel,
-                        notificationStore: notificationStore
+                        notificationStore: notificationStore,
+                        isActive: navigationState.selectedTab == 1
                     )
                     .tabItem {
                         Label("通知", systemImage: "bell")
@@ -51,11 +52,15 @@ struct FireTabRoot: View {
                     .badge(notificationStore.unreadCount)
                     .tag(1)
 
-                    FireProfileView(viewModel: viewModel, profileViewModel: profileViewModel)
-                        .tabItem {
-                            Label("我的", systemImage: "person")
-                        }
-                        .tag(2)
+                    FireProfileView(
+                        viewModel: viewModel,
+                        profileViewModel: profileViewModel,
+                        isActive: navigationState.selectedTab == 2
+                    )
+                    .tabItem {
+                        Label("我的", systemImage: "person")
+                    }
+                    .tag(2)
                 }
                 .tint(FireTheme.accent)
                 .toolbar(.visible, for: .tabBar)
@@ -95,10 +100,6 @@ struct FireTabRoot: View {
             if isAuthenticated {
                 await FirePushRegistrationCoordinator.shared.ensurePushRegistration()
                 selectTabForPendingRouteIfReady(navigationState.pendingRoute)
-                FireStartupPreloadCoordinator(
-                    profile: profileViewModel,
-                    notifications: notificationStore
-                ).preloadOffScreenTabs()
             } else {
                 FireBackgroundNotificationAlertScheduler.cancelRefresh()
             }

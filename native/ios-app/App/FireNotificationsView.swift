@@ -192,6 +192,7 @@ extension NotificationItemState {
 struct FireNotificationsView: View {
     let appViewModel: FireAppViewModel
     @ObservedObject var notificationStore: FireNotificationStore
+    let isActive: Bool
     @State private var selectedRoute: FireAppRoute?
 
     private var baseURLString: String {
@@ -242,7 +243,10 @@ struct FireNotificationsView: View {
                 }
             }
         }
-        .task {
+        .task(id: isActive) {
+            guard isActive, !notificationStore.hasLoadedRecentOnce else {
+                return
+            }
             await notificationStore.loadRecent(force: false)
         }
     }

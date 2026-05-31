@@ -64,7 +64,18 @@ final class FireTopicDetailListViewController: UIViewController,
     }
 
     func update(configuration: FireTopicDetailRuntimeConfiguration) {
+        let previousInvalidationToken = self.configuration?.snapshotInvalidationToken
         self.configuration = configuration
+
+        if Self.canReuseCurrentSnapshot(
+            previousInvalidationToken: previousInvalidationToken,
+            nextInvalidationToken: configuration.snapshotInvalidationToken,
+            hasCurrentItems: !currentItems.isEmpty
+        ) {
+            handlePendingScrollTargetIfNeeded()
+            publishVisiblePostNumbersIfChanged()
+            return
+        }
 
         let runtimeSnapshot = configuration.makeSnapshot()
         guard !Self.itemsHaveSameRenderedContent(runtimeSnapshot.items, currentItems) else {
@@ -80,7 +91,7 @@ final class FireTopicDetailListViewController: UIViewController,
         prewarmLayouts(
             for: runtimeSnapshot.items,
             configuration: configuration,
-            containerWidth: collectionView.bounds.width
+            containerWidth: layoutContentWidth()
         )
 
         adapter.performUpdates(animated: animated) { [weak self] _ in
@@ -96,6 +107,14 @@ final class FireTopicDetailListViewController: UIViewController,
     ) -> Bool {
         lhs.count == rhs.count
             && zip(lhs, rhs).allSatisfy { $0.hasSameRenderedContent(as: $1) }
+    }
+
+    nonisolated static func canReuseCurrentSnapshot(
+        previousInvalidationToken: AnyHashable?,
+        nextInvalidationToken: AnyHashable,
+        hasCurrentItems: Bool
+    ) -> Bool {
+        hasCurrentItems && previousInvalidationToken == nextInvalidationToken
     }
 
     nonisolated static func allowsAnimatedUpdate(
@@ -213,8 +232,9 @@ final class FireTopicDetailListViewController: UIViewController,
             return cell
         }
 
+        let contentWidth = layoutContentWidth(proposedWidth: collectionContext.containerSize.width)
         if let postContext = configuration.postContext(for: item),
-           let layout = layout(for: postContext, item: item, containerWidth: collectionContext.containerSize.width) {
+           let layout = layout(for: postContext, item: item, containerWidth: contentWidth) {
             let cell = collectionContext.dequeueReusableCell(
                 of: FirePostTextureCell.self,
                 for: sectionController,
@@ -231,6 +251,7 @@ final class FireTopicDetailListViewController: UIViewController,
                     replyContext: postContext.replyContext,
                     replyTargetPostNumber: postContext.replyTargetPostNumber,
                     replyShortcutCount: postContext.replyShortcutCount,
+                    isLoadingReplyContext: postContext.isLoadingReplyContext,
                     textExpansionState: postContext.textExpansionState,
                     showsDivider: postContext.showsDivider
                 ),
@@ -281,7 +302,7 @@ final class FireTopicDetailListViewController: UIViewController,
         for item: FireTopicDetailRuntimeItem,
         collectionContext: ListCollectionContext?
     ) -> CGSize {
-        let width = collectionContext?.containerSize.width ?? collectionView.bounds.width
+        let width = layoutContentWidth(proposedWidth: collectionContext?.containerSize.width)
         if let configuration, shouldUseHostedCell(for: item, configuration: configuration) {
             return CGSize(
                 width: width,
@@ -294,6 +315,16 @@ final class FireTopicDetailListViewController: UIViewController,
             return CGSize(width: width, height: layout.totalHeight)
         }
         return CGSize(width: width, height: estimatedHeight(for: item))
+    }
+
+    private func layoutContentWidth(proposedWidth: CGFloat? = nil) -> CGFloat {
+        let adjustedBoundsWidth = collectionView.bounds.width
+            - collectionView.adjustedContentInset.left
+            - collectionView.adjustedContentInset.right
+        if adjustedBoundsWidth > 0 {
+            return adjustedBoundsWidth
+        }
+        return max(proposedWidth ?? collectionView.bounds.width, 1)
     }
 
     private func configureTextCell(
@@ -417,7 +448,7 @@ final class FireTopicDetailListViewController: UIViewController,
         item: FireTopicDetailRuntimeItem,
         containerWidth: CGFloat
     ) -> FirePostCellLayoutKey? {
-        let width = containerWidth - collectionView.adjustedContentInset.left - collectionView.adjustedContentInset.right
+        let width = containerWidth
         guard width > 0 else { return nil }
         let trait = FirePostLayoutTraitSignature(
             contentWidthPixels: Int(width.rounded()),
@@ -524,8 +555,6 @@ final class FireTopicDetailListViewController: UIViewController,
         guard isViewLoaded else { return }
         if isScrollInteractionActive {
             pendingIdleLayoutRebind = true
-            collectionView.collectionViewLayout.invalidateLayout()
-            collectionView.setNeedsLayout()
             return
         }
 
@@ -552,7 +581,7 @@ final class FireTopicDetailListViewController: UIViewController,
             let item = currentItems[indexPath.section]
             guard !shouldUseHostedCell(for: item, configuration: configuration),
                   let context = configuration.postContext(for: item),
-                  let key = layoutKey(for: context, item: item, containerWidth: collectionView.bounds.width),
+                  let key = layoutKey(for: context, item: item, containerWidth: layoutContentWidth()),
                   let layout = layoutManager.layout(forKey: key) else {
                 continue
             }
@@ -567,6 +596,7 @@ final class FireTopicDetailListViewController: UIViewController,
                     replyContext: context.replyContext,
                     replyTargetPostNumber: context.replyTargetPostNumber,
                     replyShortcutCount: context.replyShortcutCount,
+                    isLoadingReplyContext: context.isLoadingReplyContext,
                     textExpansionState: context.textExpansionState,
                     showsDivider: context.showsDivider
                 ),
@@ -640,7 +670,7 @@ final class FireTopicDetailListViewController: UIViewController,
         prewarmLayouts(
             for: items,
             configuration: configuration,
-            containerWidth: collectionView.bounds.width
+            containerWidth: layoutContentWidth()
         )
 
         let postNumbers = Set(items.compactMap(\.postNumber))

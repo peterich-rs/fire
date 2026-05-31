@@ -417,21 +417,26 @@ final class FirePostCollectionViewCell: UICollectionViewCell, UIGestureRecognize
            let replyShortcutCount = payload.replyShortcutCount {
             replyShortcutButton.frame = replyShortcutFrame
             replyShortcutButton.isHidden = false
-            let title = replyShortcutCount > 0
-                ? "查看更多 \(replyShortcutCount) 条回复"
-                : "查看更多回复"
+            replyShortcutButton.isEnabled = !payload.isLoadingReplyContext
+            let title = payload.isLoadingReplyContext
+                ? "正在加载回复..."
+                : (replyShortcutCount > 0
+                    ? "查看更多 \(replyShortcutCount) 条回复"
+                    : "查看更多回复")
             replyShortcutButton.setTitle(title, for: .normal)
             replyShortcutButton.accessibilityLabel = title
             replyShortcutButton.addAction(UIAction(identifier: Self.replyShortcutActionID) { [weak self] _ in
                 guard let self,
                       let payload = self.currentPayload,
-                      let callbacks = self.currentCallbacks else {
+                      let callbacks = self.currentCallbacks,
+                      !payload.isLoadingReplyContext else {
                     return
                 }
                 callbacks.onOpenReplies(payload.post)
             }, for: .touchUpInside)
         } else {
             replyShortcutButton.isHidden = true
+            replyShortcutButton.isEnabled = true
             replyShortcutButton.frame = .zero
             replyShortcutButton.setTitle(nil, for: .normal)
         }
@@ -519,6 +524,7 @@ final class FirePostCollectionViewCell: UICollectionViewCell, UIGestureRecognize
         pollContainerView.frame = .zero
         replyShortcutButton.removeAction(identifiedBy: Self.replyShortcutActionID, for: .touchUpInside)
         replyShortcutButton.isHidden = true
+        replyShortcutButton.isEnabled = true
         replyShortcutButton.frame = .zero
         replyShortcutButton.setTitle(nil, for: .normal)
 

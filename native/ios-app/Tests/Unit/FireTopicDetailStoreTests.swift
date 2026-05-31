@@ -373,6 +373,49 @@ final class FireTopicDetailStoreTests: XCTestCase {
         XCTAssertNil(finalState.cookies.csrfToken)
     }
 
+    func testReplyContextRowsAppendMissingNestedRepliesWithDepth() {
+        let root = makePost(postNumber: 2, replyToPostNumber: 1, username: "root")
+        let sibling = makePost(postNumber: 5, replyToPostNumber: 1, username: "sibling")
+        let existingRows = [
+            TopicResponseRowState(
+                post: root,
+                rootPostNumber: 1,
+                parentPostNumber: 1,
+                depth: 1,
+                preorderIndex: 1,
+                hasChildren: false,
+                descendantCount: 0,
+                siblingIndex: 0,
+                isLastSibling: false
+            ),
+            TopicResponseRowState(
+                post: sibling,
+                rootPostNumber: 1,
+                parentPostNumber: 1,
+                depth: 1,
+                preorderIndex: 2,
+                hasChildren: false,
+                descendantCount: 0,
+                siblingIndex: 1,
+                isLastSibling: true
+            ),
+        ]
+        let child = makePost(postNumber: 3, replyToPostNumber: 2, username: "child")
+        let grandchild = makePost(postNumber: 4, replyToPostNumber: 3, username: "grandchild")
+
+        let merged = FireTopicDetailStore.mergeReplyContextResponseRows(
+            existingRows: existingRows,
+            bodyPostNumber: 1,
+            rootPost: root,
+            contextPosts: [grandchild, child]
+        )
+
+        XCTAssertEqual(merged.map { $0.post.postNumber }, [2, 5, 3, 4])
+        XCTAssertEqual(merged.map(\.depth), [1, 1, 2, 3] as [UInt16])
+        XCTAssertEqual(merged.suffix(2).map(\.parentPostNumber), [2, 3] as [UInt32?])
+        XCTAssertEqual(merged.suffix(2).map(\.rootPostNumber), [1, 1] as [UInt32])
+    }
+
     private func makeResponseRow(
         postNumber: UInt32,
         parentPostNumber: UInt32?,

@@ -573,6 +573,38 @@ struct FireTopicDetailView: View {
         topicDetailStore.topicCollectionRevision(topicId: topic.id)
     }
 
+    private var detailRuntimeSnapshotInvalidationToken: AnyHashable {
+        let pendingScrollToken = pendingScrollTarget.map { String($0) } ?? ""
+        let expandedPostTextToken = expandedPostTextIDs
+            .sorted()
+            .map { String($0) }
+            .joined(separator: ",")
+        let expandedReplyRootToken = expandedReplyRootPostIDs
+            .sorted()
+            .map { String($0) }
+            .joined(separator: ",")
+        let loadingReplyContextToken = topicDetailStore.loadingPostReplyContextIDs
+            .sorted()
+            .map { String($0) }
+            .joined(separator: ",")
+        let parts: [String] = [
+            String(topic.id),
+            String(topicCollectionRevision),
+            pendingScrollToken,
+            detailError ?? "",
+            String(detail != nil),
+            String(isLoadingTopic),
+            String(isLoadingMoreTopicPosts),
+            String(canWriteInteractions),
+            viewModel.session.bootstrap.currentUsername ?? "",
+            baseURLString,
+            expandedPostTextToken,
+            expandedReplyRootToken,
+            loadingReplyContextToken,
+        ]
+        return AnyHashable(parts.joined(separator: "\u{1F}"))
+    }
+
     private var nonHeartReactionOptions: [FireReactionOption] {
         reactionOptions.filter { $0.id != "heart" }
     }
@@ -710,9 +742,11 @@ struct FireTopicDetailView: View {
                 topicCollectionRevision: topicCollectionRevision,
                 canWriteInteractions: canWriteInteractions,
                 postLookup: postLookup,
+                snapshotInvalidationToken: detailRuntimeSnapshotInvalidationToken,
                 isMutatingPost: { topicDetailStore.isMutatingPost(postId: $0) },
                 isPostTextExpanded: { expandedPostTextIDs.contains($0) },
                 isReplyThreadExpanded: { expandedReplyRootPostIDs.contains($0) },
+                isLoadingPostReplyContext: { topicDetailStore.isLoadingPostReplyContext(postID: $0) },
                 onVisiblePostNumbersChanged: handleVisiblePostNumbersChanged(_:),
                 onRefresh: {
                     timingTracker.recordInteraction()
@@ -742,6 +776,12 @@ struct FireTopicDetailView: View {
                 onOpenPostNumber: openPostNumber(_:),
                 onOpenPostReplies: { post in
                     expandedReplyRootPostIDs.insert(post.id)
+                    Task {
+                        await topicDetailStore.loadPostReplyContextIfNeeded(
+                            topicID: topic.id,
+                            post: post
+                        )
+                    }
                 },
                 onLinkTapped: handleRichTextLink,
                 onOpenImage: { selectedImage = $0 },

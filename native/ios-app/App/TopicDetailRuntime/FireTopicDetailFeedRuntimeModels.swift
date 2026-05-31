@@ -86,6 +86,7 @@ struct FireTopicDetailRuntimePostContext {
     let showsThreadLine: Bool
     let showsDivider: Bool
     let replyShortcutCount: UInt32?
+    let isLoadingReplyContext: Bool
     let textExpansionState: FirePostTextExpansionState
 }
 
@@ -126,9 +127,11 @@ struct FireTopicDetailRuntimeConfiguration {
     let topicCollectionRevision: UInt64
     let canWriteInteractions: Bool
     let postLookup: [UInt64: TopicPostState]
+    let snapshotInvalidationToken: AnyHashable
     let isMutatingPost: (UInt64) -> Bool
     let isPostTextExpanded: (UInt64) -> Bool
     let isReplyThreadExpanded: (UInt64) -> Bool
+    let isLoadingPostReplyContext: (UInt64) -> Bool
     let onVisiblePostNumbersChanged: (Set<UInt32>) -> Void
     let onRefresh: () async -> Void
     let onLoadTopicDetail: () async -> Void
@@ -386,6 +389,7 @@ struct FireTopicDetailRuntimeConfiguration {
                 let post = postLookup[row.entry.postId]
                 let renderContent = renderState?.contentByPostID[row.entry.postId]
                 let textExpansionToken = post.map { String(isPostTextExpanded($0.id)) } ?? "missing"
+                let replyContextLoadingToken = post.map { String(isLoadingPostReplyContext($0.id)) } ?? "missing"
                 items.append(.init(
                     id: "reply:\(row.entry.postId):\(row.entry.postNumber)",
                     kind: .reply,
@@ -402,6 +406,7 @@ struct FireTopicDetailRuntimeConfiguration {
                         String(displayedRow.showsDivider),
                         displayedRow.replyShortcutCount.map(String.init) ?? "",
                         textExpansionToken,
+                        replyContextLoadingToken,
                     ].joined(separator: "\u{1F}"))
                 ))
             }
@@ -413,7 +418,7 @@ struct FireTopicDetailRuntimeConfiguration {
                     postID: nil,
                     postNumber: nil,
                     replyIndex: nil,
-                    contentToken: AnyHashable("\(String(reflecting: replyFooterState))")
+                    contentToken: AnyHashable(replyFooterState.contentToken)
                 ))
             }
         }
@@ -437,6 +442,7 @@ struct FireTopicDetailRuntimeConfiguration {
                 showsThreadLine: false,
                 showsDivider: true,
                 replyShortcutCount: nil,
+                isLoadingReplyContext: false,
                 textExpansionState: .disabled
             )
 
@@ -467,6 +473,7 @@ struct FireTopicDetailRuntimeConfiguration {
                 showsThreadLine: item.replyShowsThreadLine,
                 showsDivider: item.replyShowsDivider,
                 replyShortcutCount: item.replyShortcutCount,
+                isLoadingReplyContext: isLoadingPostReplyContext(post.id),
                 textExpansionState: FirePostTextExpansionState(
                     isCollapsible: true,
                     isExpanded: isPostTextExpanded(post.id)
@@ -665,9 +672,9 @@ struct FireTopicDetailRuntimeConfiguration {
         parts.append(renderContent?.signature.token ?? "pending")
         parts.append(String(post.likeCount))
         parts.append(String(post.replyCount))
-        parts.append(String(reflecting: post.reactions))
+        parts.append(Self.reactionsContentToken(post.reactions))
         parts.append(post.currentUserReaction?.id ?? "")
-        parts.append(String(reflecting: post.polls))
+        parts.append(Self.pollsContentToken(post.polls))
         parts.append(String(post.acceptedAnswer))
         parts.append(String(post.canEdit))
         parts.append(String(post.canDelete))
@@ -680,6 +687,38 @@ struct FireTopicDetailRuntimeConfiguration {
         parts.append(String(canWriteInteractions))
         parts.append(String(isMutatingPost(post.id)))
         return parts.joined(separator: "\u{1F}")
+    }
+
+    private static func reactionsContentToken(_ reactions: [TopicReactionState]) -> String {
+        reactions.map { reaction in
+            [
+                reaction.id,
+                reaction.kind ?? "",
+                String(reaction.count),
+                reaction.canUndo.map { String($0) } ?? "",
+            ].joined(separator: "\u{1E}")
+        }.joined(separator: "\u{1D}")
+    }
+
+    private static func pollsContentToken(_ polls: [PollState]) -> String {
+        polls.map { poll in
+            [
+                String(poll.id),
+                poll.name,
+                poll.kind,
+                poll.status,
+                poll.results,
+                String(poll.voters),
+                poll.userVotes.joined(separator: "\u{1C}"),
+                poll.options.map { option in
+                    [
+                        option.id,
+                        option.html,
+                        String(option.votes),
+                    ].joined(separator: "\u{1B}")
+                }.joined(separator: "\u{1A}"),
+            ].joined(separator: "\u{1E}")
+        }.joined(separator: "\u{1D}")
     }
 
     private func showsTimelineThreadLine(at index: Int) -> Bool {
@@ -706,4 +745,17 @@ enum FireTopicDetailRuntimeReplyFooterState: Equatable {
     case loadMore
     case loadingFooter
     case empty
+
+    var contentToken: String {
+        switch self {
+        case .none:
+            return "none"
+        case .loadMore:
+            return "loadMore"
+        case .loadingFooter:
+            return "loadingFooter"
+        case .empty:
+            return "empty"
+        }
+    }
 }

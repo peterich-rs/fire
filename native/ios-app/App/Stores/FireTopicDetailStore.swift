@@ -1097,11 +1097,31 @@ final class FireTopicDetailStore: ObservableObject {
 
             let refreshedPosts = replies + replyHistory
             if !refreshedPosts.isEmpty {
-                await applyHydratedTopicPostsIfNeeded(
+                if let responseRows = applyReplyContextRowsIfPossible(
                     topicId: topicID,
-                    posts: refreshedPosts,
-                    exhaustedPostIDs: []
-                )
+                    rootPost: post,
+                    contextPosts: refreshedPosts
+                ), let screen = topicScreens[topicID] {
+                    let detail = rebuildTopicDetail(
+                        screen: screen,
+                        responseRows: responseRows,
+                        topicId: topicID
+                    )
+                    await buildTopicScreenRenderUpdate(
+                        detail: detail,
+                        screen: screen,
+                        responseRows: responseRows,
+                        appendedRows: nil,
+                        topicId: topicID,
+                        clearsLoadingMore: false
+                    )
+                } else {
+                    await applyHydratedTopicPostsIfNeeded(
+                        topicId: topicID,
+                        posts: refreshedPosts,
+                        exhaustedPostIDs: []
+                    )
+                }
             }
         } catch {
             if await appViewModel.handleRecoverableSessionErrorIfNeeded(error) {
@@ -1109,6 +1129,112 @@ final class FireTopicDetailStore: ObservableObject {
             }
             postReplyContextErrorsByPostID[post.id] = error.localizedDescription
         }
+    }
+
+    private func applyReplyContextRowsIfPossible(
+        topicId: UInt64,
+        rootPost: TopicPostState,
+        contextPosts: [TopicPostState]
+    ) -> [TopicResponseRowState]? {
+        guard var screen = topicScreens[topicId] else {
+            return nil
+        }
+
+        let existingRows = topicResponseRowsByTopic[topicId] ?? screen.response.rows
+        let mergedRows = Self.mergeReplyContextResponseRows(
+            existingRows: existingRows,
+            bodyPostNumber: screen.body.post.postNumber,
+            rootPost: rootPost,
+            contextPosts: contextPosts
+        )
+        guard mergedRows != existingRows else {
+            return nil
+        }
+
+        screen.response.rows = mergedRows
+        topicScreens[topicId] = screen
+        topicResponseRowsByTopic[topicId] = mergedRows
+        return mergedRows
+    }
+
+    nonisolated static func mergeReplyContextResponseRows(
+        existingRows: [TopicResponseRowState],
+        bodyPostNumber: UInt32,
+        rootPost: TopicPostState,
+        contextPosts: [TopicPostState]
+    ) -> [TopicResponseRowState] {
+        guard !contextPosts.isEmpty else {
+            return existingRows
+        }
+
+        var rows = existingRows
+        var rowIndexByPostID: [UInt64: Int] = [:]
+        var rowByPostNumber: [UInt32: TopicResponseRowState] = [:]
+        rowIndexByPostID.reserveCapacity(existingRows.count + contextPosts.count)
+        rowByPostNumber.reserveCapacity(existingRows.count + contextPosts.count)
+        for (index, row) in rows.enumerated() {
+            rowIndexByPostID[row.post.id] = index
+            rowByPostNumber[row.post.postNumber] = row
+        }
+
+        let rootRow = rowByPostNumber[rootPost.postNumber]
+        let fallbackRootPostNumber = rootRow?.rootPostNumber
+            ?? rootPost.replyToPostNumber
+            ?? bodyPostNumber
+        let fallbackRootDepth = rootRow?.depth ?? (rootPost.postNumber == bodyPostNumber ? 0 : 1)
+        var nextPreorderIndex = (rows.map(\.preorderIndex).max() ?? 0) + 1
+        var nextSiblingIndexByParent = Dictionary(
+            grouping: rows,
+            by: { $0.parentPostNumber ?? bodyPostNumber }
+        ).mapValues(\.count)
+
+        let orderedContextPosts = FireTopicPresentation.uniqueTopicPostsPreservingOrder(contextPosts)
+            .filter { post in
+                post.id != rootPost.id && post.postNumber != bodyPostNumber
+            }
+            .sorted { lhs, rhs in
+                if lhs.postNumber == rhs.postNumber {
+                    return lhs.id < rhs.id
+                }
+                return lhs.postNumber < rhs.postNumber
+            }
+
+        let childCountsByParent = Dictionary(
+            grouping: orderedContextPosts,
+            by: { $0.replyToPostNumber ?? rootPost.postNumber }
+        ).mapValues(\.count)
+
+        for post in orderedContextPosts {
+            if let existingIndex = rowIndexByPostID[post.id] {
+                rows[existingIndex].post = post
+                rowByPostNumber[post.postNumber] = rows[existingIndex]
+                continue
+            }
+
+            let parentPostNumber = post.replyToPostNumber ?? rootPost.postNumber
+            let parentRow = rowByPostNumber[parentPostNumber]
+            let depth = parentRow.map { Int($0.depth) + 1 } ?? Int(fallbackRootDepth) + 1
+            let rootPostNumber = parentRow?.rootPostNumber ?? fallbackRootPostNumber
+            let siblingIndex = nextSiblingIndexByParent[parentPostNumber, default: 0]
+            nextSiblingIndexByParent[parentPostNumber] = siblingIndex + 1
+            let row = TopicResponseRowState(
+                post: post,
+                rootPostNumber: rootPostNumber,
+                parentPostNumber: parentPostNumber,
+                depth: UInt16(clamping: depth),
+                preorderIndex: nextPreorderIndex,
+                hasChildren: (childCountsByParent[post.postNumber] ?? 0) > 0,
+                descendantCount: post.replyCount,
+                siblingIndex: UInt16(clamping: siblingIndex),
+                isLastSibling: true
+            )
+            nextPreorderIndex += 1
+            rowIndexByPostID[post.id] = rows.count
+            rowByPostNumber[post.postNumber] = row
+            rows.append(row)
+        }
+
+        return FireTopicPresentation.uniqueResponseRowsPreservingOrder(rows)
     }
 
     private func fetchReplyContextReplies(

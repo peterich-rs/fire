@@ -227,6 +227,38 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
         XCTAssertNil(replyItems.first?.replyShortcutCount)
     }
 
+    func testReplyShortcutLoadingStateChangesRenderedContent() {
+        let original = makePost(id: 100, postNumber: 1, username: "alice")
+        let rootReply = makePost(id: 200, postNumber: 2, username: "bob", replyCount: 2, replyToPostNumber: 1)
+        let renderState = FireTopicDetailRenderState(
+            originalRow: makeTimelineRow(post: original, depth: 0, isOriginalPost: true),
+            replyRows: [makeTimelineRow(post: rootReply, parentPostNumber: 1, depth: 1)],
+            contentByPostID: [
+                original.id: makeRenderContent("Original"),
+                rootReply.id: makeRenderContent("Root"),
+            ]
+        )
+        let detail = makeTopicDetail(posts: [original, rootReply])
+        let idle = makeConfiguration(
+            detail: detail,
+            renderState: renderState,
+            postLookup: [original.id: original, rootReply.id: rootReply]
+        )
+        let loading = makeConfiguration(
+            detail: detail,
+            renderState: renderState,
+            postLookup: [original.id: original, rootReply.id: rootReply],
+            loadingReplyContextPostIDs: [rootReply.id]
+        )
+
+        let idleItem = idle.makeSnapshot().items.first { $0.kind == .reply }
+        let loadingItem = loading.makeSnapshot().items.first { $0.kind == .reply }
+
+        XCTAssertEqual(idleItem?.replyShortcutCount, 2)
+        XCTAssertEqual(loading.postContext(for: loadingItem!)?.isLoadingReplyContext, true)
+        XCTAssertFalse(FireTopicDetailListViewController.itemsHaveSameRenderedContent([idleItem!], [loadingItem!]))
+    }
+
     func testSnapshotSuppressesIdleLoadMoreFooterForNonEmptyRepliesWhenMoreAvailable() {
         let original = makePost(id: 100, postNumber: 1, username: "alice")
         let reply = makePost(id: 200, postNumber: 2, username: "bob", replyToPostNumber: 1)
@@ -303,6 +335,24 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
         XCTAssertFalse(FireTopicDetailListViewController.itemsHaveSameRenderedContent([item], [changedToken]))
         XCTAssertFalse(FireTopicDetailListViewController.itemsHaveSameRenderedContent([item], [changedReplyIndex]))
         XCTAssertFalse(FireTopicDetailListViewController.itemsHaveSameRenderedContent([item], [item, same]))
+    }
+
+    func testSnapshotReuseRequiresCurrentItemsAndMatchingInvalidationToken() {
+        XCTAssertTrue(FireTopicDetailListViewController.canReuseCurrentSnapshot(
+            previousInvalidationToken: AnyHashable("a"),
+            nextInvalidationToken: AnyHashable("a"),
+            hasCurrentItems: true
+        ))
+        XCTAssertFalse(FireTopicDetailListViewController.canReuseCurrentSnapshot(
+            previousInvalidationToken: AnyHashable("a"),
+            nextInvalidationToken: AnyHashable("b"),
+            hasCurrentItems: true
+        ))
+        XCTAssertFalse(FireTopicDetailListViewController.canReuseCurrentSnapshot(
+            previousInvalidationToken: AnyHashable("a"),
+            nextInvalidationToken: AnyHashable("a"),
+            hasCurrentItems: false
+        ))
     }
 
     func testAnimatedUpdatePolicyAllowsOnlySmallIdleAttachedUpdates() {
@@ -454,7 +504,8 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
         pendingScrollTarget: UInt32? = nil,
         hasMoreTopicPosts: Bool = false,
         isLoadingMoreTopicPosts: Bool = false,
-        expandedReplyRootPostIDs: Set<UInt64> = []
+        expandedReplyRootPostIDs: Set<UInt64> = [],
+        loadingReplyContextPostIDs: Set<UInt64> = []
     ) -> FireTopicDetailRuntimeConfiguration {
         FireTopicDetailRuntimeConfiguration(
             viewModel: nil,
@@ -475,9 +526,11 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
             topicCollectionRevision: 1,
             canWriteInteractions: true,
             postLookup: postLookup,
+            snapshotInvalidationToken: AnyHashable("test"),
             isMutatingPost: { _ in false },
             isPostTextExpanded: { _ in false },
             isReplyThreadExpanded: { expandedReplyRootPostIDs.contains($0) },
+            isLoadingPostReplyContext: { loadingReplyContextPostIDs.contains($0) },
             onVisiblePostNumbersChanged: { _ in },
             onRefresh: {},
             onLoadTopicDetail: {},

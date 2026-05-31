@@ -65,6 +65,7 @@ struct FirePostCellRenderPayload {
     let replyContext: String?
     let replyTargetPostNumber: UInt32?
     let replyShortcutCount: UInt32?
+    let isLoadingReplyContext: Bool
     let textExpansionState: FirePostTextExpansionState
     let showsDivider: Bool
 }

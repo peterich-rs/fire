@@ -5,13 +5,11 @@ import android.content.Context
 import android.content.Intent
 import android.os.SystemClock
 import android.webkit.CookieManager
-import android.webkit.WebSettings
 import android.webkit.WebView
-import androidx.webkit.WebSettingsCompat
-import androidx.webkit.WebViewFeature
 import com.fire.app.cloudflare.CloudflareChallengeDetector
 import com.fire.app.session.FireSessionStore
 import com.fire.app.session.FireWebViewLoginCoordinator
+import com.fire.app.ui.webview.FireWebViewSupport
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
@@ -67,26 +65,7 @@ object CloudflareChallengeSupport {
     @Suppress("DEPRECATION")
     @SuppressLint("SetJavaScriptEnabled")
     fun configureWebView(webView: WebView) {
-        CookieManager.getInstance().setAcceptCookie(true)
-        CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true)
-
-        webView.settings.apply {
-            javaScriptEnabled = true
-            domStorageEnabled = true
-            javaScriptCanOpenWindowsAutomatically = false
-            setSupportMultipleWindows(false)
-            allowFileAccess = false
-            allowContentAccess = false
-            allowFileAccessFromFileURLs = false
-            allowUniversalAccessFromFileURLs = false
-            mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
-            mediaPlaybackRequiresUserGesture = true
-            setGeolocationEnabled(false)
-        }
-
-        if (WebViewFeature.isFeatureSupported(WebViewFeature.SAFE_BROWSING_ENABLE)) {
-            WebSettingsCompat.setSafeBrowsingEnabled(webView.settings, true)
-        }
+        FireWebViewSupport.configureBrowserLikeWebView(webView)
     }
 }
 

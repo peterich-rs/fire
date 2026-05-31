@@ -2,11 +2,10 @@ package com.fire.app.ui.auth
 
 import android.graphics.Bitmap
 import android.os.Bundle
+import android.os.Message
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.webkit.CookieManager
-import android.webkit.WebSettings
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
@@ -20,14 +19,15 @@ import androidx.lifecycle.lifecycleScope
 import androidx.navigation.fragment.findNavController
 import androidx.webkit.SafeBrowsingResponseCompat
 import androidx.webkit.WebResourceErrorCompat
-import androidx.webkit.WebSettingsCompat
 import androidx.webkit.WebViewClientCompat
 import androidx.webkit.WebViewFeature
 import com.fire.app.R
+import com.fire.app.core.error.launchWithFireErrorHandling
 import com.fire.app.session.FireSessionStoreRepository
 import com.fire.app.session.FireWebViewLoginCoordinator
+import com.fire.app.ui.cloudflare.CloudflareChallengeSupport
+import com.fire.app.ui.webview.FireWebViewSupport
 import com.google.android.material.button.MaterialButton
-import kotlinx.coroutines.launch
 
 class LoginWebViewFragment : Fragment() {
 
@@ -127,6 +127,15 @@ class LoginWebViewFragment : Fragment() {
                 loadingIndicator.progress = newProgress
                 updateChrome(webView, pageTitleText, pageUrlText)
             }
+
+            override fun onCreateWindow(
+                view: WebView,
+                isDialog: Boolean,
+                isUserGesture: Boolean,
+                resultMsg: Message,
+            ): Boolean {
+                return FireWebViewSupport.routePopupIntoParent(webView, resultMsg)
+            }
         }
 
         webView.loadUrl(loginBaseUrl)
@@ -136,7 +145,18 @@ class LoginWebViewFragment : Fragment() {
         }
 
         syncButton.setOnClickListener {
-            lifecycleScope.launch {
+            lifecycleScope.launchWithFireErrorHandling(
+                operation = "login_webview.complete_login",
+                sessionStore = sessionStore,
+                fallbackMessage = getString(R.string.login_sync_error),
+                onError = { error ->
+                    if (error.isCloudflareChallenge) {
+                        CloudflareChallengeSupport.openSiteRoot(requireContext())
+                    } else {
+                        Toast.makeText(requireContext(), error.displayMessage, Toast.LENGTH_SHORT).show()
+                    }
+                },
+            ) {
                 loginCoordinator?.completeLogin(webView)
                 findNavController().navigate(R.id.action_loginWebView_to_home)
             }
@@ -151,28 +171,8 @@ class LoginWebViewFragment : Fragment() {
         super.onDestroyView()
     }
 
-    @Suppress("DEPRECATION")
     private fun configureLoginWebView(webView: WebView) {
-        CookieManager.getInstance().setAcceptCookie(true)
-        CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true)
-
-        webView.settings.apply {
-            javaScriptEnabled = true
-            domStorageEnabled = true
-            javaScriptCanOpenWindowsAutomatically = false
-            setSupportMultipleWindows(false)
-            allowFileAccess = false
-            allowContentAccess = false
-            allowFileAccessFromFileURLs = false
-            allowUniversalAccessFromFileURLs = false
-            mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
-            mediaPlaybackRequiresUserGesture = true
-            setGeolocationEnabled(false)
-        }
-
-        if (WebViewFeature.isFeatureSupported(WebViewFeature.SAFE_BROWSING_ENABLE)) {
-            WebSettingsCompat.setSafeBrowsingEnabled(webView.settings, true)
-        }
+        FireWebViewSupport.configureBrowserLikeWebView(webView)
     }
 
     private fun updateChrome(

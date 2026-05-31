@@ -2,9 +2,10 @@ package com.fire.app.ui.profile
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.fire.app.cloudflare.CloudflareChallengeDetector
+import com.fire.app.core.error.FireErrorReporter
 import com.fire.app.data.repository.UserRepository
 import com.fire.app.session.FireSessionStore
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -15,6 +16,7 @@ import uniffi.fire_uniffi_user.UserSummaryState
 
 class ProfileViewModel(
     private val repository: UserRepository,
+    private val sessionStore: FireSessionStore,
 ) : ViewModel() {
 
     private val _profile = MutableStateFlow<UserProfileState?>(null)
@@ -32,16 +34,23 @@ class ProfileViewModel(
     private val _cloudflareChallenge = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
     val cloudflareChallenge = _cloudflareChallenge.asSharedFlow()
 
+    private var activeLoadKey: String? = null
+    private var loadedProfileKey: String? = null
+
     fun loadProfile(username: String?) {
         val normalized = username.normalizedUsername()
+        val requestKey = normalized?.lowercase() ?: CURRENT_PROFILE_KEY
+        if (activeLoadKey == requestKey) return
+        if (loadedProfileKey == requestKey && _profile.value != null) return
         if (normalized == null) {
-            loadCurrentProfile()
+            loadCurrentProfile(requestKey)
         } else {
-            loadProfileForUsername(normalized)
+            loadProfileForUsername(normalized, requestKey)
         }
     }
 
-    fun loadCurrentProfile() {
+    private fun loadCurrentProfile(requestKey: String) {
+        activeLoadKey = requestKey
         viewModelScope.launch {
             _isLoading.value = true
             _error.value = null
@@ -51,15 +60,22 @@ class ProfileViewModel(
                 val username = repository.currentUsername()
                     ?: throw IllegalStateException("无法确定当前登录用户")
                 fetchProfile(username)
+                loadedProfileKey = requestKey
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 handleError(e)
             } finally {
+                if (activeLoadKey == requestKey) {
+                    activeLoadKey = null
+                }
                 _isLoading.value = false
             }
         }
     }
 
-    private fun loadProfileForUsername(username: String) {
+    private fun loadProfileForUsername(username: String, requestKey: String) {
+        activeLoadKey = requestKey
         viewModelScope.launch {
             _isLoading.value = true
             _error.value = null
@@ -67,9 +83,15 @@ class ProfileViewModel(
             _summary.value = null
             try {
                 fetchProfile(username)
+                loadedProfileKey = requestKey
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 handleError(e)
             } finally {
+                if (activeLoadKey == requestKey) {
+                    activeLoadKey = null
+                }
                 _isLoading.value = false
             }
         }
@@ -90,6 +112,8 @@ class ProfileViewModel(
                     repository.followUser(profile.username)
                 }
                 _profile.value = repository.fetchUserProfile(profile.username)
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 handleError(e, showMessage = false)
             }
@@ -97,13 +121,18 @@ class ProfileViewModel(
     }
 
     private fun handleError(error: Exception, showMessage: Boolean = true) {
-        if (CloudflareChallengeDetector.isChallenge(error)) {
+        val reported = FireErrorReporter.report(
+            operation = "profile.action",
+            error = error,
+            sessionStore = sessionStore,
+        )
+        if (reported.isCloudflareChallenge) {
             _cloudflareChallenge.tryEmit(Unit)
             if (showMessage) {
                 _error.value = null
             }
         } else if (showMessage) {
-            _error.value = error.message
+            _error.value = reported.displayMessage
         }
     }
 
@@ -113,9 +142,11 @@ class ProfileViewModel(
     }
 
     companion object {
+        private const val CURRENT_PROFILE_KEY = "__current__"
+
         fun create(sessionStore: FireSessionStore): ProfileViewModel {
             val repo = UserRepository(sessionStore)
-            return ProfileViewModel(repo)
+            return ProfileViewModel(repo, sessionStore)
         }
     }
 }

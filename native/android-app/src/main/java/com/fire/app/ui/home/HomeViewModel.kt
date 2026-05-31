@@ -6,7 +6,9 @@ import androidx.paging.Pager
 import androidx.paging.PagingConfig
 import androidx.paging.PagingData
 import androidx.paging.cachedIn
-import com.fire.app.cloudflare.CloudflareChallengeDetector
+import com.fire.app.core.error.FireErrorReporter
+import com.fire.app.core.error.FireReportedError
+import com.fire.app.core.error.launchWithFireErrorHandling
 import com.fire.app.data.paging.TopicListPagingSource
 import com.fire.app.data.repository.SessionRepository
 import com.fire.app.data.repository.TopicRepository
@@ -125,6 +127,7 @@ class HomeViewModel(
     private val sessionRepository: SessionRepository,
     private val topicRepository: TopicRepository,
     private val messageBusCoordinator: FireMessageBusCoordinator,
+    private val sessionStore: FireSessionStore,
 ) : ViewModel() {
 
     private val _session = MutableStateFlow<SessionState?>(null)
@@ -180,6 +183,7 @@ class HomeViewModel(
     private val topicListMessageBusRefreshController = HomeTopicListMessageBusRefreshController()
     private var messageBusJob: Job? = null
     private var pendingMessageBusRefreshJob: Job? = null
+    private var restoreSessionStarted = false
 
     fun selectKind(kind: TopicListKindState) {
         if (_selectedKind.value == kind) return
@@ -238,7 +242,17 @@ class HomeViewModel(
     }
 
     fun restoreSession() {
-        viewModelScope.launch {
+        if (restoreSessionStarted) return
+        restoreSessionStarted = true
+        viewModelScope.launchWithFireErrorHandling(
+            operation = "home.restore_session",
+            sessionStore = sessionStore,
+            fallbackMessage = "恢复会话失败",
+            onError = { error ->
+                restoreSessionStarted = false
+                handleReportedError(error)
+            },
+        ) {
             val restored = sessionRepository.restoreSession()
             _session.value = restored
             if (restored?.readiness?.canOpenMessageBus == true) {
@@ -248,7 +262,12 @@ class HomeViewModel(
     }
 
     fun refreshSession() {
-        viewModelScope.launch {
+        viewModelScope.launchWithFireErrorHandling(
+            operation = "home.refresh_session",
+            sessionStore = sessionStore,
+            fallbackMessage = "刷新会话失败",
+            onError = ::handleReportedError,
+        ) {
             val snap = sessionRepository.snapshot()
             _session.value = snap
             if (snap.readiness.canOpenMessageBus) {
@@ -268,12 +287,25 @@ class HomeViewModel(
                 throw error
             } catch (error: Exception) {
                 messageBusJob = null
-                if (CloudflareChallengeDetector.isChallenge(error)) {
+                val reported = FireErrorReporter.report(
+                    operation = "home.messagebus.topic_list",
+                    error = error,
+                    sessionStore = sessionStore,
+                )
+                if (reported.isCloudflareChallenge) {
                     _cloudflareChallenge.tryEmit(Unit)
                 } else {
-                    error.localizedMessage?.let { _error.tryEmit(it) }
+                    _error.tryEmit(reported.displayMessage)
                 }
             }
+        }
+    }
+
+    private fun handleReportedError(error: FireReportedError) {
+        if (error.isCloudflareChallenge) {
+            _cloudflareChallenge.tryEmit(Unit)
+        } else {
+            _error.tryEmit(error.displayMessage)
         }
     }
 
@@ -331,7 +363,7 @@ class HomeViewModel(
             val sessionRepo = SessionRepository(sessionStore)
             val topicRepo = TopicRepository(sessionStore)
             val messageBus = FireMessageBusCoordinator(sessionStore)
-            return HomeViewModel(sessionRepo, topicRepo, messageBus)
+            return HomeViewModel(sessionRepo, topicRepo, messageBus, sessionStore)
         }
     }
 

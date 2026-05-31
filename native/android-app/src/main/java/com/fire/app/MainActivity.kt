@@ -7,8 +7,9 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.updatePadding
 import androidx.lifecycle.lifecycleScope
+import androidx.navigation.NavController
+import androidx.navigation.NavOptions
 import androidx.navigation.fragment.NavHostFragment
-import androidx.navigation.ui.setupWithNavController
 import com.fire.app.databinding.ActivityMainBinding
 import com.fire.app.session.FireSessionStoreRepository
 import kotlinx.coroutines.Dispatchers
@@ -29,16 +30,42 @@ class MainActivity : AppCompatActivity() {
             .findFragmentById(R.id.nav_host_fragment) as NavHostFragment
         val navController = navHostFragment.navController
 
-        binding.bottomNav.setupWithNavController(navController)
+        configureBottomNavigation(navController)
+
+        refreshNotificationBadge()
+    }
+
+    private fun configureBottomNavigation(navController: NavController) {
+        binding.bottomNav.setOnItemSelectedListener { item ->
+            val destinationId = item.itemId
+            if (navController.currentDestination?.id == destinationId) {
+                return@setOnItemSelectedListener true
+            }
+
+            val tabOptions = NavOptions.Builder()
+                .setLaunchSingleTop(true)
+                .setRestoreState(true)
+                .setPopUpTo(R.id.homeFragment, false, true)
+                .build()
+
+            runCatching {
+                navController.navigate(destinationId, null, tabOptions)
+            }.recoverCatching {
+                navController.navigate(destinationId)
+            }.isSuccess
+        }
+
         navController.addOnDestinationChangedListener { _, destination, _ ->
             binding.bottomNav.visibility = when (destination.id) {
                 R.id.onboardingFragment,
                 R.id.loginWebViewFragment -> View.GONE
                 else -> View.VISIBLE
             }
-        }
 
-        refreshNotificationBadge()
+            if (destination.id in bottomTabDestinations) {
+                binding.bottomNav.menu.findItem(destination.id)?.isChecked = true
+            }
+        }
     }
 
     fun refreshNotificationBadge() {
@@ -75,5 +102,13 @@ class MainActivity : AppCompatActivity() {
             insets
         }
         ViewCompat.requestApplyInsets(root)
+    }
+
+    companion object {
+        private val bottomTabDestinations = setOf(
+            R.id.homeFragment,
+            R.id.notificationsFragment,
+            R.id.profileFragment,
+        )
     }
 }

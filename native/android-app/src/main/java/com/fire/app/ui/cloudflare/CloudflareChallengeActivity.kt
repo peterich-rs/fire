@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.os.Bundle
+import android.os.Message
 import android.view.View
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
@@ -19,6 +20,7 @@ import androidx.webkit.WebViewClientCompat
 import androidx.webkit.WebViewFeature
 import com.fire.app.R
 import com.fire.app.session.FireSessionStoreRepository
+import com.fire.app.ui.webview.FireWebViewSupport
 import com.google.android.material.appbar.MaterialToolbar
 
 class CloudflareChallengeActivity : AppCompatActivity() {
@@ -136,6 +138,15 @@ class CloudflareChallengeActivity : AppCompatActivity() {
                 loadingIndicator.progress = newProgress
                 updateChrome()
                 syncIfReady(webView.url)
+            }
+
+            override fun onCreateWindow(
+                view: WebView,
+                isDialog: Boolean,
+                isUserGesture: Boolean,
+                resultMsg: Message,
+            ): Boolean {
+                return FireWebViewSupport.routePopupIntoParent(webView, resultMsg)
             }
         }
     }

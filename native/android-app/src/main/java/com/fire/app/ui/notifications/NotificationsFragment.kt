@@ -8,6 +8,8 @@ import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.fragment.app.Fragment
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
 import androidx.navigation.fragment.findNavController
 import androidx.paging.LoadState
@@ -16,6 +18,7 @@ import androidx.recyclerview.widget.RecyclerView
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import com.fire.app.MainActivity
 import com.fire.app.R
+import com.fire.app.session.FireSessionStore
 import com.fire.app.session.FireSessionStoreRepository
 import com.fire.app.ui.cloudflare.CloudflareChallengeSupport
 import com.fire.app.ui.topicdetail.TopicDetailActivity
@@ -52,7 +55,10 @@ class NotificationsFragment : Fragment() {
         markAllReadButton = view.findViewById(R.id.mark_all_read_button)
 
         val sessionStore = FireSessionStoreRepository.get(requireContext())
-        viewModel = NotificationsViewModel.create(sessionStore)
+        viewModel = ViewModelProvider(
+            this,
+            NotificationsViewModelFactory(sessionStore),
+        )[NotificationsViewModel::class.java]
 
         adapter = NotificationListAdapter(::onNotificationClick)
 
@@ -101,12 +107,14 @@ class NotificationsFragment : Fragment() {
             }
 
             viewLifecycleOwner.lifecycleScope.launch {
+                var hasObservedNotificationCenter = false
                 vm.notificationCenter.collect { state ->
                     val unreadCount = state?.counters?.allUnread?.toInt() ?: 0
                     markAllReadButton.visibility = if (unreadCount > 0) View.VISIBLE else View.GONE
-                    if (state != null) {
+                    if (state != null && hasObservedNotificationCenter) {
                         adapter.refresh()
                     }
+                    hasObservedNotificationCenter = true
                     (activity as? MainActivity)?.refreshNotificationBadge()
                 }
             }
@@ -162,7 +170,7 @@ class NotificationsFragment : Fragment() {
     }
 
     private fun refreshNotifications() {
-        viewModel?.refreshRecentNotifications()
+        viewModel?.refreshRecentNotifications(force = true)
         adapter.refresh()
     }
 
@@ -173,6 +181,18 @@ class NotificationsFragment : Fragment() {
             data.originalUsername,
         ).firstNotNullOfOrNull { value ->
             value?.trim()?.takeIf { it.isNotEmpty() && !it.equals("null", ignoreCase = true) }
+        }
+    }
+
+    private class NotificationsViewModelFactory(
+        private val sessionStore: FireSessionStore,
+    ) : ViewModelProvider.Factory {
+        @Suppress("UNCHECKED_CAST")
+        override fun <T : ViewModel> create(modelClass: Class<T>): T {
+            if (modelClass.isAssignableFrom(NotificationsViewModel::class.java)) {
+                return NotificationsViewModel.create(sessionStore) as T
+            }
+            throw IllegalArgumentException("Unknown ViewModel class: ${modelClass.name}")
         }
     }
 }

@@ -9,6 +9,7 @@ import uniffi.fire_uniffi_diagnostics.LogFileDetailState
 import uniffi.fire_uniffi_diagnostics.LogFileSummaryState
 import uniffi.fire_uniffi_diagnostics.NetworkTraceDetailState
 import uniffi.fire_uniffi_diagnostics.NetworkTraceSummaryState
+import uniffi.fire_uniffi_diagnostics.HostLogLevelState
 import uniffi.fire_uniffi_messagebus.MessageBusClientModeState
 import uniffi.fire_uniffi_messagebus.MessageBusEventHandler
 import uniffi.fire_uniffi_messagebus.MessageBusSubscriptionScopeState
@@ -18,9 +19,15 @@ import uniffi.fire_uniffi_notifications.NotificationCenterState
 import uniffi.fire_uniffi_notifications.NotificationListState
 import uniffi.fire_uniffi_search.SearchQueryState
 import uniffi.fire_uniffi_search.SearchResultState
+import uniffi.fire_uniffi_search.TagSearchQueryState
+import uniffi.fire_uniffi_search.TagSearchResultState
+import uniffi.fire_uniffi_search.UserMentionQueryState
+import uniffi.fire_uniffi_search.UserMentionResultState
 import uniffi.fire_uniffi_session.LoginSyncState
 import uniffi.fire_uniffi_session.PlatformCookieState
 import uniffi.fire_uniffi_session.SessionState
+import uniffi.fire_uniffi_types.DraftDataState
+import uniffi.fire_uniffi_types.DraftState
 import uniffi.fire_uniffi_topics.PollState
 import uniffi.fire_uniffi_topics.PostActionTypeState
 import uniffi.fire_uniffi_topics.PostFlagRequestState
@@ -28,6 +35,7 @@ import uniffi.fire_uniffi_topics.PostReactionUpdateState
 import uniffi.fire_uniffi_topics.PostUpdateRequestState
 import uniffi.fire_uniffi_topics.PrivateMessageCreateRequestState
 import uniffi.fire_uniffi_topics.ReactionUsersGroupState
+import uniffi.fire_uniffi_topics.ResolvedUploadUrlState
 import uniffi.fire_uniffi_topics.TopicAiSummaryState
 import uniffi.fire_uniffi_topics.TopicCreateRequestState
 import uniffi.fire_uniffi_topics.TopicDetailQueryState
@@ -40,6 +48,8 @@ import uniffi.fire_uniffi_topics.TopicReplyRequestState
 import uniffi.fire_uniffi_topics.TopicScreenQueryState
 import uniffi.fire_uniffi_topics.TopicScreenState
 import uniffi.fire_uniffi_topics.TopicUpdateRequestState
+import uniffi.fire_uniffi_topics.UploadImageRequestState
+import uniffi.fire_uniffi_topics.UploadResultState
 import uniffi.fire_uniffi_topics.VoteResponseState
 import uniffi.fire_uniffi_topics.VotedUserState
 import uniffi.fire_uniffi_types.TopicListState
@@ -119,6 +129,16 @@ class FireSessionStore(
 
     fun workspacePath(): String = workspaceDir.absolutePath
 
+    fun diagnosticSessionId(): String = core.diagnostics().diagnosticSessionId()
+
+    fun logHost(level: HostLogLevelState, target: String, message: String) {
+        core.diagnostics().logHost(level, target, message)
+    }
+
+    fun flushLogs(sync: Boolean) {
+        core.diagnostics().flushLogs(sync)
+    }
+
     suspend fun listLogFiles(): List<LogFileSummaryState> =
         withContext(Dispatchers.IO) {
             core.diagnostics().listLogFiles()
@@ -168,6 +188,22 @@ class FireSessionStore(
         withContext(Dispatchers.IO) {
             core.notifications().fetchReadHistory(page)
         }
+
+    suspend fun fetchDraft(draftKey: String): DraftState? = withContext(Dispatchers.IO) {
+        core.notifications().fetchDraft(draftKey)
+    }
+
+    suspend fun saveDraft(
+        draftKey: String,
+        data: DraftDataState,
+        sequence: UInt,
+    ): UInt = withContext(Dispatchers.IO) {
+        core.notifications().saveDraft(draftKey, data, sequence)
+    }
+
+    suspend fun deleteDraft(draftKey: String, sequence: UInt?) = withContext(Dispatchers.IO) {
+        core.notifications().deleteDraft(draftKey, sequence)
+    }
 
     suspend fun createBookmark(
         bookmarkableId: ULong,
@@ -231,6 +267,14 @@ class FireSessionStore(
 
     suspend fun search(query: SearchQueryState): SearchResultState = withContext(Dispatchers.IO) {
         core.search().search(query)
+    }
+
+    suspend fun searchTags(query: TagSearchQueryState): TagSearchResultState = withContext(Dispatchers.IO) {
+        core.search().searchTags(query)
+    }
+
+    suspend fun searchUsers(query: UserMentionQueryState): UserMentionResultState = withContext(Dispatchers.IO) {
+        core.search().searchUsers(query)
     }
 
     suspend fun restoreSessionJson(json: String): SessionState = withContext(Dispatchers.Default) {
@@ -339,6 +383,10 @@ class FireSessionStore(
         core.topics().fetchTopicPosts(topicId, postIds)
     }
 
+    suspend fun fetchPost(postId: ULong): TopicPostState = withContext(Dispatchers.IO) {
+        core.topics().fetchPost(postId)
+    }
+
     suspend fun fetchTopicAiSummary(topicId: ULong, skipAgeCheck: Boolean = false): TopicAiSummaryState? =
         withContext(Dispatchers.IO) {
             core.topics().fetchTopicAiSummary(topicId, skipAgeCheck)
@@ -371,6 +419,14 @@ class FireSessionStore(
         val post = core.topics().updatePost(input)
         persistCurrentSession()
         post
+    }
+
+    suspend fun uploadImage(input: UploadImageRequestState): UploadResultState = withContext(Dispatchers.IO) {
+        core.topics().uploadImage(input)
+    }
+
+    suspend fun lookupUploadUrls(shortUrls: List<String>): List<ResolvedUploadUrlState> = withContext(Dispatchers.IO) {
+        core.topics().lookupUploadUrls(shortUrls)
     }
 
     suspend fun fetchPostReplies(postId: ULong, after: UInt? = 1u): List<TopicPostState> = withContext(Dispatchers.IO) {

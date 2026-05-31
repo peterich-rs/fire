@@ -2,9 +2,11 @@ package com.fire.app.ui.auth
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.fire.app.core.error.FireErrorReporter
 import com.fire.app.data.repository.SessionRepository
 import com.fire.app.session.FireSessionStore
 import com.fire.app.session.FireWebViewLoginCoordinator
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
@@ -37,8 +39,10 @@ class AuthViewModel(
             try {
                 val restored = sessionRepository.restoreSession()
                 _session.value = restored
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
-                _errorMessage.value = e.localizedMessage ?: "恢复会话失败"
+                _errorMessage.value = reportError(e, "auth.restore_session", "恢复会话失败")
             } finally {
                 _isBootstrapping.value = false
             }
@@ -52,8 +56,10 @@ class AuthViewModel(
             try {
                 val session = coordinator.completeLogin(webView)
                 _session.value = session
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
-                _errorMessage.value = e.localizedMessage ?: "登录失败"
+                _errorMessage.value = reportError(e, "auth.complete_login", "登录失败")
             } finally {
                 _isPreparingLogin.value = false
             }
@@ -69,10 +75,21 @@ class AuthViewModel(
             try {
                 val refreshed = sessionRepository.refreshBootstrap()
                 _session.value = refreshed
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
-                _errorMessage.value = e.localizedMessage
+                _errorMessage.value = reportError(e, "auth.refresh_bootstrap", null)
             }
         }
+    }
+
+    private fun reportError(error: Exception, operation: String, fallbackMessage: String?): String {
+        return FireErrorReporter.report(
+            operation = operation,
+            error = error,
+            sessionStore = sessionStore,
+            fallbackMessage = fallbackMessage,
+        ).displayMessage
     }
 
     companion object {

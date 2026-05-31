@@ -71,13 +71,36 @@
         android:textIsSelectable="true" />
 
     <LinearLayout
-        android:id="@+id/post_actions"
+        android:id="@+id/post_image_container"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="46dp"
+        android:layout_marginTop="10dp"
+        android:orientation="vertical"
+        android:visibility="gone" />
+
+    <LinearLayout
+        android:id="@+id/post_poll_container"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="46dp"
+        android:layout_marginTop="10dp"
+        android:orientation="vertical"
+        android:visibility="gone" />
+
+    <HorizontalScrollView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginStart="46dp"
         android:layout_marginTop="8dp"
-        android:gravity="center_vertical"
-        android:orientation="horizontal">
+        android:scrollbars="none">
+
+        <LinearLayout
+            android:id="@+id/post_actions"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
 
         <TextView
             android:id="@+id/action_like"
@@ -89,7 +112,29 @@
             android:textColor="@color/fire_text_secondary" />
 
         <TextView
+            android:id="@+id/action_react"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="16dp"
+            android:drawablePadding="4dp"
+            android:gravity="center_vertical"
+            android:text="@string/topic_detail_react_post"
+            android:textAppearance="@style/TextAppearance.AppCompat.Caption"
+            android:textColor="@color/fire_text_secondary"
+            android:visibility="gone" />
+
+        <TextView
             android:id="@+id/action_reply"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="16dp"
+            android:drawablePadding="4dp"
+            android:gravity="center_vertical"
+            android:textAppearance="@style/TextAppearance.AppCompat.Caption"
+            android:textColor="@color/fire_text_secondary" />
+
+        <TextView
+            android:id="@+id/action_bookmark"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginStart="16dp"
@@ -109,7 +154,44 @@
             android:textColor="@color/fire_text_secondary"
             android:visibility="gone" />
 
-    </LinearLayout>
+        <TextView
+            android:id="@+id/action_edit"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="16dp"
+            android:drawablePadding="4dp"
+            android:gravity="center_vertical"
+            android:text="@string/topic_detail_edit_post"
+            android:textAppearance="@style/TextAppearance.AppCompat.Caption"
+            android:textColor="@color/fire_text_secondary"
+            android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/action_delete_recover"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="16dp"
+            android:drawablePadding="4dp"
+            android:gravity="center_vertical"
+            android:textAppearance="@style/TextAppearance.AppCompat.Caption"
+            android:textColor="@color/fire_text_secondary"
+            android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/action_flag"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="16dp"
+            android:drawablePadding="4dp"
+            android:gravity="center_vertical"
+            android:text="@string/topic_detail_flag_post"
+            android:textAppearance="@style/TextAppearance.AppCompat.Caption"
+            android:textColor="@color/fire_text_secondary"
+            android:visibility="gone" />
+
+        </LinearLayout>
+
+    </HorizontalScrollView>
 
     <View
         android:layout_width="match_parent"

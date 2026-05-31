@@ -5,34 +5,30 @@ import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.widget.ArrayAdapter
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ProgressBar
-import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.lifecycle.lifecycleScope
 import com.fire.app.R
 import com.fire.app.core.error.FireErrorReporter
-import com.fire.app.displayName
 import com.fire.app.session.FireSessionStore
 import com.fire.app.session.FireSessionStoreRepository
 import com.fire.app.ui.cloudflare.CloudflareChallengeSupport
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
+import com.google.android.material.chip.ChipGroup
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
-import uniffi.fire_uniffi_session.TopicCategoryState
 import uniffi.fire_uniffi_types.DraftDataState
 
-class TopicComposerSheet : BottomSheetDialogFragment() {
+class PrivateMessageComposerSheet : BottomSheetDialogFragment() {
 
     private lateinit var titleInput: EditText
+    private lateinit var recipientInput: EditText
+    private lateinit var recipientTokens: ChipGroup
     private lateinit var bodyInput: EditText
-    private lateinit var categorySpinner: Spinner
-    private lateinit var categoryLabel: TextView
-    private lateinit var tagsInput: EditText
     private lateinit var submitButton: TextView
     private lateinit var uploadButton: TextView
     private lateinit var previewButton: TextView
@@ -40,18 +36,19 @@ class TopicComposerSheet : BottomSheetDialogFragment() {
     private lateinit var progressBar: ProgressBar
     private lateinit var sessionStore: FireSessionStore
     private var viewModel: ComposerViewModel? = null
-    private var categories: List<TopicCategoryState> = emptyList()
-    private var canCreateTopic: Boolean = false
-    private var minTitleLength: Int = 5
-    private var minBodyLength: Int = 5
+
+    private var targetUsername: String = ""
+    private var displayName: String = ""
+    private var canSendMessage: Boolean = false
+    private var minTitleLength: Int = 1
+    private var minBodyLength: Int = 1
+    private var onPrivateMessageCreated: ((ULong, String) -> Unit)? = null
     private var draftSequence: UInt = 0u
     private var didSubmit = false
     private var draftAutosave: ComposerDraftAutosave? = null
     private lateinit var previewRenderer: ComposerPreviewRenderer
     private var previewMode = false
     private var baseUrl = "https://linux.do"
-
-    private var onTopicCreated: ((ULong) -> Unit)? = null
 
     private val imagePicker = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         uri?.let(::uploadImage)
@@ -62,22 +59,34 @@ class TopicComposerSheet : BottomSheetDialogFragment() {
         container: ViewGroup?,
         savedInstanceState: Bundle?,
     ): View? {
-        return inflater.inflate(R.layout.sheet_topic_composer, container, false)
+        return inflater.inflate(R.layout.sheet_private_message_composer, container, false)
     }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
-        titleInput = view.findViewById(R.id.topic_title_input)
-        bodyInput = view.findViewById(R.id.topic_body_input)
-        categorySpinner = view.findViewById(R.id.topic_category_spinner)
-        categoryLabel = view.findViewById(R.id.topic_category_label)
-        tagsInput = view.findViewById(R.id.topic_tags_input)
-        submitButton = view.findViewById(R.id.topic_submit_button)
-        uploadButton = view.findViewById(R.id.topic_upload_button)
-        previewButton = view.findViewById(R.id.topic_preview_button)
-        previewContainer = view.findViewById(R.id.topic_preview_container)
-        progressBar = view.findViewById(R.id.topic_progress)
+        titleInput = view.findViewById(R.id.private_message_title_input)
+        recipientInput = view.findViewById(R.id.private_message_recipient_input)
+        recipientTokens = view.findViewById(R.id.private_message_recipient_tokens)
+        bodyInput = view.findViewById(R.id.private_message_body_input)
+        submitButton = view.findViewById(R.id.private_message_submit_button)
+        uploadButton = view.findViewById(R.id.private_message_upload_button)
+        previewButton = view.findViewById(R.id.private_message_preview_button)
+        previewContainer = view.findViewById(R.id.private_message_preview_container)
+        progressBar = view.findViewById(R.id.private_message_progress)
+
+        arguments?.let { args ->
+            targetUsername = args.getString(ARG_TARGET_USERNAME).orEmpty()
+            displayName = args.getString(ARG_DISPLAY_NAME).orEmpty().ifBlank { targetUsername }
+        }
+
+        view.findViewById<TextView>(R.id.private_message_title).text =
+            if (targetUsername.isBlank()) {
+                getString(R.string.profile_private_message_new_title)
+            } else {
+                getString(R.string.profile_private_message_title, displayName.ifBlank { targetUsername })
+            }
+        recipientInput.setText(targetUsername)
 
         sessionStore = FireSessionStoreRepository.get(requireContext())
         viewModel = ComposerViewModel.create(sessionStore)
@@ -87,73 +96,62 @@ class TopicComposerSheet : BottomSheetDialogFragment() {
             viewLifecycleOwner.lifecycleScope,
         )
 
+        ComposerRecipientAssist(
+            input = recipientInput,
+            suggestions = view.findViewById(R.id.private_message_recipient_suggestions),
+            sessionStore = sessionStore,
+            scope = viewLifecycleOwner.lifecycleScope,
+        ).attach()
+        ComposerRecipientTokenView(
+            input = recipientInput,
+            tokens = recipientTokens,
+        ).attach()
         ComposerMentionAssist(
             input = bodyInput,
-            suggestions = view.findViewById(R.id.topic_mention_suggestions),
+            suggestions = view.findViewById(R.id.private_message_mention_suggestions),
             sessionStore = sessionStore,
             scope = viewLifecycleOwner.lifecycleScope,
-            includeGroups = true,
-            categoryIdProvider = { categories.getOrNull(categorySpinner.selectedItemPosition)?.id },
-        ).attach()
-        ComposerTagAssist(
-            input = tagsInput,
-            suggestions = view.findViewById(R.id.topic_tag_suggestions),
-            sessionStore = sessionStore,
-            scope = viewLifecycleOwner.lifecycleScope,
-            categoryIdProvider = { categories.getOrNull(categorySpinner.selectedItemPosition)?.id },
-            selectedTagsProvider = { tagValues() },
+            includeGroups = false,
         ).attach()
         draftAutosave = ComposerDraftAutosave(
             scope = viewLifecycleOwner.lifecycleScope,
             saveDraft = { persistDraftIfNeeded() },
             onSaveFailed = { error ->
                 FireErrorReporter.report(
-                    operation = "topic_composer.draft_autosave",
+                    operation = "private_message_composer.draft_autosave",
                     error = error,
                     sessionStore = sessionStore,
                 )
             },
         ).also { autosave ->
-            autosave.attach(titleInput, bodyInput, tagsInput)
+            autosave.attach(titleInput, recipientInput, bodyInput)
         }
 
         viewLifecycleOwner.lifecycleScope.launch {
-            val session = sessionStore.snapshot()
-            baseUrl = session.bootstrap.baseUrl.ifBlank { "https://linux.do" }
-            minTitleLength = session.bootstrap.minTopicTitleLength.toInt().coerceAtLeast(1)
-            minBodyLength = session.bootstrap.minFirstPostLength.toInt().coerceAtLeast(1)
-            categories = session.bootstrap.categories
-                .filter { category -> category.permission?.toInt()?.let { it <= 1 } ?: true }
-            val categoryNames = categories.map { it.displayName() }
-            categorySpinner.adapter = ArrayAdapter(
-                requireContext(),
-                android.R.layout.simple_spinner_item,
-                categoryNames,
-            ).apply {
-                setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
-            }
-            val defaultIndex = categories.indexOfFirst {
-                it.id == session.bootstrap.defaultComposerCategory
-            }
-            if (defaultIndex >= 0) {
-                categorySpinner.setSelection(defaultIndex)
-            }
-            canCreateTopic = session.readiness.canWriteAuthenticatedApi && categories.isNotEmpty()
-            categorySpinner.isEnabled = canCreateTopic
-            submitButton.isEnabled = canCreateTopic
-            if (!canCreateTopic && categories.isEmpty()) {
-                Toast.makeText(
-                    requireContext(),
-                    R.string.create_topic_no_categories,
-                    Toast.LENGTH_SHORT,
-                ).show()
-            } else if (!canCreateTopic) {
-                Toast.makeText(
-                    requireContext(),
-                    R.string.create_topic_login_required,
-                    Toast.LENGTH_SHORT,
-                ).show()
-            }
+            runCatching { sessionStore.snapshot() }
+                .onSuccess { session ->
+                    baseUrl = session.bootstrap.baseUrl.ifBlank { "https://linux.do" }
+                    minTitleLength = session.bootstrap.minPersonalMessageTitleLength.toInt().coerceAtLeast(1)
+                    minBodyLength = session.bootstrap.minPersonalMessagePostLength.toInt().coerceAtLeast(1)
+                    canSendMessage = session.readiness.canWriteAuthenticatedApi
+                    submitButton.isEnabled = canSendMessage
+                    if (!canSendMessage) {
+                        Toast.makeText(
+                            requireContext(),
+                            R.string.profile_private_message_login_required,
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                    }
+                }
+                .onFailure {
+                    canSendMessage = false
+                    submitButton.isEnabled = false
+                    Toast.makeText(
+                        requireContext(),
+                        R.string.profile_private_message_error,
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                }
             restoreDraftIfAvailable()
             draftAutosave?.start()
         }
@@ -167,66 +165,53 @@ class TopicComposerSheet : BottomSheetDialogFragment() {
         }
 
         submitButton.setOnClickListener {
-            val title = titleInput.text.toString()
-            val body = bodyInput.text.toString()
-            val tags = tagValues()
-            val category = categories.getOrNull(categorySpinner.selectedItemPosition)
-
+            val title = titleInput.text.toString().trim()
+            val recipients = recipientValues()
+            val body = bodyInput.text.toString().trim()
+            if (recipients.isEmpty()) {
+                recipientInput.error = getString(R.string.profile_private_message_recipient_required)
+                return@setOnClickListener
+            }
             if (title.length < minTitleLength) {
                 titleInput.error = getString(
-                    R.string.create_topic_title_min_length,
+                    R.string.profile_private_message_title_min_length,
                     minTitleLength.toString(),
                 )
                 return@setOnClickListener
             }
             if (body.length < minBodyLength) {
                 bodyInput.error = getString(
-                    R.string.create_topic_body_min_length,
+                    R.string.profile_private_message_body_min_length,
                     minBodyLength.toString(),
                 )
                 return@setOnClickListener
             }
-            if (category == null) {
-                Toast.makeText(requireContext(), R.string.create_topic_no_categories, Toast.LENGTH_SHORT).show()
+            if (!canSendMessage) {
+                Toast.makeText(
+                    requireContext(),
+                    R.string.profile_private_message_login_required,
+                    Toast.LENGTH_SHORT,
+                ).show()
                 return@setOnClickListener
             }
-            if (tags.size < category.minimumRequiredTags.toInt()) {
-                tagsInput.error = getString(
-                    R.string.create_topic_tags_required,
-                    category.minimumRequiredTags.toString(),
-                )
-                return@setOnClickListener
-            }
-            val disallowedTags = if (category.allowedTags.isEmpty()) {
-                emptyList()
-            } else {
-                tags.filterNot { tag -> category.allowedTags.contains(tag) }
-            }
-            if (disallowedTags.isNotEmpty()) {
-                tagsInput.error = getString(
-                    R.string.create_topic_tags_not_allowed,
-                    disallowedTags.joinToString(", "),
-                )
-                return@setOnClickListener
-            }
-
-            viewModel?.submitTopic(title, body, category.id, tags)
+            viewModel?.submitPrivateMessage(title, body, recipients)
         }
 
         viewModel?.let { vm ->
             viewLifecycleOwner.lifecycleScope.launch {
                 vm.isSubmitting.collectLatest { submitting ->
                     progressBar.visibility = if (submitting) View.VISIBLE else View.GONE
-                    submitButton.isEnabled = !submitting && canCreateTopic
+                    submitButton.isEnabled = !submitting && canSendMessage
                 }
             }
             viewLifecycleOwner.lifecycleScope.launch {
-                vm.topicCreated.collectLatest { topicId ->
+                vm.privateMessageCreated.collectLatest { topicId ->
                     if (topicId != null) {
                         didSubmit = true
                         draftAutosave?.cancel()
                         deleteDraftIfNeeded()
-                        onTopicCreated?.invoke(topicId)
+                        val title = titleInput.text.toString().trim()
+                        onPrivateMessageCreated?.invoke(topicId, title)
                         dismiss()
                     }
                 }
@@ -236,7 +221,7 @@ class TopicComposerSheet : BottomSheetDialogFragment() {
                     if (error != null) {
                         Toast.makeText(
                             requireContext(),
-                            error.ifBlank { getString(R.string.create_topic_error) },
+                            error.ifBlank { getString(R.string.profile_private_message_error) },
                             Toast.LENGTH_SHORT,
                         ).show()
                     }
@@ -259,26 +244,23 @@ class TopicComposerSheet : BottomSheetDialogFragment() {
 
     private fun updatePreviewMode() {
         val editorVisibility = if (previewMode) View.GONE else View.VISIBLE
+        recipientInput.visibility = editorVisibility
+        recipientTokens.visibility = if (previewMode || recipientValues().isEmpty()) View.GONE else View.VISIBLE
         titleInput.visibility = editorVisibility
         bodyInput.visibility = editorVisibility
-        categoryLabel.visibility = editorVisibility
-        categorySpinner.visibility = editorVisibility
-        tagsInput.visibility = editorVisibility
-        view?.findViewById<LinearLayout>(R.id.topic_mention_suggestions)?.visibility = View.GONE
-        view?.findViewById<LinearLayout>(R.id.topic_tag_suggestions)?.visibility = View.GONE
+        view?.findViewById<LinearLayout>(R.id.private_message_recipient_suggestions)?.visibility = View.GONE
+        view?.findViewById<LinearLayout>(R.id.private_message_mention_suggestions)?.visibility = View.GONE
         previewContainer.visibility = if (previewMode) View.VISIBLE else View.GONE
         previewButton.text = getString(
             if (previewMode) R.string.composer_continue_editing else R.string.composer_preview,
         )
         if (previewMode) {
-            val category = categories.getOrNull(categorySpinner.selectedItemPosition)
             previewRenderer.render(
                 ComposerPreviewContent(
                     title = titleInput.text.toString()
                         .trim()
                         .ifBlank { getString(R.string.composer_preview_no_title) },
-                    categoryName = category?.displayName(),
-                    tags = tagValues(),
+                    recipients = recipientValues(),
                     body = bodyInput.text.toString(),
                     baseUrl = baseUrl,
                 ),
@@ -309,49 +291,51 @@ class TopicComposerSheet : BottomSheetDialogFragment() {
         }
     }
 
-    private fun tagValues(): List<String> =
-        tagsInput.text.toString()
+    private fun recipientValues(): List<String> =
+        recipientInput.text.toString()
             .split("[,\\s]+".toRegex())
+            .map { it.trim().removePrefix("@") }
             .filter { it.isNotBlank() }
+            .distinct()
 
     private suspend fun restoreDraftIfAvailable() {
         val draft = runCatching { sessionStore.fetchDraft(DRAFT_KEY) }.getOrNull() ?: return
+        val draftRecipients = draft.data.recipients.normalizedRecipients()
+        val explicitRecipients = listOf(targetUsername).normalizedRecipients()
+        if (explicitRecipients.isNotEmpty() && draftRecipients != explicitRecipients) {
+            return
+        }
+
         draftSequence = draft.sequence
         draft.data.title?.let { titleInput.setText(it) }
         draft.data.reply?.let { bodyInput.setText(it) }
-        draft.data.categoryId?.let { categoryId ->
-            val index = categories.indexOfFirst { it.id == categoryId }
-            if (index >= 0) {
-                categorySpinner.setSelection(index)
-            }
-        }
-        if (draft.data.tags.isNotEmpty()) {
-            tagsInput.setText(draft.data.tags.joinToString(" "))
+        if (draft.data.recipients.isNotEmpty()) {
+            recipientInput.setText(draft.data.recipients.joinToString(" "))
         }
         Toast.makeText(requireContext(), R.string.composer_draft_restored, Toast.LENGTH_SHORT).show()
     }
 
     private suspend fun persistDraftIfNeeded() {
         if (didSubmit) return
+        val recipients = recipientValues()
         val hasContent = titleInput.text.isNotBlank() ||
             bodyInput.text.isNotBlank() ||
-            tagValues().isNotEmpty()
+            recipients.isNotEmpty()
         if (!hasContent) {
             deleteDraftIfNeeded()
             return
         }
-        val category = categories.getOrNull(categorySpinner.selectedItemPosition)
         draftSequence = sessionStore.saveDraft(
             DRAFT_KEY,
             DraftDataState(
                 reply = bodyInput.text.toString(),
                 title = titleInput.text.toString(),
-                categoryId = category?.id,
-                tags = tagValues(),
+                categoryId = null,
+                tags = emptyList(),
                 replyToPostNumber = null,
-                action = "create_topic",
-                recipients = emptyList(),
-                archetypeId = "regular",
+                action = "private_message",
+                recipients = recipients,
+                archetypeId = "private_message",
                 composerTime = null,
                 typingTime = null,
             ),
@@ -365,12 +349,27 @@ class TopicComposerSheet : BottomSheetDialogFragment() {
         draftSequence = 0u
     }
 
-    companion object {
-        private const val DRAFT_KEY = "new_topic"
+    private fun List<String>.normalizedRecipients(): List<String> =
+        map { it.trim().removePrefix("@").lowercase() }
+            .filter { it.isNotBlank() }
+            .distinct()
 
-        fun newInstance(onTopicCreated: ((ULong) -> Unit)? = null): TopicComposerSheet {
-            return TopicComposerSheet().apply {
-                this.onTopicCreated = onTopicCreated
+    companion object {
+        private const val DRAFT_KEY = "new_private_message"
+        private const val ARG_TARGET_USERNAME = "target_username"
+        private const val ARG_DISPLAY_NAME = "display_name"
+
+        fun newInstance(
+            targetUsername: String,
+            displayName: String?,
+            onPrivateMessageCreated: ((ULong, String) -> Unit)? = null,
+        ): PrivateMessageComposerSheet {
+            return PrivateMessageComposerSheet().apply {
+                arguments = Bundle().apply {
+                    putString(ARG_TARGET_USERNAME, targetUsername)
+                    putString(ARG_DISPLAY_NAME, displayName)
+                }
+                this.onPrivateMessageCreated = onPrivateMessageCreated
             }
         }
     }

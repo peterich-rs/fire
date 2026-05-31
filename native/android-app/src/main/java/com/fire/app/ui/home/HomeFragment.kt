@@ -9,16 +9,21 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
+import androidx.navigation.fragment.findNavController
 import androidx.paging.LoadState
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import com.fire.app.R
 import com.fire.app.core.ext.optimizeForPaging
+import com.fire.app.session.FireSessionStore
 import com.fire.app.session.FireSessionStoreRepository
 import com.fire.app.ui.cloudflare.CloudflareChallengeSupport
+import com.fire.app.ui.composer.TopicComposerSheet
 import com.fire.app.ui.topicdetail.TopicDetailActivity
 import com.google.android.material.chip.Chip
 import com.google.android.material.chip.ChipGroup
@@ -39,6 +44,8 @@ class HomeFragment : Fragment() {
     private lateinit var feedKindAdapter: FeedKindAdapter
     private lateinit var selectedTagsScroll: View
     private lateinit var selectedTagsGroup: ChipGroup
+    private lateinit var searchButton: View
+    private lateinit var createTopicButton: View
 
     private var viewModel: HomeViewModel? = null
 
@@ -61,9 +68,11 @@ class HomeFragment : Fragment() {
         feedKindBar = view.findViewById(R.id.feed_kind_bar)
         selectedTagsScroll = view.findViewById(R.id.selected_tags_scroll)
         selectedTagsGroup = view.findViewById(R.id.selected_tags_group)
+        searchButton = view.findViewById(R.id.search_button)
+        createTopicButton = view.findViewById(R.id.create_topic_button)
 
         val sessionStore = FireSessionStoreRepository.get(requireContext())
-        viewModel = HomeViewModel.create(sessionStore)
+        viewModel = ViewModelProvider(this, HomeViewModelFactory(sessionStore))[HomeViewModel::class.java]
 
         adapter = TopicListAdapter(
             onTopicClick = { row ->
@@ -111,6 +120,7 @@ class HomeFragment : Fragment() {
         setupCategoryBar()
         setupFeedKindBar()
         setupSwipeRefresh()
+        setupToolbarActions()
 
         viewModel?.let { vm ->
             viewLifecycleOwner.lifecycleScope.launch {
@@ -190,6 +200,22 @@ class HomeFragment : Fragment() {
         }
     }
 
+    private fun setupToolbarActions() {
+        searchButton.setOnClickListener {
+            findNavController().navigate(HomeFragmentDirections.actionHomeToSearch())
+        }
+
+        createTopicButton.setOnClickListener {
+            TopicComposerSheet.newInstance { topicId ->
+                adapter.refresh()
+                TopicDetailActivity.start(
+                    context = requireContext(),
+                    topicId = topicId.toLong(),
+                )
+            }.show(parentFragmentManager, "topic_composer")
+        }
+    }
+
     private fun renderSelectedTags(tags: List<String>) {
         selectedTagsGroup.removeAllViews()
         selectedTagsScroll.visibility = if (tags.isEmpty()) View.GONE else View.VISIBLE
@@ -208,6 +234,18 @@ class HomeFragment : Fragment() {
                 }
             }
             selectedTagsGroup.addView(chip)
+        }
+    }
+
+    private class HomeViewModelFactory(
+        private val sessionStore: FireSessionStore,
+    ) : ViewModelProvider.Factory {
+        @Suppress("UNCHECKED_CAST")
+        override fun <T : ViewModel> create(modelClass: Class<T>): T {
+            if (modelClass.isAssignableFrom(HomeViewModel::class.java)) {
+                return HomeViewModel.create(sessionStore) as T
+            }
+            throw IllegalArgumentException("Unknown ViewModel class: ${modelClass.name}")
         }
     }
 }

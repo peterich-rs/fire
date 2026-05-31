@@ -5,6 +5,45 @@
     android:layout_height="match_parent"
     android:orientation="vertical">
 
+    <LinearLayout
+        android:id="@+id/home_toolbar"
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingHorizontal="16dp">
+
+        <TextView
+            android:id="@+id/home_title"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="@string/tab_home"
+            android:textAppearance="@style/TextAppearance.AppCompat.Title"
+            android:textColor="@color/fire_text_primary"
+            android:textStyle="bold" />
+
+        <ImageButton
+            android:id="@+id/search_button"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/action_open_search"
+            android:padding="10dp"
+            android:src="@drawable/ic_search" />
+
+        <ImageButton
+            android:id="@+id/create_topic_button"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:layout_marginStart="4dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/action_create_topic"
+            android:padding="10dp"
+            android:src="@drawable/ic_add" />
+
+    </LinearLayout>
+
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/category_bar"
         android:layout_width="match_parent"

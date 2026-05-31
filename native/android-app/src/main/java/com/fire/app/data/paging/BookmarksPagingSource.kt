@@ -23,7 +23,7 @@ class BookmarksPagingSource(
             val response = sessionStore.fetchBookmarks(username, page)
             LoadResult.Page(
                 data = response.rows,
-                prevKey = if (page == 0u) null else page,
+                prevKey = if (page == 0u) null else page - 1u,
                 nextKey = response.nextPage,
             )
         } catch (e: Exception) {

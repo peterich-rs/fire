@@ -7,6 +7,7 @@ import uniffi.fire_uniffi_topics.TopicListQueryState
 import uniffi.fire_uniffi_topics.TopicScreenQueryState
 import uniffi.fire_uniffi_topics.TopicResponsePageQueryState
 import uniffi.fire_uniffi_topics.TopicResponseCursorState
+import uniffi.fire_uniffi_topics.TopicAiSummaryState
 import uniffi.fire_uniffi_types.TopicListKindState
 import uniffi.fire_uniffi_types.TopicListState
 import uniffi.fire_uniffi_types.TopicRowState
@@ -67,6 +68,13 @@ class TopicRepository(private val sessionStore: FireSessionStore) {
         sessionStore.fetchTopicResponsePage(
             TopicResponsePageQueryState(cursor = cursor),
         )
+    }
+
+    suspend fun fetchTopicAiSummary(
+        topicId: ULong,
+        skipAgeCheck: Boolean = false,
+    ): TopicAiSummaryState? = withContext(Dispatchers.Default) {
+        sessionStore.fetchTopicAiSummary(topicId, skipAgeCheck)
     }
 
     suspend fun fetchBookmarks(username: String, page: UInt? = null): TopicListState =

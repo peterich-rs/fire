@@ -1,32 +1,70 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
     android:padding="16dp">
 
     <TextView
-        android:id="@+id/reply_title"
+        android:id="@+id/private_message_title"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:textAppearance="@style/TextAppearance.AppCompat.Subhead"
         android:textColor="@color/fire_text_primary" />
 
     <EditText
-        android:id="@+id/reply_body_input"
+        android:id="@+id/private_message_recipient_input"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="12dp"
+        android:hint="@string/profile_private_message_recipient_hint"
+        android:inputType="text"
+        android:background="@null"
+        android:textAppearance="@style/TextAppearance.AppCompat.Body1" />
+
+    <com.google.android.material.chip.ChipGroup
+        android:id="@+id/private_message_recipient_tokens"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:visibility="gone"
+        app:chipSpacingHorizontal="6dp"
+        app:chipSpacingVertical="4dp" />
+
+    <LinearLayout
+        android:id="@+id/private_message_recipient_suggestions"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:orientation="vertical"
+        android:visibility="gone" />
+
+    <EditText
+        android:id="@+id/private_message_title_input"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:hint="@string/profile_private_message_title_hint"
+        android:inputType="textCapSentences"
+        android:background="@null"
+        android:textAppearance="@style/TextAppearance.AppCompat.Body1" />
+
+    <EditText
+        android:id="@+id/private_message_body_input"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
         android:minHeight="120dp"
         android:gravity="top"
-        android:hint="@string/topic_detail_reply_hint"
-        android:inputType="textMultiLine"
+        android:hint="@string/profile_private_message_body_hint"
+        android:inputType="textCapSentences|textMultiLine"
         android:background="@null"
         android:textAppearance="@style/TextAppearance.AppCompat.Body1" />
 
     <LinearLayout
-        android:id="@+id/reply_mention_suggestions"
+        android:id="@+id/private_message_mention_suggestions"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="4dp"
@@ -34,7 +72,7 @@
         android:visibility="gone" />
 
     <LinearLayout
-        android:id="@+id/reply_preview_container"
+        android:id="@+id/private_message_preview_container"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="12dp"
@@ -51,13 +89,13 @@
         android:gravity="end">
 
         <ProgressBar
-            android:id="@+id/reply_progress"
+            android:id="@+id/private_message_progress"
             android:layout_width="24dp"
             android:layout_height="24dp"
             android:visibility="gone" />
 
         <TextView
-            android:id="@+id/reply_upload_button"
+            android:id="@+id/private_message_upload_button"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:paddingHorizontal="16dp"
@@ -68,7 +106,7 @@
             android:background="?attr/selectableItemBackground" />
 
         <TextView
-            android:id="@+id/reply_preview_button"
+            android:id="@+id/private_message_preview_button"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:paddingHorizontal="16dp"
@@ -79,13 +117,13 @@
             android:background="?attr/selectableItemBackground" />
 
         <TextView
-            android:id="@+id/reply_submit_button"
+            android:id="@+id/private_message_submit_button"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginStart="12dp"
             android:paddingHorizontal="20dp"
             android:paddingVertical="8dp"
-            android:text="@string/topic_detail_reply_submit"
+            android:text="@string/profile_private_message_send"
             android:textAppearance="@style/TextAppearance.AppCompat.Button"
             android:textColor="@color/fire_accent"
             android:background="?attr/selectableItemBackground" />

@@ -12,12 +12,12 @@ import androidx.paging.LoadState
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.fire.app.R
+import com.fire.app.core.error.launchWithFireErrorHandling
 import com.fire.app.session.FireSessionStoreRepository
 import com.fire.app.ui.cloudflare.CloudflareChallengeSupport
 import com.fire.app.ui.home.TopicListAdapter
 import com.fire.app.ui.topicdetail.TopicDetailActivity
 import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.launch
 
 class BookmarksFragment : Fragment() {
 
@@ -50,26 +50,58 @@ class BookmarksFragment : Fragment() {
                 context = requireContext(),
                 topicId = row.topic.id.toLong(),
                 topicTitle = row.topic.title,
+                targetPostNumber = row.topic.bookmarkedPostNumber?.toInt() ?: -1,
             )
         }
 
         recyclerView.layoutManager = LinearLayoutManager(requireContext())
         recyclerView.adapter = adapter
         adapter.addLoadStateListener { loadStates ->
-            listOf(loadStates.refresh, loadStates.append, loadStates.prepend)
+            val refresh = loadStates.refresh
+            val challengeError = listOf(loadStates.refresh, loadStates.append, loadStates.prepend)
                 .filterIsInstance<LoadState.Error>()
                 .firstOrNull { CloudflareChallengeSupport.isChallenge(it.error) }
-                ?.let { context?.let(CloudflareChallengeSupport::openSiteRoot) }
+            if (challengeError != null) {
+                context?.let(CloudflareChallengeSupport::openSiteRoot)
+            }
+
+            val isInitialLoading = refresh is LoadState.Loading && adapter.itemCount == 0
+            loadingView.visibility = if (isInitialLoading) View.VISIBLE else View.GONE
+            emptyView.visibility = when {
+                refresh is LoadState.Error -> {
+                    emptyView.text = refresh.error.localizedMessage
+                        ?: getString(R.string.feed_bookmarks_empty)
+                    View.VISIBLE
+                }
+                refresh is LoadState.NotLoading && adapter.itemCount == 0 -> {
+                    emptyView.text = getString(R.string.feed_bookmarks_empty)
+                    View.VISIBLE
+                }
+                else -> View.GONE
+            }
         }
 
         // Get username and set up paging
-        viewLifecycleOwner.lifecycleScope.launch {
+        viewLifecycleOwner.lifecycleScope.launchWithFireErrorHandling(
+            operation = "bookmarks.restore_session_snapshot",
+            sessionStore = sessionStore,
+            fallbackMessage = getString(R.string.feed_bookmarks_login_required),
+            onError = { error ->
+                emptyView.text = error.displayMessage
+                emptyView.visibility = View.VISIBLE
+            },
+        ) {
             val session = sessionStore.snapshot()
-            val username = session.bootstrap.currentUsername ?: return@launch
-            viewModel = BookmarksViewModel.create(sessionStore, username)
+            val username = session.bootstrap.currentUsername
+            if (username.isNullOrBlank()) {
+                emptyView.text = getString(R.string.feed_bookmarks_login_required)
+                emptyView.visibility = View.VISIBLE
+            } else {
+                viewModel = BookmarksViewModel.create(sessionStore, username)
 
-            viewModel?.bookmarksPagingFlow()?.collectLatest { pagingData ->
-                adapter.submitData(pagingData)
+                viewModel?.bookmarksPagingFlow()?.collectLatest { pagingData ->
+                    adapter.submitData(pagingData)
+                }
             }
         }
     }

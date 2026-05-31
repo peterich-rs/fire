@@ -4,6 +4,40 @@
     android:layout_height="match_parent"
     android:orientation="vertical">
 
+    <LinearLayout
+        android:id="@+id/profile_actions"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingHorizontal="16dp"
+        android:paddingVertical="10dp">
+
+        <TextView
+            android:id="@+id/bookmarks_button"
+            android:layout_width="0dp"
+            android:layout_height="40dp"
+            android:layout_weight="1"
+            android:background="?attr/selectableItemBackground"
+            android:gravity="center"
+            android:text="@string/feed_bookmarks"
+            android:textAppearance="@style/TextAppearance.AppCompat.Button"
+            android:textColor="@color/fire_accent" />
+
+        <TextView
+            android:id="@+id/private_messages_button"
+            android:layout_width="0dp"
+            android:layout_height="40dp"
+            android:layout_marginStart="8dp"
+            android:layout_weight="1"
+            android:background="?attr/selectableItemBackground"
+            android:gravity="center"
+            android:text="@string/feed_private_messages_inbox"
+            android:textAppearance="@style/TextAppearance.AppCompat.Button"
+            android:textColor="@color/fire_accent" />
+
+    </LinearLayout>
+
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/profile_list"
         android:layout_width="match_parent"

@@ -157,7 +157,7 @@ The topic-detail helper should prefer `https://linux.do/t/{slug}/{topicId}` when
 
 - Expand `FireAuthPresentationState` to `.login` and `.cloudflareRecovery(originURL:)`.
 - Expand `FireCloudflareChallengeContext` to persist the recovery origin selected by the triggering code path.
-- Update `openLogin()` / `presentLoginAuthFlow()` / `resetSessionAndPresentLogin(...)` to continue presenting `.login` only.
+- Update `openLogin()` / `presentLoginAuthFlow()` to continue presenting `.login` only; runtime `LoginRequired` handling should not reset the session or present login automatically.
 - Update `beginCloudflareRecoveryAndWait(...)` and `handleCloudflareChallengeIfNeeded(...)` to present `.cloudflareRecovery(originURL:)` instead of `.login`.
 - Keep `completeLogin(from:)`, `dismissAuthPresentation()`, and waiter resolution as the single exit path for both surfaces.
 

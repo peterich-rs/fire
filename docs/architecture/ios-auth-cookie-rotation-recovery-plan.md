@@ -7,8 +7,8 @@ This is the main document for the auth/session incident captured in `fire-suppor
 - `GET /t/1992131.json?track_visit=true` succeeded while still using the old `_forum_session` and old `_t`.
 - The same response rotated `_forum_session`, but did not provide a new `_t` or a new CSRF token.
 - The shared session accepted that patch as ordinary steady state.
-- The next authenticated write, often `POST /topics/timings`, reused stale write credentials and then hit strong invalidation.
-- The topic detail reset was downstream of that logout path, not the primary defect.
+- The next authenticated write, often `POST /topics/timings`, reused stale write credentials and then surfaced `LoginRequired`.
+- The topic detail reset was downstream of the older automatic logout path, not the primary defect.
 
 ## Landed Route
 
@@ -17,7 +17,7 @@ This is the main document for the auth/session incident captured in `fire-suppor
 - Any auth-key change `(_t, _forum_session)` now counts as an auth-context change, regardless of whether it came from platform sync or network `Set-Cookie`.
 - Auth-context change advances the shared session epoch.
 - If the same mutation did not also install a fresh CSRF token, Fire clears the stale CSRF token immediately.
-- Strong logout still only comes from explicit server evidence: `error_type: "not_logged_in"` on 401/403, or `discourse-logged-out` on successful/401 responses. Ordinary 403 `invalid_access` remains an access error even if it carries `discourse-logged-out`.
+- Runtime responses no longer force local logout. `error_type: "not_logged_in"` on 401/403 and `discourse-logged-out` on 401 are classified as `LoginRequired`, while successful responses with `discourse-logged-out` remain usable responses. Ordinary 403 `invalid_access` remains an access error even if it carries `discourse-logged-out`.
 - A partial network rotation records a runtime-only auth recovery hint so later writes can distinguish this case from explicit logout and from the older cookie deletion bug.
 
 ### Authenticated-write recovery
@@ -31,7 +31,7 @@ This is the main document for the auth/session incident captured in `fire-suppor
   4. refresh CSRF again, then execute the original write
 - Host resync is single-flight and at most once per auth epoch.
 - Late resync results from an older epoch are dropped.
-- If CSRF refresh already surfaces `LoginRequired`, host resync is bypassed and the existing strong invalidation path wins.
+- If CSRF refresh already surfaces `LoginRequired`, host resync is bypassed and the host reports the error without clearing local session state.
 
 ### Boundaries
 

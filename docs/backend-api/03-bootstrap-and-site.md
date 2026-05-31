@@ -78,6 +78,7 @@
 - 兼容性说明：
   - Fire 共享层会把 `csrf` 按标量字段解析；字符串数字也会接受
   - `csrf` 缺失、为 `null`、空字符串或根节点不是对象时，Rust 会把它视为无效 CSRF 响应而不是继续带着脏值写回会话
+  - `200` CSRF 响应即使附带 `discourse-logged-out: 1` 或删除 `_t` / `_forum_session` 的 `Set-Cookie`，仍按成功 CSRF 响应处理；Fire 不会因此清掉本地登录态或触发登录页
 
 ### `DELETE /session/{username}`
 
@@ -93,16 +94,17 @@
 
 ### 会话失效与 auth 轮换
 
-- Linux.do/Discourse 不一定等写接口才暴露登录态问题，但这里要区分“显式失效”和“auth 上下文轮换”两类现象。
-- 当前 Fire 仍把这些当作强失效信号：
+- Linux.do/Discourse 不一定等写接口才暴露登录态问题，但这里要区分“需要重新确认登录”的服务端错误、“auth 上下文轮换”和“成功响应里的诊断性头”三类现象。
+- 当前 Fire 只把这些响应分类为 `LoginRequired` 错误：
   - `401` / `403` 且 body 里有 `error_type=not_logged_in`
-  - 成功响应或 `401` 响应上的 `discourse-logged-out: 1`
+  - `401` 响应上的 `discourse-logged-out: 1`
+- `LoginRequired` 不再自动清理本地会话，也不会由 iOS 自动弹出登录 WebView；宿主只展示错误并保留当前 session，等待用户显式重新登录或退出。
 - 普通资源权限 `403` 不能只凭 `discourse-logged-out: 1` 或 auth Cookie 删除判定为后台剔除登录态；例如 `error_type=invalid_access` 仍按普通 `HttpStatus` 暴露，保留本地会话。
 - 成功响应里的 auth Cookie 删除不再单独作为登出依据；仅靠 `Set-Cookie: _t=; Max-Age=0` 或 `_forum_session=; Max-Age=0`，Fire 只保留诊断线索，不会直接清掉本地登录态。
 - Fire 共享层现在会在 `sync_login_context`、`apply_platform_cookies`、以及网络 `Set-Cookie` 导致 auth key `(_t, _forum_session)` 变化时推进 session epoch；晚到的旧请求响应仍会作为 stale response 整批丢弃。
 - 如果 auth key 变化但同一批更新没有带来新的 CSRF，Fire 会立即清掉旧 CSRF，让下一次认证写请求先刷新 token。
 - 如果网络侧只轮换了 `_t` / `_forum_session` 的一部分，Fire 会记录一次运行时 recovery hint，并把必要的 host cookie resync 延迟到下一次认证写请求，而不是在读路径里立刻探测 WebKit。
-- 当前 `BAD CSRF` 仍只触发一次性 CSRF 刷新与单次重试；如果同一请求同时已经暴露强失效信号，则优先按登录失效收口。Rust 的自动 CSRF 刷新会做 in-flight 去重，避免多个认证写请求同时发现缺 token 时重复打 `/session/csrf`。
+- 当前 `BAD CSRF` 仍只触发一次性 CSRF 刷新与单次重试；Rust 的自动 CSRF 刷新会做 in-flight 去重，避免多个认证写请求同时发现缺 token 时重复打 `/session/csrf`。
 - 因此后续常见表现不只有“更早一步已明确失效”，也可能是“更早一步成功读请求触发了 partial auth rotation，首个写请求才真正暴露问题”。
 
 ### 交互式 Cloudflare 恢复

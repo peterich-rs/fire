@@ -703,7 +703,6 @@ impl FireCore {
         self.diagnostics
             .record_http_status_error(trace_id, StatusCode::FORBIDDEN.as_u16(), &body);
         if let Some(error) = response_login_invalidation_error(
-            self,
             operation,
             trace_id,
             StatusCode::FORBIDDEN,
@@ -788,23 +787,6 @@ pub(crate) async fn expect_success(
     response: Response<ResponseBody>,
 ) -> Result<Response<ResponseBody>, FireCoreError> {
     if response.status().is_success() {
-        if operation != "logout" {
-            let response_status = response.status();
-            let invalidation = response_login_invalidation_signal(response.headers());
-            if invalidation.any() {
-                let body = core.read_response_text(trace_id, response).await?;
-                let error = response_login_invalidation_error(
-                    core,
-                    operation,
-                    trace_id,
-                    response_status,
-                    invalidation,
-                    &body,
-                )
-                .expect("invalidation signal should always produce a login-required error");
-                return Err(error);
-            }
-        }
         return Ok(response);
     }
 
@@ -840,14 +822,9 @@ pub(crate) async fn expect_success(
     );
     core.diagnostics
         .record_http_status_error(trace_id, status, &body);
-    if let Some(error) = response_login_invalidation_error(
-        core,
-        operation,
-        trace_id,
-        response_status,
-        invalidation,
-        &body,
-    ) {
+    if let Some(error) =
+        response_login_invalidation_error(operation, trace_id, response_status, invalidation, &body)
+    {
         return Err(error);
     }
     Err(classify_http_status_error(
@@ -962,7 +939,6 @@ fn clears_cookie(set_cookie_header: &str, name: &str) -> bool {
 }
 
 fn response_login_invalidation_error(
-    core: &FireCore,
     operation: &'static str,
     trace_id: u64,
     status: StatusCode,
@@ -970,16 +946,10 @@ fn response_login_invalidation_error(
     body: &str,
 ) -> Option<FireCoreError> {
     let login_required_message = not_logged_in_message(status.as_u16(), body);
-    let header_invalidates_login =
-        invalidation.any() && (status.is_success() || status == StatusCode::UNAUTHORIZED);
+    let header_invalidates_login = invalidation.any() && status == StatusCode::UNAUTHORIZED;
     if !header_invalidates_login && login_required_message.is_none() {
         return None;
     }
-
-    let has_local_login = {
-        let snapshot = core.snapshot();
-        snapshot.cookies.has_login_session() || snapshot.cookies.has_forum_session()
-    };
 
     warn!(
         operation,
@@ -990,11 +960,8 @@ fn response_login_invalidation_error(
         cleared_forum_session = invalidation.cleared_forum_session,
         header_invalidates_login,
         body_prefix = %body.chars().take(200).collect::<String>(),
-        "response invalidated login session"
+        "response reported login-required state"
     );
-    if has_local_login {
-        let _ = core.logout_local(true);
-    }
     Some(FireCoreError::LoginRequired {
         operation,
         message: login_required_message.unwrap_or_else(|| LOGIN_INVALIDATED_MESSAGE.to_string()),

@@ -87,7 +87,7 @@ Discourse-Present: true
 }
 ```
 
-- Fire 共享层把 `error_type == "not_logged_in"` 视为登录态失效信号，不按普通 `HttpStatus` 处理；宿主层应清理本地会话并拉起重新登录
+- Fire 共享层把 `error_type == "not_logged_in"` 视为 `LoginRequired`，不按普通 `HttpStatus` 处理；宿主层不应自动清理本地会话或拉起登录页，而是保留当前 session、展示错误，并等待用户显式重新登录或退出
 - `403` 的 `error_type == "invalid_access"` 表示资源不可见或当前用户无权限，仍按普通 `HttpStatus` 暴露；即使同一个回包带 `discourse-logged-out: 1` 或清空 auth Cookie，也不能直接清理本地登录态
 - Fire 共享层只在 `403` 同时满足 `server: cloudflare`、`Content-Type: text/html`，并且带 `cf-mitigated: challenge` 或 HTML 中含 Cloudflare challenge 特征时，才分类为 `CloudflareChallenge`；普通 Discourse `403` 不应仅凭正文关键词触发 Cloudflare 恢复流程
 

@@ -98,10 +98,18 @@ impl FireCore {
         if current.cookies.csrf_token.is_some() {
             return Ok(current);
         }
+        if !current.cookies.can_authenticate_requests() {
+            debug!("skipping CSRF refresh because authenticated cookies are unavailable");
+            return Ok(current);
+        }
 
         let _refresh_guard = self.csrf_refresh.lock().await;
         let current = self.snapshot();
         if current.cookies.csrf_token.is_some() {
+            return Ok(current);
+        }
+        if !current.cookies.can_authenticate_requests() {
+            debug!("skipping CSRF refresh because authenticated cookies became unavailable");
             return Ok(current);
         }
 

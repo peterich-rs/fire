@@ -764,7 +764,7 @@ async fn fetch_topic_detail_partial_auth_rotation_advances_epoch_and_clears_csrf
 }
 
 #[tokio::test]
-async fn fetch_topic_list_surfaces_login_required_when_success_response_invalidates_auth() {
+async fn fetch_topic_list_preserves_local_login_when_success_response_reports_logged_out() {
     let body = sample_latest_json();
     let response = format!(
         "HTTP/1.1 200 TEST\r\nContent-Type: application/json\r\nContent-Length: {}\r\nDiscourse-Logged-Out: 1\r\nSet-Cookie: _t=; path=/; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax\r\nConnection: close\r\n\r\n{body}",
@@ -808,33 +808,33 @@ async fn fetch_topic_list_surfaces_login_required_when_success_response_invalida
         ],
     });
 
-    let error = core
+    let response = core
         .fetch_topic_list(TopicListQuery {
             kind: TopicListKind::Latest,
             page: Some(1),
             ..TopicListQuery::default()
         })
         .await
-        .expect_err("auth invalidation should surface");
+        .expect("successful response should not force login invalidation");
     let _ = server.shutdown().await;
 
-    assert!(matches!(
-        error,
-        FireCoreError::LoginRequired { message, .. }
-            if message == "登录状态已失效，请重新登录。"
-    ));
+    assert_eq!(response.rows.len(), 1);
 
     let snapshot = core.snapshot();
-    assert_eq!(snapshot.cookies.t_token, None);
-    assert_eq!(snapshot.cookies.forum_session, None);
-    assert_eq!(snapshot.cookies.csrf_token, None);
+    assert_eq!(snapshot.cookies.t_token.as_deref(), Some("token"));
+    assert_eq!(snapshot.cookies.forum_session.as_deref(), Some("forum"));
+    assert_eq!(snapshot.cookies.csrf_token.as_deref(), Some("csrf-token"));
     assert_eq!(snapshot.cookies.cf_clearance.as_deref(), Some("clearance"));
-    assert_eq!(snapshot.bootstrap.current_username, None);
-    assert!(!snapshot.bootstrap.has_preloaded_data);
+    assert_eq!(
+        snapshot.bootstrap.current_username.as_deref(),
+        Some("alice")
+    );
+    assert!(snapshot.bootstrap.has_preloaded_data);
 }
 
 #[tokio::test]
-async fn fetch_topic_list_surfaces_login_required_and_clears_local_state_for_not_logged_in_error() {
+async fn fetch_topic_list_surfaces_login_required_and_preserves_local_state_for_not_logged_in_error(
+) {
     let body = r#"{"errors":["需要登录才能执行此操作。"],"error_type":"not_logged_in"}"#;
     let response = raw_json_response(403, "application/json", body);
     let server = TestServer::spawn(vec![response]).await.expect("server");
@@ -891,11 +891,15 @@ async fn fetch_topic_list_surfaces_login_required_and_clears_local_state_for_not
     ));
 
     let snapshot = core.snapshot();
-    assert_eq!(snapshot.cookies.t_token, None);
-    assert_eq!(snapshot.cookies.forum_session, None);
-    assert_eq!(snapshot.cookies.csrf_token, None);
+    assert_eq!(snapshot.cookies.t_token.as_deref(), Some("token"));
+    assert_eq!(snapshot.cookies.forum_session.as_deref(), Some("forum"));
+    assert_eq!(snapshot.cookies.csrf_token.as_deref(), Some("csrf-token"));
     assert_eq!(snapshot.cookies.cf_clearance.as_deref(), Some("clearance"));
-    assert!(!snapshot.bootstrap.has_preloaded_data);
+    assert_eq!(
+        snapshot.bootstrap.current_username.as_deref(),
+        Some("alice")
+    );
+    assert!(snapshot.bootstrap.has_preloaded_data);
 }
 
 #[tokio::test]
@@ -1878,6 +1882,69 @@ async fn refresh_csrf_token_updates_session_from_network() {
 }
 
 #[tokio::test]
+async fn refresh_csrf_token_preserves_login_when_success_response_reports_logged_out() {
+    let body = r#"{"csrf":"fresh-csrf"}"#;
+    let response = format!(
+        "HTTP/1.1 200 TEST\r\nContent-Type: application/json\r\nContent-Length: {}\r\nDiscourse-Logged-Out: 1\r\nSet-Cookie: _t=; path=/; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax\r\nConnection: close\r\n\r\n{body}",
+        body.len()
+    );
+    let server = TestServer::spawn(vec![response]).await.expect("server");
+    let core = FireCore::new(FireCoreConfig {
+        base_url: server.base_url(),
+        workspace_path: None,
+    })
+    .expect("core");
+
+    let _ = core.sync_login_context(LoginSyncInput {
+        username: Some("alice".into()),
+        home_html: None,
+        csrf_token: None,
+        current_url: Some(server.base_url()),
+        browser_user_agent: None,
+        cookies: vec![
+            PlatformCookie {
+                name: "_t".into(),
+                value: "token".into(),
+                domain: None,
+                path: None,
+                expires_at_unix_ms: None,
+            },
+            PlatformCookie {
+                name: "_forum_session".into(),
+                value: "forum".into(),
+                domain: None,
+                path: None,
+                expires_at_unix_ms: None,
+            },
+            PlatformCookie {
+                name: "cf_clearance".into(),
+                value: "clearance".into(),
+                domain: None,
+                path: None,
+                expires_at_unix_ms: None,
+            },
+        ],
+    });
+
+    let snapshot = core
+        .refresh_csrf_token_if_needed()
+        .await
+        .expect("successful csrf response should be usable");
+    let requests = server.shutdown_with_requests().await;
+
+    assert_eq!(snapshot.cookies.csrf_token.as_deref(), Some("fresh-csrf"));
+    assert_eq!(snapshot.cookies.t_token.as_deref(), Some("token"));
+    assert_eq!(snapshot.cookies.forum_session.as_deref(), Some("forum"));
+    assert_eq!(snapshot.cookies.cf_clearance.as_deref(), Some("clearance"));
+    assert_eq!(requests.len(), 1);
+    let request = requests[0].to_ascii_lowercase();
+    assert!(request.contains("get /session/csrf http/1.1"));
+    assert!(request.contains("discourse-logged-in: true"));
+    assert!(request.contains("_t=token"));
+    assert!(request.contains("_forum_session=forum"));
+}
+
+#[tokio::test]
 async fn refresh_csrf_token_accepts_scalar_tokens() {
     let responses = vec![raw_json_response(
         200,
@@ -1944,6 +2011,71 @@ async fn concurrent_csrf_refresh_if_needed_shares_in_flight_request() {
 
     assert_eq!(first.cookies.csrf_token.as_deref(), Some("fresh-csrf"));
     assert_eq!(second.cookies.csrf_token.as_deref(), Some("fresh-csrf"));
+    assert_eq!(requests.len(), 1);
+    assert!(requests[0].contains("GET /session/csrf HTTP/1.1"));
+}
+
+#[tokio::test]
+async fn queued_csrf_refresh_if_needed_does_not_retry_after_session_logout() {
+    let server = TestServer::spawn_scripted(vec![TestServerStep::delayed(
+        raw_json_response(200, "application/json", r#"{"csrf":"fresh-csrf"}"#),
+        Duration::from_millis(120),
+    )])
+    .await
+    .expect("server");
+    let core = FireCore::new(FireCoreConfig {
+        base_url: server.base_url(),
+        workspace_path: None,
+    })
+    .expect("core");
+    let _ = core.sync_login_context(LoginSyncInput {
+        username: Some("alice".into()),
+        home_html: None,
+        csrf_token: None,
+        current_url: Some(server.base_url()),
+        browser_user_agent: None,
+        cookies: vec![
+            PlatformCookie {
+                name: "_t".into(),
+                value: "token".into(),
+                domain: None,
+                path: None,
+                expires_at_unix_ms: None,
+            },
+            PlatformCookie {
+                name: "_forum_session".into(),
+                value: "forum".into(),
+                domain: None,
+                path: None,
+                expires_at_unix_ms: None,
+            },
+        ],
+    });
+
+    let first_core = core.clone();
+    let first = tokio::spawn(async move { first_core.refresh_csrf_token_if_needed().await });
+    sleep(Duration::from_millis(20)).await;
+
+    let second_core = core.clone();
+    let second = tokio::spawn(async move { second_core.refresh_csrf_token_if_needed().await });
+    sleep(Duration::from_millis(20)).await;
+
+    let logged_out = core.logout_local(true);
+    assert!(!logged_out.cookies.can_authenticate_requests());
+
+    let first = first.await.expect("first task");
+    let second = second.await.expect("second task");
+    let requests = server.shutdown_with_requests().await;
+
+    assert!(matches!(
+        first,
+        Err(FireCoreError::StaleSessionResponse {
+            operation: "refresh csrf token"
+        })
+    ));
+    let second = second.expect("queued csrf refresh should skip after logout");
+    assert_eq!(second.cookies.csrf_token, None);
+    assert!(!second.cookies.can_authenticate_requests());
     assert_eq!(requests.len(), 1);
     assert!(requests[0].contains("GET /session/csrf HTTP/1.1"));
 }

@@ -239,10 +239,9 @@ final class FireAppViewModel: ObservableObject {
     private var loginSyncReadinessTask: Task<Void, Never>?
     private var cachedLoginSyncReadiness: CachedLoginSyncReadiness?
     private var pendingCloudflareRecovery: PendingCloudflareRecovery?
-    private var isResettingSession = false
     /// Single-flight read-path login recovery: at most one resync runs per session
     /// epoch, and once an epoch's resync has failed we stop retrying it on read
-    /// errors so the caller falls back to the original logout/login flow.
+    /// errors so the caller falls back to reporting the original error.
     private var readPathLoginRecoveryTask: Task<Bool, Never>?
     private var readPathLoginRecoveryEpoch: UInt64?
     private var readPathLoginRecoveryAttemptedEpochs: Set<UInt64> = []
@@ -1748,10 +1747,6 @@ final class FireAppViewModel: ObservableObject {
             return false
         }
 
-        guard !isResettingSession else {
-            return false
-        }
-
         let logger = await authDiagnosticsLogger()
 
         let beforeEpoch: UInt64
@@ -1905,9 +1900,7 @@ final class FireAppViewModel: ObservableObject {
         await logLoginInvalidationDiagnostics(
             message: message.isEmpty ? Self.loginRequiredMessage : message
         )
-        await resetSessionAndPresentLogin(
-            message: message.isEmpty ? Self.loginRequiredMessage : message
-        )
+        errorMessage = message.isEmpty ? Self.loginRequiredMessage : message
         return true
     }
 
@@ -1969,38 +1962,6 @@ final class FireAppViewModel: ObservableObject {
             setAuthPresentationState(.login)
         }
         return true
-    }
-
-    private func resetSessionAndPresentLogin(message: String) async {
-        guard !isResettingSession else {
-            return
-        }
-
-        isResettingSession = true
-        defer { isResettingSession = false }
-
-        resolvePendingCloudflareRecovery(
-            with: .failure(FireCloudflareRecoveryError.cancelled)
-        )
-        stopMessageBus()
-        readPathLoginRecoveryAttemptedEpochs.removeAll()
-
-        do {
-            let recoveryStore = try await challengeRecoveryStoreValue()
-            let cleared = try await recoveryStore.logoutLocalAndClearPlatformCookies(
-                preserveCfClearance: true
-            )
-            await applySession(cleared)
-        } catch {
-            await applySession(.placeholder(baseUrl: session.bootstrap.baseUrl))
-        }
-
-        clearTopicState()
-        notificationStore?.reset()
-        canSyncLoginSession = false
-        cachedLoginSyncReadiness = nil
-        errorMessage = message
-        presentLoginAuthFlow()
     }
 
     private func logLoginInvalidationDiagnostics(message: String) async {

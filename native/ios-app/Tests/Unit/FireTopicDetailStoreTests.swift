@@ -210,6 +210,50 @@ final class FireTopicDetailStoreTests: XCTestCase {
         XCTAssertEqual(url.absoluteString, "https://linux.do/t/42")
     }
 
+    func testCloudflareRecoverySnapshotRequiresNewClearance() {
+        let initial = FireCloudflareRecoveryCookieSnapshot(
+            hasAuthCookies: true,
+            authFingerprint: "auth",
+            cfClearanceFingerprint: "old"
+        )
+        let unchanged = FireCloudflareRecoveryCookieSnapshot(
+            hasAuthCookies: true,
+            authFingerprint: "auth",
+            cfClearanceFingerprint: "old"
+        )
+        let missing = FireCloudflareRecoveryCookieSnapshot(
+            hasAuthCookies: true,
+            authFingerprint: "auth",
+            cfClearanceFingerprint: nil
+        )
+        let rotated = FireCloudflareRecoveryCookieSnapshot(
+            hasAuthCookies: true,
+            authFingerprint: "auth",
+            cfClearanceFingerprint: "new"
+        )
+
+        XCTAssertTrue(initial.hasCloudflareClearance)
+        XCTAssertFalse(unchanged.hasNewCloudflareClearance(comparedTo: initial))
+        XCTAssertFalse(missing.hasNewCloudflareClearance(comparedTo: initial))
+        XCTAssertTrue(rotated.hasNewCloudflareClearance(comparedTo: initial))
+    }
+
+    func testCloudflareRecoverySnapshotAcceptsFirstClearanceWhenBaselineHasNone() {
+        let initial = FireCloudflareRecoveryCookieSnapshot(
+            hasAuthCookies: true,
+            authFingerprint: "auth",
+            cfClearanceFingerprint: nil
+        )
+        let current = FireCloudflareRecoveryCookieSnapshot(
+            hasAuthCookies: true,
+            authFingerprint: "auth",
+            cfClearanceFingerprint: "new"
+        )
+
+        XCTAssertFalse(initial.hasCloudflareClearance)
+        XCTAssertTrue(current.hasNewCloudflareClearance(comparedTo: initial))
+    }
+
     func testResponsePagePrefetchUsesRenderedResponseTailInsteadOfMaxPostNumber() {
         let loadedPostNumbers: [UInt32] = [1, 100] + Array(UInt32(2)...UInt32(20))
 

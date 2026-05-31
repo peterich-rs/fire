@@ -350,10 +350,10 @@ struct FireAuthScreen: View {
                 guard let webView = webViewBox.webView else {
                     return
                 }
-                viewModel.autoSyncLoginAfterRecoveryIfLoginActionEnabled(
-                    from: webView,
-                    isWebViewLoading: isLoading
-                )
+                guard !isLoading else {
+                    return
+                }
+                viewModel.refreshLoginSyncReadiness(from: webView)
             }
             .onDisappear {
                 viewModel.restoreTopLevelAPMRoute()

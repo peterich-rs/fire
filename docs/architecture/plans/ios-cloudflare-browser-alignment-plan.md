@@ -13,7 +13,7 @@ The iOS host already centralizes Cloudflare recovery state, auth presentation, a
 - `native/ios-app/App/FireAppViewModel.swift` `loadInitialState()` -- restores session, refreshes home feed, and refreshes notifications back-to-back with no browser-like gaps.
 - `native/ios-app/App/FireAppViewModel.swift` `applySession(_:)` / `startMessageBus()` -- starts MessageBus immediately once readiness flips to `canOpenMessageBus`.
 - `native/ios-app/App/FireAppViewModel.swift` `performWithCloudflareRecovery(operation:originURL:work:)` -- retries once after cookie sync, then escalates to interactive recovery with a browser HTML origin URL.
-- `native/ios-app/App/FireAppViewModel.swift` `beginCloudflareRecoveryAndWait(operation:originURL:)` -- coalesces waiters, deletes stale `cf_clearance`, records the origin URL, and currently presents `.login`.
+- `native/ios-app/App/FireAppViewModel.swift` `beginCloudflareRecoveryAndWait(operation:originURL:)` -- coalesces waiters, records the origin URL and the baseline `cf_clearance`, preserves existing browser cookies, and presents `.login`.
 - `native/ios-app/App/FireAppViewModel.swift` `handleCloudflareChallengeIfNeeded(_:message:originURL:)` -- generic Cloudflare handler that records an origin URL and also presents `.login`.
 - `native/ios-app/App/FireAppViewModel.swift` `completeLogin(from:)` / `dismissAuthPresentation()` -- current completion and cancellation path for both login and recovery.
 - `native/ios-app/App/FireLoginWebView.swift` `FireAuthScreen` -- full-screen login/recovery container that already owns address bar, banners, embedded WebView, and bottom action area.

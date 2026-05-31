@@ -191,20 +191,16 @@ extension FireSessionStore: FireLoginSessionStoring {}
 @MainActor
 public final class FireWebViewLoginCoordinator {
     private let sessionStore: any FireLoginSessionStoring
-    private let challengeRecoveryCookieCleaner: (@Sendable () async throws -> Void)?
     private var probeHomeFallbackCache: FireLoginProbeHomeFallbackCache?
 
     public init(sessionStore: FireSessionStore) {
         self.sessionStore = sessionStore
-        self.challengeRecoveryCookieCleaner = nil
     }
 
     init(
-        loginSessionStore: any FireLoginSessionStoring,
-        challengeRecoveryCookieCleaner: (@Sendable () async throws -> Void)? = nil
+        loginSessionStore: any FireLoginSessionStoring
     ) {
         self.sessionStore = loginSessionStore
-        self.challengeRecoveryCookieCleaner = challengeRecoveryCookieCleaner
     }
 
     public func restorePersistedSessionIfAvailable() async throws -> SessionState? {
@@ -232,15 +228,10 @@ public final class FireWebViewLoginCoordinator {
             }
 
             // Don't keep a partially synced native session around when bootstrap
-            // or CSRF refresh is still challenged. Keep the browser auth cookies
-            // intact, because the recovery WebView reuses the login URL and
-            // needs the authenticated site context to let Cloudflare continue.
+            // or CSRF refresh is still challenged. Keep the browser cookies
+            // intact so the recovery WebView can continue from the same browser
+            // challenge context.
             _ = try? await sessionStore.logoutLocal(preserveCfClearance: true)
-            if let challengeRecoveryCookieCleaner {
-                try? await challengeRecoveryCookieCleaner()
-            } else {
-                try? await clearCloudflareClearanceCookies()
-            }
             throw error
         }
     }
@@ -444,13 +435,6 @@ public final class FireWebViewLoginCoordinator {
     ) async throws {
         try await clearPlatformCookies { cookie in
             isSameSiteCookie(cookie) && !preservedCookieNames.contains(cookie.name)
-        }
-    }
-
-    private func clearCloudflareClearanceCookies() async throws {
-        let targetedNames: Set<String> = ["cf_clearance"]
-        try await clearPlatformCookies { cookie in
-            isSameSiteCookie(cookie) && targetedNames.contains(cookie.name)
         }
     }
 

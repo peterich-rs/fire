@@ -104,9 +104,22 @@ private final class PendingCloudflareRecoveryWaiters: @unchecked Sendable {
 struct FireCloudflareRecoveryCookieSnapshot: Equatable {
     let hasAuthCookies: Bool
     let authFingerprint: String
+    let cfClearanceFingerprint: String?
+
+    var hasCloudflareClearance: Bool {
+        cfClearanceFingerprint != nil
+    }
+
+    func hasNewCloudflareClearance(comparedTo baseline: FireCloudflareRecoveryCookieSnapshot) -> Bool {
+        guard let cfClearanceFingerprint else {
+            return false
+        }
+        return cfClearanceFingerprint != baseline.cfClearanceFingerprint
+    }
 
     var diagnosticSummary: String {
-        "auth=\(hasAuthCookies) auth_fp=\(authFingerprint)"
+        let cfSummary = cfClearanceFingerprint.map { "present:\($0)" } ?? "missing"
+        return "auth=\(hasAuthCookies) auth_fp=\(authFingerprint) cf_clearance=\(cfSummary)"
     }
 }
 
@@ -414,7 +427,21 @@ final class FireAppViewModel: ObservableObject {
             do {
                 try await FireAPMManager.shared.withSpan(.authLoginSync) {
                     let loginCoordinator = try await loginCoordinatorValue()
-                    let shouldResolveRecovery = pendingCloudflareRecovery != nil
+                    let pendingRecovery = pendingCloudflareRecovery
+                    if let pendingRecovery {
+                        let currentCookieSnapshot = await currentWebKitCloudflareRecoveryCookieSnapshot()
+                        guard currentCookieSnapshot.hasNewCloudflareClearance(
+                            comparedTo: pendingRecovery.initialCookieSnapshot
+                        ) else {
+                            FireAPMManager.shared.recordBreadcrumb(
+                                target: Self.authDiagnosticsLogTarget,
+                                message: "cloudflare recovery sync blocked until new cf_clearance is present"
+                            )
+                            errorMessage = "请先完成 Cloudflare 验证。"
+                            return
+                        }
+                    }
+                    let shouldResolveRecovery = pendingRecovery != nil
                     errorMessage = nil
                     await applySession(
                         try await loginCoordinator.completeLogin(from: webView),
@@ -1550,7 +1577,11 @@ final class FireAppViewModel: ObservableObject {
                     )
                 }
                 if readiness.isReady {
-                    autoSyncLoginAfterRecoveryIfLoginActionEnabled(from: webView)
+                    let cookieSnapshot = await currentWebKitCloudflareRecoveryCookieSnapshot()
+                    autoSyncLoginAfterRecoveryIfLoginActionEnabled(
+                        from: webView,
+                        currentCookieSnapshot: cookieSnapshot
+                    )
                 } else {
                     pendingCloudflareRecovery?.lastAutoCompletionToken = nil
                 }
@@ -1565,7 +1596,8 @@ final class FireAppViewModel: ObservableObject {
 
     func autoSyncLoginAfterRecoveryIfLoginActionEnabled(
         from webView: WKWebView,
-        isWebViewLoading: Bool? = nil
+        isWebViewLoading: Bool? = nil,
+        currentCookieSnapshot: FireCloudflareRecoveryCookieSnapshot? = nil
     ) {
         guard shouldAutoSyncLoginAfterRecovery,
               let pendingCloudflareRecovery,
@@ -1583,12 +1615,20 @@ final class FireAppViewModel: ObservableObject {
         guard cachedLoginSyncReadiness.currentURL == webView.url?.absoluteString else {
             return
         }
+        guard let currentCookieSnapshot,
+              currentCookieSnapshot.hasNewCloudflareClearance(
+                comparedTo: pendingCloudflareRecovery.initialCookieSnapshot
+              ) else {
+            return
+        }
         let readiness = cachedLoginSyncReadiness.readiness
         let autoCompletionToken = [
             currentURL,
             readiness.username ?? "unknown",
             String(readiness.preferredBootstrapScore),
             pendingCloudflareRecovery.initialCookieSnapshot.authFingerprint,
+            pendingCloudflareRecovery.initialCookieSnapshot.cfClearanceFingerprint ?? "none",
+            currentCookieSnapshot.cfClearanceFingerprint ?? "none",
         ].joined(separator: "|")
 
         guard pendingCloudflareRecovery.lastAutoCompletionToken != autoCompletionToken else {
@@ -1598,7 +1638,7 @@ final class FireAppViewModel: ObservableObject {
 
         FireAPMManager.shared.recordBreadcrumb(
             target: Self.authDiagnosticsLogTarget,
-            message: "cloudflare recovery login auto-sync scheduled after login readiness url=\(currentURL) user=\(readiness.username ?? "unknown") score=\(readiness.preferredBootstrapScore)"
+            message: "cloudflare recovery login auto-sync scheduled after new cf_clearance url=\(currentURL) user=\(readiness.username ?? "unknown") score=\(readiness.preferredBootstrapScore)"
         )
         completeLogin(from: webView)
     }
@@ -1678,10 +1718,6 @@ final class FireAppViewModel: ObservableObject {
     private func beginCloudflareRecoveryAndWait(operation: String, originURL: URL?) async throws {
         if pendingCloudflareRecovery == nil {
             let initialCookieSnapshot = await currentCloudflareRecoveryCookieSnapshot()
-
-            // Remove stale WebView clearance after taking the baseline snapshot so
-            // the login browser does not keep reusing a challenged clearance.
-            await deleteCfClearanceFromWebViewStore()
 
             let context = FireCloudflareChallengeContext(
                 id: UUID(),
@@ -1940,10 +1976,6 @@ final class FireAppViewModel: ObservableObject {
         if pendingCloudflareRecovery == nil {
             let initialCookieSnapshot = await currentCloudflareRecoveryCookieSnapshot()
 
-            // Remove stale WebView clearance after taking the baseline snapshot so
-            // the login browser does not keep reusing a challenged clearance.
-            await deleteCfClearanceFromWebViewStore()
-
             let context = FireCloudflareChallengeContext(
                 id: UUID(),
                 operation: operation,
@@ -2002,27 +2034,6 @@ final class FireAppViewModel: ObservableObject {
             store.getAllCookies { cookies in
                 continuation.resume(returning: cookies)
             }
-        }
-    }
-
-    /// Removes stale Cloudflare clearance cookies from the WebView store before
-    /// presenting the recovery browser.
-    private func deleteCfClearanceFromWebViewStore() async {
-        let cookieStore = WKWebsiteDataStore.default().httpCookieStore
-        let allCookies = await currentWebKitCookies(from: cookieStore)
-        let cfClearanceCookies = allCookies.filter { $0.name == "cf_clearance" }
-        for cookie in cfClearanceCookies {
-            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-                cookieStore.delete(cookie) {
-                    continuation.resume()
-                }
-            }
-        }
-        if !cfClearanceCookies.isEmpty {
-            FireAPMManager.shared.recordBreadcrumb(
-                target: Self.authDiagnosticsLogTarget,
-                message: "deleted \(cfClearanceCookies.count) cf_clearance cookie(s) from WebView store before challenge recovery"
-            )
         }
     }
 
@@ -2120,7 +2131,17 @@ final class FireAppViewModel: ObservableObject {
         if webKitSnapshot.hasAuthCookies {
             return webKitSnapshot
         }
-        return makeCloudflareRecoveryCookieSnapshot(from: session)
+        let sessionSnapshot = makeCloudflareRecoveryCookieSnapshot(from: session)
+        return FireCloudflareRecoveryCookieSnapshot(
+            hasAuthCookies: sessionSnapshot.hasAuthCookies,
+            authFingerprint: sessionSnapshot.authFingerprint,
+            cfClearanceFingerprint: webKitSnapshot.cfClearanceFingerprint
+                ?? sessionSnapshot.cfClearanceFingerprint
+        )
+    }
+
+    private func currentWebKitCloudflareRecoveryCookieSnapshot() async -> FireCloudflareRecoveryCookieSnapshot {
+        makeCloudflareRecoveryCookieSnapshot(from: await currentWebKitCookies())
     }
 
     private func makeCloudflareRecoveryCookieSnapshot(
@@ -2134,10 +2155,12 @@ final class FireAppViewModel: ObservableObject {
 
         let tToken = relevantCookies.first(where: { $0.name == "_t" })?.value
         let forumSession = relevantCookies.first(where: { $0.name == "_forum_session" })?.value
+        let cfClearance = relevantCookies.last(where: { $0.name == "cf_clearance" })?.value
 
         return FireCloudflareRecoveryCookieSnapshot(
             hasAuthCookies: !(tToken?.isEmpty ?? true) && !(forumSession?.isEmpty ?? true),
-            authFingerprint: "t=\(Self.cookieFingerprint(tToken) ?? "none")|forum=\(Self.cookieFingerprint(forumSession) ?? "none")"
+            authFingerprint: "t=\(Self.cookieFingerprint(tToken) ?? "none")|forum=\(Self.cookieFingerprint(forumSession) ?? "none")",
+            cfClearanceFingerprint: Self.cookieFingerprint(cfClearance)
         )
     }
 
@@ -2149,10 +2172,14 @@ final class FireAppViewModel: ObservableObject {
         let forumSession =
             platformCookies.first(where: { $0.name == "_forum_session" })?.value
             ?? session.cookies.forumSession
+        let cfClearance =
+            platformCookies.last(where: { $0.name == "cf_clearance" })?.value
+            ?? session.cookies.cfClearance
 
         return FireCloudflareRecoveryCookieSnapshot(
             hasAuthCookies: !(tToken?.isEmpty ?? true) && !(forumSession?.isEmpty ?? true),
-            authFingerprint: "t=\(Self.cookieFingerprint(tToken) ?? "none")|forum=\(Self.cookieFingerprint(forumSession) ?? "none")"
+            authFingerprint: "t=\(Self.cookieFingerprint(tToken) ?? "none")|forum=\(Self.cookieFingerprint(forumSession) ?? "none")",
+            cfClearanceFingerprint: Self.cookieFingerprint(cfClearance)
         )
     }
 

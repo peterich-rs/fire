@@ -279,7 +279,7 @@ impl FireCore {
             Some(post) => post,
             None => self.fetch_post_by_number(query.topic_id, 1).await?,
         };
-        let root_stream_ids = root_stream_ids_from_top_level_posts(
+        let mut root_stream_ids = root_stream_ids_from_top_level_posts(
             &top_level_detail.post_stream,
             body_post.id,
             body_post.post_number,
@@ -315,6 +315,8 @@ impl FireCore {
             }
             None => None,
         };
+        root_stream_ids =
+            root_stream_ids_including_focus_root(root_stream_ids, focus_root_post.as_ref());
         let focus_root_index = focus_root_post.as_ref().and_then(|post| {
             root_stream_ids
                 .iter()
@@ -1013,6 +1015,18 @@ fn root_stream_ids_from_top_level_posts(
     ordered.extend(trailing_posts.into_iter().map(|post| post.id));
 
     ordered
+}
+
+fn root_stream_ids_including_focus_root(
+    mut root_stream_ids: Vec<u64>,
+    focus_root_post: Option<&TopicPost>,
+) -> Vec<u64> {
+    if let Some(focus_root_id) = focus_root_post.map(|post| post.id) {
+        if !root_stream_ids.contains(&focus_root_id) {
+            root_stream_ids.push(focus_root_id);
+        }
+    }
+    root_stream_ids
 }
 
 fn merge_topic_posts(
@@ -1802,6 +1816,17 @@ mod tests {
             root_stream_ids_from_top_level_posts(&post_stream, body_post.id, body_post.post_number);
 
         assert_eq!(root_stream_ids, vec![first_root.id, second_root.id]);
+    }
+
+    #[test]
+    fn root_stream_ids_including_focus_root_keeps_fetched_focus_root_reachable() {
+        let first_root = make_topic_post(2, Some(1));
+        let focus_root = make_topic_post(50, Some(1));
+
+        let root_stream_ids =
+            root_stream_ids_including_focus_root(vec![first_root.id], Some(&focus_root));
+
+        assert_eq!(root_stream_ids, vec![first_root.id, focus_root.id]);
     }
 
     #[test]

@@ -2817,6 +2817,25 @@ async fn like_post_uses_post_actions_endpoint() {
 }
 
 #[tokio::test]
+async fn like_post_without_auth_session_does_not_send_undefined_csrf_request() {
+    let server = TestServer::spawn(Vec::new()).await.expect("server");
+    let core = FireCore::new(FireCoreConfig {
+        base_url: server.base_url(),
+        workspace_path: None,
+    })
+    .expect("core");
+
+    let error = core
+        .like_post(9001)
+        .await
+        .expect_err("write without an auth session should fail before network");
+    let requests = server.shutdown_with_requests().await;
+
+    assert!(matches!(error, FireCoreError::MissingLoginSession));
+    assert!(requests.is_empty());
+}
+
+#[tokio::test]
 async fn like_post_parses_reaction_update_when_response_includes_reaction_fields() {
     let responses = vec![raw_json_response(
         200,

@@ -682,12 +682,31 @@ impl FireCore {
     where
         F: FnMut() -> Result<TracedRequest, FireCoreError>,
     {
+        if !self.snapshot().cookies.can_authenticate_requests() {
+            warn!(
+                operation,
+                "skipping authenticated write because login cookies are unavailable"
+            );
+            return Err(FireCoreError::MissingLoginSession);
+        }
+
         if !self.snapshot().cookies.has_csrf_token() {
             info!(
                 operation,
                 "no CSRF token available, refreshing before request"
             );
-            let _ = self.refresh_csrf_token_if_needed().await?;
+            let refreshed = self.refresh_csrf_token_if_needed().await?;
+            if !refreshed.cookies.can_authenticate_requests() {
+                warn!(
+                    operation,
+                    "CSRF refresh skipped because login cookies are unavailable"
+                );
+                return Err(FireCoreError::MissingLoginSession);
+            }
+            if !refreshed.cookies.has_csrf_token() {
+                warn!(operation, "CSRF refresh completed without a token");
+                return Err(FireCoreError::MissingCsrfToken);
+            }
         }
 
         let traced = make_request()?;
@@ -733,7 +752,21 @@ impl FireCore {
             trace_id, "received BAD CSRF, refreshing token and retrying"
         );
         let _ = self.clear_csrf_token();
-        let _ = self.refresh_csrf_token_if_needed().await?;
+        let refreshed = self.refresh_csrf_token_if_needed().await?;
+        if !refreshed.cookies.can_authenticate_requests() {
+            warn!(
+                operation,
+                trace_id, "skipping BAD CSRF retry because login cookies are unavailable"
+            );
+            return Err(FireCoreError::MissingLoginSession);
+        }
+        if !refreshed.cookies.has_csrf_token() {
+            warn!(
+                operation,
+                trace_id, "skipping BAD CSRF retry because refresh did not produce a token"
+            );
+            return Err(FireCoreError::MissingCsrfToken);
+        }
 
         let retry = make_request()?;
         self.execute_request(retry).await

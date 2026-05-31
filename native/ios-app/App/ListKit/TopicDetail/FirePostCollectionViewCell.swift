@@ -7,9 +7,16 @@ final class FirePostCollectionViewCell: UICollectionViewCell, UIGestureRecognize
     private static let replyContextActionID = UIAction.Identifier(
         "FirePostCollectionViewCell.replyContext"
     )
+    private static let textExpansionActionID = UIAction.Identifier(
+        "FirePostCollectionViewCell.textExpansion"
+    )
+    private static let replyShortcutActionID = UIAction.Identifier(
+        "FirePostCollectionViewCell.replyShortcut"
+    )
     private static let replySwipeTriggerThreshold: CGFloat = 55
     private static let replySwipeMaxOffset: CGFloat = 75
     private static let replyIndicatorSize = CGSize(width: 32, height: 32)
+    private static let monogramCache = NSCache<NSString, NSString>()
     private static let accentTextColor = UIColor { traits in
         if traits.userInterfaceStyle == .dark {
             return UIColor(red: 0.96, green: 0.45, blue: 0.22, alpha: 1)
@@ -37,7 +44,10 @@ final class FirePostCollectionViewCell: UICollectionViewCell, UIGestureRecognize
     private let menuButton = UIButton(type: .system)
     private let metaStack = UIStackView()
     private let richTextContainer = FirePostRichTextContainerView()
+    private let textExpansionButton = UIButton(type: .system)
     private let imageContainerView = UIView()
+    private let pollContainerView = UIView()
+    private let replyShortcutButton = UIButton(type: .system)
     private let reactionScrollView = UIScrollView()
     private let reactionStack = UIStackView()
     private let dividerView = UIView()
@@ -50,13 +60,19 @@ final class FirePostCollectionViewCell: UICollectionViewCell, UIGestureRecognize
     private var currentCallbacks: FirePostCellCallbacks?
     private var imageNodes: [ASImageNode] = []
     private var imageTasks: [String: Task<Void, Never>] = [:]
+    private var pollViews: [FirePostPollView] = []
     private var avatarTask: Task<Void, Never>?
     private var emojiLoadTasks: [String: Task<Void, Never>] = [:]
+    private var avatarRequestKey: String?
+    private var imageSignature: [String] = []
+    private var pollSignature: [String] = []
+    private var reactionSignature: String?
     private var swipeOffset: CGFloat = 0
     private var replyTriggered = false
     private lazy var swipeGestureRecognizer: UIPanGestureRecognizer = {
         let gestureRecognizer = UIPanGestureRecognizer(target: self, action: #selector(handleSwipePan(_:)))
         gestureRecognizer.delegate = self
+        gestureRecognizer.cancelsTouchesInView = false
         return gestureRecognizer
     }()
 
@@ -140,7 +156,7 @@ final class FirePostCollectionViewCell: UICollectionViewCell, UIGestureRecognize
         menuButton.accessibilityLabel = "帖子操作"
 
         metaStack.axis = .horizontal
-        metaStack.alignment = .firstBaseline
+        metaStack.alignment = .center
         metaStack.spacing = 6
         metaStack.addArrangedSubview(usernameLabel)
         metaStack.addArrangedSubview(replyContextButton)
@@ -153,8 +169,31 @@ final class FirePostCollectionViewCell: UICollectionViewCell, UIGestureRecognize
         // Rich text
         richTextContainer.isHidden = true
 
+        textExpansionButton.isHidden = true
+        textExpansionButton.titleLabel?.font = UIFont.preferredFont(forTextStyle: .caption1)
+        textExpansionButton.titleLabel?.adjustsFontForContentSizeCategory = true
+        textExpansionButton.titleLabel?.lineBreakMode = .byTruncatingTail
+        textExpansionButton.contentHorizontalAlignment = .leading
+        textExpansionButton.setTitle("展开", for: .normal)
+        textExpansionButton.setContentHuggingPriority(.required, for: .horizontal)
+        textExpansionButton.setContentCompressionResistancePriority(.required, for: .horizontal)
+        textExpansionButton.accessibilityLabel = "展开全文"
+
         // Images
         imageContainerView.isHidden = true
+
+        // Polls
+        pollContainerView.isHidden = true
+
+        replyShortcutButton.isHidden = true
+        replyShortcutButton.titleLabel?.font = UIFont.preferredFont(forTextStyle: .caption1)
+        replyShortcutButton.titleLabel?.adjustsFontForContentSizeCategory = true
+        replyShortcutButton.titleLabel?.lineBreakMode = .byTruncatingTail
+        replyShortcutButton.contentHorizontalAlignment = .leading
+        replyShortcutButton.backgroundColor = .clear
+        replyShortcutButton.setContentHuggingPriority(.required, for: .horizontal)
+        replyShortcutButton.setContentCompressionResistancePriority(.required, for: .horizontal)
+        replyShortcutButton.accessibilityLabel = "查看更多回复"
 
         // Reactions
         reactionScrollView.showsHorizontalScrollIndicator = false
@@ -179,7 +218,10 @@ final class FirePostCollectionViewCell: UICollectionViewCell, UIGestureRecognize
         contentView.addSubview(threadLineView)
         contentView.addSubview(metaStack)
         contentView.addSubview(richTextContainer)
+        contentView.addSubview(textExpansionButton)
         contentView.addSubview(imageContainerView)
+        contentView.addSubview(pollContainerView)
+        contentView.addSubview(replyShortcutButton)
         contentView.addSubview(reactionScrollView)
         contentView.addSubview(dividerView)
 
@@ -194,7 +236,7 @@ final class FirePostCollectionViewCell: UICollectionViewCell, UIGestureRecognize
         )
 
         replyContextButton.titleLabel?.font = UIFontMetrics(forTextStyle: .subheadline).scaledFont(
-            for: UIFont.systemFont(ofSize: subheadlinePointSize, weight: .medium)
+            for: UIFont.systemFont(ofSize: subheadlinePointSize, weight: .semibold)
         )
 
         let captionPointSize = UIFont.preferredFont(forTextStyle: .caption2).pointSize
@@ -206,6 +248,8 @@ final class FirePostCollectionViewCell: UICollectionViewCell, UIGestureRecognize
             for: UIFont.monospacedDigitSystemFont(ofSize: captionPointSize, weight: .regular)
         )
         menuButton.titleLabel?.font = UIFont.preferredFont(forTextStyle: .caption1)
+        textExpansionButton.titleLabel?.font = UIFont.preferredFont(forTextStyle: .caption1)
+        replyShortcutButton.titleLabel?.font = UIFont.preferredFont(forTextStyle: .caption1)
     }
 
     private func applyColors() {
@@ -217,6 +261,10 @@ final class FirePostCollectionViewCell: UICollectionViewCell, UIGestureRecognize
         timestampLabel.textColor = Self.tertiaryInkColor
         postNumberLabel.textColor = Self.tertiaryInkColor
         menuButton.tintColor = Self.tertiaryInkColor
+        textExpansionButton.setTitleColor(Self.accentTextColor, for: .normal)
+        textExpansionButton.tintColor = Self.accentTextColor
+        replyShortcutButton.setTitleColor(Self.accentTextColor, for: .normal)
+        replyShortcutButton.tintColor = Self.accentTextColor
         replyIndicatorView.tintColor = replyTriggered ? Self.accentTextColor : .tertiaryLabel
     }
 
@@ -318,7 +366,10 @@ final class FirePostCollectionViewCell: UICollectionViewCell, UIGestureRecognize
             richTextContainer.configure(
                 attributedText: attrText,
                 contentID: contentID,
-                containerSize: layout.textContainerSize
+                containerSize: layout.textContainerSize,
+                maximumNumberOfLines: layout.textExpansionFrame == nil
+                    ? 0
+                    : UInt(FirePostTextExpansionState.collapsedLineLimit)
             )
             richTextContainer.onLinkTapped = { [weak self] url in
                 guard let self, let callbacks = self.currentCallbacks else { return }
@@ -331,27 +382,101 @@ final class FirePostCollectionViewCell: UICollectionViewCell, UIGestureRecognize
             richTextContainer.accessibilityLabel = nil
         }
 
+        textExpansionButton.removeAction(identifiedBy: Self.textExpansionActionID, for: .touchUpInside)
+        if let textExpansionFrame = layout.textExpansionFrame {
+            textExpansionButton.frame = textExpansionFrame
+            textExpansionButton.isHidden = false
+            textExpansionButton.setTitle("展开", for: .normal)
+            textExpansionButton.addAction(UIAction(identifier: Self.textExpansionActionID) { [weak self] _ in
+                guard let self,
+                      let payload = self.currentPayload,
+                      let callbacks = self.currentCallbacks else {
+                    return
+                }
+                callbacks.onExpandText(payload.post)
+            }, for: .touchUpInside)
+        } else {
+            textExpansionButton.isHidden = true
+            textExpansionButton.frame = .zero
+        }
+
         // Images
         let images = payload.renderContent.imageAttachments
         if images.isEmpty || layout.imageFrames.isEmpty {
             imageContainerView.isHidden = true
             imageContainerView.frame = .zero
+            clearImageViews()
         } else {
             let imageContainerFrame = unionFrame(for: layout.imageFrames)
             imageContainerView.isHidden = false
             imageContainerView.frame = imageContainerFrame
-            rebuildImageViews(images: images, frames: layout.imageFrames, containerFrame: imageContainerFrame)
+            configureImageViews(images: images, frames: layout.imageFrames, containerFrame: imageContainerFrame)
+        }
+
+        // Polls
+        let pollModels = FirePostPollRenderModel.models(from: post.polls)
+        if pollModels.isEmpty || layout.pollFrames.isEmpty {
+            pollContainerView.isHidden = true
+            pollContainerView.frame = .zero
+            clearPollViews()
+        } else {
+            let displayedPolls = Array(post.polls.prefix(layout.pollFrames.count))
+            let displayedModels = Array(pollModels.prefix(layout.pollFrames.count))
+            let pollContainerFrame = unionFrame(for: layout.pollFrames)
+            pollContainerView.isHidden = false
+            pollContainerView.frame = pollContainerFrame
+            configurePollViews(
+                polls: displayedPolls,
+                models: displayedModels,
+                frames: layout.pollFrames,
+                containerFrame: pollContainerFrame,
+                canInteract: payload.canWriteInteractions,
+                isMutating: payload.isMutating
+            )
+        }
+
+        replyShortcutButton.removeAction(identifiedBy: Self.replyShortcutActionID, for: .touchUpInside)
+        if let replyShortcutFrame = layout.replyShortcutFrame,
+           let replyShortcutCount = payload.replyShortcutCount {
+            replyShortcutButton.frame = replyShortcutFrame
+            replyShortcutButton.isHidden = false
+            let title = replyShortcutCount > 0
+                ? "查看更多 \(replyShortcutCount) 条回复"
+                : "查看更多回复"
+            replyShortcutButton.setTitle(title, for: .normal)
+            replyShortcutButton.accessibilityLabel = title
+            replyShortcutButton.addAction(UIAction(identifier: Self.replyShortcutActionID) { [weak self] _ in
+                guard let self,
+                      let payload = self.currentPayload,
+                      let callbacks = self.currentCallbacks else {
+                    return
+                }
+                callbacks.onOpenReplies(payload.post)
+            }, for: .touchUpInside)
+        } else {
+            replyShortcutButton.isHidden = true
+            replyShortcutButton.frame = .zero
+            replyShortcutButton.setTitle(nil, for: .normal)
         }
 
         // Reactions
         if let reactionsFrame = layout.reactionsFrame, !post.reactions.isEmpty {
             reactionScrollView.isHidden = false
             reactionScrollView.frame = reactionsFrame
-            reactionScrollView.contentOffset = .zero
-            rebuildReactionCapsules(post: post, callbacks: callbacks, canWrite: payload.canWriteInteractions, isMutating: payload.isMutating)
+            let nextReactionSignature = Self.reactionSignature(
+                post: post,
+                canWrite: payload.canWriteInteractions,
+                isMutating: payload.isMutating
+            )
+            if reactionSignature != nextReactionSignature {
+                reactionScrollView.contentOffset = .zero
+                rebuildReactionCapsules(post: post, canWrite: payload.canWriteInteractions, isMutating: payload.isMutating)
+                reactionSignature = nextReactionSignature
+            }
         } else {
             reactionScrollView.isHidden = true
             clearReactionCapsules()
+            reactionSignature = nil
         }
 
         // Divider
@@ -375,6 +500,7 @@ final class FirePostCollectionViewCell: UICollectionViewCell, UIGestureRecognize
 
         avatarTask?.cancel()
         avatarTask = nil
+        avatarRequestKey = nil
         avatarImageView.image = nil
         avatarMonogramView.text = nil
         avatarContainerView.isHidden = true
@@ -403,18 +529,27 @@ final class FirePostCollectionViewCell: UICollectionViewCell, UIGestureRecognize
         richTextContainer.resetContent()
         richTextContainer.onLinkTapped = nil
         richTextContainer.accessibilityLabel = nil
+        textExpansionButton.removeAction(identifiedBy: Self.textExpansionActionID, for: .touchUpInside)
+        textExpansionButton.isHidden = true
+        textExpansionButton.frame = .zero
 
-        cancelImageTasks()
+        clearImageViews()
+        clearPollViews()
         emojiLoadTasks.values.forEach { $0.cancel() }
         emojiLoadTasks.removeAll()
-        imageNodes.forEach { $0.view.removeFromSuperview() }
-        imageNodes = []
         imageContainerView.isHidden = true
         imageContainerView.frame = .zero
+        pollContainerView.isHidden = true
+        pollContainerView.frame = .zero
+        replyShortcutButton.removeAction(identifiedBy: Self.replyShortcutActionID, for: .touchUpInside)
+        replyShortcutButton.isHidden = true
+        replyShortcutButton.frame = .zero
+        replyShortcutButton.setTitle(nil, for: .normal)
 
         reactionScrollView.isHidden = true
         reactionScrollView.contentOffset = .zero
         clearReactionCapsules()
+        reactionSignature = nil
 
         dividerView.isHidden = true
         dividerView.frame = .zero
@@ -431,21 +566,29 @@ final class FirePostCollectionViewCell: UICollectionViewCell, UIGestureRecognize
     // MARK: - Avatar Loading
 
     private func loadAvatar(avatarTemplate: String?, username: String, size: CGFloat, baseURLString: String) {
+        let resolvedUsername = username.isEmpty ? "?" : username
+        let monogram = Self.cachedMonogram(for: resolvedUsername)
+        let avatarURL = fireAvatarURL(
+            avatarTemplate: avatarTemplate,
+            size: size,
+            scale: UIScreen.main.scale,
+            baseURLString: baseURLString
+        )
+        let nextRequestKey = avatarURL?.absoluteString ?? "fallback:\(resolvedUsername):\(Int(size.rounded()))"
+        if avatarRequestKey == nextRequestKey {
+            return
+        }
+
+        avatarRequestKey = nextRequestKey
         avatarTask?.cancel()
         avatarTask = nil
 
-        let monogram = monogramForUsername(username: username.isEmpty ? "?" : username)
         avatarMonogramView.text = monogram
         avatarMonogramView.isHidden = false
         avatarImageView.isHidden = true
         avatarContainerView.backgroundColor = .systemBlue
 
-        guard let avatarURL = fireAvatarURL(
-            avatarTemplate: avatarTemplate,
-            size: size,
-            scale: UIScreen.main.scale,
-            baseURLString: baseURLString
-        ) else {
+        guard let avatarURL else {
             return
         }
 
@@ -461,12 +604,24 @@ final class FirePostCollectionViewCell: UICollectionViewCell, UIGestureRecognize
                 let image = try await FireRemoteImagePipeline.shared.loadImage(for: request)
                 guard !Task.isCancelled else { return }
                 _ = await MainActor.run {
+                    guard self?.avatarRequestKey == nextRequestKey else { return }
                     self?.applyAvatarImage(image)
                 }
             } catch {
                 // Keep monogram fallback
             }
         }
+    }
+
+    private static func cachedMonogram(for username: String) -> String {
+        let key = username as NSString
+        if let cached = monogramCache.object(forKey: key) {
+            return cached as String
+        }
+
+        let monogram = monogramForUsername(username: username)
+        monogramCache.setObject(monogram as NSString, forKey: key)
+        return monogram
     }
 
     private func applyAvatarImage(_ image: UIImage) {
@@ -477,14 +632,29 @@ final class FirePostCollectionViewCell: UICollectionViewCell, UIGestureRecognize
 
     // MARK: - Image Loading
 
+    private func configureImageViews(
+        images: [FireCookedImage],
+        frames: [CGRect],
+        containerFrame: CGRect
+    ) {
+        let displayedImages = Array(images.prefix(frames.count))
+        let nextSignature = displayedImages.map(\.id)
+        guard imageSignature == nextSignature,
+              imageNodes.count == displayedImages.count else {
+            rebuildImageViews(images: displayedImages, frames: frames, containerFrame: containerFrame)
+            return
+        }
+
+        applyImageNodeFrames(images: displayedImages, frames: frames, containerFrame: containerFrame)
+    }
+
     private func rebuildImageViews(
         images: [FireCookedImage],
         frames: [CGRect],
         containerFrame: CGRect
     ) {
-        cancelImageTasks()
-        imageNodes.forEach { $0.view.removeFromSuperview() }
-        imageNodes = []
+        clearImageViews()
+        imageSignature = images.map(\.id)
 
         for (index, image) in images.enumerated() {
             guard index < frames.count else { break }
@@ -496,11 +666,9 @@ final class FirePostCollectionViewCell: UICollectionViewCell, UIGestureRecognize
             imageNode.borderWidth = 0.5
             imageNode.placeholderEnabled = true
             imageNode.placeholderColor = .tertiarySystemFill
-            imageNode.frame = CGRect(
-                x: frames[index].minX - containerFrame.minX,
-                y: frames[index].minY - containerFrame.minY,
-                width: frames[index].width,
-                height: frames[index].height
+            imageNode.frame = Self.relativeImageFrame(
+                frame: frames[index],
+                containerFrame: containerFrame
             )
             imageNode.backgroundColor = .tertiarySystemFill
             imageNode.isUserInteractionEnabled = true
@@ -518,6 +686,32 @@ final class FirePostCollectionViewCell: UICollectionViewCell, UIGestureRecognize
 
             loadImage(into: imageNode, url: image.url, cacheKey: image.id)
         }
+    }
+
+    private func applyImageNodeFrames(
+        images: [FireCookedImage],
+        frames: [CGRect],
+        containerFrame: CGRect
+    ) {
+        for (index, imageNode) in imageNodes.enumerated() {
+            guard index < frames.count, index < images.count else { break }
+            imageNode.frame = Self.relativeImageFrame(
+                frame: frames[index],
+                containerFrame: containerFrame
+            )
+            imageNode.view.tag = index
+            let altText = images[index].altText?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            imageNode.view.accessibilityLabel = altText.isEmpty ? "帖子图片" : altText
+        }
+    }
+
+    private static func relativeImageFrame(frame: CGRect, containerFrame: CGRect) -> CGRect {
+        CGRect(
+            x: frame.minX - containerFrame.minX,
+            y: frame.minY - containerFrame.minY,
+            width: frame.width,
+            height: frame.height
+        )
     }
 
     private func loadImage(into imageNode: ASImageNode, url: URL, cacheKey: String) {
@@ -550,17 +744,90 @@ final class FirePostCollectionViewCell: UICollectionViewCell, UIGestureRecognize
         imageTasks.removeAll()
     }
 
+    private func clearImageViews() {
+        cancelImageTasks()
+        imageNodes.forEach { $0.view.removeFromSuperview() }
+        imageNodes = []
+        imageSignature = []
+    }
+
+    // MARK: - Polls
+
+    private func configurePollViews(
+        polls: [PollState],
+        models: [FirePostPollRenderModel],
+        frames: [CGRect],
+        containerFrame: CGRect,
+        canInteract: Bool,
+        isMutating: Bool
+    ) {
+        let displayedModels = Array(models.prefix(frames.count))
+        let nextSignature = displayedModels.map(\.signature)
+        if pollSignature != nextSignature || pollViews.count != displayedModels.count {
+            clearPollViews()
+            pollSignature = nextSignature
+            for _ in displayedModels {
+                let pollView = FirePostPollView()
+                pollContainerView.addSubview(pollView)
+                pollViews.append(pollView)
+            }
+        }
+
+        for (index, pollView) in pollViews.enumerated() {
+            guard index < displayedModels.count,
+                  index < polls.count,
+                  index < frames.count else {
+                pollView.isHidden = true
+                continue
+            }
+            let model = displayedModels[index]
+            let poll = polls[index]
+            pollView.isHidden = false
+            pollView.frame = Self.relativeImageFrame(
+                frame: frames[index],
+                containerFrame: containerFrame
+            )
+            pollView.configure(
+                model: model,
+                canInteract: canInteract,
+                isMutating: isMutating,
+                onSubmit: { [weak self] selectedOptions in
+                    guard let self,
+                          let payload = self.currentPayload,
+                          let callbacks = self.currentCallbacks else {
+                        return
+                    }
+                    callbacks.onVotePoll(payload.post, poll, selectedOptions)
+                },
+                onRemoveVote: { [weak self] in
+                    guard let self,
+                          let payload = self.currentPayload,
+                          let callbacks = self.currentCallbacks else {
+                        return
+                    }
+                    callbacks.onUnvotePoll(payload.post, poll)
+                }
+            )
+        }
+    }
+
+    private func clearPollViews() {
+        pollViews.forEach { $0.removeFromSuperview() }
+        pollViews = []
+        pollSignature = []
+    }
+
     @objc
     private func handleImageTap(_ gestureRecognizer: UITapGestureRecognizer) {
-        guard let imageView = gestureRecognizer.view as? UIImageView,
+        guard let tappedView = gestureRecognizer.view,
               let payload = currentPayload,
-              imageView.tag >= 0,
-              imageView.tag < payload.renderContent.imageAttachments.count,
+              tappedView.tag >= 0,
+              tappedView.tag < payload.renderContent.imageAttachments.count,
               let callbacks = currentCallbacks else {
             return
         }
 
-        callbacks.onOpenImage(payload.renderContent.imageAttachments[imageView.tag])
+        callbacks.onOpenImage(payload.renderContent.imageAttachments[tappedView.tag])
     }
 
     // MARK: - Menu
@@ -619,7 +886,7 @@ final class FirePostCollectionViewCell: UICollectionViewCell, UIGestureRecognize
 
     // MARK: - Reactions
 
-    private func rebuildReactionCapsules(post: TopicPostState, callbacks: FirePostCellCallbacks, canWrite: Bool, isMutating: Bool) {
+    private func rebuildReactionCapsules(post: TopicPostState, canWrite: Bool, isMutating: Bool) {
         clearReactionCapsules()
         let canChangeReaction = canWrite && !isMutating && (post.currentUserReaction?.canUndo ?? true)
 
@@ -663,11 +930,13 @@ final class FirePostCollectionViewCell: UICollectionViewCell, UIGestureRecognize
 
             let reactionID = reaction.id
             button.addAction(UIAction { [weak self] _ in
-                guard self != nil else { return }
+                guard let self,
+                      let payload = self.currentPayload,
+                      let callbacks = self.currentCallbacks else { return }
                 if reactionID == "heart" {
-                    callbacks.onToggleLike(post)
+                    callbacks.onToggleLike(payload.post)
                 } else {
-                    callbacks.onSelectReaction(post, reactionID)
+                    callbacks.onSelectReaction(payload.post, reactionID)
                 }
             }, for: .touchUpInside)
             button.isEnabled = canChangeReaction
@@ -681,6 +950,23 @@ final class FirePostCollectionViewCell: UICollectionViewCell, UIGestureRecognize
             reactionStack.removeArrangedSubview(arrangedSubview)
             arrangedSubview.removeFromSuperview()
         }
+    }
+
+    private static func reactionSignature(post: TopicPostState, canWrite: Bool, isMutating: Bool) -> String {
+        let reactions = post.reactions.map { reaction in
+            [
+                reaction.id,
+                String(reaction.count),
+                String(reaction.canUndo ?? true),
+            ].joined(separator: ":")
+        }.joined(separator: "|")
+        return [
+            reactions,
+            post.currentUserReaction?.id ?? "",
+            String(post.currentUserReaction?.canUndo ?? true),
+            String(canWrite),
+            String(isMutating),
+        ].joined(separator: "\u{1F}")
     }
 
     private func acceptedAnswerAttributedText() -> NSAttributedString {
@@ -752,6 +1038,21 @@ final class FirePostCollectionViewCell: UICollectionViewCell, UIGestureRecognize
             translationHeight: velocity.y
         )
         return resolvedAxis == .horizontal && velocity.x > 0
+    }
+
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        guard gestureRecognizer === swipeGestureRecognizer else {
+            return true
+        }
+
+        var view: UIView? = touch.view
+        while let current = view {
+            if current is UIControl {
+                return false
+            }
+            view = current.superview
+        }
+        return true
     }
 
     @objc

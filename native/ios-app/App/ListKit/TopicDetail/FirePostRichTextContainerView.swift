@@ -35,18 +35,22 @@ final class FirePostRichTextContainerView: UIView {
     func configure(
         attributedText: NSAttributedString,
         contentID: String,
-        containerSize: CGSize
+        containerSize: CGSize,
+        maximumNumberOfLines: UInt = 0
     ) {
         if renderedContentID != contentID {
             renderedContentID = contentID
             textNode.attributedText = attributedText
         }
+        textNode.maximumNumberOfLines = maximumNumberOfLines
+        textNode.truncationMode = .byTruncatingTail
         textNode.frame = CGRect(origin: .zero, size: CGSize(width: containerSize.width, height: containerSize.height))
     }
 
     func resetContent() {
         renderedContentID = nil
         textNode.attributedText = nil
+        textNode.maximumNumberOfLines = 0
     }
 
     override func layoutSubviews() {

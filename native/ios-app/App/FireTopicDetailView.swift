@@ -452,6 +452,8 @@ struct FireTopicDetailView: View {
     @State private var selectedRoute: FireAppRoute?
     @State private var profileSheetContext: FireProfileSheetContext?
     @State private var postReplyContext: FirePostReplyContext?
+    @State private var expandedPostTextIDs: Set<UInt64> = []
+    @State private var expandedReplyRootPostIDs: Set<UInt64> = []
     @State private var didPickQuickReaction = false
     @FocusState private var isReplyFieldFocused: Bool
 
@@ -709,6 +711,8 @@ struct FireTopicDetailView: View {
                 canWriteInteractions: canWriteInteractions,
                 postLookup: postLookup,
                 isMutatingPost: { topicDetailStore.isMutatingPost(postId: $0) },
+                isPostTextExpanded: { expandedPostTextIDs.contains($0) },
+                isReplyThreadExpanded: { expandedReplyRootPostIDs.contains($0) },
                 onVisiblePostNumbersChanged: handleVisiblePostNumbersChanged(_:),
                 onRefresh: {
                     timingTracker.recordInteraction()
@@ -736,7 +740,9 @@ struct FireTopicDetailView: View {
                 },
                 onOpenComposer: openComposer(replyToPost:),
                 onOpenPostNumber: openPostNumber(_:),
-                onOpenPostReplies: openPostReplies(for:),
+                onOpenPostReplies: { post in
+                    expandedReplyRootPostIDs.insert(post.id)
+                },
                 onLinkTapped: handleRichTextLink,
                 onOpenImage: { selectedImage = $0 },
                 onToggleLike: { toggleLike(for: $0) },
@@ -764,6 +770,9 @@ struct FireTopicDetailView: View {
                         postNumber: post.postNumber,
                         username: post.username
                     )
+                },
+                onExpandPostText: { post in
+                    expandedPostTextIDs.insert(post.id)
                 },
                 onVotePoll: { post, poll, options in
                     submitPollVote(for: post, poll: poll, options: options)
@@ -1698,54 +1707,6 @@ struct FireTopicPostsLoadingFooter: View {
     }
 }
 
-struct FireTopicPostPlaceholder: View {
-    let depth: Int
-
-    private static let maxVisualDepth = 3
-
-    private var visualDepth: Int {
-        max(depth - 1, 0)
-    }
-
-    private var indentWidth: CGFloat {
-        CGFloat(min(visualDepth, Self.maxVisualDepth)) * 20
-    }
-
-    var body: some View {
-        HStack(alignment: .top, spacing: visualDepth > 0 ? 6 : 10) {
-            if visualDepth > 0 {
-                Color.clear.frame(width: indentWidth)
-            }
-
-            Circle()
-                .fill(Color(.tertiarySystemFill))
-                .frame(
-                    width: visualDepth > 0 ? 26 : 32,
-                    height: visualDepth > 0 ? 26 : 32
-                )
-
-            VStack(alignment: .leading, spacing: 8) {
-                RoundedRectangle(cornerRadius: 4, style: .continuous)
-                    .fill(Color(.tertiarySystemFill))
-                    .frame(width: 120, height: 12)
-
-                RoundedRectangle(cornerRadius: 4, style: .continuous)
-                    .fill(Color(.tertiarySystemFill))
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 12)
-
-                RoundedRectangle(cornerRadius: 4, style: .continuous)
-                    .fill(Color(.tertiarySystemFill))
-                    .frame(width: 160, height: 12)
-            }
-            .padding(.vertical, 6)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.vertical, 8)
-        .redacted(reason: .placeholder)
-    }
-}
-
 enum FireTopicReplySwipeAxis: Equatable {
     case horizontal
     case vertical
@@ -1767,439 +1728,6 @@ enum FireTopicReplySwipePolicy {
         return abs(translationWidth) > abs(translationHeight) * 1.2
             ? .horizontal
             : .vertical
-    }
-}
-
-struct FirePostRow: View {
-    let post: TopicPostState
-    let renderContent: FireTopicPostRenderContent
-    let depth: Int
-    let replyContext: String?
-    let replyTargetPostNumber: UInt32?
-    let showsThreadLine: Bool
-    let baseURLString: String
-    let canWriteInteractions: Bool
-    let isMutating: Bool
-    let onLinkTapped: (URL) -> Void
-    let onOpenImage: (FireCookedImage) -> Void
-    let onToggleLike: (TopicPostState) -> Void
-    let onSelectReaction: (TopicPostState, String) -> Void
-    let onEditPost: (TopicPostState) -> Void
-    let onBookmarkPost: (TopicPostState) -> Void
-    let onDeletePost: (TopicPostState) -> Void
-    let onRecoverPost: (TopicPostState) -> Void
-    let onFlagPost: (TopicPostState) -> Void
-    let onOpenReplyTarget: (UInt32) -> Void
-    let onOpenReplies: (TopicPostState) -> Void
-    let onVotePoll: (TopicPostState, PollState, [String]) -> Void
-    let onUnvotePoll: (TopicPostState, PollState) -> Void
-
-    private static let maxVisualDepth = 3
-    private static let showsRepliesPanelShortcut = false
-
-    private var visualDepth: Int {
-        max(depth - 1, 0)
-    }
-
-    private var indentWidth: CGFloat {
-        CGFloat(min(visualDepth, Self.maxVisualDepth)) * 20
-    }
-
-    private var canChangeReaction: Bool {
-        canWriteInteractions && !isMutating && (post.currentUserReaction?.canUndo ?? true)
-    }
-
-    private var canFlagPost: Bool {
-        canWriteInteractions && !post.hidden
-    }
-
-    private var canBookmarkPost: Bool {
-        canWriteInteractions && !post.hidden
-    }
-
-    private var canShowPostMenu: Bool {
-        post.canEdit
-            || canBookmarkPost
-            || canFlagPost
-            || post.canRecover
-            || (post.canDelete && !post.hidden)
-    }
-
-    private var richTextContentID: String {
-        "post:\(post.id)|render:\(renderContent.signature.token)"
-    }
-
-    var body: some View {
-        HStack(alignment: .top, spacing: visualDepth > 0 ? 6 : 10) {
-            if visualDepth > 0 {
-                Color.clear.frame(width: indentWidth)
-            }
-
-            VStack(spacing: 0) {
-                FireAvatarView(
-                    avatarTemplate: post.avatarTemplate,
-                    username: post.username.isEmpty ? "?" : post.username,
-                    size: visualDepth > 0 ? 26 : 32,
-                    baseURLString: baseURLString
-                )
-
-                if showsThreadLine {
-                    Rectangle()
-                        .fill(Color(.separator))
-                        .frame(width: 1)
-                        .frame(maxHeight: .infinity)
-                        .padding(.top, 6)
-                }
-            }
-
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Text(post.username.isEmpty ? "Unknown" : post.username)
-                        .font(.subheadline.weight(.semibold))
-
-                    if let replyContext {
-                        if let replyTargetPostNumber, replyTargetPostNumber > 0 {
-                            Button {
-                                onOpenReplyTarget(replyTargetPostNumber)
-                            } label: {
-                                Text(replyContext)
-                                    .font(.caption2.weight(.medium))
-                                    .foregroundStyle(FireTheme.accent)
-                            }
-                            .buttonStyle(.plain)
-                        } else {
-                            Text(replyContext)
-                                .font(.caption2.weight(.medium))
-                                .foregroundStyle(FireTheme.accent)
-                        }
-                    }
-
-                    if let timestamp = FireTopicPresentation.compactTimestamp(post.createdAt) {
-                        Text(timestamp)
-                            .font(.caption2)
-                            .foregroundStyle(FireTheme.tertiaryInk)
-                    }
-
-                    Spacer()
-
-                    if post.acceptedAnswer {
-                        Label("已采纳", systemImage: "checkmark.circle.fill")
-                            .font(.caption2.weight(.medium))
-                            .foregroundStyle(.green)
-                    }
-
-                    Text("#\(post.postNumber)")
-                        .font(.caption2.monospacedDigit())
-                        .foregroundStyle(FireTheme.tertiaryInk)
-
-                    if canShowPostMenu {
-                        Menu {
-                            if post.canEdit {
-                                Button {
-                                    onEditPost(post)
-                                } label: {
-                                    Label("编辑", systemImage: "pencil")
-                                }
-                                .disabled(isMutating)
-                            }
-
-                            if canBookmarkPost {
-                                Button {
-                                    onBookmarkPost(post)
-                                } label: {
-                                    Label(
-                                        post.bookmarked ? "编辑书签" : "添加书签",
-                                        systemImage: post.bookmarked ? "bookmark.fill" : "bookmark"
-                                    )
-                                    .fireBookmarkEffect(active: post.bookmarked)
-                                }
-                                .disabled(isMutating)
-                            }
-
-                            if canFlagPost {
-                                Button {
-                                    onFlagPost(post)
-                                } label: {
-                                    Label("举报", systemImage: "flag")
-                                }
-                                .disabled(isMutating)
-                            }
-
-                            if post.canRecover {
-                                if post.canEdit || canFlagPost {
-                                    Divider()
-                                }
-
-                                Button {
-                                    onRecoverPost(post)
-                                } label: {
-                                    Label("恢复", systemImage: "arrow.uturn.backward")
-                                }
-                                .disabled(isMutating)
-                            }
-
-                            if post.canDelete && !post.hidden {
-                                if post.canEdit || canFlagPost || post.canRecover {
-                                    Divider()
-                                }
-
-                                Button(role: .destructive) {
-                                    onDeletePost(post)
-                                } label: {
-                                    Label("删除", systemImage: "trash")
-                                }
-                                .disabled(isMutating)
-                            }
-                        } label: {
-                            Image(systemName: "ellipsis")
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(FireTheme.tertiaryInk)
-                                .frame(width: 20, height: 20)
-                        }
-                    }
-                }
-
-                if let attributedText = renderContent.attributedText, attributedText.length > 0 {
-                    FireRichTextView(
-                        contentID: richTextContentID,
-                        attributedString: attributedText
-                    ) { url in
-                        onLinkTapped(url)
-                    }
-                    .fixedSize(horizontal: false, vertical: true)
-                } else {
-                    Text(renderContent.plainText)
-                        .font(.subheadline)
-                        .foregroundStyle(.primary.opacity(0.92))
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                if !renderContent.imageAttachments.isEmpty {
-                    VStack(spacing: 10) {
-                        ForEach(renderContent.imageAttachments) { attachment in
-                            Button {
-                                onOpenImage(attachment)
-                            } label: {
-                                FireCookedImageCard(image: attachment)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                }
-
-                if !post.polls.isEmpty {
-                    VStack(spacing: 10) {
-                        ForEach(post.polls, id: \.name) { poll in
-                            FirePollCard(
-                                poll: poll,
-                                canInteract: canWriteInteractions && !isMutating,
-                                onSubmit: { selectedOptions in
-                                    onVotePoll(post, poll, selectedOptions)
-                                },
-                                onRemoveVote: {
-                                    onUnvotePoll(post, poll)
-                                }
-                            )
-                        }
-                    }
-                }
-
-                if Self.showsRepliesPanelShortcut && post.replyCount > 0 {
-                    Button {
-                        onOpenReplies(post)
-                    } label: {
-                        Label("\(post.replyCount) 条回复", systemImage: "bubble.left.and.bubble.right")
-                            .font(.caption.weight(.medium))
-                            .foregroundStyle(FireTheme.accent)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 6)
-                            .background(FireTheme.accent.opacity(0.10), in: Capsule())
-                    }
-                    .buttonStyle(.plain)
-                }
-
-                if !post.reactions.isEmpty {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 8) {
-                            ForEach(post.reactions, id: \.id) { reaction in
-                                let option = FireTopicPresentation.reactionOption(for: reaction.id)
-                                let isMine = post.currentUserReaction?.id == reaction.id
-                                Button {
-                                    if reaction.id == "heart" {
-                                        onToggleLike(post)
-                                    } else {
-                                        onSelectReaction(post, reaction.id)
-                                    }
-                                } label: {
-                                    HStack(spacing: 5) {
-                                        Text(option.symbol)
-                                            .fireLikeEffect(active: reaction.id == "heart" && post.currentUserReaction?.id == "heart")
-                                        Text("\(reaction.count)")
-                                            .font(.caption.monospacedDigit().weight(isMine ? .semibold : .regular))
-                                            .foregroundStyle(isMine ? FireTheme.accent : FireTheme.subtleInk)
-                                            .fireNumericChange(value: reaction.count)
-                                    }
-                                    .padding(.horizontal, 10)
-                                    .padding(.vertical, 6)
-                                    .background(
-                                        Capsule()
-                                            .fill(
-                                                isMine
-                                                    ? FireTheme.accent.opacity(0.18)
-                                                    : Color(.tertiarySystemFill)
-                                            )
-                                    )
-                                    .overlay(
-                                        Capsule()
-                                            .strokeBorder(
-                                                isMine ? FireTheme.accent.opacity(0.85) : Color.clear,
-                                                lineWidth: 1
-                                            )
-                                    )
-                                }
-                                .buttonStyle(.plain)
-                                .disabled(!canChangeReaction)
-                                .accessibilityAddTraits(isMine ? AccessibilityTraits.isSelected : AccessibilityTraits())
-                            }
-                        }
-                    }
-                }
-            }
-            .padding(.vertical, 8)
-        }
-    }
-}
-
-private struct FirePollCard: View {
-    let poll: PollState
-    let canInteract: Bool
-    let onSubmit: ([String]) -> Void
-    let onRemoveVote: () -> Void
-
-    @State private var selectedOptionIDs: Set<String>
-
-    init(
-        poll: PollState,
-        canInteract: Bool,
-        onSubmit: @escaping ([String]) -> Void,
-        onRemoveVote: @escaping () -> Void
-    ) {
-        self.poll = poll
-        self.canInteract = canInteract
-        self.onSubmit = onSubmit
-        self.onRemoveVote = onRemoveVote
-        _selectedOptionIDs = State(initialValue: Set(poll.userVotes))
-    }
-
-    private var allowsMultipleSelection: Bool {
-        poll.kind.localizedCaseInsensitiveContains("multiple")
-    }
-
-    private var isClosed: Bool {
-        poll.status.localizedCaseInsensitiveContains("closed")
-    }
-
-    private var canSubmitSelection: Bool {
-        canInteract && !isClosed && !selectedOptionIDs.isEmpty && selectedOptionIDs != Set(poll.userVotes)
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Text(poll.name.ifEmpty("投票"))
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(FireTheme.ink)
-
-                Spacer()
-
-                Text("\(poll.voters) 人参与")
-                    .font(.caption)
-                    .foregroundStyle(FireTheme.tertiaryInk)
-            }
-
-            VStack(spacing: 8) {
-                ForEach(poll.options, id: \.id) { option in
-                    Button {
-                        toggleSelection(optionID: option.id)
-                    } label: {
-                        HStack(spacing: 10) {
-                            Image(systemName: selectedOptionIDs.contains(option.id) ? "checkmark.circle.fill" : "circle")
-                                .foregroundStyle(selectedOptionIDs.contains(option.id) ? FireTheme.accent : FireTheme.tertiaryInk)
-
-                            Text(plainTextFromHtml(rawHtml: option.html).ifEmpty(option.id))
-                                .font(.subheadline)
-                                .foregroundStyle(FireTheme.ink)
-                                .multilineTextAlignment(.leading)
-
-                            Spacer()
-
-                            Text("\(option.votes)")
-                                .font(.caption.monospacedDigit())
-                                .foregroundStyle(FireTheme.tertiaryInk)
-                        }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 10)
-                        .background(
-                            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .fill(selectedOptionIDs.contains(option.id) ? FireTheme.accent.opacity(0.10) : Color(.tertiarySystemFill))
-                        )
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(!canInteract || isClosed)
-                }
-            }
-
-            HStack(spacing: 12) {
-                if !poll.userVotes.isEmpty {
-                    Button {
-                        onRemoveVote()
-                    } label: {
-                        Label("撤销投票", systemImage: "arrow.uturn.left")
-                            .font(.caption.weight(.medium))
-                            .foregroundStyle(FireTheme.subtleInk)
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(!canInteract || isClosed)
-                }
-
-                Spacer()
-
-                if canSubmitSelection {
-                    Button {
-                        onSubmit(selectedOptionIDs.sorted())
-                    } label: {
-                        Text("提交")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                            .background(FireTheme.accent, in: Capsule())
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-        }
-        .padding(12)
-        .background(FireTheme.softSurface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .onChange(of: poll.userVotes) { _, newValue in
-            selectedOptionIDs = Set(newValue)
-        }
-    }
-
-    private func toggleSelection(optionID: String) {
-        if allowsMultipleSelection {
-            if selectedOptionIDs.contains(optionID) {
-                selectedOptionIDs.remove(optionID)
-            } else {
-                selectedOptionIDs.insert(optionID)
-            }
-        } else {
-            if selectedOptionIDs.contains(optionID) {
-                selectedOptionIDs.removeAll()
-            } else {
-                selectedOptionIDs = Set([optionID])
-            }
-        }
     }
 }
 
@@ -2312,7 +1840,7 @@ private struct FirePostRepliesSheet: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
-                Button("关闭") {
+                Button("收起") {
                     dismiss()
                 }
             }
@@ -2941,54 +2469,5 @@ struct FireSwipeToReplyContainer<Content: View>: View {
                 gestureDirection = nil
                 replyTriggered = false
             }
-    }
-}
-
-private struct FireCookedImageCard: View {
-    let image: FireCookedImage
-
-    private var fallbackAspectRatio: CGFloat {
-        image.aspectRatio ?? 1.45
-    }
-
-    private var imageRequest: FireRemoteImageRequest {
-        FireRemoteImageRequest(url: image.url)
-    }
-
-    var body: some View {
-        FireRemoteImage(request: imageRequest) { loadedImage in
-            Image(uiImage: loadedImage)
-                .resizable()
-                .scaledToFit()
-        } placeholder: { state in
-            switch state {
-            case .loading, .missingRequest:
-                ZStack {
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .fill(Color(.tertiarySystemFill))
-                    ProgressView()
-                }
-            case .failure:
-                ZStack {
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .fill(Color(.tertiarySystemFill))
-                    VStack(spacing: 8) {
-                        Image(systemName: "photo")
-                            .font(.title3)
-                            .foregroundStyle(.secondary)
-                        Text("图片加载失败")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-            }
-        }
-        .frame(maxWidth: .infinity)
-        .aspectRatio(fallbackAspectRatio, contentMode: .fit)
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(Color(.separator), lineWidth: 0.5)
-        }
     }
 }

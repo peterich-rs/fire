@@ -1,8 +1,8 @@
 # iOS ListKit Home Migration
 
-Current repo state: topic detail has since also moved onto the shared
-collection-host ListKit foundation under
-`native/ios-app/App/ListKit/TopicDetail/FireTopicDetailCollectionView.swift`.
+Current repo state: topic detail moved beyond this shared collection-host
+slice and now uses the dedicated IGListKit runtime under
+`native/ios-app/App/TopicDetailRuntime/`.
 This document remains the original home-only migration record for the first
 slice on `refactor/ios-store-split`.
 
@@ -25,8 +25,9 @@ foundation instead of SwiftUI `List`.
 
 At the time this slice landed it did not yet migrate notifications/history or
 topic detail to collection-backed hosts. Current topic detail now uses
-`FireTopicDetailCollectionView`, including scroll-metric pagination triggers
-and always-on anchor restoration for response-page appends.
+`FireTopicDetailListViewController`, including scroll-metric pagination
+triggers, working-range prefetch, native post cells, and anchor-preserving
+response-page appends.
 
 ## Runtime Shape
 

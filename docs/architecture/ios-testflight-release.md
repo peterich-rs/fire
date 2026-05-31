@@ -27,7 +27,7 @@ The app now has explicit version build settings:
 
 - `FIRE_MARKETING_VERSION` maps to `MARKETING_VERSION` / `CFBundleShortVersionString`.
 - `FIRE_BUILD_NUMBER` maps to `CURRENT_PROJECT_VERSION` / `CFBundleVersion`.
-- `FIRE_GIT_SHA` maps to the generated `FireGitSha` Info.plist value.
+- `FIRE_GIT_SHA` maps to the `FireGitSha` value in `native/ios-app/Configs/Fire-Info.plist`.
 - Defaults live in `native/ios-app/Configs/Fire-Shared.xcconfig`.
 - CI passes both values into `archive_release.sh`; the TestFlight workflow defaults the build number to the GitHub run number if the dispatch input is empty.
 - The iOS settings page displays the version, build number, and short git SHA when the build includes one.
@@ -136,6 +136,6 @@ just ios-testflight-upload 0.1.0 123 main true
 ## Guardrails
 
 - The generated Xcode project stays derived from `native/ios-app/project.yml`.
-- The generated Info.plist for the universal app target now declares the iPhone orientations plus the full four-orientation iPad variant required for iPad multitasking validation.
+- `native/ios-app/Configs/Fire-Info.plist` declares the iPhone orientations plus the full four-orientation iPad variant required for iPad multitasking validation.
 - Release signing values flow through xcconfig settings or environment overrides, not manual edits to `Fire.xcodeproj`.
 - The default archive script remains safe for CI artifact rehearsal because it does not sign or upload unless explicitly requested.

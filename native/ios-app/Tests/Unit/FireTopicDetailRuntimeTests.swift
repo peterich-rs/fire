@@ -110,6 +110,140 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
         XCTAssertEqual(nestedItem.flatMap(configuration.postContext(for:))?.showsThreadLine, false)
     }
 
+    func testSnapshotShowsOnlyTwoHighQualitySecondaryRepliesPerRootReply() {
+        let original = makePost(id: 100, postNumber: 1, username: "alice")
+        let rootReply = makePost(
+            id: 200,
+            postNumber: 2,
+            username: "bob",
+            replyCount: 5,
+            replyToPostNumber: 1
+        )
+        let lowQuality = makePost(id: 300, postNumber: 3, username: "c1", replyToPostNumber: 2)
+        let liked = makePost(id: 400, postNumber: 4, username: "c2", likeCount: 10, replyToPostNumber: 2)
+        let reacted = makePost(
+            id: 500,
+            postNumber: 5,
+            username: "c3",
+            reactions: [TopicReactionState(id: "clap", kind: nil, count: 4, canUndo: nil)],
+            replyToPostNumber: 2
+        )
+        let discussed = makePost(id: 600, postNumber: 6, username: "c4", replyCount: 6, replyToPostNumber: 2)
+        let renderState = FireTopicDetailRenderState(
+            originalRow: makeTimelineRow(post: original, depth: 0, isOriginalPost: true),
+            replyRows: [
+                makeTimelineRow(post: rootReply, parentPostNumber: 1, depth: 1),
+                makeTimelineRow(post: lowQuality, parentPostNumber: 2, depth: 2),
+                makeTimelineRow(post: liked, parentPostNumber: 2, depth: 2),
+                makeTimelineRow(post: reacted, parentPostNumber: 2, depth: 2),
+                makeTimelineRow(post: discussed, parentPostNumber: 2, depth: 2),
+            ],
+            contentByPostID: [
+                original.id: makeRenderContent("Original"),
+                rootReply.id: makeRenderContent("Root"),
+                lowQuality.id: makeRenderContent("Low"),
+                liked.id: makeRenderContent("Liked"),
+                reacted.id: makeRenderContent("Reacted"),
+                discussed.id: makeRenderContent("Discussed"),
+            ]
+        )
+        let posts = [original, rootReply, lowQuality, liked, reacted, discussed]
+        let configuration = makeConfiguration(
+            detail: makeTopicDetail(posts: posts),
+            renderState: renderState,
+            postLookup: Dictionary(uniqueKeysWithValues: posts.map { ($0.id, $0) })
+        )
+
+        let snapshot = configuration.makeSnapshot()
+        let replyItems = snapshot.items.filter { $0.kind == .reply }
+
+        XCTAssertEqual(replyItems.map(\.postNumber), [2, 4, 6])
+        XCTAssertEqual(replyItems.first?.replyShortcutCount, 3)
+        XCTAssertNil(configuration.scrollItem(for: 3))
+        XCTAssertEqual(configuration.postContext(for: replyItems[1])?.depth, 1)
+    }
+
+    func testExpandedReplyThreadShowsAllLoadedSecondaryReplies() {
+        let original = makePost(id: 100, postNumber: 1, username: "alice")
+        let rootReply = makePost(id: 200, postNumber: 2, username: "bob", replyCount: 4, replyToPostNumber: 1)
+        let secondaryReplies = [
+            makePost(id: 300, postNumber: 3, username: "c1", replyToPostNumber: 2),
+            makePost(id: 400, postNumber: 4, username: "c2", replyToPostNumber: 2),
+            makePost(id: 500, postNumber: 5, username: "c3", replyToPostNumber: 2),
+            makePost(id: 600, postNumber: 6, username: "c4", replyToPostNumber: 2),
+        ]
+        let posts = [original, rootReply] + secondaryReplies
+        let renderState = FireTopicDetailRenderState(
+            originalRow: makeTimelineRow(post: original, depth: 0, isOriginalPost: true),
+            replyRows: posts.dropFirst().map { post in
+                makeTimelineRow(
+                    post: post,
+                    parentPostNumber: post.id == rootReply.id ? 1 : 2,
+                    depth: post.id == rootReply.id ? 1 : 2
+                )
+            },
+            contentByPostID: Dictionary(uniqueKeysWithValues: posts.map { ($0.id, makeRenderContent($0.username)) })
+        )
+        let configuration = makeConfiguration(
+            detail: makeTopicDetail(posts: posts),
+            renderState: renderState,
+            postLookup: Dictionary(uniqueKeysWithValues: posts.map { ($0.id, $0) }),
+            expandedReplyRootPostIDs: [rootReply.id]
+        )
+
+        let replyItems = configuration.makeSnapshot().items.filter { $0.kind == .reply }
+
+        XCTAssertEqual(replyItems.map(\.postNumber), [2, 3, 4, 5, 6])
+        XCTAssertNil(replyItems.first?.replyShortcutCount)
+    }
+
+    func testSnapshotIncludesLoadMoreFooterForNonEmptyRepliesWhenMoreAvailable() {
+        let original = makePost(id: 100, postNumber: 1, username: "alice")
+        let reply = makePost(id: 200, postNumber: 2, username: "bob", replyToPostNumber: 1)
+        let renderState = FireTopicDetailRenderState(
+            originalRow: makeTimelineRow(post: original, depth: 0, isOriginalPost: true),
+            replyRows: [makeTimelineRow(post: reply, parentPostNumber: 1, depth: 1)],
+            contentByPostID: [
+                original.id: makeRenderContent("Original"),
+                reply.id: makeRenderContent("Reply"),
+            ]
+        )
+        let configuration = makeConfiguration(
+            detail: makeTopicDetail(posts: [original, reply]),
+            renderState: renderState,
+            postLookup: [original.id: original, reply.id: reply],
+            hasMoreTopicPosts: true
+        )
+
+        let snapshot = configuration.makeSnapshot()
+
+        XCTAssertEqual(configuration.replyFooterState, .loadMore)
+        XCTAssertEqual(snapshot.items.last?.kind, .replyFooter)
+    }
+
+    func testSnapshotShowsLoadingFooterWhileLoadingMoreReplies() {
+        let original = makePost(id: 100, postNumber: 1, username: "alice")
+        let reply = makePost(id: 200, postNumber: 2, username: "bob", replyToPostNumber: 1)
+        let renderState = FireTopicDetailRenderState(
+            originalRow: makeTimelineRow(post: original, depth: 0, isOriginalPost: true),
+            replyRows: [makeTimelineRow(post: reply, parentPostNumber: 1, depth: 1)],
+            contentByPostID: [
+                original.id: makeRenderContent("Original"),
+                reply.id: makeRenderContent("Reply"),
+            ]
+        )
+        let configuration = makeConfiguration(
+            detail: makeTopicDetail(posts: [original, reply]),
+            renderState: renderState,
+            postLookup: [original.id: original, reply.id: reply],
+            hasMoreTopicPosts: true,
+            isLoadingMoreTopicPosts: true
+        )
+
+        XCTAssertEqual(configuration.replyFooterState, .loadingFooter)
+        XCTAssertEqual(configuration.makeSnapshot().items.last?.kind, .replyFooter)
+    }
+
     func testRenderSignatureIsStableAndContentSensitive() throws {
         let image = FireCookedImage(
             url: try XCTUnwrap(URL(string: "https://linux.do/uploads/default/original/1x/image.png")),
@@ -287,8 +421,10 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
         detail: TopicDetailState?,
         renderState: FireTopicDetailRenderState?,
         postLookup: [UInt64: TopicPostState],
+        pendingScrollTarget: UInt32? = nil,
         hasMoreTopicPosts: Bool = false,
-        isLoadingMoreTopicPosts: Bool = false
+        isLoadingMoreTopicPosts: Bool = false,
+        expandedReplyRootPostIDs: Set<UInt64> = []
     ) -> FireTopicDetailRuntimeConfiguration {
         FireTopicDetailRuntimeConfiguration(
             viewModel: nil,
@@ -298,7 +434,7 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
             baseURLString: "https://linux.do",
             detail: detail,
             renderState: renderState,
-            pendingScrollTarget: nil,
+            pendingScrollTarget: pendingScrollTarget,
             detailError: nil,
             hasMoreTopicPosts: hasMoreTopicPosts,
             isLoadingTopic: false,
@@ -310,6 +446,8 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
             canWriteInteractions: true,
             postLookup: postLookup,
             isMutatingPost: { _ in false },
+            isPostTextExpanded: { _ in false },
+            isReplyThreadExpanded: { expandedReplyRootPostIDs.contains($0) },
             onVisiblePostNumbersChanged: { _ in },
             onRefresh: {},
             onLoadTopicDetail: {},
@@ -329,6 +467,7 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
             onDeletePost: { _ in },
             onRecoverPost: { _ in },
             onFlagPost: { _ in },
+            onExpandPostText: { _ in },
             onVotePoll: { _, _, _ in },
             onUnvotePoll: { _, _ in },
             onToggleTopicVote: {},
@@ -460,6 +599,9 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
         id: UInt64,
         postNumber: UInt32,
         username: String,
+        likeCount: UInt32 = 0,
+        replyCount: UInt32 = 0,
+        reactions: [TopicReactionState] = [],
         replyToPostNumber: UInt32? = nil
     ) -> TopicPostState {
         TopicPostState(
@@ -473,15 +615,15 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
             postType: 1,
             createdAt: "2026-03-28T10:00:00Z",
             updatedAt: "2026-03-28T10:00:00Z",
-            likeCount: 0,
-            replyCount: 0,
+            likeCount: likeCount,
+            replyCount: replyCount,
             replyToPostNumber: replyToPostNumber,
             replyToUser: nil,
             bookmarked: false,
             bookmarkId: nil,
             bookmarkName: nil,
             bookmarkReminderAt: nil,
-            reactions: [],
+            reactions: reactions,
             currentUserReaction: nil,
             polls: [],
             acceptedAnswer: false,

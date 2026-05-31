@@ -1,6 +1,15 @@
 # iOS Topic Detail Native Reply Cell Plan
 
-Status: proposed (2026-05-28)
+Status: historical / landed (updated 2026-05-31)
+
+This plan records the migration path that led to the current native topic-detail
+post cells. The active implementation no longer uses
+`FireTopicDetailCollectionView`, `FirePostRow`, or a hosted SwiftUI fallback for
+post/reply rows. Original posts and replies now render only through
+`FireTopicDetailListViewController` and `FirePostCollectionViewCell`; missing
+poll, rich-text, layout, or render-data behavior should be fixed in that native
+path. See `ios-topic-detail-rich-text-rendering-plan.md` for the next rich-text
+quality and measurement work.
 
 ## Summary
 

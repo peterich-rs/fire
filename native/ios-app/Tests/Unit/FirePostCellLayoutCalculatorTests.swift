@@ -19,6 +19,8 @@ final class FirePostCellLayoutCalculatorTests: XCTestCase {
             imageSignature: [],
             pollSignature: [],
             hasReactions: false,
+            replyShortcutCount: nil,
+            textExpansionState: .disabled,
             acceptedAnswer: false,
             trait: trait
         )
@@ -81,6 +83,8 @@ final class FirePostCellLayoutCalculatorTests: XCTestCase {
             imageSignature: [],
             pollSignature: [],
             hasReactions: false,
+            replyShortcutCount: nil,
+            textExpansionState: .disabled,
             acceptedAnswer: false,
             trait: trait
         )
@@ -91,5 +95,177 @@ final class FirePostCellLayoutCalculatorTests: XCTestCase {
         )
 
         XCTAssertEqual(availableWidth, 256, accuracy: 0.01)
+    }
+
+    func testCollapsedTextAddsExpansionControlAndCapsHeight() {
+        let trait = FirePostLayoutTraitSignature(
+            contentWidthPixels: 320,
+            contentSizeCategory: UIContentSizeCategory.large.rawValue
+        )
+        let key = FirePostCellLayoutKey(
+            postID: 88,
+            depth: 1,
+            showsThreadLine: false,
+            showsDivider: false,
+            replyTargetPostNumber: nil,
+            replyContext: nil,
+            textContentID: "text",
+            imageSignature: [],
+            pollSignature: [],
+            hasReactions: true,
+            replyShortcutCount: 3,
+            textExpansionState: FirePostTextExpansionState(isCollapsible: true, isExpanded: false),
+            acceptedAnswer: false,
+            trait: trait
+        )
+
+        let collapsedHeight = FirePostCellLayoutCalculator.collapsedTextHeight(
+            contentSizeCategory: .large
+        )
+        let layout = FirePostCellLayoutCalculator.calculate(
+            key: key,
+            textHeight: collapsedHeight + 80,
+            imageHeights: [],
+            trait: trait
+        )
+
+        XCTAssertEqual(layout.textFrame?.height ?? 0, collapsedHeight, accuracy: 0.01)
+        XCTAssertNotNil(layout.textExpansionFrame)
+        XCTAssertNotNil(layout.replyShortcutFrame)
+        XCTAssertNotNil(layout.reactionsFrame)
+        XCTAssertEqual(
+            layout.textExpansionFrame?.minY ?? 0,
+            (layout.textFrame?.maxY ?? 0) + FirePostCellLayoutCalculator.textExpansionTopSpacing,
+            accuracy: 0.01
+        )
+        XCTAssertGreaterThan(layout.replyShortcutFrame?.minY ?? 0, layout.textExpansionFrame?.maxY ?? 0)
+        XCTAssertEqual(layout.replyShortcutFrame?.minY ?? 0, layout.reactionsFrame?.minY ?? 1, accuracy: 0.01)
+    }
+
+    func testPollFramesSitBetweenMediaAndActionRow() {
+        let trait = FirePostLayoutTraitSignature(
+            contentWidthPixels: 320,
+            contentSizeCategory: UIContentSizeCategory.large.rawValue
+        )
+        let key = FirePostCellLayoutKey(
+            postID: 99,
+            depth: 1,
+            showsThreadLine: false,
+            showsDivider: false,
+            replyTargetPostNumber: nil,
+            replyContext: nil,
+            textContentID: "text",
+            imageSignature: ["image"],
+            pollSignature: ["poll"],
+            hasReactions: true,
+            replyShortcutCount: nil,
+            textExpansionState: .disabled,
+            acceptedAnswer: false,
+            trait: trait
+        )
+
+        let layout = FirePostCellLayoutCalculator.calculate(
+            key: key,
+            textHeight: 40,
+            imageHeights: [80],
+            pollHeights: [120],
+            trait: trait
+        )
+
+        XCTAssertEqual(layout.pollFrames.count, 1)
+        XCTAssertGreaterThan(layout.pollFrames[0].minY, layout.imageFrames[0].maxY)
+        XCTAssertGreaterThan(layout.reactionsFrame?.minY ?? 0, layout.pollFrames[0].maxY)
+    }
+
+    func testPollPreferredHeightGrowsForLongOptionText() {
+        let shortPoll = FirePostPollRenderModel(
+            id: 1,
+            name: "poll",
+            title: "投票",
+            kind: "regular",
+            status: "open",
+            voters: 2,
+            userVotes: [],
+            options: [
+                FirePostPollOptionRenderModel(id: "a", title: "A", votes: 1, isSelected: false),
+            ]
+        )
+        let longPoll = FirePostPollRenderModel(
+            id: 1,
+            name: "poll",
+            title: "投票",
+            kind: "regular",
+            status: "open",
+            voters: 2,
+            userVotes: [],
+            options: [
+                FirePostPollOptionRenderModel(
+                    id: "a",
+                    title: String(repeating: "Fire native poll option ", count: 8),
+                    votes: 1,
+                    isSelected: false
+                ),
+            ]
+        )
+
+        let shortHeight = FirePostPollView.preferredHeight(
+            for: shortPoll,
+            availableWidth: 220,
+            contentSizeCategory: .large
+        )
+        let longHeight = FirePostPollView.preferredHeight(
+            for: longPoll,
+            availableWidth: 220,
+            contentSizeCategory: .large
+        )
+
+        XCTAssertGreaterThan(longHeight, shortHeight)
+    }
+
+    func testEstimatedCollapsedTextHeightStillTriggersExpansionControl() {
+        let trait = FirePostLayoutTraitSignature(
+            contentWidthPixels: 320,
+            contentSizeCategory: UIContentSizeCategory.large.rawValue
+        )
+        let key = FirePostCellLayoutKey(
+            postID: 89,
+            depth: 1,
+            showsThreadLine: false,
+            showsDivider: false,
+            replyTargetPostNumber: nil,
+            replyContext: nil,
+            textContentID: "text",
+            imageSignature: [],
+            pollSignature: [],
+            hasReactions: false,
+            replyShortcutCount: nil,
+            textExpansionState: FirePostTextExpansionState(isCollapsible: true, isExpanded: false),
+            acceptedAnswer: false,
+            trait: trait
+        )
+        let availableWidth = FirePostCellLayoutCalculator.availableContentWidth(
+            for: key,
+            trait: trait
+        )
+        let estimatedHeight = FirePostCellLayoutCalculator.estimatedRichTextHeight(
+            plainText: String(repeating: "Fire native reply row ", count: 20),
+            hasAttributedText: true,
+            containerWidth: availableWidth,
+            contentSizeCategory: .large,
+            textExpansionState: key.textExpansionState
+        )
+        let layout = FirePostCellLayoutCalculator.calculate(
+            key: key,
+            textHeight: estimatedHeight,
+            imageHeights: [],
+            trait: trait
+        )
+
+        XCTAssertNotNil(layout.textExpansionFrame)
+        XCTAssertEqual(
+            layout.textFrame?.height ?? 0,
+            FirePostCellLayoutCalculator.collapsedTextHeight(contentSizeCategory: .large),
+            accuracy: 0.01
+        )
     }
 }

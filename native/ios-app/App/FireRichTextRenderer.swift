@@ -181,7 +181,7 @@ enum FireRichTextParser {
                 author: normalizedText(attrs["data-username"] ?? node.title),
                 postNumber: attrs["data-post"].flatMap(UInt32.init),
                 topicId: attrs["data-topic"].flatMap(UInt64.init),
-                children: normalizeQuotedChildren(children)
+                children: quotedBodyChildren(from: children)
             )]
         case .list:
             let items = tree.children(of: node).compactMap { child -> [FireRichTextNode]? in
@@ -275,6 +275,10 @@ enum FireRichTextParser {
                 continue
             }
 
+            if shouldSkipImageAttachment(node, sourceURL: sourceURL, attrs: attrs, tree: tree) {
+                continue
+            }
+
             let absoluteURL = sourceURL.absoluteString
             if absoluteURL.contains("/images/emoji/") || seenURLs.contains(absoluteURL) {
                 continue
@@ -290,6 +294,33 @@ enum FireRichTextParser {
         }
 
         return images
+    }
+
+    private static func shouldSkipImageAttachment(
+        _ node: CookedHtmlNodeState,
+        sourceURL: URL,
+        attrs: [String: String],
+        tree: CookedHtmlTree
+    ) -> Bool {
+        let classes = classNames(from: attrs["class"])
+        let normalizedPath = sourceURL.path.lowercased()
+        if classes.contains("avatar")
+            || classes.contains("user-avatar")
+            || classes.contains("thumbnail")
+            || classes.contains("ytp-thumbnail-image")
+            || normalizedPath.contains("/user_avatar/")
+            || normalizedPath.contains("/letter_avatar/") {
+            return true
+        }
+
+        if tree.nearestAncestor(of: node, matching: { $0.kind == .discourseQuote }) != nil,
+           classes.contains("quote-avatar")
+            || normalizedPath.contains("/user_avatar/")
+            || normalizedPath.contains("/letter_avatar/") {
+            return true
+        }
+
+        return false
     }
 
     private static func plainText(from nodes: [FireRichTextNode]) -> String {
@@ -626,11 +657,18 @@ enum FireRichTextParser {
         )
     }
 
-    private static func normalizeQuotedChildren(_ children: [FireRichTextNode]) -> [FireRichTextNode] {
-        let meaningfulChildren = children.filter { child in
-            guard case .text(let value) = child else { return true }
-            return !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    private static func quotedBodyChildren(from children: [FireRichTextNode]) -> [FireRichTextNode] {
+        let meaningfulChildren = meaningfulQuoteChildren(from: children)
+        for child in meaningfulChildren {
+            if case .blockquote(let quotedChildren) = child {
+                return quotedChildren
+            }
         }
+        return normalizeQuotedChildren(meaningfulChildren)
+    }
+
+    private static func normalizeQuotedChildren(_ children: [FireRichTextNode]) -> [FireRichTextNode] {
+        let meaningfulChildren = meaningfulQuoteChildren(from: children)
 
         guard meaningfulChildren.count == 1,
               case .blockquote(let quotedChildren) = meaningfulChildren[0] else {
@@ -638,6 +676,14 @@ enum FireRichTextParser {
         }
 
         return quotedChildren
+    }
+
+    private static func meaningfulQuoteChildren(from children: [FireRichTextNode]) -> [FireRichTextNode] {
+        let meaningfulChildren = children.filter { child in
+            guard case .text(let value) = child else { return true }
+            return !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+        return meaningfulChildren
     }
 
     private static func normalizedText(_ rawValue: String?) -> String? {

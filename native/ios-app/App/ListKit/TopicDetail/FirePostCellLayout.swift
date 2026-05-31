@@ -15,8 +15,10 @@ struct FirePostCellLayoutKey: Hashable, Sendable {
     let replyContext: String?
     let textContentID: String
     let imageSignature: [String]
-    let pollSignature: [UInt64]
+    let pollSignature: [String]
     let hasReactions: Bool
+    let replyShortcutCount: UInt32?
+    let textExpansionState: FirePostTextExpansionState
     let acceptedAnswer: Bool
     let trait: FirePostLayoutTraitSignature
 }
@@ -29,10 +31,29 @@ struct FirePostCellLayout: Equatable, Sendable {
     let metaFrame: CGRect
     let textFrame: CGRect?
     let textContainerSize: CGSize
+    let textExpansionFrame: CGRect?
     let imageFrames: [CGRect]
+    let pollFrames: [CGRect]
+    let replyShortcutFrame: CGRect?
     let reactionsFrame: CGRect?
     let menuFrame: CGRect?
     let dividerFrame: CGRect?
+}
+
+struct FirePostTextExpansionState: Hashable, Sendable {
+    static let collapsedLineLimit = 4
+
+    let isCollapsible: Bool
+    let isExpanded: Bool
+
+    static let disabled = FirePostTextExpansionState(
+        isCollapsible: false,
+        isExpanded: true
+    )
+
+    var isCollapsed: Bool {
+        isCollapsible && !isExpanded
+    }
 }
 
 struct FirePostCellRenderPayload {
@@ -43,6 +64,8 @@ struct FirePostCellRenderPayload {
     let isMutating: Bool
     let replyContext: String?
     let replyTargetPostNumber: UInt32?
+    let replyShortcutCount: UInt32?
+    let textExpansionState: FirePostTextExpansionState
     let showsDivider: Bool
 }
 
@@ -58,14 +81,8 @@ struct FirePostCellCallbacks {
     let onFlagPost: (TopicPostState) -> Void
     let onOpenReplyTarget: (UInt32) -> Void
     let onOpenReplies: (TopicPostState) -> Void
+    let onExpandText: (TopicPostState) -> Void
     let onVotePoll: (TopicPostState, PollState, [String]) -> Void
     let onUnvotePoll: (TopicPostState, PollState) -> Void
     let onSwipeReply: (TopicPostState) -> Void
-}
-
-enum FireReplyCellMode {
-    case native
-    case hostedPoll
-    case hostedPlaceholder
-    case hostedLayoutMiss
 }

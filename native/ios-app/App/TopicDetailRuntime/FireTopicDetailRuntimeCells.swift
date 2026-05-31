@@ -158,7 +158,7 @@ struct FireTopicDetailHostedRow: View {
         case .aiSummary:
             topicAiSummaryRow
         case .originalPost:
-            hostedPostRow
+            EmptyView()
         case .stats:
             statsRow
         case .topicVote:
@@ -168,7 +168,7 @@ struct FireTopicDetailHostedRow: View {
         case .bodyState:
             bodyStateRow
         case .reply:
-            hostedPostRow
+            EmptyView()
         case .replyFooter:
             replyFooterRow
         case .notice:
@@ -338,74 +338,6 @@ struct FireTopicDetailHostedRow: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    @ViewBuilder
-    private var hostedPostRow: some View {
-        if let context = configuration.postContext(for: item) {
-            VStack(spacing: 0) {
-                FireSwipeToReplyContainer(enabled: configuration.canWriteInteractions) {
-                    configuration.onOpenComposer(context.post)
-                } content: {
-                    FirePostRow(
-                        post: context.post,
-                        renderContent: context.renderContent,
-                        depth: context.depth,
-                        replyContext: context.replyContext,
-                        replyTargetPostNumber: context.replyTargetPostNumber,
-                        showsThreadLine: context.showsThreadLine,
-                        baseURLString: configuration.baseURLString,
-                        canWriteInteractions: configuration.canWriteInteractions,
-                        isMutating: configuration.isMutatingPost(context.post.id),
-                        onLinkTapped: configuration.onLinkTapped,
-                        onOpenImage: configuration.onOpenImage,
-                        onToggleLike: configuration.onToggleLike,
-                        onSelectReaction: configuration.onSelectReaction,
-                        onEditPost: configuration.onEditPost,
-                        onBookmarkPost: configuration.onBookmarkPost,
-                        onDeletePost: configuration.onDeletePost,
-                        onRecoverPost: configuration.onRecoverPost,
-                        onFlagPost: configuration.onFlagPost,
-                        onOpenReplyTarget: configuration.onOpenPostNumber,
-                        onOpenReplies: configuration.onOpenPostReplies,
-                        onVotePoll: configuration.onVotePoll,
-                        onUnvotePoll: configuration.onUnvotePoll
-                    )
-                }
-
-                if item.kind == .reply, context.showsDivider {
-                    Divider()
-                }
-            }
-            .padding(.horizontal, 16)
-            .padding(.top, item.kind == .originalPost ? 12 : 0)
-            .padding(.bottom, item.kind == .originalPost ? 12 : 0)
-            .frame(maxWidth: .infinity, alignment: .leading)
-        } else if let excerpt = configuration.row.excerptText, item.kind == .originalPost {
-            Text(excerpt)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.horizontal, 16)
-                .padding(.top, 12)
-                .padding(.bottom, 12)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        } else if let depth = placeholderDepth {
-            FireTopicPostPlaceholder(depth: depth)
-                .padding(.horizontal, 16)
-        } else {
-            Color.clear.frame(height: 0)
-        }
-    }
-
-    private var placeholderDepth: Int? {
-        guard item.kind == .reply,
-              let index = item.replyIndex,
-              index >= 0,
-              index < configuration.replyRows.count else {
-            return nil
-        }
-        return Int(configuration.replyRows[index].entry.depth)
-    }
-
     private var statsRow: some View {
         VStack(alignment: .leading, spacing: 12) {
             Divider()
@@ -571,6 +503,18 @@ struct FireTopicDetailHostedRow: View {
                 .frame(maxWidth: .infinity, alignment: .center)
                 .padding(.horizontal, 16)
                 .padding(.vertical, 24)
+        case .loadMore:
+            Button {
+                configuration.onLoadMoreTopicPosts()
+            } label: {
+                Label("查看更多回复", systemImage: "arrow.down.circle")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(FireTheme.accent)
+                    .frame(maxWidth: .infinity, minHeight: 36, alignment: .center)
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
         case .loadingFooter:
             FireTopicPostsLoadingFooter()
                 .padding(.horizontal, 16)

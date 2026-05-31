@@ -24,7 +24,32 @@ struct FireTopicDetailRuntimeItem: Hashable, @unchecked Sendable {
     let postID: UInt64?
     let postNumber: UInt32?
     let replyIndex: Int?
+    let replyShowsThreadLine: Bool
+    let replyShowsDivider: Bool
+    let replyShortcutCount: UInt32?
     let contentToken: AnyHashable
+
+    init(
+        id: String,
+        kind: FireTopicDetailRuntimeItemKind,
+        postID: UInt64?,
+        postNumber: UInt32?,
+        replyIndex: Int?,
+        replyShowsThreadLine: Bool = false,
+        replyShowsDivider: Bool = false,
+        replyShortcutCount: UInt32? = nil,
+        contentToken: AnyHashable
+    ) {
+        self.id = id
+        self.kind = kind
+        self.postID = postID
+        self.postNumber = postNumber
+        self.replyIndex = replyIndex
+        self.replyShowsThreadLine = replyShowsThreadLine
+        self.replyShowsDivider = replyShowsDivider
+        self.replyShortcutCount = replyShortcutCount
+        self.contentToken = contentToken
+    }
 
     static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.id == rhs.id
@@ -40,6 +65,9 @@ struct FireTopicDetailRuntimeItem: Hashable, @unchecked Sendable {
             && postID == other.postID
             && postNumber == other.postNumber
             && replyIndex == other.replyIndex
+            && replyShowsThreadLine == other.replyShowsThreadLine
+            && replyShowsDivider == other.replyShowsDivider
+            && replyShortcutCount == other.replyShortcutCount
             && contentToken == other.contentToken
     }
 }
@@ -57,9 +85,26 @@ struct FireTopicDetailRuntimePostContext {
     let replyTargetPostNumber: UInt32?
     let showsThreadLine: Bool
     let showsDivider: Bool
+    let replyShortcutCount: UInt32?
+    let textExpansionState: FirePostTextExpansionState
+}
+
+private struct FireTopicDetailReplyDisplayPlan {
+    struct DisplayedRow {
+        let row: FirePreparedTopicTimelineRow
+        let sourceIndex: Int
+        let showsThreadLine: Bool
+        let showsDivider: Bool
+        let replyShortcutCount: UInt32?
+    }
+
+    let rows: [DisplayedRow]
+    let sourceIndexByPostID: [UInt64: Int]
 }
 
 struct FireTopicDetailRuntimeConfiguration {
+    private static let maxInlineSecondaryReplies = 2
+
     let viewModel: FireAppViewModel?
     let displayedCategory: FireTopicCategoryPresentation?
     let currentUsername: String?
@@ -79,6 +124,8 @@ struct FireTopicDetailRuntimeConfiguration {
     let canWriteInteractions: Bool
     let postLookup: [UInt64: TopicPostState]
     let isMutatingPost: (UInt64) -> Bool
+    let isPostTextExpanded: (UInt64) -> Bool
+    let isReplyThreadExpanded: (UInt64) -> Bool
     let onVisiblePostNumbersChanged: (Set<UInt32>) -> Void
     let onRefresh: () async -> Void
     let onLoadTopicDetail: () async -> Void
@@ -98,6 +145,7 @@ struct FireTopicDetailRuntimeConfiguration {
     let onDeletePost: (TopicPostState) -> Void
     let onRecoverPost: (TopicPostState) -> Void
     let onFlagPost: (TopicPostState) -> Void
+    let onExpandPostText: (TopicPostState) -> Void
     let onVotePoll: (TopicPostState, PollState, [String]) -> Void
     let onUnvotePoll: (TopicPostState, PollState) -> Void
     let onToggleTopicVote: () async -> Void
@@ -224,28 +272,16 @@ struct FireTopicDetailRuntimeConfiguration {
         if replyRows.isEmpty {
             return hasMoreTopicPosts ? .loadingFooter : .empty
         }
-        return isLoadingMoreTopicPosts ? .loadingFooter : .none
-    }
-
-    func fallbackRenderContent(for post: TopicPostState) -> FireTopicPostRenderContent {
-        let plainText = post.raw?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return FireTopicPostRenderContent(
-            plainText: plainText.isEmpty ? "加载中…" : plainText,
-            attributedText: nil,
-            imageAttachments: [],
-            signature: FireTopicPostRenderSignature.make(
-                source: plainText.isEmpty ? "加载中…" : plainText,
-                imageAttachments: []
-            )
-        )
+        if isLoadingMoreTopicPosts {
+            return .loadingFooter
+        }
+        return hasMoreTopicPosts ? .loadMore : .none
     }
 
     func makeSnapshot() -> FireTopicDetailRuntimeSnapshot {
         var items: [FireTopicDetailRuntimeItem] = []
-        var replyIndexByPostID: [UInt64: Int] = [:]
-        for (index, row) in replyRows.enumerated() {
-            replyIndexByPostID[row.entry.postId] = index
-        }
+        let replyDisplayPlan = makeReplyDisplayPlan()
+        let replyIndexByPostID = replyDisplayPlan.sourceIndexByPostID
 
         items.append(.init(
             id: "header:\(topic.id)",
@@ -342,16 +378,28 @@ struct FireTopicDetailRuntimeConfiguration {
                 contentToken: AnyHashable("\(isLoadingTopic)|\(detailError ?? "")")
             ))
         } else {
-            for (index, row) in replyRows.enumerated() {
+            for displayedRow in replyDisplayPlan.rows {
+                let row = displayedRow.row
                 let post = postLookup[row.entry.postId]
                 let renderContent = renderState?.contentByPostID[row.entry.postId]
+                let textExpansionToken = post.map { String(isPostTextExpanded($0.id)) } ?? "missing"
                 items.append(.init(
                     id: "reply:\(row.entry.postId):\(row.entry.postNumber)",
                     kind: .reply,
                     postID: row.entry.postId,
                     postNumber: row.entry.postNumber,
-                    replyIndex: index,
-                    contentToken: AnyHashable("\(index)|\(post.map { postContentToken($0, renderContent: renderContent) } ?? "missing")")
+                    replyIndex: displayedRow.sourceIndex,
+                    replyShowsThreadLine: displayedRow.showsThreadLine,
+                    replyShowsDivider: displayedRow.showsDivider,
+                    replyShortcutCount: displayedRow.replyShortcutCount,
+                    contentToken: AnyHashable([
+                        String(displayedRow.sourceIndex),
+                        post.map { postContentToken($0, renderContent: renderContent) } ?? "missing",
+                        String(displayedRow.showsThreadLine),
+                        String(displayedRow.showsDivider),
+                        displayedRow.replyShortcutCount.map(String.init) ?? "",
+                        textExpansionToken,
+                    ].joined(separator: "\u{1F}"))
                 ))
             }
 
@@ -373,15 +421,20 @@ struct FireTopicDetailRuntimeConfiguration {
     func postContext(for item: FireTopicDetailRuntimeItem) -> FireTopicDetailRuntimePostContext? {
         switch item.kind {
         case .originalPost:
-            guard let post = originalPost else { return nil }
+            guard let post = originalPost,
+                  let renderContent = originalPostRenderContent else {
+                return nil
+            }
             return FireTopicDetailRuntimePostContext(
                 post: post,
-                renderContent: originalPostRenderContent ?? fallbackRenderContent(for: post),
+                renderContent: renderContent,
                 depth: 0,
                 replyContext: nil,
                 replyTargetPostNumber: nil,
                 showsThreadLine: false,
-                showsDivider: true
+                showsDivider: true,
+                replyShortcutCount: nil,
+                textExpansionState: .disabled
             )
 
         case .reply:
@@ -391,24 +444,30 @@ struct FireTopicDetailRuntimeConfiguration {
                   let index = item.replyIndex,
                   index >= 0,
                   index < replyRows.count,
-                  replyRows[index].entry.postId == postID else {
+                  replyRows[index].entry.postId == postID,
+                  let renderContent = renderState?.contentByPostID[postID] else {
                 return nil
             }
             let row = replyRows[index]
             return FireTopicDetailRuntimePostContext(
                 post: post,
-                renderContent: renderState?.contentByPostID[postID] ?? fallbackRenderContent(for: post),
-                depth: Int(row.entry.depth),
-                replyContext: FireTopicDetailCollectionView.replyContextLabel(
+                renderContent: renderContent,
+                depth: Self.displayDepth(for: row),
+                replyContext: FireTopicPresentation.replyContextLabel(
                     for: post,
                     preferredPostNumber: row.entry.parentPostNumber
                 ),
-                replyTargetPostNumber: FireTopicDetailCollectionView.replyTargetPostNumber(
+                replyTargetPostNumber: FireTopicPresentation.replyTargetPostNumber(
                     for: post,
                     preferredPostNumber: row.entry.parentPostNumber
                 ),
-                showsThreadLine: showsTimelineThreadLine(at: index),
-                showsDivider: index != replyRows.count - 1
+                showsThreadLine: item.replyShowsThreadLine,
+                showsDivider: item.replyShowsDivider,
+                replyShortcutCount: item.replyShortcutCount,
+                textExpansionState: FirePostTextExpansionState(
+                    isCollapsible: true,
+                    isExpanded: isPostTextExpanded(post.id)
+                )
             )
 
         default:
@@ -418,6 +477,135 @@ struct FireTopicDetailRuntimeConfiguration {
 
     func scrollItem(for postNumber: UInt32) -> FireTopicDetailRuntimeItem? {
         makeSnapshot().items.first { $0.postNumber == postNumber }
+    }
+
+    private func makeReplyDisplayPlan() -> FireTopicDetailReplyDisplayPlan {
+        var sourceIndexByPostID: [UInt64: Int] = [:]
+        sourceIndexByPostID.reserveCapacity(replyRows.count)
+        for (index, row) in replyRows.enumerated() {
+            sourceIndexByPostID[row.entry.postId] = index
+        }
+
+        var rootIndices: [Int] = []
+        var secondaryIndicesByRoot: [Int: [Int]] = [:]
+        var currentRootIndex: Int?
+
+        for (index, row) in replyRows.enumerated() {
+            if row.entry.depth <= 1 || currentRootIndex == nil {
+                rootIndices.append(index)
+                currentRootIndex = index
+            } else if let rootIndex = currentRootIndex {
+                secondaryIndicesByRoot[rootIndex, default: []].append(index)
+            }
+        }
+
+        var displayedRows: [FireTopicDetailReplyDisplayPlan.DisplayedRow] = []
+        displayedRows.reserveCapacity(replyRows.count)
+
+        for rootIndex in rootIndices {
+            guard rootIndex >= 0, rootIndex < replyRows.count else {
+                continue
+            }
+
+                let rootRow = replyRows[rootIndex]
+                let secondaryIndices = secondaryIndicesByRoot[rootIndex] ?? []
+                let selectedSecondaryIndices = isReplyThreadExpanded(rootRow.entry.postId)
+                    ? secondaryIndices
+                    : selectedInlineSecondaryIndices(from: secondaryIndices)
+                let declaredReplyCount = postLookup[rootRow.entry.postId].map { Int($0.replyCount) } ?? 0
+            let totalSecondaryCount = max(secondaryIndices.count, declaredReplyCount)
+            let hiddenCount = max(totalSecondaryCount - selectedSecondaryIndices.count, 0)
+
+            displayedRows.append(.init(
+                row: rootRow,
+                sourceIndex: rootIndex,
+                showsThreadLine: false,
+                showsDivider: true,
+                replyShortcutCount: hiddenCount > 0 ? UInt32(clamping: hiddenCount) : nil
+            ))
+
+            for secondaryIndex in selectedSecondaryIndices {
+                guard secondaryIndex >= 0, secondaryIndex < replyRows.count else {
+                    continue
+                }
+                displayedRows.append(.init(
+                    row: replyRows[secondaryIndex],
+                    sourceIndex: secondaryIndex,
+                    showsThreadLine: false,
+                    showsDivider: true,
+                    replyShortcutCount: nil
+                ))
+            }
+        }
+
+        if !displayedRows.isEmpty {
+            let lastIndex = displayedRows.count - 1
+            displayedRows[lastIndex] = .init(
+                row: displayedRows[lastIndex].row,
+                sourceIndex: displayedRows[lastIndex].sourceIndex,
+                showsThreadLine: displayedRows[lastIndex].showsThreadLine,
+                showsDivider: false,
+                replyShortcutCount: displayedRows[lastIndex].replyShortcutCount
+            )
+        }
+
+        return FireTopicDetailReplyDisplayPlan(
+            rows: displayedRows,
+            sourceIndexByPostID: sourceIndexByPostID
+        )
+    }
+
+    private func selectedInlineSecondaryIndices(from indices: [Int]) -> [Int] {
+        guard indices.count > Self.maxInlineSecondaryReplies else {
+            return indices
+        }
+
+        var selected: [Int] = []
+        if let pendingScrollTarget,
+           let targetIndex = indices.first(where: { index in
+               replyRows[index].entry.postNumber == pendingScrollTarget
+           }) {
+            selected.append(targetIndex)
+        }
+
+        let ranked = indices
+            .filter { !selected.contains($0) }
+            .sorted { lhs, rhs in
+                let lhsScore = replyQualityScore(at: lhs)
+                let rhsScore = replyQualityScore(at: rhs)
+                if lhsScore != rhsScore {
+                    return lhsScore > rhsScore
+                }
+                return replyRows[lhs].entry.postNumber < replyRows[rhs].entry.postNumber
+            }
+
+        for index in ranked where selected.count < Self.maxInlineSecondaryReplies {
+            selected.append(index)
+        }
+
+        return selected.sorted()
+    }
+
+    private func replyQualityScore(at index: Int) -> Int64 {
+        guard index >= 0,
+              index < replyRows.count,
+              let post = postLookup[replyRows[index].entry.postId] else {
+            return 0
+        }
+
+        let reactionCount = post.reactions.reduce(0 as UInt32) { partialResult, reaction in
+            partialResult > UInt32.max - reaction.count
+                ? UInt32.max
+                : partialResult + reaction.count
+        }
+        return (post.acceptedAnswer ? 1_000_000 : 0)
+            + Int64(post.likeCount) * 100
+            + Int64(reactionCount) * 80
+            + Int64(post.replyCount) * 60
+    }
+
+    private static func displayDepth(for row: FirePreparedTopicTimelineRow) -> Int {
+        row.entry.depth == 0 ? 0 : 1
     }
 
     private func postContentToken(
@@ -473,6 +661,7 @@ struct FireTopicDetailRuntimeConfiguration {
 
 enum FireTopicDetailRuntimeReplyFooterState: Equatable {
     case none
+    case loadMore
     case loadingFooter
     case empty
 }

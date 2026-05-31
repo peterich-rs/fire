@@ -451,6 +451,28 @@ final class FireTopicPresentationTests: XCTestCase {
         XCTAssertTrue(attributedText.string.contains("Hello Fire"))
     }
 
+    func testRenderContentDoesNotPromoteQuoteAvatarToPostAttachment() throws {
+        let content = FireTopicPresentation.renderContent(
+            from: #"""
+            <aside class="quote" data-username="alice" data-post="12" data-topic="987">
+              <div class="title">
+                <img class="avatar" src="/user_avatar/linux.do/alice/48/1_2.png" width="24" height="24">
+                <a href="/u/alice">alice</a>:
+              </div>
+              <blockquote><p>Hello Fire</p></blockquote>
+            </aside>
+            """#,
+            baseURLString: "https://linux.do"
+        )
+
+        let attributedText = try XCTUnwrap(content.attributedText)
+
+        XCTAssertTrue(content.imageAttachments.isEmpty)
+        XCTAssertTrue(attributedText.string.contains("引用"))
+        XCTAssertTrue(attributedText.string.contains("Hello Fire"))
+        XCTAssertFalse(attributedText.string.contains("alice:"))
+    }
+
     func testRenderContentMakesMentionGroupsAndHashtagsTappable() throws {
         let content = FireTopicPresentation.renderContent(
             from: #"<p><a class="mention-group" href="/groups/moderators">@moderators</a> <a class="hashtag-cooked" data-type="tag" href="/tag/rust">#rust</a></p>"#,
@@ -823,18 +845,18 @@ final class FireTopicPresentationTests: XCTestCase {
         XCTAssertEqual(missing, [40])
     }
 
-    func testCollectionViewReplyContextPrefersResolvedTreeParentWhenItDiffers() {
+    func testReplyContextPrefersResolvedTreeParentWhenItDiffers() {
         let post = makePost(postNumber: 5, replyToPostNumber: 3, username: "reply")
 
         XCTAssertEqual(
-            FireTopicDetailCollectionView.replyTargetPostNumber(
+            FireTopicPresentation.replyTargetPostNumber(
                 for: post,
                 preferredPostNumber: 2
             ),
             2
         )
         XCTAssertEqual(
-            FireTopicDetailCollectionView.replyContextLabel(
+            FireTopicPresentation.replyContextLabel(
                 for: post,
                 preferredPostNumber: 2
             ),
@@ -842,7 +864,7 @@ final class FireTopicPresentationTests: XCTestCase {
         )
     }
 
-    func testCollectionViewReplyContextKeepsReplyUserWhenTreeParentMatchesDeclaredParent() {
+    func testReplyContextKeepsReplyUserWhenTreeParentMatchesDeclaredParent() {
         var post = makePost(postNumber: 5, replyToPostNumber: 3, username: "reply")
         post.replyToUser = TopicReplyToUserState(
             username: "alice",
@@ -851,7 +873,7 @@ final class FireTopicPresentationTests: XCTestCase {
         )
 
         XCTAssertEqual(
-            FireTopicDetailCollectionView.replyContextLabel(
+            FireTopicPresentation.replyContextLabel(
                 for: post,
                 preferredPostNumber: 3
             ),

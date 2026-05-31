@@ -37,6 +37,7 @@
 		428170833590DCF14AEEA64C /* FireTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8FFC5F5EA7CD05C23FBEB9A2 /* FireTheme.swift */; };
 		4291E89FC3D5D35AC9A06898 /* FireOrderedIDList.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00DA04AEF775D5BD01FC23AC /* FireOrderedIDList.swift */; };
 		4397ACCD2A571DB3DA0AC8FC /* FireAppRoute.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46CF09F1CBAC6CFAA0E9128A /* FireAppRoute.swift */; };
+		44803F9B07AEA78F2DEC49AB /* FirePostPollRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 929153DAB55DC46B3FDFC5ED /* FirePostPollRenderer.swift */; };
 		47B89C5984DCCAB601B919EE /* FireTopicDetailStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9267FBC4BA4FD365E6F4E371 /* FireTopicDetailStore.swift */; };
 		48C404692D8F5FA7471852BF /* FireSearchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A08AB12E53EB29136A0946A /* FireSearchView.swift */; };
 		4F0305B9162423D8D821A304 /* FireRouteParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46C35F105D036EECAAE7B93D /* FireRouteParserTests.swift */; };
@@ -92,7 +93,6 @@
 		974A21358F0BAA6942E6FDFC /* fire_uniffi_messagebus.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5B34317DAE5858951DCD928 /* fire_uniffi_messagebus.swift */; };
 		997549C307522F353C2C4354 /* FireWebViewBrowserProfile.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6A1ACC49B5E391857645187 /* FireWebViewBrowserProfile.swift */; };
 		999638A7F6D5A424815E6F2F /* FireCategoriesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8675E5DED6CD306553C88CFE /* FireCategoriesView.swift */; };
-		99FA187F4F32B8EEC57C7B82 /* FireTopicDetailCollectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF05887B9D29B713F369C6FE /* FireTopicDetailCollectionView.swift */; };
 		9B0DABDC5BA87A4CAFF3232D /* FireEntityStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BADC2ED47CF65AD5BE795908 /* FireEntityStateTests.swift */; };
 		9D5F82625F6960B6A6ED10B9 /* FireNotificationsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2A86A280EED500EF3126038 /* FireNotificationsView.swift */; };
 		9E7B9F6741C79AF8E6C3D0DA /* FirePostLayoutManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A1B0239607F0ABAEA1ABCE0 /* FirePostLayoutManager.swift */; };
@@ -198,6 +198,7 @@
 		33FDDDCB91B973C1115A8F6B /* FireEntityIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireEntityIndex.swift; sourceTree = "<group>"; };
 		373861687BBCD8EB8E350DA4 /* FireAPMEventStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireAPMEventStore.swift; sourceTree = "<group>"; };
 		37A14DD14395D078575ED2B0 /* FireRichTextRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireRichTextRenderer.swift; sourceTree = "<group>"; };
+		3A2D87C396EF471305C2712F /* Fire-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = "Fire-Info.plist"; sourceTree = "<group>"; };
 		3CE19EEF18F20BE710E4B7E4 /* FireBookmarksView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireBookmarksView.swift; sourceTree = "<group>"; };
 		3FA800E223882F74B7EB5812 /* FireTopicEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireTopicEditorView.swift; sourceTree = "<group>"; };
 		419222F55DFE2BC290CD5335 /* FireProfileViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireProfileViewModel.swift; sourceTree = "<group>"; };
@@ -237,6 +238,7 @@
 		8FFC5F5EA7CD05C23FBEB9A2 /* FireTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireTheme.swift; sourceTree = "<group>"; };
 		9189433D7C9260885742A5BA /* FireTopicPresentationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireTopicPresentationTests.swift; sourceTree = "<group>"; };
 		9267FBC4BA4FD365E6F4E371 /* FireTopicDetailStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireTopicDetailStore.swift; sourceTree = "<group>"; };
+		929153DAB55DC46B3FDFC5ED /* FirePostPollRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FirePostPollRenderer.swift; sourceTree = "<group>"; };
 		92A16F4854521A901D87D1DD /* FireTagPickerSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireTagPickerSheet.swift; sourceTree = "<group>"; };
 		92C90A87682AF244F048541F /* FireNetworkDiagnosticsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireNetworkDiagnosticsView.swift; sourceTree = "<group>"; };
 		97B0FC401C941BC8F73B959A /* Fire-Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = "Fire-Release.xcconfig"; sourceTree = "<group>"; };
@@ -299,7 +301,6 @@
 		FD5A94769988E39B8BEA7B56 /* libiconv.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libiconv.tbd; path = usr/lib/libiconv.tbd; sourceTree = SDKROOT; };
 		FECD6D6E7C9501934DE7EDC9 /* FirePrivateMessagesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FirePrivateMessagesView.swift; sourceTree = "<group>"; };
 		FEF79A11C032C071A2F494A0 /* FireDraftsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireDraftsView.swift; sourceTree = "<group>"; };
-		FF05887B9D29B713F369C6FE /* FireTopicDetailCollectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireTopicDetailCollectionView.swift; sourceTree = "<group>"; };
 		FF475D56C78AFC82413AED55 /* FireAccountStatusView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireAccountStatusView.swift; sourceTree = "<group>"; };
 		FF89DCFCD77D9F81CD8DB801 /* fire_uniffi_notifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = fire_uniffi_notifications.swift; sourceTree = "<group>"; };
 		FFB6B1F10783D1D78B2D1F63 /* FireListSectionModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireListSectionModel.swift; sourceTree = "<group>"; };
@@ -527,8 +528,8 @@
 				24E7CCCA8B867D5E6B0CE198 /* FirePostCellLayoutCalculator.swift */,
 				BC3867D2E0094A20CE393CD5 /* FirePostCollectionViewCell.swift */,
 				8A1B0239607F0ABAEA1ABCE0 /* FirePostLayoutManager.swift */,
+				929153DAB55DC46B3FDFC5ED /* FirePostPollRenderer.swift */,
 				97E555B5E61F0CF3811D4091 /* FirePostRichTextContainerView.swift */,
-				FF05887B9D29B713F369C6FE /* FireTopicDetailCollectionView.swift */,
 			);
 			path = TopicDetail;
 			sourceTree = "<group>";
@@ -551,6 +552,7 @@
 			isa = PBXGroup;
 			children = (
 				A0AFFF5DCC989B801C9DF88E /* Fire-Debug.xcconfig */,
+				3A2D87C396EF471305C2712F /* Fire-Info.plist */,
 				7337AE7EB0411AC9B53AD853 /* Fire-Local-Debug.example.xcconfig */,
 				0DB69FD096A581A18D9D16C5 /* Fire-Local-Release.example.xcconfig */,
 				97B0FC401C941BC8F73B959A /* Fire-Release.xcconfig */,
@@ -844,6 +846,7 @@
 				ABF118C17AF4A67C93403F08 /* FirePostCollectionViewCell.swift in Sources */,
 				82D925C1A3A758CB7309295E /* FirePostEditorView.swift in Sources */,
 				9E7B9F6741C79AF8E6C3D0DA /* FirePostLayoutManager.swift in Sources */,
+				44803F9B07AEA78F2DEC49AB /* FirePostPollRenderer.swift in Sources */,
 				8DBFF3B45C163E090C28C98B /* FirePostRichTextContainerView.swift in Sources */,
 				73D15598C74EA2ABE6BCC1FA /* FirePresentationIdentity.swift in Sources */,
 				54170A08D034A622A66D5DBD /* FirePrivateMessagesView.swift in Sources */,
@@ -869,7 +872,6 @@
 				217BC99CE792BDFA88ED89FC /* FireTabRoot.swift in Sources */,
 				CFC36741F088E04A6D55E81B /* FireTagPickerSheet.swift in Sources */,
 				428170833590DCF14AEEA64C /* FireTheme.swift in Sources */,
-				99FA187F4F32B8EEC57C7B82 /* FireTopicDetailCollectionView.swift in Sources */,
 				956A3E7B9EC9BC290A7A3378 /* FireTopicDetailFeedRuntimeModels.swift in Sources */,
 				6507CE3528F6AFE235F4FD7A /* FireTopicDetailListHost.swift in Sources */,
 				AA0FD8751FFE4A7E9BA365E9 /* FireTopicDetailListViewController.swift in Sources */,
@@ -923,31 +925,8 @@
 					"$(inherited)",
 					"\"LocalPackages/TextureCore/Artifacts\"",
 				);
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_BGTaskSchedulerPermittedIdentifiers = (
-					"com.fire.app.ios.notification-alert-refresh",
-				);
-				INFOPLIST_KEY_CFBundleDisplayName = "$(FIRE_DISPLAY_NAME)";
-				INFOPLIST_KEY_CFBundleURLTypes = "[[\"CFBundleURLSchemes\": [\"fire\"], \"CFBundleURLName\": \"fire\"]]";
-				INFOPLIST_KEY_FireGitSha = "$(FIRE_GIT_SHA)";
-				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Fire 需要把你在帖子里查看的图片保存到相册。";
-				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
-				INFOPLIST_KEY_UIBackgroundModes = (
-					fetch,
-					"remote-notification",
-				);
-				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations = (
-					UIInterfaceOrientationPortrait,
-					UIInterfaceOrientationLandscapeLeft,
-					UIInterfaceOrientationLandscapeRight,
-				);
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = (
-					UIInterfaceOrientationPortrait,
-					UIInterfaceOrientationPortraitUpsideDown,
-					UIInterfaceOrientationLandscapeLeft,
-					UIInterfaceOrientationLandscapeRight,
-				);
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "Configs/Fire-Info.plist";
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -1148,31 +1127,8 @@
 					"$(inherited)",
 					"\"LocalPackages/TextureCore/Artifacts\"",
 				);
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_BGTaskSchedulerPermittedIdentifiers = (
-					"com.fire.app.ios.notification-alert-refresh",
-				);
-				INFOPLIST_KEY_CFBundleDisplayName = "$(FIRE_DISPLAY_NAME)";
-				INFOPLIST_KEY_CFBundleURLTypes = "[[\"CFBundleURLSchemes\": [\"fire\"], \"CFBundleURLName\": \"fire\"]]";
-				INFOPLIST_KEY_FireGitSha = "$(FIRE_GIT_SHA)";
-				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Fire 需要把你在帖子里查看的图片保存到相册。";
-				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
-				INFOPLIST_KEY_UIBackgroundModes = (
-					fetch,
-					"remote-notification",
-				);
-				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations = (
-					UIInterfaceOrientationPortrait,
-					UIInterfaceOrientationLandscapeLeft,
-					UIInterfaceOrientationLandscapeRight,
-				);
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = (
-					UIInterfaceOrientationPortrait,
-					UIInterfaceOrientationPortraitUpsideDown,
-					UIInterfaceOrientationLandscapeLeft,
-					UIInterfaceOrientationLandscapeRight,
-				);
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "Configs/Fire-Info.plist";
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",

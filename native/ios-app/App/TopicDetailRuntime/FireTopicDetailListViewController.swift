@@ -20,12 +20,14 @@ final class FireTopicDetailListViewController: UIViewController,
     private var configuration: FireTopicDetailRuntimeConfiguration?
     private var currentItems: [FireTopicDetailRuntimeItem] = []
     private var currentObjects: [FireTopicDetailListObject] = []
-    private var layoutCache: [FirePostCellLayoutKey: FirePostCellLayout] = [:]
+    private let layoutManager = FirePostLayoutManager()
     private var hostedHeightCache: [FireTopicDetailHostedHeightKey: CGFloat] = [:]
     private var handledScrollTarget: UInt32?
     private var lastPublishedVisiblePostNumbers: Set<UInt32> = []
     private var lastLoadMoreProbe: (itemCount: Int, visibleMaxSection: Int)?
     private let imagePrefetchCoordinator = FireTopicImagePrefetchCoordinator()
+    private var layoutInvalidationTask: Task<Void, Never>?
+    private var pendingIdleLayoutRebind = false
 
     override func loadView() {
         let layout = UICollectionViewFlowLayout()
@@ -48,6 +50,11 @@ final class FireTopicDetailListViewController: UIViewController,
         adapter.performanceDelegate = self
         adapter.scrollViewDelegate = self
         adapter.add(self)
+        layoutManager.onSnapshotRevisionChanged = { [weak self] in
+            Task { @MainActor in
+                self?.schedulePublishedLayoutApply()
+            }
+        }
 
         let refreshControl = UIRefreshControl()
         refreshControl.addAction(UIAction { [weak self] _ in
@@ -70,6 +77,11 @@ final class FireTopicDetailListViewController: UIViewController,
         currentItems = runtimeSnapshot.items
         currentObjects = runtimeSnapshot.items.map(FireTopicDetailListObject.init(item:))
         lastLoadMoreProbe = nil
+        prewarmLayouts(
+            for: runtimeSnapshot.items,
+            configuration: configuration,
+            containerWidth: collectionView.bounds.width
+        )
 
         adapter.performUpdates(animated: animated) { [weak self] _ in
             guard let self else { return }
@@ -102,12 +114,16 @@ final class FireTopicDetailListViewController: UIViewController,
     private func shouldAnimateUpdate(to items: [FireTopicDetailRuntimeItem]) -> Bool {
         Self.allowsAnimatedUpdate(
             isViewAttached: collectionView.window != nil,
-            isScrollInteractionActive: collectionView.isDragging
-                || collectionView.isDecelerating
-                || collectionView.isTracking,
+            isScrollInteractionActive: isScrollInteractionActive,
             hasCurrentItems: !currentItems.isEmpty,
             itemDelta: abs(items.count - currentItems.count)
         )
+    }
+
+    private var isScrollInteractionActive: Bool {
+        collectionView.isDragging
+            || collectionView.isDecelerating
+            || collectionView.isTracking
     }
 
     // MARK: - ListAdapterDataSource
@@ -214,6 +230,8 @@ final class FireTopicDetailListViewController: UIViewController,
                     isMutating: configuration.isMutatingPost(postContext.post.id),
                     replyContext: postContext.replyContext,
                     replyTargetPostNumber: postContext.replyTargetPostNumber,
+                    replyShortcutCount: postContext.replyShortcutCount,
+                    textExpansionState: postContext.textExpansionState,
                     showsDivider: postContext.showsDivider
                 ),
                 callbacks: postCallbacks(configuration: configuration)
@@ -325,6 +343,7 @@ final class FireTopicDetailListViewController: UIViewController,
             onFlagPost: configuration.onFlagPost,
             onOpenReplyTarget: configuration.onOpenPostNumber,
             onOpenReplies: configuration.onOpenPostReplies,
+            onExpandText: configuration.onExpandPostText,
             onVotePoll: configuration.onVotePoll,
             onUnvotePoll: configuration.onUnvotePoll,
             onSwipeReply: { post in
@@ -340,10 +359,8 @@ final class FireTopicDetailListViewController: UIViewController,
         switch item.kind {
         case .header, .aiSummary, .stats, .topicVote, .repliesHeader, .bodyState, .replyFooter, .notice:
             return true
-        case .originalPost:
-            return true
-        case .reply:
-            return configuration.postContext(for: item)?.post.polls.isEmpty == false
+        case .originalPost, .reply:
+            return false
         }
     }
 
@@ -383,6 +400,23 @@ final class FireTopicDetailListViewController: UIViewController,
         item: FireTopicDetailRuntimeItem,
         containerWidth: CGFloat
     ) -> FirePostCellLayout? {
+        guard let key = layoutKey(for: context, item: item, containerWidth: containerWidth) else {
+            return nil
+        }
+
+        layoutManager.updateTraitSignature(key.trait)
+        if let cached = layoutManager.layout(forKey: key) {
+            return cached
+        }
+        enqueueLayout(for: key, context: context)
+        return estimatedLayout(for: key, context: context)
+    }
+
+    private func layoutKey(
+        for context: FireTopicDetailRuntimePostContext,
+        item: FireTopicDetailRuntimeItem,
+        containerWidth: CGFloat
+    ) -> FirePostCellLayoutKey? {
         let width = containerWidth - collectionView.adjustedContentInset.left - collectionView.adjustedContentInset.right
         guard width > 0 else { return nil }
         let trait = FirePostLayoutTraitSignature(
@@ -398,32 +432,142 @@ final class FireTopicDetailListViewController: UIViewController,
             replyContext: context.replyContext,
             textContentID: "post:\(context.post.id)|render:\(context.renderContent.signature.token)",
             imageSignature: context.renderContent.imageAttachments.map(\.id),
-            pollSignature: context.post.polls.map { UInt64(bitPattern: Int64($0.name.hashValue)) },
+            pollSignature: FirePostPollRenderModel.models(from: context.post.polls).map(\.signature),
             hasReactions: !context.post.reactions.isEmpty,
+            replyShortcutCount: context.replyShortcutCount,
+            textExpansionState: context.textExpansionState,
             acceptedAnswer: context.post.acceptedAnswer,
             trait: trait
         )
-        if let cached = layoutCache[key] {
-            return cached
-        }
-        let availableWidth = FirePostCellLayoutCalculator.availableContentWidth(for: key, trait: trait)
-        let textHeight = FirePostCellLayoutCalculator.measureRichTextHeight(
+        _ = item
+        return key
+    }
+
+    private func enqueueLayout(
+        for key: FirePostCellLayoutKey,
+        context: FireTopicDetailRuntimePostContext
+    ) {
+        layoutManager.enqueueCalculation(
+            key: key,
             attributedText: context.renderContent.attributedText,
+            images: context.renderContent.imageAttachments,
+            polls: FirePostPollRenderModel.models(from: context.post.polls),
+            trait: key.trait
+        )
+    }
+
+    private func estimatedLayout(
+        for key: FirePostCellLayoutKey,
+        context: FireTopicDetailRuntimePostContext
+    ) -> FirePostCellLayout {
+        let contentSizeCategory = UIContentSizeCategory(rawValue: key.trait.contentSizeCategory)
+        let availableWidth = FirePostCellLayoutCalculator.availableContentWidth(for: key, trait: key.trait)
+        let textHeight = FirePostCellLayoutCalculator.estimatedRichTextHeight(
+            plainText: context.renderContent.plainText,
+            hasAttributedText: (context.renderContent.attributedText?.length ?? 0) > 0,
             containerWidth: availableWidth,
-            contentSizeCategory: traitCollection.preferredContentSizeCategory
+            contentSizeCategory: contentSizeCategory,
+            textExpansionState: key.textExpansionState
         )
         let imageHeights = context.renderContent.imageAttachments.map {
             FirePostCellLayoutCalculator.imageHeight(for: $0, availableWidth: availableWidth)
         }
-        let layout = FirePostCellLayoutCalculator.calculate(
+        let pollHeights = FirePostPollRenderModel.models(from: context.post.polls).map { poll in
+            FirePostPollView.preferredHeight(
+                for: poll,
+                availableWidth: availableWidth,
+                contentSizeCategory: contentSizeCategory
+            )
+        }
+        return FirePostCellLayoutCalculator.calculate(
             key: key,
             textHeight: textHeight,
             imageHeights: imageHeights,
-            trait: trait
+            pollHeights: pollHeights,
+            trait: key.trait
         )
-        layoutCache[key] = layout
-        _ = item
-        return layout
+    }
+
+    private func prewarmLayouts(
+        for items: [FireTopicDetailRuntimeItem],
+        configuration: FireTopicDetailRuntimeConfiguration,
+        containerWidth: CGFloat
+    ) {
+        guard containerWidth > 0 else { return }
+        for item in items where !shouldUseHostedCell(for: item, configuration: configuration) {
+            guard let context = configuration.postContext(for: item),
+                  let key = layoutKey(for: context, item: item, containerWidth: containerWidth),
+                  layoutManager.layout(forKey: key) == nil else {
+                continue
+            }
+            layoutManager.updateTraitSignature(key.trait)
+            enqueueLayout(for: key, context: context)
+        }
+    }
+
+    private func schedulePublishedLayoutApply() {
+        layoutInvalidationTask?.cancel()
+        layoutInvalidationTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(16))
+            guard let self, !Task.isCancelled else { return }
+            self.layoutInvalidationTask = nil
+            self.applyPublishedLayouts()
+        }
+    }
+
+    private func applyPublishedLayouts() {
+        guard isViewLoaded else { return }
+        if isScrollInteractionActive {
+            pendingIdleLayoutRebind = true
+            collectionView.collectionViewLayout.invalidateLayout()
+            collectionView.setNeedsLayout()
+            return
+        }
+
+        pendingIdleLayoutRebind = false
+        UIView.performWithoutAnimation {
+            collectionView.collectionViewLayout.invalidateLayout()
+            rebindVisiblePostCells()
+            collectionView.setNeedsLayout()
+        }
+    }
+
+    private func applyPendingPublishedLayoutsIfNeeded() {
+        guard pendingIdleLayoutRebind else { return }
+        applyPublishedLayouts()
+    }
+
+    private func rebindVisiblePostCells() {
+        guard let configuration else { return }
+        for indexPath in collectionView.indexPathsForVisibleItems {
+            guard indexPath.section < currentItems.count,
+                  let cell = collectionView.cellForItem(at: indexPath) as? FirePostTextureCell else {
+                continue
+            }
+            let item = currentItems[indexPath.section]
+            guard !shouldUseHostedCell(for: item, configuration: configuration),
+                  let context = configuration.postContext(for: item),
+                  let key = layoutKey(for: context, item: item, containerWidth: collectionView.bounds.width),
+                  let layout = layoutManager.layout(forKey: key) else {
+                continue
+            }
+            cell.bind(
+                layout: layout,
+                payload: FirePostCellRenderPayload(
+                    post: context.post,
+                    renderContent: context.renderContent,
+                    baseURLString: configuration.baseURLString,
+                    canWriteInteractions: configuration.canWriteInteractions,
+                    isMutating: configuration.isMutatingPost(context.post.id),
+                    replyContext: context.replyContext,
+                    replyTargetPostNumber: context.replyTargetPostNumber,
+                    replyShortcutCount: context.replyShortcutCount,
+                    textExpansionState: context.textExpansionState,
+                    showsDivider: context.showsDivider
+                ),
+                callbacks: postCallbacks(configuration: configuration)
+            )
+        }
     }
 
     // MARK: - Refresh and Scrolling
@@ -488,6 +632,12 @@ final class FireTopicDetailListViewController: UIViewController,
 
     fileprivate func prefetch(items: [FireTopicDetailRuntimeItem]) {
         guard let configuration else { return }
+        prewarmLayouts(
+            for: items,
+            configuration: configuration,
+            containerWidth: collectionView.bounds.width
+        )
+
         let postNumbers = Set(items.compactMap(\.postNumber))
         if !postNumbers.isEmpty {
             configuration.onPreloadTopicPosts(postNumbers)
@@ -504,10 +654,10 @@ final class FireTopicDetailListViewController: UIViewController,
             ) {
                 requests.append(FireTopicImagePrefetchKey(ownerID: item.id, request: avatar))
             }
-            if let firstImage = context.renderContent.imageAttachments.first {
+            for image in context.renderContent.imageAttachments.prefix(3) {
                 requests.append(FireTopicImagePrefetchKey(
                     ownerID: item.id,
-                    request: FireTopicImageRequestBuilder.cookedImageRequest(firstImage)
+                    request: FireTopicImageRequestBuilder.cookedImageRequest(image)
                 ))
             }
         }
@@ -532,6 +682,16 @@ final class FireTopicDetailListViewController: UIViewController,
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
         publishVisiblePostNumbersIfChanged()
         loadMoreIfNeeded()
+    }
+
+    func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
+        if !decelerate {
+            applyPendingPublishedLayoutsIfNeeded()
+        }
+    }
+
+    func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+        applyPendingPublishedLayoutsIfNeeded()
     }
 }
 
@@ -563,6 +723,9 @@ private final class FireTopicDetailListObject: NSObject, ListDiffable {
             && item.postID == other.item.postID
             && item.postNumber == other.item.postNumber
             && item.replyIndex == other.item.replyIndex
+            && item.replyShowsThreadLine == other.item.replyShowsThreadLine
+            && item.replyShowsDivider == other.item.replyShowsDivider
+            && item.replyShortcutCount == other.item.replyShortcutCount
             && item.contentToken == other.item.contentToken
     }
 }

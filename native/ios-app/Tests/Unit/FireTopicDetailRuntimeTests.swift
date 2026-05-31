@@ -22,7 +22,8 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
         let configuration = makeConfiguration(
             detail: detail,
             renderState: renderState,
-            postLookup: [original.id: original, firstReply.id: firstReply, secondReply.id: secondReply]
+            postLookup: [original.id: original, firstReply.id: firstReply, secondReply.id: secondReply],
+            expandedReplyRootPostIDs: [firstReply.id]
         )
 
         let snapshot = configuration.makeSnapshot()
@@ -110,7 +111,7 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
         XCTAssertEqual(nestedItem.flatMap(configuration.postContext(for:))?.showsThreadLine, false)
     }
 
-    func testSnapshotShowsOnlyTwoHighQualitySecondaryRepliesPerRootReply() {
+    func testSnapshotHidesSecondaryRepliesBehindRootShortcutByDefault() {
         let original = makePost(id: 100, postNumber: 1, username: "alice")
         let rootReply = makePost(
             id: 200,
@@ -157,10 +158,39 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
         let snapshot = configuration.makeSnapshot()
         let replyItems = snapshot.items.filter { $0.kind == .reply }
 
-        XCTAssertEqual(replyItems.map(\.postNumber), [2, 4, 6])
-        XCTAssertEqual(replyItems.first?.replyShortcutCount, 3)
+        XCTAssertEqual(replyItems.map(\.postNumber), [2])
+        XCTAssertEqual(replyItems.first?.replyShortcutCount, 5)
         XCTAssertNil(configuration.scrollItem(for: 3))
-        XCTAssertEqual(configuration.postContext(for: replyItems[1])?.depth, 1)
+        XCTAssertEqual(configuration.postContext(for: replyItems[0])?.depth, 1)
+    }
+
+    func testPendingSecondaryScrollTargetShowsAncestryWithoutFlatteningDepth() {
+        let original = makePost(id: 100, postNumber: 1, username: "alice")
+        let rootReply = makePost(id: 200, postNumber: 2, username: "bob", replyCount: 2, replyToPostNumber: 1)
+        let child = makePost(id: 300, postNumber: 3, username: "c1", replyToPostNumber: 2)
+        let grandchild = makePost(id: 400, postNumber: 4, username: "c2", replyToPostNumber: 3)
+        let posts = [original, rootReply, child, grandchild]
+        let renderState = FireTopicDetailRenderState(
+            originalRow: makeTimelineRow(post: original, depth: 0, isOriginalPost: true),
+            replyRows: [
+                makeTimelineRow(post: rootReply, parentPostNumber: 1, depth: 1),
+                makeTimelineRow(post: child, parentPostNumber: 2, depth: 2),
+                makeTimelineRow(post: grandchild, parentPostNumber: 3, depth: 3),
+            ],
+            contentByPostID: Dictionary(uniqueKeysWithValues: posts.map { ($0.id, makeRenderContent($0.username)) })
+        )
+        let configuration = makeConfiguration(
+            detail: makeTopicDetail(posts: posts),
+            renderState: renderState,
+            postLookup: Dictionary(uniqueKeysWithValues: posts.map { ($0.id, $0) }),
+            pendingScrollTarget: grandchild.postNumber
+        )
+
+        let replyItems = configuration.makeSnapshot().items.filter { $0.kind == .reply }
+
+        XCTAssertEqual(replyItems.map(\.postNumber), [2, 3, 4])
+        XCTAssertEqual(configuration.postContext(for: replyItems[1])?.depth, 2)
+        XCTAssertEqual(configuration.postContext(for: replyItems[2])?.depth, 3)
     }
 
     func testExpandedReplyThreadShowsAllLoadedSecondaryReplies() {
@@ -197,7 +227,7 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
         XCTAssertNil(replyItems.first?.replyShortcutCount)
     }
 
-    func testSnapshotIncludesLoadMoreFooterForNonEmptyRepliesWhenMoreAvailable() {
+    func testSnapshotSuppressesIdleLoadMoreFooterForNonEmptyRepliesWhenMoreAvailable() {
         let original = makePost(id: 100, postNumber: 1, username: "alice")
         let reply = makePost(id: 200, postNumber: 2, username: "bob", replyToPostNumber: 1)
         let renderState = FireTopicDetailRenderState(
@@ -217,8 +247,8 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
 
         let snapshot = configuration.makeSnapshot()
 
-        XCTAssertEqual(configuration.replyFooterState, .loadMore)
-        XCTAssertEqual(snapshot.items.last?.kind, .replyFooter)
+        XCTAssertEqual(configuration.replyFooterState, .none)
+        XCTAssertFalse(snapshot.items.contains(where: { $0.kind == .replyFooter }))
     }
 
     func testSnapshotShowsLoadingFooterWhileLoadingMoreReplies() {

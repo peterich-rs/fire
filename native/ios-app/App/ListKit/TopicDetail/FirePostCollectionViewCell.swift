@@ -7,15 +7,13 @@ final class FirePostCollectionViewCell: UICollectionViewCell, UIGestureRecognize
     private static let replyContextActionID = UIAction.Identifier(
         "FirePostCollectionViewCell.replyContext"
     )
-    private static let textExpansionActionID = UIAction.Identifier(
-        "FirePostCollectionViewCell.textExpansion"
-    )
     private static let replyShortcutActionID = UIAction.Identifier(
         "FirePostCollectionViewCell.replyShortcut"
     )
     private static let replySwipeTriggerThreshold: CGFloat = 55
     private static let replySwipeMaxOffset: CGFloat = 75
     private static let replyIndicatorSize = CGSize(width: 32, height: 32)
+    private static let controlHitSlop: CGFloat = 8
     private static let monogramCache = NSCache<NSString, NSString>()
     private static let accentTextColor = UIColor { traits in
         if traits.userInterfaceStyle == .dark {
@@ -44,7 +42,6 @@ final class FirePostCollectionViewCell: UICollectionViewCell, UIGestureRecognize
     private let menuButton = UIButton(type: .system)
     private let metaStack = UIStackView()
     private let richTextContainer = FirePostRichTextContainerView()
-    private let textExpansionButton = UIButton(type: .system)
     private let imageContainerView = UIView()
     private let pollContainerView = UIView()
     private let replyShortcutButton = UIButton(type: .system)
@@ -169,16 +166,6 @@ final class FirePostCollectionViewCell: UICollectionViewCell, UIGestureRecognize
         // Rich text
         richTextContainer.isHidden = true
 
-        textExpansionButton.isHidden = true
-        textExpansionButton.titleLabel?.font = UIFont.preferredFont(forTextStyle: .caption1)
-        textExpansionButton.titleLabel?.adjustsFontForContentSizeCategory = true
-        textExpansionButton.titleLabel?.lineBreakMode = .byTruncatingTail
-        textExpansionButton.contentHorizontalAlignment = .leading
-        textExpansionButton.setTitle("展开", for: .normal)
-        textExpansionButton.setContentHuggingPriority(.required, for: .horizontal)
-        textExpansionButton.setContentCompressionResistancePriority(.required, for: .horizontal)
-        textExpansionButton.accessibilityLabel = "展开全文"
-
         // Images
         imageContainerView.isHidden = true
 
@@ -218,7 +205,6 @@ final class FirePostCollectionViewCell: UICollectionViewCell, UIGestureRecognize
         contentView.addSubview(threadLineView)
         contentView.addSubview(metaStack)
         contentView.addSubview(richTextContainer)
-        contentView.addSubview(textExpansionButton)
         contentView.addSubview(imageContainerView)
         contentView.addSubview(pollContainerView)
         contentView.addSubview(replyShortcutButton)
@@ -248,7 +234,6 @@ final class FirePostCollectionViewCell: UICollectionViewCell, UIGestureRecognize
             for: UIFont.monospacedDigitSystemFont(ofSize: captionPointSize, weight: .regular)
         )
         menuButton.titleLabel?.font = UIFont.preferredFont(forTextStyle: .caption1)
-        textExpansionButton.titleLabel?.font = UIFont.preferredFont(forTextStyle: .caption1)
         replyShortcutButton.titleLabel?.font = UIFont.preferredFont(forTextStyle: .caption1)
     }
 
@@ -261,8 +246,6 @@ final class FirePostCollectionViewCell: UICollectionViewCell, UIGestureRecognize
         timestampLabel.textColor = Self.tertiaryInkColor
         postNumberLabel.textColor = Self.tertiaryInkColor
         menuButton.tintColor = Self.tertiaryInkColor
-        textExpansionButton.setTitleColor(Self.accentTextColor, for: .normal)
-        textExpansionButton.tintColor = Self.accentTextColor
         replyShortcutButton.setTitleColor(Self.accentTextColor, for: .normal)
         replyShortcutButton.tintColor = Self.accentTextColor
         replyIndicatorView.tintColor = replyTriggered ? Self.accentTextColor : .tertiaryLabel
@@ -363,41 +346,35 @@ final class FirePostCollectionViewCell: UICollectionViewCell, UIGestureRecognize
             richTextContainer.isHidden = false
             richTextContainer.frame = textFrame
             let contentID = "post:\(post.id)|render:\(payload.renderContent.signature.token)"
+            let isTextCollapsed = layout.textExpansionFrame != nil
             richTextContainer.configure(
                 attributedText: attrText,
                 contentID: contentID,
                 containerSize: layout.textContainerSize,
-                maximumNumberOfLines: layout.textExpansionFrame == nil
-                    ? 0
-                    : UInt(FirePostTextExpansionState.collapsedLineLimit)
+                maximumNumberOfLines: isTextCollapsed
+                    ? UInt(FirePostTextExpansionState.collapsedLineLimit)
+                    : 0,
+                truncationAttributedText: isTextCollapsed
+                    ? Self.inlineExpansionTruncationToken()
+                    : nil
             )
             richTextContainer.onLinkTapped = { [weak self] url in
                 guard let self, let callbacks = self.currentCallbacks else { return }
                 callbacks.onLinkTapped(url)
             }
-            richTextContainer.accessibilityLabel = payload.renderContent.plainText
-        } else {
-            richTextContainer.isHidden = true
-            richTextContainer.resetContent()
-            richTextContainer.accessibilityLabel = nil
-        }
-
-        textExpansionButton.removeAction(identifiedBy: Self.textExpansionActionID, for: .touchUpInside)
-        if let textExpansionFrame = layout.textExpansionFrame {
-            textExpansionButton.frame = textExpansionFrame
-            textExpansionButton.isHidden = false
-            textExpansionButton.setTitle("展开", for: .normal)
-            textExpansionButton.addAction(UIAction(identifier: Self.textExpansionActionID) { [weak self] _ in
+            richTextContainer.onTruncationTapped = { [weak self] in
                 guard let self,
                       let payload = self.currentPayload,
                       let callbacks = self.currentCallbacks else {
                     return
                 }
                 callbacks.onExpandText(payload.post)
-            }, for: .touchUpInside)
+            }
+            richTextContainer.accessibilityLabel = payload.renderContent.plainText
         } else {
-            textExpansionButton.isHidden = true
-            textExpansionButton.frame = .zero
+            richTextContainer.isHidden = true
+            richTextContainer.resetContent()
+            richTextContainer.accessibilityLabel = nil
         }
 
         // Images
@@ -458,6 +435,7 @@ final class FirePostCollectionViewCell: UICollectionViewCell, UIGestureRecognize
             replyShortcutButton.frame = .zero
             replyShortcutButton.setTitle(nil, for: .normal)
         }
+        contentView.bringSubviewToFront(replyShortcutButton)
 
         // Reactions
         if let reactionsFrame = layout.reactionsFrame, !post.reactions.isEmpty {
@@ -528,10 +506,8 @@ final class FirePostCollectionViewCell: UICollectionViewCell, UIGestureRecognize
         richTextContainer.isHidden = true
         richTextContainer.resetContent()
         richTextContainer.onLinkTapped = nil
+        richTextContainer.onTruncationTapped = nil
         richTextContainer.accessibilityLabel = nil
-        textExpansionButton.removeAction(identifiedBy: Self.textExpansionActionID, for: .touchUpInside)
-        textExpansionButton.isHidden = true
-        textExpansionButton.frame = .zero
 
         clearImageViews()
         clearPollViews()
@@ -561,6 +537,22 @@ final class FirePostCollectionViewCell: UICollectionViewCell, UIGestureRecognize
             layoutAttributes.frame.size.height = layout.totalHeight
         }
         return layoutAttributes
+    }
+
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        let contentPoint = contentView.convert(point, from: self)
+        if let control = expandedControlHit(replyShortcutButton, point: contentPoint) {
+            return control
+        }
+        return super.hitTest(point, with: event)
+    }
+
+    private func expandedControlHit(_ control: UIControl, point: CGPoint) -> UIControl? {
+        guard !control.isHidden, control.alpha > 0.01, control.isUserInteractionEnabled else {
+            return nil
+        }
+        let expandedFrame = control.frame.insetBy(dx: -Self.controlHitSlop, dy: -Self.controlHitSlop)
+        return expandedFrame.contains(point) ? control : nil
     }
 
     // MARK: - Avatar Loading
@@ -986,6 +978,25 @@ final class FirePostCollectionViewCell: UICollectionViewCell, UIGestureRecognize
             attributes: [
                 .font: font,
                 .foregroundColor: UIColor.systemGreen,
+            ]
+        ))
+        return result
+    }
+
+    private static func inlineExpansionTruncationToken() -> NSAttributedString {
+        let font = UIFont.preferredFont(forTextStyle: .subheadline)
+        let result = NSMutableAttributedString(
+            string: "... ",
+            attributes: [
+                .font: font,
+                .foregroundColor: UIColor.label,
+            ]
+        )
+        result.append(NSAttributedString(
+            string: "展开",
+            attributes: [
+                .font: font,
+                .foregroundColor: accentTextColor,
             ]
         ))
         return result

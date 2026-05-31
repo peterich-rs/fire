@@ -2,6 +2,14 @@
 
 Status: proposed (2026-05-31)
 
+Status update (2026-05-31): the native cell path now uses `ASTextNode`'
+truncation token for collapsed replies, so `... 展开` stays inline with the last
+visible text line and taps route through the text node rather than a separate
+button below the body. Collapsed replies suppress their media/poll stack until
+expanded, and reply images use bounded reduced render sizes. The remaining rich
+text work in this plan is still needed for true block ordering, richer quote,
+code, list, table, spoiler, and emoji handling.
+
 ## Objective
 
 Make topic-detail cooked-content rendering correct, predictable, and fast on the
@@ -31,13 +39,15 @@ must be fixed in the native cell, parser, render-content model, or layout cache.
 6. `FirePostCollectionViewCell` renders text with
    `FirePostRichTextContainerView` / `ASTextNode`, and renders images, polls,
    reactions, menus, reply shortcuts, and swipe-to-reply directly in UIKit.
+   Collapsed replies use an inline `... 展开` truncation token; media and polls
+   for those replies are only laid out after expansion.
 
 ## Problems To Solve
 
 - Quotes render as inline attributed text today. They need block-level structure
   for clearer indentation, nested quote handling, and whole-quote jump targets.
 - Image attachments are extracted into a vertical media stack, so inline order is
-  lost for posts that interleave text and images.
+  lost for expanded posts that interleave text and images.
 - Unknown image dimensions still rely on a generic aspect-ratio fallback.
 - Emoji attachments are represented in attributed text, but the native
   `ASTextNode` path does not yet own an explicit async emoji-image rebind flow.

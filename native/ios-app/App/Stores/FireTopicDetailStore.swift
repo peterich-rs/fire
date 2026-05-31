@@ -506,9 +506,12 @@ final class FireTopicDetailStore: ObservableObject {
             ).filter { row in
                 row.post.id != screen.body.post.id
             }
+            let didAppendRows = rows.count > existingRows.count
+            let nextCursor = page.nextCursor
+            let cursorDidAdvance = nextCursor.map { $0 != cursor } ?? true
 
             screen.response.rows = rows
-            screen.response.nextCursor = page.nextCursor
+            screen.response.nextCursor = didAppendRows || cursorDidAdvance ? nextCursor : nil
             screen.response.totalRootCount = page.totalRootCount
             screen.response.loadedRootCount = page.loadedRootCount
             screen.response.totalResponseCount = page.totalResponseCount
@@ -516,7 +519,7 @@ final class FireTopicDetailStore: ObservableObject {
             topicScreens[topicId] = screen
             topicResponseRowsByTopic[topicId] = rows
 
-            if let nextCursor = page.nextCursor {
+            if let nextCursor = screen.response.nextCursor {
                 topicResponseCursorsByTopic[topicId] = nextCursor
             } else {
                 topicResponseCursorsByTopic.removeValue(forKey: topicId)

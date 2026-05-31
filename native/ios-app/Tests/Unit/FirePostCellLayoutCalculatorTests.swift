@@ -28,7 +28,7 @@ final class FirePostCellLayoutCalculatorTests: XCTestCase {
         let layout = FirePostCellLayoutCalculator.calculate(
             key: key,
             textHeight: 40,
-            imageHeights: [],
+            imageSizes: [],
             trait: trait
         )
 
@@ -97,7 +97,7 @@ final class FirePostCellLayoutCalculatorTests: XCTestCase {
         XCTAssertEqual(availableWidth, 256, accuracy: 0.01)
     }
 
-    func testCollapsedTextAddsExpansionControlAndCapsHeight() {
+    func testCollapsedTextAddsInlineExpansionTokenAndCapsHeight() {
         let trait = FirePostLayoutTraitSignature(
             contentWidthPixels: 320,
             contentSizeCategory: UIContentSizeCategory.large.rawValue
@@ -125,7 +125,7 @@ final class FirePostCellLayoutCalculatorTests: XCTestCase {
         let layout = FirePostCellLayoutCalculator.calculate(
             key: key,
             textHeight: collapsedHeight + 80,
-            imageHeights: [],
+            imageSizes: [],
             trait: trait
         )
 
@@ -133,12 +133,12 @@ final class FirePostCellLayoutCalculatorTests: XCTestCase {
         XCTAssertNotNil(layout.textExpansionFrame)
         XCTAssertNotNil(layout.replyShortcutFrame)
         XCTAssertNotNil(layout.reactionsFrame)
+        XCTAssertEqual(layout.textExpansionFrame, layout.textFrame)
         XCTAssertEqual(
-            layout.textExpansionFrame?.minY ?? 0,
-            (layout.textFrame?.maxY ?? 0) + FirePostCellLayoutCalculator.textExpansionTopSpacing,
+            layout.replyShortcutFrame?.minY ?? 0,
+            (layout.textFrame?.maxY ?? 0) + FirePostCellLayoutCalculator.replyShortcutTopSpacing,
             accuracy: 0.01
         )
-        XCTAssertGreaterThan(layout.replyShortcutFrame?.minY ?? 0, layout.textExpansionFrame?.maxY ?? 0)
         XCTAssertEqual(layout.replyShortcutFrame?.minY ?? 0, layout.reactionsFrame?.minY ?? 1, accuracy: 0.01)
     }
 
@@ -167,7 +167,7 @@ final class FirePostCellLayoutCalculatorTests: XCTestCase {
         let layout = FirePostCellLayoutCalculator.calculate(
             key: key,
             textHeight: 40,
-            imageHeights: [80],
+            imageSizes: [CGSize(width: 180, height: 80)],
             pollHeights: [120],
             trait: trait
         )
@@ -257,7 +257,7 @@ final class FirePostCellLayoutCalculatorTests: XCTestCase {
         let layout = FirePostCellLayoutCalculator.calculate(
             key: key,
             textHeight: estimatedHeight,
-            imageHeights: [],
+            imageSizes: [],
             trait: trait
         )
 
@@ -267,5 +267,70 @@ final class FirePostCellLayoutCalculatorTests: XCTestCase {
             FirePostCellLayoutCalculator.collapsedTextHeight(contentSizeCategory: .large),
             accuracy: 0.01
         )
+    }
+
+    func testCollapsedTextSuppressesMediaUntilExpanded() {
+        let trait = FirePostLayoutTraitSignature(
+            contentWidthPixels: 320,
+            contentSizeCategory: UIContentSizeCategory.large.rawValue
+        )
+        let key = FirePostCellLayoutKey(
+            postID: 90,
+            depth: 1,
+            showsThreadLine: false,
+            showsDivider: false,
+            replyTargetPostNumber: nil,
+            replyContext: nil,
+            textContentID: "text",
+            imageSignature: ["image"],
+            pollSignature: ["poll"],
+            hasReactions: true,
+            replyShortcutCount: nil,
+            textExpansionState: FirePostTextExpansionState(isCollapsible: true, isExpanded: false),
+            acceptedAnswer: false,
+            trait: trait
+        )
+        let collapsedHeight = FirePostCellLayoutCalculator.collapsedTextHeight(contentSizeCategory: .large)
+
+        let layout = FirePostCellLayoutCalculator.calculate(
+            key: key,
+            textHeight: collapsedHeight + 20,
+            imageSizes: [CGSize(width: 180, height: 120)],
+            pollHeights: [120],
+            trait: trait
+        )
+
+        XCTAssertNotNil(layout.textExpansionFrame)
+        XCTAssertTrue(layout.imageFrames.isEmpty)
+        XCTAssertTrue(layout.pollFrames.isEmpty)
+        XCTAssertEqual(
+            layout.reactionsFrame?.minY ?? 0,
+            (layout.textFrame?.maxY ?? 0) + FirePostCellLayoutCalculator.replyShortcutTopSpacing,
+            accuracy: 0.01
+        )
+    }
+
+    func testCommentImageRenderSizeIsScaledDown() throws {
+        let image = FireCookedImage(
+            url: try XCTUnwrap(URL(string: "https://linux.do/uploads/default/original/1x/sample.png")),
+            altText: nil,
+            width: 776,
+            height: 1206
+        )
+
+        let rootSize = FirePostCellLayoutCalculator.imageRenderSize(
+            for: image,
+            availableWidth: 320,
+            depth: 0
+        )
+        let commentSize = FirePostCellLayoutCalculator.imageRenderSize(
+            for: image,
+            availableWidth: 320,
+            depth: 1
+        )
+
+        XCTAssertEqual(rootSize.width, 320, accuracy: 0.01)
+        XCTAssertLessThan(commentSize.width, rootSize.width)
+        XCTAssertLessThanOrEqual(commentSize.height, FirePostCellLayoutCalculator.commentImageMaxHeight)
     }
 }

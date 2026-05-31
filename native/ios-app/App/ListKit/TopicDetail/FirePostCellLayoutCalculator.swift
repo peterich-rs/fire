@@ -15,14 +15,15 @@ enum FirePostCellLayoutCalculator {
     static let textTopSpacing: CGFloat = 0
     static let imageTopSpacing: CGFloat = 10
     static let imageSpacing: CGFloat = 10
-    static let textExpansionTopSpacing: CGFloat = 4
-    static let textExpansionButtonHeight: CGFloat = 22
     static let replyShortcutTopSpacing: CGFloat = 8
     static let replyShortcutHeight: CGFloat = 30
     static let reactionTopSpacing: CGFloat = 0
     static let contentVerticalPadding: CGFloat = 8
     static let menuButtonSize: CGFloat = 20
     static let dividerHeight: CGFloat = 0.5
+    static let commentImageWidthScale: CGFloat = 0.78
+    static let commentImageMaxWidth: CGFloat = 300
+    static let commentImageMaxHeight: CGFloat = 260
 
     static func visualDepth(for depth: Int) -> Int {
         max(depth - 1, 0)
@@ -56,7 +57,7 @@ enum FirePostCellLayoutCalculator {
     static func calculate(
         key: FirePostCellLayoutKey,
         textHeight: CGFloat?,
-        imageHeights: [CGFloat],
+        imageSizes: [CGSize],
         pollHeights: [CGFloat] = [],
         trait: FirePostLayoutTraitSignature
     ) -> FirePostCellLayout {
@@ -131,14 +132,7 @@ enum FirePostCellLayoutCalculator {
             )
             cursorY += displayedTextHeight + textTopSpacing
             if shouldCollapseText {
-                cursorY += textExpansionTopSpacing
-                textExpansionFrame = CGRect(
-                    x: contentLeading,
-                    y: cursorY,
-                    width: min(56, contentAvailableWidth),
-                    height: textExpansionButtonHeight
-                )
-                cursorY += textExpansionButtonHeight
+                textExpansionFrame = textFrame
             } else {
                 textExpansionFrame = nil
             }
@@ -151,42 +145,46 @@ enum FirePostCellLayoutCalculator {
 
         // Image frames
         var imageFrames: [CGRect] = []
-        for (index, imageHeight) in imageHeights.enumerated() {
-            if index == 0 {
-                if textFrame != nil {
-                    cursorY += metaLineSpacing
+        if !shouldCollapseText {
+            for (index, imageSize) in imageSizes.enumerated() {
+                if index == 0 {
+                    if textFrame != nil {
+                        cursorY += metaLineSpacing
+                    }
+                } else {
+                    cursorY += imageSpacing
                 }
-            } else {
-                cursorY += imageSpacing
+                let frame = CGRect(
+                    x: contentLeading,
+                    y: cursorY,
+                    width: min(imageSize.width, contentAvailableWidth),
+                    height: imageSize.height
+                )
+                imageFrames.append(frame)
+                cursorY += imageSize.height
             }
-            let frame = CGRect(
-                x: contentLeading,
-                y: cursorY,
-                width: contentAvailableWidth,
-                height: imageHeight
-            )
-            imageFrames.append(frame)
-            cursorY += imageHeight
         }
 
         // Poll frames
         var pollFrames: [CGRect] = []
-        for (index, pollHeight) in pollHeights.enumerated() where pollHeight > 0 {
-            if index == 0 {
-                if textFrame != nil || !imageFrames.isEmpty {
+        if !shouldCollapseText {
+            for (index, pollHeight) in pollHeights.enumerated() where pollHeight > 0 {
+                if index == 0 {
+                    if textFrame != nil || !imageFrames.isEmpty {
+                        cursorY += imageSpacing
+                    }
+                } else {
                     cursorY += imageSpacing
                 }
-            } else {
-                cursorY += imageSpacing
+                let frame = CGRect(
+                    x: contentLeading,
+                    y: cursorY,
+                    width: contentAvailableWidth,
+                    height: pollHeight
+                )
+                pollFrames.append(frame)
+                cursorY += pollHeight
             }
-            let frame = CGRect(
-                x: contentLeading,
-                y: cursorY,
-                width: contentAvailableWidth,
-                height: pollHeight
-            )
-            pollFrames.append(frame)
-            cursorY += pollHeight
         }
 
         // Action row: nested-reply shortcut and reactions share one compact line.
@@ -199,7 +197,7 @@ enum FirePostCellLayoutCalculator {
             }
 
             let actionRowY = cursorY
-            let actionRowHeight = max(replyShortcutHeight, textExpansionButtonHeight)
+            let actionRowHeight = replyShortcutHeight
             let actionSpacing: CGFloat = 8
             var actionX = contentLeading
             let rowMaxX = contentLeading + contentAvailableWidth
@@ -358,8 +356,22 @@ enum FirePostCellLayoutCalculator {
         return ceil(font.lineHeight * CGFloat(FirePostTextExpansionState.collapsedLineLimit))
     }
 
-    static func imageHeight(for image: FireCookedImage, availableWidth: CGFloat) -> CGFloat {
+    static func imageRenderSize(
+        for image: FireCookedImage,
+        availableWidth: CGFloat,
+        depth: Int
+    ) -> CGSize {
         let aspectRatio = image.aspectRatio ?? 1.45
-        return availableWidth / aspectRatio
+        let isCommentImage = depth > 0
+        let maxWidth = isCommentImage
+            ? min(max(availableWidth * commentImageWidthScale, 1), commentImageMaxWidth)
+            : availableWidth
+        let rawHeight = maxWidth / aspectRatio
+        let maxHeight = isCommentImage ? commentImageMaxHeight : .greatestFiniteMagnitude
+        if rawHeight > maxHeight {
+            return CGSize(width: maxHeight * aspectRatio, height: maxHeight)
+        }
+        return CGSize(width: maxWidth, height: rawHeight)
     }
+
 }

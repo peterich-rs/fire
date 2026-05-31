@@ -102,9 +102,12 @@ private struct FireTopicDetailReplyDisplayPlan {
     let sourceIndexByPostID: [UInt64: Int]
 }
 
-struct FireTopicDetailRuntimeConfiguration {
-    private static let maxInlineSecondaryReplies = 2
+private struct FireTopicDetailReplyThreadIndex {
+    let rootIndexBySourceIndex: [Int: Int]
+    let secondaryIndicesByRoot: [Int: [Int]]
+}
 
+struct FireTopicDetailRuntimeConfiguration {
     let viewModel: FireAppViewModel?
     let displayedCategory: FireTopicCategoryPresentation?
     let currentUsername: String?
@@ -270,12 +273,12 @@ struct FireTopicDetailRuntimeConfiguration {
             return .none
         }
         if replyRows.isEmpty {
-            return hasMoreTopicPosts ? .loadingFooter : .empty
+            return hasMoreTopicPosts || isLoadingMoreTopicPosts ? .loadingFooter : .empty
         }
         if isLoadingMoreTopicPosts {
             return .loadingFooter
         }
-        return hasMoreTopicPosts ? .loadMore : .none
+        return .none
     }
 
     func makeSnapshot() -> FireTopicDetailRuntimeSnapshot {
@@ -486,18 +489,11 @@ struct FireTopicDetailRuntimeConfiguration {
             sourceIndexByPostID[row.entry.postId] = index
         }
 
-        var rootIndices: [Int] = []
-        var secondaryIndicesByRoot: [Int: [Int]] = [:]
-        var currentRootIndex: Int?
-
-        for (index, row) in replyRows.enumerated() {
-            if row.entry.depth <= 1 || currentRootIndex == nil {
-                rootIndices.append(index)
-                currentRootIndex = index
-            } else if let rootIndex = currentRootIndex {
-                secondaryIndicesByRoot[rootIndex, default: []].append(index)
-            }
-        }
+        let threadIndex = makeReplyThreadIndex()
+        let rootIndices = threadIndex.rootIndexBySourceIndex
+            .compactMap { sourceIndex, rootIndex in sourceIndex == rootIndex ? rootIndex : nil }
+            .sorted()
+        let secondaryIndicesByRoot = threadIndex.secondaryIndicesByRoot
 
         var displayedRows: [FireTopicDetailReplyDisplayPlan.DisplayedRow] = []
         displayedRows.reserveCapacity(replyRows.count)
@@ -507,12 +503,12 @@ struct FireTopicDetailRuntimeConfiguration {
                 continue
             }
 
-                let rootRow = replyRows[rootIndex]
-                let secondaryIndices = secondaryIndicesByRoot[rootIndex] ?? []
-                let selectedSecondaryIndices = isReplyThreadExpanded(rootRow.entry.postId)
-                    ? secondaryIndices
-                    : selectedInlineSecondaryIndices(from: secondaryIndices)
-                let declaredReplyCount = postLookup[rootRow.entry.postId].map { Int($0.replyCount) } ?? 0
+            let rootRow = replyRows[rootIndex]
+            let secondaryIndices = secondaryIndicesByRoot[rootIndex] ?? []
+            let selectedSecondaryIndices = isReplyThreadExpanded(rootRow.entry.postId)
+                ? secondaryIndices
+                : selectedAnchoredSecondaryIndices(from: secondaryIndices)
+            let declaredReplyCount = postLookup[rootRow.entry.postId].map { Int($0.replyCount) } ?? 0
             let totalSecondaryCount = max(secondaryIndices.count, declaredReplyCount)
             let hiddenCount = max(totalSecondaryCount - selectedSecondaryIndices.count, 0)
 
@@ -555,57 +551,103 @@ struct FireTopicDetailRuntimeConfiguration {
         )
     }
 
-    private func selectedInlineSecondaryIndices(from indices: [Int]) -> [Int] {
-        guard indices.count > Self.maxInlineSecondaryReplies else {
-            return indices
+    private func makeReplyThreadIndex() -> FireTopicDetailReplyThreadIndex {
+        var indexByPostNumber: [UInt32: Int] = [:]
+        indexByPostNumber.reserveCapacity(replyRows.count)
+        for (index, row) in replyRows.enumerated() {
+            indexByPostNumber[row.entry.postNumber] = index
         }
 
-        var selected: [Int] = []
-        if let pendingScrollTarget,
-           let targetIndex = indices.first(where: { index in
-               replyRows[index].entry.postNumber == pendingScrollTarget
-           }) {
-            selected.append(targetIndex)
-        }
+        var memoizedRootIndexBySourceIndex: [Int: Int] = [:]
+        memoizedRootIndexBySourceIndex.reserveCapacity(replyRows.count)
 
-        let ranked = indices
-            .filter { !selected.contains($0) }
-            .sorted { lhs, rhs in
-                let lhsScore = replyQualityScore(at: lhs)
-                let rhsScore = replyQualityScore(at: rhs)
-                if lhsScore != rhsScore {
-                    return lhsScore > rhsScore
-                }
-                return replyRows[lhs].entry.postNumber < replyRows[rhs].entry.postNumber
+        func rootIndex(for sourceIndex: Int, visiting: inout Set<Int>) -> Int {
+            if let cached = memoizedRootIndexBySourceIndex[sourceIndex] {
+                return cached
+            }
+            guard sourceIndex >= 0, sourceIndex < replyRows.count else {
+                return sourceIndex
+            }
+            guard visiting.insert(sourceIndex).inserted else {
+                memoizedRootIndexBySourceIndex[sourceIndex] = sourceIndex
+                return sourceIndex
             }
 
-        for index in ranked where selected.count < Self.maxInlineSecondaryReplies {
-            selected.append(index)
+            let row = replyRows[sourceIndex]
+            let resolvedRootIndex: Int
+            if row.entry.depth <= 1 {
+                resolvedRootIndex = sourceIndex
+            } else if let parentPostNumber = row.entry.parentPostNumber,
+                      let parentIndex = indexByPostNumber[parentPostNumber],
+                      parentIndex != sourceIndex {
+                resolvedRootIndex = rootIndex(for: parentIndex, visiting: &visiting)
+            } else {
+                resolvedRootIndex = sourceIndex
+            }
+
+            visiting.remove(sourceIndex)
+            memoizedRootIndexBySourceIndex[sourceIndex] = resolvedRootIndex
+            return resolvedRootIndex
+        }
+
+        for index in replyRows.indices {
+            var visiting = Set<Int>()
+            _ = rootIndex(for: index, visiting: &visiting)
+        }
+
+        var secondaryIndicesByRoot: [Int: [Int]] = [:]
+        for index in replyRows.indices {
+            guard let rootIndex = memoizedRootIndexBySourceIndex[index],
+                  rootIndex != index else {
+                continue
+            }
+            secondaryIndicesByRoot[rootIndex, default: []].append(index)
+        }
+
+        for rootIndex in secondaryIndicesByRoot.keys {
+            secondaryIndicesByRoot[rootIndex]?.sort()
+        }
+
+        return FireTopicDetailReplyThreadIndex(
+            rootIndexBySourceIndex: memoizedRootIndexBySourceIndex,
+            secondaryIndicesByRoot: secondaryIndicesByRoot
+        )
+    }
+
+    private func selectedAnchoredSecondaryIndices(from indices: [Int]) -> [Int] {
+        guard let pendingScrollTarget,
+              !indices.isEmpty else {
+            return []
+        }
+
+        let indexSet = Set(indices)
+        var indexByPostNumber: [UInt32: Int] = [:]
+        indexByPostNumber.reserveCapacity(replyRows.count)
+        for (index, row) in replyRows.enumerated() where indexByPostNumber[row.entry.postNumber] == nil {
+            indexByPostNumber[row.entry.postNumber] = index
+        }
+        guard var currentIndex = indices.first(where: { index in
+            replyRows[index].entry.postNumber == pendingScrollTarget
+        }) else {
+            return []
+        }
+
+        var selected = Set<Int>()
+        while indexSet.contains(currentIndex),
+              selected.insert(currentIndex).inserted {
+            guard let parentPostNumber = replyRows[currentIndex].entry.parentPostNumber,
+                  let parentIndex = indexByPostNumber[parentPostNumber],
+                  indexSet.contains(parentIndex) else {
+                break
+            }
+            currentIndex = parentIndex
         }
 
         return selected.sorted()
     }
 
-    private func replyQualityScore(at index: Int) -> Int64 {
-        guard index >= 0,
-              index < replyRows.count,
-              let post = postLookup[replyRows[index].entry.postId] else {
-            return 0
-        }
-
-        let reactionCount = post.reactions.reduce(0 as UInt32) { partialResult, reaction in
-            partialResult > UInt32.max - reaction.count
-                ? UInt32.max
-                : partialResult + reaction.count
-        }
-        return (post.acceptedAnswer ? 1_000_000 : 0)
-            + Int64(post.likeCount) * 100
-            + Int64(reactionCount) * 80
-            + Int64(post.replyCount) * 60
-    }
-
     private static func displayDepth(for row: FirePreparedTopicTimelineRow) -> Int {
-        row.entry.depth == 0 ? 0 : 1
+        Int(row.entry.depth)
     }
 
     private func postContentToken(

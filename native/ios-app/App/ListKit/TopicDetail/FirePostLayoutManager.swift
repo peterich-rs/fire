@@ -11,6 +11,7 @@ enum FirePostLayoutInvalidationReason {
 typealias FirePostLayoutComputation = @Sendable (
     FirePostCellLayoutKey,
     NSAttributedString?,
+    String,
     [FireCookedImage],
     [FirePostPollRenderModel],
     FirePostLayoutTraitSignature
@@ -45,10 +46,11 @@ final class FirePostLayoutManager: ObservableObject {
             label: "com.fire.post-layout-manager",
             qos: .userInitiated
         ),
-        computeLayout: @escaping FirePostLayoutComputation = { key, attributedText, images, polls, trait in
+        computeLayout: @escaping FirePostLayoutComputation = { key, attributedText, plainText, images, polls, trait in
             FirePostLayoutManager.defaultComputeLayout(
                 key: key,
                 attributedText: attributedText,
+                plainText: plainText,
                 images: images,
                 polls: polls,
                 trait: trait
@@ -70,6 +72,7 @@ final class FirePostLayoutManager: ObservableObject {
     func enqueueCalculation(
         key: FirePostCellLayoutKey,
         attributedText: NSAttributedString?,
+        plainText: String,
         images: [FireCookedImage],
         polls: [FirePostPollRenderModel],
         trait: FirePostLayoutTraitSignature
@@ -83,9 +86,10 @@ final class FirePostLayoutManager: ObservableObject {
         let queue = backgroundQueue
         let computeLayout = self.computeLayout
         let attributedTextBox = FireAttributedTextBox(attributedText?.copy() as? NSAttributedString)
+        let plainText = plainText
 
         queue.async { [weak self] in
-            let layout = computeLayout(key, attributedTextBox.value, images, polls, trait)
+            let layout = computeLayout(key, attributedTextBox.value, plainText, images, polls, trait)
 
             Task { @MainActor [weak self] in
                 guard let self else { return }
@@ -149,6 +153,7 @@ final class FirePostLayoutManager: ObservableObject {
     nonisolated private static func defaultComputeLayout(
         key: FirePostCellLayoutKey,
         attributedText: NSAttributedString?,
+        plainText: String,
         images: [FireCookedImage],
         polls: [FirePostPollRenderModel],
         trait: FirePostLayoutTraitSignature
@@ -159,13 +164,35 @@ final class FirePostLayoutManager: ObservableObject {
             trait: trait
         )
 
-        let textHeight = FirePostCellLayoutCalculator.measureRichTextHeight(
+        let measuredTextHeight = FirePostCellLayoutCalculator.measureRichTextHeight(
             attributedText: attributedText,
             containerWidth: availableWidth,
             contentSizeCategory: contentSizeCategory
         )
-        let imageHeights = images.map { image in
-            FirePostCellLayoutCalculator.imageHeight(for: image, availableWidth: availableWidth)
+        let estimatedTextHeight = FirePostCellLayoutCalculator.estimatedRichTextHeight(
+            plainText: plainText,
+            hasAttributedText: (attributedText?.length ?? 0) > 0,
+            containerWidth: availableWidth,
+            contentSizeCategory: contentSizeCategory,
+            textExpansionState: key.textExpansionState
+        )
+        let textHeight: CGFloat?
+        switch (measuredTextHeight, estimatedTextHeight) {
+        case let (measured?, estimated?):
+            textHeight = max(measured, estimated)
+        case let (measured?, nil):
+            textHeight = measured
+        case let (nil, estimated?):
+            textHeight = estimated
+        case (nil, nil):
+            textHeight = nil
+        }
+        let imageSizes = images.map { image in
+            FirePostCellLayoutCalculator.imageRenderSize(
+                for: image,
+                availableWidth: availableWidth,
+                depth: key.depth
+            )
         }
         let pollHeights = polls.map { poll in
             FirePostPollView.preferredHeight(
@@ -178,7 +205,7 @@ final class FirePostLayoutManager: ObservableObject {
         return FirePostCellLayoutCalculator.calculate(
             key: key,
             textHeight: textHeight,
-            imageHeights: imageHeights,
+            imageSizes: imageSizes,
             pollHeights: pollHeights,
             trait: trait
         )

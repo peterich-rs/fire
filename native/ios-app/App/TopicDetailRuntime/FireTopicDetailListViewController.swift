@@ -450,6 +450,7 @@ final class FireTopicDetailListViewController: UIViewController,
         layoutManager.enqueueCalculation(
             key: key,
             attributedText: context.renderContent.attributedText,
+            plainText: context.renderContent.plainText,
             images: context.renderContent.imageAttachments,
             polls: FirePostPollRenderModel.models(from: context.post.polls),
             trait: key.trait
@@ -469,8 +470,12 @@ final class FireTopicDetailListViewController: UIViewController,
             contentSizeCategory: contentSizeCategory,
             textExpansionState: key.textExpansionState
         )
-        let imageHeights = context.renderContent.imageAttachments.map {
-            FirePostCellLayoutCalculator.imageHeight(for: $0, availableWidth: availableWidth)
+        let imageSizes = context.renderContent.imageAttachments.map {
+            FirePostCellLayoutCalculator.imageRenderSize(
+                for: $0,
+                availableWidth: availableWidth,
+                depth: key.depth
+            )
         }
         let pollHeights = FirePostPollRenderModel.models(from: context.post.polls).map { poll in
             FirePostPollView.preferredHeight(
@@ -482,7 +487,7 @@ final class FireTopicDetailListViewController: UIViewController,
         return FirePostCellLayoutCalculator.calculate(
             key: key,
             textHeight: textHeight,
-            imageHeights: imageHeights,
+            imageSizes: imageSizes,
             pollHeights: pollHeights,
             trait: key.trait
         )

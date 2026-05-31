@@ -7,6 +7,11 @@ final class FirePostRichTextContainerView: UIView {
     private var renderedContentID: String?
 
     var onLinkTapped: ((URL) -> Void)?
+    var onTruncationTapped: (() -> Void)? {
+        didSet {
+            linkDelegate?.onTruncationTapped = onTruncationTapped
+        }
+    }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -26,6 +31,8 @@ final class FirePostRichTextContainerView: UIView {
         textNode.isUserInteractionEnabled = true
         textNode.backgroundColor = .clear
         textNode.linkAttributeNames = [NSAttributedString.Key.link.rawValue]
+        textNode.passthroughNonlinkTouches = true
+        textNode.alwaysHandleTruncationTokenTap = true
         textNode.placeholderEnabled = true
         textNode.placeholderColor = .tertiarySystemFill
 
@@ -36,7 +43,8 @@ final class FirePostRichTextContainerView: UIView {
         attributedText: NSAttributedString,
         contentID: String,
         containerSize: CGSize,
-        maximumNumberOfLines: UInt = 0
+        maximumNumberOfLines: UInt = 0,
+        truncationAttributedText: NSAttributedString? = nil
     ) {
         if renderedContentID != contentID {
             renderedContentID = contentID
@@ -44,6 +52,7 @@ final class FirePostRichTextContainerView: UIView {
         }
         textNode.maximumNumberOfLines = maximumNumberOfLines
         textNode.truncationMode = .byTruncatingTail
+        textNode.truncationAttributedText = truncationAttributedText
         textNode.frame = CGRect(origin: .zero, size: CGSize(width: containerSize.width, height: containerSize.height))
     }
 
@@ -51,6 +60,8 @@ final class FirePostRichTextContainerView: UIView {
         renderedContentID = nil
         textNode.attributedText = nil
         textNode.maximumNumberOfLines = 0
+        textNode.truncationAttributedText = nil
+        onTruncationTapped = nil
     }
 
     override func layoutSubviews() {
@@ -61,6 +72,7 @@ final class FirePostRichTextContainerView: UIView {
 
 private final class RichTextLinkDelegate: NSObject, ASTextNodeDelegate {
     private let handler: (URL) -> Void
+    var onTruncationTapped: (() -> Void)?
 
     init(handler: @escaping (URL) -> Void) {
         self.handler = handler
@@ -78,5 +90,9 @@ private final class RichTextLinkDelegate: NSObject, ASTextNodeDelegate {
         } else if let string = value as? String, let url = URL(string: string) {
             handler(url)
         }
+    }
+
+    func textNodeTappedTruncationToken(_ textNode: ASTextNode) {
+        onTruncationTapped?()
     }
 }

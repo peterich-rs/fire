@@ -279,14 +279,17 @@ impl FireCore {
             Some(post) => post,
             None => self.fetch_post_by_number(query.topic_id, 1).await?,
         };
+        let root_stream_ids = root_stream_ids_from_top_level_posts(
+            &top_level_detail.post_stream,
+            body_post.id,
+            body_post.post_number,
+        );
         let merge_order = detail.post_stream.stream.clone();
         detail.post_stream.posts = merge_topic_posts(
             &merge_order,
             std::mem::take(&mut detail.post_stream.posts),
             top_level_detail.post_stream.posts,
         );
-        let mut root_stream_ids = top_level_detail.post_stream.stream;
-        root_stream_ids.retain(|post_id| *post_id != body_post.id);
 
         let focus_root_post = match query
             .target_post_number
@@ -971,6 +974,45 @@ fn missing_topic_post_ids(post_stream: &TopicPostStream) -> Vec<u64> {
         .copied()
         .filter(|post_id| !loaded_post_ids.contains(post_id))
         .collect()
+}
+
+fn root_stream_ids_from_top_level_posts(
+    post_stream: &TopicPostStream,
+    body_post_id: u64,
+    body_post_number: u32,
+) -> Vec<u64> {
+    let root_post_ids = post_stream
+        .posts
+        .iter()
+        .filter(|post| post.id != body_post_id)
+        .filter(
+            |post| match normalized_reply_target(post.reply_to_post_number) {
+                Some(parent_post_number) => {
+                    parent_post_number == body_post_number || parent_post_number == post.post_number
+                }
+                None => true,
+            },
+        )
+        .map(|post| post.id)
+        .collect::<HashSet<_>>();
+
+    let mut seen = HashSet::new();
+    let mut ordered = Vec::with_capacity(root_post_ids.len());
+    for post_id in &post_stream.stream {
+        if root_post_ids.contains(post_id) && seen.insert(*post_id) {
+            ordered.push(*post_id);
+        }
+    }
+
+    let mut trailing_posts = post_stream
+        .posts
+        .iter()
+        .filter(|post| root_post_ids.contains(&post.id) && !seen.contains(&post.id))
+        .collect::<Vec<_>>();
+    trailing_posts.sort_by_key(|post| (post.post_number, post.id));
+    ordered.extend(trailing_posts.into_iter().map(|post| post.id));
+
+    ordered
 }
 
 fn merge_topic_posts(
@@ -1730,6 +1772,36 @@ mod tests {
             ordered_unique_post_ids(vec![0, 2, 2, 3, 0, 4, 3]),
             vec![2, 3, 4]
         );
+    }
+
+    #[test]
+    fn root_stream_ids_from_top_level_posts_ignores_nested_stream_entries() {
+        let body_post = make_topic_post(1, None);
+        let first_root = make_topic_post(3, Some(1));
+        let first_child = make_topic_post(13, Some(3));
+        let second_child = make_topic_post(226, Some(3));
+        let second_root = make_topic_post(4, Some(1));
+        let post_stream = TopicPostStream {
+            posts: vec![
+                body_post.clone(),
+                first_root.clone(),
+                first_child.clone(),
+                second_child.clone(),
+                second_root.clone(),
+            ],
+            stream: vec![
+                body_post.id,
+                first_root.id,
+                first_child.id,
+                second_child.id,
+                second_root.id,
+            ],
+        };
+
+        let root_stream_ids =
+            root_stream_ids_from_top_level_posts(&post_stream, body_post.id, body_post.post_number);
+
+        assert_eq!(root_stream_ids, vec![first_root.id, second_root.id]);
     }
 
     #[test]

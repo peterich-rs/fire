@@ -143,7 +143,7 @@
   - iOS / Android 渲染详情前会按 `post.id` 对 `body` 与 `response.rows` 做归一化，避免重叠窗口或刷新响应把同一帖子重复提交到列表层
   - `fetchTopicScreen` 首个详情请求按 Web 形态发起：`GET /t/{topicId}.json?track_visit=true&forceLoad=true`，不携带 `filter_top_level_replies`
   - 首个详情响应返回后，Rust 再发起内部回复索引请求：`GET /t/{topicId}.json?filter_top_level_replies=true`；该请求只用于获取顶层回复根列表，不携带 `track_visit`、`forceLoad` 或 `Discourse-Track-View*`
-  - 当前回复区分页不再按整条 `post_stream.stream` 平铺补齐，而是用顶层回复根列表按根分支分页
+  - 当前回复区分页不再按整条 `post_stream.stream` 平铺补齐，而是用顶层回复根列表按根分支分页；根列表以该 filtered payload 实际返回的顶层 `posts` 为准，避免服务端仍把嵌套回复 ID 留在 `post_stream.stream` 时把二级回复提升为分页 root
   - `fetchTopicScreen` / `fetchTopicResponsePage` 同时接受 `root_page_size` 和 `row_page_size`：前者限制一次最多推进多少个顶层回复根，后者限制一次最多返回多少条可渲染回复行
   - iOS / Android 首次打开详情时会按 Web 行为请求 `track_visit=true&forceLoad=true`；MessageBus 触发的详情刷新使用 `track_visit=false&forceLoad=false`，避免把后台刷新当成一次新的浏览访问
   - Fire 会解析顶层 `message_bus_last_id` 并通过 `TopicHeader.message_bus_last_id` / `TopicDetail.message_bus_last_id` 暴露给宿主，详情页订阅 `/topic/{topicId}` 时用它作为初始 MessageBus checkpoint

@@ -59,8 +59,8 @@ Discourse-Present: true
 - 非 `GET` 请求默认需要 `X-CSRF-Token`
 - 首页 HTML 请求不带 `X-Requested-With`，`Accept` 为 `text/html`，但仍会带浏览器风格 `User-Agent` 与 `Accept-Language`
 - 主站 JSON/XHR 请求默认不强制带 `Origin`；跨域 MessageBus poll 才显式带 `Origin: https://linux.do`
-- 宿主登录/验证 WebView 应尽量使用系统浏览器环境：iOS 使用默认持久化 `WKWebsiteDataStore`、浏览器兼容 UA、JavaScript、新窗口处理和同一浏览器上下文内的 Cookie；Android 使用持久化 `WebView` Cookie、JavaScript、DOM storage、AndroidX WebKit Safe Browsing，并禁止非 Web scheme、file/content 访问和 mixed content；iOS 当前默认使用 Mobile Safari 风格 UA，并在登录同步时把实际 `navigator.userAgent` 保存进共享会话
-- 这不能绕过第三方 OAuth 的嵌入式浏览器限制。Google OAuth 在 `WKWebView` 里可能直接返回 `disallowed_useragent`；如要支持这类登录，需要系统认证会话 / Safari fallback，并且还要有服务端 redirect 或 Cookie 交换能力把登录态带回 Fire 可读取的会话。
+- 宿主登录/验证 WebView 应尽量使用系统浏览器环境：iOS 使用默认持久化 `WKWebsiteDataStore`、浏览器兼容 UA、JavaScript、新窗口处理和同一浏览器上下文内的 Cookie；Android 使用持久化 `WebView` Cookie、第三方 Cookie、JavaScript、DOM/database storage、AndroidX WebKit Safe Browsing、浏览器兼容 UA 规范化和同上下文 `window.open` / popup 收口，并禁止非 Web scheme、file/content 访问和 mixed content；iOS 当前默认使用 Mobile Safari 风格 UA，并在登录同步时把实际 `navigator.userAgent` 保存进共享会话
+- 这不能绕过第三方 OAuth 的所有嵌入式浏览器限制。Android 登录 WebView 会移除默认 UA 中的 embedded WebView 标记以满足 LinuxDo/Google 登录页的浏览器 UA 检查；Google OAuth 在 iOS `WKWebView` 里仍可能直接返回 `disallowed_useragent`。如需覆盖这类平台政策限制，需要系统认证会话 / Safari fallback，并且还要有服务端 redirect 或 Cookie 交换能力把登录态带回 Fire 可读取的会话。
 - MessageBus 请求不需要 CSRF，但可能需要 `X-Shared-Session-Key`
 - `X-SILENCE-LOGGER` 是 MessageBus / 后台静默类请求使用的标记；`Discourse-Background` 只用于后台通知拉取、阅读时长和 Presence 写入这类后台语义，不应加到前台 MessageBus poll
 - 当前 `linux.do` 接入中，过于“产品化”的 UA（例如仅 `Fire/0.1`）可能拿到缺少 `data-preloaded` 的降级 HTML；Rust HTTP 栈应维持浏览器风格 fallback UA

@@ -136,3 +136,16 @@
 通知和个人页保持懒加载：通知 recent 列表只在用户进入通知 Tab 时调用 `GET /notifications`，个人页资料/摘要/动态只在用户进入“我的”Tab 时调用对应用户接口。启动阶段不会再为了预热离屏 Tab 主动拉通知列表或个人资料；未读角标优先来自 bootstrap / Rust 通知运行态，后续由 MessageBus `/notification/{userId}` 增量更新。
 
 浏览器根路径可能会先触发 `GET /chat/api/me/channels` 和 `GET /u/{username}/private-message-topic-tracking-state`，但 Fire 当前不把 chat channels 接口作为通用登录态探测。登录态判定仍以本地认证 Cookie、首页 bootstrap、以及共享层 readiness 为准，避免把启动可用性绑定到 chat 插件状态接口。
+
+## Android 前台启动与 UniFFI 异常边界
+
+当前 Android 也把启动阶段的 session restore 和 bootstrap refresh 分开处理。宿主先读取 `filesDir/fire/session.json` 并恢复 Rust session；如果随后为了补齐 bootstrap 发起的 `GET /` 失败，例如网络不可达或 TCP refused，宿主会保留已经恢复的本地 session，把失败记录到 Logcat 和 Rust diagnostics host log，而不是让 `FireUniFfiException.Network` 从 main dispatcher 的 root coroutine 逃逸并导致进程崩溃。
+
+Android UI 层的 root coroutine 需要通过 `core/error/FireErrorHandling.kt` 收口 Rust/UniFFI 异常：
+
+- `CancellationException` 必须继续抛出，保持 coroutine 正常取消语义。
+- Cloudflare challenge 转成 host-owned WebView recovery 事件。
+- 网络、认证、HTTP、存储、序列化、runtime/internal 等异常转成用户安全提示，同时记录 operation、error id、kind、details 和 stack。
+- PagingSource 仍把分页请求异常转成 `LoadResult.Error`，由对应 Fragment 的 load-state UI 展示和 Cloudflare 分流。
+
+这条边界只改变 Android 宿主如何承接异常，不改变 Rust 对 session state、bootstrap parsing、API orchestration、MessageBus、shared models、networking 和 logging 的所有权。

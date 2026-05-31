@@ -4,6 +4,19 @@
 
 将 Android 应用从当前的原始 Activity/Button 原型全面重建为与 iOS 对齐的原生应用。技术方案：传统 Android View 系统 + RecyclerView 生态 + MVVM 架构 + Navigation Fragment，富文本走 Rust 底层解析。
 
+### 当前实现状态（2026-05-31）
+
+本计划已经部分落地，继续实施时以代码为准，而不是按早期“删除所有 Activity”的目标机械推进：
+
+- `MainActivity` 已经是主 Navigation Fragment shell，底部暴露 Home / Notifications / Profile。
+- `SearchFragment`、`BookmarksFragment`、`PrivateMessagesFragment` 已存在；Search 已从 Home 顶部入口进入，当前用户 Profile 已提供 Bookmarks / Messages 入口，公开 Profile 已按 `canSendPrivateMessageToUser` 提供私信发起入口。
+- Search 已有 all/topic/post/user scope、分区标题、滚动加载更多和 topic/post/user 路由。
+- Bookmarks 已能打开 backend 提供的 bookmarked post anchor；Private Messages 已有 inbox/sent 切换和 New Message 入口，公开 Profile 私信提交成功后打开创建出的私信 topic；create/reply/PM composer 已接 Rust-backed `@mention`/tag 搜索、PM 多收件人、图片上传插入、shared draft restore/autosave/delete，以及与 iOS 当前实现一致的平台本地 Markdown preview。
+- `TopicDetailActivity` 仍是当前 Android 权威 topic detail 页面，不要在没有新设计和迁移计划前删除或替换成 `TopicDetailFragment`。
+- Android Cloudflare challenge 仍保持 host-owned WebView 展示：普通 challenge 打开 `CloudflareChallengeActivity`，topic detail 在详情页内嵌 WebView 打开 topic HTML 页。
+- Android topic detail 已接 per-post reply、heart like/unlike、custom reaction picker、post/topic bookmark create/update/delete、post edit/delete/recover/report、author profile navigation、post image attachment viewing、AI summary、topic vote toggle、topic voter list、topic edit、poll voting、reaction users、topic notification level、reply context；私信 composer 已有收件人搜索、多收件人和 token chip 删除。当前 iOS/Rust 只暴露 topic voter list 和 poll option count / total voters / user votes，没有 poll option voter-list API 或 iOS poll-voter sheet。
+- Android Rust/UniFFI 异常边界已统一到 `core/error/FireErrorHandling.kt`：root coroutine 必须重抛 cancellation，其他 `FireUniFfiException` 需要分类成 Cloudflare、network、auth、HTTP、storage、serialization、runtime/internal 等状态，写入 Logcat 和 Rust diagnostics host log，再转成 UI 状态或 Cloudflare recovery 事件。冷启动恢复 session 时，bootstrap refresh 失败会保留已恢复的本地 session，不允许网络失败直接杀死 main 线程。
+
 ### 核心约束
 
 - **UI 框架**：Android 原生 View 系统，不使用 Jetpack Compose
@@ -149,12 +162,15 @@ com.fire.app/
 │   ├── composer/
 │   │   ├── ReplyComposerSheet.kt        // 对应 iOS FireComposerView
 │   │   ├── TopicComposerSheet.kt        // 对应 iOS FireTopicEditorView
+│   │   ├── PrivateMessageComposerSheet.kt // 公开资料页私信发起
+│   │   ├── ComposerPreview.kt           // 平台本地 Markdown preview / 上传短链图片预览
 │   │   └── ComposerViewModel.kt
 │   │
 │   ├── auth/
 │   │   ├── OnboardingFragment.kt        // 对应 iOS FireOnboardingView
 │   │   ├── LoginWebViewFragment.kt      // 对应 iOS FireLoginWebView / FireAuthScreen
-│   │   ├── CloudflareRecoverySheet.kt   // 对应 iOS FireCloudflareRecoverySheet
+│   │   ├── CloudflareChallengeActivity.kt // Android host-owned challenge WebView
+│   │   ├── CloudflareChallengeSupport.kt  // WebView 配置 / cookie sync helpers
 │   │   └── AuthViewModel.kt
 │   │
 │   ├── bookmarks/
@@ -422,20 +438,19 @@ RecyclerView
 
 ### 7.2 Cloudflare Recovery
 
-对应 iOS Cloudflare recovery 流程（含未落地的 browser-alignment-plan 改进）：
+Android 当前保留独立的 host-owned WebView challenge 体验，不按 iOS recovery sheet 形态迁移：
 
-- `CloudflareRecoverySheet` 作为 BottomSheetDialogFragment
-- 加载浏览器 HTML URL（非 `/login`，非 JSON endpoint）
-- Topic-detail 触发的 recovery 使用 topic HTML page
-- 通用 recovery 使用 site root
-- Recovery 完成后自动同步 cookie → 重试被阻塞操作
-- 冷却期抑制：成功 recovery 后 10 秒内不再弹出
+- 普通列表/搜索/资料页 challenge 打开 `CloudflareChallengeActivity`，加载 `https://linux.do/`。
+- Topic detail challenge 保持在 `TopicDetailActivity` 内嵌 WebView，加载 `https://linux.do/t/{topicId}`。
+- 两条路径只在 WebView cookie 出现 `cf_clearance` 后同步浏览器上下文到 Rust session。
+- WebView 完成 challenge 后不自动关闭，也不立即强制重试原 native 操作；后续 native 请求复用已同步的 Rust session。
+- Cloudflare 分类、cookie 规范化、session/CSRF/bootstrap 状态仍归 Rust；WebView 展示和 CookieManager 读取仍归 Android。
 
 ### 7.3 WebView Login
 
-保留现有 `LoginActivity` + `FireWebViewLoginCoordinator` 的核心逻辑，迁移为 Fragment：
+保留 `FireWebViewLoginCoordinator` 的核心逻辑，入口已经是 `LoginWebViewFragment`：
 
-- `LoginWebViewFragment` 替代 `LoginActivity`
+- `LoginWebViewFragment` 是当前登录 WebView 入口
 - WebView 配置对齐 iOS `FireWebViewBox` / `FireLoginWebView`
 - Cookie 提取 → `sync_login_context` → session persistence
 
@@ -452,10 +467,10 @@ RecyclerView
 | Pagination prefetch | Paging 3 prefetch | 需重建 |
 | Topic row card | TopicRowViewHolder (item_topic_row.xml) | 需重建 |
 | Category/tag/status chips | Material Chip / custom view | 需重建 |
-| Private message inbox/sent | TopicListPagingSource (PM variant) | 需重建 |
-| Bookmarks list | BookmarksFragment + Paging | 需重建 |
+| Private message inbox/sent | PrivateMessagesFragment | 已接入 |
+| Bookmarks list | BookmarksFragment + Paging | 已接入 |
 | Read history | HistoryFragment + Paging | 需重建 |
-| Create topic composer | TopicComposerSheet (BottomSheet) | 需重建 |
+| Create topic composer | TopicComposerSheet + ComposerAssist | 已接入 |
 
 ### 8.2 Topic Detail
 
@@ -464,16 +479,25 @@ RecyclerView
 | Post list with rich text | PostListAdapter + FireRichTextView | 需重建 |
 | Topic header (title, tags, category) | PostHeaderViewHolder | 需重建 |
 | Post author avatar + username | AuthorView (custom view) | 需重建 |
-| Post reactions (heart + custom) | ReactionBarView (custom view) | 需重建 |
-| Reply composer | ReplyComposerSheet (BottomSheet) | 需重建 |
+| Post reactions (heart + custom) | Post row actions + custom reaction dialog | 已接入 |
+| Reaction users | Post reaction summary dialog | 已接入 |
+| Reply composer | ReplyComposerSheet + ComposerAssist | 已接入 |
 | Post actions (like/reply/bookmark/flag) | PostActionBottomSheet | 需重建 |
 | Quote post navigation | Deep link navigation | 需重建 |
+| Reply context | Reply target dialog | 已接入 |
 | Mention/hashtag click | FireLinkSpan → Navigation | 需重建 |
+| Image attachment viewing | Post image strip + full-screen viewer | 已接入 |
 | Post timing tracker | TopicTimingTracker (onScrollListener) | 需新增 |
-| AI summary | AISummaryViewHolder | 需新增 |
-| Poll voting | PollCardView (custom view) | 需新增 |
-| Topic/bookmark edit | EditSheet (BottomSheet) | 需新增 |
-| Post delete/recover/report | PostActionBottomSheet | 需新增 |
+| AI summary | HeaderAdapter topic header row | 已接入 |
+| Topic vote | HeaderAdapter topic vote panel | 已接入 |
+| Topic voter list | HeaderAdapter voters dialog | 已接入 |
+| Poll voting | PostViewHolder poll section | 已接入 |
+| Topic notification level | HeaderAdapter notification dialog | 已接入 |
+| Topic edit | HeaderAdapter edit dialog | 已接入 |
+| Topic/post bookmark edit | Bookmark editor dialogs | 已接入 |
+| Post edit | Post row edit dialog | 已接入 |
+| Post delete/recover | Post row confirm dialogs | 已接入 |
+| Post report | Post action type dialogs | 已接入 |
 | Scroll to post number | RecyclerView scroll to position | 需重建 |
 | Reply pagination | Paging 3 + TopicPostPagingSource | 需重建 |
 
@@ -502,7 +526,7 @@ RecyclerView
 | Badge display | BadgeChipView | 需重建 |
 | Activity timeline | ProfileAdapter (concat) | 需新增 |
 | Follow/unfollow | ProfileViewModel actions | 需重建 |
-| Private message compose | PMComposerSheet | 需新增 |
+| Private message compose | PrivateMessageComposerSheet + recipient search | 已接入（搜索、多收件人、token chip、draft、上传、preview） |
 | User notification level | ProfileViewModel actions | 需新增 |
 
 ### 8.6 Rich Text Rendering
@@ -679,29 +703,28 @@ implementation("io.coil-kt:coil:2.7.0")
 
 ### Phase 4: Auth & Session
 
-**目标**：实现完整的登录 / Cloudflare 恢复流程，对齐 iOS `FireOnboardingView` + `FireAuthScreen` + Cloudflare recovery。
+**目标**：实现完整的登录 / Cloudflare 恢复流程，对齐 iOS 的 session 能力，同时保持 Android 当前 WebView challenge 产品形态。
 
 **文件变更**：
 
-1. 重构 `session/FireWebViewLoginCoordinator.kt` — 迁移为 Fragment 兼容
-2. 新建 `ui/auth/OnboardingFragment.kt` — 登录引导页
-3. 新建 `ui/auth/LoginWebViewFragment.kt` — WebView 登录
-4. 新建 `ui/auth/CloudflareRecoverySheet.kt` — Cloudflare 恢复 BottomSheet
-5. 新建 `ui/auth/AuthViewModel.kt` — Auth 状态管理
-6. 新建 `res/layout/fragment_onboarding.xml`
-7. 新建 `res/layout/fragment_login_webview.xml`
-8. 新建 `res/layout/sheet_cloudflare_recovery.xml`
-9. 新建 `session/FireCfClearanceService.kt` — CF clearance 刷新服务
+1. `session/FireWebViewLoginCoordinator.kt` — 保持登录和 browser-context cookie 同步入口
+2. `ui/auth/OnboardingFragment.kt` — 登录引导页
+3. `ui/auth/LoginWebViewFragment.kt` — WebView 登录
+4. `ui/cloudflare/CloudflareChallengeActivity.kt` — 普通 challenge WebView
+5. `ui/cloudflare/CloudflareChallengeSupport.kt` — WebView 配置、debounce、cookie-sync helpers
+6. `TopicDetailActivity` 内嵌 `cfChallengeWebview` — topic detail challenge WebView
+7. `res/layout/fragment_onboarding.xml`
+8. `res/layout/fragment_login_webview.xml`
+9. `res/layout/activity_cloudflare_challenge.xml`
 
 **功能对齐**：
 - 冷启动 session 恢复
 - WebView 登录流程（cookie 提取 → sync_login_context）
-- Cloudflare challenge 检测 → 恢复 sheet
+- Cloudflare challenge 检测 → Android WebView 展示
 - Recovery URL routing（topic HTML / site root）
-- 冷却期抑制
 - 登出（remote + local）
 
-**验证**：冷启动 → 未登录 → 登录 → session 恢复 → Cloudflare 挑战 → 恢复 → 重试。
+**验证**：冷启动 → 未登录 → 登录 → session 恢复 → Cloudflare 挑战 → WebView 恢复 → 后续 native 请求复用同步后的 session。
 
 ### Phase 5: Notifications
 
@@ -769,9 +792,9 @@ implementation("io.coil-kt:coil:2.7.0")
 - 徽章展示
 - 活动时间线
 - 关注 / 取关
-- 私信发起
+- 私信发起（公开 Profile 使用 `canSendPrivateMessageToUser` 门禁，收件人预填目标用户）
 - 书签列表
-- 私信列表
+- 私信列表（inbox / sent；mailbox-level 新私信支持收件人搜索、多收件人和 token chip 删除）
 - 外观偏好设置（对应 iOS `FireAppearancePreference`）
 
 **验证**：个人中心 → 徽章 → 活动时间线 → 关注操作 → 书签 → 私信。
@@ -784,14 +807,17 @@ implementation("io.coil-kt:coil:2.7.0")
 
 1. 新建 `ui/composer/ReplyComposerSheet.kt` — BottomSheet 回复编辑器
 2. 新建 `ui/composer/TopicComposerSheet.kt` — BottomSheet 发帖编辑器
-3. 新建 `ui/composer/ComposerViewModel.kt`
-4. 新建 `res/layout/sheet_reply_composer.xml`
-5. 新建 `res/layout/sheet_topic_composer.xml`
-6. 新建 Topic detail 内的 Poll / Bookmark / Edit / Delete / Report 组件
+3. 新建 `ui/composer/PrivateMessageComposerSheet.kt` — BottomSheet 私信编辑器
+4. 新建 `ui/composer/ComposerViewModel.kt`
+5. 新建 `res/layout/sheet_reply_composer.xml`
+6. 新建 `res/layout/sheet_topic_composer.xml`
+7. 新建 `res/layout/sheet_private_message_composer.xml`
+8. 新建 Topic detail 内的 Poll / Bookmark / Edit / Delete / Report 组件
 
 **功能对齐**：
 - 回复编辑器（话题回复 + 楼层回复）
 - 发帖编辑器（标题 + 分类 + 标签 + 正文 + 校验）
+- 私信编辑器（标题 + 正文 + 预填收件人 + PM 专用长度校验）
 - 投票卡片
 - 书签创建/更新/删除
 - 帖子编辑
@@ -854,9 +880,7 @@ implementation("io.coil-kt:coil:2.7.0")
 - `LoginActivity.kt` — 被 LoginWebViewFragment 替代
 - `NotificationsActivity.kt` — 被 NotificationsFragment 替代
 - `SearchActivity.kt` — 被 SearchFragment 替代
-- `TopicDetailActivity.kt` — 被 TopicDetailFragment 替代
 - `ProfileActivity.kt` — 被 ProfileFragment 替代
-- `DiagnosticsActivity.kt` — 被内部 Fragment 替代
-- `LogViewerActivity.kt` — 被内部 Fragment 替代
-- `RequestTraceDetailActivity.kt` — 被内部 Fragment 替代
 - 所有 Activity 对应的 layout XML — 被 Fragment layout 替代
+
+当前例外：`TopicDetailActivity.kt` 和 `CloudflareChallengeActivity.kt` 仍是生产代码路径。`TopicDetailActivity` 承载原生 topic detail，`CloudflareChallengeActivity` 承载普通 Cloudflare WebView 恢复；两者不能按早期删除清单处理。

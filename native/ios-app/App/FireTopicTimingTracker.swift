@@ -6,9 +6,15 @@ final class FireTopicTimingTracker {
 
     private enum Constants {
         static let tickInterval: Duration = .seconds(1)
-        static let flushInterval: TimeInterval = 30
+        static let flushInterval: TimeInterval = 60
         static let idlePauseInterval: TimeInterval = 180
         static let maxTrackedPostMilliseconds = 6 * 60 * 1_000
+        static let failedReportBackoffIntervals: [TimeInterval] = [
+            60,
+            120,
+            300,
+            600
+        ]
     }
 
     private let topicId: UInt64
@@ -22,6 +28,9 @@ final class FireTopicTimingTracker {
     private var pendingTimings: [UInt32: Int] = [:]
     private var totalTimings: [UInt32: Int] = [:]
     private var topicTimeMs = 0
+    private var failedReportCount = 0
+    private var reportBlockedUntil: Date?
+    private var isFlushing = false
     private var isSceneActive = true
     private var isRunning = false
 
@@ -116,10 +125,15 @@ final class FireTopicTimingTracker {
     }
 
     private func flushIfNeeded() async {
-        lastFlushAt = Date()
+        let now = Date()
+        lastFlushAt = now
 
+        guard !isFlushing else { return }
         guard let reporter else { return }
         guard topicTimeMs > 0 else { return }
+        if let reportBlockedUntil, reportBlockedUntil > now {
+            return
+        }
 
         let normalizedTimings = pendingTimings.reduce(into: [UInt32: UInt32]()) { partialResult, entry in
             guard entry.value > 0 else { return }
@@ -130,11 +144,25 @@ final class FireTopicTimingTracker {
         let normalizedTopicTimeMs = Self.normalizeMilliseconds(topicTimeMs)
         guard normalizedTopicTimeMs > 0 else { return }
 
+        isFlushing = true
         let didReport = await reporter(topicId, normalizedTopicTimeMs, normalizedTimings)
-        guard didReport else { return }
+        isFlushing = false
+        guard didReport else {
+            recordFailedReport(at: Date())
+            return
+        }
 
+        failedReportCount = 0
+        reportBlockedUntil = nil
         topicTimeMs = 0
         pendingTimings = [:]
+    }
+
+    private func recordFailedReport(at now: Date) {
+        let index = min(failedReportCount, Constants.failedReportBackoffIntervals.count - 1)
+        let interval = Constants.failedReportBackoffIntervals[index]
+        failedReportCount = failedReportCount.saturatingAdd(1)
+        reportBlockedUntil = now.addingTimeInterval(interval)
     }
 
     private static func normalizeMilliseconds(_ value: Int) -> UInt32 {

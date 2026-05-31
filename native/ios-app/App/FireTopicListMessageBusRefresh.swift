@@ -22,27 +22,23 @@ struct FireTopicListMessageBusRefreshController {
     private(set) var scope: FireTopicListRefreshScope?
     private(set) var lastRefreshAt: ContinuousClock.Instant?
     private var pendingTopicIDs: Set<UInt64> = []
-    private var requiresFullRefresh = false
 
     mutating func prepare(for scope: FireTopicListRefreshScope) {
         guard self.scope != scope else { return }
         self.scope = scope
         lastRefreshAt = nil
         pendingTopicIDs.removeAll()
-        requiresFullRefresh = false
     }
 
     mutating func reset() {
         scope = nil
         lastRefreshAt = nil
         pendingTopicIDs.removeAll()
-        requiresFullRefresh = false
     }
 
     mutating func clearPending(for scope: FireTopicListRefreshScope) {
         prepare(for: scope)
         pendingTopicIDs.removeAll()
-        requiresFullRefresh = false
     }
 
     mutating func register(
@@ -56,20 +52,15 @@ struct FireTopicListMessageBusRefreshController {
             return nil
         }
 
-        if shouldIncrementallyRefresh(
+        guard shouldIncrementallyRefresh(
             event: event,
             scope: scope,
             allowIncremental: allowIncremental
-        ) {
-            if let topicID = event.topicId {
-                pendingTopicIDs.insert(topicID)
-            } else {
-                requiresFullRefresh = true
-            }
-        } else {
-            requiresFullRefresh = true
+        ), let topicID = event.topicId else {
+            return nil
         }
 
+        pendingTopicIDs.insert(topicID)
         return scheduledDelay(now: now)
     }
 
@@ -77,12 +68,6 @@ struct FireTopicListMessageBusRefreshController {
         for scope: FireTopicListRefreshScope
     ) -> FireTopicListMessageBusRefreshMode? {
         prepare(for: scope)
-
-        if requiresFullRefresh {
-            requiresFullRefresh = false
-            pendingTopicIDs.removeAll()
-            return .full
-        }
 
         guard !pendingTopicIDs.isEmpty else {
             return nil

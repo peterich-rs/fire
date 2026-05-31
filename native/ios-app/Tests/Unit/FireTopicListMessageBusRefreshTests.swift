@@ -66,7 +66,7 @@ final class FireTopicListMessageBusRefreshTests: XCTestCase {
         )
     }
 
-    func testUnsupportedEventFallsBackToFullRefresh() {
+    func testUnsupportedEventDoesNotRequestFullRefresh() {
         let clock = ContinuousClock()
         let scope = FireTopicListRefreshScope(kind: .latest, categoryId: nil, tags: [])
         var controller = FireTopicListMessageBusRefreshController()
@@ -78,8 +78,24 @@ final class FireTopicListMessageBusRefreshTests: XCTestCase {
             allowIncremental: true
         )
 
-        XCTAssertEqual(delay, .seconds(1.5))
-        XCTAssertEqual(controller.takePendingRefresh(for: scope), .full)
+        XCTAssertNil(delay)
+        XCTAssertNil(controller.takePendingRefresh(for: scope))
+    }
+
+    func testFilteredScopeIgnoresTopicListEventsInsteadOfFullRefreshing() {
+        let clock = ContinuousClock()
+        let scope = FireTopicListRefreshScope(kind: .latest, categoryId: 42, tags: [])
+        var controller = FireTopicListMessageBusRefreshController()
+
+        let delay = controller.register(
+            event: makeLatestEvent(topicID: 101),
+            for: scope,
+            now: clock.now,
+            allowIncremental: false
+        )
+
+        XCTAssertNil(delay)
+        XCTAssertNil(controller.takePendingRefresh(for: scope))
     }
 
     func testIncrementalMergeMovesUpdatedTopicsToFront() {

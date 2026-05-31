@@ -230,8 +230,9 @@
 - 限流响应与 `POST /presence/update` 一致，服务端会通过 `extras.wait_seconds`（兼容 `time_left`）返回建议冷却时长
 - Fire 当前实现约束：
   - Rust 共享层持有 `/topics/timings` 的限流冷却窗口；冷却期内会直接跳过请求，避免继续撞 429
-  - `429` 对 `/topics/timings` 也是“软失败”；Rust 返回“本次未上报”给宿主层，iOS 会保留待发送时长，等下一次 flush 周期重试
+  - `429` 对 `/topics/timings` 也是“软失败”；Rust 返回“本次未上报”给宿主层，iOS 会保留待发送时长，并按宿主退避窗口等待后重试
   - 如果响应里没有可解析的等待时长，客户端回退到一个短默认冷却时间再恢复请求
+  - iOS 的 topic-detail viewport tracker 每 60 秒或离开/退后台时尝试 flush；失败后按 60s / 120s / 300s / 600s 上限退避，避免认证或 Cloudflare 状态未稳定时连续后台写入
   - `/topics/timings` 往往只是第一个暴露 auth 上下文问题的写接口；根因可能是更早一步已经出现显式失效，也可能是更早一步成功读请求只轮换了部分 auth Cookie
   - Fire 当前会在真正发送认证写请求前先刷新 CSRF；如果同一 auth epoch 仍带 partial rotation recovery hint，还会做一次有界的 host cookie resync，然后再执行原始写请求
 

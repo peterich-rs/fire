@@ -164,29 +164,11 @@ final class FirePostLayoutManager: ObservableObject {
             trait: trait
         )
 
-        let measuredTextHeight = FirePostCellLayoutCalculator.measureRichTextHeight(
+        let textHeight = FirePostCellLayoutCalculator.measureRichTextHeight(
             attributedText: attributedText,
             containerWidth: availableWidth,
             contentSizeCategory: contentSizeCategory
         )
-        let estimatedTextHeight = FirePostCellLayoutCalculator.estimatedRichTextHeight(
-            plainText: plainText,
-            hasAttributedText: (attributedText?.length ?? 0) > 0,
-            containerWidth: availableWidth,
-            contentSizeCategory: contentSizeCategory,
-            textExpansionState: key.textExpansionState
-        )
-        let textHeight: CGFloat?
-        switch (measuredTextHeight, estimatedTextHeight) {
-        case let (measured?, estimated?):
-            textHeight = max(measured, estimated)
-        case let (measured?, nil):
-            textHeight = measured
-        case let (nil, estimated?):
-            textHeight = estimated
-        case (nil, nil):
-            textHeight = nil
-        }
         let imageSizes = images.map { image in
             FirePostCellLayoutCalculator.imageRenderSize(
                 for: image,

@@ -310,6 +310,40 @@ final class FirePostCellLayoutCalculatorTests: XCTestCase {
         )
     }
 
+    func testTextureCellSuppressesAttachmentsOnlyWhenCollapsedTextOverflows() {
+        let state = FirePostTextExpansionState(isCollapsible: true, isExpanded: false)
+        let font = UIFont.preferredFont(forTextStyle: .subheadline)
+        let shortText = NSAttributedString(
+            string: "Short reply",
+            attributes: [.font: font]
+        )
+        let overflowingText = NSAttributedString(
+            string: Array(repeating: "Overflowing reply line", count: 8).joined(separator: "\n"),
+            attributes: [.font: font]
+        )
+        let avatarSize = FirePostCellLayoutCalculator.avatarSize(for: 1)
+        let avatarSpacing = FirePostCellLayoutCalculator.avatarSpacing(for: 1)
+
+        XCTAssertFalse(FirePostCellNode.shouldSuppressAttachmentsForCollapsedText(
+            attributedText: shortText,
+            textExpansionState: state,
+            totalWidth: 320,
+            depth: 1,
+            avatarSize: avatarSize,
+            avatarSpacing: avatarSpacing,
+            contentSizeCategory: .large
+        ))
+        XCTAssertTrue(FirePostCellNode.shouldSuppressAttachmentsForCollapsedText(
+            attributedText: overflowingText,
+            textExpansionState: state,
+            totalWidth: 320,
+            depth: 1,
+            avatarSize: avatarSize,
+            avatarSpacing: avatarSpacing,
+            contentSizeCategory: .large
+        ))
+    }
+
     func testCommentImageRenderSizeIsScaledDown() throws {
         let image = FireCookedImage(
             url: try XCTUnwrap(URL(string: "https://linux.do/uploads/default/original/1x/sample.png")),

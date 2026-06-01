@@ -183,6 +183,8 @@ enum FireRichTextParser {
                 topicId: attrs["data-topic"].flatMap(UInt64.init),
                 children: quotedBodyChildren(from: children)
             )]
+        case .divider:
+            return [.divider]
         case .list:
             let items = tree.children(of: node).compactMap { child -> [FireRichTextNode]? in
                 guard child.kind == .listItem else { return nil }
@@ -914,6 +916,7 @@ enum FireRichTextAttributedStringBuilder {
                 result.append(NSAttributedString(string: text, attributes: attrs))
 
             case .codeBlock(_, let code):
+                ensureBlockBoundary(result)
                 let codeFont = UIFont.monospacedSystemFont(
                     ofSize: context.baseFont.pointSize - 1,
                     weight: .regular
@@ -928,11 +931,7 @@ enum FireRichTextAttributedStringBuilder {
                     .backgroundColor: context.codeBackgroundColor,
                     .paragraphStyle: paragraph,
                 ]
-                if result.length > 0 && !result.string.hasSuffix("\n") {
-                    result.append(NSAttributedString(string: "\n"))
-                }
                 result.append(NSAttributedString(string: code.trimmingCharacters(in: .newlines), attributes: attrs))
-                result.append(NSAttributedString(string: "\n"))
 
             case .link(let url, let children):
                 let linkText = NSMutableAttributedString()
@@ -986,6 +985,7 @@ enum FireRichTextAttributedStringBuilder {
                 }
 
             case .heading(let level, let children):
+                ensureBlockBoundary(result)
                 let headingSize: CGFloat
                 switch level {
                 case 1: headingSize = context.baseFont.pointSize + 6
@@ -996,22 +996,13 @@ enum FireRichTextAttributedStringBuilder {
                 let headingFont = UIFont.systemFont(ofSize: headingSize, weight: .bold)
                 var headingContext = context
                 headingContext.isBold = true
-
-                if result.length > 0 && !result.string.hasSuffix("\n") {
-                    result.append(NSAttributedString(string: "\n"))
-                }
-
                 let headingResult = NSMutableAttributedString()
                 appendNodes(children, to: headingResult, context: headingContext)
                 headingResult.addAttribute(.font, value: headingFont, range: NSRange(location: 0, length: headingResult.length))
                 result.append(headingResult)
-                result.append(NSAttributedString(string: "\n"))
 
             case .blockquote(let children):
-                if result.length > 0 && !result.string.hasSuffix("\n") {
-                    result.append(NSAttributedString(string: "\n"))
-                }
-
+                ensureBlockBoundary(result)
                 let quoteResult = quoteBlockAttributedString(
                     author: nil,
                     postNumber: nil,
@@ -1020,15 +1011,9 @@ enum FireRichTextAttributedStringBuilder {
                     context: context
                 )
                 result.append(quoteResult)
-                if !quoteResult.string.hasSuffix("\n") {
-                    result.append(NSAttributedString(string: "\n"))
-                }
 
             case .quote(let author, let postNumber, let topicId, let children):
-                if result.length > 0 && !result.string.hasSuffix("\n") {
-                    result.append(NSAttributedString(string: "\n"))
-                }
-
+                ensureBlockBoundary(result)
                 let quoteResult = quoteBlockAttributedString(
                     author: author,
                     postNumber: postNumber,
@@ -1037,26 +1022,18 @@ enum FireRichTextAttributedStringBuilder {
                     context: context
                 )
                 result.append(quoteResult)
-                if !quoteResult.string.hasSuffix("\n") {
-                    result.append(NSAttributedString(string: "\n"))
-                }
 
             case .onebox(let url, let title, let description):
-                if result.length > 0 && !result.string.hasSuffix("\n") {
-                    result.append(NSAttributedString(string: "\n"))
-                }
+                ensureBlockBoundary(result)
                 result.append(oneboxAttributedString(
                     url: url,
                     title: title,
                     description: description,
                     context: context
                 ))
-                result.append(NSAttributedString(string: "\n"))
 
             case .list(let ordered, let items):
-                if result.length > 0 && !result.string.hasSuffix("\n") {
-                    result.append(NSAttributedString(string: "\n"))
-                }
+                ensureBlockBoundary(result)
                 for (index, item) in items.enumerated() {
                     if index > 0 {
                         result.append(NSAttributedString(string: "\n"))
@@ -1067,9 +1044,7 @@ enum FireRichTextAttributedStringBuilder {
                 }
 
             case .listItem(let children):
-                if result.length > 0 && !result.string.hasSuffix("\n") {
-                    result.append(NSAttributedString(string: "\n"))
-                }
+                ensureLineBreak(result)
                 let bullet = NSAttributedString(string: " • ", attributes: textAttributes(for: context))
                 result.append(bullet)
                 appendNodes(children, to: result, context: context)
@@ -1086,9 +1061,7 @@ enum FireRichTextAttributedStringBuilder {
                 }
 
             case .details(let summary, let children):
-                if result.length > 0 && !result.string.hasSuffix("\n") {
-                    result.append(NSAttributedString(string: "\n"))
-                }
+                ensureBlockBoundary(result)
                 let summaryResult = NSMutableAttributedString(
                     string: "▾ ",
                     attributes: textAttributes(for: context)
@@ -1096,14 +1069,12 @@ enum FireRichTextAttributedStringBuilder {
                 appendNodes(summary, to: summaryResult, context: context.withBold())
                 result.append(summaryResult)
                 if !children.isEmpty {
-                    result.append(NSAttributedString(string: "\n"))
+                    ensureLineBreak(result)
                     appendNodes(children, to: result, context: context.indented())
                 }
 
             case .table(let text):
-                if result.length > 0 && !result.string.hasSuffix("\n") {
-                    result.append(NSAttributedString(string: "\n"))
-                }
+                ensureBlockBoundary(result)
                 var attrs = textAttributes(for: context)
                 attrs[.font] = UIFont.monospacedSystemFont(
                     ofSize: context.baseFont.pointSize - 1,
@@ -1111,7 +1082,6 @@ enum FireRichTextAttributedStringBuilder {
                 )
                 attrs[.backgroundColor] = context.codeBackgroundColor
                 result.append(NSAttributedString(string: text, attributes: attrs))
-                result.append(NSAttributedString(string: "\n"))
 
             case .video(let url, let title):
                 let display = title?.isEmpty == false ? title! : url
@@ -1124,27 +1094,72 @@ enum FireRichTextAttributedStringBuilder {
                 ]))
 
             case .divider:
-                if result.length > 0 && !result.string.hasSuffix("\n") {
-                    result.append(NSAttributedString(string: "\n"))
-                }
+                ensureBlockBoundary(result)
                 result.append(NSAttributedString(
                     string: "----------",
                     attributes: textAttributes(for: context.withTextColor(.separator))
                 ))
-                result.append(NSAttributedString(string: "\n"))
 
             case .lineBreak:
                 result.append(NSAttributedString(string: "\n"))
 
             case .paragraph(let children):
-                if result.length > 0 && !result.string.hasSuffix("\n") && !result.string.hasSuffix("\n\n") {
-                    result.append(NSAttributedString(string: "\n"))
-                }
+                ensureBlockBoundary(result)
                 appendNodes(children, to: result, context: context)
 
             case .image:
                 break // Handled separately via imageAttachments
             }
+        }
+    }
+
+    /// Ensures the next block starts after a single blank-line boundary.
+    private static func ensureBlockBoundary(_ result: NSMutableAttributedString) {
+        trimTrailingSpaces(result)
+        guard result.length > 0 else { return }
+        let text = result.string as NSString
+        let newlineChar: unichar = 10
+        var trailingNewlines = 0
+        var idx = text.length - 1
+        while idx >= 0 && text.character(at: idx) == newlineChar {
+            trailingNewlines += 1
+            idx -= 1
+        }
+        if trailingNewlines > 2 {
+            let deleteStart = idx + 3
+            result.deleteCharacters(in: NSRange(location: deleteStart, length: trailingNewlines - 2))
+        }
+        if trailingNewlines == 0 {
+            result.append(NSAttributedString(string: "\n\n"))
+        } else if trailingNewlines == 1 {
+            result.append(NSAttributedString(string: "\n"))
+        }
+    }
+
+    /// Ensures exactly one trailing newline (for line breaks within blocks).
+    private static func ensureLineBreak(_ result: NSMutableAttributedString) {
+        trimTrailingSpaces(result)
+        guard result.length > 0 else { return }
+        let text = result.string as NSString
+        let newlineChar: unichar = 10
+        if text.length > 0 && text.character(at: text.length - 1) != newlineChar {
+            result.append(NSAttributedString(string: "\n"))
+        }
+    }
+
+    /// Removes trailing space and tab characters from the attributed string.
+    private static func trimTrailingSpaces(_ result: NSMutableAttributedString) {
+        let text = result.string as NSString
+        let spaceChar: unichar = 32
+        let tabChar: unichar = 9
+        var end = text.length
+        while end > 0 {
+            let char = text.character(at: end - 1)
+            if char != spaceChar && char != tabChar { break }
+            end -= 1
+        }
+        if end < text.length {
+            result.deleteCharacters(in: NSRange(location: end, length: text.length - end))
         }
     }
 
@@ -1235,7 +1250,7 @@ enum FireRichTextAttributedStringBuilder {
             remoteURL: url,
             fallbackText: fallbackText,
             displaySize: displaySize,
-            baselineOffset: font.descender
+            baselineOffset: font.descender - max(displaySize - font.lineHeight, 0) / 2
         )
     }
 
@@ -1586,7 +1601,7 @@ final class FireRichTextUIView: UITextView {
                     }
                 } catch {
                     await MainActor.run {
-                        self?.emojiLoadTasks.removeValue(forKey: cacheKey)
+                        _ = self?.emojiLoadTasks.removeValue(forKey: cacheKey)
                     }
                 }
             }

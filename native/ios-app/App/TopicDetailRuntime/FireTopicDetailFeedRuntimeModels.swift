@@ -281,6 +281,9 @@ struct FireTopicDetailRuntimeConfiguration {
         if isLoadingMoreTopicPosts {
             return .loadingFooter
         }
+        if hasMoreTopicPosts {
+            return .loadMore
+        }
         return .none
     }
 

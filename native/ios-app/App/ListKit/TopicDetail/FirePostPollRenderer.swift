@@ -95,12 +95,12 @@ private enum FirePostPollPlainTextCache {
 }
 
 final class FirePostPollView: UIView {
-    private static let contentInsets = UIEdgeInsets(top: 12, left: 12, bottom: 12, right: 12)
-    private static let headerSpacing: CGFloat = 10
-    private static let optionSpacing: CGFloat = 8
-    private static let footerSpacing: CGFloat = 10
-    private static let footerHeight: CGFloat = 30
-    fileprivate static let minOptionHeight: CGFloat = 40
+    nonisolated private static let contentInsets = UIEdgeInsets(top: 12, left: 12, bottom: 12, right: 12)
+    nonisolated private static let headerSpacing: CGFloat = 10
+    nonisolated private static let optionSpacing: CGFloat = 8
+    nonisolated private static let footerSpacing: CGFloat = 10
+    nonisolated private static let footerHeight: CGFloat = 30
+    nonisolated fileprivate static let minOptionHeight: CGFloat = 40
     fileprivate static let accentColor = UIColor { traits in
         if traits.userInterfaceStyle == .dark {
             return UIColor(red: 0.96, green: 0.45, blue: 0.22, alpha: 1)
@@ -131,7 +131,7 @@ final class FirePostPollView: UIView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    static func preferredHeight(
+    nonisolated static func preferredHeight(
         for model: FirePostPollRenderModel,
         availableWidth: CGFloat,
         contentSizeCategory: UIContentSizeCategory
@@ -370,7 +370,7 @@ final class FirePostPollView: UIView {
         }
     }
 
-    fileprivate static func textHeight(_ text: String, width: CGFloat, font: UIFont) -> CGFloat {
+    nonisolated fileprivate static func textHeight(_ text: String, width: CGFloat, font: UIFont) -> CGFloat {
         let rect = (text as NSString).boundingRect(
             with: CGSize(width: max(width, 1), height: .greatestFiniteMagnitude),
             options: [.usesLineFragmentOrigin, .usesFontLeading],
@@ -400,7 +400,7 @@ private final class FirePostPollOptionButton: UIControl {
         fatalError("init(coder:) has not been implemented")
     }
 
-    static func preferredHeight(
+    nonisolated static func preferredHeight(
         for option: FirePostPollOptionRenderModel,
         availableWidth: CGFloat,
         contentSizeCategory: UIContentSizeCategory

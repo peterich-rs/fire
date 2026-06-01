@@ -1,3 +1,4 @@
+import AsyncDisplayKit
 import Foundation
 import UIKit
 
@@ -289,29 +290,15 @@ enum FirePostCellLayoutCalculator {
             return nil
         }
 
+        let textNode = ASTextNode()
+        textNode.attributedText = attributedText
+        textNode.maximumNumberOfLines = 0
         let width = max(containerWidth, 1)
-        let textStorage = NSTextStorage(attributedString: attributedText)
-        let textContainer = NSTextContainer(size: CGSize(width: width, height: .greatestFiniteMagnitude))
-        textContainer.lineFragmentPadding = 0
-        let layoutManager = NSLayoutManager()
-        layoutManager.addTextContainer(textContainer)
-        textStorage.addLayoutManager(layoutManager)
-
-        if attributedText.attribute(.font, at: 0, effectiveRange: nil) == nil {
-            let scaledFont = UIFont.preferredFont(
-                forTextStyle: .subheadline,
-                compatibleWith: UITraitCollection(preferredContentSizeCategory: contentSizeCategory)
-            )
-            textStorage.addAttribute(
-                .font,
-                value: scaledFont,
-                range: NSRange(location: 0, length: textStorage.length)
-            )
-        }
-
-        layoutManager.ensureLayout(for: textContainer)
-        let rect = layoutManager.usedRect(for: textContainer)
-        return ceil(rect.height)
+        let layout = textNode.layoutThatFits(ASSizeRange(
+            min: CGSize(width: width, height: 0),
+            max: CGSize(width: width, height: .greatestFiniteMagnitude)
+        ))
+        return ceil(layout.size.height)
     }
 
     static func estimatedRichTextHeight(

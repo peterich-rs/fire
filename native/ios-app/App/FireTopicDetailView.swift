@@ -84,6 +84,23 @@ private struct FirePostReplyContext: Identifiable {
     var id: UInt64 { post.id }
 }
 
+private struct FireTopicDetailRuntimeInvalidationToken: Hashable {
+    let topicID: UInt64
+    let topicCollectionRevision: UInt64
+    let pendingScrollTarget: UInt32?
+    let detailError: String
+    let hasDetail: Bool
+    let isLoadingTopic: Bool
+    let isLoadingMoreTopicPosts: Bool
+    let hasMoreTopicPosts: Bool
+    let canWriteInteractions: Bool
+    let currentUsername: String
+    let baseURLString: String
+    let expandedPostTextIDs: Set<UInt64>
+    let expandedReplyRootPostIDs: Set<UInt64>
+    let loadingPostReplyContextIDs: Set<UInt64>
+}
+
 private struct FirePostFlagOption: Identifiable, Equatable, Hashable {
     let id: UInt32
     let nameKey: String
@@ -574,35 +591,22 @@ struct FireTopicDetailView: View {
     }
 
     private var detailRuntimeSnapshotInvalidationToken: AnyHashable {
-        let pendingScrollToken = pendingScrollTarget.map { String($0) } ?? ""
-        let expandedPostTextToken = expandedPostTextIDs
-            .sorted()
-            .map { String($0) }
-            .joined(separator: ",")
-        let expandedReplyRootToken = expandedReplyRootPostIDs
-            .sorted()
-            .map { String($0) }
-            .joined(separator: ",")
-        let loadingReplyContextToken = topicDetailStore.loadingPostReplyContextIDs
-            .sorted()
-            .map { String($0) }
-            .joined(separator: ",")
-        let parts: [String] = [
-            String(topic.id),
-            String(topicCollectionRevision),
-            pendingScrollToken,
-            detailError ?? "",
-            String(detail != nil),
-            String(isLoadingTopic),
-            String(isLoadingMoreTopicPosts),
-            String(canWriteInteractions),
-            viewModel.session.bootstrap.currentUsername ?? "",
-            baseURLString,
-            expandedPostTextToken,
-            expandedReplyRootToken,
-            loadingReplyContextToken,
-        ]
-        return AnyHashable(parts.joined(separator: "\u{1F}"))
+        AnyHashable(FireTopicDetailRuntimeInvalidationToken(
+            topicID: topic.id,
+            topicCollectionRevision: topicCollectionRevision,
+            pendingScrollTarget: pendingScrollTarget,
+            detailError: detailError ?? "",
+            hasDetail: detail != nil,
+            isLoadingTopic: isLoadingTopic,
+            isLoadingMoreTopicPosts: isLoadingMoreTopicPosts,
+            hasMoreTopicPosts: hasMoreTopicPosts,
+            canWriteInteractions: canWriteInteractions,
+            currentUsername: viewModel.session.bootstrap.currentUsername ?? "",
+            baseURLString: baseURLString,
+            expandedPostTextIDs: expandedPostTextIDs,
+            expandedReplyRootPostIDs: expandedReplyRootPostIDs,
+            loadingPostReplyContextIDs: topicDetailStore.loadingPostReplyContextIDs
+        ))
     }
 
     private var nonHeartReactionOptions: [FireReactionOption] {
@@ -828,13 +832,6 @@ struct FireTopicDetailView: View {
 
     private var detailNavigationContent: some View {
         detailCollectionContent
-        .simultaneousGesture(
-            TapGesture().onEnded {
-                if isReplyFieldFocused {
-                    dismissKeyboard()
-                }
-            }
-        )
         .navigationTitle("话题")
         .navigationBarTitleDisplayMode(.inline)
         .navigationDestination(item: $selectedRoute) { route in

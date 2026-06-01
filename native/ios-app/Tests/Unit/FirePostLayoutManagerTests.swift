@@ -112,7 +112,7 @@ final class FirePostLayoutManagerTests: XCTestCase {
         XCTAssertEqual(counter.value, 1)
     }
 
-    func testDefaultLayoutUsesPlainTextEstimateForCollapsedOverflow() async throws {
+    func testDefaultLayoutUsesMeasuredAttributedTextAsAuthoritativeHeight() async throws {
         let manager = FirePostLayoutManager(
             backgroundQueue: DispatchQueue(label: "FirePostLayoutManagerTests.overflow")
         )
@@ -143,7 +143,7 @@ final class FirePostLayoutManagerTests: XCTestCase {
             manager.layout(forKey: key) != nil
         }
 
-        XCTAssertNotNil(manager.layout(forKey: key)?.textExpansionFrame)
+        XCTAssertNil(manager.layout(forKey: key)?.textExpansionFrame)
     }
 
     nonisolated private static func makeKey(

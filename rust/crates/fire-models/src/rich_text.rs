@@ -20,6 +20,7 @@ pub enum CookedHtmlNodeKind {
     CodeBlock,
     Blockquote,
     DiscourseQuote,
+    Divider,
     List,
     ListItem,
     Spoiler,

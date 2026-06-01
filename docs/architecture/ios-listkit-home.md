@@ -1,7 +1,7 @@
 # iOS ListKit Home Migration
 
 Current repo state: topic detail moved beyond this shared collection-host
-slice and now uses the dedicated IGListKit runtime under
+slice and now uses the dedicated Texture `ASCollectionNode` runtime under
 `native/ios-app/App/TopicDetailRuntime/`.
 This document remains the original home-only migration record for the first
 slice on `refactor/ios-store-split`.

@@ -79,9 +79,9 @@ fire/
 - `third_party/` stores build dependencies as submodules so the superproject can be pushed cleanly to GitHub.
 - The root Cargo workspace owns only the local Fire crates.
 - iOS dependencies are owned by `native/ios-app/project.yml` and regenerated
-  through XcodeGen. Topic detail currently pins IGListKit 5.2.0 and Nuke 12.8.0
-  through SPM, and consumes Texture 3.2.0 through the local
-  `native/ios-app/LocalPackages/TextureCore` binary Swift package.
+  through XcodeGen. The app currently pins Nuke 12.8.0 through SPM and consumes
+  Texture 3.2.0 through the local `native/ios-app/LocalPackages/TextureCore`
+  binary XCFramework.
 
 ## Clean Worktree Workflow
 
@@ -132,7 +132,7 @@ fire/
   - Android topic detail now exposes shared Rust topic voting-plugin vote/unvote actions and voter-list dialogs from the native topic header
   - Android topic detail now exposes shared Rust post delete, recover, and report actions from each post's Actions menu, including server-provided report types
   - iOS topic-detail state is retained by per-view owner tokens while a detail screen is active, so background homepage refreshes can no longer evict an on-screen topic detail cache
-  - iOS now keeps a host-only prepared topic-detail render cache with compact cooked-content signatures, coalesces MessageBus ingress before MainActor delivery, and lets the topic-detail UIKit runtime skip unchanged IGListKit snapshots while leaving session/runtime ownership with Rust
+  - iOS now keeps a host-only prepared topic-detail render cache with compact cooked-content signatures, coalesces MessageBus ingress before MainActor delivery, and lets the Texture-backed topic-detail UIKit runtime skip unchanged snapshots while leaving session/runtime ownership with Rust
 
 The intended native integration order is:
 

@@ -259,7 +259,7 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
         XCTAssertFalse(FireTopicDetailListViewController.itemsHaveSameRenderedContent([idleItem!], [loadingItem!]))
     }
 
-    func testSnapshotSuppressesIdleLoadMoreFooterForNonEmptyRepliesWhenMoreAvailable() {
+    func testSnapshotShowsIdleLoadMoreFooterForNonEmptyRepliesWhenMoreAvailable() {
         let original = makePost(id: 100, postNumber: 1, username: "alice")
         let reply = makePost(id: 200, postNumber: 2, username: "bob", replyToPostNumber: 1)
         let renderState = FireTopicDetailRenderState(
@@ -279,8 +279,8 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
 
         let snapshot = configuration.makeSnapshot()
 
-        XCTAssertEqual(configuration.replyFooterState, .none)
-        XCTAssertFalse(snapshot.items.contains(where: { $0.kind == .replyFooter }))
+        XCTAssertEqual(configuration.replyFooterState, .loadMore)
+        XCTAssertEqual(snapshot.items.last?.kind, .replyFooter)
     }
 
     func testSnapshotShowsLoadingFooterWhileLoadingMoreReplies() {

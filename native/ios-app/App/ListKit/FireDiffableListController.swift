@@ -162,8 +162,6 @@ final class FireDiffableListController<SectionID: Hashable, ItemID: Hashable, Ro
     private var handledScrollRequestID: AnyHashable?
     private var animatingScrollRequest: FireCollectionScrollRequest<ItemID>?
     private var pendingSectionUpdate: FirePendingSectionUpdate<SectionID, ItemID>?
-    private var didRegisterNativeCell = false
-
     init(
         layout: UICollectionViewLayout,
         layoutVersion: AnyHashable = 0,
@@ -269,8 +267,6 @@ final class FireDiffableListController<SectionID: Hashable, ItemID: Hashable, Ro
         }
         hostedCellRegistration = hostedReg
 
-        ensureNativeCellRegisteredIfNeeded()
-
         dataSource = UICollectionViewDiffableDataSource<SectionID, ItemID>(
             collectionView: collectionView
         ) { [weak self] collectionView, indexPath, itemID in
@@ -317,21 +313,6 @@ final class FireDiffableListController<SectionID: Hashable, ItemID: Hashable, Ro
     ) {
         self.shouldUseNativeCell = shouldUseNativeCell
         self.nativeCellProvider = nativeCellProvider
-        ensureNativeCellRegisteredIfNeeded()
-    }
-
-    private func ensureNativeCellRegisteredIfNeeded() {
-        guard !didRegisterNativeCell,
-              shouldUseNativeCell != nil || nativeCellProvider != nil,
-              let collectionView else {
-            return
-        }
-
-        collectionView.register(
-            FirePostCollectionViewCell.self,
-            forCellWithReuseIdentifier: FirePostCollectionViewCell.reuseID
-        )
-        didRegisterNativeCell = true
     }
 
     func updateOnContentWidthChanged(_ handler: ((CGFloat) -> Void)?) {

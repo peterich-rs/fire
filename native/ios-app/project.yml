@@ -8,9 +8,6 @@ packages:
   ConfettiSwiftUI:
     url: https://github.com/simibac/ConfettiSwiftUI.git
     exactVersion: 3.0.0
-  IGListKit:
-    url: https://github.com/Instagram/IGListKit.git
-    exactVersion: 5.2.0
   Nuke:
     url: https://github.com/kean/Nuke.git
     exactVersion: 12.8.0
@@ -62,8 +59,6 @@ targets:
         product: CrashReporter
       - package: ConfettiSwiftUI
         product: ConfettiSwiftUI
-      - package: IGListKit
-        product: IGListKit
       - package: Nuke
         product: Nuke
       - framework: LocalPackages/TextureCore/Artifacts/AsyncDisplayKit.xcframework

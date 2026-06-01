@@ -471,6 +471,7 @@ fn node_kind_for_element(tag: &str, classes: &str) -> Option<CookedHtmlNodeKind>
         "blockquote" => Some(CookedHtmlNodeKind::Blockquote),
         "aside" if has_class("quote") => Some(CookedHtmlNodeKind::DiscourseQuote),
         "aside" => Some(CookedHtmlNodeKind::Onebox),
+        "hr" => Some(CookedHtmlNodeKind::Divider),
         "ul" | "ol" => Some(CookedHtmlNodeKind::List),
         "li" => Some(CookedHtmlNodeKind::ListItem),
         "details" => Some(CookedHtmlNodeKind::Details),

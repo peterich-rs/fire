@@ -68,6 +68,7 @@ struct FirePostCellRenderPayload {
     let isLoadingReplyContext: Bool
     let textExpansionState: FirePostTextExpansionState
     let showsDivider: Bool
+    let layoutWidth: CGFloat
 }
 
 struct FirePostCellCallbacks {

@@ -1,4 +1,4 @@
-import SwiftUI
+import AsyncDisplayKit
 import UIKit
 
 enum FireTopicDetailRuntimeCellColors {
@@ -7,6 +7,31 @@ enum FireTopicDetailRuntimeCellColors {
             return UIColor(red: 0.96, green: 0.45, blue: 0.22, alpha: 1)
         }
         return UIColor(red: 0.91, green: 0.39, blue: 0.18, alpha: 1)
+    }
+    static let warning = UIColor { traits in
+        if traits.userInterfaceStyle == .dark {
+            return UIColor(red: 0.93, green: 0.60, blue: 0.29, alpha: 1)
+        }
+        return UIColor(red: 0.80, green: 0.49, blue: 0.20, alpha: 1)
+    }
+    static let tagChipBackground = UIColor { traits in
+        if traits.userInterfaceStyle == .dark {
+            return UIColor(white: 1, alpha: 0.10)
+        }
+        return UIColor(red: 0.46, green: 0.46, blue: 0.50, alpha: 0.08)
+    }
+    static let tagChipForeground = UIColor { traits in
+        if traits.userInterfaceStyle == .dark {
+            return UIColor(red: 0.85, green: 0.84, blue: 0.82, alpha: 1)
+        }
+        return UIColor(red: 0.30, green: 0.30, blue: 0.33, alpha: 1)
+    }
+    static let privateMessageForeground = UIColor.systemIndigo
+
+    static func categoryChipBackground(accent: UIColor) -> UIColor {
+        UIColor { traits in
+            accent.withAlphaComponent(traits.userInterfaceStyle == .dark ? 0.22 : 0.14)
+        }
     }
 }
 
@@ -600,215 +625,347 @@ final class FireTopicDetailTopicVoteCell: UICollectionViewCell {
     }
 }
 
-final class FireTopicDetailHostingCell: UICollectionViewCell {
-    static let reuseID = "FireTopicDetailHostingCell"
+final class FireTopicDetailHeaderCellNode: ASCellNode {
+    private let titleNode = ASTextNode()
+    private let chipNodes: [ASButtonNode]
 
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        backgroundConfiguration = .clear()
-        contentView.backgroundColor = .systemBackground
-    }
+    init(configuration: FireTopicDetailRuntimeConfiguration) {
+        var chips: [ASButtonNode] = []
 
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
+        titleNode.attributedText = NSAttributedString(
+            string: configuration.displayedTopicTitle,
+            attributes: [
+                .font: FireTopicDetailRuntimeTypography.scaledFont(textStyle: .title3, weight: .bold),
+                .foregroundColor: UIColor.label,
+            ]
+        )
+        titleNode.maximumNumberOfLines = 0
+        titleNode.style.flexShrink = 1.0
 
-    func configure(configuration: FireTopicDetailRuntimeConfiguration, item: FireTopicDetailRuntimeItem) {
-        backgroundConfiguration = .clear()
-        contentConfiguration = UIHostingConfiguration {
-            FireTopicDetailHostedRow(configuration: configuration, item: item)
-        }
-        .margins(.all, 0)
-    }
+        if configuration.isPrivateMessageThread {
+            chips.append(Self.makeChip(
+                title: "私信",
+                foregroundColor: FireTopicDetailRuntimeCellColors.accent,
+                backgroundColor: FireTopicDetailRuntimeCellColors.accent.withAlphaComponent(0.12)
+            ))
 
-    override func prepareForReuse() {
-        super.prepareForReuse()
-        contentConfiguration = nil
-    }
-}
-
-struct FireTopicDetailHostedRow: View {
-    @Environment(\.colorScheme) private var colorScheme
-
-    let configuration: FireTopicDetailRuntimeConfiguration
-    let item: FireTopicDetailRuntimeItem
-
-    var body: some View {
-        content
-            .background(Color(.systemBackground))
-    }
-
-    @ViewBuilder
-    private var content: some View {
-        switch item.kind {
-        case .header:
-            headerRow
-        case .aiSummary:
-            topicAiSummaryRow
-        case .originalPost, .stats, .topicVote, .repliesHeader, .bodyState, .reply, .replyFooter, .notice:
-            EmptyView()
-        }
-    }
-
-    private var headerRow: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(configuration.displayedTopicTitle)
-                .font(.title3.weight(.bold))
-
-            FlowLayout(spacing: 6, fallbackWidth: max(UIScreen.main.bounds.width - 40, 200)) {
-                if configuration.isPrivateMessageThread {
-                    FireStatusChip(label: "私信", tone: .accent)
-
-                    ForEach(configuration.displayedParticipants, id: \.userId) { participant in
-                        let label = (participant.name ?? "").ifEmpty(participant.username ?? "用户 \(participant.userId)")
-                        Text("@\(label)")
-                            .font(.caption2.weight(.medium))
-                            .foregroundStyle(.indigo)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(Color.indigo.opacity(0.12), in: Capsule())
+            for participant in configuration.displayedParticipants {
+                let label = (participant.name ?? "").ifEmpty(participant.username ?? "用户 \(participant.userId)")
+                chips.append(Self.makeChip(
+                    title: "@\(label)",
+                    foregroundColor: FireTopicDetailRuntimeCellColors.privateMessageForeground,
+                    backgroundColor: FireTopicDetailRuntimeCellColors.privateMessageForeground.withAlphaComponent(0.12)
+                ))
+            }
+        } else {
+            if let category = configuration.displayedCategory {
+                let accent = UIColor(fireHex: category.colorHex) ?? FireTopicDetailRuntimeCellColors.accent
+                chips.append(Self.makeChip(
+                    title: category.displayName,
+                    foregroundColor: accent,
+                    backgroundColor: FireTopicDetailRuntimeCellColors.categoryChipBackground(accent: accent),
+                    action: configuration.viewModel == nil ? nil : {
+                        configuration.onOpenCategory(category)
                     }
-                } else {
-                    if let displayedCategory = configuration.displayedCategory {
-                        let accent = Color(fireHex: displayedCategory.colorHex) ?? FireTheme.accent
-                        if let viewModel = configuration.viewModel {
-                            NavigationLink {
-                                FireFilteredTopicListView(
-                                    viewModel: viewModel,
-                                    title: displayedCategory.displayName,
-                                    categorySlug: displayedCategory.slug,
-                                    categoryId: displayedCategory.id,
-                                    parentCategorySlug: nil,
-                                    tag: nil
-                                )
-                            } label: {
-                                categoryPill(displayedCategory: displayedCategory, accent: accent)
-                            }
-                            .buttonStyle(.plain)
-                        } else {
-                            categoryPill(displayedCategory: displayedCategory, accent: accent)
-                        }
-                    }
+                ))
+            }
 
-                    ForEach(configuration.displayedTagNames, id: \.self) { tagName in
-                        if let viewModel = configuration.viewModel {
-                            NavigationLink {
-                                FireFilteredTopicListView(
-                                    viewModel: viewModel,
-                                    title: "#\(tagName)",
-                                    categorySlug: nil,
-                                    categoryId: nil,
-                                    parentCategorySlug: nil,
-                                    tag: tagName
-                                )
-                            } label: {
-                                tagPill(tagName)
-                            }
-                            .buttonStyle(.plain)
-                        } else {
-                            tagPill(tagName)
-                        }
+            for tagName in configuration.displayedTagNames {
+                chips.append(Self.makeChip(
+                    title: "#\(tagName)",
+                    foregroundColor: FireTopicDetailRuntimeCellColors.tagChipForeground,
+                    backgroundColor: FireTopicDetailRuntimeCellColors.tagChipBackground,
+                    horizontalInset: 6,
+                    verticalInset: 3,
+                    action: configuration.viewModel == nil ? nil : {
+                        configuration.onOpenTag(tagName)
                     }
+                ))
+            }
 
-                    ForEach(configuration.row.statusLabels, id: \.self) { label in
-                        FireStatusChip(label: label, tone: .accent)
-                    }
-                }
+            for label in configuration.row.statusLabels {
+                chips.append(Self.makeChip(
+                    title: label,
+                    foregroundColor: FireTopicDetailRuntimeCellColors.accent,
+                    backgroundColor: FireTopicDetailRuntimeCellColors.accent.withAlphaComponent(0.12)
+                ))
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.top, 16)
-        .frame(maxWidth: .infinity, alignment: .leading)
+
+        chipNodes = chips
+        super.init()
+        automaticallyManagesSubnodes = true
+        backgroundColor = .systemBackground
+        isAccessibilityElement = true
+        accessibilityLabel = [configuration.displayedTopicTitle, chips.compactMap(\.accessibilityLabel).joined(separator: ", ")]
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n")
     }
 
-    private func categoryPill(
-        displayedCategory: FireTopicCategoryPresentation,
-        accent: Color
-    ) -> some View {
-        FireTopicPill(
-            label: displayedCategory.displayName,
-            backgroundColor: FireTheme.categoryChipBackground(
-                accent: accent,
-                isDark: colorScheme == .dark
-            ),
-            foregroundColor: accent
+    override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
+        var children: [ASLayoutElement] = [titleNode]
+        if !chipNodes.isEmpty {
+            let chipStack = ASStackLayoutSpec(
+                direction: .horizontal,
+                spacing: 6,
+                justifyContent: .start,
+                alignItems: .start,
+                children: chipNodes
+            )
+            chipStack.flexWrap = .wrap
+            chipStack.alignContent = .start
+            chipStack.lineSpacing = 6
+            children.append(chipStack)
+        }
+
+        let stack = ASStackLayoutSpec(
+            direction: .vertical,
+            spacing: 12,
+            justifyContent: .start,
+            alignItems: .stretch,
+            children: children
+        )
+        return ASInsetLayoutSpec(
+            insets: UIEdgeInsets(top: 16, left: 16, bottom: 0, right: 16),
+            child: stack
         )
     }
 
-    private func tagPill(_ tagName: String) -> some View {
-        Text("#\(tagName)")
-            .font(.caption2.weight(.medium))
-            .foregroundStyle(FireTheme.tagChipForeground)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 3)
-            .background(FireTheme.tagChipBackground)
-            .clipShape(Capsule())
-    }
-
-    @ViewBuilder
-    private var topicAiSummaryRow: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
-                Image(systemName: "sparkles")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(FireTheme.accent)
-                Text("AI 摘要")
-                    .font(.subheadline.weight(.semibold))
-                Spacer(minLength: 0)
-                if configuration.topicAiSummary?.outdated == true {
-                    Text("有新回复")
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(FireTheme.warning)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 3)
-                        .background(FireTheme.warning.opacity(0.12), in: Capsule())
-                }
-            }
-
-            if let topicAiSummary = configuration.topicAiSummary {
-                Text(topicAiSummary.summarizedText)
-                    .font(.subheadline)
-                    .foregroundStyle(.primary)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                let metadata = topicAiSummaryMetadata(topicAiSummary)
-                if !metadata.isEmpty {
-                    Text(metadata.joined(separator: " · "))
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
-            } else if configuration.isLoadingTopicAiSummary {
-                HStack(spacing: 8) {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text("正在加载摘要…")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            } else if let topicAiSummaryError = configuration.topicAiSummaryError {
-                HStack(spacing: 8) {
-                    Text(topicAiSummaryError)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
-                    Spacer(minLength: 0)
-                    Button("重试") {
-                        configuration.onReloadTopicAiSummary()
-                    }
-                    .font(.caption.weight(.semibold))
-                }
-            }
+    private static func makeChip(
+        title: String,
+        foregroundColor: UIColor,
+        backgroundColor: UIColor,
+        horizontalInset: CGFloat = 8,
+        verticalInset: CGFloat = 4,
+        action: (() -> Void)? = nil
+    ) -> ASButtonNode {
+        let node = FireTopicDetailChipButtonNode(action: action)
+        node.setAttributedTitle(
+            NSAttributedString(
+                string: title,
+                attributes: [
+                    .font: FireTopicDetailRuntimeTypography.scaledFont(textStyle: .caption2, weight: .medium),
+                    .foregroundColor: foregroundColor,
+                ]
+            ),
+            for: .normal
+        )
+        node.contentEdgeInsets = UIEdgeInsets(
+            top: verticalInset,
+            left: horizontalInset,
+            bottom: verticalInset,
+            right: horizontalInset
+        )
+        node.backgroundColor = backgroundColor
+        node.cornerRadius = 12
+        node.clipsToBounds = true
+        node.isEnabled = action != nil
+        node.accessibilityLabel = title
+        if action != nil {
+            node.accessibilityTraits.insert(.button)
         }
-        .padding(14)
-        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 8))
-        .padding(.horizontal, 16)
-        .padding(.top, 4)
-        .padding(.bottom, 10)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        return node
+    }
+}
+
+final class FireTopicDetailAISummaryCellNode: ASCellNode {
+    private let backgroundNode = ASDisplayNode()
+    private let iconNode = ASImageNode()
+    private let titleNode = ASTextNode()
+    private let statusNode = ASTextNode()
+    private let bodyNode = ASTextNode()
+    private let metadataNode = ASTextNode()
+    private let loadingIndicatorNode: ASDisplayNode?
+    private let retryButtonNode: ASButtonNode?
+
+    init(configuration: FireTopicDetailRuntimeConfiguration) {
+        backgroundNode.backgroundColor = .secondarySystemBackground
+        backgroundNode.cornerRadius = 8
+        backgroundNode.clipsToBounds = true
+
+        iconNode.image = UIImage(systemName: "sparkles")?.withTintColor(
+            FireTopicDetailRuntimeCellColors.accent,
+            renderingMode: .alwaysOriginal
+        )
+        iconNode.style.preferredSize = CGSize(width: 17, height: 17)
+
+        titleNode.attributedText = NSAttributedString(
+            string: "AI 摘要",
+            attributes: [
+                .font: FireTopicDetailRuntimeTypography.scaledFont(textStyle: .subheadline, weight: .semibold),
+                .foregroundColor: UIColor.label,
+            ]
+        )
+
+        if configuration.topicAiSummary?.outdated == true {
+            statusNode.attributedText = NSAttributedString(
+                string: "有新回复",
+                attributes: [
+                    .font: FireTopicDetailRuntimeTypography.scaledFont(textStyle: .caption2, weight: .semibold),
+                    .foregroundColor: FireTopicDetailRuntimeCellColors.warning,
+                ]
+            )
+            statusNode.backgroundColor = FireTopicDetailRuntimeCellColors.warning.withAlphaComponent(0.12)
+            statusNode.cornerRadius = 10
+            statusNode.textContainerInset = UIEdgeInsets(top: 3, left: 8, bottom: 3, right: 8)
+        } else {
+            statusNode.isHidden = true
+        }
+
+        if let topicAiSummary = configuration.topicAiSummary {
+            bodyNode.attributedText = NSAttributedString(
+                string: topicAiSummary.summarizedText,
+                attributes: [
+                    .font: UIFont.preferredFont(forTextStyle: .subheadline),
+                    .foregroundColor: UIColor.label,
+                ]
+            )
+            bodyNode.maximumNumberOfLines = 0
+            bodyNode.style.flexShrink = 1.0
+
+            let metadata = Self.metadata(for: topicAiSummary)
+            if !metadata.isEmpty {
+                metadataNode.attributedText = NSAttributedString(
+                    string: metadata.joined(separator: " · "),
+                    attributes: [
+                        .font: UIFont.preferredFont(forTextStyle: .caption2),
+                        .foregroundColor: UIColor.secondaryLabel,
+                    ]
+                )
+                metadataNode.maximumNumberOfLines = 0
+            } else {
+                metadataNode.isHidden = true
+            }
+            loadingIndicatorNode = nil
+            retryButtonNode = nil
+        } else if configuration.isLoadingTopicAiSummary {
+            bodyNode.attributedText = NSAttributedString(
+                string: "正在加载摘要...",
+                attributes: [
+                    .font: UIFont.preferredFont(forTextStyle: .caption1),
+                    .foregroundColor: UIColor.secondaryLabel,
+                ]
+            )
+            loadingIndicatorNode = ASDisplayNode(viewBlock: {
+                let view = UIActivityIndicatorView(style: .medium)
+                view.startAnimating()
+                return view
+            })
+            loadingIndicatorNode?.style.preferredSize = CGSize(width: 20, height: 20)
+            metadataNode.isHidden = true
+            retryButtonNode = nil
+        } else if let topicAiSummaryError = configuration.topicAiSummaryError {
+            bodyNode.attributedText = NSAttributedString(
+                string: topicAiSummaryError,
+                attributes: [
+                    .font: UIFont.preferredFont(forTextStyle: .caption1),
+                    .foregroundColor: UIColor.secondaryLabel,
+                ]
+            )
+            bodyNode.maximumNumberOfLines = 2
+            bodyNode.style.flexShrink = 1.0
+            metadataNode.isHidden = true
+
+            let button = FireTopicDetailChipButtonNode(action: configuration.onReloadTopicAiSummary)
+            button.setTitle(
+                "重试",
+                with: FireTopicDetailRuntimeTypography.scaledFont(textStyle: .caption1, weight: .semibold),
+                with: FireTopicDetailRuntimeCellColors.accent,
+                for: .normal
+            )
+            button.contentEdgeInsets = UIEdgeInsets(top: 4, left: 8, bottom: 4, right: 8)
+            button.accessibilityLabel = "重试 AI 摘要"
+            retryButtonNode = button
+            loadingIndicatorNode = nil
+        } else {
+            bodyNode.isHidden = true
+            metadataNode.isHidden = true
+            loadingIndicatorNode = nil
+            retryButtonNode = nil
+        }
+
+        super.init()
+        automaticallyManagesSubnodes = true
+        backgroundColor = .systemBackground
+        isAccessibilityElement = true
+        accessibilityLabel = [
+            "AI 摘要",
+            statusNode.isHidden ? nil : "有新回复",
+            bodyNode.attributedText?.string,
+            metadataNode.attributedText?.string,
+        ]
+        .compactMap { $0 }
+        .filter { !$0.isEmpty }
+        .joined(separator: "，")
     }
 
-    private func topicAiSummaryMetadata(_ summary: TopicAiSummaryState) -> [String] {
+    override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
+        let headerSpacer = ASLayoutSpec()
+        headerSpacer.style.flexGrow = 1.0
+        let headerChildren: [ASLayoutElement] = [
+            iconNode,
+            titleNode,
+            headerSpacer,
+            statusNode,
+        ].filter { element in
+            guard let node = element as? ASDisplayNode else { return true }
+            return !node.isHidden
+        }
+        let header = ASStackLayoutSpec(
+            direction: .horizontal,
+            spacing: 8,
+            justifyContent: .start,
+            alignItems: .center,
+            children: headerChildren
+        )
+
+        var contentChildren: [ASLayoutElement] = [header]
+        if let loadingIndicatorNode {
+            let loadingRow = ASStackLayoutSpec(
+                direction: .horizontal,
+                spacing: 8,
+                justifyContent: .start,
+                alignItems: .center,
+                children: [loadingIndicatorNode, bodyNode]
+            )
+            contentChildren.append(loadingRow)
+        } else if let retryButtonNode {
+            let spacer = ASLayoutSpec()
+            spacer.style.flexGrow = 1.0
+            let errorRow = ASStackLayoutSpec(
+                direction: .horizontal,
+                spacing: 8,
+                justifyContent: .start,
+                alignItems: .center,
+                children: [bodyNode, spacer, retryButtonNode]
+            )
+            contentChildren.append(errorRow)
+        } else if !bodyNode.isHidden {
+            contentChildren.append(bodyNode)
+        }
+        if !metadataNode.isHidden {
+            contentChildren.append(metadataNode)
+        }
+
+        let contentStack = ASStackLayoutSpec(
+            direction: .vertical,
+            spacing: 10,
+            justifyContent: .start,
+            alignItems: .stretch,
+            children: contentChildren
+        )
+        let paddedContent = ASInsetLayoutSpec(
+            insets: UIEdgeInsets(top: 14, left: 14, bottom: 14, right: 14),
+            child: contentStack
+        )
+        let card = ASBackgroundLayoutSpec(child: paddedContent, background: backgroundNode)
+        return ASInsetLayoutSpec(
+            insets: UIEdgeInsets(top: 4, left: 16, bottom: 10, right: 16),
+            child: card
+        )
+    }
+
+    private static func metadata(for summary: TopicAiSummaryState) -> [String] {
         var metadata: [String] = []
         if let updatedAt = FireTopicPresentation.formatTimestamp(summary.updatedAt) {
             metadata.append("更新 \(updatedAt)")
@@ -824,5 +981,50 @@ struct FireTopicDetailHostedRow: View {
             metadata.append("可重新生成")
         }
         return metadata
+    }
+}
+
+private final class FireTopicDetailChipButtonNode: ASButtonNode {
+    private let action: (() -> Void)?
+
+    init(action: (() -> Void)?) {
+        self.action = action
+        super.init()
+        addTarget(self, action: #selector(handleTap), forControlEvents: .touchUpInside)
+    }
+
+    @objc private func handleTap() {
+        action?()
+    }
+}
+
+private enum FireTopicDetailRuntimeTypography {
+    static func scaledFont(textStyle: UIFont.TextStyle, weight: UIFont.Weight) -> UIFont {
+        let preferred = UIFont.preferredFont(forTextStyle: textStyle)
+        return UIFontMetrics(forTextStyle: textStyle).scaledFont(
+            for: UIFont.systemFont(ofSize: preferred.pointSize, weight: weight)
+        )
+    }
+}
+
+private extension UIColor {
+    convenience init?(fireHex hex: String?) {
+        guard let hex else {
+            return nil
+        }
+
+        let cleaned = hex
+            .trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
+            .uppercased()
+        guard cleaned.count == 6, let value = Int(cleaned, radix: 16) else {
+            return nil
+        }
+
+        self.init(
+            red: CGFloat((value >> 16) & 0xFF) / 255.0,
+            green: CGFloat((value >> 8) & 0xFF) / 255.0,
+            blue: CGFloat(value & 0xFF) / 255.0,
+            alpha: 1.0
+        )
     }
 }

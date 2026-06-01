@@ -84,6 +84,44 @@ private struct FirePostReplyContext: Identifiable {
     var id: UInt64 { post.id }
 }
 
+private struct FireTopicFilterRoute: Identifiable, Hashable {
+    let title: String
+    let categorySlug: String?
+    let categoryId: UInt64?
+    let parentCategorySlug: String?
+    let tag: String?
+
+    var id: String {
+        [
+            categoryId.map { "category:\($0)" },
+            tag.map { "tag:\($0)" },
+            title,
+        ]
+        .compactMap { $0 }
+        .joined(separator: "|")
+    }
+
+    static func category(_ category: FireTopicCategoryPresentation) -> Self {
+        Self(
+            title: category.displayName,
+            categorySlug: category.slug,
+            categoryId: category.id,
+            parentCategorySlug: nil,
+            tag: nil
+        )
+    }
+
+    static func tag(_ tagName: String) -> Self {
+        Self(
+            title: "#\(tagName)",
+            categorySlug: nil,
+            categoryId: nil,
+            parentCategorySlug: nil,
+            tag: tagName
+        )
+    }
+}
+
 private struct FireTopicDetailRuntimeInvalidationToken: Hashable {
     let topicID: UInt64
     let topicCollectionRevision: UInt64
@@ -467,6 +505,7 @@ struct FireTopicDetailView: View {
     @State private var cachedDetail: TopicDetailState?
     @State private var cachedRenderState: FireTopicDetailRenderState?
     @State private var selectedRoute: FireAppRoute?
+    @State private var selectedFilterRoute: FireTopicFilterRoute?
     @State private var profileSheetContext: FireProfileSheetContext?
     @State private var postReplyContext: FirePostReplyContext?
     @State private var expandedPostTextIDs: Set<UInt64> = []
@@ -825,7 +864,13 @@ struct FireTopicDetailView: View {
                     removePollVote(for: post, poll: poll)
                 },
                 onToggleTopicVote: toggleTopicVote,
-                onShowTopicVoters: presentTopicVoters
+                onShowTopicVoters: presentTopicVoters,
+                onOpenCategory: { category in
+                    selectedFilterRoute = .category(category)
+                },
+                onOpenTag: { tagName in
+                    selectedFilterRoute = .tag(tagName)
+                }
             )
         )
     }
@@ -836,6 +881,16 @@ struct FireTopicDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .navigationDestination(item: $selectedRoute) { route in
             FireAppRouteDestinationView(viewModel: viewModel, route: route)
+        }
+        .navigationDestination(item: $selectedFilterRoute) { route in
+            FireFilteredTopicListView(
+                viewModel: viewModel,
+                title: route.title,
+                categorySlug: route.categorySlug,
+                categoryId: route.categoryId,
+                parentCategorySlug: route.parentCategorySlug,
+                tag: route.tag
+            )
         }
         .toolbar(.hidden, for: .tabBar)
         .toolbar { topicToolbar }
@@ -1226,15 +1281,6 @@ struct FireTopicDetailView: View {
                 quickReplyError = nil
             }
         }
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 0)
-                .onChanged { _ in
-                    timingTracker.recordInteraction()
-                }
-        )
-        .simultaneousGesture(TapGesture().onEnded {
-            timingTracker.recordInteraction()
-        })
     }
 
     private static func makeDetailOwnerToken(topicId: UInt64) -> String {
@@ -1242,6 +1288,9 @@ struct FireTopicDetailView: View {
     }
 
     private func handleVisiblePostNumbersChanged(_ visiblePostNumbers: Set<UInt32>) {
+        if !visiblePostNumbers.isEmpty {
+            timingTracker.recordInteraction()
+        }
         timingTracker.updateVisiblePostNumbers(visiblePostNumbers)
 
         topicDetailStore.handleVisiblePostNumbersChanged(

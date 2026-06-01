@@ -156,6 +156,8 @@ struct FireTopicDetailRuntimeConfiguration {
     let onUnvotePoll: (TopicPostState, PollState) -> Void
     let onToggleTopicVote: () async -> Void
     let onShowTopicVoters: () async -> Void
+    let onOpenCategory: (FireTopicCategoryPresentation) -> Void
+    let onOpenTag: (String) -> Void
 
     var topic: TopicSummaryState {
         row.topic

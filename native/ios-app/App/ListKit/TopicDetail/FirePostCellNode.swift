@@ -1,7 +1,7 @@
 import AsyncDisplayKit
 import UIKit
 
-final class FirePostCellNode: ASCellNode {
+final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
     private static let replySwipeTriggerThreshold: CGFloat = 55
 
     private static let accentTextColor = UIColor { traits in
@@ -73,6 +73,7 @@ final class FirePostCellNode: ASCellNode {
     override func didLoad() {
         super.didLoad()
         swipeGestureRecognizer.cancelsTouchesInView = false
+        swipeGestureRecognizer.delegate = self
         view.addGestureRecognizer(swipeGestureRecognizer)
     }
 
@@ -117,12 +118,14 @@ final class FirePostCellNode: ASCellNode {
         usernameNode.maximumNumberOfLines = 1
         usernameNode.truncationMode = .byTruncatingTail
         usernameNode.isLayerBacked = true
+        usernameNode.style.flexShrink = 1.0
 
         replyContextNode.titleNode.maximumNumberOfLines = 1
         replyContextNode.titleNode.truncationMode = .byTruncatingTail
         replyContextNode.contentEdgeInsets = .zero
         replyContextNode.addTarget(self, action: #selector(handleReplyContextTap), forControlEvents: .touchUpInside)
         replyContextNode.isHidden = true
+        replyContextNode.style.flexShrink = 1.0
 
         timestampNode.isLayerBacked = true
         acceptedAnswerNode.isHidden = true
@@ -141,6 +144,7 @@ final class FirePostCellNode: ASCellNode {
         bodyTextNode.isUserInteractionEnabled = true
         bodyTextNode.placeholderEnabled = true
         bodyTextNode.placeholderColor = .tertiarySystemFill
+        bodyTextNode.style.flexShrink = 1.0
 
         // Images
         imageContainerNode.isHidden = true
@@ -556,6 +560,12 @@ final class FirePostCellNode: ASCellNode {
         let avatarSp = currentAvatarSpacing
         let outerPadding: CGFloat = 16
         let totalWidth = constrainedSize.max.width.isFinite ? constrainedSize.max.width : currentLayoutWidth
+        let contentAvailableWidth = Self.availableContentWidth(
+            totalWidth: totalWidth,
+            depth: currentDepth,
+            avatarSize: currentAvatarSize,
+            avatarSpacing: currentAvatarSpacing
+        )
         let shouldSuppressAttachments = (!imageNodes.isEmpty || !pollContainerNode.isHidden)
             && Self.shouldSuppressAttachmentsForCollapsedText(
                 attributedText: currentPayload?.renderContent.attributedText,
@@ -603,6 +613,7 @@ final class FirePostCellNode: ASCellNode {
             alignItems: .center,
             children: metaChildren
         )
+        metaRow.style.flexShrink = 1.0
 
         // Content column
         var contentChildren: [ASLayoutElement] = [metaRow]
@@ -639,18 +650,13 @@ final class FirePostCellNode: ASCellNode {
                 alignItems: .center,
                 children: reactionButtons
             )
+            reactionRow.style.flexShrink = 1.0
             contentChildren.append(reactionRow)
         }
 
         // Divider
         if !dividerNode.isHidden {
-            let dividerWidth = Self.availableContentWidth(
-                totalWidth: totalWidth,
-                depth: currentDepth,
-                avatarSize: currentAvatarSize,
-                avatarSpacing: currentAvatarSpacing
-            )
-            dividerNode.style.preferredSize = CGSize(width: max(dividerWidth, 1), height: 0.5)
+            dividerNode.style.preferredSize = CGSize(width: max(contentAvailableWidth, 1), height: 0.5)
             contentChildren.append(dividerNode)
         }
 
@@ -662,6 +668,9 @@ final class FirePostCellNode: ASCellNode {
             children: contentChildren
         )
         contentStack.style.flexGrow = 1.0
+        contentStack.style.flexShrink = 1.0
+        contentStack.style.minWidth = ASDimensionMake(max(contentAvailableWidth, 1))
+        contentStack.style.maxWidth = ASDimensionMake(max(contentAvailableWidth, 1))
 
         // Root
         let rootStack = ASStackLayoutSpec(
@@ -801,6 +810,31 @@ final class FirePostCellNode: ASCellNode {
         } else {
             callbacks.onSelectReaction(payload.post, reaction.id)
         }
+    }
+
+    // MARK: - Gesture Recognition
+
+    override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        guard gestureRecognizer === swipeGestureRecognizer,
+              let panGesture = gestureRecognizer as? UIPanGestureRecognizer else {
+            return true
+        }
+
+        let translation = panGesture.translation(in: view)
+        let velocity = panGesture.velocity(in: view)
+        let horizontalMovement = max(abs(translation.x), abs(velocity.x))
+        let verticalMovement = max(abs(translation.y), abs(velocity.y))
+
+        return translation.x > 0
+            && velocity.x >= 0
+            && horizontalMovement > verticalMovement * 1.15
+    }
+
+    func gestureRecognizer(
+        _ gestureRecognizer: UIGestureRecognizer,
+        shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
+    ) -> Bool {
+        gestureRecognizer === swipeGestureRecognizer || otherGestureRecognizer === swipeGestureRecognizer
     }
 
     // MARK: - Menu

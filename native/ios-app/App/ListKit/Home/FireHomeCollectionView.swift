@@ -122,7 +122,7 @@ struct FireHomeCollectionView: View {
             // refresh fires a diffable apply and a reconfigure pass over every
             // visible cell, which the user sees as a flicker on top of the
             // already in-flight large-title transition.
-            updatePolicy: .deferWhileScrolling,
+            updatePolicy: .deferDuringRefresh,
             makeLayout: Self.makeLayout,
             rowContent: rowView(for:)
         )

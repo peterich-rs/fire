@@ -554,7 +554,9 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
             onVotePoll: { _, _, _ in },
             onUnvotePoll: { _, _ in },
             onToggleTopicVote: {},
-            onShowTopicVoters: {}
+            onShowTopicVoters: {},
+            onOpenCategory: { _ in },
+            onOpenTag: { _ in }
         )
     }
 

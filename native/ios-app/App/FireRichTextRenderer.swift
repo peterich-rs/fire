@@ -1036,18 +1036,24 @@ enum FireRichTextAttributedStringBuilder {
                 ensureBlockBoundary(result)
                 for (index, item) in items.enumerated() {
                     if index > 0 {
-                        result.append(NSAttributedString(string: "\n"))
+                        ensureLineBreak(result)
                     }
-                    let prefix = ordered ? "\(index + 1). " : " • "
-                    result.append(NSAttributedString(string: prefix, attributes: textAttributes(for: context)))
-                    appendNodes(item, to: result, context: context)
+                    appendListItem(
+                        item,
+                        marker: ordered ? "\(index + 1). " : "• ",
+                        to: result,
+                        context: context
+                    )
                 }
 
             case .listItem(let children):
                 ensureLineBreak(result)
-                let bullet = NSAttributedString(string: " • ", attributes: textAttributes(for: context))
-                result.append(bullet)
-                appendNodes(children, to: result, context: context)
+                appendListItem(
+                    children,
+                    marker: "• ",
+                    to: result,
+                    context: context
+                )
 
             case .spoiler(let children):
                 let spoiler = NSMutableAttributedString()
@@ -1111,6 +1117,59 @@ enum FireRichTextAttributedStringBuilder {
                 break // Handled separately via imageAttachments
             }
         }
+    }
+
+    private static func appendListItem(
+        _ item: [FireRichTextNode],
+        marker: String,
+        to result: NSMutableAttributedString,
+        context: RenderContext
+    ) {
+        let start = result.length
+        result.append(NSAttributedString(string: marker, attributes: textAttributes(for: context)))
+        appendListItemContent(item, to: result, context: context.indented())
+        guard result.length > start else {
+            return
+        }
+        result.addAttribute(
+            .paragraphStyle,
+            value: listParagraphStyle(marker: marker, context: context),
+            range: NSRange(location: start, length: result.length - start)
+        )
+    }
+
+    private static func appendListItemContent(
+        _ item: [FireRichTextNode],
+        to result: NSMutableAttributedString,
+        context: RenderContext
+    ) {
+        guard let first = item.first else {
+            return
+        }
+
+        if case .paragraph(let children) = first {
+            appendNodes(children, to: result, context: context)
+            let remaining = Array(item.dropFirst())
+            if !remaining.isEmpty {
+                appendNodes(remaining, to: result, context: context)
+            }
+            return
+        }
+
+        appendNodes(item, to: result, context: context)
+    }
+
+    private static func listParagraphStyle(marker: String, context: RenderContext) -> NSParagraphStyle {
+        let style = NSMutableParagraphStyle()
+        let baseIndent = CGFloat(context.indentLevel) * 18
+        let markerWidth = ceil((marker as NSString).size(withAttributes: [
+            .font: context.currentFont,
+        ]).width)
+        style.firstLineHeadIndent = baseIndent
+        style.headIndent = baseIndent + markerWidth
+        style.paragraphSpacing = 2
+        style.lineBreakMode = .byWordWrapping
+        return style
     }
 
     /// Ensures the next block starts after a single blank-line boundary.

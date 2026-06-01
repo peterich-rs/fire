@@ -1,3 +1,4 @@
+import AsyncDisplayKit
 import UIKit
 import XCTest
 @testable import Fire
@@ -344,6 +345,44 @@ final class FirePostCellLayoutCalculatorTests: XCTestCase {
         ))
     }
 
+    func testTexturePostCellConstrainsLongRichTextToCollectionWidth() {
+        let width: CGFloat = 320
+        let longText = String(repeating: "LongMarkdownLineWithoutSpaces", count: 10)
+        let renderContent = FireTopicPresentation.renderContent(
+            from: "<p>\(longText)</p>",
+            baseURLString: "https://linux.do"
+        )
+        let node = FirePostCellNode()
+        node.configure(
+            payload: FirePostCellRenderPayload(
+                post: makePost(id: 321, postNumber: 1, username: "tester"),
+                renderContent: renderContent,
+                baseURLString: "https://linux.do",
+                canWriteInteractions: true,
+                isMutating: false,
+                replyContext: nil,
+                replyTargetPostNumber: nil,
+                replyShortcutCount: nil,
+                isLoadingReplyContext: false,
+                textExpansionState: .disabled,
+                showsDivider: false,
+                layoutWidth: width
+            ),
+            callbacks: noopCallbacks(),
+            depth: 1,
+            showsThreadLine: false,
+            showsDivider: false
+        )
+
+        let layout = node.layoutThatFits(ASSizeRange(
+            min: CGSize(width: width, height: 0),
+            max: CGSize(width: width, height: .greatestFiniteMagnitude)
+        ))
+
+        XCTAssertLessThanOrEqual(layout.size.width, width + 0.5)
+        XCTAssertGreaterThan(layout.size.height, 90)
+    }
+
     func testCommentImageRenderSizeIsScaledDown() throws {
         let image = FireCookedImage(
             url: try XCTUnwrap(URL(string: "https://linux.do/uploads/default/original/1x/sample.png")),
@@ -366,5 +405,58 @@ final class FirePostCellLayoutCalculatorTests: XCTestCase {
         XCTAssertEqual(rootSize.width, 320, accuracy: 0.01)
         XCTAssertLessThan(commentSize.width, rootSize.width)
         XCTAssertLessThanOrEqual(commentSize.height, FirePostCellLayoutCalculator.commentImageMaxHeight)
+    }
+
+    private func makePost(id: UInt64, postNumber: UInt32, username: String) -> TopicPostState {
+        TopicPostState(
+            id: id,
+            username: username,
+            name: nil,
+            avatarTemplate: nil,
+            cooked: "<p>\(username)</p>",
+            raw: username,
+            postNumber: postNumber,
+            postType: 1,
+            createdAt: "2026-03-28T10:00:00Z",
+            updatedAt: "2026-03-28T10:00:00Z",
+            likeCount: 0,
+            replyCount: 0,
+            replyToPostNumber: nil,
+            replyToUser: nil,
+            bookmarked: false,
+            bookmarkId: nil,
+            bookmarkName: nil,
+            bookmarkReminderAt: nil,
+            reactions: [],
+            currentUserReaction: nil,
+            polls: [],
+            acceptedAnswer: false,
+            canAcceptAnswer: false,
+            canUnacceptAnswer: false,
+            canEdit: false,
+            canDelete: false,
+            canRecover: false,
+            hidden: false
+        )
+    }
+
+    private func noopCallbacks() -> FirePostCellCallbacks {
+        FirePostCellCallbacks(
+            onLinkTapped: { _ in },
+            onOpenImage: { _ in },
+            onToggleLike: { _ in },
+            onSelectReaction: { _, _ in },
+            onEditPost: { _ in },
+            onBookmarkPost: { _ in },
+            onDeletePost: { _ in },
+            onRecoverPost: { _ in },
+            onFlagPost: { _ in },
+            onOpenReplyTarget: { _ in },
+            onOpenReplies: { _ in },
+            onExpandText: { _ in },
+            onVotePoll: { _, _, _ in },
+            onUnvotePoll: { _, _ in },
+            onSwipeReply: { _ in }
+        )
     }
 }

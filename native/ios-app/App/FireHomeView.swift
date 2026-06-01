@@ -1,5 +1,35 @@
 import SwiftUI
 
+func fireHomeShouldRequestNextPage(
+    nextTopicsPage: UInt32?,
+    lastTriggeredTopicsPage: UInt32?,
+    isLoadingTopics: Bool,
+    metrics: FireCollectionScrollMetrics,
+    paginationPrefetchDistance: CGFloat,
+    didPrefetchToFillViewport: Bool
+) -> Bool {
+    guard let nextTopicsPage else {
+        return false
+    }
+    guard !isLoadingTopics else {
+        return false
+    }
+
+    let contentFitsViewport = metrics.contentHeight <= metrics.visibleHeight + 1
+    if contentFitsViewport {
+        guard !didPrefetchToFillViewport else {
+            return false
+        }
+    } else {
+        let isNearBottom = metrics.remainingDistanceToBottom <= paginationPrefetchDistance
+        guard isNearBottom else {
+            return false
+        }
+    }
+
+    return lastTriggeredTopicsPage != nextTopicsPage
+}
+
 struct FireHomeView: View {
     @EnvironmentObject private var navigationState: FireNavigationState
     @EnvironmentObject private var homeFeedStore: FireHomeFeedStore
@@ -10,7 +40,7 @@ struct FireHomeView: View {
     @State private var showCreateTopicComposer = false
     @State private var didPrefetchToFillViewport = false
     @State private var selectedRoute: FireAppRoute?
-    @State private var lastTopicListScrollMetrics: FireCollectionScrollMetrics?
+    @State private var lastTriggeredTopicsPage: UInt32?
     @State private var composerNotice: String?
     @Namespace private var pushTransitionNamespace
 
@@ -74,6 +104,21 @@ struct FireHomeView: View {
         .onChange(of: homeFeedStore.selectedHomeTags) { _, _ in
             resetPaginationTracking()
         }
+        .onChange(of: homeFeedStore.currentScopeNextTopicsPage) { _, nextPage in
+            guard let nextPage else {
+                lastTriggeredTopicsPage = nil
+                return
+            }
+            if let lastTriggeredTopicsPage,
+               nextPage <= lastTriggeredTopicsPage {
+                self.lastTriggeredTopicsPage = nil
+            }
+        }
+        .onChange(of: homeFeedStore.topicLoadErrorMessage) { _, message in
+            if message != nil {
+                lastTriggeredTopicsPage = nil
+            }
+        }
         .sheet(isPresented: $showCategoryBrowser) {
             FireCategoryBrowserSheet(viewModel: viewModel)
                 .fireSheet(presented: $showCategoryBrowser)
@@ -114,7 +159,7 @@ struct FireHomeView: View {
 
     private func resetPaginationTracking() {
         didPrefetchToFillViewport = false
-        lastTopicListScrollMetrics = nil
+        lastTriggeredTopicsPage = nil
     }
 
     private var isRoutePresented: Binding<Bool> {
@@ -137,23 +182,22 @@ struct FireHomeView: View {
     }
 
     private func handleTopicListScrollMetricsChange(_ newMetrics: FireCollectionScrollMetrics) {
-        defer {
-            lastTopicListScrollMetrics = newMetrics
-        }
-
-        guard homeFeedStore.currentScopeNextTopicsPage != nil else { return }
-        guard !homeFeedStore.isLoadingTopics else { return }
-
-        let contentFitsViewport = newMetrics.contentHeight <= newMetrics.visibleHeight + 1
-        if contentFitsViewport && !didPrefetchToFillViewport {
-            didPrefetchToFillViewport = true
-            homeFeedStore.loadMoreTopics()
+        guard fireHomeShouldRequestNextPage(
+            nextTopicsPage: homeFeedStore.currentScopeNextTopicsPage,
+            lastTriggeredTopicsPage: lastTriggeredTopicsPage,
+            isLoadingTopics: homeFeedStore.isLoadingTopics,
+            metrics: newMetrics,
+            paginationPrefetchDistance: Self.paginationPrefetchDistance,
+            didPrefetchToFillViewport: didPrefetchToFillViewport
+        ) else {
             return
         }
+        guard let nextTopicsPage = homeFeedStore.currentScopeNextTopicsPage else { return }
 
-        guard let oldMetrics = lastTopicListScrollMetrics else { return }
-        guard oldMetrics.remainingDistanceToBottom > Self.paginationPrefetchDistance else { return }
-        guard newMetrics.remainingDistanceToBottom <= Self.paginationPrefetchDistance else { return }
+        if newMetrics.contentHeight <= newMetrics.visibleHeight + 1 {
+            didPrefetchToFillViewport = true
+        }
+        lastTriggeredTopicsPage = nextTopicsPage
         homeFeedStore.loadMoreTopics()
     }
 

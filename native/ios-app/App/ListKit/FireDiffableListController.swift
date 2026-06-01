@@ -44,6 +44,26 @@ enum FireCollectionScrollAnchorRestorePolicy {
 enum FireCollectionUpdatePolicy {
     case applyImmediately
     case deferWhileScrolling
+    case deferDuringRefresh
+}
+
+func fireCollectionShouldDeferSectionUpdate(
+    updatePolicy: FireCollectionUpdatePolicy,
+    isActivelyScrolling: Bool,
+    isInRefreshLifecycle: Bool,
+    hasCurrentSections: Bool
+) -> Bool {
+    guard hasCurrentSections else {
+        return false
+    }
+    switch updatePolicy {
+    case .applyImmediately:
+        return false
+    case .deferWhileScrolling:
+        return isActivelyScrolling || isInRefreshLifecycle
+    case .deferDuringRefresh:
+        return isInRefreshLifecycle
+    }
 }
 
 private struct FirePendingSectionUpdate<SectionID: Hashable, ItemID: Hashable> {
@@ -418,9 +438,12 @@ final class FireDiffableListController<SectionID: Hashable, ItemID: Hashable, Ro
             isRefreshing
             || isSettlingAfterRefresh
             || collectionView?.refreshControl?.isRefreshing == true
-        if updatePolicy == .deferWhileScrolling,
-           isActivelyScrolling || isInRefreshLifecycle,
-           !currentSections.isEmpty {
+        if fireCollectionShouldDeferSectionUpdate(
+            updatePolicy: updatePolicy,
+            isActivelyScrolling: isActivelyScrolling,
+            isInRefreshLifecycle: isInRefreshLifecycle,
+            hasCurrentSections: !currentSections.isEmpty
+        ) {
             pendingSectionUpdate = FirePendingSectionUpdate(
                 sections: sections,
                 contentVersion: contentVersion,

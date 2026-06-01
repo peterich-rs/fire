@@ -99,6 +99,7 @@
 		9F734046F02B45409AD5F1C6 /* FireTopicListMessageBusRefreshTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 859219285EC36B189AF68256 /* FireTopicListMessageBusRefreshTests.swift */; };
 		A04B275253CDF8FAAC9D8C6C /* FireSearchStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25FD219C2BFB0727FD0D3DD2 /* FireSearchStore.swift */; };
 		A07A9808A87A0F9C08F72CC3 /* FireAccountStatusView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF475D56C78AFC82413AED55 /* FireAccountStatusView.swift */; };
+		A5C111111111111111111112 /* FireListPaginationAndUpdateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5C111111111111111111111 /* FireListPaginationAndUpdateTests.swift */; };
 		A1991999F769CF1B701DEFA4 /* FireMyBadgesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33F63CDBE0BC6524D17AB00C /* FireMyBadgesView.swift */; };
 		A29E21413FA011161D518004 /* FireSessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8834ADE6E3ADB8A03391560C /* FireSessionStore.swift */; };
 		A2BA00121D5BF00E4543EF13 /* FireMotionEffects.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F51908C9A24B5866A517797 /* FireMotionEffects.swift */; };
@@ -253,6 +254,7 @@
 		A0AFFF5DCC989B801C9DF88E /* Fire-Debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = "Fire-Debug.xcconfig"; sourceTree = "<group>"; };
 		A14122231F5DBCCFFC5AD36C /* FireTopicPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireTopicPresentation.swift; sourceTree = "<group>"; };
 		A5264103A412DF3C9798D470 /* FireAPMModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireAPMModels.swift; sourceTree = "<group>"; };
+		A5C111111111111111111111 /* FireListPaginationAndUpdateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireListPaginationAndUpdateTests.swift; sourceTree = "<group>"; };
 		A67A6C835A2196246871D5FD /* FireComposerValidationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireComposerValidationTests.swift; sourceTree = "<group>"; };
 		AA736A1F443337C34A6E33D6 /* Fire.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Fire.entitlements; sourceTree = "<group>"; };
 		AE6087FA4E6DF2034C9E6D77 /* FireReadHistoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireReadHistoryView.swift; sourceTree = "<group>"; };
@@ -505,6 +507,7 @@
 				6D2C1B5E7EE9786EBC541FAF /* FireAvatarURLTests.swift */,
 				A67A6C835A2196246871D5FD /* FireComposerValidationTests.swift */,
 				BADC2ED47CF65AD5BE795908 /* FireEntityStateTests.swift */,
+				A5C111111111111111111111 /* FireListPaginationAndUpdateTests.swift */,
 				0F45C6AFED397DB19D9A361E /* FireMessageBusCoordinatorTests.swift */,
 				1EF6B1D638EEA75C75B2B2D5 /* FirePostCellLayoutCalculatorTests.swift */,
 				D51F8B61796434E964104F72 /* FirePostLayoutManagerTests.swift */,
@@ -769,6 +772,7 @@
 				92865B212211D893E4EFB5D2 /* FireAvatarURLTests.swift in Sources */,
 				22D6B9CAC8373C14BBFA616A /* FireComposerValidationTests.swift in Sources */,
 				9B0DABDC5BA87A4CAFF3232D /* FireEntityStateTests.swift in Sources */,
+				A5C111111111111111111112 /* FireListPaginationAndUpdateTests.swift in Sources */,
 				E11AA63F28A66090E98C2C47 /* FireMessageBusCoordinatorTests.swift in Sources */,
 				61DA3972E51BDCEEAEC6C654 /* FirePostCellLayoutCalculatorTests.swift in Sources */,
 				33DC82E96FE6606F38CC0985 /* FirePostLayoutManagerTests.swift in Sources */,
@@ -1111,7 +1115,7 @@
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = "$(FIRE_CODE_SIGN_STYLE)";
 				CURRENT_PROJECT_VERSION = "$(FIRE_BUILD_NUMBER)";
-				DEVELOPMENT_TEAM = "$(FIRE_DEVELOPMENT_TEAM)";
+				DEVELOPMENT_TEAM = YHK2G6Y994;
 				FIRE_GIT_SHA = "$(FIRE_GIT_SHA)";
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",

@@ -1,9 +1,87 @@
 import AsyncDisplayKit
-import SwiftUI
 import UIKit
 
 private let fireTopicDetailAnimatedUpdateItemDeltaLimit = 4
 private let fireTopicDetailVisiblePostPublishDebounce = Duration.milliseconds(240)
+
+struct FireTopicDetailCollectionUpdatePlan: Equatable {
+    let deletions: [IndexPath]
+    let insertions: [IndexPath]
+    let reloads: [IndexPath]
+
+    var isEmpty: Bool {
+        deletions.isEmpty && insertions.isEmpty && reloads.isEmpty
+    }
+}
+
+func fireTopicDetailCollectionUpdatePlan(
+    from current: [FireTopicDetailRuntimeItem],
+    to next: [FireTopicDetailRuntimeItem]
+) -> FireTopicDetailCollectionUpdatePlan {
+    let currentIDs = current.map(\.id)
+    let nextIDs = next.map(\.id)
+    let difference = nextIDs.difference(from: currentIDs)
+
+    let deletions = difference.compactMap { change -> IndexPath? in
+        guard case .remove(let offset, _, _) = change else {
+            return nil
+        }
+        return IndexPath(item: offset, section: 0)
+    }
+    .sorted()
+
+    let insertions = difference.compactMap { change -> IndexPath? in
+        guard case .insert(let offset, _, _) = change else {
+            return nil
+        }
+        return IndexPath(item: offset, section: 0)
+    }
+    .sorted()
+
+    let currentByID = Dictionary(uniqueKeysWithValues: current.map { ($0.id, $0) })
+    let insertedItems = Set(insertions.map(\.item))
+    let reloads = next.enumerated().compactMap { index, item -> IndexPath? in
+        guard insertedItems.contains(index) == false,
+              let previous = currentByID[item.id],
+              previous.hasSameRenderedContent(as: item) == false else {
+            return nil
+        }
+        return IndexPath(item: index, section: 0)
+    }
+
+    return FireTopicDetailCollectionUpdatePlan(
+        deletions: deletions,
+        insertions: insertions,
+        reloads: reloads
+    )
+}
+
+func fireTopicDetailShouldLoadMore(
+    itemCount: Int,
+    visibleMaxItem: Int?,
+    trailingThreshold: Int = 8
+) -> Bool {
+    guard itemCount > 0, let visibleMaxItem else {
+        return false
+    }
+    return itemCount - visibleMaxItem <= trailingThreshold
+}
+
+func fireTopicDetailShouldHoldLoadingFooter(
+    previousFooterState: FireTopicDetailRuntimeReplyFooterState?,
+    nextFooterState: FireTopicDetailRuntimeReplyFooterState?,
+    itemCount: Int,
+    visibleMaxItem: Int?
+) -> Bool {
+    guard previousFooterState == .loadingFooter,
+          nextFooterState == .loadMore else {
+        return false
+    }
+    return fireTopicDetailShouldLoadMore(
+        itemCount: itemCount,
+        visibleMaxItem: visibleMaxItem
+    )
+}
 
 @MainActor
 final class FireTopicDetailListViewController: UIViewController,
@@ -18,12 +96,12 @@ final class FireTopicDetailListViewController: UIViewController,
     private var currentItems: [FireTopicDetailRuntimeItem] = []
     private var handledScrollTarget: UInt32?
     private var lastPublishedVisiblePostNumbers: Set<UInt32> = []
-    private var lastLoadMoreProbe: (itemCount: Int, visibleMaxSection: Int)?
+    private var lastLoadMoreProbe: (itemCount: Int, visibleMaxSection: Int?)?
     private var layoutInvalidationTask: Task<Void, Never>?
     private var visiblePostNumbersPublishTask: Task<Void, Never>?
     private var pendingVisiblePostNumbers: Set<UInt32>?
     private var lastEmptyReplyFooterPreloadKey: AnyHashable?
-    private var hostedHeightCache: [FireTopicDetailHostedHeightKey: CGFloat] = [:]
+    private var lastLayoutContentWidth: CGFloat?
 
     deinit {
         layoutInvalidationTask?.cancel()
@@ -36,6 +114,20 @@ final class FireTopicDetailListViewController: UIViewController,
         flowLayout.minimumInteritemSpacing = 0
         flowLayout.estimatedItemSize = .zero
         return flowLayout
+    }
+
+    private func configureTextureRanges() {
+        collectionNode.leadingScreensForBatching = 1.5
+
+        var displayTuning = ASRangeTuningParameters()
+        displayTuning.leadingBufferScreenfuls = 1.0
+        displayTuning.trailingBufferScreenfuls = 0.5
+        collectionNode.setTuningParameters(displayTuning, for: .display)
+
+        var preloadTuning = ASRangeTuningParameters()
+        preloadTuning.leadingBufferScreenfuls = 1.5
+        preloadTuning.trailingBufferScreenfuls = 1.0
+        collectionNode.setTuningParameters(preloadTuning, for: .preload)
     }
 
     override func loadView() {
@@ -52,6 +144,7 @@ final class FireTopicDetailListViewController: UIViewController,
 
         collectionNode.dataSource = self
         collectionNode.delegate = self
+        configureTextureRanges()
 
         let refreshControl = UIRefreshControl()
         refreshControl.addAction(UIAction { [weak self] _ in
@@ -60,8 +153,14 @@ final class FireTopicDetailListViewController: UIViewController,
         collectionNode.view.refreshControl = refreshControl
     }
 
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        invalidateLayoutIfWidthChanged()
+    }
+
     func update(configuration: FireTopicDetailRuntimeConfiguration) {
         let previousInvalidationToken = self.configuration?.snapshotInvalidationToken
+        let previousItems = currentItems
         self.configuration = configuration
 
         if Self.canReuseCurrentSnapshot(
@@ -71,22 +170,24 @@ final class FireTopicDetailListViewController: UIViewController,
         ) {
             handlePendingScrollTargetIfNeeded()
             publishVisiblePostNumbersIfChanged()
+            loadMoreIfNeeded()
             return
         }
 
         let runtimeSnapshot = configuration.makeSnapshot()
-        guard !Self.itemsHaveSameRenderedContent(runtimeSnapshot.items, currentItems) else {
+        guard !Self.itemsHaveSameRenderedContent(runtimeSnapshot.items, previousItems) else {
             handlePendingScrollTargetIfNeeded()
             publishVisiblePostNumbersIfChanged()
+            loadMoreIfNeeded()
             return
         }
 
         currentItems = runtimeSnapshot.items
         lastLoadMoreProbe = nil
-
-        collectionNode.reloadData()
-        handlePendingScrollTargetIfNeeded()
-        publishVisiblePostNumbersIfChanged(force: true)
+        applyCollectionUpdate(
+            from: previousItems,
+            to: runtimeSnapshot.items
+        )
     }
 
     nonisolated static func itemsHaveSameRenderedContent(
@@ -135,6 +236,9 @@ final class FireTopicDetailListViewController: UIViewController,
     }
 
     func collectionNode(_ collectionNode: ASCollectionNode, nodeForItemAt indexPath: IndexPath) -> ASCellNode {
+        guard indexPath.item < currentItems.count else {
+            return ASCellNode()
+        }
         let item = currentItems[indexPath.item]
         guard let configuration else {
             return ASCellNode()
@@ -154,7 +258,17 @@ final class FireTopicDetailListViewController: UIViewController,
     // MARK: - ASCollectionDelegate
 
     func collectionNode(_ collectionNode: ASCollectionNode, willBeginBatchFetchWith context: ASBatchContext) {
+        loadMoreIfNeeded(forceEvaluation: true)
         context.completeBatchFetching(true)
+    }
+
+    func shouldBatchFetch(for collectionNode: ASCollectionNode) -> Bool {
+        guard let configuration else {
+            return false
+        }
+        return configuration.detail != nil
+            && configuration.hasMoreTopicPosts
+            && !configuration.isLoadingMoreTopicPosts
     }
 
     // MARK: - UIScrollViewDelegate
@@ -174,15 +288,15 @@ final class FireTopicDetailListViewController: UIViewController,
         for item: FireTopicDetailRuntimeItem,
         configuration: FireTopicDetailRuntimeConfiguration
     ) -> ASCellNode {
-        if shouldUseHostedCell(for: item, configuration: configuration) {
-            return makeHostedCellNode(for: item, configuration: configuration)
-        }
-
         if let postContext = configuration.postContext(for: item) {
             return makePostCellNode(for: postContext, configuration: configuration)
         }
 
         switch item.kind {
+        case .header:
+            return FireTopicDetailHeaderCellNode(configuration: configuration)
+        case .aiSummary:
+            return FireTopicDetailAISummaryCellNode(configuration: configuration)
         case .stats:
             return makeStatsCellNode(configuration: configuration)
         case .topicVote:
@@ -196,7 +310,7 @@ final class FireTopicDetailListViewController: UIViewController,
             return makeBodyStateCellNode(configuration: configuration)
         case .originalPost, .reply:
             return makeMissingPostCellNode()
-        default:
+        case .notice:
             return makeTextCellNode(for: item, configuration: configuration)
         }
     }
@@ -227,32 +341,6 @@ final class FireTopicDetailListViewController: UIViewController,
             showsDivider: context.showsDivider
         )
         return node
-    }
-
-    private func makeHostedCellNode(
-        for item: FireTopicDetailRuntimeItem,
-        configuration: FireTopicDetailRuntimeConfiguration
-    ) -> ASCellNode {
-        let colorScheme: ColorScheme = traitCollection.userInterfaceStyle == .dark ? .dark : .light
-        let hostedView = FireTopicDetailHostedRow(configuration: configuration, item: item)
-            .environment(\.colorScheme, colorScheme)
-        let hostingController = UIHostingController(rootView: hostedView)
-        hostingController.view.backgroundColor = .clear
-
-        let width = layoutContentWidth()
-        let measuredSize = hostingController.sizeThatFits(
-            in: CGSize(width: max(width, 1), height: .greatestFiniteMagnitude)
-        )
-        hostingController.view.frame = CGRect(
-            origin: .zero,
-            size: CGSize(width: max(width, 1), height: ceil(measuredSize.height))
-        )
-
-        let cellNode = ASCellNode(viewControllerBlock: {
-            hostingController
-        }, didLoad: nil)
-        cellNode.style.preferredSize = CGSize(width: max(width, 1), height: ceil(measuredSize.height))
-        return cellNode
     }
 
     private func makeStatsCellNode(configuration: FireTopicDetailRuntimeConfiguration) -> ASCellNode {
@@ -747,18 +835,6 @@ final class FireTopicDetailListViewController: UIViewController,
 
     // MARK: - Helpers
 
-    private func shouldUseHostedCell(
-        for item: FireTopicDetailRuntimeItem,
-        configuration: FireTopicDetailRuntimeConfiguration
-    ) -> Bool {
-        switch item.kind {
-        case .header, .aiSummary:
-            return true
-        case .stats, .topicVote, .repliesHeader, .bodyState, .replyFooter, .notice, .originalPost, .reply:
-            return false
-        }
-    }
-
     private func postCallbacks(configuration: FireTopicDetailRuntimeConfiguration) -> FirePostCellCallbacks {
         FirePostCellCallbacks(
             onLinkTapped: configuration.onLinkTapped,
@@ -791,6 +867,23 @@ final class FireTopicDetailListViewController: UIViewController,
         return max(proposedWidth ?? collectionNode.view.bounds.width, 1)
     }
 
+    private func invalidateLayoutIfWidthChanged() {
+        let width = layoutContentWidth()
+        guard width > 1 else {
+            return
+        }
+        if let lastLayoutContentWidth,
+           abs(lastLayoutContentWidth - width) < 0.5 {
+            return
+        }
+        let hadMeasuredWidth = lastLayoutContentWidth != nil
+        lastLayoutContentWidth = width
+        collectionNode.view.collectionViewLayout.invalidateLayout()
+        if hadMeasuredWidth, !currentItems.isEmpty {
+            collectionNode.reloadData()
+        }
+    }
+
     private func performRefresh() {
         guard let configuration else { return }
         Task { [weak self] in
@@ -799,6 +892,75 @@ final class FireTopicDetailListViewController: UIViewController,
                 self?.collectionNode.view.refreshControl?.endRefreshing()
             }
         }
+    }
+
+    private func applyCollectionUpdate(
+        from previousItems: [FireTopicDetailRuntimeItem],
+        to nextItems: [FireTopicDetailRuntimeItem]
+    ) {
+        var updatePlan = fireTopicDetailCollectionUpdatePlan(
+            from: previousItems,
+            to: nextItems
+        )
+        let shouldHoldLoadingFooter = fireTopicDetailShouldHoldLoadingFooter(
+            previousFooterState: replyFooterState(in: previousItems),
+            nextFooterState: replyFooterState(in: nextItems),
+            itemCount: nextItems.count,
+            visibleMaxItem: collectionNode.indexPathsForVisibleItems.map(\.item).max()
+        )
+        if shouldHoldLoadingFooter,
+           let replyFooterIndexPath = replyFooterIndexPath(in: nextItems) {
+            updatePlan = FireTopicDetailCollectionUpdatePlan(
+                deletions: updatePlan.deletions,
+                insertions: updatePlan.insertions,
+                reloads: updatePlan.reloads.filter { $0 != replyFooterIndexPath }
+            )
+        }
+
+        let completion = { [weak self] in
+            guard let self else { return }
+            self.handlePendingScrollTargetIfNeeded()
+            self.publishVisiblePostNumbersIfChanged(force: previousItems.isEmpty)
+            let requestedMore = self.loadMoreIfNeeded(forceEvaluation: true)
+            if shouldHoldLoadingFooter, !requestedMore {
+                self.reloadReplyFooterIfNeeded()
+            }
+        }
+
+        guard !updatePlan.isEmpty else {
+            completion()
+            return
+        }
+
+        let animated = Self.allowsAnimatedUpdate(
+            isViewAttached: collectionNode.view.window != nil,
+            isScrollInteractionActive: isScrollInteractionActive,
+            hasCurrentItems: !previousItems.isEmpty,
+            itemDelta: nextItems.count - previousItems.count
+        )
+
+        guard previousItems.isEmpty == false,
+              collectionNode.view.window != nil,
+              collectionNode.isProcessingUpdates == false else {
+            collectionNode.reloadData(completion: {
+                completion()
+            })
+            return
+        }
+
+        collectionNode.performBatch(animated: animated, updates: { [self] in
+            if !updatePlan.deletions.isEmpty {
+                collectionNode.deleteItems(at: updatePlan.deletions)
+            }
+            if !updatePlan.insertions.isEmpty {
+                collectionNode.insertItems(at: updatePlan.insertions)
+            }
+            if !updatePlan.reloads.isEmpty {
+                collectionNode.reloadItems(at: updatePlan.reloads)
+            }
+        }, completion: { _ in
+            completion()
+        })
     }
 
     private func handlePendingScrollTargetIfNeeded() {
@@ -865,23 +1027,67 @@ final class FireTopicDetailListViewController: UIViewController,
         configuration.onVisiblePostNumbersChanged(postNumbers)
     }
 
-    private func loadMoreIfNeeded() {
+    private func replyFooterIndexPath(
+        in items: [FireTopicDetailRuntimeItem]
+    ) -> IndexPath? {
+        guard let index = items.firstIndex(where: { $0.kind == .replyFooter }) else {
+            return nil
+        }
+        return IndexPath(item: index, section: 0)
+    }
+
+    private func replyFooterState(
+        in items: [FireTopicDetailRuntimeItem]
+    ) -> FireTopicDetailRuntimeReplyFooterState? {
+        guard let item = items.first(where: { $0.kind == .replyFooter }),
+              let token = item.contentToken.base as? String else {
+            return nil
+        }
+        switch token {
+        case FireTopicDetailRuntimeReplyFooterState.loadMore.contentToken:
+            return .loadMore
+        case FireTopicDetailRuntimeReplyFooterState.loadingFooter.contentToken:
+            return .loadingFooter
+        case FireTopicDetailRuntimeReplyFooterState.empty.contentToken:
+            return .empty
+        case FireTopicDetailRuntimeReplyFooterState.none.contentToken:
+            return FireTopicDetailRuntimeReplyFooterState.none
+        default:
+            return nil
+        }
+    }
+
+    private func reloadReplyFooterIfNeeded() {
+        guard let indexPath = replyFooterIndexPath(in: currentItems) else {
+            return
+        }
+        collectionNode.reloadItems(at: [indexPath])
+    }
+
+    @discardableResult
+    private func loadMoreIfNeeded(forceEvaluation: Bool = false) -> Bool {
         guard let configuration,
               configuration.detail != nil,
               configuration.hasMoreTopicPosts,
               !configuration.isLoadingMoreTopicPosts else {
-            return
+            return false
         }
-        let visibleMaxItem = collectionNode.indexPathsForVisibleItems.map(\.item).max() ?? 0
+        let visibleMaxItem = collectionNode.indexPathsForVisibleItems.map(\.item).max()
         let probe = (itemCount: currentItems.count, visibleMaxSection: visibleMaxItem)
-        guard lastLoadMoreProbe?.itemCount != probe.itemCount
+        guard forceEvaluation
+            || lastLoadMoreProbe?.itemCount != probe.itemCount
             || lastLoadMoreProbe?.visibleMaxSection != probe.visibleMaxSection else {
-            return
+            return false
         }
         lastLoadMoreProbe = probe
-        if currentItems.count - visibleMaxItem <= 8 {
+        if fireTopicDetailShouldLoadMore(
+            itemCount: currentItems.count,
+            visibleMaxItem: visibleMaxItem
+        ) {
             configuration.onLoadMoreTopicPosts()
+            return true
         }
+        return false
     }
 
     private func triggerEmptyReplyFooterPreloadIfNeeded(configuration: FireTopicDetailRuntimeConfiguration) {
@@ -900,12 +1106,4 @@ final class FireTopicDetailListViewController: UIViewController,
         let seedVisiblePostNumbers = configuration.originalPost.map { Set([$0.postNumber]) } ?? []
         configuration.onPreloadTopicPosts(seedVisiblePostNumbers)
     }
-}
-
-private struct FireTopicDetailHostedHeightKey: Hashable {
-    let itemID: String
-    let contentToken: AnyHashable
-    let widthPixels: Int
-    let contentSizeCategory: String
-    let userInterfaceStyle: Int
 }

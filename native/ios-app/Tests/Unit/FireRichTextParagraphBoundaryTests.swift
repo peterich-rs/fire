@@ -52,9 +52,34 @@ final class FireRichTextParagraphBoundaryTests: XCTestCase {
         XCTAssertEqual(text, "H1\n\nH2\n\nH3")
     }
 
+    func testListItemParagraphStartsOnSameLineAsMarker() {
+        let html = "<ul><li><p>First item</p></li><li><p>Second item</p></li></ul>"
+        let text = renderedText(html)
+
+        XCTAssertEqual(text, "• First item\n• Second item")
+        XCTAssertFalse(text.contains("• \n"), "List marker should stay on the same visual line as item text.")
+    }
+
+    func testListItemUsesHangingParagraphIndent() throws {
+        let html = "<ul><li><p>First item wraps onto another line when width is narrow.</p></li></ul>"
+        let attributedText = try XCTUnwrap(renderedAttributedText(html))
+        let markerRange = (attributedText.string as NSString).range(of: "• First item")
+
+        XCTAssertNotEqual(markerRange.location, NSNotFound)
+        let paragraphStyle = try XCTUnwrap(
+            attributedText.attribute(.paragraphStyle, at: markerRange.location, effectiveRange: nil) as? NSParagraphStyle
+        )
+        XCTAssertGreaterThan(paragraphStyle.headIndent, paragraphStyle.firstLineHeadIndent)
+    }
+
     private func renderedText(_ html: String) -> String {
         FireTopicPresentation.renderContent(from: html, baseURLString: "https://linux.do")
             .attributedText?
             .string ?? ""
+    }
+
+    private func renderedAttributedText(_ html: String) -> NSAttributedString? {
+        FireTopicPresentation.renderContent(from: html, baseURLString: "https://linux.do")
+            .attributedText
     }
 }

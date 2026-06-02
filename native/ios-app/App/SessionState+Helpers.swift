@@ -1,52 +1,4 @@
 import Foundation
-import WebKit
-
-@MainActor
-protocol MirroredCookieStore {
-    func getAllCookies() async -> [HTTPCookie]
-    func setCookie(_ cookie: HTTPCookie) async
-    func deleteCookie(_ cookie: HTTPCookie) async
-}
-
-@MainActor
-final class WebKitMirroredCookieStore: MirroredCookieStore {
-    private let store: WKHTTPCookieStore
-
-    init(store: WKHTTPCookieStore) {
-        self.store = store
-    }
-
-    func getAllCookies() async -> [HTTPCookie] {
-        await withCheckedContinuation { continuation in
-            store.getAllCookies { cookies in
-                continuation.resume(returning: cookies)
-            }
-        }
-    }
-
-    func setCookie(_ cookie: HTTPCookie) async {
-        await withCheckedContinuation { continuation in
-            store.setCookie(cookie) {
-                continuation.resume()
-            }
-        }
-    }
-
-    func deleteCookie(_ cookie: HTTPCookie) async {
-        await withCheckedContinuation { continuation in
-            store.delete(cookie) {
-                continuation.resume()
-            }
-        }
-    }
-}
-
-@MainActor
-enum MirroredCookieStoreFactory {
-    static var makeWebKitStore: () -> any MirroredCookieStore = {
-        WebKitMirroredCookieStore(store: WKWebsiteDataStore.default().httpCookieStore)
-    }
-}
 
 extension SessionState {
     private static let scalarFallbackCookieNames: Set<String> = ["_t", "_forum_session", "cf_clearance"]
@@ -114,12 +66,13 @@ extension SessionState {
     }
 
     @MainActor
-    func mirrorCookiesToNativeStorage() async {
+    func syncCookiesToNativeStorage() {
         let host = baseURL.host ?? "linux.do"
         let batch = bridgedCookieBatch(host: host)
 
-        mirrorCookiesToSharedStorage(batch.cookies, host: host, fullSameSiteScope: batch.usesFullSameSiteScope)
-        await mirrorCookiesToWebKitStorage(
+        // Keep URLSession/media requests aligned with the current Rust session
+        // without writing cookies back into the WebKit browser store.
+        syncCookiesToSharedStorage(
             batch.cookies,
             host: host,
             fullSameSiteScope: batch.usesFullSameSiteScope
@@ -127,7 +80,7 @@ extension SessionState {
     }
 
     @MainActor
-    private func mirrorCookiesToSharedStorage(
+    private func syncCookiesToSharedStorage(
         _ cookies: [HTTPCookie],
         host: String,
         fullSameSiteScope: Bool
@@ -146,43 +99,7 @@ extension SessionState {
         }
     }
 
-    @MainActor
-    private func mirrorCookiesToWebKitStorage(
-        _ cookies: [HTTPCookie],
-        host: String,
-        fullSameSiteScope: Bool
-    ) async {
-        let store = MirroredCookieStoreFactory.makeWebKitStore()
-        let existingCookies = await currentWebKitMirroredCookies(
-            host: host,
-            fullSameSiteScope: fullSameSiteScope,
-            from: store
-        )
-        if Self.cookieDescriptors(existingCookies) == Self.cookieDescriptors(cookies) {
-            return
-        }
-
-        for existingCookie in existingCookies {
-            await deleteCookie(existingCookie, from: store)
-        }
-
-        for cookie in cookies {
-            await setCookie(cookie, in: store)
-        }
-    }
-
-    @MainActor
-    private func currentWebKitMirroredCookies(
-        host: String,
-        fullSameSiteScope: Bool,
-        from store: any MirroredCookieStore
-    ) async -> [HTTPCookie] {
-        await store.getAllCookies().filter {
-            Self.shouldMirror($0, host: host, fullSameSiteScope: fullSameSiteScope)
-        }
-    }
-
-    private func bridgedCookieBatch(host: String) -> MirroredCookieBatch {
+    private func bridgedCookieBatch(host: String) -> NativeCookieBatch {
         let secure = baseURL.scheme?.lowercased() == "https"
         let platformCookies = cookies.platformCookies
             .filter { Self.shouldBridgePlatformCookie($0, host: host) }
@@ -228,7 +145,7 @@ extension SessionState {
             return lhs < rhs
         }
 
-        return MirroredCookieBatch(
+        return NativeCookieBatch(
             cookies: sortedCookies,
             usesFullSameSiteScope: usesFullSameSiteScope
         )
@@ -315,18 +232,9 @@ extension SessionState {
         return "\(cookie.name)|\(normalizeDomain(cookie.domain))|\(cookie.path)|\(cookie.value)|\(expiry)"
     }
 
-    @MainActor
-    private func setCookie(_ cookie: HTTPCookie, in store: any MirroredCookieStore) async {
-        await store.setCookie(cookie)
-    }
-
-    @MainActor
-    private func deleteCookie(_ cookie: HTTPCookie, from store: any MirroredCookieStore) async {
-        await store.deleteCookie(cookie)
-    }
 }
 
-private struct MirroredCookieBatch {
+private struct NativeCookieBatch {
     let cookies: [HTTPCookie]
     let usesFullSameSiteScope: Bool
 }

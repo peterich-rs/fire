@@ -212,16 +212,25 @@ public final class FireWebViewLoginCoordinator {
         try await sessionStore.restorePersistedSessionIfAvailable()
     }
 
-    public func completeLogin(from webView: WKWebView) async throws -> SessionState {
+    public func completeLogin(
+        from webView: WKWebView,
+        preserveSessionOnChallengeFailure: Bool = false
+    ) async throws -> SessionState {
         let captured = try await captureLoginState(from: webView)
         let readiness = loginSyncReadiness(for: captured)
         guard readiness.isReady else {
             throw FireWebViewLoginCoordinatorError.loginSyncNotReady(readiness)
         }
-        return try await completeLogin(captured)
+        return try await completeLogin(
+            captured,
+            preserveSessionOnChallengeFailure: preserveSessionOnChallengeFailure
+        )
     }
 
-    func completeLogin(_ captured: FireCapturedLoginState) async throws -> SessionState {
+    func completeLogin(
+        _ captured: FireCapturedLoginState,
+        preserveSessionOnChallengeFailure: Bool = false
+    ) async throws -> SessionState {
         _ = try await sessionStore.applyPlatformCookies(captured.cookies)
         _ = try await sessionStore.syncLoginContext(captured)
 
@@ -232,10 +241,18 @@ public final class FireWebViewLoginCoordinator {
                 throw error
             }
 
-            // Don't keep a partially synced native session around when bootstrap
-            // or CSRF refresh is still challenged. Keep the browser cookies
-            // intact so the recovery WebView can continue from the same browser
-            // challenge context.
+            if preserveSessionOnChallengeFailure {
+                // During CF recovery: the cookies and login context were already
+                // applied successfully. Don't nuke the session — the retry/recovery
+                // mechanism will handle re-attempting the bootstrap once the
+                // clearance propagates.
+                throw error
+            }
+
+            // Initial login: Don't keep a partially synced native session around
+            // when bootstrap or CSRF refresh is still challenged. Keep the browser
+            // cookies intact so the recovery WebView can continue from the same
+            // browser challenge context.
             _ = try? await sessionStore.logoutLocal(preserveCfClearance: true)
             throw error
         }

@@ -444,7 +444,10 @@ final class FireAppViewModel: ObservableObject {
                     let shouldResolveRecovery = pendingRecovery != nil
                     errorMessage = nil
                     await applySession(
-                        try await loginCoordinator.completeLogin(from: webView),
+                        try await loginCoordinator.completeLogin(
+                            from: webView,
+                            preserveSessionOnChallengeFailure: pendingRecovery != nil
+                        ),
                         activateMessageBus: false
                     )
                     setAuthPresentationState(nil)
@@ -1629,11 +1632,11 @@ final class FireAppViewModel: ObservableObject {
     }
 
     private func applySession(_ session: SessionState, activateMessageBus: Bool = true) async {
-        let shouldMirrorCookies = session.cookies != self.session.cookies
+        let shouldSyncNativeCookies = session.cookies != self.session.cookies
             || session.bootstrap.baseUrl != self.session.bootstrap.baseUrl
         self.session = session
-        if shouldMirrorCookies {
-            await session.mirrorCookiesToNativeStorage()
+        if shouldSyncNativeCookies {
+            session.syncCookiesToNativeStorage()
         }
         homeFeedStore?.applySession(session)
         topicDetailStore?.applySession(session)

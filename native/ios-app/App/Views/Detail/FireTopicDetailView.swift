@@ -1,0 +1,2101 @@
+import Combine
+import Photos
+import SwiftUI
+
+// Supporting types are defined in companion files within Views/Detail/:
+//   - FireTopicDetailViewState.swift – view-state helpers, context structs, routing types
+//   - FirePostFlagSheet.swift        – FirePostFlagOption, FirePostFlagSheet, FirePostFlagOptionRow
+
+struct FireTopicDetailView: View {
+    @Environment(\.openURL) private var openURL
+    static func topicDetailSubscriptionTaskID(
+        topicId: UInt64,
+        canOpenMessageBus: Bool,
+        hasLoadedDetail: Bool
+    ) -> String {
+        "\(topicId)-\(canOpenMessageBus)-\(hasLoadedDetail)"
+    }
+
+    @EnvironmentObject private var topicDetailStore: FireTopicDetailStore
+    let viewModel: FireAppViewModel
+    let row: FireTopicRowPresentation
+    let scrollToPostNumber: UInt32?
+
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var composerContext: FireReplyComposerContext?
+    @State private var advancedComposerContext: FireReplyComposerContext?
+    @State private var replyDraft = ""
+    @State private var composerNotice: String?
+    @State private var quickReplyError: String?
+    @State private var timingTracker: FireTopicTimingTracker
+    @State private var detailOwnerToken: String
+    @State private var bookmarkEditorContext: FireBookmarkEditorContext?
+    @State private var selectedImage: FireCookedImage?
+    @State private var postEditorContext: FirePostEditorContext?
+    @State private var pendingPostDeletion: FirePostManagementContext?
+    @State private var postFlagContext: FirePostManagementContext?
+    @State private var showingTopicEditor = false
+    @State private var topicVoters: [VotedUserState] = []
+    @State private var isLoadingTopicVoters = false
+    @State private var showingTopicVoters = false
+    @State private var cachedDetail: TopicDetailState?
+    @State private var cachedRenderState: FireTopicDetailRenderState?
+    @State private var selectedRoute: FireAppRoute?
+    @State private var selectedFilterRoute: FireTopicFilterRoute?
+    @State private var profileSheetContext: FireProfileSheetContext?
+    @State private var postReplyContext: FirePostReplyContext?
+    @State private var expandedPostTextIDs: Set<UInt64> = []
+    @State private var expandedReplyRootPostIDs: Set<UInt64> = []
+    @State private var didPickQuickReaction = false
+    @FocusState private var isReplyFieldFocused: Bool
+
+    init(viewModel: FireAppViewModel, row: FireTopicRowPresentation, scrollToPostNumber: UInt32? = nil) {
+        self.viewModel = viewModel
+        self.row = row
+        self.scrollToPostNumber = scrollToPostNumber
+        _timingTracker = State(initialValue: FireTopicTimingTracker(topicId: row.topic.id))
+        _detailOwnerToken = State(initialValue: Self.makeDetailOwnerToken(topicId: row.topic.id))
+    }
+
+    private var topic: TopicSummaryState {
+        row.topic
+    }
+
+    private var liveDetail: TopicDetailState? {
+        topicDetailStore.topicDetail(for: topic.id)
+    }
+
+    private var liveRenderState: FireTopicDetailRenderState? {
+        topicDetailStore.topicRenderState(for: topic.id)
+    }
+
+    private var detail: TopicDetailState? {
+        FireTopicDetailViewState.resolvedDetail(
+            liveDetail: liveDetail,
+            cachedDetail: cachedDetail
+        )
+    }
+
+    private var renderState: FireTopicDetailRenderState? {
+        liveRenderState ?? cachedRenderState
+    }
+
+    private var displayedTopicTitle: String {
+        let trimmedDetailTitle = detail?.title.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !trimmedDetailTitle.isEmpty {
+            return trimmedDetailTitle
+        }
+
+        let trimmedRowTitle = topic.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmedRowTitle.isEmpty ? "话题 \(topic.id)" : trimmedRowTitle
+    }
+
+    private var displayedTopicSlug: String {
+        let trimmedDetailSlug = detail?.slug.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !trimmedDetailSlug.isEmpty {
+            return trimmedDetailSlug
+        }
+        return topic.slug.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var displayedCategoryId: UInt64? {
+        detail?.categoryId ?? topic.categoryId
+    }
+
+    private var postLookup: [UInt64: TopicPostState] {
+        topicDetailStore.topicPostLookup(for: topic.id)
+    }
+
+    private var originalRow: FirePreparedTopicTimelineRow? {
+        renderState?.originalRow
+    }
+
+    private var originalPost: TopicPostState? {
+        if let originalRow {
+            return postLookup[originalRow.entry.postId]
+        }
+        return detail?.postStream.posts.min(by: { $0.postNumber < $1.postNumber })
+    }
+
+    private var replyRows: [FirePreparedTopicTimelineRow] {
+        renderState?.replyRows ?? []
+    }
+
+    private var reactionOptions: [FireReactionOption] {
+        FireTopicPresentation.enabledReactionOptions(from: viewModel.session.bootstrap.enabledReactionIds)
+    }
+
+    private var typingUsers: [TopicPresenceUserState] {
+        topicDetailStore.topicPresenceUsers(for: topic.id)
+    }
+
+    private var pendingScrollTarget: UInt32? {
+        topicDetailStore.pendingScrollTarget(topicId: topic.id)
+    }
+
+    private var detailError: String? {
+        topicDetailStore.errorMessage
+    }
+
+    private var detailNotice: FireTopicDetailStatusMessage? {
+        topicDetailStore.detailNotice(topicId: topic.id)
+    }
+
+    private var hasMoreTopicPosts: Bool {
+        topicDetailStore.hasMoreTopicPosts(topicId: topic.id)
+    }
+
+    private var isLoadingTopic: Bool {
+        topicDetailStore.isLoadingTopic(topicId: topic.id)
+    }
+
+    private var isLoadingMoreTopicPosts: Bool {
+        topicDetailStore.isLoadingMoreTopicPosts(topicId: topic.id)
+    }
+
+    private var topicAiSummary: TopicAiSummaryState? {
+        topicDetailStore.topicAiSummary(for: topic.id)
+    }
+
+    private var isLoadingTopicAiSummary: Bool {
+        topicDetailStore.isLoadingTopicAiSummary(topicId: topic.id)
+    }
+
+    private var topicAiSummaryError: String? {
+        topicDetailStore.topicAiSummaryError(for: topic.id)
+    }
+
+    private var topicCollectionRevision: UInt64 {
+        topicDetailStore.topicCollectionRevision(topicId: topic.id)
+    }
+
+    private var detailRuntimeSnapshotInvalidationToken: AnyHashable {
+        AnyHashable(FireTopicDetailRuntimeInvalidationToken(
+            topicID: topic.id,
+            topicCollectionRevision: topicCollectionRevision,
+            pendingScrollTarget: pendingScrollTarget,
+            detailError: detailError ?? "",
+            detailNotice: detailNotice,
+            hasDetail: detail != nil,
+            isLoadingTopic: isLoadingTopic,
+            isLoadingMoreTopicPosts: isLoadingMoreTopicPosts,
+            hasMoreTopicPosts: hasMoreTopicPosts,
+            canWriteInteractions: canWriteInteractions,
+            currentUsername: viewModel.session.bootstrap.currentUsername ?? "",
+            baseURLString: baseURLString,
+            expandedPostTextIDs: expandedPostTextIDs,
+            expandedReplyRootPostIDs: expandedReplyRootPostIDs,
+            loadingPostReplyContextIDs: topicDetailStore.loadingPostReplyContextIDs
+        ))
+    }
+
+    private var nonHeartReactionOptions: [FireReactionOption] {
+        reactionOptions.filter { $0.id != "heart" }
+    }
+
+    private var minimumReplyLength: Int {
+        let minLength = isPrivateMessageThread
+            ? viewModel.session.bootstrap.minPersonalMessagePostLength
+            : viewModel.session.bootstrap.minPostLength
+        return FireTopicPresentation.minimumReplyLength(from: minLength)
+    }
+
+    private var baseURLString: String {
+        let trimmed = viewModel.session.bootstrap.baseUrl.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "https://linux.do" : trimmed
+    }
+
+    private var canWriteInteractions: Bool {
+        viewModel.canStartAuthenticatedMutation
+    }
+
+    private var topicShareURL: URL? {
+        let trimmedSlug = displayedTopicSlug
+        return URL(string: "\(baseURLString)/t/\(trimmedSlug.isEmpty ? "topic-\(topic.id)" : trimmedSlug)/\(topic.id)")
+    }
+
+    private var topicCloudflareRecoveryURL: URL {
+        viewModel.cloudflareRecoveryTopicURL(
+            topicId: topic.id,
+            topicSlug: displayedTopicSlug
+        )
+    }
+
+    private var currentTopicNotificationLevel: FireTopicNotificationLevelOption {
+        FireTopicNotificationLevelOption(rawValue: Int32(detail?.details.notificationLevel ?? 1)) ?? .regular
+    }
+
+    private var isPrivateMessageThread: Bool {
+        FireTopicPresentation.isPrivateMessageArchetype(detail?.archetype)
+    }
+
+    private var topicBookmarkContext: FireBookmarkEditorContext {
+        FireBookmarkEditorContext(
+            bookmarkID: detail?.bookmarkId,
+            bookmarkableID: topic.id,
+            bookmarkableType: "Topic",
+            title: displayedTopicTitle,
+            initialName: detail?.bookmarkName,
+            initialReminderAt: detail?.bookmarkReminderAt,
+            allowsDelete: detail?.bookmarkId != nil
+        )
+    }
+
+    private func postBookmarkContext(for post: TopicPostState) -> FireBookmarkEditorContext {
+        let username = post.username.trimmingCharacters(in: .whitespacesAndNewlines)
+        return FireBookmarkEditorContext(
+            bookmarkID: post.bookmarkId,
+            bookmarkableID: post.id,
+            bookmarkableType: "Post",
+            title: username.isEmpty ? "#\(post.postNumber)" : "#\(post.postNumber) · \(username)",
+            initialName: post.bookmarkName,
+            initialReminderAt: post.bookmarkReminderAt,
+            allowsDelete: post.bookmarkId != nil
+        )
+    }
+
+    private var messageBusSubscriptionTaskID: String {
+        Self.topicDetailSubscriptionTaskID(
+            topicId: topic.id,
+            canOpenMessageBus: viewModel.session.readiness.canOpenMessageBus,
+            hasLoadedDetail: FireTopicDetailViewState.hasLoadedDetailForSubscription(
+                liveDetail: liveDetail
+            )
+        )
+    }
+
+    private var trimmedReplyDraft: String {
+        replyDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var isSubmittingReply: Bool {
+        topicDetailStore.isSubmittingReply(topicId: topic.id)
+    }
+
+    private var composerTargetPost: TopicPostState? {
+        guard let postId = composerContext?.postId else {
+            return nil
+        }
+        return detail?.postStream.posts.first(where: { $0.id == postId })
+    }
+
+    private var replyPrompt: String {
+        composerContext?.placeholder ?? "快速回复…"
+    }
+
+    private func canChangeReaction(for post: TopicPostState) -> Bool {
+        canWriteInteractions
+            && !topicDetailStore.isMutatingPost(postId: post.id)
+            && (post.currentUserReaction?.canUndo ?? true)
+    }
+
+    private func loadTopicDetail(
+        targetPostNumber: UInt32? = nil,
+        force: Bool = false
+    ) async {
+        await topicDetailStore.loadTopicDetail(
+            topicId: topic.id,
+            topicSlug: displayedTopicSlug,
+            targetPostNumber: targetPostNumber,
+            force: force
+        )
+    }
+
+    var body: some View {
+        detailLifecycleContent
+    }
+
+    private var detailCollectionContent: some View {
+        FireTopicDetailListHost(
+            configuration: FireTopicDetailRuntimeConfiguration(
+                viewModel: viewModel,
+                displayedCategory: viewModel.categoryPresentation(for: detail?.categoryId ?? topic.categoryId),
+                currentUsername: viewModel.session.bootstrap.currentUsername,
+                row: row,
+                baseURLString: baseURLString,
+                detail: detail,
+                renderState: renderState,
+                pendingScrollTarget: pendingScrollTarget,
+                detailError: detailError,
+                detailNotice: detailNotice,
+                hasMoreTopicPosts: hasMoreTopicPosts,
+                isLoadingTopic: isLoadingTopic,
+                isLoadingMoreTopicPosts: isLoadingMoreTopicPosts,
+                topicAiSummary: topicAiSummary,
+                isLoadingTopicAiSummary: isLoadingTopicAiSummary,
+                topicAiSummaryError: topicAiSummaryError,
+                topicCollectionRevision: topicCollectionRevision,
+                canWriteInteractions: canWriteInteractions,
+                postLookup: postLookup,
+                snapshotInvalidationToken: detailRuntimeSnapshotInvalidationToken,
+                isMutatingPost: { topicDetailStore.isMutatingPost(postId: $0) },
+                isPostTextExpanded: { expandedPostTextIDs.contains($0) },
+                isReplyThreadExpanded: { expandedReplyRootPostIDs.contains($0) },
+                isLoadingPostReplyContext: { topicDetailStore.isLoadingPostReplyContext(postID: $0) },
+                onVisiblePostNumbersChanged: handleVisiblePostNumbersChanged(_:),
+                onRefresh: {
+                    timingTracker.recordInteraction()
+                    topicDetailStore.clearTopicDetailAnchor(topicId: topic.id)
+                    await loadTopicDetail(force: true)
+                },
+                onLoadTopicDetail: {
+                    timingTracker.recordInteraction()
+                    await loadTopicDetail(force: true)
+                },
+                onScrollTargetHandled: { postNumber in
+                    topicDetailStore.markScrollTargetSatisfied(topicId: topic.id, postNumber: postNumber)
+                },
+                onPreloadTopicPosts: { visiblePostNumbers in
+                    topicDetailStore.handleVisiblePostNumbersChanged(
+                        topicId: topic.id,
+                        visiblePostNumbers: visiblePostNumbers
+                    )
+                },
+                onLoadMoreTopicPosts: {
+                    topicDetailStore.loadMoreTopicPostsIfNeeded(topicId: topic.id)
+                },
+                onReloadTopicAiSummary: {
+                    topicDetailStore.reloadTopicAiSummary(topicId: topic.id)
+                },
+                onOpenComposer: openComposer(replyToPost:),
+                onOpenPostNumber: openPostNumber(_:),
+                onOpenPostReplies: { post in
+                    expandedReplyRootPostIDs.insert(post.id)
+                    Task {
+                        await topicDetailStore.loadPostReplyContextIfNeeded(
+                            topicID: topic.id,
+                            post: post
+                        )
+                    }
+                },
+                onLinkTapped: handleRichTextLink,
+                onOpenImage: { selectedImage = $0 },
+                onToggleLike: { toggleLike(for: $0) },
+                onSelectReaction: { post, reactionId in
+                    toggleReaction(reactionId, for: post)
+                },
+                onEditPost: { post in
+                    postEditorContext = FirePostEditorContext(postID: post.id, postNumber: post.postNumber)
+                },
+                onBookmarkPost: { post in
+                    bookmarkEditorContext = postBookmarkContext(for: post)
+                },
+                onDeletePost: { post in
+                    pendingPostDeletion = FirePostManagementContext(
+                        postID: post.id,
+                        postNumber: post.postNumber
+                    )
+                },
+                onRecoverPost: { post in
+                    recoverPost(post)
+                },
+                onFlagPost: { post in
+                    postFlagContext = FirePostManagementContext(
+                        postID: post.id,
+                        postNumber: post.postNumber,
+                        username: post.username
+                    )
+                },
+                onExpandPostText: { post in
+                    expandedPostTextIDs.insert(post.id)
+                },
+                onVotePoll: { post, poll, options in
+                    submitPollVote(for: post, poll: poll, options: options)
+                },
+                onUnvotePoll: { post, poll in
+                    removePollVote(for: post, poll: poll)
+                },
+                onToggleTopicVote: toggleTopicVote,
+                onShowTopicVoters: presentTopicVoters,
+                onOpenCategory: { category in
+                    selectedFilterRoute = .category(category)
+                },
+                onOpenTag: { tagName in
+                    selectedFilterRoute = .tag(tagName)
+                }
+            )
+        )
+    }
+
+    private var detailNavigationContent: some View {
+        detailCollectionContent
+        .navigationTitle("话题")
+        .navigationBarTitleDisplayMode(.inline)
+        .navigationDestination(item: $selectedRoute) { route in
+            FireAppRouteDestinationView(viewModel: viewModel, route: route)
+        }
+        .navigationDestination(item: $selectedFilterRoute) { route in
+            FireFilteredTopicListView(
+                viewModel: viewModel,
+                title: route.title,
+                categorySlug: route.categorySlug,
+                categoryId: route.categoryId,
+                parentCategorySlug: route.parentCategorySlug,
+                tag: route.tag
+            )
+        }
+        .toolbar(.hidden, for: .tabBar)
+        .toolbar { topicToolbar }
+        .safeAreaInset(edge: .bottom) {
+            if canWriteInteractions {
+                quickReplyBar
+            }
+        }
+    }
+
+    @ToolbarContentBuilder
+    private var topicToolbar: some ToolbarContent {
+        ToolbarItemGroup(placement: .topBarTrailing) {
+            if let topicShareURL {
+                ShareLink(item: topicShareURL) {
+                    Image(systemName: "square.and.arrow.up")
+                }
+            }
+
+            Menu {
+                if detail?.details.canEdit == true && !isPrivateMessageThread {
+                    Button {
+                        showingTopicEditor = true
+                    } label: {
+                        Label("编辑话题", systemImage: "pencil")
+                    }
+
+                    Divider()
+                }
+
+                Button {
+                    bookmarkEditorContext = topicBookmarkContext
+                } label: {
+                    Label(
+                        detail?.bookmarked == true ? "编辑书签" : "添加书签",
+                        systemImage: detail?.bookmarked == true ? "bookmark.fill" : "bookmark"
+                    )
+                    .fireBookmarkEffect(active: detail?.bookmarked == true)
+                }
+                .disabled(!canWriteInteractions)
+
+                Divider()
+
+                if !isPrivateMessageThread {
+                    ForEach(FireTopicNotificationLevelOption.allCases) { option in
+                        Button {
+                            Task {
+                                await updateTopicNotificationLevel(option)
+                            }
+                        } label: {
+                            if option == currentTopicNotificationLevel {
+                                Label(option.title, systemImage: "checkmark")
+                            } else {
+                                Text(option.title)
+                            }
+                        }
+                        .disabled(!canWriteInteractions)
+                    }
+                }
+            } label: {
+                Image(systemName: "ellipsis.circle")
+            }
+        }
+    }
+
+    private var profileSheetPresented: Binding<Bool> {
+        Binding(
+            get: { profileSheetContext != nil },
+            set: { presented in
+                if !presented {
+                    profileSheetContext = nil
+                }
+            }
+        )
+    }
+
+    private var postFlagSheetPresented: Binding<Bool> {
+        Binding(
+            get: { postFlagContext != nil },
+            set: { presented in
+                if !presented {
+                    postFlagContext = nil
+                }
+            }
+        )
+    }
+
+    private var composerNoticePresented: Binding<Bool> {
+        Binding(
+            get: { composerNotice != nil },
+            set: { presenting in
+                if !presenting {
+                    composerNotice = nil
+                }
+            }
+        )
+    }
+
+    private var postDeletionPresented: Binding<Bool> {
+        Binding(
+            get: { pendingPostDeletion != nil },
+            set: { presenting in
+                if !presenting {
+                    pendingPostDeletion = nil
+                }
+            }
+        )
+    }
+
+    private var detailModalContent: some View {
+        detailNavigationContent
+        .sheet(item: $profileSheetContext) { context in
+            NavigationStack {
+                FirePublicProfileView(viewModel: viewModel, username: context.username)
+            }
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+            .fireSheet(presented: profileSheetPresented)
+        }
+        .sheet(item: $bookmarkEditorContext) { context in
+            FireBookmarkEditorSheet(
+                context: context,
+                onSave: { name, reminderAt in
+                    if let bookmarkID = context.bookmarkID {
+                        try await viewModel.updateBookmark(
+                            bookmarkID: bookmarkID,
+                            name: name,
+                            reminderAt: reminderAt,
+                            recoveryOriginURL: topicCloudflareRecoveryURL
+                        )
+                    } else {
+                        _ = try await viewModel.createBookmark(
+                            bookmarkableID: context.bookmarkableID,
+                            bookmarkableType: context.bookmarkableType,
+                            name: name,
+                            reminderAt: reminderAt,
+                            recoveryOriginURL: topicCloudflareRecoveryURL
+                        )
+                    }
+                    await loadTopicDetail(force: true)
+                },
+                onDelete: context.bookmarkID.map { bookmarkID in
+                    {
+                        try await viewModel.deleteBookmark(
+                            bookmarkID: bookmarkID,
+                            recoveryOriginURL: topicCloudflareRecoveryURL
+                        )
+                        await loadTopicDetail(force: true)
+                    }
+                }
+            )
+        }
+        .sheet(item: $postEditorContext) { context in
+            NavigationStack {
+                FirePostEditorView(
+                    viewModel: viewModel,
+                    topicID: topic.id,
+                    postID: context.postID,
+                    postNumber: context.postNumber,
+                    onSaved: {
+                        Task {
+                            await loadTopicDetail(force: true)
+                        }
+                    }
+                )
+            }
+        }
+        .sheet(item: $postFlagContext) { context in
+            FirePostFlagSheet(
+                context: context,
+                options: FirePostFlagOption.options(from: topicDetailStore.postActionTypes),
+                isLoadingOptions: topicDetailStore.isLoadingPostActionTypes
+            ) { option, message in
+                try await topicDetailStore.flagPost(
+                    topicID: topic.id,
+                    postID: context.postID,
+                    flagTypeID: option.id,
+                    message: message
+                )
+                composerNotice = "举报已提交。"
+            }
+            .fireSheet(presented: postFlagSheetPresented)
+            .task {
+                await topicDetailStore.loadPostActionTypesIfNeeded()
+            }
+        }
+        .sheet(isPresented: $showingTopicEditor) {
+            NavigationStack {
+                FireTopicEditorView(
+                    viewModel: viewModel,
+                    topicID: topic.id,
+                    initialTitle: detail?.title ?? topic.title,
+                    initialCategoryID: detail?.categoryId ?? topic.categoryId,
+                    initialTags: detail?.tags.map(\.name) ?? row.tagNames,
+                    onSaved: {
+                        Task {
+                            await loadTopicDetail(force: true)
+                        }
+                    }
+                )
+            }
+            .fireSheet(presented: $showingTopicEditor)
+        }
+        .sheet(isPresented: $showingTopicVoters) {
+            NavigationStack {
+                FireTopicVotersSheet(
+                    voters: topicVoters,
+                    isLoading: isLoadingTopicVoters
+                )
+            }
+            .fireSheet(presented: $showingTopicVoters)
+        }
+        .sheet(item: $postReplyContext) { context in
+            NavigationStack {
+                FirePostRepliesSheet(
+                    post: context.post,
+                    replies: topicDetailStore.postReplies(for: context.post.id) ?? [],
+                    replyHistory: topicDetailStore.postReplyHistory(for: context.post.id) ?? [],
+                    isLoading: topicDetailStore.isLoadingPostReplyContext(postID: context.post.id),
+                    errorMessage: topicDetailStore.postReplyContextError(for: context.post.id),
+                    baseURLString: baseURLString,
+                    onJumpToPost: { postNumber in
+                        postReplyContext = nil
+                        openPostNumber(postNumber)
+                    },
+                    onRetry: {
+                        await topicDetailStore.loadPostReplyContextIfNeeded(
+                            topicID: topic.id,
+                            post: context.post,
+                            force: true
+                        )
+                    }
+                )
+            }
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+            .task(id: context.post.id) {
+                await topicDetailStore.loadPostReplyContextIfNeeded(
+                    topicID: topic.id,
+                    post: context.post
+                )
+            }
+        }
+        .fullScreenCover(item: $advancedComposerContext) { context in
+            NavigationStack {
+                FireComposerView(
+                    viewModel: viewModel,
+                    route: FireComposerRoute(
+                        kind: .advancedReply(
+                            topicID: topic.id,
+                            topicTitle: displayedTopicTitle,
+                            categoryID: displayedCategoryId,
+                            replyToPostNumber: context.replyToPostNumber,
+                            replyToUsername: context.replyToUsername,
+                            isPrivateMessage: isPrivateMessageThread
+                        )
+                    ),
+                    initialBody: replyDraft,
+                    onReplySubmitted: {
+                        replyDraft = ""
+                        composerContext = nil
+                        didPickQuickReaction = false
+                        quickReplyError = nil
+                        Task {
+                            await loadTopicDetail(force: true)
+                        }
+                    },
+                    onSubmissionNotice: { message in
+                        composerNotice = message
+                    }
+                )
+            }
+        }
+        .fullScreenCover(item: $selectedImage) { image in
+            FireTopicImageViewer(image: image)
+        }
+    }
+
+    private var detailAlertContent: some View {
+        detailModalContent
+        .scrollDismissesKeyboard(.interactively)
+        .task(id: pendingScrollTarget) {
+            guard let pendingScrollTarget else {
+                return
+            }
+            let targetIsLoaded = originalPost?.postNumber == pendingScrollTarget
+                || replyRows.contains { $0.entry.postNumber == pendingScrollTarget }
+            guard !targetIsLoaded else {
+                return
+            }
+            if topicDetailStore.isScrollTargetExhausted(topicId: topic.id, postNumber: pendingScrollTarget) {
+                topicDetailStore.markScrollTargetSatisfied(topicId: topic.id, postNumber: pendingScrollTarget)
+            }
+        }
+        .alert("提示", isPresented: composerNoticePresented) {
+            Button("知道了", role: .cancel) {}
+        } message: {
+            Text(composerNotice ?? "")
+        }
+        .alert("删除回复", isPresented: postDeletionPresented) {
+            Button("取消", role: .cancel) {
+                pendingPostDeletion = nil
+            }
+            Button("删除", role: .destructive) {
+                guard let context = pendingPostDeletion else { return }
+                pendingPostDeletion = nil
+                deletePost(context)
+            }
+        } message: {
+            if let postNumber = pendingPostDeletion?.postNumber {
+                Text("确认删除 #\(postNumber) 吗？")
+            }
+        }
+    }
+
+    private var detailLifecycleContent: some View {
+        detailAlertContent
+        .onAppear {
+            topicDetailStore.beginTopicDetailLifecycle(topicId: topic.id, ownerToken: detailOwnerToken)
+            viewModel.setAPMRoute("topic.detail.\(topic.id)")
+            if let current = liveDetail {
+                cachedDetail = current
+            }
+            if let current = liveRenderState {
+                cachedRenderState = current
+            }
+        }
+        .onReceive(
+            topicDetailStore.$topicCollectionRevisions
+                .map { $0[topic.id] ?? 0 }
+                .removeDuplicates()
+        ) { _ in
+            cachedDetail = liveDetail
+            cachedRenderState = liveRenderState
+        }
+        .task(id: topic.id) {
+            timingTracker.start { topicId, topicTimeMs, timings in
+                await viewModel.reportTopicTimings(
+                    topicId: topicId,
+                    topicTimeMs: topicTimeMs,
+                    timings: timings
+                )
+            }
+            await timingTracker.setSceneActive(scenePhase == .active)
+            await loadTopicDetail(
+                targetPostNumber: scrollToPostNumber
+            )
+        }
+        .task(id: messageBusSubscriptionTaskID) {
+            await topicDetailStore.maintainTopicDetailSubscription(
+                topicId: topic.id,
+                ownerToken: detailOwnerToken
+            )
+        }
+        .onChange(of: scenePhase) { _, phase in
+            Task {
+                await timingTracker.setSceneActive(phase == .active)
+            }
+        }
+        .onChange(of: isReplyFieldFocused) { _, isFocused in
+            if isFocused {
+                topicDetailStore.beginTopicReplyPresence(topicId: topic.id)
+            } else {
+                // Keyboard went down. The quick-reaction shortcut row is only
+                // relevant while the user is actively engaged with the input,
+                // so collapse it. The reply target header remains so the user
+                // can still resume typing into the same post.
+                didPickQuickReaction = true
+                Task {
+                    await topicDetailStore.endTopicReplyPresence(topicId: topic.id)
+                }
+            }
+        }
+        .onDisappear {
+            topicDetailStore.endTopicDetailLifecycle(
+                topicId: topic.id,
+                ownerToken: detailOwnerToken,
+                visibleTopicIDs: viewModel.currentVisibleTopicIDs()
+            )
+            viewModel.restoreTopLevelAPMRoute()
+            Task {
+                await timingTracker.stop()
+                await topicDetailStore.endTopicReplyPresence(topicId: topic.id)
+            }
+        }
+        .onChange(of: replyDraft) { _, _ in
+            if quickReplyError != nil {
+                quickReplyError = nil
+            }
+        }
+    }
+
+    private static func makeDetailOwnerToken(topicId: UInt64) -> String {
+        "ios.topic-detail.\(topicId).\(UUID().uuidString.lowercased())"
+    }
+
+    private func handleVisiblePostNumbersChanged(_ visiblePostNumbers: Set<UInt32>) {
+        if !visiblePostNumbers.isEmpty {
+            timingTracker.recordInteraction()
+        }
+        timingTracker.updateVisiblePostNumbers(visiblePostNumbers)
+
+        topicDetailStore.handleVisiblePostNumbersChanged(
+            topicId: topic.id,
+            visiblePostNumbers: visiblePostNumbers
+        )
+    }
+
+    private func handleRichTextLink(_ url: URL) {
+        timingTracker.recordInteraction()
+
+        guard let route = FireRouteParser.parse(url: url) else {
+            openURL(url)
+            return
+        }
+
+        switch route {
+        case .profile(let username):
+            profileSheetContext = FireProfileSheetContext(username: username)
+
+        case .topic(let payload):
+            handleTopicLink(payload)
+
+        case .badge:
+            selectedRoute = route
+        }
+    }
+
+    private func handleTopicLink(_ payload: FireTopicRoutePayload) {
+        if payload.topicId == topic.id {
+            guard let postNumber = payload.postNumber else {
+                return
+            }
+
+            openPostNumber(postNumber)
+            return
+        }
+
+        selectedRoute = .topic(payload: payload)
+    }
+
+    private var quickReplyBar: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if !typingUsers.isEmpty {
+                FireTypingPresenceStrip(
+                    users: typingUsers,
+                    baseURLString: baseURLString
+                )
+            }
+
+            if let composerContext, let targetPost = composerTargetPost {
+                let canChangeTargetReaction = canChangeReaction(for: targetPost)
+                if !didPickQuickReaction {
+                    FlowLayout(spacing: 8, fallbackWidth: max(UIScreen.main.bounds.width - 32, 200)) {
+                        Button {
+                            toggleLike(for: targetPost)
+                            didPickQuickReaction = true
+                        } label: {
+                            composerReactionPill(symbol: "❤️")
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(!canChangeTargetReaction)
+                        .accessibilityLabel("赞")
+
+                        ForEach(nonHeartReactionOptions) { option in
+                            Button {
+                                toggleReaction(option.id, for: targetPost)
+                                didPickQuickReaction = true
+                            } label: {
+                                composerReactionPill(symbol: option.symbol)
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(!canChangeTargetReaction)
+                            .accessibilityLabel(option.label)
+                        }
+                    }
+                }
+
+                HStack(spacing: 8) {
+                    Text(composerContext.targetSummary)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(FireTheme.accent)
+
+                    Spacer()
+
+                    Button {
+                        clearComposerTarget()
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.caption)
+                            .foregroundStyle(FireTheme.tertiaryInk)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+
+            HStack(alignment: .bottom, spacing: 10) {
+                Button {
+                    openAdvancedComposer()
+                } label: {
+                    Image(systemName: "square.and.pencil")
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundStyle(FireTheme.accent)
+                        .frame(width: 34, height: 34)
+                        .background(
+                            Circle()
+                                .fill(Color(.secondarySystemBackground))
+                        )
+                }
+                .buttonStyle(.plain)
+
+                TextField(replyPrompt, text: $replyDraft, axis: .vertical)
+                    .textFieldStyle(.plain)
+                    .font(.body)
+                    .focused($isReplyFieldFocused)
+                    .lineLimit(1...4)
+                    .submitLabel(.send)
+                    .onSubmit {
+                        submitQuickReply()
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .background(
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .fill(Color(.secondarySystemBackground))
+                    )
+
+                Button {
+                    submitQuickReply()
+                } label: {
+                    if isSubmittingReply {
+                        ProgressView()
+                            .frame(width: 34, height: 34)
+                    } else {
+                        Image(systemName: "arrow.up.circle.fill")
+                            .font(.system(size: 30, weight: .semibold))
+                            .foregroundStyle(
+                                trimmedReplyDraft.isEmpty ? Color(.tertiaryLabel) : FireTheme.accent
+                            )
+                    }
+                }
+                .buttonStyle(.plain)
+                .disabled(trimmedReplyDraft.isEmpty || isSubmittingReply)
+            }
+
+            if let quickReplyError {
+                Text(quickReplyError)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+            } else if !trimmedReplyDraft.isEmpty && trimmedReplyDraft.count < minimumReplyLength {
+                Text("回复至少需要 \(minimumReplyLength) 个字")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 10)
+        .padding(.bottom, 12)
+        .background(.ultraThinMaterial)
+    }
+
+    private func composerReactionPill(symbol: String) -> some View {
+        Text(symbol)
+            .font(.system(size: 22))
+            .frame(minWidth: 36, minHeight: 32)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(
+                Capsule()
+                    .fill(Color(.secondarySystemBackground))
+            )
+    }
+
+    private func openComposer(replyToPost: TopicPostState?) {
+        composerContext = FireReplyComposerContext(
+            topicId: topic.id,
+            postId: replyToPost?.id,
+            replyToPostNumber: replyToPost?.postNumber,
+            replyToUsername: replyToPost?.username
+        )
+        didPickQuickReaction = false
+        isReplyFieldFocused = true
+    }
+
+    private func openPostNumber(_ postNumber: UInt32) {
+        guard postNumber > 0 else {
+            return
+        }
+
+        Task {
+            await loadTopicDetail(targetPostNumber: postNumber)
+        }
+    }
+
+    private func openPostReplies(for post: TopicPostState) {
+        postReplyContext = FirePostReplyContext(post: post)
+    }
+
+    private func clearComposerTarget() {
+        composerContext = nil
+        didPickQuickReaction = false
+    }
+
+    private func openAdvancedComposer() {
+        advancedComposerContext = composerContext
+            ?? FireReplyComposerContext(
+                topicId: topic.id,
+                postId: nil,
+                replyToPostNumber: nil,
+                replyToUsername: nil
+            )
+        dismissKeyboard()
+    }
+
+    private func dismissKeyboard() {
+        isReplyFieldFocused = false
+    }
+
+    private func submitQuickReply() {
+        let trimmed = trimmedReplyDraft
+        guard !trimmed.isEmpty else {
+            quickReplyError = "回复内容不能为空。"
+            return
+        }
+        guard trimmed.count >= minimumReplyLength else {
+            quickReplyError = "回复至少需要 \(minimumReplyLength) 个字。"
+            return
+        }
+
+        let topicId = composerContext?.topicId ?? topic.id
+        let replyToPostNumber = composerContext?.replyToPostNumber
+        quickReplyError = nil
+
+        Task { @MainActor in
+            do {
+                try await topicDetailStore.submitReply(
+                    topicId: topicId,
+                    raw: trimmed,
+                    replyToPostNumber: replyToPostNumber
+                )
+                replyDraft = ""
+                composerContext = nil
+                didPickQuickReaction = false
+                dismissKeyboard()
+            } catch {
+                let message = error.localizedDescription
+                if message.localizedCaseInsensitiveContains("pending review") {
+                    composerNotice = "回复已提交，等待审核。"
+                    replyDraft = ""
+                    composerContext = nil
+                    didPickQuickReaction = false
+                    dismissKeyboard()
+                    return
+                }
+                quickReplyError = message
+            }
+        }
+    }
+
+    private func toggleLike(for post: TopicPostState) {
+        applyReactionChange(
+            from: post.currentUserReaction,
+            to: post.currentUserReaction?.id == "heart" ? nil : "heart",
+            postId: post.id
+        )
+    }
+
+    private func toggleReaction(_ reactionId: String, for post: TopicPostState) {
+        let trimmedReactionID = reactionId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedReactionID.isEmpty else {
+            return
+        }
+
+        applyReactionChange(
+            from: post.currentUserReaction,
+            to: post.currentUserReaction?.id == trimmedReactionID ? nil : trimmedReactionID,
+            postId: post.id
+        )
+    }
+
+    private func deletePost(_ context: FirePostManagementContext) {
+        Task { @MainActor in
+            do {
+                try await topicDetailStore.deletePost(
+                    topicID: topic.id,
+                    postID: context.postID
+                )
+                composerNotice = "已删除 #\(context.postNumber)。"
+            } catch {
+                composerNotice = error.localizedDescription
+            }
+        }
+    }
+
+    private func recoverPost(_ post: TopicPostState) {
+        let context = FirePostManagementContext(
+            postID: post.id,
+            postNumber: post.postNumber
+        )
+        Task { @MainActor in
+            do {
+                try await topicDetailStore.recoverPost(
+                    topicID: topic.id,
+                    postID: context.postID
+                )
+                composerNotice = "已恢复 #\(context.postNumber)。"
+            } catch {
+                composerNotice = error.localizedDescription
+            }
+        }
+    }
+
+    private func applyReactionChange(
+        from currentReaction: TopicReactionState?,
+        to desiredReactionID: String?,
+        postId: UInt64
+    ) {
+        let currentReactionID = currentReaction?.id
+        guard currentReactionID != desiredReactionID else {
+            return
+        }
+        guard let toggledReactionID = desiredReactionID ?? currentReactionID, !toggledReactionID.isEmpty else {
+            return
+        }
+
+        if currentReactionID != nil, currentReaction?.canUndo == false {
+            composerNotice = "当前表情回应已超过可撤销时间，暂时不能修改。"
+            return
+        }
+
+        Task { @MainActor in
+            do {
+                try await transitionReaction(
+                    from: currentReactionID,
+                    to: desiredReactionID,
+                    toggledReactionId: toggledReactionID,
+                    postId: postId
+                )
+            } catch {
+                composerNotice = error.localizedDescription
+            }
+        }
+    }
+
+    private func transitionReaction(
+        from currentReactionID: String?,
+        to desiredReactionID: String?,
+        toggledReactionId: String,
+        postId: UInt64
+    ) async throws {
+        switch (currentReactionID, desiredReactionID) {
+        case (nil, "heart"):
+            try await topicDetailStore.setPostLiked(
+                topicId: topic.id,
+                postId: postId,
+                liked: true
+            )
+        case ("heart", nil):
+            try await topicDetailStore.setPostLiked(
+                topicId: topic.id,
+                postId: postId,
+                liked: false
+            )
+        default:
+            try await topicDetailStore.togglePostReaction(
+                topicId: topic.id,
+                postId: postId,
+                reactionId: toggledReactionId
+            )
+        }
+    }
+
+    private func updateTopicNotificationLevel(_ option: FireTopicNotificationLevelOption) async {
+        do {
+            try await viewModel.setTopicNotificationLevel(
+                topicID: topic.id,
+                notificationLevel: option.rawValue,
+                recoveryOriginURL: topicCloudflareRecoveryURL
+            )
+            await loadTopicDetail(force: true)
+        } catch {
+            composerNotice = error.localizedDescription
+        }
+    }
+
+    private func toggleTopicVote() async {
+        guard let detail else { return }
+        do {
+            _ = try await viewModel.voteTopic(
+                topicID: topic.id,
+                voted: !detail.userVoted,
+                recoveryOriginURL: topicCloudflareRecoveryURL
+            )
+        } catch {
+            composerNotice = error.localizedDescription
+        }
+    }
+
+    private func presentTopicVoters() async {
+        isLoadingTopicVoters = true
+        showingTopicVoters = true
+        defer { isLoadingTopicVoters = false }
+
+        do {
+            topicVoters = try await viewModel.fetchTopicVoters(topicID: topic.id)
+        } catch {
+            topicVoters = []
+            composerNotice = error.localizedDescription
+        }
+    }
+
+    private func submitPollVote(
+        for post: TopicPostState,
+        poll: PollState,
+        options: [String]
+    ) {
+        Task { @MainActor in
+            do {
+                _ = try await viewModel.votePoll(
+                    topicID: topic.id,
+                    postID: post.id,
+                    pollName: poll.name,
+                    options: options,
+                    recoveryOriginURL: topicCloudflareRecoveryURL
+                )
+            } catch {
+                composerNotice = error.localizedDescription
+            }
+        }
+    }
+
+    private func removePollVote(for post: TopicPostState, poll: PollState) {
+        Task { @MainActor in
+            do {
+                _ = try await viewModel.unvotePoll(
+                    topicID: topic.id,
+                    postID: post.id,
+                    pollName: poll.name,
+                    recoveryOriginURL: topicCloudflareRecoveryURL
+                )
+            } catch {
+                composerNotice = error.localizedDescription
+            }
+        }
+    }
+}
+
+private struct FireTypingPresenceStrip: View {
+    let users: [TopicPresenceUserState]
+    let baseURLString: String
+
+    private var summary: String {
+        let names = users.prefix(3).map(\.username)
+        let leading = names.joined(separator: "、")
+        if users.count > 3 {
+            return "\(leading) 等 \(users.count) 人正在输入"
+        }
+        return "\(leading) 正在输入"
+    }
+
+    var body: some View {
+        HStack(spacing: 10) {
+            HStack(spacing: -8) {
+                ForEach(Array(users.prefix(3)), id: \.id) { user in
+                    FireAvatarView(
+                        avatarTemplate: user.avatarTemplate ?? "",
+                        username: user.username,
+                        size: 22,
+                        baseURLString: baseURLString
+                    )
+                    .overlay(
+                        Circle()
+                            .stroke(Color(.systemBackground), lineWidth: 1)
+                    )
+                }
+            }
+
+            Text(summary)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(FireTheme.subtleInk)
+
+            Spacer()
+        }
+        .padding(.horizontal, 4)
+    }
+}
+
+struct FireTopicPostsLoadingFooter: View {
+    var body: some View {
+        HStack(spacing: 10) {
+            ProgressView()
+                .controlSize(.small)
+            Text("正在加载后续评论…")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Spacer()
+        }
+        .padding(.horizontal, 4)
+        .padding(.vertical, 10)
+    }
+}
+
+enum FireTopicReplySwipeAxis: Equatable {
+    case horizontal
+    case vertical
+    case reservedForNavigationBack
+}
+
+enum FireTopicReplySwipePolicy {
+    static let backNavigationReservedWidth: CGFloat = 32
+
+    static func resolvedAxis(
+        startLocationX: CGFloat,
+        translationWidth: CGFloat,
+        translationHeight: CGFloat
+    ) -> FireTopicReplySwipeAxis {
+        if startLocationX <= backNavigationReservedWidth {
+            return .reservedForNavigationBack
+        }
+
+        return abs(translationWidth) > abs(translationHeight) * 1.2
+            ? .horizontal
+            : .vertical
+    }
+}
+
+private struct FireTopicVotersSheet: View {
+    let voters: [VotedUserState]
+    let isLoading: Bool
+
+    var body: some View {
+        List {
+            if isLoading {
+                HStack {
+                    Spacer()
+                    ProgressView()
+                        .padding(.vertical, 20)
+                    Spacer()
+                }
+            } else if voters.isEmpty {
+                VStack(spacing: 10) {
+                    Image(systemName: "person.3")
+                        .font(.title2)
+                        .foregroundStyle(FireTheme.subtleInk)
+                    Text("暂时还没有投票用户")
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(FireTheme.ink)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 28)
+            } else {
+                ForEach(voters, id: \.id) { voter in
+                    HStack(spacing: 12) {
+                        FireAvatarView(
+                            avatarTemplate: voter.avatarTemplate,
+                            username: voter.username,
+                            size: 40
+                        )
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text((voter.name ?? "").ifEmpty(voter.username))
+                                .font(.subheadline.weight(.medium))
+                                .foregroundStyle(FireTheme.ink)
+                            Text("@\(voter.username)")
+                                .font(.caption)
+                                .foregroundStyle(FireTheme.subtleInk)
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
+            }
+        }
+        .navigationTitle("投票用户")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+private struct FirePostRepliesSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    let post: TopicPostState
+    let replies: [TopicPostState]
+    let replyHistory: [TopicPostState]
+    let isLoading: Bool
+    let errorMessage: String?
+    let baseURLString: String
+    let onJumpToPost: (UInt32) -> Void
+    let onRetry: () async -> Void
+
+    private var hasContent: Bool {
+        !replies.isEmpty || !replyHistory.isEmpty
+    }
+
+    var body: some View {
+        List {
+            if isLoading && !hasContent {
+                loadingRow
+            }
+
+            if let errorMessage {
+                errorRow(message: errorMessage)
+            }
+
+            if !replyHistory.isEmpty {
+                Section("回复来源") {
+                    ForEach(replyHistory, id: \.id) { reply in
+                        FirePostReplyContextRow(
+                            post: reply,
+                            baseURLString: baseURLString,
+                            onJump: onJumpToPost
+                        )
+                    }
+                }
+            }
+
+            if !replies.isEmpty {
+                Section("直接回复") {
+                    ForEach(replies, id: \.id) { reply in
+                        FirePostReplyContextRow(
+                            post: reply,
+                            baseURLString: baseURLString,
+                            onJump: onJumpToPost
+                        )
+                    }
+                }
+            }
+
+            if !isLoading && errorMessage == nil && !hasContent {
+                emptyRow
+            }
+        }
+        .navigationTitle("#\(post.postNumber) 的回复")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("收起") {
+                    dismiss()
+                }
+            }
+        }
+    }
+
+    private var loadingRow: some View {
+        HStack {
+            Spacer()
+            ProgressView()
+                .padding(.vertical, 20)
+            Spacer()
+        }
+    }
+
+    private func errorRow(message: String) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(message)
+                .font(.footnote)
+                .foregroundStyle(.red)
+
+            Button {
+                Task { await onRetry() }
+            } label: {
+                Label("重试", systemImage: "arrow.clockwise")
+            }
+            .buttonStyle(.bordered)
+        }
+        .padding(.vertical, 6)
+    }
+
+    private var emptyRow: some View {
+        VStack(spacing: 10) {
+            Image(systemName: "bubble.left.and.bubble.right")
+                .font(.title2)
+                .foregroundStyle(FireTheme.subtleInk)
+            Text("暂时没有可显示的回复上下文")
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(FireTheme.ink)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 28)
+    }
+}
+
+private struct FirePostReplyContextRow: View {
+    let post: TopicPostState
+    let baseURLString: String
+    let onJump: (UInt32) -> Void
+
+    private var displayName: String {
+        (post.name ?? "").ifEmpty(post.username.ifEmpty("Unknown"))
+    }
+
+    private var excerpt: String {
+        plainTextFromHtml(rawHtml: post.cooked)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .ifEmpty("无正文预览")
+    }
+
+    var body: some View {
+        Button {
+            onJump(post.postNumber)
+        } label: {
+            HStack(alignment: .top, spacing: 12) {
+                FireAvatarView(
+                    avatarTemplate: post.avatarTemplate,
+                    username: post.username.ifEmpty("?"),
+                    size: 34,
+                    baseURLString: baseURLString
+                )
+
+                VStack(alignment: .leading, spacing: 5) {
+                    HStack(spacing: 6) {
+                        Text(displayName)
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(FireTheme.ink)
+                            .lineLimit(1)
+
+                        Text("#\(post.postNumber)")
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(FireTheme.tertiaryInk)
+
+                        Spacer(minLength: 0)
+
+                        Image(systemName: "arrow.up.forward")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(FireTheme.tertiaryInk)
+                    }
+
+                    Text(excerpt)
+                        .font(.footnote)
+                        .foregroundStyle(FireTheme.subtleInk)
+                        .lineLimit(3)
+                }
+            }
+            .padding(.vertical, 4)
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private struct FireTopicImageViewer: View {
+    let image: FireCookedImage
+
+    private enum InteractionMode {
+        case idle
+        case zooming
+        case panning
+        case dismissing
+    }
+
+    private enum DragMode {
+        case pan
+        case dismiss
+        case ignore
+    }
+
+    private enum ToolbarAction {
+        case share
+        case save
+    }
+
+    private enum PhotoSaveError: Error {
+        case unknownFailure
+    }
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var interactionMode: InteractionMode = .idle
+    @State private var activeDragMode: DragMode?
+    @State private var activeToolbarAction: ToolbarAction?
+    @State private var sharedImage: UIImage?
+    @State private var isShowingShareSheet = false
+    @State private var isShowingAlert = false
+    @State private var alertTitle = ""
+    @State private var alertMessage = ""
+    @State private var steadyZoomScale: CGFloat = 1
+    @State private var gestureZoomScale: CGFloat = 1
+    @State private var panOffset: CGSize = .zero
+    @State private var dragStartOffset: CGSize = .zero
+    @State private var dismissOffset: CGSize = .zero
+
+    private let minimumZoomScale: CGFloat = 1
+    private let maximumZoomScale: CGFloat = 4
+    private let dismissThreshold: CGFloat = 140
+    private let dismissProgressDistance: CGFloat = 220
+    private let imagePadding: CGFloat = 16
+
+    private var imageRequest: FireRemoteImageRequest {
+        FireRemoteImageRequest(url: image.url)
+    }
+
+    private var shareSubject: String {
+        let fileName = image.url.lastPathComponent.trimmingCharacters(in: .whitespacesAndNewlines)
+        return fileName.isEmpty ? "Fire 帖子图片" : fileName
+    }
+
+    private var effectiveZoomScale: CGFloat {
+        clampedScale(steadyZoomScale * gestureZoomScale)
+    }
+
+    private var dismissProgress: CGFloat {
+        min(max(dismissOffset.height / dismissProgressDistance, 0), 1)
+    }
+
+    private var backgroundOpacity: Double {
+        Double(max(0.22, 1 - dismissProgress * 0.78))
+    }
+
+    private var contentScale: CGFloat {
+        let dismissScale = max(0.88, 1 - dismissProgress * 0.12)
+        return effectiveZoomScale * dismissScale
+    }
+
+    private var isToolbarBusy: Bool {
+        activeToolbarAction != nil
+    }
+
+    var body: some View {
+        GeometryReader { proxy in
+            let containerSize = proxy.size
+
+            ZStack {
+                Color.black
+                    .opacity(backgroundOpacity)
+                    .ignoresSafeArea()
+
+                FireRemoteImage(request: imageRequest) { loadedImage in
+                    Image(uiImage: loadedImage)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .padding(imagePadding)
+                } placeholder: { state in
+                    switch state {
+                    case .loading, .missingRequest:
+                        ProgressView()
+                            .tint(.white)
+                    case .failure:
+                        VStack(spacing: 12) {
+                            Image(systemName: "photo")
+                                .font(.largeTitle)
+                            Text("图片加载失败")
+                                .font(.subheadline)
+                        }
+                        .foregroundStyle(.white)
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .scaleEffect(contentScale)
+                .offset(displayOffset(in: containerSize))
+                .simultaneousGesture(magnificationGesture(in: containerSize))
+
+                VStack {
+                    HStack(spacing: 12) {
+                        Spacer()
+
+                        viewerControlButton(
+                            systemName: "square.and.arrow.up",
+                            isBusy: activeToolbarAction == .share,
+                            action: { Task { await handleShareAction() } }
+                        )
+                        .disabled(isToolbarBusy)
+
+                        viewerControlButton(
+                            systemName: "arrow.down.to.line",
+                            isBusy: activeToolbarAction == .save,
+                            action: { Task { await handleSaveAction() } }
+                        )
+                        .disabled(isToolbarBusy)
+
+                        viewerControlButton(systemName: "xmark", action: {
+                            dismiss()
+                        })
+                    }
+                    .padding(.top, proxy.safeAreaInsets.top + 12)
+                    .padding(.horizontal, 16)
+
+                    Spacer()
+                }
+                .opacity(max(0.4, backgroundOpacity))
+            }
+            .contentShape(Rectangle())
+            .simultaneousGesture(dragGesture(in: containerSize))
+        }
+        .sheet(isPresented: $isShowingShareSheet, onDismiss: {
+            sharedImage = nil
+        }) {
+            Group {
+                if let sharedImage {
+                    FireActivityShareSheet(
+                        activityItems: [sharedImage],
+                        subject: shareSubject
+                    )
+                }
+            }
+            .fireSheet(presented: $isShowingShareSheet)
+        }
+        .alert(alertTitle, isPresented: $isShowingAlert) {
+            Button("知道了", role: .cancel) {}
+        } message: {
+            Text(alertMessage)
+        }
+    }
+
+    private func viewerControlButton(
+        systemName: String,
+        isBusy: Bool = false,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Group {
+                if isBusy {
+                    ProgressView()
+                        .controlSize(.small)
+                        .tint(.white)
+                } else {
+                    Image(systemName: systemName)
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.92))
+                }
+            }
+            .frame(width: 42, height: 42)
+            .background(
+                Circle()
+                    .fill(Color.black.opacity(0.34))
+            )
+            .overlay(
+                Circle()
+                    .stroke(Color.white.opacity(0.14), lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    @MainActor
+    private func handleShareAction() async {
+        guard activeToolbarAction == nil else { return }
+
+        activeToolbarAction = .share
+        defer { activeToolbarAction = nil }
+
+        do {
+            let resolvedImage = try await FireRemoteImagePipeline.shared.loadImage(for: imageRequest)
+            sharedImage = resolvedImage
+            isShowingShareSheet = true
+        } catch {
+            presentAlert(
+                title: "无法分享图片",
+                message: "图片还没加载完成或下载失败，请稍后再试。"
+            )
+        }
+    }
+
+    @MainActor
+    private func handleSaveAction() async {
+        guard activeToolbarAction == nil else { return }
+
+        activeToolbarAction = .save
+        defer { activeToolbarAction = nil }
+
+        let resolvedImage: UIImage
+        do {
+            resolvedImage = try await FireRemoteImagePipeline.shared.loadImage(for: imageRequest)
+        } catch {
+            presentAlert(
+                title: "无法保存图片",
+                message: "图片还没加载完成或下载失败，请稍后再试。"
+            )
+            return
+        }
+
+        let authorizationStatus = await photoLibraryAuthorizationStatus()
+        guard authorizationStatus == .authorized || authorizationStatus == .limited else {
+            presentAlert(
+                title: "无法保存到相册",
+                message: "Fire 需要照片权限才能把当前图片保存到相册，请在系统设置里允许添加照片。"
+            )
+            return
+        }
+
+        do {
+            try await saveImageToPhotoLibrary(resolvedImage)
+            presentAlert(
+                title: "已保存到相册",
+                message: "当前帖子图片已经保存到系统相册。"
+            )
+        } catch {
+            presentAlert(
+                title: "保存失败",
+                message: "系统暂时无法写入相册，请稍后再试。"
+            )
+        }
+    }
+
+    @MainActor
+    private func presentAlert(title: String, message: String) {
+        alertTitle = title
+        alertMessage = message
+        isShowingAlert = true
+    }
+
+    private func photoLibraryAuthorizationStatus() async -> PHAuthorizationStatus {
+        let currentStatus = PHPhotoLibrary.authorizationStatus(for: .addOnly)
+        guard currentStatus == .notDetermined else {
+            return currentStatus
+        }
+
+        return await withCheckedContinuation { continuation in
+            PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
+                continuation.resume(returning: status)
+            }
+        }
+    }
+
+    private func saveImageToPhotoLibrary(_ image: UIImage) async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            PHPhotoLibrary.shared().performChanges {
+                PHAssetCreationRequest.creationRequestForAsset(from: image)
+            } completionHandler: { success, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                } else if success {
+                    continuation.resume(returning: ())
+                } else {
+                    continuation.resume(throwing: PhotoSaveError.unknownFailure)
+                }
+            }
+        }
+    }
+
+    private func magnificationGesture(in containerSize: CGSize) -> some Gesture {
+        MagnificationGesture()
+            .onChanged { value in
+                activeDragMode = nil
+                dismissOffset = .zero
+                interactionMode = .zooming
+                gestureZoomScale = value
+            }
+            .onEnded { value in
+                let resolvedScale = clampedScale(steadyZoomScale * value)
+                withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
+                    steadyZoomScale = resolvedScale
+                    gestureZoomScale = 1
+                    if resolvedScale <= minimumZoomScale + 0.01 {
+                        resetTransformState()
+                    } else {
+                        panOffset = clampedPanOffset(panOffset, in: containerSize, scale: resolvedScale)
+                        interactionMode = .panning
+                    }
+                }
+            }
+    }
+
+    private func dragGesture(in containerSize: CGSize) -> some Gesture {
+        DragGesture(minimumDistance: 10)
+            .onChanged { value in
+                handleDragChanged(value, in: containerSize)
+            }
+            .onEnded { value in
+                handleDragEnded(value, in: containerSize)
+            }
+    }
+
+    private func handleDragChanged(_ value: DragGesture.Value, in containerSize: CGSize) {
+        guard interactionMode != .zooming else { return }
+
+        if activeDragMode == nil {
+            if effectiveZoomScale > minimumZoomScale + 0.01 {
+                activeDragMode = .pan
+                dragStartOffset = panOffset
+            } else if value.translation.height > 0,
+                        abs(value.translation.height) > abs(value.translation.width) {
+                activeDragMode = .dismiss
+            } else {
+                activeDragMode = .ignore
+            }
+        }
+
+        switch activeDragMode {
+        case .pan:
+            interactionMode = .panning
+            dismissOffset = .zero
+            let proposedOffset = CGSize(
+                width: dragStartOffset.width + value.translation.width,
+                height: dragStartOffset.height + value.translation.height
+            )
+            panOffset = clampedPanOffset(proposedOffset, in: containerSize, scale: effectiveZoomScale)
+        case .dismiss:
+            interactionMode = .dismissing
+            let horizontalDrift = value.translation.width * 0.18
+            let verticalOffset = value.translation.height > dismissThreshold
+                ? dismissThreshold + (value.translation.height - dismissThreshold) * 0.72
+                : value.translation.height
+            dismissOffset = CGSize(width: horizontalDrift, height: verticalOffset)
+        case .ignore, .none:
+            break
+        }
+    }
+
+    private func handleDragEnded(_ value: DragGesture.Value, in containerSize: CGSize) {
+        defer { activeDragMode = nil }
+
+        switch activeDragMode {
+        case .pan:
+            withAnimation(.spring(response: 0.25, dampingFraction: 0.82)) {
+                panOffset = clampedPanOffset(panOffset, in: containerSize, scale: effectiveZoomScale)
+            }
+            interactionMode = effectiveZoomScale > minimumZoomScale + 0.01 ? .panning : .idle
+        case .dismiss:
+            let projectedDismissDistance = max(value.translation.height, value.predictedEndTranslation.height)
+            if projectedDismissDistance > dismissThreshold {
+                dismiss()
+            } else {
+                withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
+                    dismissOffset = .zero
+                    interactionMode = effectiveZoomScale > minimumZoomScale + 0.01 ? .panning : .idle
+                }
+            }
+        case .ignore, .none:
+            withAnimation(.spring(response: 0.25, dampingFraction: 0.82)) {
+                dismissOffset = .zero
+            }
+            interactionMode = effectiveZoomScale > minimumZoomScale + 0.01 ? .panning : .idle
+        }
+    }
+
+    private func displayOffset(in containerSize: CGSize) -> CGSize {
+        let clampedPan = clampedPanOffset(panOffset, in: containerSize, scale: effectiveZoomScale)
+        return CGSize(
+            width: clampedPan.width + dismissOffset.width,
+            height: clampedPan.height + dismissOffset.height
+        )
+    }
+
+    private func resetTransformState() {
+        steadyZoomScale = minimumZoomScale
+        gestureZoomScale = 1
+        panOffset = .zero
+        dragStartOffset = .zero
+        dismissOffset = .zero
+        interactionMode = .idle
+    }
+
+    private func clampedScale(_ scale: CGFloat) -> CGFloat {
+        min(max(scale, minimumZoomScale), maximumZoomScale)
+    }
+
+    private func clampedPanOffset(_ proposedOffset: CGSize, in containerSize: CGSize, scale: CGFloat) -> CGSize {
+        let maxOffset = maximumPanOffset(in: containerSize, scale: scale)
+        return CGSize(
+            width: min(max(proposedOffset.width, -maxOffset.width), maxOffset.width),
+            height: min(max(proposedOffset.height, -maxOffset.height), maxOffset.height)
+        )
+    }
+
+    private func maximumPanOffset(in containerSize: CGSize, scale: CGFloat) -> CGSize {
+        guard scale > minimumZoomScale else {
+            return .zero
+        }
+
+        let fittedSize = fittedImageSize(in: containerSize)
+        let scaledSize = CGSize(width: fittedSize.width * scale, height: fittedSize.height * scale)
+        return CGSize(
+            width: max((scaledSize.width - fittedSize.width) / 2, 0),
+            height: max((scaledSize.height - fittedSize.height) / 2, 0)
+        )
+    }
+
+    private func fittedImageSize(in containerSize: CGSize) -> CGSize {
+        let availableWidth = max(containerSize.width - imagePadding * 2, 1)
+        let availableHeight = max(containerSize.height - imagePadding * 2, 1)
+
+        guard let aspectRatio = image.aspectRatio, aspectRatio > 0 else {
+            return CGSize(width: availableWidth, height: availableHeight)
+        }
+
+        let containerAspectRatio = availableWidth / availableHeight
+        if aspectRatio > containerAspectRatio {
+            return CGSize(width: availableWidth, height: availableWidth / aspectRatio)
+        }
+        return CGSize(width: availableHeight * aspectRatio, height: availableHeight)
+    }
+}
+
+struct FireSwipeToReplyContainer<Content: View>: View {
+    let enabled: Bool
+    let onSwipeReply: () -> Void
+    @ViewBuilder let content: () -> Content
+
+    @State private var offset: CGFloat = 0
+    @State private var gestureDirection: FireTopicReplySwipeAxis? = nil
+    @State private var replyTriggered = false
+    @State private var swipeReplyTriggerPulse = 0
+
+    private let triggerThreshold: CGFloat = 55
+    private let maxOffset: CGFloat = 75
+
+    var body: some View {
+        if enabled {
+            swipeableContent
+        } else {
+            content()
+        }
+    }
+
+    private var swipeableContent: some View {
+        content()
+            .offset(x: offset)
+            .background(alignment: .leading) {
+                if offset > 4 {
+                    replyIndicator
+                }
+            }
+            .clipped()
+            .contentShape(Rectangle())
+            .simultaneousGesture(swipeGesture)
+            .fireSwipeReplyFeedback(trigger: swipeReplyTriggerPulse)
+    }
+
+    private var replyIndicator: some View {
+        Image(systemName: "arrowshape.turn.up.left.fill")
+            .font(.system(size: 18, weight: .medium))
+            .foregroundStyle(replyTriggered ? FireTheme.accent : FireTheme.tertiaryInk)
+            .scaleEffect(min(offset / triggerThreshold, 1.0))
+            .opacity(Double(min(offset / (triggerThreshold * 0.5), 1.0)))
+            .frame(width: 32, height: 32)
+            .padding(.leading, 4)
+    }
+
+    private var swipeGesture: some Gesture {
+        DragGesture(minimumDistance: 18)
+            .onChanged { value in
+                let dx = value.translation.width
+                let dy = value.translation.height
+
+                if gestureDirection == nil {
+                    gestureDirection = FireTopicReplySwipePolicy.resolvedAxis(
+                        startLocationX: value.startLocation.x,
+                        translationWidth: dx,
+                        translationHeight: dy
+                    )
+                }
+
+                guard gestureDirection == .horizontal, dx > 0 else { return }
+
+                let dampened = dx > triggerThreshold
+                    ? triggerThreshold + (dx - triggerThreshold) * 0.25
+                    : dx
+                withAnimation(.interactiveSpring()) {
+                    offset = min(dampened, maxOffset)
+                }
+
+                if offset >= triggerThreshold && !replyTriggered {
+                    replyTriggered = true
+                    swipeReplyTriggerPulse += 1
+                }
+            }
+            .onEnded { _ in
+                if replyTriggered {
+                    onSwipeReply()
+                }
+                withAnimation(.spring(response: 0.25, dampingFraction: 0.7)) {
+                    offset = 0
+                }
+                gestureDirection = nil
+                replyTriggered = false
+            }
+    }
+}

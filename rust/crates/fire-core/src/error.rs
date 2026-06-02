@@ -54,6 +54,11 @@ pub enum FireCoreError {
     PostEnqueued { pending_count: u32 },
     #[error("invalid topic response cursor for topic {topic_id} session {session_id}")]
     InvalidTopicResponseCursor { topic_id: u64, session_id: u64 },
+    #[error("topic detail response mismatch: requested topic {requested_topic_id}, got topic {actual_topic_id}")]
+    UnexpectedTopicDetail {
+        requested_topic_id: u64,
+        actual_topic_id: u64,
+    },
     #[error("invalid user notification level: {level}")]
     InvalidUserNotificationLevel { level: String },
     #[error("fire workspace path is not configured")]

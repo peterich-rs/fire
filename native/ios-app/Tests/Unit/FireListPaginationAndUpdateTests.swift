@@ -44,7 +44,7 @@ final class FireListPaginationAndUpdateTests: XCTestCase {
 
     func testTopicDetailShouldLoadMoreNearTrailingThreshold() {
         XCTAssertTrue(fireTopicDetailShouldLoadMore(itemCount: 20, visibleMaxItem: 13))
-        XCTAssertFalse(fireTopicDetailShouldLoadMore(itemCount: 20, visibleMaxItem: 11))
+        XCTAssertFalse(fireTopicDetailShouldLoadMore(itemCount: 20, visibleMaxItem: 4))
         XCTAssertFalse(fireTopicDetailShouldLoadMore(itemCount: 20, visibleMaxItem: nil))
     }
 
@@ -53,22 +53,53 @@ final class FireListPaginationAndUpdateTests: XCTestCase {
             previousFooterState: .loadingFooter,
             nextFooterState: .loadMore,
             itemCount: 24,
-            visibleMaxItem: 17
+            visibleMaxItem: 17,
+            footerDistanceToViewport: nil
         ))
 
         XCTAssertFalse(fireTopicDetailShouldHoldLoadingFooter(
             previousFooterState: .loadingFooter,
             nextFooterState: .loadMore,
             itemCount: 24,
-            visibleMaxItem: 12
+            visibleMaxItem: 7,
+            footerDistanceToViewport: nil
         ))
 
         XCTAssertFalse(fireTopicDetailShouldHoldLoadingFooter(
             previousFooterState: .loadMore,
             nextFooterState: .loadMore,
             itemCount: 24,
-            visibleMaxItem: 17
+            visibleMaxItem: 17,
+            footerDistanceToViewport: nil
         ))
+    }
+
+    func testTopicDetailShouldLoadMoreWhenFooterApproachesViewport() {
+        XCTAssertTrue(fireTopicDetailShouldLoadMore(
+            itemCount: 20,
+            visibleMaxItem: 3,
+            footerDistanceToViewport: 180
+        ))
+        XCTAssertFalse(fireTopicDetailShouldLoadMore(
+            itemCount: 20,
+            visibleMaxItem: 3,
+            footerDistanceToViewport: 320
+        ))
+    }
+
+    func testTopicDetailLoadMoreProbeTracksFooterDistanceBuckets() {
+        let farProbe = fireTopicDetailLoadMoreProbe(
+            itemCount: 20,
+            visibleMaxItem: 11,
+            footerDistanceToViewport: 420
+        )
+        let nearProbe = fireTopicDetailLoadMoreProbe(
+            itemCount: 20,
+            visibleMaxItem: 11,
+            footerDistanceToViewport: 180
+        )
+
+        XCTAssertNotEqual(farProbe, nearProbe)
     }
 
     func testTopicDetailCollectionUpdatePlanNoopsForIdenticalItems() {
@@ -82,6 +113,45 @@ final class FireListPaginationAndUpdateTests: XCTestCase {
         ]
 
         XCTAssertTrue(fireTopicDetailCollectionUpdatePlan(from: current, to: next).isEmpty)
+    }
+
+    func testTopicDetailVisibleNodeUpdateIndicesOnlyMarksInPlaceStateChanges() {
+        let current = [
+            makeRuntimeItem(id: "reply-a", contentToken: "layout-a", inPlaceUpdateToken: "ui-a"),
+            makeRuntimeItem(id: "reply-b", contentToken: "layout-b", inPlaceUpdateToken: "ui-b"),
+        ]
+        let next = [
+            makeRuntimeItem(id: "reply-a", contentToken: "layout-a", inPlaceUpdateToken: "ui-a-2"),
+            makeRuntimeItem(id: "reply-b", contentToken: "layout-b", inPlaceUpdateToken: "ui-b"),
+        ]
+
+        XCTAssertEqual(
+            fireTopicDetailVisibleNodeUpdateIndices(from: current, to: next),
+            [0]
+        )
+    }
+
+    func testTopicDetailVisiblePostRelayoutIndexPathsOnlyKeepsVisiblePostReloads() {
+        let items = [
+            makeRuntimeItem(id: "header", kind: .header, contentToken: "header"),
+            makeRuntimeItem(id: "reply", kind: .reply, contentToken: "reply"),
+            makeRuntimeItem(id: "footer", kind: .replyFooter, contentToken: "footer"),
+        ]
+
+        let relayouts = fireTopicDetailVisiblePostRelayoutIndexPaths(
+            reloads: [
+                IndexPath(item: 0, section: 0),
+                IndexPath(item: 1, section: 0),
+                IndexPath(item: 2, section: 0),
+            ],
+            nextItems: items,
+            visibleIndexPaths: Set([
+                IndexPath(item: 0, section: 0),
+                IndexPath(item: 1, section: 0),
+            ])
+        )
+
+        XCTAssertEqual(relayouts, [IndexPath(item: 1, section: 0)])
     }
 
     func testHomePaginationRequestsNextPageWhenStillNearBottom() {
@@ -159,14 +229,20 @@ final class FireListPaginationAndUpdateTests: XCTestCase {
         ))
     }
 
-    private func makeRuntimeItem(id: String, contentToken: String) -> FireTopicDetailRuntimeItem {
+    private func makeRuntimeItem(
+        id: String,
+        kind: FireTopicDetailRuntimeItemKind = .reply,
+        contentToken: String,
+        inPlaceUpdateToken: String? = nil
+    ) -> FireTopicDetailRuntimeItem {
         FireTopicDetailRuntimeItem(
             id: id,
-            kind: .reply,
+            kind: kind,
             postID: nil,
             postNumber: nil,
             replyIndex: nil,
-            contentToken: AnyHashable(contentToken)
+            contentToken: AnyHashable(contentToken),
+            inPlaceUpdateToken: inPlaceUpdateToken.map(AnyHashable.init)
         )
     }
 }

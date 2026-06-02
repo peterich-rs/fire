@@ -282,6 +282,31 @@ final class FireTopicPresentationTests: XCTestCase {
         XCTAssertEqual(appended.rowInputs.map(\.postNumber), [1, 2, 3, 4])
     }
 
+    func testScreenDetailRenderCacheRebuildsRowsWhenResponseShapeChanges() {
+        let originalPost = makePost(postNumber: 1, replyToPostNumber: nil, username: "author")
+        let initialRows = [
+            makeResponseRow(postNumber: 2, parentPostNumber: 1, depth: 1, username: "reply-a")
+        ]
+        let changedRows = [
+            makeResponseRow(postNumber: 2, parentPostNumber: 1, depth: 2, username: "reply-a")
+        ]
+        let initial = FireTopicPresentation.detailRenderCache(
+            screen: makeTopicScreen(originalPost: originalPost, responseRows: initialRows),
+            responseRows: initialRows,
+            baseURLString: "https://linux.do"
+        )
+
+        let refreshed = FireTopicPresentation.detailRenderCache(
+            screen: makeTopicScreen(originalPost: originalPost, responseRows: changedRows),
+            responseRows: changedRows,
+            baseURLString: "https://linux.do",
+            previous: initial
+        )
+
+        XCTAssertNotEqual(initial.rowInputs, refreshed.rowInputs)
+        XCTAssertEqual(refreshed.renderState.replyRows.map { $0.entry.depth }, [2])
+    }
+
     func testScreenDetailRenderCacheAppendFallsBackForDuplicateRows() {
         let originalPost = makePost(postNumber: 1, replyToPostNumber: nil, username: "author")
         let initialRows = [
@@ -304,6 +329,40 @@ final class FireTopicPresentationTests: XCTestCase {
         )
 
         XCTAssertNil(duplicateAppend)
+    }
+
+    func testScreenDetailRenderCacheAppendFallsBackWhenPreviousOriginalContentIsMissing() {
+        let originalPost = makePost(postNumber: 1, replyToPostNumber: nil, username: "author")
+        let initialRows = [
+            makeResponseRow(postNumber: 2, parentPostNumber: 1, depth: 1, username: "reply-a")
+        ]
+        let screen = makeTopicScreen(originalPost: originalPost, responseRows: initialRows)
+        let initial = FireTopicPresentation.detailRenderCache(
+            screen: screen,
+            responseRows: initialRows,
+            baseURLString: "https://linux.do"
+        )
+        let brokenPrevious = FireTopicDetailRenderCache(
+            baseURLString: initial.baseURLString,
+            rowInputs: initial.rowInputs,
+            contentInputsByPostID: initial.contentInputsByPostID,
+            renderState: FireTopicDetailRenderState(
+                originalRow: initial.renderState.originalRow,
+                replyRows: initial.renderState.replyRows,
+                contentByPostID: initial.renderState.contentByPostID.filter { $0.key != originalPost.id }
+            )
+        )
+
+        let appended = FireTopicPresentation.detailRenderCache(
+            screen: screen,
+            appending: [
+                makeResponseRow(postNumber: 3, parentPostNumber: 1, depth: 1, username: "reply-b")
+            ],
+            baseURLString: "https://linux.do",
+            previous: brokenPrevious
+        )
+
+        XCTAssertNil(appended)
     }
 
     func testScreenDetailRenderCacheDeduplicatesOverlappingRows() {

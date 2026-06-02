@@ -82,7 +82,7 @@
 
 - `/latest`
   - `message_type="latest"`，表示已有话题收到新回复
-  - iOS 首页只在全局 Latest、无分类、无标签、且事件带 `topic_id` 时用 `topic_ids` 做增量回拉并合并到现有列表；不能增量解析的事件不会退化成整页 `/latest.json` 刷新
+  - iOS 首页只在全局 Latest、无分类、无标签、当前 Latest 列表页面可见、且事件带 `topic_id` 时用 `topic_ids` 做增量回拉并合并到现有列表；不能增量解析的事件不会退化成整页 `/latest.json` 刷新，离开该页面后也不会继续在后台触发 `/latest.json`
   - Android 首页当前在收到匹配事件后按同样的 debounce / 最小间隔策略刷新 Paging 列表
 - `/new`
   - `message_type="new_topic"`，表示有新话题创建

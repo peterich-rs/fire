@@ -38,7 +38,7 @@
   - iOS 登录与 Cloudflare 验证 WebView 使用同一套 auth-browser profile：默认持久化 `WKWebsiteDataStore`、不自定义进程池、浏览器兼容 UA、JavaScript、新窗口处理、inline media 设置、调试可检查 WebView，以及少量浏览器兼容 polyfill；完成登录时再读取实际 `navigator.userAgent`，通过 `sync_login_context.browser_user_agent` 交给共享层保存，并由 `SessionState.browser_user_agent` 暴露回宿主
   - iOS 登录 `WKWebView` 现在会显式开启 `window.open` / 新窗口请求，并把 `target="_blank"` 或脚本弹出的登录跳转收口到当前浏览器上下文继续导航，避免第三方登录选择页因为缺少 `WKUIDelegate` 而直接失效
   - Android 登录与普通 Cloudflare 恢复 `WebView` 共享同一套 browser-like profile：AndroidX WebKit Safe Browsing、持久化 Cookie、第三方 Cookie、JavaScript、DOM/database storage、浏览器兼容 UA 规范化、多窗口/popup 收口、媒体内联能力，并禁止非 Web scheme、file/content 访问和 mixed content；沉浸式壳层下登录顶部 chrome 会应用真实状态栏 inset，保证关闭和登录同步按钮可点击
-  - iOS 的交互式 Cloudflare 恢复不再单独打开 `/challenge` 页面，也不再把 topic-detail 触发的恢复默认带回登录页：话题详情内触发时打开对应 topic HTML 页 `https://linux.do/t/{slug}/{topicId}`，缺少 slug 时退回 `https://linux.do/t/{topicId}`；其他恢复默认使用站点 root，并继续复用同一个 auth-browser profile 与登录页 readiness 探测。恢复流程不会删除旧 `cf_clearance`；页面满足普通登录“完成登录”按钮的同一套可用条件后，还必须观察到相对恢复基线变化的新 `cf_clearance`，才会自动执行一次 `completeLogin` 并恢复原始操作
+  - iOS 的交互式 Cloudflare 恢复不再单独打开 `/challenge` 页面，也不再把 topic-detail 触发的恢复默认带回登录页：话题详情内触发时打开对应 topic HTML 页 `https://linux.do/t/{slug}/{topicId}`，缺少 slug 时退回 `https://linux.do/t/{topicId}`；首页 topic list 触发时打开当前列表查询对应的 HTML 页，例如 `/latest`、`/c/{slug}/{id}/l/latest` 或 `/tag/{tag}/l/top`；其他恢复默认使用站点 root，并继续复用同一个 auth-browser profile 与登录页 readiness 探测。恢复流程不会删除旧 `cf_clearance`；页面满足普通登录“完成登录”按钮的同一套可用条件后，还必须观察到相对恢复基线变化的新 `cf_clearance`，才会自动执行一次 `completeLogin` 并恢复原始操作
   - 这个 WebView profile 只用于让 LinuxDo 登录、Cloudflare challenge 和普通站内跳转尽量接近系统浏览器环境。Android 会移除默认 UA 中的 embedded WebView 标记并支持 popup 导航，以满足 Google 登录页的浏览器能力检查；这仍不能绕过第三方 OAuth 的所有嵌入式浏览器限制。Google OAuth 仍可能在 iOS `WKWebView` 中返回 `disallowed_useragent`；如需覆盖这类平台政策限制，需要系统认证会话 / Safari fallback，并配套服务端 redirect 或 Cookie 交换能力。
   - iOS 当前在真正提交登录时仍会优先通过浏览器上下文内的 `fetch("/")` 抓首页 HTML；只有这份首页 HTML 不够完整时，才回退到当前页面 `document.documentElement.outerHTML`，并会用优选后的 HTML 回填缺失的 `current-username` / `csrf-token`
   - 在把 bootstrap 视为“已就绪”前，应该确认至少拿到了当前用户、站点级 `site` 元数据（分类/标签能力）和 `siteSettings`（最小长度、reactions、长轮询域等）；显式 bootstrap 刷新路径缺失时继续回源 `GET /` 刷新，而不要仅凭 `hasPreloadedData=true` 就跳过。iOS 冷启动热路径例外：它不再为了补齐这些字段主动 native `GET /`，而是先恢复 Cookie/持久化 snapshot 并加载首页列表。
@@ -110,11 +110,11 @@
 ### 交互式 Cloudflare 恢复
 
 - 用途：在浏览器上下文内完成 Cloudflare 验证并把新的浏览器 Cookie 回灌到共享 Rust session。
-- Fire iOS 的交互式恢复会保留 `WKHTTPCookieStore` 中已有的 `cf_clearance`，再打开触发场景对应的浏览器 HTML URL：topic detail 使用 `/t/{slug}/{topicId}` 或 `/t/{topicId}`，首页/列表/通知等非 topic 场景使用站点 root；显式登录仍使用 `/login`。恢复 WebView 继续复用登录页 readiness 探测，但 Cloudflare 恢复的自动同步还要求 WebView Cookie 中出现相对恢复基线发生变化的新 `cf_clearance`，随后才把浏览器 Cookie 批量同步回共享层并重试原操作。
-- Fire Android 不自动关闭挑战 WebView，也不在挑战完成后立即重试当前 native 操作：topic detail 在当前详情页 toolbar 下加载 `https://linux.do/t/{topicId}`，其他页面加载 `https://linux.do/`；一旦 WebView Cookie 中出现 `cf_clearance`，宿主调用 `sync_login_context` 同步到 Rust，WebView 保持可见，后续新开的 native 页面继续走原生读取链路。
+- Fire iOS 的交互式恢复会保留 `WKHTTPCookieStore` 中已有的 `cf_clearance`，再打开触发场景对应的浏览器 HTML URL：topic detail 使用 `/t/{slug}/{topicId}` 或 `/t/{topicId}`，首页 topic list 使用当前列表查询对应的 HTML URL（例如 `/latest`、`/c/{slug}/{id}/l/latest`、`/tag/{tag}/l/top`），通知等其他非 topic/list 场景使用站点 root；显式登录仍使用 `/login`。恢复 WebView 继续复用登录页 readiness 探测，但 Cloudflare 恢复的自动同步还要求 WebView Cookie 中出现相对恢复基线发生变化的新 `cf_clearance`，随后才把浏览器 Cookie 批量同步回共享层并重试原操作。
+- Fire Android 不自动关闭挑战 WebView，也不在挑战完成后立即重试当前 native 操作：topic detail 在当前详情页 toolbar 下加载 `https://linux.do/t/{topicId}`，首页 topic list 加载当前列表查询对应的 HTML URL，其他页面加载 `https://linux.do/`；一旦 WebView Cookie 中出现 `cf_clearance`，宿主调用 `sync_login_context` 同步到 Rust，WebView 保持可见，后续新开的 native 页面继续走原生读取链路。
 - 认证：匿名可访问
 - 响应：HTML 页面，不是 JSON
-- 识别：共享层只把 `403` 且响应头指向 Cloudflare HTML challenge 的回包归类为 `CloudflareChallenge`；优先使用 `cf-mitigated: challenge`，缺失时再用 HTML 中的 `cf_chl_opt`、`challenge-platform`、`Just a moment` 等特征兜底
+- 识别：共享层只把 `403` / `429` 且响应头指向 Cloudflare HTML challenge 的回包归类为 `CloudflareChallenge`；优先使用 `cf-mitigated: challenge`，缺失时再用 HTML 中的 `cf_chl_opt`、`challenge-platform`、`Just a moment` 等特征兜底
 
 ### `POST /cdn-cgi/challenge-platform/h/g/rc/{chlId}`
 

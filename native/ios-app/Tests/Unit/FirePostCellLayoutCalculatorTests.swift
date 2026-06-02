@@ -383,6 +383,83 @@ final class FirePostCellLayoutCalculatorTests: XCTestCase {
         XCTAssertGreaterThan(layout.size.height, 90)
     }
 
+    func testTexturePostCellActionRowMatchesLayoutCalculatorHeight() {
+        let width: CGFloat = 320
+        let renderContent = FireTopicPresentation.renderContent(
+            from: "<p>Fire native detail row with reply shortcut and reactions.</p>",
+            baseURLString: "https://linux.do"
+        )
+        let reactions = [
+            TopicReactionState(id: "heart", kind: nil, count: 12, canUndo: true),
+            TopicReactionState(id: "clap", kind: nil, count: 4, canUndo: true),
+        ]
+        let post = makePost(
+            id: 654,
+            postNumber: 2,
+            username: "tester",
+            reactions: reactions
+        )
+        let node = FirePostCellNode()
+        node.configure(
+            payload: FirePostCellRenderPayload(
+                post: post,
+                renderContent: renderContent,
+                baseURLString: "https://linux.do",
+                canWriteInteractions: true,
+                isMutating: false,
+                replyContext: nil,
+                replyTargetPostNumber: nil,
+                replyShortcutCount: 3,
+                isLoadingReplyContext: false,
+                textExpansionState: .disabled,
+                showsDivider: false,
+                layoutWidth: width
+            ),
+            callbacks: noopCallbacks(),
+            depth: 1,
+            showsThreadLine: false,
+            showsDivider: false
+        )
+
+        let measuredLayout = node.layoutThatFits(ASSizeRange(
+            min: CGSize(width: width, height: 0),
+            max: CGSize(width: width, height: .greatestFiniteMagnitude)
+        ))
+        let trait = FirePostLayoutTraitSignature(
+            contentWidthPixels: Int(width.rounded()),
+            contentSizeCategory: UIContentSizeCategory.large.rawValue
+        )
+        let key = FirePostCellLayoutKey(
+            postID: post.id,
+            depth: 1,
+            showsThreadLine: false,
+            showsDivider: false,
+            replyTargetPostNumber: nil,
+            replyContext: nil,
+            textContentID: renderContent.signature.token,
+            imageSignature: [],
+            pollSignature: [],
+            hasReactions: true,
+            replyShortcutCount: 3,
+            textExpansionState: .disabled,
+            acceptedAnswer: false,
+            trait: trait
+        )
+        let textHeight = FirePostCellLayoutCalculator.measureRichTextHeight(
+            attributedText: renderContent.attributedText,
+            containerWidth: FirePostCellLayoutCalculator.availableContentWidth(for: key, trait: trait),
+            contentSizeCategory: .large
+        )
+        let calculatedLayout = FirePostCellLayoutCalculator.calculate(
+            key: key,
+            textHeight: textHeight,
+            imageSizes: [],
+            trait: trait
+        )
+
+        XCTAssertEqual(measuredLayout.size.height, calculatedLayout.totalHeight, accuracy: 1.0)
+    }
+
     func testCommentImageRenderSizeIsScaledDown() throws {
         let image = FireCookedImage(
             url: try XCTUnwrap(URL(string: "https://linux.do/uploads/default/original/1x/sample.png")),
@@ -407,7 +484,12 @@ final class FirePostCellLayoutCalculatorTests: XCTestCase {
         XCTAssertLessThanOrEqual(commentSize.height, FirePostCellLayoutCalculator.commentImageMaxHeight)
     }
 
-    private func makePost(id: UInt64, postNumber: UInt32, username: String) -> TopicPostState {
+    private func makePost(
+        id: UInt64,
+        postNumber: UInt32,
+        username: String,
+        reactions: [TopicReactionState] = []
+    ) -> TopicPostState {
         TopicPostState(
             id: id,
             username: username,
@@ -427,7 +509,7 @@ final class FirePostCellLayoutCalculatorTests: XCTestCase {
             bookmarkId: nil,
             bookmarkName: nil,
             bookmarkReminderAt: nil,
-            reactions: [],
+            reactions: reactions,
             currentUserReaction: nil,
             polls: [],
             acceptedAnswer: false,

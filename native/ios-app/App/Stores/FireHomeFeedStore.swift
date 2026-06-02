@@ -30,6 +30,14 @@ public enum FireHomeTopicListDisplayState: Hashable {
 final class FireHomeFeedStore: ObservableObject {
     private static let topicListRefreshLoadingPollInterval: Duration = .milliseconds(250)
 
+    private struct FireHomeTopicRowsMergeResult {
+        let rows: [FireTopicRowPresentation]
+        let entities: FireEntityIndex<UInt64, FireTopicRowPresentation>
+        let order: FireOrderedIDList<UInt64>
+        let dirtyTopicIDs: Set<UInt64>
+        let rebuildAllTokens: Bool
+    }
+
     @Published private(set) var selectedTopicKind: TopicListKindState = .latest
     @Published private(set) var selectedHomeCategoryId: UInt64?
     @Published private(set) var selectedHomeTags: [String] = []
@@ -45,6 +53,7 @@ final class FireHomeFeedStore: ObservableObject {
     @Published private(set) var topicLoadErrorMessage: String?
 
     private(set) var visibleTopicIDs: Set<UInt64> = []
+    private(set) var isTopicListVisible = false
     private(set) var renderedTopicListScope: FireTopicListRefreshScope?
     private let appViewModel: FireAppViewModel
     private let topicListRefreshClock = ContinuousClock()
@@ -53,6 +62,7 @@ final class FireHomeFeedStore: ObservableObject {
     private var topicListMessageBusRefreshController = FireTopicListMessageBusRefreshController()
     private var topicEntities = FireEntityIndex<UInt64, FireTopicRowPresentation>()
     private var topicOrder = FireOrderedIDList<UInt64>()
+    private var topicRowContentTokensByID: [UInt64: String] = [:]
 
     init(appViewModel: FireAppViewModel) {
         self.appViewModel = appViewModel
@@ -90,6 +100,16 @@ final class FireHomeFeedStore: ObservableObject {
         )
     }
 
+    func setTopicListVisible(_ isVisible: Bool) {
+        guard isTopicListVisible != isVisible else {
+            return
+        }
+        isTopicListVisible = isVisible
+        if !isVisible {
+            cancelPendingTopicListRefresh()
+        }
+    }
+
     func applySession(_ session: SessionState) {
         allCategories = session.bootstrap.categories
         topicCategories = Dictionary(
@@ -113,6 +133,10 @@ final class FireHomeFeedStore: ObservableObject {
 
     func topicRow(for topicID: UInt64) -> FireTopicRowPresentation? {
         topicEntities.entity(for: topicID)
+    }
+
+    func topicRowContentToken(for topicID: UInt64) -> String? {
+        topicRowContentTokensByID[topicID]
     }
 
     func selectTopicKind(_ kind: TopicListKindState) {
@@ -184,9 +208,12 @@ final class FireHomeFeedStore: ObservableObject {
         let scope = currentTopicListRefreshScope
         guard busKind == scope.kind else { return }
 
-        let allowIncremental = scope.supportsIncrementalMessageBusRefresh
-            && renderedTopicListScope == scope
-            && !topicRows.isEmpty
+        let allowIncremental = Self.canScheduleIncrementalMessageBusRefresh(
+            scope: scope,
+            renderedScope: renderedTopicListScope,
+            isTopicListVisible: isTopicListVisible,
+            hasRows: !topicRows.isEmpty
+        )
         guard let delay = topicListMessageBusRefreshController.register(
             event: event,
             for: scope,
@@ -233,6 +260,7 @@ final class FireHomeFeedStore: ObservableObject {
         filterChangeRefreshTask = nil
         topicEntities.removeAll()
         topicOrder.removeAll()
+        topicRowContentTokensByID = [:]
         topicRows = []
         moreTopicsUrl = nil
         nextTopicsPage = nil
@@ -275,7 +303,22 @@ final class FireHomeFeedStore: ObservableObject {
     }
 
     private func refreshTopicsFromMessageBus(_ refreshMode: FireTopicListMessageBusRefreshMode) async {
+        guard isTopicListVisible else {
+            return
+        }
         await loadTopics(page: nil, reset: true, force: true, refreshMode: refreshMode)
+    }
+
+    nonisolated static func canScheduleIncrementalMessageBusRefresh(
+        scope: FireTopicListRefreshScope,
+        renderedScope: FireTopicListRefreshScope?,
+        isTopicListVisible: Bool,
+        hasRows: Bool
+    ) -> Bool {
+        isTopicListVisible
+            && hasRows
+            && scope.supportsIncrementalMessageBusRefresh
+            && renderedScope == scope
     }
 
     @discardableResult
@@ -339,21 +382,23 @@ final class FireHomeFeedStore: ObservableObject {
                 && requestedScope.supportsIncrementalMessageBusRefresh
                 && renderedTopicListScope == requestedScope
                 && !topicRows.isEmpty
+            let topicListQuery = TopicListQueryState(
+                kind: requestedKind,
+                page: page,
+                topicIds: usesIncrementalRefresh ? incrementalTopicIDs : [],
+                order: nil,
+                ascending: nil,
+                categorySlug: categorySlug,
+                categoryId: categoryId,
+                parentCategorySlug: parentSlug,
+                tag: primaryTag,
+                additionalTags: additionalTags,
+                matchAllTags: !additionalTags.isEmpty
+            )
+            let recoveryURL = appViewModel.cloudflareRecoveryTopicListURL(query: topicListQuery)
             let fetch: () async throws -> TopicListState = {
                 try await sessionStore.fetchTopicList(
-                    query: TopicListQueryState(
-                        kind: requestedKind,
-                        page: page,
-                        topicIds: usesIncrementalRefresh ? incrementalTopicIDs : [],
-                        order: nil,
-                        ascending: nil,
-                        categorySlug: categorySlug,
-                        categoryId: categoryId,
-                        parentCategorySlug: parentSlug,
-                        tag: primaryTag,
-                        additionalTags: additionalTags,
-                        matchAllTags: !additionalTags.isEmpty
-                    )
+                    query: topicListQuery
                 )
             }
             let operationDescription = (page == nil && reset)
@@ -362,7 +407,7 @@ final class FireHomeFeedStore: ObservableObject {
             let fetchWithRecovery: () async throws -> TopicListState = {
                 try await self.appViewModel.performWithCloudflareRecovery(
                     operation: operationDescription,
-                    originURL: self.appViewModel.siteRootRecoveryURL,
+                    originURL: recoveryURL,
                     work: fetch
                 )
             }
@@ -386,12 +431,12 @@ final class FireHomeFeedStore: ObservableObject {
                 return false
             }
 
-            let mergedTopicRows = mergeTopicRows(
+            let mergeResult = mergeTopicRows(
                 incoming: response.rows,
                 reset: reset,
                 usesIncrementalRefresh: usesIncrementalRefresh
             )
-            setTopicRows(mergedTopicRows)
+            applyTopicRows(mergeResult)
             renderedTopicListScope = requestedScope
             topicLoadErrorMessage = nil
 
@@ -433,6 +478,17 @@ final class FireHomeFeedStore: ObservableObject {
                     refreshMode: refreshMode
                 )
             }
+            if !force,
+               case FireUniFfiError.StaleSessionResponse = error {
+                isLoadingTopics = false
+                isAppendingTopics = false
+                return await loadTopics(
+                    page: page,
+                    reset: reset,
+                    force: true,
+                    refreshMode: refreshMode
+                )
+            }
             if await appViewModel.handleRecoverableSessionErrorIfNeeded(error) {
                 return false
             }
@@ -449,12 +505,17 @@ final class FireHomeFeedStore: ObservableObject {
         topicListMessageBusRefreshController.clearPending(for: scope)
     }
 
-    private func setTopicRows(_ rows: [FireTopicRowPresentation]) {
-        topicEntities.replaceAll(rows, id: \.topic.id)
-        topicOrder.replace(with: rows.map(\.topic.id))
-        topicRows = rows
+    private func applyTopicRows(_ result: FireHomeTopicRowsMergeResult) {
+        topicEntities = result.entities
+        topicOrder = result.order
+        topicRows = result.rows
+        updateTopicRowContentTokens(
+            rows: result.rows,
+            dirtyTopicIDs: result.dirtyTopicIDs,
+            rebuildAll: result.rebuildAllTokens
+        )
         visibleTopicIDs = Self.sanitizedVisibleTopicIDs(
-            currentTopicIDs: rows.map(\.topic.id),
+            currentTopicIDs: result.rows.map(\.topic.id),
             candidateVisibleTopicIDs: visibleTopicIDs
         )
     }
@@ -462,6 +523,7 @@ final class FireHomeFeedStore: ObservableObject {
     private func clearTopicRows() {
         topicEntities.removeAll()
         topicOrder.removeAll()
+        topicRowContentTokensByID = [:]
         topicRows = []
         visibleTopicIDs = []
         moreTopicsUrl = nil
@@ -473,19 +535,100 @@ final class FireHomeFeedStore: ObservableObject {
         incoming: [FireTopicRowPresentation],
         reset: Bool,
         usesIncrementalRefresh: Bool
-    ) -> [FireTopicRowPresentation] {
+    ) -> FireHomeTopicRowsMergeResult {
         if reset {
             if usesIncrementalRefresh {
-                return FireTopicListMessageBusRefreshMerger.merge(
+                let rows = FireTopicListMessageBusRefreshMerger.merge(
                     existing: topicRows,
                     incoming: incoming
                 )
+                var entities = FireEntityIndex<UInt64, FireTopicRowPresentation>()
+                entities.replaceAll(rows, id: \.topic.id)
+                let order = FireOrderedIDList(ids: rows.map(\.topic.id))
+                return FireHomeTopicRowsMergeResult(
+                    rows: rows,
+                    entities: entities,
+                    order: order,
+                    dirtyTopicIDs: Set(incoming.map(\.topic.id)),
+                    rebuildAllTokens: false
+                )
             }
-            return incoming
+            var entities = FireEntityIndex<UInt64, FireTopicRowPresentation>()
+            entities.replaceAll(incoming, id: \.topic.id)
+            let order = FireOrderedIDList(ids: incoming.map(\.topic.id))
+            return FireHomeTopicRowsMergeResult(
+                rows: incoming,
+                entities: entities,
+                order: order,
+                dirtyTopicIDs: Set(incoming.map(\.topic.id)),
+                rebuildAllTokens: true
+            )
         }
 
-        topicEntities.upsert(incoming, id: \.topic.id)
-        topicOrder.append(incoming.map(\.topic.id))
-        return topicEntities.orderedValues(for: topicOrder)
+        var entities = topicEntities
+        entities.upsert(incoming, id: \.topic.id)
+        var order = topicOrder
+        order.append(incoming.map(\.topic.id))
+        return FireHomeTopicRowsMergeResult(
+            rows: entities.orderedValues(for: order),
+            entities: entities,
+            order: order,
+            dirtyTopicIDs: Set(incoming.map(\.topic.id)),
+            rebuildAllTokens: false
+        )
+    }
+
+    private func updateTopicRowContentTokens(
+        rows: [FireTopicRowPresentation],
+        dirtyTopicIDs: Set<UInt64>,
+        rebuildAll: Bool
+    ) {
+        let currentTopicIDs = Set(rows.map(\.topic.id))
+        var nextTokens: [UInt64: String]
+        if rebuildAll {
+            nextTokens = [:]
+            nextTokens.reserveCapacity(rows.count)
+        } else {
+            nextTokens = topicRowContentTokensByID.filter { currentTopicIDs.contains($0.key) }
+        }
+
+        for row in rows where rebuildAll || dirtyTopicIDs.contains(row.topic.id) {
+            nextTokens[row.topic.id] = makeTopicRowContentToken(row)
+        }
+        topicRowContentTokensByID = nextTokens
+    }
+
+    private func makeTopicRowContentToken(_ row: FireTopicRowPresentation) -> String {
+        let topic = row.topic
+        let category = categoryPresentation(for: topic.categoryId)
+        var parts: [String] = []
+        parts.reserveCapacity(26)
+        parts.append(String(topic.id))
+        parts.append(topic.title)
+        parts.append(topic.slug)
+        parts.append(String(topic.postsCount))
+        parts.append(String(topic.replyCount))
+        parts.append(String(topic.views))
+        parts.append(String(topic.likeCount))
+        parts.append(topic.excerpt ?? "")
+        parts.append(topic.createdAt ?? "")
+        parts.append(topic.lastPostedAt ?? "")
+        parts.append(topic.lastPosterUsername ?? "")
+        parts.append(topic.categoryId.map(String.init) ?? "")
+        parts.append(String(topic.pinned))
+        parts.append(String(topic.closed))
+        parts.append(String(topic.archived))
+        parts.append(String(topic.unseen))
+        parts.append(String(topic.unreadPosts))
+        parts.append(String(topic.newPosts))
+        parts.append(topic.lastReadPostNumber.map(String.init) ?? "")
+        parts.append(String(topic.highestPostNumber))
+        parts.append(row.excerptText ?? "")
+        parts.append(row.originalPosterUsername ?? "")
+        parts.append(row.originalPosterAvatarTemplate ?? "")
+        parts.append(row.tagNames.joined(separator: ","))
+        parts.append(row.statusLabels.joined(separator: ","))
+        parts.append(category.map { "\($0.id)|\($0.displayName)|\($0.colorHex ?? "")" } ?? "")
+        return parts.joined(separator: "\u{1F}")
     }
 }

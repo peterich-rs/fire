@@ -1014,7 +1014,8 @@ pub(crate) fn is_cloudflare_challenge_response(
     headers: &HeaderMap,
     body: &str,
 ) -> bool {
-    if status != StatusCode::FORBIDDEN.as_u16() {
+    if status != StatusCode::FORBIDDEN.as_u16() && status != StatusCode::TOO_MANY_REQUESTS.as_u16()
+    {
         return false;
     }
 

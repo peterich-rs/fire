@@ -227,7 +227,7 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
         XCTAssertNil(replyItems.first?.replyShortcutCount)
     }
 
-    func testReplyShortcutLoadingStateChangesRenderedContent() {
+    func testReplyShortcutLoadingStateUsesInPlaceUpdateTokenInsteadOfLayoutReload() {
         let original = makePost(id: 100, postNumber: 1, username: "alice")
         let rootReply = makePost(id: 200, postNumber: 2, username: "bob", replyCount: 2, replyToPostNumber: 1)
         let renderState = FireTopicDetailRenderState(
@@ -256,7 +256,8 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
 
         XCTAssertEqual(idleItem?.replyShortcutCount, 2)
         XCTAssertEqual(loading.postContext(for: loadingItem!)?.isLoadingReplyContext, true)
-        XCTAssertFalse(FireTopicDetailListViewController.itemsHaveSameRenderedContent([idleItem!], [loadingItem!]))
+        XCTAssertTrue(FireTopicDetailListViewController.itemsHaveSameRenderedContent([idleItem!], [loadingItem!]))
+        XCTAssertTrue(loadingItem!.needsVisibleNodeUpdate(comparedTo: idleItem!))
     }
 
     func testSnapshotShowsIdleLoadMoreFooterForNonEmptyRepliesWhenMoreAvailable() {
@@ -304,6 +305,36 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
 
         XCTAssertEqual(configuration.replyFooterState, .loadingFooter)
         XCTAssertEqual(configuration.makeSnapshot().items.last?.kind, .replyFooter)
+    }
+
+    func testOriginalPostContextFallsBackToPlainTextWhenAttributedTextIsMissing() {
+        let original = makePost(id: 100, postNumber: 1, username: "alice")
+        let renderState = FireTopicDetailRenderState(
+            originalRow: makeTimelineRow(post: original, depth: 0, isOriginalPost: true),
+            replyRows: [],
+            contentByPostID: [
+                original.id: FireTopicPostRenderContent(
+                    plainText: "Original plain text",
+                    attributedText: nil,
+                    imageAttachments: [],
+                    signature: FireTopicPostRenderSignature.make(
+                        source: original.cooked,
+                        imageAttachments: []
+                    )
+                )
+            ]
+        )
+        let configuration = makeConfiguration(
+            detail: makeTopicDetail(posts: [original]),
+            renderState: renderState,
+            postLookup: [original.id: original]
+        )
+        let item = try? XCTUnwrap(
+            configuration.makeSnapshot().items.first(where: { $0.kind == .originalPost })
+        )
+        let context = item.flatMap(configuration.postContext(for:))
+
+        XCTAssertEqual(context?.renderContent.attributedText?.string, "Original plain text")
     }
 
     func testRenderSignatureIsStableAndContentSensitive() throws {
@@ -483,6 +514,54 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
         XCTAssertNil(screen.response.nextCursor)
     }
 
+    func testFeedSnapshotBridgeRejectsStaleSnapshotWhenFreshRefreshIsRequired() throws {
+        let original = makePost(id: 100, postNumber: 1, username: "alice")
+        let snapshot = TopicDetailFeedSnapshotState(
+            topicId: 42,
+            revision: 7,
+            items: [
+                TopicDetailFeedItemState(
+                    itemId: "topic-header:42",
+                    kind: .header,
+                    ordinal: 0,
+                    postId: nil,
+                    contentRevision: "header",
+                    header: makeHeader(replyCount: 0),
+                    post: nil,
+                    responseRow: nil,
+                    title: nil,
+                    message: nil,
+                    retryable: false
+                ),
+                TopicDetailFeedItemState(
+                    itemId: "post:100:original",
+                    kind: .originalPost,
+                    ordinal: 1,
+                    postId: original.id,
+                    contentRevision: "original",
+                    header: nil,
+                    post: original,
+                    responseRow: nil,
+                    title: nil,
+                    message: nil,
+                    retryable: false
+                ),
+            ],
+            cursor: TopicDetailCursorState(nextResponseCursor: nil, loadedRanges: [], hasMore: false),
+            source: .staleIfError,
+            loadState: .staleWithError,
+            staleErrorMessage: "network failed",
+            updatedAtMs: 1
+        )
+
+        XCTAssertThrowsError(
+            try FireTopicDetailStore.topicScreen(from: snapshot, requiresFresh: true)
+        )
+        XCTAssertNoThrow(
+            try FireTopicDetailStore.topicScreen(from: snapshot, requiresFresh: false)
+        )
+    }
+
     private func makeRuntimeItem(
         contentToken: String,
         replyIndex: Int?
@@ -536,7 +615,7 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
             onLoadTopicDetail: {},
             onScrollTargetHandled: { _ in },
             onPreloadTopicPosts: { _ in },
-            onLoadMoreTopicPosts: {},
+            onLoadMoreTopicPosts: { true },
             onReloadTopicAiSummary: {},
             onOpenComposer: { _ in },
             onOpenPostNumber: { _ in },

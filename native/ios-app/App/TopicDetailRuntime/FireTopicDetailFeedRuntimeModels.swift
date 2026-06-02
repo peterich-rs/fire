@@ -28,6 +28,7 @@ struct FireTopicDetailRuntimeItem: Hashable, @unchecked Sendable {
     let replyShowsDivider: Bool
     let replyShortcutCount: UInt32?
     let contentToken: AnyHashable
+    let inPlaceUpdateToken: AnyHashable?
 
     init(
         id: String,
@@ -38,7 +39,8 @@ struct FireTopicDetailRuntimeItem: Hashable, @unchecked Sendable {
         replyShowsThreadLine: Bool = false,
         replyShowsDivider: Bool = false,
         replyShortcutCount: UInt32? = nil,
-        contentToken: AnyHashable
+        contentToken: AnyHashable,
+        inPlaceUpdateToken: AnyHashable? = nil
     ) {
         self.id = id
         self.kind = kind
@@ -49,6 +51,7 @@ struct FireTopicDetailRuntimeItem: Hashable, @unchecked Sendable {
         self.replyShowsDivider = replyShowsDivider
         self.replyShortcutCount = replyShortcutCount
         self.contentToken = contentToken
+        self.inPlaceUpdateToken = inPlaceUpdateToken
     }
 
     static func == (lhs: Self, rhs: Self) -> Bool {
@@ -69,6 +72,11 @@ struct FireTopicDetailRuntimeItem: Hashable, @unchecked Sendable {
             && replyShowsDivider == other.replyShowsDivider
             && replyShortcutCount == other.replyShortcutCount
             && contentToken == other.contentToken
+    }
+
+    func needsVisibleNodeUpdate(comparedTo other: Self) -> Bool {
+        hasSameRenderedContent(as: other)
+            && inPlaceUpdateToken != other.inPlaceUpdateToken
     }
 }
 
@@ -137,7 +145,7 @@ struct FireTopicDetailRuntimeConfiguration {
     let onLoadTopicDetail: () async -> Void
     let onScrollTargetHandled: (UInt32) -> Void
     let onPreloadTopicPosts: (Set<UInt32>) -> Void
-    let onLoadMoreTopicPosts: () -> Void
+    let onLoadMoreTopicPosts: () -> Bool
     let onReloadTopicAiSummary: () -> Void
     let onOpenComposer: (TopicPostState?) -> Void
     let onOpenPostNumber: (UInt32) -> Void
@@ -333,7 +341,28 @@ struct FireTopicDetailRuntimeConfiguration {
             postID: originalPost?.id,
             postNumber: originalPost?.postNumber,
             replyIndex: nil,
-            contentToken: AnyHashable(originalPost.map { postContentToken($0, renderContent: originalPostRenderContent) } ?? "missing")
+            contentToken: AnyHashable(
+                originalPost.map {
+                    postLayoutContentToken(
+                        $0,
+                        renderContent: originalPostRenderContent,
+                        replyShortcutCount: nil,
+                        textExpansionState: .disabled
+                    )
+                } ?? "missing"
+            ),
+            inPlaceUpdateToken: AnyHashable(
+                originalPost.map {
+                    postContentToken(
+                        $0,
+                        renderContent: originalPostRenderContent,
+                        replyContext: nil,
+                        replyTargetPostNumber: nil,
+                        isLoadingReplyContext: false,
+                        textExpansionState: .disabled
+                    )
+                } ?? "missing"
+            )
         ))
 
         items.append(.init(
@@ -393,8 +422,25 @@ struct FireTopicDetailRuntimeConfiguration {
                 let row = displayedRow.row
                 let post = postLookup[row.entry.postId]
                 let renderContent = renderState?.contentByPostID[row.entry.postId]
-                let textExpansionToken = post.map { String(isPostTextExpanded($0.id)) } ?? "missing"
-                let replyContextLoadingToken = post.map { String(isLoadingPostReplyContext($0.id)) } ?? "missing"
+                let replyContext = post.map {
+                    FireTopicPresentation.replyContextLabel(
+                        for: $0,
+                        preferredPostNumber: row.entry.parentPostNumber
+                    )
+                } ?? nil
+                let replyTargetPostNumber = post.map {
+                    FireTopicPresentation.replyTargetPostNumber(
+                        for: $0,
+                        preferredPostNumber: row.entry.parentPostNumber
+                    )
+                } ?? nil
+                let textExpansionState = post.map {
+                    FirePostTextExpansionState(
+                        isCollapsible: true,
+                        isExpanded: isPostTextExpanded($0.id)
+                    )
+                } ?? .disabled
+                let isLoadingReplyContext = post.map { isLoadingPostReplyContext($0.id) } ?? false
                 items.append(.init(
                     id: "reply:\(row.entry.postId):\(row.entry.postNumber)",
                     kind: .reply,
@@ -406,13 +452,29 @@ struct FireTopicDetailRuntimeConfiguration {
                     replyShortcutCount: displayedRow.replyShortcutCount,
                     contentToken: AnyHashable([
                         String(displayedRow.sourceIndex),
-                        post.map { postContentToken($0, renderContent: renderContent) } ?? "missing",
+                        post.map {
+                            postLayoutContentToken(
+                                $0,
+                                renderContent: renderContent,
+                                replyShortcutCount: displayedRow.replyShortcutCount,
+                                textExpansionState: textExpansionState
+                            )
+                        } ?? "missing",
                         String(displayedRow.showsThreadLine),
                         String(displayedRow.showsDivider),
-                        displayedRow.replyShortcutCount.map(String.init) ?? "",
-                        textExpansionToken,
-                        replyContextLoadingToken,
-                    ].joined(separator: "\u{1F}"))
+                    ].joined(separator: "\u{1F}")),
+                    inPlaceUpdateToken: AnyHashable(
+                        post.map {
+                            postContentToken(
+                                $0,
+                                renderContent: renderContent,
+                                replyContext: replyContext,
+                                replyTargetPostNumber: replyTargetPostNumber,
+                                isLoadingReplyContext: isLoadingReplyContext,
+                                textExpansionState: textExpansionState
+                            )
+                        } ?? "missing"
+                    )
                 ))
             }
 
@@ -434,10 +496,13 @@ struct FireTopicDetailRuntimeConfiguration {
     func postContext(for item: FireTopicDetailRuntimeItem) -> FireTopicDetailRuntimePostContext? {
         switch item.kind {
         case .originalPost:
-            guard let post = originalPost,
-                  let renderContent = originalPostRenderContent else {
+            guard let post = originalPost else {
                 return nil
             }
+            let renderContent = Self.normalizedRenderContent(
+                originalPostRenderContent,
+                for: post
+            )
             return FireTopicDetailRuntimePostContext(
                 post: post,
                 renderContent: renderContent,
@@ -458,10 +523,13 @@ struct FireTopicDetailRuntimeConfiguration {
                   let index = item.replyIndex,
                   index >= 0,
                   index < replyRows.count,
-                  replyRows[index].entry.postId == postID,
-                  let renderContent = renderState?.contentByPostID[postID] else {
+                  replyRows[index].entry.postId == postID else {
                 return nil
             }
+            let renderContent = Self.normalizedRenderContent(
+                renderState?.contentByPostID[postID],
+                for: post
+            )
             let row = replyRows[index]
             return FireTopicDetailRuntimePostContext(
                 post: post,
@@ -488,6 +556,57 @@ struct FireTopicDetailRuntimeConfiguration {
         default:
             return nil
         }
+    }
+
+    static func fallbackRenderContent(for post: TopicPostState) -> FireTopicPostRenderContent {
+        let plainText = post.raw ?? plainTextFromHtml(rawHtml: post.cooked)
+        let attributedText: NSAttributedString?
+        if plainText.isEmpty {
+            attributedText = nil
+        } else {
+            attributedText = NSAttributedString(
+                string: plainText,
+                attributes: [
+                    .font: UIFont.preferredFont(forTextStyle: .body),
+                    .foregroundColor: UIColor.label,
+                ]
+            )
+        }
+        return FireTopicPostRenderContent(
+            plainText: plainText,
+            attributedText: attributedText,
+            imageAttachments: [],
+            signature: FireTopicPostRenderSignature.make(
+                source: post.cooked,
+                imageAttachments: []
+            )
+        )
+    }
+
+    private static func normalizedRenderContent(
+        _ renderContent: FireTopicPostRenderContent?,
+        for post: TopicPostState
+    ) -> FireTopicPostRenderContent {
+        guard var renderContent else {
+            return fallbackRenderContent(for: post)
+        }
+        if renderContent.attributedText?.length ?? 0 > 0 || renderContent.plainText.isEmpty {
+            return renderContent
+        }
+
+        renderContent = FireTopicPostRenderContent(
+            plainText: renderContent.plainText,
+            attributedText: NSAttributedString(
+                string: renderContent.plainText,
+                attributes: [
+                    .font: UIFont.preferredFont(forTextStyle: .body),
+                    .foregroundColor: UIColor.label,
+                ]
+            ),
+            imageAttachments: renderContent.imageAttachments,
+            signature: renderContent.signature
+        )
+        return renderContent
     }
 
     func scrollItem(for postNumber: UInt32) -> FireTopicDetailRuntimeItem? {
@@ -662,12 +781,33 @@ struct FireTopicDetailRuntimeConfiguration {
         Int(row.entry.depth)
     }
 
+    private func postLayoutContentToken(
+        _ post: TopicPostState,
+        renderContent: FireTopicPostRenderContent?,
+        replyShortcutCount: UInt32?,
+        textExpansionState: FirePostTextExpansionState
+    ) -> String {
+        [
+            String(post.id),
+            renderContent?.signature.token ?? "pending",
+            Self.pollsContentToken(post.polls),
+            String(!post.reactions.isEmpty),
+            String(replyShortcutCount != nil),
+            String(textExpansionState.isExpanded),
+            String(textExpansionState.isCollapsible),
+        ].joined(separator: "\u{1F}")
+    }
+
     private func postContentToken(
         _ post: TopicPostState,
-        renderContent: FireTopicPostRenderContent?
+        renderContent: FireTopicPostRenderContent?,
+        replyContext: String?,
+        replyTargetPostNumber: UInt32?,
+        isLoadingReplyContext: Bool,
+        textExpansionState: FirePostTextExpansionState
     ) -> String {
         var parts: [String] = []
-        parts.reserveCapacity(23)
+        parts.reserveCapacity(29)
         parts.append(String(post.id))
         parts.append(String(post.postNumber))
         parts.append(post.username)
@@ -675,6 +815,8 @@ struct FireTopicDetailRuntimeConfiguration {
         parts.append(post.createdAt ?? "")
         parts.append(post.updatedAt ?? "")
         parts.append(renderContent?.signature.token ?? "pending")
+        parts.append(replyContext ?? "")
+        parts.append(replyTargetPostNumber.map(String.init) ?? "")
         parts.append(String(post.likeCount))
         parts.append(String(post.replyCount))
         parts.append(Self.reactionsContentToken(post.reactions))
@@ -689,6 +831,9 @@ struct FireTopicDetailRuntimeConfiguration {
         parts.append(String(post.bookmarkId ?? 0))
         parts.append(post.bookmarkName ?? "")
         parts.append(post.bookmarkReminderAt ?? "")
+        parts.append(String(isLoadingReplyContext))
+        parts.append(String(textExpansionState.isExpanded))
+        parts.append(String(textExpansionState.isCollapsible))
         parts.append(String(canWriteInteractions))
         parts.append(String(isMutatingPost(post.id)))
         return parts.joined(separator: "\u{1F}")

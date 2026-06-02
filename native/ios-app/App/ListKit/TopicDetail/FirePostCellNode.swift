@@ -48,6 +48,7 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
     private var currentLayoutWidth: CGFloat = 0
     private var currentContentSizeCategory: UIContentSizeCategory = .large
     private var renderedContentID: String?
+    private var avatarSignature: String?
     private var imageNodes: [FirePostImageNode] = []
     private var imageSignature: [String] = []
     private var pollViews: [FirePostPollView] = []
@@ -55,6 +56,7 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
     private var pollSignature: [String] = []
     private var pollWidth: CGFloat = 0
     private var reactionButtons: [ASButtonNode] = []
+    private var reactionButtonIDs: [String] = []
     private var reactionSignature: String?
     private var linkDelegate: RichTextNodeLinkDelegate?
     private lazy var swipeGestureRecognizer = UIPanGestureRecognizer(
@@ -206,6 +208,24 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
 
     private func configureAvatar(payload: FirePostCellRenderPayload, avatarSize: CGFloat) {
         let username = payload.post.username.isEmpty ? "?" : payload.post.username
+        let avatarURL = fireAvatarURL(
+            avatarTemplate: payload.post.avatarTemplate,
+            size: avatarSize,
+            scale: UIScreen.main.scale,
+            baseURLString: payload.baseURLString
+        )
+        let nextAvatarSignature = [
+            username,
+            payload.post.avatarTemplate ?? "",
+            payload.baseURLString,
+            avatarURL?.absoluteString ?? "monogram",
+            String(Int(avatarSize.rounded())),
+        ].joined(separator: "\u{1F}")
+        guard avatarSignature != nextAvatarSignature else {
+            return
+        }
+        avatarSignature = nextAvatarSignature
+
         let monogram = monogramForUsername(username: username)
         avatarMonogramNode.attributedText = NSAttributedString(
             string: monogram,
@@ -218,12 +238,6 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
         avatarNode.isHidden = true
         avatarNode.alpha = 0
 
-        let avatarURL = fireAvatarURL(
-            avatarTemplate: payload.post.avatarTemplate,
-            size: avatarSize,
-            scale: UIScreen.main.scale,
-            baseURLString: payload.baseURLString
-        )
         if let avatarURL {
             avatarNode.isHidden = false
             avatarNode.alpha = 0
@@ -476,7 +490,11 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
     private func configureReactions(payload: FirePostCellRenderPayload) {
         guard !payload.post.reactions.isEmpty else {
             reactionContainerNode.isHidden = true
-            rebuildReactionButtons([], payload: payload)
+            if !reactionButtons.isEmpty {
+                rebuildReactionButtons([], payload: payload)
+            }
+            reactionButtonIDs = []
+            reactionSignature = nil
             return
         }
 
@@ -486,10 +504,14 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
             canWrite: payload.canWriteInteractions,
             isMutating: payload.isMutating
         )
-        if reactionSignature != nextSig {
+        let nextIDs = payload.post.reactions.map(\.id)
+        if reactionButtonIDs != nextIDs {
             rebuildReactionButtons(payload.post.reactions, payload: payload)
-            reactionSignature = nextSig
+        } else if reactionSignature != nextSig {
+            updateReactionButtons(payload.post.reactions, payload: payload)
         }
+        reactionButtonIDs = nextIDs
+        reactionSignature = nextSig
     }
 
     private func rebuildReactionButtons(_ reactions: [TopicReactionState], payload: FirePostCellRenderPayload) {
@@ -497,54 +519,69 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
             button.removeFromSupernode()
         }
         reactionButtons.removeAll()
+        reactionButtonIDs = reactions.map(\.id)
 
+        for reaction in reactions {
+            let button = ASButtonNode()
+            button.addTarget(self, action: #selector(handleReactionTap(_:)), forControlEvents: .touchUpInside)
+            configureReactionButton(button, reaction: reaction, payload: payload)
+            reactionButtons.append(button)
+        }
+    }
+
+    private func updateReactionButtons(_ reactions: [TopicReactionState], payload: FirePostCellRenderPayload) {
+        for (button, reaction) in zip(reactionButtons, reactions) {
+            configureReactionButton(button, reaction: reaction, payload: payload)
+        }
+    }
+
+    private func configureReactionButton(
+        _ button: ASButtonNode,
+        reaction: TopicReactionState,
+        payload: FirePostCellRenderPayload
+    ) {
         let canChangeReaction = payload.canWriteInteractions
             && !payload.isMutating
             && (payload.post.currentUserReaction?.canUndo ?? true)
 
-        for reaction in reactions {
-            let option = FireTopicPresentation.reactionOption(for: reaction.id)
-            let isMine = payload.post.currentUserReaction?.id == reaction.id
-            let button = ASButtonNode()
-            let symbolString = option.symbol
-            let countString = "\(reaction.count)"
-            let captionFont = UIFont.preferredFont(forTextStyle: .caption1)
-            let countFont = UIFontMetrics(forTextStyle: .caption1).scaledFont(
-                for: UIFont.monospacedDigitSystemFont(
-                    ofSize: captionFont.pointSize,
-                    weight: isMine ? .semibold : .regular
-                )
+        let option = FireTopicPresentation.reactionOption(for: reaction.id)
+        let isMine = payload.post.currentUserReaction?.id == reaction.id
+        let symbolString = option.symbol
+        let countString = "\(reaction.count)"
+        let captionFont = UIFont.preferredFont(forTextStyle: .caption1)
+        let countFont = UIFontMetrics(forTextStyle: .caption1).scaledFont(
+            for: UIFont.monospacedDigitSystemFont(
+                ofSize: captionFont.pointSize,
+                weight: isMine ? .semibold : .regular
             )
-            let color = isMine ? Self.accentTextColor : UIColor.secondaryLabel
-            let title = NSMutableAttributedString(
-                string: "\(symbolString) ",
-                attributes: [.font: captionFont, .foregroundColor: color]
-            )
-            title.append(NSAttributedString(
-                string: countString,
-                attributes: [.font: countFont, .foregroundColor: color]
-            ))
-            button.setAttributedTitle(title, for: .normal)
-            button.cornerRadius = 14
-            button.clipsToBounds = true
-            button.contentEdgeInsets = UIEdgeInsets(top: 6, left: 10, bottom: 6, right: 10)
-            button.backgroundColor = isMine
-                ? Self.accentTextColor.withAlphaComponent(0.18)
-                : .tertiarySystemFill
-            if isMine {
-                button.borderColor = Self.accentTextColor.withAlphaComponent(0.85).cgColor
-                button.borderWidth = 1
-            }
-            button.isEnabled = canChangeReaction
-            button.accessibilityLabel = "\(option.label) \(reaction.count)"
-            if isMine {
-                button.accessibilityTraits.insert(.selected)
-            }
-
-            button.addTarget(self, action: #selector(handleReactionTap(_:)), forControlEvents: .touchUpInside)
-
-            reactionButtons.append(button)
+        )
+        let color = isMine ? Self.accentTextColor : UIColor.secondaryLabel
+        let title = NSMutableAttributedString(
+            string: "\(symbolString) ",
+            attributes: [.font: captionFont, .foregroundColor: color]
+        )
+        title.append(NSAttributedString(
+            string: countString,
+            attributes: [.font: countFont, .foregroundColor: color]
+        ))
+        button.setAttributedTitle(title, for: .normal)
+        button.cornerRadius = 14
+        button.clipsToBounds = true
+        button.contentEdgeInsets = UIEdgeInsets(top: 6, left: 10, bottom: 6, right: 10)
+        button.backgroundColor = isMine
+            ? Self.accentTextColor.withAlphaComponent(0.18)
+            : .tertiarySystemFill
+        button.borderWidth = isMine ? 1 : 0
+        button.borderColor = isMine
+            ? Self.accentTextColor.withAlphaComponent(0.85).cgColor
+            : UIColor.clear.cgColor
+        button.isEnabled = canChangeReaction
+        button.accessibilityLabel = "\(option.label) \(reaction.count)"
+        var traits: UIAccessibilityTraits = .button
+        if isMine {
+            traits.insert(.selected)
         }
+        button.accessibilityTraits = traits
     }
 
     private func configureDivider(shows: Bool) {
@@ -635,23 +672,46 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
             }
         }
 
-        // Reply shortcut
-        if !replyShortcutNode.isHidden {
-            replyShortcutNode.style.flexGrow = 0
-            contentChildren.append(replyShortcutNode)
-        }
-
-        // Reactions
+        let reactionRow: ASStackLayoutSpec?
         if !reactionContainerNode.isHidden && !reactionButtons.isEmpty {
-            let reactionRow = ASStackLayoutSpec(
+            let row = ASStackLayoutSpec(
                 direction: .horizontal,
                 spacing: 8,
                 justifyContent: .start,
                 alignItems: .center,
                 children: reactionButtons
             )
-            reactionRow.style.flexShrink = 1.0
-            contentChildren.append(reactionRow)
+            row.style.flexShrink = 1.0
+            reactionRow = row
+        } else {
+            reactionRow = nil
+        }
+
+        var actionRowChildren: [ASLayoutElement] = []
+        if !replyShortcutNode.isHidden {
+            replyShortcutNode.style.flexGrow = 0
+            replyShortcutNode.style.flexShrink = 1.0
+            actionRowChildren.append(replyShortcutNode)
+        }
+        if let reactionRow {
+            if !actionRowChildren.isEmpty {
+                let actionSpacer = ASLayoutSpec()
+                actionSpacer.style.flexGrow = 1.0
+                actionRowChildren.append(actionSpacer)
+            }
+            actionRowChildren.append(reactionRow)
+        }
+        if !actionRowChildren.isEmpty {
+            let actionRow = ASStackLayoutSpec(
+                direction: .horizontal,
+                spacing: 8,
+                justifyContent: .start,
+                alignItems: .center,
+                children: actionRowChildren
+            )
+            actionRow.style.flexShrink = 1.0
+            actionRow.style.minHeight = ASDimensionMake(FirePostCellLayoutCalculator.replyShortcutHeight)
+            contentChildren.append(actionRow)
         }
 
         // Divider

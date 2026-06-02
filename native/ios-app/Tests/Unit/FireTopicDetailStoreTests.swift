@@ -190,6 +190,225 @@ final class FireTopicDetailStoreTests: XCTestCase {
         )
     }
 
+    func testRenderStateCoverageRequiresOriginalRowAndAllRenderedPosts() {
+        let original = TopicPostState(
+            id: 100,
+            username: "alice",
+            name: nil,
+            avatarTemplate: nil,
+            cooked: "<p>Original</p>",
+            raw: "Original",
+            postNumber: 1,
+            postType: 1,
+            createdAt: "2026-03-28T10:00:00Z",
+            updatedAt: "2026-03-28T10:00:00Z",
+            likeCount: 0,
+            replyCount: 0,
+            replyToPostNumber: nil,
+            replyToUser: nil,
+            bookmarked: false,
+            bookmarkId: nil,
+            bookmarkName: nil,
+            bookmarkReminderAt: nil,
+            reactions: [],
+            currentUserReaction: nil,
+            polls: [],
+            acceptedAnswer: false,
+            canAcceptAnswer: false,
+            canUnacceptAnswer: false,
+            canEdit: false,
+            canDelete: false,
+            canRecover: false,
+            hidden: false
+        )
+        let reply = TopicPostState(
+            id: 200,
+            username: "bob",
+            name: nil,
+            avatarTemplate: nil,
+            cooked: "<p>Reply</p>",
+            raw: "Reply",
+            postNumber: 2,
+            postType: 1,
+            createdAt: "2026-03-28T10:01:00Z",
+            updatedAt: "2026-03-28T10:01:00Z",
+            likeCount: 0,
+            replyCount: 0,
+            replyToPostNumber: 1,
+            replyToUser: nil,
+            bookmarked: false,
+            bookmarkId: nil,
+            bookmarkName: nil,
+            bookmarkReminderAt: nil,
+            reactions: [],
+            currentUserReaction: nil,
+            polls: [],
+            acceptedAnswer: false,
+            canAcceptAnswer: false,
+            canUnacceptAnswer: false,
+            canEdit: false,
+            canDelete: false,
+            canRecover: false,
+            hidden: false
+        )
+        let rowInputs = [
+            FireTopicTimelineRowInput(postID: original.id, postNumber: 1, replyToPostNumber: nil),
+            FireTopicTimelineRowInput(postID: reply.id, postNumber: 2, replyToPostNumber: 1),
+        ]
+        let renderContent = FireTopicPresentation.renderContent(
+            from: "<p>text</p>",
+            baseURLString: "https://linux.do"
+        )
+        let validState = FireTopicDetailRenderState(
+            originalRow: FirePreparedTopicTimelineRow(
+                entry: FireTopicTimelineEntry(
+                    postId: original.id,
+                    postNumber: 1,
+                    parentPostNumber: nil,
+                    depth: 0,
+                    isOriginalPost: true
+                )
+            ),
+            replyRows: [
+                FirePreparedTopicTimelineRow(
+                    entry: FireTopicTimelineEntry(
+                        postId: reply.id,
+                        postNumber: 2,
+                        parentPostNumber: 1,
+                        depth: 1,
+                        isOriginalPost: false
+                    )
+                )
+            ],
+            contentByPostID: [
+                original.id: renderContent,
+                reply.id: renderContent,
+            ]
+        )
+        let missingOriginalContent = FireTopicDetailRenderState(
+            originalRow: validState.originalRow,
+            replyRows: validState.replyRows,
+            contentByPostID: [reply.id: renderContent]
+        )
+
+        XCTAssertTrue(
+            FireTopicDetailStore.renderStateCoversRowInputs(
+                validState,
+                rowInputs: rowInputs,
+                originalPostID: original.id
+            )
+        )
+        XCTAssertFalse(
+            FireTopicDetailStore.renderStateCoversRowInputs(
+                missingOriginalContent,
+                rowInputs: rowInputs,
+                originalPostID: original.id
+            )
+        )
+    }
+
+    func testReconcileTopicResponsePageStatePreservesLoadedTailAcrossPartialRefresh() {
+        let existingRows = [
+            makeResponseRow(postNumber: 2, parentPostNumber: 1, depth: 1, username: "reply-a"),
+            makeResponseRow(postNumber: 3, parentPostNumber: 1, depth: 1, username: "reply-b"),
+            makeResponseRow(postNumber: 4, parentPostNumber: 3, depth: 2, username: "reply-c"),
+            makeResponseRow(postNumber: 5, parentPostNumber: 1, depth: 1, username: "reply-d"),
+        ]
+        let incomingCursor = TopicResponseCursorState(
+            topicId: 42,
+            sessionId: 8,
+            nextRootOffset: 10,
+            nextBranchOffset: 0,
+            pageSize: 10,
+            rowPageSize: 40
+        )
+        let incoming = TopicResponsePageState(
+            rows: [
+                makeResponseRow(postNumber: 2, parentPostNumber: 1, depth: 1, username: "reply-a-updated"),
+                makeResponseRow(postNumber: 3, parentPostNumber: 1, depth: 1, username: "reply-b"),
+            ],
+            nextCursor: incomingCursor,
+            totalRootCount: 99,
+            loadedRootCount: 2,
+            totalResponseCount: 8,
+            focusedPostNumber: nil
+        )
+
+        let reconciled = FireTopicDetailStore.reconcileTopicResponsePageState(
+            incoming,
+            bodyPostID: 1,
+            existingRows: existingRows
+        )
+
+        XCTAssertEqual(reconciled.rows.map { $0.post.postNumber }, [2, 3, 4, 5])
+        XCTAssertEqual(reconciled.rows.first?.post.username, "reply-a-updated")
+        XCTAssertEqual(reconciled.nextCursor, incomingCursor)
+    }
+
+    func testReconcileTopicResponsePageStateKeepsNewPrefixAndExistingTail() {
+        let existingRows = [
+            makeResponseRow(postNumber: 2, parentPostNumber: 1, depth: 1, username: "reply-a"),
+            makeResponseRow(postNumber: 3, parentPostNumber: 1, depth: 1, username: "reply-b"),
+            makeResponseRow(postNumber: 4, parentPostNumber: 1, depth: 1, username: "reply-c"),
+            makeResponseRow(postNumber: 5, parentPostNumber: 1, depth: 1, username: "reply-d"),
+        ]
+        let incoming = TopicResponsePageState(
+            rows: [
+                makeResponseRow(postNumber: 6, parentPostNumber: 1, depth: 1, username: "reply-new"),
+                makeResponseRow(postNumber: 2, parentPostNumber: 1, depth: 1, username: "reply-a"),
+                makeResponseRow(postNumber: 3, parentPostNumber: 1, depth: 1, username: "reply-b"),
+                makeResponseRow(postNumber: 4, parentPostNumber: 1, depth: 1, username: "reply-c"),
+            ],
+            nextCursor: TopicResponseCursorState(
+                topicId: 42,
+                sessionId: 7,
+                nextRootOffset: 10,
+                nextBranchOffset: 0,
+                pageSize: 10,
+                rowPageSize: 40
+            ),
+            totalRootCount: 99,
+            loadedRootCount: 4,
+            totalResponseCount: 8,
+            focusedPostNumber: nil
+        )
+
+        let reconciled = FireTopicDetailStore.reconcileTopicResponsePageState(
+            incoming,
+            bodyPostID: 1,
+            existingRows: existingRows
+        )
+
+        XCTAssertEqual(reconciled.rows.map { $0.post.postNumber }, [6, 2, 3, 4, 5])
+    }
+
+    func testNextResponsePageLoadGateAllowsLoadedIdleTopic() {
+        XCTAssertTrue(FireTopicDetailStore.canStartNextTopicResponsePageLoad(
+            hasMoreTopicPosts: true,
+            isLoadingMoreTopicPosts: false,
+            hasPendingPreloadTask: false,
+            hasLoadedDetail: true
+        ))
+        XCTAssertFalse(FireTopicDetailStore.canStartNextTopicResponsePageLoad(
+            hasMoreTopicPosts: true,
+            isLoadingMoreTopicPosts: true,
+            hasPendingPreloadTask: false,
+            hasLoadedDetail: true
+        ))
+        XCTAssertFalse(FireTopicDetailStore.canStartNextTopicResponsePageLoad(
+            hasMoreTopicPosts: true,
+            isLoadingMoreTopicPosts: false,
+            hasPendingPreloadTask: true,
+            hasLoadedDetail: true
+        ))
+        XCTAssertFalse(FireTopicDetailStore.canStartNextTopicResponsePageLoad(
+            hasMoreTopicPosts: false,
+            isLoadingMoreTopicPosts: false,
+            hasPendingPreloadTask: false,
+            hasLoadedDetail: true
+        ))
+    }
+
     func testCloudflareRecoveryTopicURLUsesCanonicalTopicHTMLRouteWhenSlugIsKnown() {
         let url = FireAppViewModel.cloudflareRecoveryTopicURL(
             baseURL: "https://linux.do",
@@ -208,6 +427,114 @@ final class FireTopicDetailStoreTests: XCTestCase {
         )
 
         XCTAssertEqual(url.absoluteString, "https://linux.do/t/42")
+    }
+
+    func testCloudflareRecoveryTopicListURLUsesLatestHTMLRoute() {
+        let url = FireAppViewModel.cloudflareRecoveryTopicListURL(
+            baseURL: "https://linux.do/",
+            query: TopicListQueryState(
+                kind: .latest,
+                page: nil,
+                topicIds: [],
+                order: nil,
+                ascending: nil,
+                categorySlug: nil,
+                categoryId: nil,
+                parentCategorySlug: nil,
+                tag: nil,
+                additionalTags: [],
+                matchAllTags: false
+            )
+        )
+
+        XCTAssertEqual(url.absoluteString, "https://linux.do/latest")
+    }
+
+    func testCloudflareRecoveryTopicListURLUsesCategoryHTMLRouteWithPage() {
+        let url = FireAppViewModel.cloudflareRecoveryTopicListURL(
+            baseURL: "https://linux.do",
+            query: TopicListQueryState(
+                kind: .new,
+                page: 2,
+                topicIds: [],
+                order: nil,
+                ascending: nil,
+                categorySlug: "rust",
+                categoryId: 99,
+                parentCategorySlug: "dev",
+                tag: nil,
+                additionalTags: [],
+                matchAllTags: false
+            )
+        )
+
+        XCTAssertEqual(url.absoluteString, "https://linux.do/c/dev/rust/99/l/new?page=2")
+    }
+
+    func testCloudflareRecoveryTopicListURLUsesTagHTMLRoute() {
+        let url = FireAppViewModel.cloudflareRecoveryTopicListURL(
+            baseURL: "https://linux.do",
+            query: TopicListQueryState(
+                kind: .top,
+                page: nil,
+                topicIds: [],
+                order: nil,
+                ascending: nil,
+                categorySlug: nil,
+                categoryId: nil,
+                parentCategorySlug: nil,
+                tag: "swift",
+                additionalTags: [],
+                matchAllTags: false
+            )
+        )
+
+        XCTAssertEqual(url.absoluteString, "https://linux.do/tag/swift/l/top")
+    }
+
+    func testCloudflareRecoveryTopicListURLUsesLatestForIncrementalTopicIDs() {
+        let url = FireAppViewModel.cloudflareRecoveryTopicListURL(
+            baseURL: "https://linux.do",
+            query: TopicListQueryState(
+                kind: .new,
+                page: nil,
+                topicIds: [1, 2, 3],
+                order: nil,
+                ascending: nil,
+                categorySlug: nil,
+                categoryId: nil,
+                parentCategorySlug: nil,
+                tag: nil,
+                additionalTags: [],
+                matchAllTags: false
+            )
+        )
+
+        XCTAssertEqual(url.absoluteString, "https://linux.do/latest")
+    }
+
+    func testCloudflareRecoveryTopicListURLPreservesCategoryTagQuery() {
+        let url = FireAppViewModel.cloudflareRecoveryTopicListURL(
+            baseURL: "https://linux.do",
+            query: TopicListQueryState(
+                kind: .latest,
+                page: nil,
+                topicIds: [],
+                order: nil,
+                ascending: nil,
+                categorySlug: "dev",
+                categoryId: 42,
+                parentCategorySlug: nil,
+                tag: "swift",
+                additionalTags: ["rust"],
+                matchAllTags: true
+            )
+        )
+
+        XCTAssertEqual(
+            url.absoluteString,
+            "https://linux.do/c/dev/42/l/latest?tags%5B%5D=swift&tags%5B%5D=rust&match_all_tags=true"
+        )
     }
 
     func testCloudflareRecoverySnapshotRequiresNewClearance() {
@@ -325,20 +652,21 @@ final class FireTopicDetailStoreTests: XCTestCase {
             loadedPostNumbers: [3, 4],
             pendingScrollTarget: 4
         )
-        var requestedBatches: [[UInt64]] = []
+        let requestedBatches = RequestedBatchRecorder()
 
         let hydrated = try await FireTopicDetailStore.hydrateRequestedRange(
             detail: initialDetail,
             window: window
         ) { postIDs in
-            requestedBatches.append(postIDs)
+            await requestedBatches.append(postIDs)
             return [
                 self.makePost(postNumber: 2, replyToPostNumber: 1, username: "reply-root"),
                 self.makePost(postNumber: 5, replyToPostNumber: 4, username: "reply-c"),
             ]
         }
+        let capturedBatches = await requestedBatches.snapshot()
 
-        XCTAssertEqual(requestedBatches, [[2, 5]])
+        XCTAssertEqual(capturedBatches, [[2, 5]])
         XCTAssertEqual(
             hydrated.detail.postStream.posts.map(\.postNumber),
             [2, 3, 4, 5]
@@ -384,6 +712,33 @@ final class FireTopicDetailStoreTests: XCTestCase {
         XCTAssertFalse(finalState.readiness.hasCsrfToken)
         XCTAssertFalse(finalState.readiness.canWriteAuthenticatedApi)
         XCTAssertTrue(finalState.readiness.canReadAuthenticatedApi)
+    }
+
+    @MainActor
+    func testAuthoritativePlatformCookieApplySkipsPartialBrowserBatch() async throws {
+        let currentState = makeSessionState(csrfToken: "csrf-token")
+        let store = MockLoginSessionStore(
+            syncResult: makeSessionState(csrfToken: nil),
+            bootstrapResult: currentState,
+            currentSnapshot: currentState
+        )
+        let coordinator = FireWebViewLoginCoordinator(loginSessionStore: store)
+
+        let state = try await coordinator.applyPlatformCookiesIfAuthoritative([
+            PlatformCookieState(
+                name: "cf_clearance",
+                value: "clearance",
+                domain: "linux.do",
+                path: "/",
+                expiresAtUnixMs: nil
+            )
+        ])
+        let calls = await store.callsSnapshot()
+        let appliedCookies = await store.appliedPlatformCookiesSnapshot()
+
+        XCTAssertEqual(calls, [.currentSessionSnapshot])
+        XCTAssertEqual(state, currentState)
+        XCTAssertTrue(appliedCookies.isEmpty)
     }
 
     @MainActor
@@ -615,8 +970,21 @@ final class FireTopicDetailStoreTests: XCTestCase {
     }
 }
 
+private actor RequestedBatchRecorder {
+    private var batches: [[UInt64]] = []
+
+    func append(_ batch: [UInt64]) {
+        batches.append(batch)
+    }
+
+    func snapshot() -> [[UInt64]] {
+        batches
+    }
+}
+
 private actor MockLoginSessionStore: FireLoginSessionStoring {
     enum Call: Equatable {
+        case currentSessionSnapshot
         case applyPlatformCookies
         case syncLoginContext
         case refreshBootstrapIfNeeded
@@ -627,6 +995,7 @@ private actor MockLoginSessionStore: FireLoginSessionStoring {
     private let syncResult: SessionState
     private let bootstrapResult: SessionState
     private let csrfResult: SessionState
+    private let currentSnapshot: SessionState
     private let csrfError: Error?
     private var calls: [Call] = []
     private var appliedPlatformCookies: [PlatformCookieState] = []
@@ -635,12 +1004,19 @@ private actor MockLoginSessionStore: FireLoginSessionStoring {
         syncResult: SessionState,
         bootstrapResult: SessionState,
         csrfResult: SessionState? = nil,
+        currentSnapshot: SessionState? = nil,
         csrfError: Error? = nil
     ) {
         self.syncResult = syncResult
         self.bootstrapResult = bootstrapResult
         self.csrfResult = csrfResult ?? bootstrapResult
+        self.currentSnapshot = currentSnapshot ?? bootstrapResult
         self.csrfError = csrfError
+    }
+
+    func currentSessionSnapshot() async throws -> SessionState {
+        calls.append(.currentSessionSnapshot)
+        return currentSnapshot
     }
 
     func restorePersistedSessionIfAvailable() async throws -> SessionState? {

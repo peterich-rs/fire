@@ -60,4 +60,4 @@
 3. 使用 Cookie Session 调用主站 API
 4. 如需实时能力，先持久化 `siteSettings.long_polling_base_url`、`topicTrackingStateMeta`，以及跨域长轮询场景下可能存在的 `shared_session_key`
 5. 使用单例 `clientId` 调用 `POST /message-bus/{clientId}/poll`
-6. 如遇 Cloudflare 挑战，宿主保留当前 `cf_clearance` 并在宿主 auth WebView 中打开浏览器 HTML 恢复 URL；iOS topic detail 使用对应的 `/t/{slug}/{topicId}` 或 `/t/{topicId}`，其他读面默认站点 root，显式登录仍走 `/login`。iOS 只有在恢复 WebView 中观察到相对恢复基线发生变化的新 `cf_clearance` 后，才把浏览器 Cookie 批量同步回共享层并重试原操作
+6. 如遇 Cloudflare 挑战，宿主保留当前 `cf_clearance` 并在宿主 auth WebView 中打开浏览器 HTML 恢复 URL；topic detail 使用对应的 `/t/{slug}/{topicId}` 或 `/t/{topicId}`，首页 topic list 使用当前列表查询对应的 HTML URL（例如 `/latest.json` -> `/latest`、`/c/{slug}/{id}/l/latest.json` -> `/c/{slug}/{id}/l/latest`、`/tag/{tag}/l/top.json` -> `/tag/{tag}/l/top`），显式登录仍走 `/login`。iOS 只有在恢复 WebView 中观察到相对恢复基线发生变化的新 `cf_clearance` 后，才把浏览器 Cookie 批量同步回共享层并重试原操作

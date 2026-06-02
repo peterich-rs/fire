@@ -177,6 +177,7 @@ public enum FireWebViewLoginCoordinatorError: LocalizedError {
 }
 
 protocol FireLoginSessionStoring: Sendable {
+    func currentSessionSnapshot() async throws -> SessionState
     func restorePersistedSessionIfAvailable() async throws -> SessionState?
     func syncLoginContext(_ captured: FireCapturedLoginState) async throws -> SessionState
     func refreshBootstrapIfNeeded() async throws -> SessionState
@@ -186,7 +187,11 @@ protocol FireLoginSessionStoring: Sendable {
     func applyPlatformCookies(_ cookies: [PlatformCookieState]) async throws -> SessionState
 }
 
-extension FireSessionStore: FireLoginSessionStoring {}
+extension FireSessionStore: FireLoginSessionStoring {
+    func currentSessionSnapshot() async throws -> SessionState {
+        try snapshot()
+    }
+}
 
 @MainActor
 public final class FireWebViewLoginCoordinator {
@@ -295,6 +300,15 @@ public final class FireWebViewLoginCoordinator {
 
     public func refreshPlatformCookies() async throws -> SessionState {
         let cookies = try await platformCookiesForSessionResync()
+        return try await applyPlatformCookiesIfAuthoritative(cookies)
+    }
+
+    func applyPlatformCookiesIfAuthoritative(
+        _ cookies: [PlatformCookieState]
+    ) async throws -> SessionState {
+        guard Self.containsActiveAuthCookies(in: cookies) else {
+            return try await sessionStore.currentSessionSnapshot()
+        }
         return try await sessionStore.applyPlatformCookies(cookies)
     }
 
@@ -614,7 +628,9 @@ public final class FireWebViewLoginCoordinator {
         return trimmed?.isEmpty == true ? nil : trimmed
     }
 
-    private func containsAuthCookies(in cookies: [PlatformCookieState]) -> Bool {
+    nonisolated static func containsActiveAuthCookies(
+        in cookies: [PlatformCookieState]
+    ) -> Bool {
         let activeCookies = cookies.filter { cookie in
             let value = cookie.value.trimmingCharacters(in: .whitespacesAndNewlines)
             return !value.isEmpty && !(cookie.expiresAtUnixMs.map { $0 <= currentUnixMs() } ?? false)
@@ -622,6 +638,10 @@ public final class FireWebViewLoginCoordinator {
 
         return activeCookies.contains(where: { $0.name == "_t" })
             && activeCookies.contains(where: { $0.name == "_forum_session" })
+    }
+
+    private func containsAuthCookies(in cookies: [PlatformCookieState]) -> Bool {
+        Self.containsActiveAuthCookies(in: cookies)
     }
 
     private func isLinuxDoHost(_ url: URL?) -> Bool {
@@ -632,7 +652,7 @@ public final class FireWebViewLoginCoordinator {
         return host == "linux.do" || host.hasSuffix(".linux.do")
     }
 
-    private func currentUnixMs() -> Int64 {
+    private nonisolated static func currentUnixMs() -> Int64 {
         Int64(Date().timeIntervalSince1970 * 1000)
     }
 }

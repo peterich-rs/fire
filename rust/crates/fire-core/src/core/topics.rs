@@ -910,7 +910,9 @@ impl FireCore {
         let raw: RawTopicDetail = self
             .read_response_json("fetch topic detail", trace_id, response)
             .await?;
-        Ok(raw.into_topic_detail(include_thread_state))
+        let detail = raw.into_topic_detail(include_thread_state);
+        ensure_requested_topic_detail(query.topic_id, detail.id)?;
+        Ok(detail)
     }
 
     async fn hydrate_topic_detail_posts(
@@ -1563,6 +1565,19 @@ fn ordered_unique_post_ids(ids: Vec<u64>) -> Vec<u64> {
         }
     }
     result
+}
+
+fn ensure_requested_topic_detail(
+    requested_topic_id: u64,
+    actual_topic_id: u64,
+) -> Result<(), FireCoreError> {
+    if requested_topic_id == actual_topic_id {
+        return Ok(());
+    }
+    Err(FireCoreError::UnexpectedTopicDetail {
+        requested_topic_id,
+        actual_topic_id,
+    })
 }
 
 fn normalized_root_page_size(page_size: u16) -> u16 {

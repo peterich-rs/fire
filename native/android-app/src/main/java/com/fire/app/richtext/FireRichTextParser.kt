@@ -51,6 +51,8 @@ object FireRichTextParser {
 
             CookedHtmlNodeKindState.LINE_BREAK -> listOf(FireRichTextNode.LineBreak)
 
+            CookedHtmlNodeKindState.DIVIDER -> listOf(FireRichTextNode.Divider)
+
             CookedHtmlNodeKindState.STRONG -> listOf(FireRichTextNode.Bold(children))
 
             CookedHtmlNodeKindState.EMPHASIS -> listOf(FireRichTextNode.Italic(children))

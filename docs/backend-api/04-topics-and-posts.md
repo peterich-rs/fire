@@ -145,7 +145,11 @@
   - 首个详情响应返回后，Rust 再发起内部回复索引请求：`GET /t/{topicId}.json?filter_top_level_replies=true`；该请求只用于获取顶层回复根列表，不携带 `track_visit`、`forceLoad` 或 `Discourse-Track-View*`
   - 当前回复区分页不再按整条 `post_stream.stream` 平铺补齐，而是用顶层回复根列表按根分支分页；根列表以该 filtered payload 实际返回的顶层 `posts` 为准，避免服务端仍把嵌套回复 ID 留在 `post_stream.stream` 时把二级回复提升为分页 root
   - `fetchTopicScreen` / `fetchTopicResponsePage` 同时接受 `root_page_size` 和 `row_page_size`：前者限制一次最多推进多少个顶层回复根，后者限制一次最多返回多少条可渲染回复行
-  - iOS / Android 首次打开详情时会按 Web 行为请求 `track_visit=true&forceLoad=true`；MessageBus 触发的详情刷新使用 `track_visit=false&forceLoad=false`，避免把后台刷新当成一次新的浏览访问
+  - `loadTopicDetailFeed` / `refreshTopicDetailFeed` 是当前 processed feed 入口，会复用 `fetchTopicScreen` 的 `header + body + response` 网络路径并把处理后的快照写入 Rust SQLite `fire-store` 缓存；iOS 初始加载、显式强刷、mutation 后刷新和 MessageBus 触发刷新都通过这个 processed feed 快照再桥回 `TopicScreenState`
+  - 当前 Rust feed 网络刷新会用固定 `root_page_size=10`、`row_page_size=40` 调用 `fetchTopicScreen`，并发送 `track_visit=true`；当 feed policy 为 `ForceRefresh` 时还会发送 `forceLoad=true`
+  - 直接调用 `fetchTopicScreen` 的宿主仍可按场景传入 `track_visit=false&forceLoad=false`，用于不应记为浏览访问的后台读取；这不适用于当前 iOS processed feed 强刷路径
+  - `TopicResponseCursor` 属于 Rust response session，宿主在新 screen/feed refresh 后可以为视觉稳定保留已经加载的旧回复行，但必须使用新响应的 `nextCursor`，不能把旧 session cursor 继续带到 `fetchTopicResponsePage`
+  - Fire 当前会校验 `/t/{topicId}.json` 返回的详情 `id` 必须与请求的 `topicId` 一致；若会话恢复或风控页误把请求导向其它话题，客户端会直接丢弃该响应并报错，不再把错 topic 的正文/回复并入当前详情 session
   - Fire 会解析顶层 `message_bus_last_id` 并通过 `TopicHeader.message_bus_last_id` / `TopicDetail.message_bus_last_id` 暴露给宿主，详情页订阅 `/topic/{topicId}` 时用它作为初始 MessageBus checkpoint
   - 带目标楼层进入详情时，Rust 只预取首个根页和目标楼层所在 anchor root，不再为了 anchor 一次性补齐目标之前的全部顶层回复；目标楼层仍保留在同一个 response session 里，宿主可继续通过 cursor 分页定位
   - 当前 Rust 会按根分支调用 `GET /posts/{postId}/reply-ids.json` 获取整棵回复子树的帖子 ID，但只按 `row_page_size` 预算批量调用 `GET /t/{topicId}/posts.json?post_ids[]=` 拉取本页需要的帖子；大型回复子树通过 `next_branch_offset` 在同一 root 内继续分页。同一 topic response session 内，`fetch_topic_posts` 会先复用已缓存的 post，再只请求缺失的 `post_ids[]`，并把新返回的帖子回填到 session cache，减少回复面板、Swift 补水和 Rust 回复树分页之间的重复请求。
@@ -326,7 +330,7 @@
   - `skip_age_check?: "true"`
 - 当前客户端行为：
   - 共享 Rust 层通过 `fetch_topic_ai_summary` 请求并解析 `ai_topic_summary`，再通过 `TopicAiSummaryState` 暴露给 iOS / Android
-  - 普通 `403` / `404` 按“当前话题没有可展示摘要或当前用户不可取摘要”处理，返回空摘要；Cloudflare challenge 形态的 `403` 仍返回 `CloudflareChallenge`，由宿主走交互式恢复
+  - 普通 `403` / `404` 按“当前话题没有可展示摘要或当前用户不可取摘要”处理，返回空摘要；Cloudflare challenge 形态的 `403` / `429` 仍返回 `CloudflareChallenge`，由宿主走交互式恢复
   - iOS 和 Android topic detail 在 `summarizable` / `has_cached_summary` / `has_summary` 为真时非阻塞加载并渲染 AI 摘要；摘要缺失不占位，加载失败只影响摘要卡片，不阻塞正文详情
 - 响应：
 

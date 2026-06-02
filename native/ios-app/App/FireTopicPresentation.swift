@@ -96,6 +96,37 @@ struct FireTopicTimelineRowInput: Equatable, Sendable {
     let postID: UInt64
     let postNumber: UInt32
     let replyToPostNumber: UInt32?
+    let responseParentPostNumber: UInt32?
+    let responseDepth: UInt16?
+    let responsePreorderIndex: UInt32?
+    let responseHasChildren: Bool?
+    let responseDescendantCount: UInt32?
+    let responseSiblingIndex: UInt16?
+    let responseIsLastSibling: Bool?
+
+    init(
+        postID: UInt64,
+        postNumber: UInt32,
+        replyToPostNumber: UInt32?,
+        responseParentPostNumber: UInt32? = nil,
+        responseDepth: UInt16? = nil,
+        responsePreorderIndex: UInt32? = nil,
+        responseHasChildren: Bool? = nil,
+        responseDescendantCount: UInt32? = nil,
+        responseSiblingIndex: UInt16? = nil,
+        responseIsLastSibling: Bool? = nil
+    ) {
+        self.postID = postID
+        self.postNumber = postNumber
+        self.replyToPostNumber = replyToPostNumber
+        self.responseParentPostNumber = responseParentPostNumber
+        self.responseDepth = responseDepth
+        self.responsePreorderIndex = responsePreorderIndex
+        self.responseHasChildren = responseHasChildren
+        self.responseDescendantCount = responseDescendantCount
+        self.responseSiblingIndex = responseSiblingIndex
+        self.responseIsLastSibling = responseIsLastSibling
+    }
 }
 
 struct FireTopicPostRenderInput: Equatable, Sendable {
@@ -196,7 +227,29 @@ enum FireTopicPresentation {
         FireTopicTimelineRowInput(
             postID: post.id,
             postNumber: post.postNumber,
-            replyToPostNumber: post.replyToPostNumber
+            replyToPostNumber: post.replyToPostNumber,
+            responseParentPostNumber: nil,
+            responseDepth: nil,
+            responsePreorderIndex: nil,
+            responseHasChildren: nil,
+            responseDescendantCount: nil,
+            responseSiblingIndex: nil,
+            responseIsLastSibling: nil
+        )
+    }
+
+    private static func timelineRowInput(for responseRow: TopicResponseRowState) -> FireTopicTimelineRowInput {
+        FireTopicTimelineRowInput(
+            postID: responseRow.post.id,
+            postNumber: responseRow.post.postNumber,
+            replyToPostNumber: responseRow.post.replyToPostNumber,
+            responseParentPostNumber: responseRow.parentPostNumber,
+            responseDepth: responseRow.depth,
+            responsePreorderIndex: responseRow.preorderIndex,
+            responseHasChildren: responseRow.hasChildren,
+            responseDescendantCount: responseRow.descendantCount,
+            responseSiblingIndex: responseRow.siblingIndex,
+            responseIsLastSibling: responseRow.isLastSibling
         )
     }
 
@@ -330,7 +383,8 @@ enum FireTopicPresentation {
         let orderedPosts = uniqueTopicPostsPreservingOrder(
             [screen.body.post] + responseRows.map(\.post)
         )
-        let rowInputs = orderedPosts.map(timelineRowInput(for:))
+        let rowInputs = [timelineRowInput(for: screen.body.post)]
+            + responseRows.map(timelineRowInput(for:))
         let contentInputsByPostID = Dictionary(
             orderedPosts.map { post in
                 (post.id, FireTopicPostRenderInput(cooked: post.cooked))
@@ -383,9 +437,13 @@ enum FireTopicPresentation {
         baseURLString: String,
         previous: FireTopicDetailRenderCache
     ) -> FireTopicDetailRenderCache? {
+        let originalInput = FireTopicPostRenderInput(cooked: screen.body.post.cooked)
         guard !responseRows.isEmpty,
               previous.baseURLString == baseURLString,
               previous.rowInputs.first == timelineRowInput(for: screen.body.post),
+              previous.contentInputsByPostID[screen.body.post.id] == originalInput,
+              previous.renderState.originalRow?.entry.postId == screen.body.post.id,
+              previous.renderState.contentByPostID[screen.body.post.id] != nil,
               previous.rowInputs.count == previous.renderState.replyRows.count + 1 else {
             return nil
         }
@@ -408,7 +466,7 @@ enum FireTopicPresentation {
                 return nil
             }
 
-            rowInputs.append(timelineRowInput(for: post))
+            rowInputs.append(timelineRowInput(for: responseRow))
             contentInputsByPostID[post.id] = FireTopicPostRenderInput(cooked: post.cooked)
             replyRows.append(replyTimelineRow(from: responseRow))
             contentByPostID[post.id] = renderContent(

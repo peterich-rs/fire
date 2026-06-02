@@ -61,7 +61,7 @@ object FireErrorClassifier {
             when (current) {
                 is FireUniFfiException.CloudflareChallenge -> return true
                 is FireUniFfiException.HttpStatus -> {
-                    if (current.status.toInt() == HTTP_FORBIDDEN &&
+                    if (current.status.toInt() in CLOUDFLARE_CHALLENGE_HTTP_STATUSES &&
                         current.body.contains(CLOUDFLARE_CHALLENGE_TEXT, ignoreCase = true)
                     ) {
                         return true
@@ -138,6 +138,7 @@ object FireErrorClassifier {
     private const val HTTP_FORBIDDEN = 403
     private const val HTTP_TOO_MANY_REQUESTS = 429
     private const val CLOUDFLARE_CHALLENGE_TEXT = "Just a moment"
+    private val CLOUDFLARE_CHALLENGE_HTTP_STATUSES = setOf(HTTP_FORBIDDEN, HTTP_TOO_MANY_REQUESTS)
 }
 
 object FireErrorReporter {

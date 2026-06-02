@@ -100,6 +100,14 @@ impl From<FireCoreError> for FireUniFfiError {
                     "invalid topic response cursor for topic {topic_id} session {session_id}"
                 ),
             },
+            FireCoreError::UnexpectedTopicDetail {
+                requested_topic_id,
+                actual_topic_id,
+            } => Self::Validation {
+                details: format!(
+                    "topic detail response mismatch: requested topic {requested_topic_id}, got topic {actual_topic_id}"
+                ),
+            },
             FireCoreError::InvalidUserNotificationLevel { level } => Self::Validation {
                 details: format!("invalid user notification level: {level}"),
             },

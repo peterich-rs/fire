@@ -96,7 +96,15 @@ class HomeFragment : Fragment() {
             listOf(loadStates.refresh, loadStates.append, loadStates.prepend)
                 .filterIsInstance<LoadState.Error>()
                 .firstOrNull { CloudflareChallengeSupport.isChallenge(it.error) }
-                ?.let { context?.let(CloudflareChallengeSupport::openSiteRoot) }
+                ?.let { challengeState ->
+                    context?.let { context ->
+                        CloudflareChallengeSupport.open(
+                            context,
+                            CloudflareChallengeSupport.recoveryUrl(challengeState.error)
+                                ?: CloudflareChallengeSupport.SITE_ROOT_URL,
+                        )
+                    }
+                }
 
             val isInitialLoading = refresh is LoadState.Loading && adapter.itemCount == 0
             loadingView.visibility = if (isInitialLoading) View.VISIBLE else View.GONE

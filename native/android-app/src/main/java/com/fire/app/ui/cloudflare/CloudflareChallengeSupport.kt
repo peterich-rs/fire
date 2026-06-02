@@ -24,6 +24,8 @@ object CloudflareChallengeSupport {
 
     fun isChallenge(error: Throwable?): Boolean = CloudflareChallengeDetector.isChallenge(error)
 
+    fun recoveryUrl(error: Throwable?): String? = CloudflareChallengeDetector.recoveryUrl(error)
+
     fun openSiteRoot(context: Context) {
         open(context, SITE_ROOT_URL)
     }

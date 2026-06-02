@@ -90,7 +90,11 @@ struct FireHomeView: View {
             }
         }
         .onAppear {
+            homeFeedStore.setTopicListVisible(true)
             consumePendingRouteIfVisible(navigationState.pendingRoute)
+        }
+        .onDisappear {
+            homeFeedStore.setTopicListVisible(false)
         }
         .onChange(of: navigationState.pendingRoute) { _, route in
             consumePendingRouteIfVisible(route)

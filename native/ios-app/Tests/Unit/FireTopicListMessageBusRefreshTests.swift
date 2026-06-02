@@ -98,6 +98,43 @@ final class FireTopicListMessageBusRefreshTests: XCTestCase {
         XCTAssertNil(controller.takePendingRefresh(for: scope))
     }
 
+    func testIncrementalRefreshRequiresVisibleRenderedLatestList() {
+        let scope = FireTopicListRefreshScope(kind: .latest, categoryId: nil, tags: [])
+
+        XCTAssertFalse(
+            FireHomeFeedStore.canScheduleIncrementalMessageBusRefresh(
+                scope: scope,
+                renderedScope: scope,
+                isTopicListVisible: false,
+                hasRows: true
+            )
+        )
+        XCTAssertFalse(
+            FireHomeFeedStore.canScheduleIncrementalMessageBusRefresh(
+                scope: scope,
+                renderedScope: nil,
+                isTopicListVisible: true,
+                hasRows: true
+            )
+        )
+        XCTAssertFalse(
+            FireHomeFeedStore.canScheduleIncrementalMessageBusRefresh(
+                scope: scope,
+                renderedScope: scope,
+                isTopicListVisible: true,
+                hasRows: false
+            )
+        )
+        XCTAssertTrue(
+            FireHomeFeedStore.canScheduleIncrementalMessageBusRefresh(
+                scope: scope,
+                renderedScope: scope,
+                isTopicListVisible: true,
+                hasRows: true
+            )
+        )
+    }
+
     func testIncrementalMergeMovesUpdatedTopicsToFront() {
         let existing = [
             makeTopicRow(id: 1, activityTimestampUnixMs: 10),

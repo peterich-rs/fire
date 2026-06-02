@@ -88,6 +88,9 @@ Android keeps Cloudflare recovery host-owned:
 
 - General Cloudflare challenges open `CloudflareChallengeActivity`, which loads
   `https://linux.do/` in a full-screen WebView.
+- Home topic-list challenges also open `CloudflareChallengeActivity`, but load
+  the current list's HTML route such as `https://linux.do/latest`,
+  `/c/{slug}/{id}/l/latest`, or `/tag/{tag}/l/top` instead of the JSON API URL.
 - Topic-detail challenges stay inside `TopicDetailActivity` and show an inline
   WebView under the toolbar, loading `https://linux.do/t/{topicId}`.
 - Login and general challenge WebViews share the browser-like

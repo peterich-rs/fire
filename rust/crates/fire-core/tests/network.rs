@@ -510,6 +510,36 @@ async fn fetch_topic_list_surfaces_cloudflare_challenge_error() {
 }
 
 #[tokio::test]
+async fn fetch_topic_list_surfaces_rate_limited_cloudflare_challenge_error() {
+    let responses = vec![raw_cloudflare_challenge_response(
+        429,
+        r#"<html><head><title>Just a moment...</title></head><body>__cf_chl_opt</body></html>"#,
+    )];
+    let server = TestServer::spawn(responses).await.expect("server");
+    let core = FireCore::new(FireCoreConfig {
+        base_url: server.base_url(),
+        workspace_path: None,
+    })
+    .expect("core");
+
+    let error = core
+        .fetch_topic_list(TopicListQuery {
+            kind: TopicListKind::Latest,
+            ..TopicListQuery::default()
+        })
+        .await
+        .expect_err("429 Cloudflare challenge should surface as a challenge error");
+    let _ = server.shutdown().await;
+
+    assert!(matches!(
+        error,
+        FireCoreError::CloudflareChallenge {
+            operation: "fetch topic list"
+        }
+    ));
+}
+
+#[tokio::test]
 async fn fetch_topic_list_does_not_treat_non_cloudflare_403_body_as_challenge() {
     let responses = vec![raw_json_response(
         403,
@@ -1148,6 +1178,40 @@ async fn fetch_topic_detail_parses_detail_payload() {
             .map(|value| value.username.as_str()),
         Some("alice")
     );
+}
+
+#[tokio::test]
+async fn fetch_topic_detail_rejects_mismatched_topic_identity() {
+    let payload = sample_topic_detail_json().replace("\"id\": 123", "\"id\": 999");
+    let responses = vec![raw_json_response(200, "application/json", &payload)];
+    let server = TestServer::spawn(responses).await.expect("server");
+    let core = FireCore::new(FireCoreConfig {
+        base_url: server.base_url(),
+        workspace_path: None,
+    })
+    .expect("core");
+
+    let error = core
+        .fetch_topic_detail(TopicDetailQuery {
+            topic_id: 123,
+            post_number: None,
+            track_visit: false,
+            force_load: false,
+            filter: None,
+            username_filters: None,
+            filter_top_level_replies: false,
+        })
+        .await
+        .expect_err("mismatched topic id should fail");
+    let _ = server.shutdown().await;
+
+    assert!(matches!(
+        error,
+        FireCoreError::UnexpectedTopicDetail {
+            requested_topic_id: 123,
+            actual_topic_id: 999,
+        }
+    ));
 }
 
 #[tokio::test]

@@ -33,4 +33,16 @@ class FireErrorClassifierTest {
         assertTrue(FireErrorClassifier.isCloudflareChallenge(error))
         assertEquals(FireErrorKind.CloudflareChallenge, FireErrorClassifier.classify(error))
     }
+
+    @Test
+    fun isCloudflareChallenge_acceptsRateLimitedChallengeHtml() {
+        val error = FireUniFfiException.HttpStatus(
+            operation = "fetch_topic_list",
+            status = 429.toUShort(),
+            body = "<html><title>Just a moment...</title></html>",
+        )
+
+        assertTrue(FireErrorClassifier.isCloudflareChallenge(error))
+        assertEquals(FireErrorKind.CloudflareChallenge, FireErrorClassifier.classify(error))
+    }
 }

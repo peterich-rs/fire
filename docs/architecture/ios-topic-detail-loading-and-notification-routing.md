@@ -1,5 +1,13 @@
 # Redesign iOS Topic Detail Loading and Notification Routing
 
+Status update (2026-06-02, redesign authority): the active redesign authority
+for the page runtime has moved to
+`docs/architecture/ios-topic-detail-uikit-texture-design.md` and
+`docs/architecture/plans/ios-topic-detail-uikit-texture-execution-plan.md`.
+This document remains useful as the historical record for loading, notification,
+timeline, and runtime-shape evolution, but it is no longer the canonical spec
+for the next topic-detail UIKit plus Texture rewrite.
+
 Status update (2026-04-19): the incremental payload-reduction slice landed by trimming `TopicDetailState` over UniFFI down to canonical topic scalars, `post_stream`, and `details`. Swift now rebuilds local floor-order timeline metadata from `post_stream.posts` for render-cache and hydration decisions, so duplicate `thread`, `flat_posts`, `timeline_entries`, and `interaction_count` copies no longer cross the host boundary.
 
 Status update (2026-04-19, later): topic detail later moved onto a ListKit collection host. That host has since been replaced by the `native/ios-app/App/TopicDetailRuntime/` UIKit runtime; references below to `ScrollView`, `ScrollViewReader`, geometry-preference viewport reporting, or `FireTopicDetailCollectionView` describe historical pre-runtime hosts unless a section explicitly calls out current code.

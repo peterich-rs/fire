@@ -1,5 +1,16 @@
 # iOS Topic Detail Feed Rewrite: IGListKit + Texture + Nuke + Rust Cache
 
+> Status: superseded for active redesign planning (2026-06-02).
+>
+> The active redesign authority now lives in:
+>
+> - `docs/architecture/ios-topic-detail-uikit-texture-design.md`
+> - `docs/architecture/plans/ios-topic-detail-uikit-texture-execution-plan.md`
+>
+> This document remains a historical branch plan. Its assumptions about
+> `IGListKit` as the active container direction are not the current redesign
+> baseline.
+
 Status: implementation branch active (2026-05-30)
 
 Implementation update (2026-05-30):

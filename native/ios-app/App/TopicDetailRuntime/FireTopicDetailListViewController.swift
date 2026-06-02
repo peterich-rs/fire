@@ -5,6 +5,33 @@ private let fireTopicDetailAnimatedUpdateItemDeltaLimit = 4
 private let fireTopicDetailVisiblePostPublishDebounce = Duration.milliseconds(240)
 private let fireTopicDetailFooterLoadMoreDistance: CGFloat = 240
 
+private struct FireTopicDetailDeferredRuntimeCallbacks {
+    var preloadVisiblePostNumbers: Set<UInt32> = []
+    var forceVisiblePostPublish = false
+    var forceLoadMoreEvaluation = false
+    var shouldRetryLoadMoreRestoreFooter = false
+
+    var hasWork: Bool {
+        !preloadVisiblePostNumbers.isEmpty
+            || forceVisiblePostPublish
+            || forceLoadMoreEvaluation
+            || shouldRetryLoadMoreRestoreFooter
+    }
+
+    mutating func merge(
+        preloadVisiblePostNumbers: Set<UInt32> = [],
+        forceVisiblePostPublish: Bool = false,
+        forceLoadMoreEvaluation: Bool = false,
+        shouldRetryLoadMoreRestoreFooter: Bool = false
+    ) {
+        self.preloadVisiblePostNumbers.formUnion(preloadVisiblePostNumbers)
+        self.forceVisiblePostPublish = self.forceVisiblePostPublish || forceVisiblePostPublish
+        self.forceLoadMoreEvaluation = self.forceLoadMoreEvaluation || forceLoadMoreEvaluation
+        self.shouldRetryLoadMoreRestoreFooter =
+            self.shouldRetryLoadMoreRestoreFooter || shouldRetryLoadMoreRestoreFooter
+    }
+}
+
 
 struct FireTopicDetailCollectionUpdatePlan: Equatable {
     let deletions: [IndexPath]
@@ -174,6 +201,8 @@ final class FireTopicDetailListViewController: UIViewController,
     private var lastEmptyReplyFooterPreloadKey: AnyHashable?
     private var lastLayoutContentWidth: CGFloat?
     private var loadMoreRetryTask: Task<Void, Never>?
+    private var deferredRuntimeCallbacks = FireTopicDetailDeferredRuntimeCallbacks()
+    private var hasDeferredRuntimeCallbacksScheduled = false
 
     deinit {
         layoutInvalidationTask?.cancel()
@@ -244,8 +273,9 @@ final class FireTopicDetailListViewController: UIViewController,
             hasCurrentItems: !currentItems.isEmpty
         ) {
             handlePendingScrollTargetIfNeeded()
-            publishVisiblePostNumbersIfChanged()
-            loadMoreIfNeeded()
+            scheduleDeferredRuntimeCallbacks(
+                forceLoadMoreEvaluation: false
+            )
             return
         }
 
@@ -258,8 +288,9 @@ final class FireTopicDetailListViewController: UIViewController,
                 configuration: configuration
             )
             handlePendingScrollTargetIfNeeded()
-            publishVisiblePostNumbersIfChanged()
-            loadMoreIfNeeded()
+            scheduleDeferredRuntimeCallbacks(
+                forceLoadMoreEvaluation: false
+            )
             return
         }
 
@@ -1129,11 +1160,11 @@ final class FireTopicDetailListViewController: UIViewController,
                 )
             }
             self.handlePendingScrollTargetIfNeeded()
-            self.publishVisiblePostNumbersIfChanged(force: previousItems.isEmpty)
-            let requestedMore = self.loadMoreIfNeeded(forceEvaluation: true)
-            if shouldHoldLoadingFooter, !requestedMore {
-                self.scheduleLoadMoreRetryOrRestoreFooter()
-            }
+            self.scheduleDeferredRuntimeCallbacks(
+                forceVisiblePostPublish: previousItems.isEmpty,
+                forceLoadMoreEvaluation: true,
+                shouldRetryLoadMoreRestoreFooter: shouldHoldLoadingFooter
+            )
         }
 
         guard !updatePlan.isEmpty else {
@@ -1186,6 +1217,53 @@ final class FireTopicDetailListViewController: UIViewController,
             animated: true
         )
         configuration.onScrollTargetHandled(target)
+    }
+
+    private func scheduleDeferredRuntimeCallbacks(
+        preloadVisiblePostNumbers: Set<UInt32> = [],
+        forceVisiblePostPublish: Bool = false,
+        forceLoadMoreEvaluation: Bool = false,
+        shouldRetryLoadMoreRestoreFooter: Bool = false
+    ) {
+        // SwiftUI calls updateUIViewController inside its view-update pass.
+        // Defer any callback that can mutate ObservableObject state until the
+        // next main-runloop turn so Texture/UI work never publishes mid-update.
+        // Using Task instead of DispatchQueue.main.async ensures the work runs
+        // after the current SwiftUI update pass completes.
+        deferredRuntimeCallbacks.merge(
+            preloadVisiblePostNumbers: preloadVisiblePostNumbers,
+            forceVisiblePostPublish: forceVisiblePostPublish,
+            forceLoadMoreEvaluation: forceLoadMoreEvaluation,
+            shouldRetryLoadMoreRestoreFooter: shouldRetryLoadMoreRestoreFooter
+        )
+        guard deferredRuntimeCallbacks.hasWork,
+              hasDeferredRuntimeCallbacksScheduled == false else {
+            return
+        }
+
+        hasDeferredRuntimeCallbacksScheduled = true
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.hasDeferredRuntimeCallbacksScheduled = false
+            let callbacks = self.deferredRuntimeCallbacks
+            self.deferredRuntimeCallbacks = FireTopicDetailDeferredRuntimeCallbacks()
+
+            guard let configuration = self.configuration else {
+                return
+            }
+
+            if !callbacks.preloadVisiblePostNumbers.isEmpty {
+                configuration.onPreloadTopicPosts(callbacks.preloadVisiblePostNumbers)
+            }
+
+            self.publishVisiblePostNumbersIfChanged(force: callbacks.forceVisiblePostPublish)
+            let requestedMore = self.loadMoreIfNeeded(
+                forceEvaluation: callbacks.forceLoadMoreEvaluation
+            )
+            if callbacks.shouldRetryLoadMoreRestoreFooter, !requestedMore {
+                self.scheduleLoadMoreRetryOrRestoreFooter()
+            }
+        }
     }
 
     private func publishVisiblePostNumbersIfChanged(force: Bool = false) {
@@ -1377,7 +1455,9 @@ final class FireTopicDetailListViewController: UIViewController,
         }
         lastEmptyReplyFooterPreloadKey = preloadKey
         let seedVisiblePostNumbers = configuration.originalPost.map { Set([$0.postNumber]) } ?? []
-        configuration.onPreloadTopicPosts(seedVisiblePostNumbers)
+        scheduleDeferredRuntimeCallbacks(
+            preloadVisiblePostNumbers: seedVisiblePostNumbers
+        )
     }
 
     private func applyVisiblePostRelayoutsIfNeeded(

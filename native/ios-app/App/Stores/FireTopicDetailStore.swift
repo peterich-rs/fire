@@ -2010,6 +2010,16 @@ final class FireTopicDetailStore: ObservableObject {
         topicId: UInt64,
         clearsLoadingMore: Bool
     ) async {
+        // Set detail eagerly so the view can transition from "loading" to showing
+        // post body immediately, even before the rich render cache is ready.
+        // The cell will use fallback plain-text rendering until the full render
+        // state arrives.
+        let isInitialDetail = topicDetails[topicId] == nil
+        if isInitialDetail {
+            topicDetails[topicId] = detail
+            bumpTopicCollectionRevision(topicId: topicId)
+        }
+
         let previousRenderCache = topicRenderCaches[topicId]
         let baseURLString = renderBaseURLString
         let generation = topicRenderGenerations[topicId, default: 0] &+ 1

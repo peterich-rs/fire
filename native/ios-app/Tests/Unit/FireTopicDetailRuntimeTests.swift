@@ -337,6 +337,25 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
         XCTAssertEqual(context?.renderContent.attributedText?.string, "Original plain text")
     }
 
+    func testOriginalPostContextFallsBackToDetailPostWhileRenderStateIsPending() throws {
+        let original = makePost(id: 100, postNumber: 1, username: "alice")
+        let configuration = makeConfiguration(
+            detail: makeTopicDetail(posts: [original]),
+            renderState: nil,
+            postLookup: [original.id: original]
+        )
+
+        let item = try XCTUnwrap(
+            configuration.makeSnapshot().items.first(where: { $0.kind == .originalPost })
+        )
+        let context = try XCTUnwrap(configuration.postContext(for: item))
+
+        XCTAssertEqual(context.post.id, original.id)
+        XCTAssertEqual(context.post.postNumber, original.postNumber)
+        XCTAssertEqual(context.renderContent.plainText, "alice")
+        XCTAssertEqual(context.renderContent.attributedText?.string, "alice")
+    }
+
     func testRenderSignatureIsStableAndContentSensitive() throws {
         let image = FireCookedImage(
             url: try XCTUnwrap(URL(string: "https://linux.do/uploads/default/original/1x/image.png")),

@@ -911,18 +911,46 @@ final class FireTopicDetailListViewController: UIViewController,
                 attributes: [.font: UIFont.preferredFont(forTextStyle: .subheadline), .foregroundColor: UIColor.secondaryLabel]
             )
         case .notice:
+            let statusMessage = item.statusMessage
+            let title = statusMessage?.title?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let trimmedTitle = (title?.isEmpty == false) ? title : nil
+            let messageColor = statusMessage?.emphasizesError == true
+                ? UIColor.systemRed
+                : UIColor.secondaryLabel
             bodyNode.attributedText = NSAttributedString(
-                string: "正在显示缓存内容",
-                attributes: [.font: UIFont.preferredFont(forTextStyle: .subheadline), .foregroundColor: UIColor.secondaryLabel]
+                string: statusMessage?.message ?? "正在显示缓存内容",
+                attributes: [.font: UIFont.preferredFont(forTextStyle: .subheadline), .foregroundColor: messageColor]
             )
+            if let trimmedTitle {
+                titleNode.attributedText = NSAttributedString(
+                    string: trimmedTitle,
+                    attributes: [
+                        .font: UIFont.preferredFont(forTextStyle: .headline),
+                        .foregroundColor: statusMessage?.emphasizesError == true
+                            ? UIColor.systemRed
+                            : UIColor.label,
+                    ]
+                )
+            }
         default:
             break
         }
 
-        let children: [ASLayoutElement] = [
+        var children: [ASLayoutElement] = [
             titleNode.attributedText != nil ? titleNode : nil,
             bodyNode.attributedText != nil ? bodyNode : nil,
         ].compactMap { $0 }
+        if item.kind == .notice, item.statusMessage?.retryable == true {
+            let buttonNode = ASButtonNode()
+            buttonNode.setTitle(
+                "重试",
+                with: UIFont.preferredFont(forTextStyle: .subheadline),
+                with: FireTopicDetailRuntimeCellColors.accent,
+                for: .normal
+            )
+            buttonNode.addTarget(self, action: #selector(handleLoadTopicDetail), forControlEvents: .touchUpInside)
+            children.append(buttonNode)
+        }
 
         node.layoutSpecBlock = { _, _ in
             let stack = ASStackLayoutSpec(

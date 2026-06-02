@@ -24,6 +24,11 @@ private enum FireTopicDetailFeedBridgeError: LocalizedError {
     }
 }
 
+struct FireTopicDetailScreenBridgeResult {
+    let screen: TopicScreenState
+    let detailNotice: FireTopicDetailStatusMessage?
+}
+
 @MainActor
 final class FireTopicDetailStore: ObservableObject {
     nonisolated private static let topicPostPageSize = 30
@@ -55,6 +60,7 @@ final class FireTopicDetailStore: ObservableObject {
 
     private let appViewModel: FireAppViewModel
     private var topicScreens: [UInt64: TopicScreenState] = [:]
+    private var topicDetailNoticesByTopic: [UInt64: FireTopicDetailStatusMessage] = [:]
     private var topicRecoverySlugsByTopic: [UInt64: String] = [:]
     private var topicResponseRowsByTopic: [UInt64: [TopicResponseRowState]] = [:]
     private var topicResponseCursorsByTopic: [UInt64: TopicResponseCursorState] = [:]
@@ -147,6 +153,22 @@ final class FireTopicDetailStore: ObservableObject {
         }
     }
 
+    private func updateTopicDetailNotice(
+        _ notice: FireTopicDetailStatusMessage?,
+        topicId: UInt64
+    ) {
+        let changed: Bool
+        if let notice {
+            changed = topicDetailNoticesByTopic[topicId] != notice
+            topicDetailNoticesByTopic[topicId] = notice
+        } else {
+            changed = topicDetailNoticesByTopic.removeValue(forKey: topicId) != nil
+        }
+        if changed {
+            bumpTopicCollectionRevision(topicId: topicId)
+        }
+    }
+
     func applySession(_ session: SessionState) {
         let readiness = session.readiness
         if readiness.canReadAuthenticatedApi {
@@ -217,6 +239,7 @@ final class FireTopicDetailStore: ObservableObject {
         topicRenderGenerations = [:]
         topicPostLookups = [:]
         topicScreens = [:]
+        topicDetailNoticesByTopic = [:]
         topicRecoverySlugsByTopic = [:]
         topicResponseRowsByTopic = [:]
         topicResponseCursorsByTopic = [:]
@@ -280,7 +303,7 @@ final class FireTopicDetailStore: ObservableObject {
             let sessionStore = try await appViewModel.sessionStoreValue()
             updateTopicErrorMessage(nil, topicId: topicId)
             let recoveryURL = topicCloudflareRecoveryURL(topicId: topicId)
-            let screen = try await performWithTimeout(30, operation: "加载话题详情") { [appViewModel] in
+            let bridgeResult = try await performWithTimeout(30, operation: "加载话题详情") { [appViewModel] in
                 try await FireAPMManager.shared.withSpan(
                     .topicDetailInitialLoad,
                     metadata: ["topic_id": String(topicId)]
@@ -300,9 +323,13 @@ final class FireTopicDetailStore: ObservableObject {
                     }
                 }
             }
-            await applyTopicScreen(screen, topicId: topicId)
+            await applyTopicScreen(
+                bridgeResult.screen,
+                detailNotice: bridgeResult.detailNotice,
+                topicId: topicId
+            )
             appViewModel.topicDetailLogger()?.debug(
-                "loaded topic screen topic_id=\(topicId) loaded_replies=\(screen.response.rows.count) total_replies=\(screen.response.totalResponseCount)"
+                "loaded topic screen topic_id=\(topicId) loaded_replies=\(bridgeResult.screen.response.rows.count) total_replies=\(bridgeResult.screen.response.totalResponseCount)"
             )
         } catch {
             appViewModel.topicDetailLogger()?.error(
@@ -385,7 +412,7 @@ final class FireTopicDetailStore: ObservableObject {
     nonisolated static func topicScreen(
         from snapshot: TopicDetailFeedSnapshotState,
         requiresFresh: Bool = false
-    ) throws -> TopicScreenState {
+    ) throws -> FireTopicDetailScreenBridgeResult {
         if requiresFresh, snapshot.loadState != .ready {
             throw FireTopicDetailFeedBridgeError.staleRefreshSnapshot(
                 snapshot.staleErrorMessage
@@ -411,18 +438,55 @@ final class FireTopicDetailStore: ObservableObject {
         }
         let totalResponseCount = max(header.replyCount, UInt32(responseRows.count))
         let totalRootCount = max(UInt32(responseRows.count), totalResponseCount)
-        return TopicScreenState(
-            header: header,
-            body: TopicBodyState(post: originalPost),
-            response: TopicResponsePageState(
-                rows: responseRows,
-                nextCursor: snapshot.cursor.nextResponseCursor,
-                totalRootCount: totalRootCount,
-                loadedRootCount: UInt32(responseRows.count),
-                totalResponseCount: totalResponseCount,
-                focusedPostNumber: nil
-            )
+        return FireTopicDetailScreenBridgeResult(
+            screen: TopicScreenState(
+                header: header,
+                body: TopicBodyState(post: originalPost),
+                response: TopicResponsePageState(
+                    rows: responseRows,
+                    nextCursor: snapshot.cursor.nextResponseCursor,
+                    totalRootCount: totalRootCount,
+                    loadedRootCount: UInt32(responseRows.count),
+                    totalResponseCount: totalResponseCount,
+                    focusedPostNumber: nil
+                )
+            ),
+            detailNotice: detailStatusMessage(from: snapshot)
         )
+    }
+
+    nonisolated private static func detailStatusMessage(
+        from snapshot: TopicDetailFeedSnapshotState
+    ) -> FireTopicDetailStatusMessage? {
+        let statusItem = snapshot.items.first { $0.kind == .notice || $0.kind == .error }
+        let title = normalizedSnapshotText(statusItem?.title)
+        let statusMessage = normalizedSnapshotText(statusItem?.message)
+        let staleMessage = normalizedSnapshotText(snapshot.staleErrorMessage)
+
+        if snapshot.loadState == .staleWithError {
+            return FireTopicDetailStatusMessage(
+                title: title,
+                message: statusMessage ?? staleMessage ?? "刷新失败，正在显示缓存内容。",
+                retryable: statusItem?.retryable ?? true,
+                emphasizesError: statusItem?.kind == .error
+            )
+        }
+
+        guard let statusItem else {
+            return nil
+        }
+        let message = statusMessage ?? title ?? "话题详情包含状态消息。"
+        return FireTopicDetailStatusMessage(
+            title: title == message ? nil : title,
+            message: message,
+            retryable: statusItem.retryable,
+            emphasizesError: statusItem.kind == .error
+        )
+    }
+
+    nonisolated private static func normalizedSnapshotText(_ value: String?) -> String? {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     private func synthesizedTopicDetail(
@@ -552,7 +616,11 @@ final class FireTopicDetailStore: ObservableObject {
         currentCursor == expectedCursor
     }
 
-    private func applyTopicScreen(_ screen: TopicScreenState, topicId: UInt64) async {
+    private func applyTopicScreen(
+        _ screen: TopicScreenState,
+        detailNotice: FireTopicDetailStatusMessage?,
+        topicId: UInt64
+    ) async {
         var screen = screen
         screen.response = Self.reconcileTopicResponsePageState(
             screen.response,
@@ -560,6 +628,7 @@ final class FireTopicDetailStore: ObservableObject {
             existingRows: topicResponseRowsByTopic[topicId] ?? []
         )
         rememberTopicRecoverySlug(screen.header.slug, topicId: topicId)
+        updateTopicDetailNotice(detailNotice, topicId: topicId)
         topicScreens[topicId] = screen
         topicResponseRowsByTopic[topicId] = screen.response.rows
         if let cursor = screen.response.nextCursor {
@@ -697,6 +766,10 @@ final class FireTopicDetailStore: ObservableObject {
 
     func topicAiSummaryError(for topicId: UInt64) -> String? {
         topicAiSummaryErrorsByTopicID[topicId]
+    }
+
+    func detailNotice(topicId: UInt64) -> FireTopicDetailStatusMessage? {
+        topicDetailNoticesByTopic[topicId]
     }
 
     func topicCollectionRevision(topicId: UInt64) -> UInt64 {
@@ -1536,19 +1609,23 @@ final class FireTopicDetailStore: ObservableObject {
         topicId: UInt64,
         sessionStore: FireSessionStore
     ) async throws {
-        let screen = try await refreshTopicScreenFromFeed(
+        let bridgeResult = try await refreshTopicScreenFromFeed(
             topicId: topicId,
             targetPostNumber: nil,
             sessionStore: sessionStore
         )
-        await applyTopicScreen(screen, topicId: topicId)
+        await applyTopicScreen(
+            bridgeResult.screen,
+            detailNotice: bridgeResult.detailNotice,
+            topicId: topicId
+        )
     }
 
     private func refreshTopicScreenFromFeed(
         topicId: UInt64,
         targetPostNumber: UInt32?,
         sessionStore: FireSessionStore
-    ) async throws -> TopicScreenState {
+    ) async throws -> FireTopicDetailScreenBridgeResult {
         let recoveryURL = topicCloudflareRecoveryURL(topicId: topicId)
         let snapshot = try await performWithTimeout(30, operation: "刷新话题详情") { [appViewModel] in
             try await appViewModel.performWithCloudflareRecovery(
@@ -1576,12 +1653,16 @@ final class FireTopicDetailStore: ObservableObject {
             guard self.topicDetails[topicId] != nil else { return }
             let anchorPostNumber = self.activeAnchorPostNumber(topicId: topicId)
             do {
-                let screen = try await self.refreshTopicScreenFromFeed(
+                let bridgeResult = try await self.refreshTopicScreenFromFeed(
                     topicId: topicId,
                     targetPostNumber: anchorPostNumber,
                     sessionStore: store
                 )
-                await self.applyTopicScreen(screen, topicId: topicId)
+                await self.applyTopicScreen(
+                    bridgeResult.screen,
+                    detailNotice: bridgeResult.detailNotice,
+                    topicId: topicId
+                )
             } catch {
                 if await self.appViewModel.handleRecoverableSessionErrorIfNeeded(error) {
                     self.appViewModel.topicDetailLogger()?.notice(
@@ -1678,6 +1759,7 @@ final class FireTopicDetailStore: ObservableObject {
 
     private func evictTopicDetailState(topicId: UInt64, reason: String) {
         topicScreens.removeValue(forKey: topicId)
+        topicDetailNoticesByTopic.removeValue(forKey: topicId)
         topicRecoverySlugsByTopic.removeValue(forKey: topicId)
         topicResponseRowsByTopic.removeValue(forKey: topicId)
         topicResponseCursorsByTopic.removeValue(forKey: topicId)

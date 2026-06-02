@@ -337,16 +337,11 @@ impl FireCore {
         }
         let initial_page_size =
             initial_topic_response_page_size(page_size, focus_root_index, root_stream_ids.len());
-        let mut initial_root_ids = root_stream_ids
+        let initial_root_ids = root_stream_ids
             .iter()
             .copied()
             .take(usize::from(initial_page_size))
             .collect::<Vec<_>>();
-        if let Some(focus_root_id) = focus_root_post.as_ref().map(|post| post.id) {
-            if !initial_root_ids.contains(&focus_root_id) {
-                initial_root_ids.push(focus_root_id);
-            }
-        }
         let missing_root_ids =
             missing_post_ids_from_ids(&initial_root_ids, &detail.post_stream.posts);
         if !missing_root_ids.is_empty() {
@@ -1598,10 +1593,23 @@ fn normalized_response_row_page_size(page_size: u16) -> u16 {
 
 fn initial_topic_response_page_size(
     page_size: u16,
-    _focus_root_index: Option<usize>,
-    _total_root_count: usize,
+    focus_root_index: Option<usize>,
+    total_root_count: usize,
 ) -> u16 {
-    page_size
+    let requested = usize::from(page_size.max(1));
+    let required = focus_root_index
+        .map(|index| {
+            index
+                .checked_div(requested)
+                .unwrap_or(0)
+                .saturating_add(1)
+                .saturating_mul(requested)
+        })
+        .unwrap_or(requested);
+    required
+        .min(total_root_count.max(requested))
+        .try_into()
+        .unwrap_or(u16::MAX)
 }
 
 fn deduplicate_topic_posts_by_id(posts: Vec<TopicPost>) -> Vec<TopicPost> {
@@ -1845,11 +1853,12 @@ mod tests {
     }
 
     #[test]
-    fn initial_topic_response_page_size_stays_on_requested_root_page() {
+    fn initial_topic_response_page_size_expands_to_cover_focus_root_page() {
         assert_eq!(initial_topic_response_page_size(10, None, 100), 10);
         assert_eq!(initial_topic_response_page_size(10, Some(3), 100), 10);
-        assert_eq!(initial_topic_response_page_size(10, Some(12), 100), 10);
-        assert_eq!(initial_topic_response_page_size(10, Some(12), 8), 10);
+        assert_eq!(initial_topic_response_page_size(10, Some(12), 100), 20);
+        assert_eq!(initial_topic_response_page_size(10, Some(29), 100), 30);
+        assert_eq!(initial_topic_response_page_size(10, Some(12), 13), 13);
     }
 
     #[test]

@@ -5,6 +5,13 @@ enum FireTopicDetailRuntimeSection: Sendable {
     case main
 }
 
+struct FireTopicDetailStatusMessage: Hashable, Sendable {
+    let title: String?
+    let message: String
+    let retryable: Bool
+    let emphasizesError: Bool
+}
+
 enum FireTopicDetailRuntimeItemKind: Hashable, Sendable {
     case header
     case aiSummary
@@ -29,6 +36,7 @@ struct FireTopicDetailRuntimeItem: Hashable, @unchecked Sendable {
     let replyShortcutCount: UInt32?
     let contentToken: AnyHashable
     let inPlaceUpdateToken: AnyHashable?
+    let statusMessage: FireTopicDetailStatusMessage?
 
     init(
         id: String,
@@ -40,7 +48,8 @@ struct FireTopicDetailRuntimeItem: Hashable, @unchecked Sendable {
         replyShowsDivider: Bool = false,
         replyShortcutCount: UInt32? = nil,
         contentToken: AnyHashable,
-        inPlaceUpdateToken: AnyHashable? = nil
+        inPlaceUpdateToken: AnyHashable? = nil,
+        statusMessage: FireTopicDetailStatusMessage? = nil
     ) {
         self.id = id
         self.kind = kind
@@ -52,6 +61,7 @@ struct FireTopicDetailRuntimeItem: Hashable, @unchecked Sendable {
         self.replyShortcutCount = replyShortcutCount
         self.contentToken = contentToken
         self.inPlaceUpdateToken = inPlaceUpdateToken
+        self.statusMessage = statusMessage
     }
 
     static func == (lhs: Self, rhs: Self) -> Bool {
@@ -72,6 +82,7 @@ struct FireTopicDetailRuntimeItem: Hashable, @unchecked Sendable {
             && replyShowsDivider == other.replyShowsDivider
             && replyShortcutCount == other.replyShortcutCount
             && contentToken == other.contentToken
+            && statusMessage == other.statusMessage
     }
 
     func needsVisibleNodeUpdate(comparedTo other: Self) -> Bool {
@@ -126,6 +137,7 @@ struct FireTopicDetailRuntimeConfiguration {
     let renderState: FireTopicDetailRenderState?
     let pendingScrollTarget: UInt32?
     let detailError: String?
+    let detailNotice: FireTopicDetailStatusMessage?
     let hasMoreTopicPosts: Bool
     let isLoadingTopic: Bool
     let isLoadingMoreTopicPosts: Bool
@@ -407,6 +419,23 @@ struct FireTopicDetailRuntimeConfiguration {
                 String(detail != nil),
             ])
         ))
+
+        if let detailNotice {
+            items.append(.init(
+                id: "notice:\(topic.id)",
+                kind: .notice,
+                postID: nil,
+                postNumber: nil,
+                replyIndex: nil,
+                contentToken: AnyHashable([
+                    detailNotice.title ?? "",
+                    detailNotice.message,
+                    String(detailNotice.retryable),
+                    String(detailNotice.emphasizesError),
+                ]),
+                statusMessage: detailNotice
+            ))
+        }
 
         if detail == nil {
             items.append(.init(

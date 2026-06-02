@@ -1282,6 +1282,102 @@ async fn fetch_topic_screen_opens_web_detail_before_internal_top_level_filter() 
 }
 
 #[tokio::test]
+async fn fetch_topic_screen_expands_initial_root_window_to_cover_targeted_root() {
+    let target_post_number = 14_u32;
+    let mut detail_payload: Value =
+        serde_json::from_str(&sample_topic_detail_json()).expect("detail fixture json");
+    detail_payload
+        .as_object_mut()
+        .expect("detail fixture object")
+        .insert("posts_count".into(), json!(26));
+
+    let root_posts = (2_u32..=26)
+        .map(|post_number| {
+            json!({
+                "id": 9000 + u64::from(post_number),
+                "username": format!("user-{post_number}"),
+                "cooked": format!("<p>Reply {post_number}</p>"),
+                "post_number": post_number,
+                "reply_to_post_number": 1,
+                "reply_count": 0
+            })
+        })
+        .collect::<Vec<_>>();
+    let root_stream = root_posts
+        .iter()
+        .map(|post| {
+            post.get("id")
+                .and_then(Value::as_u64)
+                .expect("root post id")
+        })
+        .collect::<Vec<_>>();
+    let target_root = root_posts
+        .iter()
+        .find(|post| {
+            post.get("post_number").and_then(Value::as_u64) == Some(u64::from(target_post_number))
+        })
+        .cloned()
+        .expect("target root post");
+
+    let mut top_level_payload = detail_payload.clone();
+    top_level_payload
+        .as_object_mut()
+        .expect("top-level fixture object")
+        .get_mut("post_stream")
+        .and_then(Value::as_object_mut)
+        .expect("top-level post stream object")
+        .extend([
+            ("posts".into(), Value::Array(root_posts.clone())),
+            ("stream".into(), json!(root_stream.clone())),
+        ]);
+
+    let responses = vec![
+        raw_json_response(200, "application/json", &detail_payload.to_string()),
+        raw_json_response(200, "application/json", &top_level_payload.to_string()),
+        raw_json_response(200, "application/json", &target_root.to_string()),
+    ];
+    let server = TestServer::spawn(responses).await.expect("server");
+    let core = FireCore::new(FireCoreConfig {
+        base_url: server.base_url(),
+        workspace_path: None,
+    })
+    .expect("core");
+
+    let screen = core
+        .fetch_topic_screen(TopicScreenQuery {
+            topic_id: 123,
+            target_post_number: Some(target_post_number),
+            root_page_size: 10,
+            row_page_size: 40,
+            track_visit: true,
+            force_load: true,
+        })
+        .await
+        .expect("topic screen");
+    let requests = server.shutdown_with_requests().await;
+
+    assert_eq!(screen.response.rows.len(), 20);
+    assert_eq!(screen.response.rows[0].post.post_number, 2);
+    assert!(screen
+        .response
+        .rows
+        .iter()
+        .any(|row| row.post.post_number == target_post_number));
+    assert_eq!(
+        screen.response.focused_post_number,
+        Some(target_post_number)
+    );
+    let next_cursor = screen.response.next_cursor.expect("next response cursor");
+    assert_eq!(next_cursor.topic_id, 123);
+    assert_eq!(next_cursor.next_root_offset, 20);
+    assert_eq!(next_cursor.next_branch_offset, 0);
+    assert_eq!(next_cursor.page_size, 10);
+    assert_eq!(next_cursor.row_page_size, 40);
+    assert_eq!(requests.len(), 3);
+    assert!(requests[2].contains("GET /posts/by_number/123/14.json HTTP/1.1"));
+}
+
+#[tokio::test]
 async fn fetch_topic_ai_summary_parses_payload_and_query_params() {
     let body = r#"{
   "ai_topic_summary": {

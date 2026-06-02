@@ -506,12 +506,14 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
             updatedAtMs: 1
         )
 
-        let screen = try FireTopicDetailStore.topicScreen(from: snapshot)
+        let bridgeResult = try FireTopicDetailStore.topicScreen(from: snapshot)
+        let screen = bridgeResult.screen
 
         XCTAssertEqual(screen.header.topicId, 42)
         XCTAssertEqual(screen.body.post.id, original.id)
         XCTAssertEqual(screen.response.rows.map(\.post.id), [reply.id])
         XCTAssertNil(screen.response.nextCursor)
+        XCTAssertNil(bridgeResult.detailNotice)
     }
 
     func testFeedSnapshotBridgeRejectsStaleSnapshotWhenFreshRefreshIsRequired() throws {
@@ -557,9 +559,45 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
         XCTAssertThrowsError(
             try FireTopicDetailStore.topicScreen(from: snapshot, requiresFresh: true)
         )
-        XCTAssertNoThrow(
-            try FireTopicDetailStore.topicScreen(from: snapshot, requiresFresh: false)
+        let bridgeResult = try FireTopicDetailStore.topicScreen(from: snapshot, requiresFresh: false)
+        XCTAssertEqual(bridgeResult.screen.body.post.id, original.id)
+        XCTAssertEqual(bridgeResult.detailNotice?.message, "network failed")
+        XCTAssertEqual(bridgeResult.detailNotice?.retryable, true)
+        XCTAssertEqual(bridgeResult.detailNotice?.emphasizesError, false)
+    }
+
+    func testSnapshotIncludesDetailNoticeAheadOfReplies() {
+        let original = makePost(id: 100, postNumber: 1, username: "alice")
+        let reply = makePost(id: 200, postNumber: 2, username: "bob", replyToPostNumber: 1)
+        let renderState = FireTopicDetailRenderState(
+            originalRow: makeTimelineRow(post: original, depth: 0, isOriginalPost: true),
+            replyRows: [makeTimelineRow(post: reply, parentPostNumber: 1, depth: 1)],
+            contentByPostID: [
+                original.id: makeRenderContent("Original"),
+                reply.id: makeRenderContent("Reply"),
+            ]
         )
+        let notice = FireTopicDetailStatusMessage(
+            title: nil,
+            message: "刷新失败，正在显示缓存内容。",
+            retryable: true,
+            emphasizesError: false
+        )
+        let configuration = makeConfiguration(
+            detail: makeTopicDetail(posts: [original, reply]),
+            renderState: renderState,
+            postLookup: [original.id: original, reply.id: reply],
+            detailNotice: notice
+        )
+
+        let snapshot = configuration.makeSnapshot()
+        let noticeIndex = snapshot.items.firstIndex { $0.kind == .notice }
+        let replyIndex = snapshot.items.firstIndex { $0.kind == .reply }
+
+        XCTAssertNotNil(noticeIndex)
+        XCTAssertNotNil(replyIndex)
+        XCTAssertLessThan(noticeIndex ?? .max, replyIndex ?? .min)
+        XCTAssertEqual(snapshot.items[noticeIndex!].statusMessage, notice)
     }
 
     private func makeRuntimeItem(
@@ -581,6 +619,7 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
         renderState: FireTopicDetailRenderState?,
         postLookup: [UInt64: TopicPostState],
         pendingScrollTarget: UInt32? = nil,
+        detailNotice: FireTopicDetailStatusMessage? = nil,
         hasMoreTopicPosts: Bool = false,
         isLoadingMoreTopicPosts: Bool = false,
         expandedReplyRootPostIDs: Set<UInt64> = [],
@@ -596,6 +635,7 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
             renderState: renderState,
             pendingScrollTarget: pendingScrollTarget,
             detailError: nil,
+            detailNotice: detailNotice,
             hasMoreTopicPosts: hasMoreTopicPosts,
             isLoadingTopic: false,
             isLoadingMoreTopicPosts: isLoadingMoreTopicPosts,

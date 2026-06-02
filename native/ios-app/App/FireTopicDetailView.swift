@@ -127,6 +127,7 @@ private struct FireTopicDetailRuntimeInvalidationToken: Hashable {
     let topicCollectionRevision: UInt64
     let pendingScrollTarget: UInt32?
     let detailError: String
+    let detailNotice: FireTopicDetailStatusMessage?
     let hasDetail: Bool
     let isLoadingTopic: Bool
     let isLoadingMoreTopicPosts: Bool
@@ -601,6 +602,10 @@ struct FireTopicDetailView: View {
         topicDetailStore.errorMessage
     }
 
+    private var detailNotice: FireTopicDetailStatusMessage? {
+        topicDetailStore.detailNotice(topicId: topic.id)
+    }
+
     private var hasMoreTopicPosts: Bool {
         topicDetailStore.hasMoreTopicPosts(topicId: topic.id)
     }
@@ -635,6 +640,7 @@ struct FireTopicDetailView: View {
             topicCollectionRevision: topicCollectionRevision,
             pendingScrollTarget: pendingScrollTarget,
             detailError: detailError ?? "",
+            detailNotice: detailNotice,
             hasDetail: detail != nil,
             isLoadingTopic: isLoadingTopic,
             isLoadingMoreTopicPosts: isLoadingMoreTopicPosts,
@@ -776,6 +782,7 @@ struct FireTopicDetailView: View {
                 renderState: renderState,
                 pendingScrollTarget: pendingScrollTarget,
                 detailError: detailError,
+                detailNotice: detailNotice,
                 hasMoreTopicPosts: hasMoreTopicPosts,
                 isLoadingTopic: isLoadingTopic,
                 isLoadingMoreTopicPosts: isLoadingMoreTopicPosts,

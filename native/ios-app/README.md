@@ -51,6 +51,7 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
   - reads `WKWebView` cookies, `current-username`, `csrf-token`, page HTML, and the live browser user agent
   - prefers homepage HTML fetched through the current WebView browser context before falling back to the visible page HTML, so the first shared bootstrap sync stays as close as possible to the browser-authenticated session
   - continuously supports login readiness probing: navigation, scene-activation, debounced WebKit cookie-store changes, and WebView loading transitions all re-check the same readiness used by the `完成登录` button; normal login still commits through that visible action, while Cloudflare recovery auto-syncs as soon as that action would be enabled
+  - treats the persistent `WKWebsiteDataStore` as the authoritative browser cookie source: login/challenge/clearance refresh only read browser cookies back into Rust, and shared session updates never write Rust cookies back into WebKit
   - only treats login as ready to sync once it can read `current-username`, same-site auth cookies, and reusable bootstrap HTML
   - converts them into `LoginSyncState`
   - completes login by first syncing the captured WebKit auth-cookie batch into Keychain and Rust, then backfilling missing `current-username` / `csrf-token` from the preferred bootstrap HTML whenever the visible page leaves metadata incomplete
@@ -61,7 +62,7 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
   - owns an offscreen `WKWebView` that keeps a Turnstile widget alive once the shared session is authenticated, scene-active, and bootstrap has exposed a Turnstile sitekey
   - configures that hidden WebView with the captured login browser user agent exposed on `SessionState`, falling back to the same Mobile Safari-style profile used by login
   - injects a fetch interceptor before `api.js` loads, replays `/cdn-cgi/challenge-platform/.../rc/...` through native `URLSession`, and feeds the real response back into the page so `cf_clearance` can auto-renew without foreground UI
-  - re-syncs refreshed WebKit cookies back into Rust and then pushes the updated session back through `FireAppViewModel.applySession`, which mirrors the latest cookie batch into both `HTTPCookieStorage` and the shared `WKHTTPCookieStore`
+  - re-syncs refreshed WebKit cookies back into Rust and then pushes the updated session back through `FireAppViewModel.applySession`, which keeps native `HTTPCookieStorage` aligned for URLSession/media requests without overwriting the active WebKit cookie store
   - pauses that background Turnstile runtime while an interactive Cloudflare recovery WebView is on-screen, resumes automatically after recovery, and records APM breadcrumbs plus bounded retry failures
 - `App/FireLoginWebView.swift`
   - presents the host-owned auth browser as a full-screen flow for both initial login and interactive Cloudflare recovery
@@ -81,7 +82,7 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
   - restores the persisted session cache, replays Keychain cookies through Rust on cold start, repairs incomplete authenticated session identity through bootstrap refresh when needed, and leaves CSRF repair to the shared authenticated-write preflight
   - holds the onboarding screen in a bootstrap state while cold-start auto-login runs, hiding login actions during restore and only revealing a loading indicator if that bootstrap takes longer than 500ms
   - now builds `FireSessionStore` lazily on a detached task so Rust/logging initialization does not block the first SwiftUI render on the main actor
-  - mirrors authenticated LinuxDo cookies into native `HTTPCookieStorage` so inline media/image requests can reuse the restored session
+  - syncs authenticated LinuxDo cookies into native `HTTPCookieStorage` so inline media/image requests can reuse the restored session, while leaving the persistent WebKit cookie store as the authoritative browser session owned by login and Cloudflare WebViews
   - now also owns native private-message inbox/sent loading plus private-message creation on top of the shared Rust mailbox and `/posts.json` PM surfaces
   - now acts as a session/runtime facade for feature stores instead of also owning every screen's transient state directly
   - now owns the foreground MessageBus transport lifecycle on iOS and forwards runtime refresh work into the bound feature stores instead of publishing home/topic-detail state itself

@@ -111,6 +111,7 @@
 
 - 用途：在浏览器上下文内完成 Cloudflare 验证并把新的浏览器 Cookie 回灌到共享 Rust session。
 - Fire iOS 的交互式恢复会保留 `WKHTTPCookieStore` 中已有的 `cf_clearance`，再打开触发场景对应的浏览器 HTML URL：topic detail 使用 `/t/{slug}/{topicId}` 或 `/t/{topicId}`，首页 topic list 使用当前列表查询对应的 HTML URL（例如 `/latest`、`/c/{slug}/{id}/l/latest`、`/tag/{tag}/l/top`），通知等其他非 topic/list 场景使用站点 root；显式登录仍使用 `/login`。恢复 WebView 继续复用登录页 readiness 探测，但 Cloudflare 恢复的自动同步还要求 WebView Cookie 中出现相对恢复基线发生变化的新 `cf_clearance`，随后才把浏览器 Cookie 批量同步回共享层并重试原操作。
+- iOS 与 Android 现在都把 WebView/browser cookie store 视为权威浏览器态：浏览器 Cookie 只会从 WebView 同步回共享层与原生网络栈，不会再由 Rust session 反向覆盖 WebView cookie store。
 - Fire Android 不自动关闭挑战 WebView，也不在挑战完成后立即重试当前 native 操作：topic detail 在当前详情页 toolbar 下加载 `https://linux.do/t/{topicId}`，首页 topic list 加载当前列表查询对应的 HTML URL，其他页面加载 `https://linux.do/`；一旦 WebView Cookie 中出现 `cf_clearance`，宿主调用 `sync_login_context` 同步到 Rust，WebView 保持可见，后续新开的 native 页面继续走原生读取链路。
 - 认证：匿名可访问
 - 响应：HTML 页面，不是 JSON

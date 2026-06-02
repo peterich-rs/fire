@@ -26,7 +26,7 @@ Crate layering is clear: new API orchestration goes in `fire-core/src/core/users
 - **`native/ios-app/App/FireProfileActivityTimelineView.swift`** -- Dedicated full activity screen. Hosts segmented filters (全部/话题/回复/被赞), pagination, error banner handling, and navigation into topic detail.
 - **`native/ios-app/App/FireAppViewModel.swift`** -- Shared ViewModel. Exposes `session: SessionState`, `topicRows`, `errorMessage`, session lifecycle methods. `sessionStore: FireSessionStore?` and `sessionStoreValue()` are **private** (lines 152, 1956). No user-profile-specific API calls exist.
 - **`native/ios-app/Sources/FireAppSession/FireSessionStore.swift`** -- The `actor` wrapping `FireCoreHandle` that is the iOS-side Rust entry point (line 65). All Rust API calls from the app go through this actor. New profile API methods will be added here.
-- **`native/ios-app/App/SessionState+Helpers.swift`** -- Convenience extensions: `profileStatusTitle`, `profileDisplayName`, cookie mirroring.
+- **`native/ios-app/App/SessionState+Helpers.swift`** -- Convenience extensions: `profileStatusTitle`, `profileDisplayName`, native-network cookie sync helpers.
 - **`native/ios-app/App/FireTheme.swift`** -- Design system: accent/semantic/canvas/surface/text/border color tokens, corner radius constants.
 - **`native/ios-app/App/FireComponents.swift`** -- Shared UI components. `FireAvatarView` (line 619) already supports `avatarTemplate` with `{size}` placeholder resolution, relative URL handling, and protocol-relative URL handling. No additional avatar work is needed.
 - **`native/ios-app/App/FireDiagnosticsView.swift`** -- Diagnostic sub-page pushed from profile actions section.

@@ -7,7 +7,10 @@ struct FireAppRouteDestinationView: View {
     var body: some View {
         switch route {
         case .topic(let payload):
-            FireTopicDetailView(
+            // Active path: UIKit controller host.
+            // FireTopicDetailView is retained as a file but is no longer on
+            // the active route path.
+            FireTopicDetailControllerHost(
                 viewModel: viewModel,
                 row: payload.row,
                 scrollToPostNumber: payload.postNumber

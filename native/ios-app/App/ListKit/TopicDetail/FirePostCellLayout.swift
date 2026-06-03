@@ -40,6 +40,25 @@ struct FirePostCellLayout: Equatable, Sendable {
     let dividerFrame: CGRect?
 }
 
+enum FirePostReactionDisplayPolicy {
+    static let replyVisibleReactionLimit = 3
+    static let wrappedReactionMaxLines = 2
+
+    static func visibleReactions(
+        from reactions: [TopicReactionState],
+        depth: Int
+    ) -> [TopicReactionState] {
+        guard depth > 0 else {
+            return reactions
+        }
+        return Array(reactions.prefix(replyVisibleReactionLimit))
+    }
+
+    static func allowsWrapping(depth: Int) -> Bool {
+        depth == 0
+    }
+}
+
 struct FirePostTextExpansionState: Hashable, Sendable {
     static let collapsedLineLimit = 4
 
@@ -69,6 +88,40 @@ struct FirePostCellRenderPayload {
     let textExpansionState: FirePostTextExpansionState
     let showsDivider: Bool
     let layoutWidth: CGFloat
+    let layout: FirePostCellLayout?
+    let layoutKey: FirePostCellLayoutKey?
+
+    init(
+        post: TopicPostState,
+        renderContent: FireTopicPostRenderContent,
+        baseURLString: String,
+        canWriteInteractions: Bool,
+        isMutating: Bool,
+        replyContext: String?,
+        replyTargetPostNumber: UInt32?,
+        replyShortcutCount: UInt32?,
+        isLoadingReplyContext: Bool,
+        textExpansionState: FirePostTextExpansionState,
+        showsDivider: Bool,
+        layoutWidth: CGFloat,
+        layout: FirePostCellLayout? = nil,
+        layoutKey: FirePostCellLayoutKey? = nil
+    ) {
+        self.post = post
+        self.renderContent = renderContent
+        self.baseURLString = baseURLString
+        self.canWriteInteractions = canWriteInteractions
+        self.isMutating = isMutating
+        self.replyContext = replyContext
+        self.replyTargetPostNumber = replyTargetPostNumber
+        self.replyShortcutCount = replyShortcutCount
+        self.isLoadingReplyContext = isLoadingReplyContext
+        self.textExpansionState = textExpansionState
+        self.showsDivider = showsDivider
+        self.layoutWidth = layoutWidth
+        self.layout = layout
+        self.layoutKey = layoutKey
+    }
 }
 
 struct FirePostCellCallbacks {

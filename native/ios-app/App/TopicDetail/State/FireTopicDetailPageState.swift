@@ -29,6 +29,7 @@ struct FireTopicDetailPageState {
 
     let isLoadingTopic: Bool
     let isLoadingMoreTopicPosts: Bool
+    let loadMoreTopicPostsError: String?
     let isLoadingTopicAiSummary: Bool
     let hasMoreTopicPosts: Bool
 
@@ -42,6 +43,12 @@ struct FireTopicDetailPageState {
 
     /// IDs of posts whose reply context is currently loading.
     let loadingPostReplyContextIDs: Set<UInt64>
+
+    /// IDs of posts currently accepting a mutation request.
+    let mutatingPostIDs: Set<UInt64>
+
+    /// Presence users actively typing in this topic.
+    let typingUsers: [TopicPresenceUserState]
 
     // MARK: - Store-Backed Revision Token
 
@@ -72,6 +79,21 @@ struct FireTopicDetailPageState {
     /// Set of post IDs whose reply-root thread the reader has expanded.
     let expandedReplyRootPostIDs: Set<UInt64>
 
+    /// Current quick-reply composer context.
+    let composerContext: FireReplyComposerContext?
+
+    /// Current quick-reply draft text.
+    let replyDraft: String
+
+    /// Current quick-reply validation or submission error.
+    let quickReplyError: String?
+
+    /// Whether the quick-reply action is currently in flight.
+    let isSubmittingReply: Bool
+
+    /// Minimum reply length enforced by the current session.
+    let minimumReplyLength: Int
+
     // MARK: - Route Inputs (immutable per-page constants)
 
     /// The original topic row from the navigation route.
@@ -92,8 +114,7 @@ struct FireTopicDetailPageState {
 extension FireTopicDetailPageState {
 
     func isMutatingPost(_ postID: UInt64) -> Bool {
-        // Mutation state is not tracked locally; callers should query the store.
-        false
+        mutatingPostIDs.contains(postID)
     }
 
     func isPostTextExpanded(_ postID: UInt64) -> Bool {

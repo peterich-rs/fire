@@ -35,10 +35,16 @@ final class FirePostLayoutManager: ObservableObject {
     private var publicationTask: Task<Void, Never>?
     private var generation: UInt64 = 0
     private var lastTraitSignature: FirePostLayoutTraitSignature?
+    private var pendingPublishedKeys: Set<FirePostCellLayoutKey> = []
+    private var lastPublishedKeys: Set<FirePostCellLayoutKey> = []
     var onSnapshotRevisionChanged: (() -> Void)?
 
     var currentSnapshotRevision: UInt64 {
         snapshotRevision
+    }
+
+    var currentPublishedKeys: Set<FirePostCellLayoutKey> {
+        lastPublishedKeys
     }
 
     init(
@@ -101,6 +107,7 @@ final class FirePostLayoutManager: ObservableObject {
                     return
                 }
                 self.layoutCache[key] = layout
+                self.pendingPublishedKeys.insert(key)
                 self.scheduleSnapshotPublication()
             }
         }
@@ -113,6 +120,8 @@ final class FirePostLayoutManager: ObservableObject {
         publicationTask?.cancel()
         publicationTask = nil
         snapshotRevision &+= 1
+        pendingPublishedKeys.removeAll()
+        lastPublishedKeys.removeAll()
         lastTraitSignature = nil
         onSnapshotRevisionChanged?()
     }
@@ -124,6 +133,7 @@ final class FirePostLayoutManager: ObservableObject {
             inFlightKeys.remove(key)
         }
         snapshotRevision &+= 1
+        lastPublishedKeys = keys
         onSnapshotRevisionChanged?()
     }
 
@@ -145,6 +155,8 @@ final class FirePostLayoutManager: ObservableObject {
             try? await Task.sleep(for: .milliseconds(50))
             guard let self, !Task.isCancelled else { return }
             self.publicationTask = nil
+            self.lastPublishedKeys = self.pendingPublishedKeys
+            self.pendingPublishedKeys.removeAll()
             self.snapshotRevision &+= 1
             self.onSnapshotRevisionChanged?()
         }

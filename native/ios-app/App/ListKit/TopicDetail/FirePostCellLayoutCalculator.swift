@@ -25,6 +25,7 @@ enum FirePostCellLayoutCalculator {
     static let commentImageWidthScale: CGFloat = 0.78
     static let commentImageMaxWidth: CGFloat = 300
     static let commentImageMaxHeight: CGFloat = 260
+    static let topicImageMaxHeight: CGFloat = 400
 
     static func visualDepth(for depth: Int) -> Int {
         max(depth - 1, 0)
@@ -354,7 +355,7 @@ enum FirePostCellLayoutCalculator {
             ? min(max(availableWidth * commentImageWidthScale, 1), commentImageMaxWidth)
             : availableWidth
         let rawHeight = maxWidth / aspectRatio
-        let maxHeight = isCommentImage ? commentImageMaxHeight : .greatestFiniteMagnitude
+        let maxHeight = isCommentImage ? commentImageMaxHeight : topicImageMaxHeight
         if rawHeight > maxHeight {
             return CGSize(width: maxHeight * aspectRatio, height: maxHeight)
         }

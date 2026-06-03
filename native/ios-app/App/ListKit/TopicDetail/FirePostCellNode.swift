@@ -46,6 +46,7 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
     private var currentAvatarSize: CGFloat = 32
     private var currentAvatarSpacing: CGFloat = 10
     private var currentLayoutWidth: CGFloat = 0
+    private var currentResolvedLayout: FirePostCellLayout?
     private var currentContentSizeCategory: UIContentSizeCategory = .large
     private var renderedContentID: String?
     private var avatarSignature: String?
@@ -57,6 +58,7 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
     private var pollWidth: CGFloat = 0
     private var reactionButtons: [ASButtonNode] = []
     private var reactionButtonIDs: [String] = []
+    private var displayedReactions: [TopicReactionState] = []
     private var reactionSignature: String?
     private var linkDelegate: RichTextNodeLinkDelegate?
     private lazy var swipeGestureRecognizer = UIPanGestureRecognizer(
@@ -77,6 +79,15 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
         swipeGestureRecognizer.cancelsTouchesInView = false
         swipeGestureRecognizer.delegate = self
         view.addGestureRecognizer(swipeGestureRecognizer)
+        DispatchQueue.main.async { [weak self] in
+            guard let self,
+                  let popGestureRecognizer = self.nearestViewController()?
+                    .navigationController?
+                    .interactivePopGestureRecognizer else {
+                return
+            }
+            self.swipeGestureRecognizer.require(toFail: popGestureRecognizer)
+        }
     }
 
     private func setupNodes() {
@@ -182,6 +193,7 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
         currentShowsThreadLine = showsThreadLine
         currentShowsDivider = showsDivider
         currentLayoutWidth = payload.layoutWidth
+        currentResolvedLayout = payload.layout
         currentContentSizeCategory = UIApplication.shared.preferredContentSizeCategory
 
         let vd = FirePostCellLayoutCalculator.visualDepth(for: depth)
@@ -493,6 +505,22 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
             if !reactionButtons.isEmpty {
                 rebuildReactionButtons([], payload: payload)
             }
+            displayedReactions = []
+            reactionButtonIDs = []
+            reactionSignature = nil
+            return
+        }
+
+        let visibleReactions = FirePostReactionDisplayPolicy.visibleReactions(
+            from: payload.post.reactions,
+            depth: currentDepth
+        )
+        guard !visibleReactions.isEmpty else {
+            reactionContainerNode.isHidden = true
+            if !reactionButtons.isEmpty {
+                rebuildReactionButtons([], payload: payload)
+            }
+            displayedReactions = []
             reactionButtonIDs = []
             reactionSignature = nil
             return
@@ -500,16 +528,18 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
 
         reactionContainerNode.isHidden = false
         let nextSig = Self.reactionSignatureString(
-            post: payload.post,
+            reactions: visibleReactions,
+            currentUserReactionID: payload.post.currentUserReaction?.id,
             canWrite: payload.canWriteInteractions,
             isMutating: payload.isMutating
         )
-        let nextIDs = payload.post.reactions.map(\.id)
+        let nextIDs = visibleReactions.map(\.id)
         if reactionButtonIDs != nextIDs {
-            rebuildReactionButtons(payload.post.reactions, payload: payload)
+            rebuildReactionButtons(visibleReactions, payload: payload)
         } else if reactionSignature != nextSig {
-            updateReactionButtons(payload.post.reactions, payload: payload)
+            updateReactionButtons(visibleReactions, payload: payload)
         }
+        displayedReactions = visibleReactions
         reactionButtonIDs = nextIDs
         reactionSignature = nextSig
     }
@@ -603,16 +633,22 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
             avatarSize: currentAvatarSize,
             avatarSpacing: currentAvatarSpacing
         )
-        let shouldSuppressAttachments = (!imageNodes.isEmpty || !pollContainerNode.isHidden)
-            && Self.shouldSuppressAttachmentsForCollapsedText(
-                attributedText: currentPayload?.renderContent.attributedText,
-                textExpansionState: currentPayload?.textExpansionState ?? .disabled,
-                totalWidth: totalWidth,
-                depth: currentDepth,
-                avatarSize: currentAvatarSize,
-                avatarSpacing: currentAvatarSpacing,
-                contentSizeCategory: currentContentSizeCategory
-            )
+        let shouldSuppressAttachments: Bool
+        if let currentResolvedLayout {
+            shouldSuppressAttachments = currentResolvedLayout.textExpansionFrame != nil
+        } else {
+            shouldSuppressAttachments = (!imageNodes.isEmpty || !pollContainerNode.isHidden)
+                && Self.shouldSuppressAttachmentsForCollapsedText(
+                    plainText: currentPayload?.renderContent.plainText ?? "",
+                    hasAttributedText: currentPayload?.renderContent.attributedText != nil,
+                    textExpansionState: currentPayload?.textExpansionState ?? .disabled,
+                    totalWidth: totalWidth,
+                    depth: currentDepth,
+                    avatarSize: currentAvatarSize,
+                    avatarSpacing: currentAvatarSpacing,
+                    contentSizeCategory: currentContentSizeCategory
+                )
+        }
 
         // Avatar column
         let avatarSizeStyle = ASStackLayoutSpec(
@@ -638,11 +674,11 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
         if !acceptedAnswerNode.isHidden {
             metaChildren.append(acceptedAnswerNode)
         }
-        metaChildren.append(postNumberNode)
         if !menuNode.isHidden {
             menuNode.style.preferredSize = CGSize(width: 20, height: 20)
             metaChildren.append(menuNode)
         }
+        metaChildren.append(postNumberNode)
         let metaRow = ASStackLayoutSpec(
             direction: .horizontal,
             spacing: 6,
@@ -678,9 +714,14 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
                 direction: .horizontal,
                 spacing: 8,
                 justifyContent: .start,
-                alignItems: .center,
+                alignItems: .start,
                 children: reactionButtons
             )
+            if FirePostReactionDisplayPolicy.allowsWrapping(depth: currentDepth) {
+                row.flexWrap = .wrap
+                row.alignContent = .start
+                row.style.flexGrow = 1.0
+            }
             row.style.flexShrink = 1.0
             reactionRow = row
         } else {
@@ -701,7 +742,13 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
             }
             actionRowChildren.append(reactionRow)
         }
-        if !actionRowChildren.isEmpty {
+        if FirePostReactionDisplayPolicy.allowsWrapping(depth: currentDepth),
+           replyShortcutNode.isHidden,
+           let reactionRow {
+            reactionRow.style.minWidth = ASDimensionMake(max(contentAvailableWidth, 1))
+            reactionRow.style.maxWidth = ASDimensionMake(max(contentAvailableWidth, 1))
+            contentChildren.append(reactionRow)
+        } else if !actionRowChildren.isEmpty {
             let actionRow = ASStackLayoutSpec(
                 direction: .horizontal,
                 spacing: 8,
@@ -861,10 +908,10 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
         guard let index = reactionButtons.firstIndex(of: sender),
               let payload = currentPayload,
               let callbacks = currentCallbacks,
-              index < payload.post.reactions.count else {
+              index < displayedReactions.count else {
             return
         }
-        let reaction = payload.post.reactions[index]
+        let reaction = displayedReactions[index]
         if reaction.id == "heart" {
             callbacks.onToggleLike(payload.post)
         } else {
@@ -882,8 +929,14 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
 
         let translation = panGesture.translation(in: view)
         let velocity = panGesture.velocity(in: view)
+        let location = panGesture.location(in: view)
         let horizontalMovement = max(abs(translation.x), abs(velocity.x))
         let verticalMovement = max(abs(translation.y), abs(velocity.y))
+
+        if location.x <= 28,
+           nearestViewController()?.navigationController?.viewControllers.count ?? 0 > 1 {
+            return false
+        }
 
         return translation.x > 0
             && velocity.x >= 0
@@ -987,14 +1040,18 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
         return result
     }
 
-    private static func reactionSignatureString(post: TopicPostState, canWrite: Bool, isMutating: Bool) -> String {
-        let reactions = post.reactions.map { reaction in
+    private static func reactionSignatureString(
+        reactions: [TopicReactionState],
+        currentUserReactionID: String?,
+        canWrite: Bool,
+        isMutating: Bool
+    ) -> String {
+        let reactionTokens = reactions.map { reaction in
             [reaction.id, String(reaction.count), String(reaction.canUndo ?? true)].joined(separator: ":")
         }.joined(separator: "|")
         return [
-            reactions,
-            post.currentUserReaction?.id ?? "",
-            String(post.currentUserReaction?.canUndo ?? true),
+            reactionTokens,
+            currentUserReactionID ?? "",
             String(canWrite),
             String(isMutating),
         ].joined(separator: "\u{1F}")
@@ -1020,7 +1077,8 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
     }
 
     static func shouldSuppressAttachmentsForCollapsedText(
-        attributedText: NSAttributedString?,
+        plainText: String,
+        hasAttributedText: Bool,
         textExpansionState: FirePostTextExpansionState,
         totalWidth: CGFloat,
         depth: Int,
@@ -1037,14 +1095,37 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
             avatarSize: avatarSize,
             avatarSpacing: avatarSpacing
         )
-        guard let textHeight = FirePostCellLayoutCalculator.measureRichTextHeight(
-            attributedText: attributedText,
+        guard let textHeight = FirePostCellLayoutCalculator.estimatedRichTextHeight(
+            plainText: plainText,
+            hasAttributedText: hasAttributedText,
             containerWidth: availableWidth,
-            contentSizeCategory: contentSizeCategory
+            contentSizeCategory: contentSizeCategory,
+            textExpansionState: textExpansionState
         ) else {
             return false
         }
         return textHeight > FirePostCellLayoutCalculator.collapsedTextHeight(
+            contentSizeCategory: contentSizeCategory
+        )
+    }
+
+    static func shouldSuppressAttachmentsForCollapsedText(
+        attributedText: NSAttributedString?,
+        textExpansionState: FirePostTextExpansionState,
+        totalWidth: CGFloat,
+        depth: Int,
+        avatarSize: CGFloat,
+        avatarSpacing: CGFloat,
+        contentSizeCategory: UIContentSizeCategory
+    ) -> Bool {
+        shouldSuppressAttachmentsForCollapsedText(
+            plainText: attributedText?.string ?? "",
+            hasAttributedText: attributedText != nil,
+            textExpansionState: textExpansionState,
+            totalWidth: totalWidth,
+            depth: depth,
+            avatarSize: avatarSize,
+            avatarSpacing: avatarSpacing,
             contentSizeCategory: contentSizeCategory
         )
     }

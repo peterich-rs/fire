@@ -1,7 +1,7 @@
 import AsyncDisplayKit
 import UIKit
 
-enum FireTopicDetailRuntimeCellColors {
+enum FireTopicDetailCellColors {
     static let accent = UIColor { traits in
         if traits.userInterfaceStyle == .dark {
             return UIColor(red: 0.96, green: 0.45, blue: 0.22, alpha: 1)
@@ -310,7 +310,7 @@ final class FireTopicDetailReplyFooterCell: UICollectionViewCell {
         buttonConfiguration.imagePadding = 6
         buttonConfiguration.contentInsets = NSDirectionalEdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16)
         button.configuration = buttonConfiguration
-        button.tintColor = FireTopicDetailRuntimeCellColors.accent
+        button.tintColor = FireTopicDetailCellColors.accent
         button.titleLabel?.font = UIFontMetrics(forTextStyle: .subheadline).scaledFont(
             for: UIFont.systemFont(
                 ofSize: UIFont.preferredFont(forTextStyle: .subheadline).pointSize,
@@ -369,17 +369,31 @@ final class FireTopicDetailReplyFooterCell: UICollectionViewCell {
         switch state {
         case .none:
             accessibilityLabel = nil
-        case .empty:
-            label.text = "还没有回复"
-            label.isHidden = false
-            accessibilityLabel = label.text
-        case .loadMore:
+        case .loadMoreAvailable:
             var configuration = button.configuration
-            configuration?.title = "查看更多回复"
+            configuration?.image = UIImage(systemName: "arrow.down.circle")
+            configuration?.title = "加载更多回复"
             button.configuration = configuration
             button.isHidden = false
             button.isEnabled = action != nil
-            accessibilityLabel = "查看更多回复"
+            accessibilityLabel = "加载更多回复"
+            accessibilityTraits = [.button]
+        case .emptyPrompt:
+            label.text = "还没有回复，发表你的看法吧"
+            label.isHidden = false
+            accessibilityLabel = label.text
+        case .endReached:
+            label.text = "---- 到底了 ----"
+            label.isHidden = false
+            accessibilityLabel = label.text
+        case .loadFailed(_):
+            var configuration = button.configuration
+            configuration?.image = UIImage(systemName: "arrow.clockwise.circle")
+            configuration?.title = "加载更多回复失败，点击重试"
+            button.configuration = configuration
+            button.isHidden = false
+            button.isEnabled = action != nil
+            accessibilityLabel = "加载更多回复失败，点击重试"
             accessibilityTraits = [.button]
         case .loadingFooter:
             loadingStack.isHidden = false
@@ -422,7 +436,7 @@ final class FireTopicDetailBodyStateCell: UICollectionViewCell {
         messageLabel.numberOfLines = 0
         messageLabel.textAlignment = .center
 
-        button.setTitleColor(FireTopicDetailRuntimeCellColors.accent, for: .normal)
+        button.setTitleColor(FireTopicDetailCellColors.accent, for: .normal)
         button.titleLabel?.font = .preferredFont(forTextStyle: .subheadline)
         button.titleLabel?.adjustsFontForContentSizeCategory = true
         button.addAction(UIAction { [weak self] _ in
@@ -511,7 +525,7 @@ final class FireTopicDetailTopicVoteCell: UICollectionViewCell {
             )
         )
         titleLabel.adjustsFontForContentSizeCategory = true
-        titleLabel.textColor = FireTopicDetailRuntimeCellColors.accent
+        titleLabel.textColor = FireTopicDetailCellColors.accent
 
         statusLabel.font = UIFontMetrics(forTextStyle: .caption1).scaledFont(
             for: UIFont.systemFont(
@@ -584,7 +598,7 @@ final class FireTopicDetailTopicVoteCell: UICollectionViewCell {
         configuration.imagePadding = 6
         configuration.contentInsets = NSDirectionalEdgeInsets(top: 8, leading: 8, bottom: 8, trailing: 8)
         votersButton.configuration = configuration
-        votersButton.tintColor = FireTopicDetailRuntimeCellColors.accent
+        votersButton.tintColor = FireTopicDetailCellColors.accent
         votersButton.titleLabel?.adjustsFontForContentSizeCategory = true
     }
 
@@ -602,7 +616,7 @@ final class FireTopicDetailTopicVoteCell: UICollectionViewCell {
         toggleConfiguration?.title = detail.userVoted ? "取消投票" : "投一票"
         toggleConfiguration?.baseBackgroundColor = detail.userVoted
             ? .tertiarySystemFill
-            : FireTopicDetailRuntimeCellColors.accent
+            : FireTopicDetailCellColors.accent
         toggleConfiguration?.baseForegroundColor = detail.userVoted ? .label : .white
         toggleButton.configuration = toggleConfiguration
         toggleButton.isEnabled = canWriteInteractions
@@ -645,25 +659,25 @@ final class FireTopicDetailHeaderCellNode: ASCellNode {
         if configuration.isPrivateMessageThread {
             chips.append(Self.makeChip(
                 title: "私信",
-                foregroundColor: FireTopicDetailRuntimeCellColors.accent,
-                backgroundColor: FireTopicDetailRuntimeCellColors.accent.withAlphaComponent(0.12)
+                foregroundColor: FireTopicDetailCellColors.accent,
+                backgroundColor: FireTopicDetailCellColors.accent.withAlphaComponent(0.12)
             ))
 
             for participant in configuration.displayedParticipants {
                 let label = (participant.name ?? "").ifEmpty(participant.username ?? "用户 \(participant.userId)")
                 chips.append(Self.makeChip(
                     title: "@\(label)",
-                    foregroundColor: FireTopicDetailRuntimeCellColors.privateMessageForeground,
-                    backgroundColor: FireTopicDetailRuntimeCellColors.privateMessageForeground.withAlphaComponent(0.12)
+                    foregroundColor: FireTopicDetailCellColors.privateMessageForeground,
+                    backgroundColor: FireTopicDetailCellColors.privateMessageForeground.withAlphaComponent(0.12)
                 ))
             }
         } else {
             if let category = configuration.displayedCategory {
-                let accent = UIColor(fireHex: category.colorHex) ?? FireTopicDetailRuntimeCellColors.accent
+                let accent = UIColor(fireHex: category.colorHex) ?? FireTopicDetailCellColors.accent
                 chips.append(Self.makeChip(
                     title: category.displayName,
                     foregroundColor: accent,
-                    backgroundColor: FireTopicDetailRuntimeCellColors.categoryChipBackground(accent: accent),
+                    backgroundColor: FireTopicDetailCellColors.categoryChipBackground(accent: accent),
                     action: configuration.viewModel == nil ? nil : {
                         configuration.onOpenCategory(category)
                     }
@@ -673,8 +687,8 @@ final class FireTopicDetailHeaderCellNode: ASCellNode {
             for tagName in configuration.displayedTagNames {
                 chips.append(Self.makeChip(
                     title: "#\(tagName)",
-                    foregroundColor: FireTopicDetailRuntimeCellColors.tagChipForeground,
-                    backgroundColor: FireTopicDetailRuntimeCellColors.tagChipBackground,
+                    foregroundColor: FireTopicDetailCellColors.tagChipForeground,
+                    backgroundColor: FireTopicDetailCellColors.tagChipBackground,
                     horizontalInset: 6,
                     verticalInset: 3,
                     action: configuration.viewModel == nil ? nil : {
@@ -686,8 +700,8 @@ final class FireTopicDetailHeaderCellNode: ASCellNode {
             for label in configuration.row.statusLabels {
                 chips.append(Self.makeChip(
                     title: label,
-                    foregroundColor: FireTopicDetailRuntimeCellColors.accent,
-                    backgroundColor: FireTopicDetailRuntimeCellColors.accent.withAlphaComponent(0.12)
+                    foregroundColor: FireTopicDetailCellColors.accent,
+                    backgroundColor: FireTopicDetailCellColors.accent.withAlphaComponent(0.12)
                 ))
             }
         }
@@ -784,7 +798,7 @@ final class FireTopicDetailAISummaryCellNode: ASCellNode {
         backgroundNode.clipsToBounds = true
 
         iconNode.image = UIImage(systemName: "sparkles")?.withTintColor(
-            FireTopicDetailRuntimeCellColors.accent,
+            FireTopicDetailCellColors.accent,
             renderingMode: .alwaysOriginal
         )
         iconNode.style.preferredSize = CGSize(width: 17, height: 17)
@@ -802,10 +816,10 @@ final class FireTopicDetailAISummaryCellNode: ASCellNode {
                 string: "有新回复",
                 attributes: [
                     .font: FireTopicDetailRuntimeTypography.scaledFont(textStyle: .caption2, weight: .semibold),
-                    .foregroundColor: FireTopicDetailRuntimeCellColors.warning,
+                    .foregroundColor: FireTopicDetailCellColors.warning,
                 ]
             )
-            statusNode.backgroundColor = FireTopicDetailRuntimeCellColors.warning.withAlphaComponent(0.12)
+            statusNode.backgroundColor = FireTopicDetailCellColors.warning.withAlphaComponent(0.12)
             statusNode.cornerRadius = 10
             statusNode.textContainerInset = UIEdgeInsets(top: 3, left: 8, bottom: 3, right: 8)
         } else {
@@ -870,7 +884,7 @@ final class FireTopicDetailAISummaryCellNode: ASCellNode {
             button.setTitle(
                 "重试",
                 with: FireTopicDetailRuntimeTypography.scaledFont(textStyle: .caption1, weight: .semibold),
-                with: FireTopicDetailRuntimeCellColors.accent,
+                with: FireTopicDetailCellColors.accent,
                 for: .normal
             )
             button.contentEdgeInsets = UIEdgeInsets(top: 4, left: 8, bottom: 4, right: 8)

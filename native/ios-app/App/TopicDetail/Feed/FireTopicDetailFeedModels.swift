@@ -141,6 +141,7 @@ struct FireTopicDetailRuntimeConfiguration {
     let hasMoreTopicPosts: Bool
     let isLoadingTopic: Bool
     let isLoadingMoreTopicPosts: Bool
+    let loadMoreTopicPostsError: String?
     let topicAiSummary: TopicAiSummaryState?
     let isLoadingTopicAiSummary: Bool
     let topicAiSummaryError: String?
@@ -156,7 +157,6 @@ struct FireTopicDetailRuntimeConfiguration {
     let onRefresh: () async -> Void
     let onLoadTopicDetail: () async -> Void
     let onScrollTargetHandled: (UInt32) -> Void
-    let onPreloadTopicPosts: (Set<UInt32>) -> Void
     let onLoadMoreTopicPosts: () -> Bool
     let onReloadTopicAiSummary: () -> Void
     let onOpenComposer: (TopicPostState?) -> Void
@@ -255,11 +255,11 @@ struct FireTopicDetailRuntimeConfiguration {
     }
 
     var loadedReplyCount: Int {
-        replyRows.count
+        availableReplyRows.count
     }
 
     var displayedFloorCount: Int {
-        replyRows.count
+        availableReplyRows.count
     }
 
     var totalReplyCount: Int {
@@ -288,6 +288,12 @@ struct FireTopicDetailRuntimeConfiguration {
         renderState?.replyRows ?? []
     }
 
+    private var availableReplyRows: [FirePreparedTopicTimelineRow] {
+        // The feed only renders replies whose backing post entity is present.
+        // This keeps transient store/render-state skew from producing placeholder rows.
+        replyRows.filter { postLookup[$0.entry.postId] != nil }
+    }
+
     var originalPostRenderContent: FireTopicPostRenderContent? {
         guard let originalRow else { return nil }
         return renderState?.contentByPostID[originalRow.entry.postId]
@@ -297,16 +303,23 @@ struct FireTopicDetailRuntimeConfiguration {
         guard detail != nil else {
             return .none
         }
-        if replyRows.isEmpty {
-            return hasMoreTopicPosts || isLoadingMoreTopicPosts ? .loadingFooter : .empty
+        if let loadMoreTopicPostsError,
+           !loadMoreTopicPostsError.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return .loadFailed(loadMoreTopicPostsError)
         }
         if isLoadingMoreTopicPosts {
             return .loadingFooter
         }
         if hasMoreTopicPosts {
-            return .loadMore
+            return .loadMoreAvailable
         }
-        return .none
+        if totalReplyCount == 0 {
+            return .emptyPrompt
+        }
+        if availableReplyRows.isEmpty {
+            return .none
+        }
+        return .endReached
     }
 
     func makeSnapshot() -> FireTopicDetailRuntimeSnapshot {
@@ -509,7 +522,7 @@ struct FireTopicDetailRuntimeConfiguration {
 
             if replyFooterState != .none {
                 items.append(.init(
-                    id: "reply-footer:\(topic.id)",
+                    id: "reply-footer:\(topic.id):\(replyFooterState.identityToken)",
                     kind: .replyFooter,
                     postID: nil,
                     postNumber: nil,
@@ -539,27 +552,27 @@ struct FireTopicDetailRuntimeConfiguration {
                 replyContext: nil,
                 replyTargetPostNumber: nil,
                 showsThreadLine: false,
-                showsDivider: true,
+                showsDivider: false,
                 replyShortcutCount: nil,
                 isLoadingReplyContext: false,
                 textExpansionState: .disabled
             )
 
         case .reply:
-            // The runtime item carries its reply index; keep the bounds checks here so stale items cannot index replyRows.
+            // The feed item carries its reply index; keep the bounds checks here so stale items cannot index the filtered reply list.
             guard let postID = item.postID,
                   let post = postLookup[postID],
                   let index = item.replyIndex,
                   index >= 0,
-                  index < replyRows.count,
-                  replyRows[index].entry.postId == postID else {
+                  index < availableReplyRows.count,
+                  availableReplyRows[index].entry.postId == postID else {
                 return nil
             }
             let renderContent = Self.normalizedRenderContent(
                 renderState?.contentByPostID[postID],
                 for: post
             )
-            let row = replyRows[index]
+            let row = availableReplyRows[index]
             return FireTopicDetailRuntimePostContext(
                 post: post,
                 renderContent: renderContent,
@@ -644,8 +657,8 @@ struct FireTopicDetailRuntimeConfiguration {
 
     private func makeReplyDisplayPlan() -> FireTopicDetailReplyDisplayPlan {
         var sourceIndexByPostID: [UInt64: Int] = [:]
-        sourceIndexByPostID.reserveCapacity(replyRows.count)
-        for (index, row) in replyRows.enumerated() {
+        sourceIndexByPostID.reserveCapacity(availableReplyRows.count)
+        for (index, row) in availableReplyRows.enumerated() {
             sourceIndexByPostID[row.entry.postId] = index
         }
 
@@ -659,11 +672,11 @@ struct FireTopicDetailRuntimeConfiguration {
         displayedRows.reserveCapacity(replyRows.count)
 
         for rootIndex in rootIndices {
-            guard rootIndex >= 0, rootIndex < replyRows.count else {
+            guard rootIndex >= 0, rootIndex < availableReplyRows.count else {
                 continue
             }
 
-            let rootRow = replyRows[rootIndex]
+            let rootRow = availableReplyRows[rootIndex]
             let secondaryIndices = secondaryIndicesByRoot[rootIndex] ?? []
             let selectedSecondaryIndices = isReplyThreadExpanded(rootRow.entry.postId)
                 ? secondaryIndices
@@ -681,11 +694,11 @@ struct FireTopicDetailRuntimeConfiguration {
             ))
 
             for secondaryIndex in selectedSecondaryIndices {
-                guard secondaryIndex >= 0, secondaryIndex < replyRows.count else {
+                guard secondaryIndex >= 0, secondaryIndex < availableReplyRows.count else {
                     continue
                 }
                 displayedRows.append(.init(
-                    row: replyRows[secondaryIndex],
+                    row: availableReplyRows[secondaryIndex],
                     sourceIndex: secondaryIndex,
                     showsThreadLine: false,
                     showsDivider: true,
@@ -713,19 +726,19 @@ struct FireTopicDetailRuntimeConfiguration {
 
     private func makeReplyThreadIndex() -> FireTopicDetailReplyThreadIndex {
         var indexByPostNumber: [UInt32: Int] = [:]
-        indexByPostNumber.reserveCapacity(replyRows.count)
-        for (index, row) in replyRows.enumerated() {
+        indexByPostNumber.reserveCapacity(availableReplyRows.count)
+        for (index, row) in availableReplyRows.enumerated() {
             indexByPostNumber[row.entry.postNumber] = index
         }
 
         var memoizedRootIndexBySourceIndex: [Int: Int] = [:]
-        memoizedRootIndexBySourceIndex.reserveCapacity(replyRows.count)
+        memoizedRootIndexBySourceIndex.reserveCapacity(availableReplyRows.count)
 
         func rootIndex(for sourceIndex: Int, visiting: inout Set<Int>) -> Int {
             if let cached = memoizedRootIndexBySourceIndex[sourceIndex] {
                 return cached
             }
-            guard sourceIndex >= 0, sourceIndex < replyRows.count else {
+            guard sourceIndex >= 0, sourceIndex < availableReplyRows.count else {
                 return sourceIndex
             }
             guard visiting.insert(sourceIndex).inserted else {
@@ -733,7 +746,7 @@ struct FireTopicDetailRuntimeConfiguration {
                 return sourceIndex
             }
 
-            let row = replyRows[sourceIndex]
+            let row = availableReplyRows[sourceIndex]
             let resolvedRootIndex: Int
             if row.entry.depth <= 1 {
                 resolvedRootIndex = sourceIndex
@@ -750,13 +763,13 @@ struct FireTopicDetailRuntimeConfiguration {
             return resolvedRootIndex
         }
 
-        for index in replyRows.indices {
+        for index in availableReplyRows.indices {
             var visiting = Set<Int>()
             _ = rootIndex(for: index, visiting: &visiting)
         }
 
         var secondaryIndicesByRoot: [Int: [Int]] = [:]
-        for index in replyRows.indices {
+        for index in availableReplyRows.indices {
             guard let rootIndex = memoizedRootIndexBySourceIndex[index],
                   rootIndex != index else {
                 continue
@@ -782,12 +795,13 @@ struct FireTopicDetailRuntimeConfiguration {
 
         let indexSet = Set(indices)
         var indexByPostNumber: [UInt32: Int] = [:]
-        indexByPostNumber.reserveCapacity(replyRows.count)
-        for (index, row) in replyRows.enumerated() where indexByPostNumber[row.entry.postNumber] == nil {
+        indexByPostNumber.reserveCapacity(availableReplyRows.count)
+        for (index, row) in availableReplyRows.enumerated()
+        where indexByPostNumber[row.entry.postNumber] == nil {
             indexByPostNumber[row.entry.postNumber] = index
         }
         guard var currentIndex = indices.first(where: { index in
-            replyRows[index].entry.postNumber == pendingScrollTarget
+            availableReplyRows[index].entry.postNumber == pendingScrollTarget
         }) else {
             return []
         }
@@ -795,7 +809,7 @@ struct FireTopicDetailRuntimeConfiguration {
         var selected = Set<Int>()
         while indexSet.contains(currentIndex),
               selected.insert(currentIndex).inserted {
-            guard let parentPostNumber = replyRows[currentIndex].entry.parentPostNumber,
+            guard let parentPostNumber = availableReplyRows[currentIndex].entry.parentPostNumber,
                   let parentIndex = indexByPostNumber[parentPostNumber],
                   indexSet.contains(parentIndex) else {
                 break
@@ -900,13 +914,6 @@ struct FireTopicDetailRuntimeConfiguration {
         }.joined(separator: "\u{1D}")
     }
 
-    private func showsTimelineThreadLine(at index: Int) -> Bool {
-        guard index >= 0, index < replyRows.count - 1 else {
-            return false
-        }
-        return replyRows[index + 1].entry.depth >= replyRows[index].entry.depth
-    }
-
     private static func topicAiSummaryContentToken(_ summary: TopicAiSummaryState) -> String {
         [
             summary.summarizedText,
@@ -921,20 +928,65 @@ struct FireTopicDetailRuntimeConfiguration {
 
 enum FireTopicDetailRuntimeReplyFooterState: Equatable {
     case none
-    case loadMore
+    case loadMoreAvailable
     case loadingFooter
-    case empty
+    case loadFailed(String)
+    case endReached
+    case emptyPrompt
+
+    private static let loadFailedPrefix = "loadFailed\u{1F}"
 
     var contentToken: String {
         switch self {
         case .none:
             return "none"
-        case .loadMore:
-            return "loadMore"
+        case .loadMoreAvailable:
+            return "loadMoreAvailable"
         case .loadingFooter:
             return "loadingFooter"
-        case .empty:
-            return "empty"
+        case let .loadFailed(message):
+            return Self.loadFailedPrefix + message
+        case .endReached:
+            return "endReached"
+        case .emptyPrompt:
+            return "emptyPrompt"
+        }
+    }
+
+    var identityToken: String {
+        switch self {
+        case .none:
+            return "none"
+        case .loadMoreAvailable:
+            return "loadMoreAvailable"
+        case .loadingFooter:
+            return "loadingFooter"
+        case .loadFailed:
+            return "loadFailed"
+        case .endReached:
+            return "endReached"
+        case .emptyPrompt:
+            return "emptyPrompt"
+        }
+    }
+
+    static func fromContentToken(_ token: String) -> Self? {
+        switch token {
+        case Self.none.contentToken:
+            return .none
+        case Self.loadMoreAvailable.contentToken:
+            return .loadMoreAvailable
+        case Self.loadingFooter.contentToken:
+            return .loadingFooter
+        case Self.endReached.contentToken:
+            return .endReached
+        case Self.emptyPrompt.contentToken:
+            return .emptyPrompt
+        default:
+            guard token.hasPrefix(Self.loadFailedPrefix) else {
+                return nil
+            }
+            return .loadFailed(String(token.dropFirst(Self.loadFailedPrefix.count)))
         }
     }
 }

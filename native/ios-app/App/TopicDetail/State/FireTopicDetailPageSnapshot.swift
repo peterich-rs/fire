@@ -1,5 +1,25 @@
 import Foundation
 
+struct FireTopicDetailToolbarState: Equatable {
+    let title: String
+    let shareURL: URL?
+    let isBookmarked: Bool
+    let canWriteInteractions: Bool
+    let canEditTopic: Bool
+    let isPrivateMessageThread: Bool
+    let currentNotificationLevel: FireTopicNotificationLevelOption
+}
+
+struct FireTopicDetailQuickReplyState: Equatable {
+    let isVisible: Bool
+    let typingSummary: String?
+    let targetSummary: String?
+    let placeholder: String
+    let draft: String
+    let isSubmitting: Bool
+    let validationMessage: String?
+}
+
 /// Immutable render snapshot for the topic-detail page.
 ///
 /// Produced by `FireTopicDetailSnapshotAssembler` from `FireTopicDetailPageState`.
@@ -24,6 +44,12 @@ struct FireTopicDetailPageSnapshot {
 
     /// Whether the topic has been fully loaded.
     let hasDetail: Bool
+
+    /// Toolbar chrome rendered by the controller.
+    let toolbarState: FireTopicDetailToolbarState
+
+    /// Quick reply chrome rendered by the root node.
+    let quickReplyState: FireTopicDetailQuickReplyState
 
     /// Pending post-number scroll target, or `nil` if none is pending.
     let pendingScrollTarget: UInt32?

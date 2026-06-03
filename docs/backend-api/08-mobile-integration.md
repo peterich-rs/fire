@@ -38,12 +38,13 @@
 
 ## Topic Detail 本地缓存约定
 
-当前 iOS topic detail 首屏读取走共享 Rust `loadTopicDetailFeed`。该接口内部仍复用 LinuxDo 的 `/t/{topicId}.json` / `/t/{slug}/{topicId}.json` 语义和 Fire 已有的 `fetchTopicScreen` 解析路径，但会先把处理后的 topic header、原帖、reply rows、feed items 和 cursor 写入 Rust-owned SQLite 缓存，再把 feed snapshot 交给宿主渲染。
+当前 iOS topic detail active path 已与 Android 对齐，改为共享 Rust `fetchTopicScreen` 作为首屏和刷新入口，直接消费 `header + body + response`。带目标楼层进入时，如果首屏仍是 partial response/session，Swift 再通过 `fetchTopicPosts` 做宿主侧定向补水。
 
-- 缓存文件位于宿主传入的 Rust workspace 下：`cache/topic-feed.sqlite3`。
-- 缓存按 `topic_id + auth_scope_hash` 隔离，`auth_scope_hash` 包含 base URL、当前用户名、`_t` 和 `_forum_session`，避免不同登录态共享处理后的帖子内容。
-- 首屏失败但已有处理后缓存时，Rust 可以返回 `staleIfError` feed snapshot；没有可渲染缓存时返回 empty-cache/error feed state。
-- iOS 当前把 feed snapshot 桥回 `TopicScreenState` 进入既有渲染路径；后续增量 reply 分页仍调用 `fetchTopicResponsePage`，直到共享层提供对应的 feed append command。
+- 共享层仍保留 processed feed SQLite 缓存文件：`cache/topic-feed.sqlite3`。
+- 该缓存仍按 `topic_id + auth_scope_hash` 隔离，`auth_scope_hash` 包含 base URL、当前用户名、`_t` 和 `_forum_session`，避免不同登录态共享处理后的帖子内容。
+- `loadTopicDetailFeed` / `refreshTopicDetailFeed` 仍可返回 `staleIfError` feed snapshot，但截至 2026-06-03 它们不再是当前 iOS topic detail 的权威首屏/refresh 路径。
+- iOS 当前 active path 直接桥接 `fetchTopicScreen` 返回的 `header + body + response` 进入宿主渲染；`fetchTopicResponsePage` 仍是当前评论分页路径，而不是被移除的历史逻辑。
+- iOS 回复 footer 的空态只表示服务端 `totalResponseCount == 0`；已有回复但渲染 row 暂未就绪时不显示“还没有回复”。footer spinner 只表示正在请求下一页，`hasMore` 且未加载时显示可点击的“加载更多回复”。自动分页只由真实滚动接近底部或显式点击 footer 触发，collection 更新完成后不会递归拉取下一页。当 `fetchTopicResponsePage` 返回空页，或没有新增 row 且 Rust cursor 未前进时，Swift 会清空本地 cursor 并结束分页。
 
 ## 通知 Payload 约定
 

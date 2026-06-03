@@ -12,27 +12,17 @@ navigation.
 
 ## Summary
 
-The current topic-detail runtime already uses Texture for the scrolling surface,
-but the page is still owned by a SwiftUI state tree:
+The redesign has landed. The authoritative topic-detail path is now:
 
-- `FireAppRouteDestinationView` pushes `FireTopicDetailView`
-- `FireTopicDetailView` owns page state, lifecycle tasks, bottom input, and
-  modal presentation
-- `FireTopicDetailListHost` bridges into `FireTopicDetailListViewController`
-- `FireTopicDetailListViewController` owns the Texture `ASCollectionNode`
+- `FireAppRouteDestinationView` pushes `FireTopicDetailControllerHost`
+- `FireTopicDetailControllerHost` bridges into `FireTopicDetailViewController`
+- `FireTopicDetailViewController` owns page state, lifecycle tasks, bottom
+  input, toolbar, and modal presentation
+- `FireTopicDetailFeedController` owns the Texture `ASCollectionNode`
 
-That mixed ownership has three concrete costs:
-
-1. The scrolling surface is Texture, but state publication still has to avoid
-   SwiftUI update-pass hazards.
-2. Page-owned UI such as quick reply, sheets, and alerts still depends on
-   SwiftUI state lifetimes instead of controller lifetimes.
-3. `FirePostCellNode.layoutSpecThatFits` still performs precise rich-text
-   overflow measurement on the hot path instead of relying on the background
-   layout cache service.
-
-The redesign keeps the existing Rust/store ownership model and replaces only the
-iOS page runtime architecture.
+The remaining work is no longer an ownership migration. It is incremental
+runtime hardening around the controller-owned path while preserving the Rust and
+store ownership model.
 
 ## Feasibility Assessment
 
@@ -82,28 +72,28 @@ The redesign maps naturally to Android list-runtime concepts:
 The current active path is spread across these files:
 
 - `native/ios-app/App/Routing/FireAppRouteDestinationView.swift`
-- `native/ios-app/App/Views/Detail/FireTopicDetailView.swift`
-- `native/ios-app/App/TopicDetailRuntime/FireTopicDetailListHost.swift`
-- `native/ios-app/App/TopicDetailRuntime/FireTopicDetailListViewController.swift`
-- `native/ios-app/App/TopicDetailRuntime/FireTopicDetailFeedRuntimeModels.swift`
+- `native/ios-app/App/TopicDetail/Host/FireTopicDetailControllerHost.swift`
+- `native/ios-app/App/TopicDetail/Controller/FireTopicDetailViewController.swift`
+- `native/ios-app/App/TopicDetail/Feed/FireTopicDetailFeedController.swift`
+- `native/ios-app/App/TopicDetail/Feed/FireTopicDetailFeedUpdatePipeline.swift`
+- `native/ios-app/App/TopicDetail/Feed/FireTopicDetailFeedModels.swift`
+- `native/ios-app/App/TopicDetail/Feed/FireTopicDetailFeedCells.swift`
+- `native/ios-app/App/TopicDetail/Support/FireTopicPresentation.swift`
 - `native/ios-app/App/ListKit/TopicDetail/FirePostCellNode.swift`
 - `native/ios-app/App/ListKit/TopicDetail/FirePostLayoutManager.swift`
 - `native/ios-app/App/Stores/FireTopicDetailStore.swift`
 
 Important current facts:
 
-- `FireTopicDetailView` still owns `@State` for quick reply, image viewer,
-  sheets, flags, route pushes, and lifecycle task IDs.
-- `FireTopicDetailListHost` is a `UIViewControllerRepresentable` wrapper whose
-  only job is to feed a runtime configuration into the controller.
-- `FireTopicDetailListViewController` still contains deferred callback logic
-  specifically to avoid mutating SwiftUI-owned state during the host update pass.
+- `FireTopicDetailViewController` now owns quick reply, toolbar, modal routing,
+  store subscriptions, and route-anchor lifecycle directly.
+- `FireTopicDetailFeedUpdatePipeline`, `FireTopicDetailPaginationCoordinator`,
+  and `FireTopicDetailVisibilityCoordinator` split the old list-controller
+  responsibilities into controller-local feed services.
+- The legacy SwiftUI page owner and duplicate list controller have been removed
+  from the repository.
 - `FirePostLayoutManager` exists, already supports background layout
-  computation, and has tests, but it is not the active-path layout authority.
-- `FirePostCellNode.layoutSpecThatFits` still calls
-  `FirePostCellLayoutCalculator.measureRichTextHeight(...)` through
-  `shouldSuppressAttachmentsForCollapsedText(...)` when deciding overflow and
-  collapsed-media suppression.
+  computation, and is the active-path layout authority for visible post relayout.
 
 ## Non-Negotiable Decisions
 
@@ -204,31 +194,32 @@ Ownership boundaries:
 
 ## File Architecture
 
-The redesign introduces a dedicated `App/TopicDetail/` module and retires the
-old active-path host files.
+The redesign uses a dedicated `App/TopicDetail/` module as the only
+authoritative topic-detail implementation path.
 
 | File | Action | Responsibility |
 | --- | --- | --- |
-| `native/ios-app/App/TopicDetail/Host/FireTopicDetailControllerHost.swift` | Create | thin route bridge from SwiftUI into the controller |
-| `native/ios-app/App/TopicDetail/Controller/FireTopicDetailViewController.swift` | Create | page coordinator, lifecycle, subscriptions, quick reply state, toolbar, router wiring |
-| `native/ios-app/App/TopicDetail/Controller/FireTopicDetailModalRouter.swift` | Create | UIKit-owned present/push routing for page-owned flows |
-| `native/ios-app/App/TopicDetail/Controller/FireTopicDetailToolbarCoordinator.swift` | Create | share, bookmark, topic actions, notification-level menu coordination |
-| `native/ios-app/App/TopicDetail/State/FireTopicDetailPageState.swift` | Create | controller-local page state composed from store plus ephemeral UI state |
-| `native/ios-app/App/TopicDetail/State/FireTopicDetailPageSnapshot.swift` | Create | immutable feed plus chrome snapshot consumed by nodes/controllers |
-| `native/ios-app/App/TopicDetail/State/FireTopicDetailSnapshotAssembler.swift` | Create | page-state to snapshot mapper, identity tokens, item assembly |
-| `native/ios-app/App/TopicDetail/Feed/FireTopicDetailFeedController.swift` | Create | `ASCollectionDataSource`, `ASCollectionDelegate`, scroll callbacks, node creation |
-| `native/ios-app/App/TopicDetail/Feed/FireTopicDetailFeedUpdatePipeline.swift` | Create | no-op, in-place update, batch update, full reload decision logic |
-| `native/ios-app/App/TopicDetail/Feed/FireTopicDetailPaginationCoordinator.swift` | Create | batch-fetch, footer-distance probe, retry/restore-footer handling |
-| `native/ios-app/App/TopicDetail/Feed/FireTopicDetailVisibilityCoordinator.swift` | Create | visible-post debounce, scroll-target handling, range expansion triggers |
-| `native/ios-app/App/TopicDetail/Nodes/FireTopicDetailRootNode.swift` | Create | root node holding feed plus bottom input and page-owned chrome |
-| `native/ios-app/App/TopicDetail/Nodes/FireTopicQuickReplyBarNode.swift` | Create | UIKit/Texture quick reply UI owned by the page runtime |
-| `native/ios-app/App/Views/Detail/FireTopicDetailView.swift` | Retire from active path | historical SwiftUI page owner, no longer the main topic-detail runtime |
-| `native/ios-app/App/TopicDetailRuntime/FireTopicDetailListHost.swift` | Retire from active path | `UIViewControllerRepresentable` host used only by the old runtime |
+| `native/ios-app/App/TopicDetail/Host/FireTopicDetailControllerHost.swift` | Active | thin route bridge from SwiftUI into the controller |
+| `native/ios-app/App/TopicDetail/Controller/FireTopicDetailViewController.swift` | Active | page coordinator, lifecycle, subscriptions, quick reply state, toolbar, router wiring |
+| `native/ios-app/App/TopicDetail/Controller/FireTopicDetailModalRouter.swift` | Active | UIKit-owned present/push routing for page-owned flows |
+| `native/ios-app/App/TopicDetail/Controller/FireTopicDetailToolbarCoordinator.swift` | Active | share, bookmark, topic actions, notification-level menu coordination |
+| `native/ios-app/App/TopicDetail/State/FireTopicDetailPageState.swift` | Active | controller-local page state composed from store plus ephemeral UI state |
+| `native/ios-app/App/TopicDetail/State/FireTopicDetailPageSnapshot.swift` | Active | immutable feed plus chrome snapshot consumed by nodes/controllers |
+| `native/ios-app/App/TopicDetail/State/FireTopicDetailSnapshotAssembler.swift` | Active | page-state to snapshot mapper, identity tokens, item assembly |
+| `native/ios-app/App/TopicDetail/Feed/FireTopicDetailFeedController.swift` | Active | `ASCollectionDataSource`, `ASCollectionDelegate`, scroll callbacks, node creation |
+| `native/ios-app/App/TopicDetail/Feed/FireTopicDetailFeedUpdatePipeline.swift` | Active | no-op, in-place update, batch update, full reload decision logic |
+| `native/ios-app/App/TopicDetail/Feed/FireTopicDetailPaginationCoordinator.swift` | Active | batch-fetch, footer-distance probe, retry/restore-footer handling |
+| `native/ios-app/App/TopicDetail/Feed/FireTopicDetailVisibilityCoordinator.swift` | Active | visible-post debounce, scroll-target handling, range expansion triggers |
+| `native/ios-app/App/TopicDetail/Feed/FireTopicDetailFeedModels.swift` | Active | runtime feed item/configuration models and snapshot assembly helpers |
+| `native/ios-app/App/TopicDetail/Feed/FireTopicDetailFeedCells.swift` | Active | shared native header, summary, stats, vote, footer, and notice cell nodes |
+| `native/ios-app/App/TopicDetail/Nodes/FireTopicDetailRootNode.swift` | Active | root node holding feed plus bottom input and page-owned chrome |
+| `native/ios-app/App/TopicDetail/Nodes/FireTopicQuickReplyBarNode.swift` | Active | UIKit/Texture quick reply UI owned by the page runtime |
+| `native/ios-app/App/TopicDetail/Support/FireTopicPresentation.swift` | Active | topic-detail presentation helpers and render-cache preparation |
+| `native/ios-app/App/TopicDetail/Support/FirePostFlagSheet.swift` | Active | reusable flag sheet used by the controller-owned modal router |
 
 Existing files that remain authoritative and are reused:
 
 - `native/ios-app/App/Stores/FireTopicDetailStore.swift`
-- `native/ios-app/App/TopicDetailRuntime/FireTopicDetailFeedRuntimeModels.swift`
 - `native/ios-app/App/ListKit/TopicDetail/FirePostCellNode.swift`
 - `native/ios-app/App/ListKit/TopicDetail/FirePostCellLayout.swift`
 - `native/ios-app/App/ListKit/TopicDetail/FirePostCellLayoutCalculator.swift`
@@ -452,8 +443,11 @@ Responsibilities:
 - image preloading for repeated post cells stays with Texture node lifecycle and
   `ASNetworkImageNode`
 
-That means page append networking is not triggered by image prefetch. The page
-append boundary remains in the pagination coordinator.
+That means page append networking is not triggered by image prefetch or
+visible-post hydration. The page append boundary remains in the pagination
+coordinator, which matches Android by loading when the last visible collection
+item is within five items of the end and by treating Rust
+`TopicResponsePage.nextCursor` as the only end-of-list authority.
 
 ### Scroll-target handling
 
@@ -567,8 +561,8 @@ presentation.
 
 ### Phase 6: Old path retirement
 
-- remove `FireTopicDetailView` and `FireTopicDetailListHost` from the active
-  route path
+- remove the legacy SwiftUI page owner and duplicate list controller from the
+  repository
 - sync documentation and verification records
 
 ## Verification Strategy

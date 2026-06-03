@@ -2,7 +2,7 @@
 
 Current repo state: topic detail moved beyond this shared collection-host
 slice and now uses the dedicated Texture `ASCollectionNode` runtime under
-`native/ios-app/App/TopicDetailRuntime/`.
+`native/ios-app/App/TopicDetail/`.
 This document remains the original home-only migration record for the first
 slice on `refactor/ios-store-split`.
 
@@ -21,13 +21,14 @@ foundation instead of SwiftUI `List`.
   - pull-to-refresh
   - pagination prefetch near the bottom
   - "fill viewport" auto-prefetch when the first page is short
-  - topic navigation into `FireTopicDetailView`
+  - topic navigation into the dedicated topic-detail controller host
 
 At the time this slice landed it did not yet migrate notifications/history or
 topic detail to collection-backed hosts. Current topic detail now uses
-`FireTopicDetailListViewController`, including scroll-metric pagination
-triggers, working-range prefetch, native post cells, and anchor-preserving
-response-page appends.
+`FireTopicDetailFeedController`, `FireTopicDetailPaginationCoordinator`, and
+`FireTopicDetailVisibilityCoordinator`, including last-five-visible-item
+pagination triggers, working-range prefetch, native post cells, and
+anchor-preserving response-page appends that trust Rust response cursors.
 
 ## Runtime Shape
 

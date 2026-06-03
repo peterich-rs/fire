@@ -145,10 +145,11 @@
   - 首个详情响应返回后，Rust 再发起内部回复索引请求：`GET /t/{topicId}.json?filter_top_level_replies=true`；该请求只用于获取顶层回复根列表，不携带 `track_visit`、`forceLoad` 或 `Discourse-Track-View*`
   - 当前回复区分页不再按整条 `post_stream.stream` 平铺补齐，而是用顶层回复根列表按根分支分页；根列表以该 filtered payload 实际返回的顶层 `posts` 为准，避免服务端仍把嵌套回复 ID 留在 `post_stream.stream` 时把二级回复提升为分页 root
   - `fetchTopicScreen` / `fetchTopicResponsePage` 同时接受 `root_page_size` 和 `row_page_size`：前者限制一次最多推进多少个顶层回复根，后者限制一次最多返回多少条可渲染回复行
-  - `loadTopicDetailFeed` / `refreshTopicDetailFeed` 是当前 processed feed 入口，会复用 `fetchTopicScreen` 的 `header + body + response` 网络路径并把处理后的快照写入 Rust SQLite `fire-store` 缓存；iOS 初始加载、显式强刷、mutation 后刷新和 MessageBus 触发刷新都通过这个 processed feed 快照再桥回 `TopicScreenState`
+  - `loadTopicDetailFeed` / `refreshTopicDetailFeed` 仍是共享层保留的 processed feed/cache 入口，会复用 `fetchTopicScreen` 的 `header + body + response` 网络路径并把处理后的快照写入 Rust SQLite `fire-store` 缓存；但截至 2026-06-03，它们不再是当前 iOS 话题详情页的权威首屏/刷新路径
+  - 当前 iOS active topic detail 已与 Android 对齐：初始加载、显式强刷、mutation 后刷新和 MessageBus 触发刷新都走共享 Rust `fetchTopicScreen`，消费 `header + body + response` 形态；Swift 侧仍保留 `fetchTopicPosts` 补水逻辑，用于带锚点楼层的缺失窗口、reply context 等局部补齐
   - 当前 Rust feed 网络刷新会用固定 `root_page_size=10`、`row_page_size=40` 调用 `fetchTopicScreen`，并发送 `track_visit=true`；当 feed policy 为 `ForceRefresh` 时还会发送 `forceLoad=true`
-  - 直接调用 `fetchTopicScreen` 的宿主仍可按场景传入 `track_visit=false&forceLoad=false`，用于不应记为浏览访问的后台读取；这不适用于当前 iOS processed feed 强刷路径
-  - `TopicResponseCursor` 属于 Rust response session，宿主在新 screen/feed refresh 后可以为视觉稳定保留已经加载的旧回复行，但必须使用新响应的 `nextCursor`，不能把旧 session cursor 继续带到 `fetchTopicResponsePage`
+  - 直接调用 `fetchTopicScreen` 的宿主仍可按场景传入 `track_visit=false&forceLoad=false`，用于不应记为浏览访问的后台读取；当前 iOS / Android 的 MessageBus 刷新和 mutation 后刷新都走这条轻量 refresh 变体
+  - `TopicResponseCursor` 属于 Rust response session；`fetchTopicResponsePage` 的批量回复分页逻辑仍保留在 Fire，作为当前 iOS / Android 详情页的回复分页路径。若某个 root branch 的 `reply-ids` 包含已尝试但服务端未返回的 descendant post id，Rust 会在该 session 的可分页 id 列表中剔除这些不可解析 id；若某页没有可输出 row 且 cursor offset 没有前进，则返回 `next_cursor = nil`，宿主必须把该回复分页视为结束而不是继续重试同一 cursor。
   - Fire 当前会校验 `/t/{topicId}.json` 返回的详情 `id` 必须与请求的 `topicId` 一致；若会话恢复或风控页误把请求导向其它话题，客户端会直接丢弃该响应并报错，不再把错 topic 的正文/回复并入当前详情 session
   - Fire 会解析顶层 `message_bus_last_id` 并通过 `TopicHeader.message_bus_last_id` / `TopicDetail.message_bus_last_id` 暴露给宿主，详情页订阅 `/topic/{topicId}` 时用它作为初始 MessageBus checkpoint
   - 带目标楼层进入详情时，Rust 只预取首个根页和目标楼层所在 anchor root，不再为了 anchor 一次性补齐目标之前的全部顶层回复；目标楼层仍保留在同一个 response session 里，宿主可继续通过 cursor 分页定位

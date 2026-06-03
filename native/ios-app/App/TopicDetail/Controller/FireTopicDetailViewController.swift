@@ -2,6 +2,7 @@ import AsyncDisplayKit
 import Combine
 import UIKit
 
+
 /// Page coordinator for the topic-detail screen.
 ///
 /// Owns:
@@ -37,6 +38,11 @@ final class FireTopicDetailViewController: UIViewController {
         viewModel: viewModel,
         row: row
     )
+
+    // MARK: - Snapshot Assembly
+
+    private let snapAssembler = FireTopicDetailSnapshotAssembler()
+    private(set) var currentSnapshot: FireTopicDetailPageSnapshot?
 
     // MARK: - In-flight Tasks
 
@@ -202,10 +208,53 @@ final class FireTopicDetailViewController: UIViewController {
     }
 
     private func handleCollectionRevisionChanged() {
-        toolbarCoordinator.update(
-            detail: topicDetailStore.topicDetail(for: row.topic.id)
+        let detail = topicDetailStore.topicDetail(for: row.topic.id)
+        toolbarCoordinator.update(detail: detail)
+        buildAndApplySnapshot()
+    }
+
+    // MARK: - Snapshot Assembly
+
+    func buildCurrentPageState() -> FireTopicDetailPageState {
+        let topicId = row.topic.id
+        let store = topicDetailStore
+        let baseURLString: String = {
+            let trimmed = viewModel.session.bootstrap.baseUrl
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? "https://linux.do" : trimmed
+        }()
+
+        return FireTopicDetailPageState(
+            detail: store.topicDetail(for: topicId),
+            renderState: store.topicRenderState(for: topicId),
+            postLookup: store.topicPostLookup(for: topicId),
+            topicAiSummary: store.topicAiSummary(for: topicId),
+            isLoadingTopic: store.isLoadingTopic(topicId: topicId),
+            isLoadingMoreTopicPosts: store.isLoadingMoreTopicPosts(topicId: topicId),
+            isLoadingTopicAiSummary: store.isLoadingTopicAiSummary(topicId: topicId),
+            hasMoreTopicPosts: store.hasMoreTopicPosts(topicId: topicId),
+            detailError: store.errorMessage,
+            detailNotice: store.detailNotice(topicId: topicId),
+            topicAiSummaryError: store.topicAiSummaryError(for: topicId),
+            loadingPostReplyContextIDs: store.loadingPostReplyContextIDs,
+            topicCollectionRevision: store.topicCollectionRevision(topicId: topicId),
+            pendingScrollTarget: store.pendingScrollTarget(topicId: topicId),
+            currentUsername: viewModel.session.bootstrap.currentUsername,
+            baseURLString: baseURLString,
+            canWriteInteractions: viewModel.canStartAuthenticatedMutation,
+            expandedPostTextIDs: [],
+            expandedReplyRootPostIDs: [],
+            row: row,
+            displayedCategory: viewModel.categoryPresentation(for: row.topic.categoryId)
         )
-        // Feed pipeline re-assembly handled in Task 3+.
+    }
+
+    private func buildAndApplySnapshot() {
+        let pageState = buildCurrentPageState()
+        let snapshot = snapAssembler.buildSnapshot(from: pageState, viewModel: viewModel)
+        currentSnapshot = snapshot
+        // Feed update application is handled by FireTopicDetailFeedUpdatePipeline (Task 4).
+        // For now, record the snapshot so the feed controller can pick it up later.
     }
 
     // MARK: - Visible Posts

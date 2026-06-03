@@ -1,7 +1,31 @@
+import AsyncDisplayKit
 import XCTest
 @testable import Fire
 
 final class FireTopicDetailRuntimeTests: XCTestCase {
+    @MainActor
+    func testQuickReplyBarMeasuresToCompactVisibleHeight() {
+        let node = FireTopicQuickReplyBarNode()
+        node.apply(state: FireTopicDetailQuickReplyState(
+            isVisible: true,
+            typingSummary: "alice 正在输入",
+            targetSummary: "#12 · bob",
+            placeholder: "快速回复…",
+            draft: "hello world",
+            isSubmitting: false,
+            validationMessage: nil
+        ))
+        node.updateLayoutWidth(393)
+
+        let layout = node.layoutThatFits(ASSizeRange(
+            min: CGSize(width: 393, height: 0),
+            max: CGSize(width: 393, height: 852)
+        ))
+
+        XCTAssertEqual(layout.size.width, 393, accuracy: 0.5)
+        XCTAssertLessThan(layout.size.height, 220)
+    }
+
     func testSnapshotKeepsStableReplyItemsAndScrollLookup() {
         let original = makePost(id: 100, postNumber: 1, username: "alice")
         let firstReply = makePost(id: 200, postNumber: 2, username: "bob", replyToPostNumber: 1)
@@ -35,6 +59,7 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
             "replies-header:42",
             "reply:200:2",
             "reply:300:3",
+            "reply-footer:42:endReached",
         ])
         XCTAssertEqual(snapshot.replyIndexByPostID, [firstReply.id: 0, secondReply.id: 1])
         XCTAssertEqual(snapshot.items.first(where: { $0.id == "reply:300:3" })?.replyIndex, 1)
@@ -57,8 +82,50 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
 
         let snapshot = configuration.makeSnapshot()
 
+        XCTAssertEqual(configuration.replyFooterState, .emptyPrompt)
         XCTAssertEqual(snapshot.items.last?.kind, .replyFooter)
-        XCTAssertEqual(snapshot.items.last?.id, "reply-footer:42")
+        XCTAssertEqual(snapshot.items.last?.id, "reply-footer:42:emptyPrompt")
+    }
+
+    func testSnapshotDoesNotShowEmptyFooterWhenDetailHasRepliesButRenderStateIsPending() {
+        let original = makePost(id: 100, postNumber: 1, username: "alice")
+        let reply = makePost(id: 200, postNumber: 2, username: "bob", replyToPostNumber: 1)
+        let configuration = makeConfiguration(
+            detail: makeTopicDetail(posts: [original, reply]),
+            renderState: nil,
+            postLookup: [original.id: original, reply.id: reply]
+        )
+
+        let snapshot = configuration.makeSnapshot()
+
+        XCTAssertEqual(configuration.replyFooterState, .none)
+        XCTAssertFalse(snapshot.items.contains { item in
+            item.kind == .replyFooter
+                && (item.contentToken.base as? String) == FireTopicDetailRuntimeReplyFooterState.emptyPrompt.contentToken
+        })
+    }
+
+    func testSnapshotDoesNotShowEmptyFooterWhenReplyRowsTemporarilyMissing() {
+        let original = makePost(id: 100, postNumber: 1, username: "alice")
+        let reply = makePost(id: 200, postNumber: 2, username: "bob", replyToPostNumber: 1)
+        let renderState = FireTopicDetailRenderState(
+            originalRow: makeTimelineRow(post: original, depth: 0, isOriginalPost: true),
+            replyRows: [],
+            contentByPostID: [
+                original.id: makeRenderContent("Original"),
+                reply.id: makeRenderContent("Reply"),
+            ]
+        )
+        let configuration = makeConfiguration(
+            detail: makeTopicDetail(posts: [original, reply]),
+            renderState: renderState,
+            postLookup: [original.id: original, reply.id: reply]
+        )
+
+        let snapshot = configuration.makeSnapshot()
+
+        XCTAssertEqual(configuration.replyFooterState, .none)
+        XCTAssertFalse(snapshot.items.contains { $0.kind == .replyFooter })
     }
 
     func testSnapshotIncludesTopicVoteWhenTopicCanVote() {
@@ -256,11 +323,11 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
 
         XCTAssertEqual(idleItem?.replyShortcutCount, 2)
         XCTAssertEqual(loading.postContext(for: loadingItem!)?.isLoadingReplyContext, true)
-        XCTAssertTrue(FireTopicDetailListViewController.itemsHaveSameRenderedContent([idleItem!], [loadingItem!]))
+        XCTAssertTrue(fireTopicDetailItemsHaveSameRenderedContent([idleItem!], [loadingItem!]))
         XCTAssertTrue(loadingItem!.needsVisibleNodeUpdate(comparedTo: idleItem!))
     }
 
-    func testSnapshotShowsIdleLoadMoreFooterForNonEmptyRepliesWhenMoreAvailable() {
+    func testSnapshotShowsLoadMoreFooterForNonEmptyRepliesWhenMoreAvailable() {
         let original = makePost(id: 100, postNumber: 1, username: "alice")
         let reply = makePost(id: 200, postNumber: 2, username: "bob", replyToPostNumber: 1)
         let renderState = FireTopicDetailRenderState(
@@ -280,7 +347,59 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
 
         let snapshot = configuration.makeSnapshot()
 
-        XCTAssertEqual(configuration.replyFooterState, .loadMore)
+        XCTAssertEqual(configuration.replyFooterState, .loadMoreAvailable)
+        XCTAssertEqual(snapshot.items.last?.kind, .replyFooter)
+        XCTAssertEqual(
+            snapshot.items.last?.contentToken.base as? String,
+            FireTopicDetailRuntimeReplyFooterState.loadMoreAvailable.contentToken
+        )
+    }
+
+    func testSnapshotShowsEndReachedFooterForNonEmptyRepliesWhenNoMoreAvailable() {
+        let original = makePost(id: 100, postNumber: 1, username: "alice")
+        let reply = makePost(id: 200, postNumber: 2, username: "bob", replyToPostNumber: 1)
+        let renderState = FireTopicDetailRenderState(
+            originalRow: makeTimelineRow(post: original, depth: 0, isOriginalPost: true),
+            replyRows: [makeTimelineRow(post: reply, parentPostNumber: 1, depth: 1)],
+            contentByPostID: [
+                original.id: makeRenderContent("Original"),
+                reply.id: makeRenderContent("Reply"),
+            ]
+        )
+        let configuration = makeConfiguration(
+            detail: makeTopicDetail(posts: [original, reply]),
+            renderState: renderState,
+            postLookup: [original.id: original, reply.id: reply]
+        )
+
+        let snapshot = configuration.makeSnapshot()
+
+        XCTAssertEqual(configuration.replyFooterState, .endReached)
+        XCTAssertEqual(snapshot.items.last?.kind, .replyFooter)
+    }
+
+    func testSnapshotShowsFailedFooterWhenLoadMoreFails() {
+        let original = makePost(id: 100, postNumber: 1, username: "alice")
+        let reply = makePost(id: 200, postNumber: 2, username: "bob", replyToPostNumber: 1)
+        let renderState = FireTopicDetailRenderState(
+            originalRow: makeTimelineRow(post: original, depth: 0, isOriginalPost: true),
+            replyRows: [makeTimelineRow(post: reply, parentPostNumber: 1, depth: 1)],
+            contentByPostID: [
+                original.id: makeRenderContent("Original"),
+                reply.id: makeRenderContent("Reply"),
+            ]
+        )
+        let configuration = makeConfiguration(
+            detail: makeTopicDetail(posts: [original, reply]),
+            renderState: renderState,
+            postLookup: [original.id: original, reply.id: reply],
+            hasMoreTopicPosts: true,
+            loadMoreTopicPostsError: "network failed"
+        )
+
+        let snapshot = configuration.makeSnapshot()
+
+        XCTAssertEqual(configuration.replyFooterState, .loadFailed("network failed"))
         XCTAssertEqual(snapshot.items.last?.kind, .replyFooter)
     }
 
@@ -305,6 +424,29 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
 
         XCTAssertEqual(configuration.replyFooterState, .loadingFooter)
         XCTAssertEqual(configuration.makeSnapshot().items.last?.kind, .replyFooter)
+    }
+
+    func testSnapshotSkipsReplyRowsMissingFromPostLookup() {
+        let original = makePost(id: 100, postNumber: 1, username: "alice")
+        let missingReply = makePost(id: 200, postNumber: 2, username: "bob", replyToPostNumber: 1)
+        let renderState = FireTopicDetailRenderState(
+            originalRow: makeTimelineRow(post: original, depth: 0, isOriginalPost: true),
+            replyRows: [makeTimelineRow(post: missingReply, parentPostNumber: 1, depth: 1)],
+            contentByPostID: [
+                original.id: makeRenderContent("Original"),
+                missingReply.id: makeRenderContent("Reply"),
+            ]
+        )
+        let configuration = makeConfiguration(
+            detail: makeTopicDetail(posts: [original, missingReply]),
+            renderState: renderState,
+            postLookup: [original.id: original]
+        )
+
+        let snapshot = configuration.makeSnapshot()
+
+        XCTAssertEqual(snapshot.items.filter { $0.kind == .reply }.count, 0)
+        XCTAssertNil(configuration.scrollItem(for: missingReply.postNumber))
     }
 
     func testOriginalPostContextFallsBackToPlainTextWhenAttributedTextIsMissing() {
@@ -356,6 +498,22 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
         XCTAssertEqual(context.renderContent.attributedText?.string, "alice")
     }
 
+    func testOriginalPostContextDoesNotShowInlineDivider() throws {
+        let original = makePost(id: 100, postNumber: 1, username: "alice")
+        let configuration = makeConfiguration(
+            detail: makeTopicDetail(posts: [original]),
+            renderState: nil,
+            postLookup: [original.id: original]
+        )
+
+        let item = try XCTUnwrap(
+            configuration.makeSnapshot().items.first(where: { $0.kind == .originalPost })
+        )
+        let context = try XCTUnwrap(configuration.postContext(for: item))
+
+        XCTAssertFalse(context.showsDivider)
+    }
+
     func testRenderSignatureIsStableAndContentSensitive() throws {
         let image = FireCookedImage(
             url: try XCTUnwrap(URL(string: "https://linux.do/uploads/default/original/1x/image.png")),
@@ -381,62 +539,68 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
         let changedToken = makeRuntimeItem(contentToken: "render-b", replyIndex: 0)
         let changedReplyIndex = makeRuntimeItem(contentToken: "render-a", replyIndex: 1)
 
-        XCTAssertTrue(FireTopicDetailListViewController.itemsHaveSameRenderedContent([item], [same]))
-        XCTAssertFalse(FireTopicDetailListViewController.itemsHaveSameRenderedContent([item], [changedToken]))
-        XCTAssertFalse(FireTopicDetailListViewController.itemsHaveSameRenderedContent([item], [changedReplyIndex]))
-        XCTAssertFalse(FireTopicDetailListViewController.itemsHaveSameRenderedContent([item], [item, same]))
+        XCTAssertTrue(fireTopicDetailItemsHaveSameRenderedContent([item], [same]))
+        XCTAssertFalse(fireTopicDetailItemsHaveSameRenderedContent([item], [changedToken]))
+        XCTAssertFalse(fireTopicDetailItemsHaveSameRenderedContent([item], [changedReplyIndex]))
+        XCTAssertFalse(fireTopicDetailItemsHaveSameRenderedContent([item], [item, same]))
     }
 
     func testSnapshotReuseRequiresCurrentItemsAndMatchingInvalidationToken() {
-        XCTAssertTrue(FireTopicDetailListViewController.canReuseCurrentSnapshot(
+        XCTAssertTrue(fireTopicDetailCanReuseCurrentSnapshot(
             previousInvalidationToken: AnyHashable("a"),
             nextInvalidationToken: AnyHashable("a"),
             hasCurrentItems: true
         ))
-        XCTAssertFalse(FireTopicDetailListViewController.canReuseCurrentSnapshot(
+        XCTAssertFalse(fireTopicDetailCanReuseCurrentSnapshot(
             previousInvalidationToken: AnyHashable("a"),
             nextInvalidationToken: AnyHashable("b"),
             hasCurrentItems: true
         ))
-        XCTAssertFalse(FireTopicDetailListViewController.canReuseCurrentSnapshot(
+        XCTAssertFalse(fireTopicDetailCanReuseCurrentSnapshot(
             previousInvalidationToken: AnyHashable("a"),
             nextInvalidationToken: AnyHashable("a"),
             hasCurrentItems: false
         ))
+        XCTAssertFalse(fireTopicDetailCanReuseCurrentSnapshot(
+            previousInvalidationToken: AnyHashable("a"),
+            nextInvalidationToken: AnyHashable("a"),
+            hasCurrentItems: true,
+            itemsHaveSameRenderedContent: false
+        ))
     }
 
     func testAnimatedUpdatePolicyAllowsOnlySmallIdleAttachedUpdates() {
-        XCTAssertTrue(FireTopicDetailListViewController.allowsAnimatedUpdate(
+        XCTAssertTrue(fireTopicDetailAllowsAnimatedUpdate(
             isViewAttached: true,
             isScrollInteractionActive: false,
             hasCurrentItems: true,
             itemDelta: 4
         ))
-        XCTAssertFalse(FireTopicDetailListViewController.allowsAnimatedUpdate(
+        XCTAssertFalse(fireTopicDetailAllowsAnimatedUpdate(
             isViewAttached: true,
             isScrollInteractionActive: false,
             hasCurrentItems: true,
             itemDelta: 5
         ))
-        XCTAssertTrue(FireTopicDetailListViewController.allowsAnimatedUpdate(
+        XCTAssertTrue(fireTopicDetailAllowsAnimatedUpdate(
             isViewAttached: true,
             isScrollInteractionActive: false,
             hasCurrentItems: true,
             itemDelta: -4
         ))
-        XCTAssertFalse(FireTopicDetailListViewController.allowsAnimatedUpdate(
+        XCTAssertFalse(fireTopicDetailAllowsAnimatedUpdate(
             isViewAttached: true,
             isScrollInteractionActive: true,
             hasCurrentItems: true,
             itemDelta: 1
         ))
-        XCTAssertFalse(FireTopicDetailListViewController.allowsAnimatedUpdate(
+        XCTAssertFalse(fireTopicDetailAllowsAnimatedUpdate(
             isViewAttached: false,
             isScrollInteractionActive: false,
             hasCurrentItems: true,
             itemDelta: 1
         ))
-        XCTAssertFalse(FireTopicDetailListViewController.allowsAnimatedUpdate(
+        XCTAssertFalse(fireTopicDetailAllowsAnimatedUpdate(
             isViewAttached: true,
             isScrollInteractionActive: false,
             hasCurrentItems: false,
@@ -641,6 +805,7 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
         detailNotice: FireTopicDetailStatusMessage? = nil,
         hasMoreTopicPosts: Bool = false,
         isLoadingMoreTopicPosts: Bool = false,
+        loadMoreTopicPostsError: String? = nil,
         expandedReplyRootPostIDs: Set<UInt64> = [],
         loadingReplyContextPostIDs: Set<UInt64> = []
     ) -> FireTopicDetailRuntimeConfiguration {
@@ -658,6 +823,7 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
             hasMoreTopicPosts: hasMoreTopicPosts,
             isLoadingTopic: false,
             isLoadingMoreTopicPosts: isLoadingMoreTopicPosts,
+            loadMoreTopicPostsError: loadMoreTopicPostsError,
             topicAiSummary: nil,
             isLoadingTopicAiSummary: false,
             topicAiSummaryError: nil,
@@ -673,7 +839,6 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
             onRefresh: {},
             onLoadTopicDetail: {},
             onScrollTargetHandled: { _ in },
-            onPreloadTopicPosts: { _ in },
             onLoadMoreTopicPosts: { true },
             onReloadTopicAiSummary: {},
             onOpenComposer: { _ in },

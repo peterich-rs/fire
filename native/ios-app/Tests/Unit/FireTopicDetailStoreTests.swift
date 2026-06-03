@@ -190,6 +190,150 @@ final class FireTopicDetailStoreTests: XCTestCase {
         )
     }
 
+    func testMergedLoadedTopicResponsePageClearsSameCursorAcrossPureOverlap() {
+        let existingRows = [
+            makeResponseRow(postNumber: 2, parentPostNumber: 1, depth: 1, username: "reply-a"),
+            makeResponseRow(postNumber: 3, parentPostNumber: 1, depth: 1, username: "reply-b"),
+        ]
+        let cursor = TopicResponseCursorState(
+            topicId: 42,
+            sessionId: 7,
+            nextRootOffset: 10,
+            nextBranchOffset: 0,
+            pageSize: 10,
+            rowPageSize: 40
+        )
+        let incoming = TopicResponsePageState(
+            rows: [existingRows[1]],
+            nextCursor: cursor,
+            totalRootCount: 100,
+            loadedRootCount: 10,
+            totalResponseCount: 120,
+            focusedPostNumber: nil
+        )
+
+        let merged = FireTopicDetailStore.mergedLoadedTopicResponsePage(
+            incoming,
+            bodyPostID: 1,
+            existingRows: existingRows,
+            expectedCursor: cursor,
+            fallbackFocusedPostNumber: 88
+        )
+
+        XCTAssertEqual(merged.rows.map { $0.post.postNumber }, [2, 3])
+        XCTAssertNil(merged.nextCursor)
+        XCTAssertEqual(merged.focusedPostNumber, 88)
+    }
+
+    func testMergedLoadedTopicResponsePagePreservesAdvancedCursorAcrossPureOverlap() {
+        let existingRows = [
+            makeResponseRow(postNumber: 2, parentPostNumber: 1, depth: 1, username: "reply-a"),
+            makeResponseRow(postNumber: 3, parentPostNumber: 1, depth: 1, username: "reply-b"),
+        ]
+        let expectedCursor = TopicResponseCursorState(
+            topicId: 42,
+            sessionId: 7,
+            nextRootOffset: 5,
+            nextBranchOffset: 0,
+            pageSize: 10,
+            rowPageSize: 40
+        )
+        let advancedCursor = TopicResponseCursorState(
+            topicId: 42,
+            sessionId: 7,
+            nextRootOffset: 10,
+            nextBranchOffset: 0,
+            pageSize: 10,
+            rowPageSize: 40
+        )
+        let incoming = TopicResponsePageState(
+            rows: [existingRows[1]],
+            nextCursor: advancedCursor,
+            totalRootCount: 100,
+            loadedRootCount: 10,
+            totalResponseCount: 120,
+            focusedPostNumber: nil
+        )
+
+        let merged = FireTopicDetailStore.mergedLoadedTopicResponsePage(
+            incoming,
+            bodyPostID: 1,
+            existingRows: existingRows,
+            expectedCursor: expectedCursor,
+            fallbackFocusedPostNumber: 88
+        )
+
+        XCTAssertEqual(merged.rows.map { $0.post.postNumber }, [2, 3])
+        XCTAssertEqual(merged.nextCursor, advancedCursor)
+        XCTAssertEqual(merged.focusedPostNumber, 88)
+    }
+
+    func testMergedLoadedTopicResponsePageClearsCursorForEmptyIncomingPage() {
+        let existingRows = [
+            makeResponseRow(postNumber: 2, parentPostNumber: 1, depth: 1, username: "reply-a"),
+        ]
+        let expectedCursor = TopicResponseCursorState(
+            topicId: 42,
+            sessionId: 7,
+            nextRootOffset: 5,
+            nextBranchOffset: 0,
+            pageSize: 10,
+            rowPageSize: 40
+        )
+        let advancedCursor = TopicResponseCursorState(
+            topicId: 42,
+            sessionId: 7,
+            nextRootOffset: 10,
+            nextBranchOffset: 0,
+            pageSize: 10,
+            rowPageSize: 40
+        )
+        let incoming = TopicResponsePageState(
+            rows: [],
+            nextCursor: advancedCursor,
+            totalRootCount: 100,
+            loadedRootCount: 10,
+            totalResponseCount: 120,
+            focusedPostNumber: nil
+        )
+
+        let merged = FireTopicDetailStore.mergedLoadedTopicResponsePage(
+            incoming,
+            bodyPostID: 1,
+            existingRows: existingRows,
+            expectedCursor: expectedCursor
+        )
+
+        XCTAssertEqual(merged.rows.map { $0.post.postNumber }, [2])
+        XCTAssertNil(merged.nextCursor)
+    }
+
+    func testMergedLoadedTopicResponsePageClearsCursorOnlyWhenRustCursorIsNil() {
+        let existingRows = [
+            makeResponseRow(postNumber: 2, parentPostNumber: 1, depth: 1, username: "reply-a"),
+        ]
+        let incoming = TopicResponsePageState(
+            rows: [
+                makeResponseRow(postNumber: 1, parentPostNumber: nil, depth: 0, username: "body"),
+                makeResponseRow(postNumber: 3, parentPostNumber: 1, depth: 1, username: "reply-b"),
+            ],
+            nextCursor: nil,
+            totalRootCount: 2,
+            loadedRootCount: 2,
+            totalResponseCount: 2,
+            focusedPostNumber: nil
+        )
+
+        let merged = FireTopicDetailStore.mergedLoadedTopicResponsePage(
+            incoming,
+            bodyPostID: 1,
+            existingRows: existingRows
+        )
+
+        XCTAssertEqual(merged.rows.map { $0.post.postNumber }, [2, 3])
+        XCTAssertNil(merged.nextCursor)
+    }
+
     func testRenderStateCoverageRequiresOriginalRowAndAllRenderedPosts() {
         let original = TopicPostState(
             id: 100,
@@ -579,23 +723,6 @@ final class FireTopicDetailStoreTests: XCTestCase {
 
         XCTAssertFalse(initial.hasCloudflareClearance)
         XCTAssertTrue(current.hasNewCloudflareClearance(comparedTo: initial))
-    }
-
-    func testResponsePagePrefetchUsesRenderedResponseTailInsteadOfMaxPostNumber() {
-        let loadedPostNumbers: [UInt32] = [1, 100] + Array(UInt32(2)...UInt32(20))
-
-        XCTAssertTrue(
-            FireTopicDetailStore.shouldPrefetchNextTopicResponsePage(
-                visiblePostNumbers: [20],
-                loadedResponsePostNumbers: loadedPostNumbers
-            )
-        )
-        XCTAssertFalse(
-            FireTopicDetailStore.shouldPrefetchNextTopicResponsePage(
-                visiblePostNumbers: [100],
-                loadedResponsePostNumbers: loadedPostNumbers
-            )
-        )
     }
 
     func testAppendableTopicResponseRowsFiltersPureOverlap() {

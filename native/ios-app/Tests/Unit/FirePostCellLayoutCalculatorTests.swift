@@ -484,6 +484,23 @@ final class FirePostCellLayoutCalculatorTests: XCTestCase {
         XCTAssertLessThanOrEqual(commentSize.height, FirePostCellLayoutCalculator.commentImageMaxHeight)
     }
 
+    func testReactionDisplayPolicyKeepsOriginalPostReactionsButCapsRepliesAtThree() {
+        let reactions = [
+            TopicReactionState(id: "heart", kind: nil, count: 12, canUndo: true),
+            TopicReactionState(id: "clap", kind: nil, count: 4, canUndo: true),
+            TopicReactionState(id: "laughing", kind: nil, count: 3, canUndo: true),
+            TopicReactionState(id: "tada", kind: nil, count: 2, canUndo: true),
+        ]
+
+        let originalVisible = FirePostReactionDisplayPolicy.visibleReactions(from: reactions, depth: 0)
+        let replyVisible = FirePostReactionDisplayPolicy.visibleReactions(from: reactions, depth: 1)
+
+        XCTAssertEqual(originalVisible.map(\.id), reactions.map(\.id))
+        XCTAssertEqual(replyVisible.map(\.id), ["heart", "clap", "laughing"])
+        XCTAssertTrue(FirePostReactionDisplayPolicy.allowsWrapping(depth: 0))
+        XCTAssertFalse(FirePostReactionDisplayPolicy.allowsWrapping(depth: 1))
+    }
+
     private func makePost(
         id: UInt64,
         postNumber: UInt32,

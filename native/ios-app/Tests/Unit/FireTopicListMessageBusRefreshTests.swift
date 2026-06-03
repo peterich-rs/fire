@@ -24,7 +24,7 @@ final class FireTopicListMessageBusRefreshTests: XCTestCase {
         )
     }
 
-    func testLatestEventsRespectMinimumRefreshIntervalAndCoalesceTopicIDs() {
+    func testLatestEventsRespectExpandedMinimumRefreshIntervalAndCoalesceTopicIDs() {
         let clock = ContinuousClock()
         let scope = FireTopicListRefreshScope(kind: .latest, categoryId: nil, tags: [])
         let base = clock.now
@@ -37,7 +37,7 @@ final class FireTopicListMessageBusRefreshTests: XCTestCase {
             allowIncremental: true
         )
 
-        XCTAssertEqual(firstDelay, .seconds(1.5))
+        XCTAssertEqual(firstDelay, .seconds(3))
         XCTAssertEqual(
             controller.takePendingRefresh(for: scope),
             .incremental(topicIDs: [101])
@@ -58,8 +58,8 @@ final class FireTopicListMessageBusRefreshTests: XCTestCase {
             allowIncremental: true
         )
 
-        XCTAssertEqual(secondDelay, .seconds(25))
-        XCTAssertEqual(thirdDelay, .seconds(2))
+        XCTAssertEqual(secondDelay, .seconds(40))
+        XCTAssertEqual(thirdDelay, .seconds(17))
         XCTAssertEqual(
             controller.takePendingRefresh(for: scope),
             .incremental(topicIDs: [202, 303])
@@ -106,6 +106,7 @@ final class FireTopicListMessageBusRefreshTests: XCTestCase {
                 scope: scope,
                 renderedScope: scope,
                 isTopicListVisible: false,
+                isSceneActive: true,
                 hasRows: true
             )
         )
@@ -114,6 +115,7 @@ final class FireTopicListMessageBusRefreshTests: XCTestCase {
                 scope: scope,
                 renderedScope: nil,
                 isTopicListVisible: true,
+                isSceneActive: true,
                 hasRows: true
             )
         )
@@ -122,6 +124,16 @@ final class FireTopicListMessageBusRefreshTests: XCTestCase {
                 scope: scope,
                 renderedScope: scope,
                 isTopicListVisible: true,
+                isSceneActive: false,
+                hasRows: true
+            )
+        )
+        XCTAssertFalse(
+            FireHomeFeedStore.canScheduleIncrementalMessageBusRefresh(
+                scope: scope,
+                renderedScope: scope,
+                isTopicListVisible: true,
+                isSceneActive: true,
                 hasRows: false
             )
         )
@@ -130,6 +142,7 @@ final class FireTopicListMessageBusRefreshTests: XCTestCase {
                 scope: scope,
                 renderedScope: scope,
                 isTopicListVisible: true,
+                isSceneActive: true,
                 hasRows: true
             )
         )

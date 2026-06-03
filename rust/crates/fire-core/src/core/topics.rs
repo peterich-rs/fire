@@ -782,6 +782,28 @@ impl FireCore {
         for post_ids in missing_descendant_ids.chunks(TOPIC_POST_BATCH_SIZE) {
             descendant_posts.extend(self.fetch_topic_posts(topic_id, post_ids.to_vec()).await?);
         }
+        let fetched_descendant_ids = descendant_posts
+            .iter()
+            .map(|post| post.id)
+            .collect::<HashSet<_>>();
+        let available_descendant_ids = cached_branch_post_ids
+            .union(&fetched_descendant_ids)
+            .copied()
+            .collect::<HashSet<_>>();
+        let unavailable_attempted_descendant_ids = descendant_ids_for_index
+            .iter()
+            .copied()
+            .filter(|post_id| !available_descendant_ids.contains(post_id))
+            .collect::<HashSet<_>>();
+        let pageable_descendant_ids = if unavailable_attempted_descendant_ids.is_empty() {
+            descendant_ids.clone()
+        } else {
+            descendant_ids
+                .iter()
+                .copied()
+                .filter(|post_id| !unavailable_attempted_descendant_ids.contains(post_id))
+                .collect::<Vec<_>>()
+        };
 
         let cached_branch_posts = {
             let runtime = self
@@ -843,13 +865,15 @@ impl FireCore {
         }
         session
             .branch_reply_ids_by_root_id
-            .insert(root_post_id, descendant_ids.clone());
+            .insert(root_post_id, pageable_descendant_ids.clone());
         session.branch_by_root_id.insert(root_post_id, branch_index);
         info!(
             topic_id,
             session_id,
             root_post_id,
             descendant_count = descendant_ids.len(),
+            pageable_descendant_count = pageable_descendant_ids.len(),
+            unavailable_descendant_count = unavailable_attempted_descendant_ids.len(),
             fetched_descendant_count = missing_descendant_ids.len(),
             duration_ms = started_at.elapsed().as_millis() as u64,
             "loaded topic response root branch"
@@ -1253,8 +1277,10 @@ fn assemble_topic_response_page(
         next_branch_offset = 0;
     }
 
-    let next_cursor =
-        (next_root_offset < session.root_stream_ids.len()).then_some(TopicResponseCursor {
+    let made_progress = next_root_offset != start_offset || next_branch_offset != branch_offset;
+    let next_cursor = (next_root_offset < session.root_stream_ids.len()
+        && (!rows.is_empty() || made_progress))
+        .then_some(TopicResponseCursor {
             topic_id: session.header.topic_id,
             session_id: session.session_id,
             next_root_offset: next_root_offset as u32,
@@ -1992,6 +2018,87 @@ mod tests {
                 next_branch_offset: 2,
                 page_size: 10,
                 row_page_size: 2,
+            })
+        );
+    }
+
+    #[test]
+    fn assemble_topic_response_page_stops_when_branch_cursor_cannot_advance() {
+        let root = make_topic_post(2, Some(1));
+        let missing_child = make_topic_post(3, Some(2));
+        let branch = build_branch_index(root.clone(), vec![root.clone()]);
+        let session = TopicResponseSession {
+            session_id: 10,
+            session_epoch: 1,
+            header: TopicHeader {
+                topic_id: 88,
+                reply_count: 2,
+                ..TopicHeader::default()
+            },
+            root_stream_ids: vec![root.id],
+            post_by_id: HashMap::from([(root.id, root.clone())]),
+            post_id_by_number: HashMap::from([(root.post_number, root.id)]),
+            branch_reply_ids_by_root_id: HashMap::from([(root.id, vec![missing_child.id])]),
+            branch_by_root_id: HashMap::from([(root.id, branch)]),
+        };
+
+        let page = assemble_topic_response_page(&session, 0, 1, 10, 10, 40, None);
+
+        assert!(page.rows.is_empty());
+        assert_eq!(page.next_cursor, None);
+    }
+
+    #[test]
+    fn assemble_topic_response_page_advances_after_pruned_missing_descendant() {
+        let first_root = make_topic_post(2, Some(1));
+        let second_root = make_topic_post(10, Some(1));
+        let first_branch = build_branch_index(first_root.clone(), vec![first_root.clone()]);
+        let second_branch = build_branch_index(second_root.clone(), vec![second_root.clone()]);
+        let session = TopicResponseSession {
+            session_id: 11,
+            session_epoch: 1,
+            header: TopicHeader {
+                topic_id: 89,
+                reply_count: 2,
+                ..TopicHeader::default()
+            },
+            root_stream_ids: vec![first_root.id, second_root.id],
+            post_by_id: HashMap::from([
+                (first_root.id, first_root.clone()),
+                (second_root.id, second_root.clone()),
+            ]),
+            post_id_by_number: HashMap::from([
+                (first_root.post_number, first_root.id),
+                (second_root.post_number, second_root.id),
+            ]),
+            branch_reply_ids_by_root_id: HashMap::from([
+                (first_root.id, Vec::new()),
+                (second_root.id, Vec::new()),
+            ]),
+            branch_by_root_id: HashMap::from([
+                (first_root.id, first_branch),
+                (second_root.id, second_branch),
+            ]),
+        };
+
+        let page = assemble_topic_response_page(&session, 0, 0, 1, 1, 40, None);
+
+        assert_eq!(
+            page.rows
+                .iter()
+                .map(|row| row.post.post_number)
+                .collect::<Vec<_>>(),
+            vec![first_root.post_number]
+        );
+        assert_eq!(
+            page.next_cursor,
+            Some(TopicResponseCursor {
+                topic_id: 89,
+                session_id: 11,
+                next_root_offset: 1,
+                next_branch_offset: 0,
+                page_size: 1,
+                row_page_size: 40,
             })
         );
     }

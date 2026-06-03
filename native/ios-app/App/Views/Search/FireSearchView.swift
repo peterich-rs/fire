@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct FireSearchView: View {
+    @Environment(\.fireTopicRoutePresenter) private var topicRoutePresenter
     let appViewModel: FireAppViewModel
     @ObservedObject var searchStore: FireSearchStore
     @FocusState private var isSearchFieldFocused: Bool
@@ -148,11 +149,11 @@ struct FireSearchView: View {
                     ForEach(result.topics, id: \.id) { topic in
                         let row = topicRow(for: topic)
                         Button {
-                            selectedRoute = .topic(
+                            presentRoute(.topic(
                                 topicId: topic.id,
                                 postNumber: nil,
                                 preview: FireTopicRoutePreview(row: row)
-                            )
+                            ))
                         } label: {
                             FireTopicRow(
                                 row: row,
@@ -169,11 +170,11 @@ struct FireSearchView: View {
                     ForEach(result.posts, id: \.id) { post in
                         if let row = postRow(for: post, topicIndex: topicIndex) {
                             Button {
-                                selectedRoute = .topic(
+                                presentRoute(.topic(
                                     topicId: row.topic.id,
                                     postNumber: post.postNumber,
                                     preview: FireTopicRoutePreview(row: row)
-                                )
+                                ))
                             } label: {
                                 FireSearchPostRow(post: post, row: row)
                             }
@@ -189,7 +190,7 @@ struct FireSearchView: View {
                 Section("用户") {
                     ForEach(result.users, id: \.id) { user in
                         Button {
-                            selectedRoute = .profile(username: user.username)
+                            presentRoute(.profile(username: user.username))
                         } label: {
                             FireSearchUserRow(user: user)
                         }
@@ -273,6 +274,13 @@ struct FireSearchView: View {
             .padding(.horizontal, 32)
         }
         .scrollDismissesKeyboard(.interactively)
+    }
+
+    private func presentRoute(_ route: FireAppRoute) {
+        if topicRoutePresenter.present(route) {
+            return
+        }
+        selectedRoute = route
     }
 
     private func dslHintRow(_ keyword: String, _ hint: String) -> some View {

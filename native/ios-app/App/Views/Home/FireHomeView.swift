@@ -31,6 +31,7 @@ func fireHomeShouldRequestNextPage(
 }
 
 struct FireHomeView: View {
+    @Environment(\.fireTopicRoutePresenter) private var topicRoutePresenter
     @EnvironmentObject private var navigationState: FireNavigationState
     @EnvironmentObject private var homeFeedStore: FireHomeFeedStore
     let viewModel: FireAppViewModel
@@ -59,6 +60,12 @@ struct FireHomeView: View {
                 onRefresh: refreshTopics,
                 onScrollMetricsChanged: handleTopicListScrollMetricsChange(_: )
             )
+            .onAppear {
+                homeFeedStore.setTopicListVisible(true)
+            }
+            .onDisappear {
+                homeFeedStore.setTopicListVisible(false)
+            }
             .navigationTitle("首页")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -90,11 +97,7 @@ struct FireHomeView: View {
             }
         }
         .onAppear {
-            homeFeedStore.setTopicListVisible(true)
             consumePendingRouteIfVisible(navigationState.pendingRoute)
-        }
-        .onDisappear {
-            homeFeedStore.setTopicListVisible(false)
         }
         .onChange(of: navigationState.pendingRoute) { _, route in
             consumePendingRouteIfVisible(route)
@@ -182,7 +185,7 @@ struct FireHomeView: View {
     }
 
     private func selectTopic(_ route: FireAppRoute) {
-        selectedRoute = route
+        presentRoute(route)
     }
 
     private func handleTopicListScrollMetricsChange(_ newMetrics: FireCollectionScrollMetrics) {
@@ -209,7 +212,14 @@ struct FireHomeView: View {
         guard navigationState.selectedTab == 0, let route else {
             return
         }
-        selectedRoute = route
+        presentRoute(route)
         navigationState.pendingRoute = nil
+    }
+
+    private func presentRoute(_ route: FireAppRoute) {
+        if topicRoutePresenter.present(route) {
+            return
+        }
+        selectedRoute = route
     }
 }

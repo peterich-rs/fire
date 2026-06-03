@@ -2,6 +2,7 @@ import SwiftUI
 import UIKit
 
 struct FireProfileView: View {
+    @Environment(\.fireTopicRoutePresenter) private var topicRoutePresenter
     @ObservedObject var viewModel: FireAppViewModel
     @ObservedObject var profileViewModel: FireProfileViewModel
     let isActive: Bool
@@ -414,7 +415,7 @@ struct FireProfileView: View {
     private func activityRow(_ action: UserActionState) -> some View {
         if let route = FireAppRoute.topic(action: action) {
             Button {
-                selectedRoute = route
+                presentRoute(route)
             } label: {
                 FireProfileActivityRow(action: action)
             }
@@ -587,6 +588,13 @@ struct FireProfileView: View {
         }
 
         return RelativeDateTimeFormatter().localizedString(for: date, relativeTo: Date())
+    }
+
+    private func presentRoute(_ route: FireAppRoute) {
+        if topicRoutePresenter.present(route) {
+            return
+        }
+        selectedRoute = route
     }
 }
 

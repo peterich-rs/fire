@@ -612,16 +612,6 @@ final class FireAppViewModel: ObservableObject {
         topicDetailStore?.hasMoreTopicPosts(topicId: topicId) ?? false
     }
 
-    func preloadTopicPostsIfNeeded(
-        topicId: UInt64,
-        visiblePostNumbers: Set<UInt32>
-    ) {
-        topicDetailStore?.preloadTopicPostsIfNeeded(
-            topicId: topicId,
-            visiblePostNumbers: visiblePostNumbers
-        )
-    }
-
     // MARK: - Topic detail lifecycle
 
     func beginTopicDetailLifecycle(topicId: UInt64, ownerToken: String) {

@@ -195,6 +195,13 @@ enum FireAppRoute: Hashable, Identifiable {
         }
     }
 
+    var isTopicRoute: Bool {
+        if case .topic = self {
+            return true
+        }
+        return false
+    }
+
     func overlayPreview(_ preview: FireTopicRoutePreview?) -> FireAppRoute {
         guard let preview else { return self }
         switch self {

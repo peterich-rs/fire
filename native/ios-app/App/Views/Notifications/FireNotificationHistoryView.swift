@@ -2,6 +2,7 @@ import SwiftUI
 import UIKit
 
 struct FireNotificationHistoryView: View {
+    @Environment(\.fireTopicRoutePresenter) private var topicRoutePresenter
     let appViewModel: FireAppViewModel
     @ObservedObject var notificationStore: FireNotificationStore
     @State private var selectedRoute: FireAppRoute?
@@ -186,6 +187,17 @@ struct FireNotificationHistoryView: View {
             notificationStore.markRead(id: item.id)
         }
 
-        selectedRoute = item.appRoute
+        guard let route = item.appRoute else {
+            selectedRoute = nil
+            return
+        }
+        presentRoute(route)
+    }
+
+    private func presentRoute(_ route: FireAppRoute) {
+        if topicRoutePresenter.present(route) {
+            return
+        }
+        selectedRoute = route
     }
 }

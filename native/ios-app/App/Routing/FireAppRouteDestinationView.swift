@@ -7,9 +7,7 @@ struct FireAppRouteDestinationView: View {
     var body: some View {
         switch route {
         case .topic(let payload):
-            // Active path: UIKit controller host.
-            // FireTopicDetailView is retained as a file but is no longer on
-            // the active route path.
+            // Topic detail is owned by the UIKit + Texture controller path.
             FireTopicDetailControllerHost(
                 viewModel: viewModel,
                 row: payload.row,

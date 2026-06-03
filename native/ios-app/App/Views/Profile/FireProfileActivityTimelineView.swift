@@ -2,6 +2,7 @@ import SwiftUI
 import UIKit
 
 struct FireProfileActivityTimelineView: View {
+    @Environment(\.fireTopicRoutePresenter) private var topicRoutePresenter
     @ObservedObject var viewModel: FireAppViewModel
     @ObservedObject var profileViewModel: FireProfileViewModel
     @State private var copiedActionsError = false
@@ -123,7 +124,7 @@ struct FireProfileActivityTimelineView: View {
     private func activityRow(_ action: UserActionState) -> some View {
         if let route = FireAppRoute.topic(action: action) {
             Button {
-                selectedRoute = route
+                presentRoute(route)
             } label: {
                 FireProfileActivityRow(action: action)
             }
@@ -131,5 +132,12 @@ struct FireProfileActivityTimelineView: View {
         } else {
             FireProfileActivityRow(action: action)
         }
+    }
+
+    private func presentRoute(_ route: FireAppRoute) {
+        if topicRoutePresenter.present(route) {
+            return
+        }
+        selectedRoute = route
     }
 }

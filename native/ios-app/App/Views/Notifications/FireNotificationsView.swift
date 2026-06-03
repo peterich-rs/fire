@@ -190,6 +190,7 @@ extension NotificationItemState {
 // MARK: - View
 
 struct FireNotificationsView: View {
+    @Environment(\.fireTopicRoutePresenter) private var topicRoutePresenter
     let appViewModel: FireAppViewModel
     @ObservedObject var notificationStore: FireNotificationStore
     let isActive: Bool
@@ -341,7 +342,11 @@ struct FireNotificationsView: View {
             notificationStore.markRead(id: item.id)
         }
 
-        selectedRoute = item.appRoute
+        guard let route = item.appRoute else {
+            selectedRoute = nil
+            return
+        }
+        presentRoute(route)
     }
 
     private func notificationRowContent(_ item: NotificationItemState) -> some View {
@@ -421,6 +426,13 @@ struct FireNotificationsView: View {
         }
         .padding(.horizontal, 32)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func presentRoute(_ route: FireAppRoute) {
+        if topicRoutePresenter.present(route) {
+            return
+        }
+        selectedRoute = route
     }
 }
 

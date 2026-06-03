@@ -68,6 +68,7 @@ struct FireTabRoot: View {
                 .toolbarBackground(.visible, for: .tabBar)
                 .environmentObject(homeFeedStore)
                 .environmentObject(topicDetailStore)
+                .fireTopicRoutePresenter(.appRoot(navigationState: navigationState))
             } else {
                 FireOnboardingView(
                     viewModel: viewModel,
@@ -88,8 +89,13 @@ struct FireTabRoot: View {
                 presentationState: presentationState
             )
         }
+        .fullScreenCover(item: $navigationState.presentedTopicRoute) { route in
+            FirePresentedTopicRouteHost(viewModel: viewModel, route: route)
+            .environmentObject(topicDetailStore)
+        }
         .task {
             viewModel.loadInitialState()
+            homeFeedStore.setSceneActive(scenePhase == .active)
             viewModel.updateTopLevelAPMRoute(
                 selectedTab: navigationState.selectedTab,
                 isAuthenticated: isAuthenticated
@@ -101,6 +107,7 @@ struct FireTabRoot: View {
                 await FirePushRegistrationCoordinator.shared.ensurePushRegistration()
                 selectTabForPendingRouteIfReady(navigationState.pendingRoute)
             } else {
+                navigationState.dismissPresentedTopicRoute()
                 FireBackgroundNotificationAlertScheduler.cancelRefresh()
             }
             viewModel.updateTopLevelAPMRoute(
@@ -109,6 +116,7 @@ struct FireTabRoot: View {
             )
         }
         .onChange(of: scenePhase) { _, phase in
+            homeFeedStore.setSceneActive(phase == .active)
             FireAPMManager.shared.setScenePhase(scenePhaseLabel(phase))
             viewModel.handleDiagnosticsScenePhaseChange(
                 scenePhaseLabel(phase),
@@ -150,6 +158,7 @@ struct FireTabRoot: View {
                 notificationStore.reset()
                 topicDetailStore.reset()
                 FireMotionCelebrationGate.reset()
+                navigationState.dismissPresentedTopicRoute()
             }
             viewModel.updateTopLevelAPMRoute(
                 selectedTab: navigationState.selectedTab,
@@ -167,7 +176,12 @@ struct FireTabRoot: View {
     }
 
     private func selectTabForPendingRouteIfReady(_ route: FireAppRoute?) {
-        guard route != nil, isAuthenticated else { return }
+        guard let route, isAuthenticated else { return }
+        if route.isTopicRoute {
+            navigationState.presentTopicRoute(route)
+            navigationState.pendingRoute = nil
+            return
+        }
         navigationState.selectedTab = 0
     }
 

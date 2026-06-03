@@ -54,6 +54,7 @@ final class FireHomeFeedStore: ObservableObject {
 
     private(set) var visibleTopicIDs: Set<UInt64> = []
     private(set) var isTopicListVisible = false
+    private(set) var isSceneActive = false
     private(set) var renderedTopicListScope: FireTopicListRefreshScope?
     private let appViewModel: FireAppViewModel
     private let topicListRefreshClock = ContinuousClock()
@@ -106,6 +107,16 @@ final class FireHomeFeedStore: ObservableObject {
         }
         isTopicListVisible = isVisible
         if !isVisible {
+            cancelPendingTopicListRefresh()
+        }
+    }
+
+    func setSceneActive(_ isActive: Bool) {
+        guard isSceneActive != isActive else {
+            return
+        }
+        isSceneActive = isActive
+        if !isActive {
             cancelPendingTopicListRefresh()
         }
     }
@@ -212,6 +223,7 @@ final class FireHomeFeedStore: ObservableObject {
             scope: scope,
             renderedScope: renderedTopicListScope,
             isTopicListVisible: isTopicListVisible,
+            isSceneActive: isSceneActive,
             hasRows: !topicRows.isEmpty
         )
         guard let delay = topicListMessageBusRefreshController.register(
@@ -303,7 +315,14 @@ final class FireHomeFeedStore: ObservableObject {
     }
 
     private func refreshTopicsFromMessageBus(_ refreshMode: FireTopicListMessageBusRefreshMode) async {
-        guard isTopicListVisible else {
+        guard case .incremental = refreshMode,
+              Self.canScheduleIncrementalMessageBusRefresh(
+                  scope: currentTopicListRefreshScope,
+                  renderedScope: renderedTopicListScope,
+                  isTopicListVisible: isTopicListVisible,
+                  isSceneActive: isSceneActive,
+                  hasRows: !topicRows.isEmpty
+              ) else {
             return
         }
         await loadTopics(page: nil, reset: true, force: true, refreshMode: refreshMode)
@@ -313,9 +332,11 @@ final class FireHomeFeedStore: ObservableObject {
         scope: FireTopicListRefreshScope,
         renderedScope: FireTopicListRefreshScope?,
         isTopicListVisible: Bool,
+        isSceneActive: Bool,
         hasRows: Bool
     ) -> Bool {
-        isTopicListVisible
+        isSceneActive
+            && isTopicListVisible
             && hasRows
             && scope.supportsIncrementalMessageBusRefresh
             && renderedScope == scope

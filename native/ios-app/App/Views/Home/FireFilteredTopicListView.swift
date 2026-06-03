@@ -190,6 +190,7 @@ final class FireFilteredTopicListViewModel: ObservableObject {
 }
 
 struct FireFilteredTopicListView: View {
+    @Environment(\.fireTopicRoutePresenter) private var topicRoutePresenter
     @ObservedObject var viewModel: FireAppViewModel
 
     let title: String
@@ -360,7 +361,7 @@ struct FireFilteredTopicListView: View {
 
             ForEach(listViewModel.displayedRows, id: \.topic.id) { topicRow in
                 Button {
-                    selectedRoute = .topic(row: topicRow)
+                    presentRoute(.topic(row: topicRow))
                 } label: {
                     FireTopicRow(
                         row: topicRow,
@@ -446,5 +447,12 @@ struct FireFilteredTopicListView: View {
             .padding(.vertical, 40)
         }
         .listRowSeparator(.hidden)
+    }
+
+    private func presentRoute(_ route: FireAppRoute) {
+        if topicRoutePresenter.present(route) {
+            return
+        }
+        selectedRoute = route
     }
 }

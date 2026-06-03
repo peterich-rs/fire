@@ -73,6 +73,7 @@ final class FireReadHistoryViewModel: ObservableObject {
 }
 
 struct FireReadHistoryView: View {
+    @Environment(\.fireTopicRoutePresenter) private var topicRoutePresenter
     @ObservedObject var viewModel: FireAppViewModel
     @StateObject private var historyViewModel: FireReadHistoryViewModel
     @State private var selectedRoute: FireAppRoute?
@@ -145,10 +146,10 @@ struct FireReadHistoryView: View {
                 Section {
                     ForEach(historyViewModel.rows, id: \.topic.id) { row in
                         Button {
-                            selectedRoute = .topic(
+                            presentRoute(.topic(
                                 row: row,
                                 postNumber: row.topic.lastReadPostNumber
-                            )
+                            ))
                         } label: {
                             FireTopicRow(
                                 row: row,
@@ -187,5 +188,12 @@ struct FireReadHistoryView: View {
         .refreshable {
             await historyViewModel.refresh()
         }
+    }
+
+    private func presentRoute(_ route: FireAppRoute) {
+        if topicRoutePresenter.present(route) {
+            return
+        }
+        selectedRoute = route
     }
 }

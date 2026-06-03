@@ -7,6 +7,7 @@ private struct FireSelectedBadge: Identifiable, Hashable {
 }
 
 struct FirePublicProfileView: View {
+    @Environment(\.fireTopicRoutePresenter) private var topicRoutePresenter
     @ObservedObject var viewModel: FireAppViewModel
     let username: String
 
@@ -378,7 +379,7 @@ struct FirePublicProfileView: View {
     private func activityRow(_ action: UserActionState) -> some View {
         if let route = FireAppRoute.topic(action: action) {
             Button {
-                selectedRoute = route
+                presentRoute(route)
             } label: {
                 FireProfileActivityRow(action: action)
             }
@@ -460,6 +461,13 @@ struct FirePublicProfileView: View {
         }
         .padding(.vertical, 4)
         .contentShape(Rectangle())
+    }
+
+    private func presentRoute(_ route: FireAppRoute) {
+        if topicRoutePresenter.present(route) {
+            return
+        }
+        selectedRoute = route
     }
 
     private func formatReadTime(_ seconds: UInt64) -> String {

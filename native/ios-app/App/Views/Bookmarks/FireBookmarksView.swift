@@ -104,6 +104,7 @@ final class FireBookmarksViewModel: ObservableObject {
 }
 
 struct FireBookmarksView: View {
+    @Environment(\.fireTopicRoutePresenter) private var topicRoutePresenter
     @ObservedObject var viewModel: FireAppViewModel
     let username: String
 
@@ -234,10 +235,10 @@ struct FireBookmarksView: View {
     private func handleSelection(_ item: FireBookmarksCollectionItem) {
         guard case let .bookmark(id) = item,
               let row = bookmarksViewModel.row(for: id) else { return }
-        selectedRoute = .topic(
+        presentRoute(.topic(
             row: row,
             postNumber: row.topic.bookmarkedPostNumber ?? row.topic.lastReadPostNumber
-        )
+        ))
     }
 
     private func handleVisibleItemsChanged(_ items: [FireBookmarksCollectionItem]) {
@@ -472,5 +473,12 @@ struct FireBookmarksView: View {
         } catch {
             bookmarksViewModel.errorMessage = error.localizedDescription
         }
+    }
+
+    private func presentRoute(_ route: FireAppRoute) {
+        if topicRoutePresenter.present(route) {
+            return
+        }
+        selectedRoute = route
     }
 }

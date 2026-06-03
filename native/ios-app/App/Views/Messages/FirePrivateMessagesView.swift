@@ -162,6 +162,7 @@ final class FirePrivateMessagesViewModel: ObservableObject {
 }
 
 struct FirePrivateMessagesView: View {
+    @Environment(\.fireTopicRoutePresenter) private var topicRoutePresenter
     @ObservedObject var viewModel: FireAppViewModel
     @StateObject private var mailboxViewModel: FirePrivateMessagesViewModel
     @State private var showComposer = false
@@ -283,7 +284,7 @@ struct FirePrivateMessagesView: View {
 
                     ForEach(mailboxViewModel.displayedRows, id: \.topic.id) { row in
                         Button {
-                            selectedRoute = .topic(row: row)
+                            presentRoute(.topic(row: row))
                         } label: {
                             privateMessageRow(row)
                         }
@@ -335,11 +336,11 @@ struct FirePrivateMessagesView: View {
                     route: FireComposerRoute(kind: .privateMessage(recipients: [], title: nil)),
                     onPrivateMessageCreated: { topicID, title in
                         showComposer = false
-                        selectedRoute = .topic(
+                        presentRoute(.topic(
                             topicId: topicID,
                             postNumber: nil,
                             preview: FireTopicRoutePreview.fromMetadata(title: title, slug: nil)
-                        )
+                        ))
                         Task { await mailboxViewModel.refresh() }
                     },
                     onSubmissionNotice: { message in
@@ -472,5 +473,12 @@ struct FirePrivateMessagesView: View {
             return "私信会话"
         }
         return labels.joined(separator: "、")
+    }
+
+    private func presentRoute(_ route: FireAppRoute) {
+        if topicRoutePresenter.present(route) {
+            return
+        }
+        selectedRoute = route
     }
 }

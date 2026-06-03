@@ -16,8 +16,8 @@ enum FireTopicListMessageBusRefreshMode: Equatable {
 }
 
 struct FireTopicListMessageBusRefreshController {
-    static let debounceDelay: Duration = .seconds(1.5)
-    static let minimumInterval: Duration = .seconds(30)
+    static let debounceDelay: Duration = .seconds(3)
+    static let minimumInterval: Duration = .seconds(45)
 
     private(set) var scope: FireTopicListRefreshScope?
     private(set) var lastRefreshAt: ContinuousClock.Instant?

@@ -6,6 +6,8 @@ import SwiftUI
 /// This is the only SwiftUI surface that remains in the topic-detail path.
 /// All page lifecycle, state, and presentation are owned by the controller.
 struct FireTopicDetailControllerHost: UIViewControllerRepresentable {
+    @EnvironmentObject private var topicDetailStore: FireTopicDetailStore
+
     let viewModel: FireAppViewModel
     let row: FireTopicRowPresentation
     let scrollToPostNumber: UInt32?
@@ -13,6 +15,7 @@ struct FireTopicDetailControllerHost: UIViewControllerRepresentable {
     func makeUIViewController(context: Context) -> FireTopicDetailViewController {
         FireTopicDetailViewController(
             viewModel: viewModel,
+            topicDetailStore: topicDetailStore,
             row: row,
             scrollToPostNumber: scrollToPostNumber
         )

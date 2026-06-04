@@ -24,7 +24,9 @@ import uniffi.fire_uniffi_search.TagSearchResultState
 import uniffi.fire_uniffi_search.UserMentionQueryState
 import uniffi.fire_uniffi_search.UserMentionResultState
 import uniffi.fire_uniffi_session.CookieReplayEntryState
+import uniffi.fire_uniffi_session.CurrentUserSnapshotState
 import uniffi.fire_uniffi_session.LoginFinalizationResultState
+import uniffi.fire_uniffi_session.LoginStateDeterminationState
 import uniffi.fire_uniffi_session.LoginSyncState
 import uniffi.fire_uniffi_session.PlatformCookieState
 import uniffi.fire_uniffi_session.SessionState
@@ -609,6 +611,40 @@ class FireSessionStore(
     ) = withContext(Dispatchers.IO) {
         core.user().setUserNotificationLevel(username, notificationLevel, expiringAt)
         persistCurrentSession()
+    }
+
+    suspend fun awaitPreloadedData() {
+        withContext(Dispatchers.IO) {
+            core.session().awaitPreloadedData()
+        }
+    }
+
+    suspend fun ensurePreloadedDataLoaded() {
+        withContext(Dispatchers.IO) {
+            core.session().ensurePreloadedDataLoaded()
+        }
+    }
+
+    fun currentUserDefaults(): CurrentUserSnapshotState? {
+        return try { core.session().currentUserSnapshot() } catch (_: Exception) { null }
+    }
+
+    fun cachedUser(): CurrentUserSnapshotState? {
+        return try { core.session().cachedUser() } catch (_: Exception) { null }
+    }
+
+    fun determineLoginState(): LoginStateDeterminationState {
+        return try { core.session().determineLoginState() } catch (_: Exception) {
+            LoginStateDeterminationState.NotLoggedIn
+        }
+    }
+
+    suspend fun determineLoginStateWithProbe(): LoginStateDeterminationState {
+        return withContext(Dispatchers.IO) {
+            try { core.session().determineLoginStateWithProbe() } catch (_: Exception) {
+                LoginStateDeterminationState.NetworkErrorPreserveState
+            }
+        }
     }
 
     suspend fun clearPersistedSession() = withContext(Dispatchers.IO) {

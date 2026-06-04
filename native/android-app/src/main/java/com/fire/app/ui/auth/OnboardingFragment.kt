@@ -79,7 +79,5 @@ class OnboardingFragment : Fragment() {
         dismissError.setOnClickListener {
             viewModel?.dismissError()
         }
-
-        viewModel?.restoreSession()
     }
 }

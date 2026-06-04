@@ -20,6 +20,10 @@ class FireCfClearanceService(private val sessionStore: FireSessionStore) {
     }
 
     fun pollClearanceStatus(intervalMs: Long = 5000): Flow<Boolean> = flow {
+        if (sessionStore.currentUserDefaults() == null) {
+            emit(false)
+            return@flow
+        }
         while (true) {
             val state = sessionStore.snapshot()
             val canRead = state.readiness.canReadAuthenticatedApi

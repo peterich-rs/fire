@@ -42,6 +42,103 @@ final class FireTopicDetailViewController: UIViewController {
         )
     )
 
+    private lazy var runtimeInteractions = FireTopicDetailRuntimeInteractions(
+        isMutatingPost: { [weak self] postID in
+            self?.topicDetailStore.isMutatingPost(postId: postID) ?? false
+        },
+        isPostTextExpanded: { [weak self] postID in
+            self?.expandedPostTextIDs.contains(postID) ?? false
+        },
+        isReplyThreadExpanded: { [weak self] postID in
+            self?.expandedReplyRootPostIDs.contains(postID) ?? false
+        },
+        isLoadingPostReplyContext: { [weak self] postID in
+            self?.topicDetailStore.isLoadingPostReplyContext(postID: postID) ?? false
+        },
+        onVisiblePostNumbersChanged: { [weak self] visiblePostNumbers in
+            self?.handleVisiblePostNumbersChanged(visiblePostNumbers)
+        },
+        onRefresh: { [weak self] in
+            await self?.performRefresh()
+        },
+        onLoadTopicDetail: { [weak self] in
+            await self?.loadTopicDetail(force: true)
+        },
+        onScrollTargetHandled: { [weak self] postNumber in
+            guard let self else { return }
+            self.topicDetailStore.markScrollTargetSatisfied(
+                topicId: self.topic.id,
+                postNumber: postNumber
+            )
+        },
+        onLoadMoreTopicPosts: { [weak self] in
+            guard let self else { return false }
+            return self.topicDetailStore.loadMoreTopicPostsIfNeeded(topicId: self.topic.id)
+        },
+        onReloadTopicAiSummary: { [weak self] in
+            guard let self else { return }
+            self.topicDetailStore.reloadTopicAiSummary(topicId: self.topic.id)
+        },
+        onOpenComposer: { [weak self] post in
+            self?.openComposer(replyToPost: post)
+        },
+        onOpenPostNumber: { [weak self] postNumber in
+            self?.openPostNumber(postNumber)
+        },
+        onOpenPostReplies: { [weak self] post in
+            self?.openPostReplies(for: post)
+        },
+        onLinkTapped: { [weak self] url in
+            self?.handleRichTextLink(url)
+        },
+        onOpenImage: { [weak self] image in
+            self?.modalRouter.presentImageViewer(image: image)
+        },
+        onToggleLike: { [weak self] post in
+            self?.toggleLike(for: post)
+        },
+        onSelectReaction: { [weak self] post, reactionID in
+            self?.toggleReaction(reactionID, for: post)
+        },
+        onEditPost: { [weak self] post in
+            self?.presentPostEditor(post)
+        },
+        onBookmarkPost: { [weak self] post in
+            self?.presentPostBookmarkEditor(post)
+        },
+        onDeletePost: { [weak self] post in
+            self?.confirmDelete(post)
+        },
+        onRecoverPost: { [weak self] post in
+            self?.recoverPost(post)
+        },
+        onFlagPost: { [weak self] post in
+            self?.presentFlagSheet(post)
+        },
+        onExpandPostText: { [weak self] post in
+            self?.expandedPostTextIDs.insert(post.id)
+            self?.buildAndApplySnapshot()
+        },
+        onVotePoll: { [weak self] post, poll, options in
+            self?.submitPollVote(for: post, poll: poll, options: options)
+        },
+        onUnvotePoll: { [weak self] post, poll in
+            self?.removePollVote(for: post, poll: poll)
+        },
+        onToggleTopicVote: { [weak self] in
+            await self?.toggleTopicVote()
+        },
+        onShowTopicVoters: { [weak self] in
+            await self?.presentTopicVoters()
+        },
+        onOpenCategory: { [weak self] category in
+            self?.modalRouter.push(filterRoute: .category(category))
+        },
+        onOpenTag: { [weak self] tagName in
+            self?.modalRouter.push(filterRoute: .tag(tagName))
+        }
+    )
+
     private let snapshotAssembler = FireTopicDetailSnapshotAssembler()
     private let detailOwnerToken: String
     private let timingTracker: FireTopicTimingTracker
@@ -397,24 +494,6 @@ final class FireTopicDetailViewController: UIViewController {
                 self?.buildAndApplySnapshot()
             }
             .store(in: &cancellables)
-
-        topicDetailStore.$loadingMoreTopicPostIDs
-            .map { loadingIDs in loadingIDs.contains(topicId) }
-            .removeDuplicates()
-            .receive(on: RunLoop.main)
-            .sink { [weak self] _ in
-                self?.buildAndApplySnapshot()
-            }
-            .store(in: &cancellables)
-
-        topicDetailStore.$loadMoreTopicPostErrorsByTopicID
-            .map { errorsByTopicID in errorsByTopicID[topicId] ?? "" }
-            .removeDuplicates()
-            .receive(on: RunLoop.main)
-            .sink { [weak self] _ in
-                self?.buildAndApplySnapshot()
-            }
-            .store(in: &cancellables)
     }
 
     private func subscribeToKeyboardNotifications() {
@@ -441,7 +520,7 @@ final class FireTopicDetailViewController: UIViewController {
             loadMoreTopicPostsError: store.loadMoreTopicPostsError(topicId: topicId),
             isLoadingTopicAiSummary: store.isLoadingTopicAiSummary(topicId: topicId),
             hasMoreTopicPosts: store.hasMoreTopicPosts(topicId: topicId),
-            detailError: store.errorMessage,
+            detailError: store.errorMessage(for: topicId),
             detailNotice: store.detailNotice(topicId: topicId),
             topicAiSummaryError: store.topicAiSummaryError(for: topicId),
             loadingPostReplyContextIDs: store.loadingPostReplyContextIDs,
@@ -504,100 +583,7 @@ final class FireTopicDetailViewController: UIViewController {
                 expandedReplyRootPostIDs: state.expandedReplyRootPostIDs,
                 loadingPostReplyContextIDs: state.loadingPostReplyContextIDs
             )),
-            isMutatingPost: { [weak self] postID in
-                self?.topicDetailStore.isMutatingPost(postId: postID) ?? false
-            },
-            isPostTextExpanded: { [weak self] postID in
-                self?.expandedPostTextIDs.contains(postID) ?? false
-            },
-            isReplyThreadExpanded: { [weak self] postID in
-                self?.expandedReplyRootPostIDs.contains(postID) ?? false
-            },
-            isLoadingPostReplyContext: { [weak self] postID in
-                self?.topicDetailStore.isLoadingPostReplyContext(postID: postID) ?? false
-            },
-            onVisiblePostNumbersChanged: { [weak self] visiblePostNumbers in
-                self?.handleVisiblePostNumbersChanged(visiblePostNumbers)
-            },
-            onRefresh: { [weak self] in
-                await self?.performRefresh()
-            },
-            onLoadTopicDetail: { [weak self] in
-                await self?.loadTopicDetail(force: true)
-            },
-            onScrollTargetHandled: { [weak self] postNumber in
-                guard let self else { return }
-                self.topicDetailStore.markScrollTargetSatisfied(
-                    topicId: self.topic.id,
-                    postNumber: postNumber
-                )
-            },
-            onLoadMoreTopicPosts: { [weak self] in
-                guard let self else { return false }
-                return self.topicDetailStore.loadMoreTopicPostsIfNeeded(topicId: self.topic.id)
-            },
-            onReloadTopicAiSummary: { [weak self] in
-                guard let self else { return }
-                self.topicDetailStore.reloadTopicAiSummary(topicId: self.topic.id)
-            },
-            onOpenComposer: { [weak self] post in
-                self?.openComposer(replyToPost: post)
-            },
-            onOpenPostNumber: { [weak self] postNumber in
-                self?.openPostNumber(postNumber)
-            },
-            onOpenPostReplies: { [weak self] post in
-                self?.openPostReplies(for: post)
-            },
-            onLinkTapped: { [weak self] url in
-                self?.handleRichTextLink(url)
-            },
-            onOpenImage: { [weak self] image in
-                self?.modalRouter.presentImageViewer(image: image)
-            },
-            onToggleLike: { [weak self] post in
-                self?.toggleLike(for: post)
-            },
-            onSelectReaction: { [weak self] post, reactionID in
-                self?.toggleReaction(reactionID, for: post)
-            },
-            onEditPost: { [weak self] post in
-                self?.presentPostEditor(post)
-            },
-            onBookmarkPost: { [weak self] post in
-                self?.presentPostBookmarkEditor(post)
-            },
-            onDeletePost: { [weak self] post in
-                self?.confirmDelete(post)
-            },
-            onRecoverPost: { [weak self] post in
-                self?.recoverPost(post)
-            },
-            onFlagPost: { [weak self] post in
-                self?.presentFlagSheet(post)
-            },
-            onExpandPostText: { [weak self] post in
-                self?.expandedPostTextIDs.insert(post.id)
-                self?.buildAndApplySnapshot()
-            },
-            onVotePoll: { [weak self] post, poll, options in
-                self?.submitPollVote(for: post, poll: poll, options: options)
-            },
-            onUnvotePoll: { [weak self] post, poll in
-                self?.removePollVote(for: post, poll: poll)
-            },
-            onToggleTopicVote: { [weak self] in
-                await self?.toggleTopicVote()
-            },
-            onShowTopicVoters: { [weak self] in
-                await self?.presentTopicVoters()
-            },
-            onOpenCategory: { [weak self] category in
-                self?.modalRouter.push(filterRoute: .category(category))
-            },
-            onOpenTag: { [weak self] tagName in
-                self?.modalRouter.push(filterRoute: .tag(tagName))
-            }
+            interactions: runtimeInteractions
         )
     }
 

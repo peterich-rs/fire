@@ -45,7 +45,7 @@ async fn bootstrap_topic_reply_presence_updates_state_and_poll_checkpoint() {
     assert_eq!(presence.users[0].username, "bob");
 
     let (sender, _receiver) = unbounded_channel();
-    core.start_message_bus(MessageBusClientMode::Foreground, sender)
+    core.start_message_bus(MessageBusClientMode::Foreground, sender, None)
         .await
         .expect("start message bus");
     tokio::time::sleep(Duration::from_millis(50)).await;
@@ -89,7 +89,7 @@ async fn bootstrap_topic_reply_presence_accepts_legacy_message_id_field() {
     assert_eq!(presence.message_id, 1000);
 
     let (sender, _receiver) = unbounded_channel();
-    core.start_message_bus(MessageBusClientMode::Foreground, sender)
+    core.start_message_bus(MessageBusClientMode::Foreground, sender, None)
         .await
         .expect("start message bus");
     tokio::time::sleep(Duration::from_millis(50)).await;
@@ -209,7 +209,7 @@ async fn bootstrap_topic_reply_presence_accepts_string_last_message_id() {
     assert_eq!(presence.message_id, 1000);
 
     let (sender, _receiver) = unbounded_channel();
-    core.start_message_bus(MessageBusClientMode::Foreground, sender)
+    core.start_message_bus(MessageBusClientMode::Foreground, sender, None)
         .await
         .expect("start message bus");
     tokio::time::sleep(Duration::from_millis(50)).await;
@@ -334,7 +334,7 @@ async fn message_bus_presence_reactions_and_alerts_emit_expected_event_kinds() {
     .expect("subscribe alert");
 
     let (sender, mut receiver) = unbounded_channel();
-    core.start_message_bus(MessageBusClientMode::Foreground, sender)
+    core.start_message_bus(MessageBusClientMode::Foreground, sender, None)
         .await
         .expect("start message bus");
 
@@ -392,7 +392,7 @@ async fn update_topic_reply_presence_reuses_active_message_bus_client_id() {
 
     let (sender, _receiver) = unbounded_channel();
     let client_id = core
-        .start_message_bus(MessageBusClientMode::Foreground, sender)
+        .start_message_bus(MessageBusClientMode::Foreground, sender, None)
         .await
         .expect("start message bus");
     tokio::time::sleep(Duration::from_millis(50)).await;
@@ -455,7 +455,7 @@ async fn update_topic_reply_presence_refreshes_csrf_when_missing() {
     });
 
     let (sender, _receiver) = unbounded_channel();
-    core.start_message_bus(MessageBusClientMode::Foreground, sender)
+    core.start_message_bus(MessageBusClientMode::Foreground, sender, None)
         .await
         .expect("start message bus");
     tokio::time::sleep(Duration::from_millis(50)).await;
@@ -498,7 +498,7 @@ async fn update_topic_reply_presence_throttles_duplicate_active_heartbeats() {
     });
 
     let (sender, _receiver) = unbounded_channel();
-    core.start_message_bus(MessageBusClientMode::Foreground, sender)
+    core.start_message_bus(MessageBusClientMode::Foreground, sender, None)
         .await
         .expect("start message bus");
     tokio::time::sleep(Duration::from_millis(50)).await;
@@ -548,7 +548,7 @@ async fn update_topic_reply_presence_uses_rate_limit_wait_seconds_for_cooldown()
     });
 
     let (sender, _receiver) = unbounded_channel();
-    core.start_message_bus(MessageBusClientMode::Foreground, sender)
+    core.start_message_bus(MessageBusClientMode::Foreground, sender, None)
         .await
         .expect("start message bus");
     tokio::time::sleep(Duration::from_millis(50)).await;

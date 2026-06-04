@@ -237,7 +237,7 @@ async fn mark_notification_read_and_message_bus_merge_update_shared_state() {
 
     let (sender, mut receiver) = unbounded_channel();
     let _client_id = core
-        .start_message_bus(MessageBusClientMode::Foreground, sender)
+        .start_message_bus(MessageBusClientMode::Foreground, sender, None)
         .await
         .expect("start message bus");
 
@@ -322,7 +322,7 @@ async fn live_notification_merge_keeps_recent_cache_bounded_to_default_limit() {
 
     let (sender, mut receiver) = unbounded_channel();
     let _client_id = core
-        .start_message_bus(MessageBusClientMode::Foreground, sender)
+        .start_message_bus(MessageBusClientMode::Foreground, sender, None)
         .await
         .expect("start message bus");
 

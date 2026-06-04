@@ -1,5 +1,5 @@
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, HashMap},
     sync::{
         atomic::{AtomicU64, Ordering},
         Arc, Mutex, RwLock,
@@ -163,6 +163,7 @@ impl FireCore {
         &self,
         mode: MessageBusClientMode,
         event_sender: UnboundedSender<MessageBusEvent>,
+        topic_tracking_state_meta: Option<HashMap<String, i64>>,
     ) -> Result<String, FireCoreError> {
         let snapshot = self.snapshot();
         if !snapshot.cookies.can_authenticate_requests() {
@@ -179,7 +180,11 @@ impl FireCore {
             .message_bus
             .lock()
             .expect("message bus runtime lock poisoned");
-        let bootstrap_changed = ensure_bootstrap_subscriptions(&snapshot.bootstrap, &mut runtime);
+        let mut bootstrap_changed =
+            ensure_bootstrap_subscriptions(&snapshot.bootstrap, &mut runtime);
+        if let Some(meta) = topic_tracking_state_meta {
+            bootstrap_changed |= apply_topic_tracking_state_meta(&meta, &mut runtime);
+        }
         if bootstrap_changed {
             mark_subscriptions_changed(&mut runtime);
         }
@@ -1134,6 +1139,26 @@ fn bootstrap_tracking_subscriptions(bootstrap: &BootstrapArtifacts) -> Vec<(Stri
             integer_i64(Some(value)).map(|last_message_id| (channel.clone(), last_message_id))
         })
         .collect()
+}
+
+fn apply_topic_tracking_state_meta(
+    meta: &HashMap<String, i64>,
+    runtime: &mut FireMessageBusRuntime,
+) -> bool {
+    let mut changed = false;
+    for (channel, last_message_id) in meta {
+        if !channel.starts_with('/') {
+            continue;
+        }
+        changed |= upsert_runtime_subscription_owner(
+            runtime,
+            BOOTSTRAP_TRACKING_OWNER_TOKEN.to_string(),
+            channel.clone(),
+            *last_message_id,
+            MessageBusSubscriptionScope::Durable,
+        );
+    }
+    changed
 }
 
 fn bootstrap_message_id_for_channel(bootstrap: &BootstrapArtifacts, channel: &str) -> Option<i64> {

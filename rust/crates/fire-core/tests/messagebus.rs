@@ -53,7 +53,7 @@ async fn start_message_bus_polls_cross_origin_and_updates_checkpoints() {
 
     let (sender, mut receiver) = unbounded_channel();
     let client_id = core
-        .start_message_bus(MessageBusClientMode::Foreground, sender)
+        .start_message_bus(MessageBusClientMode::Foreground, sender, None)
         .await
         .expect("start message bus");
 
@@ -123,19 +123,19 @@ async fn foreground_client_id_is_reused_and_ios_background_gets_temporary_id() {
 
     let (sender, _receiver) = unbounded_channel();
     let foreground_client_id = core
-        .start_message_bus(MessageBusClientMode::Foreground, sender.clone())
+        .start_message_bus(MessageBusClientMode::Foreground, sender.clone(), None)
         .await
         .expect("start foreground");
     core.stop_message_bus(false);
 
     let restarted_foreground_client_id = core
-        .start_message_bus(MessageBusClientMode::Foreground, sender.clone())
+        .start_message_bus(MessageBusClientMode::Foreground, sender.clone(), None)
         .await
         .expect("restart foreground");
     core.stop_message_bus(false);
 
     let background_client_id = core
-        .start_message_bus(MessageBusClientMode::IosBackground, sender)
+        .start_message_bus(MessageBusClientMode::IosBackground, sender, None)
         .await
         .expect("start background");
     core.stop_message_bus(true);
@@ -164,7 +164,7 @@ async fn start_message_bus_without_subscriptions_waits_for_later_subscribe() {
 
     let (sender, mut receiver) = unbounded_channel();
     let client_id = core
-        .start_message_bus(MessageBusClientMode::Foreground, sender)
+        .start_message_bus(MessageBusClientMode::Foreground, sender, None)
         .await
         .expect("start idle message bus");
 
@@ -249,7 +249,7 @@ async fn active_message_bus_coalesces_subscription_changes_into_single_restart()
 
     let (sender, _receiver) = unbounded_channel();
     let client_id = core
-        .start_message_bus(MessageBusClientMode::Foreground, sender)
+        .start_message_bus(MessageBusClientMode::Foreground, sender, None)
         .await
         .expect("start message bus");
 
@@ -358,7 +358,7 @@ async fn overlapping_subscription_owners_do_not_remove_shared_channel_until_last
 
     let (sender, _receiver) = unbounded_channel();
     let client_id = core
-        .start_message_bus(MessageBusClientMode::Foreground, sender)
+        .start_message_bus(MessageBusClientMode::Foreground, sender, None)
         .await
         .expect("start message bus");
 
@@ -464,7 +464,7 @@ async fn message_bus_skips_malformed_items_without_dropping_valid_messages() {
     .expect("subscribe presence");
 
     let (sender, mut receiver) = unbounded_channel();
-    core.start_message_bus(MessageBusClientMode::Foreground, sender)
+    core.start_message_bus(MessageBusClientMode::Foreground, sender, None)
         .await
         .expect("start message bus");
 

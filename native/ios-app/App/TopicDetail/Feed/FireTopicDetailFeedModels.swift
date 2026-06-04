@@ -64,6 +64,8 @@ struct FireTopicDetailRuntimeItem: Hashable, @unchecked Sendable {
         self.statusMessage = statusMessage
     }
 
+    /// Identity-only equality for diff planning. Use `hasSameRenderedContent`
+    /// when comparing what the reader should actually see on screen.
     static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.id == rhs.id
     }
@@ -127,28 +129,7 @@ private struct FireTopicDetailReplyThreadIndex {
     let secondaryIndicesByRoot: [Int: [Int]]
 }
 
-struct FireTopicDetailRuntimeConfiguration {
-    let viewModel: FireAppViewModel?
-    let displayedCategory: FireTopicCategoryPresentation?
-    let currentUsername: String?
-    let row: FireTopicRowPresentation
-    let baseURLString: String
-    let detail: TopicDetailState?
-    let renderState: FireTopicDetailRenderState?
-    let pendingScrollTarget: UInt32?
-    let detailError: String?
-    let detailNotice: FireTopicDetailStatusMessage?
-    let hasMoreTopicPosts: Bool
-    let isLoadingTopic: Bool
-    let isLoadingMoreTopicPosts: Bool
-    let loadMoreTopicPostsError: String?
-    let topicAiSummary: TopicAiSummaryState?
-    let isLoadingTopicAiSummary: Bool
-    let topicAiSummaryError: String?
-    let topicCollectionRevision: UInt64
-    let canWriteInteractions: Bool
-    let postLookup: [UInt64: TopicPostState]
-    let snapshotInvalidationToken: AnyHashable
+final class FireTopicDetailRuntimeInteractions {
     let isMutatingPost: (UInt64) -> Bool
     let isPostTextExpanded: (UInt64) -> Bool
     let isReplyThreadExpanded: (UInt64) -> Bool
@@ -178,6 +159,123 @@ struct FireTopicDetailRuntimeConfiguration {
     let onShowTopicVoters: () async -> Void
     let onOpenCategory: (FireTopicCategoryPresentation) -> Void
     let onOpenTag: (String) -> Void
+
+    init(
+        isMutatingPost: @escaping (UInt64) -> Bool,
+        isPostTextExpanded: @escaping (UInt64) -> Bool,
+        isReplyThreadExpanded: @escaping (UInt64) -> Bool,
+        isLoadingPostReplyContext: @escaping (UInt64) -> Bool,
+        onVisiblePostNumbersChanged: @escaping (Set<UInt32>) -> Void,
+        onRefresh: @escaping () async -> Void,
+        onLoadTopicDetail: @escaping () async -> Void,
+        onScrollTargetHandled: @escaping (UInt32) -> Void,
+        onLoadMoreTopicPosts: @escaping () -> Bool,
+        onReloadTopicAiSummary: @escaping () -> Void,
+        onOpenComposer: @escaping (TopicPostState?) -> Void,
+        onOpenPostNumber: @escaping (UInt32) -> Void,
+        onOpenPostReplies: @escaping (TopicPostState) -> Void,
+        onLinkTapped: @escaping (URL) -> Void,
+        onOpenImage: @escaping (FireCookedImage) -> Void,
+        onToggleLike: @escaping (TopicPostState) -> Void,
+        onSelectReaction: @escaping (TopicPostState, String) -> Void,
+        onEditPost: @escaping (TopicPostState) -> Void,
+        onBookmarkPost: @escaping (TopicPostState) -> Void,
+        onDeletePost: @escaping (TopicPostState) -> Void,
+        onRecoverPost: @escaping (TopicPostState) -> Void,
+        onFlagPost: @escaping (TopicPostState) -> Void,
+        onExpandPostText: @escaping (TopicPostState) -> Void,
+        onVotePoll: @escaping (TopicPostState, PollState, [String]) -> Void,
+        onUnvotePoll: @escaping (TopicPostState, PollState) -> Void,
+        onToggleTopicVote: @escaping () async -> Void,
+        onShowTopicVoters: @escaping () async -> Void,
+        onOpenCategory: @escaping (FireTopicCategoryPresentation) -> Void,
+        onOpenTag: @escaping (String) -> Void
+    ) {
+        self.isMutatingPost = isMutatingPost
+        self.isPostTextExpanded = isPostTextExpanded
+        self.isReplyThreadExpanded = isReplyThreadExpanded
+        self.isLoadingPostReplyContext = isLoadingPostReplyContext
+        self.onVisiblePostNumbersChanged = onVisiblePostNumbersChanged
+        self.onRefresh = onRefresh
+        self.onLoadTopicDetail = onLoadTopicDetail
+        self.onScrollTargetHandled = onScrollTargetHandled
+        self.onLoadMoreTopicPosts = onLoadMoreTopicPosts
+        self.onReloadTopicAiSummary = onReloadTopicAiSummary
+        self.onOpenComposer = onOpenComposer
+        self.onOpenPostNumber = onOpenPostNumber
+        self.onOpenPostReplies = onOpenPostReplies
+        self.onLinkTapped = onLinkTapped
+        self.onOpenImage = onOpenImage
+        self.onToggleLike = onToggleLike
+        self.onSelectReaction = onSelectReaction
+        self.onEditPost = onEditPost
+        self.onBookmarkPost = onBookmarkPost
+        self.onDeletePost = onDeletePost
+        self.onRecoverPost = onRecoverPost
+        self.onFlagPost = onFlagPost
+        self.onExpandPostText = onExpandPostText
+        self.onVotePoll = onVotePoll
+        self.onUnvotePoll = onUnvotePoll
+        self.onToggleTopicVote = onToggleTopicVote
+        self.onShowTopicVoters = onShowTopicVoters
+        self.onOpenCategory = onOpenCategory
+        self.onOpenTag = onOpenTag
+    }
+}
+
+struct FireTopicDetailRuntimeConfiguration {
+    let viewModel: FireAppViewModel?
+    let displayedCategory: FireTopicCategoryPresentation?
+    let currentUsername: String?
+    let row: FireTopicRowPresentation
+    let baseURLString: String
+    let detail: TopicDetailState?
+    let renderState: FireTopicDetailRenderState?
+    let pendingScrollTarget: UInt32?
+    let detailError: String?
+    let detailNotice: FireTopicDetailStatusMessage?
+    let hasMoreTopicPosts: Bool
+    let isLoadingTopic: Bool
+    let isLoadingMoreTopicPosts: Bool
+    let loadMoreTopicPostsError: String?
+    let topicAiSummary: TopicAiSummaryState?
+    let isLoadingTopicAiSummary: Bool
+    let topicAiSummaryError: String?
+    let topicCollectionRevision: UInt64
+    let canWriteInteractions: Bool
+    let postLookup: [UInt64: TopicPostState]
+    let snapshotInvalidationToken: AnyHashable
+    let interactions: FireTopicDetailRuntimeInteractions
+
+    var isMutatingPost: (UInt64) -> Bool { interactions.isMutatingPost }
+    var isPostTextExpanded: (UInt64) -> Bool { interactions.isPostTextExpanded }
+    var isReplyThreadExpanded: (UInt64) -> Bool { interactions.isReplyThreadExpanded }
+    var isLoadingPostReplyContext: (UInt64) -> Bool { interactions.isLoadingPostReplyContext }
+    var onVisiblePostNumbersChanged: (Set<UInt32>) -> Void { interactions.onVisiblePostNumbersChanged }
+    var onRefresh: () async -> Void { interactions.onRefresh }
+    var onLoadTopicDetail: () async -> Void { interactions.onLoadTopicDetail }
+    var onScrollTargetHandled: (UInt32) -> Void { interactions.onScrollTargetHandled }
+    var onLoadMoreTopicPosts: () -> Bool { interactions.onLoadMoreTopicPosts }
+    var onReloadTopicAiSummary: () -> Void { interactions.onReloadTopicAiSummary }
+    var onOpenComposer: (TopicPostState?) -> Void { interactions.onOpenComposer }
+    var onOpenPostNumber: (UInt32) -> Void { interactions.onOpenPostNumber }
+    var onOpenPostReplies: (TopicPostState) -> Void { interactions.onOpenPostReplies }
+    var onLinkTapped: (URL) -> Void { interactions.onLinkTapped }
+    var onOpenImage: (FireCookedImage) -> Void { interactions.onOpenImage }
+    var onToggleLike: (TopicPostState) -> Void { interactions.onToggleLike }
+    var onSelectReaction: (TopicPostState, String) -> Void { interactions.onSelectReaction }
+    var onEditPost: (TopicPostState) -> Void { interactions.onEditPost }
+    var onBookmarkPost: (TopicPostState) -> Void { interactions.onBookmarkPost }
+    var onDeletePost: (TopicPostState) -> Void { interactions.onDeletePost }
+    var onRecoverPost: (TopicPostState) -> Void { interactions.onRecoverPost }
+    var onFlagPost: (TopicPostState) -> Void { interactions.onFlagPost }
+    var onExpandPostText: (TopicPostState) -> Void { interactions.onExpandPostText }
+    var onVotePoll: (TopicPostState, PollState, [String]) -> Void { interactions.onVotePoll }
+    var onUnvotePoll: (TopicPostState, PollState) -> Void { interactions.onUnvotePoll }
+    var onToggleTopicVote: () async -> Void { interactions.onToggleTopicVote }
+    var onShowTopicVoters: () async -> Void { interactions.onShowTopicVoters }
+    var onOpenCategory: (FireTopicCategoryPresentation) -> Void { interactions.onOpenCategory }
+    var onOpenTag: (String) -> Void { interactions.onOpenTag }
 
     var topic: TopicSummaryState {
         row.topic
@@ -326,6 +424,7 @@ struct FireTopicDetailRuntimeConfiguration {
         var items: [FireTopicDetailRuntimeItem] = []
         let replyDisplayPlan = makeReplyDisplayPlan()
         let replyIndexByPostID = replyDisplayPlan.sourceIndexByPostID
+        let currentReplyFooterState = replyFooterState
 
         items.append(.init(
             id: "header:\(topic.id)",
@@ -520,14 +619,14 @@ struct FireTopicDetailRuntimeConfiguration {
                 ))
             }
 
-            if replyFooterState != .none {
+            if currentReplyFooterState != .none {
                 items.append(.init(
-                    id: "reply-footer:\(topic.id):\(replyFooterState.identityToken)",
+                    id: "reply-footer:\(topic.id):\(currentReplyFooterState.identityToken)",
                     kind: .replyFooter,
                     postID: nil,
                     postNumber: nil,
                     replyIndex: nil,
-                    contentToken: AnyHashable(replyFooterState.contentToken)
+                    contentToken: AnyHashable(currentReplyFooterState.contentToken)
                 ))
             }
         }
@@ -973,7 +1072,7 @@ enum FireTopicDetailRuntimeReplyFooterState: Equatable {
     static func fromContentToken(_ token: String) -> Self? {
         switch token {
         case Self.none.contentToken:
-            return .none
+            return FireTopicDetailRuntimeReplyFooterState.none
         case Self.loadMoreAvailable.contentToken:
             return .loadMoreAvailable
         case Self.loadingFooter.contentToken:

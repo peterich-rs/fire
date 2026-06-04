@@ -353,14 +353,29 @@ final class FireAppViewModel: ObservableObject {
                     let sessionStore = try await self.sessionStoreValue()
                     guard self.initialStateLoadGeneration == generation else { return }
                     self.errorMessage = nil
-                    let restoredSession = try await sessionStore.restoreColdStartSession()
+                    try await sessionStore.ensurePreloadedDataLoaded()
                     guard self.initialStateLoadGeneration == generation else { return }
-                    await self.applySession(restoredSession, activateMessageBus: false)
+                    let loginState = await sessionStore.determineLoginState()
                     guard self.initialStateLoadGeneration == generation else { return }
-                    let didLoadHomeFeed = await self.refreshHomeFeedIfPossible(force: true)
-                    guard self.initialStateLoadGeneration == generation else { return }
-                    if didLoadHomeFeed {
-                        await self.ensureMessageBusActiveIfPossible()
+                    switch loginState {
+                    case .loggedIn:
+                        let restoredSession = try await sessionStore.restoreColdStartSession()
+                        guard self.initialStateLoadGeneration == generation else { return }
+                        await self.applySession(restoredSession, activateMessageBus: false)
+                        guard self.initialStateLoadGeneration == generation else { return }
+                        let didLoadHomeFeed = await self.refreshHomeFeedIfPossible(force: true)
+                        guard self.initialStateLoadGeneration == generation else { return }
+                        if didLoadHomeFeed {
+                            await self.ensureMessageBusActiveIfPossible()
+                        }
+                    case .sessionExpired, .networkErrorPreserveState:
+                        let restoredSession = try await sessionStore.restoreColdStartSession()
+                        guard self.initialStateLoadGeneration == generation else { return }
+                        await self.applySession(restoredSession, activateMessageBus: false)
+                    case .notLoggedIn:
+                        break
+                    @unknown default:
+                        break
                     }
                 }
             } catch {

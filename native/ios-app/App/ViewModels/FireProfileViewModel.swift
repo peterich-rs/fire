@@ -256,5 +256,3 @@ final class FireProfileViewModel: ObservableObject {
     }
 }
 
-extension FireProfileViewModel: FireStartupPreloadProfileLoader {}
-

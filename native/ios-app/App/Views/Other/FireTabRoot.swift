@@ -10,6 +10,7 @@ struct FireTabRoot: View {
     @StateObject private var topicDetailStore: FireTopicDetailStore
     @StateObject private var profileViewModel: FireProfileViewModel
     @AppStorage("fire.appearancePreference") private var appearancePreferenceRawValue = FireAppearancePreference.system.rawValue
+    @State private var preheatComplete = false
 
     init() {
         let vm = FireAppViewModel()
@@ -33,7 +34,9 @@ struct FireTabRoot: View {
 
     var body: some View {
         Group {
-            if isAuthenticated {
+            if !preheatComplete {
+                FirePreheatGateRepresentable(sessionStore: viewModel.currentSessionStore())
+            } else if isAuthenticated {
                 TabView(selection: $navigationState.selectedTab) {
                     FireHomeView(viewModel: viewModel, searchStore: searchStore)
                         .tabItem {
@@ -82,6 +85,12 @@ struct FireTabRoot: View {
                 FireMotionTokens.animation(for: .standard, reduceMotion: reduceMotion),
                 value: isAuthenticated
             )
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .firePreheatGateDidComplete)) { _ in
+            preheatComplete = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .firePreheatGateRequestsLogout)) { _ in
+            viewModel.logout()
         }
         .fullScreenCover(item: $viewModel.authPresentationState) { presentationState in
             FireAuthScreen(
@@ -196,5 +205,77 @@ struct FireTabRoot: View {
         @unknown default:
             return "unknown"
         }
+    }
+}
+
+struct FirePreheatGateRepresentable: UIViewControllerRepresentable {
+    let sessionStore: FireSessionStore?
+
+    func makeUIViewController(context: Context) -> FirePreheatGateWaitingViewController {
+        if let store = sessionStore {
+            return FirePreheatGateWaitingViewController(sessionStore: store)
+        }
+        return FirePreheatGateWaitingViewController(sessionStore: nil)
+    }
+
+    func updateUIViewController(_ uiViewController: FirePreheatGateWaitingViewController, context: Context) {
+        if let store = sessionStore, uiViewController.sessionStore == nil {
+            uiViewController.configure(with: store)
+        }
+    }
+}
+
+final class FirePreheatGateWaitingViewController: UIViewController {
+    private(set) var sessionStore: FireSessionStore?
+    private var gateViewController: FirePreheatGateViewController?
+    private let loadingIndicator = UIActivityIndicatorView(style: .large)
+
+    init(sessionStore: FireSessionStore?) {
+        self.sessionStore = sessionStore
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = .systemBackground
+
+        loadingIndicator.translatesAutoresizingMaskIntoConstraints = false
+        loadingIndicator.startAnimating()
+        view.addSubview(loadingIndicator)
+        NSLayoutConstraint.activate([
+            loadingIndicator.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            loadingIndicator.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+        ])
+
+        if let store = sessionStore {
+            installGate(with: store)
+        }
+    }
+
+    func configure(with store: FireSessionStore) {
+        sessionStore = store
+        if isViewLoaded {
+            installGate(with: store)
+        }
+    }
+
+    private func installGate(with store: FireSessionStore) {
+        guard gateViewController == nil else { return }
+        loadingIndicator.stopAnimating()
+        loadingIndicator.removeFromSuperview()
+        let gate = FirePreheatGateViewController(sessionStore: store)
+        gateViewController = gate
+        addChild(gate)
+        view.addSubview(gate.view)
+        gate.view.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            gate.view.topAnchor.constraint(equalTo: view.topAnchor),
+            gate.view.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            gate.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            gate.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+        ])
+        gate.didMove(toParent: self)
     }
 }

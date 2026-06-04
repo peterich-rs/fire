@@ -117,6 +117,30 @@ public actor FireSessionStore {
         try core.session().snapshot()
     }
 
+    public func ensurePreloadedDataLoaded() async throws {
+        try await core.session().ensurePreloadedDataLoaded()
+    }
+
+    public func awaitPreloadedData() async throws -> PreloadedDataStateState {
+        try await core.session().awaitPreloadedData()
+    }
+
+    public func currentUserDefaults() -> CurrentUserSnapshotState? {
+        try? core.session().currentUserSnapshot()
+    }
+
+    public func cachedUser() -> CurrentUserSnapshotState? {
+        try? core.session().cachedUser()
+    }
+
+    public func determineLoginState() -> LoginStateDeterminationState {
+        (try? core.session().determineLoginState()) ?? .notLoggedIn
+    }
+
+    public func determineLoginStateWithProbe() async throws -> LoginStateDeterminationState {
+        try await core.session().determineLoginStateWithProbe()
+    }
+
     public func restorePersistedSessionIfAvailable() throws -> SessionState? {
         guard FileManager.default.fileExists(atPath: sessionFilePath) else {
             return nil

@@ -161,6 +161,7 @@ final class FireCfClearanceRefreshService: NSObject, WKNavigationDelegate, WKScr
         sceneActive
             && !interactiveRecoveryActive
             && session.readiness.canReadAuthenticatedApi
+            && session.readiness.hasCurrentUser
             && session.readiness.hasCloudflareClearance
             && !(session.bootstrap.turnstileSitekey?.isEmpty ?? true)
     }

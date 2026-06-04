@@ -10,9 +10,10 @@ pub mod records;
 
 pub use records::{
     format_probe_result, AuthRecoveryHintState, BootstrapState, CookieReplayEntryState,
-    CookieState, LoginFinalizationResultState, LoginPhaseState, LoginSyncState,
-    PassiveLogoutTriggerState, PlatformCookieState, SessionPersistenceState, SessionReadinessState,
-    SessionState, TopicCategoryState,
+    CookieState, CurrentUserSnapshotState, LoginFinalizationResultState,
+    LoginPhaseState, LoginStateDeterminationState, LoginSyncState, PassiveLogoutTriggerState,
+    PlatformCookieState, PreloadedDataStateState, RefreshTriggerState, SessionPersistenceState,
+    SessionReadinessState, SessionState, TopicCategoryState,
 };
 
 #[derive(uniffi::Object)]
@@ -398,4 +399,89 @@ impl FireSessionHandle {
     }
 
     pub fn record_fingerprint_done(&self) {}
+
+    pub async fn ensure_preloaded_data_loaded(&self) -> Result<(), FireUniFfiError> {
+        let inner = self.shared.core.clone();
+        let panic_state = self.shared.panic_state.clone();
+        run_on_ffi_runtime("ensure_preloaded_data_loaded", panic_state, async move {
+            let service = inner.preloaded_data_service();
+            service.ensure_loaded().await?;
+            Ok(())
+        })
+        .await
+    }
+
+    pub async fn await_preloaded_data(&self) -> Result<PreloadedDataStateState, FireUniFfiError> {
+        let inner = self.shared.core.clone();
+        let panic_state = self.shared.panic_state.clone();
+        let result = run_on_ffi_runtime("await_preloaded_data", panic_state, async move {
+            let service = inner.preloaded_data_service();
+            service.ensure_loaded().await
+        })
+        .await;
+        match result {
+            Ok(_) => Ok(PreloadedDataStateState::Ready),
+            Err(e) => Ok(PreloadedDataStateState::Failed {
+                error: e.to_string(),
+            }),
+        }
+    }
+
+    pub fn current_user_snapshot(&self) -> Result<Option<CurrentUserSnapshotState>, FireUniFfiError> {
+        run_infallible(
+            &self.shared.panic_state,
+            &self.shared.core,
+            "current_user_snapshot",
+            |inner| {
+                inner
+                    .preloaded_data_service()
+                    .get_current_user()
+                    .map(CurrentUserSnapshotState::from)
+            },
+        )
+    }
+
+    pub fn cached_user(&self) -> Result<Option<CurrentUserSnapshotState>, FireUniFfiError> {
+        run_infallible(
+            &self.shared.panic_state,
+            &self.shared.core,
+            "cached_user",
+            |inner| {
+                inner
+                    .preloaded_data_service()
+                    .get_cached_user()
+                    .map(CurrentUserSnapshotState::from)
+            },
+        )
+    }
+
+    pub fn determine_login_state(&self) -> Result<LoginStateDeterminationState, FireUniFfiError> {
+        run_infallible(
+            &self.shared.panic_state,
+            &self.shared.core,
+            "determine_login_state",
+            |inner| inner.determine_login_state().into(),
+        )
+    }
+
+    pub async fn determine_login_state_with_probe(&self) -> Result<LoginStateDeterminationState, FireUniFfiError> {
+        let inner = self.shared.core.clone();
+        let panic_state = self.shared.panic_state.clone();
+        let result = run_on_ffi_runtime("determine_login_state_with_probe", panic_state, async move {
+            Ok::<_, fire_core::FireCoreError>(inner.determine_login_state_with_probe().await)
+        })
+        .await?;
+        Ok(result.into())
+    }
+
+    pub async fn trigger_app_state_refresh(&self, trigger: RefreshTriggerState) -> Result<(), FireUniFfiError> {
+        let inner = self.shared.core.clone();
+        let panic_state = self.shared.panic_state.clone();
+        let rust_trigger = fire_models::RefreshTrigger::from(trigger);
+        run_on_ffi_runtime("trigger_app_state_refresh", panic_state, async move {
+            inner.app_state_refresher().refresh_all(rust_trigger).await?;
+            Ok(())
+        })
+        .await
+    }
 }

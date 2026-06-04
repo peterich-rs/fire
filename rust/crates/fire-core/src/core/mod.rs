@@ -1,4 +1,5 @@
 mod auth;
+mod auth_strike;
 mod creation;
 mod interactions;
 mod messagebus;
@@ -124,6 +125,7 @@ pub(crate) struct FireSessionRuntimeState {
     pub(crate) auth_cookie_revision: u64,
     pub(crate) auth_recovery_hint: Option<FireAuthRecoveryHint>,
     pub(crate) last_response_auth_change: Option<FireResponseAuthChange>,
+    pub(crate) auth_strike: auth_strike::AuthStrikeState,
 }
 
 #[derive(Clone)]
@@ -171,6 +173,7 @@ impl FireCore {
             auth_cookie_revision: 1,
             auth_recovery_hint: None,
             last_response_auth_change: None,
+            auth_strike: auth_strike::AuthStrikeState::default(),
         };
         let session = Arc::new(RwLock::new(session));
         let topic_feed_store = open_topic_feed_store(workspace_path.as_deref())?;

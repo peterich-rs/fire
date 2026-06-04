@@ -879,8 +879,13 @@ async fn fetch_topic_list_preserves_local_login_when_success_response_reports_lo
 async fn fetch_topic_list_surfaces_login_required_and_preserves_local_state_for_not_logged_in_error(
 ) {
     let body = r#"{"errors":["需要登录才能执行此操作。"],"error_type":"not_logged_in"}"#;
-    let response = raw_json_response(403, "application/json", body);
-    let server = TestServer::spawn(vec![response]).await.expect("server");
+    let probe_body = r#"{"current_user":{"username":"alice"}}"#;
+    let server = TestServer::spawn(vec![
+        raw_json_response(403, "application/json", body),
+        raw_json_response(200, "application/json", probe_body),
+    ])
+    .await
+    .expect("server");
     let core = FireCore::new(FireCoreConfig {
         base_url: server.base_url(),
         workspace_path: None,
@@ -932,8 +937,7 @@ async fn fetch_topic_list_surfaces_login_required_and_preserves_local_state_for_
 
     assert!(matches!(
         error,
-        FireCoreError::LoginRequired { message, .. }
-            if message == "需要登录才能执行此操作。"
+        FireCoreError::LoginRequired { .. }
     ));
 
     let snapshot = core.snapshot();

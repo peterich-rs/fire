@@ -728,6 +728,14 @@ impl FireCore {
             invalidation,
             &body,
         ) {
+            if let Some(strike_error) = self.classify_and_process_auth_strike(
+                StatusCode::FORBIDDEN,
+                &invalidation,
+                &body,
+                operation,
+            ).await {
+                return Err(strike_error);
+            }
             return Err(error);
         }
 
@@ -811,6 +819,28 @@ impl FireCore {
         self.read_response_json_with_diagnostics(operation, trace_id, response)
             .await
     }
+
+    pub(crate) async fn classify_and_process_auth_strike(
+        &self,
+        status: StatusCode,
+        invalidation: &LoginInvalidationSignal,
+        body: &str,
+        operation: &'static str,
+    ) -> Option<FireCoreError> {
+        let has_not_logged_in_error = not_logged_in_message(status.as_u16(), body).is_some();
+        let has_discourse_logged_out = invalidation.discourse_logged_out;
+        let is_4xx = status.is_client_error();
+
+        let strength = if has_not_logged_in_error || (is_4xx && has_discourse_logged_out) {
+            fire_models::SignalStrength::Strong
+        } else if has_discourse_logged_out {
+            fire_models::SignalStrength::Weak
+        } else {
+            return None;
+        };
+
+        self.process_auth_strike_signal(strength, operation).await
+    }
 }
 
 pub(crate) async fn expect_success(
@@ -858,6 +888,14 @@ pub(crate) async fn expect_success(
     if let Some(error) =
         response_login_invalidation_error(operation, trace_id, response_status, invalidation, &body)
     {
+        if let Some(strike_error) = core.classify_and_process_auth_strike(
+            response_status,
+            &invalidation,
+            &body,
+            operation,
+        ).await {
+            return Err(strike_error);
+        }
         return Err(error);
     }
     Err(classify_http_status_error(

@@ -1,9 +1,10 @@
-use fire_models::{BootstrapArtifacts, CookieSnapshot, SessionSnapshot};
+use fire_models::{BootstrapArtifacts, CookieSnapshot, PassiveLogoutTrigger, ProbeResult, SessionSnapshot, SignalStrength};
 use http::{Method, StatusCode};
 use serde_json::Value;
 use tracing::{debug, info, warn};
 
 use super::{
+    auth_strike::StrikeDecision,
     messagebus::message_bus_requires_shared_session_key,
     network::{classify_http_status_error, expect_success, header_value, is_bad_csrf_body},
     FireCore,
@@ -12,6 +13,7 @@ use crate::parsing::{parse_home_state, parse_site_metadata_json};
 use crate::{
     error::FireCoreError,
     json_helpers::{invalid_json, scalar_string},
+    sync_utils::{read_rwlock, write_rwlock},
 };
 
 impl FireCore {
@@ -270,4 +272,164 @@ fn parse_csrf_token_response(value: &Value) -> Result<String, serde_json::Error>
         .as_object()
         .ok_or_else(|| invalid_json("csrf response root was not an object"))?;
     Ok(scalar_string(object.get("csrf")).unwrap_or_default())
+}
+
+impl FireCore {
+    pub async fn probe_session(&self) -> Result<ProbeResult, FireCoreError> {
+        let traced = self.build_json_get_request(
+            "probe_session",
+            "/session/current.json",
+            Vec::new(),
+            &[],
+        )?;
+        let (trace_id, response) = self.execute_request(traced).await?;
+        let status = response.status();
+        if status.as_u16() == 404 {
+            return Ok(ProbeResult::Invalid);
+        }
+        let body = self.read_response_text(trace_id, response).await;
+        match body {
+            Ok(text) => {
+                let json: Value = serde_json::from_str(&text).unwrap_or_default();
+                if let Some(user) = json.get("current_user") {
+                    let username = user
+                        .get("username")
+                        .and_then(|u| u.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    if !username.is_empty() {
+                        return Ok(ProbeResult::Valid { username });
+                    }
+                }
+                if status.is_success() {
+                    Ok(ProbeResult::Invalid)
+                } else {
+                    Ok(ProbeResult::Inconclusive)
+                }
+            }
+            Err(_) => Ok(ProbeResult::Inconclusive),
+        }
+    }
+
+    pub async fn passive_logout(&self, trigger: PassiveLogoutTrigger) -> Result<(), FireCoreError> {
+        info!(
+            source = %trigger.source,
+            signal_strength = ?trigger.signal_strength,
+            "initiating passive logout"
+        );
+        {
+            let mut state = write_rwlock(&self.session, "session");
+            state.auth_strike.record_passive_logout();
+            state.epoch = state.epoch.saturating_add(1);
+        }
+        self.logout_local(true);
+        Ok(())
+    }
+
+    pub(crate) async fn process_auth_strike_signal(
+        &self,
+        strength: SignalStrength,
+        operation: &'static str,
+    ) -> Option<FireCoreError> {
+        let decision = {
+            let mut state = write_rwlock(&self.session, "session");
+            state.auth_strike.receive_auth_signal(strength.clone())
+        };
+        match decision {
+            StrikeDecision::ProbeNeeded => {
+                {
+                    let mut state = write_rwlock(&self.session, "session");
+                    state.auth_strike.probe_in_progress = true;
+                }
+                let probe_result = self.probe_session().await;
+                {
+                    let mut state = write_rwlock(&self.session, "session");
+                    state.auth_strike.probe_in_progress = false;
+                }
+                match probe_result {
+                    Ok(ProbeResult::Valid { .. }) => {
+                        info!(operation, "probe confirmed session valid, resetting strikes");
+                        {
+                            let mut state = write_rwlock(&self.session, "session");
+                            state.auth_strike.reset_strikes();
+                        }
+                        None
+                    }
+                    Ok(ProbeResult::Invalid) => {
+                        info!(operation, "probe confirmed session invalid, triggering passive logout");
+                        let _ = self
+                            .passive_logout(PassiveLogoutTrigger {
+                                source: format!("strike_probe_invalid:{operation}"),
+                                signal_strength: strength,
+                                cookie_diagnostic: String::new(),
+                            })
+                            .await;
+                        Some(FireCoreError::LoginRequired {
+                            operation,
+                            message: "登录状态已失效，请重新登录。".to_string(),
+                        })
+                    }
+                    Ok(ProbeResult::Inconclusive) => {
+                        let strikes = {
+                            let state = read_rwlock(&self.session, "session");
+                            state.auth_strike.strike_count
+                        };
+                        if strikes >= 2 {
+                            info!(
+                                operation,
+                                strikes,
+                                "probe inconclusive with enough strikes, triggering passive logout"
+                            );
+                            let _ = self
+                                .passive_logout(PassiveLogoutTrigger {
+                                    source: format!("strike_probe_inconclusive:{operation}"),
+                                    signal_strength: strength,
+                                    cookie_diagnostic: String::new(),
+                                })
+                                .await;
+                            Some(FireCoreError::LoginRequired {
+                                operation,
+                                message: "登录状态已失效，请重新登录。".to_string(),
+                            })
+                        } else {
+                            info!(
+                                operation,
+                                strikes,
+                                "probe inconclusive with few strikes, entering cooldown"
+                            );
+                            let mut state = write_rwlock(&self.session, "session");
+                            state.auth_strike.enter_inconclusive_cooldown();
+                            Some(FireCoreError::LoginRequired {
+                                operation,
+                                message: "登录状态已失效，请重新登录。".to_string(),
+                            })
+                        }
+                    }
+                    Err(_) => {
+                        let strikes = {
+                            let state = read_rwlock(&self.session, "session");
+                            state.auth_strike.strike_count
+                        };
+                        if strikes >= 2 {
+                            let _ = self
+                                .passive_logout(PassiveLogoutTrigger {
+                                    source: format!("strike_probe_error:{operation}"),
+                                    signal_strength: strength,
+                                    cookie_diagnostic: String::new(),
+                                })
+                                .await;
+                        } else {
+                            let mut state = write_rwlock(&self.session, "session");
+                            state.auth_strike.enter_inconclusive_cooldown();
+                        }
+                        Some(FireCoreError::LoginRequired {
+                            operation,
+                            message: "登录状态已失效，请重新登录。".to_string(),
+                        })
+                    }
+                }
+            }
+            StrikeDecision::Accumulated { .. } | StrikeDecision::Ignore => None,
+        }
+    }
 }

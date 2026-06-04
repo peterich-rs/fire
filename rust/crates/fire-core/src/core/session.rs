@@ -277,4 +277,57 @@ impl FireCore {
             .cookies
             .has_login_session()
     }
+
+    pub fn determine_login_state(&self) -> fire_models::LoginStateDetermination {
+        let snapshot = self.snapshot();
+        let readiness = snapshot.readiness();
+
+        if readiness.has_current_user {
+            if let (Some(username), Some(user_id)) = (
+                snapshot.bootstrap.current_username.as_deref(),
+                snapshot.bootstrap.current_user_id,
+            ) {
+                return fire_models::LoginStateDetermination::LoggedIn {
+                    username: username.to_string(),
+                    user_id,
+                };
+            }
+        }
+
+        if !readiness.has_login_cookie {
+            return fire_models::LoginStateDetermination::NotLoggedIn;
+        }
+
+        fire_models::LoginStateDetermination::NotLoggedIn
+    }
+
+    pub async fn determine_login_state_with_probe(&self) -> fire_models::LoginStateDetermination {
+        let initial = self.determine_login_state();
+        if !matches!(initial, fire_models::LoginStateDetermination::NotLoggedIn) {
+            return initial;
+        }
+
+        let snapshot = self.snapshot();
+        if !snapshot.cookies.has_login_session() {
+            return fire_models::LoginStateDetermination::NotLoggedIn;
+        }
+
+        match self.probe_session().await {
+            Ok(probe) => match probe {
+                fire_models::ProbeResult::Valid { username } => {
+                    fire_models::LoginStateDetermination::LoggedIn {
+                        username,
+                        user_id: snapshot.bootstrap.current_user_id.unwrap_or(0),
+                    }
+                }
+                fire_models::ProbeResult::Invalid => {
+                    fire_models::LoginStateDetermination::SessionExpired
+                }
+                fire_models::ProbeResult::Inconclusive => {
+                    fire_models::LoginStateDetermination::NetworkErrorPreserveState
+                }
+            },
+            Err(_) => fire_models::LoginStateDetermination::NetworkErrorPreserveState,
+        }
+    }
 }

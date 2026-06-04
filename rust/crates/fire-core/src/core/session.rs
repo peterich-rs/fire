@@ -1,5 +1,6 @@
 use fire_models::{
-    BootstrapArtifacts, CookieSnapshot, LoginSyncInput, PlatformCookie, SessionSnapshot,
+    BootstrapArtifacts, CookieSnapshot, LoginFinalizationResult, LoginSyncInput, PlatformCookie,
+    SessionSnapshot,
 };
 use tracing::{debug, info};
 
@@ -166,6 +167,87 @@ impl FireCore {
                 );
             },
         )
+    }
+
+    pub fn finalize_login_from_webview(
+        &self,
+        username: String,
+        csrf_token: Option<String>,
+        raw_preloaded_html: Option<String>,
+        browser_user_agent: Option<String>,
+        cookies: Vec<PlatformCookie>,
+        allow_low_confidence_session_cookies: bool,
+    ) -> LoginFinalizationResult {
+        let base_url = self.base_url();
+        let host = url::Url::parse(base_url)
+            .ok()
+            .and_then(|u| u.host_str().map(|h| h.to_string()))
+            .unwrap_or_default();
+
+        let webview_t_token = cookies
+            .iter()
+            .find(|c| c.name == "_t")
+            .map(|c| c.value.clone());
+
+        self.update_session_advancing_epoch_if_auth_changed(
+            "finalize login from webview",
+            FireAuthChangeSource::PlatformSync,
+            |session| {
+                session.cookies.scored_apply_platform_cookies(
+                    &cookies,
+                    &host,
+                    allow_low_confidence_session_cookies,
+                );
+                debug!(
+                    phase = ?session.login_phase(),
+                    readiness = ?session.readiness(),
+                    "applied scored platform cookies"
+                );
+            },
+        );
+
+        let jar_t_after = {
+            let state = read_rwlock(&self.session, "session");
+            state.snapshot.cookies.t_token.clone()
+        };
+
+        let t_token_verified = match (&webview_t_token, &jar_t_after) {
+            (Some(wv), Some(jar)) => wv == jar,
+            (None, _) => true,
+            (_, None) => false,
+        };
+
+        {
+            let snapshot = self.update_session(|session| {
+                if !username.is_empty() {
+                    session.bootstrap.current_username = Some(username);
+                }
+                if let Some(ref csrf) = csrf_token {
+                    session.cookies.csrf_token = Some(csrf.clone());
+                }
+                if let Some(ref ua) = browser_user_agent {
+                    session.browser_user_agent = Some(ua.clone());
+                }
+            });
+            debug!(
+                phase = ?snapshot.login_phase(),
+                readiness = ?snapshot.readiness(),
+                "applied username, csrf, and browser UA"
+            );
+        }
+
+        if let Some(html) = raw_preloaded_html {
+            self.apply_home_html(html);
+        }
+
+        let snapshot = self.snapshot();
+        let success = snapshot.cookies.has_login_session();
+
+        LoginFinalizationResult {
+            success,
+            t_token_verified,
+            fingerprint_wait_needed: true,
+        }
     }
 
     pub fn logout_local(&self, preserve_cf_clearance: bool) -> SessionSnapshot {

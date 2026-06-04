@@ -1,10 +1,11 @@
 use std::collections::HashSet;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 
 use fire_models::CookieSnapshot;
 use http::header::HeaderValue;
 use openwire::CookieJar;
 use time::{format_description::well_known::Rfc2822, OffsetDateTime};
+use tracing::warn;
 use url::Url;
 
 use crate::core::{
@@ -16,11 +17,20 @@ use crate::sync_utils::{read_rwlock, write_rwlock};
 pub(crate) struct FireSessionCookieJar {
     base_url: Url,
     session: Arc<RwLock<FireSessionRuntimeState>>,
+    store: Option<Arc<Mutex<fire_store::FireStore>>>,
 }
 
 impl FireSessionCookieJar {
-    pub(crate) fn new(base_url: Url, session: Arc<RwLock<FireSessionRuntimeState>>) -> Self {
-        Self { base_url, session }
+    pub(crate) fn new(
+        base_url: Url,
+        session: Arc<RwLock<FireSessionRuntimeState>>,
+        store: Option<Arc<Mutex<fire_store::FireStore>>>,
+    ) -> Self {
+        Self {
+            base_url,
+            session,
+            store,
+        }
     }
 }
 
@@ -78,6 +88,38 @@ impl CookieJar for FireSessionCookieJar {
                 snapshot.cookies.merge_patch(&patch);
             },
         );
+
+        if let Some(store) = self.store.as_ref() {
+            let Ok(store) = store.lock() else {
+                return;
+            };
+            for cookie in &patch.platform_cookies {
+                let raw = format!(
+                    "{}={}",
+                    cookie.name,
+                    cookie.value
+                );
+                let domain = cookie
+                    .domain
+                    .as_deref()
+                    .map(|d| d.trim_start_matches('.'))
+                    .unwrap_or("");
+                let url = self.base_url.as_str();
+                if let Err(error) = store.cookie_replay_enqueue(
+                    url,
+                    &raw,
+                    &cookie.name,
+                    domain,
+                    fire_models::current_unix_ms() as u64,
+                ) {
+                    warn!(
+                        cookie_name = %cookie.name,
+                        %error,
+                        "failed to enqueue Set-Cookie into replay queue"
+                    );
+                }
+            }
+        }
     }
 
     fn cookies(&self, url: &Url) -> Option<HeaderValue> {

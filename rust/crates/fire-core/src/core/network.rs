@@ -1009,6 +1009,17 @@ pub(crate) fn is_cloudflare_challenge_body(body: &str) -> bool {
             && (normalized.contains("cloudflare") || normalized.contains("cf-challenge")))
 }
 
+pub(crate) fn parse_cookie_name_and_domain(raw: &str) -> Option<(String, String)> {
+    let parts: Vec<&str> = raw.split(';').collect();
+    let first = parts.first()?;
+    let name = first.split('=').next()?.trim().to_string();
+    let domain = parts.iter()
+        .find(|p| p.trim().starts_with("domain="))
+        .map(|p| p.trim().strip_prefix("domain=").unwrap_or("").trim().trim_start_matches('.').to_string())
+        .unwrap_or_default();
+    Some((name, domain))
+}
+
 pub(crate) fn is_cloudflare_challenge_response(
     status: u16,
     headers: &HeaderMap,

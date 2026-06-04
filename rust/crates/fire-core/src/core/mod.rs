@@ -173,14 +173,19 @@ impl FireCore {
             last_response_auth_change: None,
         };
         let session = Arc::new(RwLock::new(session));
-        let cookie_jar = Arc::new(FireSessionCookieJar::new(base_url.clone(), session.clone()));
+        let topic_feed_store = open_topic_feed_store(workspace_path.as_deref())?;
+        let topic_feed_store = Arc::new(Mutex::new(topic_feed_store));
+        let cookie_jar = Arc::new(FireSessionCookieJar::new(
+            base_url.clone(),
+            Arc::clone(&session),
+            Some(Arc::clone(&topic_feed_store)),
+        ));
         let network = network::FireNetworkLayer::new(
             &base_url,
             Arc::clone(&session),
             Arc::clone(&diagnostics),
             cookie_jar,
         )?;
-        let topic_feed_store = open_topic_feed_store(workspace_path.as_deref())?;
 
         Ok(Self {
             base_url,
@@ -193,7 +198,7 @@ impl FireCore {
             topic_presence: Arc::new(Mutex::new(presence::FireTopicPresenceRuntime::default())),
             topic_timing: Arc::new(Mutex::new(interactions::FireTopicTimingRuntime::default())),
             topic_response: Arc::new(Mutex::new(topics::FireTopicResponseRuntime::default())),
-            topic_feed_store: Arc::new(Mutex::new(topic_feed_store)),
+            topic_feed_store,
             csrf_refresh: Arc::new(TokioMutex::new(())),
         })
     }
@@ -277,6 +282,23 @@ impl FireCore {
 
     pub fn shared_client(&self) -> Client {
         self.network.client()
+    }
+
+    pub fn cookie_replay_drain(&self) -> Result<Vec<fire_store::cookie_replay::CookieReplayEntry>, FireCoreError> {
+        let store = self
+            .topic_feed_store
+            .lock()
+            .expect("topic feed store mutex poisoned");
+        Ok(store.cookie_replay_drain()?)
+    }
+
+    pub fn cookie_replay_clear(&self) -> Result<(), FireCoreError> {
+        let store = self
+            .topic_feed_store
+            .lock()
+            .expect("topic feed store mutex poisoned");
+        store.cookie_replay_clear()?;
+        Ok(())
     }
 
     pub fn list_log_files(&self) -> Result<Vec<FireLogFileSummary>, FireCoreError> {

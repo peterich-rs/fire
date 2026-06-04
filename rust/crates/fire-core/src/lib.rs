@@ -28,6 +28,7 @@ pub use diagnostics::{
     NetworkTraceOutcome, NetworkTraceSummary,
 };
 pub use error::FireCoreError;
+pub use fire_models::LoginFinalizationResult;
 pub use logging::{FireHostLogLevel, FireLogger, FireLoggerConfig};
 pub use presentation::{
     monogram_for_username, plain_text_from_html, preview_text_from_html, topic_status_labels,

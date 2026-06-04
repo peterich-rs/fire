@@ -1,4 +1,5 @@
 mod migrations;
+pub mod cookie_replay;
 pub mod topic_detail;
 
 use std::path::{Path, PathBuf};
@@ -52,5 +53,33 @@ impl FireStore {
 
     fn migrate(&self) -> Result<(), FireStoreError> {
         migrations::run(&self.connection)
+    }
+
+    pub fn cookie_replay_enqueue(
+        &self,
+        url: &str,
+        raw_set_cookie: &str,
+        cookie_name: &str,
+        domain: &str,
+        inserted_at: u64,
+    ) -> Result<(), FireStoreError> {
+        cookie_replay::enqueue_set_cookie(
+            &self.connection,
+            url,
+            raw_set_cookie,
+            cookie_name,
+            domain,
+            inserted_at,
+        )?;
+        Ok(())
+    }
+
+    pub fn cookie_replay_drain(&self) -> Result<Vec<cookie_replay::CookieReplayEntry>, FireStoreError> {
+        Ok(cookie_replay::drain_replay_queue(&self.connection)?)
+    }
+
+    pub fn cookie_replay_clear(&self) -> Result<(), FireStoreError> {
+        cookie_replay::clear_replay_queue(&self.connection)?;
+        Ok(())
     }
 }

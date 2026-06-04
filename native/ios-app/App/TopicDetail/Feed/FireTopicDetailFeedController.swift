@@ -7,6 +7,18 @@ final class FireTopicDetailFeedController: NSObject,
     @preconcurrency ASCollectionDelegate,
     UIScrollViewDelegate
 {
+    private struct PendingCollectionUpdate {
+        let updatePlan: FireTopicDetailCollectionUpdatePlan
+        let previousItems: [FireTopicDetailRuntimeItem]
+        let nextItems: [FireTopicDetailRuntimeItem]
+        let animated: Bool
+        let completion: () -> Void
+    }
+
+    private static let collectionUpdateRetryDelay: TimeInterval = 0.05
+    private static let maxPendingCollectionUpdateAttempts = 8
+    private static let maxReplyFooterReloadAttempts = 8
+
     let collectionNode = ASCollectionNode(
         collectionViewLayout: FireTopicDetailFeedController.makeCollectionLayout()
     )
@@ -14,6 +26,9 @@ final class FireTopicDetailFeedController: NSObject,
     private(set) var currentItems: [FireTopicDetailRuntimeItem] = []
     private var currentConfiguration: FireTopicDetailRuntimeConfiguration?
     private var lastLayoutContentWidth: CGFloat?
+    private var pendingCollectionUpdate: PendingCollectionUpdate?
+    private var pendingCollectionUpdateAttempts = 0
+    private var isPendingCollectionUpdateDrainScheduled = false
     private let cellFactory = FireTopicDetailFeedCellFactory()
     private lazy var dismissKeyboardTapGestureRecognizer = UITapGestureRecognizer(
         target: self,
@@ -159,9 +174,22 @@ final class FireTopicDetailFeedController: NSObject,
         }
 
         guard previousItems.isEmpty == false,
-              collectionNode.view.window != nil,
-              collectionNode.isProcessingUpdates == false else {
-            collectionNode.reloadData(completion: completion)
+              collectionNode.view.window != nil else {
+            collectionNode.reloadData { [weak self] in
+                self?.drainPendingCollectionUpdateIfPossible()
+                completion()
+            }
+            return
+        }
+
+        guard collectionNode.isProcessingUpdates == false else {
+            enqueuePendingCollectionUpdate(
+                updatePlan: updatePlan,
+                previousItems: previousItems,
+                nextItems: nextItems,
+                animated: animated,
+                completion: completion
+            )
             return
         }
 
@@ -175,19 +203,36 @@ final class FireTopicDetailFeedController: NSObject,
             if !updatePlan.reloads.isEmpty {
                 collectionNode.reloadItems(at: updatePlan.reloads)
             }
-        }, completion: { _ in
+        }, completion: { [weak self] _ in
+            self?.drainPendingCollectionUpdateIfPossible()
             completion()
         })
     }
 
     func reloadReplyFooterIfNeeded(items: [FireTopicDetailRuntimeItem], completion: (() -> Void)? = nil) {
+        reloadReplyFooterIfNeeded(items: items, attempt: 0, completion: completion)
+    }
+
+    private func reloadReplyFooterIfNeeded(
+        items: [FireTopicDetailRuntimeItem],
+        attempt: Int,
+        completion: (() -> Void)?
+    ) {
         guard let indexPath = replyFooterIndexPath(in: items) else {
             completion?()
             return
         }
         if collectionNode.isProcessingUpdates {
-            DispatchQueue.main.async { [weak self] in
-                self?.reloadReplyFooterIfNeeded(items: items, completion: completion)
+            guard attempt < Self.maxReplyFooterReloadAttempts else {
+                collectionNode.reloadData(completion: completion)
+                return
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.collectionUpdateRetryDelay) { [weak self] in
+                self?.reloadReplyFooterIfNeeded(
+                    items: items,
+                    attempt: attempt + 1,
+                    completion: completion
+                )
             }
             return
         }
@@ -211,6 +256,14 @@ final class FireTopicDetailFeedController: NSObject,
 
     var isViewAttached: Bool {
         collectionNode.view.window != nil
+    }
+
+    var contentFitsWithoutScrolling: Bool {
+        let visibleHeight = collectionNode.view.bounds.height
+            - collectionNode.view.adjustedContentInset.top
+            - collectionNode.view.adjustedContentInset.bottom
+        guard visibleHeight > 0 else { return false }
+        return collectionNode.view.contentSize.height <= visibleHeight + 1
     }
 
     func replyFooterState(in items: [FireTopicDetailRuntimeItem]) -> FireTopicDetailRuntimeReplyFooterState? {
@@ -549,6 +602,63 @@ final class FireTopicDetailFeedController: NSObject,
         preloadTuning.leadingBufferScreenfuls = 1.5
         preloadTuning.trailingBufferScreenfuls = 1.0
         collectionNode.setTuningParameters(preloadTuning, for: .preload)
+    }
+
+    private func enqueuePendingCollectionUpdate(
+        updatePlan: FireTopicDetailCollectionUpdatePlan,
+        previousItems: [FireTopicDetailRuntimeItem],
+        nextItems: [FireTopicDetailRuntimeItem],
+        animated: Bool,
+        completion: @escaping () -> Void
+    ) {
+        pendingCollectionUpdate = PendingCollectionUpdate(
+            updatePlan: updatePlan,
+            previousItems: previousItems,
+            nextItems: nextItems,
+            animated: animated,
+            completion: completion
+        )
+        pendingCollectionUpdateAttempts = 0
+        schedulePendingCollectionUpdateDrain()
+    }
+
+    private func schedulePendingCollectionUpdateDrain() {
+        guard !isPendingCollectionUpdateDrainScheduled else { return }
+        isPendingCollectionUpdateDrainScheduled = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.collectionUpdateRetryDelay) { [weak self] in
+            guard let self else { return }
+            self.isPendingCollectionUpdateDrainScheduled = false
+            self.drainPendingCollectionUpdateIfPossible()
+        }
+    }
+
+    private func drainPendingCollectionUpdateIfPossible() {
+        guard let pendingCollectionUpdate else {
+            pendingCollectionUpdateAttempts = 0
+            return
+        }
+
+        guard collectionNode.isProcessingUpdates == false else {
+            pendingCollectionUpdateAttempts += 1
+            guard pendingCollectionUpdateAttempts < Self.maxPendingCollectionUpdateAttempts else {
+                self.pendingCollectionUpdate = nil
+                self.pendingCollectionUpdateAttempts = 0
+                collectionNode.reloadData(completion: pendingCollectionUpdate.completion)
+                return
+            }
+            schedulePendingCollectionUpdateDrain()
+            return
+        }
+
+        self.pendingCollectionUpdate = nil
+        self.pendingCollectionUpdateAttempts = 0
+        applyCollectionUpdate(
+            updatePlan: pendingCollectionUpdate.updatePlan,
+            previousItems: pendingCollectionUpdate.previousItems,
+            nextItems: pendingCollectionUpdate.nextItems,
+            animated: pendingCollectionUpdate.animated,
+            completion: pendingCollectionUpdate.completion
+        )
     }
 
     private func reevaluateVisibleState(forceLoadMoreEvaluation: Bool) {

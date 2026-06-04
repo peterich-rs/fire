@@ -84,4 +84,32 @@ impl FireStore {
         cookie_replay::clear_replay_queue(&self.connection)?;
         Ok(())
     }
+
+    pub fn get_cached_user(&self) -> Result<Option<String>, FireStoreError> {
+        let mut stmt = self.connection.prepare(
+            "SELECT data FROM current_user_cache WHERE cache_key = 'primary' ORDER BY updated_at DESC LIMIT 1"
+        )?;
+        let mut rows = stmt.query([])?;
+        match rows.next()? {
+            Some(row) => Ok(Some(row.get(0)?)),
+            None => Ok(None),
+        }
+    }
+
+    pub fn set_cached_user(&self, data: &str) -> Result<(), FireStoreError> {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as i64;
+        self.connection.execute(
+            "INSERT OR REPLACE INTO current_user_cache (cache_key, data, updated_at) VALUES ('primary', ?1, ?2)",
+            rusqlite::params![data, now],
+        )?;
+        Ok(())
+    }
+
+    pub fn clear_cached_user(&self) -> Result<(), FireStoreError> {
+        self.connection.execute("DELETE FROM current_user_cache", [])?;
+        Ok(())
+    }
 }

@@ -23,6 +23,8 @@ import uniffi.fire_uniffi_search.TagSearchQueryState
 import uniffi.fire_uniffi_search.TagSearchResultState
 import uniffi.fire_uniffi_search.UserMentionQueryState
 import uniffi.fire_uniffi_search.UserMentionResultState
+import uniffi.fire_uniffi_session.CookieReplayEntryState
+import uniffi.fire_uniffi_session.LoginFinalizationResultState
 import uniffi.fire_uniffi_session.LoginSyncState
 import uniffi.fire_uniffi_session.PlatformCookieState
 import uniffi.fire_uniffi_session.SessionState
@@ -88,6 +90,10 @@ class FireSessionStore(
         core.session().loadSessionFromPath(sessionFile.absolutePath)
     }
 
+    suspend fun baseUrl(): String = withContext(Dispatchers.Default) {
+        core.session().baseUrl()
+    }
+
     suspend fun syncLoginContext(captured: FireCapturedLoginState): SessionState =
         withContext(Dispatchers.Default) {
             val state = core.session().syncLoginContext(
@@ -100,6 +106,37 @@ class FireSessionStore(
                     cookies = captured.cookies,
                 ),
             )
+            persistCurrentSession()
+            state
+        }
+
+    suspend fun cookieReplayQueue(): List<CookieReplayEntryState> = withContext(Dispatchers.IO) {
+        core.session().cookieReplayQueue()
+    }
+
+    suspend fun clearCookieReplayQueue() = withContext(Dispatchers.IO) {
+        core.session().clearCookieReplayQueue()
+    }
+
+    suspend fun finalizeLoginFromWebView(
+        captured: FireCapturedLoginState,
+        allowLowConfidenceSessionCookies: Boolean = true,
+    ): LoginFinalizationResultState = withContext(Dispatchers.Default) {
+        val result = core.session().finalizeLoginFromWebview(
+            username = captured.username.orEmpty(),
+            csrfToken = captured.csrfToken,
+            rawPreloadedHtml = captured.homeHtml,
+            browserUserAgent = captured.browserUserAgent,
+            cookies = captured.cookies,
+            allowLowConfidenceSessionCookies = allowLowConfidenceSessionCookies,
+        )
+        persistCurrentSession()
+        result
+    }
+
+    suspend fun applyPlatformCookies(cookies: List<PlatformCookieState>): SessionState =
+        withContext(Dispatchers.Default) {
+            val state = core.session().applyPlatformCookies(cookies)
             persistCurrentSession()
             state
         }
@@ -120,6 +157,17 @@ class FireSessionStore(
         val refreshed = core.session().refreshCsrfTokenIfNeeded()
         persistCurrentSession()
         refreshed
+    }
+
+    suspend fun logoutLocal(preserveCfClearance: Boolean = true): SessionState =
+        withContext(Dispatchers.IO) {
+            val state = core.session().logoutLocal(preserveCfClearance)
+            persistCurrentSession()
+            state
+        }
+
+    suspend fun recordFingerprintDone() = withContext(Dispatchers.Default) {
+        core.session().recordFingerprintDone()
     }
 
     suspend fun persistCurrentSession() = withContext(Dispatchers.IO) {

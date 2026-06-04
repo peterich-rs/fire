@@ -4,7 +4,7 @@ public enum FireSessionStoreError: Error {
     case missingApplicationSupportDirectory
 }
 
-public struct FireCapturedLoginState: Sendable {
+public struct FireCapturedLoginState: Sendable, Equatable {
     public let currentURL: String?
     public let username: String?
     public let csrfToken: String?
@@ -179,6 +179,50 @@ public actor FireSessionStore {
         )
         try persistCurrentSessionIfNeeded()
         return state
+    }
+
+    public func cookieReplayQueue() throws -> [CookieReplayEntryState] {
+        try core.session().cookieReplayQueue()
+    }
+
+    public func clearCookieReplayQueue() throws {
+        try core.session().clearCookieReplayQueue()
+    }
+
+    public func loadSavedCredential() throws -> FireSavedCredential? {
+        try authCookieStore.loadCredential()
+    }
+
+    public func saveLoginCredential(username: String, password: String) throws {
+        guard let credential = FireSavedCredential(username: username, password: password) else {
+            return
+        }
+        try authCookieStore.saveCredential(credential)
+    }
+
+    public func clearSavedCredential() throws {
+        try authCookieStore.clearCredential()
+    }
+
+    public func recordFingerprintDone() {
+        core.session().recordFingerprintDone()
+    }
+
+    @discardableResult
+    public func finalizeLoginFromWebView(
+        _ captured: FireCapturedLoginState,
+        allowLowConfidenceSessionCookies: Bool = true
+    ) throws -> LoginFinalizationResultState {
+        let result = try core.session().finalizeLoginFromWebview(
+            username: captured.username ?? "",
+            csrfToken: captured.csrfToken,
+            rawPreloadedHtml: captured.homeHTML,
+            browserUserAgent: captured.browserUserAgent,
+            cookies: captured.cookies,
+            allowLowConfidenceSessionCookies: allowLowConfidenceSessionCookies
+        )
+        try persistCurrentSessionIfNeeded()
+        return result
     }
 
     @discardableResult

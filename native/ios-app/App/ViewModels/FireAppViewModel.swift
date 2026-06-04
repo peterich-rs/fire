@@ -239,6 +239,7 @@ final class FireAppViewModel: ObservableObject {
     @Published var isPreparingLogin = false
     @Published var isSyncingLoginSession = false
     @Published private(set) var canSyncLoginSession = false
+    @Published private(set) var savedLoginCredential: FireSavedCredential?
     @Published var isLoggingOut = false
 
     // MARK: - Private
@@ -407,6 +408,8 @@ final class FireAppViewModel: ObservableObject {
             defer { isPreparingLogin = false }
 
             do {
+                let sessionStore = try await sessionStoreValue()
+                savedLoginCredential = try await sessionStore.loadSavedCredential()
                 try await preloadLoginCoordinator()
                 await warmLoginNetworkAccess()
             } catch {
@@ -478,6 +481,77 @@ final class FireAppViewModel: ObservableObject {
         canSyncLoginSession = false
         cachedLoginSyncReadiness = nil
         setAuthPresentationState(nil)
+    }
+
+    func prepareAuthWebView(_ webView: WKWebView) {
+        guard webView.url == nil else {
+            return
+        }
+
+        let targetURL = authPresentationURL
+        Task { [weak self, weak webView] in
+            guard let self, let webView else { return }
+            do {
+                let sessionStore = try await sessionStoreValue()
+                let replayEntries = try await sessionStore.cookieReplayQueue()
+                if !replayEntries.isEmpty {
+                    let cookieStore = webView.configuration.websiteDataStore.httpCookieStore
+                    for entry in replayEntries {
+                        guard let cookieURL = URL(string: entry.url) else {
+                            continue
+                        }
+                        let cookies = HTTPCookie.cookies(
+                            withResponseHeaderFields: ["Set-Cookie": entry.rawSetCookie],
+                            for: cookieURL
+                        )
+                        for cookie in cookies {
+                            await setWebKitCookie(cookie, in: cookieStore)
+                        }
+                    }
+                    try await sessionStore.clearCookieReplayQueue()
+                }
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+
+            guard webView.url == nil else {
+                return
+            }
+            webView.load(URLRequest(url: targetURL))
+        }
+    }
+
+    func saveLoginCredential(username: String, password: String) {
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let sessionStore = try await sessionStoreValue()
+                try await sessionStore.saveLoginCredential(username: username, password: password)
+                savedLoginCredential = try await sessionStore.loadSavedCredential()
+            } catch {
+                FireAPMManager.shared.recordBreadcrumb(
+                    level: "warn",
+                    target: Self.authDiagnosticsLogTarget,
+                    message: "failed to persist login credential: \(error.localizedDescription)"
+                )
+            }
+        }
+    }
+
+    func recordLoginFingerprintDone() {
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let sessionStore = try await sessionStoreValue()
+                await sessionStore.recordFingerprintDone()
+            } catch {
+                FireAPMManager.shared.recordBreadcrumb(
+                    level: "warn",
+                    target: Self.authDiagnosticsLogTarget,
+                    message: "failed to record fingerprint completion: \(error.localizedDescription)"
+                )
+            }
+        }
     }
 
     func refreshBootstrap() {
@@ -2137,6 +2211,14 @@ final class FireAppViewModel: ObservableObject {
 
     private func currentWebKitCookies() async -> [HTTPCookie] {
         await currentWebKitCookies(from: WKWebsiteDataStore.default().httpCookieStore)
+    }
+
+    private func setWebKitCookie(_ cookie: HTTPCookie, in store: WKHTTPCookieStore) async {
+        await withCheckedContinuation { continuation in
+            store.setCookie(cookie) {
+                continuation.resume()
+            }
+        }
     }
 
     private func currentWebKitCookies(from store: WKHTTPCookieStore) async -> [HTTPCookie] {

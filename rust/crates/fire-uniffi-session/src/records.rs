@@ -394,6 +394,7 @@ impl SessionState {
 #[derive(uniffi::Record, Debug, Clone)]
 pub struct LoginFinalizationResultState {
     pub success: bool,
+    pub session: SessionState,
     pub t_token_verified: bool,
     pub fingerprint_wait_needed: bool,
 }
@@ -402,6 +403,7 @@ impl From<LoginFinalizationResult> for LoginFinalizationResultState {
     fn from(value: LoginFinalizationResult) -> Self {
         Self {
             success: value.success,
+            session: SessionState::from_snapshot(value.session),
             t_token_verified: value.t_token_verified,
             fingerprint_wait_needed: value.fingerprint_wait_needed,
         }

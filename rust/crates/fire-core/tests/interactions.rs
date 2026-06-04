@@ -136,10 +136,7 @@ async fn report_topic_timings_surfaces_login_required_when_server_session_is_inv
         .expect_err("login invalidation should surface");
     let _ = server.shutdown().await;
 
-    assert!(matches!(
-        error,
-        FireCoreError::LoginRequired { .. }
-    ));
+    assert!(matches!(error, FireCoreError::LoginRequired { .. }));
 }
 
 #[tokio::test]

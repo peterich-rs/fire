@@ -1,5 +1,5 @@
-mod migrations;
 pub mod cookie_replay;
+mod migrations;
 pub mod topic_detail;
 
 use std::path::{Path, PathBuf};
@@ -74,8 +74,10 @@ impl FireStore {
         Ok(())
     }
 
-    pub fn cookie_replay_drain(&self) -> Result<Vec<cookie_replay::CookieReplayEntry>, FireStoreError> {
-        Ok(cookie_replay::drain_replay_queue(&self.connection)?)
+    pub fn cookie_replay_list(
+        &self,
+    ) -> Result<Vec<cookie_replay::CookieReplayEntry>, FireStoreError> {
+        Ok(cookie_replay::list_replay_queue(&self.connection)?)
     }
 
     pub fn cookie_replay_clear(&self) -> Result<(), FireStoreError> {

@@ -728,12 +728,15 @@ impl FireCore {
             invalidation,
             &body,
         ) {
-            if let Some(strike_error) = self.classify_and_process_auth_strike(
-                StatusCode::FORBIDDEN,
-                &invalidation,
-                &body,
-                operation,
-            ).await {
+            if let Some(strike_error) = self
+                .classify_and_process_auth_strike(
+                    StatusCode::FORBIDDEN,
+                    &invalidation,
+                    &body,
+                    operation,
+                )
+                .await
+            {
                 return Err(strike_error);
             }
             return Err(error);
@@ -888,12 +891,10 @@ pub(crate) async fn expect_success(
     if let Some(error) =
         response_login_invalidation_error(operation, trace_id, response_status, invalidation, &body)
     {
-        if let Some(strike_error) = core.classify_and_process_auth_strike(
-            response_status,
-            &invalidation,
-            &body,
-            operation,
-        ).await {
+        if let Some(strike_error) = core
+            .classify_and_process_auth_strike(response_status, &invalidation, &body, operation)
+            .await
+        {
             return Err(strike_error);
         }
         return Err(error);
@@ -1051,9 +1052,17 @@ pub(crate) fn parse_cookie_name_and_domain(raw: &str) -> Option<(String, String)
     let parts: Vec<&str> = raw.split(';').collect();
     let first = parts.first()?;
     let name = first.split('=').next()?.trim().to_string();
-    let domain = parts.iter()
+    let domain = parts
+        .iter()
         .find(|p| p.trim().starts_with("domain="))
-        .map(|p| p.trim().strip_prefix("domain=").unwrap_or("").trim().trim_start_matches('.').to_string())
+        .map(|p| {
+            p.trim()
+                .strip_prefix("domain=")
+                .unwrap_or("")
+                .trim()
+                .trim_start_matches('.')
+                .to_string()
+        })
         .unwrap_or_default();
     Some((name, domain))
 }

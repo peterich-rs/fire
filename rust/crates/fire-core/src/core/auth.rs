@@ -1,4 +1,7 @@
-use fire_models::{BootstrapArtifacts, CookieSnapshot, PassiveLogoutTrigger, ProbeResult, SessionSnapshot, SignalStrength};
+use fire_models::{
+    BootstrapArtifacts, CookieSnapshot, PassiveLogoutTrigger, ProbeResult, SessionSnapshot,
+    SignalStrength,
+};
 use http::{Method, StatusCode};
 use serde_json::Value;
 use tracing::{debug, info, warn};
@@ -276,12 +279,8 @@ fn parse_csrf_token_response(value: &Value) -> Result<String, serde_json::Error>
 
 impl FireCore {
     pub async fn probe_session(&self) -> Result<ProbeResult, FireCoreError> {
-        let traced = self.build_json_get_request(
-            "probe_session",
-            "/session/current.json",
-            Vec::new(),
-            &[],
-        )?;
+        let traced =
+            self.build_json_get_request("probe_session", "/session/current.json", Vec::new(), &[])?;
         let (trace_id, response) = self.execute_request(traced).await?;
         let status = response.status();
         if status.as_u16() == 404 {
@@ -348,7 +347,10 @@ impl FireCore {
                 }
                 match probe_result {
                     Ok(ProbeResult::Valid { .. }) => {
-                        info!(operation, "probe confirmed session valid, resetting strikes");
+                        info!(
+                            operation,
+                            "probe confirmed session valid, resetting strikes"
+                        );
                         {
                             let mut state = write_rwlock(&self.session, "session");
                             state.auth_strike.reset_strikes();
@@ -356,7 +358,10 @@ impl FireCore {
                         None
                     }
                     Ok(ProbeResult::Invalid) => {
-                        info!(operation, "probe confirmed session invalid, triggering passive logout");
+                        info!(
+                            operation,
+                            "probe confirmed session invalid, triggering passive logout"
+                        );
                         let _ = self
                             .passive_logout(PassiveLogoutTrigger {
                                 source: format!("strike_probe_invalid:{operation}"),
@@ -394,8 +399,7 @@ impl FireCore {
                         } else {
                             info!(
                                 operation,
-                                strikes,
-                                "probe inconclusive with few strikes, entering cooldown"
+                                strikes, "probe inconclusive with few strikes, entering cooldown"
                             );
                             let mut state = write_rwlock(&self.session, "session");
                             state.auth_strike.enter_inconclusive_cooldown();

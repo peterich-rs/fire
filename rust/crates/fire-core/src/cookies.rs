@@ -54,6 +54,7 @@ impl CookieJar for FireSessionCookieJar {
         }
 
         let mut patch = CookieSnapshot::default();
+        let mut replay_entries: Vec<(String, String, String)> = Vec::new();
         for header in cookie_headers {
             let Ok(value) = header.to_str() else {
                 continue;
@@ -72,6 +73,12 @@ impl CookieJar for FireSessionCookieJar {
                 "cf_clearance" => patch.cf_clearance = Some(cookie.value.clone()),
                 _ => {}
             }
+            let replay_domain = cookie
+                .domain
+                .as_deref()
+                .map(|d| d.trim_start_matches('.').to_string())
+                .unwrap_or_default();
+            replay_entries.push((value.to_string(), cookie.name.clone(), replay_domain));
             patch.platform_cookies.push(cookie);
         }
 
@@ -93,27 +100,17 @@ impl CookieJar for FireSessionCookieJar {
             let Ok(store) = store.lock() else {
                 return;
             };
-            for cookie in &patch.platform_cookies {
-                let raw = format!(
-                    "{}={}",
-                    cookie.name,
-                    cookie.value
-                );
-                let domain = cookie
-                    .domain
-                    .as_deref()
-                    .map(|d| d.trim_start_matches('.'))
-                    .unwrap_or("");
+            for (raw_set_cookie, cookie_name, domain) in replay_entries {
                 let url = self.base_url.as_str();
                 if let Err(error) = store.cookie_replay_enqueue(
                     url,
-                    &raw,
-                    &cookie.name,
-                    domain,
+                    &raw_set_cookie,
+                    &cookie_name,
+                    &domain,
                     fire_models::current_unix_ms() as u64,
                 ) {
                     warn!(
-                        cookie_name = %cookie.name,
+                        cookie_name = %cookie_name,
                         %error,
                         "failed to enqueue Set-Cookie into replay queue"
                     );
@@ -485,7 +482,7 @@ mod tests {
             domain: Some("linux.do".into()),
             path: Some("/".into()),
             expires_at_unix_ms: None,
-                same_site: None,
+            same_site: None,
         };
         let domain_cookie = PlatformCookie {
             name: "_t".into(),
@@ -493,7 +490,7 @@ mod tests {
             domain: Some(".linux.do".into()),
             path: Some("/".into()),
             expires_at_unix_ms: None,
-                same_site: None,
+            same_site: None,
         };
 
         assert!(!cookie_matches_url(
@@ -516,7 +513,7 @@ mod tests {
                     domain: Some("linux.do".into()),
                     path: Some("/".into()),
                     expires_at_unix_ms: Some(1),
-                same_site: None,
+                    same_site: None,
                 },
                 fire_models::PlatformCookie {
                     name: "_forum_session".into(),
@@ -524,7 +521,7 @@ mod tests {
                     domain: Some("linux.do".into()),
                     path: Some("/".into()),
                     expires_at_unix_ms: None,
-                same_site: None,
+                    same_site: None,
                 },
             ],
             ..CookieSnapshot::default()
@@ -550,7 +547,7 @@ mod tests {
                     domain: Some("linux.do".into()),
                     path: Some("/".into()),
                     expires_at_unix_ms: Some(1),
-                same_site: None,
+                    same_site: None,
                 },
                 PlatformCookie {
                     name: "_forum_session".into(),
@@ -558,7 +555,7 @@ mod tests {
                     domain: Some("linux.do".into()),
                     path: Some("/".into()),
                     expires_at_unix_ms: Some(1),
-                same_site: None,
+                    same_site: None,
                 },
             ],
             ..CookieSnapshot::default()
@@ -579,7 +576,7 @@ mod tests {
                     domain: Some("linux.do".into()),
                     path: Some("/".into()),
                     expires_at_unix_ms: None,
-                same_site: None,
+                    same_site: None,
                 },
                 PlatformCookie {
                     name: "_t".into(),
@@ -587,7 +584,7 @@ mod tests {
                     domain: Some(".linux.do".into()),
                     path: Some("/".into()),
                     expires_at_unix_ms: None,
-                same_site: None,
+                    same_site: None,
                 },
                 PlatformCookie {
                     name: "_forum_session".into(),
@@ -595,7 +592,7 @@ mod tests {
                     domain: Some("linux.do".into()),
                     path: Some("/".into()),
                     expires_at_unix_ms: None,
-                same_site: None,
+                    same_site: None,
                 },
             ],
             ..CookieSnapshot::default()

@@ -80,7 +80,8 @@ async fn probe_session_returns_invalid_on_404() {
 
 #[tokio::test]
 async fn strike_system_probes_on_strong_signal_and_logout_on_invalid_probe() {
-    let not_logged_in_body = r#"{"errors":["需要登录才能执行此操作。"],"error_type":"not_logged_in"}"#;
+    let not_logged_in_body =
+        r#"{"errors":["需要登录才能执行此操作。"],"error_type":"not_logged_in"}"#;
     let probe_body = r#"{}"#;
     let responses = vec![
         raw_json_response(403, "application/json", not_logged_in_body),
@@ -114,7 +115,8 @@ async fn strike_system_probes_on_strong_signal_and_logout_on_invalid_probe() {
 
 #[tokio::test]
 async fn strike_system_resets_on_valid_probe() {
-    let not_logged_in_body = r#"{"errors":["需要登录才能执行此操作。"],"error_type":"not_logged_in"}"#;
+    let not_logged_in_body =
+        r#"{"errors":["需要登录才能执行此操作。"],"error_type":"not_logged_in"}"#;
     let probe_body = r#"{"current_user":{"username":"alice"}}"#;
     let responses = vec![
         raw_json_response(403, "application/json", not_logged_in_body),
@@ -149,7 +151,8 @@ async fn strike_system_accumulates_weak_signals_before_probing() {
         "HTTP/1.1 200 TEST\r\nContent-Type: application/json\r\nContent-Length: {}\r\nDiscourse-Logged-Out: 1\r\nConnection: close\r\n\r\n{logged_out_200_body}",
         logged_out_200_body.len()
     );
-    let not_logged_in_body = r#"{"errors":["需要登录才能执行此操作。"],"error_type":"not_logged_in"}"#;
+    let not_logged_in_body =
+        r#"{"errors":["需要登录才能执行此操作。"],"error_type":"not_logged_in"}"#;
     let probe_body = r#"{"current_user":{"username":"alice"}}"#;
     let responses = vec![
         response1,

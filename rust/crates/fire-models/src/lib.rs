@@ -350,7 +350,7 @@ mod tests {
                     domain: Some("linux.do".into()),
                     path: Some("/".into()),
                     expires_at_unix_ms: Some(1),
-                same_site: None,
+                    same_site: None,
                 },
                 PlatformCookie {
                     name: "_forum_session".into(),
@@ -358,7 +358,7 @@ mod tests {
                     domain: Some("linux.do".into()),
                     path: Some("/".into()),
                     expires_at_unix_ms: Some(1),
-                same_site: None,
+                    same_site: None,
                 },
                 PlatformCookie {
                     name: "cf_clearance".into(),
@@ -366,7 +366,7 @@ mod tests {
                     domain: Some("linux.do".into()),
                     path: Some("/".into()),
                     expires_at_unix_ms: Some(1),
-                same_site: None,
+                    same_site: None,
                 },
             ],
         };

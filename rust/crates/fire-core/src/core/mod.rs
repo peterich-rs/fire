@@ -287,12 +287,14 @@ impl FireCore {
         self.network.client()
     }
 
-    pub fn cookie_replay_drain(&self) -> Result<Vec<fire_store::cookie_replay::CookieReplayEntry>, FireCoreError> {
+    pub fn cookie_replay_list(
+        &self,
+    ) -> Result<Vec<fire_store::cookie_replay::CookieReplayEntry>, FireCoreError> {
         let store = self
             .topic_feed_store
             .lock()
             .expect("topic feed store mutex poisoned");
-        Ok(store.cookie_replay_drain()?)
+        Ok(store.cookie_replay_list()?)
     }
 
     pub fn cookie_replay_clear(&self) -> Result<(), FireCoreError> {

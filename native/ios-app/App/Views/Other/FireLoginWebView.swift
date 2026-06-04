@@ -130,53 +130,85 @@ public final class FireLoginWebViewProbeBridge: NSObject, WKHTTPCookieStoreObser
 struct FireLoginWebView: UIViewRepresentable {
     let url: URL
     let preferredUserAgent: String?
+    let credential: FireSavedCredential?
     @ObservedObject var webViewBox: FireWebViewBox
+    let onWebViewReady: (WKWebView) -> Void
     let onNavigationStateChange: (WKWebView) -> Void
+    let onLoginCredentials: (String, String) -> Void
+    let onFingerprintDone: () -> Void
 
     func makeUIView(context: Context) -> WKWebView {
-        let webView = WKWebView(frame: .zero, configuration: Self.makeConfiguration())
+        let webView = WKWebView(
+            frame: .zero,
+            configuration: Self.makeConfiguration(
+                messageHandler: context.coordinator,
+                credential: credential
+            )
+        )
         webView.navigationDelegate = context.coordinator
         webView.uiDelegate = context.coordinator
         FireWebViewBrowserProfile.configure(webView, preferredUserAgent: preferredUserAgent)
         context.coordinator.attach(to: webView)
         webView.allowsBackForwardNavigationGestures = true
-        webView.load(URLRequest(url: url))
         webViewBox.attach(webView)
+        onWebViewReady(webView)
         return webView
     }
 
     func updateUIView(_ uiView: WKWebView, context: Context) {
         context.coordinator.attach(to: uiView)
         webViewBox.webView = uiView
+        context.coordinator.applyCredential(credential, to: uiView)
     }
 
     static func dismantleUIView(_ uiView: WKWebView, coordinator: Coordinator) {
         coordinator.detach()
         uiView.navigationDelegate = nil
         uiView.uiDelegate = nil
+        uiView.configuration.userContentController.removeScriptMessageHandler(
+            forName: FireLoginScripts.loginCredentialsMessageName
+        )
+        uiView.configuration.userContentController.removeScriptMessageHandler(
+            forName: FireLoginScripts.fingerprintDoneMessageName
+        )
     }
 
-    static func makeConfiguration() -> WKWebViewConfiguration {
-        FireWebViewBrowserProfile.makeConfiguration()
+    static func makeConfiguration(
+        messageHandler: WKScriptMessageHandler,
+        credential: FireSavedCredential?
+    ) -> WKWebViewConfiguration {
+        FireWebViewBrowserProfile.makeLoginConfiguration(
+            credential: credential,
+            messageHandler: messageHandler
+        )
     }
 
     func makeCoordinator() -> Coordinator {
         Coordinator(
             webViewBox: webViewBox,
-            onNavigationStateChange: onNavigationStateChange
+            onNavigationStateChange: onNavigationStateChange,
+            onLoginCredentials: onLoginCredentials,
+            onFingerprintDone: onFingerprintDone
         )
     }
 
-    final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
+    final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler {
         private let webViewBox: FireWebViewBox
         private let probeBridge: FireLoginWebViewProbeBridge
+        private let onLoginCredentials: (String, String) -> Void
+        private let onFingerprintDone: () -> Void
+        private var lastInjectedCredential: FireSavedCredential?
 
         init(
             webViewBox: FireWebViewBox,
-            onNavigationStateChange: @escaping (WKWebView) -> Void
+            onNavigationStateChange: @escaping (WKWebView) -> Void,
+            onLoginCredentials: @escaping (String, String) -> Void,
+            onFingerprintDone: @escaping () -> Void
         ) {
             self.webViewBox = webViewBox
             self.probeBridge = FireLoginWebViewProbeBridge(onProbeRequested: onNavigationStateChange)
+            self.onLoginCredentials = onLoginCredentials
+            self.onFingerprintDone = onFingerprintDone
         }
 
         func attach(to webView: WKWebView) {
@@ -189,6 +221,15 @@ struct FireLoginWebView: UIViewRepresentable {
 
         private func syncBrowserState(from webView: WKWebView) {
             webViewBox.syncState(from: webView)
+        }
+
+        func applyCredential(_ credential: FireSavedCredential?, to webView: WKWebView) {
+            guard credential != lastInjectedCredential else {
+                return
+            }
+            lastInjectedCredential = credential
+            let script = FireLoginScripts.credentialAutoFillSource(credential: credential)
+            webView.evaluateJavaScript(script)
         }
 
         private func handleTerminalStateChange(for webView: WKWebView) {
@@ -251,6 +292,27 @@ struct FireLoginWebView: UIViewRepresentable {
             _ = openInCurrentWebViewIfNeeded(navigationAction, in: webView)
             return nil
         }
+
+        func userContentController(
+            _ userContentController: WKUserContentController,
+            didReceive message: WKScriptMessage
+        ) {
+            switch message.name {
+            case FireLoginScripts.loginCredentialsMessageName:
+                guard
+                    let body = message.body as? [String: Any],
+                    let username = body["username"] as? String,
+                    let password = body["password"] as? String
+                else {
+                    return
+                }
+                onLoginCredentials(username, password)
+            case FireLoginScripts.fingerprintDoneMessageName:
+                onFingerprintDone()
+            default:
+                break
+            }
+        }
     }
 }
 
@@ -301,9 +363,19 @@ struct FireAuthScreen: View {
                 FireLoginWebView(
                     url: url,
                     preferredUserAgent: viewModel.session.browserUserAgent,
+                    credential: viewModel.savedLoginCredential,
                     webViewBox: webViewBox,
+                    onWebViewReady: { webView in
+                        viewModel.prepareAuthWebView(webView)
+                    },
                     onNavigationStateChange: { webView in
                         viewModel.refreshLoginSyncReadiness(from: webView)
+                    },
+                    onLoginCredentials: { username, password in
+                        viewModel.saveLoginCredential(username: username, password: password)
+                    },
+                    onFingerprintDone: {
+                        viewModel.recordLoginFingerprintDone()
                     }
                 )
                 .frame(maxHeight: .infinity)

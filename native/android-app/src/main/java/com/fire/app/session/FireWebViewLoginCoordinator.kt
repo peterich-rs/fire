@@ -2,44 +2,65 @@ package com.fire.app.session
 
 import android.webkit.CookieManager
 import android.webkit.WebView
+import com.fire.app.core.error.FireErrorClassifier
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
-import java.net.URI
 import kotlin.coroutines.resume
+import uniffi.fire_uniffi_session.LoginPhaseState
 import uniffi.fire_uniffi_session.PlatformCookieState
 import uniffi.fire_uniffi_session.SessionState
 
+data class FireLoginSyncReadiness(
+    val isReady: Boolean,
+    val username: String?,
+    val hasAuthCookies: Boolean,
+    val hasBootstrapHtml: Boolean,
+    val preferredBootstrapScore: Int,
+)
+
 class FireWebViewLoginCoordinator(
     private val sessionStore: FireSessionStore,
-    private val loginBaseUrl: String = "https://linux.do/",
+    private val loginBaseUrl: String = "https://linux.do",
 ) {
     suspend fun restorePersistedSessionIfAvailable(): SessionState? {
         return sessionStore.restorePersistedSessionIfAvailable()
     }
 
-    suspend fun completeLogin(webView: WebView): SessionState {
+    suspend fun completeLogin(
+        webView: WebView,
+        preserveSessionOnChallengeFailure: Boolean = false,
+    ): SessionState {
         val captured = captureLoginState(webView)
-        sessionStore.syncLoginContext(captured)
-        val bootstrapped = sessionStore.refreshBootstrapIfNeeded()
-        val ready = if (bootstrapped.readiness.hasCsrfToken) {
-            bootstrapped
-        } else {
-            sessionStore.refreshCsrfTokenIfNeeded()
+        val readiness = loginSyncReadiness(captured)
+        check(readiness.isReady) { "登录状态尚未准备完成" }
+        return completeLogin(captured, preserveSessionOnChallengeFailure)
+    }
+
+    suspend fun completeLogin(
+        captured: FireCapturedLoginState,
+        preserveSessionOnChallengeFailure: Boolean = false,
+    ): SessionState {
+        val finalization = sessionStore.finalizeLoginFromWebView(
+            captured = captured,
+            allowLowConfidenceSessionCookies = true,
+        )
+        if (finalization.session.loginPhase == LoginPhaseState.READY) {
+            return finalization.session
         }
-        val resolved = if (ready.readiness.hasCurrentUser) {
-            ready
-        } else {
-            sessionStore.refreshBootstrap()
+
+        return try {
+            sessionStore.refreshBootstrapIfNeeded()
+        } catch (error: Exception) {
+            if (!FireErrorClassifier.isCloudflareChallenge(error)) {
+                throw error
+            }
+            if (!preserveSessionOnChallengeFailure) {
+                runCatching { sessionStore.logoutLocal(preserveCfClearance = true) }
+            }
+            throw error
         }
-        val csrfReady = if (resolved.readiness.hasCsrfToken) {
-            resolved
-        } else {
-            sessionStore.refreshCsrfTokenIfNeeded()
-        }
-        check(csrfReady.readiness.hasCurrentUser) { "登录会话缺少当前用户" }
-        return csrfReady
     }
 
     suspend fun logout(): SessionState {
@@ -47,48 +68,93 @@ class FireWebViewLoginCoordinator(
     }
 
     suspend fun syncBrowserContext(webView: WebView): SessionState {
-        return sessionStore.syncLoginContext(captureLoginState(webView))
+        return applyPlatformCookiesIfAuthoritative(relevantCookies(webView))
+    }
+
+    suspend fun probeLoginSyncReadiness(webView: WebView): FireLoginSyncReadiness {
+        val captured = captureLoginState(webView)
+        return loginSyncReadiness(captured)
     }
 
     suspend fun captureLoginState(webView: WebView): FireCapturedLoginState = withContext(Dispatchers.Main) {
         val currentUrl = webView.url ?: loginBaseUrl
-        val urlHost = runCatching { URI(currentUrl).host }.getOrNull()
+        val usernameJson = webView.evaluateJavascriptSuspend(FireLoginScripts.readCurrentUsername)
+        val csrfJson = webView.evaluateJavascriptSuspend(FireLoginScripts.readCsrfToken)
+        val preloadedJson = webView.evaluateJavascriptSuspend(FireLoginScripts.readPreloadedData)
 
-        val usernameJson = webView.evaluateJavascriptSuspend(
-            """
-            (function() {
-              var meta = document.querySelector('meta[name="current-username"]');
-              if (meta && meta.content) return meta.content;
-              try {
-                var currentUser = window.Discourse && Discourse.User && Discourse.User.current && Discourse.User.current();
-                if (currentUser && currentUser.username) return currentUser.username;
-              } catch (e) {}
-              return null;
-            })();
-            """.trimIndent(),
-        )
-        val csrfJson = webView.evaluateJavascriptSuspend(
-            """
-            (function() {
-              var meta = document.querySelector('meta[name="csrf-token"]');
-              return meta && meta.content ? meta.content : null;
-            })();
-            """.trimIndent(),
-        )
-        val htmlJson = webView.evaluateJavascriptSuspend(
-            """document.documentElement ? document.documentElement.outerHTML : null""",
-        )
+        val preloadedHtml = preloadedJson.decodeJsonStringOrNull()
+        val resolvedUsername = usernameJson.decodeJsonStringOrNull()
+            ?: FireBootstrapHtmlMetadataParser.currentUsername(preloadedHtml)
+        val resolvedCsrfToken = csrfJson.decodeJsonStringOrNull()
+            ?: FireBootstrapHtmlMetadataParser.csrfToken(preloadedHtml)
 
         FireCapturedLoginState(
             currentUrl = currentUrl,
-            username = usernameJson.decodeJsonStringOrNull(),
-            csrfToken = csrfJson.decodeJsonStringOrNull(),
-            homeHtml = htmlJson.decodeJsonStringOrNull(),
+            username = resolvedUsername,
+            csrfToken = resolvedCsrfToken,
+            homeHtml = preloadedHtml,
             browserUserAgent = webView.settings.userAgentString?.takeIf { it.isNotBlank() },
-            cookies = CookieManager.getInstance()
-                .getCookie(currentUrl)
+            cookies = relevantCookies(currentUrl),
+        )
+    }
+
+    private suspend fun relevantCookies(webView: WebView): List<PlatformCookieState> = withContext(Dispatchers.Main) {
+        relevantCookies(webView.url)
+    }
+
+    private fun relevantCookies(currentUrl: String?): List<PlatformCookieState> {
+        val candidateUrls = linkedSetOf<String>()
+        currentUrl?.takeIf { it.isNotBlank() }?.let(candidateUrls::add)
+        candidateUrls.add(loginBaseUrl)
+        candidateUrls.add("$loginBaseUrl/")
+
+        val merged = LinkedHashMap<String, PlatformCookieState>()
+        for (url in candidateUrls) {
+            CookieManager.getInstance()
+                .getCookie(url)
                 .orEmpty()
-                .parsePlatformCookies(urlHost),
+                .parsePlatformCookies()
+                .forEach { cookie ->
+                    if (cookie.name !in merged) {
+                        merged[cookie.name] = cookie
+                    }
+                }
+        }
+        return merged.values.toList()
+    }
+
+    private suspend fun applyPlatformCookiesIfAuthoritative(
+        cookies: List<PlatformCookieState>,
+    ): SessionState {
+        if (!containsActiveAuthCookies(cookies)) {
+            return sessionStore.snapshot()
+        }
+        return sessionStore.applyPlatformCookies(cookies)
+    }
+
+    private fun loginSyncReadiness(captured: FireCapturedLoginState): FireLoginSyncReadiness {
+        return loginSyncReadiness(
+            username = captured.username,
+            cookies = captured.cookies,
+            preferredBootstrapScore = FireBootstrapHtmlHeuristics.score(captured.homeHtml),
+        )
+    }
+
+    private fun loginSyncReadiness(
+        username: String?,
+        cookies: List<PlatformCookieState>,
+        preferredBootstrapScore: Int,
+    ): FireLoginSyncReadiness {
+        val normalizedUsername = username?.trim()?.takeIf { it.isNotEmpty() }
+        val hasAuthCookies = containsActiveAuthCookies(cookies)
+        val hasBootstrapHtml =
+            preferredBootstrapScore >= FireBootstrapHtmlHeuristics.REUSABLE_LOGIN_BOOTSTRAP_SCORE_THRESHOLD
+        return FireLoginSyncReadiness(
+            isReady = normalizedUsername != null && hasAuthCookies && hasBootstrapHtml,
+            username = normalizedUsername,
+            hasAuthCookies = hasAuthCookies,
+            hasBootstrapHtml = hasBootstrapHtml,
+            preferredBootstrapScore = preferredBootstrapScore,
         )
     }
 
@@ -105,11 +171,14 @@ class FireWebViewLoginCoordinator(
         }
 
         return runCatching {
-            JSONObject("{\"value\":$this}").optString("value").takeIf { it.isNotEmpty() }
+            JSONObject("""{"value":$this}""")
+                .optString("value")
+                .trim()
+                .takeIf { it.isNotEmpty() }
         }.getOrNull()
     }
 
-    private fun String.parsePlatformCookies(domain: String?): List<PlatformCookieState> {
+    private fun String.parsePlatformCookies(): List<PlatformCookieState> {
         return split(";")
             .mapNotNull { segment ->
                 val trimmed = segment.trim()
@@ -123,11 +192,90 @@ class FireWebViewLoginCoordinator(
 
                 PlatformCookieState(
                     name = trimmed.substring(0, separator),
-                    value = trimmed.substring(separator + 1),
-                    domain = domain,
-                    path = "/",
+                    value = trimmed.substring(separator + 1).trim(),
+                    domain = null,
+                    path = null,
                     expiresAtUnixMs = null,
+                    sameSite = null,
                 )
             }
+            .filter { it.value.isNotEmpty() }
+    }
+
+    companion object {
+        fun containsActiveAuthCookies(cookies: List<PlatformCookieState>): Boolean {
+            val nowUnixMs = System.currentTimeMillis()
+            val activeCookies = cookies.filter { cookie ->
+                val value = cookie.value.trim()
+                value.isNotEmpty() && (cookie.expiresAtUnixMs?.let { it > nowUnixMs } ?: true)
+            }
+            return activeCookies.any { it.name == "_t" } &&
+                activeCookies.any { it.name == "_forum_session" }
+        }
+    }
+}
+
+private object FireBootstrapHtmlHeuristics {
+    const val REUSABLE_LOGIN_BOOTSTRAP_SCORE_THRESHOLD = 8
+
+    fun score(html: String?): Int {
+        if (html.isNullOrBlank()) {
+            return 0
+        }
+
+        val normalized = html.lowercase()
+        var score = 0
+        if (
+            normalized.contains("id=\"data-discourse-setup\"") ||
+            normalized.contains("id='data-discourse-setup'") ||
+            normalized.contains("data-preloaded")
+        ) {
+            score += 8
+        }
+        if (
+            normalized.contains("meta name=\"shared_session_key\"") ||
+            normalized.contains("meta name='shared_session_key'")
+        ) {
+            score += 4
+        }
+        if (
+            normalized.contains("meta name=\"current-username\"") ||
+            normalized.contains("meta name='current-username'")
+        ) {
+            score += 2
+        }
+        if (
+            normalized.contains("meta name=\"csrf-token\"") ||
+            normalized.contains("meta name='csrf-token'")
+        ) {
+            score += 1
+        }
+        return score
+    }
+}
+
+private object FireBootstrapHtmlMetadataParser {
+    fun currentUsername(html: String?): String? = metaContent("current-username", html)
+
+    fun csrfToken(html: String?): String? = metaContent("csrf-token", html)
+
+    private fun metaContent(name: String, html: String?): String? {
+        if (html.isNullOrBlank()) {
+            return null
+        }
+
+        val escapedName = Regex.escape(name)
+        val patterns = listOf(
+            """<meta\b[^>]*\bname\s*=\s*["']$escapedName["'][^>]*\bcontent\s*=\s*["']([^"']+)["'][^>]*>""",
+            """<meta\b[^>]*\bcontent\s*=\s*["']([^"']+)["'][^>]*\bname\s*=\s*["']$escapedName["'][^>]*>""",
+        )
+        return patterns.firstNotNullOfOrNull { pattern ->
+            Regex(pattern, RegexOption.IGNORE_CASE)
+                .find(html)
+                ?.groupValues
+                ?.getOrNull(1)
+                ?.trim()
+                ?.takeIf { it.isNotEmpty() }
+        }
     }
 }

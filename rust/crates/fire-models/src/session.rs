@@ -440,6 +440,7 @@ fn normalized_top_tags(tags: Vec<String>) -> Vec<String> {
 #[derive(Debug, Clone)]
 pub struct LoginFinalizationResult {
     pub success: bool,
+    pub session: SessionSnapshot,
     pub t_token_verified: bool,
     pub fingerprint_wait_needed: bool,
 }

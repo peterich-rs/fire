@@ -291,7 +291,11 @@ pub fn score_platform_cookie(cookie: &PlatformCookie, host: &str) -> i64 {
     if !cookie.is_expired_now() {
         score += 50_000;
     }
-    let raw_domain = cookie.domain.as_deref().map(str::trim).filter(|d| !d.is_empty());
+    let raw_domain = cookie
+        .domain
+        .as_deref()
+        .map(str::trim)
+        .filter(|d| !d.is_empty());
     match raw_domain {
         None => {
             score += 40_000;

@@ -245,6 +245,7 @@ impl FireCore {
 
         LoginFinalizationResult {
             success,
+            session: snapshot,
             t_token_verified,
             fingerprint_wait_needed: true,
         }

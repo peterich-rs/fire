@@ -1,8 +1,8 @@
 mod common;
 
+use common::sample_home_html;
 use fire_core::{FireCore, FireCoreConfig};
 use fire_models::PlatformCookie;
-use common::sample_home_html;
 
 #[test]
 fn finalize_login_from_webview_applies_scored_cookies_and_advances_epoch() {

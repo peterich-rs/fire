@@ -8,6 +8,21 @@ public enum FireAuthCookieSecureStoreError: Error {
     case unexpectedStatus(OSStatus)
 }
 
+public struct FireSavedCredential: Codable, Equatable, Sendable {
+    public let username: String
+    public let password: String
+
+    public init?(username: String, password: String) {
+        let normalizedUsername = username.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedPassword = password.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedUsername.isEmpty, !normalizedPassword.isEmpty else {
+            return nil
+        }
+        self.username = normalizedUsername
+        self.password = normalizedPassword
+    }
+}
+
 public struct FireStoredPlatformCookie: Codable, Equatable, Sendable {
     public var name: String
     public var value: String
@@ -45,7 +60,8 @@ public struct FireStoredPlatformCookie: Codable, Equatable, Sendable {
             value: value,
             domain: domain ?? baseURL.host ?? "linux.do",
             path: path ?? "/",
-            expiresAtUnixMs: expiresAtUnixMs
+            expiresAtUnixMs: expiresAtUnixMs,
+            sameSite: nil
         )
     }
 
@@ -61,6 +77,21 @@ public protocol FireAuthCookieSecureStore: Sendable {
     func load() throws -> FireAuthCookieSecrets
     func save(_ secrets: FireAuthCookieSecrets) throws
     func clear(preserveCfClearance: Bool) throws
+    func loadCredential() throws -> FireSavedCredential?
+    func saveCredential(_ credential: FireSavedCredential) throws
+    func clearCredential() throws
+}
+
+public extension FireAuthCookieSecureStore {
+    func loadCredential() throws -> FireSavedCredential? {
+        nil
+    }
+
+    func saveCredential(_ credential: FireSavedCredential) throws {
+    }
+
+    func clearCredential() throws {
+    }
 }
 
 public struct FireAuthCookieSecrets: Codable, Equatable, Sendable {
@@ -166,7 +197,8 @@ public struct FireAuthCookieSecrets: Codable, Equatable, Sendable {
                 value: value,
                 domain: host,
                 path: "/",
-                expiresAtUnixMs: nil
+                expiresAtUnixMs: nil,
+                sameSite: nil
             )
         }
     }
@@ -346,6 +378,32 @@ public struct FireKeychainAuthCookieStore: FireAuthCookieSecureStore {
         }
     }
 
+    public func loadCredential() throws -> FireSavedCredential? {
+        let data = try loadData(query: credentialQuery)
+        guard let data else {
+            return nil
+        }
+        do {
+            return try JSONDecoder().decode(FireSavedCredential.self, from: data)
+        } catch {
+            throw FireAuthCookieSecureStoreError.decodeFailed(error)
+        }
+    }
+
+    public func saveCredential(_ credential: FireSavedCredential) throws {
+        let data: Data
+        do {
+            data = try JSONEncoder().encode(credential)
+        } catch {
+            throw FireAuthCookieSecureStoreError.encodeFailed(error)
+        }
+        try saveData(data, query: credentialQuery)
+    }
+
+    public func clearCredential() throws {
+        try deleteItem(query: credentialQuery)
+    }
+
     private var baseQuery: [String: Any] {
         [
             kSecClass as String: kSecClassGenericPassword,
@@ -355,10 +413,63 @@ public struct FireKeychainAuthCookieStore: FireAuthCookieSecureStore {
         ]
     }
 
+    private var credentialQuery: [String: Any] {
+        [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: "\(account).credential",
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
+        ]
+    }
+
     private func deleteItem() throws {
-        let status = SecItemDelete(baseQuery as CFDictionary)
+        try deleteItem(query: baseQuery)
+    }
+
+    private func deleteItem(query: [String: Any]) throws {
+        let status = SecItemDelete(query as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else {
             throw FireAuthCookieSecureStoreError.unexpectedStatus(status)
+        }
+    }
+
+    private func loadData(query: [String: Any]) throws -> Data? {
+        var query = query
+        query[kSecReturnData as String] = true
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
+
+        var item: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &item)
+        switch status {
+        case errSecSuccess:
+            guard let data = item as? Data else {
+                throw FireAuthCookieSecureStoreError.invalidItemData
+            }
+            return data
+        case errSecItemNotFound:
+            return nil
+        default:
+            throw FireAuthCookieSecureStoreError.unexpectedStatus(status)
+        }
+    }
+
+    private func saveData(_ data: Data, query: [String: Any]) throws {
+        let updateStatus = SecItemUpdate(
+            query as CFDictionary,
+            [kSecValueData as String: data] as CFDictionary
+        )
+        switch updateStatus {
+        case errSecSuccess:
+            return
+        case errSecItemNotFound:
+            var addQuery = query
+            addQuery[kSecValueData as String] = data
+            let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
+            guard addStatus == errSecSuccess else {
+                throw FireAuthCookieSecureStoreError.unexpectedStatus(addStatus)
+            }
+        default:
+            throw FireAuthCookieSecureStoreError.unexpectedStatus(updateStatus)
         }
     }
 }

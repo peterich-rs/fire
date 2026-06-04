@@ -122,7 +122,7 @@ fn apply_platform_cookies_clears_stale_csrf_and_advances_epoch_on_auth_rotation(
             domain: None,
             path: None,
             expires_at_unix_ms: None,
-                same_site: None,
+            same_site: None,
         },
         PlatformCookie {
             name: "_forum_session".into(),
@@ -130,7 +130,7 @@ fn apply_platform_cookies_clears_stale_csrf_and_advances_epoch_on_auth_rotation(
             domain: None,
             path: None,
             expires_at_unix_ms: None,
-                same_site: None,
+            same_site: None,
         },
     ]);
 
@@ -587,7 +587,7 @@ fn session_persistence_revisions_track_snapshot_and_auth_cookie_changes() {
             domain: None,
             path: None,
             expires_at_unix_ms: None,
-                same_site: None,
+            same_site: None,
         },
         PlatformCookie {
             name: "_forum_session".into(),
@@ -595,7 +595,7 @@ fn session_persistence_revisions_track_snapshot_and_auth_cookie_changes() {
             domain: None,
             path: None,
             expires_at_unix_ms: None,
-                same_site: None,
+            same_site: None,
         },
     ]);
     let after_cookies = core.session_persistence_state();
@@ -821,7 +821,7 @@ fn restore_preserves_bootstrap_when_auth_cookies_were_redacted() {
             domain: None,
             path: None,
             expires_at_unix_ms: None,
-                same_site: None,
+            same_site: None,
         },
         PlatformCookie {
             name: "_forum_session".into(),
@@ -829,7 +829,7 @@ fn restore_preserves_bootstrap_when_auth_cookies_were_redacted() {
             domain: None,
             path: None,
             expires_at_unix_ms: None,
-                same_site: None,
+            same_site: None,
         },
     ]);
 

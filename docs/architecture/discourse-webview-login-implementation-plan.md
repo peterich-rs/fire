@@ -241,10 +241,9 @@ trait StateObserver: Send + Sync {
 | `cookie_replay_queue()` | Get Set-Cookie queue for WebView replay |
 | `clear_cookie_replay_queue()` | Clear the replay queue |
 | `probe_session()` | GET /session/current.json verification |
-| `save_credential(username, password)` | Store credential in Rust-managed encrypted store |
-| `load_credential()` | Retrieve stored credential |
-| `clear_credential()` | Remove stored credential |
 | `record_fingerprint_done()` | Notify Rust that fingerprint upload completed |
+
+Credentials remain platform-owned. Keychain / Keystore access must stay on iOS / Android and is not exposed through UniFFI.
 
 ### 2.10 File Change Summary (Rust)
 

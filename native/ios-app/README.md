@@ -47,15 +47,14 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
   - centralizes the embedded auth-browser profile used by login and Cloudflare WebViews
   - gives `WKWebView` a Mobile Safari-style user agent when no captured browser user agent is available
   - keeps the auth browser on the default persistent `WKWebsiteDataStore` without a custom process pool, enables JavaScript/new-window handling/media playback, and injects color-scheme plus small compatibility polyfills used by the auth browser and offscreen Turnstile runtime
+  - installs the login-specific `WKUserScript` set for preloaded bootstrap capture, credential hook/auto-fill, and fingerprint completion reporting
 - `FireWebViewLoginCoordinator.swift`
-  - reads `WKWebView` cookies, `current-username`, `csrf-token`, page HTML, and the live browser user agent
-  - prefers homepage HTML fetched through the current WebView browser context before falling back to the visible page HTML, so the first shared bootstrap sync stays as close as possible to the browser-authenticated session
+  - reads `WKWebView` cookies, `current-username`, `csrf-token`, captured `window.__rawPreloaded`, and the live browser user agent
   - continuously supports login readiness probing: navigation, scene-activation, debounced WebKit cookie-store changes, and WebView loading transitions all re-check the same readiness used by the `完成登录` button; normal login still commits through that visible action, while Cloudflare recovery auto-syncs as soon as that action would be enabled
   - treats the persistent `WKWebsiteDataStore` as the authoritative browser cookie source: login/challenge/clearance refresh only read browser cookies back into Rust, and shared session updates never write Rust cookies back into WebKit
   - only treats login as ready to sync once it can read `current-username`, same-site auth cookies, and reusable bootstrap HTML
-  - converts them into `LoginSyncState`
-  - completes login by first syncing the captured WebKit auth-cookie batch into Keychain and Rust, then backfilling missing `current-username` / `csrf-token` from the preferred bootstrap HTML whenever the visible page leaves metadata incomplete
-  - completes the native login handoff once bootstrap is synchronized; missing or stale CSRF is now repaired by the shared authenticated-write preflight instead of an eager login-time refresh
+  - completes login through the Rust-owned `finalize_login_from_webview` path, with an optional follow-up bootstrap refresh only when the captured preloaded bootstrap is still incomplete
+  - persists captured credentials in Keychain on the host side and leaves missing or stale CSRF repair to the shared authenticated-write preflight instead of an eager login-time refresh
   - if the follow-up Rust bootstrap refresh is challenged by Cloudflare again, it clears the partial native session and keeps the WebView login flow open so the user can finish the challenge and sync again
   - clears host-side LinuxDo auth cookies after a successful explicit logout while preserving `cf_clearance`
 - `FireCfClearanceRefreshService.swift`
@@ -68,6 +67,7 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
   - presents the host-owned auth browser as a full-screen flow for both initial login and interactive Cloudflare recovery
   - now wraps the embedded `WKWebView` in a full-screen native browser shell with adaptive light/dark chrome, a compact top bar, and a bottom command dock
   - uses the shared auth-browser profile so login, OAuth redirects, and Cloudflare challenge pages see a Safari-compatible user agent and light/dark color-scheme support
+  - waits for the host `FireAppViewModel` to replay queued `Set-Cookie` headers into WebKit before the first login navigation, so browser login always starts from the Rust-authenticated cookie boundary
   - exposes back, forward, reload, and context-aware primary actions so OAuth hops can return to LinuxDo without closing the flow and challenge recovery can reuse login readiness detection for automatic sync
   - does not try to bypass providers that reject embedded browsers; Google OAuth can still fail with `disallowed_useragent`, which requires a system auth/Safari fallback plus a way to import the resulting LinuxDo session back into Fire
   - enables back/forward swipe gestures on the embedded `WKWebView`

@@ -9,10 +9,10 @@ use fire_uniffi_types::{
 pub mod records;
 
 pub use records::{
-    AuthRecoveryHintState, BootstrapState, CookieReplayEntryState, CookieState,
-    LoginFinalizationResultState, LoginPhaseState, LoginSyncState, PassiveLogoutTriggerState,
-    PlatformCookieState, SessionPersistenceState, SessionReadinessState, SessionState,
-    TopicCategoryState, format_probe_result,
+    format_probe_result, AuthRecoveryHintState, BootstrapState, CookieReplayEntryState,
+    CookieState, LoginFinalizationResultState, LoginPhaseState, LoginSyncState,
+    PassiveLogoutTriggerState, PlatformCookieState, SessionPersistenceState, SessionReadinessState,
+    SessionState, TopicCategoryState,
 };
 
 #[derive(uniffi::Object)]
@@ -372,7 +372,7 @@ impl FireSessionHandle {
             "cookie_replay_queue",
             |inner| {
                 inner
-                    .cookie_replay_drain()
+                    .cookie_replay_list()
                     .map(|entries| entries.into_iter().map(Into::into).collect())
             },
         )
@@ -398,63 +398,4 @@ impl FireSessionHandle {
     }
 
     pub fn record_fingerprint_done(&self) {}
-
-    pub fn save_credential(&self, username: String, password: String) -> Result<(), FireUniFfiError> {
-        run_fallible(
-            &self.shared.panic_state,
-            &self.shared.core,
-            "save_credential",
-            move |inner| {
-                let json = serde_json::json!({"username": username, "password": password});
-                let path = inner.resolve_workspace_path("credential.json")?;
-                std::fs::write(&path, json.to_string()).map_err(|source| {
-                    fire_core::FireCoreError::PersistIo {
-                        path: path.clone(),
-                        source,
-                    }
-                })
-            },
-        )
-    }
-
-    pub fn load_credential(&self) -> Result<Option<String>, FireUniFfiError> {
-        run_fallible(
-            &self.shared.panic_state,
-            &self.shared.core,
-            "load_credential",
-            |inner| {
-                let path = inner.resolve_workspace_path("credential.json")?;
-                if path.exists() {
-                    let data = std::fs::read_to_string(&path).map_err(|source| {
-                        fire_core::FireCoreError::PersistIo {
-                            path: path.clone(),
-                            source,
-                        }
-                    })?;
-                    return Ok(Some(data));
-                }
-                Ok(None)
-            },
-        )
-    }
-
-    pub fn clear_credential(&self) -> Result<(), FireUniFfiError> {
-        run_fallible(
-            &self.shared.panic_state,
-            &self.shared.core,
-            "clear_credential",
-            |inner| {
-                let path = inner.resolve_workspace_path("credential.json")?;
-                if path.exists() {
-                    std::fs::remove_file(&path).map_err(|source| {
-                        fire_core::FireCoreError::PersistIo {
-                            path: path.clone(),
-                            source,
-                        }
-                    })?;
-                }
-                Ok(())
-            },
-        )
-    }
 }

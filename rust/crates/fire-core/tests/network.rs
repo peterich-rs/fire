@@ -935,10 +935,7 @@ async fn fetch_topic_list_surfaces_login_required_and_preserves_local_state_for_
         .expect_err("login-required error should surface");
     let _ = server.shutdown().await;
 
-    assert!(matches!(
-        error,
-        FireCoreError::LoginRequired { .. }
-    ));
+    assert!(matches!(error, FireCoreError::LoginRequired { .. }));
 
     let snapshot = core.snapshot();
     assert_eq!(snapshot.cookies.t_token.as_deref(), Some("token"));

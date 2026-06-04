@@ -802,7 +802,7 @@ final class FireTopicDetailStoreTests: XCTestCase {
     }
 
     @MainActor
-    func testCompleteLoginSyncsCookiesAndBootstrapWithoutEagerCsrfRefresh() async throws {
+    func testCompleteLoginUsesAtomicFinalizationWithoutEagerCsrfRefresh() async throws {
         let captured = FireCapturedLoginState(
             currentURL: "https://linux.do/",
             username: "alice",
@@ -815,26 +815,26 @@ final class FireTopicDetailStoreTests: XCTestCase {
                     value: "token",
                     domain: "linux.do",
                     path: "/",
-                    expiresAtUnixMs: nil
+                    expiresAtUnixMs: nil,
+                    sameSite: nil
                 )
             ]
         )
         let store = MockLoginSessionStore(
-            syncResult: makeSessionState(csrfToken: nil),
+            finalizationResult: makeSessionState(csrfToken: nil),
             bootstrapResult: makeSessionState(csrfToken: nil),
-            csrfResult: makeSessionState(csrfToken: "csrf-token")
         )
         let coordinator = FireWebViewLoginCoordinator(loginSessionStore: store)
 
         let finalState = try await coordinator.completeLogin(captured)
         let calls = await store.callsSnapshot()
-        let appliedCookies = await store.appliedPlatformCookiesSnapshot()
+        let finalizedCapture = await store.finalizedCaptureSnapshot()
 
         XCTAssertEqual(
             calls,
-            [.applyPlatformCookies, .syncLoginContext, .refreshBootstrapIfNeeded]
+            [.finalizeLoginFromWebView]
         )
-        XCTAssertEqual(appliedCookies, captured.cookies)
+        XCTAssertEqual(finalizedCapture, captured)
         XCTAssertNil(finalState.cookies.csrfToken)
         XCTAssertFalse(finalState.readiness.hasCsrfToken)
         XCTAssertFalse(finalState.readiness.canWriteAuthenticatedApi)
@@ -845,7 +845,7 @@ final class FireTopicDetailStoreTests: XCTestCase {
     func testAuthoritativePlatformCookieApplySkipsPartialBrowserBatch() async throws {
         let currentState = makeSessionState(csrfToken: "csrf-token")
         let store = MockLoginSessionStore(
-            syncResult: makeSessionState(csrfToken: nil),
+            finalizationResult: makeSessionState(csrfToken: nil),
             bootstrapResult: currentState,
             currentSnapshot: currentState
         )
@@ -857,19 +857,20 @@ final class FireTopicDetailStoreTests: XCTestCase {
                 value: "clearance",
                 domain: "linux.do",
                 path: "/",
-                expiresAtUnixMs: nil
+                expiresAtUnixMs: nil,
+                sameSite: nil
             )
         ])
         let calls = await store.callsSnapshot()
         let appliedCookies = await store.appliedPlatformCookiesSnapshot()
 
-        XCTAssertEqual(calls, [.currentSessionSnapshot])
+        XCTAssertEqual(calls, [MockLoginSessionStore.Call.currentSessionSnapshot])
         XCTAssertEqual(state, currentState)
         XCTAssertTrue(appliedCookies.isEmpty)
     }
 
     @MainActor
-    func testCompleteLoginSkipsCsrfRefreshChallengeAfterBootstrapSucceeds() async throws {
+    func testCompleteLoginRollsBackPartialSessionWhenBootstrapRefreshChallenges() async throws {
         let captured = FireCapturedLoginState(
             currentURL: "https://linux.do/",
             username: "alice",
@@ -878,25 +879,80 @@ final class FireTopicDetailStoreTests: XCTestCase {
             browserUserAgent: "FireTests/1.0",
             cookies: []
         )
+        let partialState = SessionState(
+            cookies: CookieState(
+                tToken: "token",
+                forumSession: "forum",
+                cfClearance: "clearance",
+                csrfToken: nil,
+                platformCookies: []
+            ),
+            bootstrap: BootstrapState(
+                baseUrl: "https://linux.do",
+                discourseBaseUri: "/",
+                sharedSessionKey: nil,
+                currentUsername: "alice",
+                currentUserId: 1,
+                notificationChannelPosition: nil,
+                longPollingBaseUrl: nil,
+                turnstileSitekey: nil,
+                topicTrackingStateMeta: nil,
+                preloadedJson: nil,
+                hasPreloadedData: false,
+                hasSiteMetadata: false,
+                topTags: [],
+                canTagTopics: false,
+                categories: [],
+                hasSiteSettings: false,
+                enabledReactionIds: [],
+                minPostLength: 1,
+                minTopicTitleLength: 15,
+                minFirstPostLength: 20,
+                minPersonalMessageTitleLength: 2,
+                minPersonalMessagePostLength: 10,
+                defaultComposerCategory: nil
+            ),
+            readiness: SessionReadinessState(
+                hasLoginCookie: true,
+                hasForumSession: true,
+                hasCloudflareClearance: true,
+                hasCsrfToken: false,
+                hasCurrentUser: true,
+                hasPreloadedData: false,
+                hasSharedSessionKey: false,
+                canReadAuthenticatedApi: true,
+                canWriteAuthenticatedApi: false,
+                canOpenMessageBus: false
+            ),
+            loginPhase: .bootstrapCaptured,
+            hasLoginSession: true,
+            browserUserAgent: "FireTests/1.0",
+            profileDisplayName: "alice",
+            loginPhaseLabel: "账号信息同步中"
+        )
         let store = MockLoginSessionStore(
-            syncResult: makeSessionState(csrfToken: nil),
-            bootstrapResult: makeSessionState(csrfToken: nil),
-            csrfError: FireUniFfiError.CloudflareChallenge
+            finalizationResult: partialState,
+            bootstrapResult: partialState,
+            bootstrapError: FireUniFfiError.CloudflareChallenge
         )
         let coordinator = FireWebViewLoginCoordinator(loginSessionStore: store)
 
-        let finalState = try await coordinator.completeLogin(captured)
+        do {
+            _ = try await coordinator.completeLogin(captured)
+            XCTFail("Expected CloudflareChallenge during bootstrap refresh")
+        } catch {
+            XCTAssertTrue(error is FireUniFfiError)
+        }
         let calls = await store.callsSnapshot()
 
         XCTAssertEqual(
             calls,
             [
-                .applyPlatformCookies,
-                .syncLoginContext,
+                .finalizeLoginFromWebView,
                 .refreshBootstrapIfNeeded,
+                .logoutLocal,
             ]
         )
-        XCTAssertNil(finalState.cookies.csrfToken)
     }
 
     func testReplyContextRowsAppendMissingNestedRepliesWithDepth() {
@@ -1112,6 +1168,7 @@ private actor RequestedBatchRecorder {
 private actor MockLoginSessionStore: FireLoginSessionStoring {
     enum Call: Equatable {
         case currentSessionSnapshot
+        case finalizeLoginFromWebView
         case applyPlatformCookies
         case syncLoginContext
         case refreshBootstrapIfNeeded
@@ -1119,25 +1176,29 @@ private actor MockLoginSessionStore: FireLoginSessionStoring {
         case logoutLocal
     }
 
-    private let syncResult: SessionState
+    private let finalizationResult: SessionState
     private let bootstrapResult: SessionState
     private let csrfResult: SessionState
     private let currentSnapshot: SessionState
+    private let bootstrapError: Error?
     private let csrfError: Error?
     private var calls: [Call] = []
     private var appliedPlatformCookies: [PlatformCookieState] = []
+    private var finalizedCapture: FireCapturedLoginState?
 
     init(
-        syncResult: SessionState,
+        finalizationResult: SessionState,
         bootstrapResult: SessionState,
         csrfResult: SessionState? = nil,
         currentSnapshot: SessionState? = nil,
+        bootstrapError: Error? = nil,
         csrfError: Error? = nil
     ) {
-        self.syncResult = syncResult
+        self.finalizationResult = finalizationResult
         self.bootstrapResult = bootstrapResult
         self.csrfResult = csrfResult ?? bootstrapResult
-        self.currentSnapshot = currentSnapshot ?? bootstrapResult
+        self.currentSnapshot = currentSnapshot ?? finalizationResult
+        self.bootstrapError = bootstrapError
         self.csrfError = csrfError
     }
 
@@ -1150,13 +1211,30 @@ private actor MockLoginSessionStore: FireLoginSessionStoring {
         nil
     }
 
+    func finalizeLoginFromWebView(
+        _ captured: FireCapturedLoginState,
+        allowLowConfidenceSessionCookies: Bool
+    ) async throws -> LoginFinalizationResultState {
+        calls.append(.finalizeLoginFromWebView)
+        finalizedCapture = captured
+        return LoginFinalizationResultState(
+            success: true,
+            session: finalizationResult,
+            tTokenVerified: true,
+            fingerprintWaitNeeded: true
+        )
+    }
+
     func syncLoginContext(_ captured: FireCapturedLoginState) async throws -> SessionState {
         calls.append(.syncLoginContext)
-        return syncResult
+        return finalizationResult
     }
 
     func refreshBootstrapIfNeeded() async throws -> SessionState {
         calls.append(.refreshBootstrapIfNeeded)
+        if let bootstrapError {
+            throw bootstrapError
+        }
         return bootstrapResult
     }
 
@@ -1180,7 +1258,7 @@ private actor MockLoginSessionStore: FireLoginSessionStoring {
     func applyPlatformCookies(_ cookies: [PlatformCookieState]) async throws -> SessionState {
         calls.append(.applyPlatformCookies)
         appliedPlatformCookies = cookies
-        return syncResult
+        return finalizationResult
     }
 
     func callsSnapshot() -> [Call] {
@@ -1189,5 +1267,9 @@ private actor MockLoginSessionStore: FireLoginSessionStoring {
 
     func appliedPlatformCookiesSnapshot() -> [PlatformCookieState] {
         appliedPlatformCookies
+    }
+
+    func finalizedCaptureSnapshot() -> FireCapturedLoginState? {
+        finalizedCapture
     }
 }

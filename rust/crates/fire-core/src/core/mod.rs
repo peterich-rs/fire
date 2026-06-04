@@ -17,7 +17,7 @@ mod users;
 use std::{
     fs,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex, RwLock},
+    sync::{Arc, Mutex, OnceLock, RwLock},
     time::Duration,
 };
 
@@ -140,8 +140,10 @@ pub struct FireCore {
     topic_presence: Arc<Mutex<presence::FireTopicPresenceRuntime>>,
     topic_timing: Arc<Mutex<interactions::FireTopicTimingRuntime>>,
     topic_response: Arc<Mutex<topics::FireTopicResponseRuntime>>,
-    topic_feed_store: Arc<Mutex<FireStore>>,
+    pub(crate) topic_feed_store: Arc<Mutex<FireStore>>,
     csrf_refresh: Arc<TokioMutex<()>>,
+    preloaded_data: OnceLock<Arc<crate::preloaded_data::PreloadedDataService>>,
+    app_state_refresher: OnceLock<Arc<crate::app_state_refresher::AppStateRefresher>>,
 }
 
 impl FireCore {
@@ -203,6 +205,8 @@ impl FireCore {
             topic_response: Arc::new(Mutex::new(topics::FireTopicResponseRuntime::default())),
             topic_feed_store,
             csrf_refresh: Arc::new(TokioMutex::new(())),
+            preloaded_data: OnceLock::new(),
+            app_state_refresher: OnceLock::new(),
         })
     }
 
@@ -285,6 +289,18 @@ impl FireCore {
 
     pub fn shared_client(&self) -> Client {
         self.network.client()
+    }
+
+    pub fn preloaded_data_service(&self) -> &Arc<crate::preloaded_data::PreloadedDataService> {
+        self.preloaded_data.get_or_init(|| {
+            Arc::new(crate::preloaded_data::PreloadedDataService::new(Arc::new(self.clone())))
+        })
+    }
+
+    pub fn app_state_refresher(&self) -> &Arc<crate::app_state_refresher::AppStateRefresher> {
+        self.app_state_refresher.get_or_init(|| {
+            Arc::new(crate::app_state_refresher::AppStateRefresher::new(Arc::new(self.clone())))
+        })
     }
 
     pub fn cookie_replay_list(

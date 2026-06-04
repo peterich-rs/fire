@@ -9,9 +9,10 @@ use fire_uniffi_types::{
 pub mod records;
 
 pub use records::{
-    AuthRecoveryHintState, BootstrapState, CookieState, LoginPhaseState, LoginSyncState,
+    AuthRecoveryHintState, BootstrapState, CookieReplayEntryState, CookieState,
+    LoginFinalizationResultState, LoginPhaseState, LoginSyncState, PassiveLogoutTriggerState,
     PlatformCookieState, SessionPersistenceState, SessionReadinessState, SessionState,
-    TopicCategoryState,
+    TopicCategoryState, format_probe_result,
 };
 
 #[derive(uniffi::Object)]
@@ -334,5 +335,126 @@ impl FireSessionHandle {
         })
         .await?;
         Ok(SessionState::from_snapshot(snapshot))
+    }
+
+    pub fn finalize_login_from_webview(
+        &self,
+        username: String,
+        csrf_token: Option<String>,
+        raw_preloaded_html: Option<String>,
+        browser_user_agent: Option<String>,
+        cookies: Vec<PlatformCookieState>,
+        allow_low_confidence_session_cookies: bool,
+    ) -> Result<LoginFinalizationResultState, FireUniFfiError> {
+        run_infallible(
+            &self.shared.panic_state,
+            &self.shared.core,
+            "finalize_login_from_webview",
+            move |inner| {
+                inner
+                    .finalize_login_from_webview(
+                        username,
+                        csrf_token,
+                        raw_preloaded_html,
+                        browser_user_agent,
+                        cookies.into_iter().map(Into::into).collect(),
+                        allow_low_confidence_session_cookies,
+                    )
+                    .into()
+            },
+        )
+    }
+
+    pub fn cookie_replay_queue(&self) -> Result<Vec<CookieReplayEntryState>, FireUniFfiError> {
+        run_fallible(
+            &self.shared.panic_state,
+            &self.shared.core,
+            "cookie_replay_queue",
+            |inner| {
+                inner
+                    .cookie_replay_drain()
+                    .map(|entries| entries.into_iter().map(Into::into).collect())
+            },
+        )
+    }
+
+    pub fn clear_cookie_replay_queue(&self) -> Result<(), FireUniFfiError> {
+        run_fallible(
+            &self.shared.panic_state,
+            &self.shared.core,
+            "clear_cookie_replay_queue",
+            |inner| inner.cookie_replay_clear(),
+        )
+    }
+
+    pub async fn probe_session(&self) -> Result<String, FireUniFfiError> {
+        let inner = self.shared.core.clone();
+        let panic_state = self.shared.panic_state.clone();
+        let result = run_on_ffi_runtime("probe_session", panic_state, async move {
+            inner.probe_session().await
+        })
+        .await?;
+        Ok(format_probe_result(result))
+    }
+
+    pub fn record_fingerprint_done(&self) {}
+
+    pub fn save_credential(&self, username: String, password: String) -> Result<(), FireUniFfiError> {
+        run_fallible(
+            &self.shared.panic_state,
+            &self.shared.core,
+            "save_credential",
+            move |inner| {
+                let json = serde_json::json!({"username": username, "password": password});
+                let path = inner.resolve_workspace_path("credential.json")?;
+                std::fs::write(&path, json.to_string()).map_err(|source| {
+                    fire_core::FireCoreError::PersistIo {
+                        path: path.clone(),
+                        source,
+                    }
+                })
+            },
+        )
+    }
+
+    pub fn load_credential(&self) -> Result<Option<String>, FireUniFfiError> {
+        run_fallible(
+            &self.shared.panic_state,
+            &self.shared.core,
+            "load_credential",
+            |inner| {
+                let path = inner.resolve_workspace_path("credential.json")?;
+                if path.exists() {
+                    let data = std::fs::read_to_string(&path).map_err(|source| {
+                        fire_core::FireCoreError::PersistIo {
+                            path: path.clone(),
+                            source,
+                        }
+                    })?;
+                    return Ok(Some(data));
+                }
+                Ok(None)
+            },
+        )
+    }
+
+    pub fn clear_credential(&self) -> Result<(), FireUniFfiError> {
+        run_fallible(
+            &self.shared.panic_state,
+            &self.shared.core,
+            "clear_credential",
+            |inner| {
+                let path = inner.resolve_workspace_path("credential.json")?;
+                if path.exists() {
+                    std::fs::remove_file(&path).map_err(|source| {
+                        fire_core::FireCoreError::PersistIo {
+                            path: path.clone(),
+                            source,
+                        }
+                    })?;
+                }
+                Ok(())
+            },
+        )
     }
 }

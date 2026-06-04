@@ -3,9 +3,11 @@ use fire_core::{
     FireSessionPersistenceState as CoreSessionPersistenceState,
 };
 use fire_models::{
-    BootstrapArtifacts, CookieSnapshot, LoginPhase, LoginSyncInput, PlatformCookie,
-    SessionReadiness, SessionSnapshot, TopicCategory,
+    BootstrapArtifacts, CookieSnapshot, LoginFinalizationResult, LoginPhase, LoginSyncInput,
+    PassiveLogoutTrigger, PlatformCookie, ProbeResult, SessionReadiness, SessionSnapshot,
+    SignalStrength, TopicCategory,
 };
+use fire_store::cookie_replay::CookieReplayEntry;
 
 use fire_uniffi_types::RequiredTagGroupState;
 
@@ -386,5 +388,71 @@ impl SessionState {
             login_phase: login_phase.into(),
             browser_user_agent: snapshot.browser_user_agent,
         }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct LoginFinalizationResultState {
+    pub success: bool,
+    pub t_token_verified: bool,
+    pub fingerprint_wait_needed: bool,
+}
+
+impl From<LoginFinalizationResult> for LoginFinalizationResultState {
+    fn from(value: LoginFinalizationResult) -> Self {
+        Self {
+            success: value.success,
+            t_token_verified: value.t_token_verified,
+            fingerprint_wait_needed: value.fingerprint_wait_needed,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct PassiveLogoutTriggerState {
+    pub source: String,
+    pub signal_strength: String,
+    pub cookie_diagnostic: String,
+}
+
+impl From<PassiveLogoutTrigger> for PassiveLogoutTriggerState {
+    fn from(value: PassiveLogoutTrigger) -> Self {
+        Self {
+            source: value.source,
+            signal_strength: match value.signal_strength {
+                SignalStrength::Strong => "strong".to_string(),
+                SignalStrength::Weak => "weak".to_string(),
+            },
+            cookie_diagnostic: value.cookie_diagnostic,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct CookieReplayEntryState {
+    pub url: String,
+    pub raw_set_cookie: String,
+    pub cookie_name: String,
+    pub domain: String,
+    pub inserted_at: u64,
+}
+
+impl From<CookieReplayEntry> for CookieReplayEntryState {
+    fn from(value: CookieReplayEntry) -> Self {
+        Self {
+            url: value.url,
+            raw_set_cookie: value.raw_set_cookie,
+            cookie_name: value.cookie_name,
+            domain: value.domain,
+            inserted_at: value.inserted_at,
+        }
+    }
+}
+
+pub fn format_probe_result(result: ProbeResult) -> String {
+    match result {
+        ProbeResult::Valid { username } => format!("valid:{}", username),
+        ProbeResult::Invalid => "invalid".to_string(),
+        ProbeResult::Inconclusive => "inconclusive".to_string(),
     }
 }

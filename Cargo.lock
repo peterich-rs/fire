@@ -916,7 +916,9 @@ version = "0.1.0"
 dependencies = [
  "fire-core",
  "fire-models",
+ "fire-store",
  "fire-uniffi-types",
+ "serde_json",
  "tokio",
  "uniffi",
 ]

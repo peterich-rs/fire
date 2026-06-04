@@ -23,9 +23,9 @@ pub use user::*;
 #[cfg(test)]
 mod tests {
     use super::{
-        BootstrapArtifacts, CookieSnapshot, LoginPhase, PlatformCookie, SessionSnapshot,
-        TopicCategory, TopicDetail, TopicListKind, TopicListQuery, TopicPost, TopicPostStream,
-        TopicReaction, TopicThread, TopicThreadFlatPost,
+        BootstrapArtifacts, CookieSnapshot, CurrentUserSnapshot, LoginPhase, PlatformCookie,
+        SessionSnapshot, TopicCategory, TopicDetail, TopicListKind, TopicListQuery, TopicPost,
+        TopicPostStream, TopicReaction, TopicThread, TopicThreadFlatPost,
     };
 
     #[test]
@@ -949,5 +949,11 @@ mod tests {
             can_recover: false,
             hidden: false,
         }
+    }
+
+    #[test]
+    fn current_user_snapshot_default_notification_channel_position() {
+        let snapshot = CurrentUserSnapshot::default();
+        assert_eq!(snapshot.notification_channel_position, -1);
     }
 }

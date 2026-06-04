@@ -208,6 +208,7 @@ final class FireTopicDetailFeedUpdatePipeline {
                 configuration: configuration,
                 pendingScrollTarget: snapshot.pendingScrollTarget
             )
+            evaluatePaginationAfterSnapshotUpdate(configuration: configuration)
             return
         }
 
@@ -234,6 +235,7 @@ final class FireTopicDetailFeedUpdatePipeline {
                 configuration: configuration,
                 pendingScrollTarget: snapshot.pendingScrollTarget
             )
+            evaluatePaginationAfterSnapshotUpdate(configuration: configuration)
             return
         }
 
@@ -297,6 +299,7 @@ final class FireTopicDetailFeedUpdatePipeline {
                 configuration: configuration,
                 pendingScrollTarget: snapshot.pendingScrollTarget
             )
+            self.evaluatePaginationAfterSnapshotUpdate(configuration: configuration)
         }
 
         guard !updatePlan.isEmpty else {
@@ -330,6 +333,27 @@ final class FireTopicDetailFeedUpdatePipeline {
             nextItems: snapshot.items,
             animated: animated,
             completion: completion
+        )
+    }
+
+    private func evaluatePaginationAfterSnapshotUpdate(
+        configuration: FireTopicDetailRuntimeConfiguration
+    ) {
+        guard let feedController else { return }
+        if configuration.hasMoreTopicPosts,
+           !configuration.isLoadingMoreTopicPosts,
+           configuration.loadMoreTopicPostsError == nil,
+           feedController.contentFitsWithoutScrolling {
+            paginationCoordinator?.requestLoadMore(
+                forceEvaluation: true,
+                allowRetry: false
+            )
+            return
+        }
+        paginationCoordinator?.loadMoreIfNeeded(
+            itemCount: feedController.currentItems.count,
+            visibleMaxItem: feedController.visibleMaxItem,
+            forceEvaluation: false
         )
     }
 }

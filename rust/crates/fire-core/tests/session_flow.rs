@@ -59,6 +59,7 @@ fn sync_login_context_merges_platform_cookies_and_html() {
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
             PlatformCookie {
                 name: "_forum_session".into(),
@@ -66,6 +67,7 @@ fn sync_login_context_merges_platform_cookies_and_html() {
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
             PlatformCookie {
                 name: "cf_clearance".into(),
@@ -73,6 +75,7 @@ fn sync_login_context_merges_platform_cookies_and_html() {
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
         ],
     });
@@ -98,6 +101,7 @@ fn apply_platform_cookies_clears_stale_csrf_and_advances_epoch_on_auth_rotation(
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
             PlatformCookie {
                 name: "_forum_session".into(),
@@ -105,6 +109,7 @@ fn apply_platform_cookies_clears_stale_csrf_and_advances_epoch_on_auth_rotation(
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
         ],
     });
@@ -117,6 +122,7 @@ fn apply_platform_cookies_clears_stale_csrf_and_advances_epoch_on_auth_rotation(
             domain: None,
             path: None,
             expires_at_unix_ms: None,
+                same_site: None,
         },
         PlatformCookie {
             name: "_forum_session".into(),
@@ -124,6 +130,7 @@ fn apply_platform_cookies_clears_stale_csrf_and_advances_epoch_on_auth_rotation(
             domain: None,
             path: None,
             expires_at_unix_ms: None,
+                same_site: None,
         },
     ]);
 
@@ -153,6 +160,7 @@ fn sync_login_context_clears_stale_csrf_and_advances_epoch_on_auth_rotation() {
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
             PlatformCookie {
                 name: "_forum_session".into(),
@@ -160,6 +168,7 @@ fn sync_login_context_clears_stale_csrf_and_advances_epoch_on_auth_rotation() {
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
         ],
     });
@@ -178,6 +187,7 @@ fn sync_login_context_clears_stale_csrf_and_advances_epoch_on_auth_rotation() {
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
             PlatformCookie {
                 name: "_forum_session".into(),
@@ -185,6 +195,7 @@ fn sync_login_context_clears_stale_csrf_and_advances_epoch_on_auth_rotation() {
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
         ],
     });
@@ -489,6 +500,7 @@ async fn refresh_csrf_token_if_needed_skips_when_token_exists() {
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
             PlatformCookie {
                 name: "_forum_session".into(),
@@ -496,6 +508,7 @@ async fn refresh_csrf_token_if_needed_skips_when_token_exists() {
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
         ],
     });
@@ -525,6 +538,7 @@ fn session_can_roundtrip_through_json_export_and_restore() {
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
             PlatformCookie {
                 name: "_forum_session".into(),
@@ -532,6 +546,7 @@ fn session_can_roundtrip_through_json_export_and_restore() {
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
         ],
     });
@@ -572,6 +587,7 @@ fn session_persistence_revisions_track_snapshot_and_auth_cookie_changes() {
             domain: None,
             path: None,
             expires_at_unix_ms: None,
+                same_site: None,
         },
         PlatformCookie {
             name: "_forum_session".into(),
@@ -579,6 +595,7 @@ fn session_persistence_revisions_track_snapshot_and_auth_cookie_changes() {
             domain: None,
             path: None,
             expires_at_unix_ms: None,
+                same_site: None,
         },
     ]);
     let after_cookies = core.session_persistence_state();
@@ -608,6 +625,7 @@ fn redacted_session_export_currently_returns_full_session_snapshot() {
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
             PlatformCookie {
                 name: "_forum_session".into(),
@@ -615,6 +633,7 @@ fn redacted_session_export_currently_returns_full_session_snapshot() {
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
             PlatformCookie {
                 name: "cf_clearance".into(),
@@ -622,6 +641,7 @@ fn redacted_session_export_currently_returns_full_session_snapshot() {
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
         ],
     });
@@ -801,6 +821,7 @@ fn restore_preserves_bootstrap_when_auth_cookies_were_redacted() {
             domain: None,
             path: None,
             expires_at_unix_ms: None,
+                same_site: None,
         },
         PlatformCookie {
             name: "_forum_session".into(),
@@ -808,6 +829,7 @@ fn restore_preserves_bootstrap_when_auth_cookies_were_redacted() {
             domain: None,
             path: None,
             expires_at_unix_ms: None,
+                same_site: None,
         },
     ]);
 
@@ -832,6 +854,7 @@ fn session_can_roundtrip_through_file_persistence() {
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
             PlatformCookie {
                 name: "_forum_session".into(),
@@ -839,6 +862,7 @@ fn session_can_roundtrip_through_file_persistence() {
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
             PlatformCookie {
                 name: "cf_clearance".into(),
@@ -846,6 +870,7 @@ fn session_can_roundtrip_through_file_persistence() {
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
         ],
     });
@@ -877,6 +902,7 @@ fn redacted_session_file_persistence_currently_roundtrips_full_session() {
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
             PlatformCookie {
                 name: "_forum_session".into(),
@@ -884,6 +910,7 @@ fn redacted_session_file_persistence_currently_roundtrips_full_session() {
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
             PlatformCookie {
                 name: "cf_clearance".into(),
@@ -891,6 +918,7 @@ fn redacted_session_file_persistence_currently_roundtrips_full_session() {
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
         ],
     });

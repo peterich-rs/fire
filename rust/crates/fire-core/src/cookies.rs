@@ -344,6 +344,7 @@ fn parse_set_cookie(value: &str, url: &Url) -> Option<fire_models::PlatformCooki
         domain,
         path,
         expires_at_unix_ms,
+        same_site: None,
     })
 }
 
@@ -442,6 +443,7 @@ mod tests {
             domain: Some("linux.do".into()),
             path: Some("/".into()),
             expires_at_unix_ms: None,
+                same_site: None,
         };
         let domain_cookie = PlatformCookie {
             name: "_t".into(),
@@ -449,6 +451,7 @@ mod tests {
             domain: Some(".linux.do".into()),
             path: Some("/".into()),
             expires_at_unix_ms: None,
+                same_site: None,
         };
 
         assert!(!cookie_matches_url(
@@ -471,6 +474,7 @@ mod tests {
                     domain: Some("linux.do".into()),
                     path: Some("/".into()),
                     expires_at_unix_ms: Some(1),
+                same_site: None,
                 },
                 fire_models::PlatformCookie {
                     name: "_forum_session".into(),
@@ -478,6 +482,7 @@ mod tests {
                     domain: Some("linux.do".into()),
                     path: Some("/".into()),
                     expires_at_unix_ms: None,
+                same_site: None,
                 },
             ],
             ..CookieSnapshot::default()
@@ -503,6 +508,7 @@ mod tests {
                     domain: Some("linux.do".into()),
                     path: Some("/".into()),
                     expires_at_unix_ms: Some(1),
+                same_site: None,
                 },
                 PlatformCookie {
                     name: "_forum_session".into(),
@@ -510,6 +516,7 @@ mod tests {
                     domain: Some("linux.do".into()),
                     path: Some("/".into()),
                     expires_at_unix_ms: Some(1),
+                same_site: None,
                 },
             ],
             ..CookieSnapshot::default()
@@ -530,6 +537,7 @@ mod tests {
                     domain: Some("linux.do".into()),
                     path: Some("/".into()),
                     expires_at_unix_ms: None,
+                same_site: None,
                 },
                 PlatformCookie {
                     name: "_t".into(),
@@ -537,6 +545,7 @@ mod tests {
                     domain: Some(".linux.do".into()),
                     path: Some("/".into()),
                     expires_at_unix_ms: None,
+                same_site: None,
                 },
                 PlatformCookie {
                     name: "_forum_session".into(),
@@ -544,6 +553,7 @@ mod tests {
                     domain: Some("linux.do".into()),
                     path: Some("/".into()),
                     expires_at_unix_ms: None,
+                same_site: None,
                 },
             ],
             ..CookieSnapshot::default()

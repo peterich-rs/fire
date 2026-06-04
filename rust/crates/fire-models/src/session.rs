@@ -436,3 +436,30 @@ fn normalized_top_tags(tags: Vec<String>) -> Vec<String> {
     }
     normalized
 }
+
+#[derive(Debug, Clone)]
+pub struct LoginFinalizationResult {
+    pub success: bool,
+    pub t_token_verified: bool,
+    pub fingerprint_wait_needed: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct PassiveLogoutTrigger {
+    pub source: String,
+    pub signal_strength: SignalStrength,
+    pub cookie_diagnostic: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum SignalStrength {
+    Strong,
+    Weak,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ProbeResult {
+    Valid { username: String },
+    Invalid,
+    Inconclusive,
+}

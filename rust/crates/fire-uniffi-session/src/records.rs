@@ -61,6 +61,7 @@ pub struct PlatformCookieState {
     pub domain: Option<String>,
     pub path: Option<String>,
     pub expires_at_unix_ms: Option<i64>,
+    pub same_site: Option<String>,
 }
 
 impl From<PlatformCookie> for PlatformCookieState {
@@ -71,6 +72,7 @@ impl From<PlatformCookie> for PlatformCookieState {
             domain: value.domain,
             path: value.path,
             expires_at_unix_ms: value.expires_at_unix_ms,
+            same_site: value.same_site,
         }
     }
 }
@@ -83,6 +85,7 @@ impl From<PlatformCookieState> for PlatformCookie {
             domain: value.domain,
             path: value.path,
             expires_at_unix_ms: value.expires_at_unix_ms,
+            same_site: value.same_site,
         }
     }
 }

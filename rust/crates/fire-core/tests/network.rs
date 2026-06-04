@@ -211,6 +211,7 @@ async fn fetch_private_message_mailboxes_use_username_routes_and_parse_participa
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
             PlatformCookie {
                 name: "_forum_session".into(),
@@ -218,6 +219,7 @@ async fn fetch_private_message_mailboxes_use_username_routes_and_parse_participa
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
         ],
     });
@@ -599,6 +601,7 @@ async fn fetch_topic_list_keeps_local_login_when_success_response_only_clears_au
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
             PlatformCookie {
                 name: "_forum_session".into(),
@@ -606,6 +609,7 @@ async fn fetch_topic_list_keeps_local_login_when_success_response_only_clears_au
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
             PlatformCookie {
                 name: "cf_clearance".into(),
@@ -613,6 +617,7 @@ async fn fetch_topic_list_keeps_local_login_when_success_response_only_clears_au
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
         ],
     });
@@ -667,6 +672,7 @@ async fn fetch_topic_posts_keeps_local_login_when_forbidden_invalid_access_sets_
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
             PlatformCookie {
                 name: "_forum_session".into(),
@@ -674,6 +680,7 @@ async fn fetch_topic_posts_keeps_local_login_when_forbidden_invalid_access_sets_
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
             PlatformCookie {
                 name: "cf_clearance".into(),
@@ -681,6 +688,7 @@ async fn fetch_topic_posts_keeps_local_login_when_forbidden_invalid_access_sets_
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
         ],
     });
@@ -745,6 +753,7 @@ async fn fetch_topic_detail_partial_auth_rotation_advances_epoch_and_clears_csrf
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
             PlatformCookie {
                 name: "_forum_session".into(),
@@ -752,6 +761,7 @@ async fn fetch_topic_detail_partial_auth_rotation_advances_epoch_and_clears_csrf
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
         ],
     });
@@ -820,6 +830,7 @@ async fn fetch_topic_list_preserves_local_login_when_success_response_reports_lo
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
             PlatformCookie {
                 name: "_forum_session".into(),
@@ -827,6 +838,7 @@ async fn fetch_topic_list_preserves_local_login_when_success_response_reports_lo
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
             PlatformCookie {
                 name: "cf_clearance".into(),
@@ -834,6 +846,7 @@ async fn fetch_topic_list_preserves_local_login_when_success_response_reports_lo
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
         ],
     });
@@ -887,6 +900,7 @@ async fn fetch_topic_list_surfaces_login_required_and_preserves_local_state_for_
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
             PlatformCookie {
                 name: "_forum_session".into(),
@@ -894,6 +908,7 @@ async fn fetch_topic_list_surfaces_login_required_and_preserves_local_state_for_
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
             PlatformCookie {
                 name: "cf_clearance".into(),
@@ -901,6 +916,7 @@ async fn fetch_topic_list_surfaces_login_required_and_preserves_local_state_for_
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
         ],
     });
@@ -964,6 +980,7 @@ async fn stale_response_is_discarded_after_local_logout() {
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
             PlatformCookie {
                 name: "_forum_session".into(),
@@ -971,6 +988,7 @@ async fn stale_response_is_discarded_after_local_logout() {
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
         ],
     });
@@ -1044,6 +1062,7 @@ async fn stale_response_is_discarded_after_session_rotation() {
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
             PlatformCookie {
                 name: "_forum_session".into(),
@@ -1051,6 +1070,7 @@ async fn stale_response_is_discarded_after_session_rotation() {
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
         ],
     });
@@ -1079,6 +1099,7 @@ async fn stale_response_is_discarded_after_session_rotation() {
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
             PlatformCookie {
                 name: "_forum_session".into(),
@@ -1086,6 +1107,7 @@ async fn stale_response_is_discarded_after_session_rotation() {
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
         ],
     });
@@ -2068,6 +2090,7 @@ async fn refresh_csrf_token_preserves_login_when_success_response_reports_logged
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
             PlatformCookie {
                 name: "_forum_session".into(),
@@ -2075,6 +2098,7 @@ async fn refresh_csrf_token_preserves_login_when_success_response_reports_logged
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
             PlatformCookie {
                 name: "cf_clearance".into(),
@@ -2082,6 +2106,7 @@ async fn refresh_csrf_token_preserves_login_when_success_response_reports_logged
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
         ],
     });
@@ -2150,6 +2175,7 @@ async fn concurrent_csrf_refresh_if_needed_shares_in_flight_request() {
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
             PlatformCookie {
                 name: "_forum_session".into(),
@@ -2157,6 +2183,7 @@ async fn concurrent_csrf_refresh_if_needed_shares_in_flight_request() {
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
         ],
     });
@@ -2201,6 +2228,7 @@ async fn queued_csrf_refresh_if_needed_does_not_retry_after_session_logout() {
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
             PlatformCookie {
                 name: "_forum_session".into(),
@@ -2208,6 +2236,7 @@ async fn queued_csrf_refresh_if_needed_does_not_retry_after_session_logout() {
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
         ],
     });
@@ -2267,6 +2296,7 @@ async fn logout_remote_retries_after_bad_csrf() {
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
             PlatformCookie {
                 name: "_forum_session".into(),
@@ -2274,6 +2304,7 @@ async fn logout_remote_retries_after_bad_csrf() {
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
             PlatformCookie {
                 name: "cf_clearance".into(),
@@ -2281,6 +2312,7 @@ async fn logout_remote_retries_after_bad_csrf() {
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
         ],
     });
@@ -2415,6 +2447,7 @@ async fn refresh_bootstrap_uses_browser_user_agent_and_full_platform_cookies() {
                 domain: None,
                 path: Some("/".into()),
                 expires_at_unix_ms: None,
+                same_site: None,
             },
             PlatformCookie {
                 name: "_forum_session".into(),
@@ -2422,6 +2455,7 @@ async fn refresh_bootstrap_uses_browser_user_agent_and_full_platform_cookies() {
                 domain: None,
                 path: Some("/".into()),
                 expires_at_unix_ms: None,
+                same_site: None,
             },
             PlatformCookie {
                 name: "__cf_bm".into(),
@@ -2429,6 +2463,7 @@ async fn refresh_bootstrap_uses_browser_user_agent_and_full_platform_cookies() {
                 domain: None,
                 path: Some("/".into()),
                 expires_at_unix_ms: None,
+                same_site: None,
             },
         ],
     });
@@ -2502,6 +2537,7 @@ async fn create_reply_refreshes_csrf_and_parses_wrapped_post_payload() {
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
             PlatformCookie {
                 name: "_forum_session".into(),
@@ -2509,6 +2545,7 @@ async fn create_reply_refreshes_csrf_and_parses_wrapped_post_payload() {
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
         ],
     });
@@ -2566,6 +2603,7 @@ async fn create_reply_surfaces_pending_review_state() {
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
             PlatformCookie {
                 name: "_forum_session".into(),
@@ -2573,6 +2611,7 @@ async fn create_reply_surfaces_pending_review_state() {
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
         ],
     });
@@ -2619,6 +2658,7 @@ async fn create_reply_surfaces_cloudflare_challenge_error() {
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
             PlatformCookie {
                 name: "_forum_session".into(),
@@ -2626,6 +2666,7 @@ async fn create_reply_surfaces_cloudflare_challenge_error() {
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
         ],
     });
@@ -2681,6 +2722,7 @@ async fn toggle_post_reaction_parses_reaction_update_payload() {
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
             PlatformCookie {
                 name: "_forum_session".into(),
@@ -2688,6 +2730,7 @@ async fn toggle_post_reaction_parses_reaction_update_payload() {
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
         ],
     });
@@ -2758,6 +2801,7 @@ async fn toggle_post_reaction_tolerates_malformed_current_user_reaction() {
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
             PlatformCookie {
                 name: "_forum_session".into(),
@@ -2765,6 +2809,7 @@ async fn toggle_post_reaction_tolerates_malformed_current_user_reaction() {
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
         ],
     });
@@ -2811,6 +2856,7 @@ async fn toggle_post_reaction_encodes_reaction_path_segment() {
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
             PlatformCookie {
                 name: "_forum_session".into(),
@@ -2818,6 +2864,7 @@ async fn toggle_post_reaction_encodes_reaction_path_segment() {
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
         ],
     });
@@ -2891,6 +2938,7 @@ async fn fetch_reaction_users_uses_reactions_users_endpoint_and_skips_malformed_
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
             PlatformCookie {
                 name: "_forum_session".into(),
@@ -2898,6 +2946,7 @@ async fn fetch_reaction_users_uses_reactions_users_endpoint_and_skips_malformed_
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
         ],
     });
@@ -2953,6 +3002,7 @@ async fn like_post_uses_post_actions_endpoint() {
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
             PlatformCookie {
                 name: "_forum_session".into(),
@@ -2960,6 +3010,7 @@ async fn like_post_uses_post_actions_endpoint() {
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
         ],
     });
@@ -3030,6 +3081,7 @@ async fn like_post_parses_reaction_update_when_response_includes_reaction_fields
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
             PlatformCookie {
                 name: "_forum_session".into(),
@@ -3037,6 +3089,7 @@ async fn like_post_parses_reaction_update_when_response_includes_reaction_fields
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
         ],
     });

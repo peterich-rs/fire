@@ -172,6 +172,7 @@ async fn report_topic_timings_refreshes_csrf_after_partial_network_auth_rotation
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
             PlatformCookie {
                 name: "_forum_session".into(),
@@ -179,6 +180,7 @@ async fn report_topic_timings_refreshes_csrf_after_partial_network_auth_rotation
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
         ],
     });

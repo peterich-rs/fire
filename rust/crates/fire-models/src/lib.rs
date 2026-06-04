@@ -38,6 +38,7 @@ mod tests {
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
             PlatformCookie {
                 name: "_forum_session".into(),
@@ -45,6 +46,7 @@ mod tests {
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
             PlatformCookie {
                 name: "cf_clearance".into(),
@@ -52,6 +54,7 @@ mod tests {
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
         ]);
 
@@ -77,6 +80,7 @@ mod tests {
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
             PlatformCookie {
                 name: "_forum_session".into(),
@@ -84,6 +88,7 @@ mod tests {
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
         ]);
 
@@ -103,6 +108,7 @@ mod tests {
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
             PlatformCookie {
                 name: "_t".into(),
@@ -110,6 +116,7 @@ mod tests {
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
             PlatformCookie {
                 name: "_t".into(),
@@ -117,6 +124,7 @@ mod tests {
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
         ]);
 
@@ -140,6 +148,7 @@ mod tests {
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
             PlatformCookie {
                 name: "cf_clearance".into(),
@@ -147,6 +156,7 @@ mod tests {
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
         ]);
 
@@ -167,6 +177,7 @@ mod tests {
                 domain: Some("linux.do".into()),
                 path: Some("/".into()),
                 expires_at_unix_ms: None,
+                same_site: None,
             },
             PlatformCookie {
                 name: "__cf_bm".into(),
@@ -174,6 +185,7 @@ mod tests {
                 domain: Some(".linux.do".into()),
                 path: Some("/".into()),
                 expires_at_unix_ms: None,
+                same_site: None,
             },
         ]);
 
@@ -216,6 +228,7 @@ mod tests {
                 domain: Some("linux.do".into()),
                 path: Some("/".into()),
                 expires_at_unix_ms: None,
+                same_site: None,
             },
             PlatformCookie {
                 name: "_forum_session".into(),
@@ -223,6 +236,7 @@ mod tests {
                 domain: Some("linux.do".into()),
                 path: Some("/".into()),
                 expires_at_unix_ms: None,
+                same_site: None,
             },
             PlatformCookie {
                 name: "cf_clearance".into(),
@@ -230,6 +244,7 @@ mod tests {
                 domain: Some("linux.do".into()),
                 path: Some("/".into()),
                 expires_at_unix_ms: None,
+                same_site: None,
             },
             PlatformCookie {
                 name: "__cf_bm".into(),
@@ -237,6 +252,7 @@ mod tests {
                 domain: Some(".linux.do".into()),
                 path: Some("/".into()),
                 expires_at_unix_ms: None,
+                same_site: None,
             },
         ]);
 
@@ -270,6 +286,7 @@ mod tests {
                 domain: Some("linux.do".into()),
                 path: Some("/".into()),
                 expires_at_unix_ms: Some(1),
+                same_site: None,
             },
             PlatformCookie {
                 name: "_forum_session".into(),
@@ -277,6 +294,7 @@ mod tests {
                 domain: Some("linux.do".into()),
                 path: Some("/".into()),
                 expires_at_unix_ms: None,
+                same_site: None,
             },
         ]);
 
@@ -297,6 +315,7 @@ mod tests {
                 domain: Some("linux.do".into()),
                 path: Some("/".into()),
                 expires_at_unix_ms: None,
+                same_site: None,
             },
             PlatformCookie {
                 name: "_t".into(),
@@ -304,6 +323,7 @@ mod tests {
                 domain: Some(".linux.do".into()),
                 path: Some("/".into()),
                 expires_at_unix_ms: None,
+                same_site: None,
             },
         ]);
 
@@ -330,6 +350,7 @@ mod tests {
                     domain: Some("linux.do".into()),
                     path: Some("/".into()),
                     expires_at_unix_ms: Some(1),
+                same_site: None,
                 },
                 PlatformCookie {
                     name: "_forum_session".into(),
@@ -337,6 +358,7 @@ mod tests {
                     domain: Some("linux.do".into()),
                     path: Some("/".into()),
                     expires_at_unix_ms: Some(1),
+                same_site: None,
                 },
                 PlatformCookie {
                     name: "cf_clearance".into(),
@@ -344,6 +366,7 @@ mod tests {
                     domain: Some("linux.do".into()),
                     path: Some("/".into()),
                     expires_at_unix_ms: Some(1),
+                same_site: None,
                 },
             ],
         };

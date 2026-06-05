@@ -185,7 +185,7 @@ Expected integration flow:
 3. Keep the native files in `Sources/FireAppSession/` in the same Xcode target.
 4. Create a single `FireSessionStore` instance early in app launch and call `restoreColdStartSession()`.
 5. Let the login `WKWebView` probe readiness through `FireAppViewModel.refreshLoginSyncReadiness(from:)`, and only call `FireWebViewLoginCoordinator.completeLogin(from:)` once the UI has enabled `完成登录`.
-6. After login or restore, let `FireCfClearanceRefreshService.shared` track the active session so same-site Cloudflare cookies can be refreshed in the background when bootstrap has a Turnstile sitekey.
+6. After login or restore, let `FireCfClearanceRefreshService.shared` track the active session only after the authoritative startup/login path has confirmed the current authenticated session; once confirmed, same-site Cloudflare cookies can refresh in the background when bootstrap has a Turnstile sitekey.
 7. After login or restore, render the topic feeds through `fetchTopicList`, render iOS topic detail through the Android-aligned screen path (`fetchTopicScreen` with Rust-owned `header + body + response` plus host-owned targeted `fetchTopicPosts` hydration as needed), retain `fetchTopicResponsePage` for reply pagination, and let topic detail fetch optional AI summaries through `fetchTopicAiSummary`.
 8. On explicit logout or shared-layer login invalidation, clear local auth state through the login coordinator path so the Rust snapshot, persisted session file, and host-side LinuxDo auth cookies stay aligned while preserving `cf_clearance`.
 

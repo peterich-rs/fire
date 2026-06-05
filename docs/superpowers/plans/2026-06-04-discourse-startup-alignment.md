@@ -30,7 +30,9 @@
 - 已落地：iOS `loadInitialState()` 不再直接执行启动登录态判定 / 首页 feed 首刷 / MessageBus 启动；`FirePreheatGateViewController` 等待 preload 终态后，由 `completeStartupAfterPreheat()` 统一执行 post-preheat 登录态分流。
 - 已落地：Android Home 首屏不再额外调用 `refreshSession()` 作为冷启动恢复入口，`HomeViewModel` 直接从 `FireSessionStore` 读取权威 snapshot 并按需接通 topic-list MessageBus 监听。
 - 已落地：Rust `AppStateRefresher` 批次事件已经通过 UniFFI callback 暴露，iOS 现已使用统一 refresh callback 驱动 auth 后首页列表强刷与通知状态同步，不再由 `completeLogin()` 手写首页刷新 / MessageBus 启动决策。
-- 仍未完成：Rust `AppStateRefresher` 还没有拥有“当前首页 tab/topic list”选择状态；Android 也还没有消费这套 refresh callback，因此当前 tab 刷新与 MessageBus activate 仍保留薄的平台生命周期逻辑。
+- 已落地：Android 现在也通过共享 `FireAppStateRefreshRepository` 消费 Rust refresh callback；`PreheatGateFragment` / `LoginWebViewFragment` 不再只 fire-and-forget，`HomeViewModel` 会在 `RefreshBatch::Core` 后刷新权威 snapshot、按需接通/关闭 MessageBus，并触发当前列表刷新。
+- 已落地：iOS `FireCfClearanceRefreshService` 现在显式依赖“登录态已确认” gate；Android 删除了未接线且判定过时的 `FireCfClearanceService.kt`，继续只保留显式 challenge WebView 的 host-owned 续期路径。
+- 仍未完成：Rust `AppStateRefresher` 还没有拥有“当前首页 tab/topic list”选择状态，因此当前 tab 的精确刷新 scope 仍由平台持有，尚未实现彻底的 Rust-owned topic-list 选择状态。
 
 ---
 

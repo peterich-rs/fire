@@ -75,7 +75,48 @@ final class FireSessionStoreTests: XCTestCase {
         XCTAssertTrue(restored.readiness.hasCurrentUser)
     }
 
-    private static func makeSessionState(csrfToken: String?) -> SessionState {
+    func testCfClearanceAutoRefreshRequiresConfirmedLoginState() {
+        let session = Self.makeSessionState(
+            csrfToken: "csrf-token",
+            turnstileSitekey: "sitekey"
+        )
+
+        XCTAssertFalse(
+            FireCfClearanceRefreshService.shouldAutoRefresh(
+                session: session,
+                sceneActive: true,
+                loginStateConfirmed: false
+            )
+        )
+        XCTAssertTrue(
+            FireCfClearanceRefreshService.shouldAutoRefresh(
+                session: session,
+                sceneActive: true,
+                loginStateConfirmed: true
+            )
+        )
+    }
+
+    func testCfClearanceAutoRefreshStillRequiresReadyAuthenticatedSession() {
+        var session = Self.makeSessionState(
+            csrfToken: "csrf-token",
+            turnstileSitekey: "sitekey"
+        )
+        session.readiness.hasCurrentUser = false
+
+        XCTAssertFalse(
+            FireCfClearanceRefreshService.shouldAutoRefresh(
+                session: session,
+                sceneActive: true,
+                loginStateConfirmed: true
+            )
+        )
+    }
+
+    private static func makeSessionState(
+        csrfToken: String?,
+        turnstileSitekey: String? = nil
+    ) -> SessionState {
         SessionState(
             cookies: CookieState(
                 tToken: "token",
@@ -92,7 +133,7 @@ final class FireSessionStoreTests: XCTestCase {
                 currentUserId: 1,
                 notificationChannelPosition: nil,
                 longPollingBaseUrl: "https://linux.do",
-                turnstileSitekey: nil,
+                turnstileSitekey: turnstileSitekey,
                 topicTrackingStateMeta: nil,
                 preloadedJson: "{\"site\":{}}",
                 hasPreloadedData: true,

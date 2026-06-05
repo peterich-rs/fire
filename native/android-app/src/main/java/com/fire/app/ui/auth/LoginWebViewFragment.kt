@@ -25,6 +25,7 @@ import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
 import com.fire.app.R
 import com.fire.app.core.error.launchWithFireErrorHandling
+import com.fire.app.session.FireAppStateRefreshRepository
 import com.fire.app.session.FireCredentialStore
 import com.fire.app.session.FireLoginScripts
 import com.fire.app.session.FireSavedCredential
@@ -320,7 +321,10 @@ class LoginWebViewFragment : Fragment() {
             },
         ) {
             coordinator.completeLogin(webView)
-            sessionStore.triggerAppStateRefresh(RefreshTriggerState.LOGIN_COMPLETED)
+            sessionStore.triggerAppStateRefresh(
+                RefreshTriggerState.LOGIN_COMPLETED,
+                FireAppStateRefreshRepository,
+            )
             awaitFingerprintThenNavigate(sessionStore)
         }
     }

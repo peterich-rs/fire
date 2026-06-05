@@ -391,6 +391,7 @@ final class FireAppViewModel: ObservableObject {
 
         initialStateTask?.cancel()
         initialStateLoadingDelayTask?.cancel()
+        FireCfClearanceRefreshService.shared.setLoginStateConfirmed(false)
         isBootstrappingSession = true
         isStartupLoadingVisible = false
 
@@ -444,6 +445,7 @@ final class FireAppViewModel: ObservableObject {
             guard self.initialStateLoadGeneration == generation else { return }
             switch loginState {
             case .loggedIn:
+                FireCfClearanceRefreshService.shared.setLoginStateConfirmed(true)
                 try await sessionStore.triggerAppStateRefresh(
                     .sessionRestored,
                     handler: appStateRefreshCoordinator
@@ -452,6 +454,7 @@ final class FireAppViewModel: ObservableObject {
                 guard self.initialStateLoadGeneration == generation else { return }
                 await self.applySession(snapshot, activateMessageBus: false)
             case .networkErrorPreserveState, .sessionExpired, .notLoggedIn:
+                FireCfClearanceRefreshService.shared.setLoginStateConfirmed(false)
                 let snapshot = try await sessionStore.snapshot()
                 guard self.initialStateLoadGeneration == generation else { return }
                 await self.applySession(snapshot, activateMessageBus: false)
@@ -535,6 +538,7 @@ final class FireAppViewModel: ObservableObject {
                         ),
                         activateMessageBus: false
                     )
+                    FireCfClearanceRefreshService.shared.setLoginStateConfirmed(true)
                     try await sessionStore.triggerAppStateRefresh(
                         .loginCompleted,
                         handler: appStateRefreshCoordinator
@@ -669,6 +673,7 @@ final class FireAppViewModel: ObservableObject {
                 let loginCoordinator = try await loginCoordinatorValue()
                 stopMessageBus()
                 errorMessage = nil
+                FireCfClearanceRefreshService.shared.setLoginStateConfirmed(false)
                 await applySession(try await loginCoordinator.logout())
                 let sessionStore = try await sessionStoreValue()
                 try await sessionStore.triggerAppStateRefresh(.logoutCompleted)
@@ -679,6 +684,7 @@ final class FireAppViewModel: ObservableObject {
             } catch {
                 do {
                     let recoveryStore = try await challengeRecoveryStoreValue()
+                    FireCfClearanceRefreshService.shared.setLoginStateConfirmed(false)
                     await applySession(
                         try await recoveryStore.logoutLocalAndClearPlatformCookies(
                             preserveCfClearance: true

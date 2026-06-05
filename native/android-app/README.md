@@ -102,6 +102,10 @@ Android keeps Cloudflare recovery host-owned:
 - `CloudflareWebViewCookieSyncer` syncs browser context only after
   `cf_clearance` is visible, then calls
   `FireWebViewLoginCoordinator.syncBrowserContext`.
+- Android does not run a background `cf_clearance` startup poller or auto-renew
+  service. Clearance refresh stays on the explicit challenge WebView path after
+  the authoritative startup/login state machine has decided that recovery is
+  required.
 
 Do not move WebView challenge completion, CookieManager extraction, or
 platform browser context ownership into Rust. Rust remains responsible for

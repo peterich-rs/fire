@@ -12,6 +12,7 @@ import com.fire.app.core.error.launchWithFireErrorHandling
 import com.fire.app.data.paging.TopicListPagingSource
 import com.fire.app.data.repository.TopicRepository
 import com.fire.app.messagebus.FireMessageBusCoordinator
+import com.fire.app.session.FireAppStateRefreshRepository
 import com.fire.app.session.FireSessionStore
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -23,9 +24,11 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.launch
+import uniffi.fire_uniffi_session.RefreshBatchState
 import uniffi.fire_uniffi_messagebus.MessageBusEventKindState
 import uniffi.fire_uniffi_messagebus.MessageBusEventState
 import uniffi.fire_uniffi_session.SessionState
@@ -197,6 +200,21 @@ class HomeViewModel(
                 startRealtimeRefresh()
             }
         }
+
+        viewModelScope.launch {
+            FireAppStateRefreshRepository.events.collectLatest { event ->
+                try {
+                    handleAppStateRefreshEvent(event.batch)
+                } catch (error: Exception) {
+                    val reported = FireErrorReporter.report(
+                        operation = "home.app_state_refresh",
+                        error = error,
+                        sessionStore = sessionStore,
+                    )
+                    handleReportedError(reported)
+                }
+            }
+        }
     }
 
     fun selectKind(kind: TopicListKindState) {
@@ -281,11 +299,33 @@ class HomeViewModel(
         }
     }
 
+    private fun stopRealtimeRefresh() {
+        pendingMessageBusRefreshJob?.cancel()
+        pendingMessageBusRefreshJob = null
+        messageBusJob?.cancel()
+        messageBusJob = null
+        topicListMessageBusRefreshController.clearPending(currentRefreshScope())
+    }
+
     private fun handleReportedError(error: FireReportedError) {
         if (error.isCloudflareChallenge) {
             _cloudflareChallenge.tryEmit(Unit)
         } else {
             _error.tryEmit(error.displayMessage)
+        }
+    }
+
+    private suspend fun handleAppStateRefreshEvent(batch: RefreshBatchState) {
+        val snapshot = sessionStore.snapshot()
+        _session.value = snapshot
+        if (snapshot.readiness.canOpenMessageBus) {
+            startRealtimeRefresh()
+        } else {
+            stopRealtimeRefresh()
+        }
+
+        if (batch == RefreshBatchState.CORE) {
+            _topicListRefreshEvents.tryEmit(Unit)
         }
     }
 

@@ -203,6 +203,21 @@ final class FireHomeFeedStore: ObservableObject {
         await refreshTopicsIfPossible(force: true)
     }
 
+    func applyTopicList(_ state: TopicListState) {
+        let mergeResult = mergeTopicRows(
+            incoming: state.rows,
+            reset: true,
+            usesIncrementalRefresh: false
+        )
+        applyTopicRows(mergeResult)
+        renderedTopicListScope = currentTopicListRefreshScope
+        topicLoadErrorMessage = nil
+        moreTopicsUrl = state.moreTopicsUrl
+        nextTopicsPage = state.nextPage
+        isLoadingTopics = false
+        isAppendingTopics = false
+    }
+
     @discardableResult
     func refreshTopicsIfPossible(force: Bool) async -> Bool {
         cancelPendingTopicListRefresh()

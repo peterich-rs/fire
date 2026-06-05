@@ -201,6 +201,18 @@ enum FireTopicPresentation {
 
     static func renderContent(from html: String, baseURLString: String) -> FireTopicPostRenderContent {
         let richContent = FireRichTextParser.parse(html: html, baseURLString: baseURLString)
+        return renderContent(from: richContent, source: html)
+    }
+
+    static func renderContent(from post: TopicPostState, baseURLString: String) -> FireTopicPostRenderContent {
+        let richContent = FireRichTextParser.parse(post: post, baseURLString: baseURLString)
+        return renderContent(from: richContent, source: post.cooked)
+    }
+
+    private static func renderContent(
+        from richContent: FireRichTextContent,
+        source: String
+    ) -> FireTopicPostRenderContent {
         let attributedText = richContent.nodes.isEmpty ? nil :
             FireRichTextAttributedStringBuilder.build(
                 from: richContent.nodes,
@@ -211,7 +223,7 @@ enum FireTopicPresentation {
             attributedText: attributedText,
             imageAttachments: richContent.imageAttachments,
             signature: FireTopicPostRenderSignature.make(
-                source: html,
+                source: source,
                 imageAttachments: richContent.imageAttachments
             )
         )
@@ -357,7 +369,7 @@ enum FireTopicPresentation {
                 contentByPostID[post.id] = cachedContent
             } else {
                 contentByPostID[post.id] = renderContent(
-                    from: post.cooked,
+                    from: post,
                     baseURLString: baseURLString
                 )
             }
@@ -417,7 +429,7 @@ enum FireTopicPresentation {
                 contentByPostID[post.id] = cachedContent
             } else {
                 contentByPostID[post.id] = renderContent(
-                    from: post.cooked,
+                    from: post,
                     baseURLString: baseURLString
                 )
             }
@@ -474,7 +486,7 @@ enum FireTopicPresentation {
             contentInputsByPostID[post.id] = FireTopicPostRenderInput(cooked: post.cooked)
             replyRows.append(replyTimelineRow(from: responseRow))
             contentByPostID[post.id] = renderContent(
-                from: post.cooked,
+                from: post,
                 baseURLString: baseURLString
             )
         }

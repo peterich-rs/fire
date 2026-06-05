@@ -117,6 +117,14 @@ public actor FireSessionStore {
         try core.session().snapshot()
     }
 
+    public func registerStateObserver(_ observer: any StateObserver) {
+        core.registerStateObserver(observer: observer)
+    }
+
+    public func unregisterStateObserver() {
+        core.unregisterStateObserver()
+    }
+
     public func ensurePreloadedDataLoaded() async throws {
         try await core.session().ensurePreloadedDataLoaded()
         try persistCurrentSessionIfNeeded()

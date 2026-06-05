@@ -796,6 +796,20 @@ final class FireTopicDetailStore: ObservableObject {
         loadTopicAiSummaryIfNeeded(topicId: topicId, detail: detail)
     }
 
+    func applyTopicDetailFeedSnapshot(_ snapshot: TopicDetailFeedSnapshotState) async {
+        do {
+            let bridged = try Self.topicScreen(from: snapshot, requiresFresh: false)
+            await applyTopicScreen(
+                bridged.screen,
+                detailNotice: bridged.detailNotice,
+                topicId: snapshot.topicId
+            )
+            updateTopicErrorMessage(nil, topicId: snapshot.topicId)
+        } catch {
+            updateTopicErrorMessage(error.localizedDescription, topicId: snapshot.topicId)
+        }
+    }
+
     private func loadNextTopicResponsePage(
         topicId: UInt64,
         cursor: TopicResponseCursorState

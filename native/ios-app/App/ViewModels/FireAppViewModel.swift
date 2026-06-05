@@ -201,6 +201,49 @@ final class FireAppStateRefreshCoordinator: AppStateRefreshHandler, @unchecked S
     }
 }
 
+final class FireStateObserverCoordinator: StateObserver, @unchecked Sendable {
+    private let onSession: @MainActor (SessionState) async -> Void
+    private let onTopicList: @MainActor (TopicListState) async -> Void
+    private let onTopicDetailFeed: @MainActor (TopicDetailFeedSnapshotState) async -> Void
+    private let onNotificationCenter: @MainActor (NotificationCenterState) async -> Void
+
+    init(
+        onSession: @escaping @MainActor (SessionState) async -> Void,
+        onTopicList: @escaping @MainActor (TopicListState) async -> Void,
+        onTopicDetailFeed: @escaping @MainActor (TopicDetailFeedSnapshotState) async -> Void,
+        onNotificationCenter: @escaping @MainActor (NotificationCenterState) async -> Void
+    ) {
+        self.onSession = onSession
+        self.onTopicList = onTopicList
+        self.onTopicDetailFeed = onTopicDetailFeed
+        self.onNotificationCenter = onNotificationCenter
+    }
+
+    func onSessionSnapshot(snapshot: SessionState) {
+        Task { @MainActor in
+            await onSession(snapshot)
+        }
+    }
+
+    func onTopicListSnapshot(snapshot: TopicListState) {
+        Task { @MainActor in
+            await onTopicList(snapshot)
+        }
+    }
+
+    func onTopicDetailFeedSnapshot(snapshot: TopicDetailFeedSnapshotState) {
+        Task { @MainActor in
+            await onTopicDetailFeed(snapshot)
+        }
+    }
+
+    func onNotificationCenterSnapshot(snapshot: NotificationCenterState) {
+        Task { @MainActor in
+            await onNotificationCenter(snapshot)
+        }
+    }
+}
+
 private struct CachedLoginSyncReadiness {
     let currentURL: String?
     let readiness: FireLoginSyncReadiness
@@ -337,6 +380,25 @@ final class FireAppViewModel: ObservableObject {
     private lazy var appStateRefreshCoordinator = FireAppStateRefreshCoordinator { [weak self] event in
         self?.handleAppStateRefreshEvent(event)
     }
+    private lazy var stateObserverCoordinator = FireStateObserverCoordinator(
+        onSession: { [weak self] snapshot in
+            guard let self else { return }
+            await self.applySession(snapshot, activateMessageBus: false)
+        },
+        onTopicList: { [weak self] snapshot in
+            self?.homeFeedStore?.applyTopicList(snapshot)
+        },
+        onTopicDetailFeed: { [weak self] snapshot in
+            await self?.topicDetailStore?.applyTopicDetailFeedSnapshot(snapshot)
+        },
+        onNotificationCenter: { [weak self] snapshot in
+            self?.notificationStore?.apply(
+                centerState: snapshot,
+                updateRecent: snapshot.hasLoadedRecent,
+                updateFull: snapshot.hasLoadedFull
+            )
+        }
+    )
 
     init(
         initialSession: SessionState = .placeholder(),
@@ -2517,26 +2579,7 @@ final class FireAppViewModel: ObservableObject {
     }
 
     private func handleAppStateRefreshEvent(_ event: AppStateRefreshEventState) {
-        switch event.batch {
-        case .core:
-            guard session.readiness.canReadAuthenticatedApi else {
-                return
-            }
-            guard let homeFeedStore,
-                  homeFeedStore.isSceneActive,
-                  homeFeedStore.isTopicListVisible else {
-                return
-            }
-            Task { [weak self] in
-                _ = await self?.homeFeedStore?.refreshTopicsIfPossible(force: true)
-            }
-        case .secondary:
-            Task { [weak self] in
-                await self?.notificationStore?.syncStateFromRuntimeIfAvailable()
-            }
-        @unknown default:
-            break
-        }
+        _ = event
     }
 
     @discardableResult
@@ -2562,6 +2605,7 @@ final class FireAppViewModel: ObservableObject {
 
     func sessionStoreValue() async throws -> FireSessionStore {
         if let sessionStore {
+            await registerStateObserver(with: sessionStore)
             await configureAuthenticatedWriteHostResyncProvider(with: sessionStore)
             return sessionStore
         }
@@ -2570,6 +2614,7 @@ final class FireAppViewModel: ObservableObject {
             let sessionStore = try await sessionStoreInitializationTask.value
             self.sessionStore = sessionStore
             await FireAPMManager.shared.attachSessionStore(sessionStore)
+            await registerStateObserver(with: sessionStore)
             await configureAuthenticatedWriteHostResyncProvider(with: sessionStore)
             return sessionStore
         }
@@ -2584,12 +2629,17 @@ final class FireAppViewModel: ObservableObject {
             sessionStoreInitializationTask = nil
             self.sessionStore = sessionStore
             await FireAPMManager.shared.attachSessionStore(sessionStore)
+            await registerStateObserver(with: sessionStore)
             await configureAuthenticatedWriteHostResyncProvider(with: sessionStore)
             return sessionStore
         } catch {
             sessionStoreInitializationTask = nil
             throw error
         }
+    }
+
+    private func registerStateObserver(with sessionStore: FireSessionStore) async {
+        await sessionStore.registerStateObserver(stateObserverCoordinator)
     }
 
     private func challengeRecoveryStoreValue() async throws -> any FireChallengeSessionRecovering {

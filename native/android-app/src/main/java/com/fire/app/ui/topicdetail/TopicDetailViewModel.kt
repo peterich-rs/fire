@@ -687,9 +687,9 @@ class TopicDetailViewModel(
     }
 
     private fun parsePostContent(post: TopicPostState): FireRichTextContent? {
-        val cooked = post.cooked.ifBlank { return null }
+        if (post.cooked.isBlank() && post.renderDocument == null) return null
         return try {
-            FireRichTextParser.parse(cooked, "https://linux.do")
+            FireRichTextParser.parse(post, "https://linux.do")
         } catch (_: Exception) {
             null
         }

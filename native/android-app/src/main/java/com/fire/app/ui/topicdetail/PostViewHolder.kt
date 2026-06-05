@@ -89,7 +89,7 @@ class PostViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
             bodyView.getTag(R.id.tag_post_content) as? FireRichTextContent
         } else {
             val parsed = try {
-                FireRichTextParser.parse(post.cooked, "https://linux.do")
+                FireRichTextParser.parse(post, "https://linux.do")
             } catch (_: Exception) {
                 null
             }

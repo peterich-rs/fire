@@ -14,6 +14,7 @@ import com.fire.app.data.repository.TopicRepository
 import com.fire.app.messagebus.FireMessageBusCoordinator
 import com.fire.app.session.FireAppStateRefreshRepository
 import com.fire.app.session.FireSessionStore
+import com.fire.app.session.FireStateObserverRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
@@ -203,6 +204,12 @@ class HomeViewModel(
             _session.value = snapshot
             if (snapshot.readiness.canOpenMessageBus) {
                 startRealtimeRefresh()
+            }
+        }
+
+        viewModelScope.launch {
+            FireStateObserverRepository.sessionSnapshots.collectLatest { snapshot ->
+                _session.value = snapshot
             }
         }
 

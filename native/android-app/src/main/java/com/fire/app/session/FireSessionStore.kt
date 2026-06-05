@@ -82,6 +82,7 @@ class FireSessionStore(
             ?: defaultWorkspacePath(context)
         workspaceDir = File(resolvedWorkspacePath)
         core = FireAppCore(baseUrl, workspaceDir.absolutePath)
+        core.registerStateObserver(FireStateObserverRepository)
         sessionFile = File(sessionFilePath ?: core.session().resolveWorkspacePath("session.json"))
     }
 

@@ -10,6 +10,7 @@ import com.fire.app.core.error.FireErrorReporter
 import com.fire.app.data.paging.NotificationPagingSource
 import com.fire.app.data.repository.NotificationRepository
 import com.fire.app.session.FireSessionStore
+import com.fire.app.session.FireStateObserverRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -48,6 +49,15 @@ class NotificationsViewModel(
         ),
         pagingSourceFactory = { NotificationPagingSource(repository) },
     ).flow.cachedIn(viewModelScope)
+
+    init {
+        viewModelScope.launch {
+            FireStateObserverRepository.notificationCenterSnapshots.collect { snapshot ->
+                _notificationCenter.value = snapshot
+                _error.value = null
+            }
+        }
+    }
 
     fun notificationPagingFlow(): Flow<PagingData<NotificationItemState>> {
         return pagingFlow

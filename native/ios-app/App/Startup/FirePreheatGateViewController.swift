@@ -91,6 +91,7 @@ final class FirePreheatGateViewController: UIViewController {
             errorContainer.isHidden = true
 
             do {
+                _ = try await sessionStore.prepareStartupSession()
                 let _ = try await sessionStore.awaitPreloadedData()
                 onPreloadedDataReady()
             } catch {

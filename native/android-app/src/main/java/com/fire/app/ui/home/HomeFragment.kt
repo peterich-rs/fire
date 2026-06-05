@@ -176,8 +176,6 @@ class HomeFragment : Fragment() {
                 }
             }
         }
-
-        viewModel?.refreshSession()
     }
 
     private fun setupCategoryBar() {

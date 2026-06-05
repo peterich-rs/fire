@@ -102,11 +102,6 @@ struct FireOnboardingView: View {
                         }
                         .disabled(viewModel.isPreparingLogin)
 
-                        Button("恢复已有会话") {
-                            viewModel.loadInitialState()
-                        }
-                        .font(.subheadline)
-                        .foregroundStyle(FireTheme.accent)
                     }
                 }
                 .padding(.horizontal, 24)

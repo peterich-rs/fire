@@ -353,37 +353,10 @@ final class FireAppViewModel: ObservableObject {
                     let sessionStore = try await self.sessionStoreValue()
                     guard self.initialStateLoadGeneration == generation else { return }
                     self.errorMessage = nil
-                    let preparedSession = try await sessionStore.restoreColdStartSession()
+                    _ = try await sessionStore.prepareStartupSession()
                     guard self.initialStateLoadGeneration == generation else { return }
-                    await self.applySession(preparedSession, activateMessageBus: false)
-                    guard self.initialStateLoadGeneration == generation else { return }
-                    try await sessionStore.ensurePreloadedDataLoaded()
-                    guard self.initialStateLoadGeneration == generation else { return }
-                    let loginState = try await sessionStore.determineLoginStateWithProbe()
-                    guard self.initialStateLoadGeneration == generation else { return }
-                    switch loginState {
-                    case .loggedIn:
-                        let snapshot = try await sessionStore.snapshot()
-                        guard self.initialStateLoadGeneration == generation else { return }
-                        await self.applySession(snapshot, activateMessageBus: false)
-                        try await sessionStore.triggerAppStateRefresh(.sessionRestored)
-                        await self.notificationStore?.syncStateFromRuntimeIfAvailable()
-                        guard self.initialStateLoadGeneration == generation else { return }
-                        let didLoadHomeFeed = await self.refreshHomeFeedIfPossible(force: true)
-                        guard self.initialStateLoadGeneration == generation else { return }
-                        if didLoadHomeFeed {
-                            await self.ensureMessageBusActiveIfPossible()
-                        }
-                    case .networkErrorPreserveState:
-                        let snapshot = try await sessionStore.snapshot()
-                        guard self.initialStateLoadGeneration == generation else { return }
-                        await self.applySession(snapshot, activateMessageBus: false)
-                    case .sessionExpired, .notLoggedIn:
-                        let snapshot = try await sessionStore.snapshot()
-                        guard self.initialStateLoadGeneration == generation else { return }
-                        await self.applySession(snapshot, activateMessageBus: false)
-                    @unknown default:
-                        break
+                    Task {
+                        try? await sessionStore.ensurePreloadedDataLoaded()
                     }
                 }
             } catch {
@@ -396,20 +369,38 @@ final class FireAppViewModel: ObservableObject {
         }
     }
 
-    func refreshSession() {
-        Task {
-            do {
-                let sessionStore = try await sessionStoreValue()
-                errorMessage = nil
-                await applySession(try await sessionStore.snapshot())
-                await applySession(try await sessionStore.refreshBootstrapIfNeeded())
-                await refreshHomeFeedIfPossible(force: false)
-            } catch {
-                if await handleRecoverableSessionErrorIfNeeded(error) {
-                    return
-                }
-                errorMessage = error.localizedDescription
+    func completeStartupAfterPreheat() async {
+        let generation = initialStateLoadGeneration
+        do {
+            let sessionStore = try await sessionStoreValue()
+            guard self.initialStateLoadGeneration == generation else { return }
+            self.errorMessage = nil
+            let loginState = try await sessionStore.determineLoginStateWithProbe()
+            guard self.initialStateLoadGeneration == generation else { return }
+            switch loginState {
+            case .loggedIn:
+                try await sessionStore.triggerAppStateRefresh(.sessionRestored)
+                let snapshot = try await sessionStore.snapshot()
+                guard self.initialStateLoadGeneration == generation else { return }
+                await self.applySession(snapshot, activateMessageBus: false)
+                await self.notificationStore?.syncStateFromRuntimeIfAvailable()
+            case .networkErrorPreserveState, .sessionExpired, .notLoggedIn:
+                let snapshot = try await sessionStore.snapshot()
+                guard self.initialStateLoadGeneration == generation else { return }
+                await self.applySession(snapshot, activateMessageBus: false)
+            @unknown default:
+                break
             }
+        } catch {
+            guard self.initialStateLoadGeneration == generation else { return }
+            if await self.handleRecoverableSessionErrorIfNeeded(error) {
+                return
+            }
+            if let sessionStore = self.sessionStore,
+               let snapshot = try? await sessionStore.snapshot() {
+                await self.applySession(snapshot, activateMessageBus: false)
+            }
+            self.errorMessage = error.localizedDescription
         }
     }
 

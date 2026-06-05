@@ -162,6 +162,11 @@ public actor FireSessionStore {
     }
 
     @discardableResult
+    public func prepareStartupSession() async throws -> SessionState {
+        try await restoreColdStartSession()
+    }
+
+    @discardableResult
     public func restoreColdStartSession() async throws -> SessionState {
         try await restoreColdStartSession(
             refreshBootstrapIfNeeded: {

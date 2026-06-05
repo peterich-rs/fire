@@ -27,6 +27,8 @@
 - 已落地：`AppStateRefresher` 现在负责 Rust 侧 debounce、第一批 bootstrap 强制刷新、第二批 `user summary` / `bookmarks` / `read history` / `recent notifications` 刷新，并已有 integration test 覆盖立即执行、延迟执行、2 秒去抖。
 - 已落地：`topicTrackingStateMeta` 签名已贯通 Rust FFI、iOS wrapper、Android wrapper 与宿主调用点；`cargo build -p fire-core`、`cargo test -p fire-core --test startup_alignment --test app_state_refresher`、`./gradlew assembleDebug`、`xcodebuild ... build` 当前均通过。
 - 已落地：preloaded current-user cache 会随 bootstrap 更新同步，并在 `logout_local()` 时清空，避免同进程内登录态切换继续暴露旧 `currentUser`。
+- 已落地：iOS `loadInitialState()` 不再直接执行启动登录态判定 / 首页 feed 首刷 / MessageBus 启动；`FirePreheatGateViewController` 等待 preload 终态后，由 `completeStartupAfterPreheat()` 统一执行 post-preheat 登录态分流。
+- 已落地：Android Home 首屏不再额外调用 `refreshSession()` 作为冷启动恢复入口，`HomeViewModel` 直接从 `FireSessionStore` 读取权威 snapshot 并按需接通 topic-list MessageBus 监听。
 - 仍未完成：Rust `AppStateRefresher` 还没有拥有“当前首页 tab/topic list”选择状态，也没有通过统一 callback 驱动平台做 MessageBus 重连；因此 iOS / Android 主界面层仍保留薄的 home-feed refresh / MessageBus activate 行为。
 
 ---

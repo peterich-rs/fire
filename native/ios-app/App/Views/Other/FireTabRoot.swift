@@ -87,9 +87,13 @@ struct FireTabRoot: View {
             )
         }
         .onReceive(NotificationCenter.default.publisher(for: .firePreheatGateDidComplete)) { _ in
-            preheatComplete = true
+            Task { @MainActor in
+                await viewModel.completeStartupAfterPreheat()
+                preheatComplete = true
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: .firePreheatGateRequestsLogout)) { _ in
+            preheatComplete = true
             viewModel.logout()
         }
         .fullScreenCover(item: $viewModel.authPresentationState) { presentationState in

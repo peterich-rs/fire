@@ -99,6 +99,9 @@ struct FireHomeView: View {
         .onAppear {
             consumePendingRouteIfVisible(navigationState.pendingRoute)
         }
+        .task {
+            await homeFeedStore.refreshTopicsIfPossible(force: false)
+        }
         .onChange(of: navigationState.pendingRoute) { _, route in
             consumePendingRouteIfVisible(route)
         }

@@ -10,7 +10,6 @@ import com.fire.app.core.error.FireErrorReporter
 import com.fire.app.core.error.FireReportedError
 import com.fire.app.core.error.launchWithFireErrorHandling
 import com.fire.app.data.paging.TopicListPagingSource
-import com.fire.app.data.repository.SessionRepository
 import com.fire.app.data.repository.TopicRepository
 import com.fire.app.messagebus.FireMessageBusCoordinator
 import com.fire.app.session.FireSessionStore
@@ -125,7 +124,6 @@ internal class HomeTopicListMessageBusRefreshController(
 }
 
 class HomeViewModel(
-    private val sessionRepository: SessionRepository,
     private val topicRepository: TopicRepository,
     private val messageBusCoordinator: FireMessageBusCoordinator,
     private val sessionStore: FireSessionStore,
@@ -186,6 +184,21 @@ class HomeViewModel(
     private var messageBusJob: Job? = null
     private var pendingMessageBusRefreshJob: Job? = null
 
+    init {
+        viewModelScope.launchWithFireErrorHandling(
+            operation = "home.attach_authoritative_session",
+            sessionStore = sessionStore,
+            fallbackMessage = "刷新会话失败",
+            onError = ::handleReportedError,
+        ) {
+            val snapshot = sessionStore.snapshot()
+            _session.value = snapshot
+            if (snapshot.readiness.canOpenMessageBus) {
+                startRealtimeRefresh()
+            }
+        }
+    }
+
     fun selectKind(kind: TopicListKindState) {
         if (_selectedKind.value == kind) return
         _selectedKind.value = kind
@@ -241,21 +254,6 @@ class HomeViewModel(
                 )
             },
         ).flow
-    }
-
-    fun refreshSession() {
-        viewModelScope.launchWithFireErrorHandling(
-            operation = "home.refresh_session",
-            sessionStore = sessionStore,
-            fallbackMessage = "刷新会话失败",
-            onError = ::handleReportedError,
-        ) {
-            val snap = sessionRepository.snapshot()
-            _session.value = snap
-            if (snap.readiness.canOpenMessageBus) {
-                startRealtimeRefresh()
-            }
-        }
     }
 
     fun startRealtimeRefresh() {
@@ -342,10 +340,9 @@ class HomeViewModel(
 
     companion object {
         fun create(sessionStore: FireSessionStore): HomeViewModel {
-            val sessionRepo = SessionRepository(sessionStore)
             val topicRepo = TopicRepository(sessionStore)
             val messageBus = FireMessageBusCoordinator(sessionStore)
-            return HomeViewModel(sessionRepo, topicRepo, messageBus, sessionStore)
+            return HomeViewModel(topicRepo, messageBus, sessionStore)
         }
     }
 

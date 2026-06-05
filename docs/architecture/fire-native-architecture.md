@@ -29,12 +29,12 @@
 
 | Responsibility | Current State | Target State |
 |---|---|---|
-| Rich text parsing | Rust parses AST, each platform builds render tree independently | Rust outputs unified RenderBlock tree, platforms only do pixel drawing |
+| Rich text parsing | Rust parses AST, each platform builds render semantics independently | Rust outputs unified `RenderDocument` semantic blocks, platforms only map shared blocks to native text/image nodes |
 | Image processing | Platforms handle everything via Nuke/Coil independently | Rust decodes/scales/converts, platforms receive pixel buffers |
-| Session state | iOS Store holds extensive `@Published` state | Rust holds all state, platforms subscribe via observer |
+| Session state | iOS Store holds extensive `@Published` state | Rust remains the source of truth for session snapshots; platforms consume pushed snapshot copies plus explicit command results |
 | Pagination / cache policy | iOS Store orchestrates logic | Rust fully orchestrates, platforms receive paginated results |
 | Error handling | Platforms classify errors and decide retries | Rust classifies and auto-retries, platforms only receive final outcomes |
-| State updates | Platforms poll Rust on timer / Combine publisher | Rust pushes immutable snapshots via StateObserver callback |
+| State updates | Platforms pull after refresh/message events | `FireAppCore` pushes immutable snapshots on the current stable boundaries (`session`, `topic_list`, `topic_detail_feed`, `notification_center`) while explicit pagination and screen commands remain platform-owned |
 
 ---
 
@@ -143,18 +143,22 @@ FFI boundary layer (maintaining existing pattern).
 
 ### 2.4 State Management Model
 
-Rust holds all state. Platforms subscribe via **observer pattern** for state snapshots.
+Rust now exposes a single top-level `StateObserver` registration point on `FireAppCore`.
+The pushed boundaries are intentionally explicit and finite:
+
+- `SessionState`
+- `TopicListState`
+- `TopicDetailFeedSnapshotState`
+- `NotificationCenterState`
 
 ```
 Rust Core                              Platform
   │                                        │
-  ├── StateSnapshot (immutable)  ────────>  Subscription callback
-  │   Contains: topics, posts,             │
-  │   session, notifications...            ├── Snapshot diff → UI update
+  ├── Immutable snapshot ────────────────>  StateObserver callback
+  │   session / topic list /               │
+  │   topic detail feed / notifications    ├── Snapshot diff → UI update
   │                                        │
-  ├── EventStream (unidirectional)  ─────>  Event flow
-  │   Contains: loading, error,            │
-  │   refresh signals                      │
+  ├── Event / command trigger ───────────>  Explicit refresh / page / mutation command
   │                                        │
   └── Command (Platform → Rust)  <───────  User action
       Contains: like, reply, page,         │
@@ -357,20 +361,17 @@ Rust fire-image                      iOS Platform
 ```
 Rust fire-rich-text                   iOS Platform
   │                                    │
-  ├─ HTML → AST                       │
-  ├─ AST → RenderBlock tree            │
-  │   (each node contains: type,       │
-  │    content, style, layout          │
-  │    constraints, children)          │
+  ├─ HTML → AST                        │
+  ├─ AST → RenderDocument              │
+  │   flat semantic blocks +           │
+  │   normalized image attachments     │
   │                                    │
-  └─ Return RenderBlock tree ────────> FireRenderBlockNodeBuilder
+  └─ Return RenderDocumentState ─────> FireRichTextParser
                                        │
-                                       ├─ RenderBlock.text   → ASTextNode
-                                       ├─ RenderBlock.image  → ASNetworkImageNode
-                                       ├─ RenderBlock.code   → ASImageNode (snapshot)
-                                       ├─ RenderBlock.quote  → ASStackLayout
-                                       ├─ RenderBlock.list   → ASStackLayout
-                                       └─ ... one node builder per block kind
+                                       ├─ shared blocks → FireRichTextNode
+                                       ├─ FireRichTextAttributedStringBuilder
+                                       ├─ ASTextNode / native image nodes
+                                       └─ no platform-owned semantic parser
 ```
 
 ### 3.7 Design Tokens
@@ -582,17 +583,15 @@ Rust fire-image                      Android Platform
 ```
 Rust fire-rich-text                   Android Platform
   │                                    │
-  ├─ HTML → AST                       │
-  ├─ AST → RenderBlock tree            │
+  ├─ HTML → AST                        │
+  ├─ AST → RenderDocument              │
   │                                    │
-  └─ Return RenderBlock tree ────────> FireRenderBlockBuilder
+  └─ Return RenderDocumentState ─────> FireRichTextParser
                                        │
-                                       ├─ RenderBlock.text   → TextView (Spannable)
-                                       ├─ RenderBlock.image  → ImageView
-                                       ├─ RenderBlock.code   → HorizontalScrollView + TextView (monospace)
-                                       ├─ RenderBlock.quote  → Nested LinearLayout + border
-                                       ├─ RenderBlock.list   → LinearLayout children
-                                       └─ ... one View builder per block kind
+                                       ├─ shared blocks → FireRichTextNode
+                                       ├─ FireSpannableBuilder
+                                       ├─ FireRichTextView / ImageView
+                                       └─ no platform-owned semantic parser
 ```
 
 ### 4.7 Design Tokens
@@ -887,9 +886,9 @@ enum CellAlignmentState { Left, Center, Right }
 ### 7.5 Enhanced Rich Text FFI API
 
 ```rust
-impl FireTopicsHandle {
-    fn parse_cooked_html(&self, html: &str) -> CookedHtmlDocumentState;
-    fn render_cooked_html(&self, html: &str, base_url: &str) -> RenderBlockState;
+impl fire_uniffi {
+    fn parse_cooked_html(html: String) -> CookedHtmlDocumentState;
+    fn render_cooked_html(html: String, base_url: String) -> RenderDocumentState;
 }
 ```
 
@@ -897,14 +896,14 @@ impl FireTopicsHandle {
 
 ```rust
 trait StateObserver: Send + Sync {
-    fn on_topic_list_snapshot(&self, snapshot: TopicListSnapshotState);
-    fn on_topic_detail_snapshot(&self, topic_id: u64, snapshot: TopicDetailSnapshotState);
-    fn on_notification_snapshot(&self, snapshot: NotificationCenterSnapshotState);
     fn on_session_snapshot(&self, snapshot: SessionSnapshotState);
+    fn on_topic_list_snapshot(&self, snapshot: TopicListState);
+    fn on_topic_detail_feed_snapshot(&self, snapshot: TopicDetailFeedSnapshotState);
+    fn on_notification_center_snapshot(&self, snapshot: NotificationCenterState);
 }
 ```
 
-Platform implements `StateObserver`. Rust proactively pushes snapshots on state change; platforms no longer poll.
+Platform implements `StateObserver`. Rust proactively pushes snapshots on the implemented snapshot boundaries; explicit page/load/mutation commands remain unchanged.
 
 ### 7.7 Data Flow Comparison
 

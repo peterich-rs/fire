@@ -315,12 +315,16 @@ impl FireCore {
         match self.probe_session().await {
             Ok(probe) => match probe {
                 fire_models::ProbeResult::Valid { username } => {
+                    self.update_session(|session| {
+                        session.bootstrap.current_username = Some(username.clone());
+                    });
                     fire_models::LoginStateDetermination::LoggedIn {
                         username,
                         user_id: snapshot.bootstrap.current_user_id.unwrap_or(0),
                     }
                 }
                 fire_models::ProbeResult::Invalid => {
+                    let _ = self.logout_local(true);
                     fire_models::LoginStateDetermination::SessionExpired
                 }
                 fire_models::ProbeResult::Inconclusive => {

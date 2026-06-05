@@ -13,9 +13,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.navigation.fragment.findNavController
 import com.fire.app.R
 import com.fire.app.session.FireSessionStoreRepository
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import uniffi.fire_uniffi_session.LoginStateDeterminationState
 
 class PreheatGateFragment : Fragment() {
@@ -107,9 +105,8 @@ class PreheatGateFragment : Fragment() {
         val store = FireSessionStoreRepository.get(requireContext())
         viewLifecycleOwner.lifecycleScope.launch {
             try {
-                withContext(Dispatchers.IO) {
-                    store.awaitPreloadedData()
-                }
+                store.prepareStartupSession()
+                store.awaitPreloadedData()
                 onPreloadedDataReady(store)
             } catch (e: Exception) {
                 showError(e.message ?: "\u52a0\u8f7d\u5931\u8d25")
@@ -117,9 +114,8 @@ class PreheatGateFragment : Fragment() {
         }
     }
 
-    private fun onPreloadedDataReady(store: com.fire.app.session.FireSessionStore) {
-        val loginState = store.determineLoginState()
-        when (loginState) {
+    private suspend fun onPreloadedDataReady(store: com.fire.app.session.FireSessionStore) {
+        when (store.determineLoginStateWithProbe()) {
             is LoginStateDeterminationState.LoggedIn -> {
                 findNavController().navigate(R.id.action_preheatGate_to_home)
             }

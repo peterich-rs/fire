@@ -1,84 +1,102 @@
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use fire_models::{CurrentUserSnapshot, PreloadedDataResult, PreloadedDataState};
-use serde_json::Value;
+use tokio::sync::Notify;
 use tracing::{info, warn};
 
 use crate::core::FireCore;
 use crate::error::FireCoreError;
-use crate::parsing::parse_home_state;
+use crate::parsing::{parse_home_state, parse_preloaded_payload};
+
+#[derive(Clone)]
+enum CachedPreloadedState {
+    NotStarted,
+    Loading,
+    Ready(PreloadedDataResult),
+    Failed(String),
+}
 
 pub struct PreloadedDataService {
     core: Arc<FireCore>,
-    loading: AtomicBool,
-    result: std::sync::Mutex<Option<PreloadedDataResult>>,
+    state: std::sync::Mutex<CachedPreloadedState>,
+    notify: Notify,
 }
 
 impl PreloadedDataService {
     pub fn new(core: Arc<FireCore>) -> Self {
         Self {
             core,
-            loading: AtomicBool::new(false),
-            result: std::sync::Mutex::new(None),
+            state: std::sync::Mutex::new(CachedPreloadedState::NotStarted),
+            notify: Notify::new(),
         }
     }
 
     pub fn state(&self) -> PreloadedDataState {
-        if self.loading.load(Ordering::Acquire) {
-            return PreloadedDataState::Loading;
-        }
-        let guard = self.result.lock().unwrap();
-        match guard.as_ref() {
-            Some(_) => PreloadedDataState::Ready,
-            None => PreloadedDataState::NotStarted,
+        match &*self.state.lock().unwrap() {
+            CachedPreloadedState::NotStarted => PreloadedDataState::NotStarted,
+            CachedPreloadedState::Loading => PreloadedDataState::Loading,
+            CachedPreloadedState::Ready(_) => PreloadedDataState::Ready,
+            CachedPreloadedState::Failed(_) => PreloadedDataState::Failed,
         }
     }
 
     pub async fn ensure_loaded(&self) -> Result<PreloadedDataState, FireCoreError> {
-        {
-            let guard = self.result.lock().unwrap();
-            if guard.is_some() {
-                return Ok(PreloadedDataState::Ready);
+        loop {
+            let should_load = {
+                let mut state = self.state.lock().unwrap();
+                match &*state {
+                    CachedPreloadedState::Ready(_) => return Ok(PreloadedDataState::Ready),
+                    CachedPreloadedState::Loading => false,
+                    CachedPreloadedState::NotStarted | CachedPreloadedState::Failed(_) => {
+                        *state = CachedPreloadedState::Loading;
+                        true
+                    }
+                }
+            };
+
+            if !should_load {
+                self.notify.notified().await;
+                continue;
             }
-        }
 
-        if self
-            .loading
-            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-            .is_err()
-        {
-            return Ok(PreloadedDataState::Loading);
-        }
-
-        let result = self.fetch_and_parse().await;
-
-        self.loading.store(false, Ordering::Release);
-
-        match result {
-            Ok(data) => {
-                let mut guard = self.result.lock().unwrap();
-                *guard = Some(data);
-                Ok(PreloadedDataState::Ready)
-            }
-            Err(e) => {
-                warn!(error = %e, "preloaded data fetch failed");
-                Err(e)
+            let result = self.fetch_and_parse().await;
+            match result {
+                Ok(data) => {
+                    let mut state = self.state.lock().unwrap();
+                    *state = CachedPreloadedState::Ready(data);
+                    drop(state);
+                    self.notify.notify_waiters();
+                    return Ok(PreloadedDataState::Ready);
+                }
+                Err(e) => {
+                    warn!(error = %e, "preloaded data fetch failed");
+                    let mut state = self.state.lock().unwrap();
+                    *state = CachedPreloadedState::Failed(e.to_string());
+                    drop(state);
+                    self.notify.notify_waiters();
+                    return Err(e);
+                }
             }
         }
     }
 
     pub fn get_result(&self) -> Option<PreloadedDataResult> {
-        self.result.lock().unwrap().clone()
+        match &*self.state.lock().unwrap() {
+            CachedPreloadedState::Ready(result) => Some(result.clone()),
+            _ => None,
+        }
     }
 
     pub fn get_current_user(&self) -> Option<CurrentUserSnapshot> {
-        self.result
-            .lock()
-            .unwrap()
-            .as_ref()
-            .and_then(|r| r.current_user.clone())
+        self.get_result().and_then(|result| result.current_user)
+    }
+
+    pub fn last_error_message(&self) -> Option<String> {
+        match &*self.state.lock().unwrap() {
+            CachedPreloadedState::Failed(error) => Some(error.clone()),
+            _ => None,
+        }
     }
 
     async fn fetch_and_parse(&self) -> Result<PreloadedDataResult, FireCoreError> {
@@ -128,12 +146,12 @@ impl PreloadedDataService {
     }
 
     fn extract_preloaded_fields(&self, preloaded_json: &str, result: &mut PreloadedDataResult) {
-        let Ok(decoded) = html_entity_decode(preloaded_json) else {
-            warn!("failed to HTML-decode preloaded JSON");
+        let Some(parsed) = parse_preloaded_payload(preloaded_json) else {
+            warn!("failed to parse normalized preloaded JSON payload");
             return;
         };
-        let Ok(parsed): Result<HashMap<String, Value>, _> = serde_json::from_str(&decoded) else {
-            warn!("failed to parse preloaded JSON as map");
+        let Some(parsed) = parsed.as_object() else {
+            warn!("normalized preloaded JSON payload was not an object");
             return;
         };
 
@@ -205,14 +223,4 @@ impl PreloadedDataService {
             .expect("topic feed store mutex poisoned");
         let _ = store.clear_cached_user();
     }
-}
-
-fn html_entity_decode(input: &str) -> Result<String, ()> {
-    let mut result = input.to_string();
-    result = result.replace("&quot;", "\"");
-    result = result.replace("&amp;", "&");
-    result = result.replace("&lt;", "<");
-    result = result.replace("&gt;", ">");
-    result = result.replace("&#39;", "'");
-    Ok(result)
 }

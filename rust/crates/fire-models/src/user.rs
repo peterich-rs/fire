@@ -209,6 +209,7 @@ pub struct CurrentUserSnapshot {
     pub name: Option<String>,
     pub avatar_template: Option<String>,
     pub animated_avatar: Option<String>,
+    #[serde(default)]
     pub trust_level: u8,
     #[serde(default)]
     pub status: Option<UserStatus>,

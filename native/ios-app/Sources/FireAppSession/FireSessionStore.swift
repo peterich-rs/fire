@@ -119,10 +119,13 @@ public actor FireSessionStore {
 
     public func ensurePreloadedDataLoaded() async throws {
         try await core.session().ensurePreloadedDataLoaded()
+        try persistCurrentSessionIfNeeded()
     }
 
     public func awaitPreloadedData() async throws -> PreloadedDataStateState {
-        try await core.session().awaitPreloadedData()
+        let state = try await core.session().awaitPreloadedData()
+        try persistCurrentSessionIfNeeded()
+        return state
     }
 
     public func currentUserDefaults() -> CurrentUserSnapshotState? {
@@ -138,7 +141,9 @@ public actor FireSessionStore {
     }
 
     public func determineLoginStateWithProbe() async throws -> LoginStateDeterminationState {
-        try await core.session().determineLoginStateWithProbe()
+        let state = try await core.session().determineLoginStateWithProbe()
+        try persistCurrentSessionIfNeeded()
+        return state
     }
 
     public func restorePersistedSessionIfAvailable() throws -> SessionState? {
@@ -1018,7 +1023,11 @@ public actor FireSessionStore {
     @discardableResult
     public func startMessageBus(handler: any MessageBusEventHandler) async throws -> String {
         try await runPersistingSessionChanges {
-            try await core.messagebus().startMessageBus(mode: .foreground, handler: handler)
+            try await core.messagebus().startMessageBus(
+                mode: .foreground,
+                handler: handler,
+                topicTrackingStateMeta: try topicTrackingStateMetaForMessageBus()
+            )
         }
     }
 
@@ -1156,6 +1165,27 @@ public actor FireSessionStore {
 
     private func currentSessionPersistenceState() throws -> SessionPersistenceState {
         try core.session().sessionPersistenceState()
+    }
+
+    private func topicTrackingStateMetaForMessageBus() throws -> [String: Int64]? {
+        let raw = try core.session().snapshot().bootstrap.topicTrackingStateMeta?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let raw, !raw.isEmpty else {
+            return nil
+        }
+        let data = Data(raw.utf8)
+        guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+        var result: [String: Int64] = [:]
+        for (key, value) in object {
+            if let number = value as? NSNumber {
+                result[key] = number.int64Value
+            } else if let text = value as? String, let number = Int64(text) {
+                result[key] = number
+            }
+        }
+        return result.isEmpty ? nil : result
     }
 
     private func persistCurrentAuthCookies(

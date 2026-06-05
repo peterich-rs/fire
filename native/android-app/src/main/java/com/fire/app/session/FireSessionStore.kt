@@ -4,6 +4,7 @@ import android.content.Context
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
+import org.json.JSONObject
 import uniffi.fire_uniffi.FireAppCore
 import uniffi.fire_uniffi_diagnostics.LogFileDetailState
 import uniffi.fire_uniffi_diagnostics.LogFileSummaryState
@@ -90,6 +91,10 @@ class FireSessionStore(
             return@withContext null
         }
         core.session().loadSessionFromPath(sessionFile.absolutePath)
+    }
+
+    suspend fun prepareStartupSession(): SessionState = withContext(Dispatchers.IO) {
+        restorePersistedSessionIfAvailable() ?: core.session().snapshot()
     }
 
     suspend fun baseUrl(): String = withContext(Dispatchers.Default) {
@@ -363,7 +368,11 @@ class FireSessionStore(
     }
 
     suspend fun startMessageBus(handler: MessageBusEventHandler): String = withContext(Dispatchers.IO) {
-        val clientId = core.messagebus().startMessageBus(MessageBusClientModeState.FOREGROUND, handler)
+        val clientId = core.messagebus().startMessageBus(
+            MessageBusClientModeState.FOREGROUND,
+            handler,
+            topicTrackingStateMetaForMessageBus(),
+        )
         persistCurrentSession()
         clientId
     }
@@ -616,12 +625,14 @@ class FireSessionStore(
     suspend fun awaitPreloadedData() {
         withContext(Dispatchers.IO) {
             core.session().awaitPreloadedData()
+            persistCurrentSession()
         }
     }
 
     suspend fun ensurePreloadedDataLoaded() {
         withContext(Dispatchers.IO) {
             core.session().ensurePreloadedDataLoaded()
+            persistCurrentSession()
         }
     }
 
@@ -641,10 +652,33 @@ class FireSessionStore(
 
     suspend fun determineLoginStateWithProbe(): LoginStateDeterminationState {
         return withContext(Dispatchers.IO) {
-            try { core.session().determineLoginStateWithProbe() } catch (_: Exception) {
+            try {
+                core.session().determineLoginStateWithProbe().also {
+                    persistCurrentSession()
+                }
+            } catch (_: Exception) {
                 LoginStateDeterminationState.NetworkErrorPreserveState
             }
         }
+    }
+
+    private fun topicTrackingStateMetaForMessageBus(): Map<String, Long>? {
+        val raw = runCatching { core.session().snapshot().bootstrap.topicTrackingStateMeta }
+            .getOrNull()
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+            ?: return null
+        val json = runCatching { JSONObject(raw) }.getOrNull() ?: return null
+        val keys = json.keys()
+        val result = LinkedHashMap<String, Long>()
+        while (keys.hasNext()) {
+            val key = keys.next()
+            when (val value = json.opt(key)) {
+                is Number -> result[key] = value.toLong()
+                is String -> value.toLongOrNull()?.let { result[key] = it }
+            }
+        }
+        return result.takeIf { it.isNotEmpty() }
     }
 
     suspend fun clearPersistedSession() = withContext(Dispatchers.IO) {

@@ -353,27 +353,33 @@ final class FireAppViewModel: ObservableObject {
                     let sessionStore = try await self.sessionStoreValue()
                     guard self.initialStateLoadGeneration == generation else { return }
                     self.errorMessage = nil
+                    let preparedSession = try await sessionStore.restoreColdStartSession()
+                    guard self.initialStateLoadGeneration == generation else { return }
+                    await self.applySession(preparedSession, activateMessageBus: false)
+                    guard self.initialStateLoadGeneration == generation else { return }
                     try await sessionStore.ensurePreloadedDataLoaded()
                     guard self.initialStateLoadGeneration == generation else { return }
-                    let loginState = await sessionStore.determineLoginState()
+                    let loginState = try await sessionStore.determineLoginStateWithProbe()
                     guard self.initialStateLoadGeneration == generation else { return }
                     switch loginState {
                     case .loggedIn:
-                        let restoredSession = try await sessionStore.restoreColdStartSession()
+                        let snapshot = try await sessionStore.snapshot()
                         guard self.initialStateLoadGeneration == generation else { return }
-                        await self.applySession(restoredSession, activateMessageBus: false)
+                        await self.applySession(snapshot, activateMessageBus: false)
                         guard self.initialStateLoadGeneration == generation else { return }
                         let didLoadHomeFeed = await self.refreshHomeFeedIfPossible(force: true)
                         guard self.initialStateLoadGeneration == generation else { return }
                         if didLoadHomeFeed {
                             await self.ensureMessageBusActiveIfPossible()
                         }
-                    case .sessionExpired, .networkErrorPreserveState:
-                        let restoredSession = try await sessionStore.restoreColdStartSession()
+                    case .networkErrorPreserveState:
+                        let snapshot = try await sessionStore.snapshot()
                         guard self.initialStateLoadGeneration == generation else { return }
-                        await self.applySession(restoredSession, activateMessageBus: false)
-                    case .notLoggedIn:
-                        break
+                        await self.applySession(snapshot, activateMessageBus: false)
+                    case .sessionExpired, .notLoggedIn:
+                        let snapshot = try await sessionStore.snapshot()
+                        guard self.initialStateLoadGeneration == generation else { return }
+                        await self.applySession(snapshot, activateMessageBus: false)
                     @unknown default:
                         break
                     }

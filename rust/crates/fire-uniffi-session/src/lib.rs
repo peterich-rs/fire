@@ -9,11 +9,12 @@ use fire_uniffi_types::{
 pub mod records;
 
 pub use records::{
-    format_probe_result, AuthRecoveryHintState, BootstrapState, CookieReplayEntryState,
-    CookieState, CurrentUserSnapshotState, LoginFinalizationResultState,
-    LoginPhaseState, LoginStateDeterminationState, LoginSyncState, PassiveLogoutTriggerState,
-    PlatformCookieState, PreloadedDataStateState, RefreshTriggerState, SessionPersistenceState,
-    SessionReadinessState, SessionState, TopicCategoryState,
+    format_probe_result, AppStateRefreshEventState, AppStateRefreshHandler,
+    AuthRecoveryHintState, BootstrapState, CookieReplayEntryState, CookieState,
+    CurrentUserSnapshotState, LoginFinalizationResultState, LoginPhaseState,
+    LoginStateDeterminationState, LoginSyncState, PassiveLogoutTriggerState,
+    PlatformCookieState, PreloadedDataStateState, RefreshBatchState, RefreshTriggerState,
+    SessionPersistenceState, SessionReadinessState, SessionState, TopicCategoryState,
 };
 
 #[derive(uniffi::Object)]
@@ -480,6 +481,28 @@ impl FireSessionHandle {
         let rust_trigger = fire_models::RefreshTrigger::from(trigger);
         run_on_ffi_runtime("trigger_app_state_refresh", panic_state, async move {
             inner.app_state_refresher().refresh_all(rust_trigger).await?;
+            Ok(())
+        })
+        .await
+    }
+
+    pub async fn trigger_app_state_refresh_with_handler(
+        &self,
+        trigger: RefreshTriggerState,
+        handler: Arc<dyn AppStateRefreshHandler>,
+    ) -> Result<(), FireUniFfiError> {
+        let inner = self.shared.core.clone();
+        let panic_state = self.shared.panic_state.clone();
+        let rust_trigger = fire_models::RefreshTrigger::from(trigger);
+        let observer: Arc<dyn Fn(fire_models::AppStateRefreshEvent) + Send + Sync> =
+            Arc::new(move |event: fire_models::AppStateRefreshEvent| {
+                handler.on_app_state_refresh_event(event.into());
+            });
+        run_on_ffi_runtime("trigger_app_state_refresh_with_handler", panic_state, async move {
+            inner
+                .app_state_refresher()
+                .refresh_all_with_handler(rust_trigger, Some(observer))
+                .await?;
             Ok(())
         })
         .await

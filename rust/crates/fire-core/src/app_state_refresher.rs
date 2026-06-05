@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use fire_models::RefreshTrigger;
+use fire_models::{AppStateRefreshEvent, RefreshBatch, RefreshTrigger};
 use tracing::{info, warn};
 
 use crate::core::FireCore;
@@ -9,6 +9,8 @@ use crate::error::FireCoreError;
 
 const DEBOUNCE_DURATION: Duration = Duration::from_secs(2);
 const SECONDARY_BATCH_DELAY: Duration = Duration::from_millis(1000);
+
+type AppStateRefreshObserver = Arc<dyn Fn(AppStateRefreshEvent) + Send + Sync>;
 
 pub struct AppStateRefresher {
     core: Arc<FireCore>,
@@ -24,6 +26,14 @@ impl AppStateRefresher {
     }
 
     pub async fn refresh_all(&self, trigger: RefreshTrigger) -> Result<(), FireCoreError> {
+        self.refresh_all_with_handler(trigger, None).await
+    }
+
+    pub async fn refresh_all_with_handler(
+        &self,
+        trigger: RefreshTrigger,
+        observer: Option<AppStateRefreshObserver>,
+    ) -> Result<(), FireCoreError> {
         {
             let mut last = self.last_refresh.lock().unwrap();
             if let Some(instant) = *last {
@@ -48,12 +58,27 @@ impl AppStateRefresher {
             return Ok(());
         }
 
+        if let Some(observer) = observer.as_ref() {
+            observer(AppStateRefreshEvent {
+                batch: RefreshBatch::Core,
+                trigger,
+            });
+        }
+
         info!("scheduling app state refresh batch 2 (secondary) in 1s");
         let core = self.core.clone();
+        let secondary_observer = observer.clone();
         tokio::spawn(async move {
             tokio::time::sleep(SECONDARY_BATCH_DELAY).await;
             if let Err(e) = Self::refresh_secondary_batch_inner(&core, &trigger).await {
                 warn!(error = %e, "secondary batch refresh failed");
+                return;
+            }
+            if let Some(observer) = secondary_observer.as_ref() {
+                observer(AppStateRefreshEvent {
+                    batch: RefreshBatch::Secondary,
+                    trigger,
+                });
             }
         });
 

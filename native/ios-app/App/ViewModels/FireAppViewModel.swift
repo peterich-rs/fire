@@ -139,6 +139,68 @@ private final class PendingCloudflareRecovery {
     }
 }
 
+final class FireAppStateRefreshCoordinator: AppStateRefreshHandler, @unchecked Sendable {
+    private static let deliveryBatchSize = 4
+
+    private let lock = NSLock()
+    private let onEvent: (AppStateRefreshEventState) -> Void
+    private var pendingEvents: [AppStateRefreshEventState] = []
+    private var isDraining = false
+
+    init(onEvent: @escaping (AppStateRefreshEventState) -> Void) {
+        self.onEvent = onEvent
+    }
+
+    func onAppStateRefreshEvent(event: AppStateRefreshEventState) {
+        let shouldScheduleDrain = lock.withLock {
+            pendingEvents.append(event)
+            guard !isDraining else {
+                return false
+            }
+            isDraining = true
+            return true
+        }
+
+        guard shouldScheduleDrain else {
+            return
+        }
+
+        Task { [weak self] in
+            await self?.drainPendingEvents()
+        }
+    }
+
+    private func dequeueBatch() -> [AppStateRefreshEventState] {
+        lock.withLock {
+            guard !pendingEvents.isEmpty else {
+                isDraining = false
+                return []
+            }
+
+            let count = min(Self.deliveryBatchSize, pendingEvents.count)
+            let batch = Array(pendingEvents.prefix(count))
+            pendingEvents.removeFirst(count)
+            return batch
+        }
+    }
+
+    private func drainPendingEvents() async {
+        while true {
+            let batch = dequeueBatch()
+            guard !batch.isEmpty else {
+                return
+            }
+
+            let handler = onEvent
+            await MainActor.run {
+                for event in batch {
+                    handler(event)
+                }
+            }
+        }
+    }
+}
+
 private struct CachedLoginSyncReadiness {
     let currentURL: String?
     let readiness: FireLoginSyncReadiness
@@ -272,6 +334,9 @@ final class FireAppViewModel: ObservableObject {
     private weak var homeFeedStore: FireHomeFeedStore?
     private weak var notificationStore: FireNotificationStore?
     private weak var topicDetailStore: FireTopicDetailStore?
+    private lazy var appStateRefreshCoordinator = FireAppStateRefreshCoordinator { [weak self] event in
+        self?.handleAppStateRefreshEvent(event)
+    }
 
     init(
         initialSession: SessionState = .placeholder(),
@@ -379,11 +444,13 @@ final class FireAppViewModel: ObservableObject {
             guard self.initialStateLoadGeneration == generation else { return }
             switch loginState {
             case .loggedIn:
-                try await sessionStore.triggerAppStateRefresh(.sessionRestored)
+                try await sessionStore.triggerAppStateRefresh(
+                    .sessionRestored,
+                    handler: appStateRefreshCoordinator
+                )
                 let snapshot = try await sessionStore.snapshot()
                 guard self.initialStateLoadGeneration == generation else { return }
                 await self.applySession(snapshot, activateMessageBus: false)
-                await self.notificationStore?.syncStateFromRuntimeIfAvailable()
             case .networkErrorPreserveState, .sessionExpired, .notLoggedIn:
                 let snapshot = try await sessionStore.snapshot()
                 guard self.initialStateLoadGeneration == generation else { return }
@@ -468,14 +535,13 @@ final class FireAppViewModel: ObservableObject {
                         ),
                         activateMessageBus: false
                     )
-                    try await sessionStore.triggerAppStateRefresh(.loginCompleted)
-                    await self.notificationStore?.syncStateFromRuntimeIfAvailable()
+                    try await sessionStore.triggerAppStateRefresh(
+                        .loginCompleted,
+                        handler: appStateRefreshCoordinator
+                    )
                     setAuthPresentationState(nil)
                     if shouldResolveRecovery {
                         resolvePendingCloudflareRecovery(with: .success(()))
-                    }
-                    if await refreshHomeFeedIfPossible(force: true) {
-                        await ensureMessageBusActiveIfPossible()
                     }
                     canSyncLoginSession = false
                     cachedLoginSyncReadiness = nil
@@ -2442,6 +2508,29 @@ final class FireAppViewModel: ObservableObject {
     func ensureMessageBusActiveIfPossible() async {
         guard !isMessageBusActive else { return }
         await startMessageBus()
+    }
+
+    private func handleAppStateRefreshEvent(_ event: AppStateRefreshEventState) {
+        switch event.batch {
+        case .core:
+            guard session.readiness.canReadAuthenticatedApi else {
+                return
+            }
+            guard let homeFeedStore,
+                  homeFeedStore.isSceneActive,
+                  homeFeedStore.isTopicListVisible else {
+                return
+            }
+            Task { [weak self] in
+                _ = await self?.homeFeedStore?.refreshTopicsIfPossible(force: true)
+            }
+        case .secondary:
+            Task { [weak self] in
+                await self?.notificationStore?.syncStateFromRuntimeIfAvailable()
+            }
+        @unknown default:
+            break
+        }
     }
 
     @discardableResult

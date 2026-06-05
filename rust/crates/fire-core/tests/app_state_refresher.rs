@@ -1,10 +1,11 @@
 mod common;
 
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use common::{raw_json_response, raw_text_response, sample_home_html, sample_latest_json, TestServer};
 use fire_core::{FireCore, FireCoreConfig};
-use fire_models::{PlatformCookie, RefreshTrigger};
+use fire_models::{PlatformCookie, RefreshBatch, RefreshTrigger};
 
 fn login_cookies() -> Vec<PlatformCookie> {
     vec![
@@ -70,17 +71,38 @@ async fn refresh_all_runs_core_immediately_and_secondary_after_delay() {
     })
     .expect("core");
     core.apply_platform_cookies(login_cookies());
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let observer_events = events.clone();
 
     core.app_state_refresher()
-        .refresh_all(RefreshTrigger::LoginCompleted)
+        .refresh_all_with_handler(
+            RefreshTrigger::LoginCompleted,
+            Some(Arc::new(move |event| {
+                observer_events
+                    .lock()
+                    .expect("observer events lock")
+                    .push((event.batch, event.trigger));
+            })),
+        )
         .await
         .expect("refresh");
 
     assert_eq!(server.request_count(), 1);
+    assert_eq!(
+        events.lock().expect("events lock").as_slice(),
+        &[(RefreshBatch::Core, RefreshTrigger::LoginCompleted)]
+    );
     tokio::time::sleep(Duration::from_millis(900)).await;
     assert_eq!(server.request_count(), 1);
     tokio::time::sleep(Duration::from_millis(400)).await;
     assert_eq!(server.request_count(), 5);
+    assert_eq!(
+        events.lock().expect("events lock").as_slice(),
+        &[
+            (RefreshBatch::Core, RefreshTrigger::LoginCompleted),
+            (RefreshBatch::Secondary, RefreshTrigger::LoginCompleted),
+        ]
+    );
 
     let requests = server.shutdown_with_requests().await;
     assert_eq!(requests.len(), 5);

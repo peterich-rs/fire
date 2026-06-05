@@ -24,6 +24,7 @@ import uniffi.fire_uniffi_search.TagSearchQueryState
 import uniffi.fire_uniffi_search.TagSearchResultState
 import uniffi.fire_uniffi_search.UserMentionQueryState
 import uniffi.fire_uniffi_search.UserMentionResultState
+import uniffi.fire_uniffi_session.AppStateRefreshHandler
 import uniffi.fire_uniffi_session.CookieReplayEntryState
 import uniffi.fire_uniffi_session.CurrentUserSnapshotState
 import uniffi.fire_uniffi_session.LoginFinalizationResultState
@@ -665,6 +666,14 @@ class FireSessionStore(
 
     suspend fun triggerAppStateRefresh(trigger: RefreshTriggerState) = withContext(Dispatchers.IO) {
         core.session().triggerAppStateRefresh(trigger)
+        persistCurrentSession()
+    }
+
+    suspend fun triggerAppStateRefresh(
+        trigger: RefreshTriggerState,
+        handler: AppStateRefreshHandler,
+    ) = withContext(Dispatchers.IO) {
+        core.session().triggerAppStateRefreshWithHandler(trigger, handler)
         persistCurrentSession()
     }
 

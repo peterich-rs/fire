@@ -3,9 +3,9 @@ use fire_core::{
     FireSessionPersistenceState as CoreSessionPersistenceState,
 };
 use fire_models::{
-    BootstrapArtifacts, CookieSnapshot, LoginFinalizationResult, LoginPhase, LoginSyncInput,
-    PassiveLogoutTrigger, PlatformCookie, ProbeResult, SessionReadiness, SessionSnapshot,
-    SignalStrength, TopicCategory,
+    AppStateRefreshEvent, BootstrapArtifacts, CookieSnapshot, LoginFinalizationResult, LoginPhase,
+    LoginSyncInput, PassiveLogoutTrigger, PlatformCookie, ProbeResult, RefreshBatch,
+    SessionReadiness, SessionSnapshot, SignalStrength, TopicCategory,
 };
 use fire_store::cookie_replay::CookieReplayEntry;
 
@@ -554,4 +554,49 @@ impl From<RefreshTriggerState> for fire_models::RefreshTrigger {
             RefreshTriggerState::SessionRestored => Self::SessionRestored,
         }
     }
+}
+
+impl From<fire_models::RefreshTrigger> for RefreshTriggerState {
+    fn from(value: fire_models::RefreshTrigger) -> Self {
+        match value {
+            fire_models::RefreshTrigger::LoginCompleted => Self::LoginCompleted,
+            fire_models::RefreshTrigger::LogoutCompleted => Self::LogoutCompleted,
+            fire_models::RefreshTrigger::SessionRestored => Self::SessionRestored,
+        }
+    }
+}
+
+#[derive(uniffi::Enum, Debug, Clone, Copy)]
+pub enum RefreshBatchState {
+    Core,
+    Secondary,
+}
+
+impl From<RefreshBatch> for RefreshBatchState {
+    fn from(value: RefreshBatch) -> Self {
+        match value {
+            RefreshBatch::Core => Self::Core,
+            RefreshBatch::Secondary => Self::Secondary,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct AppStateRefreshEventState {
+    pub batch: RefreshBatchState,
+    pub trigger: RefreshTriggerState,
+}
+
+impl From<AppStateRefreshEvent> for AppStateRefreshEventState {
+    fn from(value: AppStateRefreshEvent) -> Self {
+        Self {
+            batch: value.batch.into(),
+            trigger: value.trigger.into(),
+        }
+    }
+}
+
+#[uniffi::export(with_foreign)]
+pub trait AppStateRefreshHandler: Send + Sync {
+    fn on_app_state_refresh_event(&self, event: AppStateRefreshEventState);
 }

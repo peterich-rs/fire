@@ -29,7 +29,8 @@
 - 已落地：preloaded current-user cache 会随 bootstrap 更新同步，并在 `logout_local()` 时清空，避免同进程内登录态切换继续暴露旧 `currentUser`。
 - 已落地：iOS `loadInitialState()` 不再直接执行启动登录态判定 / 首页 feed 首刷 / MessageBus 启动；`FirePreheatGateViewController` 等待 preload 终态后，由 `completeStartupAfterPreheat()` 统一执行 post-preheat 登录态分流。
 - 已落地：Android Home 首屏不再额外调用 `refreshSession()` 作为冷启动恢复入口，`HomeViewModel` 直接从 `FireSessionStore` 读取权威 snapshot 并按需接通 topic-list MessageBus 监听。
-- 仍未完成：Rust `AppStateRefresher` 还没有拥有“当前首页 tab/topic list”选择状态，也没有通过统一 callback 驱动平台做 MessageBus 重连；因此 iOS / Android 主界面层仍保留薄的 home-feed refresh / MessageBus activate 行为。
+- 已落地：Rust `AppStateRefresher` 批次事件已经通过 UniFFI callback 暴露，iOS 现已使用统一 refresh callback 驱动 auth 后首页列表强刷与通知状态同步，不再由 `completeLogin()` 手写首页刷新 / MessageBus 启动决策。
+- 仍未完成：Rust `AppStateRefresher` 还没有拥有“当前首页 tab/topic list”选择状态；Android 也还没有消费这套 refresh callback，因此当前 tab 刷新与 MessageBus activate 仍保留薄的平台生命周期逻辑。
 
 ---
 

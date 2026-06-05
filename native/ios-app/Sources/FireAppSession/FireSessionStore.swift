@@ -151,6 +151,17 @@ public actor FireSessionStore {
         try persistCurrentSessionIfNeeded()
     }
 
+    public func triggerAppStateRefresh(
+        _ trigger: RefreshTriggerState,
+        handler: any AppStateRefreshHandler
+    ) async throws {
+        try await core.session().triggerAppStateRefreshWithHandler(
+            trigger: trigger,
+            handler: handler
+        )
+        try persistCurrentSessionIfNeeded()
+    }
+
     public func restorePersistedSessionIfAvailable() throws -> SessionState? {
         guard FileManager.default.fileExists(atPath: sessionFilePath) else {
             return nil

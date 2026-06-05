@@ -31,8 +31,6 @@
     <string name="login_blocked_external_navigation">This login browser only opens web links.</string>
     <string name="login_safe_browsing_blocked">Unsafe page blocked.</string>
     <string name="login_sync_error">Unable to sync login.</string>
-    <string name="cloudflare_challenge_title">Cloudflare 验证</string>
-    <string name="cloudflare_blocked_external_navigation">This browser only opens web links.</string>
     <string name="browser_title">Topic Browser</string>
     <string name="diagnostics_title">Diagnostics</string>
     <string name="diagnostics_subtitle">Readable app logs plus captured network request traces.</string>

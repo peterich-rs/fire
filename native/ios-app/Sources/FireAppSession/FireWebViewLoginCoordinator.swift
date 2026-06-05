@@ -216,23 +216,18 @@ public final class FireWebViewLoginCoordinator {
     }
 
     public func completeLogin(
-        from webView: WKWebView,
-        preserveSessionOnChallengeFailure: Bool = false
+        from webView: WKWebView
     ) async throws -> SessionState {
         let captured = try await captureLoginState(from: webView)
         let readiness = loginSyncReadiness(for: captured)
         guard readiness.isReady else {
             throw FireWebViewLoginCoordinatorError.loginSyncNotReady(readiness)
         }
-        return try await completeLogin(
-            captured,
-            preserveSessionOnChallengeFailure: preserveSessionOnChallengeFailure
-        )
+        return try await completeLogin(captured)
     }
 
     func completeLogin(
-        _ captured: FireCapturedLoginState,
-        preserveSessionOnChallengeFailure: Bool = false
+        _ captured: FireCapturedLoginState
     ) async throws -> SessionState {
         let finalized = try await sessionStore.finalizeLoginFromWebView(
             captured,
@@ -242,28 +237,7 @@ public final class FireWebViewLoginCoordinator {
             return finalized.session
         }
 
-        do {
-            return try await sessionStore.refreshBootstrapIfNeeded()
-        } catch {
-            guard case FireUniFfiError.CloudflareChallenge = error else {
-                throw error
-            }
-
-            if preserveSessionOnChallengeFailure {
-                // During CF recovery: the cookies and login context were already
-                // applied successfully. Don't nuke the session — the retry/recovery
-                // mechanism will handle re-attempting the bootstrap once the
-                // clearance propagates.
-                throw error
-            }
-
-            // Initial login: Don't keep a partially synced native session around
-            // when bootstrap or CSRF refresh is still challenged. Keep the browser
-            // cookies intact so the recovery WebView can continue from the same
-            // browser challenge context.
-            _ = try? await sessionStore.logoutLocal(preserveCfClearance: true)
-            throw error
-        }
+        return try await sessionStore.refreshBootstrapIfNeeded()
     }
 
     public func logout() async throws -> SessionState {

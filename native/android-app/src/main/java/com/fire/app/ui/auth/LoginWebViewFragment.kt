@@ -32,7 +32,6 @@ import com.fire.app.session.FireSavedCredential
 import com.fire.app.session.FireSessionStore
 import com.fire.app.session.FireSessionStoreRepository
 import com.fire.app.session.FireWebViewLoginCoordinator
-import com.fire.app.ui.cloudflare.CloudflareChallengeSupport
 import com.fire.app.ui.webview.FireWebViewSupport
 import com.google.android.material.button.MaterialButton
 import kotlinx.coroutines.Job
@@ -313,11 +312,7 @@ class LoginWebViewFragment : Fragment() {
             onError = { error ->
                 isCompletingLogin = false
                 syncButton.isEnabled = true
-                if (error.isCloudflareChallenge) {
-                    CloudflareChallengeSupport.openSiteRoot(requireContext())
-                } else {
-                    Toast.makeText(requireContext(), error.displayMessage, Toast.LENGTH_SHORT).show()
-                }
+                Toast.makeText(requireContext(), error.displayMessage, Toast.LENGTH_SHORT).show()
             },
         ) {
             coordinator.completeLogin(webView)

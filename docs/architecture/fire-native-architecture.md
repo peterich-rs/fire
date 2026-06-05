@@ -179,9 +179,9 @@ Rust automatically handles retries, backoff, and session refresh. Platforms only
 Rust FireCoreError              →  FireUniFfiError           →  Platform behavior
 ───────────────────────────────────────────────────────────────────────────────────
 Network                         →  Network                   →  Show network error
-LoginRequired                   →  LoginRequired             →  Trigger login flow
+LoginRequired                   →  LoginRequired             →  Surface request failure; no automatic logout/reset
 StaleSessionResponse            →  StaleSessionResponse      →  Rust auto-retry, platform unaware
-CloudflareChallenge             →  CloudflareChallenge       →  Trigger platform WebView challenge
+CloudflareChallenge             →  CloudflareChallenge       →  Surface request failure; no automatic challenge WebView
 HttpStatus(429)                 →  HttpStatus                →  Rust auto-backoff-retry
 Storage                         →  Storage                   →  Degrade to no-cache mode
 Other                           →  Runtime                   →  Generic error toast
@@ -738,7 +738,7 @@ Light/dark mode driven by platform system settings. Semantic color names are str
 | Responsibility | Description |
 |---|---|
 | WebView login | WKWebView / WebView renders login page |
-| Cloudflare challenge | Platform WebView completes Turnstile verification |
+| Interactive auth browser | Platform can render explicit login/manual remediation pages, but request-failure recovery does not auto-launch them |
 | Cookie extraction | Extract from platform WebView CookieStore, pass into Rust |
 | UI rendering | All pixel drawing, layout computation |
 | User interaction | Tap / swipe / long-press / input events |

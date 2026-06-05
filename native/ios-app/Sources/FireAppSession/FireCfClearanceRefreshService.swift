@@ -102,7 +102,6 @@ final class FireCfClearanceRefreshService: NSObject, WKNavigationDelegate, WKScr
     private var session: SessionState = .placeholder()
     private var loginStateConfirmed = false
     private var sceneActive = false
-    private var interactiveRecoveryActive = false
     private var startupTask: Task<Void, Never>?
     private var retryTask: Task<Void, Never>?
     private var initialSolveTimeoutTask: Task<Void, Never>?
@@ -157,20 +156,13 @@ final class FireCfClearanceRefreshService: NSObject, WKNavigationDelegate, WKScr
         reconfigureRuntime(reason: confirmed ? "login_state_confirmed" : "login_state_unconfirmed")
     }
 
-    func setInteractiveRecoveryActive(_ active: Bool) {
-        interactiveRecoveryActive = active
-        reconfigureRuntime(reason: active ? "interactive_recovery_started" : "interactive_recovery_ended")
-    }
-
     nonisolated static func shouldAutoRefresh(
         session: SessionState,
         sceneActive: Bool,
-        loginStateConfirmed: Bool,
-        interactiveRecoveryActive: Bool = false
+        loginStateConfirmed: Bool
     ) -> Bool {
         sceneActive
             && loginStateConfirmed
-            && !interactiveRecoveryActive
             && session.readiness.canReadAuthenticatedApi
             && session.readiness.hasCurrentUser
             && session.readiness.hasCloudflareClearance
@@ -260,8 +252,7 @@ final class FireCfClearanceRefreshService: NSObject, WKNavigationDelegate, WKScr
         Self.shouldAutoRefresh(
             session: session,
             sceneActive: sceneActive,
-            loginStateConfirmed: loginStateConfirmed,
-            interactiveRecoveryActive: interactiveRecoveryActive
+            loginStateConfirmed: loginStateConfirmed
         )
     }
 

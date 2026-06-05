@@ -16,7 +16,6 @@ import androidx.recyclerview.widget.RecyclerView
 import com.fire.app.R
 import com.fire.app.session.FireSessionStore
 import com.fire.app.session.FireSessionStoreRepository
-import com.fire.app.ui.cloudflare.CloudflareChallengeSupport
 import com.fire.app.ui.composer.PrivateMessageComposerSheet
 import com.fire.app.ui.topicdetail.TopicDetailActivity
 import kotlinx.coroutines.launch
@@ -121,11 +120,6 @@ class ProfileFragment : Fragment() {
                 }
             }
 
-            viewLifecycleOwner.lifecycleScope.launch {
-                vm.cloudflareChallenge.collect {
-                    CloudflareChallengeSupport.openSiteRoot(requireContext())
-                }
-            }
         }
     }
 

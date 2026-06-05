@@ -323,7 +323,7 @@ struct FireAuthScreen: View {
     @StateObject private var webViewBox = FireWebViewBox()
 
     private var title: String {
-        viewModel.shouldAutoSyncLoginAfterRecovery ? "完成安全验证" : "登录 LinuxDo"
+        "登录 LinuxDo"
     }
 
     private var url: URL {
@@ -331,11 +331,7 @@ struct FireAuthScreen: View {
     }
 
     private var route: String {
-        viewModel.shouldAutoSyncLoginAfterRecovery ? "auth.cloudflare" : "auth.login"
-    }
-
-    private var infoMessage: String? {
-        viewModel.authPresentationMessage
+        "auth.login"
     }
 
     var body: some View {
@@ -354,10 +350,6 @@ struct FireAuthScreen: View {
                         message: errorMessage,
                         onDismiss: { viewModel.dismissError() }
                     )
-                }
-
-                if let infoMessage {
-                    FireAuthInfoBanner(message: infoMessage)
                 }
 
                 FireLoginWebView(
@@ -492,13 +484,6 @@ private struct FireAuthBottomBar: View {
         }
     }
 
-    private var hidesPrimaryActionForAutomaticRecovery: Bool {
-        switch presentationState {
-        case .login:
-            return viewModel.shouldAutoSyncLoginAfterRecovery
-        }
-    }
-
     var body: some View {
         VStack(spacing: 0) {
             Divider()
@@ -521,30 +506,18 @@ private struct FireAuthBottomBar: View {
 
                 Spacer()
 
-                if hidesPrimaryActionForAutomaticRecovery {
+                Button(action: performPrimaryAction) {
                     HStack(spacing: 6) {
                         if isRunningAction {
                             ProgressView()
+                                .tint(.white)
                                 .controlSize(.small)
                         }
-                        Text(isRunningAction ? "同步中…" : "验证完成后自动同步")
-                            .font(.footnote.weight(.medium))
-                            .foregroundStyle(.secondary)
+                        Text(actionTitle)
                     }
-                } else {
-                    Button(action: performPrimaryAction) {
-                        HStack(spacing: 6) {
-                            if isRunningAction {
-                                ProgressView()
-                                    .tint(.white)
-                                    .controlSize(.small)
-                            }
-                            Text(actionTitle)
-                        }
-                    }
-                    .buttonStyle(FirePrimaryButtonStyle())
-                    .disabled(!isActionEnabled)
                 }
+                .buttonStyle(FirePrimaryButtonStyle())
+                .disabled(!isActionEnabled)
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 10)

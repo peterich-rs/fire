@@ -14,7 +14,6 @@ import androidx.recyclerview.widget.RecyclerView
 import com.fire.app.R
 import com.fire.app.core.error.launchWithFireErrorHandling
 import com.fire.app.session.FireSessionStoreRepository
-import com.fire.app.ui.cloudflare.CloudflareChallengeSupport
 import com.fire.app.ui.home.TopicListAdapter
 import com.fire.app.ui.topicdetail.TopicDetailActivity
 import kotlinx.coroutines.flow.collectLatest
@@ -58,13 +57,6 @@ class BookmarksFragment : Fragment() {
         recyclerView.adapter = adapter
         adapter.addLoadStateListener { loadStates ->
             val refresh = loadStates.refresh
-            val challengeError = listOf(loadStates.refresh, loadStates.append, loadStates.prepend)
-                .filterIsInstance<LoadState.Error>()
-                .firstOrNull { CloudflareChallengeSupport.isChallenge(it.error) }
-            if (challengeError != null) {
-                context?.let(CloudflareChallengeSupport::openSiteRoot)
-            }
-
             val isInitialLoading = refresh is LoadState.Loading && adapter.itemCount == 0
             loadingView.visibility = if (isInitialLoading) View.VISIBLE else View.GONE
             emptyView.visibility = when {

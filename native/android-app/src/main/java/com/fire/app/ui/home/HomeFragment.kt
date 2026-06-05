@@ -22,7 +22,6 @@ import com.fire.app.R
 import com.fire.app.core.ext.optimizeForPaging
 import com.fire.app.session.FireSessionStore
 import com.fire.app.session.FireSessionStoreRepository
-import com.fire.app.ui.cloudflare.CloudflareChallengeSupport
 import com.fire.app.ui.composer.TopicComposerSheet
 import com.fire.app.ui.topicdetail.TopicDetailActivity
 import com.google.android.material.chip.Chip
@@ -93,19 +92,6 @@ class HomeFragment : Fragment() {
         recyclerView.optimizeForPaging()
         adapter.addLoadStateListener { loadStates ->
             val refresh = loadStates.refresh
-            listOf(loadStates.refresh, loadStates.append, loadStates.prepend)
-                .filterIsInstance<LoadState.Error>()
-                .firstOrNull { CloudflareChallengeSupport.isChallenge(it.error) }
-                ?.let { challengeState ->
-                    context?.let { context ->
-                        CloudflareChallengeSupport.open(
-                            context,
-                            CloudflareChallengeSupport.recoveryUrl(challengeState.error)
-                                ?: CloudflareChallengeSupport.SITE_ROOT_URL,
-                        )
-                    }
-                }
-
             val isInitialLoading = refresh is LoadState.Loading && adapter.itemCount == 0
             loadingView.visibility = if (isInitialLoading) View.VISIBLE else View.GONE
             emptyView.visibility = when {
@@ -161,11 +147,6 @@ class HomeFragment : Fragment() {
                     launch {
                         vm.topicListRefreshEvents.collect {
                             adapter.refresh()
-                        }
-                    }
-                    launch {
-                        vm.cloudflareChallenge.collect {
-                            CloudflareChallengeSupport.openSiteRoot(requireContext())
                         }
                     }
                     launch {

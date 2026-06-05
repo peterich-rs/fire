@@ -6,9 +6,7 @@ import com.fire.app.core.error.FireErrorReporter
 import com.fire.app.data.repository.UserRepository
 import com.fire.app.session.FireSessionStore
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import uniffi.fire_uniffi_user.UserProfileState
@@ -30,9 +28,6 @@ class ProfileViewModel(
 
     private val _error = MutableStateFlow<String?>(null)
     val error = _error.asStateFlow()
-
-    private val _cloudflareChallenge = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
-    val cloudflareChallenge = _cloudflareChallenge.asSharedFlow()
 
     private var activeLoadKey: String? = null
     private var loadedProfileKey: String? = null
@@ -126,12 +121,7 @@ class ProfileViewModel(
             error = error,
             sessionStore = sessionStore,
         )
-        if (reported.isCloudflareChallenge) {
-            _cloudflareChallenge.tryEmit(Unit)
-            if (showMessage) {
-                _error.value = null
-            }
-        } else if (showMessage) {
+        if (showMessage) {
             _error.value = reported.displayMessage
         }
     }

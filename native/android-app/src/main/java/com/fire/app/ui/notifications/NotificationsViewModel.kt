@@ -13,9 +13,7 @@ import com.fire.app.session.FireSessionStore
 import com.fire.app.session.FireStateObserverRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import uniffi.fire_uniffi_notifications.NotificationCenterState
@@ -34,9 +32,6 @@ class NotificationsViewModel(
 
     private val _error = MutableStateFlow<String?>(null)
     val error = _error.asStateFlow()
-
-    private val _cloudflareChallenge = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
-    val cloudflareChallenge = _cloudflareChallenge.asSharedFlow()
 
     private var initialRefreshStarted = false
 
@@ -135,12 +130,7 @@ class NotificationsViewModel(
             error = error,
             sessionStore = sessionStore,
         )
-        if (reported.isCloudflareChallenge) {
-            _cloudflareChallenge.tryEmit(Unit)
-            _error.value = null
-        } else {
-            _error.value = reported.displayMessage
-        }
+        _error.value = reported.displayMessage
     }
 
     companion object {

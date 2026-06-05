@@ -38,8 +38,5 @@
                     android:host="topic" />
             </intent-filter>
         </activity>
-        <activity
-            android:name=".ui.cloudflare.CloudflareChallengeActivity"
-            android:exported="false" />
     </application>
 </manifest>

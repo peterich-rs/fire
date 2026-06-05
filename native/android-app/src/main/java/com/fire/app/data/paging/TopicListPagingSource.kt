@@ -2,8 +2,6 @@ package com.fire.app.data.paging
 
 import androidx.paging.PagingSource
 import androidx.paging.PagingState
-import com.fire.app.cloudflare.CloudflareChallengeDetector
-import com.fire.app.cloudflare.CloudflareChallengeRecoveryError
 import com.fire.app.data.repository.TopicRepository
 import uniffi.fire_uniffi_types.TopicListKindState
 import uniffi.fire_uniffi_types.TopicRowState
@@ -47,25 +45,7 @@ class TopicListPagingSource(
                 nextKey = response.nextPage,
             )
         } catch (e: Exception) {
-            val error = if (CloudflareChallengeDetector.isChallenge(e)) {
-                CloudflareChallengeRecoveryError(recoveryUrl(params.key), e)
-            } else {
-                e
-            }
-            LoadResult.Error(error)
+            LoadResult.Error(e)
         }
     }
-
-    private fun recoveryUrl(page: UInt?): String =
-        TopicListRecoveryUrl.htmlUrl(
-            baseUrl = baseUrl,
-            kind = kind,
-            page = page,
-            categorySlug = categorySlug,
-            categoryId = categoryId,
-            parentCategorySlug = parentCategorySlug,
-            tag = tag,
-            additionalTags = additionalTags,
-            matchAllTags = matchAllTags,
-        )
 }

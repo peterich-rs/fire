@@ -82,35 +82,23 @@ Current iOS/Rust expose topic voter lookup and poll counts/votes, but not a
 poll-option voter-list API or iOS poll-voter sheet; Android follows that same
 capability boundary.
 
-## Cloudflare And Login Boundaries
+## Login Boundaries
 
-Android keeps Cloudflare recovery host-owned:
+Android now keeps request-failure handling single-path:
 
-- General Cloudflare challenges open `CloudflareChallengeActivity`, which loads
-  `https://linux.do/` in a full-screen WebView.
-- Home topic-list challenges also open `CloudflareChallengeActivity`, but load
-  the current list's HTML route such as `https://linux.do/latest`,
-  `/c/{slug}/{id}/l/latest`, or `/tag/{tag}/l/top` instead of the JSON API URL.
-- Topic-detail challenges stay inside `TopicDetailActivity` and show an inline
-  WebView under the toolbar, loading `https://linux.do/t/{topicId}`.
-- Login and general challenge WebViews share the browser-like
-  `FireWebViewSupport` profile through `CloudflareChallengeSupport.configureWebView`:
-  persistent cookies, third-party cookies, JavaScript, DOM storage, database
-  storage, AndroidX WebKit Safe Browsing, browser-compatible User-Agent
-  normalization, and same-context handling for `window.open` / popup login
-  flows. Non-Web schemes, file/content access, and mixed content remain blocked.
-- `CloudflareWebViewCookieSyncer` syncs browser context only after
-  `cf_clearance` is visible, then calls
-  `FireWebViewLoginCoordinator.syncBrowserContext`.
-- Android does not run a background `cf_clearance` startup poller or auto-renew
-  service. Clearance refresh stays on the explicit challenge WebView path after
-  the authoritative startup/login state machine has decided that recovery is
-  required.
+- `CloudflareChallenge` and `LoginRequired` errors from Rust no longer auto-open
+  host-owned challenge/login WebViews and no longer trigger local logout side
+  effects during ordinary request handling.
+- Home, topic detail, notifications, search, bookmarks, private messages, and
+  composer flows all surface those failures through the same error-display path
+  used for any other request failure.
+- The only remaining interactive browser surface is the explicit login WebView,
+  which still uses `FireWebViewSupport` and remains platform-owned.
 
-Do not move WebView challenge completion, CookieManager extraction, or
+Do not move explicit login WebView rendering, CookieManager extraction, or
 platform browser context ownership into Rust. Rust remains responsible for
 session state, cookie normalization, CSRF/bootstrap refresh, API orchestration,
-MessageBus, and Cloudflare error classification.
+MessageBus, and Cloudflare/login error classification.
 
 ## Rust And UniFFI Wiring
 
@@ -121,8 +109,8 @@ MessageBus, and Cloudflare error classification.
   `filesDir/fire/diagnostics`.
 - Android UI root coroutines use the shared `core/error/FireErrorHandling.kt`
   boundary for Rust/UniFFI failures. It rethrows coroutine cancellation, classifies
-  `FireUniFfiException`, emits user-safe messages or Cloudflare recovery events,
-  and records the operation, error id, kind, details, and stack in both Logcat and
+  `FireUniFfiException`, emits user-safe request-failure messages, and records
+  the operation, error id, kind, details, and stack in both Logcat and
   Rust diagnostics host logs.
 - Cold session restore keeps the locally restored Rust session if an opportunistic
   bootstrap refresh fails. A refused or offline `GET /` is therefore traceable in

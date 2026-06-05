@@ -2,7 +2,6 @@ package com.fire.app.session
 
 import android.webkit.CookieManager
 import android.webkit.WebView
-import com.fire.app.core.error.FireErrorClassifier
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
@@ -28,20 +27,14 @@ class FireWebViewLoginCoordinator(
         return sessionStore.restorePersistedSessionIfAvailable()
     }
 
-    suspend fun completeLogin(
-        webView: WebView,
-        preserveSessionOnChallengeFailure: Boolean = false,
-    ): SessionState {
+    suspend fun completeLogin(webView: WebView): SessionState {
         val captured = captureLoginState(webView)
         val readiness = loginSyncReadiness(captured)
         check(readiness.isReady) { "登录状态尚未准备完成" }
-        return completeLogin(captured, preserveSessionOnChallengeFailure)
+        return completeLogin(captured)
     }
 
-    suspend fun completeLogin(
-        captured: FireCapturedLoginState,
-        preserveSessionOnChallengeFailure: Boolean = false,
-    ): SessionState {
+    suspend fun completeLogin(captured: FireCapturedLoginState): SessionState {
         val finalization = sessionStore.finalizeLoginFromWebView(
             captured = captured,
             allowLowConfidenceSessionCookies = true,
@@ -50,17 +43,7 @@ class FireWebViewLoginCoordinator(
             return finalization.session
         }
 
-        return try {
-            sessionStore.refreshBootstrapIfNeeded()
-        } catch (error: Exception) {
-            if (!FireErrorClassifier.isCloudflareChallenge(error)) {
-                throw error
-            }
-            if (!preserveSessionOnChallengeFailure) {
-                runCatching { sessionStore.logoutLocal(preserveCfClearance = true) }
-            }
-            throw error
-        }
+        return sessionStore.refreshBootstrapIfNeeded()
     }
 
     suspend fun logout(): SessionState {

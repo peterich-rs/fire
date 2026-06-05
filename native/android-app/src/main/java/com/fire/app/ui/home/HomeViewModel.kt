@@ -149,9 +149,6 @@ class HomeViewModel(
     private val _topicListRefreshEvents = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
     val topicListRefreshEvents = _topicListRefreshEvents.asSharedFlow()
 
-    private val _cloudflareChallenge = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
-    val cloudflareChallenge = _cloudflareChallenge.asSharedFlow()
-
     private val _error = MutableSharedFlow<String>(extraBufferCapacity = 1)
     val error = _error.asSharedFlow()
 
@@ -307,11 +304,7 @@ class HomeViewModel(
                     error = error,
                     sessionStore = sessionStore,
                 )
-                if (reported.isCloudflareChallenge) {
-                    _cloudflareChallenge.tryEmit(Unit)
-                } else {
-                    _error.tryEmit(reported.displayMessage)
-                }
+                _error.tryEmit(reported.displayMessage)
             }
         }
     }
@@ -356,11 +349,7 @@ class HomeViewModel(
     }
 
     private fun handleReportedError(error: FireReportedError) {
-        if (error.isCloudflareChallenge) {
-            _cloudflareChallenge.tryEmit(Unit)
-        } else {
-            _error.tryEmit(error.displayMessage)
-        }
+        _error.tryEmit(error.displayMessage)
     }
 
     private suspend fun handleAppStateRefreshEvent(batch: RefreshBatchState) {

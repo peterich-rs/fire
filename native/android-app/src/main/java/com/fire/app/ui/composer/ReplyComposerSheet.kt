@@ -17,7 +17,6 @@ import com.fire.app.R
 import com.fire.app.core.error.FireErrorReporter
 import com.fire.app.session.FireSessionStore
 import com.fire.app.session.FireSessionStoreRepository
-import com.fire.app.ui.cloudflare.CloudflareChallengeSupport
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
@@ -163,11 +162,6 @@ class ReplyComposerSheet : BottomSheetDialogFragment() {
                     }
                 }
             }
-            viewLifecycleOwner.lifecycleScope.launch {
-                vm.cloudflareChallenge.collect {
-                    CloudflareChallengeSupport.openSiteRoot(requireContext())
-                }
-            }
         }
     }
 
@@ -203,9 +197,6 @@ class ReplyComposerSheet : BottomSheetDialogFragment() {
                 val markdown = uploadImageMarkdown(requireContext(), sessionStore, uri)
                 insertMarkdownAtCursor(bodyInput, markdown)
             } catch (e: Exception) {
-                if (CloudflareChallengeSupport.openSiteRootIfChallenge(requireContext(), e)) {
-                    return@launch
-                }
                 Toast.makeText(
                     requireContext(),
                     e.localizedMessage ?: getString(R.string.composer_upload_error),

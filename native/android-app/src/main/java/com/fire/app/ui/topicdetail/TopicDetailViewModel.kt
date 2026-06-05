@@ -66,9 +66,6 @@ class TopicDetailViewModel(
     private val _scrollTargetPostNumber = MutableSharedFlow<UInt>(extraBufferCapacity = 1)
     val scrollTargetPostNumber = _scrollTargetPostNumber.asSharedFlow()
 
-    private val _cloudflareChallenge = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
-    val cloudflareChallenge = _cloudflareChallenge.asSharedFlow()
-
     private val _actionError = MutableSharedFlow<String>(extraBufferCapacity = 1)
     val actionError = _actionError.asSharedFlow()
 
@@ -110,12 +107,7 @@ class TopicDetailViewModel(
                     sessionStore = sessionStore,
                     fallbackMessage = "加载话题详情失败",
                 )
-                if (reported.isCloudflareChallenge) {
-                    _cloudflareChallenge.tryEmit(Unit)
-                    _errorMessage.value = null
-                } else {
-                    _errorMessage.value = reported.displayMessage
-                }
+                _errorMessage.value = reported.displayMessage
             } finally {
                 _isLoading.value = false
             }
@@ -220,11 +212,7 @@ class TopicDetailViewModel(
                     error = e,
                     sessionStore = sessionStore,
                 )
-                if (reported.isCloudflareChallenge) {
-                    _cloudflareChallenge.tryEmit(Unit)
-                } else {
-                    _errorMessage.value = reported.displayMessage
-                }
+                _errorMessage.value = reported.displayMessage
             }
         }
     }
@@ -257,10 +245,7 @@ class TopicDetailViewModel(
                 error = e,
                 sessionStore = sessionStore,
             )
-            if (reported.isCloudflareChallenge) {
-                _cloudflareChallenge.tryEmit(Unit)
-                _errorMessage.value = null
-            }
+            _errorMessage.value = reported.displayMessage
         }
     }
 
@@ -419,12 +404,7 @@ class TopicDetailViewModel(
                     sessionStore = sessionStore,
                     fallbackMessage = "AI 摘要加载失败",
                 )
-                if (reported.isCloudflareChallenge) {
-                    _cloudflareChallenge.tryEmit(Unit)
-                    _topicAiSummaryError.value = null
-                } else {
-                    _topicAiSummaryError.value = reported.displayMessage
-                }
+                _topicAiSummaryError.value = reported.displayMessage
             } finally {
                 _isLoadingTopicAiSummary.value = false
             }
@@ -665,12 +645,7 @@ class TopicDetailViewModel(
                 sessionStore = sessionStore,
                 fallbackMessage = "加载更多帖子失败",
             )
-            if (reported.isCloudflareChallenge) {
-                _cloudflareChallenge.tryEmit(Unit)
-                _errorMessage.value = null
-            } else {
-                _errorMessage.value = reported.displayMessage
-            }
+            _errorMessage.value = reported.displayMessage
             false
         } finally {
             _isLoadingMore.value = false
@@ -776,11 +751,7 @@ class TopicDetailViewModel(
             sessionStore = sessionStore,
             fallbackMessage = fallbackMessage,
         )
-        if (reported.isCloudflareChallenge) {
-            _cloudflareChallenge.tryEmit(Unit)
-        } else {
-            _actionError.tryEmit(reported.displayMessage)
-        }
+        _actionError.tryEmit(reported.displayMessage)
     }
 
     override fun onCleared() {

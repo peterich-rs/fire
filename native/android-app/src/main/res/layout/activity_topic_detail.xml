@@ -62,21 +62,6 @@
                 android:text="@string/action_retry" />
         </LinearLayout>
 
-        <WebView
-            android:id="@+id/cf_challenge_webview"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:visibility="gone" />
-
-        <ProgressBar
-            android:id="@+id/cf_challenge_loading_indicator"
-            style="?android:attr/progressBarStyleHorizontal"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_gravity="top"
-            android:max="100"
-            android:visibility="gone" />
-
         <com.google.android.material.floatingactionbutton.FloatingActionButton
             android:id="@+id/reply_fab"
             android:layout_width="wrap_content"

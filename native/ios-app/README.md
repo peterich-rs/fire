@@ -44,31 +44,31 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
   - stores the full same-site LinuxDo browser cookie batch in Keychain using a host-scoped generic-password entry, preserving domain variants and cookie expiry
   - preserves non-login browser context cookies, including `cf_clearance`, across explicit logout so Cloudflare challenge state stays aligned with the host shell
 - `FireWebViewBrowserProfile.swift`
-  - centralizes the embedded auth-browser profile used by login and Cloudflare WebViews
+  - centralizes the embedded auth-browser profile used by explicit login/remediation WebViews
   - gives `WKWebView` a Mobile Safari-style user agent when no captured browser user agent is available
   - keeps the auth browser on the default persistent `WKWebsiteDataStore` without a custom process pool, enables JavaScript/new-window handling/media playback, and injects color-scheme plus small compatibility polyfills used by the auth browser and offscreen Turnstile runtime
   - installs the login-specific `WKUserScript` set for preloaded bootstrap capture, credential hook/auto-fill, and fingerprint completion reporting
 - `FireWebViewLoginCoordinator.swift`
   - reads `WKWebView` cookies, `current-username`, `csrf-token`, captured `window.__rawPreloaded`, and the live browser user agent
-  - continuously supports login readiness probing: navigation, scene-activation, debounced WebKit cookie-store changes, and WebView loading transitions all re-check the same readiness used by the `完成登录` button; normal login still commits through that visible action, while Cloudflare recovery auto-syncs as soon as that action would be enabled
+  - continuously supports login readiness probing: navigation, scene-activation, debounced WebKit cookie-store changes, and WebView loading transitions all re-check the same readiness used by the `完成登录` button
   - treats the persistent `WKWebsiteDataStore` as the authoritative browser cookie source: login/challenge/clearance refresh only read browser cookies back into Rust, and shared session updates never write Rust cookies back into WebKit
   - only treats login as ready to sync once it can read `current-username`, same-site auth cookies, and reusable bootstrap HTML
   - completes login through the Rust-owned `finalize_login_from_webview` path, with an optional follow-up bootstrap refresh only when the captured preloaded bootstrap is still incomplete
   - persists captured credentials in Keychain on the host side and leaves missing or stale CSRF repair to the shared authenticated-write preflight instead of an eager login-time refresh
-  - if the follow-up Rust bootstrap refresh is challenged by Cloudflare again, it clears the partial native session and keeps the WebView login flow open so the user can finish the challenge and sync again
+  - if the follow-up Rust bootstrap refresh still fails, it now surfaces that request failure directly instead of locally logging the user out or starting an automatic recovery path
   - clears host-side LinuxDo auth cookies after a successful explicit logout while preserving `cf_clearance`
 - `FireCfClearanceRefreshService.swift`
   - owns an offscreen `WKWebView` that keeps a Turnstile widget alive once the shared session is authenticated, scene-active, and bootstrap has exposed a Turnstile sitekey
   - configures that hidden WebView with the captured login browser user agent exposed on `SessionState`, falling back to the same Mobile Safari-style profile used by login
   - injects a fetch interceptor before `api.js` loads, replays `/cdn-cgi/challenge-platform/.../rc/...` through native `URLSession`, and feeds the real response back into the page so `cf_clearance` can auto-renew without foreground UI
   - re-syncs refreshed WebKit cookies back into Rust and then pushes the updated session back through `FireAppViewModel.applySession`, which keeps native `HTTPCookieStorage` aligned for URLSession/media requests without overwriting the active WebKit cookie store
-  - pauses that background Turnstile runtime while an interactive Cloudflare recovery WebView is on-screen, resumes automatically after recovery, and records APM breadcrumbs plus bounded retry failures
+  - records APM breadcrumbs plus bounded retry failures for background clearance refresh attempts
 - `App/FireLoginWebView.swift`
-  - presents the host-owned auth browser as a full-screen flow for both initial login and interactive Cloudflare recovery
+  - presents the host-owned auth browser as a full-screen flow for explicit login
   - now wraps the embedded `WKWebView` in a full-screen native browser shell with adaptive light/dark chrome, a compact top bar, and a bottom command dock
   - uses the shared auth-browser profile so login, OAuth redirects, and Cloudflare challenge pages see a Safari-compatible user agent and light/dark color-scheme support
   - waits for the host `FireAppViewModel` to replay queued `Set-Cookie` headers into WebKit before the first login navigation, so browser login always starts from the Rust-authenticated cookie boundary
-  - exposes back, forward, reload, and context-aware primary actions so OAuth hops can return to LinuxDo without closing the flow and challenge recovery can reuse login readiness detection for automatic sync
+  - exposes back, forward, reload, and explicit primary actions so OAuth hops can return to LinuxDo without closing the flow
   - does not try to bypass providers that reject embedded browsers; Google OAuth can still fail with `disallowed_useragent`, which requires a system auth/Safari fallback plus a way to import the resulting LinuxDo session back into Fire
   - enables back/forward swipe gestures on the embedded `WKWebView`
   - avoids mutating observed browser state from `UIViewRepresentable.updateUIView`, so SwiftUI updates do not loop back into `WKWebView` host state and freeze the login entry flow
@@ -87,10 +87,8 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
   - now also owns native private-message inbox/sent loading plus private-message creation on top of the shared Rust mailbox and `/posts.json` PM surfaces
   - now acts as a session/runtime facade for feature stores instead of also owning every screen's transient state directly
   - now owns the foreground MessageBus transport lifecycle on iOS and forwards runtime refresh work into the bound feature stores instead of publishing home/topic-detail state itself
-  - now treats Rust-owned `CloudflareChallenge` errors as the signal to delete stale WebView `cf_clearance`, present the host auth WebView in the LinuxDo browser context, re-sync the browser cookie batch back into Rust, and automatically retry the blocked read/write flow without tearing down the current authenticated snapshot
-  - now opens interactive Cloudflare recovery on the triggering HTML route where available: topic detail uses `/t/{slug}/{topicId}` and the home topic list maps JSON requests such as `/latest.json`, category lists, and tag lists to their HTML routes before presenting the WebView
-  - now also treats Rust-owned `LoginRequired` invalidation the same way, clearing host-side auth cookies while preserving `cf_clearance` so passive session loss, explicit logout, and bootstrap-challenged recovery all converge on one reset path
-  - now attempts a single-flight host cookie resync before that reset path on passive reads (home feed, topic detail): if the WebKit cookie store has already rotated `_t` / `_forum_session` past the shared Rust epoch, the resync rotates the shared session in place and the read retries once; otherwise the existing reset/login flow runs
+  - now treats Rust-owned `CloudflareChallenge` and `LoginRequired` request failures as ordinary errors during automatic reads/writes; the host no longer auto-presents recovery WebViews, auto-retries blocked operations, or performs non-manual local logout in response to those errors
+  - now attempts a single-flight host cookie resync on passive reads (home feed, topic detail): if the WebKit cookie store has already rotated `_t` / `_forum_session` past the shared Rust epoch, the resync rotates the shared session in place and the read retries once; otherwise the original request failure is surfaced unchanged
   - now probes login sync readiness from the embedded `WKWebView` and keeps the `完成登录` button disabled until the shared login prerequisites are actually satisfied
   - now also emits host-owned APM spans for cold-start restore, login sync, bootstrap refresh, latest-feed load, topic-detail load, reply submit, notification refresh, and MessageBus start
 - `App/FireMessageBusCoordinator.swift`
@@ -187,7 +185,7 @@ Expected integration flow:
 5. Let the login `WKWebView` probe readiness through `FireAppViewModel.refreshLoginSyncReadiness(from:)`, and only call `FireWebViewLoginCoordinator.completeLogin(from:)` once the UI has enabled `完成登录`.
 6. After login or restore, let `FireCfClearanceRefreshService.shared` track the active session only after the authoritative startup/login path has confirmed the current authenticated session; once confirmed, same-site Cloudflare cookies can refresh in the background when bootstrap has a Turnstile sitekey.
 7. After login or restore, render the topic feeds through `fetchTopicList`, render iOS topic detail through the Android-aligned screen path (`fetchTopicScreen` with Rust-owned `header + body + response` plus host-owned targeted `fetchTopicPosts` hydration as needed), retain `fetchTopicResponsePage` for reply pagination, and let topic detail fetch optional AI summaries through `fetchTopicAiSummary`.
-8. On explicit logout or shared-layer login invalidation, clear local auth state through the login coordinator path so the Rust snapshot, persisted session file, and host-side LinuxDo auth cookies stay aligned while preserving `cf_clearance`.
+8. On explicit logout, clear local auth state through the login coordinator path so the Rust snapshot, persisted session file, and host-side LinuxDo auth cookies stay aligned while preserving `cf_clearance`.
 
 Xcode project generation rules:
 
@@ -235,7 +233,7 @@ Current UX note:
 - The app now opens login as a full-screen browser instead of a partial sheet.
 - The app now keeps the same onboarding page visible during cold-start auto-login, hiding login actions until restore fails and only showing loading if bootstrap takes longer than 500ms.
 - The login browser can navigate back from Google or other intermediate pages without forcing the user to close and reopen login.
-- The login browser now auto-probes whether sync would actually succeed, re-checking on navigation, scene resume, debounced WebKit auth-cookie changes, and loading-state transitions. Normal login keeps `完成登录` disabled until username, auth cookies, reusable bootstrap HTML, and an idle WebView are all present; Cloudflare recovery hides that button and auto-syncs as soon as the same action would be enabled.
+- The login browser now auto-probes whether sync would actually succeed, re-checking on navigation, scene resume, debounced WebKit auth-cookie changes, and loading-state transitions. `完成登录` stays disabled until username, auth cookies, reusable bootstrap HTML, and an idle WebView are all present.
 - The login shell and reading workspace now adapt to both light and dark system appearance while preserving the same hierarchy and contrast model.
 - The network warm-up is best-effort and no longer blocks login browser presentation. iOS does not provide a generic "internet permission" API for arbitrary web access, so this only tries to shift the first prompt/request earlier; it does not create a separate permission flow.
 - The current topic browser now runs against the real shared Rust core through generated UniFFI Swift bindings.
@@ -314,7 +312,7 @@ Current build note:
 
 Planned responsibilities beyond the current wiring:
 
-- `WKWebView` login and Cloudflare challenge flow
+- `WKWebView` login flow
 - Cookie extraction and sync into the shared Rust core
 - Native navigation, rendering, media integration, and push handling
 - Expanding the generated UniFFI-backed host shell beyond the first topic read path

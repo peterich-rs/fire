@@ -5,9 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.fire.app.core.error.FireErrorReporter
 import com.fire.app.session.FireSessionStore
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import uniffi.fire_uniffi_topics.PrivateMessageCreateRequestState
@@ -33,9 +31,6 @@ class ComposerViewModel(
 
     private val _error = MutableStateFlow<String?>(null)
     val error = _error.asStateFlow()
-
-    private val _cloudflareChallenge = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
-    val cloudflareChallenge = _cloudflareChallenge.asSharedFlow()
 
     fun submitReply(topicId: ULong, rawBody: String, replyToPostNumber: UInt?) {
         if (_isSubmitting.value) return
@@ -118,11 +113,7 @@ class ComposerViewModel(
             error = error,
             sessionStore = sessionStore,
         )
-        if (reported.isCloudflareChallenge) {
-            _cloudflareChallenge.tryEmit(Unit)
-        } else {
-            _error.value = reported.displayMessage
-        }
+        _error.value = reported.displayMessage
     }
 
     companion object {

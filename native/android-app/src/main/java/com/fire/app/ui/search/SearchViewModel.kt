@@ -8,9 +8,7 @@ import com.fire.app.session.FireSessionStore
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.FlowPreview
-import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -41,9 +39,6 @@ class SearchViewModel(
 
     private val _error = MutableStateFlow<String?>(null)
     val error = _error.asStateFlow()
-
-    private val _cloudflareChallenge = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
-    val cloudflareChallenge = _cloudflareChallenge.asSharedFlow()
 
     private var searchJob: Job? = null
     private var activeGeneration = 0
@@ -162,12 +157,7 @@ class SearchViewModel(
             error = error,
             sessionStore = sessionStore,
         )
-        if (reported.isCloudflareChallenge) {
-            _cloudflareChallenge.tryEmit(Unit)
-            if (showMessage) {
-                _error.value = null
-            }
-        } else if (showMessage) {
+        if (showMessage) {
             _error.value = reported.displayMessage
         }
     }

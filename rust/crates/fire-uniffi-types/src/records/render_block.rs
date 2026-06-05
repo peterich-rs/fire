@@ -145,6 +145,77 @@ impl From<RenderBlockKind> for RenderBlockKindState {
     }
 }
 
+impl From<RenderBlockKindState> for RenderBlockKind {
+    fn from(value: RenderBlockKindState) -> Self {
+        match value {
+            RenderBlockKindState::Document => Self::Document,
+            RenderBlockKindState::Text { content } => Self::Text { content },
+            RenderBlockKindState::Paragraph => Self::Paragraph,
+            RenderBlockKindState::Heading { level } => Self::Heading { level },
+            RenderBlockKindState::LineBreak => Self::LineBreak,
+            RenderBlockKindState::Bold => Self::Bold,
+            RenderBlockKindState::Italic => Self::Italic,
+            RenderBlockKindState::Strikethrough => Self::Strikethrough,
+            RenderBlockKindState::InlineCode { code } => Self::InlineCode { code },
+            RenderBlockKindState::CodeBlock { language, code } => {
+                Self::CodeBlock { language, code }
+            }
+            RenderBlockKindState::Link { url } => Self::Link { url },
+            RenderBlockKindState::Mention { username } => Self::Mention { username },
+            RenderBlockKindState::MentionGroup { name, url } => Self::MentionGroup { name, url },
+            RenderBlockKindState::Hashtag { text, url, kind } => Self::Hashtag { text, url, kind },
+            RenderBlockKindState::Emoji {
+                url,
+                fallback_text,
+                only_emoji,
+            } => Self::Emoji {
+                url,
+                fallback_text,
+                only_emoji,
+            },
+            RenderBlockKindState::Image {
+                url,
+                alt,
+                width,
+                height,
+            } => Self::Image {
+                url,
+                alt,
+                width,
+                height,
+            },
+            RenderBlockKindState::Blockquote => Self::Blockquote,
+            RenderBlockKindState::Quote {
+                author,
+                post_number,
+                topic_id,
+            } => Self::Quote {
+                author,
+                post_number,
+                topic_id,
+            },
+            RenderBlockKindState::List { ordered } => Self::List { ordered },
+            RenderBlockKindState::ListItem => Self::ListItem,
+            RenderBlockKindState::Spoiler => Self::Spoiler,
+            RenderBlockKindState::Details => Self::Details,
+            RenderBlockKindState::DetailsSummary => Self::DetailsSummary,
+            RenderBlockKindState::Table { text } => Self::Table { text },
+            RenderBlockKindState::Onebox {
+                url,
+                title,
+                description,
+            } => Self::Onebox {
+                url,
+                title,
+                description,
+            },
+            RenderBlockKindState::Video { url, title } => Self::Video { url, title },
+            RenderBlockKindState::Divider => Self::Divider,
+            RenderBlockKindState::Unknown => Self::Unknown,
+        }
+    }
+}
+
 #[derive(uniffi::Record, Debug, Clone)]
 pub struct RenderBlockState {
     pub id: u32,
@@ -155,6 +226,17 @@ pub struct RenderBlockState {
 
 impl From<RenderBlock> for RenderBlockState {
     fn from(value: RenderBlock) -> Self {
+        Self {
+            id: value.id,
+            parent_id: value.parent_id,
+            depth: value.depth,
+            kind: value.kind.into(),
+        }
+    }
+}
+
+impl From<RenderBlockState> for RenderBlock {
+    fn from(value: RenderBlockState) -> Self {
         Self {
             id: value.id,
             parent_id: value.parent_id,
@@ -183,6 +265,17 @@ impl From<RenderImageAttachment> for RenderImageAttachmentState {
     }
 }
 
+impl From<RenderImageAttachmentState> for RenderImageAttachment {
+    fn from(value: RenderImageAttachmentState) -> Self {
+        Self {
+            url: value.url,
+            alt_text: value.alt_text,
+            width: value.width,
+            height: value.height,
+        }
+    }
+}
+
 #[derive(uniffi::Record, Debug, Clone)]
 pub struct RenderDocumentState {
     pub blocks: Vec<RenderBlockState>,
@@ -192,6 +285,20 @@ pub struct RenderDocumentState {
 
 impl From<RenderDocument> for RenderDocumentState {
     fn from(value: RenderDocument) -> Self {
+        Self {
+            blocks: value.blocks.into_iter().map(Into::into).collect(),
+            plain_text: value.plain_text,
+            image_attachments: value
+                .image_attachments
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+        }
+    }
+}
+
+impl From<RenderDocumentState> for RenderDocument {
+    fn from(value: RenderDocumentState) -> Self {
         Self {
             blocks: value.blocks.into_iter().map(Into::into).collect(),
             plain_text: value.plain_text,

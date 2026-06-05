@@ -861,6 +861,7 @@ version = "0.1.0"
 dependencies = [
  "fire-core",
  "fire-models",
+ "fire-rich-text",
  "fire-uniffi-diagnostics",
  "fire-uniffi-messagebus",
  "fire-uniffi-notifications",

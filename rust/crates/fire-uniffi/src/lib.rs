@@ -15,9 +15,11 @@ use fire_uniffi_messagebus::FireMessageBusHandle;
 use fire_uniffi_notifications::{FireNotificationsHandle, NotificationCenterState};
 use fire_uniffi_search::FireSearchHandle;
 use fire_uniffi_session::{FireSessionHandle, SessionState};
-use fire_uniffi_topics::FireTopicsHandle;
-use fire_uniffi_topics::TopicDetailFeedSnapshotState;
-use fire_uniffi_types::{FireUniFfiError, RenderDocumentState, SharedFireCore, TopicListState};
+use fire_uniffi_topics::{FireTopicsHandle, TopicDetailFeedSnapshotState};
+use fire_uniffi_types::{
+    FireUniFfiError, RenderDocumentState, RenderImageAttachmentState, SharedFireCore,
+    TopicListState,
+};
 use fire_uniffi_user::FireUserHandle;
 
 #[uniffi::export]
@@ -33,6 +35,21 @@ pub fn parse_cooked_html(raw_html: String) -> CookedHtmlDocumentState {
 #[uniffi::export]
 pub fn render_cooked_html(raw_html: String, base_url: String) -> RenderDocumentState {
     shared_render_cooked_html(&raw_html, &base_url).into()
+}
+
+#[uniffi::export]
+pub fn collect_images_from_render_document(
+    document: RenderDocumentState,
+) -> Vec<RenderImageAttachmentState> {
+    fire_rich_text::collect_images(&document.into())
+        .into_iter()
+        .map(Into::into)
+        .collect()
+}
+
+#[uniffi::export]
+pub fn plain_text_from_render_document(document: RenderDocumentState) -> String {
+    fire_rich_text::plain_text_from_render_document(&document.into())
 }
 
 #[uniffi::export]

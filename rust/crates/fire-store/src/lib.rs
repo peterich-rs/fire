@@ -109,7 +109,8 @@ impl FireStore {
     }
 
     pub fn clear_cached_user(&self) -> Result<(), FireStoreError> {
-        self.connection.execute("DELETE FROM current_user_cache", [])?;
+        self.connection
+            .execute("DELETE FROM current_user_cache", [])?;
         Ok(())
     }
 }

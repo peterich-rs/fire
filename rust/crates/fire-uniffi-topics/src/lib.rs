@@ -46,6 +46,10 @@ impl FireTopicsHandle {
             inner.fetch_topic_list(query.into()).await
         })
         .await?;
+        self.shared
+            .core
+            .state_observers()
+            .notify_topic_list(response.clone());
         Ok(response.into())
     }
 
@@ -56,10 +60,15 @@ impl FireTopicsHandle {
         let inner = self.shared.core.clone();
         let panic_state = self.shared.panic_state.clone();
         let response = run_on_ffi_runtime("fetch_topic_detail", panic_state, async move {
-            inner.fetch_topic_detail(query.into()).await
+            let base_url = inner.base_url().to_string();
+            let detail = inner.fetch_topic_detail(query.into()).await?;
+            Ok::<_, fire_core::FireCoreError>((base_url, detail))
         })
         .await?;
-        Ok(response.into())
+        Ok(records::topic_detail_state_from_model(
+            response.1,
+            &response.0,
+        ))
     }
 
     pub async fn fetch_topic_detail_initial(
@@ -69,10 +78,15 @@ impl FireTopicsHandle {
         let inner = self.shared.core.clone();
         let panic_state = self.shared.panic_state.clone();
         let response = run_on_ffi_runtime("fetch_topic_detail_initial", panic_state, async move {
-            inner.fetch_topic_detail_initial(query.into()).await
+            let base_url = inner.base_url().to_string();
+            let detail = inner.fetch_topic_detail_initial(query.into()).await?;
+            Ok::<_, fire_core::FireCoreError>((base_url, detail))
         })
         .await?;
-        Ok(response.into())
+        Ok(records::topic_detail_state_from_model(
+            response.1,
+            &response.0,
+        ))
     }
 
     pub async fn fetch_topic_screen(
@@ -82,10 +96,15 @@ impl FireTopicsHandle {
         let inner = self.shared.core.clone();
         let panic_state = self.shared.panic_state.clone();
         let response = run_on_ffi_runtime("fetch_topic_screen", panic_state, async move {
-            inner.fetch_topic_screen(query.into()).await
+            let base_url = inner.base_url().to_string();
+            let screen = inner.fetch_topic_screen(query.into()).await?;
+            Ok::<_, fire_core::FireCoreError>((base_url, screen))
         })
         .await?;
-        Ok(response.into())
+        Ok(records::topic_screen_state_from_model(
+            response.1,
+            &response.0,
+        ))
     }
 
     pub async fn load_topic_detail_feed(
@@ -95,10 +114,19 @@ impl FireTopicsHandle {
         let inner = self.shared.core.clone();
         let panic_state = self.shared.panic_state.clone();
         let response = run_on_ffi_runtime("load_topic_detail_feed", panic_state, async move {
-            inner.load_topic_detail_feed(query.into()).await
+            let base_url = inner.base_url().to_string();
+            let snapshot = inner.load_topic_detail_feed(query.into()).await?;
+            Ok::<_, fire_core::FireCoreError>((base_url, snapshot))
         })
         .await?;
-        Ok(response.into())
+        self.shared
+            .core
+            .state_observers()
+            .notify_topic_detail_feed(response.1.clone());
+        Ok(records::topic_detail_feed_snapshot_state_from_model(
+            response.1,
+            &response.0,
+        ))
     }
 
     pub async fn refresh_topic_detail_feed(
@@ -108,10 +136,19 @@ impl FireTopicsHandle {
         let inner = self.shared.core.clone();
         let panic_state = self.shared.panic_state.clone();
         let response = run_on_ffi_runtime("refresh_topic_detail_feed", panic_state, async move {
-            inner.refresh_topic_detail_feed(query.into()).await
+            let base_url = inner.base_url().to_string();
+            let snapshot = inner.refresh_topic_detail_feed(query.into()).await?;
+            Ok::<_, fire_core::FireCoreError>((base_url, snapshot))
         })
         .await?;
-        Ok(response.into())
+        self.shared
+            .core
+            .state_observers()
+            .notify_topic_detail_feed(response.1.clone());
+        Ok(records::topic_detail_feed_snapshot_state_from_model(
+            response.1,
+            &response.0,
+        ))
     }
 
     pub fn cached_topic_detail_feed(
@@ -124,9 +161,15 @@ impl FireTopicsHandle {
             &panic_state,
             &inner,
             "cached_topic_detail_feed",
-            move |core| core.cached_topic_detail_feed(topic_id),
+            move |core| {
+                let base_url = core.base_url().to_string();
+                let snapshot = core.cached_topic_detail_feed(topic_id)?;
+                Ok((base_url, snapshot))
+            },
         )?;
-        Ok(response.map(Into::into))
+        Ok(response.1.map(|snapshot| {
+            records::topic_detail_feed_snapshot_state_from_model(snapshot, &response.0)
+        }))
     }
 
     pub async fn fetch_topic_response_page(
@@ -136,10 +179,15 @@ impl FireTopicsHandle {
         let inner = self.shared.core.clone();
         let panic_state = self.shared.panic_state.clone();
         let response = run_on_ffi_runtime("fetch_topic_response_page", panic_state, async move {
-            inner.fetch_topic_response_page(query.into()).await
+            let base_url = inner.base_url().to_string();
+            let page = inner.fetch_topic_response_page(query.into()).await?;
+            Ok::<_, fire_core::FireCoreError>((base_url, page))
         })
         .await?;
-        Ok(response.into())
+        Ok(records::topic_response_page_state_from_model(
+            response.1,
+            &response.0,
+        ))
     }
 
     pub async fn fetch_topic_posts(
@@ -150,10 +198,16 @@ impl FireTopicsHandle {
         let inner = self.shared.core.clone();
         let panic_state = self.shared.panic_state.clone();
         let response = run_on_ffi_runtime("fetch_topic_posts", panic_state, async move {
-            inner.fetch_topic_posts(topic_id, post_ids).await
+            let base_url = inner.base_url().to_string();
+            let posts = inner.fetch_topic_posts(topic_id, post_ids).await?;
+            Ok::<_, fire_core::FireCoreError>((base_url, posts))
         })
         .await?;
-        Ok(response.into_iter().map(Into::into).collect())
+        Ok(response
+            .1
+            .into_iter()
+            .map(|post| records::topic_post_state_from_model(post, &response.0))
+            .collect())
     }
 
     pub async fn fetch_topic_ai_summary(
@@ -177,20 +231,30 @@ impl FireTopicsHandle {
         let inner = self.shared.core.clone();
         let panic_state = self.shared.panic_state.clone();
         let response = run_on_ffi_runtime("create_reply", panic_state, async move {
-            inner.create_reply(input.into()).await
+            let base_url = inner.base_url().to_string();
+            let post = inner.create_reply(input.into()).await?;
+            Ok::<_, fire_core::FireCoreError>((base_url, post))
         })
         .await?;
-        Ok(response.into())
+        Ok(records::topic_post_state_from_model(
+            response.1,
+            &response.0,
+        ))
     }
 
     pub async fn fetch_post(&self, post_id: u64) -> Result<TopicPostState, FireUniFfiError> {
         let inner = self.shared.core.clone();
         let panic_state = self.shared.panic_state.clone();
         let response = run_on_ffi_runtime("fetch_post", panic_state, async move {
-            inner.fetch_post(post_id).await
+            let base_url = inner.base_url().to_string();
+            let post = inner.fetch_post(post_id).await?;
+            Ok::<_, fire_core::FireCoreError>((base_url, post))
         })
         .await?;
-        Ok(response.into())
+        Ok(records::topic_post_state_from_model(
+            response.1,
+            &response.0,
+        ))
     }
 
     pub async fn fetch_post_replies(
@@ -201,10 +265,16 @@ impl FireTopicsHandle {
         let inner = self.shared.core.clone();
         let panic_state = self.shared.panic_state.clone();
         let response = run_on_ffi_runtime("fetch_post_replies", panic_state, async move {
-            inner.fetch_post_replies(post_id, after).await
+            let base_url = inner.base_url().to_string();
+            let posts = inner.fetch_post_replies(post_id, after).await?;
+            Ok::<_, fire_core::FireCoreError>((base_url, posts))
         })
         .await?;
-        Ok(response.into_iter().map(Into::into).collect())
+        Ok(response
+            .1
+            .into_iter()
+            .map(|post| records::topic_post_state_from_model(post, &response.0))
+            .collect())
     }
 
     pub async fn fetch_post_reply_ids(&self, post_id: u64) -> Result<Vec<u64>, FireUniFfiError> {
@@ -223,10 +293,16 @@ impl FireTopicsHandle {
         let inner = self.shared.core.clone();
         let panic_state = self.shared.panic_state.clone();
         let response = run_on_ffi_runtime("fetch_post_reply_history", panic_state, async move {
-            inner.fetch_post_reply_history(post_id).await
+            let base_url = inner.base_url().to_string();
+            let posts = inner.fetch_post_reply_history(post_id).await?;
+            Ok::<_, fire_core::FireCoreError>((base_url, posts))
         })
         .await?;
-        Ok(response.into_iter().map(Into::into).collect())
+        Ok(response
+            .1
+            .into_iter()
+            .map(|post| records::topic_post_state_from_model(post, &response.0))
+            .collect())
     }
 
     pub async fn update_post(
@@ -236,10 +312,15 @@ impl FireTopicsHandle {
         let inner = self.shared.core.clone();
         let panic_state = self.shared.panic_state.clone();
         let response = run_on_ffi_runtime("update_post", panic_state, async move {
-            inner.update_post(input.into()).await
+            let base_url = inner.base_url().to_string();
+            let post = inner.update_post(input.into()).await?;
+            Ok::<_, fire_core::FireCoreError>((base_url, post))
         })
         .await?;
-        Ok(response.into())
+        Ok(records::topic_post_state_from_model(
+            response.1,
+            &response.0,
+        ))
     }
 
     pub async fn delete_post(&self, post_id: u64) -> Result<(), FireUniFfiError> {

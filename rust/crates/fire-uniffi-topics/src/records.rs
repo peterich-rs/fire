@@ -1,3 +1,4 @@
+use fire_core::render_cooked_html;
 use fire_models::{
     FeedSnapshotSource, Poll, PollOption, PostActionType, PostFlagRequest, PostReactionUpdate,
     PostUpdateRequest, PrivateMessageCreateRequest, ReactionUser, ReactionUsersGroup,
@@ -12,7 +13,9 @@ use fire_models::{
     VoteResponse, VotedUser,
 };
 
-use fire_uniffi_types::{TopicListKindState, TopicParticipantState, TopicTagState};
+use fire_uniffi_types::{
+    RenderDocumentState, TopicListKindState, TopicParticipantState, TopicTagState,
+};
 
 #[derive(uniffi::Record, Debug, Clone)]
 pub struct TopicListQueryState {
@@ -654,6 +657,7 @@ pub struct TopicPostState {
     pub name: Option<String>,
     pub avatar_template: Option<String>,
     pub cooked: String,
+    pub render_document: Option<RenderDocumentState>,
     pub raw: Option<String>,
     pub post_number: u32,
     pub post_type: i32,
@@ -679,38 +683,47 @@ pub struct TopicPostState {
     pub hidden: bool,
 }
 
-impl From<TopicPost> for TopicPostState {
-    fn from(value: TopicPost) -> Self {
-        Self {
-            id: value.id,
-            username: value.username,
-            name: value.name,
-            avatar_template: value.avatar_template,
-            cooked: value.cooked,
-            raw: value.raw,
-            post_number: value.post_number,
-            post_type: value.post_type,
-            created_at: value.created_at,
-            updated_at: value.updated_at,
-            like_count: value.like_count,
-            reply_count: value.reply_count,
-            reply_to_post_number: value.reply_to_post_number,
-            reply_to_user: value.reply_to_user.map(Into::into),
-            bookmarked: value.bookmarked,
-            bookmark_id: value.bookmark_id,
-            bookmark_name: value.bookmark_name,
-            bookmark_reminder_at: value.bookmark_reminder_at,
-            reactions: value.reactions.into_iter().map(Into::into).collect(),
-            current_user_reaction: value.current_user_reaction.map(Into::into),
-            polls: value.polls.into_iter().map(Into::into).collect(),
-            accepted_answer: value.accepted_answer,
-            can_accept_answer: value.can_accept_answer,
-            can_unaccept_answer: value.can_unaccept_answer,
-            can_edit: value.can_edit,
-            can_delete: value.can_delete,
-            can_recover: value.can_recover,
-            hidden: value.hidden,
-        }
+fn render_document_state_from_cooked(cooked: &str, base_url: &str) -> Option<RenderDocumentState> {
+    let trimmed = cooked.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(render_cooked_html(trimmed, base_url).into())
+    }
+}
+
+pub(crate) fn topic_post_state_from_model(value: TopicPost, base_url: &str) -> TopicPostState {
+    let render_document = render_document_state_from_cooked(&value.cooked, base_url);
+    TopicPostState {
+        id: value.id,
+        username: value.username,
+        name: value.name,
+        avatar_template: value.avatar_template,
+        cooked: value.cooked,
+        render_document,
+        raw: value.raw,
+        post_number: value.post_number,
+        post_type: value.post_type,
+        created_at: value.created_at,
+        updated_at: value.updated_at,
+        like_count: value.like_count,
+        reply_count: value.reply_count,
+        reply_to_post_number: value.reply_to_post_number,
+        reply_to_user: value.reply_to_user.map(Into::into),
+        bookmarked: value.bookmarked,
+        bookmark_id: value.bookmark_id,
+        bookmark_name: value.bookmark_name,
+        bookmark_reminder_at: value.bookmark_reminder_at,
+        reactions: value.reactions.into_iter().map(Into::into).collect(),
+        current_user_reaction: value.current_user_reaction.map(Into::into),
+        polls: value.polls.into_iter().map(Into::into).collect(),
+        accepted_answer: value.accepted_answer,
+        can_accept_answer: value.can_accept_answer,
+        can_unaccept_answer: value.can_unaccept_answer,
+        can_edit: value.can_edit,
+        can_delete: value.can_delete,
+        can_recover: value.can_recover,
+        hidden: value.hidden,
     }
 }
 
@@ -720,12 +733,17 @@ pub struct TopicPostStreamState {
     pub stream: Vec<u64>,
 }
 
-impl From<TopicPostStream> for TopicPostStreamState {
-    fn from(value: TopicPostStream) -> Self {
-        Self {
-            posts: value.posts.into_iter().map(Into::into).collect(),
-            stream: value.stream,
-        }
+fn topic_post_stream_state_from_model(
+    value: TopicPostStream,
+    base_url: &str,
+) -> TopicPostStreamState {
+    TopicPostStreamState {
+        posts: value
+            .posts
+            .into_iter()
+            .map(|post| topic_post_state_from_model(post, base_url))
+            .collect(),
+        stream: value.stream,
     }
 }
 
@@ -835,11 +853,9 @@ pub struct TopicBodyState {
     pub post: TopicPostState,
 }
 
-impl From<TopicBody> for TopicBodyState {
-    fn from(value: TopicBody) -> Self {
-        Self {
-            post: value.post.into(),
-        }
+fn topic_body_state_from_model(value: TopicBody, base_url: &str) -> TopicBodyState {
+    TopicBodyState {
+        post: topic_post_state_from_model(value.post, base_url),
     }
 }
 
@@ -905,19 +921,20 @@ pub struct TopicResponseRowState {
     pub is_last_sibling: bool,
 }
 
-impl From<TopicResponseRow> for TopicResponseRowState {
-    fn from(value: TopicResponseRow) -> Self {
-        Self {
-            post: value.post.into(),
-            root_post_number: value.root_post_number,
-            parent_post_number: value.parent_post_number,
-            depth: value.depth,
-            preorder_index: value.preorder_index,
-            has_children: value.has_children,
-            descendant_count: value.descendant_count,
-            sibling_index: value.sibling_index,
-            is_last_sibling: value.is_last_sibling,
-        }
+fn topic_response_row_state_from_model(
+    value: TopicResponseRow,
+    base_url: &str,
+) -> TopicResponseRowState {
+    TopicResponseRowState {
+        post: topic_post_state_from_model(value.post, base_url),
+        root_post_number: value.root_post_number,
+        parent_post_number: value.parent_post_number,
+        depth: value.depth,
+        preorder_index: value.preorder_index,
+        has_children: value.has_children,
+        descendant_count: value.descendant_count,
+        sibling_index: value.sibling_index,
+        is_last_sibling: value.is_last_sibling,
     }
 }
 
@@ -931,16 +948,21 @@ pub struct TopicResponsePageState {
     pub focused_post_number: Option<u32>,
 }
 
-impl From<TopicResponsePage> for TopicResponsePageState {
-    fn from(value: TopicResponsePage) -> Self {
-        Self {
-            rows: value.rows.into_iter().map(Into::into).collect(),
-            next_cursor: value.next_cursor.map(Into::into),
-            total_root_count: value.total_root_count,
-            loaded_root_count: value.loaded_root_count,
-            total_response_count: value.total_response_count,
-            focused_post_number: value.focused_post_number,
-        }
+pub(crate) fn topic_response_page_state_from_model(
+    value: TopicResponsePage,
+    base_url: &str,
+) -> TopicResponsePageState {
+    TopicResponsePageState {
+        rows: value
+            .rows
+            .into_iter()
+            .map(|row| topic_response_row_state_from_model(row, base_url))
+            .collect(),
+        next_cursor: value.next_cursor.map(Into::into),
+        total_root_count: value.total_root_count,
+        loaded_root_count: value.loaded_root_count,
+        total_response_count: value.total_response_count,
+        focused_post_number: value.focused_post_number,
     }
 }
 
@@ -951,13 +973,11 @@ pub struct TopicScreenState {
     pub response: TopicResponsePageState,
 }
 
-impl From<TopicScreen> for TopicScreenState {
-    fn from(value: TopicScreen) -> Self {
-        Self {
-            header: value.header.into(),
-            body: value.body.into(),
-            response: value.response.into(),
-        }
+pub fn topic_screen_state_from_model(value: TopicScreen, base_url: &str) -> TopicScreenState {
+    TopicScreenState {
+        header: value.header.into(),
+        body: topic_body_state_from_model(value.body, base_url),
+        response: topic_response_page_state_from_model(value.response, base_url),
     }
 }
 
@@ -976,21 +996,26 @@ pub struct TopicDetailFeedItemState {
     pub retryable: bool,
 }
 
-impl From<TopicDetailFeedItem> for TopicDetailFeedItemState {
-    fn from(value: TopicDetailFeedItem) -> Self {
-        Self {
-            item_id: value.item_id,
-            kind: value.kind.into(),
-            ordinal: value.ordinal,
-            post_id: value.post_id,
-            content_revision: value.content_revision,
-            header: value.header.map(Into::into),
-            post: value.post.map(Into::into),
-            response_row: value.response_row.map(Into::into),
-            title: value.title,
-            message: value.message,
-            retryable: value.retryable,
-        }
+fn topic_detail_feed_item_state_from_model(
+    value: TopicDetailFeedItem,
+    base_url: &str,
+) -> TopicDetailFeedItemState {
+    TopicDetailFeedItemState {
+        item_id: value.item_id,
+        kind: value.kind.into(),
+        ordinal: value.ordinal,
+        post_id: value.post_id,
+        content_revision: value.content_revision,
+        header: value.header.map(Into::into),
+        post: value
+            .post
+            .map(|post| topic_post_state_from_model(post, base_url)),
+        response_row: value
+            .response_row
+            .map(|row| topic_response_row_state_from_model(row, base_url)),
+        title: value.title,
+        message: value.message,
+        retryable: value.retryable,
     }
 }
 
@@ -1006,18 +1031,23 @@ pub struct TopicDetailFeedSnapshotState {
     pub updated_at_ms: u64,
 }
 
-impl From<TopicDetailFeedSnapshot> for TopicDetailFeedSnapshotState {
-    fn from(value: TopicDetailFeedSnapshot) -> Self {
-        Self {
-            topic_id: value.topic_id,
-            revision: value.revision,
-            items: value.items.into_iter().map(Into::into).collect(),
-            cursor: value.cursor.into(),
-            source: value.source.into(),
-            load_state: value.load_state.into(),
-            stale_error_message: value.stale_error_message,
-            updated_at_ms: value.updated_at_ms,
-        }
+pub fn topic_detail_feed_snapshot_state_from_model(
+    value: TopicDetailFeedSnapshot,
+    base_url: &str,
+) -> TopicDetailFeedSnapshotState {
+    TopicDetailFeedSnapshotState {
+        topic_id: value.topic_id,
+        revision: value.revision,
+        items: value
+            .items
+            .into_iter()
+            .map(|item| topic_detail_feed_item_state_from_model(item, base_url))
+            .collect(),
+        cursor: value.cursor.into(),
+        source: value.source.into(),
+        load_state: value.load_state.into(),
+        stale_error_message: value.stale_error_message,
+        updated_at_ms: value.updated_at_ms,
     }
 }
 
@@ -1050,14 +1080,19 @@ pub struct TopicDetailFeedPatchOperationState {
     pub items: Vec<TopicDetailFeedItemState>,
 }
 
-impl From<TopicDetailFeedPatchOperation> for TopicDetailFeedPatchOperationState {
-    fn from(value: TopicDetailFeedPatchOperation) -> Self {
-        Self {
-            kind: value.kind.into(),
-            index: value.index,
-            delete_count: value.delete_count,
-            items: value.items.into_iter().map(Into::into).collect(),
-        }
+fn topic_detail_feed_patch_operation_state_from_model(
+    value: TopicDetailFeedPatchOperation,
+    base_url: &str,
+) -> TopicDetailFeedPatchOperationState {
+    TopicDetailFeedPatchOperationState {
+        kind: value.kind.into(),
+        index: value.index,
+        delete_count: value.delete_count,
+        items: value
+            .items
+            .into_iter()
+            .map(|item| topic_detail_feed_item_state_from_model(item, base_url))
+            .collect(),
     }
 }
 
@@ -1069,14 +1104,21 @@ pub struct TopicDetailFeedPatchState {
     pub operations: Vec<TopicDetailFeedPatchOperationState>,
 }
 
-impl From<TopicDetailFeedPatch> for TopicDetailFeedPatchState {
-    fn from(value: TopicDetailFeedPatch) -> Self {
-        Self {
-            topic_id: value.topic_id,
-            base_revision: value.base_revision,
-            new_revision: value.new_revision,
-            operations: value.operations.into_iter().map(Into::into).collect(),
-        }
+pub fn topic_detail_feed_patch_state_from_model(
+    value: TopicDetailFeedPatch,
+    base_url: &str,
+) -> TopicDetailFeedPatchState {
+    TopicDetailFeedPatchState {
+        topic_id: value.topic_id,
+        base_revision: value.base_revision,
+        new_revision: value.new_revision,
+        operations: value
+            .operations
+            .into_iter()
+            .map(|operation| {
+                topic_detail_feed_patch_operation_state_from_model(operation, base_url)
+            })
+            .collect(),
     }
 }
 
@@ -1111,37 +1153,35 @@ pub struct TopicDetailState {
     pub details: TopicDetailMetaState,
 }
 
-impl From<TopicDetail> for TopicDetailState {
-    fn from(value: TopicDetail) -> Self {
-        Self {
-            id: value.id,
-            message_bus_last_id: value.message_bus_last_id,
-            title: value.title,
-            slug: value.slug,
-            posts_count: value.posts_count,
-            category_id: value.category_id,
-            tags: value.tags.into_iter().map(Into::into).collect(),
-            views: value.views,
-            like_count: value.like_count,
-            created_at: value.created_at,
-            last_read_post_number: value.last_read_post_number,
-            bookmarks: value.bookmarks,
-            bookmarked: value.bookmarked,
-            bookmark_id: value.bookmark_id,
-            bookmark_name: value.bookmark_name,
-            bookmark_reminder_at: value.bookmark_reminder_at,
-            accepted_answer: value.accepted_answer,
-            has_accepted_answer: value.has_accepted_answer,
-            can_vote: value.can_vote,
-            vote_count: value.vote_count,
-            user_voted: value.user_voted,
-            summarizable: value.summarizable,
-            has_cached_summary: value.has_cached_summary,
-            has_summary: value.has_summary,
-            archetype: value.archetype,
-            post_stream: value.post_stream.into(),
-            details: value.details.into(),
-        }
+pub fn topic_detail_state_from_model(value: TopicDetail, base_url: &str) -> TopicDetailState {
+    TopicDetailState {
+        id: value.id,
+        message_bus_last_id: value.message_bus_last_id,
+        title: value.title,
+        slug: value.slug,
+        posts_count: value.posts_count,
+        category_id: value.category_id,
+        tags: value.tags.into_iter().map(Into::into).collect(),
+        views: value.views,
+        like_count: value.like_count,
+        created_at: value.created_at,
+        last_read_post_number: value.last_read_post_number,
+        bookmarks: value.bookmarks,
+        bookmarked: value.bookmarked,
+        bookmark_id: value.bookmark_id,
+        bookmark_name: value.bookmark_name,
+        bookmark_reminder_at: value.bookmark_reminder_at,
+        accepted_answer: value.accepted_answer,
+        has_accepted_answer: value.has_accepted_answer,
+        can_vote: value.can_vote,
+        vote_count: value.vote_count,
+        user_voted: value.user_voted,
+        summarizable: value.summarizable,
+        has_cached_summary: value.has_cached_summary,
+        has_summary: value.has_summary,
+        archetype: value.archetype,
+        post_stream: topic_post_stream_state_from_model(value.post_stream, base_url),
+        details: value.details.into(),
     }
 }
 

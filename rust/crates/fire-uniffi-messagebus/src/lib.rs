@@ -72,7 +72,9 @@ impl FireMessageBusHandle {
         let panic_state = self.shared.panic_state.clone();
         let (event_sender, mut event_receiver) = tokio::sync::mpsc::unbounded_channel();
         let client_id = run_on_ffi_runtime("start_message_bus", panic_state, async move {
-            inner.start_message_bus(mode.into(), event_sender, topic_tracking_state_meta).await
+            inner
+                .start_message_bus(mode.into(), event_sender, topic_tracking_state_meta)
+                .await
         })
         .await?;
 

@@ -9,12 +9,12 @@ use fire_uniffi_types::{
 pub mod records;
 
 pub use records::{
-    format_probe_result, AppStateRefreshEventState, AppStateRefreshHandler,
-    AuthRecoveryHintState, BootstrapState, CookieReplayEntryState, CookieState,
-    CurrentUserSnapshotState, HomeTopicListScopeState, LoginFinalizationResultState,
-    LoginPhaseState, LoginStateDeterminationState, LoginSyncState, PassiveLogoutTriggerState,
-    PlatformCookieState, PreloadedDataStateState, RefreshBatchState, RefreshTriggerState,
-    SessionPersistenceState, SessionReadinessState, SessionState, TopicCategoryState,
+    format_probe_result, AppStateRefreshEventState, AppStateRefreshHandler, AuthRecoveryHintState,
+    BootstrapState, CookieReplayEntryState, CookieState, CurrentUserSnapshotState,
+    HomeTopicListScopeState, LoginFinalizationResultState, LoginPhaseState,
+    LoginStateDeterminationState, LoginSyncState, PassiveLogoutTriggerState, PlatformCookieState,
+    PreloadedDataStateState, RefreshBatchState, RefreshTriggerState, SessionPersistenceState,
+    SessionReadinessState, SessionState, TopicCategoryState,
 };
 
 #[derive(uniffi::Object)]
@@ -83,7 +83,9 @@ impl FireSessionHandle {
         )
     }
 
-    pub fn current_home_topic_list_scope(&self) -> Result<HomeTopicListScopeState, FireUniFfiError> {
+    pub fn current_home_topic_list_scope(
+        &self,
+    ) -> Result<HomeTopicListScopeState, FireUniFfiError> {
         run_infallible(
             &self.shared.panic_state,
             &self.shared.core,
@@ -449,7 +451,9 @@ impl FireSessionHandle {
         }
     }
 
-    pub fn current_user_snapshot(&self) -> Result<Option<CurrentUserSnapshotState>, FireUniFfiError> {
+    pub fn current_user_snapshot(
+        &self,
+    ) -> Result<Option<CurrentUserSnapshotState>, FireUniFfiError> {
         run_infallible(
             &self.shared.panic_state,
             &self.shared.core,
@@ -486,22 +490,34 @@ impl FireSessionHandle {
         )
     }
 
-    pub async fn determine_login_state_with_probe(&self) -> Result<LoginStateDeterminationState, FireUniFfiError> {
+    pub async fn determine_login_state_with_probe(
+        &self,
+    ) -> Result<LoginStateDeterminationState, FireUniFfiError> {
         let inner = self.shared.core.clone();
         let panic_state = self.shared.panic_state.clone();
-        let result = run_on_ffi_runtime("determine_login_state_with_probe", panic_state, async move {
-            Ok::<_, fire_core::FireCoreError>(inner.determine_login_state_with_probe().await)
-        })
+        let result = run_on_ffi_runtime(
+            "determine_login_state_with_probe",
+            panic_state,
+            async move {
+                Ok::<_, fire_core::FireCoreError>(inner.determine_login_state_with_probe().await)
+            },
+        )
         .await?;
         Ok(result.into())
     }
 
-    pub async fn trigger_app_state_refresh(&self, trigger: RefreshTriggerState) -> Result<(), FireUniFfiError> {
+    pub async fn trigger_app_state_refresh(
+        &self,
+        trigger: RefreshTriggerState,
+    ) -> Result<(), FireUniFfiError> {
         let inner = self.shared.core.clone();
         let panic_state = self.shared.panic_state.clone();
         let rust_trigger = fire_models::RefreshTrigger::from(trigger);
         run_on_ffi_runtime("trigger_app_state_refresh", panic_state, async move {
-            inner.app_state_refresher().refresh_all(rust_trigger).await?;
+            inner
+                .app_state_refresher()
+                .refresh_all(rust_trigger)
+                .await?;
             Ok(())
         })
         .await
@@ -519,13 +535,17 @@ impl FireSessionHandle {
             Arc::new(move |event: fire_models::AppStateRefreshEvent| {
                 handler.on_app_state_refresh_event(event.into());
             });
-        run_on_ffi_runtime("trigger_app_state_refresh_with_handler", panic_state, async move {
-            inner
-                .app_state_refresher()
-                .refresh_all_with_handler(rust_trigger, Some(observer))
-                .await?;
-            Ok(())
-        })
+        run_on_ffi_runtime(
+            "trigger_app_state_refresh_with_handler",
+            panic_state,
+            async move {
+                inner
+                    .app_state_refresher()
+                    .refresh_all_with_handler(rust_trigger, Some(observer))
+                    .await?;
+                Ok(())
+            },
+        )
         .await
     }
 }

@@ -3,9 +3,13 @@ mod common;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use common::{raw_json_response, raw_text_response, sample_home_html, sample_latest_json, TestServer};
+use common::{
+    raw_json_response, raw_text_response, sample_home_html, sample_latest_json, TestServer,
+};
 use fire_core::{FireCore, FireCoreConfig};
-use fire_models::{HomeTopicListScope, PlatformCookie, RefreshBatch, RefreshTrigger, TopicListKind};
+use fire_models::{
+    HomeTopicListScope, PlatformCookie, RefreshBatch, RefreshTrigger, TopicListKind,
+};
 
 fn login_cookies() -> Vec<PlatformCookie> {
     vec![
@@ -51,7 +55,7 @@ fn notification_page_json() -> String {
   "seen_notification_id": 100,
   "load_more_notifications": null
 }"#
-        .to_string()
+    .to_string()
 }
 
 #[tokio::test]
@@ -112,10 +116,8 @@ async fn refresh_all_runs_core_immediately_and_secondary_after_delay() {
     assert!(requests[2].contains("GET /u/alice/summary.json HTTP/1.1"));
     assert!(requests[3].contains("GET /u/alice/bookmarks.json HTTP/1.1"));
     assert!(requests[4].contains("GET /read.json HTTP/1.1"));
-    assert!(
-        requests[5]
-            .contains("GET /notifications?recent=true&limit=30&bump_last_seen_reviewable=true")
-    );
+    assert!(requests[5]
+        .contains("GET /notifications?recent=true&limit=30&bump_last_seen_reviewable=true"));
 }
 
 #[tokio::test]

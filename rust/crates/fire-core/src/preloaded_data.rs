@@ -1,7 +1,9 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use fire_models::{BootstrapArtifacts, CurrentUserSnapshot, PreloadedDataResult, PreloadedDataState};
+use fire_models::{
+    BootstrapArtifacts, CurrentUserSnapshot, PreloadedDataResult, PreloadedDataState,
+};
 use tokio::sync::Notify;
 use tracing::{info, warn};
 

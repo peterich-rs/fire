@@ -21,7 +21,9 @@ use std::{
     time::Duration,
 };
 
-use fire_models::{BootstrapArtifacts, CookieSnapshot, HomeTopicListScope, SessionSnapshot, TopicListQuery};
+use fire_models::{
+    BootstrapArtifacts, CookieSnapshot, HomeTopicListScope, SessionSnapshot, TopicListQuery,
+};
 use fire_store::FireStore;
 use openwire::Client;
 use tokio::sync::Mutex as TokioMutex;
@@ -39,6 +41,7 @@ use crate::{
     },
     error::FireCoreError,
     logging::{log_host_message, logger_runtime_for_workspace, FireHostLogLevel},
+    state_observer::FireStateObserverRegistry,
     sync_utils::{read_rwlock, write_rwlock},
     workspace::{normalize_workspace_path, validate_workspace_relative_path},
 };
@@ -142,6 +145,7 @@ pub struct FireCore {
     topic_response: Arc<Mutex<topics::FireTopicResponseRuntime>>,
     pub(crate) topic_feed_store: Arc<Mutex<FireStore>>,
     home_topic_list_scope: Arc<Mutex<HomeTopicListScope>>,
+    state_observers: FireStateObserverRegistry,
     csrf_refresh: Arc<TokioMutex<()>>,
     preloaded_data: OnceLock<Arc<crate::preloaded_data::PreloadedDataService>>,
     app_state_refresher: OnceLock<Arc<crate::app_state_refresher::AppStateRefresher>>,
@@ -206,6 +210,7 @@ impl FireCore {
             topic_response: Arc::new(Mutex::new(topics::FireTopicResponseRuntime::default())),
             topic_feed_store,
             home_topic_list_scope: Arc::new(Mutex::new(HomeTopicListScope::default())),
+            state_observers: FireStateObserverRegistry::default(),
             csrf_refresh: Arc::new(TokioMutex::new(())),
             preloaded_data: OnceLock::new(),
             app_state_refresher: OnceLock::new(),
@@ -218,6 +223,10 @@ impl FireCore {
 
     pub fn workspace_path(&self) -> Option<&Path> {
         self.workspace_path.as_deref()
+    }
+
+    pub fn state_observers(&self) -> &FireStateObserverRegistry {
+        &self.state_observers
     }
 
     pub fn resolve_workspace_path(
@@ -295,7 +304,9 @@ impl FireCore {
 
     pub fn preloaded_data_service(&self) -> &Arc<crate::preloaded_data::PreloadedDataService> {
         self.preloaded_data.get_or_init(|| {
-            Arc::new(crate::preloaded_data::PreloadedDataService::new(Arc::new(self.clone())))
+            Arc::new(crate::preloaded_data::PreloadedDataService::new(Arc::new(
+                self.clone(),
+            )))
         })
     }
 
@@ -313,7 +324,9 @@ impl FireCore {
 
     pub fn app_state_refresher(&self) -> &Arc<crate::app_state_refresher::AppStateRefresher> {
         self.app_state_refresher.get_or_init(|| {
-            Arc::new(crate::app_state_refresher::AppStateRefresher::new(Arc::new(self.clone())))
+            Arc::new(crate::app_state_refresher::AppStateRefresher::new(
+                Arc::new(self.clone()),
+            ))
         })
     }
 
@@ -346,13 +359,21 @@ impl FireCore {
     pub(crate) fn current_home_topic_list_query(&self) -> TopicListQuery {
         let scope = self.current_home_topic_list_scope().sanitized();
         let snapshot = self.snapshot();
-        let category = scope
-            .category_id
-            .and_then(|category_id| snapshot.bootstrap.categories.iter().find(|item| item.id == category_id));
+        let category = scope.category_id.and_then(|category_id| {
+            snapshot
+                .bootstrap
+                .categories
+                .iter()
+                .find(|item| item.id == category_id)
+        });
         let parent = category.and_then(|category| {
-            category
-                .parent_category_id
-                .and_then(|parent_id| snapshot.bootstrap.categories.iter().find(|item| item.id == parent_id))
+            category.parent_category_id.and_then(|parent_id| {
+                snapshot
+                    .bootstrap
+                    .categories
+                    .iter()
+                    .find(|item| item.id == parent_id)
+            })
         });
         let primary_tag = scope.tags.first().cloned();
         let additional_tags = scope.tags.iter().skip(1).cloned().collect::<Vec<_>>();

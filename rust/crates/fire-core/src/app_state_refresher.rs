@@ -96,15 +96,21 @@ impl AppStateRefresher {
         }
 
         self.core.refresh_bootstrap().await?;
+        self.core
+            .state_observers()
+            .notify_session(self.core.snapshot());
         let topic_list_query = self.core.current_home_topic_list_query();
-        if let Err(error) = self.core.fetch_topic_list(topic_list_query.clone()).await {
-            warn!(
-                error = %error,
-                kind = ?topic_list_query.kind,
-                category_id = ?topic_list_query.category_id,
-                tag = ?topic_list_query.tag,
-                "current home topic list refresh failed"
-            );
+        match self.core.fetch_topic_list(topic_list_query.clone()).await {
+            Ok(snapshot) => self.core.state_observers().notify_topic_list(snapshot),
+            Err(error) => {
+                warn!(
+                    error = %error,
+                    kind = ?topic_list_query.kind,
+                    category_id = ?topic_list_query.category_id,
+                    tag = ?topic_list_query.tag,
+                    "current home topic list refresh failed"
+                );
+            }
         }
         Ok(true)
     }
@@ -140,6 +146,8 @@ impl AppStateRefresher {
         if let Err(error) = core.fetch_recent_notifications(None).await {
             warn!(error = %error, "recent notifications refresh failed");
         }
+        core.state_observers()
+            .notify_notification_center(core.notification_state());
         Ok(())
     }
 }

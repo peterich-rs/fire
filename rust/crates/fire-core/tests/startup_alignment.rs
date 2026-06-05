@@ -56,8 +56,14 @@ async fn preloaded_data_service_waits_for_single_in_flight_request() {
     tokio::time::sleep(Duration::from_millis(5)).await;
     let task_b = tokio::spawn(async move { service_b.ensure_loaded().await });
 
-    assert_eq!(task_a.await.expect("task a").expect("load a"), PreloadedDataState::Ready);
-    assert_eq!(task_b.await.expect("task b").expect("load b"), PreloadedDataState::Ready);
+    assert_eq!(
+        task_a.await.expect("task a").expect("load a"),
+        PreloadedDataState::Ready
+    );
+    assert_eq!(
+        task_b.await.expect("task b").expect("load b"),
+        PreloadedDataState::Ready
+    );
 
     let requests = server.shutdown_with_requests().await;
     assert_eq!(requests.len(), 1);

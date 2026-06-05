@@ -9,7 +9,8 @@ pub mod shared;
 pub use error::FireUniFfiError;
 pub use panic::{CapturedPanic, PanicState};
 pub use records::{
-    DraftDataState, DraftListResponseState, DraftState, RequiredTagGroupState, TopicListKindState,
+    DraftDataState, DraftListResponseState, DraftState, RenderBlockKindState, RenderBlockState,
+    RenderDocumentState, RenderImageAttachmentState, RequiredTagGroupState, TopicListKindState,
     TopicListState, TopicParticipantState, TopicPosterState, TopicRowState, TopicSummaryState,
     TopicTagState, TopicUserState,
 };

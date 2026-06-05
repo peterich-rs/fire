@@ -96,6 +96,16 @@ impl AppStateRefresher {
         }
 
         self.core.refresh_bootstrap().await?;
+        let topic_list_query = self.core.current_home_topic_list_query();
+        if let Err(error) = self.core.fetch_topic_list(topic_list_query.clone()).await {
+            warn!(
+                error = %error,
+                kind = ?topic_list_query.kind,
+                category_id = ?topic_list_query.category_id,
+                tag = ?topic_list_query.tag,
+                "current home topic list refresh failed"
+            );
+        }
         Ok(true)
     }
 

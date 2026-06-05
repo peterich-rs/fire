@@ -140,6 +140,17 @@ public actor FireSessionStore {
         (try? core.session().determineLoginState()) ?? .notLoggedIn
     }
 
+    public func currentHomeTopicListScope() throws -> HomeTopicListScopeState {
+        try core.session().currentHomeTopicListScope()
+    }
+
+    @discardableResult
+    public func setCurrentHomeTopicListScope(
+        _ scope: HomeTopicListScopeState
+    ) throws -> HomeTopicListScopeState {
+        try core.session().setCurrentHomeTopicListScope(scope: scope)
+    }
+
     public func determineLoginStateWithProbe() async throws -> LoginStateDeterminationState {
         let state = try await core.session().determineLoginStateWithProbe()
         try persistCurrentSessionIfNeeded()

@@ -58,6 +58,33 @@ pub struct TopicListQuery {
     pub match_all_tags: bool,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HomeTopicListScope {
+    pub kind: TopicListKind,
+    pub category_id: Option<u64>,
+    #[serde(default)]
+    pub tags: Vec<String>,
+}
+
+impl HomeTopicListScope {
+    pub fn sanitized(&self) -> Self {
+        let mut tags = Vec::new();
+        for tag in &self.tags {
+            let normalized = tag.trim().trim_start_matches('#');
+            if normalized.is_empty() || tags.iter().any(|existing| existing == normalized) {
+                continue;
+            }
+            tags.push(normalized.to_string());
+        }
+
+        Self {
+            kind: self.kind,
+            category_id: self.category_id,
+            tags,
+        }
+    }
+}
+
 impl TopicListQuery {
     /// Builds the API path for this query.
     /// Category scope: `/c/{slug}/{id}/l/{filter}.json` (with optional parent prefix)

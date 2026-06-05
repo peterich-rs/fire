@@ -28,6 +28,7 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.launch
+import uniffi.fire_uniffi_session.HomeTopicListScopeState
 import uniffi.fire_uniffi_session.RefreshBatchState
 import uniffi.fire_uniffi_messagebus.MessageBusEventKindState
 import uniffi.fire_uniffi_messagebus.MessageBusEventState
@@ -188,6 +189,10 @@ class HomeViewModel(
     private var pendingMessageBusRefreshJob: Job? = null
 
     init {
+        runCatching { sessionStore.currentHomeTopicListScope() }
+            .onSuccess(::applyCurrentHomeTopicListScope)
+            .onFailure(::reportHomeScopeSyncError)
+
         viewModelScope.launchWithFireErrorHandling(
             operation = "home.attach_authoritative_session",
             sessionStore = sessionStore,
@@ -221,6 +226,7 @@ class HomeViewModel(
         if (_selectedKind.value == kind) return
         _selectedKind.value = kind
         clearPendingMessageBusRefresh()
+        syncCurrentHomeTopicListScope()
     }
 
     fun selectCategory(categoryId: ULong?) {
@@ -228,6 +234,7 @@ class HomeViewModel(
         _selectedCategoryId.value = categoryId
         _selectedTags.value = emptyList()
         clearPendingMessageBusRefresh()
+        syncCurrentHomeTopicListScope()
     }
 
     fun selectTag(tag: String) {
@@ -235,18 +242,21 @@ class HomeViewModel(
         if (_selectedTags.value.contains(normalizedTag)) return
         _selectedTags.value = _selectedTags.value + normalizedTag
         clearPendingMessageBusRefresh()
+        syncCurrentHomeTopicListScope()
     }
 
     fun removeTag(tag: String) {
         if (!_selectedTags.value.contains(tag)) return
         _selectedTags.value = _selectedTags.value.filterNot { it == tag }
         clearPendingMessageBusRefresh()
+        syncCurrentHomeTopicListScope()
     }
 
     fun clearTags() {
         if (_selectedTags.value.isEmpty()) return
         _selectedTags.value = emptyList()
         clearPendingMessageBusRefresh()
+        syncCurrentHomeTopicListScope()
     }
 
     private fun createPagingFlow(filter: HomeTopicFilter): Flow<PagingData<TopicRowState>> {
@@ -307,6 +317,37 @@ class HomeViewModel(
         topicListMessageBusRefreshController.clearPending(currentRefreshScope())
     }
 
+    private fun currentHomeTopicListScopeState(): HomeTopicListScopeState {
+        return HomeTopicListScopeState(
+            kind = _selectedKind.value,
+            categoryId = _selectedCategoryId.value,
+            tags = _selectedTags.value,
+        )
+    }
+
+    private fun applyCurrentHomeTopicListScope(scope: HomeTopicListScopeState) {
+        _selectedKind.value = scope.kind
+        _selectedCategoryId.value = scope.categoryId
+        _selectedTags.value = scope.tags
+    }
+
+    private fun syncCurrentHomeTopicListScope() {
+        runCatching {
+            sessionStore.setCurrentHomeTopicListScope(currentHomeTopicListScopeState())
+        }.onSuccess(::applyCurrentHomeTopicListScope)
+            .onFailure(::reportHomeScopeSyncError)
+    }
+
+    private fun reportHomeScopeSyncError(error: Throwable) {
+        handleReportedError(
+            FireErrorReporter.report(
+                operation = "home.sync_topic_list_scope",
+                error = error,
+                sessionStore = sessionStore,
+            ),
+        )
+    }
+
     private fun handleReportedError(error: FireReportedError) {
         if (error.isCloudflareChallenge) {
             _cloudflareChallenge.tryEmit(Unit)
@@ -316,6 +357,7 @@ class HomeViewModel(
     }
 
     private suspend fun handleAppStateRefreshEvent(batch: RefreshBatchState) {
+        applyCurrentHomeTopicListScope(sessionStore.currentHomeTopicListScope())
         val snapshot = sessionStore.snapshot()
         _session.value = snapshot
         if (snapshot.readiness.canOpenMessageBus) {

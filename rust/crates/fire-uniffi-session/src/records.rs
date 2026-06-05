@@ -3,13 +3,13 @@ use fire_core::{
     FireSessionPersistenceState as CoreSessionPersistenceState,
 };
 use fire_models::{
-    AppStateRefreshEvent, BootstrapArtifacts, CookieSnapshot, LoginFinalizationResult, LoginPhase,
-    LoginSyncInput, PassiveLogoutTrigger, PlatformCookie, ProbeResult, RefreshBatch,
-    SessionReadiness, SessionSnapshot, SignalStrength, TopicCategory,
+    AppStateRefreshEvent, BootstrapArtifacts, CookieSnapshot, HomeTopicListScope,
+    LoginFinalizationResult, LoginPhase, LoginSyncInput, PassiveLogoutTrigger, PlatformCookie,
+    ProbeResult, RefreshBatch, SessionReadiness, SessionSnapshot, SignalStrength, TopicCategory,
 };
 use fire_store::cookie_replay::CookieReplayEntry;
 
-use fire_uniffi_types::RequiredTagGroupState;
+use fire_uniffi_types::{RequiredTagGroupState, TopicListKindState};
 
 #[derive(uniffi::Enum, Debug, Clone, Copy)]
 pub enum AuthRecoveryHintReasonState {
@@ -183,6 +183,33 @@ impl From<TopicCategoryState> for TopicCategory {
             allowed_tags: value.allowed_tags,
             permission: value.permission,
             notification_level: value.notification_level,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct HomeTopicListScopeState {
+    pub kind: TopicListKindState,
+    pub category_id: Option<u64>,
+    pub tags: Vec<String>,
+}
+
+impl From<HomeTopicListScope> for HomeTopicListScopeState {
+    fn from(value: HomeTopicListScope) -> Self {
+        Self {
+            kind: value.kind.into(),
+            category_id: value.category_id,
+            tags: value.tags,
+        }
+    }
+}
+
+impl From<HomeTopicListScopeState> for HomeTopicListScope {
+    fn from(value: HomeTopicListScopeState) -> Self {
+        Self {
+            kind: value.kind.into(),
+            category_id: value.category_id,
+            tags: value.tags,
         }
     }
 }

@@ -11,8 +11,8 @@ pub mod records;
 pub use records::{
     format_probe_result, AppStateRefreshEventState, AppStateRefreshHandler,
     AuthRecoveryHintState, BootstrapState, CookieReplayEntryState, CookieState,
-    CurrentUserSnapshotState, LoginFinalizationResultState, LoginPhaseState,
-    LoginStateDeterminationState, LoginSyncState, PassiveLogoutTriggerState,
+    CurrentUserSnapshotState, HomeTopicListScopeState, LoginFinalizationResultState,
+    LoginPhaseState, LoginStateDeterminationState, LoginSyncState, PassiveLogoutTriggerState,
     PlatformCookieState, PreloadedDataStateState, RefreshBatchState, RefreshTriggerState,
     SessionPersistenceState, SessionReadinessState, SessionState, TopicCategoryState,
 };
@@ -80,6 +80,27 @@ impl FireSessionHandle {
             &self.shared.core,
             "snapshot",
             |inner| SessionState::from_snapshot(inner.snapshot()),
+        )
+    }
+
+    pub fn current_home_topic_list_scope(&self) -> Result<HomeTopicListScopeState, FireUniFfiError> {
+        run_infallible(
+            &self.shared.panic_state,
+            &self.shared.core,
+            "current_home_topic_list_scope",
+            |inner| inner.current_home_topic_list_scope().into(),
+        )
+    }
+
+    pub fn set_current_home_topic_list_scope(
+        &self,
+        scope: HomeTopicListScopeState,
+    ) -> Result<HomeTopicListScopeState, FireUniFfiError> {
+        run_infallible(
+            &self.shared.panic_state,
+            &self.shared.core,
+            "set_current_home_topic_list_scope",
+            move |inner| inner.set_current_home_topic_list_scope(scope.into()).into(),
         )
     }
 

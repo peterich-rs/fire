@@ -27,6 +27,7 @@ import uniffi.fire_uniffi_search.UserMentionResultState
 import uniffi.fire_uniffi_session.AppStateRefreshHandler
 import uniffi.fire_uniffi_session.CookieReplayEntryState
 import uniffi.fire_uniffi_session.CurrentUserSnapshotState
+import uniffi.fire_uniffi_session.HomeTopicListScopeState
 import uniffi.fire_uniffi_session.LoginFinalizationResultState
 import uniffi.fire_uniffi_session.LoginStateDeterminationState
 import uniffi.fire_uniffi_session.LoginSyncState
@@ -650,6 +651,14 @@ class FireSessionStore(
         return try { core.session().determineLoginState() } catch (_: Exception) {
             LoginStateDeterminationState.NotLoggedIn
         }
+    }
+
+    fun currentHomeTopicListScope(): HomeTopicListScopeState {
+        return core.session().currentHomeTopicListScope()
+    }
+
+    fun setCurrentHomeTopicListScope(scope: HomeTopicListScopeState): HomeTopicListScopeState {
+        return core.session().setCurrentHomeTopicListScope(scope)
     }
 
     suspend fun determineLoginStateWithProbe(): LoginStateDeterminationState {

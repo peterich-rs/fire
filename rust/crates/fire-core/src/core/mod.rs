@@ -21,7 +21,7 @@ use std::{
     time::Duration,
 };
 
-use fire_models::{BootstrapArtifacts, CookieSnapshot, SessionSnapshot};
+use fire_models::{BootstrapArtifacts, CookieSnapshot, HomeTopicListScope, SessionSnapshot, TopicListQuery};
 use fire_store::FireStore;
 use openwire::Client;
 use tokio::sync::Mutex as TokioMutex;
@@ -141,6 +141,7 @@ pub struct FireCore {
     topic_timing: Arc<Mutex<interactions::FireTopicTimingRuntime>>,
     topic_response: Arc<Mutex<topics::FireTopicResponseRuntime>>,
     pub(crate) topic_feed_store: Arc<Mutex<FireStore>>,
+    home_topic_list_scope: Arc<Mutex<HomeTopicListScope>>,
     csrf_refresh: Arc<TokioMutex<()>>,
     preloaded_data: OnceLock<Arc<crate::preloaded_data::PreloadedDataService>>,
     app_state_refresher: OnceLock<Arc<crate::app_state_refresher::AppStateRefresher>>,
@@ -204,6 +205,7 @@ impl FireCore {
             topic_timing: Arc::new(Mutex::new(interactions::FireTopicTimingRuntime::default())),
             topic_response: Arc::new(Mutex::new(topics::FireTopicResponseRuntime::default())),
             topic_feed_store,
+            home_topic_list_scope: Arc::new(Mutex::new(HomeTopicListScope::default())),
             csrf_refresh: Arc::new(TokioMutex::new(())),
             preloaded_data: OnceLock::new(),
             app_state_refresher: OnceLock::new(),
@@ -313,6 +315,61 @@ impl FireCore {
         self.app_state_refresher.get_or_init(|| {
             Arc::new(crate::app_state_refresher::AppStateRefresher::new(Arc::new(self.clone())))
         })
+    }
+
+    pub fn current_home_topic_list_scope(&self) -> HomeTopicListScope {
+        self.home_topic_list_scope
+            .lock()
+            .expect("home topic list scope mutex poisoned")
+            .clone()
+    }
+
+    pub fn set_current_home_topic_list_scope(
+        &self,
+        scope: HomeTopicListScope,
+    ) -> HomeTopicListScope {
+        let sanitized = scope.sanitized();
+        *self
+            .home_topic_list_scope
+            .lock()
+            .expect("home topic list scope mutex poisoned") = sanitized.clone();
+        sanitized
+    }
+
+    pub(crate) fn reset_current_home_topic_list_scope(&self) {
+        *self
+            .home_topic_list_scope
+            .lock()
+            .expect("home topic list scope mutex poisoned") = HomeTopicListScope::default();
+    }
+
+    pub(crate) fn current_home_topic_list_query(&self) -> TopicListQuery {
+        let scope = self.current_home_topic_list_scope().sanitized();
+        let snapshot = self.snapshot();
+        let category = scope
+            .category_id
+            .and_then(|category_id| snapshot.bootstrap.categories.iter().find(|item| item.id == category_id));
+        let parent = category.and_then(|category| {
+            category
+                .parent_category_id
+                .and_then(|parent_id| snapshot.bootstrap.categories.iter().find(|item| item.id == parent_id))
+        });
+        let primary_tag = scope.tags.first().cloned();
+        let additional_tags = scope.tags.iter().skip(1).cloned().collect::<Vec<_>>();
+
+        TopicListQuery {
+            kind: scope.kind,
+            page: None,
+            topic_ids: Vec::new(),
+            order: None,
+            ascending: None,
+            category_slug: category.map(|category| category.slug.clone()),
+            category_id: scope.category_id,
+            parent_category_slug: parent.map(|category| category.slug.clone()),
+            tag: primary_tag,
+            additional_tags: additional_tags.clone(),
+            match_all_tags: !additional_tags.is_empty(),
+        }
     }
 
     pub fn cookie_replay_list(

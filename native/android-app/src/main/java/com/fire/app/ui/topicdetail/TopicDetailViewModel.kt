@@ -5,7 +5,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.fire.app.TopicPresentation
 import com.fire.app.core.error.FireErrorReporter
-import com.fire.app.data.repository.SessionRepository
 import com.fire.app.data.repository.TopicRepository
 import com.fire.app.messagebus.FireMessageBusCoordinator
 import com.fire.app.richtext.FireRichTextContent
@@ -35,7 +34,6 @@ import uniffi.fire_uniffi_topics.TopicScreenState
 import uniffi.fire_uniffi_topics.TopicUpdateRequestState
 
 class TopicDetailViewModel(
-    private val sessionRepository: SessionRepository,
     private val topicRepository: TopicRepository,
     private val sessionStore: FireSessionStore,
     private val messageBusCoordinator: FireMessageBusCoordinator,
@@ -796,10 +794,9 @@ class TopicDetailViewModel(
         private const val HEART_REACTION_ID = "heart"
 
         fun create(sessionStore: FireSessionStore): TopicDetailViewModel {
-            val sessionRepo = SessionRepository(sessionStore)
             val topicRepo = TopicRepository(sessionStore)
             val messageBusCoordinator = FireMessageBusCoordinator(sessionStore)
-            return TopicDetailViewModel(sessionRepo, topicRepo, sessionStore, messageBusCoordinator)
+            return TopicDetailViewModel(topicRepo, sessionStore, messageBusCoordinator)
         }
     }
 }

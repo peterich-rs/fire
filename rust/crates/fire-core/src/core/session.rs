@@ -281,6 +281,7 @@ impl FireCore {
             },
         );
         self.reset_preloaded_data_cache();
+        self.reset_current_home_topic_list_scope();
         snapshot
     }
 

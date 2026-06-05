@@ -32,7 +32,10 @@
 - 已落地：Rust `AppStateRefresher` 批次事件已经通过 UniFFI callback 暴露，iOS 现已使用统一 refresh callback 驱动 auth 后首页列表强刷与通知状态同步，不再由 `completeLogin()` 手写首页刷新 / MessageBus 启动决策。
 - 已落地：Android 现在也通过共享 `FireAppStateRefreshRepository` 消费 Rust refresh callback；`PreheatGateFragment` / `LoginWebViewFragment` 不再只 fire-and-forget，`HomeViewModel` 会在 `RefreshBatch::Core` 后刷新权威 snapshot、按需接通/关闭 MessageBus，并触发当前列表刷新。
 - 已落地：iOS `FireCfClearanceRefreshService` 现在显式依赖“登录态已确认” gate；Android 删除了未接线且判定过时的 `FireCfClearanceService.kt`，继续只保留显式 challenge WebView 的 host-owned 续期路径。
-- 仍未完成：Rust `AppStateRefresher` 还没有拥有“当前首页 tab/topic list”选择状态，因此当前 tab 的精确刷新 scope 仍由平台持有，尚未实现彻底的 Rust-owned topic-list 选择状态。
+- 已落地：Rust 现在持有 `current home topic-list scope`（kind/category/tags），双端首页筛选会同步这份权威 scope；`AppStateRefresher` 第一批刷新会据此真实请求当前 tab/topic list，而不是只让平台自己判断该刷哪一路。
+- 已落地：Android 未再保留无用的 `SessionRepository` 壳；startup 侧 direct `restoreSession()` grep 已清零，`refreshBootstrapIfNeeded()` 的剩余调用点都只在 login/profile 等非 startup 读写路径。
+
+- 待继续审计：spec Section 14 中仓库尚未建模的 provider（如“我的话题”、外部 credit/cdk user-info）当前没有对应产品 surface，本轮未新增这些能力。
 
 ---
 

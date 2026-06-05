@@ -156,6 +156,7 @@ final class FireHomeFeedStore: ObservableObject {
         }
         selectedTopicKind = kind
         topicLoadErrorMessage = nil
+        syncCurrentHomeTopicListScope()
         scheduleDebouncedRefresh()
     }
 
@@ -164,6 +165,7 @@ final class FireHomeFeedStore: ObservableObject {
         selectedHomeCategoryId = categoryId
         selectedHomeTags = []
         topicLoadErrorMessage = nil
+        syncCurrentHomeTopicListScope()
         scheduleDebouncedRefresh()
     }
 
@@ -171,6 +173,7 @@ final class FireHomeFeedStore: ObservableObject {
         guard !selectedHomeTags.contains(tag) else { return }
         selectedHomeTags.append(tag)
         topicLoadErrorMessage = nil
+        syncCurrentHomeTopicListScope()
         scheduleDebouncedRefresh()
     }
 
@@ -178,6 +181,7 @@ final class FireHomeFeedStore: ObservableObject {
         guard selectedHomeTags.contains(tag) else { return }
         selectedHomeTags.removeAll { $0 == tag }
         topicLoadErrorMessage = nil
+        syncCurrentHomeTopicListScope()
         scheduleDebouncedRefresh()
     }
 
@@ -185,6 +189,7 @@ final class FireHomeFeedStore: ObservableObject {
         guard !selectedHomeTags.isEmpty else { return }
         selectedHomeTags = []
         topicLoadErrorMessage = nil
+        syncCurrentHomeTopicListScope()
         scheduleDebouncedRefresh()
     }
 
@@ -299,8 +304,34 @@ final class FireHomeFeedStore: ObservableObject {
         )
     }
 
+    private func applyCurrentTopicListRefreshScope(_ scope: FireTopicListRefreshScope) {
+        selectedTopicKind = scope.kind
+        selectedHomeCategoryId = scope.categoryId
+        selectedHomeTags = scope.tags
+    }
+
     private var hasResolvedCurrentScope: Bool {
         renderedTopicListScope == currentTopicListRefreshScope
+    }
+
+    private func syncCurrentHomeTopicListScope() {
+        let scope = currentTopicListRefreshScope
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let sessionStore = try await appViewModel.sessionStoreValue()
+                let updated = try await sessionStore.setCurrentHomeTopicListScope(scope.state)
+                await MainActor.run {
+                    self.applyCurrentTopicListRefreshScope(FireTopicListRefreshScope(updated))
+                }
+            } catch {
+                FireAPMManager.shared.recordBreadcrumb(
+                    level: "warn",
+                    target: "home.feed",
+                    message: "failed to sync home topic list scope: \(error.localizedDescription)"
+                )
+            }
+        }
     }
 
     private func scheduleDebouncedRefresh() {
@@ -370,14 +401,14 @@ final class FireHomeFeedStore: ObservableObject {
 
         do {
             let sessionStore = try await appViewModel.sessionStoreValue()
-            let requestedKind = selectedTopicKind
-            let categoryId = selectedHomeCategoryId
-            let requestedTags = selectedHomeTags
-            let requestedScope = FireTopicListRefreshScope(
-                kind: requestedKind,
-                categoryId: categoryId,
-                tags: requestedTags
+            let requestedScopeState = try await sessionStore.setCurrentHomeTopicListScope(
+                currentTopicListRefreshScope.state
             )
+            let requestedScope = FireTopicListRefreshScope(requestedScopeState)
+            applyCurrentTopicListRefreshScope(requestedScope)
+            let requestedKind = requestedScope.kind
+            let categoryId = requestedScope.categoryId
+            let requestedTags = requestedScope.tags
             let categorySlug = categoryId.flatMap { categoryPresentation(for: $0)?.slug }
             let parentSlug: String? = categoryId.flatMap { id in
                 guard let category = categoryPresentation(for: id),

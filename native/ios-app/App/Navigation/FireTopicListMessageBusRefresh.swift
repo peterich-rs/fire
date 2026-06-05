@@ -5,8 +5,30 @@ struct FireTopicListRefreshScope: Equatable {
     let categoryId: UInt64?
     let tags: [String]
 
+    init(kind: TopicListKindState, categoryId: UInt64?, tags: [String]) {
+        self.kind = kind
+        self.categoryId = categoryId
+        self.tags = tags
+    }
+
+    init(_ state: HomeTopicListScopeState) {
+        self.init(
+            kind: state.kind,
+            categoryId: state.categoryId,
+            tags: state.tags
+        )
+    }
+
     var supportsIncrementalMessageBusRefresh: Bool {
         kind == .latest && categoryId == nil && tags.isEmpty
+    }
+
+    var state: HomeTopicListScopeState {
+        HomeTopicListScopeState(
+            kind: kind,
+            categoryId: categoryId,
+            tags: tags
+        )
     }
 }
 

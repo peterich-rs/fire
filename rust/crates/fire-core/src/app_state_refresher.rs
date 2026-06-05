@@ -36,7 +36,17 @@ impl AppStateRefresher {
         }
 
         info!(?trigger, "starting app state refresh batch 1 (core)");
-        self.refresh_core_batch(&trigger).await?;
+        let should_schedule_secondary = match self.refresh_core_batch(&trigger).await {
+            Ok(should_schedule_secondary) => should_schedule_secondary,
+            Err(error) => {
+                warn!(error = %error, ?trigger, "core batch refresh failed");
+                false
+            }
+        };
+
+        if !should_schedule_secondary {
+            return Ok(());
+        }
 
         info!("scheduling app state refresh batch 2 (secondary) in 1s");
         let core = self.core.clone();
@@ -50,19 +60,50 @@ impl AppStateRefresher {
         Ok(())
     }
 
-    async fn refresh_core_batch(&self, _trigger: &RefreshTrigger) -> Result<(), FireCoreError> {
-        self.core.refresh_bootstrap_if_needed().await?;
-        Ok(())
+    async fn refresh_core_batch(&self, trigger: &RefreshTrigger) -> Result<bool, FireCoreError> {
+        let snapshot = self.core.snapshot();
+        if !snapshot.readiness().can_read_authenticated_api {
+            info!(
+                ?trigger,
+                "skipping app state refresh because authenticated API access is unavailable"
+            );
+            return Ok(false);
+        }
+
+        self.core.refresh_bootstrap().await?;
+        Ok(true)
     }
 
     async fn refresh_secondary_batch_inner(
         core: &FireCore,
-        _trigger: &RefreshTrigger,
+        trigger: &RefreshTrigger,
     ) -> Result<(), FireCoreError> {
         let snapshot = core.snapshot();
+        if !snapshot.readiness().can_read_authenticated_api {
+            info!(
+                ?trigger,
+                "skipping secondary app state refresh because authenticated API access is unavailable"
+            );
+            return Ok(());
+        }
+
         let username = snapshot.bootstrap.current_username.clone();
         if let Some(username) = username {
-            let _ = core.fetch_user_profile(&username).await;
+            if let Err(error) = core.fetch_user_summary(&username).await {
+                warn!(error = %error, %username, "user summary refresh failed");
+            }
+            if let Err(error) = core.fetch_bookmarks(&username, None).await {
+                warn!(error = %error, %username, "bookmarks refresh failed");
+            }
+        } else {
+            warn!("secondary app state refresh skipped user-scoped endpoints: missing username");
+        }
+
+        if let Err(error) = core.fetch_read_history(None).await {
+            warn!(error = %error, "read history refresh failed");
+        }
+        if let Err(error) = core.fetch_recent_notifications(None).await {
+            warn!(error = %error, "recent notifications refresh failed");
         }
         Ok(())
     }

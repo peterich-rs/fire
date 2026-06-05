@@ -21,6 +21,14 @@
 - 当前仓库已经存在部分实现，下面的 Task 4-13 都应视为**纠偏重构**，不是从零新增。任何与当前代码冲突的旧步骤，以本修正版为准。
 - 破坏性重构要求继续生效：删除或停用旧启动路径，不保留兼容层，不允许新旧编排并存。
 
+## Implementation Status (2026-06-05)
+
+- 已落地：`PreloadedDataService` 终态等待 / single-flight / `Notify` 并发模型、`parse_preloaded_payload()` 规范化复用、启动 `_t -> /session/current.json` probe 判定、invalid probe 的 Rust 本地登出清理。
+- 已落地：`AppStateRefresher` 现在负责 Rust 侧 debounce、第一批 bootstrap 强制刷新、第二批 `user summary` / `bookmarks` / `read history` / `recent notifications` 刷新，并已有 integration test 覆盖立即执行、延迟执行、2 秒去抖。
+- 已落地：`topicTrackingStateMeta` 签名已贯通 Rust FFI、iOS wrapper、Android wrapper 与宿主调用点；`cargo build -p fire-core`、`cargo test -p fire-core --test startup_alignment --test app_state_refresher`、`./gradlew assembleDebug`、`xcodebuild ... build` 当前均通过。
+- 已落地：preloaded current-user cache 会随 bootstrap 更新同步，并在 `logout_local()` 时清空，避免同进程内登录态切换继续暴露旧 `currentUser`。
+- 仍未完成：Rust `AppStateRefresher` 还没有拥有“当前首页 tab/topic list”选择状态，也没有通过统一 callback 驱动平台做 MessageBus 重连；因此 iOS / Android 主界面层仍保留薄的 home-feed refresh / MessageBus activate 行为。
+
 ---
 
 ### Task 1: 新增 CurrentUserSnapshot 和 UserStatus 数据模型

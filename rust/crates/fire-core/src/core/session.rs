@@ -63,14 +63,18 @@ impl FireCore {
     }
 
     pub fn apply_bootstrap(&self, bootstrap: BootstrapArtifacts) -> SessionSnapshot {
-        self.update_session(|session| {
+        let snapshot = self.update_session(|session| {
             session.bootstrap.merge_patch(&bootstrap);
             debug!(
                 phase = ?session.login_phase(),
                 readiness = ?session.readiness(),
                 "updated bootstrap artifacts"
             );
-        })
+        });
+        if bootstrap.preloaded_json.is_some() || bootstrap.has_preloaded_data {
+            self.sync_preloaded_data_cache(&snapshot.bootstrap);
+        }
+        snapshot
     }
 
     pub fn apply_csrf_token(&self, csrf_token: String) -> SessionSnapshot {
@@ -100,7 +104,7 @@ impl FireCore {
 
     pub fn apply_home_html(&self, html: String) -> SessionSnapshot {
         let parsed = parse_home_state(self.base_url(), &html);
-        self.update_session(|session| {
+        let snapshot = self.update_session(|session| {
             session.cookies.merge_patch(&parsed.cookies_patch);
             session.bootstrap.merge_patch(&parsed.bootstrap_patch);
             debug!(
@@ -108,7 +112,9 @@ impl FireCore {
                 readiness = ?session.readiness(),
                 "applied home html bootstrap"
             );
-        })
+        });
+        self.sync_preloaded_data_cache(&snapshot.bootstrap);
+        snapshot
     }
 
     pub fn sync_login_context(&self, input: LoginSyncInput) -> SessionSnapshot {
@@ -126,7 +132,8 @@ impl FireCore {
             .home_html
             .as_deref()
             .map(|html| parse_home_state(self.base_url(), html));
-        self.update_session_advancing_epoch_if_auth_changed(
+        let has_parsed_html = parsed_html.is_some();
+        let snapshot = self.update_session_advancing_epoch_if_auth_changed(
             "sync login context",
             FireAuthChangeSource::PlatformSync,
             |session| {
@@ -153,7 +160,7 @@ impl FireCore {
                     });
                 }
 
-                if let Some(parsed_html) = parsed_html {
+                if let Some(parsed_html) = parsed_html.as_ref() {
                     session.cookies.merge_patch(&parsed_html.cookies_patch);
                     session.bootstrap.merge_patch(&parsed_html.bootstrap_patch);
                 }
@@ -166,7 +173,11 @@ impl FireCore {
                     "synced platform login context"
                 );
             },
-        )
+        );
+        if has_parsed_html {
+            self.sync_preloaded_data_cache(&snapshot.bootstrap);
+        }
+        snapshot
     }
 
     pub fn finalize_login_from_webview(
@@ -256,7 +267,7 @@ impl FireCore {
         self.stop_message_bus(true);
         self.clear_notification_state();
         self.clear_topic_presence_state();
-        self.update_session_advancing_epoch_if_auth_changed(
+        let snapshot = self.update_session_advancing_epoch_if_auth_changed(
             "logout local",
             FireAuthChangeSource::DirectMutation,
             |session| {
@@ -268,7 +279,9 @@ impl FireCore {
                     "cleared local login state"
                 );
             },
-        )
+        );
+        self.reset_preloaded_data_cache();
+        snapshot
     }
 
     pub fn has_login_session(&self) -> bool {

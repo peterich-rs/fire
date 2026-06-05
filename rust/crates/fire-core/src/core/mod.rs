@@ -297,6 +297,18 @@ impl FireCore {
         })
     }
 
+    pub(crate) fn sync_preloaded_data_cache(&self, bootstrap: &BootstrapArtifacts) {
+        if let Some(service) = self.preloaded_data.get() {
+            service.sync_from_bootstrap(bootstrap);
+        }
+    }
+
+    pub(crate) fn reset_preloaded_data_cache(&self) {
+        if let Some(service) = self.preloaded_data.get() {
+            service.reset();
+        }
+    }
+
     pub fn app_state_refresher(&self) -> &Arc<crate::app_state_refresher::AppStateRefresher> {
         self.app_state_refresher.get_or_init(|| {
             Arc::new(crate::app_state_refresher::AppStateRefresher::new(Arc::new(self.clone())))

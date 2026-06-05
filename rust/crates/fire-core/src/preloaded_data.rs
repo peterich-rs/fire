@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use fire_models::{CurrentUserSnapshot, PreloadedDataResult, PreloadedDataState};
+use fire_models::{BootstrapArtifacts, CurrentUserSnapshot, PreloadedDataResult, PreloadedDataState};
 use tokio::sync::Notify;
 use tracing::{info, warn};
 
@@ -63,10 +63,7 @@ impl PreloadedDataService {
             let result = self.fetch_and_parse().await;
             match result {
                 Ok(data) => {
-                    let mut state = self.state.lock().unwrap();
-                    *state = CachedPreloadedState::Ready(data);
-                    drop(state);
-                    self.notify.notify_waiters();
+                    self.store_result(data);
                     return Ok(PreloadedDataState::Ready);
                 }
                 Err(e) => {
@@ -99,29 +96,34 @@ impl PreloadedDataService {
         }
     }
 
+    pub fn sync_from_bootstrap(&self, bootstrap: &BootstrapArtifacts) {
+        let has_preloaded_payload = bootstrap
+            .preloaded_json
+            .as_deref()
+            .is_some_and(|value| !value.trim().is_empty())
+            || bootstrap.has_preloaded_data;
+        if !has_preloaded_payload {
+            self.reset();
+            return;
+        }
+
+        self.store_result(Self::result_from_bootstrap(bootstrap));
+    }
+
+    pub fn reset(&self) {
+        let mut state = self.state.lock().unwrap();
+        *state = CachedPreloadedState::NotStarted;
+        drop(state);
+        self.clear_cached_user();
+        self.notify.notify_waiters();
+    }
+
     async fn fetch_and_parse(&self) -> Result<PreloadedDataResult, FireCoreError> {
         let base_url = self.core.base_url().trim_end_matches('/').to_string();
         let html = self.fetch_home_html().await?;
         let parsed = parse_home_state(&base_url, &html);
 
-        let mut result = PreloadedDataResult::default();
-
-        if let Some(preloaded_json) = &parsed.bootstrap_patch.preloaded_json {
-            self.extract_preloaded_fields(preloaded_json, &mut result);
-        }
-
-        result.enabled_reaction_ids = parsed.bootstrap_patch.enabled_reaction_ids.clone();
-        result.categories = parsed.bootstrap_patch.categories.clone();
-        result.top_tags = parsed.bootstrap_patch.top_tags.clone();
-        result.can_tag_topics = if parsed.bootstrap_patch.can_tag_topics {
-            Some(true)
-        } else {
-            None
-        };
-
-        if let Some(user) = &result.current_user {
-            self.cache_current_user(user);
-        }
+        let result = Self::result_from_bootstrap(&parsed.bootstrap_patch);
 
         self.core.update_session(|session| {
             session.cookies.merge_patch(&parsed.cookies_patch);
@@ -145,7 +147,35 @@ impl PreloadedDataService {
         self.core.read_response_text(trace_id, response).await
     }
 
-    fn extract_preloaded_fields(&self, preloaded_json: &str, result: &mut PreloadedDataResult) {
+    fn result_from_bootstrap(bootstrap: &BootstrapArtifacts) -> PreloadedDataResult {
+        let mut result = PreloadedDataResult::default();
+        if let Some(preloaded_json) = bootstrap.preloaded_json.as_deref() {
+            Self::extract_preloaded_fields(preloaded_json, &mut result);
+        }
+        result.enabled_reaction_ids = bootstrap.enabled_reaction_ids.clone();
+        result.categories = bootstrap.categories.clone();
+        result.top_tags = bootstrap.top_tags.clone();
+        result.can_tag_topics = if bootstrap.can_tag_topics {
+            Some(true)
+        } else {
+            None
+        };
+        result
+    }
+
+    fn store_result(&self, result: PreloadedDataResult) {
+        if let Some(user) = &result.current_user {
+            self.cache_current_user(user);
+        } else {
+            self.clear_cached_user();
+        }
+        let mut state = self.state.lock().unwrap();
+        *state = CachedPreloadedState::Ready(result);
+        drop(state);
+        self.notify.notify_waiters();
+    }
+
+    fn extract_preloaded_fields(preloaded_json: &str, result: &mut PreloadedDataResult) {
         let Some(parsed) = parse_preloaded_payload(preloaded_json) else {
             warn!("failed to parse normalized preloaded JSON payload");
             return;

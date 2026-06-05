@@ -37,14 +37,16 @@ impl FireCore {
 
         if needs_site_metadata && !needs_bootstrap_refresh {
             if let Some(site_metadata_patch) = self.fetch_site_metadata_fallback().await {
-                return Ok(self.update_session(|session| {
+                let snapshot = self.update_session(|session| {
                     session.bootstrap.merge_patch(&site_metadata_patch);
                     debug!(
                         phase = ?session.login_phase(),
                         readiness = ?session.readiness(),
                         "applied site metadata fallback without home refresh"
                     );
-                }));
+                });
+                self.sync_preloaded_data_cache(&snapshot.bootstrap);
+                return Ok(snapshot);
             }
 
             return self.refresh_bootstrap().await;
@@ -95,6 +97,7 @@ impl FireCore {
             has_site_metadata = result.bootstrap.has_site_metadata,
             "bootstrap refresh complete"
         );
+        self.sync_preloaded_data_cache(&result.bootstrap);
         Ok(result)
     }
 

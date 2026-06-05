@@ -185,7 +185,6 @@ class HomeViewModel(
     private val topicListMessageBusRefreshController = HomeTopicListMessageBusRefreshController()
     private var messageBusJob: Job? = null
     private var pendingMessageBusRefreshJob: Job? = null
-    private var restoreSessionStarted = false
 
     fun selectKind(kind: TopicListKindState) {
         if (_selectedKind.value == kind) return
@@ -242,26 +241,6 @@ class HomeViewModel(
                 )
             },
         ).flow
-    }
-
-    fun restoreSession() {
-        if (restoreSessionStarted) return
-        restoreSessionStarted = true
-        viewModelScope.launchWithFireErrorHandling(
-            operation = "home.restore_session",
-            sessionStore = sessionStore,
-            fallbackMessage = "恢复会话失败",
-            onError = { error ->
-                restoreSessionStarted = false
-                handleReportedError(error)
-            },
-        ) {
-            val restored = sessionRepository.restoreSession()
-            _session.value = restored
-            if (restored?.readiness?.canOpenMessageBus == true) {
-                startRealtimeRefresh()
-            }
-        }
     }
 
     fun refreshSession() {

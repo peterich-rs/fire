@@ -1,8 +1,6 @@
 package com.fire.app.data.repository
 
-import com.fire.app.core.error.FireErrorReporter
 import com.fire.app.session.FireSessionStore
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -19,25 +17,10 @@ class SessionRepository(private val sessionStore: FireSessionStore) {
     val isAuthenticated: Flow<Boolean> = _isAuthenticated.asStateFlow()
 
     suspend fun restoreSession(): SessionState? = withContext(Dispatchers.IO) {
-        val restored = sessionStore.restorePersistedSessionIfAvailable()
-        if (restored != null) {
-            _session.value = restored
-            _isAuthenticated.value = restored.readiness.canReadAuthenticatedApi
-            try {
-                val refreshed = sessionStore.refreshBootstrapIfNeeded()
-                _session.value = refreshed
-                _isAuthenticated.value = refreshed.readiness.canReadAuthenticatedApi
-            } catch (error: CancellationException) {
-                throw error
-            } catch (error: Exception) {
-                FireErrorReporter.report(
-                    operation = "session.restore.bootstrap_refresh",
-                    error = error,
-                    sessionStore = sessionStore,
-                )
-            }
-        }
-        _session.value
+        val restored = sessionStore.snapshot()
+        _session.value = restored
+        _isAuthenticated.value = restored.readiness.canReadAuthenticatedApi
+        restored
     }
 
     suspend fun refreshCsrfIfNeeded(): SessionState = withContext(Dispatchers.Default) {

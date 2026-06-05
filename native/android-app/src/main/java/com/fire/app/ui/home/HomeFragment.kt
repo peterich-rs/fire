@@ -177,7 +177,7 @@ class HomeFragment : Fragment() {
             }
         }
 
-        viewModel?.restoreSession()
+        viewModel?.refreshSession()
     }
 
     private fun setupCategoryBar() {

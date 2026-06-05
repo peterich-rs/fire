@@ -28,6 +28,8 @@
   - `RenderImageAttachmentState`
 - 顶层 `fire-uniffi` 新增：
   - `render_cooked_html(raw_html, base_url) -> RenderDocumentState`
+  - `collect_images_from_render_document(document) -> [RenderImageAttachmentState]`
+  - `plain_text_from_render_document(document) -> String`
   - `StateObserver` callback interface
 - `fire-uniffi-topics::TopicPostState` 新增 `render_document`
 
@@ -36,16 +38,20 @@
 - iOS:
   - `FireRichTextParser` 不再消费 `CookedHtmlDocumentState`
   - 改为消费 `RenderDocumentState`
+  - `FireRenderBlockNodeBuilder` 负责 `RenderDocumentState -> [FireRichTextNode]` 的轻映射
   - `FireTopicPresentation.renderContent(from post:)` 优先使用 `TopicPostState.renderDocument`
 - Android:
   - `FireRichTextParser` 不再消费 `CookedHtmlDocumentState`
   - 改为消费 `RenderDocumentState`
+  - `FireRenderBlockBuilder` 负责 `RenderDocumentState -> [FireRichTextNode]` 的轻映射
   - `PostViewHolder` / `TopicDetailViewModel` 优先使用 `TopicPostState.renderDocument`
 
 ### 1.4 StateObserver
 
 - `FireAppCore` 提供统一 `register_state_observer()` / `unregister_state_observer()`
 - Rust 内部通过 `fire-core/src/state_observer.rs` 维护单一 observer 注册点
+- 同一 snapshot 域通过 100ms debounce 合并连续更新，只推最新值
+- observer callback 使用 `catch_unwind` 做错误隔离，单个回调异常不会污染其他域
 - 当前会主动推送的 snapshot 边界：
   - `SessionState`
   - `TopicListState`
@@ -110,6 +116,15 @@ pub struct RenderBlock {
 - 宽高在 Rust 侧标准化成 `Option<u32>`
 
 平台端不再各自维护一套附件提取和去重规则。
+
+### 2.4 RenderDocument 辅助能力也回到 Rust
+
+除了主渲染入口，这次还把两类派生能力统一到了共享层：
+
+- `collect_images_from_render_document()`：基于共享 `RenderDocumentState` 重新提取附件，平台无需再扫一遍节点树
+- `plain_text_from_render_document()`：直接从共享 block 文档生成纯文本，避免双端各自做文本折叠规则
+
+这两个 API 的价值不是“提供回退路径”，而是保证 render document 成为富文本派生数据的唯一 authoritative source。
 
 ---
 
@@ -178,6 +193,7 @@ pub struct RenderBlock {
 ```text
 TopicPostState.render_document / render_cooked_html()
   -> FireRichTextParser
+  -> FireRenderBlockNodeBuilder
   -> [FireRichTextNode]
   -> FireRichTextAttributedStringBuilder
   -> ASTextNode / 原生图片节点
@@ -205,6 +221,7 @@ TopicPostState.render_document / render_cooked_html()
 ```text
 TopicPostState.render_document / render_cooked_html()
   -> FireRichTextParser
+  -> FireRenderBlockBuilder
   -> [FireRichTextNode]
   -> FireSpannableBuilder
   -> FireRichTextView / ImageView
@@ -227,11 +244,14 @@ TopicPostState.render_document / render_cooked_html()
 - [x] 新增 `fire-rich-text`
 - [x] 新增共享 RenderDocument 模型
 - [x] 新增 FFI `render_cooked_html`
+- [x] 新增 RenderDocument 辅助 FFI（图片提取 / 纯文本）
 - [x] `TopicPostState` 携带 `render_document`
 - [x] iOS 富文本改为消费 `RenderDocumentState`
 - [x] Android 富文本改为消费 `RenderDocumentState`
+- [x] 双端提取出 RenderDocument builder 分层，平台 parser 不再承担语义映射
 - [x] 新增统一 `StateObserver`
 - [x] Rust 内部建立 observer 注册与推送机制
+- [x] Rust observer 推送具备 debounce 与 callback 错误隔离
 - [x] iOS 接入 session/topic-list/notification/topic-detail-feed observer 消费入口
 - [x] Android 接入 session/notification observer 消费入口
 

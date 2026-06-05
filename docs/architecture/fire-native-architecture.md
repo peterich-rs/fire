@@ -889,6 +889,8 @@ enum CellAlignmentState { Left, Center, Right }
 impl fire_uniffi {
     fn parse_cooked_html(html: String) -> CookedHtmlDocumentState;
     fn render_cooked_html(html: String, base_url: String) -> RenderDocumentState;
+    fn collect_images_from_render_document(document: RenderDocumentState) -> Vec<RenderImageAttachmentState>;
+    fn plain_text_from_render_document(document: RenderDocumentState) -> String;
 }
 ```
 
@@ -903,7 +905,7 @@ trait StateObserver: Send + Sync {
 }
 ```
 
-Platform implements `StateObserver`. Rust proactively pushes snapshots on the implemented snapshot boundaries; explicit page/load/mutation commands remain unchanged.
+Platform implements `StateObserver`. Rust proactively pushes snapshots on the implemented snapshot boundaries; explicit page/load/mutation commands remain unchanged. The registry debounces same-domain updates and isolates callback failures so one platform-side observer error does not cascade across domains.
 
 ### 7.7 Data Flow Comparison
 

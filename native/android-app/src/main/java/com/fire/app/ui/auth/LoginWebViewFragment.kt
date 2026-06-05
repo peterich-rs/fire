@@ -37,6 +37,7 @@ import com.google.android.material.button.MaterialButton
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import uniffi.fire_uniffi_session.RefreshTriggerState
 
 class LoginWebViewFragment : Fragment() {
 
@@ -319,6 +320,7 @@ class LoginWebViewFragment : Fragment() {
             },
         ) {
             coordinator.completeLogin(webView)
+            sessionStore.triggerAppStateRefresh(RefreshTriggerState.LOGIN_COMPLETED)
             awaitFingerprintThenNavigate(sessionStore)
         }
     }

@@ -30,6 +30,7 @@ import uniffi.fire_uniffi_session.LoginFinalizationResultState
 import uniffi.fire_uniffi_session.LoginStateDeterminationState
 import uniffi.fire_uniffi_session.LoginSyncState
 import uniffi.fire_uniffi_session.PlatformCookieState
+import uniffi.fire_uniffi_session.RefreshTriggerState
 import uniffi.fire_uniffi_session.SessionState
 import uniffi.fire_uniffi_types.DraftDataState
 import uniffi.fire_uniffi_types.DraftState
@@ -660,6 +661,11 @@ class FireSessionStore(
                 LoginStateDeterminationState.NetworkErrorPreserveState
             }
         }
+    }
+
+    suspend fun triggerAppStateRefresh(trigger: RefreshTriggerState) = withContext(Dispatchers.IO) {
+        core.session().triggerAppStateRefresh(trigger)
+        persistCurrentSession()
     }
 
     private fun topicTrackingStateMetaForMessageBus(): Map<String, Long>? {

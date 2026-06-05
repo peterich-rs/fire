@@ -15,6 +15,7 @@ import com.fire.app.R
 import com.fire.app.session.FireSessionStoreRepository
 import kotlinx.coroutines.launch
 import uniffi.fire_uniffi_session.LoginStateDeterminationState
+import uniffi.fire_uniffi_session.RefreshTriggerState
 
 class PreheatGateFragment : Fragment() {
 
@@ -117,6 +118,7 @@ class PreheatGateFragment : Fragment() {
     private suspend fun onPreloadedDataReady(store: com.fire.app.session.FireSessionStore) {
         when (store.determineLoginStateWithProbe()) {
             is LoginStateDeterminationState.LoggedIn -> {
+                store.triggerAppStateRefresh(RefreshTriggerState.SESSION_RESTORED)
                 findNavController().navigate(R.id.action_preheatGate_to_home)
             }
             else -> {

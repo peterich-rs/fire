@@ -366,6 +366,8 @@ final class FireAppViewModel: ObservableObject {
                         let snapshot = try await sessionStore.snapshot()
                         guard self.initialStateLoadGeneration == generation else { return }
                         await self.applySession(snapshot, activateMessageBus: false)
+                        try await sessionStore.triggerAppStateRefresh(.sessionRestored)
+                        await self.notificationStore?.syncStateFromRuntimeIfAvailable()
                         guard self.initialStateLoadGeneration == generation else { return }
                         let didLoadHomeFeed = await self.refreshHomeFeedIfPossible(force: true)
                         guard self.initialStateLoadGeneration == generation else { return }
@@ -451,6 +453,7 @@ final class FireAppViewModel: ObservableObject {
             do {
                 try await FireAPMManager.shared.withSpan(.authLoginSync) {
                     let loginCoordinator = try await loginCoordinatorValue()
+                    let sessionStore = try await sessionStoreValue()
                     let pendingRecovery = pendingCloudflareRecovery
                     if let pendingRecovery {
                         let currentCookieSnapshot = await currentWebKitCloudflareRecoveryCookieSnapshot()
@@ -474,6 +477,8 @@ final class FireAppViewModel: ObservableObject {
                         ),
                         activateMessageBus: false
                     )
+                    try await sessionStore.triggerAppStateRefresh(.loginCompleted)
+                    await self.notificationStore?.syncStateFromRuntimeIfAvailable()
                     setAuthPresentationState(nil)
                     if shouldResolveRecovery {
                         resolvePendingCloudflareRecovery(with: .success(()))
@@ -608,6 +613,8 @@ final class FireAppViewModel: ObservableObject {
                 stopMessageBus()
                 errorMessage = nil
                 await applySession(try await loginCoordinator.logout())
+                let sessionStore = try await sessionStoreValue()
+                try await sessionStore.triggerAppStateRefresh(.logoutCompleted)
                 canSyncLoginSession = false
                 cachedLoginSyncReadiness = nil
                 clearTopicState()

@@ -513,6 +513,7 @@ final class FirePostCellLayoutCalculatorTests: XCTestCase {
             name: nil,
             avatarTemplate: nil,
             cooked: "<p>\(username)</p>",
+            renderDocument: nil,
             raw: username,
             postNumber: postNumber,
             postType: 1,

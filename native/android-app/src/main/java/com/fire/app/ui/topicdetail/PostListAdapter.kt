@@ -17,7 +17,6 @@ import uniffi.fire_uniffi_topics.PollState
 import uniffi.fire_uniffi_topics.TopicAiSummaryState
 import uniffi.fire_uniffi_topics.TopicDetailState
 import uniffi.fire_uniffi_topics.TopicPostState
-import uniffi.fire_uniffi_topics.TopicResponseRowState
 
 data class PostRow(
     val post: TopicPostState,

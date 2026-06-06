@@ -35,7 +35,7 @@ struct FireTopicDetailSnapshotAssembler {
         )
     }
 
-    private func makeToolbarState(from state: FireTopicDetailPageState) -> FireTopicDetailToolbarState {
+    func makeToolbarState(from state: FireTopicDetailPageState) -> FireTopicDetailToolbarState {
         let slug = (state.detail?.slug ?? state.row.topic.slug)
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let path = slug.isEmpty ? "topic-\(state.topic.id)" : slug
@@ -54,7 +54,7 @@ struct FireTopicDetailSnapshotAssembler {
         )
     }
 
-    private func makeQuickReplyState(from state: FireTopicDetailPageState) -> FireTopicDetailQuickReplyState {
+    func makeQuickReplyState(from state: FireTopicDetailPageState) -> FireTopicDetailQuickReplyState {
         let trimmedDraft = state.replyDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         let validationMessage: String?
         if let quickReplyError = state.quickReplyError,

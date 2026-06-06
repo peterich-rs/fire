@@ -625,64 +625,26 @@ public actor FireSessionStore {
         )
     }
 
-    public func fetchTopicDetail(query: TopicDetailQueryState) async throws -> TopicDetailState {
+    public func fetchTopicDetailSourceSnapshot(
+        query: TopicDetailSourceQueryState
+    ) async throws -> TopicDetailSourceSnapshotState {
         try await runPersistingSessionChanges {
-            try await core.topics().fetchTopicDetail(query: query)
+            try await core.topics().fetchTopicDetailSourceSnapshot(query: query)
         }
     }
 
-    public func fetchTopicDetailInitial(query: TopicDetailQueryState) async throws -> TopicDetailState {
+    public func buildTopicTreePresentation(
+        query: TopicTreePresentationQueryState
+    ) throws -> TopicTreePresentationState {
+        try core.topics().buildTopicTreePresentation(query: query)
+    }
+
+    public func loadMoreTopicPosts(
+        query: LoadMoreTopicPostsQueryState
+    ) async throws -> TopicLoadMoreOutcomeState {
         try await runPersistingSessionChanges {
-            try await core.topics().fetchTopicDetailInitial(query: query)
+            try await core.topics().loadMoreTopicPosts(query: query)
         }
-    }
-
-    public func fetchTopicScreen(query: TopicScreenQueryState) async throws -> TopicScreenState {
-        try await runPersistingSessionChanges {
-            try await core.topics().fetchTopicScreen(query: query)
-        }
-    }
-
-    public func loadTopicDetailFeed(
-        query: TopicDetailFeedQueryState
-    ) async throws -> TopicDetailFeedSnapshotState {
-        try await runPersistingSessionChanges {
-            try await core.topics().loadTopicDetailFeed(query: query)
-        }
-    }
-
-    public func refreshTopicDetailFeed(
-        query: TopicDetailFeedQueryState
-    ) async throws -> TopicDetailFeedSnapshotState {
-        try await runPersistingSessionChanges {
-            try await core.topics().refreshTopicDetailFeed(query: query)
-        }
-    }
-
-    public func cachedTopicDetailFeed(topicID: UInt64) throws -> TopicDetailFeedSnapshotState? {
-        try core.topics().cachedTopicDetailFeed(topicId: topicID)
-    }
-
-    public func fetchTopicResponsePage(
-        query: TopicResponsePageQueryState
-    ) async throws -> TopicResponsePageState {
-        try await runPersistingSessionChanges {
-            try await core.topics().fetchTopicResponsePage(query: query)
-        }
-    }
-
-    public func fetchTopicDetail(topicID: UInt64, trackVisit: Bool = true) async throws -> TopicDetailState {
-        try await fetchTopicDetail(
-            query: TopicDetailQueryState(
-                topicId: topicID,
-                postNumber: nil,
-                trackVisit: trackVisit,
-                forceLoad: trackVisit,
-                filter: nil,
-                usernameFilters: nil,
-                filterTopLevelReplies: false
-            )
-        )
     }
 
     public func fetchTopicPosts(topicID: UInt64, postIDs: [UInt64]) async throws -> [TopicPostState] {

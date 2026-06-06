@@ -136,6 +136,13 @@ class TopicDetailActivity : AppCompatActivity() {
                     scheduleLoadMorePosts(rv)
                 }
             }
+
+            override fun onScrollStateChanged(rv: RecyclerView, newState: Int) {
+                super.onScrollStateChanged(rv, newState)
+                viewModel?.setTopicDetailScrollInteractionActive(
+                    newState != RecyclerView.SCROLL_STATE_IDLE
+                )
+            }
         })
 
         observeViewModel()

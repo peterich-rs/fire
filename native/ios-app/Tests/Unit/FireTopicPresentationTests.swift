@@ -954,6 +954,7 @@ final class FireTopicPresentationTests: XCTestCase {
             name: nil,
             avatarTemplate: nil,
             cooked: cooked ?? "<p>\(username)</p>",
+            renderDocument: nil,
             raw: nil,
             postNumber: postNumber,
             postType: 1,

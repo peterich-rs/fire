@@ -24,14 +24,20 @@ import uniffi.fire_uniffi_topics.PollState
 import uniffi.fire_uniffi_topics.PostUpdateRequestState
 import uniffi.fire_uniffi_topics.PostReactionUpdateState
 import uniffi.fire_uniffi_topics.TopicAiSummaryState
+import uniffi.fire_uniffi_topics.TopicBodyState
 import uniffi.fire_uniffi_topics.TopicDetailState
+import uniffi.fire_uniffi_topics.TopicDetailSourceSnapshotState
 import uniffi.fire_uniffi_topics.TopicPostState
 import uniffi.fire_uniffi_topics.TopicPostStreamState
-import uniffi.fire_uniffi_topics.TopicResponseCursorState
-import uniffi.fire_uniffi_topics.TopicResponsePageState
-import uniffi.fire_uniffi_topics.TopicResponseRowState
-import uniffi.fire_uniffi_topics.TopicScreenState
+import uniffi.fire_uniffi_topics.TopicSourceCursorState
+import uniffi.fire_uniffi_topics.TopicTreePresentationState
+import uniffi.fire_uniffi_topics.TopicTreeRowState
 import uniffi.fire_uniffi_topics.TopicUpdateRequestState
+
+private data class TopicDetailPagePayload(
+    val sourceSnapshot: TopicDetailSourceSnapshotState,
+    val treePresentation: TopicTreePresentationState,
+)
 
 class TopicDetailViewModel(
     private val topicRepository: TopicRepository,
@@ -69,18 +75,22 @@ class TopicDetailViewModel(
     private val _actionError = MutableSharedFlow<String>(extraBufferCapacity = 1)
     val actionError = _actionError.asSharedFlow()
 
-    private var cursor: TopicResponseCursorState? = null
-    private var screen: TopicScreenState? = null
-    private var responseRows: MutableList<TopicResponseRowState> = mutableListOf()
+    private var sourceCursor: TopicSourceCursorState? = null
+    private var sourceSnapshot: TopicDetailSourceSnapshotState? = null
+    private var treePresentation: TopicTreePresentationState? = null
     private var messageBusJob: Job? = null
     private var pendingMessageBusRefreshJob: Job? = null
+    private var isScrollInteractionActive = false
+    private var deferredMessageBusRefreshTopicId: ULong? = null
+    private var deferredMessageBusPayloadTopicId: ULong? = null
+    private var deferredMessageBusPayload: TopicDetailPagePayload? = null
     private var topicAiSummaryJob: Job? = null
     private var topicAiSummaryTopicId: ULong? = null
     private var topicAiSummaryUnavailable: Boolean = false
     private var subscribedTopicId: ULong? = null
     private var subscribedOwnerToken: String? = null
 
-    val hasMorePosts: Boolean get() = cursor != null
+    val hasMorePosts: Boolean get() = sourceCursor != null
 
     private val renderCache = LruCache<ULong, FireRichTextContent>(64)
 
@@ -90,11 +100,16 @@ class TopicDetailViewModel(
             _isLoading.value = true
             _errorMessage.value = null
             try {
-                val fetched = topicRepository.fetchTopicScreen(topicId, targetPostNumber)
-                val allPosts = applyFetchedScreen(fetched)
+                val payload = fetchTopicDetailPagePayload(
+                    topicId = topicId,
+                    targetPostNumber = targetPostNumber,
+                    forceLoad = true,
+                    trackVisit = true,
+                )
+                val allPosts = applyFetchedPayload(payload)
                 preloadRenderContent(allPosts)
                 loadTopicAiSummaryIfNeeded(topicId, _detail.value)
-                maintainTopicDetailMessageBus(topicId, fetched.header.messageBusLastId)
+                maintainTopicDetailMessageBus(topicId, payload.sourceSnapshot.header.messageBusLastId)
                 targetPostNumber
                     ?.takeIf { it > 0u }
                     ?.let { scrollToPostWhenLoaded(it) }
@@ -114,22 +129,45 @@ class TopicDetailViewModel(
         }
     }
 
-    private fun applyFetchedScreen(fetched: TopicScreenState): List<TopicPostState> {
-        val bodyPost = fetched.body.post
-        val normalizedResponseRows = TopicDetailPostRows.uniqueResponseRows(
-            rows = fetched.response.rows,
+    fun setTopicDetailScrollInteractionActive(active: Boolean) {
+        val changed = isScrollInteractionActive != active
+        isScrollInteractionActive = active
+        if (changed && !active) {
+            drainDeferredMessageBusRefreshIfNeeded()
+        }
+    }
+
+    private suspend fun fetchTopicDetailPagePayload(
+        topicId: ULong,
+        targetPostNumber: UInt? = null,
+        forceLoad: Boolean,
+        trackVisit: Boolean,
+    ): TopicDetailPagePayload {
+        val snapshot = topicRepository.fetchTopicDetailSourceSnapshot(
+            topicId = topicId,
+            targetPostNumber = targetPostNumber,
+            forceLoad = forceLoad,
+            trackVisit = trackVisit,
+        )
+        val presentation = topicRepository.buildTopicTreePresentation(snapshot)
+        return TopicDetailPagePayload(snapshot, presentation)
+    }
+
+    private fun applyFetchedPayload(payload: TopicDetailPagePayload): List<TopicPostState> {
+        val bodyPost = payload.sourceSnapshot.body.post
+        val normalizedReplyRows = TopicDetailPostRows.uniqueTreeRows(
+            rows = payload.treePresentation.replyRows,
             bodyPostId = bodyPost.id,
         )
-        val normalizedResponse = fetched.response.copy(rows = normalizedResponseRows)
-        screen = fetched.copy(response = normalizedResponse)
-        responseRows = normalizedResponseRows.toMutableList()
-        cursor = fetched.response.nextCursor
+        sourceSnapshot = payload.sourceSnapshot
+        treePresentation = payload.treePresentation.copy(replyRows = normalizedReplyRows)
+        sourceCursor = payload.sourceSnapshot.sourceCursor
 
-        val header = fetched.header
-        val allPosts = TopicDetailPostRows.postsForDetail(bodyPost, normalizedResponseRows)
-        val rows = normalizedResponseRows.map(::postRow)
+        val header = payload.sourceSnapshot.header
+        val allPosts = TopicDetailPostRows.postsForDetail(bodyPost, normalizedReplyRows)
+        val rows = normalizedReplyRows.map(::postRow)
 
-        _detail.value = TopicDetailState(
+        val nextDetail = TopicDetailState(
             id = header.topicId,
             messageBusLastId = header.messageBusLastId,
             title = header.title,
@@ -161,7 +199,12 @@ class TopicDetailViewModel(
             ),
             details = header.details,
         )
-        _postRows.value = rows
+        if (_detail.value != nextDetail) {
+            _detail.value = nextDetail
+        }
+        if (_postRows.value != rows) {
+            _postRows.value = rows
+        }
         return allPosts
     }
 
@@ -227,14 +270,27 @@ class TopicDetailViewModel(
 
     private suspend fun refreshTopicDetailFromMessageBus(topicId: ULong) {
         if (_isLoading.value) return
+        if (isScrollInteractionActive) {
+            deferredMessageBusRefreshTopicId = topicId
+            return
+        }
         try {
-            val fetched = topicRepository.fetchTopicScreen(
+            val payload = fetchTopicDetailPagePayload(
                 topicId = topicId,
                 targetPostNumber = null,
                 forceLoad = false,
                 trackVisit = false,
             )
-            val allPosts = applyFetchedScreen(fetched)
+            if (isScrollInteractionActive) {
+                deferredMessageBusRefreshTopicId = topicId
+                deferredMessageBusPayloadTopicId = topicId
+                deferredMessageBusPayload = payload
+                return
+            }
+            deferredMessageBusRefreshTopicId = null
+            deferredMessageBusPayloadTopicId = null
+            deferredMessageBusPayload = null
+            val allPosts = applyFetchedPayload(payload)
             preloadRenderContent(allPosts)
             loadTopicAiSummaryIfNeeded(topicId, _detail.value)
         } catch (e: CancellationException) {
@@ -249,9 +305,33 @@ class TopicDetailViewModel(
         }
     }
 
+    private fun drainDeferredMessageBusRefreshIfNeeded() {
+        val deferredPayload = deferredMessageBusPayload
+        val deferredPayloadTopicId = deferredMessageBusPayloadTopicId
+        if (deferredPayload != null && deferredPayloadTopicId != null) {
+            deferredMessageBusPayload = null
+            deferredMessageBusPayloadTopicId = null
+            deferredMessageBusRefreshTopicId = null
+            val allPosts = applyFetchedPayload(deferredPayload)
+            preloadRenderContent(allPosts)
+            loadTopicAiSummaryIfNeeded(deferredPayloadTopicId, _detail.value)
+            return
+        }
+
+        val deferredTopicId = deferredMessageBusRefreshTopicId ?: return
+        deferredMessageBusRefreshTopicId = null
+        pendingMessageBusRefreshJob?.cancel()
+        pendingMessageBusRefreshJob = viewModelScope.launch {
+            refreshTopicDetailFromMessageBus(deferredTopicId)
+        }
+    }
+
     private fun releaseTopicDetailMessageBus() {
         pendingMessageBusRefreshJob?.cancel()
         pendingMessageBusRefreshJob = null
+        deferredMessageBusRefreshTopicId = null
+        deferredMessageBusPayloadTopicId = null
+        deferredMessageBusPayload = null
         messageBusJob?.cancel()
         messageBusJob = null
 
@@ -278,7 +358,7 @@ class TopicDetailViewModel(
     }
 
     fun reloadTopicAiSummary() {
-        val topicId = screen?.header?.topicId ?: _detail.value?.id ?: return
+        val topicId = sourceSnapshot?.header?.topicId ?: _detail.value?.id ?: return
         loadTopicAiSummaryIfNeeded(topicId, _detail.value, force = true)
     }
 
@@ -588,7 +668,7 @@ class TopicDetailViewModel(
         }
 
         var remainingPages = TARGET_HYDRATION_PAGE_LIMIT
-        while (remainingPages > 0 && cursor != null && !hasLoadedPostNumber(postNumber)) {
+        while (remainingPages > 0 && sourceCursor != null && !hasLoadedPostNumber(postNumber)) {
             remainingPages -= 1
             if (!loadMorePostsPage()) break
         }
@@ -599,43 +679,30 @@ class TopicDetailViewModel(
     }
 
     private fun hasLoadedPostNumber(postNumber: UInt): Boolean {
-        if (screen?.body?.post?.postNumber == postNumber) return true
+        if (sourceSnapshot?.body?.post?.postNumber == postNumber) return true
         return _postRows.value.any { row -> row.post.postNumber == postNumber }
     }
 
     private suspend fun loadMorePostsPage(): Boolean {
-        val currentCursor = cursor ?: return false
+        val currentCursor = sourceCursor ?: return false
         if (_isLoadingMore.value) return false
         _isLoadingMore.value = true
         return try {
-            val page = topicRepository.fetchTopicResponsePage(currentCursor)
-            if (cursor != currentCursor) return false
+            val outcome = topicRepository.loadMoreTopicPosts(currentCursor)
+            if (sourceCursor != currentCursor) return false
 
-            val bodyPost = screen?.body?.post
-            val previousResponseRows = responseRows.toList()
-            val mergedResponseRows = TopicDetailPostRows.uniqueResponseRows(
-                rows = previousResponseRows + page.rows,
-                bodyPostId = bodyPost?.id,
+            val previousLoadedPostIds = sourceSnapshot
+                ?.loadedPosts
+                ?.mapTo(LinkedHashSet()) { it.id }
+                ?: linkedSetOf()
+            val allPosts = applyFetchedPayload(
+                TopicDetailPagePayload(
+                    sourceSnapshot = outcome.sourceSnapshot,
+                    treePresentation = outcome.treePresentation,
+                ),
             )
-            responseRows = mergedResponseRows.toMutableList()
-            cursor = page.nextCursor
-
-            val rows = mergedResponseRows.map(::postRow)
-            _postRows.value = rows
-
-            _detail.value?.let { current ->
-                val allPosts = bodyPost
-                    ?.let { TopicDetailPostRows.postsForDetail(it, mergedResponseRows) }
-                    ?: TopicDetailPostRows.uniquePosts(rows.map { it.post })
-                _detail.value = current.copy(
-                    postStream = current.postStream.copy(
-                        posts = allPosts,
-                        stream = allPosts.map { it.id },
-                    ),
-                )
-            }
-            preloadRenderContent(mergedResponseRows.map { it.post })
-            page.rows.isNotEmpty()
+            preloadRenderContent(allPosts)
+            outcome.sourceSnapshot.loadedPosts.any { !previousLoadedPostIds.contains(it.id) }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -652,7 +719,7 @@ class TopicDetailViewModel(
         }
     }
 
-    private fun postRow(row: TopicResponseRowState): PostRow {
+    private fun postRow(row: TopicTreeRowState): PostRow {
         return PostRow(
             post = row.post,
             depth = row.depth.toInt(),
@@ -696,13 +763,13 @@ class TopicDetailViewModel(
 
     private suspend fun refreshCurrentTopic(targetPostNumber: UInt? = null) {
         val topicId = _detail.value?.id ?: return
-        val fetched = topicRepository.fetchTopicScreen(
+        val payload = fetchTopicDetailPagePayload(
             topicId = topicId,
             targetPostNumber = targetPostNumber,
             forceLoad = false,
             trackVisit = false,
         )
-        val allPosts = applyFetchedScreen(fetched)
+        val allPosts = applyFetchedPayload(payload)
         preloadRenderContent(allPosts)
     }
 
@@ -710,27 +777,36 @@ class TopicDetailViewModel(
         postId: ULong,
         transform: (TopicPostState) -> TopicPostState,
     ) {
-        val previousScreen = screen
-        val nextBodyPost = previousScreen?.body?.post?.let { post ->
-            if (post.id == postId) transform(post) else post
-        }
-
-        responseRows = responseRows.map { row ->
-            if (row.post.id == postId) {
-                row.copy(post = transform(row.post))
-            } else {
-                row
+        sourceSnapshot = sourceSnapshot?.let { current ->
+            val nextBodyPost = current.body.post.let { post ->
+                if (post.id == postId) transform(post) else post
             }
-        }.toMutableList()
-
-        previousScreen?.let { current ->
-            screen = current.copy(
-                body = nextBodyPost?.let { current.body.copy(post = it) } ?: current.body,
-                response = current.response.copy(rows = responseRows),
+            current.copy(
+                body = TopicBodyState(post = nextBodyPost),
+                loadedPosts = current.loadedPosts.map { post ->
+                    if (post.id == postId) transform(post) else post
+                },
             )
         }
 
-        _postRows.value = responseRows.map(::postRow)
+        treePresentation = treePresentation?.let { current ->
+            current.copy(
+                originalPost = if (current.originalPost.id == postId) {
+                    transform(current.originalPost)
+                } else {
+                    current.originalPost
+                },
+                replyRows = current.replyRows.map { row ->
+                    if (row.post.id == postId) {
+                        row.copy(post = transform(row.post))
+                    } else {
+                        row
+                    }
+                },
+            )
+        }
+
+        _postRows.value = treePresentation?.replyRows?.map(::postRow).orEmpty()
         _detail.value = _detail.value?.let { current ->
             val updatedPosts = current.postStream.posts.map { post ->
                 if (post.id == postId) transform(post) else post
@@ -773,11 +849,11 @@ class TopicDetailViewModel(
 }
 
 object TopicDetailPostRows {
-    fun uniqueResponseRows(
-        rows: List<TopicResponseRowState>,
+    fun uniqueTreeRows(
+        rows: List<TopicTreeRowState>,
         bodyPostId: ULong? = null,
-    ): List<TopicResponseRowState> {
-        val rowsByPostId = LinkedHashMap<ULong, TopicResponseRowState>(rows.size)
+    ): List<TopicTreeRowState> {
+        val rowsByPostId = LinkedHashMap<ULong, TopicTreeRowState>(rows.size)
         for (row in rows) {
             if (row.post.id == bodyPostId) continue
             rowsByPostId[row.post.id] = row
@@ -787,10 +863,10 @@ object TopicDetailPostRows {
 
     fun postsForDetail(
         bodyPost: TopicPostState,
-        responseRows: List<TopicResponseRowState>,
+        replyRows: List<TopicTreeRowState>,
     ): List<TopicPostState> {
         return uniquePosts(
-            listOf(bodyPost) + responseRows
+            listOf(bodyPost) + replyRows
                 .filter { it.post.id != bodyPost.id }
                 .map { it.post },
         )

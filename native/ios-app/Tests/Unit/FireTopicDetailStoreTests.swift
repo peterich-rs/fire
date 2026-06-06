@@ -341,6 +341,7 @@ final class FireTopicDetailStoreTests: XCTestCase {
             name: nil,
             avatarTemplate: nil,
             cooked: "<p>Original</p>",
+            renderDocument: nil,
             raw: "Original",
             postNumber: 1,
             postType: 1,
@@ -371,6 +372,7 @@ final class FireTopicDetailStoreTests: XCTestCase {
             name: nil,
             avatarTemplate: nil,
             cooked: "<p>Reply</p>",
+            renderDocument: nil,
             raw: "Reply",
             postNumber: 2,
             postType: 1,
@@ -959,7 +961,7 @@ final class FireTopicDetailStoreTests: XCTestCase {
         let root = makePost(postNumber: 2, replyToPostNumber: 1, username: "root")
         let sibling = makePost(postNumber: 5, replyToPostNumber: 1, username: "sibling")
         let existingRows = [
-            TopicResponseRowState(
+            TopicTreeRowState(
                 post: root,
                 rootPostNumber: 1,
                 parentPostNumber: 1,
@@ -970,7 +972,7 @@ final class FireTopicDetailStoreTests: XCTestCase {
                 siblingIndex: 0,
                 isLastSibling: false
             ),
-            TopicResponseRowState(
+            TopicTreeRowState(
                 post: sibling,
                 rootPostNumber: 1,
                 parentPostNumber: 1,
@@ -985,7 +987,7 @@ final class FireTopicDetailStoreTests: XCTestCase {
         let child = makePost(postNumber: 3, replyToPostNumber: 2, username: "child")
         let grandchild = makePost(postNumber: 4, replyToPostNumber: 3, username: "grandchild")
 
-        let merged = FireTopicDetailStore.mergeReplyContextResponseRows(
+        let merged = FireTopicDetailStore.mergeReplyContextTreeRows(
             existingRows: existingRows,
             bodyPostNumber: 1,
             rootPost: root,
@@ -993,9 +995,9 @@ final class FireTopicDetailStoreTests: XCTestCase {
         )
 
         XCTAssertEqual(merged.map { $0.post.postNumber }, [2, 5, 3, 4])
-        XCTAssertEqual(merged.map(\.depth), [1, 1, 2, 3] as [UInt16])
-        XCTAssertEqual(merged.suffix(2).map(\.parentPostNumber), [2, 3] as [UInt32?])
-        XCTAssertEqual(merged.suffix(2).map(\.rootPostNumber), [1, 1] as [UInt32])
+        XCTAssertEqual(merged.map { $0.depth }, [1, 1, 2, 3] as [UInt16])
+        XCTAssertEqual(merged.suffix(2).map { $0.parentPostNumber }, [2, 3] as [UInt32?])
+        XCTAssertEqual(merged.suffix(2).map { $0.rootPostNumber }, [1, 1] as [UInt32])
     }
 
     private func makeResponseRow(
@@ -1032,6 +1034,7 @@ final class FireTopicDetailStoreTests: XCTestCase {
             name: nil,
             avatarTemplate: nil,
             cooked: "<p>\(username)</p>",
+            renderDocument: nil,
             raw: nil,
             postNumber: postNumber,
             postType: 1,

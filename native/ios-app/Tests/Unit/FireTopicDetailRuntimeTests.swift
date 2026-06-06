@@ -623,132 +623,6 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
         )
     }
 
-    func testFeedSnapshotBridgeSynthesizesTopicScreen() throws {
-        let original = makePost(id: 100, postNumber: 1, username: "alice")
-        let reply = makePost(id: 200, postNumber: 2, username: "bob", replyToPostNumber: 1)
-        let row = TopicResponseRowState(
-            post: reply,
-            rootPostNumber: 1,
-            parentPostNumber: 1,
-            depth: 1,
-            preorderIndex: 1,
-            hasChildren: false,
-            descendantCount: 0,
-            siblingIndex: 0,
-            isLastSibling: true
-        )
-        let cursor = TopicDetailCursorState(nextResponseCursor: nil, loadedRanges: [], hasMore: false)
-        let snapshot = TopicDetailFeedSnapshotState(
-            topicId: 42,
-            revision: 7,
-            items: [
-                TopicDetailFeedItemState(
-                    itemId: "topic-header:42",
-                    kind: .header,
-                    ordinal: 0,
-                    postId: nil,
-                    contentRevision: "header",
-                    header: makeHeader(replyCount: 1),
-                    post: nil,
-                    responseRow: nil,
-                    title: nil,
-                    message: nil,
-                    retryable: false
-                ),
-                TopicDetailFeedItemState(
-                    itemId: "post:100:original",
-                    kind: .originalPost,
-                    ordinal: 1,
-                    postId: original.id,
-                    contentRevision: "original",
-                    header: nil,
-                    post: original,
-                    responseRow: nil,
-                    title: nil,
-                    message: nil,
-                    retryable: false
-                ),
-                TopicDetailFeedItemState(
-                    itemId: "post:200:reply",
-                    kind: .reply,
-                    ordinal: 2,
-                    postId: reply.id,
-                    contentRevision: "reply",
-                    header: nil,
-                    post: reply,
-                    responseRow: row,
-                    title: nil,
-                    message: nil,
-                    retryable: false
-                ),
-            ],
-            cursor: cursor,
-            source: .network,
-            loadState: .ready,
-            staleErrorMessage: nil,
-            updatedAtMs: 1
-        )
-
-        let bridgeResult = try FireTopicDetailStore.topicScreen(from: snapshot)
-        let screen = bridgeResult.screen
-
-        XCTAssertEqual(screen.header.topicId, 42)
-        XCTAssertEqual(screen.body.post.id, original.id)
-        XCTAssertEqual(screen.response.rows.map(\.post.id), [reply.id])
-        XCTAssertNil(screen.response.nextCursor)
-        XCTAssertNil(bridgeResult.detailNotice)
-    }
-
-    func testFeedSnapshotBridgeRejectsStaleSnapshotWhenFreshRefreshIsRequired() throws {
-        let original = makePost(id: 100, postNumber: 1, username: "alice")
-        let snapshot = TopicDetailFeedSnapshotState(
-            topicId: 42,
-            revision: 7,
-            items: [
-                TopicDetailFeedItemState(
-                    itemId: "topic-header:42",
-                    kind: .header,
-                    ordinal: 0,
-                    postId: nil,
-                    contentRevision: "header",
-                    header: makeHeader(replyCount: 0),
-                    post: nil,
-                    responseRow: nil,
-                    title: nil,
-                    message: nil,
-                    retryable: false
-                ),
-                TopicDetailFeedItemState(
-                    itemId: "post:100:original",
-                    kind: .originalPost,
-                    ordinal: 1,
-                    postId: original.id,
-                    contentRevision: "original",
-                    header: nil,
-                    post: original,
-                    responseRow: nil,
-                    title: nil,
-                    message: nil,
-                    retryable: false
-                ),
-            ],
-            cursor: TopicDetailCursorState(nextResponseCursor: nil, loadedRanges: [], hasMore: false),
-            source: .staleIfError,
-            loadState: .staleWithError,
-            staleErrorMessage: "network failed",
-            updatedAtMs: 1
-        )
-
-        XCTAssertThrowsError(
-            try FireTopicDetailStore.topicScreen(from: snapshot, requiresFresh: true)
-        )
-        let bridgeResult = try FireTopicDetailStore.topicScreen(from: snapshot, requiresFresh: false)
-        XCTAssertEqual(bridgeResult.screen.body.post.id, original.id)
-        XCTAssertEqual(bridgeResult.detailNotice?.message, "network failed")
-        XCTAssertEqual(bridgeResult.detailNotice?.retryable, true)
-        XCTAssertEqual(bridgeResult.detailNotice?.emphasizesError, false)
-    }
-
     func testSnapshotIncludesDetailNoticeAheadOfReplies() {
         let original = makePost(id: 100, postNumber: 1, username: "alice")
         let reply = makePost(id: 200, postNumber: 2, username: "bob", replyToPostNumber: 1)
@@ -1000,6 +874,7 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
             name: nil,
             avatarTemplate: nil,
             cooked: "<p>\(username)</p>",
+            renderDocument: nil,
             raw: username,
             postNumber: postNumber,
             postType: 1,

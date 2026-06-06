@@ -606,6 +606,24 @@ enum FireTopicPresentation {
         return orderedPostIDs.compactMap { rowsByPostID[$0] }
     }
 
+    static func uniqueTreeRowsPreservingOrder(
+        _ rows: [TopicTreeRowState]
+    ) -> [TopicTreeRowState] {
+        var orderedPostIDs: [UInt64] = []
+        orderedPostIDs.reserveCapacity(rows.count)
+        var rowsByPostID: [UInt64: TopicTreeRowState] = [:]
+        rowsByPostID.reserveCapacity(rows.count)
+
+        for row in rows {
+            if rowsByPostID[row.post.id] == nil {
+                orderedPostIDs.append(row.post.id)
+            }
+            rowsByPostID[row.post.id] = row
+        }
+
+        return orderedPostIDs.compactMap { rowsByPostID[$0] }
+    }
+
     static func uniqueTopicPostIDsPreservingOrder(_ postIDs: [UInt64]) -> [UInt64] {
         var seenPostIDs = Set<UInt64>()
         seenPostIDs.reserveCapacity(postIDs.count)

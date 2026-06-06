@@ -47,15 +47,15 @@ import uniffi.fire_uniffi_topics.ReactionUsersGroupState
 import uniffi.fire_uniffi_topics.ResolvedUploadUrlState
 import uniffi.fire_uniffi_topics.TopicAiSummaryState
 import uniffi.fire_uniffi_topics.TopicCreateRequestState
-import uniffi.fire_uniffi_topics.TopicDetailQueryState
-import uniffi.fire_uniffi_topics.TopicDetailState
+import uniffi.fire_uniffi_topics.TopicDetailSourceQueryState
+import uniffi.fire_uniffi_topics.TopicDetailSourceSnapshotState
+import uniffi.fire_uniffi_topics.LoadMoreTopicPostsQueryState
 import uniffi.fire_uniffi_topics.TopicListQueryState
+import uniffi.fire_uniffi_topics.TopicLoadMoreOutcomeState
 import uniffi.fire_uniffi_topics.TopicPostState
-import uniffi.fire_uniffi_topics.TopicResponsePageQueryState
-import uniffi.fire_uniffi_topics.TopicResponsePageState
 import uniffi.fire_uniffi_topics.TopicReplyRequestState
-import uniffi.fire_uniffi_topics.TopicScreenQueryState
-import uniffi.fire_uniffi_topics.TopicScreenState
+import uniffi.fire_uniffi_topics.TopicTreePresentationQueryState
+import uniffi.fire_uniffi_topics.TopicTreePresentationState
 import uniffi.fire_uniffi_topics.TopicUpdateRequestState
 import uniffi.fire_uniffi_topics.UploadImageRequestState
 import uniffi.fire_uniffi_topics.UploadResultState
@@ -364,20 +364,22 @@ class FireSessionStore(
         response
     }
 
-    suspend fun fetchTopicDetail(query: TopicDetailQueryState): TopicDetailState = withContext(Dispatchers.IO) {
-        core.topics().fetchTopicDetail(query)
+    suspend fun fetchTopicDetailSourceSnapshot(
+        query: TopicDetailSourceQueryState,
+    ): TopicDetailSourceSnapshotState = withContext(Dispatchers.IO) {
+        core.topics().fetchTopicDetailSourceSnapshot(query)
     }
 
-    suspend fun fetchTopicDetailInitial(query: TopicDetailQueryState): TopicDetailState = withContext(Dispatchers.IO) {
-        core.topics().fetchTopicDetailInitial(query)
+    suspend fun buildTopicTreePresentation(
+        query: TopicTreePresentationQueryState,
+    ): TopicTreePresentationState = withContext(Dispatchers.IO) {
+        core.topics().buildTopicTreePresentation(query)
     }
 
-    suspend fun fetchTopicScreen(query: TopicScreenQueryState): TopicScreenState = withContext(Dispatchers.IO) {
-        core.topics().fetchTopicScreen(query)
-    }
-
-    suspend fun fetchTopicResponsePage(query: TopicResponsePageQueryState): TopicResponsePageState = withContext(Dispatchers.IO) {
-        core.topics().fetchTopicResponsePage(query)
+    suspend fun loadMoreTopicPosts(
+        query: LoadMoreTopicPostsQueryState,
+    ): TopicLoadMoreOutcomeState = withContext(Dispatchers.IO) {
+        core.topics().loadMoreTopicPosts(query)
     }
 
     suspend fun startMessageBus(handler: MessageBusEventHandler): String = withContext(Dispatchers.IO) {

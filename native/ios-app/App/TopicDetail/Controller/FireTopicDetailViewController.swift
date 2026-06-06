@@ -334,6 +334,13 @@ final class FireTopicDetailViewController: UIViewController {
         feedController.onBackgroundTap = { [weak self] in
             self?.quickReplyBarNode.resignInputFocus()
         }
+        feedController.onScrollInteractionChanged = { [weak self] isActive in
+            guard let self else { return }
+            self.topicDetailStore.setTopicDetailScrollInteractionActive(
+                isActive,
+                topicId: self.row.topic.id
+            )
+        }
         feedController.setup()
 
         paginationCoordinator.feedController = feedController
@@ -402,6 +409,11 @@ final class FireTopicDetailViewController: UIViewController {
         subscriptionTask?.cancel()
         subscriptionTask = nil
         cancellables.removeAll()
+        topicDetailStore.setTopicDetailScrollInteractionActive(
+            false,
+            topicId: row.topic.id,
+            drainDeferredRefresh: false
+        )
 
         topicDetailStore.endTopicDetailLifecycle(
             topicId: row.topic.id,
@@ -492,6 +504,15 @@ final class FireTopicDetailViewController: UIViewController {
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
                 self?.buildAndApplySnapshot()
+            }
+            .store(in: &cancellables)
+
+        topicDetailStore.$topicChromeRevisions
+            .map { revisions in revisions[topicId] ?? 0 }
+            .removeDuplicates()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.buildAndApplyChromeState()
             }
             .store(in: &cancellables)
     }
@@ -589,14 +610,20 @@ final class FireTopicDetailViewController: UIViewController {
 
     private func buildAndApplySnapshot() {
         let pageState = buildCurrentPageState()
+        applyChromeState(from: pageState)
         let configuration = buildRuntimeConfiguration(from: pageState)
-        let snapshot = snapshotAssembler.buildSnapshot(
-            from: pageState,
-            configuration: configuration
-        )
-        toolbarCoordinator.apply(state: snapshot.toolbarState)
-        quickReplyBarNode.apply(state: snapshot.quickReplyState)
+        let snapshot = snapshotAssembler.buildSnapshot(from: pageState, configuration: configuration)
         feedUpdatePipeline.apply(snapshot: snapshot, configuration: configuration)
+    }
+
+    private func buildAndApplyChromeState() {
+        let pageState = buildCurrentPageState()
+        applyChromeState(from: pageState)
+    }
+
+    private func applyChromeState(from pageState: FireTopicDetailPageState) {
+        toolbarCoordinator.apply(state: snapshotAssembler.makeToolbarState(from: pageState))
+        quickReplyBarNode.apply(state: snapshotAssembler.makeQuickReplyState(from: pageState))
     }
 
     private func handleLayoutRevisionChanged() {

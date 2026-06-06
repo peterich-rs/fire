@@ -41,6 +41,8 @@ final class FireTopicDetailFeedController: NSObject,
 
     var onRefresh: (() async -> Void)?
     var onBackgroundTap: (() -> Void)?
+    var onScrollInteractionChanged: ((Bool) -> Void)?
+    private var lastPublishedScrollInteractionActive = false
 
     func setup() {
         collectionNode.dataSource = self
@@ -456,17 +458,24 @@ final class FireTopicDetailFeedController: NSObject,
     }
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        publishScrollInteractionStateIfNeeded()
         reevaluateVisibleState(forceLoadMoreEvaluation: false)
     }
 
     func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
+        publishScrollInteractionStateIfNeeded()
         if !decelerate {
             reevaluateVisibleState(forceLoadMoreEvaluation: true)
         }
     }
 
     func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+        publishScrollInteractionStateIfNeeded()
         reevaluateVisibleState(forceLoadMoreEvaluation: true)
+    }
+
+    func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        publishScrollInteractionStateIfNeeded()
     }
 
     func applyItems(
@@ -680,6 +689,13 @@ final class FireTopicDetailFeedController: NSObject,
                 pendingScrollTarget: configuration.pendingScrollTarget
             )
         }
+    }
+
+    private func publishScrollInteractionStateIfNeeded() {
+        let isActive = isScrollInteractionActive
+        guard lastPublishedScrollInteractionActive != isActive else { return }
+        lastPublishedScrollInteractionActive = isActive
+        onScrollInteractionChanged?(isActive)
     }
 
     @objc

@@ -7,7 +7,6 @@ import kotlinx.coroutines.flow.asSharedFlow
 import uniffi.fire_uniffi.StateObserver
 import uniffi.fire_uniffi_notifications.NotificationCenterState
 import uniffi.fire_uniffi_session.SessionState
-import uniffi.fire_uniffi_topics.TopicDetailFeedSnapshotState
 import uniffi.fire_uniffi_types.TopicListState
 
 object FireStateObserverRepository : StateObserver {
@@ -25,14 +24,6 @@ object FireStateObserverRepository : StateObserver {
     )
     val topicListSnapshots: SharedFlow<TopicListState> = _topicListSnapshots.asSharedFlow()
 
-    private val _topicDetailFeedSnapshots = MutableSharedFlow<TopicDetailFeedSnapshotState>(
-        replay = 1,
-        extraBufferCapacity = 4,
-        onBufferOverflow = BufferOverflow.DROP_OLDEST,
-    )
-    val topicDetailFeedSnapshots: SharedFlow<TopicDetailFeedSnapshotState> =
-        _topicDetailFeedSnapshots.asSharedFlow()
-
     private val _notificationCenterSnapshots = MutableSharedFlow<NotificationCenterState>(
         replay = 1,
         extraBufferCapacity = 4,
@@ -47,10 +38,6 @@ object FireStateObserverRepository : StateObserver {
 
     override fun onTopicListSnapshot(snapshot: TopicListState) {
         _topicListSnapshots.tryEmit(snapshot)
-    }
-
-    override fun onTopicDetailFeedSnapshot(snapshot: TopicDetailFeedSnapshotState) {
-        _topicDetailFeedSnapshots.tryEmit(snapshot)
     }
 
     override fun onNotificationCenterSnapshot(snapshot: NotificationCenterState) {

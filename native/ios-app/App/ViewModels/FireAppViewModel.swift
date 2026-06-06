@@ -142,18 +142,15 @@ final class FireAppStateRefreshCoordinator: AppStateRefreshHandler, @unchecked S
 final class FireStateObserverCoordinator: StateObserver, @unchecked Sendable {
     private let onSession: @MainActor (SessionState) async -> Void
     private let onTopicList: @MainActor (TopicListState) async -> Void
-    private let onTopicDetailFeed: @MainActor (TopicDetailFeedSnapshotState) async -> Void
     private let onNotificationCenter: @MainActor (NotificationCenterState) async -> Void
 
     init(
         onSession: @escaping @MainActor (SessionState) async -> Void,
         onTopicList: @escaping @MainActor (TopicListState) async -> Void,
-        onTopicDetailFeed: @escaping @MainActor (TopicDetailFeedSnapshotState) async -> Void,
         onNotificationCenter: @escaping @MainActor (NotificationCenterState) async -> Void
     ) {
         self.onSession = onSession
         self.onTopicList = onTopicList
-        self.onTopicDetailFeed = onTopicDetailFeed
         self.onNotificationCenter = onNotificationCenter
     }
 
@@ -166,12 +163,6 @@ final class FireStateObserverCoordinator: StateObserver, @unchecked Sendable {
     func onTopicListSnapshot(snapshot: TopicListState) {
         Task { @MainActor in
             await onTopicList(snapshot)
-        }
-    }
-
-    func onTopicDetailFeedSnapshot(snapshot: TopicDetailFeedSnapshotState) {
-        Task { @MainActor in
-            await onTopicDetailFeed(snapshot)
         }
     }
 
@@ -316,9 +307,6 @@ final class FireAppViewModel: ObservableObject {
         },
         onTopicList: { [weak self] snapshot in
             self?.homeFeedStore?.applyTopicList(snapshot)
-        },
-        onTopicDetailFeed: { [weak self] snapshot in
-            await self?.topicDetailStore?.applyTopicDetailFeedSnapshot(snapshot)
         },
         onNotificationCenter: { [weak self] snapshot in
             self?.notificationStore?.apply(

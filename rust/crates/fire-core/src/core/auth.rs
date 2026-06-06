@@ -1,4 +1,5 @@
 use fire_models::{
+    AuthRuntimeSignal, AuthRuntimeSignalKind, AuthRuntimeSignalSource, AuthRuntimeSignalStrength,
     BootstrapArtifacts, CookieSnapshot, PassiveLogoutTrigger, ProbeResult, SessionSnapshot,
     SignalStrength,
 };
@@ -328,6 +329,47 @@ impl FireCore {
         Ok(())
     }
 
+    pub(crate) fn record_auth_runtime_signal(&self, signal: AuthRuntimeSignal) {
+        let signal_kind = signal.kind.clone();
+        let signal_strength = signal.strength;
+        let signal_source = signal.source;
+        let operation = signal.operation.clone();
+        let status = signal.status;
+        {
+            let mut state = write_rwlock(&self.session, "session");
+            state.last_auth_runtime_signal = Some(signal);
+        }
+        info!(
+            kind = ?signal_kind,
+            strength = ?signal_strength,
+            source = ?signal_source,
+            operation = ?operation,
+            status = ?status,
+            "recorded auth runtime signal"
+        );
+    }
+
+    pub(crate) async fn process_auth_runtime_signal(
+        &self,
+        signal: AuthRuntimeSignal,
+        operation: &'static str,
+    ) -> Option<FireCoreError> {
+        let strike_strength = match signal.kind {
+            AuthRuntimeSignalKind::NotLoggedInBody
+            | AuthRuntimeSignalKind::DiscourseLoggedOutHeader => Some(SignalStrength::Strong),
+            AuthRuntimeSignalKind::MixedLoggedOutHeader
+            | AuthRuntimeSignalKind::MixedSignalCookieDeletionBlocked => {
+                Some(SignalStrength::Weak)
+            }
+            _ => None,
+        };
+        self.record_auth_runtime_signal(signal);
+        match strike_strength {
+            Some(strength) => self.process_auth_strike_signal(strength, operation).await,
+            None => None,
+        }
+    }
+
     pub(crate) async fn process_auth_strike_signal(
         &self,
         strength: SignalStrength,
@@ -350,6 +392,13 @@ impl FireCore {
                 }
                 match probe_result {
                     Ok(ProbeResult::Valid { .. }) => {
+                        self.record_auth_runtime_signal(AuthRuntimeSignal {
+                            kind: AuthRuntimeSignalKind::ProbeValid,
+                            strength: AuthRuntimeSignalStrength::Terminal,
+                            source: AuthRuntimeSignalSource::Probe,
+                            operation: Some(operation.to_string()),
+                            status: None,
+                        });
                         info!(
                             operation,
                             "probe confirmed session valid, resetting strikes"
@@ -361,6 +410,13 @@ impl FireCore {
                         None
                     }
                     Ok(ProbeResult::Invalid) => {
+                        self.record_auth_runtime_signal(AuthRuntimeSignal {
+                            kind: AuthRuntimeSignalKind::ProbeInvalid,
+                            strength: AuthRuntimeSignalStrength::Terminal,
+                            source: AuthRuntimeSignalSource::Probe,
+                            operation: Some(operation.to_string()),
+                            status: None,
+                        });
                         info!(
                             operation,
                             "probe confirmed session invalid, triggering passive logout"
@@ -383,6 +439,13 @@ impl FireCore {
                             state.auth_strike.strike_count
                         };
                         if strikes >= 2 {
+                            self.record_auth_runtime_signal(AuthRuntimeSignal {
+                                kind: AuthRuntimeSignalKind::ProbeInconclusiveEscalated,
+                                strength: AuthRuntimeSignalStrength::Terminal,
+                                source: AuthRuntimeSignalSource::Probe,
+                                operation: Some(operation.to_string()),
+                                status: None,
+                            });
                             info!(
                                 operation,
                                 strikes,
@@ -400,6 +463,13 @@ impl FireCore {
                                 message: "登录状态已失效，请重新登录。".to_string(),
                             })
                         } else {
+                            self.record_auth_runtime_signal(AuthRuntimeSignal {
+                                kind: AuthRuntimeSignalKind::ProbeInconclusive,
+                                strength: AuthRuntimeSignalStrength::Diagnostic,
+                                source: AuthRuntimeSignalSource::Probe,
+                                operation: Some(operation.to_string()),
+                                status: None,
+                            });
                             info!(
                                 operation,
                                 strikes, "probe inconclusive with few strikes, entering cooldown"
@@ -418,6 +488,13 @@ impl FireCore {
                             state.auth_strike.strike_count
                         };
                         if strikes >= 2 {
+                            self.record_auth_runtime_signal(AuthRuntimeSignal {
+                                kind: AuthRuntimeSignalKind::ProbeInconclusiveEscalated,
+                                strength: AuthRuntimeSignalStrength::Terminal,
+                                source: AuthRuntimeSignalSource::Probe,
+                                operation: Some(operation.to_string()),
+                                status: None,
+                            });
                             let _ = self
                                 .passive_logout(PassiveLogoutTrigger {
                                     source: format!("strike_probe_error:{operation}"),
@@ -426,6 +503,13 @@ impl FireCore {
                                 })
                                 .await;
                         } else {
+                            self.record_auth_runtime_signal(AuthRuntimeSignal {
+                                kind: AuthRuntimeSignalKind::ProbeInconclusive,
+                                strength: AuthRuntimeSignalStrength::Diagnostic,
+                                source: AuthRuntimeSignalSource::Probe,
+                                operation: Some(operation.to_string()),
+                                status: None,
+                            });
                             let mut state = write_rwlock(&self.session, "session");
                             state.auth_strike.enter_inconclusive_cooldown();
                         }

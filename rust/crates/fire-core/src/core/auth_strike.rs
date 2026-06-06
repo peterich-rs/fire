@@ -83,6 +83,8 @@ impl AuthStrikeState {
         self.last_strike_at = None;
         self.last_signal_strength = None;
         self.inconclusive_until = None;
+        self.probe_in_progress = false;
+        self.logging_out = false;
     }
 
     pub fn enter_inconclusive_cooldown(&mut self) {
@@ -105,6 +107,15 @@ impl AuthStrikeState {
         }
         self.passive_logout_count_24h += 1;
         self.logging_out = true;
+    }
+
+    pub fn clear_runtime_flags_after_auth_change(&mut self) {
+        self.strike_count = 0;
+        self.last_strike_at = None;
+        self.last_signal_strength = None;
+        self.inconclusive_until = None;
+        self.probe_in_progress = false;
+        self.logging_out = false;
     }
 }
 

@@ -3,9 +3,10 @@ use fire_core::{
     FireSessionPersistenceState as CoreSessionPersistenceState,
 };
 use fire_models::{
-    AppStateRefreshEvent, BootstrapArtifacts, CookieSnapshot, HomeTopicListScope,
-    LoginFinalizationResult, LoginPhase, LoginSyncInput, PassiveLogoutTrigger, PlatformCookie,
-    ProbeResult, RefreshBatch, SessionReadiness, SessionSnapshot, SignalStrength, TopicCategory,
+    AppStateRefreshEvent, BootstrapArtifacts, CloudflareChallengeRequest,
+    CloudflareChallengeResult, CookieSnapshot, HomeTopicListScope, LoginFinalizationResult,
+    LoginPhase, LoginSyncInput, PassiveLogoutTrigger, PlatformCookie, ProbeResult, RefreshBatch,
+    SessionReadiness, SessionSnapshot, SignalStrength, TopicCategory,
 };
 use fire_store::cookie_replay::CookieReplayEntry;
 
@@ -487,6 +488,46 @@ pub fn format_probe_result(result: ProbeResult) -> String {
 }
 
 #[derive(uniffi::Record, Debug, Clone)]
+pub struct CloudflareChallengeRequestState {
+    pub operation: String,
+    pub request_url: String,
+    pub origin_url: Option<String>,
+    pub is_foreground: bool,
+    pub session_epoch: u64,
+}
+
+impl From<CloudflareChallengeRequest> for CloudflareChallengeRequestState {
+    fn from(value: CloudflareChallengeRequest) -> Self {
+        Self {
+            operation: value.operation,
+            request_url: value.request_url,
+            origin_url: value.origin_url,
+            is_foreground: value.is_foreground,
+            session_epoch: value.session_epoch,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct CloudflareChallengeResultState {
+    pub completed: bool,
+    pub user_cancelled: bool,
+    pub cookies: Vec<PlatformCookieState>,
+    pub browser_user_agent: Option<String>,
+}
+
+impl From<CloudflareChallengeResultState> for CloudflareChallengeResult {
+    fn from(value: CloudflareChallengeResultState) -> Self {
+        Self {
+            completed: value.completed,
+            user_cancelled: value.user_cancelled,
+            cookies: value.cookies.into_iter().map(Into::into).collect(),
+            browser_user_agent: value.browser_user_agent,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
 pub struct CurrentUserSnapshotState {
     pub id: u64,
     pub username: String,
@@ -626,4 +667,12 @@ impl From<AppStateRefreshEvent> for AppStateRefreshEventState {
 #[uniffi::export(with_foreign)]
 pub trait AppStateRefreshHandler: Send + Sync {
     fn on_app_state_refresh_event(&self, event: AppStateRefreshEventState);
+}
+
+#[uniffi::export(with_foreign)]
+pub trait CloudflareChallengeHandler: Send + Sync {
+    fn complete_cloudflare_challenge(
+        &self,
+        request: CloudflareChallengeRequestState,
+    ) -> CloudflareChallengeResultState;
 }

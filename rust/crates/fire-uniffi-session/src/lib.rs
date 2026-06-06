@@ -10,11 +10,12 @@ pub mod records;
 
 pub use records::{
     format_probe_result, AppStateRefreshEventState, AppStateRefreshHandler, AuthRecoveryHintState,
-    BootstrapState, CookieReplayEntryState, CookieState, CurrentUserSnapshotState,
-    HomeTopicListScopeState, LoginFinalizationResultState, LoginPhaseState,
-    LoginStateDeterminationState, LoginSyncState, PassiveLogoutTriggerState, PlatformCookieState,
-    PreloadedDataStateState, RefreshBatchState, RefreshTriggerState, SessionPersistenceState,
-    SessionReadinessState, SessionState, TopicCategoryState,
+    BootstrapState, CloudflareChallengeHandler, CloudflareChallengeRequestState,
+    CloudflareChallengeResultState, CookieReplayEntryState, CookieState,
+    CurrentUserSnapshotState, HomeTopicListScopeState, LoginFinalizationResultState,
+    LoginPhaseState, LoginStateDeterminationState, LoginSyncState, PassiveLogoutTriggerState,
+    PlatformCookieState, PreloadedDataStateState, RefreshBatchState, RefreshTriggerState,
+    SessionPersistenceState, SessionReadinessState, SessionState, TopicCategoryState,
 };
 
 #[derive(uniffi::Object)]
@@ -130,6 +131,35 @@ impl FireSessionHandle {
             &self.shared.core,
             "auth_recovery_hint",
             |inner| inner.auth_recovery_hint().map(Into::into),
+        )
+    }
+
+    pub fn register_cloudflare_challenge_handler(
+        &self,
+        handler: Arc<dyn CloudflareChallengeHandler>,
+    ) -> Result<(), FireUniFfiError> {
+        run_infallible(
+            &self.shared.panic_state,
+            &self.shared.core,
+            "register_cloudflare_challenge_handler",
+            move |inner| {
+                let handler = handler.clone();
+                inner.set_cloudflare_challenge_handler(move |request| {
+                    let handler = handler.clone();
+                    async move {
+                        handler.complete_cloudflare_challenge(request.into()).into()
+                    }
+                });
+            },
+        )
+    }
+
+    pub fn unregister_cloudflare_challenge_handler(&self) -> Result<(), FireUniFfiError> {
+        run_infallible(
+            &self.shared.panic_state,
+            &self.shared.core,
+            "unregister_cloudflare_challenge_handler",
+            |inner| inner.clear_cloudflare_challenge_handler(),
         )
     }
 

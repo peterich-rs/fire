@@ -75,10 +75,12 @@ Sec-CH-UA-Platform-Version: "<version>"
 | 状态码 | 处理方式 |
 |--------|---------|
 | 200-399 | 正常处理（重定向 301/302/307/308 由 RedirectInterceptor 手动处理） |
-| 403 + `["BAD CSRF"]` | 清空 CSRF token → 重新获取 → 重试原请求（仅一次） |
-| 403 + Cloudflare HTML | 触发 CF Turnstile 验证 → 同步 cf_clearance → 重试原请求 |
+| 403 + `["BAD CSRF"]` | Rust 清空 CSRF token → 重新获取 `/session/csrf` → 重试原请求（仅一次） |
+| 403/429 + Cloudflare HTML | Rust 记录 CF 信号；前台请求可调用平台 challenge handler，回灌新 `cf_clearance` 后自动重试一次；否则返回 `CloudflareChallenge` |
 | 429 | 解析 `Retry-After` Header 或响应体中的等待时间 → 抛出 `RateLimitException` |
-| 401/403 + `not_logged_in` | 上报 auth 信号 → probe 验证会话 → 必要时触发登出 |
+| 401/403 + `not_logged_in` | 强 auth signal → probe `/session/current.json` → 仅在 probe invalid 或 escalated inconclusive 时被动登出 |
+| 401/403 + `discourse-logged-out` | 强 auth signal → 1 次即触发 probe；不直接清会话 |
+| 2xx + `discourse-logged-out` | 弱 auth signal → 记录 strike，拦截 `_t` / `_forum_session` 删除，累计 2 次后 probe |
 | 502/503/504 | 重试（最多 3 次，间隔 1s/2s/4s），耗尽后抛出 `ServerException` |
 
 ---
@@ -87,9 +89,9 @@ Sec-CH-UA-Platform-Version: "<version>"
 
 | 响应 Header | 处理方式 |
 |-------------|---------|
-| `discourse-logged-out` | 上报 auth 信号（弱信号或强信号取决于状态码） |
+| `discourse-logged-out` | `2xx` 记为弱信号；`401/403` 记为强信号；只有 probe 能最终决定是否登出 |
 | `x-discourse-username` | 更新本地缓存的用户名 |
-| `Set-Cookie: _t=...` | 更新内存中的会话 token |
+| `Set-Cookie: _t=...` | 更新 Rust CookieJar；若成功响应同时带 `discourse-logged-out`，会话 cookie 删除会被忽略并交由 probe 决策 |
 | `Retry-After` | 429 响应中解析等待秒数 |
 
 ---
@@ -117,17 +119,13 @@ Sec-CH-UA-Platform-Version: "<version>"
 所有 Discourse API 请求经过以下拦截器链（按执行顺序）：
 
 ```
- 1. SessionGuardInterceptor     — 会话代守卫，过期请求直接取消
- 2. 业务拦截器 (DiscourseService) — 认证状态检查、token 同步、CSRF/403 处理
- 3. RequestSchedulerInterceptor  — 并发控制 + 滑动窗口速率限制
- 4. AppCookieManager             — Cookie 自动管理
- 5. CronetFallbackInterceptor    — Cronet 引擎错误自动降级
- 6. RetryInterceptor             — 429/502/503/504 自动重试
- 7. RequestHeaderInterceptor     — User-Agent、CSRF Token、Sec-Fetch-* 注入
- 8. RedirectInterceptor          — 手动处理 301/302/307/308
- 9. ErrorInterceptor             — 429/502/503/504 转自定义异常 + Toast 提示
-10. CfChallengeInterceptor      — Cloudflare Turnstile 验证
-11. NetworkLogInterceptor       — 请求日志记录
+ 1. RequestEpochGuard            — 会话 epoch 守卫，丢弃过期响应
+ 2. FireCommonHeaderInterceptor  — User-Agent、CSRF、Sec-Fetch-*、登录标记注入
+ 3. FireSessionCookieJar         — Cookie ingress/egress 与同站点约束
+ 4. Rust CSRF retry wrapper      — 缺失 token 预刷新 + BAD CSRF 单次重试
+ 5. Auth signal / probe policy   — strong/weak signal、冷却期、被动登出
+ 6. Cloudflare challenge handler — 前台 WebView 验证完成后回灌 `cf_clearance` 并重试一次
+ 7. Trace / diagnostics          — 请求日志、网络追踪、host breadcrumbs
 ```
 
 ### 各拦截器职责详解

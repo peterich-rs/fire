@@ -1,5 +1,6 @@
 mod auth;
 mod auth_strike;
+mod cf_challenge;
 mod creation;
 mod interactions;
 mod messagebus;
@@ -22,7 +23,8 @@ use std::{
 };
 
 use fire_models::{
-    BootstrapArtifacts, CookieSnapshot, HomeTopicListScope, SessionSnapshot, TopicListQuery,
+    AuthRuntimeSignal, BootstrapArtifacts, CookieSnapshot, HomeTopicListScope, SessionSnapshot,
+    TopicListQuery,
 };
 use fire_store::FireStore;
 use openwire::Client;
@@ -129,6 +131,7 @@ pub(crate) struct FireSessionRuntimeState {
     pub(crate) auth_recovery_hint: Option<FireAuthRecoveryHint>,
     pub(crate) last_response_auth_change: Option<FireResponseAuthChange>,
     pub(crate) auth_strike: auth_strike::AuthStrikeState,
+    pub(crate) last_auth_runtime_signal: Option<AuthRuntimeSignal>,
 }
 
 #[derive(Clone)]
@@ -147,6 +150,8 @@ pub struct FireCore {
     home_topic_list_scope: Arc<Mutex<HomeTopicListScope>>,
     state_observers: FireStateObserverRegistry,
     csrf_refresh: Arc<TokioMutex<()>>,
+    cloudflare_challenge_handler: cf_challenge::FireCloudflareChallengeHandlerRegistry,
+    cloudflare_challenge_runtime: Arc<Mutex<cf_challenge::FireCloudflareChallengeRuntime>>,
     preloaded_data: OnceLock<Arc<crate::preloaded_data::PreloadedDataService>>,
     app_state_refresher: OnceLock<Arc<crate::app_state_refresher::AppStateRefresher>>,
 }
@@ -181,6 +186,7 @@ impl FireCore {
             auth_recovery_hint: None,
             last_response_auth_change: None,
             auth_strike: auth_strike::AuthStrikeState::default(),
+            last_auth_runtime_signal: None,
         };
         let session = Arc::new(RwLock::new(session));
         let topic_feed_store = open_topic_feed_store(workspace_path.as_deref())?;
@@ -212,6 +218,10 @@ impl FireCore {
             home_topic_list_scope: Arc::new(Mutex::new(HomeTopicListScope::default())),
             state_observers: FireStateObserverRegistry::default(),
             csrf_refresh: Arc::new(TokioMutex::new(())),
+            cloudflare_challenge_handler: cf_challenge::FireCloudflareChallengeHandlerRegistry::default(),
+            cloudflare_challenge_runtime: Arc::new(Mutex::new(
+                cf_challenge::FireCloudflareChallengeRuntime::default(),
+            )),
             preloaded_data: OnceLock::new(),
             app_state_refresher: OnceLock::new(),
         })
@@ -296,6 +306,12 @@ impl FireCore {
 
     pub fn auth_recovery_hint(&self) -> Option<FireAuthRecoveryHint> {
         read_rwlock(&self.session, "session").auth_recovery_hint
+    }
+
+    pub fn last_auth_runtime_signal(&self) -> Option<AuthRuntimeSignal> {
+        read_rwlock(&self.session, "session")
+            .last_auth_runtime_signal
+            .clone()
     }
 
     pub fn shared_client(&self) -> Client {
@@ -551,6 +567,7 @@ pub(crate) fn mutate_runtime_session_tracking_auth_change<F>(
     }
 
     let rotation = classify_auth_rotation(&before, &after);
+    session.auth_strike.clear_runtime_flags_after_auth_change();
     let stale_csrf_cleared =
         before_csrf.is_some() && session.snapshot.cookies.csrf_token == before_csrf;
     if stale_csrf_cleared {

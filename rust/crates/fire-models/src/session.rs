@@ -459,11 +459,71 @@ pub enum SignalStrength {
     Weak,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AuthRuntimeSignalStrength {
+    Diagnostic,
+    Weak,
+    Strong,
+    Terminal,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AuthRuntimeSignalSource {
+    HttpResponse,
+    SetCookieIngress,
+    Probe,
+    StartupAuthority,
+    PlatformSync,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AuthRuntimeSignalKind {
+    NotLoggedInBody,
+    DiscourseLoggedOutHeader,
+    MixedLoggedOutHeader,
+    AuthCookieDeletion,
+    MixedSignalCookieDeletionBlocked,
+    InvalidAccessForbidden,
+    BadCsrf,
+    CloudflareChallenge,
+    RateLimit,
+    ProbeValid,
+    ProbeInvalid,
+    ProbeInconclusive,
+    ProbeInconclusiveEscalated,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AuthRuntimeSignal {
+    pub kind: AuthRuntimeSignalKind,
+    pub strength: AuthRuntimeSignalStrength,
+    pub source: AuthRuntimeSignalSource,
+    pub operation: Option<String>,
+    pub status: Option<u16>,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum ProbeResult {
     Valid { username: String },
     Invalid,
     Inconclusive,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CloudflareChallengeRequest {
+    pub operation: String,
+    pub request_url: String,
+    pub origin_url: Option<String>,
+    pub is_foreground: bool,
+    pub session_epoch: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CloudflareChallengeResult {
+    pub completed: bool,
+    pub user_cancelled: bool,
+    pub cookies: Vec<PlatformCookie>,
+    pub browser_user_agent: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

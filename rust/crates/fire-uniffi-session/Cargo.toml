@@ -11,6 +11,7 @@ publish = false
 crate-type = ["rlib"]
 
 [dependencies]
+async-trait.workspace = true
 fire-core = { path = "../fire-core" }
 fire-models = { path = "../fire-models" }
 fire-store = { path = "../fire-store" }

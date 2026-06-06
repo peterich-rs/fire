@@ -512,6 +512,58 @@ async fn fetch_topic_list_surfaces_cloudflare_challenge_error() {
 }
 
 #[tokio::test]
+async fn fetch_topic_list_retries_once_after_cloudflare_challenge_completion() {
+    let responses = vec![
+        raw_cloudflare_challenge_response(
+            403,
+            r#"<html><head><title>Just a moment...</title></head><body>__cf_chl_opt</body></html>"#,
+        ),
+        raw_json_response(200, "application/json", &sample_latest_json()),
+    ];
+    let server = TestServer::spawn(responses).await.expect("server");
+    let core = FireCore::new(FireCoreConfig {
+        base_url: server.base_url(),
+        workspace_path: None,
+    })
+    .expect("core");
+    core.set_cloudflare_challenge_handler(|request| async move {
+        assert_eq!(request.operation, "fetch topic list");
+        assert!(request.request_url.contains("/latest.json"));
+        fire_models::CloudflareChallengeResult {
+            completed: true,
+            user_cancelled: false,
+            cookies: vec![PlatformCookie {
+                name: "cf_clearance".into(),
+                value: "new-clearance".into(),
+                domain: Some("linux.do".into()),
+                path: Some("/".into()),
+                expires_at_unix_ms: None,
+                same_site: None,
+            }],
+            browser_user_agent: Some("FireBrowser/1.0".into()),
+        }
+    });
+
+    let response = core
+        .fetch_topic_list(TopicListQuery {
+            kind: TopicListKind::Latest,
+            ..TopicListQuery::default()
+        })
+        .await
+        .expect("cloudflare challenge should retry once");
+    let requests = server.shutdown_with_requests().await;
+
+    assert_eq!(response.rows.len(), 1);
+    assert_eq!(requests.len(), 2);
+    let snapshot = core.snapshot();
+    assert_eq!(snapshot.cookies.cf_clearance.as_deref(), Some("new-clearance"));
+    assert_eq!(
+        snapshot.browser_user_agent.as_deref(),
+        Some("FireBrowser/1.0")
+    );
+}
+
+#[tokio::test]
 async fn fetch_topic_list_surfaces_rate_limited_cloudflare_challenge_error() {
     let responses = vec![raw_cloudflare_challenge_response(
         429,

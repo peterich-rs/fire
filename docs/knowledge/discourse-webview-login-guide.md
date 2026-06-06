@@ -192,7 +192,8 @@ Discourse 首页 HTML 中嵌入了 `<div id="data-preloaded" data-preloaded="...
 2. 等待初始 Cookie 回放完成
 
 3. 执行边界同步：WebView → CookieJar
-   - 允许低置信度会话 Cookie（allowLowConfidenceSessionCookies = true）
+   - 默认拒绝低置信度会话 Cookie
+   - Android 因 `CookieManager` 只能拿到 name/value，登录收口仍保留低置信度例外
 
 4. 从 WebView 读取 _t cookie
    - 候选 URL: baseUrl, baseUrl + "/", currentUrl
@@ -414,7 +415,8 @@ new MutationObserver(function(_, obs) {
    - WebView 返回的 Cookie 如果缺少 domain/path/secure/httpOnly/expires/sameSite
      所有属性，视为"低置信度"快照
    - 默认不同步低置信度的会话 Cookie
-   - 登录时例外：allowLowConfidenceSessionCookies = true
+   - iOS 登录收口已改为高置信度优先
+   - Android 登录收口仍保留 `allowLowConfidenceSessionCookies = true` 例外，直到平台能稳定提供 domain/path/flags
 
 5. Domain 处理（平台差异大，详见第 11 节）：
    - Android 会话 Cookie：强制设为 host-only（domain = null）

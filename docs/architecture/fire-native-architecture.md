@@ -123,7 +123,7 @@ Rich text render instruction generation.
 
 Core orchestration engine. Owns session state, networking, API orchestration, and delegates to subsystems.
 
-- **Networking**: openwire client + interceptor chain (CSRF / retry / Cloudflare detection / logging)
+- **Networking**: openwire client + request epoch guard + CSRF retry + auth signal/probe policy + Cloudflare challenge handler retry + logging
 - **Session management**: Cookie sync, Bootstrap parsing, login state machine
 - **API orchestration**: topic list, topic detail, post CRUD, user, search, notifications
 - **MessageBus**: long-polling, subscription management, channel routing
@@ -181,7 +181,7 @@ Rust FireCoreError              →  FireUniFfiError           →  Platform beh
 Network                         →  Network                   →  Show network error
 LoginRequired                   →  LoginRequired             →  Surface request failure; no automatic logout/reset
 StaleSessionResponse            →  StaleSessionResponse      →  Rust auto-retry, platform unaware
-CloudflareChallenge             →  CloudflareChallenge       →  Surface request failure; no automatic challenge WebView
+CloudflareChallenge             →  CloudflareChallenge       →  Foreground-capable hosts may complete a platform-owned challenge WebView and let Rust retry once; otherwise surface the request failure
 HttpStatus(429)                 →  HttpStatus                →  Rust auto-backoff-retry
 Storage                         →  Storage                   →  Degrade to no-cache mode
 Other                           →  Runtime                   →  Generic error toast

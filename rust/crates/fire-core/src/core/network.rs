@@ -1,5 +1,9 @@
 use std::sync::{Arc, RwLock};
 
+use fire_models::{
+    AuthRuntimeSignal, AuthRuntimeSignalKind, AuthRuntimeSignalSource, AuthRuntimeSignalStrength,
+    CloudflareChallengeRequest,
+};
 use http::{
     header::{HeaderMap, HeaderName, HeaderValue, ACCEPT_LANGUAGE, ORIGIN, REFERER, USER_AGENT},
     Method, Request, Response, StatusCode,
@@ -243,6 +247,89 @@ pub(crate) struct TracedRequest {
     pub(crate) trace_id: u64,
     pub(crate) operation: &'static str,
     pub(crate) request: Request<RequestBody>,
+}
+
+fn clone_request_for_retry(
+    diagnostics: &Arc<FireDiagnosticsStore>,
+    operation: &'static str,
+    request: &Request<RequestBody>,
+) -> Option<TracedRequest> {
+    let cloned_body = request.body().try_clone()?;
+    let request_profile = request.extensions().get::<FireRequestProfile>().copied();
+    let request_epoch = request.extensions().get::<FireRequestEpoch>().copied();
+    let mut builder = Request::builder()
+        .method(request.method().clone())
+        .uri(request.uri().clone())
+        .version(request.version());
+    for (name, value) in request.headers() {
+        builder = builder.header(name, value);
+    }
+    let mut request = builder.body(cloned_body).ok()?;
+    if let Some(profile) = request_profile {
+        request.extensions_mut().insert(profile);
+    }
+    if let Some(epoch) = request_epoch {
+        request.extensions_mut().insert(epoch);
+    }
+    let trace_id = diagnostics.prepare_request_trace(operation, &mut request);
+    Some(TracedRequest {
+        trace_id,
+        operation,
+        request,
+    })
+}
+
+fn response_from_parts<B>(parts: http::response::Parts, body: B) -> Response<ResponseBody>
+where
+    ResponseBody: From<B>,
+{
+    Response::from_parts(parts, body.into())
+}
+
+fn request_url_string(request: &Request<RequestBody>) -> String {
+    request.uri().to_string()
+}
+
+fn request_origin_url(base_url: &Url, request: &Request<RequestBody>) -> Option<String> {
+    let request_url = base_url.join(request.uri().path()).ok()?;
+    let path = request_url.path();
+
+    let canonical_path = if path == "/latest.json" {
+        Some("/latest".to_string())
+    } else if path.starts_with("/c/") && path.ends_with(".json") {
+        Some(path.trim_end_matches(".json").to_string())
+    } else if path.starts_with("/tags/") && path.ends_with(".json") {
+        Some(path.trim_end_matches(".json").to_string())
+    } else if path.starts_with("/t/") && path.ends_with(".json") {
+        Some(path.trim_end_matches(".json").to_string())
+    } else {
+        None
+    }?;
+
+    let mut url = base_url.clone();
+    url.set_path(&canonical_path);
+    url.set_query(None);
+    url.set_fragment(None);
+    Some(url.to_string())
+}
+
+fn should_present_foreground_challenge(
+    operation: &'static str,
+    profile: FireCallProfile,
+) -> bool {
+    if profile == FireCallProfile::MessageBusPoll {
+        return false;
+    }
+
+    !matches!(
+        operation,
+        "refresh bootstrap"
+            | "fetch site metadata"
+            | "refresh csrf token"
+            | "fetch recent notifications"
+            | "fetch notifications"
+            | "report topic timings"
+    ) && !operation.contains("message bus")
 }
 
 impl FireNetworkLayer {
@@ -637,9 +724,107 @@ impl FireCore {
         &self,
         traced: TracedRequest,
     ) -> Result<(u64, Response<ResponseBody>), FireCoreError> {
-        self.network
+        let has_challenge_handler = self.cloudflare_challenge_handler.get().is_some();
+        let retry_request = if has_challenge_handler {
+            clone_request_for_retry(&self.diagnostics, traced.operation, &traced.request)
+        } else {
+            None
+        };
+        let request_url = request_url_string(&traced.request);
+        let origin_url = request_origin_url(&self.base_url, &traced.request);
+        let is_foreground =
+            should_present_foreground_challenge(traced.operation, FireCallProfile::DefaultApi);
+        let operation = traced.operation;
+        let (trace_id, response) = self
+            .network
             .execute_traced(traced, FireCallProfile::DefaultApi)
+            .await?;
+
+        if !has_challenge_handler {
+            return Ok((trace_id, response));
+        }
+
+        let status = response.status();
+        if status != StatusCode::FORBIDDEN && status != StatusCode::TOO_MANY_REQUESTS {
+            return Ok((trace_id, response));
+        }
+
+        let (parts, body) = response.into_parts();
+        let body = body
+            .bytes()
             .await
+            .map_err(|source| FireCoreError::Network { source })?;
+        let body_text = String::from_utf8_lossy(&body);
+        if !is_cloudflare_challenge_response(status.as_u16(), &parts.headers, &body_text) {
+            return Ok((trace_id, response_from_parts(parts, body)));
+        }
+
+        self.diagnostics
+            .record_http_status_error(trace_id, status.as_u16(), &body_text);
+        self.record_auth_runtime_signal(AuthRuntimeSignal {
+            kind: AuthRuntimeSignalKind::CloudflareChallenge,
+            strength: AuthRuntimeSignalStrength::Diagnostic,
+            source: AuthRuntimeSignalSource::HttpResponse,
+            operation: Some(operation.to_string()),
+            status: Some(status.as_u16()),
+        });
+        let handler = match self.cloudflare_challenge_handler.get() {
+            Some(handler) => handler,
+            None => {
+                return Ok((trace_id, response_from_parts(parts, body)));
+            }
+        };
+        {
+            let mut runtime = self
+                .cloudflare_challenge_runtime
+                .lock()
+                .expect("cloudflare challenge runtime mutex poisoned");
+            if !runtime.can_start() {
+                return Err(FireCoreError::CloudflareChallenge { operation });
+            }
+            runtime.begin();
+        }
+
+        let challenge_result = handler(CloudflareChallengeRequest {
+            operation: operation.to_string(),
+            request_url,
+            origin_url,
+            is_foreground,
+            session_epoch: self.current_session_epoch(),
+        })
+        .await;
+        let before_clearance = self.snapshot().cookies.cf_clearance.clone();
+        let resolved = if !challenge_result.completed || challenge_result.user_cancelled {
+            Err(FireCoreError::CloudflareChallenge { operation })
+        } else {
+            let session = self.complete_cloudflare_challenge(
+                challenge_result.cookies,
+                challenge_result.browser_user_agent,
+            );
+            let has_new_clearance = session.cookies.cf_clearance != before_clearance
+                && session.cookies.has_cloudflare_clearance();
+            if !has_new_clearance {
+                Err(FireCoreError::CloudflareChallenge { operation })
+            } else if let Some(mut retry) = retry_request {
+                retry
+                    .request
+                    .extensions_mut()
+                    .insert(FireRequestEpoch(self.current_session_epoch()));
+                self.network
+                    .execute_traced(retry, FireCallProfile::DefaultApi)
+                    .await
+            } else {
+                Err(FireCoreError::CloudflareChallenge { operation })
+            }
+        };
+        {
+            let mut runtime = self
+                .cloudflare_challenge_runtime
+                .lock()
+                .expect("cloudflare challenge runtime mutex poisoned");
+            runtime.finish(resolved.is_ok());
+        }
+        resolved
     }
 
     pub(crate) async fn read_response_text(
@@ -742,6 +927,16 @@ impl FireCore {
             return Err(error);
         }
 
+        if let Some(signal) = response_auth_runtime_signal(
+            StatusCode::FORBIDDEN,
+            &response_headers,
+            &invalidation,
+            &body,
+            operation,
+        ) {
+            let _ = self.process_auth_runtime_signal(signal, operation).await;
+        }
+
         if !is_bad_csrf_body(&body) {
             warn!(
                 operation,
@@ -823,26 +1018,35 @@ impl FireCore {
             .await
     }
 
-    pub(crate) async fn classify_and_process_auth_strike(
+    async fn classify_and_process_auth_strike(
         &self,
         status: StatusCode,
         invalidation: &LoginInvalidationSignal,
         body: &str,
         operation: &'static str,
     ) -> Option<FireCoreError> {
-        let has_not_logged_in_error = not_logged_in_message(status.as_u16(), body).is_some();
-        let has_discourse_logged_out = invalidation.discourse_logged_out;
-        let is_4xx = status.is_client_error();
-
-        let strength = if has_not_logged_in_error || (is_4xx && has_discourse_logged_out) {
-            fire_models::SignalStrength::Strong
-        } else if has_discourse_logged_out {
-            fire_models::SignalStrength::Weak
-        } else {
+        let signal = if is_invalid_access_forbidden(status, body) {
             return None;
-        };
-
-        self.process_auth_strike_signal(strength, operation).await
+        } else if not_logged_in_message(status.as_u16(), body).is_some() {
+            Some(AuthRuntimeSignal {
+                kind: AuthRuntimeSignalKind::NotLoggedInBody,
+                strength: AuthRuntimeSignalStrength::Strong,
+                source: AuthRuntimeSignalSource::HttpResponse,
+                operation: Some(operation.to_string()),
+                status: Some(status.as_u16()),
+            })
+        } else if status.is_client_error() && invalidation.discourse_logged_out {
+            Some(AuthRuntimeSignal {
+                kind: AuthRuntimeSignalKind::DiscourseLoggedOutHeader,
+                strength: AuthRuntimeSignalStrength::Strong,
+                source: AuthRuntimeSignalSource::HttpResponse,
+                operation: Some(operation.to_string()),
+                status: Some(status.as_u16()),
+            })
+        } else {
+            None
+        }?;
+        self.process_auth_runtime_signal(signal, operation).await
     }
 }
 
@@ -853,6 +1057,14 @@ pub(crate) async fn expect_success(
     response: Response<ResponseBody>,
 ) -> Result<Response<ResponseBody>, FireCoreError> {
     if response.status().is_success() {
+        let invalidation = response_login_invalidation_signal(response.headers());
+        if let Some(signal) = success_auth_runtime_signal(
+            response.status(),
+            &invalidation,
+            operation,
+        ) {
+            let _ = core.process_auth_runtime_signal(signal, operation).await;
+        }
         return Ok(response);
     }
 
@@ -899,6 +1111,15 @@ pub(crate) async fn expect_success(
         }
         return Err(error);
     }
+    if let Some(signal) = response_auth_runtime_signal(
+        response_status,
+        &response_headers,
+        &invalidation,
+        &body,
+        operation,
+    ) {
+        let _ = core.process_auth_runtime_signal(signal, operation).await;
+    }
     Err(classify_http_status_error(
         operation,
         status,
@@ -939,12 +1160,16 @@ pub(crate) fn classify_http_status_error(
     }
 }
 
+fn discourse_error_envelope(body: &str) -> Option<DiscourseErrorEnvelope> {
+    serde_json::from_str(body).ok()
+}
+
 fn not_logged_in_message(status: u16, body: &str) -> Option<String> {
     if status != StatusCode::UNAUTHORIZED.as_u16() && status != StatusCode::FORBIDDEN.as_u16() {
         return None;
     }
 
-    let envelope: DiscourseErrorEnvelope = serde_json::from_str(body).ok()?;
+    let envelope = discourse_error_envelope(body)?;
     if envelope.error_type.as_deref() != Some("not_logged_in") {
         return None;
     }
@@ -954,7 +1179,100 @@ fn not_logged_in_message(status: u16, body: &str) -> Option<String> {
             .first_error_message()
             .unwrap_or("需要登录才能执行此操作。")
             .to_string(),
-    )
+        )
+}
+
+fn is_invalid_access_forbidden(status: StatusCode, body: &str) -> bool {
+    status == StatusCode::FORBIDDEN
+        && discourse_error_envelope(body)
+            .and_then(|envelope| envelope.error_type)
+            .as_deref()
+            == Some("invalid_access")
+}
+
+fn success_auth_runtime_signal(
+    status: StatusCode,
+    invalidation: &LoginInvalidationSignal,
+    operation: &'static str,
+) -> Option<AuthRuntimeSignal> {
+    if !status.is_success() {
+        return None;
+    }
+
+    if invalidation.discourse_logged_out {
+        return Some(AuthRuntimeSignal {
+            kind: if invalidation.has_auth_cookie_deletion() {
+                AuthRuntimeSignalKind::MixedSignalCookieDeletionBlocked
+            } else {
+                AuthRuntimeSignalKind::MixedLoggedOutHeader
+            },
+            strength: AuthRuntimeSignalStrength::Weak,
+            source: AuthRuntimeSignalSource::HttpResponse,
+            operation: Some(operation.to_string()),
+            status: Some(status.as_u16()),
+        });
+    }
+
+    if invalidation.has_auth_cookie_deletion() {
+        return Some(AuthRuntimeSignal {
+            kind: AuthRuntimeSignalKind::AuthCookieDeletion,
+            strength: AuthRuntimeSignalStrength::Diagnostic,
+            source: AuthRuntimeSignalSource::SetCookieIngress,
+            operation: Some(operation.to_string()),
+            status: Some(status.as_u16()),
+        });
+    }
+
+    None
+}
+
+fn response_auth_runtime_signal(
+    status: StatusCode,
+    headers: &HeaderMap,
+    invalidation: &LoginInvalidationSignal,
+    body: &str,
+    operation: &'static str,
+) -> Option<AuthRuntimeSignal> {
+    let signal = if is_cloudflare_challenge_response(status.as_u16(), headers, body) {
+        Some((
+            AuthRuntimeSignalKind::CloudflareChallenge,
+            AuthRuntimeSignalStrength::Diagnostic,
+        ))
+    } else if is_bad_csrf_body(body) {
+        Some((AuthRuntimeSignalKind::BadCsrf, AuthRuntimeSignalStrength::Diagnostic))
+    } else if is_invalid_access_forbidden(status, body) {
+        Some((
+            AuthRuntimeSignalKind::InvalidAccessForbidden,
+            AuthRuntimeSignalStrength::Diagnostic,
+        ))
+    } else if not_logged_in_message(status.as_u16(), body).is_some() {
+        Some((
+            AuthRuntimeSignalKind::NotLoggedInBody,
+            AuthRuntimeSignalStrength::Strong,
+        ))
+    } else if status.is_client_error() && invalidation.discourse_logged_out {
+        Some((
+            AuthRuntimeSignalKind::DiscourseLoggedOutHeader,
+            AuthRuntimeSignalStrength::Strong,
+        ))
+    } else if invalidation.has_auth_cookie_deletion() {
+        Some((
+            AuthRuntimeSignalKind::AuthCookieDeletion,
+            AuthRuntimeSignalStrength::Diagnostic,
+        ))
+    } else if status == StatusCode::TOO_MANY_REQUESTS {
+        Some((AuthRuntimeSignalKind::RateLimit, AuthRuntimeSignalStrength::Diagnostic))
+    } else {
+        None
+    }?;
+
+    Some(AuthRuntimeSignal {
+        kind: signal.0,
+        strength: signal.1,
+        source: AuthRuntimeSignalSource::HttpResponse,
+        operation: Some(operation.to_string()),
+        status: Some(status.as_u16()),
+    })
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -969,6 +1287,10 @@ impl LoginInvalidationSignal {
         // Deleted auth cookies are useful diagnostics, but only explicit server
         // invalidation signals should force local logout.
         self.discourse_logged_out
+    }
+
+    fn has_auth_cookie_deletion(self) -> bool {
+        self.cleared_t_cookie || self.cleared_forum_session
     }
 }
 
@@ -1017,8 +1339,11 @@ fn response_login_invalidation_error(
     invalidation: LoginInvalidationSignal,
     body: &str,
 ) -> Option<FireCoreError> {
+    if is_invalid_access_forbidden(status, body) {
+        return None;
+    }
     let login_required_message = not_logged_in_message(status.as_u16(), body);
-    let header_invalidates_login = invalidation.any() && status == StatusCode::UNAUTHORIZED;
+    let header_invalidates_login = invalidation.any() && status.is_client_error();
     if !header_invalidates_login && login_required_message.is_none() {
         return None;
     }

@@ -1,4 +1,5 @@
 use fire_models::{
+    AuthRuntimeSignal, AuthRuntimeSignalKind, AuthRuntimeSignalSource, AuthRuntimeSignalStrength,
     BootstrapArtifacts, CookieSnapshot, LoginFinalizationResult, LoginSyncInput, PlatformCookie,
     SessionSnapshot,
 };
@@ -8,6 +9,34 @@ use super::{FireAuthChangeSource, FireCore};
 use crate::{parsing::parse_home_state, sync_utils::read_rwlock};
 
 impl FireCore {
+    pub fn complete_cloudflare_challenge(
+        &self,
+        cookies: Vec<PlatformCookie>,
+        browser_user_agent: Option<String>,
+    ) -> SessionSnapshot {
+        info!(
+            cookie_count = cookies.len(),
+            "completing cloudflare challenge via platform cookie sync"
+        );
+        self.update_session_advancing_epoch_if_auth_changed(
+            "complete cloudflare challenge",
+            FireAuthChangeSource::PlatformSync,
+            |session| {
+                session.cookies.merge_platform_cookies(&cookies);
+                if let Some(browser_user_agent) =
+                    browser_user_agent.clone().filter(|value| !value.is_empty())
+                {
+                    session.browser_user_agent = Some(browser_user_agent);
+                }
+                debug!(
+                    phase = ?session.login_phase(),
+                    readiness = ?session.readiness(),
+                    "applied cloudflare challenge result"
+                );
+            },
+        )
+    }
+
     pub fn merge_platform_cookies(&self, cookies: Vec<PlatformCookie>) -> SessionSnapshot {
         info!(
             cookie_count = cookies.len(),
@@ -329,6 +358,13 @@ impl FireCore {
         match self.probe_session().await {
             Ok(probe) => match probe {
                 fire_models::ProbeResult::Valid { username } => {
+                    self.record_auth_runtime_signal(AuthRuntimeSignal {
+                        kind: AuthRuntimeSignalKind::ProbeValid,
+                        strength: AuthRuntimeSignalStrength::Terminal,
+                        source: AuthRuntimeSignalSource::StartupAuthority,
+                        operation: Some("determine_login_state_with_probe".to_string()),
+                        status: None,
+                    });
                     self.update_session(|session| {
                         session.bootstrap.current_username = Some(username.clone());
                     });
@@ -338,14 +374,37 @@ impl FireCore {
                     }
                 }
                 fire_models::ProbeResult::Invalid => {
+                    self.record_auth_runtime_signal(AuthRuntimeSignal {
+                        kind: AuthRuntimeSignalKind::ProbeInvalid,
+                        strength: AuthRuntimeSignalStrength::Terminal,
+                        source: AuthRuntimeSignalSource::StartupAuthority,
+                        operation: Some("determine_login_state_with_probe".to_string()),
+                        status: None,
+                    });
                     let _ = self.logout_local(true);
                     fire_models::LoginStateDetermination::SessionExpired
                 }
                 fire_models::ProbeResult::Inconclusive => {
+                    self.record_auth_runtime_signal(AuthRuntimeSignal {
+                        kind: AuthRuntimeSignalKind::ProbeInconclusive,
+                        strength: AuthRuntimeSignalStrength::Diagnostic,
+                        source: AuthRuntimeSignalSource::StartupAuthority,
+                        operation: Some("determine_login_state_with_probe".to_string()),
+                        status: None,
+                    });
                     fire_models::LoginStateDetermination::NetworkErrorPreserveState
                 }
             },
-            Err(_) => fire_models::LoginStateDetermination::NetworkErrorPreserveState,
+            Err(_) => {
+                self.record_auth_runtime_signal(AuthRuntimeSignal {
+                    kind: AuthRuntimeSignalKind::ProbeInconclusive,
+                    strength: AuthRuntimeSignalStrength::Diagnostic,
+                    source: AuthRuntimeSignalSource::StartupAuthority,
+                    operation: Some("determine_login_state_with_probe".to_string()),
+                    status: None,
+                });
+                fire_models::LoginStateDetermination::NetworkErrorPreserveState
+            }
         }
     }
 }

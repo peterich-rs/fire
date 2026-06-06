@@ -153,187 +153,6 @@ final class FireTopicDetailStoreTests: XCTestCase {
         XCTAssertEqual(nextRange, 430..<630)
     }
 
-    func testLoadedResponsePageAppliesOnlyToCurrentCursor() {
-        let cursor = TopicResponseCursorState(
-            topicId: 42,
-            sessionId: 7,
-            nextRootOffset: 10,
-            nextBranchOffset: 0,
-            pageSize: 10,
-            rowPageSize: 40
-        )
-
-        XCTAssertTrue(
-            FireTopicDetailStore.shouldApplyLoadedResponsePage(
-                expectedCursor: cursor,
-                currentCursor: cursor
-            )
-        )
-        XCTAssertFalse(
-            FireTopicDetailStore.shouldApplyLoadedResponsePage(
-                expectedCursor: cursor,
-                currentCursor: nil
-            )
-        )
-        XCTAssertFalse(
-            FireTopicDetailStore.shouldApplyLoadedResponsePage(
-                expectedCursor: cursor,
-                currentCursor: TopicResponseCursorState(
-                    topicId: 42,
-                    sessionId: 8,
-                    nextRootOffset: 0,
-                    nextBranchOffset: 0,
-                    pageSize: 10,
-                    rowPageSize: 40
-                )
-            )
-        )
-    }
-
-    func testMergedLoadedTopicResponsePageClearsSameCursorAcrossPureOverlap() {
-        let existingRows = [
-            makeResponseRow(postNumber: 2, parentPostNumber: 1, depth: 1, username: "reply-a"),
-            makeResponseRow(postNumber: 3, parentPostNumber: 1, depth: 1, username: "reply-b"),
-        ]
-        let cursor = TopicResponseCursorState(
-            topicId: 42,
-            sessionId: 7,
-            nextRootOffset: 10,
-            nextBranchOffset: 0,
-            pageSize: 10,
-            rowPageSize: 40
-        )
-        let incoming = TopicResponsePageState(
-            rows: [existingRows[1]],
-            nextCursor: cursor,
-            totalRootCount: 100,
-            loadedRootCount: 10,
-            totalResponseCount: 120,
-            focusedPostNumber: nil
-        )
-
-        let merged = FireTopicDetailStore.mergedLoadedTopicResponsePage(
-            incoming,
-            bodyPostID: 1,
-            existingRows: existingRows,
-            expectedCursor: cursor,
-            fallbackFocusedPostNumber: 88
-        )
-
-        XCTAssertEqual(merged.rows.map { $0.post.postNumber }, [2, 3])
-        XCTAssertNil(merged.nextCursor)
-        XCTAssertEqual(merged.focusedPostNumber, 88)
-    }
-
-    func testMergedLoadedTopicResponsePagePreservesAdvancedCursorAcrossPureOverlap() {
-        let existingRows = [
-            makeResponseRow(postNumber: 2, parentPostNumber: 1, depth: 1, username: "reply-a"),
-            makeResponseRow(postNumber: 3, parentPostNumber: 1, depth: 1, username: "reply-b"),
-        ]
-        let expectedCursor = TopicResponseCursorState(
-            topicId: 42,
-            sessionId: 7,
-            nextRootOffset: 5,
-            nextBranchOffset: 0,
-            pageSize: 10,
-            rowPageSize: 40
-        )
-        let advancedCursor = TopicResponseCursorState(
-            topicId: 42,
-            sessionId: 7,
-            nextRootOffset: 10,
-            nextBranchOffset: 0,
-            pageSize: 10,
-            rowPageSize: 40
-        )
-        let incoming = TopicResponsePageState(
-            rows: [existingRows[1]],
-            nextCursor: advancedCursor,
-            totalRootCount: 100,
-            loadedRootCount: 10,
-            totalResponseCount: 120,
-            focusedPostNumber: nil
-        )
-
-        let merged = FireTopicDetailStore.mergedLoadedTopicResponsePage(
-            incoming,
-            bodyPostID: 1,
-            existingRows: existingRows,
-            expectedCursor: expectedCursor,
-            fallbackFocusedPostNumber: 88
-        )
-
-        XCTAssertEqual(merged.rows.map { $0.post.postNumber }, [2, 3])
-        XCTAssertEqual(merged.nextCursor, advancedCursor)
-        XCTAssertEqual(merged.focusedPostNumber, 88)
-    }
-
-    func testMergedLoadedTopicResponsePageClearsCursorForEmptyIncomingPage() {
-        let existingRows = [
-            makeResponseRow(postNumber: 2, parentPostNumber: 1, depth: 1, username: "reply-a"),
-        ]
-        let expectedCursor = TopicResponseCursorState(
-            topicId: 42,
-            sessionId: 7,
-            nextRootOffset: 5,
-            nextBranchOffset: 0,
-            pageSize: 10,
-            rowPageSize: 40
-        )
-        let advancedCursor = TopicResponseCursorState(
-            topicId: 42,
-            sessionId: 7,
-            nextRootOffset: 10,
-            nextBranchOffset: 0,
-            pageSize: 10,
-            rowPageSize: 40
-        )
-        let incoming = TopicResponsePageState(
-            rows: [],
-            nextCursor: advancedCursor,
-            totalRootCount: 100,
-            loadedRootCount: 10,
-            totalResponseCount: 120,
-            focusedPostNumber: nil
-        )
-
-        let merged = FireTopicDetailStore.mergedLoadedTopicResponsePage(
-            incoming,
-            bodyPostID: 1,
-            existingRows: existingRows,
-            expectedCursor: expectedCursor
-        )
-
-        XCTAssertEqual(merged.rows.map { $0.post.postNumber }, [2])
-        XCTAssertNil(merged.nextCursor)
-    }
-
-    func testMergedLoadedTopicResponsePageClearsCursorOnlyWhenRustCursorIsNil() {
-        let existingRows = [
-            makeResponseRow(postNumber: 2, parentPostNumber: 1, depth: 1, username: "reply-a"),
-        ]
-        let incoming = TopicResponsePageState(
-            rows: [
-                makeResponseRow(postNumber: 1, parentPostNumber: nil, depth: 0, username: "body"),
-                makeResponseRow(postNumber: 3, parentPostNumber: 1, depth: 1, username: "reply-b"),
-            ],
-            nextCursor: nil,
-            totalRootCount: 2,
-            loadedRootCount: 2,
-            totalResponseCount: 2,
-            focusedPostNumber: nil
-        )
-
-        let merged = FireTopicDetailStore.mergedLoadedTopicResponsePage(
-            incoming,
-            bodyPostID: 1,
-            existingRows: existingRows
-        )
-
-        XCTAssertEqual(merged.rows.map { $0.post.postNumber }, [2, 3])
-        XCTAssertNil(merged.nextCursor)
-    }
-
     func testRenderStateCoverageRequiresOriginalRowAndAllRenderedPosts() {
         let original = TopicPostState(
             id: 100,
@@ -453,101 +272,26 @@ final class FireTopicDetailStoreTests: XCTestCase {
         )
     }
 
-    func testReconcileTopicResponsePageStatePreservesLoadedTailAcrossPartialRefresh() {
-        let existingRows = [
-            makeResponseRow(postNumber: 2, parentPostNumber: 1, depth: 1, username: "reply-a"),
-            makeResponseRow(postNumber: 3, parentPostNumber: 1, depth: 1, username: "reply-b"),
-            makeResponseRow(postNumber: 4, parentPostNumber: 3, depth: 2, username: "reply-c"),
-            makeResponseRow(postNumber: 5, parentPostNumber: 1, depth: 1, username: "reply-d"),
-        ]
-        let incomingCursor = TopicResponseCursorState(
-            topicId: 42,
-            sessionId: 8,
-            nextRootOffset: 10,
-            nextBranchOffset: 0,
-            pageSize: 10,
-            rowPageSize: 40
-        )
-        let incoming = TopicResponsePageState(
-            rows: [
-                makeResponseRow(postNumber: 2, parentPostNumber: 1, depth: 1, username: "reply-a-updated"),
-                makeResponseRow(postNumber: 3, parentPostNumber: 1, depth: 1, username: "reply-b"),
-            ],
-            nextCursor: incomingCursor,
-            totalRootCount: 99,
-            loadedRootCount: 2,
-            totalResponseCount: 8,
-            focusedPostNumber: nil
-        )
-
-        let reconciled = FireTopicDetailStore.reconcileTopicResponsePageState(
-            incoming,
-            bodyPostID: 1,
-            existingRows: existingRows
-        )
-
-        XCTAssertEqual(reconciled.rows.map { $0.post.postNumber }, [2, 3, 4, 5])
-        XCTAssertEqual(reconciled.rows.first?.post.username, "reply-a-updated")
-        XCTAssertEqual(reconciled.nextCursor, incomingCursor)
-    }
-
-    func testReconcileTopicResponsePageStateKeepsNewPrefixAndExistingTail() {
-        let existingRows = [
-            makeResponseRow(postNumber: 2, parentPostNumber: 1, depth: 1, username: "reply-a"),
-            makeResponseRow(postNumber: 3, parentPostNumber: 1, depth: 1, username: "reply-b"),
-            makeResponseRow(postNumber: 4, parentPostNumber: 1, depth: 1, username: "reply-c"),
-            makeResponseRow(postNumber: 5, parentPostNumber: 1, depth: 1, username: "reply-d"),
-        ]
-        let incoming = TopicResponsePageState(
-            rows: [
-                makeResponseRow(postNumber: 6, parentPostNumber: 1, depth: 1, username: "reply-new"),
-                makeResponseRow(postNumber: 2, parentPostNumber: 1, depth: 1, username: "reply-a"),
-                makeResponseRow(postNumber: 3, parentPostNumber: 1, depth: 1, username: "reply-b"),
-                makeResponseRow(postNumber: 4, parentPostNumber: 1, depth: 1, username: "reply-c"),
-            ],
-            nextCursor: TopicResponseCursorState(
-                topicId: 42,
-                sessionId: 7,
-                nextRootOffset: 10,
-                nextBranchOffset: 0,
-                pageSize: 10,
-                rowPageSize: 40
-            ),
-            totalRootCount: 99,
-            loadedRootCount: 4,
-            totalResponseCount: 8,
-            focusedPostNumber: nil
-        )
-
-        let reconciled = FireTopicDetailStore.reconcileTopicResponsePageState(
-            incoming,
-            bodyPostID: 1,
-            existingRows: existingRows
-        )
-
-        XCTAssertEqual(reconciled.rows.map { $0.post.postNumber }, [6, 2, 3, 4, 5])
-    }
-
-    func testNextResponsePageLoadGateAllowsLoadedIdleTopic() {
-        XCTAssertTrue(FireTopicDetailStore.canStartNextTopicResponsePageLoad(
+    func testNextSourcePageLoadGateAllowsLoadedIdleTopic() {
+        XCTAssertTrue(FireTopicDetailStore.canStartNextTopicSourcePageLoad(
             hasMoreTopicPosts: true,
             isLoadingMoreTopicPosts: false,
             hasPendingPreloadTask: false,
             hasLoadedDetail: true
         ))
-        XCTAssertFalse(FireTopicDetailStore.canStartNextTopicResponsePageLoad(
+        XCTAssertFalse(FireTopicDetailStore.canStartNextTopicSourcePageLoad(
             hasMoreTopicPosts: true,
             isLoadingMoreTopicPosts: true,
             hasPendingPreloadTask: false,
             hasLoadedDetail: true
         ))
-        XCTAssertFalse(FireTopicDetailStore.canStartNextTopicResponsePageLoad(
+        XCTAssertFalse(FireTopicDetailStore.canStartNextTopicSourcePageLoad(
             hasMoreTopicPosts: true,
             isLoadingMoreTopicPosts: false,
             hasPendingPreloadTask: true,
             hasLoadedDetail: true
         ))
-        XCTAssertFalse(FireTopicDetailStore.canStartNextTopicResponsePageLoad(
+        XCTAssertFalse(FireTopicDetailStore.canStartNextTopicSourcePageLoad(
             hasMoreTopicPosts: false,
             isLoadingMoreTopicPosts: false,
             hasPendingPreloadTask: false,
@@ -725,45 +469,6 @@ final class FireTopicDetailStoreTests: XCTestCase {
 
         XCTAssertFalse(initial.hasCloudflareClearance)
         XCTAssertTrue(current.hasNewCloudflareClearance(comparedTo: initial))
-    }
-
-    func testAppendableTopicResponseRowsFiltersPureOverlap() {
-        let existingRows = [
-            makeResponseRow(postNumber: 2, parentPostNumber: 1, depth: 1, username: "reply-a"),
-            makeResponseRow(postNumber: 3, parentPostNumber: 2, depth: 2, username: "reply-b")
-        ]
-        let incomingRows = [
-            existingRows[1],
-            makeResponseRow(postNumber: 4, parentPostNumber: 1, depth: 1, username: "reply-c")
-        ]
-        let existingPosts = FireTopicPresentation.topicPostsByID(existingRows.map(\.post))
-
-        let appendableRows = FireTopicDetailStore.appendableTopicResponseRows(
-            existingRows: existingRows,
-            incomingRows: incomingRows,
-            existingPostsByID: existingPosts
-        )
-
-        XCTAssertEqual(appendableRows?.map { $0.post.postNumber }, [4])
-    }
-
-    func testAppendableTopicResponseRowsRejectsChangedOverlap() {
-        let existingRows = [
-            makeResponseRow(postNumber: 2, parentPostNumber: 1, depth: 1, username: "reply-a")
-        ]
-        let incomingRows = [
-            makeResponseRow(postNumber: 2, parentPostNumber: 1, depth: 1, username: "reply-updated"),
-            makeResponseRow(postNumber: 3, parentPostNumber: 1, depth: 1, username: "reply-b")
-        ]
-        let existingPosts = FireTopicPresentation.topicPostsByID(existingRows.map(\.post))
-
-        let appendableRows = FireTopicDetailStore.appendableTopicResponseRows(
-            existingRows: existingRows,
-            incomingRows: incomingRows,
-            existingPostsByID: existingPosts
-        )
-
-        XCTAssertNil(appendableRows)
     }
 
     func testHydrateRequestedRangeFillsAnchorWindowBeforeFirstRender() async throws {
@@ -1000,13 +705,13 @@ final class FireTopicDetailStoreTests: XCTestCase {
         XCTAssertEqual(merged.suffix(2).map { $0.rootPostNumber }, [1, 1] as [UInt32])
     }
 
-    private func makeResponseRow(
+    private func makeTreeRow(
         postNumber: UInt32,
         parentPostNumber: UInt32?,
         depth: UInt16,
         username: String
-    ) -> TopicResponseRowState {
-        TopicResponseRowState(
+    ) -> TopicTreeRowState {
+        TopicTreeRowState(
             post: makePost(
                 postNumber: postNumber,
                 replyToPostNumber: parentPostNumber,

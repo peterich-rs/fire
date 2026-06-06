@@ -56,7 +56,7 @@ const MESSAGE_BUS_HTTP2_KEEP_ALIVE_INTERVAL: Duration = Duration::from_secs(30);
 
 type FireAuthKey = (Option<String>, Option<String>);
 const FIRE_STORE_DIR_NAME: &str = "cache";
-const FIRE_TOPIC_FEED_STORE_FILE_NAME: &str = "topic-feed.sqlite3";
+const FIRE_SHARED_STORE_FILE_NAME: &str = "fire-cache.sqlite3";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FireAuthRecoveryHintReason {
@@ -100,7 +100,7 @@ impl FireAuthRotation {
     }
 }
 
-fn open_topic_feed_store(workspace_path: Option<&Path>) -> Result<FireStore, FireCoreError> {
+fn open_shared_store(workspace_path: Option<&Path>) -> Result<FireStore, FireCoreError> {
     let Some(workspace_path) = workspace_path else {
         return Ok(FireStore::open_in_memory()?);
     };
@@ -111,7 +111,7 @@ fn open_topic_feed_store(workspace_path: Option<&Path>) -> Result<FireStore, Fir
         source,
     })?;
     Ok(FireStore::open(
-        cache_dir.join(FIRE_TOPIC_FEED_STORE_FILE_NAME),
+        cache_dir.join(FIRE_SHARED_STORE_FILE_NAME),
     )?)
 }
 
@@ -145,7 +145,7 @@ pub struct FireCore {
     topic_presence: Arc<Mutex<presence::FireTopicPresenceRuntime>>,
     topic_timing: Arc<Mutex<interactions::FireTopicTimingRuntime>>,
     topic_detail_source: Arc<Mutex<topics::FireTopicDetailSourceRuntime>>,
-    pub(crate) topic_feed_store: Arc<Mutex<FireStore>>,
+    pub(crate) shared_store: Arc<Mutex<FireStore>>,
     home_topic_list_scope: Arc<Mutex<HomeTopicListScope>>,
     state_observers: FireStateObserverRegistry,
     csrf_refresh: Arc<TokioMutex<()>>,
@@ -188,12 +188,12 @@ impl FireCore {
             last_auth_runtime_signal: None,
         };
         let session = Arc::new(RwLock::new(session));
-        let topic_feed_store = open_topic_feed_store(workspace_path.as_deref())?;
-        let topic_feed_store = Arc::new(Mutex::new(topic_feed_store));
+        let shared_store = open_shared_store(workspace_path.as_deref())?;
+        let shared_store = Arc::new(Mutex::new(shared_store));
         let cookie_jar = Arc::new(FireSessionCookieJar::new(
             base_url.clone(),
             Arc::clone(&session),
-            Some(Arc::clone(&topic_feed_store)),
+            Some(Arc::clone(&shared_store)),
         ));
         let network = network::FireNetworkLayer::new(
             &base_url,
@@ -213,7 +213,7 @@ impl FireCore {
             topic_presence: Arc::new(Mutex::new(presence::FireTopicPresenceRuntime::default())),
             topic_timing: Arc::new(Mutex::new(interactions::FireTopicTimingRuntime::default())),
             topic_detail_source: Arc::new(Mutex::new(topics::FireTopicDetailSourceRuntime::default())),
-            topic_feed_store,
+            shared_store,
             home_topic_list_scope: Arc::new(Mutex::new(HomeTopicListScope::default())),
             state_observers: FireStateObserverRegistry::default(),
             csrf_refresh: Arc::new(TokioMutex::new(())),
@@ -413,17 +413,17 @@ impl FireCore {
         &self,
     ) -> Result<Vec<fire_store::cookie_replay::CookieReplayEntry>, FireCoreError> {
         let store = self
-            .topic_feed_store
+            .shared_store
             .lock()
-            .expect("topic feed store mutex poisoned");
+            .expect("shared store mutex poisoned");
         Ok(store.cookie_replay_list()?)
     }
 
     pub fn cookie_replay_clear(&self) -> Result<(), FireCoreError> {
         let store = self
-            .topic_feed_store
+            .shared_store
             .lock()
-            .expect("topic feed store mutex poisoned");
+            .expect("shared store mutex poisoned");
         store.cookie_replay_clear()?;
         Ok(())
     }

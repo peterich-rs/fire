@@ -1,13 +1,10 @@
 pub mod cookie_replay;
 mod migrations;
-pub mod topic_detail;
 
 use std::path::{Path, PathBuf};
 
 use rusqlite::Connection;
 use thiserror::Error;
-
-pub use topic_detail::TopicDetailStoreStats;
 
 #[derive(Debug, Error)]
 pub enum FireStoreError {

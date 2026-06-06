@@ -1,6 +1,5 @@
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
-    time::Instant,
 };
 
 use fire_models::{
@@ -659,13 +658,13 @@ impl FireCore {
             .lock()
             .expect("topic detail source runtime lock poisoned");
         let Some(session) = runtime.sessions_by_topic_id.get(&topic_id) else {
-            return Err(FireCoreError::InvalidTopicResponseCursor {
+            return Err(FireCoreError::InvalidTopicSourceCursor {
                 topic_id,
                 session_id,
             });
         };
         if session.session_id != session_id || session.session_epoch != current_epoch {
-            return Err(FireCoreError::InvalidTopicResponseCursor {
+            return Err(FireCoreError::InvalidTopicSourceCursor {
                 topic_id,
                 session_id,
             });
@@ -674,7 +673,7 @@ impl FireCore {
             if session.next_stream_offset != expected_next_stream_offset as usize
                 || session.last_loaded_post_id != expected_last_loaded_post_id
             {
-                return Err(FireCoreError::InvalidTopicResponseCursor {
+                return Err(FireCoreError::InvalidTopicSourceCursor {
                     topic_id,
                     session_id,
                 });
@@ -737,7 +736,7 @@ impl FireCore {
             .lock()
             .expect("topic detail source runtime lock poisoned");
         let Some(session) = runtime.sessions_by_topic_id.get_mut(&cursor.topic_id) else {
-            return Err(FireCoreError::InvalidTopicResponseCursor {
+            return Err(FireCoreError::InvalidTopicSourceCursor {
                 topic_id: cursor.topic_id,
                 session_id: cursor.session_id,
             });
@@ -747,7 +746,7 @@ impl FireCore {
             || session.next_stream_offset != cursor.next_stream_offset as usize
             || session.last_loaded_post_id != cursor.last_loaded_post_id
         {
-            return Err(FireCoreError::InvalidTopicResponseCursor {
+            return Err(FireCoreError::InvalidTopicSourceCursor {
                 topic_id: cursor.topic_id,
                 session_id: cursor.session_id,
             });

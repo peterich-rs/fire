@@ -4,6 +4,7 @@
 > 状态: Implemented
 > 范围: `fire-rich-text`、UniFFI 富文本/observer 边界、iOS/Android 双端接入
 > 结论: 富文本语义已收口到 Rust；StateObserver 已落到当前可稳定消费的 snapshot 边界；未引入并行渲染路径或平台回退路径
+> 备注: 文中早期提到的 `TopicDetailFeedSnapshotState` 已在 2026-06-06 的 topic-detail source/presentation 收口中被 `TopicDetailSourceSnapshotState + TopicTreePresentationState` 取代；本文件保留为富文本与 observer 设计的历史实现记录。
 
 ---
 
@@ -55,7 +56,6 @@
 - 当前会主动推送的 snapshot 边界：
   - `SessionState`
   - `TopicListState`
-  - `TopicDetailFeedSnapshotState`
   - `NotificationCenterState`
 
 ---
@@ -140,7 +140,6 @@ pub struct RenderBlock {
   - 二阶段通知刷新后推 `NotificationCenterState`
 - `FireTopicsHandle`
   - `fetch_topic_list()` 后推 `TopicListState`
-  - `load_topic_detail_feed()` / `refresh_topic_detail_feed()` 后推 `TopicDetailFeedSnapshotState`
 - `FireNotificationsHandle`
   - `fetch_recent_notifications()` / `fetch_notifications()` 后推 `NotificationCenterState`
   - `mark_notification_read()` / `mark_all_notifications_read()` 后推 `NotificationCenterState`
@@ -154,7 +153,6 @@ pub struct RenderBlock {
   - `applySession`
   - `FireHomeFeedStore.applyTopicList`
   - `FireNotificationStore.apply`
-  - `FireTopicDetailStore.applyTopicDetailFeedSnapshot`
 - 旧的 `AppStateRefreshEvent` 拉取型处理保留了接口，但不再承担 home/notification 的主刷新路径
 
 #### Android
@@ -280,5 +278,5 @@ TopicPostState.render_document / render_cooked_html()
 后续如果继续收口，可以沿这三条线推进，而不需要回退本次结构：
 
 1. Android home 改成 observer-fed snapshot + adapter diff，而不是 PagingSource refresh
-2. topic detail MessageBus 刷新下沉到 Rust，直接推 `TopicDetailFeedSnapshotState`
+2. topic detail 继续维持 source snapshot + tree presentation 的显式双层契约，而不是重新引入 processed feed snapshot
 3. profile / bookmark / 其他 `cooked` 文本字段继续优先消费 `RenderDocumentState`

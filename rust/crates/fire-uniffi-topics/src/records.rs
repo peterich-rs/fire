@@ -1,17 +1,14 @@
 use fire_core::render_cooked_html;
 use fire_models::{
-    FeedSnapshotSource, LoadMoreTopicPostsQuery, Poll, PollOption, PostActionType,
-    PostFlagRequest, PostReactionUpdate, PostUpdateRequest, PrivateMessageCreateRequest,
-    ReactionUser, ReactionUsersGroup, ResolvedUploadUrl, TopicAiSummary, TopicBody,
-    TopicCreateRequest, TopicDetail, TopicDetailCreatedBy, TopicDetailCursor,
-    TopicDetailFeedItem, TopicDetailFeedItemKind, TopicDetailFeedLoadState, TopicDetailFeedPatch,
-    TopicDetailFeedPatchOperation, TopicDetailFeedPatchOperationKind, TopicDetailFeedQuery,
-    TopicDetailFeedSnapshot, TopicDetailLoadPolicy, TopicDetailLoadedRange, TopicDetailMeta,
-    TopicDetailQuery, TopicDetailSourceQuery, TopicDetailSourceSnapshot, TopicHeader,
-    TopicListQuery, TopicLoadMoreOutcome, TopicLoadMoreStopReason, TopicLoadedRange, TopicPost,
-    TopicPostStream, TopicReaction, TopicReplyRequest, TopicReplyToUser, TopicSourceCursor,
-    TopicTimingEntry, TopicTimingsRequest, TopicTreePresentation, TopicTreePresentationQuery,
-    TopicTreeRow, TopicUpdateRequest, UploadResult, VoteResponse, VotedUser,
+    LoadMoreTopicPostsQuery, Poll, PollOption, PostActionType, PostFlagRequest,
+    PostReactionUpdate, PostUpdateRequest, PrivateMessageCreateRequest, ReactionUser,
+    ReactionUsersGroup, ResolvedUploadUrl, TopicAiSummary, TopicBody, TopicCreateRequest,
+    TopicDetail, TopicDetailCreatedBy, TopicDetailMeta, TopicDetailSourceQuery,
+    TopicDetailSourceSnapshot, TopicHeader, TopicListQuery, TopicLoadMoreOutcome,
+    TopicLoadMoreStopReason, TopicLoadedRange, TopicPost, TopicPostStream, TopicReaction,
+    TopicReplyRequest, TopicReplyToUser, TopicSourceCursor, TopicTimingEntry,
+    TopicTimingsRequest, TopicTreePresentation, TopicTreePresentationQuery, TopicTreeRow,
+    TopicUpdateRequest, UploadResult, VoteResponse, VotedUser,
 };
 
 use fire_uniffi_types::{
@@ -70,205 +67,6 @@ impl From<TopicListQueryState> for TopicListQuery {
 }
 
 #[derive(uniffi::Record, Debug, Clone)]
-pub struct TopicDetailQueryState {
-    pub topic_id: u64,
-    pub post_number: Option<u32>,
-    pub track_visit: bool,
-    pub force_load: bool,
-    pub filter: Option<String>,
-    pub username_filters: Option<String>,
-    pub filter_top_level_replies: bool,
-}
-
-impl From<TopicDetailQuery> for TopicDetailQueryState {
-    fn from(value: TopicDetailQuery) -> Self {
-        Self {
-            topic_id: value.topic_id,
-            post_number: value.post_number,
-            track_visit: value.track_visit,
-            force_load: value.force_load,
-            filter: value.filter,
-            username_filters: value.username_filters,
-            filter_top_level_replies: value.filter_top_level_replies,
-        }
-    }
-}
-
-impl From<TopicDetailQueryState> for TopicDetailQuery {
-    fn from(value: TopicDetailQueryState) -> Self {
-        Self {
-            topic_id: value.topic_id,
-            post_number: value.post_number,
-            track_visit: value.track_visit,
-            force_load: value.force_load,
-            filter: value.filter,
-            username_filters: value.username_filters,
-            filter_top_level_replies: value.filter_top_level_replies,
-        }
-    }
-}
-
-#[derive(uniffi::Enum, Debug, Clone, Copy)]
-pub enum TopicDetailLoadPolicyState {
-    CacheFirstThenRefresh,
-    NetworkFirst,
-    CacheOnly,
-    ForceRefresh,
-}
-
-impl From<TopicDetailLoadPolicy> for TopicDetailLoadPolicyState {
-    fn from(value: TopicDetailLoadPolicy) -> Self {
-        match value {
-            TopicDetailLoadPolicy::CacheFirstThenRefresh => Self::CacheFirstThenRefresh,
-            TopicDetailLoadPolicy::NetworkFirst => Self::NetworkFirst,
-            TopicDetailLoadPolicy::CacheOnly => Self::CacheOnly,
-            TopicDetailLoadPolicy::ForceRefresh => Self::ForceRefresh,
-        }
-    }
-}
-
-impl From<TopicDetailLoadPolicyState> for TopicDetailLoadPolicy {
-    fn from(value: TopicDetailLoadPolicyState) -> Self {
-        match value {
-            TopicDetailLoadPolicyState::CacheFirstThenRefresh => Self::CacheFirstThenRefresh,
-            TopicDetailLoadPolicyState::NetworkFirst => Self::NetworkFirst,
-            TopicDetailLoadPolicyState::CacheOnly => Self::CacheOnly,
-            TopicDetailLoadPolicyState::ForceRefresh => Self::ForceRefresh,
-        }
-    }
-}
-
-#[derive(uniffi::Record, Debug, Clone)]
-pub struct TopicDetailFeedQueryState {
-    pub topic_id: u64,
-    pub target_post_number: Option<u32>,
-    pub policy: TopicDetailLoadPolicyState,
-}
-
-impl From<TopicDetailFeedQueryState> for TopicDetailFeedQuery {
-    fn from(value: TopicDetailFeedQueryState) -> Self {
-        Self {
-            topic_id: value.topic_id,
-            target_post_number: value.target_post_number,
-            policy: value.policy.into(),
-        }
-    }
-}
-
-#[derive(uniffi::Enum, Debug, Clone, Copy)]
-pub enum TopicDetailFeedItemKindState {
-    Header,
-    OriginalPost,
-    Reply,
-    Loading,
-    Error,
-    Footer,
-    Gap,
-    Notice,
-    Unknown,
-}
-
-impl From<TopicDetailFeedItemKind> for TopicDetailFeedItemKindState {
-    fn from(value: TopicDetailFeedItemKind) -> Self {
-        match value {
-            TopicDetailFeedItemKind::Header => Self::Header,
-            TopicDetailFeedItemKind::OriginalPost => Self::OriginalPost,
-            TopicDetailFeedItemKind::Reply => Self::Reply,
-            TopicDetailFeedItemKind::Loading => Self::Loading,
-            TopicDetailFeedItemKind::Error => Self::Error,
-            TopicDetailFeedItemKind::Footer => Self::Footer,
-            TopicDetailFeedItemKind::Gap => Self::Gap,
-            TopicDetailFeedItemKind::Notice => Self::Notice,
-            TopicDetailFeedItemKind::Unknown => Self::Unknown,
-        }
-    }
-}
-
-#[derive(uniffi::Enum, Debug, Clone, Copy)]
-pub enum FeedSnapshotSourceState {
-    Network,
-    ProcessedCache,
-    StaleIfError,
-    EmptyCacheError,
-    LocalFixture,
-}
-
-impl From<FeedSnapshotSource> for FeedSnapshotSourceState {
-    fn from(value: FeedSnapshotSource) -> Self {
-        match value {
-            FeedSnapshotSource::Network => Self::Network,
-            FeedSnapshotSource::ProcessedCache => Self::ProcessedCache,
-            FeedSnapshotSource::StaleIfError => Self::StaleIfError,
-            FeedSnapshotSource::EmptyCacheError => Self::EmptyCacheError,
-            FeedSnapshotSource::LocalFixture => Self::LocalFixture,
-        }
-    }
-}
-
-#[derive(uniffi::Enum, Debug, Clone, Copy)]
-pub enum TopicDetailFeedLoadStateState {
-    Ready,
-    Loading,
-    EmptyCacheError,
-    StaleWithError,
-}
-
-impl From<TopicDetailFeedLoadState> for TopicDetailFeedLoadStateState {
-    fn from(value: TopicDetailFeedLoadState) -> Self {
-        match value {
-            TopicDetailFeedLoadState::Ready => Self::Ready,
-            TopicDetailFeedLoadState::Loading => Self::Loading,
-            TopicDetailFeedLoadState::EmptyCacheError => Self::EmptyCacheError,
-            TopicDetailFeedLoadState::StaleWithError => Self::StaleWithError,
-        }
-    }
-}
-
-#[derive(uniffi::Record, Debug, Clone)]
-pub struct TopicDetailLoadedRangeState {
-    pub first_post_number: u32,
-    pub last_post_number: u32,
-}
-
-impl From<TopicDetailLoadedRange> for TopicDetailLoadedRangeState {
-    fn from(value: TopicDetailLoadedRange) -> Self {
-        Self {
-            first_post_number: value.first_post_number,
-            last_post_number: value.last_post_number,
-        }
-    }
-}
-
-#[derive(uniffi::Record, Debug, Clone)]
-pub struct TopicDetailCursorState {
-    pub next_response_cursor: Option<TopicSourceCursorState>,
-    pub loaded_ranges: Vec<TopicDetailLoadedRangeState>,
-    pub has_more: bool,
-}
-
-impl From<TopicDetailCursor> for TopicDetailCursorState {
-    fn from(value: TopicDetailCursor) -> Self {
-        Self {
-            next_response_cursor: value.next_response_cursor.map(Into::into),
-            loaded_ranges: value.loaded_ranges.into_iter().map(Into::into).collect(),
-            has_more: value.has_more,
-        }
-    }
-}
-
-#[derive(uniffi::Record, Debug, Clone)]
-pub struct TopicScreenQueryState {
-    pub topic_id: u64,
-    pub target_post_number: Option<u32>,
-    pub track_visit: bool,
-    pub force_load: bool,
-    pub initial_batch_size: u16,
-    pub load_more_batch_size: u16,
-    pub max_auto_batches_per_gesture: u8,
-    pub max_auto_posts_per_gesture: u16,
-}
-
-#[derive(uniffi::Record, Debug, Clone)]
 pub struct TopicLoadedRangeState {
     pub start_offset: u32,
     pub end_offset_exclusive: u32,
@@ -320,13 +118,6 @@ impl From<TopicSourceCursorState> for TopicSourceCursor {
     }
 }
 
-impl From<TopicResponseCursorState> for TopicSourceCursorState {
-    fn from(value: TopicResponseCursorState) -> Self {
-        let source_cursor: TopicSourceCursor = value.into();
-        source_cursor.into()
-    }
-}
-
 #[derive(uniffi::Record, Debug, Clone)]
 pub struct TopicDetailSourceQueryState {
     pub topic_id: u64,
@@ -341,21 +132,6 @@ pub struct TopicDetailSourceQueryState {
 
 impl From<TopicDetailSourceQueryState> for TopicDetailSourceQuery {
     fn from(value: TopicDetailSourceQueryState) -> Self {
-        Self {
-            topic_id: value.topic_id,
-            target_post_number: value.target_post_number,
-            track_visit: value.track_visit,
-            force_load: value.force_load,
-            initial_batch_size: value.initial_batch_size,
-            load_more_batch_size: value.load_more_batch_size,
-            max_auto_batches_per_gesture: value.max_auto_batches_per_gesture,
-            max_auto_posts_per_gesture: value.max_auto_posts_per_gesture,
-        }
-    }
-}
-
-impl From<TopicScreenQueryState> for TopicDetailSourceQueryState {
-    fn from(value: TopicScreenQueryState) -> Self {
         Self {
             topic_id: value.topic_id,
             target_post_number: value.target_post_number,
@@ -1076,54 +852,6 @@ impl From<TopicTreePresentationQueryState> for TopicTreePresentationQuery {
 }
 
 #[derive(uniffi::Record, Debug, Clone)]
-pub struct TopicResponseCursorState {
-    pub topic_id: u64,
-    pub session_id: u64,
-    pub next_root_offset: u32,
-    pub next_branch_offset: u32,
-    pub page_size: u16,
-    pub row_page_size: u16,
-}
-
-impl From<TopicSourceCursor> for TopicResponseCursorState {
-    fn from(value: TopicSourceCursor) -> Self {
-        Self {
-            topic_id: value.topic_id,
-            session_id: value.session_id,
-            next_root_offset: value.next_stream_offset,
-            next_branch_offset: 0,
-            page_size: value.batch_size,
-            row_page_size: value.batch_size,
-        }
-    }
-}
-
-impl From<TopicResponseCursorState> for TopicSourceCursor {
-    fn from(value: TopicResponseCursorState) -> Self {
-        Self {
-            topic_id: value.topic_id,
-            session_id: value.session_id,
-            next_stream_offset: value.next_root_offset,
-            last_loaded_post_id: None,
-            batch_size: value.page_size,
-        }
-    }
-}
-
-#[derive(uniffi::Record, Debug, Clone)]
-pub struct TopicResponsePageQueryState {
-    pub cursor: TopicResponseCursorState,
-}
-
-impl From<TopicResponsePageQueryState> for LoadMoreTopicPostsQueryState {
-    fn from(value: TopicResponsePageQueryState) -> Self {
-        Self {
-            cursor: value.cursor.into(),
-        }
-    }
-}
-
-#[derive(uniffi::Record, Debug, Clone)]
 pub struct TopicTreeRowState {
     pub post: TopicPostState,
     pub root_post_number: u32,
@@ -1173,87 +901,6 @@ pub(crate) fn topic_tree_presentation_state_from_model(
         total_loaded_post_count: value.total_loaded_post_count,
         visible_root_post_numbers: value.visible_root_post_numbers,
         gained_new_root_progress: value.gained_new_root_progress,
-    }
-}
-
-#[derive(uniffi::Record, Debug, Clone)]
-pub struct TopicResponseRowState {
-    pub post: TopicPostState,
-    pub root_post_number: u32,
-    pub parent_post_number: Option<u32>,
-    pub depth: u16,
-    pub preorder_index: u32,
-    pub has_children: bool,
-    pub descendant_count: u32,
-    pub sibling_index: u16,
-    pub is_last_sibling: bool,
-}
-
-fn topic_response_row_state_from_tree_row_state(value: TopicTreeRowState) -> TopicResponseRowState {
-    TopicResponseRowState {
-        post: value.post,
-        root_post_number: value.root_post_number,
-        parent_post_number: value.parent_post_number,
-        depth: value.depth,
-        preorder_index: value.preorder_index,
-        has_children: value.has_children,
-        descendant_count: value.descendant_count,
-        sibling_index: value.sibling_index,
-        is_last_sibling: value.is_last_sibling,
-    }
-}
-
-#[derive(uniffi::Record, Debug, Clone)]
-pub struct TopicResponsePageState {
-    pub rows: Vec<TopicResponseRowState>,
-    pub next_cursor: Option<TopicResponseCursorState>,
-    pub total_root_count: u32,
-    pub loaded_root_count: u32,
-    pub total_response_count: u32,
-    pub focused_post_number: Option<u32>,
-}
-
-#[derive(uniffi::Record, Debug, Clone)]
-pub struct TopicScreenState {
-    pub header: TopicHeaderState,
-    pub body: TopicBodyState,
-    pub response: TopicResponsePageState,
-}
-
-pub fn topic_screen_state_from_source(
-    source_snapshot: TopicDetailSourceSnapshot,
-    tree_presentation: TopicTreePresentation,
-    base_url: &str,
-) -> TopicScreenState {
-    let response =
-        topic_response_page_state_from_source(&source_snapshot, tree_presentation, base_url);
-    TopicScreenState {
-        header: source_snapshot.header.into(),
-        body: topic_body_state_from_model(source_snapshot.body, base_url),
-        response,
-    }
-}
-
-pub fn topic_response_page_state_from_source(
-    source_snapshot: &TopicDetailSourceSnapshot,
-    tree_presentation: TopicTreePresentation,
-    base_url: &str,
-) -> TopicResponsePageState {
-    let reply_rows = tree_presentation
-        .reply_rows
-        .into_iter()
-        .map(|row| topic_tree_row_state_from_model(row, base_url))
-        .map(topic_response_row_state_from_tree_row_state)
-        .collect::<Vec<_>>();
-    let total_root_count = tree_presentation.visible_root_post_numbers.len() as u32;
-    let loaded_root_count = total_root_count;
-    TopicResponsePageState {
-        rows: reply_rows,
-        next_cursor: source_snapshot.source_cursor.clone().map(Into::into),
-        total_root_count,
-        loaded_root_count,
-        total_response_count: source_snapshot.header.reply_count,
-        focused_post_number: source_snapshot.focused_post_number,
     }
 }
 
@@ -1323,151 +970,6 @@ pub fn topic_load_more_outcome_state_from_model(
         chained_batches: value.chained_batches,
         chained_posts: value.chained_posts,
         stop_reason: value.stop_reason.into(),
-    }
-}
-
-#[derive(uniffi::Record, Debug, Clone)]
-pub struct TopicDetailFeedItemState {
-    pub item_id: String,
-    pub kind: TopicDetailFeedItemKindState,
-    pub ordinal: u32,
-    pub post_id: Option<u64>,
-    pub content_revision: String,
-    pub header: Option<TopicHeaderState>,
-    pub post: Option<TopicPostState>,
-    pub response_row: Option<TopicResponseRowState>,
-    pub title: Option<String>,
-    pub message: Option<String>,
-    pub retryable: bool,
-}
-
-fn topic_detail_feed_item_state_from_model(
-    value: TopicDetailFeedItem,
-    base_url: &str,
-) -> TopicDetailFeedItemState {
-    TopicDetailFeedItemState {
-        item_id: value.item_id,
-        kind: value.kind.into(),
-        ordinal: value.ordinal,
-        post_id: value.post_id,
-        content_revision: value.content_revision,
-        header: value.header.map(Into::into),
-        post: value
-            .post
-            .map(|post| topic_post_state_from_model(post, base_url)),
-        response_row: value
-            .response_row
-            .map(|row| {
-                topic_response_row_state_from_tree_row_state(
-                    topic_tree_row_state_from_model(row, base_url),
-                )
-            }),
-        title: value.title,
-        message: value.message,
-        retryable: value.retryable,
-    }
-}
-
-#[derive(uniffi::Record, Debug, Clone)]
-pub struct TopicDetailFeedSnapshotState {
-    pub topic_id: u64,
-    pub revision: u64,
-    pub items: Vec<TopicDetailFeedItemState>,
-    pub cursor: TopicDetailCursorState,
-    pub source: FeedSnapshotSourceState,
-    pub load_state: TopicDetailFeedLoadStateState,
-    pub stale_error_message: Option<String>,
-    pub updated_at_ms: u64,
-}
-
-pub fn topic_detail_feed_snapshot_state_from_model(
-    value: TopicDetailFeedSnapshot,
-    base_url: &str,
-) -> TopicDetailFeedSnapshotState {
-    TopicDetailFeedSnapshotState {
-        topic_id: value.topic_id,
-        revision: value.revision,
-        items: value
-            .items
-            .into_iter()
-            .map(|item| topic_detail_feed_item_state_from_model(item, base_url))
-            .collect(),
-        cursor: value.cursor.into(),
-        source: value.source.into(),
-        load_state: value.load_state.into(),
-        stale_error_message: value.stale_error_message,
-        updated_at_ms: value.updated_at_ms,
-    }
-}
-
-#[derive(uniffi::Enum, Debug, Clone, Copy)]
-pub enum TopicDetailFeedPatchOperationKindState {
-    Insert,
-    Delete,
-    Replace,
-    Reload,
-    Unknown,
-}
-
-impl From<TopicDetailFeedPatchOperationKind> for TopicDetailFeedPatchOperationKindState {
-    fn from(value: TopicDetailFeedPatchOperationKind) -> Self {
-        match value {
-            TopicDetailFeedPatchOperationKind::Insert => Self::Insert,
-            TopicDetailFeedPatchOperationKind::Delete => Self::Delete,
-            TopicDetailFeedPatchOperationKind::Replace => Self::Replace,
-            TopicDetailFeedPatchOperationKind::Reload => Self::Reload,
-            TopicDetailFeedPatchOperationKind::Unknown => Self::Unknown,
-        }
-    }
-}
-
-#[derive(uniffi::Record, Debug, Clone)]
-pub struct TopicDetailFeedPatchOperationState {
-    pub kind: TopicDetailFeedPatchOperationKindState,
-    pub index: u32,
-    pub delete_count: u32,
-    pub items: Vec<TopicDetailFeedItemState>,
-}
-
-fn topic_detail_feed_patch_operation_state_from_model(
-    value: TopicDetailFeedPatchOperation,
-    base_url: &str,
-) -> TopicDetailFeedPatchOperationState {
-    TopicDetailFeedPatchOperationState {
-        kind: value.kind.into(),
-        index: value.index,
-        delete_count: value.delete_count,
-        items: value
-            .items
-            .into_iter()
-            .map(|item| topic_detail_feed_item_state_from_model(item, base_url))
-            .collect(),
-    }
-}
-
-#[derive(uniffi::Record, Debug, Clone)]
-pub struct TopicDetailFeedPatchState {
-    pub topic_id: u64,
-    pub base_revision: u64,
-    pub new_revision: u64,
-    pub operations: Vec<TopicDetailFeedPatchOperationState>,
-}
-
-pub fn topic_detail_feed_patch_state_from_model(
-    value: TopicDetailFeedPatch,
-    base_url: &str,
-) -> TopicDetailFeedPatchState {
-    TopicDetailFeedPatchState {
-        topic_id: value.topic_id,
-        base_revision: value.base_revision,
-        new_revision: value.new_revision,
-        operations: value
-            .operations
-            .into_iter()
-            .map(|operation| {
-                topic_detail_feed_patch_operation_state_from_model(operation, base_url)
-            })
-            .collect(),
     }
 }
 

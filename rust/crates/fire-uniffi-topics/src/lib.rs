@@ -7,23 +7,18 @@ use fire_uniffi_types::{run_on_ffi_runtime, FireUniFfiError, SharedFireCore, Top
 pub mod records;
 
 pub use records::{
-    FeedSnapshotSourceState, LoadMoreTopicPostsQueryState, PollOptionState, PollState,
-    PostActionTypeState, PostFlagRequestState, PostReactionUpdateState, PostUpdateRequestState,
+    LoadMoreTopicPostsQueryState, PollOptionState, PollState, PostActionTypeState,
+    PostFlagRequestState, PostReactionUpdateState, PostUpdateRequestState,
     PrivateMessageCreateRequestState, ReactionUserState, ReactionUsersGroupState,
     ResolvedUploadUrlState, TopicAiSummaryState, TopicBodyState, TopicCreateRequestState,
-    TopicDetailCreatedByState, TopicDetailCursorState, TopicDetailFeedItemKindState,
-    TopicDetailFeedItemState, TopicDetailFeedLoadStateState, TopicDetailFeedPatchOperationKindState,
-    TopicDetailFeedPatchOperationState, TopicDetailFeedPatchState, TopicDetailFeedQueryState,
-    TopicDetailFeedSnapshotState, TopicDetailLoadPolicyState, TopicDetailLoadedRangeState,
-    TopicDetailMetaState, TopicDetailQueryState, TopicDetailSourceQueryState,
+    TopicDetailCreatedByState, TopicDetailMetaState, TopicDetailSourceQueryState,
     TopicDetailSourceSnapshotState, TopicDetailState, TopicHeaderState, TopicListQueryState,
-    TopicLoadMoreOutcomeState, TopicLoadMoreStopReasonState, TopicLoadedRangeState, TopicPostState,
-    TopicPostStreamState, TopicReactionState, TopicReplyRequestState, TopicReplyToUserState,
-    TopicResponseCursorState, TopicResponsePageQueryState, TopicResponsePageState,
-    TopicResponseRowState, TopicScreenQueryState, TopicScreenState, TopicSourceCursorState,
-    TopicTimingEntryState, TopicTimingsRequestState, TopicTreePresentationQueryState,
-    TopicTreePresentationState, TopicTreeRowState, TopicUpdateRequestState, UploadImageRequestState,
-    UploadResultState, VoteResponseState, VotedUserState,
+    TopicLoadMoreOutcomeState, TopicLoadMoreStopReasonState, TopicLoadedRangeState,
+    TopicPostState, TopicPostStreamState, TopicReactionState, TopicReplyRequestState,
+    TopicReplyToUserState, TopicSourceCursorState, TopicTimingEntryState,
+    TopicTimingsRequestState, TopicTreePresentationQueryState, TopicTreePresentationState,
+    TopicTreeRowState, TopicUpdateRequestState, UploadImageRequestState, UploadResultState,
+    VoteResponseState, VotedUserState,
 };
 
 #[derive(uniffi::Object)]
@@ -54,71 +49,6 @@ impl FireTopicsHandle {
             .state_observers()
             .notify_topic_list(response.clone());
         Ok(response.into())
-    }
-
-    pub async fn fetch_topic_detail(
-        &self,
-        query: TopicDetailQueryState,
-    ) -> Result<TopicDetailState, FireUniFfiError> {
-        let inner = self.shared.core.clone();
-        let panic_state = self.shared.panic_state.clone();
-        let response = run_on_ffi_runtime("fetch_topic_detail", panic_state, async move {
-            let base_url = inner.base_url().to_string();
-            let detail = inner.fetch_topic_detail(query.into()).await?;
-            Ok::<_, fire_core::FireCoreError>((base_url, detail))
-        })
-        .await?;
-        Ok(records::topic_detail_state_from_model(
-            response.1,
-            &response.0,
-        ))
-    }
-
-    pub async fn fetch_topic_detail_initial(
-        &self,
-        query: TopicDetailQueryState,
-    ) -> Result<TopicDetailState, FireUniFfiError> {
-        let inner = self.shared.core.clone();
-        let panic_state = self.shared.panic_state.clone();
-        let response = run_on_ffi_runtime("fetch_topic_detail_initial", panic_state, async move {
-            let base_url = inner.base_url().to_string();
-            let detail = inner.fetch_topic_detail_initial(query.into()).await?;
-            Ok::<_, fire_core::FireCoreError>((base_url, detail))
-        })
-        .await?;
-        Ok(records::topic_detail_state_from_model(
-            response.1,
-            &response.0,
-        ))
-    }
-
-    pub async fn fetch_topic_screen(
-        &self,
-        query: TopicScreenQueryState,
-    ) -> Result<TopicScreenState, FireUniFfiError> {
-        let inner = self.shared.core.clone();
-        let panic_state = self.shared.panic_state.clone();
-        let response = run_on_ffi_runtime("fetch_topic_screen", panic_state, async move {
-            let base_url = inner.base_url().to_string();
-            let source_snapshot = inner
-                .fetch_topic_detail_source_snapshot(records::TopicDetailSourceQueryState::from(query).into())
-                .await?;
-            let tree_presentation = inner.build_topic_tree_presentation(
-                fire_models::TopicTreePresentationQuery {
-                    body_post: source_snapshot.body.post.clone(),
-                    raw_stream_ids: source_snapshot.raw_stream_ids.clone(),
-                    loaded_posts: source_snapshot.loaded_posts.clone(),
-                    focused_post_number: source_snapshot.focused_post_number,
-                },
-            );
-            Ok::<_, fire_core::FireCoreError>((base_url, source_snapshot, tree_presentation))
-        })
-        .await?;
-        Ok(records::topic_screen_state_from_source(
-            response.1,
-            response.2,
-            &response.0,
-        ))
     }
 
     pub async fn fetch_topic_detail_source_snapshot(
@@ -161,26 +91,6 @@ impl FireTopicsHandle {
         )?;
         Ok(records::topic_tree_presentation_state_from_model(
             response.1,
-            &response.0,
-        ))
-    }
-
-    pub async fn fetch_topic_response_page(
-        &self,
-        query: TopicResponsePageQueryState,
-    ) -> Result<TopicResponsePageState, FireUniFfiError> {
-        let inner = self.shared.core.clone();
-        let panic_state = self.shared.panic_state.clone();
-        let response = run_on_ffi_runtime("fetch_topic_response_page", panic_state, async move {
-            let base_url = inner.base_url().to_string();
-            let load_more_query: LoadMoreTopicPostsQueryState = query.into();
-            let outcome = inner.load_more_topic_posts(load_more_query.into()).await?;
-            Ok::<_, fire_core::FireCoreError>((base_url, outcome))
-        })
-        .await?;
-        Ok(records::topic_response_page_state_from_source(
-            &response.1.source_snapshot,
-            response.1.tree_presentation,
             &response.0,
         ))
     }

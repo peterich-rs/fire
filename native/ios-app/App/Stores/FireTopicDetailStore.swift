@@ -566,129 +566,6 @@ final class FireTopicDetailStore: ObservableObject {
         )
     }
 
-    nonisolated static func reconcileTopicResponsePageState(
-        _ incoming: TopicResponsePageState,
-        bodyPostID: UInt64,
-        existingRows: [TopicResponseRowState]
-    ) -> TopicResponsePageState {
-        let normalizedIncomingRows = FireTopicPresentation
-            .uniqueResponseRowsPreservingOrder(incoming.rows)
-            .filter { $0.post.id != bodyPostID }
-        let normalizedExistingRows = FireTopicPresentation
-            .uniqueResponseRowsPreservingOrder(existingRows)
-            .filter { $0.post.id != bodyPostID }
-
-        guard !normalizedExistingRows.isEmpty else {
-            return TopicResponsePageState(
-                rows: normalizedIncomingRows,
-                nextCursor: incoming.nextCursor,
-                totalRootCount: incoming.totalRootCount,
-                loadedRootCount: incoming.loadedRootCount,
-                totalResponseCount: max(incoming.totalResponseCount, UInt32(normalizedIncomingRows.count)),
-                focusedPostNumber: incoming.focusedPostNumber
-            )
-        }
-
-        let isPartialIncomingPage = incoming.nextCursor != nil
-            || incoming.totalResponseCount > UInt32(normalizedIncomingRows.count)
-        guard isPartialIncomingPage else {
-            return TopicResponsePageState(
-                rows: normalizedIncomingRows,
-                nextCursor: incoming.nextCursor,
-                totalRootCount: incoming.totalRootCount,
-                loadedRootCount: incoming.loadedRootCount,
-                totalResponseCount: max(incoming.totalResponseCount, UInt32(normalizedIncomingRows.count)),
-                focusedPostNumber: incoming.focusedPostNumber
-            )
-        }
-
-        let incomingPostIDs = Set(normalizedIncomingRows.map(\.post.id))
-        let existingIndexByPostID = Dictionary(
-            uniqueKeysWithValues: normalizedExistingRows.enumerated().map { index, row in
-                (row.post.id, index)
-            }
-        )
-        guard let lastOverlapIndex = normalizedIncomingRows
-            .compactMap({ existingIndexByPostID[$0.post.id] })
-            .max() else {
-            return TopicResponsePageState(
-                rows: normalizedIncomingRows,
-                nextCursor: incoming.nextCursor,
-                totalRootCount: incoming.totalRootCount,
-                loadedRootCount: incoming.loadedRootCount,
-                totalResponseCount: max(incoming.totalResponseCount, UInt32(normalizedIncomingRows.count)),
-                focusedPostNumber: incoming.focusedPostNumber
-            )
-        }
-
-        let carriedTail: [TopicResponseRowState] = normalizedExistingRows.enumerated().compactMap { element in
-            let (index, row) = element
-            guard index > lastOverlapIndex, !incomingPostIDs.contains(row.post.id) else {
-                return nil
-            }
-            return row
-        }
-        let mergedRows = normalizedIncomingRows + carriedTail
-        let totalResponseCount = max(incoming.totalResponseCount, UInt32(mergedRows.count))
-        return TopicResponsePageState(
-            rows: mergedRows,
-            nextCursor: incoming.nextCursor,
-            totalRootCount: incoming.totalRootCount,
-            loadedRootCount: incoming.loadedRootCount,
-            totalResponseCount: totalResponseCount,
-            focusedPostNumber: incoming.focusedPostNumber
-        )
-    }
-
-    nonisolated static func shouldApplyLoadedResponsePage(
-        expectedCursor: TopicResponseCursorState,
-        currentCursor: TopicResponseCursorState?
-    ) -> Bool {
-        currentCursor == expectedCursor
-    }
-
-    nonisolated static func mergedLoadedTopicResponsePage(
-        _ incoming: TopicResponsePageState,
-        bodyPostID: UInt64,
-        existingRows: [TopicResponseRowState],
-        expectedCursor: TopicResponseCursorState? = nil,
-        fallbackFocusedPostNumber: UInt32? = nil
-    ) -> TopicResponsePageState {
-        let normalizedIncomingRows = FireTopicPresentation.uniqueResponseRowsPreservingOrder(
-            incoming.rows
-        ).filter { row in
-            row.post.id != bodyPostID
-        }
-        let rows = FireTopicPresentation.uniqueResponseRowsPreservingOrder(
-            existingRows + normalizedIncomingRows
-        ).filter { row in
-            row.post.id != bodyPostID
-        }
-        let existingPostIDs = Set(existingRows.map { $0.post.id })
-        let addedNewRows = normalizedIncomingRows.contains { row in
-            !existingPostIDs.contains(row.post.id)
-        }
-        let nextCursor: TopicResponseCursorState?
-        if normalizedIncomingRows.isEmpty {
-            nextCursor = nil
-        } else if !addedNewRows,
-                  let expectedCursor,
-                  incoming.nextCursor == expectedCursor {
-            nextCursor = nil
-        } else {
-            nextCursor = incoming.nextCursor
-        }
-
-        return TopicResponsePageState(
-            rows: rows,
-            nextCursor: nextCursor,
-            totalRootCount: incoming.totalRootCount,
-            loadedRootCount: incoming.loadedRootCount,
-            totalResponseCount: incoming.totalResponseCount,
-            focusedPostNumber: incoming.focusedPostNumber ?? fallbackFocusedPostNumber
-        )
-    }
-
     private func applyTopicDetailPagePayload(
         _ payload: FireTopicDetailPagePayload,
         detailNotice: FireTopicDetailStatusMessage?,
@@ -861,7 +738,7 @@ final class FireTopicDetailStore: ObservableObject {
         guard let cursor = topicSourceCursorsByTopic[topicId] else {
             return false
         }
-        guard Self.canStartNextTopicResponsePageLoad(
+        guard Self.canStartNextTopicSourcePageLoad(
             hasMoreTopicPosts: true,
             isLoadingMoreTopicPosts: loadingMoreTopicPostIDs.contains(topicId),
             hasPendingPreloadTask: topicPostPreloadTasks[topicId] != nil,
@@ -881,7 +758,7 @@ final class FireTopicDetailStore: ObservableObject {
         return true
     }
 
-    nonisolated static func canStartNextTopicResponsePageLoad(
+    nonisolated static func canStartNextTopicSourcePageLoad(
         hasMoreTopicPosts: Bool,
         isLoadingMoreTopicPosts: Bool,
         hasPendingPreloadTask: Bool,
@@ -1917,58 +1794,6 @@ final class FireTopicDetailStore: ObservableObject {
         return changed
     }
 
-    nonisolated static func appendableTopicResponseRows(
-        existingRows: [TopicResponseRowState],
-        incomingRows: [TopicResponseRowState],
-        existingPostsByID: [UInt64: TopicPostState]
-    ) -> [TopicResponseRowState]? {
-        guard !incomingRows.isEmpty else {
-            return []
-        }
-
-        var rowsByPostID: [UInt64: TopicResponseRowState] = [:]
-        rowsByPostID.reserveCapacity(existingRows.count + incomingRows.count)
-        for row in existingRows {
-            rowsByPostID[row.post.id] = row
-        }
-
-        var postsByID = existingPostsByID
-        var appendedRows: [TopicResponseRowState] = []
-        appendedRows.reserveCapacity(incomingRows.count)
-
-        for row in incomingRows {
-            let post = row.post
-            if let existingPost = postsByID[post.id] {
-                guard existingPost == post,
-                      rowsByPostID[post.id].map({ Self.sameTopicResponseRowShape($0, row) }) == true else {
-                    return nil
-                }
-                continue
-            }
-
-            postsByID[post.id] = post
-            rowsByPostID[post.id] = row
-            appendedRows.append(row)
-        }
-
-        return appendedRows
-    }
-
-    private nonisolated static func sameTopicResponseRowShape(
-        _ lhs: TopicResponseRowState,
-        _ rhs: TopicResponseRowState
-    ) -> Bool {
-        lhs.post.id == rhs.post.id
-            && lhs.rootPostNumber == rhs.rootPostNumber
-            && lhs.parentPostNumber == rhs.parentPostNumber
-            && lhs.depth == rhs.depth
-            && lhs.preorderIndex == rhs.preorderIndex
-            && lhs.hasChildren == rhs.hasChildren
-            && lhs.descendantCount == rhs.descendantCount
-            && lhs.siblingIndex == rhs.siblingIndex
-            && lhs.isLastSibling == rhs.isLastSibling
-    }
-
     nonisolated static func renderStateCoversRowInputs(
         _ renderState: FireTopicDetailRenderState?,
         rowInputs: [FireTopicTimelineRowInput],
@@ -2007,55 +1832,6 @@ final class FireTopicDetailStore: ObservableObject {
         )
 
         return detail
-    }
-
-    private func applyTopicScreenRenderUpdate(
-        detail: TopicDetailState,
-        renderCache: FireTopicDetailRenderCache,
-        topicId: UInt64,
-        generation: UInt64,
-        clearsLoadingMore: Bool
-    ) {
-        guard topicRenderGenerations[topicId] == generation else {
-            return
-        }
-
-        topicRenderTasks[topicId] = nil
-
-        let didClearLoadingMore: Bool
-        if clearsLoadingMore {
-            didClearLoadingMore = loadingMoreTopicPostIDs.remove(topicId) != nil
-        } else {
-            didClearLoadingMore = false
-        }
-
-        let previousRenderCache = topicRenderCaches[topicId]
-        let didUpdateDetail = setTopicDetail(
-            detail,
-            topicId: topicId,
-            bumpRevision: false
-        )
-        let didRepairRenderState = !Self.renderStateCoversRowInputs(
-            topicRenderStates[topicId],
-            rowInputs: renderCache.rowInputs,
-            originalPostID: renderCache.rowInputs.first?.postID
-        ) && Self.renderStateCoversRowInputs(
-            renderCache.renderState,
-            rowInputs: renderCache.rowInputs,
-            originalPostID: renderCache.rowInputs.first?.postID
-        )
-        let didUpdateRenderState =
-            previousRenderCache?.baseURLString != renderCache.baseURLString
-            || previousRenderCache?.rowInputs != renderCache.rowInputs
-            || previousRenderCache?.contentInputsByPostID != renderCache.contentInputsByPostID
-            || didRepairRenderState
-        topicRenderCaches[topicId] = renderCache
-        if didUpdateRenderState {
-            topicRenderStates[topicId] = renderCache.renderState
-        }
-        if didUpdateDetail || didUpdateRenderState || didClearLoadingMore {
-            bumpTopicCollectionRevision(topicId: topicId)
-        }
     }
 
     @discardableResult

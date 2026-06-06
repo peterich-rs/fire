@@ -898,7 +898,6 @@ impl fire_uniffi {
 trait StateObserver: Send + Sync {
     fn on_session_snapshot(&self, snapshot: SessionSnapshotState);
     fn on_topic_list_snapshot(&self, snapshot: TopicListState);
-    fn on_topic_detail_feed_snapshot(&self, snapshot: TopicDetailFeedSnapshotState);
     fn on_notification_center_snapshot(&self, snapshot: NotificationCenterState);
 }
 ```

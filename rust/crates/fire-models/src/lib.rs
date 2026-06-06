@@ -6,7 +6,6 @@ mod search;
 mod session;
 mod topic;
 mod topic_detail;
-mod topic_detail_feed;
 mod user;
 
 pub use cookie::*;
@@ -17,7 +16,6 @@ pub use search::*;
 pub use session::*;
 pub use topic::*;
 pub use topic_detail::*;
-pub use topic_detail_feed::*;
 pub use user::*;
 
 #[cfg(test)]

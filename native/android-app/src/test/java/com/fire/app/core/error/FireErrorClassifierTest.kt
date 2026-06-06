@@ -25,7 +25,7 @@ class FireErrorClassifierTest {
     @Test
     fun isCloudflareChallenge_acceptsForbiddenChallengeHtml() {
         val error = FireUniFfiException.HttpStatus(
-            operation = "fetch_topic_screen",
+            operation = "fetch_topic_detail_source_snapshot",
             status = 403.toUShort(),
             body = "<html><title>Just a moment...</title></html>",
         )

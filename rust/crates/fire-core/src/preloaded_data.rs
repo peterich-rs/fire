@@ -228,9 +228,9 @@ impl PreloadedDataService {
         if let Ok(data) = serde_json::to_string(user) {
             let store = self
                 .core
-                .topic_feed_store
+                .shared_store
                 .lock()
-                .expect("topic feed store mutex poisoned");
+                .expect("shared store mutex poisoned");
             if let Err(e) = store.set_cached_user(&data) {
                 warn!(error = %e, "failed to cache current user");
             }
@@ -240,9 +240,9 @@ impl PreloadedDataService {
     pub fn get_cached_user(&self) -> Option<CurrentUserSnapshot> {
         let store = self
             .core
-            .topic_feed_store
+            .shared_store
             .lock()
-            .expect("topic feed store mutex poisoned");
+            .expect("shared store mutex poisoned");
         let data = store.get_cached_user().ok()??;
         serde_json::from_str(&data).ok()
     }
@@ -250,9 +250,9 @@ impl PreloadedDataService {
     pub fn clear_cached_user(&self) {
         let store = self
             .core
-            .topic_feed_store
+            .shared_store
             .lock()
-            .expect("topic feed store mutex poisoned");
+            .expect("shared store mutex poisoned");
         let _ = store.clear_cached_user();
     }
 }

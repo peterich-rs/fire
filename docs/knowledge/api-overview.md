@@ -63,11 +63,10 @@
 
 ### 话题详情
 
-1. GET /t/{topicId}.json → 话题详情
-2. GET /t/{topicId}/posts.json → 按需加载帖子
-3. POST /topics/timings → 上报阅读时间
-4. GET /presence/get → 在线用户
-5. POST /presence/update → 进入/离开频道
+1. Primary source: `GET /t/{topicId}.json` 或 `GET /t/{topicId}/{postNumber}.json` 获取 header/body/raw `post_stream.stream`
+2. Raw append: `GET /t/{topicId}/posts.json?post_ids[]=...` 只按 raw stream slice 批量补齐 `loaded_posts`
+3. Presentation: Rust 基于 `raw_stream_ids + loaded_posts` 构建树状 reply rows；平台只消费结果，不反向驱动分页
+4. Sidecar: `POST /topics/timings`、`GET /presence/get`、`POST /presence/update`、AI summary、MessageBus
 
 ### 发布内容
 

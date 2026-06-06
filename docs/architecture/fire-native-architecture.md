@@ -127,7 +127,7 @@ Core orchestration engine. Owns session state, networking, API orchestration, an
 - **Session management**: Cookie sync, Bootstrap parsing, login state machine
 - **API orchestration**: topic list, topic detail, post CRUD, user, search, notifications
 - **MessageBus**: long-polling, subscription management, channel routing
-- **Pagination and cache policy**: topic detail feed pipeline
+- **Topic detail orchestration**: raw-source session (`post_stream.stream`, source cursor, batched `post_ids[]` append) plus tree-presentation rebuild
 - **Image request orchestration**: delegates to `fire-image`
 - **Rich text request orchestration**: delegates to `fire-rich-text`
 - **Logging**: mars-xlog integration
@@ -148,15 +148,13 @@ The pushed boundaries are intentionally explicit and finite:
 
 - `SessionState`
 - `TopicListState`
-- `TopicDetailFeedSnapshotState`
 - `NotificationCenterState`
 
 ```
 Rust Core                              Platform
   │                                        │
   ├── Immutable snapshot ────────────────>  StateObserver callback
-  │   session / topic list /               │
-  │   topic detail feed / notifications    ├── Snapshot diff → UI update
+  │   session / topic list / notifications ├── Snapshot diff → UI update
   │                                        │
   ├── Event / command trigger ───────────>  Explicit refresh / page / mutation command
   │                                        │
@@ -167,7 +165,7 @@ Rust Core                              Platform
 
 **Key constraints:**
 
-- Platforms never hold "source state" — only snapshot copies pushed by Rust
+- Platforms never decide topic-detail source pagination. They only hold snapshot copies produced by Rust and host-local UI state.
 - Snapshots are immutable; platforms can safely hold and diff on the main thread
 - State changes can only be sent back to Rust via Command; Rust computes a new snapshot and pushes it
 

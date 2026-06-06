@@ -13,6 +13,8 @@ Content-Type: application/x-www-form-urlencoded
 
 **场景**：实时消息推送。客户端启动后持续长轮询，接收话题更新、新通知、在线状态等实时事件。
 
+> Fire 说明：MessageBus 在话题详情中的职责是 topic / reaction / poll / presence 事件与失效信号。它不会替代主详情读模型，也不会让平台回退到逐帖 patch 后自行重建分页状态。
+
 **特殊配置：**
 - 接收超时：60 秒
 - 不参与并发限制（`maxConcurrent: null`）

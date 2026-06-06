@@ -165,6 +165,20 @@ Discourse-Track-View-Topic-Id: <topicId>  （仅通过 ID 访问时）
 
 **Response (200)：** `TopicDetail` 对象，包含 `post_stream`（含 posts 列表）、topic 元数据等。
 
+### Fire authoritative topic-detail contract
+
+Fire 当前主详情页不再把 `GET /t/{id}.json` 或 `GET /t/{id}/posts.json` 直接当成平台 UI 契约，而是明确拆成两层：
+
+- Raw source
+  - `GET /t/{id}.json` / `GET /t/{id}/{postNumber}.json` 只负责给出 header、body、anchor 与原始 `post_stream.stream`
+  - 后续分页只允许按 `post_stream.stream` 的下一个 offset 切 batch，再通过 `post_ids[]` 拉取 raw posts
+  - 契约关键字段：`initial_batch_size`、`load_more_batch_size`、`target_post_number`、`next_stream_offset`、`last_loaded_post_id`
+- Tree presentation
+  - Rust 基于已加载的 raw posts 生成 `reply_rows`、`depth`、`parent_post_number`、`root_post_number`
+  - 树状 rows 只属于呈现层，不能反向决定下一批网络边界
+
+`forceLoad` 当前仍保留在 Fire 主路径查询参数中，用于显式跳过当前 source session 缓存并重新拉取 source snapshot；它属于 Fire 运行时契约，不是 Discourse 原始端点字段。
+
 ---
 
 ## 6.5 批量获取帖子
@@ -197,6 +211,12 @@ GET /t/{topicId}/posts.json
   "badges": {...}
 }
 ```
+
+### Fire 主路径约束
+
+- `GET /t/{topicId}/posts.json` 在 Fire 主详情页中只作为 raw-source append 接口使用
+- 平台不得自己切 `post_stream.posts` 窗口当主分页，也不得用 root-level rows 反推 `post_ids[]`
+- `postNumber` deep link 只影响首包 anchor，不改变后续 load-more 的 raw stream 线性分页模型
 
 ---
 

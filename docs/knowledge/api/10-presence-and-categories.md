@@ -42,6 +42,8 @@ GET /presence/get
 
 **场景**：查看话题详情页时获取其他正在查看/回复的用户。
 
+> Fire 说明：Presence 是话题详情页的 sidecar capability，不参与主详情 source snapshot 或树状 presentation 的首屏数据 shape。
+
 **Query Parameters：**
 
 | 参数 | 类型 | 必填 | 说明 |
@@ -58,6 +60,8 @@ Content-Type: application/x-www-form-urlencoded
 ```
 
 **场景**：用户进入/离开话题详情页时更新在线状态（静默请求）。
+
+> Fire 说明：host 只负责页面生命周期触发；请求组织、静默写策略与错误处理由 Rust 统一负责。`429` 或临时失败不应转成主详情页错误。
 
 **Request Headers（额外）：**
 

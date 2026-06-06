@@ -46,9 +46,11 @@ the shared Rust core at build time.
 
 ## Topic Detail
 
-`TopicDetailActivity` loads `fetchTopicScreen` from Rust and renders a
-`ConcatAdapter` made of the topic header, original post, response rows, and a
-loading footer. Replies are paged through Rust response cursors.
+`TopicDetailActivity` now loads a Rust-owned topic-detail source snapshot,
+builds a Rust-owned tree presentation from the loaded raw posts, and renders a
+`ConcatAdapter` made of the topic header, original post, reply rows, and a
+loading footer. Load-more is driven only by the Rust source cursor over raw
+`post_stream.stream`, not by host-managed row windows.
 
 Current topic-detail interactions:
 
@@ -77,6 +79,11 @@ Current topic-detail interactions:
   prompts when required
 - target post scrolling for notification/search deep links
 - topic/reaction/poll MessageBus subscriptions with debounced detail refresh
+- MessageBus-driven detail refresh now waits until RecyclerView scrolling returns
+  to idle before applying the latest refreshed source snapshot + tree presentation,
+  so live updates do not rebind the visible post list mid-scroll
+- identical refreshed detail / row payloads are now dropped before they hit the
+  observable UI state, avoiding redundant header and post-list submissions
 
 Current iOS/Rust expose topic voter lookup and poll counts/votes, but not a
 poll-option voter-list API or iOS poll-voter sheet; Android follows that same

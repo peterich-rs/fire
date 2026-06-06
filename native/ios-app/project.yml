@@ -92,7 +92,7 @@ targets:
         name: Sync Fire UniFFI Bindings
         shell: /bin/bash
         showEnvVars: false
-        basedOnDependencyAnalysis: true
+        basedOnDependencyAnalysis: false
         inputFiles:
           - $(SRCROOT)/scripts/sync_uniffi_bindings.sh
           - $(SRCROOT)/../../Cargo.toml

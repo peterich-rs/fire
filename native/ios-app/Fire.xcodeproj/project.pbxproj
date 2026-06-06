@@ -933,6 +933,7 @@
 /* Begin PBXShellScriptBuildPhase section */
 		7F9225EA44D6B7B0AD49A18F /* Sync Fire UniFFI Bindings */ = {
 			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
 			buildActionMask = 2147483647;
 			files = (
 			);

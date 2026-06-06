@@ -8,7 +8,7 @@ pub enum StrikeDecision {
     ProbeNeeded,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct AuthStrikeState {
     pub strike_count: u8,
     pub last_strike_at: Option<Instant>,
@@ -23,22 +23,6 @@ pub struct AuthStrikeState {
 const STRIKE_WINDOW: Duration = Duration::from_secs(45);
 const INCONCLUSIVE_COOLDOWN: Duration = Duration::from_secs(30);
 const PASSIVE_LOGOUT_WINDOW: Duration = Duration::from_secs(24 * 60 * 60);
-const PASSIVE_LOGOUT_SUGGEST_CLEAR_THRESHOLD: u8 = 3;
-
-impl Default for AuthStrikeState {
-    fn default() -> Self {
-        Self {
-            strike_count: 0,
-            last_strike_at: None,
-            last_signal_strength: None,
-            inconclusive_until: None,
-            passive_logout_count_24h: 0,
-            passive_logout_window_start: None,
-            probe_in_progress: false,
-            logging_out: false,
-        }
-    }
-}
 
 impl AuthStrikeState {
     pub fn receive_auth_signal(&mut self, strength: SignalStrength) -> StrikeDecision {
@@ -89,10 +73,6 @@ impl AuthStrikeState {
 
     pub fn enter_inconclusive_cooldown(&mut self) {
         self.inconclusive_until = Some(Instant::now() + INCONCLUSIVE_COOLDOWN);
-    }
-
-    pub fn should_suggest_data_clear(&self) -> bool {
-        self.passive_logout_count_24h >= PASSIVE_LOGOUT_SUGGEST_CLEAR_THRESHOLD
     }
 
     pub fn record_passive_logout(&mut self) {
@@ -154,24 +134,30 @@ mod tests {
 
     #[test]
     fn inconclusive_cooldown_ignores_weak_signals() {
-        let mut state = AuthStrikeState::default();
-        state.inconclusive_until = Some(Instant::now() + Duration::from_secs(30));
+        let mut state = AuthStrikeState {
+            inconclusive_until: Some(Instant::now() + Duration::from_secs(30)),
+            ..AuthStrikeState::default()
+        };
         let decision = state.receive_auth_signal(SignalStrength::Weak);
         assert!(matches!(decision, StrikeDecision::Ignore));
     }
 
     #[test]
     fn logging_out_ignores_all_signals() {
-        let mut state = AuthStrikeState::default();
-        state.logging_out = true;
+        let mut state = AuthStrikeState {
+            logging_out: true,
+            ..AuthStrikeState::default()
+        };
         let decision = state.receive_auth_signal(SignalStrength::Strong);
         assert!(matches!(decision, StrikeDecision::Ignore));
     }
 
     #[test]
     fn probe_in_progress_ignores_signals() {
-        let mut state = AuthStrikeState::default();
-        state.probe_in_progress = true;
+        let mut state = AuthStrikeState {
+            probe_in_progress: true,
+            ..AuthStrikeState::default()
+        };
         let decision = state.receive_auth_signal(SignalStrength::Strong);
         assert!(matches!(decision, StrikeDecision::Ignore));
     }

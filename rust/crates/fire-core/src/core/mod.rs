@@ -212,7 +212,9 @@ impl FireCore {
             notifications: Arc::new(Mutex::new(notifications::FireNotificationRuntime::default())),
             topic_presence: Arc::new(Mutex::new(presence::FireTopicPresenceRuntime::default())),
             topic_timing: Arc::new(Mutex::new(interactions::FireTopicTimingRuntime::default())),
-            topic_detail_source: Arc::new(Mutex::new(topics::FireTopicDetailSourceRuntime::default())),
+            topic_detail_source: Arc::new(Mutex::new(
+                topics::FireTopicDetailSourceRuntime::default(),
+            )),
             shared_store,
             home_topic_list_scope: Arc::new(Mutex::new(HomeTopicListScope::default())),
             state_observers: FireStateObserverRegistry::default(),

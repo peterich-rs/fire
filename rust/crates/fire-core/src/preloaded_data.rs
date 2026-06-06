@@ -15,7 +15,7 @@ use crate::parsing::{parse_home_state, parse_preloaded_payload};
 enum CachedPreloadedState {
     NotStarted,
     Loading,
-    Ready(PreloadedDataResult),
+    Ready(Box<PreloadedDataResult>),
     Failed(String),
 }
 
@@ -82,7 +82,7 @@ impl PreloadedDataService {
 
     pub fn get_result(&self) -> Option<PreloadedDataResult> {
         match &*self.state.lock().unwrap() {
-            CachedPreloadedState::Ready(result) => Some(result.clone()),
+            CachedPreloadedState::Ready(result) => Some(result.as_ref().clone()),
             _ => None,
         }
     }
@@ -143,7 +143,7 @@ impl PreloadedDataService {
             return Err(FireCoreError::HttpStatus {
                 operation: "preloaded data fetch",
                 status: status.as_u16(),
-                body: format!("homepage request returned {}", status),
+                body: format!("homepage request returned {status}"),
             });
         }
         self.core.read_response_text(trace_id, response).await
@@ -172,7 +172,7 @@ impl PreloadedDataService {
             self.clear_cached_user();
         }
         let mut state = self.state.lock().unwrap();
-        *state = CachedPreloadedState::Ready(result);
+        *state = CachedPreloadedState::Ready(Box::new(result));
         drop(state);
         self.notify.notify_waiters();
     }

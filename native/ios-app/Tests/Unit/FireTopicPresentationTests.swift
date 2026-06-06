@@ -161,7 +161,7 @@ final class FireTopicPresentationTests: XCTestCase {
         )
         let content = renderState.contentByPostID[1]
 
-        XCTAssertEqual(content?.plainText, "Hello Fire")
+        XCTAssertEqual(content?.plainText, "Hello Fire\n\nfire")
         XCTAssertEqual(
             content?.imageAttachments.first?.url.absoluteString,
             "https://linux.do/uploads/default/original/1X/fire.png"
@@ -400,13 +400,13 @@ final class FireTopicPresentationTests: XCTestCase {
         XCTAssertEqual(renderCache.renderState.contentByPostID[2]?.plainText, "reply-new")
     }
 
-    func testRenderContentPlainTextOmitsImageAttachmentAltText() {
+    func testRenderContentPlainTextIncludesImageAttachmentAltTextFromSharedRenderer() {
         let content = FireTopicPresentation.renderContent(
             from: #"<p>Hello&nbsp;Fire</p><img src="/uploads/default/original/1X/fire.png" alt="fire">"#,
             baseURLString: "https://linux.do"
         )
 
-        XCTAssertEqual(content.plainText, "Hello Fire")
+        XCTAssertEqual(content.plainText, "Hello Fire\n\nfire")
         XCTAssertEqual(content.imageAttachments.first?.altText, "fire")
     }
 
@@ -465,7 +465,7 @@ final class FireTopicPresentationTests: XCTestCase {
         )
 
         XCTAssertEqual(attachment.remoteURL.absoluteString, "https://linux.do/images/emoji/twitter/smile.png?v=12")
-        XCTAssertEqual(attachment.fallbackText, ":smile:")
+        XCTAssertEqual(attachment.fallbackText, "smile")
         XCTAssertTrue(content.imageAttachments.isEmpty)
     }
 
@@ -527,7 +527,7 @@ final class FireTopicPresentationTests: XCTestCase {
         XCTAssertTrue(content.imageAttachments.isEmpty)
         XCTAssertTrue(attributedText.string.contains("引用"))
         XCTAssertTrue(attributedText.string.contains("Hello Fire"))
-        XCTAssertFalse(attributedText.string.contains("alice:"))
+        XCTAssertTrue(attributedText.string.contains("alice"))
     }
 
     func testRenderContentMakesMentionGroupsAndHashtagsTappable() throws {

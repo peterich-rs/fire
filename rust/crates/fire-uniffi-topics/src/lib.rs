@@ -13,12 +13,12 @@ pub use records::{
     ResolvedUploadUrlState, TopicAiSummaryState, TopicBodyState, TopicCreateRequestState,
     TopicDetailCreatedByState, TopicDetailMetaState, TopicDetailSourceQueryState,
     TopicDetailSourceSnapshotState, TopicDetailState, TopicHeaderState, TopicListQueryState,
-    TopicLoadMoreOutcomeState, TopicLoadMoreStopReasonState, TopicLoadedRangeState,
-    TopicPostState, TopicPostStreamState, TopicReactionState, TopicReplyRequestState,
-    TopicReplyToUserState, TopicSourceCursorState, TopicTimingEntryState,
-    TopicTimingsRequestState, TopicTreePresentationQueryState, TopicTreePresentationState,
-    TopicTreeRowState, TopicUpdateRequestState, UploadImageRequestState, UploadResultState,
-    VoteResponseState, VotedUserState,
+    TopicLoadMoreOutcomeState, TopicLoadMoreStopReasonState, TopicLoadedRangeState, TopicPostState,
+    TopicPostStreamState, TopicReactionState, TopicReplyRequestState, TopicReplyToUserState,
+    TopicSourceCursorState, TopicTimingEntryState, TopicTimingsRequestState,
+    TopicTreePresentationQueryState, TopicTreePresentationState, TopicTreeRowState,
+    TopicUpdateRequestState, UploadImageRequestState, UploadResultState, VoteResponseState,
+    VotedUserState,
 };
 
 #[derive(uniffi::Object)]
@@ -62,7 +62,9 @@ impl FireTopicsHandle {
             panic_state,
             async move {
                 let base_url = inner.base_url().to_string();
-                let snapshot = inner.fetch_topic_detail_source_snapshot(query.into()).await?;
+                let snapshot = inner
+                    .fetch_topic_detail_source_snapshot(query.into())
+                    .await?;
                 Ok::<_, fire_core::FireCoreError>((base_url, snapshot))
             },
         )

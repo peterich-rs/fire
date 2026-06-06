@@ -11,11 +11,11 @@ pub mod records;
 pub use records::{
     format_probe_result, AppStateRefreshEventState, AppStateRefreshHandler, AuthRecoveryHintState,
     BootstrapState, CloudflareChallengeHandler, CloudflareChallengeRequestState,
-    CloudflareChallengeResultState, CookieReplayEntryState, CookieState,
-    CurrentUserSnapshotState, HomeTopicListScopeState, LoginFinalizationResultState,
-    LoginPhaseState, LoginStateDeterminationState, LoginSyncState, PassiveLogoutTriggerState,
-    PlatformCookieState, PreloadedDataStateState, RefreshBatchState, RefreshTriggerState,
-    SessionPersistenceState, SessionReadinessState, SessionState, TopicCategoryState,
+    CloudflareChallengeResultState, CookieReplayEntryState, CookieState, CurrentUserSnapshotState,
+    HomeTopicListScopeState, LoginFinalizationResultState, LoginPhaseState,
+    LoginStateDeterminationState, LoginSyncState, PassiveLogoutTriggerState, PlatformCookieState,
+    PreloadedDataStateState, RefreshBatchState, RefreshTriggerState, SessionPersistenceState,
+    SessionReadinessState, SessionState, TopicCategoryState,
 };
 
 #[derive(uniffi::Object)]
@@ -146,9 +146,7 @@ impl FireSessionHandle {
                 let handler = handler.clone();
                 inner.set_cloudflare_challenge_handler(move |request| {
                     let handler = handler.clone();
-                    async move {
-                        handler.complete_cloudflare_challenge(request.into()).into()
-                    }
+                    async move { handler.complete_cloudflare_challenge(request.into()).into() }
                 });
             },
         )

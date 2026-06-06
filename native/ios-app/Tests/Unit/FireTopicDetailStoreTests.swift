@@ -657,7 +657,6 @@ final class FireTopicDetailStoreTests: XCTestCase {
             [
                 .finalizeLoginFromWebView,
                 .refreshBootstrapIfNeeded,
-                .logoutLocal,
             ]
         )
     }

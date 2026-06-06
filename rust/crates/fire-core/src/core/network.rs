@@ -293,14 +293,12 @@ fn request_url_string(request: &Request<RequestBody>) -> String {
 fn request_origin_url(base_url: &Url, request: &Request<RequestBody>) -> Option<String> {
     let request_url = base_url.join(request.uri().path()).ok()?;
     let path = request_url.path();
+    let trims_json_route = path.ends_with(".json")
+        && (path.starts_with("/c/") || path.starts_with("/tags/") || path.starts_with("/t/"));
 
     let canonical_path = if path == "/latest.json" {
         Some("/latest".to_string())
-    } else if path.starts_with("/c/") && path.ends_with(".json") {
-        Some(path.trim_end_matches(".json").to_string())
-    } else if path.starts_with("/tags/") && path.ends_with(".json") {
-        Some(path.trim_end_matches(".json").to_string())
-    } else if path.starts_with("/t/") && path.ends_with(".json") {
+    } else if trims_json_route {
         Some(path.trim_end_matches(".json").to_string())
     } else {
         None
@@ -1372,25 +1370,6 @@ pub(crate) fn is_cloudflare_challenge_body(body: &str) -> bool {
         || (normalized.contains("challenge-platform") && normalized.contains("cloudflare"))
         || (normalized.contains("just a moment")
             && (normalized.contains("cloudflare") || normalized.contains("cf-challenge")))
-}
-
-pub(crate) fn parse_cookie_name_and_domain(raw: &str) -> Option<(String, String)> {
-    let parts: Vec<&str> = raw.split(';').collect();
-    let first = parts.first()?;
-    let name = first.split('=').next()?.trim().to_string();
-    let domain = parts
-        .iter()
-        .find(|p| p.trim().starts_with("domain="))
-        .map(|p| {
-            p.trim()
-                .strip_prefix("domain=")
-                .unwrap_or("")
-                .trim()
-                .trim_start_matches('.')
-                .to_string()
-        })
-        .unwrap_or_default();
-    Some((name, domain))
 }
 
 pub(crate) fn is_cloudflare_challenge_response(

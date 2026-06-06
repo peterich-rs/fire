@@ -1322,7 +1322,7 @@ async fn fetch_topic_detail_source_snapshot_tracks_visit_headers_and_force_load_
     let requests = server.shutdown_with_requests().await;
 
     assert_eq!(snapshot.body.post.post_number, 1);
-    assert_eq!(snapshot.loaded_posts.len(), 2);
+    assert_eq!(snapshot.loaded_posts.len(), 1);
     assert_eq!(requests.len(), 1);
     let first_request_headers = requests[0].to_ascii_lowercase();
     assert!(requests[0].contains("GET /t/123.json?track_visit=true&forceLoad=true HTTP/1.1"));
@@ -1777,6 +1777,16 @@ async fn fetch_topic_posts_parses_batch_response() {
 async fn fetch_topic_posts_reuses_active_topic_response_session_cache() {
     let mut top_level_payload: Value =
         serde_json::from_str(&sample_topic_detail_json()).expect("detail fixture json");
+    let body_post = top_level_payload
+        .as_object()
+        .expect("detail fixture object")
+        .get("post_stream")
+        .and_then(Value::as_object)
+        .and_then(|post_stream| post_stream.get("posts"))
+        .and_then(Value::as_array)
+        .and_then(|posts| posts.first())
+        .cloned()
+        .expect("body post");
     top_level_payload
         .as_object_mut()
         .expect("detail fixture object")
@@ -1788,6 +1798,7 @@ async fn fetch_topic_posts_reuses_active_topic_response_session_cache() {
             (
                 "posts".into(),
                 json!([
+                    body_post,
                     {
                         "id": 9002,
                         "username": "bob",
@@ -1815,7 +1826,6 @@ async fn fetch_topic_posts_reuses_active_topic_response_session_cache() {
     })
     .to_string();
     let responses = vec![
-        raw_json_response(200, "application/json", &sample_topic_detail_json()),
         raw_json_response(200, "application/json", &top_level_payload.to_string()),
         raw_json_response(200, "application/json", &post_payload),
     ];

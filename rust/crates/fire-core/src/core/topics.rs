@@ -1,13 +1,11 @@
-use std::{
-    collections::{BTreeMap, HashMap, HashSet},
-};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use fire_models::{
     LoadMoreTopicPostsQuery, TopicAiSummary, TopicBody, TopicDetail, TopicDetailQuery,
     TopicDetailSourceAppend, TopicDetailSourceQuery, TopicDetailSourceSnapshot, TopicHeader,
     TopicListKind, TopicListQuery, TopicListResponse, TopicLoadMoreOutcome,
     TopicLoadMoreStopReason, TopicLoadedRange, TopicPost, TopicPostStream, TopicSourceCursor,
-    TopicTreePresentation, TopicTreePresentationQuery, TopicTreeRow, TopicThread,
+    TopicThread, TopicTreePresentation, TopicTreePresentationQuery, TopicTreeRow,
 };
 use http::StatusCode;
 use serde_json::Value;
@@ -62,6 +60,17 @@ struct TopicLoadMorePolicy {
     max_auto_batches_per_gesture: u8,
     max_auto_posts_per_gesture: u16,
     require_new_root_progress: bool,
+}
+
+struct TopicDetailSourceSessionInit {
+    session_epoch: u64,
+    header: TopicHeader,
+    body_post: TopicPost,
+    focused_post_number: Option<u32>,
+    raw_stream_ids: Vec<u64>,
+    cached_posts: Vec<TopicPost>,
+    unavailable_post_ids: HashSet<u64>,
+    load_more_policy: TopicLoadMorePolicy,
 }
 
 impl FireCore {
@@ -219,7 +228,9 @@ impl FireCore {
         &self,
         query: TopicDetailSourceQuery,
     ) -> Result<TopicDetailSourceSnapshot, FireCoreError> {
-        let focused_post_number = query.target_post_number.filter(|post_number| *post_number > 1);
+        let focused_post_number = query
+            .target_post_number
+            .filter(|post_number| *post_number > 1);
         let initial_batch_size = normalized_topic_initial_batch_size(query.initial_batch_size);
         let load_more_policy = TopicLoadMorePolicy {
             batch_size: normalized_topic_load_more_batch_size(query.load_more_batch_size),
@@ -268,12 +279,17 @@ impl FireCore {
                 .iter()
                 .any(|post| post.post_number == *post_number)
         }) {
-            detail
-                .post_stream
-                .posts
-                .push(self.fetch_post_by_number(query.topic_id, target_post_number).await?);
+            detail.post_stream.posts.push(
+                self.fetch_post_by_number(query.topic_id, target_post_number)
+                    .await?,
+            );
         }
-        if !detail.post_stream.posts.iter().any(|post| post.id == body_post.id) {
+        if !detail
+            .post_stream
+            .posts
+            .iter()
+            .any(|post| post.id == body_post.id)
+        {
             detail.post_stream.posts.push(body_post.clone());
         }
 
@@ -307,16 +323,16 @@ impl FireCore {
         );
 
         let header = detail.header();
-        let session = TopicDetailSourceSession::new(
-            self.current_session_epoch(),
+        let session = TopicDetailSourceSession::new(TopicDetailSourceSessionInit {
+            session_epoch: self.current_session_epoch(),
             header,
             body_post,
             focused_post_number,
-            detail.post_stream.stream,
-            detail.post_stream.posts,
-            initial_unavailable_post_ids,
+            raw_stream_ids: detail.post_stream.stream,
+            cached_posts: detail.post_stream.posts,
+            unavailable_post_ids: initial_unavailable_post_ids,
             load_more_policy,
-        );
+        });
 
         let snapshot = {
             let mut runtime = self
@@ -375,9 +391,7 @@ impl FireCore {
         let mut chained_posts: u16 = 0;
 
         loop {
-            let append_result = self
-                .append_topic_source_batch(current_cursor.clone())
-                .await;
+            let append_result = self.append_topic_source_batch(current_cursor.clone()).await;
             let append = match append_result {
                 Ok(append) => append,
                 Err(error) if chained_batches == 0 => return Err(error),
@@ -405,9 +419,8 @@ impl FireCore {
             };
 
             chained_batches = chained_batches.saturating_add(1);
-            chained_posts = chained_posts.saturating_add(
-                u16::try_from(append.appended_posts.len()).unwrap_or(u16::MAX),
-            );
+            chained_posts = chained_posts
+                .saturating_add(u16::try_from(append.appended_posts.len()).unwrap_or(u16::MAX));
             let session = self.clone_active_source_session(
                 current_cursor.topic_id,
                 current_cursor.session_id,
@@ -720,7 +733,10 @@ impl FireCore {
             .collect::<Vec<_>>();
         let mut fetched_posts = Vec::new();
         for post_ids in missing_post_ids.chunks(TOPIC_POST_BATCH_SIZE) {
-            fetched_posts.extend(self.fetch_topic_posts(cursor.topic_id, post_ids.to_vec()).await?);
+            fetched_posts.extend(
+                self.fetch_topic_posts(cursor.topic_id, post_ids.to_vec())
+                    .await?,
+            );
         }
         let fetched_post_ids = fetched_posts
             .iter()
@@ -935,16 +951,17 @@ fn topic_posts_for_requested_ids(
 }
 
 impl TopicDetailSourceSession {
-    fn new(
-        session_epoch: u64,
-        header: TopicHeader,
-        body_post: TopicPost,
-        focused_post_number: Option<u32>,
-        raw_stream_ids: Vec<u64>,
-        cached_posts: Vec<TopicPost>,
-        unavailable_post_ids: HashSet<u64>,
-        load_more_policy: TopicLoadMorePolicy,
-    ) -> Self {
+    fn new(init: TopicDetailSourceSessionInit) -> Self {
+        let TopicDetailSourceSessionInit {
+            session_epoch,
+            header,
+            body_post,
+            focused_post_number,
+            raw_stream_ids,
+            cached_posts,
+            unavailable_post_ids,
+            load_more_policy,
+        } = init;
         let mut posts_by_id = HashMap::new();
         let mut post_id_by_number = HashMap::new();
 
@@ -1115,7 +1132,10 @@ fn build_topic_tree_presentation_from_query(
         query.loaded_posts,
         Vec::new(),
     ));
-    if !ordered_posts.iter().any(|post| post.id == query.body_post.id) {
+    if !ordered_posts
+        .iter()
+        .any(|post| post.id == query.body_post.id)
+    {
         ordered_posts.push(query.body_post.clone());
         ordered_posts = deduplicate_topic_posts_by_id(merge_topic_posts(
             &query.raw_stream_ids,
@@ -1578,8 +1598,17 @@ mod tests {
         });
 
         assert_eq!(
-            presentation.reply_rows.iter().map(|row| row.post.id).collect::<Vec<_>>(),
-            vec![root_post.id, child_post.id, grandchild_post.id, second_root.id]
+            presentation
+                .reply_rows
+                .iter()
+                .map(|row| row.post.id)
+                .collect::<Vec<_>>(),
+            vec![
+                root_post.id,
+                child_post.id,
+                grandchild_post.id,
+                second_root.id
+            ]
         );
         assert_eq!(presentation.reply_rows[0].parent_post_number, Some(1));
         assert_eq!(presentation.reply_rows[0].depth, 1);
@@ -1599,7 +1628,7 @@ mod tests {
     }
 
     #[test]
-    fn tree_presentation_reparents_missing_parent_to_body() {
+    fn tree_presentation_reparents_missing_branch_to_body() {
         let body_post = make_topic_post(1, None);
         let orphan_root = make_topic_post(5, Some(99));
         let orphan_child = make_topic_post(6, Some(5));
@@ -1612,13 +1641,26 @@ mod tests {
         });
 
         assert_eq!(
-            presentation.reply_rows.iter().map(|row| row.post.id).collect::<Vec<_>>(),
+            presentation
+                .reply_rows
+                .iter()
+                .map(|row| row.post.id)
+                .collect::<Vec<_>>(),
             vec![orphan_root.id, orphan_child.id]
         );
         assert_eq!(presentation.reply_rows[0].parent_post_number, Some(1));
-        assert_eq!(presentation.reply_rows[1].parent_post_number, Some(5));
+        assert_eq!(presentation.reply_rows[1].parent_post_number, Some(1));
         assert_eq!(presentation.reply_rows[0].depth, 1);
-        assert_eq!(presentation.reply_rows[1].depth, 2);
+        assert_eq!(presentation.reply_rows[1].depth, 1);
+        assert_eq!(
+            presentation
+                .reply_rows
+                .iter()
+                .map(|row| row.root_post_number)
+                .collect::<Vec<_>>(),
+            vec![5, 6]
+        );
+        assert_eq!(presentation.visible_root_post_numbers, vec![5, 6]);
     }
 
     #[test]
@@ -1634,24 +1676,24 @@ mod tests {
         let body_post = make_topic_post(1, None);
         let second_post = make_topic_post(2, Some(1));
         let fourth_post = make_topic_post(4, Some(1));
-        let mut session = TopicDetailSourceSession::new(
-            3,
-            TopicHeader {
+        let mut session = TopicDetailSourceSession::new(TopicDetailSourceSessionInit {
+            session_epoch: 3,
+            header: TopicHeader {
                 topic_id: 42,
                 ..TopicHeader::default()
             },
-            body_post.clone(),
-            None,
-            vec![body_post.id, second_post.id, 3, fourth_post.id],
-            vec![body_post.clone(), second_post.clone(), fourth_post.clone()],
-            HashSet::new(),
-            TopicLoadMorePolicy {
+            body_post: body_post.clone(),
+            focused_post_number: None,
+            raw_stream_ids: vec![body_post.id, second_post.id, 3, fourth_post.id],
+            cached_posts: vec![body_post.clone(), second_post.clone(), fourth_post.clone()],
+            unavailable_post_ids: HashSet::new(),
+            load_more_policy: TopicLoadMorePolicy {
                 batch_size: 40,
                 max_auto_batches_per_gesture: 3,
                 max_auto_posts_per_gesture: 120,
                 require_new_root_progress: true,
             },
-        );
+        });
 
         assert_eq!(session.next_stream_offset, 2);
         assert_eq!(session.last_loaded_post_id, Some(2));

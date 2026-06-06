@@ -285,6 +285,7 @@ pub fn current_unix_ms() -> i64 {
 
 pub fn score_platform_cookie(cookie: &PlatformCookie, host: &str) -> i64 {
     let mut score: i64 = 0;
+    let normalized_host = host.to_ascii_lowercase();
     if !cookie.value.is_empty() {
         score += 100_000;
     }
@@ -302,23 +303,16 @@ pub fn score_platform_cookie(cookie: &PlatformCookie, host: &str) -> i64 {
         }
         Some(domain) if domain.starts_with('.') => {
             let normalized = domain.trim_start_matches('.').to_ascii_lowercase();
-            if normalized.eq_ignore_ascii_case(host) {
-                score += 20_000;
-            } else if host
-                .to_ascii_lowercase()
-                .ends_with(&format!(".{normalized}"))
+            if normalized == normalized_host || normalized_host.ends_with(&format!(".{normalized}"))
             {
                 score += 20_000;
             }
         }
         Some(domain) => {
             let normalized = domain.to_ascii_lowercase();
-            if normalized.eq_ignore_ascii_case(host) {
+            if normalized == normalized_host {
                 score += 30_000;
-            } else if host
-                .to_ascii_lowercase()
-                .ends_with(&format!(".{normalized}"))
-            {
+            } else if normalized_host.ends_with(&format!(".{normalized}")) {
                 score += 20_000;
             }
         }

@@ -460,7 +460,7 @@ final class FirePostCellLayoutCalculatorTests: XCTestCase {
         XCTAssertEqual(measuredLayout.size.height, calculatedLayout.totalHeight, accuracy: 1.0)
     }
 
-    func testCommentImageRenderSizeIsScaledDown() throws {
+    func testCommentImageRenderSizeIsScaledDownAndRootImagesRespectMaxHeight() throws {
         let image = FireCookedImage(
             url: try XCTUnwrap(URL(string: "https://linux.do/uploads/default/original/1x/sample.png")),
             altText: nil,
@@ -479,7 +479,7 @@ final class FirePostCellLayoutCalculatorTests: XCTestCase {
             depth: 1
         )
 
-        XCTAssertEqual(rootSize.width, 320, accuracy: 0.01)
+        XCTAssertEqual(rootSize.height, FirePostCellLayoutCalculator.topicImageMaxHeight, accuracy: 0.01)
         XCTAssertLessThan(commentSize.width, rootSize.width)
         XCTAssertLessThanOrEqual(commentSize.height, FirePostCellLayoutCalculator.commentImageMaxHeight)
     }

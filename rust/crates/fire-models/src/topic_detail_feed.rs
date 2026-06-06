@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{TopicHeader, TopicPost, TopicResponseCursor, TopicResponseRow};
+use crate::{TopicHeader, TopicPost, TopicSourceCursor, TopicTreeRow};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TopicDetailLoadPolicy {
@@ -59,7 +59,7 @@ pub struct TopicDetailLoadedRange {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TopicDetailCursor {
-    pub next_response_cursor: Option<TopicResponseCursor>,
+    pub next_response_cursor: Option<TopicSourceCursor>,
     pub loaded_ranges: Vec<TopicDetailLoadedRange>,
     pub has_more: bool,
 }
@@ -73,7 +73,7 @@ pub struct TopicDetailFeedItem {
     pub content_revision: String,
     pub header: Option<TopicHeader>,
     pub post: Option<TopicPost>,
-    pub response_row: Option<TopicResponseRow>,
+    pub response_row: Option<TopicTreeRow>,
     pub title: Option<String>,
     pub message: Option<String>,
     pub retryable: bool,

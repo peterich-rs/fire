@@ -11,7 +11,6 @@ mod presence;
 mod rate_limit;
 mod search;
 mod session;
-mod topic_feed;
 mod topics;
 mod users;
 
@@ -145,7 +144,7 @@ pub struct FireCore {
     notifications: Arc<Mutex<notifications::FireNotificationRuntime>>,
     topic_presence: Arc<Mutex<presence::FireTopicPresenceRuntime>>,
     topic_timing: Arc<Mutex<interactions::FireTopicTimingRuntime>>,
-    topic_response: Arc<Mutex<topics::FireTopicResponseRuntime>>,
+    topic_detail_source: Arc<Mutex<topics::FireTopicDetailSourceRuntime>>,
     pub(crate) topic_feed_store: Arc<Mutex<FireStore>>,
     home_topic_list_scope: Arc<Mutex<HomeTopicListScope>>,
     state_observers: FireStateObserverRegistry,
@@ -213,12 +212,13 @@ impl FireCore {
             notifications: Arc::new(Mutex::new(notifications::FireNotificationRuntime::default())),
             topic_presence: Arc::new(Mutex::new(presence::FireTopicPresenceRuntime::default())),
             topic_timing: Arc::new(Mutex::new(interactions::FireTopicTimingRuntime::default())),
-            topic_response: Arc::new(Mutex::new(topics::FireTopicResponseRuntime::default())),
+            topic_detail_source: Arc::new(Mutex::new(topics::FireTopicDetailSourceRuntime::default())),
             topic_feed_store,
             home_topic_list_scope: Arc::new(Mutex::new(HomeTopicListScope::default())),
             state_observers: FireStateObserverRegistry::default(),
             csrf_refresh: Arc::new(TokioMutex::new(())),
-            cloudflare_challenge_handler: cf_challenge::FireCloudflareChallengeHandlerRegistry::default(),
+            cloudflare_challenge_handler:
+                cf_challenge::FireCloudflareChallengeHandlerRegistry::default(),
             cloudflare_challenge_runtime: Arc::new(Mutex::new(
                 cf_challenge::FireCloudflareChallengeRuntime::default(),
             )),

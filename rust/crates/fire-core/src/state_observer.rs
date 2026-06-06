@@ -1,21 +1,54 @@
 use std::{
+    future::Future,
     panic::{catch_unwind, AssertUnwindSafe},
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc, Mutex,
+        Arc, Mutex, MutexGuard, OnceLock,
     },
     time::Duration,
 };
 
-use fire_models::{NotificationState, SessionSnapshot, TopicDetailFeedSnapshot, TopicListResponse};
+use fire_models::{NotificationState, SessionSnapshot, TopicListResponse};
+use tokio::runtime::{Builder, Handle, Runtime};
 use tracing::warn;
 
 pub type SessionObserverFn = Arc<dyn Fn(SessionSnapshot) + Send + Sync>;
 pub type TopicListObserverFn = Arc<dyn Fn(TopicListResponse) + Send + Sync>;
-pub type TopicDetailFeedObserverFn = Arc<dyn Fn(TopicDetailFeedSnapshot) + Send + Sync>;
 pub type NotificationObserverFn = Arc<dyn Fn(NotificationState) + Send + Sync>;
 
 const OBSERVER_DEBOUNCE_WINDOW: Duration = Duration::from_millis(100);
+
+fn observer_runtime() -> &'static Runtime {
+    static RUNTIME: OnceLock<Runtime> = OnceLock::new();
+    RUNTIME.get_or_init(|| {
+        Builder::new_multi_thread()
+            .enable_all()
+            .thread_name("fire-state-observer")
+            .build()
+            .expect("failed to create state observer runtime")
+    })
+}
+
+fn spawn_observer_task<F>(future: F)
+where
+    F: Future<Output = ()> + Send + 'static,
+{
+    if let Ok(handle) = Handle::try_current() {
+        handle.spawn(future);
+    } else {
+        observer_runtime().spawn(future);
+    }
+}
+
+fn lock_or_recover<'a, T>(mutex: &'a Mutex<T>, name: &'static str) -> MutexGuard<'a, T> {
+    match mutex.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => {
+            warn!(mutex = name, "state observer mutex poisoned; recovering");
+            poisoned.into_inner()
+        }
+    }
+}
 
 #[derive(Clone)]
 struct DebouncedEmitter<T>
@@ -40,10 +73,7 @@ where
     }
 
     fn emit(&self, value: T) {
-        *self
-            .pending
-            .lock()
-            .expect("observer pending mutex poisoned") = Some(value);
+        *lock_or_recover(&self.pending, "observer pending") = Some(value);
 
         if self.scheduled.swap(true, Ordering::SeqCst) {
             return;
@@ -52,12 +82,9 @@ where
         let pending = self.pending.clone();
         let scheduled = self.scheduled.clone();
         let callback = self.callback.clone();
-        tokio::spawn(async move {
+        spawn_observer_task(async move {
             tokio::time::sleep(OBSERVER_DEBOUNCE_WINDOW).await;
-            let next = pending
-                .lock()
-                .expect("observer pending mutex poisoned")
-                .take();
+            let next = lock_or_recover(&pending, "observer pending").take();
             scheduled.store(false, Ordering::SeqCst);
             if let Some(snapshot) = next {
                 if catch_unwind(AssertUnwindSafe(|| (callback)(snapshot))).is_err() {
@@ -72,7 +99,6 @@ where
 pub struct FireStateObserverCallbacks {
     pub session: SessionObserverFn,
     pub topic_list: TopicListObserverFn,
-    pub topic_detail_feed: TopicDetailFeedObserverFn,
     pub notification_center: NotificationObserverFn,
 }
 
@@ -85,65 +111,40 @@ pub struct FireStateObserverRegistry {
 struct FireStateObserverEmitters {
     session: DebouncedEmitter<SessionSnapshot>,
     topic_list: DebouncedEmitter<TopicListResponse>,
-    topic_detail_feed: DebouncedEmitter<TopicDetailFeedSnapshot>,
     notification_center: DebouncedEmitter<NotificationState>,
 }
 
 impl FireStateObserverRegistry {
     pub fn set(&self, callbacks: FireStateObserverCallbacks) {
-        *self.inner.lock().expect("state observer mutex poisoned") =
+        *lock_or_recover(&self.inner, "state observer registry") =
             Some(FireStateObserverEmitters {
                 session: DebouncedEmitter::new(callbacks.session),
                 topic_list: DebouncedEmitter::new(callbacks.topic_list),
-                topic_detail_feed: DebouncedEmitter::new(callbacks.topic_detail_feed),
                 notification_center: DebouncedEmitter::new(callbacks.notification_center),
             });
     }
 
     pub fn clear(&self) {
-        *self.inner.lock().expect("state observer mutex poisoned") = None;
+        *lock_or_recover(&self.inner, "state observer registry") = None;
     }
 
     pub fn notify_session(&self, snapshot: SessionSnapshot) {
-        if let Some(emitters) = self
-            .inner
-            .lock()
-            .expect("state observer mutex poisoned")
-            .clone()
-        {
+        let emitters = { lock_or_recover(&self.inner, "state observer registry").clone() };
+        if let Some(emitters) = emitters {
             emitters.session.emit(snapshot);
         }
     }
 
     pub fn notify_topic_list(&self, snapshot: TopicListResponse) {
-        if let Some(emitters) = self
-            .inner
-            .lock()
-            .expect("state observer mutex poisoned")
-            .clone()
-        {
+        let emitters = { lock_or_recover(&self.inner, "state observer registry").clone() };
+        if let Some(emitters) = emitters {
             emitters.topic_list.emit(snapshot);
         }
     }
 
-    pub fn notify_topic_detail_feed(&self, snapshot: TopicDetailFeedSnapshot) {
-        if let Some(emitters) = self
-            .inner
-            .lock()
-            .expect("state observer mutex poisoned")
-            .clone()
-        {
-            emitters.topic_detail_feed.emit(snapshot);
-        }
-    }
-
     pub fn notify_notification_center(&self, snapshot: NotificationState) {
-        if let Some(emitters) = self
-            .inner
-            .lock()
-            .expect("state observer mutex poisoned")
-            .clone()
-        {
+        let emitters = { lock_or_recover(&self.inner, "state observer registry").clone() };
+        if let Some(emitters) = emitters {
             emitters.notification_center.emit(snapshot);
         }
     }
@@ -151,7 +152,10 @@ impl FireStateObserverRegistry {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::{Arc, Mutex};
+    use std::{
+        sync::{mpsc, Arc, Mutex},
+        time::Duration,
+    };
 
     use fire_models::{BootstrapArtifacts, CookieSnapshot, SessionSnapshot, TopicListResponse};
 
@@ -181,7 +185,6 @@ mod tests {
                     .push(snapshot.bootstrap.base_url);
             }),
             topic_list: Arc::new(|_: TopicListResponse| {}),
-            topic_detail_feed: Arc::new(|_| {}),
             notification_center: Arc::new(|_| {}),
         });
 
@@ -202,12 +205,33 @@ mod tests {
         registry.set(FireStateObserverCallbacks {
             session: Arc::new(|_| panic!("boom")),
             topic_list: Arc::new(|_: TopicListResponse| {}),
-            topic_detail_feed: Arc::new(|_| {}),
             notification_center: Arc::new(|_| {}),
         });
 
         registry.notify_session(sample_session("https://panic.example"));
         tokio::time::sleep(super::OBSERVER_DEBOUNCE_WINDOW + std::time::Duration::from_millis(30))
             .await;
+    }
+
+    #[test]
+    fn session_notifications_fall_back_without_existing_tokio_runtime() {
+        let registry = FireStateObserverRegistry::default();
+        let (sender, receiver) = mpsc::channel();
+        registry.set(FireStateObserverCallbacks {
+            session: Arc::new(move |snapshot| {
+                sender
+                    .send(snapshot.bootstrap.base_url)
+                    .expect("session observer send");
+            }),
+            topic_list: Arc::new(|_: TopicListResponse| {}),
+            notification_center: Arc::new(|_| {}),
+        });
+
+        registry.notify_session(sample_session("https://runtime.example"));
+
+        let observed = receiver
+            .recv_timeout(super::OBSERVER_DEBOUNCE_WINDOW + Duration::from_secs(1))
+            .expect("session observer callback");
+        assert_eq!(observed, "https://runtime.example");
     }
 }

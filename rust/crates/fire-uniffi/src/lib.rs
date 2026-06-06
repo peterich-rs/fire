@@ -15,7 +15,7 @@ use fire_uniffi_messagebus::FireMessageBusHandle;
 use fire_uniffi_notifications::{FireNotificationsHandle, NotificationCenterState};
 use fire_uniffi_search::FireSearchHandle;
 use fire_uniffi_session::{FireSessionHandle, SessionState};
-use fire_uniffi_topics::{FireTopicsHandle, TopicDetailFeedSnapshotState};
+use fire_uniffi_topics::FireTopicsHandle;
 use fire_uniffi_types::{
     FireUniFfiError, RenderDocumentState, RenderImageAttachmentState, SharedFireCore,
     TopicListState,
@@ -197,7 +197,6 @@ impl From<CookedHtmlDocument> for CookedHtmlDocumentState {
 pub trait StateObserver: Send + Sync {
     fn on_session_snapshot(&self, snapshot: SessionState);
     fn on_topic_list_snapshot(&self, snapshot: TopicListState);
-    fn on_topic_detail_feed_snapshot(&self, snapshot: TopicDetailFeedSnapshotState);
     fn on_notification_center_snapshot(&self, snapshot: NotificationCenterState);
 }
 
@@ -262,10 +261,8 @@ impl FireAppCore {
     }
 
     pub fn register_state_observer(&self, observer: Arc<dyn StateObserver>) {
-        let base_url = self.shared.core.base_url().to_string();
         let session_observer = observer.clone();
         let topic_list_observer = observer.clone();
-        let topic_detail_observer = observer.clone();
         let notification_observer = observer;
         self.shared
             .core
@@ -276,13 +273,6 @@ impl FireAppCore {
                 }),
                 topic_list: Arc::new(move |snapshot| {
                     topic_list_observer.on_topic_list_snapshot(snapshot.into());
-                }),
-                topic_detail_feed: Arc::new(move |snapshot| {
-                    topic_detail_observer.on_topic_detail_feed_snapshot(
-                        fire_uniffi_topics::records::topic_detail_feed_snapshot_state_from_model(
-                            snapshot, &base_url,
-                        ),
-                    );
                 }),
                 notification_center: Arc::new(move |snapshot| {
                     notification_observer.on_notification_center_snapshot(snapshot.into());

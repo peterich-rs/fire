@@ -10,8 +10,8 @@ use fire_core::{
     FireAuthRecoveryHint, FireAuthRecoveryHintReason, FireCore, FireCoreConfig, FireCoreError,
 };
 use fire_models::{
-    LoginSyncInput, PlatformCookie, TopicDetailQuery, TopicListKind, TopicListQuery,
-    TopicReplyRequest, TopicScreenQuery, TopicTag,
+    LoginSyncInput, PlatformCookie, TopicDetailQuery, TopicDetailSourceQuery, TopicListKind,
+    TopicListQuery, TopicReplyRequest, TopicTag,
 };
 use serde_json::{json, Value};
 use tokio::time::{sleep, Duration};
@@ -556,7 +556,10 @@ async fn fetch_topic_list_retries_once_after_cloudflare_challenge_completion() {
     assert_eq!(response.rows.len(), 1);
     assert_eq!(requests.len(), 2);
     let snapshot = core.snapshot();
-    assert_eq!(snapshot.cookies.cf_clearance.as_deref(), Some("new-clearance"));
+    assert_eq!(
+        snapshot.cookies.cf_clearance.as_deref(),
+        Some("new-clearance")
+    );
     assert_eq!(
         snapshot.browser_user_agent.as_deref(),
         Some("FireBrowser/1.0")
@@ -1290,36 +1293,12 @@ async fn fetch_topic_detail_rejects_mismatched_topic_identity() {
 }
 
 #[tokio::test]
-async fn fetch_topic_screen_opens_web_detail_before_internal_top_level_filter() {
-    let mut top_level_payload: Value =
-        serde_json::from_str(&sample_topic_detail_json()).expect("detail fixture json");
-    top_level_payload
-        .as_object_mut()
-        .expect("detail fixture object")
-        .get_mut("post_stream")
-        .and_then(Value::as_object_mut)
-        .expect("post stream object")
-        .extend([
-            ("stream".into(), json!([9002])),
-            (
-                "posts".into(),
-                json!([
-                    {
-                        "id": 9002,
-                        "username": "bob",
-                        "cooked": "<p>First reply</p>",
-                        "post_number": 2,
-                        "reply_to_post_number": 1,
-                        "reply_count": 0
-                    }
-                ]),
-            ),
-        ]);
-    let top_level_body = top_level_payload.to_string();
-    let responses = vec![
-        raw_json_response(200, "application/json", &sample_topic_detail_json()),
-        raw_json_response(200, "application/json", &top_level_body),
-    ];
+async fn fetch_topic_detail_source_snapshot_tracks_visit_headers_and_force_load_query() {
+    let responses = vec![raw_json_response(
+        200,
+        "application/json",
+        &sample_topic_detail_json(),
+    )];
     let server = TestServer::spawn(responses).await.expect("server");
     let core = FireCore::new(FireCoreConfig {
         base_url: server.base_url(),
@@ -1327,37 +1306,32 @@ async fn fetch_topic_screen_opens_web_detail_before_internal_top_level_filter() 
     })
     .expect("core");
 
-    let screen = core
-        .fetch_topic_screen(TopicScreenQuery {
+    let snapshot = core
+        .fetch_topic_detail_source_snapshot(TopicDetailSourceQuery {
             topic_id: 123,
             target_post_number: None,
-            root_page_size: 10,
-            row_page_size: 40,
             track_visit: true,
             force_load: true,
+            initial_batch_size: 40,
+            load_more_batch_size: 40,
+            max_auto_batches_per_gesture: 3,
+            max_auto_posts_per_gesture: 120,
         })
         .await
-        .expect("topic screen");
+        .expect("topic source snapshot");
     let requests = server.shutdown_with_requests().await;
 
-    assert_eq!(screen.body.post.post_number, 1);
-    assert_eq!(screen.response.rows.len(), 1);
-    assert_eq!(screen.response.rows[0].post.post_number, 2);
-    assert_eq!(requests.len(), 2);
+    assert_eq!(snapshot.body.post.post_number, 1);
+    assert_eq!(snapshot.loaded_posts.len(), 2);
+    assert_eq!(requests.len(), 1);
     let first_request_headers = requests[0].to_ascii_lowercase();
-    let second_request_headers = requests[1].to_ascii_lowercase();
     assert!(requests[0].contains("GET /t/123.json?track_visit=true&forceLoad=true HTTP/1.1"));
-    assert!(!requests[0].contains("filter_top_level_replies"));
     assert!(first_request_headers.contains("discourse-track-view: 1"));
     assert!(first_request_headers.contains("discourse-track-view-topic-id: 123"));
-    assert!(requests[1].contains("GET /t/123.json?filter_top_level_replies=true HTTP/1.1"));
-    assert!(!requests[1].contains("track_visit=true"));
-    assert!(!requests[1].contains("forceLoad=true"));
-    assert!(!second_request_headers.contains("discourse-track-view: 1"));
 }
 
 #[tokio::test]
-async fn fetch_topic_screen_expands_initial_root_window_to_cover_targeted_root() {
+async fn fetch_topic_detail_source_snapshot_preserves_target_anchor_and_source_cursor() {
     let target_post_number = 14_u32;
     let mut detail_payload: Value =
         serde_json::from_str(&sample_topic_detail_json()).expect("detail fixture json");
@@ -1393,7 +1367,14 @@ async fn fetch_topic_screen_expands_initial_root_window_to_cover_targeted_root()
         })
         .cloned()
         .expect("target root post");
-
+    let body_post = detail_payload
+        .get("post_stream")
+        .and_then(Value::as_object)
+        .and_then(|post_stream| post_stream.get("posts"))
+        .and_then(Value::as_array)
+        .and_then(|posts| posts.first())
+        .cloned()
+        .expect("body post");
     let mut top_level_payload = detail_payload.clone();
     top_level_payload
         .as_object_mut()
@@ -1402,14 +1383,23 @@ async fn fetch_topic_screen_expands_initial_root_window_to_cover_targeted_root()
         .and_then(Value::as_object_mut)
         .expect("top-level post stream object")
         .extend([
-            ("posts".into(), Value::Array(root_posts.clone())),
+            ("posts".into(), Value::Array(vec![body_post, target_root])),
             ("stream".into(), json!(root_stream.clone())),
         ]);
 
     let responses = vec![
-        raw_json_response(200, "application/json", &detail_payload.to_string()),
         raw_json_response(200, "application/json", &top_level_payload.to_string()),
-        raw_json_response(200, "application/json", &target_root.to_string()),
+        raw_json_response(
+            200,
+            "application/json",
+            &json!({
+                "post_stream": {
+                    "posts": root_posts.iter().take(10).cloned().collect::<Vec<_>>(),
+                    "stream": root_stream.iter().take(10).copied().collect::<Vec<_>>()
+                }
+            })
+            .to_string(),
+        ),
     ];
     let server = TestServer::spawn(responses).await.expect("server");
     let core = FireCore::new(FireCoreConfig {
@@ -1418,38 +1408,33 @@ async fn fetch_topic_screen_expands_initial_root_window_to_cover_targeted_root()
     })
     .expect("core");
 
-    let screen = core
-        .fetch_topic_screen(TopicScreenQuery {
+    let snapshot = core
+        .fetch_topic_detail_source_snapshot(TopicDetailSourceQuery {
             topic_id: 123,
             target_post_number: Some(target_post_number),
-            root_page_size: 10,
-            row_page_size: 40,
             track_visit: true,
             force_load: true,
+            initial_batch_size: 10,
+            load_more_batch_size: 10,
+            max_auto_batches_per_gesture: 3,
+            max_auto_posts_per_gesture: 120,
         })
         .await
-        .expect("topic screen");
+        .expect("topic source snapshot");
     let requests = server.shutdown_with_requests().await;
 
-    assert_eq!(screen.response.rows.len(), 20);
-    assert_eq!(screen.response.rows[0].post.post_number, 2);
-    assert!(screen
-        .response
-        .rows
+    assert_eq!(snapshot.focused_post_number, Some(target_post_number));
+    assert!(snapshot
+        .loaded_posts
         .iter()
-        .any(|row| row.post.post_number == target_post_number));
-    assert_eq!(
-        screen.response.focused_post_number,
-        Some(target_post_number)
-    );
-    let next_cursor = screen.response.next_cursor.expect("next response cursor");
+        .any(|post| post.post_number == target_post_number));
+    let next_cursor = snapshot.source_cursor.expect("next source cursor");
     assert_eq!(next_cursor.topic_id, 123);
-    assert_eq!(next_cursor.next_root_offset, 20);
-    assert_eq!(next_cursor.next_branch_offset, 0);
-    assert_eq!(next_cursor.page_size, 10);
-    assert_eq!(next_cursor.row_page_size, 40);
-    assert_eq!(requests.len(), 3);
-    assert!(requests[2].contains("GET /posts/by_number/123/14.json HTTP/1.1"));
+    assert_eq!(next_cursor.next_stream_offset, 10);
+    assert_eq!(next_cursor.batch_size, 10);
+    assert_eq!(requests.len(), 2);
+    assert!(requests[0].contains("GET /t/123/14.json?track_visit=true&forceLoad=true HTTP/1.1"));
+    assert!(requests[1].contains("GET /t/123/posts.json"));
 }
 
 #[tokio::test]
@@ -1841,17 +1826,19 @@ async fn fetch_topic_posts_reuses_active_topic_response_session_cache() {
     })
     .expect("core");
 
-    let _screen = core
-        .fetch_topic_screen(TopicScreenQuery {
+    let _snapshot = core
+        .fetch_topic_detail_source_snapshot(TopicDetailSourceQuery {
             topic_id: 123,
             target_post_number: None,
-            root_page_size: 10,
-            row_page_size: 40,
             track_visit: true,
             force_load: true,
+            initial_batch_size: 1,
+            load_more_batch_size: 40,
+            max_auto_batches_per_gesture: 3,
+            max_auto_posts_per_gesture: 120,
         })
         .await
-        .expect("topic screen");
+        .expect("topic source snapshot");
     let posts = core
         .fetch_topic_posts(123, vec![9002, 9003])
         .await
@@ -1870,10 +1857,10 @@ async fn fetch_topic_posts_reuses_active_topic_response_session_cache() {
         cached_posts.iter().map(|post| post.id).collect::<Vec<_>>(),
         vec![9002, 9003]
     );
-    assert_eq!(requests.len(), 3);
-    assert!(requests[2]
+    assert_eq!(requests.len(), 2);
+    assert!(requests[1]
         .contains("GET /t/123/posts.json?post_ids%5B%5D=9003&include_suggested=false HTTP/1.1"));
-    assert!(!requests[2].contains("post_ids%5B%5D=9002"));
+    assert!(!requests[1].contains("post_ids%5B%5D=9002"));
 }
 
 #[tokio::test]

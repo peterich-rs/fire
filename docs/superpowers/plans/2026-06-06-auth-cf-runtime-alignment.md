@@ -35,7 +35,7 @@
 - 成功 `2xx` `/session/csrf` 即使带 `discourse-logged-out` 或清 cookie，也不立即登出；它是 mixed/弱 auth signal。会话 cookie 删除需要被拦截，最终是否登出由 probe 机制决定。
 - Cloudflare challenge 判定必须同时依赖 Cloudflare 响应头和 HTML/body 特征，避免把帖子内容或 Discourse 自身 403 误判为 CF。
 - WebView cookie 只在边界同步：登录完成、Cloudflare 验证完成、明确的 host cookie repair。不得常态轮询 WebView cookie 来覆盖 Rust session。
-- Redirect 是单独风险面：FluxDO 自己实现了 `RedirectInterceptor`，openwire 当前已有内置重定向处理；本计划只做差异审计，不在同一批任务中重写 redirect。
+- Redirect 已完成差异审计：openwire 内置 follow-up 已覆盖 Fire 当前所需行为，不需要在 Fire 侧复制 FluxDO 的 `RedirectInterceptor`。若未来需要改变 redirect request 的 `Cookie` header 处理，应优先在 openwire 加可配置策略，而不是在 Fire app 层手写二次请求。
 - 登录页下方用于测试的“恢复已有会话”入口必须删除，启动登录态恢复只由 PreheatGate / Rust startup authority 处理。
 
 ## Implementation Status (2026-06-06)
@@ -89,7 +89,9 @@ RequestEpochGuard
   -> Trace / Log
 ```
 
-Openwire 已有重定向能力时，不把 FluxDO 的 redirect 逻辑直接搬进 Fire。先审计 openwire 是否满足“redirect 后重算 cookie、跨域 Set-Cookie 不污染、max-hop、method rewrite”。
+Redirect 不进入 Fire 侧 interceptor 链路。审计结果：openwire 的 `FollowUpPolicyService` 已提供默认 10 跳上限、HTTPS -> HTTP 降级保护、`301/302/303` method rewrite、`307/308` method/body preservation、跨 origin `Cookie` / `Authorization` 移除、以及每跳按目标 URL 重新走 `CookieJar` 的能力。Fire 当前不手动塞显式 `Cookie` header，因此不需要 FluxDO 式手动 redirect interceptor。
+
+唯一保留边界：如果未来某个调用方显式写入 `Cookie` header，same-origin redirect 会保留该显式 header；这不是 Fire 当前路径。需要严格“每跳都清 Cookie header”时，应改 openwire redirect request policy。
 
 ---
 
@@ -422,27 +424,31 @@ Navigation to onboarding/login must be driven by authoritative session snapshot 
 
 **Files:**
 - Inspect: `third_party/openwire/crates/openwire/src/**`
-- Potential modify only if proven needed: `third_party/openwire/crates/openwire/src/**`
+- No Fire-side redirect interceptor required
+- Potential openwire change only if future callers need stricter explicit-`Cookie` redirect handling
 - Test: openwire redirect tests
 
-- [ ] **Step 1: Audit current openwire redirect behavior**
+- [x] **Step 1: Audit current openwire redirect behavior**
 
-Verify:
+Verified:
 
-- max redirect count
-- 301/302/303 method rewrite policy
-- 307/308 method preservation
-- Cookie header removal before redirected request
-- CookieJar recomputation for redirected URL
-- Cross-domain `Set-Cookie` save behavior
+- Default max redirect count is 10.
+- HTTPS -> HTTP downgrade is rejected unless explicitly allowed.
+- `301/302/303` switch non-GET/HEAD requests to GET and drop body framing headers.
+- `307/308` preserve method/body and require replayable body.
+- Cross-origin redirect removes `Cookie` and `Authorization`.
+- Normal Fire requests do not carry an explicit `Cookie` header before openwire's CookieJar injection, so redirect follow-ups recompute cookies for the redirected URL.
+- Response `Set-Cookie` is persisted against the response request URL before following the next location; Fire's `FireSessionCookieJar` additionally rejects non same-site ingress.
 
-- [ ] **Step 2: Compare FluxDO behavior**
+- [x] **Step 2: Compare FluxDO behavior**
 
-FluxDO disables Dio auto redirect and manually reissues redirect requests after clearing cookie headers. It appears to preserve the original method and has no obvious max-hop guard. Fire should not copy this blindly.
+FluxDO disables Dio auto redirect and manually reissues redirect requests after clearing `Cookie` / `cookie` headers so its CookieManager recomputes cookies. Openwire already follows the same practical behavior for Fire's normal CookieJar-owned requests, with stronger built-in redirect guardrails. Fire should not copy FluxDO's manual redirect interceptor.
 
-- [ ] **Step 3: Decide ownership**
+- [x] **Step 3: Decide ownership**
 
-If openwire is correct, document the difference and do not add a Fire-specific redirect interceptor. If openwire is wrong, fix openwire in a separate branch/PR and add tests there.
+Decision: no Fire-specific redirect implementation in this auth/CF runtime plan.
+
+If future product code explicitly sets `Cookie` headers and needs FluxDO's stricter per-hop clearing even for same-origin redirects, fix it in openwire by adding a redirect request policy knob and tests. Do not implement redirect recursion in a Fire application interceptor.
 
 ---
 
@@ -482,6 +488,7 @@ After Tasks 5-8 land, remove any doc text claiming the app auto-opens login or r
 cargo test -p fire-models
 cargo test -p fire-core --test network --test auth_strike --test login_finalization
 cargo test -p fire-uniffi-session
+cargo test -p openwire --features websocket --lib policy::
 ```
 
 **Android commands:**
@@ -511,5 +518,5 @@ xcodebuild -scheme Fire -destination 'platform=iOS Simulator,name=iPhone 16' bui
 - [ ] `403 not_logged_in` + probe invalid: passive logout, onboarding after snapshot changes.
 - [ ] `403 CF HTML`: manual challenge, new `cf_clearance`, original request retries once.
 - [ ] Silent/background `403 CF HTML`: no foreground steal; error recorded or hidden refresh used.
-- [ ] Redirect across same origin: redirected request recomputes cookies.
-- [ ] Redirect across origin: no cross-domain cookie pollution.
+- [x] Redirect across same origin: openwire audit confirms normal Fire CookieJar-owned requests recompute cookies for each follow-up URL.
+- [x] Redirect across origin: openwire audit confirms cross-origin redirect removes `Cookie` / `Authorization`, and Fire cookie ingress remains same-site scoped.

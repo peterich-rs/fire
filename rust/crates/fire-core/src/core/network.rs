@@ -313,10 +313,7 @@ fn request_origin_url(base_url: &Url, request: &Request<RequestBody>) -> Option<
     Some(url.to_string())
 }
 
-fn should_present_foreground_challenge(
-    operation: &'static str,
-    profile: FireCallProfile,
-) -> bool {
+fn should_present_foreground_challenge(operation: &'static str, profile: FireCallProfile) -> bool {
     if profile == FireCallProfile::MessageBusPoll {
         return false;
     }
@@ -1058,11 +1055,9 @@ pub(crate) async fn expect_success(
 ) -> Result<Response<ResponseBody>, FireCoreError> {
     if response.status().is_success() {
         let invalidation = response_login_invalidation_signal(response.headers());
-        if let Some(signal) = success_auth_runtime_signal(
-            response.status(),
-            &invalidation,
-            operation,
-        ) {
+        if let Some(signal) =
+            success_auth_runtime_signal(response.status(), &invalidation, operation)
+        {
             let _ = core.process_auth_runtime_signal(signal, operation).await;
         }
         return Ok(response);
@@ -1179,7 +1174,7 @@ fn not_logged_in_message(status: u16, body: &str) -> Option<String> {
             .first_error_message()
             .unwrap_or("需要登录才能执行此操作。")
             .to_string(),
-        )
+    )
 }
 
 fn is_invalid_access_forbidden(status: StatusCode, body: &str) -> bool {
@@ -1239,7 +1234,10 @@ fn response_auth_runtime_signal(
             AuthRuntimeSignalStrength::Diagnostic,
         ))
     } else if is_bad_csrf_body(body) {
-        Some((AuthRuntimeSignalKind::BadCsrf, AuthRuntimeSignalStrength::Diagnostic))
+        Some((
+            AuthRuntimeSignalKind::BadCsrf,
+            AuthRuntimeSignalStrength::Diagnostic,
+        ))
     } else if is_invalid_access_forbidden(status, body) {
         Some((
             AuthRuntimeSignalKind::InvalidAccessForbidden,
@@ -1261,7 +1259,10 @@ fn response_auth_runtime_signal(
             AuthRuntimeSignalStrength::Diagnostic,
         ))
     } else if status == StatusCode::TOO_MANY_REQUESTS {
-        Some((AuthRuntimeSignalKind::RateLimit, AuthRuntimeSignalStrength::Diagnostic))
+        Some((
+            AuthRuntimeSignalKind::RateLimit,
+            AuthRuntimeSignalStrength::Diagnostic,
+        ))
     } else {
         None
     }?;

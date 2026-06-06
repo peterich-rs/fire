@@ -358,9 +358,7 @@ impl FireCore {
             AuthRuntimeSignalKind::NotLoggedInBody
             | AuthRuntimeSignalKind::DiscourseLoggedOutHeader => Some(SignalStrength::Strong),
             AuthRuntimeSignalKind::MixedLoggedOutHeader
-            | AuthRuntimeSignalKind::MixedSignalCookieDeletionBlocked => {
-                Some(SignalStrength::Weak)
-            }
+            | AuthRuntimeSignalKind::MixedSignalCookieDeletionBlocked => Some(SignalStrength::Weak),
             _ => None,
         };
         self.record_auth_runtime_signal(signal);

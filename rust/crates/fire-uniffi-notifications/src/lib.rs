@@ -46,6 +46,10 @@ impl FireNotificationsHandle {
             inner.fetch_recent_notifications(limit).await
         })
         .await?;
+        self.shared
+            .core
+            .state_observers()
+            .notify_notification_center(self.shared.core.notification_state());
         Ok(response.into())
     }
 
@@ -60,6 +64,10 @@ impl FireNotificationsHandle {
             inner.fetch_notifications(limit, offset).await
         })
         .await?;
+        self.shared
+            .core
+            .state_observers()
+            .notify_notification_center(self.shared.core.notification_state());
         Ok(response.into())
     }
 
@@ -73,6 +81,10 @@ impl FireNotificationsHandle {
             inner.mark_notification_read(notification_id).await
         })
         .await?;
+        self.shared
+            .core
+            .state_observers()
+            .notify_notification_center(response.clone());
         Ok(response.into())
     }
 
@@ -85,6 +97,10 @@ impl FireNotificationsHandle {
             inner.mark_all_notifications_read().await
         })
         .await?;
+        self.shared
+            .core
+            .state_observers()
+            .notify_notification_center(response.clone());
         Ok(response.into())
     }
 

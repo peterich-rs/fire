@@ -30,8 +30,7 @@
     <string name="login_url">https://linux.do</string>
     <string name="login_blocked_external_navigation">This login browser only opens web links.</string>
     <string name="login_safe_browsing_blocked">Unsafe page blocked.</string>
-    <string name="cloudflare_challenge_title">Cloudflare 验证</string>
-    <string name="cloudflare_blocked_external_navigation">This browser only opens web links.</string>
+    <string name="login_sync_error">Unable to sync login.</string>
     <string name="browser_title">Topic Browser</string>
     <string name="diagnostics_title">Diagnostics</string>
     <string name="diagnostics_subtitle">Readable app logs plus captured network request traces.</string>
@@ -73,6 +72,16 @@
     <string name="create_topic_tags_not_allowed">These tags are not allowed in the selected category: %1$s</string>
     <string name="create_topic_category_required_tags">%1$s required tag(s)</string>
     <string name="create_topic_category_allowed_tags">allowed: %1$s</string>
+    <string name="composer_attach_image">Image</string>
+    <string name="composer_preview">Preview</string>
+    <string name="composer_continue_editing">Edit</string>
+    <string name="composer_preview_no_title">Untitled</string>
+    <string name="composer_preview_empty">No content yet.</string>
+    <string name="composer_preview_images">Image Preview</string>
+    <string name="composer_preview_image_pending">Image preview unavailable: %1$s</string>
+    <string name="composer_uploading_image">Uploading image...</string>
+    <string name="composer_upload_error">Unable to upload image.</string>
+    <string name="composer_draft_restored">Draft restored.</string>
     <string name="category_notification_select_category">Category Notifications</string>
     <string name="category_notification_title">%1$s Notifications</string>
     <string name="category_notification_category_choice">%1$s - %2$s</string>
@@ -100,7 +109,9 @@
     <string name="feed_title">%1$s feed</string>
     <string name="feed_private_messages_inbox">Messages</string>
     <string name="feed_private_messages_sent">Sent Messages</string>
+    <string name="feed_private_messages_empty">No private messages available.</string>
     <string name="feed_private_messages_participants">Participants: %1$s</string>
+    <string name="action_new_private_message">New Message</string>
     <string name="feed_bookmarks">Bookmarks</string>
     <string name="feed_bookmarks_empty">No bookmarks available.</string>
     <string name="feed_bookmarks_login_required">Login is required to load bookmarks.</string>
@@ -131,6 +142,7 @@
     <string name="topic_detail_ai_summary_updated">updated %1$s</string>
     <string name="topic_detail_ai_summary_new_posts">%1$s new replies</string>
     <string name="topic_detail_ai_summary_can_regenerate">can regenerate</string>
+    <string name="topic_detail_image_attachment">Image attachment</string>
     <string name="topic_detail_no_replies">No replies yet.</string>
     <string name="topic_detail_replies_section">Replies</string>
     <string name="topic_detail_load_more_replies">Load more replies</string>
@@ -160,6 +172,8 @@
     <string name="topic_detail_reaction_title">React to post #%1$s</string>
     <string name="topic_detail_reaction_choice">%1$s (%2$s)</string>
     <string name="topic_detail_reaction_choice_selected">Selected: %1$s</string>
+    <string name="topic_detail_reaction_empty">No custom reactions are available.</string>
+    <string name="topic_detail_reaction_locked">This reaction cannot be changed yet.</string>
     <string name="topic_detail_reaction_error">Unable to update reaction.</string>
     <string name="topic_detail_reaction_users_title">Reactions</string>
     <string name="topic_detail_reaction_users_loading">Loading reactions...</string>
@@ -171,6 +185,7 @@
     <string name="topic_detail_poll_closed">closed</string>
     <string name="topic_detail_poll_voters_count">%1$s voters</string>
     <string name="topic_detail_poll_votes_count">%1$s votes</string>
+    <string name="topic_detail_poll_option_with_votes">%1$s · %2$s votes</string>
     <string name="topic_detail_poll_choose">Choose</string>
     <string name="topic_detail_poll_choose_title">Choose: %1$s</string>
     <string name="topic_detail_poll_submit">Submit Vote</string>
@@ -205,6 +220,7 @@
     <string name="topic_detail_edit_topic_error">Unable to update topic.</string>
     <string name="topic_detail_edit_post">Edit</string>
     <string name="topic_detail_edit_post_title">Edit post #%1$s</string>
+    <string name="topic_detail_edit_post_loading">Loading editable post...</string>
     <string name="topic_detail_edit_post_body_label">Body</string>
     <string name="topic_detail_edit_post_body_hint">Edit post body</string>
     <string name="topic_detail_edit_post_reason_label">Edit Reason</string>
@@ -253,6 +269,7 @@
     <string name="topic_detail_flag_message_hint">Add details for moderators</string>
     <string name="topic_detail_flag_message_required">A message is required.</string>
     <string name="topic_detail_flag_submit">Submit Report</string>
+    <string name="topic_detail_flag_submitted">Report submitted.</string>
     <string name="topic_detail_flag_empty">No report actions are available.</string>
     <string name="topic_detail_flag_error">Unable to report this post.</string>
     <string name="topic_detail_flag_type_fallback">Report type %1$s</string>
@@ -303,8 +320,10 @@
     <string name="profile_notification_ignore_one_year">One year</string>
     <string name="profile_notification_ignore_permanent">Permanent</string>
     <string name="profile_send_private_message">Send Message</string>
+    <string name="profile_private_message_new_title">New Message</string>
     <string name="profile_private_message_title">Message %1$s</string>
-    <string name="profile_private_message_recipient">To @%1$s</string>
+    <string name="profile_private_message_recipient_hint">Recipient usernames</string>
+    <string name="profile_private_message_recipient_required">At least one recipient is required.</string>
     <string name="profile_private_message_title_label">Title</string>
     <string name="profile_private_message_title_hint">Message title</string>
     <string name="profile_private_message_body_label">Body</string>
@@ -368,6 +387,4 @@
     <string name="content_desc_avatar">头像</string>
     <string name="onboarding_subtitle">LinuxDo 原生客户端</string>
     <string name="onboarding_login">登录 LinuxDo</string>
-    <string name="onboarding_restore_session">恢复已有会话</string>
-    <string name="onboarding_bootstrapping">正在读取本地登录态…</string>
 </resources>

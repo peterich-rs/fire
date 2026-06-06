@@ -1,7 +1,31 @@
+import AsyncDisplayKit
 import XCTest
 @testable import Fire
 
 final class FireTopicDetailRuntimeTests: XCTestCase {
+    @MainActor
+    func testQuickReplyBarMeasuresToCompactVisibleHeight() {
+        let node = FireTopicQuickReplyBarNode()
+        node.apply(state: FireTopicDetailQuickReplyState(
+            isVisible: true,
+            typingSummary: "alice 正在输入",
+            targetSummary: "#12 · bob",
+            placeholder: "快速回复…",
+            draft: "hello world",
+            isSubmitting: false,
+            validationMessage: nil
+        ))
+        node.updateLayoutWidth(393)
+
+        let layout = node.layoutThatFits(ASSizeRange(
+            min: CGSize(width: 393, height: 0),
+            max: CGSize(width: 393, height: 852)
+        ))
+
+        XCTAssertEqual(layout.size.width, 393, accuracy: 0.5)
+        XCTAssertLessThan(layout.size.height, 220)
+    }
+
     func testSnapshotKeepsStableReplyItemsAndScrollLookup() {
         let original = makePost(id: 100, postNumber: 1, username: "alice")
         let firstReply = makePost(id: 200, postNumber: 2, username: "bob", replyToPostNumber: 1)
@@ -22,7 +46,8 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
         let configuration = makeConfiguration(
             detail: detail,
             renderState: renderState,
-            postLookup: [original.id: original, firstReply.id: firstReply, secondReply.id: secondReply]
+            postLookup: [original.id: original, firstReply.id: firstReply, secondReply.id: secondReply],
+            expandedReplyRootPostIDs: [firstReply.id]
         )
 
         let snapshot = configuration.makeSnapshot()
@@ -34,6 +59,7 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
             "replies-header:42",
             "reply:200:2",
             "reply:300:3",
+            "reply-footer:42:endReached",
         ])
         XCTAssertEqual(snapshot.replyIndexByPostID, [firstReply.id: 0, secondReply.id: 1])
         XCTAssertEqual(snapshot.items.first(where: { $0.id == "reply:300:3" })?.replyIndex, 1)
@@ -56,8 +82,50 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
 
         let snapshot = configuration.makeSnapshot()
 
+        XCTAssertEqual(configuration.replyFooterState, .emptyPrompt)
         XCTAssertEqual(snapshot.items.last?.kind, .replyFooter)
-        XCTAssertEqual(snapshot.items.last?.id, "reply-footer:42")
+        XCTAssertEqual(snapshot.items.last?.id, "reply-footer:42:emptyPrompt")
+    }
+
+    func testSnapshotDoesNotShowEmptyFooterWhenDetailHasRepliesButRenderStateIsPending() {
+        let original = makePost(id: 100, postNumber: 1, username: "alice")
+        let reply = makePost(id: 200, postNumber: 2, username: "bob", replyToPostNumber: 1)
+        let configuration = makeConfiguration(
+            detail: makeTopicDetail(posts: [original, reply]),
+            renderState: nil,
+            postLookup: [original.id: original, reply.id: reply]
+        )
+
+        let snapshot = configuration.makeSnapshot()
+
+        XCTAssertEqual(configuration.replyFooterState, .none)
+        XCTAssertFalse(snapshot.items.contains { item in
+            item.kind == .replyFooter
+                && (item.contentToken.base as? String) == FireTopicDetailRuntimeReplyFooterState.emptyPrompt.contentToken
+        })
+    }
+
+    func testSnapshotDoesNotShowEmptyFooterWhenReplyRowsTemporarilyMissing() {
+        let original = makePost(id: 100, postNumber: 1, username: "alice")
+        let reply = makePost(id: 200, postNumber: 2, username: "bob", replyToPostNumber: 1)
+        let renderState = FireTopicDetailRenderState(
+            originalRow: makeTimelineRow(post: original, depth: 0, isOriginalPost: true),
+            replyRows: [],
+            contentByPostID: [
+                original.id: makeRenderContent("Original"),
+                reply.id: makeRenderContent("Reply"),
+            ]
+        )
+        let configuration = makeConfiguration(
+            detail: makeTopicDetail(posts: [original, reply]),
+            renderState: renderState,
+            postLookup: [original.id: original, reply.id: reply]
+        )
+
+        let snapshot = configuration.makeSnapshot()
+
+        XCTAssertEqual(configuration.replyFooterState, .none)
+        XCTAssertFalse(snapshot.items.contains { $0.kind == .replyFooter })
     }
 
     func testSnapshotIncludesTopicVoteWhenTopicCanVote() {
@@ -110,6 +178,342 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
         XCTAssertEqual(nestedItem.flatMap(configuration.postContext(for:))?.showsThreadLine, false)
     }
 
+    func testSnapshotHidesSecondaryRepliesBehindRootShortcutByDefault() {
+        let original = makePost(id: 100, postNumber: 1, username: "alice")
+        let rootReply = makePost(
+            id: 200,
+            postNumber: 2,
+            username: "bob",
+            replyCount: 5,
+            replyToPostNumber: 1
+        )
+        let lowQuality = makePost(id: 300, postNumber: 3, username: "c1", replyToPostNumber: 2)
+        let liked = makePost(id: 400, postNumber: 4, username: "c2", likeCount: 10, replyToPostNumber: 2)
+        let reacted = makePost(
+            id: 500,
+            postNumber: 5,
+            username: "c3",
+            reactions: [TopicReactionState(id: "clap", kind: nil, count: 4, canUndo: nil)],
+            replyToPostNumber: 2
+        )
+        let discussed = makePost(id: 600, postNumber: 6, username: "c4", replyCount: 6, replyToPostNumber: 2)
+        let renderState = FireTopicDetailRenderState(
+            originalRow: makeTimelineRow(post: original, depth: 0, isOriginalPost: true),
+            replyRows: [
+                makeTimelineRow(post: rootReply, parentPostNumber: 1, depth: 1),
+                makeTimelineRow(post: lowQuality, parentPostNumber: 2, depth: 2),
+                makeTimelineRow(post: liked, parentPostNumber: 2, depth: 2),
+                makeTimelineRow(post: reacted, parentPostNumber: 2, depth: 2),
+                makeTimelineRow(post: discussed, parentPostNumber: 2, depth: 2),
+            ],
+            contentByPostID: [
+                original.id: makeRenderContent("Original"),
+                rootReply.id: makeRenderContent("Root"),
+                lowQuality.id: makeRenderContent("Low"),
+                liked.id: makeRenderContent("Liked"),
+                reacted.id: makeRenderContent("Reacted"),
+                discussed.id: makeRenderContent("Discussed"),
+            ]
+        )
+        let posts = [original, rootReply, lowQuality, liked, reacted, discussed]
+        let configuration = makeConfiguration(
+            detail: makeTopicDetail(posts: posts),
+            renderState: renderState,
+            postLookup: Dictionary(uniqueKeysWithValues: posts.map { ($0.id, $0) })
+        )
+
+        let snapshot = configuration.makeSnapshot()
+        let replyItems = snapshot.items.filter { $0.kind == .reply }
+
+        XCTAssertEqual(replyItems.map(\.postNumber), [2])
+        XCTAssertEqual(replyItems.first?.replyShortcutCount, 5)
+        XCTAssertNil(configuration.scrollItem(for: 3))
+        XCTAssertEqual(configuration.postContext(for: replyItems[0])?.depth, 1)
+    }
+
+    func testPendingSecondaryScrollTargetShowsAncestryWithoutFlatteningDepth() {
+        let original = makePost(id: 100, postNumber: 1, username: "alice")
+        let rootReply = makePost(id: 200, postNumber: 2, username: "bob", replyCount: 2, replyToPostNumber: 1)
+        let child = makePost(id: 300, postNumber: 3, username: "c1", replyToPostNumber: 2)
+        let grandchild = makePost(id: 400, postNumber: 4, username: "c2", replyToPostNumber: 3)
+        let posts = [original, rootReply, child, grandchild]
+        let renderState = FireTopicDetailRenderState(
+            originalRow: makeTimelineRow(post: original, depth: 0, isOriginalPost: true),
+            replyRows: [
+                makeTimelineRow(post: rootReply, parentPostNumber: 1, depth: 1),
+                makeTimelineRow(post: child, parentPostNumber: 2, depth: 2),
+                makeTimelineRow(post: grandchild, parentPostNumber: 3, depth: 3),
+            ],
+            contentByPostID: Dictionary(uniqueKeysWithValues: posts.map { ($0.id, makeRenderContent($0.username)) })
+        )
+        let configuration = makeConfiguration(
+            detail: makeTopicDetail(posts: posts),
+            renderState: renderState,
+            postLookup: Dictionary(uniqueKeysWithValues: posts.map { ($0.id, $0) }),
+            pendingScrollTarget: grandchild.postNumber
+        )
+
+        let replyItems = configuration.makeSnapshot().items.filter { $0.kind == .reply }
+
+        XCTAssertEqual(replyItems.map(\.postNumber), [2, 3, 4])
+        XCTAssertEqual(configuration.postContext(for: replyItems[1])?.depth, 2)
+        XCTAssertEqual(configuration.postContext(for: replyItems[2])?.depth, 3)
+    }
+
+    func testExpandedReplyThreadShowsAllLoadedSecondaryReplies() {
+        let original = makePost(id: 100, postNumber: 1, username: "alice")
+        let rootReply = makePost(id: 200, postNumber: 2, username: "bob", replyCount: 4, replyToPostNumber: 1)
+        let secondaryReplies = [
+            makePost(id: 300, postNumber: 3, username: "c1", replyToPostNumber: 2),
+            makePost(id: 400, postNumber: 4, username: "c2", replyToPostNumber: 2),
+            makePost(id: 500, postNumber: 5, username: "c3", replyToPostNumber: 2),
+            makePost(id: 600, postNumber: 6, username: "c4", replyToPostNumber: 2),
+        ]
+        let posts = [original, rootReply] + secondaryReplies
+        let renderState = FireTopicDetailRenderState(
+            originalRow: makeTimelineRow(post: original, depth: 0, isOriginalPost: true),
+            replyRows: posts.dropFirst().map { post in
+                makeTimelineRow(
+                    post: post,
+                    parentPostNumber: post.id == rootReply.id ? 1 : 2,
+                    depth: post.id == rootReply.id ? 1 : 2
+                )
+            },
+            contentByPostID: Dictionary(uniqueKeysWithValues: posts.map { ($0.id, makeRenderContent($0.username)) })
+        )
+        let configuration = makeConfiguration(
+            detail: makeTopicDetail(posts: posts),
+            renderState: renderState,
+            postLookup: Dictionary(uniqueKeysWithValues: posts.map { ($0.id, $0) }),
+            expandedReplyRootPostIDs: [rootReply.id]
+        )
+
+        let replyItems = configuration.makeSnapshot().items.filter { $0.kind == .reply }
+
+        XCTAssertEqual(replyItems.map(\.postNumber), [2, 3, 4, 5, 6])
+        XCTAssertNil(replyItems.first?.replyShortcutCount)
+    }
+
+    func testReplyShortcutLoadingStateUsesInPlaceUpdateTokenInsteadOfLayoutReload() {
+        let original = makePost(id: 100, postNumber: 1, username: "alice")
+        let rootReply = makePost(id: 200, postNumber: 2, username: "bob", replyCount: 2, replyToPostNumber: 1)
+        let renderState = FireTopicDetailRenderState(
+            originalRow: makeTimelineRow(post: original, depth: 0, isOriginalPost: true),
+            replyRows: [makeTimelineRow(post: rootReply, parentPostNumber: 1, depth: 1)],
+            contentByPostID: [
+                original.id: makeRenderContent("Original"),
+                rootReply.id: makeRenderContent("Root"),
+            ]
+        )
+        let detail = makeTopicDetail(posts: [original, rootReply])
+        let idle = makeConfiguration(
+            detail: detail,
+            renderState: renderState,
+            postLookup: [original.id: original, rootReply.id: rootReply]
+        )
+        let loading = makeConfiguration(
+            detail: detail,
+            renderState: renderState,
+            postLookup: [original.id: original, rootReply.id: rootReply],
+            loadingReplyContextPostIDs: [rootReply.id]
+        )
+
+        let idleItem = idle.makeSnapshot().items.first { $0.kind == .reply }
+        let loadingItem = loading.makeSnapshot().items.first { $0.kind == .reply }
+
+        XCTAssertEqual(idleItem?.replyShortcutCount, 2)
+        XCTAssertEqual(loading.postContext(for: loadingItem!)?.isLoadingReplyContext, true)
+        XCTAssertTrue(fireTopicDetailItemsHaveSameRenderedContent([idleItem!], [loadingItem!]))
+        XCTAssertTrue(loadingItem!.needsVisibleNodeUpdate(comparedTo: idleItem!))
+    }
+
+    func testSnapshotShowsLoadMoreFooterForNonEmptyRepliesWhenMoreAvailable() {
+        let original = makePost(id: 100, postNumber: 1, username: "alice")
+        let reply = makePost(id: 200, postNumber: 2, username: "bob", replyToPostNumber: 1)
+        let renderState = FireTopicDetailRenderState(
+            originalRow: makeTimelineRow(post: original, depth: 0, isOriginalPost: true),
+            replyRows: [makeTimelineRow(post: reply, parentPostNumber: 1, depth: 1)],
+            contentByPostID: [
+                original.id: makeRenderContent("Original"),
+                reply.id: makeRenderContent("Reply"),
+            ]
+        )
+        let configuration = makeConfiguration(
+            detail: makeTopicDetail(posts: [original, reply]),
+            renderState: renderState,
+            postLookup: [original.id: original, reply.id: reply],
+            hasMoreTopicPosts: true
+        )
+
+        let snapshot = configuration.makeSnapshot()
+
+        XCTAssertEqual(configuration.replyFooterState, .loadMoreAvailable)
+        XCTAssertEqual(snapshot.items.last?.kind, .replyFooter)
+        XCTAssertEqual(
+            snapshot.items.last?.contentToken.base as? String,
+            FireTopicDetailRuntimeReplyFooterState.loadMoreAvailable.contentToken
+        )
+    }
+
+    func testSnapshotShowsEndReachedFooterForNonEmptyRepliesWhenNoMoreAvailable() {
+        let original = makePost(id: 100, postNumber: 1, username: "alice")
+        let reply = makePost(id: 200, postNumber: 2, username: "bob", replyToPostNumber: 1)
+        let renderState = FireTopicDetailRenderState(
+            originalRow: makeTimelineRow(post: original, depth: 0, isOriginalPost: true),
+            replyRows: [makeTimelineRow(post: reply, parentPostNumber: 1, depth: 1)],
+            contentByPostID: [
+                original.id: makeRenderContent("Original"),
+                reply.id: makeRenderContent("Reply"),
+            ]
+        )
+        let configuration = makeConfiguration(
+            detail: makeTopicDetail(posts: [original, reply]),
+            renderState: renderState,
+            postLookup: [original.id: original, reply.id: reply]
+        )
+
+        let snapshot = configuration.makeSnapshot()
+
+        XCTAssertEqual(configuration.replyFooterState, .endReached)
+        XCTAssertEqual(snapshot.items.last?.kind, .replyFooter)
+    }
+
+    func testSnapshotShowsFailedFooterWhenLoadMoreFails() {
+        let original = makePost(id: 100, postNumber: 1, username: "alice")
+        let reply = makePost(id: 200, postNumber: 2, username: "bob", replyToPostNumber: 1)
+        let renderState = FireTopicDetailRenderState(
+            originalRow: makeTimelineRow(post: original, depth: 0, isOriginalPost: true),
+            replyRows: [makeTimelineRow(post: reply, parentPostNumber: 1, depth: 1)],
+            contentByPostID: [
+                original.id: makeRenderContent("Original"),
+                reply.id: makeRenderContent("Reply"),
+            ]
+        )
+        let configuration = makeConfiguration(
+            detail: makeTopicDetail(posts: [original, reply]),
+            renderState: renderState,
+            postLookup: [original.id: original, reply.id: reply],
+            hasMoreTopicPosts: true,
+            loadMoreTopicPostsError: "network failed"
+        )
+
+        let snapshot = configuration.makeSnapshot()
+
+        XCTAssertEqual(configuration.replyFooterState, .loadFailed("network failed"))
+        XCTAssertEqual(snapshot.items.last?.kind, .replyFooter)
+    }
+
+    func testSnapshotShowsLoadingFooterWhileLoadingMoreReplies() {
+        let original = makePost(id: 100, postNumber: 1, username: "alice")
+        let reply = makePost(id: 200, postNumber: 2, username: "bob", replyToPostNumber: 1)
+        let renderState = FireTopicDetailRenderState(
+            originalRow: makeTimelineRow(post: original, depth: 0, isOriginalPost: true),
+            replyRows: [makeTimelineRow(post: reply, parentPostNumber: 1, depth: 1)],
+            contentByPostID: [
+                original.id: makeRenderContent("Original"),
+                reply.id: makeRenderContent("Reply"),
+            ]
+        )
+        let configuration = makeConfiguration(
+            detail: makeTopicDetail(posts: [original, reply]),
+            renderState: renderState,
+            postLookup: [original.id: original, reply.id: reply],
+            hasMoreTopicPosts: true,
+            isLoadingMoreTopicPosts: true
+        )
+
+        XCTAssertEqual(configuration.replyFooterState, .loadingFooter)
+        XCTAssertEqual(configuration.makeSnapshot().items.last?.kind, .replyFooter)
+    }
+
+    func testSnapshotSkipsReplyRowsMissingFromPostLookup() {
+        let original = makePost(id: 100, postNumber: 1, username: "alice")
+        let missingReply = makePost(id: 200, postNumber: 2, username: "bob", replyToPostNumber: 1)
+        let renderState = FireTopicDetailRenderState(
+            originalRow: makeTimelineRow(post: original, depth: 0, isOriginalPost: true),
+            replyRows: [makeTimelineRow(post: missingReply, parentPostNumber: 1, depth: 1)],
+            contentByPostID: [
+                original.id: makeRenderContent("Original"),
+                missingReply.id: makeRenderContent("Reply"),
+            ]
+        )
+        let configuration = makeConfiguration(
+            detail: makeTopicDetail(posts: [original, missingReply]),
+            renderState: renderState,
+            postLookup: [original.id: original]
+        )
+
+        let snapshot = configuration.makeSnapshot()
+
+        XCTAssertEqual(snapshot.items.filter { $0.kind == .reply }.count, 0)
+        XCTAssertNil(configuration.scrollItem(for: missingReply.postNumber))
+    }
+
+    func testOriginalPostContextFallsBackToPlainTextWhenAttributedTextIsMissing() {
+        let original = makePost(id: 100, postNumber: 1, username: "alice")
+        let renderState = FireTopicDetailRenderState(
+            originalRow: makeTimelineRow(post: original, depth: 0, isOriginalPost: true),
+            replyRows: [],
+            contentByPostID: [
+                original.id: FireTopicPostRenderContent(
+                    plainText: "Original plain text",
+                    attributedText: nil,
+                    imageAttachments: [],
+                    signature: FireTopicPostRenderSignature.make(
+                        source: original.cooked,
+                        imageAttachments: []
+                    )
+                )
+            ]
+        )
+        let configuration = makeConfiguration(
+            detail: makeTopicDetail(posts: [original]),
+            renderState: renderState,
+            postLookup: [original.id: original]
+        )
+        let item = try? XCTUnwrap(
+            configuration.makeSnapshot().items.first(where: { $0.kind == .originalPost })
+        )
+        let context = item.flatMap(configuration.postContext(for:))
+
+        XCTAssertEqual(context?.renderContent.attributedText?.string, "Original plain text")
+    }
+
+    func testOriginalPostContextFallsBackToDetailPostWhileRenderStateIsPending() throws {
+        let original = makePost(id: 100, postNumber: 1, username: "alice")
+        let configuration = makeConfiguration(
+            detail: makeTopicDetail(posts: [original]),
+            renderState: nil,
+            postLookup: [original.id: original]
+        )
+
+        let item = try XCTUnwrap(
+            configuration.makeSnapshot().items.first(where: { $0.kind == .originalPost })
+        )
+        let context = try XCTUnwrap(configuration.postContext(for: item))
+
+        XCTAssertEqual(context.post.id, original.id)
+        XCTAssertEqual(context.post.postNumber, original.postNumber)
+        XCTAssertEqual(context.renderContent.plainText, "alice")
+        XCTAssertEqual(context.renderContent.attributedText?.string, "alice")
+    }
+
+    func testOriginalPostContextDoesNotShowInlineDivider() throws {
+        let original = makePost(id: 100, postNumber: 1, username: "alice")
+        let configuration = makeConfiguration(
+            detail: makeTopicDetail(posts: [original]),
+            renderState: nil,
+            postLookup: [original.id: original]
+        )
+
+        let item = try XCTUnwrap(
+            configuration.makeSnapshot().items.first(where: { $0.kind == .originalPost })
+        )
+        let context = try XCTUnwrap(configuration.postContext(for: item))
+
+        XCTAssertFalse(context.showsDivider)
+    }
+
     func testRenderSignatureIsStableAndContentSensitive() throws {
         let image = FireCookedImage(
             url: try XCTUnwrap(URL(string: "https://linux.do/uploads/default/original/1x/image.png")),
@@ -135,44 +539,68 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
         let changedToken = makeRuntimeItem(contentToken: "render-b", replyIndex: 0)
         let changedReplyIndex = makeRuntimeItem(contentToken: "render-a", replyIndex: 1)
 
-        XCTAssertTrue(FireTopicDetailListViewController.itemsHaveSameRenderedContent([item], [same]))
-        XCTAssertFalse(FireTopicDetailListViewController.itemsHaveSameRenderedContent([item], [changedToken]))
-        XCTAssertFalse(FireTopicDetailListViewController.itemsHaveSameRenderedContent([item], [changedReplyIndex]))
-        XCTAssertFalse(FireTopicDetailListViewController.itemsHaveSameRenderedContent([item], [item, same]))
+        XCTAssertTrue(fireTopicDetailItemsHaveSameRenderedContent([item], [same]))
+        XCTAssertFalse(fireTopicDetailItemsHaveSameRenderedContent([item], [changedToken]))
+        XCTAssertFalse(fireTopicDetailItemsHaveSameRenderedContent([item], [changedReplyIndex]))
+        XCTAssertFalse(fireTopicDetailItemsHaveSameRenderedContent([item], [item, same]))
+    }
+
+    func testSnapshotReuseRequiresCurrentItemsAndMatchingInvalidationToken() {
+        XCTAssertTrue(fireTopicDetailCanReuseCurrentSnapshot(
+            previousInvalidationToken: AnyHashable("a"),
+            nextInvalidationToken: AnyHashable("a"),
+            hasCurrentItems: true
+        ))
+        XCTAssertFalse(fireTopicDetailCanReuseCurrentSnapshot(
+            previousInvalidationToken: AnyHashable("a"),
+            nextInvalidationToken: AnyHashable("b"),
+            hasCurrentItems: true
+        ))
+        XCTAssertFalse(fireTopicDetailCanReuseCurrentSnapshot(
+            previousInvalidationToken: AnyHashable("a"),
+            nextInvalidationToken: AnyHashable("a"),
+            hasCurrentItems: false
+        ))
+        XCTAssertFalse(fireTopicDetailCanReuseCurrentSnapshot(
+            previousInvalidationToken: AnyHashable("a"),
+            nextInvalidationToken: AnyHashable("a"),
+            hasCurrentItems: true,
+            itemsHaveSameRenderedContent: false
+        ))
     }
 
     func testAnimatedUpdatePolicyAllowsOnlySmallIdleAttachedUpdates() {
-        XCTAssertTrue(FireTopicDetailListViewController.allowsAnimatedUpdate(
+        XCTAssertTrue(fireTopicDetailAllowsAnimatedUpdate(
             isViewAttached: true,
             isScrollInteractionActive: false,
             hasCurrentItems: true,
             itemDelta: 4
         ))
-        XCTAssertFalse(FireTopicDetailListViewController.allowsAnimatedUpdate(
+        XCTAssertFalse(fireTopicDetailAllowsAnimatedUpdate(
             isViewAttached: true,
             isScrollInteractionActive: false,
             hasCurrentItems: true,
             itemDelta: 5
         ))
-        XCTAssertTrue(FireTopicDetailListViewController.allowsAnimatedUpdate(
+        XCTAssertTrue(fireTopicDetailAllowsAnimatedUpdate(
             isViewAttached: true,
             isScrollInteractionActive: false,
             hasCurrentItems: true,
             itemDelta: -4
         ))
-        XCTAssertFalse(FireTopicDetailListViewController.allowsAnimatedUpdate(
+        XCTAssertFalse(fireTopicDetailAllowsAnimatedUpdate(
             isViewAttached: true,
             isScrollInteractionActive: true,
             hasCurrentItems: true,
             itemDelta: 1
         ))
-        XCTAssertFalse(FireTopicDetailListViewController.allowsAnimatedUpdate(
+        XCTAssertFalse(fireTopicDetailAllowsAnimatedUpdate(
             isViewAttached: false,
             isScrollInteractionActive: false,
             hasCurrentItems: true,
             itemDelta: 1
         ))
-        XCTAssertFalse(FireTopicDetailListViewController.allowsAnimatedUpdate(
+        XCTAssertFalse(fireTopicDetailAllowsAnimatedUpdate(
             isViewAttached: true,
             isScrollInteractionActive: false,
             hasCurrentItems: false,
@@ -195,78 +623,38 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
         )
     }
 
-    func testFeedSnapshotBridgeSynthesizesTopicScreen() throws {
+    func testSnapshotIncludesDetailNoticeAheadOfReplies() {
         let original = makePost(id: 100, postNumber: 1, username: "alice")
         let reply = makePost(id: 200, postNumber: 2, username: "bob", replyToPostNumber: 1)
-        let row = TopicResponseRowState(
-            post: reply,
-            rootPostNumber: 1,
-            parentPostNumber: 1,
-            depth: 1,
-            preorderIndex: 1,
-            hasChildren: false,
-            descendantCount: 0,
-            siblingIndex: 0,
-            isLastSibling: true
+        let renderState = FireTopicDetailRenderState(
+            originalRow: makeTimelineRow(post: original, depth: 0, isOriginalPost: true),
+            replyRows: [makeTimelineRow(post: reply, parentPostNumber: 1, depth: 1)],
+            contentByPostID: [
+                original.id: makeRenderContent("Original"),
+                reply.id: makeRenderContent("Reply"),
+            ]
         )
-        let cursor = TopicDetailCursorState(nextResponseCursor: nil, loadedRanges: [], hasMore: false)
-        let snapshot = TopicDetailFeedSnapshotState(
-            topicId: 42,
-            revision: 7,
-            items: [
-                TopicDetailFeedItemState(
-                    itemId: "topic-header:42",
-                    kind: .header,
-                    ordinal: 0,
-                    postId: nil,
-                    contentRevision: "header",
-                    header: makeHeader(replyCount: 1),
-                    post: nil,
-                    responseRow: nil,
-                    title: nil,
-                    message: nil,
-                    retryable: false
-                ),
-                TopicDetailFeedItemState(
-                    itemId: "post:100:original",
-                    kind: .originalPost,
-                    ordinal: 1,
-                    postId: original.id,
-                    contentRevision: "original",
-                    header: nil,
-                    post: original,
-                    responseRow: nil,
-                    title: nil,
-                    message: nil,
-                    retryable: false
-                ),
-                TopicDetailFeedItemState(
-                    itemId: "post:200:reply",
-                    kind: .reply,
-                    ordinal: 2,
-                    postId: reply.id,
-                    contentRevision: "reply",
-                    header: nil,
-                    post: reply,
-                    responseRow: row,
-                    title: nil,
-                    message: nil,
-                    retryable: false
-                ),
-            ],
-            cursor: cursor,
-            source: .network,
-            loadState: .ready,
-            staleErrorMessage: nil,
-            updatedAtMs: 1
+        let notice = FireTopicDetailStatusMessage(
+            title: nil,
+            message: "刷新失败，正在显示缓存内容。",
+            retryable: true,
+            emphasizesError: false
+        )
+        let configuration = makeConfiguration(
+            detail: makeTopicDetail(posts: [original, reply]),
+            renderState: renderState,
+            postLookup: [original.id: original, reply.id: reply],
+            detailNotice: notice
         )
 
-        let screen = try FireTopicDetailStore.topicScreen(from: snapshot)
+        let snapshot = configuration.makeSnapshot()
+        let noticeIndex = snapshot.items.firstIndex { $0.kind == .notice }
+        let replyIndex = snapshot.items.firstIndex { $0.kind == .reply }
 
-        XCTAssertEqual(screen.header.topicId, 42)
-        XCTAssertEqual(screen.body.post.id, original.id)
-        XCTAssertEqual(screen.response.rows.map(\.post.id), [reply.id])
-        XCTAssertNil(screen.response.nextCursor)
+        XCTAssertNotNil(noticeIndex)
+        XCTAssertNotNil(replyIndex)
+        XCTAssertLessThan(noticeIndex ?? .max, replyIndex ?? .min)
+        XCTAssertEqual(snapshot.items[noticeIndex!].statusMessage, notice)
     }
 
     private func makeRuntimeItem(
@@ -287,8 +675,13 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
         detail: TopicDetailState?,
         renderState: FireTopicDetailRenderState?,
         postLookup: [UInt64: TopicPostState],
+        pendingScrollTarget: UInt32? = nil,
+        detailNotice: FireTopicDetailStatusMessage? = nil,
         hasMoreTopicPosts: Bool = false,
-        isLoadingMoreTopicPosts: Bool = false
+        isLoadingMoreTopicPosts: Bool = false,
+        loadMoreTopicPostsError: String? = nil,
+        expandedReplyRootPostIDs: Set<UInt64> = [],
+        loadingReplyContextPostIDs: Set<UInt64> = []
     ) -> FireTopicDetailRuntimeConfiguration {
         FireTopicDetailRuntimeConfiguration(
             viewModel: nil,
@@ -298,41 +691,51 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
             baseURLString: "https://linux.do",
             detail: detail,
             renderState: renderState,
-            pendingScrollTarget: nil,
+            pendingScrollTarget: pendingScrollTarget,
             detailError: nil,
+            detailNotice: detailNotice,
             hasMoreTopicPosts: hasMoreTopicPosts,
             isLoadingTopic: false,
             isLoadingMoreTopicPosts: isLoadingMoreTopicPosts,
+            loadMoreTopicPostsError: loadMoreTopicPostsError,
             topicAiSummary: nil,
             isLoadingTopicAiSummary: false,
             topicAiSummaryError: nil,
             topicCollectionRevision: 1,
             canWriteInteractions: true,
             postLookup: postLookup,
-            isMutatingPost: { _ in false },
-            onVisiblePostNumbersChanged: { _ in },
-            onRefresh: {},
-            onLoadTopicDetail: {},
-            onScrollTargetHandled: { _ in },
-            onPreloadTopicPosts: { _ in },
-            onLoadMoreTopicPosts: {},
-            onReloadTopicAiSummary: {},
-            onOpenComposer: { _ in },
-            onOpenPostNumber: { _ in },
-            onOpenPostReplies: { _ in },
-            onLinkTapped: { _ in },
-            onOpenImage: { _ in },
-            onToggleLike: { _ in },
-            onSelectReaction: { _, _ in },
-            onEditPost: { _ in },
-            onBookmarkPost: { _ in },
-            onDeletePost: { _ in },
-            onRecoverPost: { _ in },
-            onFlagPost: { _ in },
-            onVotePoll: { _, _, _ in },
-            onUnvotePoll: { _, _ in },
-            onToggleTopicVote: {},
-            onShowTopicVoters: {}
+            snapshotInvalidationToken: AnyHashable("test"),
+            interactions: FireTopicDetailRuntimeInteractions(
+                isMutatingPost: { _ in false },
+                isPostTextExpanded: { _ in false },
+                isReplyThreadExpanded: { expandedReplyRootPostIDs.contains($0) },
+                isLoadingPostReplyContext: { loadingReplyContextPostIDs.contains($0) },
+                onVisiblePostNumbersChanged: { _ in },
+                onRefresh: {},
+                onLoadTopicDetail: {},
+                onScrollTargetHandled: { _ in },
+                onLoadMoreTopicPosts: { true },
+                onReloadTopicAiSummary: {},
+                onOpenComposer: { _ in },
+                onOpenPostNumber: { _ in },
+                onOpenPostReplies: { _ in },
+                onLinkTapped: { _ in },
+                onOpenImage: { _ in },
+                onToggleLike: { _ in },
+                onSelectReaction: { _, _ in },
+                onEditPost: { _ in },
+                onBookmarkPost: { _ in },
+                onDeletePost: { _ in },
+                onRecoverPost: { _ in },
+                onFlagPost: { _ in },
+                onExpandPostText: { _ in },
+                onVotePoll: { _, _, _ in },
+                onUnvotePoll: { _, _ in },
+                onToggleTopicVote: {},
+                onShowTopicVoters: {},
+                onOpenCategory: { _ in },
+                onOpenTag: { _ in }
+            )
         )
     }
 
@@ -460,6 +863,9 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
         id: UInt64,
         postNumber: UInt32,
         username: String,
+        likeCount: UInt32 = 0,
+        replyCount: UInt32 = 0,
+        reactions: [TopicReactionState] = [],
         replyToPostNumber: UInt32? = nil
     ) -> TopicPostState {
         TopicPostState(
@@ -468,20 +874,21 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
             name: nil,
             avatarTemplate: nil,
             cooked: "<p>\(username)</p>",
+            renderDocument: nil,
             raw: username,
             postNumber: postNumber,
             postType: 1,
             createdAt: "2026-03-28T10:00:00Z",
             updatedAt: "2026-03-28T10:00:00Z",
-            likeCount: 0,
-            replyCount: 0,
+            likeCount: likeCount,
+            replyCount: replyCount,
             replyToPostNumber: replyToPostNumber,
             replyToUser: nil,
             bookmarked: false,
             bookmarkId: nil,
             bookmarkName: nil,
             bookmarkReminderAt: nil,
-            reactions: [],
+            reactions: reactions,
             currentUserReaction: nil,
             polls: [],
             acceptedAnswer: false,

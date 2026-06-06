@@ -8,6 +8,7 @@ authors.workspace = true
 
 [dependencies]
 fire-models = { path = "../fire-models" }
+fire-rich-text = { path = "../fire-rich-text" }
 fire-store = { path = "../fire-store" }
 futures-util.workspace = true
 http.workspace = true

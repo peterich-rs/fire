@@ -58,6 +58,33 @@ pub struct TopicListQuery {
     pub match_all_tags: bool,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HomeTopicListScope {
+    pub kind: TopicListKind,
+    pub category_id: Option<u64>,
+    #[serde(default)]
+    pub tags: Vec<String>,
+}
+
+impl HomeTopicListScope {
+    pub fn sanitized(&self) -> Self {
+        let mut tags = Vec::new();
+        for tag in &self.tags {
+            let normalized = tag.trim().trim_start_matches('#');
+            if normalized.is_empty() || tags.iter().any(|existing| existing == normalized) {
+                continue;
+            }
+            tags.push(normalized.to_string());
+        }
+
+        Self {
+            kind: self.kind,
+            category_id: self.category_id,
+            tags,
+        }
+    }
+}
+
 impl TopicListQuery {
     /// Builds the API path for this query.
     /// Category scope: `/c/{slug}/{id}/l/{filter}.json` (with optional parent prefix)
@@ -86,6 +113,38 @@ impl TopicListQuery {
         }
 
         self.kind.path().to_string()
+    }
+
+    /// Builds the browser HTML path that corresponds to this list query.
+    /// This is used as the Cloudflare recovery WebView entry point; JSON-only
+    /// request parameters such as `topic_ids` are intentionally not represented.
+    pub fn html_path(&self) -> String {
+        let filter = self.kind.filter_name();
+
+        if let Some(category_slug) = &self.category_slug {
+            if let Some(category_id) = self.category_id {
+                return if let Some(parent_slug) = &self.parent_category_slug {
+                    format!("/c/{parent_slug}/{category_slug}/{category_id}/l/{filter}")
+                } else {
+                    format!("/c/{category_slug}/{category_id}/l/{filter}")
+                };
+            }
+            return format!("/c/{category_slug}");
+        }
+
+        if let Some(tag) = &self.tag {
+            return format!("/tag/{tag}/l/{filter}");
+        }
+
+        if !self.topic_ids.is_empty() {
+            return "/latest".to_string();
+        }
+
+        match self.kind {
+            TopicListKind::PrivateMessagesInbox => "/my/messages".to_string(),
+            TopicListKind::PrivateMessagesSent => "/my/messages/sent".to_string(),
+            _ => format!("/{filter}"),
+        }
     }
 }
 

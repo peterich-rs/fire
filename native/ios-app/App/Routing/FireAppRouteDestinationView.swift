@@ -7,7 +7,8 @@ struct FireAppRouteDestinationView: View {
     var body: some View {
         switch route {
         case .topic(let payload):
-            FireTopicDetailView(
+            // Topic detail is owned by the UIKit + Texture controller path.
+            FireTopicDetailControllerHost(
                 viewModel: viewModel,
                 row: payload.row,
                 scrollToPostNumber: payload.postNumber

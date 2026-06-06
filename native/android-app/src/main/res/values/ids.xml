@@ -1,4 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <item type="id" name="tag_search_filter" />
+    <item type="id" name="tag_pm_scope" />
+    <item type="id" name="tag_post_content_id" />
+    <item type="id" name="tag_post_content" />
 </resources>

@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "rust/crates/fire-models",
+    "rust/crates/fire-rich-text",
     "rust/crates/fire-store",
     "rust/crates/fire-core",
     "rust/crates/fire-uniffi",

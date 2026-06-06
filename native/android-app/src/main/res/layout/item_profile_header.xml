@@ -30,7 +30,7 @@
         android:textAppearance="@style/TextAppearance.AppCompat.Caption"
         android:textColor="@color/fire_accent" />
 
-    <TextView
+    <com.fire.app.richtext.FireRichTextView
         android:id="@+id/profile_bio"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -39,15 +39,36 @@
         android:textColor="@color/fire_text_secondary"
         android:visibility="gone" />
 
-    <TextView
-        android:id="@+id/profile_follow_btn"
+    <LinearLayout
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginTop="12dp"
-        android:paddingHorizontal="24dp"
-        android:paddingVertical="8dp"
-        android:textAppearance="@style/TextAppearance.AppCompat.Button"
-        android:textColor="@color/fire_accent"
-        android:background="?attr/selectableItemBackground" />
+        android:orientation="horizontal"
+        android:gravity="center">
+
+        <TextView
+            android:id="@+id/profile_follow_btn"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:paddingHorizontal="20dp"
+            android:paddingVertical="8dp"
+            android:textAppearance="@style/TextAppearance.AppCompat.Button"
+            android:textColor="@color/fire_accent"
+            android:background="?attr/selectableItemBackground" />
+
+        <TextView
+            android:id="@+id/profile_message_btn"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:paddingHorizontal="20dp"
+            android:paddingVertical="8dp"
+            android:text="@string/profile_send_private_message"
+            android:textAppearance="@style/TextAppearance.AppCompat.Button"
+            android:textColor="@android:color/white"
+            android:background="@color/fire_accent"
+            android:visibility="gone" />
+
+    </LinearLayout>
 
 </LinearLayout>

@@ -177,7 +177,12 @@ public enum FireWebViewLoginCoordinatorError: LocalizedError {
 }
 
 protocol FireLoginSessionStoring: Sendable {
+    func currentSessionSnapshot() async throws -> SessionState
     func restorePersistedSessionIfAvailable() async throws -> SessionState?
+    func finalizeLoginFromWebView(
+        _ captured: FireCapturedLoginState,
+        allowLowConfidenceSessionCookies: Bool
+    ) async throws -> LoginFinalizationResultState
     func syncLoginContext(_ captured: FireCapturedLoginState) async throws -> SessionState
     func refreshBootstrapIfNeeded() async throws -> SessionState
     func refreshCsrfTokenIfNeeded() async throws -> SessionState
@@ -186,32 +191,33 @@ protocol FireLoginSessionStoring: Sendable {
     func applyPlatformCookies(_ cookies: [PlatformCookieState]) async throws -> SessionState
 }
 
-extension FireSessionStore: FireLoginSessionStoring {}
+extension FireSessionStore: FireLoginSessionStoring {
+    func currentSessionSnapshot() async throws -> SessionState {
+        try snapshot()
+    }
+}
 
 @MainActor
 public final class FireWebViewLoginCoordinator {
     private let sessionStore: any FireLoginSessionStoring
-    private let challengeRecoveryCookieCleaner: (@Sendable () async throws -> Void)?
-    private var probeHomeFallbackCache: FireLoginProbeHomeFallbackCache?
 
     public init(sessionStore: FireSessionStore) {
         self.sessionStore = sessionStore
-        self.challengeRecoveryCookieCleaner = nil
     }
 
     init(
-        loginSessionStore: any FireLoginSessionStoring,
-        challengeRecoveryCookieCleaner: (@Sendable () async throws -> Void)? = nil
+        loginSessionStore: any FireLoginSessionStoring
     ) {
         self.sessionStore = loginSessionStore
-        self.challengeRecoveryCookieCleaner = challengeRecoveryCookieCleaner
     }
 
     public func restorePersistedSessionIfAvailable() async throws -> SessionState? {
         try await sessionStore.restorePersistedSessionIfAvailable()
     }
 
-    public func completeLogin(from webView: WKWebView) async throws -> SessionState {
+    public func completeLogin(
+        from webView: WKWebView
+    ) async throws -> SessionState {
         let captured = try await captureLoginState(from: webView)
         let readiness = loginSyncReadiness(for: captured)
         guard readiness.isReady else {
@@ -220,29 +226,18 @@ public final class FireWebViewLoginCoordinator {
         return try await completeLogin(captured)
     }
 
-    func completeLogin(_ captured: FireCapturedLoginState) async throws -> SessionState {
-        _ = try await sessionStore.applyPlatformCookies(captured.cookies)
-        _ = try await sessionStore.syncLoginContext(captured)
-
-        do {
-            return try await sessionStore.refreshBootstrapIfNeeded()
-        } catch {
-            guard case FireUniFfiError.CloudflareChallenge = error else {
-                throw error
-            }
-
-            // Don't keep a partially synced native session around when bootstrap
-            // or CSRF refresh is still challenged. Keep the browser auth cookies
-            // intact, because the recovery WebView reuses the login URL and
-            // needs the authenticated site context to let Cloudflare continue.
-            _ = try? await sessionStore.logoutLocal(preserveCfClearance: true)
-            if let challengeRecoveryCookieCleaner {
-                try? await challengeRecoveryCookieCleaner()
-            } else {
-                try? await clearCloudflareClearanceCookies()
-            }
-            throw error
+    func completeLogin(
+        _ captured: FireCapturedLoginState
+    ) async throws -> SessionState {
+        let finalized = try await sessionStore.finalizeLoginFromWebView(
+            captured,
+            allowLowConfidenceSessionCookies: false
+        )
+        if finalized.session.loginPhase == .ready {
+            return finalized.session
         }
+
+        return try await sessionStore.refreshBootstrapIfNeeded()
     }
 
     public func logout() async throws -> SessionState {
@@ -260,11 +255,10 @@ public final class FireWebViewLoginCoordinator {
         let currentURL = webView.url?.absoluteString
         async let username = readCurrentUsername(in: webView)
         async let csrfToken = readCsrfToken(in: webView)
-        async let currentPageHTML = readStringJavaScript(
-            script: "document.documentElement.outerHTML",
+        async let preloadedHTML = readStringJavaScript(
+            script: FireLoginScripts.readPreloadedData,
             in: webView
         )
-        async let homeHTML = fetchHomeHTML(in: webView)
         async let browserUserAgent = readStringJavaScript(
             script: "navigator.userAgent",
             in: webView
@@ -273,24 +267,21 @@ public final class FireWebViewLoginCoordinator {
 
         let capturedUsername = try await username
         let capturedCsrfToken = try await csrfToken
-        let capturedCurrentPageHTML = try await currentPageHTML
-        let capturedHomeHTML = try await homeHTML
+        let capturedPreloadedHTML = try await preloadedHTML
         let capturedBrowserUserAgent = try await browserUserAgent
         let capturedCookies = try await cookies
-        let preferredHomeHTML = preferredBootstrapHTML(
-            browserFetchedHomeHTML: capturedHomeHTML,
-            currentPageHTML: capturedCurrentPageHTML
-        )
         let resolvedUsername =
-            capturedUsername ?? FireBootstrapHTMLMetadataParser.currentUsername(from: preferredHomeHTML)
+            capturedUsername
+            ?? FireBootstrapHTMLMetadataParser.currentUsername(from: capturedPreloadedHTML)
         let resolvedCsrfToken =
-            capturedCsrfToken ?? FireBootstrapHTMLMetadataParser.csrfToken(from: preferredHomeHTML)
+            capturedCsrfToken
+            ?? FireBootstrapHTMLMetadataParser.csrfToken(from: capturedPreloadedHTML)
 
         return FireCapturedLoginState(
             currentURL: currentURL,
             username: resolvedUsername,
             csrfToken: resolvedCsrfToken,
-            homeHTML: preferredHomeHTML,
+            homeHTML: capturedPreloadedHTML,
             browserUserAgent: capturedBrowserUserAgent,
             cookies: capturedCookies
         )
@@ -304,58 +295,34 @@ public final class FireWebViewLoginCoordinator {
 
     public func refreshPlatformCookies() async throws -> SessionState {
         let cookies = try await platformCookiesForSessionResync()
+        return try await applyPlatformCookiesIfAuthoritative(cookies)
+    }
+
+    func applyPlatformCookiesIfAuthoritative(
+        _ cookies: [PlatformCookieState]
+    ) async throws -> SessionState {
+        guard Self.containsActiveAuthCookies(in: cookies) else {
+            return try await sessionStore.currentSessionSnapshot()
+        }
         return try await sessionStore.applyPlatformCookies(cookies)
     }
 
     public func probeLoginSyncReadiness(from webView: WKWebView) async throws -> FireLoginSyncReadiness {
-        let currentURL = webView.url?.absoluteString
         async let username = readCurrentUsername(in: webView)
-        async let currentPageBootstrapScore = readCurrentPageBootstrapScore(in: webView)
+        async let preloadedHTML = readStringJavaScript(
+            script: FireLoginScripts.readPreloadedData,
+            in: webView
+        )
         async let cookies = relevantCookies(from: webView)
 
         let capturedUsername = try await username
-        let capturedCurrentPageBootstrapScore = try await currentPageBootstrapScore
+        let capturedPreloadedHTML = try await preloadedHTML
         let capturedCookies = try await cookies
-
-        var resolvedUsername = normalizeUsername(capturedUsername)
-        var preferredBootstrapScore = capturedCurrentPageBootstrapScore
-        let hasAuthCookies = containsAuthCookies(in: capturedCookies)
-
-        if !hasAuthCookies {
-            probeHomeFallbackCache = nil
-        } else if shouldProbeHomeFallback(
-            in: webView,
-            currentPageBootstrapScore: capturedCurrentPageBootstrapScore,
-            username: resolvedUsername
-        ) {
-            if let cachedFallback = probeHomeFallbackCache, cachedFallback.currentURL == currentURL {
-                if resolvedUsername == nil {
-                    resolvedUsername = cachedFallback.username
-                }
-                preferredBootstrapScore = max(
-                    preferredBootstrapScore,
-                    cachedFallback.bootstrapScore
-                )
-            } else {
-                let homeHTML = try await fetchHomeHTML(in: webView)
-                let homeBootstrapScore = FireBootstrapHTMLHeuristics.score(homeHTML)
-                let homeUsername = FireBootstrapHTMLMetadataParser.currentUsername(from: homeHTML)
-                probeHomeFallbackCache = FireLoginProbeHomeFallbackCache(
-                    currentURL: currentURL,
-                    username: homeUsername,
-                    bootstrapScore: homeBootstrapScore
-                )
-                if resolvedUsername == nil {
-                    resolvedUsername = normalizeUsername(homeUsername)
-                }
-                preferredBootstrapScore = max(preferredBootstrapScore, homeBootstrapScore)
-            }
-        }
-
         return loginSyncReadiness(
-            username: resolvedUsername,
+            username: capturedUsername
+                ?? FireBootstrapHTMLMetadataParser.currentUsername(from: capturedPreloadedHTML),
             cookies: capturedCookies,
-            preferredBootstrapScore: preferredBootstrapScore
+            preferredBootstrapScore: FireBootstrapHTMLHeuristics.score(capturedPreloadedHTML)
         )
     }
 
@@ -375,22 +342,27 @@ public final class FireWebViewLoginCoordinator {
 
     private func relevantCookies(from store: WKHTTPCookieStore) async throws -> [PlatformCookieState] {
         let allCookies = try await httpCookies(from: store)
-        return allCookies.compactMap { cookie in
+        var relevant: [PlatformCookieState] = []
+        for cookie in allCookies {
             guard cookie.domain.range(of: "linux.do", options: .caseInsensitive) != nil else {
-                return nil
+                continue
             }
             guard isActiveCookie(cookie) else {
-                return nil
+                continue
             }
 
-            return PlatformCookieState(
-                name: cookie.name,
-                value: cookie.value,
-                domain: cookie.domain,
-                path: cookie.path,
-                expiresAtUnixMs: cookie.expiresDate.map { Int64($0.timeIntervalSince1970 * 1000) }
+            relevant.append(
+                PlatformCookieState(
+                    name: cookie.name,
+                    value: cookie.value,
+                    domain: cookie.domain,
+                    path: cookie.path,
+                    expiresAtUnixMs: cookie.expiresDate.map { Int64($0.timeIntervalSince1970 * 1000) },
+                    sameSite: nil
+                )
             )
         }
+        return relevant
     }
 
     private func isActiveCookie(_ cookie: HTTPCookie) -> Bool {
@@ -402,33 +374,6 @@ public final class FireWebViewLoginCoordinator {
             return true
         }
         return expiresDate > Date()
-    }
-
-    private func fetchHomeHTML(in webView: WKWebView) async throws -> String? {
-        guard !webView.isLoading, isLinuxDoHost(webView.url) else {
-            return nil
-        }
-
-        let value = try await webView.callAsyncJavaScript(
-            """
-            const response = await fetch("/", {
-              method: "GET",
-              credentials: "include",
-              headers: { "Accept": "text/html" },
-              cache: "no-store",
-              redirect: "follow"
-            });
-            return await response.text();
-            """,
-            arguments: [:],
-            in: nil,
-            contentWorld: .page
-        )
-
-        guard let string = value as? String, !string.isEmpty, string != "null" else {
-            return nil
-        }
-        return string
     }
 
     private func httpCookies(from store: WKHTTPCookieStore) async throws -> [HTTPCookie] {
@@ -444,13 +389,6 @@ public final class FireWebViewLoginCoordinator {
     ) async throws {
         try await clearPlatformCookies { cookie in
             isSameSiteCookie(cookie) && !preservedCookieNames.contains(cookie.name)
-        }
-    }
-
-    private func clearCloudflareClearanceCookies() async throws {
-        let targetedNames: Set<String> = ["cf_clearance"]
-        try await clearPlatformCookies { cookie in
-            isSameSiteCookie(cookie) && targetedNames.contains(cookie.name)
         }
     }
 
@@ -570,25 +508,11 @@ public final class FireWebViewLoginCoordinator {
         }
     }
 
-    private func preferredBootstrapHTML(
-        browserFetchedHomeHTML: String?,
-        currentPageHTML: String?
-    ) -> String? {
-        FireBootstrapHTMLHeuristics.preferredHTML(
-            browserFetchedHomeHTML: browserFetchedHomeHTML,
-            currentPageHTML: currentPageHTML
-        )
-    }
-
     func loginSyncReadiness(for captured: FireCapturedLoginState) -> FireLoginSyncReadiness {
-        let preferredHTML = preferredBootstrapHTML(
-            browserFetchedHomeHTML: captured.homeHTML,
-            currentPageHTML: nil
-        )
         return loginSyncReadiness(
             username: captured.username,
             cookies: captured.cookies,
-            preferredBootstrapScore: FireBootstrapHTMLHeuristics.score(preferredHTML)
+            preferredBootstrapScore: FireBootstrapHTMLHeuristics.score(captured.homeHTML)
         )
     }
 
@@ -612,25 +536,14 @@ public final class FireWebViewLoginCoordinator {
         )
     }
 
-    private func shouldProbeHomeFallback(
-        in webView: WKWebView,
-        currentPageBootstrapScore: Int,
-        username: String?
-    ) -> Bool {
-        guard !webView.isLoading, isLinuxDoHost(webView.url) else {
-            return false
-        }
-
-        return username == nil
-            || currentPageBootstrapScore < FireBootstrapHTMLHeuristics.reusableLoginBootstrapScoreThreshold
-    }
-
     private func normalizeUsername(_ username: String?) -> String? {
         let trimmed = username?.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed?.isEmpty == true ? nil : trimmed
     }
 
-    private func containsAuthCookies(in cookies: [PlatformCookieState]) -> Bool {
+    nonisolated static func containsActiveAuthCookies(
+        in cookies: [PlatformCookieState]
+    ) -> Bool {
         let activeCookies = cookies.filter { cookie in
             let value = cookie.value.trimmingCharacters(in: .whitespacesAndNewlines)
             return !value.isEmpty && !(cookie.expiresAtUnixMs.map { $0 <= currentUnixMs() } ?? false)
@@ -638,6 +551,10 @@ public final class FireWebViewLoginCoordinator {
 
         return activeCookies.contains(where: { $0.name == "_t" })
             && activeCookies.contains(where: { $0.name == "_forum_session" })
+    }
+
+    private func containsAuthCookies(in cookies: [PlatformCookieState]) -> Bool {
+        Self.containsActiveAuthCookies(in: cookies)
     }
 
     private func isLinuxDoHost(_ url: URL?) -> Bool {
@@ -648,13 +565,7 @@ public final class FireWebViewLoginCoordinator {
         return host == "linux.do" || host.hasSuffix(".linux.do")
     }
 
-    private func currentUnixMs() -> Int64 {
+    private nonisolated static func currentUnixMs() -> Int64 {
         Int64(Date().timeIntervalSince1970 * 1000)
     }
-}
-
-private struct FireLoginProbeHomeFallbackCache {
-    let currentURL: String?
-    let username: String?
-    let bootstrapScore: Int
 }

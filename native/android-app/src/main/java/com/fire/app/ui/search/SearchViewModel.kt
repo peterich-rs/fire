@@ -2,12 +2,13 @@ package com.fire.app.ui.search
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.fire.app.cloudflare.CloudflareChallengeDetector
+import com.fire.app.core.error.FireErrorReporter
 import com.fire.app.data.repository.SearchRepository
 import com.fire.app.session.FireSessionStore
-import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -15,8 +16,10 @@ import kotlinx.coroutines.launch
 import uniffi.fire_uniffi_search.SearchResultState
 import uniffi.fire_uniffi_search.SearchTypeFilterState
 
+@OptIn(FlowPreview::class)
 class SearchViewModel(
     private val repository: SearchRepository,
+    private val sessionStore: FireSessionStore,
 ) : ViewModel() {
 
     private val _query = MutableStateFlow("")
@@ -31,11 +34,15 @@ class SearchViewModel(
     private val _isLoading = MutableStateFlow(false)
     val isLoading = _isLoading.asStateFlow()
 
+    private val _isLoadingMore = MutableStateFlow(false)
+    val isLoadingMore = _isLoadingMore.asStateFlow()
+
     private val _error = MutableStateFlow<String?>(null)
     val error = _error.asStateFlow()
 
-    private val _cloudflareChallenge = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
-    val cloudflareChallenge = _cloudflareChallenge.asSharedFlow()
+    private var searchJob: Job? = null
+    private var activeGeneration = 0
+    private var loadedPage = 1u
 
     init {
         viewModelScope.launch {
@@ -46,7 +53,7 @@ class SearchViewModel(
                     if (q.isNotBlank()) {
                         performSearch(q, _typeFilter.value)
                     } else {
-                        _results.value = null
+                        clearResults()
                     }
                 }
         }
@@ -65,55 +72,100 @@ class SearchViewModel(
 
     fun loadMore() {
         val current = _results.value ?: return
-        val grouped = current.groupedResult
-        if (!grouped.moreFullPageResults) return
-        val nextPage = (_results.value?.posts?.size?.div(30)?.plus(1))?.toUInt() ?: return
+        val query = _query.value.trim().takeIf { it.isNotEmpty() } ?: return
+        if (_isLoading.value || _isLoadingMore.value || !current.groupedResult.moreFullPageResults) {
+            return
+        }
+        val generation = activeGeneration
+        val nextPage = loadedPage + 1u
         viewModelScope.launch {
+            _isLoadingMore.value = true
+            _error.value = null
             try {
-                val more = repository.search(_query.value, nextPage, _typeFilter.value)
-                val merged = SearchResultState(
-                    posts = current.posts + more.posts,
-                    topics = current.topics + more.topics,
-                    users = current.users + more.users,
-                    groupedResult = more.groupedResult,
-                )
-                _results.value = merged
+                val more = repository.search(query, nextPage, _typeFilter.value)
+                if (generation == activeGeneration) {
+                    _results.value = mergeResults(current, more)
+                    loadedPage = nextPage
+                }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
-                handleError(e, showMessage = false)
+                handleError(e)
+            } finally {
+                _isLoadingMore.value = false
             }
         }
     }
 
     private fun performSearch(q: String, filter: SearchTypeFilterState?) {
-        viewModelScope.launch {
+        val normalizedQuery = q.trim()
+        if (normalizedQuery.isEmpty()) {
+            clearResults()
+            return
+        }
+
+        activeGeneration += 1
+        val generation = activeGeneration
+        searchJob?.cancel()
+        searchJob = viewModelScope.launch {
             _isLoading.value = true
+            _isLoadingMore.value = false
             _error.value = null
             try {
-                val result = repository.search(q, null, filter)
-                _results.value = result
+                val result = repository.search(normalizedQuery, null, filter)
+                if (generation == activeGeneration) {
+                    loadedPage = 1u
+                    _results.value = result
+                }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 handleError(e)
             } finally {
-                _isLoading.value = false
+                if (generation == activeGeneration) {
+                    _isLoading.value = false
+                }
             }
         }
     }
 
+    private fun clearResults() {
+        activeGeneration += 1
+        searchJob?.cancel()
+        loadedPage = 1u
+        _isLoading.value = false
+        _isLoadingMore.value = false
+        _error.value = null
+        _results.value = null
+    }
+
+    private fun mergeResults(
+        current: SearchResultState,
+        more: SearchResultState,
+    ): SearchResultState {
+        return SearchResultState(
+            posts = (current.posts + more.posts).distinctBy { it.id },
+            topics = (current.topics + more.topics).distinctBy { it.id },
+            users = (current.users + more.users).distinctBy { it.id },
+            groupedResult = more.groupedResult,
+        )
+    }
+
     private fun handleError(error: Exception, showMessage: Boolean = true) {
-        if (CloudflareChallengeDetector.isChallenge(error)) {
-            _cloudflareChallenge.tryEmit(Unit)
-            if (showMessage) {
-                _error.value = null
-            }
-        } else if (showMessage) {
-            _error.value = error.message
+        val reported = FireErrorReporter.report(
+            operation = "search.query",
+            error = error,
+            sessionStore = sessionStore,
+        )
+        if (showMessage) {
+            _error.value = reported.displayMessage
         }
     }
 
     companion object {
         fun create(sessionStore: FireSessionStore): SearchViewModel {
             val repo = SearchRepository(sessionStore)
-            return SearchViewModel(repo)
+            return SearchViewModel(repo, sessionStore)
         }
     }
 }

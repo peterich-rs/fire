@@ -1,3 +1,4 @@
+import AsyncDisplayKit
 import Foundation
 import UIKit
 
@@ -15,10 +16,16 @@ enum FirePostCellLayoutCalculator {
     static let textTopSpacing: CGFloat = 0
     static let imageTopSpacing: CGFloat = 10
     static let imageSpacing: CGFloat = 10
+    static let replyShortcutTopSpacing: CGFloat = 8
+    static let replyShortcutHeight: CGFloat = 30
     static let reactionTopSpacing: CGFloat = 0
     static let contentVerticalPadding: CGFloat = 8
     static let menuButtonSize: CGFloat = 20
     static let dividerHeight: CGFloat = 0.5
+    static let commentImageWidthScale: CGFloat = 0.78
+    static let commentImageMaxWidth: CGFloat = 300
+    static let commentImageMaxHeight: CGFloat = 260
+    static let topicImageMaxHeight: CGFloat = 400
 
     static func visualDepth(for depth: Int) -> Int {
         max(depth - 1, 0)
@@ -52,7 +59,8 @@ enum FirePostCellLayoutCalculator {
     static func calculate(
         key: FirePostCellLayoutKey,
         textHeight: CGFloat?,
-        imageHeights: [CGFloat],
+        imageSizes: [CGSize],
+        pollHeights: [CGFloat] = [],
         trait: FirePostLayoutTraitSignature
     ) -> FirePostCellLayout {
         let indent = indentWidth(for: key.depth)
@@ -88,7 +96,13 @@ enum FirePostCellLayoutCalculator {
         }
 
         // Meta line
-        let metaHeight: CGFloat = 20
+        let contentSizeCategory = UIContentSizeCategory(rawValue: trait.contentSizeCategory)
+        let contentTraitCollection = UITraitCollection(preferredContentSizeCategory: contentSizeCategory)
+        let metaHeight = ceil(max(
+            UIFont.preferredFont(forTextStyle: .subheadline, compatibleWith: contentTraitCollection).lineHeight,
+            UIFont.preferredFont(forTextStyle: .caption2, compatibleWith: contentTraitCollection).lineHeight,
+            menuButtonSize
+        ))
         let metaFrame = CGRect(
             x: contentLeading,
             y: cursorY,
@@ -100,55 +114,125 @@ enum FirePostCellLayoutCalculator {
         // Text frame
         let textFrame: CGRect?
         let textContainerSize: CGSize
+        let shouldCollapseText: Bool
+        let textExpansionFrame: CGRect?
         if let textHeight, textHeight > 0 {
-            textContainerSize = CGSize(width: contentAvailableWidth, height: textHeight)
+            let collapsedTextHeight = collapsedTextHeight(
+                contentSizeCategory: UIContentSizeCategory(rawValue: trait.contentSizeCategory)
+            )
+            shouldCollapseText = key.textExpansionState.isCollapsed
+                && textHeight > collapsedTextHeight
+            let displayedTextHeight = shouldCollapseText
+                ? collapsedTextHeight
+                : textHeight
+            textContainerSize = CGSize(width: contentAvailableWidth, height: displayedTextHeight)
             textFrame = CGRect(
                 x: contentLeading,
                 y: cursorY,
                 width: contentAvailableWidth,
-                height: textHeight
+                height: displayedTextHeight
             )
-            cursorY += textHeight + textTopSpacing
+            cursorY += displayedTextHeight + textTopSpacing
+            if shouldCollapseText {
+                textExpansionFrame = textFrame
+            } else {
+                textExpansionFrame = nil
+            }
         } else {
             textFrame = nil
             textContainerSize = .zero
+            shouldCollapseText = false
+            textExpansionFrame = nil
         }
 
         // Image frames
         var imageFrames: [CGRect] = []
-        for (index, imageHeight) in imageHeights.enumerated() {
-            if index == 0 {
-                if textFrame != nil {
-                    cursorY += metaLineSpacing
+        if !shouldCollapseText {
+            for (index, imageSize) in imageSizes.enumerated() {
+                if index == 0 {
+                    if textFrame != nil {
+                        cursorY += metaLineSpacing
+                    }
+                } else {
+                    cursorY += imageSpacing
                 }
-            } else {
-                cursorY += imageSpacing
+                let frame = CGRect(
+                    x: contentLeading,
+                    y: cursorY,
+                    width: min(imageSize.width, contentAvailableWidth),
+                    height: imageSize.height
+                )
+                imageFrames.append(frame)
+                cursorY += imageSize.height
             }
-            let frame = CGRect(
-                x: contentLeading,
-                y: cursorY,
-                width: contentAvailableWidth,
-                height: imageHeight
-            )
-            imageFrames.append(frame)
-            cursorY += imageHeight
         }
 
-        // Reactions frame
-        let reactionsFrame: CGRect?
-        if key.hasReactions {
-            if textFrame != nil || !imageFrames.isEmpty {
-                cursorY += metaLineSpacing
+        // Poll frames
+        var pollFrames: [CGRect] = []
+        if !shouldCollapseText {
+            for (index, pollHeight) in pollHeights.enumerated() where pollHeight > 0 {
+                if index == 0 {
+                    if textFrame != nil || !imageFrames.isEmpty {
+                        cursorY += imageSpacing
+                    }
+                } else {
+                    cursorY += imageSpacing
+                }
+                let frame = CGRect(
+                    x: contentLeading,
+                    y: cursorY,
+                    width: contentAvailableWidth,
+                    height: pollHeight
+                )
+                pollFrames.append(frame)
+                cursorY += pollHeight
             }
-            let reactionHeight: CGFloat = 32
-            reactionsFrame = CGRect(
-                x: contentLeading,
-                y: cursorY,
-                width: contentAvailableWidth,
-                height: reactionHeight
-            )
-            cursorY += reactionHeight
+        }
+
+        // Action row: nested-reply shortcut and reactions share one compact line.
+        let replyShortcutFrame: CGRect?
+        let reactionsFrame: CGRect?
+        let hasActionRow = key.replyShortcutCount != nil || key.hasReactions
+        if hasActionRow {
+            if textFrame != nil || !imageFrames.isEmpty || !pollFrames.isEmpty {
+                cursorY += replyShortcutTopSpacing
+            }
+
+            let actionRowY = cursorY
+            let actionRowHeight = replyShortcutHeight
+            let actionSpacing: CGFloat = 8
+            var actionX = contentLeading
+            let rowMaxX = contentLeading + contentAvailableWidth
+
+            if key.replyShortcutCount != nil {
+                let remaining = max(rowMaxX - actionX, 1)
+                let reservedReactionWidth: CGFloat = key.hasReactions && remaining > 180 ? 96 : 0
+                let width = max(remaining - reservedReactionWidth - actionSpacing, min(remaining, 96))
+                replyShortcutFrame = CGRect(
+                    x: actionX,
+                    y: actionRowY,
+                    width: min(width, remaining),
+                    height: actionRowHeight
+                )
+                actionX = min(actionX + min(width, remaining) + actionSpacing, rowMaxX)
+            } else {
+                replyShortcutFrame = nil
+            }
+
+            if key.hasReactions {
+                reactionsFrame = CGRect(
+                    x: actionX,
+                    y: actionRowY,
+                    width: max(rowMaxX - actionX, 1),
+                    height: actionRowHeight
+                )
+            } else {
+                reactionsFrame = nil
+            }
+
+            cursorY += actionRowHeight
         } else {
+            replyShortcutFrame = nil
             reactionsFrame = nil
         }
 
@@ -188,7 +272,10 @@ enum FirePostCellLayoutCalculator {
             metaFrame: metaFrame,
             textFrame: textFrame,
             textContainerSize: textContainerSize,
+            textExpansionFrame: textExpansionFrame,
             imageFrames: imageFrames,
+            pollFrames: pollFrames,
+            replyShortcutFrame: replyShortcutFrame,
             reactionsFrame: reactionsFrame,
             menuFrame: nil,
             dividerFrame: dividerFrame
@@ -204,33 +291,75 @@ enum FirePostCellLayoutCalculator {
             return nil
         }
 
+        let textNode = ASTextNode()
+        textNode.attributedText = attributedText
+        textNode.maximumNumberOfLines = 0
         let width = max(containerWidth, 1)
-        let textStorage = NSTextStorage(attributedString: attributedText)
-        let textContainer = NSTextContainer(size: CGSize(width: width, height: .greatestFiniteMagnitude))
-        textContainer.lineFragmentPadding = 0
-        let layoutManager = NSLayoutManager()
-        layoutManager.addTextContainer(textContainer)
-        textStorage.addLayoutManager(layoutManager)
+        let layout = textNode.layoutThatFits(ASSizeRange(
+            min: CGSize(width: width, height: 0),
+            max: CGSize(width: width, height: .greatestFiniteMagnitude)
+        ))
+        return ceil(layout.size.height)
+    }
 
-        if attributedText.attribute(.font, at: 0, effectiveRange: nil) == nil {
-            let scaledFont = UIFont.preferredFont(
-                forTextStyle: .subheadline,
-                compatibleWith: UITraitCollection(preferredContentSizeCategory: contentSizeCategory)
-            )
-            textStorage.addAttribute(
-                .font,
-                value: scaledFont,
-                range: NSRange(location: 0, length: textStorage.length)
-            )
+    static func estimatedRichTextHeight(
+        plainText: String,
+        hasAttributedText: Bool,
+        containerWidth: CGFloat,
+        contentSizeCategory: UIContentSizeCategory,
+        textExpansionState: FirePostTextExpansionState
+    ) -> CGFloat? {
+        guard hasAttributedText || !plainText.isEmpty else {
+            return nil
         }
 
-        layoutManager.ensureLayout(for: textContainer)
-        let rect = layoutManager.usedRect(for: textContainer)
-        return ceil(rect.height)
+        let font = UIFont.preferredFont(
+            forTextStyle: .subheadline,
+            compatibleWith: UITraitCollection(preferredContentSizeCategory: contentSizeCategory)
+        )
+        let lineHeight = max(font.lineHeight, 1)
+        let averageGlyphWidth = max(font.pointSize * 0.56, 1)
+        let charactersPerLine = max(Int((max(containerWidth, 1) / averageGlyphWidth).rounded(.down)), 1)
+        let logicalLineCount = plainText
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .reduce(0) { partialResult, line in
+                partialResult + max(Int(ceil(Double(line.count) / Double(charactersPerLine))), 1)
+            }
+        let resolvedLineCount = max(logicalLineCount, 1)
+        if textExpansionState.isCollapsed,
+           resolvedLineCount > FirePostTextExpansionState.collapsedLineLimit {
+            return collapsedTextHeight(contentSizeCategory: contentSizeCategory) + 1
+        }
+        let displayedLineCount = textExpansionState.isCollapsed
+            ? min(resolvedLineCount, FirePostTextExpansionState.collapsedLineLimit)
+            : resolvedLineCount
+        return ceil(CGFloat(displayedLineCount) * lineHeight)
     }
 
-    static func imageHeight(for image: FireCookedImage, availableWidth: CGFloat) -> CGFloat {
-        let aspectRatio = image.aspectRatio ?? 1.45
-        return availableWidth / aspectRatio
+    static func collapsedTextHeight(contentSizeCategory: UIContentSizeCategory) -> CGFloat {
+        let font = UIFont.preferredFont(
+            forTextStyle: .subheadline,
+            compatibleWith: UITraitCollection(preferredContentSizeCategory: contentSizeCategory)
+        )
+        return ceil(font.lineHeight * CGFloat(FirePostTextExpansionState.collapsedLineLimit))
     }
+
+    static func imageRenderSize(
+        for image: FireCookedImage,
+        availableWidth: CGFloat,
+        depth: Int
+    ) -> CGSize {
+        let aspectRatio = image.aspectRatio ?? 1.45
+        let isCommentImage = depth > 0
+        let maxWidth = isCommentImage
+            ? min(max(availableWidth * commentImageWidthScale, 1), commentImageMaxWidth)
+            : availableWidth
+        let rawHeight = maxWidth / aspectRatio
+        let maxHeight = isCommentImage ? commentImageMaxHeight : topicImageMaxHeight
+        if rawHeight > maxHeight {
+            return CGSize(width: maxHeight * aspectRatio, height: maxHeight)
+        }
+        return CGSize(width: maxWidth, height: rawHeight)
+    }
+
 }

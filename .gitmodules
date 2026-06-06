@@ -4,3 +4,9 @@
 [submodule "third_party/openwire"]
 	path = third_party/openwire
 	url = https://github.com/peterich-rs/openwire.git
+[submodule "references/dexo"]
+	path = references/dexo
+	url = https://github.com/Eilgnaw/dexo.git
+[submodule "third_party/xlog-rs"]
+	path = third_party/xlog-rs
+	url = https://github.com/peterich-rs/xlog-rs.git

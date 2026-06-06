@@ -66,12 +66,15 @@ impl FireMessageBusHandle {
         &self,
         mode: MessageBusClientModeState,
         handler: Arc<dyn MessageBusEventHandler>,
+        topic_tracking_state_meta: Option<std::collections::HashMap<String, i64>>,
     ) -> Result<String, FireUniFfiError> {
         let inner = self.shared.core.clone();
         let panic_state = self.shared.panic_state.clone();
         let (event_sender, mut event_receiver) = tokio::sync::mpsc::unbounded_channel();
         let client_id = run_on_ffi_runtime("start_message_bus", panic_state, async move {
-            inner.start_message_bus(mode.into(), event_sender).await
+            inner
+                .start_message_bus(mode.into(), event_sender, topic_tracking_state_meta)
+                .await
         })
         .await?;
 

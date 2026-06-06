@@ -11,8 +11,11 @@ publish = false
 crate-type = ["rlib"]
 
 [dependencies]
+async-trait.workspace = true
 fire-core = { path = "../fire-core" }
 fire-models = { path = "../fire-models" }
+fire-store = { path = "../fire-store" }
 fire-uniffi-types = { path = "../fire-uniffi-types" }
+serde_json.workspace = true
 tokio.workspace = true
 uniffi.workspace = true

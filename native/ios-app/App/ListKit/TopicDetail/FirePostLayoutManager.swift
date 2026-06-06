@@ -11,7 +11,9 @@ enum FirePostLayoutInvalidationReason {
 typealias FirePostLayoutComputation = @Sendable (
     FirePostCellLayoutKey,
     NSAttributedString?,
+    String,
     [FireCookedImage],
+    [FirePostPollRenderModel],
     FirePostLayoutTraitSignature
 ) -> FirePostCellLayout
 
@@ -33,9 +35,16 @@ final class FirePostLayoutManager: ObservableObject {
     private var publicationTask: Task<Void, Never>?
     private var generation: UInt64 = 0
     private var lastTraitSignature: FirePostLayoutTraitSignature?
+    private var pendingPublishedKeys: Set<FirePostCellLayoutKey> = []
+    private var lastPublishedKeys: Set<FirePostCellLayoutKey> = []
+    var onSnapshotRevisionChanged: (() -> Void)?
 
     var currentSnapshotRevision: UInt64 {
         snapshotRevision
+    }
+
+    var currentPublishedKeys: Set<FirePostCellLayoutKey> {
+        lastPublishedKeys
     }
 
     init(
@@ -43,11 +52,13 @@ final class FirePostLayoutManager: ObservableObject {
             label: "com.fire.post-layout-manager",
             qos: .userInitiated
         ),
-        computeLayout: @escaping FirePostLayoutComputation = { key, attributedText, images, trait in
+        computeLayout: @escaping FirePostLayoutComputation = { key, attributedText, plainText, images, polls, trait in
             FirePostLayoutManager.defaultComputeLayout(
                 key: key,
                 attributedText: attributedText,
+                plainText: plainText,
                 images: images,
+                polls: polls,
                 trait: trait
             )
         }
@@ -67,7 +78,9 @@ final class FirePostLayoutManager: ObservableObject {
     func enqueueCalculation(
         key: FirePostCellLayoutKey,
         attributedText: NSAttributedString?,
+        plainText: String,
         images: [FireCookedImage],
+        polls: [FirePostPollRenderModel],
         trait: FirePostLayoutTraitSignature
     ) {
         if layoutCache[key] != nil || inFlightKeys.contains(key) {
@@ -79,9 +92,10 @@ final class FirePostLayoutManager: ObservableObject {
         let queue = backgroundQueue
         let computeLayout = self.computeLayout
         let attributedTextBox = FireAttributedTextBox(attributedText?.copy() as? NSAttributedString)
+        let plainText = plainText
 
         queue.async { [weak self] in
-            let layout = computeLayout(key, attributedTextBox.value, images, trait)
+            let layout = computeLayout(key, attributedTextBox.value, plainText, images, polls, trait)
 
             Task { @MainActor [weak self] in
                 guard let self else { return }
@@ -93,6 +107,7 @@ final class FirePostLayoutManager: ObservableObject {
                     return
                 }
                 self.layoutCache[key] = layout
+                self.pendingPublishedKeys.insert(key)
                 self.scheduleSnapshotPublication()
             }
         }
@@ -105,7 +120,10 @@ final class FirePostLayoutManager: ObservableObject {
         publicationTask?.cancel()
         publicationTask = nil
         snapshotRevision &+= 1
+        pendingPublishedKeys.removeAll()
+        lastPublishedKeys.removeAll()
         lastTraitSignature = nil
+        onSnapshotRevisionChanged?()
     }
 
     func invalidateItems(keys: Set<FirePostCellLayoutKey>) {
@@ -115,6 +133,8 @@ final class FirePostLayoutManager: ObservableObject {
             inFlightKeys.remove(key)
         }
         snapshotRevision &+= 1
+        lastPublishedKeys = keys
+        onSnapshotRevisionChanged?()
     }
 
     func updateTraitSignature(_ signature: FirePostLayoutTraitSignature) {
@@ -135,14 +155,19 @@ final class FirePostLayoutManager: ObservableObject {
             try? await Task.sleep(for: .milliseconds(50))
             guard let self, !Task.isCancelled else { return }
             self.publicationTask = nil
+            self.lastPublishedKeys = self.pendingPublishedKeys
+            self.pendingPublishedKeys.removeAll()
             self.snapshotRevision &+= 1
+            self.onSnapshotRevisionChanged?()
         }
     }
 
     nonisolated private static func defaultComputeLayout(
         key: FirePostCellLayoutKey,
         attributedText: NSAttributedString?,
+        plainText: String,
         images: [FireCookedImage],
+        polls: [FirePostPollRenderModel],
         trait: FirePostLayoutTraitSignature
     ) -> FirePostCellLayout {
         let contentSizeCategory = UIContentSizeCategory(rawValue: trait.contentSizeCategory)
@@ -156,14 +181,26 @@ final class FirePostLayoutManager: ObservableObject {
             containerWidth: availableWidth,
             contentSizeCategory: contentSizeCategory
         )
-        let imageHeights = images.map { image in
-            FirePostCellLayoutCalculator.imageHeight(for: image, availableWidth: availableWidth)
+        let imageSizes = images.map { image in
+            FirePostCellLayoutCalculator.imageRenderSize(
+                for: image,
+                availableWidth: availableWidth,
+                depth: key.depth
+            )
+        }
+        let pollHeights = polls.map { poll in
+            FirePostPollView.preferredHeight(
+                for: poll,
+                availableWidth: availableWidth,
+                contentSizeCategory: contentSizeCategory
+            )
         }
 
         return FirePostCellLayoutCalculator.calculate(
             key: key,
             textHeight: textHeight,
-            imageHeights: imageHeights,
+            imageSizes: imageSizes,
+            pollHeights: pollHeights,
             trait: trait
         )
     }

@@ -161,7 +161,7 @@ final class FireTopicPresentationTests: XCTestCase {
         )
         let content = renderState.contentByPostID[1]
 
-        XCTAssertEqual(content?.plainText, "Hello Fire")
+        XCTAssertEqual(content?.plainText, "Hello Fire\n\nfire")
         XCTAssertEqual(
             content?.imageAttachments.first?.url.absoluteString,
             "https://linux.do/uploads/default/original/1X/fire.png"
@@ -244,7 +244,7 @@ final class FireTopicPresentationTests: XCTestCase {
         XCTAssertEqual(full.renderState.replyRows.map { $0.entry.depth }, [1, 2])
     }
 
-    func testScreenDetailRenderCacheAppendsPageRowsIncrementally() throws {
+    func testSourceDetailRenderCacheAppendsReplyRowsIncrementally() throws {
         let originalPost = makePost(
             postNumber: 1,
             replyToPostNumber: nil,
@@ -252,22 +252,23 @@ final class FireTopicPresentationTests: XCTestCase {
             cooked: #"<p>Hello <a class="mention" href="/u/alice">@alice</a></p>"#
         )
         let initialRows = [
-            makeResponseRow(postNumber: 2, parentPostNumber: 1, depth: 1, username: "reply-a")
+            makeTreeRow(postNumber: 2, parentPostNumber: 1, depth: 1, username: "reply-a")
         ]
-        let screen = makeTopicScreen(originalPost: originalPost, responseRows: initialRows)
+        let sourceSnapshot = makeSourceSnapshot(originalPost: originalPost, replyRows: initialRows)
+        let treePresentation = makeTreePresentation(originalPost: originalPost, replyRows: initialRows)
 
         let initial = FireTopicPresentation.detailRenderCache(
-            screen: screen,
-            responseRows: initialRows,
+            sourceSnapshot: sourceSnapshot,
+            treePresentation: treePresentation,
             baseURLString: "https://linux.do"
         )
 
         let appended = try XCTUnwrap(
             FireTopicPresentation.detailRenderCache(
-                screen: screen,
+                sourceSnapshot: sourceSnapshot,
                 appending: [
-                    makeResponseRow(postNumber: 3, parentPostNumber: 2, depth: 2, username: "reply-b"),
-                    makeResponseRow(postNumber: 4, parentPostNumber: 1, depth: 1, username: "reply-c")
+                    makeTreeRow(postNumber: 3, parentPostNumber: 2, depth: 2, username: "reply-b"),
+                    makeTreeRow(postNumber: 4, parentPostNumber: 1, depth: 1, username: "reply-c")
                 ],
                 baseURLString: "https://linux.do",
                 previous: initial
@@ -282,22 +283,46 @@ final class FireTopicPresentationTests: XCTestCase {
         XCTAssertEqual(appended.rowInputs.map(\.postNumber), [1, 2, 3, 4])
     }
 
-    func testScreenDetailRenderCacheAppendFallsBackForDuplicateRows() {
+    func testSourceDetailRenderCacheRebuildsRowsWhenReplyShapeChanges() {
         let originalPost = makePost(postNumber: 1, replyToPostNumber: nil, username: "author")
         let initialRows = [
-            makeResponseRow(postNumber: 2, parentPostNumber: 1, depth: 1, username: "reply-a")
+            makeTreeRow(postNumber: 2, parentPostNumber: 1, depth: 1, username: "reply-a")
         ]
-        let screen = makeTopicScreen(originalPost: originalPost, responseRows: initialRows)
+        let changedRows = [
+            makeTreeRow(postNumber: 2, parentPostNumber: 1, depth: 2, username: "reply-a")
+        ]
         let initial = FireTopicPresentation.detailRenderCache(
-            screen: screen,
-            responseRows: initialRows,
+            sourceSnapshot: makeSourceSnapshot(originalPost: originalPost, replyRows: initialRows),
+            treePresentation: makeTreePresentation(originalPost: originalPost, replyRows: initialRows),
+            baseURLString: "https://linux.do"
+        )
+
+        let refreshed = FireTopicPresentation.detailRenderCache(
+            sourceSnapshot: makeSourceSnapshot(originalPost: originalPost, replyRows: changedRows),
+            treePresentation: makeTreePresentation(originalPost: originalPost, replyRows: changedRows),
+            baseURLString: "https://linux.do",
+            previous: initial
+        )
+
+        XCTAssertNotEqual(initial.rowInputs, refreshed.rowInputs)
+        XCTAssertEqual(refreshed.renderState.replyRows.map { $0.entry.depth }, [2])
+    }
+
+    func testSourceDetailRenderCacheAppendFallsBackForDuplicateRows() {
+        let originalPost = makePost(postNumber: 1, replyToPostNumber: nil, username: "author")
+        let initialRows = [
+            makeTreeRow(postNumber: 2, parentPostNumber: 1, depth: 1, username: "reply-a")
+        ]
+        let initial = FireTopicPresentation.detailRenderCache(
+            sourceSnapshot: makeSourceSnapshot(originalPost: originalPost, replyRows: initialRows),
+            treePresentation: makeTreePresentation(originalPost: originalPost, replyRows: initialRows),
             baseURLString: "https://linux.do"
         )
 
         let duplicateAppend = FireTopicPresentation.detailRenderCache(
-            screen: screen,
+            sourceSnapshot: makeSourceSnapshot(originalPost: originalPost, replyRows: initialRows),
             appending: [
-                makeResponseRow(postNumber: 2, parentPostNumber: 1, depth: 1, username: "reply-a")
+                makeTreeRow(postNumber: 2, parentPostNumber: 1, depth: 1, username: "reply-a")
             ],
             baseURLString: "https://linux.do",
             previous: initial
@@ -306,17 +331,49 @@ final class FireTopicPresentationTests: XCTestCase {
         XCTAssertNil(duplicateAppend)
     }
 
-    func testScreenDetailRenderCacheDeduplicatesOverlappingRows() {
+    func testSourceDetailRenderCacheAppendFallsBackWhenPreviousOriginalContentIsMissing() {
+        let originalPost = makePost(postNumber: 1, replyToPostNumber: nil, username: "author")
+        let initialRows = [
+            makeTreeRow(postNumber: 2, parentPostNumber: 1, depth: 1, username: "reply-a")
+        ]
+        let initial = FireTopicPresentation.detailRenderCache(
+            sourceSnapshot: makeSourceSnapshot(originalPost: originalPost, replyRows: initialRows),
+            treePresentation: makeTreePresentation(originalPost: originalPost, replyRows: initialRows),
+            baseURLString: "https://linux.do"
+        )
+        let brokenPrevious = FireTopicDetailRenderCache(
+            baseURLString: initial.baseURLString,
+            rowInputs: initial.rowInputs,
+            contentInputsByPostID: initial.contentInputsByPostID,
+            renderState: FireTopicDetailRenderState(
+                originalRow: initial.renderState.originalRow,
+                replyRows: initial.renderState.replyRows,
+                contentByPostID: initial.renderState.contentByPostID.filter { $0.key != originalPost.id }
+            )
+        )
+
+        let appended = FireTopicPresentation.detailRenderCache(
+            sourceSnapshot: makeSourceSnapshot(originalPost: originalPost, replyRows: initialRows),
+            appending: [
+                makeTreeRow(postNumber: 3, parentPostNumber: 1, depth: 1, username: "reply-b")
+            ],
+            baseURLString: "https://linux.do",
+            previous: brokenPrevious
+        )
+
+        XCTAssertNil(appended)
+    }
+
+    func testSourceDetailRenderCacheDeduplicatesOverlappingRows() {
         let originalPost = makePost(postNumber: 1, replyToPostNumber: nil, username: "author")
         let rows = [
-            makeResponseRow(postNumber: 2, parentPostNumber: 1, depth: 1, username: "reply-old"),
-            makeResponseRow(postNumber: 2, parentPostNumber: 1, depth: 1, username: "reply-new")
+            makeTreeRow(postNumber: 2, parentPostNumber: 1, depth: 1, username: "reply-old"),
+            makeTreeRow(postNumber: 2, parentPostNumber: 1, depth: 1, username: "reply-new")
         ]
-        let screen = makeTopicScreen(originalPost: originalPost, responseRows: rows)
 
         let renderCache = FireTopicPresentation.detailRenderCache(
-            screen: screen,
-            responseRows: rows,
+            sourceSnapshot: makeSourceSnapshot(originalPost: originalPost, replyRows: rows),
+            treePresentation: makeTreePresentation(originalPost: originalPost, replyRows: rows),
             baseURLString: "https://linux.do"
         )
 
@@ -343,13 +400,13 @@ final class FireTopicPresentationTests: XCTestCase {
         XCTAssertEqual(renderCache.renderState.contentByPostID[2]?.plainText, "reply-new")
     }
 
-    func testRenderContentPlainTextOmitsImageAttachmentAltText() {
+    func testRenderContentPlainTextIncludesImageAttachmentAltTextFromSharedRenderer() {
         let content = FireTopicPresentation.renderContent(
             from: #"<p>Hello&nbsp;Fire</p><img src="/uploads/default/original/1X/fire.png" alt="fire">"#,
             baseURLString: "https://linux.do"
         )
 
-        XCTAssertEqual(content.plainText, "Hello Fire")
+        XCTAssertEqual(content.plainText, "Hello Fire\n\nfire")
         XCTAssertEqual(content.imageAttachments.first?.altText, "fire")
     }
 
@@ -408,7 +465,7 @@ final class FireTopicPresentationTests: XCTestCase {
         )
 
         XCTAssertEqual(attachment.remoteURL.absoluteString, "https://linux.do/images/emoji/twitter/smile.png?v=12")
-        XCTAssertEqual(attachment.fallbackText, ":smile:")
+        XCTAssertEqual(attachment.fallbackText, "smile")
         XCTAssertTrue(content.imageAttachments.isEmpty)
     }
 
@@ -449,6 +506,28 @@ final class FireTopicPresentationTests: XCTestCase {
         )
         XCTAssertTrue(attributedText.string.contains("引用"))
         XCTAssertTrue(attributedText.string.contains("Hello Fire"))
+    }
+
+    func testRenderContentDoesNotPromoteQuoteAvatarToPostAttachment() throws {
+        let content = FireTopicPresentation.renderContent(
+            from: #"""
+            <aside class="quote" data-username="alice" data-post="12" data-topic="987">
+              <div class="title">
+                <img class="avatar" src="/user_avatar/linux.do/alice/48/1_2.png" width="24" height="24">
+                <a href="/u/alice">alice</a>:
+              </div>
+              <blockquote><p>Hello Fire</p></blockquote>
+            </aside>
+            """#,
+            baseURLString: "https://linux.do"
+        )
+
+        let attributedText = try XCTUnwrap(content.attributedText)
+
+        XCTAssertTrue(content.imageAttachments.isEmpty)
+        XCTAssertTrue(attributedText.string.contains("引用"))
+        XCTAssertTrue(attributedText.string.contains("Hello Fire"))
+        XCTAssertTrue(attributedText.string.contains("alice"))
     }
 
     func testRenderContentMakesMentionGroupsAndHashtagsTappable() throws {
@@ -823,18 +902,18 @@ final class FireTopicPresentationTests: XCTestCase {
         XCTAssertEqual(missing, [40])
     }
 
-    func testCollectionViewReplyContextPrefersResolvedTreeParentWhenItDiffers() {
+    func testReplyContextPrefersResolvedTreeParentWhenItDiffers() {
         let post = makePost(postNumber: 5, replyToPostNumber: 3, username: "reply")
 
         XCTAssertEqual(
-            FireTopicDetailCollectionView.replyTargetPostNumber(
+            FireTopicPresentation.replyTargetPostNumber(
                 for: post,
                 preferredPostNumber: 2
             ),
             2
         )
         XCTAssertEqual(
-            FireTopicDetailCollectionView.replyContextLabel(
+            FireTopicPresentation.replyContextLabel(
                 for: post,
                 preferredPostNumber: 2
             ),
@@ -842,7 +921,7 @@ final class FireTopicPresentationTests: XCTestCase {
         )
     }
 
-    func testCollectionViewReplyContextKeepsReplyUserWhenTreeParentMatchesDeclaredParent() {
+    func testReplyContextKeepsReplyUserWhenTreeParentMatchesDeclaredParent() {
         var post = makePost(postNumber: 5, replyToPostNumber: 3, username: "reply")
         post.replyToUser = TopicReplyToUserState(
             username: "alice",
@@ -851,7 +930,7 @@ final class FireTopicPresentationTests: XCTestCase {
         )
 
         XCTAssertEqual(
-            FireTopicDetailCollectionView.replyContextLabel(
+            FireTopicPresentation.replyContextLabel(
                 for: post,
                 preferredPostNumber: 3
             ),
@@ -873,6 +952,7 @@ final class FireTopicPresentationTests: XCTestCase {
             name: nil,
             avatarTemplate: nil,
             cooked: cooked ?? "<p>\(username)</p>",
+            renderDocument: nil,
             raw: nil,
             postNumber: postNumber,
             postType: 1,
@@ -939,13 +1019,13 @@ final class FireTopicPresentationTests: XCTestCase {
         )
     }
 
-    private func makeResponseRow(
+    private func makeTreeRow(
         postNumber: UInt32,
         parentPostNumber: UInt32?,
         depth: UInt16,
         username: String
-    ) -> TopicResponseRowState {
-        TopicResponseRowState(
+    ) -> TopicTreeRowState {
+        TopicTreeRowState(
             post: makePost(
                 postNumber: postNumber,
                 replyToPostNumber: parentPostNumber,
@@ -962,18 +1042,18 @@ final class FireTopicPresentationTests: XCTestCase {
         )
     }
 
-    private func makeTopicScreen(
+    private func makeSourceSnapshot(
         originalPost: TopicPostState,
-        responseRows: [TopicResponseRowState]
-    ) -> TopicScreenState {
-        TopicScreenState(
+        replyRows: [TopicTreeRowState]
+    ) -> TopicDetailSourceSnapshotState {
+        TopicDetailSourceSnapshotState(
             header: TopicHeaderState(
                 topicId: 42,
                 messageBusLastId: nil,
                 title: "Fire Native",
                 slug: "fire-native",
-                postsCount: UInt32(responseRows.count + 1),
-                replyCount: UInt32(responseRows.count),
+                postsCount: UInt32(replyRows.count + 1),
+                replyCount: UInt32(replyRows.count),
                 categoryId: 7,
                 tags: [],
                 views: 128,
@@ -1002,21 +1082,31 @@ final class FireTopicPresentationTests: XCTestCase {
                 )
             ),
             body: TopicBodyState(post: originalPost),
-            response: TopicResponsePageState(
-                rows: responseRows,
-                nextCursor: TopicResponseCursorState(
-                    topicId: 42,
-                    sessionId: 7,
-                    nextRootOffset: UInt32(responseRows.count),
-                    nextBranchOffset: 0,
-                    pageSize: 10,
-                    rowPageSize: 40
-                ),
-                totalRootCount: UInt32(responseRows.count),
-                loadedRootCount: UInt32(responseRows.count),
-                totalResponseCount: UInt32(responseRows.count),
-                focusedPostNumber: nil
-            )
+            rawStreamIds: [originalPost.id] + replyRows.map(\.post.id),
+            loadedPosts: [originalPost] + replyRows.map(\.post),
+            loadedRanges: [],
+            sourceCursor: TopicSourceCursorState(
+                topicId: 42,
+                sessionId: 7,
+                nextStreamOffset: UInt32(replyRows.count + 1),
+                lastLoadedPostId: replyRows.last?.post.id ?? originalPost.id,
+                batchSize: 10
+            ),
+            sourceExhausted: false,
+            focusedPostNumber: nil
+        )
+    }
+
+    private func makeTreePresentation(
+        originalPost: TopicPostState,
+        replyRows: [TopicTreeRowState]
+    ) -> TopicTreePresentationState {
+        TopicTreePresentationState(
+            originalPost: originalPost,
+            replyRows: replyRows,
+            totalLoadedPostCount: UInt32(replyRows.count + 1),
+            visibleRootPostNumbers: Array(Set(replyRows.map(\.rootPostNumber))).sorted(),
+            gainedNewRootProgress: !replyRows.isEmpty
         )
     }
 

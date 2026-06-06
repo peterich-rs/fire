@@ -27,6 +27,22 @@ pub(crate) fn run(connection: &Connection) -> Result<(), FireStoreError> {
         )?;
     }
 
+    if current_version < 2 {
+        connection.execute_batch(MIGRATION_2)?;
+        connection.execute(
+            "INSERT OR IGNORE INTO schema_migrations (version, applied_at_ms) VALUES (2, ?1)",
+            [now_ms()],
+        )?;
+    }
+
+    if current_version < 3 {
+        connection.execute_batch(MIGRATION_3)?;
+        connection.execute(
+            "INSERT OR IGNORE INTO schema_migrations (version, applied_at_ms) VALUES (3, ?1)",
+            [now_ms()],
+        )?;
+    }
+
     Ok(())
 }
 
@@ -122,4 +138,26 @@ CREATE TABLE IF NOT EXISTS topic_detail_feed_items (
 
 CREATE UNIQUE INDEX IF NOT EXISTS topic_detail_feed_items_by_id
     ON topic_detail_feed_items (auth_scope_hash, topic_id, item_id);
+"#;
+
+const MIGRATION_2: &str = r#"
+CREATE TABLE IF NOT EXISTS cookie_replay_queue (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    url TEXT NOT NULL,
+    raw_set_cookie TEXT NOT NULL,
+    cookie_name TEXT NOT NULL,
+    domain TEXT NOT NULL,
+    inserted_at INTEGER NOT NULL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_cookie_replay_dedup
+    ON cookie_replay_queue (cookie_name, domain);
+"#;
+
+const MIGRATION_3: &str = r#"
+CREATE TABLE IF NOT EXISTS current_user_cache (
+    cache_key TEXT PRIMARY KEY NOT NULL,
+    data TEXT NOT NULL,
+    updated_at INTEGER NOT NULL
+);
 "#;

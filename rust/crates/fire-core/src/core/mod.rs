@@ -1,4 +1,6 @@
 mod auth;
+mod auth_strike;
+mod cf_challenge;
 mod creation;
 mod interactions;
 mod messagebus;
@@ -9,18 +11,20 @@ mod presence;
 mod rate_limit;
 mod search;
 mod session;
-mod topic_feed;
 mod topics;
 mod users;
 
 use std::{
     fs,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex, RwLock},
+    sync::{Arc, Mutex, OnceLock, RwLock},
     time::Duration,
 };
 
-use fire_models::{BootstrapArtifacts, CookieSnapshot, SessionSnapshot};
+use fire_models::{
+    AuthRuntimeSignal, BootstrapArtifacts, CookieSnapshot, HomeTopicListScope, SessionSnapshot,
+    TopicListQuery,
+};
 use fire_store::FireStore;
 use openwire::Client;
 use tokio::sync::Mutex as TokioMutex;
@@ -38,6 +42,7 @@ use crate::{
     },
     error::FireCoreError,
     logging::{log_host_message, logger_runtime_for_workspace, FireHostLogLevel},
+    state_observer::FireStateObserverRegistry,
     sync_utils::{read_rwlock, write_rwlock},
     workspace::{normalize_workspace_path, validate_workspace_relative_path},
 };
@@ -51,7 +56,7 @@ const MESSAGE_BUS_HTTP2_KEEP_ALIVE_INTERVAL: Duration = Duration::from_secs(30);
 
 type FireAuthKey = (Option<String>, Option<String>);
 const FIRE_STORE_DIR_NAME: &str = "cache";
-const FIRE_TOPIC_FEED_STORE_FILE_NAME: &str = "topic-feed.sqlite3";
+const FIRE_SHARED_STORE_FILE_NAME: &str = "fire-cache.sqlite3";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FireAuthRecoveryHintReason {
@@ -95,7 +100,7 @@ impl FireAuthRotation {
     }
 }
 
-fn open_topic_feed_store(workspace_path: Option<&Path>) -> Result<FireStore, FireCoreError> {
+fn open_shared_store(workspace_path: Option<&Path>) -> Result<FireStore, FireCoreError> {
     let Some(workspace_path) = workspace_path else {
         return Ok(FireStore::open_in_memory()?);
     };
@@ -106,7 +111,7 @@ fn open_topic_feed_store(workspace_path: Option<&Path>) -> Result<FireStore, Fir
         source,
     })?;
     Ok(FireStore::open(
-        cache_dir.join(FIRE_TOPIC_FEED_STORE_FILE_NAME),
+        cache_dir.join(FIRE_SHARED_STORE_FILE_NAME),
     )?)
 }
 
@@ -124,6 +129,8 @@ pub(crate) struct FireSessionRuntimeState {
     pub(crate) auth_cookie_revision: u64,
     pub(crate) auth_recovery_hint: Option<FireAuthRecoveryHint>,
     pub(crate) last_response_auth_change: Option<FireResponseAuthChange>,
+    pub(crate) auth_strike: auth_strike::AuthStrikeState,
+    pub(crate) last_auth_runtime_signal: Option<AuthRuntimeSignal>,
 }
 
 #[derive(Clone)]
@@ -137,9 +144,15 @@ pub struct FireCore {
     notifications: Arc<Mutex<notifications::FireNotificationRuntime>>,
     topic_presence: Arc<Mutex<presence::FireTopicPresenceRuntime>>,
     topic_timing: Arc<Mutex<interactions::FireTopicTimingRuntime>>,
-    topic_response: Arc<Mutex<topics::FireTopicResponseRuntime>>,
-    topic_feed_store: Arc<Mutex<FireStore>>,
+    topic_detail_source: Arc<Mutex<topics::FireTopicDetailSourceRuntime>>,
+    pub(crate) shared_store: Arc<Mutex<FireStore>>,
+    home_topic_list_scope: Arc<Mutex<HomeTopicListScope>>,
+    state_observers: FireStateObserverRegistry,
     csrf_refresh: Arc<TokioMutex<()>>,
+    cloudflare_challenge_handler: cf_challenge::FireCloudflareChallengeHandlerRegistry,
+    cloudflare_challenge_runtime: Arc<Mutex<cf_challenge::FireCloudflareChallengeRuntime>>,
+    preloaded_data: OnceLock<Arc<crate::preloaded_data::PreloadedDataService>>,
+    app_state_refresher: OnceLock<Arc<crate::app_state_refresher::AppStateRefresher>>,
 }
 
 impl FireCore {
@@ -171,16 +184,23 @@ impl FireCore {
             auth_cookie_revision: 1,
             auth_recovery_hint: None,
             last_response_auth_change: None,
+            auth_strike: auth_strike::AuthStrikeState::default(),
+            last_auth_runtime_signal: None,
         };
         let session = Arc::new(RwLock::new(session));
-        let cookie_jar = Arc::new(FireSessionCookieJar::new(base_url.clone(), session.clone()));
+        let shared_store = open_shared_store(workspace_path.as_deref())?;
+        let shared_store = Arc::new(Mutex::new(shared_store));
+        let cookie_jar = Arc::new(FireSessionCookieJar::new(
+            base_url.clone(),
+            Arc::clone(&session),
+            Some(Arc::clone(&shared_store)),
+        ));
         let network = network::FireNetworkLayer::new(
             &base_url,
             Arc::clone(&session),
             Arc::clone(&diagnostics),
             cookie_jar,
         )?;
-        let topic_feed_store = open_topic_feed_store(workspace_path.as_deref())?;
 
         Ok(Self {
             base_url,
@@ -192,9 +212,20 @@ impl FireCore {
             notifications: Arc::new(Mutex::new(notifications::FireNotificationRuntime::default())),
             topic_presence: Arc::new(Mutex::new(presence::FireTopicPresenceRuntime::default())),
             topic_timing: Arc::new(Mutex::new(interactions::FireTopicTimingRuntime::default())),
-            topic_response: Arc::new(Mutex::new(topics::FireTopicResponseRuntime::default())),
-            topic_feed_store: Arc::new(Mutex::new(topic_feed_store)),
+            topic_detail_source: Arc::new(Mutex::new(
+                topics::FireTopicDetailSourceRuntime::default(),
+            )),
+            shared_store,
+            home_topic_list_scope: Arc::new(Mutex::new(HomeTopicListScope::default())),
+            state_observers: FireStateObserverRegistry::default(),
             csrf_refresh: Arc::new(TokioMutex::new(())),
+            cloudflare_challenge_handler:
+                cf_challenge::FireCloudflareChallengeHandlerRegistry::default(),
+            cloudflare_challenge_runtime: Arc::new(Mutex::new(
+                cf_challenge::FireCloudflareChallengeRuntime::default(),
+            )),
+            preloaded_data: OnceLock::new(),
+            app_state_refresher: OnceLock::new(),
         })
     }
 
@@ -204,6 +235,10 @@ impl FireCore {
 
     pub fn workspace_path(&self) -> Option<&Path> {
         self.workspace_path.as_deref()
+    }
+
+    pub fn state_observers(&self) -> &FireStateObserverRegistry {
+        &self.state_observers
     }
 
     pub fn resolve_workspace_path(
@@ -275,8 +310,124 @@ impl FireCore {
         read_rwlock(&self.session, "session").auth_recovery_hint
     }
 
+    pub fn last_auth_runtime_signal(&self) -> Option<AuthRuntimeSignal> {
+        read_rwlock(&self.session, "session")
+            .last_auth_runtime_signal
+            .clone()
+    }
+
     pub fn shared_client(&self) -> Client {
         self.network.client()
+    }
+
+    pub fn preloaded_data_service(&self) -> &Arc<crate::preloaded_data::PreloadedDataService> {
+        self.preloaded_data.get_or_init(|| {
+            Arc::new(crate::preloaded_data::PreloadedDataService::new(Arc::new(
+                self.clone(),
+            )))
+        })
+    }
+
+    pub(crate) fn sync_preloaded_data_cache(&self, bootstrap: &BootstrapArtifacts) {
+        if let Some(service) = self.preloaded_data.get() {
+            service.sync_from_bootstrap(bootstrap);
+        }
+    }
+
+    pub(crate) fn reset_preloaded_data_cache(&self) {
+        if let Some(service) = self.preloaded_data.get() {
+            service.reset();
+        }
+    }
+
+    pub fn app_state_refresher(&self) -> &Arc<crate::app_state_refresher::AppStateRefresher> {
+        self.app_state_refresher.get_or_init(|| {
+            Arc::new(crate::app_state_refresher::AppStateRefresher::new(
+                Arc::new(self.clone()),
+            ))
+        })
+    }
+
+    pub fn current_home_topic_list_scope(&self) -> HomeTopicListScope {
+        self.home_topic_list_scope
+            .lock()
+            .expect("home topic list scope mutex poisoned")
+            .clone()
+    }
+
+    pub fn set_current_home_topic_list_scope(
+        &self,
+        scope: HomeTopicListScope,
+    ) -> HomeTopicListScope {
+        let sanitized = scope.sanitized();
+        *self
+            .home_topic_list_scope
+            .lock()
+            .expect("home topic list scope mutex poisoned") = sanitized.clone();
+        sanitized
+    }
+
+    pub(crate) fn reset_current_home_topic_list_scope(&self) {
+        *self
+            .home_topic_list_scope
+            .lock()
+            .expect("home topic list scope mutex poisoned") = HomeTopicListScope::default();
+    }
+
+    pub(crate) fn current_home_topic_list_query(&self) -> TopicListQuery {
+        let scope = self.current_home_topic_list_scope().sanitized();
+        let snapshot = self.snapshot();
+        let category = scope.category_id.and_then(|category_id| {
+            snapshot
+                .bootstrap
+                .categories
+                .iter()
+                .find(|item| item.id == category_id)
+        });
+        let parent = category.and_then(|category| {
+            category.parent_category_id.and_then(|parent_id| {
+                snapshot
+                    .bootstrap
+                    .categories
+                    .iter()
+                    .find(|item| item.id == parent_id)
+            })
+        });
+        let primary_tag = scope.tags.first().cloned();
+        let additional_tags = scope.tags.iter().skip(1).cloned().collect::<Vec<_>>();
+
+        TopicListQuery {
+            kind: scope.kind,
+            page: None,
+            topic_ids: Vec::new(),
+            order: None,
+            ascending: None,
+            category_slug: category.map(|category| category.slug.clone()),
+            category_id: scope.category_id,
+            parent_category_slug: parent.map(|category| category.slug.clone()),
+            tag: primary_tag,
+            additional_tags: additional_tags.clone(),
+            match_all_tags: !additional_tags.is_empty(),
+        }
+    }
+
+    pub fn cookie_replay_list(
+        &self,
+    ) -> Result<Vec<fire_store::cookie_replay::CookieReplayEntry>, FireCoreError> {
+        let store = self
+            .shared_store
+            .lock()
+            .expect("shared store mutex poisoned");
+        Ok(store.cookie_replay_list()?)
+    }
+
+    pub fn cookie_replay_clear(&self) -> Result<(), FireCoreError> {
+        let store = self
+            .shared_store
+            .lock()
+            .expect("shared store mutex poisoned");
+        store.cookie_replay_clear()?;
+        Ok(())
     }
 
     pub fn list_log_files(&self) -> Result<Vec<FireLogFileSummary>, FireCoreError> {
@@ -418,6 +569,7 @@ pub(crate) fn mutate_runtime_session_tracking_auth_change<F>(
     }
 
     let rotation = classify_auth_rotation(&before, &after);
+    session.auth_strike.clear_runtime_flags_after_auth_change();
     let stale_csrf_cleared =
         before_csrf.is_some() && session.snapshot.cookies.csrf_token == before_csrf;
     if stale_csrf_cleared {

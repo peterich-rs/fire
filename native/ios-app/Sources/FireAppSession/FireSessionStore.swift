@@ -4,7 +4,7 @@ public enum FireSessionStoreError: Error {
     case missingApplicationSupportDirectory
 }
 
-public struct FireCapturedLoginState: Sendable {
+public struct FireCapturedLoginState: Sendable, Equatable {
     public let currentURL: String?
     public let username: String?
     public let csrfToken: String?
@@ -117,6 +117,80 @@ public actor FireSessionStore {
         try core.session().snapshot()
     }
 
+    public func registerStateObserver(_ observer: any StateObserver) {
+        core.registerStateObserver(observer: observer)
+    }
+
+    public func unregisterStateObserver() {
+        core.unregisterStateObserver()
+    }
+
+    public func registerCloudflareChallengeHandler(
+        _ handler: any CloudflareChallengeHandler
+    ) throws {
+        try core.session().registerCloudflareChallengeHandler(handler: handler)
+    }
+
+    public func unregisterCloudflareChallengeHandler() throws {
+        try core.session().unregisterCloudflareChallengeHandler()
+    }
+
+    public func ensurePreloadedDataLoaded() async throws {
+        try await core.session().ensurePreloadedDataLoaded()
+        try persistCurrentSessionIfNeeded()
+    }
+
+    public func awaitPreloadedData() async throws -> PreloadedDataStateState {
+        let state = try await core.session().awaitPreloadedData()
+        try persistCurrentSessionIfNeeded()
+        return state
+    }
+
+    public func currentUserDefaults() -> CurrentUserSnapshotState? {
+        try? core.session().currentUserSnapshot()
+    }
+
+    public func cachedUser() -> CurrentUserSnapshotState? {
+        try? core.session().cachedUser()
+    }
+
+    public func determineLoginState() -> LoginStateDeterminationState {
+        (try? core.session().determineLoginState()) ?? .notLoggedIn
+    }
+
+    public func currentHomeTopicListScope() throws -> HomeTopicListScopeState {
+        try core.session().currentHomeTopicListScope()
+    }
+
+    @discardableResult
+    public func setCurrentHomeTopicListScope(
+        _ scope: HomeTopicListScopeState
+    ) throws -> HomeTopicListScopeState {
+        try core.session().setCurrentHomeTopicListScope(scope: scope)
+    }
+
+    public func determineLoginStateWithProbe() async throws -> LoginStateDeterminationState {
+        let state = try await core.session().determineLoginStateWithProbe()
+        try persistCurrentSessionIfNeeded()
+        return state
+    }
+
+    public func triggerAppStateRefresh(_ trigger: RefreshTriggerState) async throws {
+        try await core.session().triggerAppStateRefresh(trigger: trigger)
+        try persistCurrentSessionIfNeeded()
+    }
+
+    public func triggerAppStateRefresh(
+        _ trigger: RefreshTriggerState,
+        handler: any AppStateRefreshHandler
+    ) async throws {
+        try await core.session().triggerAppStateRefreshWithHandler(
+            trigger: trigger,
+            handler: handler
+        )
+        try persistCurrentSessionIfNeeded()
+    }
+
     public func restorePersistedSessionIfAvailable() throws -> SessionState? {
         guard FileManager.default.fileExists(atPath: sessionFilePath) else {
             return nil
@@ -125,6 +199,11 @@ public actor FireSessionStore {
         let persistenceState = try currentSessionPersistenceState()
         lastPersistedSnapshotRevision = persistenceState.snapshotRevision
         return state
+    }
+
+    @discardableResult
+    public func prepareStartupSession() async throws -> SessionState {
+        try await restoreColdStartSession()
     }
 
     @discardableResult
@@ -179,6 +258,50 @@ public actor FireSessionStore {
         )
         try persistCurrentSessionIfNeeded()
         return state
+    }
+
+    public func cookieReplayQueue() throws -> [CookieReplayEntryState] {
+        try core.session().cookieReplayQueue()
+    }
+
+    public func clearCookieReplayQueue() throws {
+        try core.session().clearCookieReplayQueue()
+    }
+
+    public func loadSavedCredential() throws -> FireSavedCredential? {
+        try authCookieStore.loadCredential()
+    }
+
+    public func saveLoginCredential(username: String, password: String) throws {
+        guard let credential = FireSavedCredential(username: username, password: password) else {
+            return
+        }
+        try authCookieStore.saveCredential(credential)
+    }
+
+    public func clearSavedCredential() throws {
+        try authCookieStore.clearCredential()
+    }
+
+    public func recordFingerprintDone() {
+        core.session().recordFingerprintDone()
+    }
+
+    @discardableResult
+    public func finalizeLoginFromWebView(
+        _ captured: FireCapturedLoginState,
+        allowLowConfidenceSessionCookies: Bool = false
+    ) throws -> LoginFinalizationResultState {
+        let result = try core.session().finalizeLoginFromWebview(
+            username: captured.username ?? "",
+            csrfToken: captured.csrfToken,
+            rawPreloadedHtml: captured.homeHTML,
+            browserUserAgent: captured.browserUserAgent,
+            cookies: captured.cookies,
+            allowLowConfidenceSessionCookies: allowLowConfidenceSessionCookies
+        )
+        try persistCurrentSessionIfNeeded()
+        return result
     }
 
     @discardableResult
@@ -502,64 +625,26 @@ public actor FireSessionStore {
         )
     }
 
-    public func fetchTopicDetail(query: TopicDetailQueryState) async throws -> TopicDetailState {
+    public func fetchTopicDetailSourceSnapshot(
+        query: TopicDetailSourceQueryState
+    ) async throws -> TopicDetailSourceSnapshotState {
         try await runPersistingSessionChanges {
-            try await core.topics().fetchTopicDetail(query: query)
+            try await core.topics().fetchTopicDetailSourceSnapshot(query: query)
         }
     }
 
-    public func fetchTopicDetailInitial(query: TopicDetailQueryState) async throws -> TopicDetailState {
+    public func buildTopicTreePresentation(
+        query: TopicTreePresentationQueryState
+    ) throws -> TopicTreePresentationState {
+        try core.topics().buildTopicTreePresentation(query: query)
+    }
+
+    public func loadMoreTopicPosts(
+        query: LoadMoreTopicPostsQueryState
+    ) async throws -> TopicLoadMoreOutcomeState {
         try await runPersistingSessionChanges {
-            try await core.topics().fetchTopicDetailInitial(query: query)
+            try await core.topics().loadMoreTopicPosts(query: query)
         }
-    }
-
-    public func fetchTopicScreen(query: TopicScreenQueryState) async throws -> TopicScreenState {
-        try await runPersistingSessionChanges {
-            try await core.topics().fetchTopicScreen(query: query)
-        }
-    }
-
-    public func loadTopicDetailFeed(
-        query: TopicDetailFeedQueryState
-    ) async throws -> TopicDetailFeedSnapshotState {
-        try await runPersistingSessionChanges {
-            try await core.topics().loadTopicDetailFeed(query: query)
-        }
-    }
-
-    public func refreshTopicDetailFeed(
-        query: TopicDetailFeedQueryState
-    ) async throws -> TopicDetailFeedSnapshotState {
-        try await runPersistingSessionChanges {
-            try await core.topics().refreshTopicDetailFeed(query: query)
-        }
-    }
-
-    public func cachedTopicDetailFeed(topicID: UInt64) throws -> TopicDetailFeedSnapshotState? {
-        try core.topics().cachedTopicDetailFeed(topicId: topicID)
-    }
-
-    public func fetchTopicResponsePage(
-        query: TopicResponsePageQueryState
-    ) async throws -> TopicResponsePageState {
-        try await runPersistingSessionChanges {
-            try await core.topics().fetchTopicResponsePage(query: query)
-        }
-    }
-
-    public func fetchTopicDetail(topicID: UInt64, trackVisit: Bool = true) async throws -> TopicDetailState {
-        try await fetchTopicDetail(
-            query: TopicDetailQueryState(
-                topicId: topicID,
-                postNumber: nil,
-                trackVisit: trackVisit,
-                forceLoad: trackVisit,
-                filter: nil,
-                usernameFilters: nil,
-                filterTopLevelReplies: false
-            )
-        )
     }
 
     public func fetchTopicPosts(topicID: UInt64, postIDs: [UInt64]) async throws -> [TopicPostState] {
@@ -950,7 +1035,11 @@ public actor FireSessionStore {
     @discardableResult
     public func startMessageBus(handler: any MessageBusEventHandler) async throws -> String {
         try await runPersistingSessionChanges {
-            try await core.messagebus().startMessageBus(mode: .foreground, handler: handler)
+            try await core.messagebus().startMessageBus(
+                mode: .foreground,
+                handler: handler,
+                topicTrackingStateMeta: try topicTrackingStateMetaForMessageBus()
+            )
         }
     }
 
@@ -1088,6 +1177,27 @@ public actor FireSessionStore {
 
     private func currentSessionPersistenceState() throws -> SessionPersistenceState {
         try core.session().sessionPersistenceState()
+    }
+
+    private func topicTrackingStateMetaForMessageBus() throws -> [String: Int64]? {
+        let raw = try core.session().snapshot().bootstrap.topicTrackingStateMeta?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let raw, !raw.isEmpty else {
+            return nil
+        }
+        let data = Data(raw.utf8)
+        guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+        var result: [String: Int64] = [:]
+        for (key, value) in object {
+            if let number = value as? NSNumber {
+                result[key] = number.int64Value
+            } else if let text = value as? String, let number = Int64(text) {
+                result[key] = number
+            }
+        }
+        return result.isEmpty ? nil : result
     }
 
     private func persistCurrentAuthCookies(

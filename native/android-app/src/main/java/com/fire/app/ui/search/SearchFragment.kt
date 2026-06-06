@@ -14,12 +14,9 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.fire.app.R
 import com.fire.app.session.FireSessionStoreRepository
-import com.fire.app.ui.cloudflare.CloudflareChallengeSupport
 import com.fire.app.ui.topicdetail.TopicDetailActivity
 import com.google.android.material.chip.Chip
 import com.google.android.material.chip.ChipGroup
-import kotlinx.coroutines.flow.debounce
-import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import uniffi.fire_uniffi_search.SearchTypeFilterState
 
@@ -33,6 +30,9 @@ class SearchFragment : Fragment() {
     private lateinit var loadingView: ProgressBar
 
     private var viewModel: SearchViewModel? = null
+    private var loadMorePosted = false
+    private var isSearching = false
+    private var isLoadingMore = false
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -84,6 +84,7 @@ class SearchFragment : Fragment() {
         setupFilterChips()
         observeViewModel()
         setupSearchInput()
+        setupLoadMore()
     }
 
     private fun setupSearchInput() {
@@ -153,7 +154,15 @@ class SearchFragment : Fragment() {
 
             viewLifecycleOwner.lifecycleScope.launch {
                 vm.isLoading.collect { loading ->
-                    loadingView.visibility = if (loading) View.VISIBLE else View.GONE
+                    isSearching = loading
+                    updateLoadingView()
+                }
+            }
+
+            viewLifecycleOwner.lifecycleScope.launch {
+                vm.isLoadingMore.collect { loadingMore ->
+                    isLoadingMore = loadingMore
+                    updateLoadingView()
                 }
             }
 
@@ -166,26 +175,47 @@ class SearchFragment : Fragment() {
                 }
             }
 
-            viewLifecycleOwner.lifecycleScope.launch {
-                vm.cloudflareChallenge.collect {
-                    CloudflareChallengeSupport.openSiteRoot(requireContext())
+        }
+    }
+
+    private fun setupLoadMore() {
+        recyclerView.addOnScrollListener(object : RecyclerView.OnScrollListener() {
+            override fun onScrolled(rv: RecyclerView, dx: Int, dy: Int) {
+                val layoutManager = rv.layoutManager as? LinearLayoutManager ?: return
+                val totalItemCount = layoutManager.itemCount
+                val lastVisible = layoutManager.findLastVisibleItemPosition()
+                if (totalItemCount > 0 && lastVisible >= totalItemCount - 5) {
+                    scheduleLoadMore(rv)
                 }
             }
+        })
+    }
+
+    private fun scheduleLoadMore(rv: RecyclerView) {
+        if (loadMorePosted) return
+        loadMorePosted = true
+        rv.post {
+            loadMorePosted = false
+            viewModel?.loadMore()
         }
+    }
+
+    private fun updateLoadingView() {
+        loadingView.visibility = if (isSearching || isLoadingMore) View.VISIBLE else View.GONE
     }
 
     private fun buildSearchRows(result: uniffi.fire_uniffi_search.SearchResultState): List<SearchRow> {
         val rows = mutableListOf<SearchRow>()
         if (result.topics.isNotEmpty()) {
-            rows.add(SearchRow.SectionHeader)
+            rows.add(SearchRow.SectionHeader(getString(R.string.search_topics_section)))
             result.topics.forEach { rows.add(SearchRow.TopicRow(it)) }
         }
         if (result.posts.isNotEmpty()) {
-            rows.add(SearchRow.SectionHeader)
+            rows.add(SearchRow.SectionHeader(getString(R.string.search_posts_section)))
             result.posts.forEach { rows.add(SearchRow.PostRow(it)) }
         }
         if (result.users.isNotEmpty()) {
-            rows.add(SearchRow.SectionHeader)
+            rows.add(SearchRow.SectionHeader(getString(R.string.search_users_section)))
             result.users.forEach { rows.add(SearchRow.UserRow(it)) }
         }
         return rows

@@ -211,5 +211,3 @@ final class FireNotificationStore: ObservableObject {
     }
 }
 
-extension FireNotificationStore: FireStartupPreloadNotificationsLoader {}
-

@@ -6,7 +6,6 @@ mod search;
 mod session;
 mod topic;
 mod topic_detail;
-mod topic_detail_feed;
 mod user;
 
 pub use cookie::*;
@@ -17,15 +16,14 @@ pub use search::*;
 pub use session::*;
 pub use topic::*;
 pub use topic_detail::*;
-pub use topic_detail_feed::*;
 pub use user::*;
 
 #[cfg(test)]
 mod tests {
     use super::{
-        BootstrapArtifacts, CookieSnapshot, LoginPhase, PlatformCookie, SessionSnapshot,
-        TopicCategory, TopicDetail, TopicListKind, TopicListQuery, TopicPost, TopicPostStream,
-        TopicReaction, TopicThread, TopicThreadFlatPost,
+        BootstrapArtifacts, CookieSnapshot, CurrentUserSnapshot, LoginPhase, PlatformCookie,
+        SessionSnapshot, TopicCategory, TopicDetail, TopicListKind, TopicListQuery, TopicPost,
+        TopicPostStream, TopicReaction, TopicThread, TopicThreadFlatPost,
     };
 
     #[test]
@@ -38,6 +36,7 @@ mod tests {
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
             PlatformCookie {
                 name: "_forum_session".into(),
@@ -45,6 +44,7 @@ mod tests {
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
             PlatformCookie {
                 name: "cf_clearance".into(),
@@ -52,6 +52,7 @@ mod tests {
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
         ]);
 
@@ -77,6 +78,7 @@ mod tests {
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
             PlatformCookie {
                 name: "_forum_session".into(),
@@ -84,6 +86,7 @@ mod tests {
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
         ]);
 
@@ -103,6 +106,7 @@ mod tests {
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
             PlatformCookie {
                 name: "_t".into(),
@@ -110,6 +114,7 @@ mod tests {
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
             PlatformCookie {
                 name: "_t".into(),
@@ -117,6 +122,7 @@ mod tests {
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
         ]);
 
@@ -140,6 +146,7 @@ mod tests {
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
             PlatformCookie {
                 name: "cf_clearance".into(),
@@ -147,6 +154,7 @@ mod tests {
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
         ]);
 
@@ -167,6 +175,7 @@ mod tests {
                 domain: Some("linux.do".into()),
                 path: Some("/".into()),
                 expires_at_unix_ms: None,
+                same_site: None,
             },
             PlatformCookie {
                 name: "__cf_bm".into(),
@@ -174,6 +183,7 @@ mod tests {
                 domain: Some(".linux.do".into()),
                 path: Some("/".into()),
                 expires_at_unix_ms: None,
+                same_site: None,
             },
         ]);
 
@@ -216,6 +226,7 @@ mod tests {
                 domain: Some("linux.do".into()),
                 path: Some("/".into()),
                 expires_at_unix_ms: None,
+                same_site: None,
             },
             PlatformCookie {
                 name: "_forum_session".into(),
@@ -223,6 +234,7 @@ mod tests {
                 domain: Some("linux.do".into()),
                 path: Some("/".into()),
                 expires_at_unix_ms: None,
+                same_site: None,
             },
             PlatformCookie {
                 name: "cf_clearance".into(),
@@ -230,6 +242,7 @@ mod tests {
                 domain: Some("linux.do".into()),
                 path: Some("/".into()),
                 expires_at_unix_ms: None,
+                same_site: None,
             },
             PlatformCookie {
                 name: "__cf_bm".into(),
@@ -237,6 +250,7 @@ mod tests {
                 domain: Some(".linux.do".into()),
                 path: Some("/".into()),
                 expires_at_unix_ms: None,
+                same_site: None,
             },
         ]);
 
@@ -270,6 +284,7 @@ mod tests {
                 domain: Some("linux.do".into()),
                 path: Some("/".into()),
                 expires_at_unix_ms: Some(1),
+                same_site: None,
             },
             PlatformCookie {
                 name: "_forum_session".into(),
@@ -277,6 +292,7 @@ mod tests {
                 domain: Some("linux.do".into()),
                 path: Some("/".into()),
                 expires_at_unix_ms: None,
+                same_site: None,
             },
         ]);
 
@@ -297,6 +313,7 @@ mod tests {
                 domain: Some("linux.do".into()),
                 path: Some("/".into()),
                 expires_at_unix_ms: None,
+                same_site: None,
             },
             PlatformCookie {
                 name: "_t".into(),
@@ -304,6 +321,7 @@ mod tests {
                 domain: Some(".linux.do".into()),
                 path: Some("/".into()),
                 expires_at_unix_ms: None,
+                same_site: None,
             },
         ]);
 
@@ -330,6 +348,7 @@ mod tests {
                     domain: Some("linux.do".into()),
                     path: Some("/".into()),
                     expires_at_unix_ms: Some(1),
+                    same_site: None,
                 },
                 PlatformCookie {
                     name: "_forum_session".into(),
@@ -337,6 +356,7 @@ mod tests {
                     domain: Some("linux.do".into()),
                     path: Some("/".into()),
                     expires_at_unix_ms: Some(1),
+                    same_site: None,
                 },
                 PlatformCookie {
                     name: "cf_clearance".into(),
@@ -344,6 +364,7 @@ mod tests {
                     domain: Some("linux.do".into()),
                     path: Some("/".into()),
                     expires_at_unix_ms: Some(1),
+                    same_site: None,
                 },
             ],
         };
@@ -722,12 +743,14 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(query.api_path(), "/latest.json");
+        assert_eq!(query.html_path(), "/latest");
 
         let query = TopicListQuery {
             kind: TopicListKind::Hot,
             ..Default::default()
         };
         assert_eq!(query.api_path(), "/hot.json");
+        assert_eq!(query.html_path(), "/hot");
     }
 
     #[test]
@@ -739,6 +762,7 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(query.api_path(), "/c/dev/42/l/latest.json");
+        assert_eq!(query.html_path(), "/c/dev/42/l/latest");
     }
 
     #[test]
@@ -751,6 +775,7 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(query.api_path(), "/c/dev/rust/99/l/new.json");
+        assert_eq!(query.html_path(), "/c/dev/rust/99/l/new");
     }
 
     #[test]
@@ -761,6 +786,7 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(query.api_path(), "/tag/swift/l/top.json");
+        assert_eq!(query.html_path(), "/tag/swift/l/top");
     }
 
     #[test]
@@ -771,6 +797,7 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(query.api_path(), "/c/dev.json");
+        assert_eq!(query.html_path(), "/c/dev");
     }
 
     #[test]
@@ -781,6 +808,22 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(query.api_path(), "/latest.json");
+        assert_eq!(query.html_path(), "/latest");
+    }
+
+    #[test]
+    fn topic_list_query_html_path_private_messages() {
+        let query = TopicListQuery {
+            kind: TopicListKind::PrivateMessagesInbox,
+            ..Default::default()
+        };
+        assert_eq!(query.html_path(), "/my/messages");
+
+        let query = TopicListQuery {
+            kind: TopicListKind::PrivateMessagesSent,
+            ..Default::default()
+        };
+        assert_eq!(query.html_path(), "/my/messages/sent");
     }
 
     #[test]
@@ -904,5 +947,11 @@ mod tests {
             can_recover: false,
             hidden: false,
         }
+    }
+
+    #[test]
+    fn current_user_snapshot_default_notification_channel_position() {
+        let snapshot = CurrentUserSnapshot::default();
+        assert_eq!(snapshot.notification_channel_position, -1);
     }
 }

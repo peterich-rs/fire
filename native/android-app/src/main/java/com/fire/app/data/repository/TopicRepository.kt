@@ -3,15 +3,18 @@ package com.fire.app.data.repository
 import com.fire.app.session.FireSessionStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import uniffi.fire_uniffi_topics.LoadMoreTopicPostsQueryState
 import uniffi.fire_uniffi_topics.TopicListQueryState
-import uniffi.fire_uniffi_topics.TopicScreenQueryState
-import uniffi.fire_uniffi_topics.TopicResponsePageQueryState
-import uniffi.fire_uniffi_topics.TopicResponseCursorState
+import uniffi.fire_uniffi_topics.TopicDetailSourceQueryState
+import uniffi.fire_uniffi_topics.TopicDetailSourceSnapshotState
+import uniffi.fire_uniffi_topics.TopicLoadMoreOutcomeState
+import uniffi.fire_uniffi_topics.TopicAiSummaryState
+import uniffi.fire_uniffi_topics.TopicSourceCursorState
+import uniffi.fire_uniffi_topics.TopicTreePresentationQueryState
+import uniffi.fire_uniffi_topics.TopicTreePresentationState
 import uniffi.fire_uniffi_types.TopicListKindState
 import uniffi.fire_uniffi_types.TopicListState
 import uniffi.fire_uniffi_types.TopicRowState
-import uniffi.fire_uniffi_topics.TopicScreenState
-import uniffi.fire_uniffi_topics.TopicResponsePageState
 
 class TopicRepository(private val sessionStore: FireSessionStore) {
 
@@ -43,30 +46,56 @@ class TopicRepository(private val sessionStore: FireSessionStore) {
         )
     }
 
-    suspend fun fetchTopicScreen(
+    suspend fun fetchTopicDetailSourceSnapshot(
         topicId: ULong,
         targetPostNumber: UInt? = null,
         forceLoad: Boolean = true,
         trackVisit: Boolean = true,
-    ): TopicScreenState = withContext(Dispatchers.Default) {
-        sessionStore.fetchTopicScreen(
-            TopicScreenQueryState(
+        initialBatchSize: UShort = 40u,
+        loadMoreBatchSize: UShort = 40u,
+        maxAutoBatchesPerGesture: UByte = 3u,
+        maxAutoPostsPerGesture: UShort = 120u,
+    ): TopicDetailSourceSnapshotState = withContext(Dispatchers.Default) {
+        sessionStore.fetchTopicDetailSourceSnapshot(
+            TopicDetailSourceQueryState(
                 topicId = topicId,
                 targetPostNumber = targetPostNumber,
-                rootPageSize = 10.toUShort(),
-                rowPageSize = 40.toUShort(),
                 trackVisit = trackVisit,
                 forceLoad = forceLoad,
+                initialBatchSize = initialBatchSize,
+                loadMoreBatchSize = loadMoreBatchSize,
+                maxAutoBatchesPerGesture = maxAutoBatchesPerGesture,
+                maxAutoPostsPerGesture = maxAutoPostsPerGesture,
             ),
         )
     }
 
-    suspend fun fetchTopicResponsePage(
-        cursor: TopicResponseCursorState,
-    ): TopicResponsePageState = withContext(Dispatchers.Default) {
-        sessionStore.fetchTopicResponsePage(
-            TopicResponsePageQueryState(cursor = cursor),
+    suspend fun buildTopicTreePresentation(
+        sourceSnapshot: TopicDetailSourceSnapshotState,
+    ): TopicTreePresentationState = withContext(Dispatchers.Default) {
+        sessionStore.buildTopicTreePresentation(
+            TopicTreePresentationQueryState(
+                bodyPost = sourceSnapshot.body.post,
+                rawStreamIds = sourceSnapshot.rawStreamIds,
+                loadedPosts = sourceSnapshot.loadedPosts,
+                focusedPostNumber = sourceSnapshot.focusedPostNumber,
+            ),
         )
+    }
+
+    suspend fun loadMoreTopicPosts(
+        cursor: TopicSourceCursorState,
+    ): TopicLoadMoreOutcomeState = withContext(Dispatchers.Default) {
+        sessionStore.loadMoreTopicPosts(
+            LoadMoreTopicPostsQueryState(cursor = cursor),
+        )
+    }
+
+    suspend fun fetchTopicAiSummary(
+        topicId: ULong,
+        skipAgeCheck: Boolean = false,
+    ): TopicAiSummaryState? = withContext(Dispatchers.Default) {
+        sessionStore.fetchTopicAiSummary(topicId, skipAgeCheck)
     }
 
     suspend fun fetchBookmarks(username: String, page: UInt? = null): TopicListState =

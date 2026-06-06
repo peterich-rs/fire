@@ -9,6 +9,7 @@ import uniffi.fire_uniffi_types.TopicRowState
 class TopicListPagingSource(
     private val repository: TopicRepository,
     private val kind: TopicListKindState,
+    private val baseUrl: String? = null,
     private val categorySlug: String? = null,
     private val categoryId: ULong? = null,
     private val parentCategorySlug: String? = null,

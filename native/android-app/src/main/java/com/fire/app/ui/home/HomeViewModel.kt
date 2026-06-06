@@ -6,12 +6,15 @@ import androidx.paging.Pager
 import androidx.paging.PagingConfig
 import androidx.paging.PagingData
 import androidx.paging.cachedIn
-import com.fire.app.cloudflare.CloudflareChallengeDetector
+import com.fire.app.core.error.FireErrorReporter
+import com.fire.app.core.error.FireReportedError
+import com.fire.app.core.error.launchWithFireErrorHandling
 import com.fire.app.data.paging.TopicListPagingSource
-import com.fire.app.data.repository.SessionRepository
 import com.fire.app.data.repository.TopicRepository
 import com.fire.app.messagebus.FireMessageBusCoordinator
+import com.fire.app.session.FireAppStateRefreshRepository
 import com.fire.app.session.FireSessionStore
+import com.fire.app.session.FireStateObserverRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
@@ -22,9 +25,12 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.launch
+import uniffi.fire_uniffi_session.HomeTopicListScopeState
+import uniffi.fire_uniffi_session.RefreshBatchState
 import uniffi.fire_uniffi_messagebus.MessageBusEventKindState
 import uniffi.fire_uniffi_messagebus.MessageBusEventState
 import uniffi.fire_uniffi_session.SessionState
@@ -33,6 +39,7 @@ import uniffi.fire_uniffi_types.TopicRowState
 
 private data class HomeTopicFilter(
     val kind: TopicListKindState,
+    val baseUrl: String?,
     val categoryId: ULong?,
     val categorySlug: String?,
     val parentCategorySlug: String?,
@@ -122,9 +129,9 @@ internal class HomeTopicListMessageBusRefreshController(
 }
 
 class HomeViewModel(
-    private val sessionRepository: SessionRepository,
     private val topicRepository: TopicRepository,
     private val messageBusCoordinator: FireMessageBusCoordinator,
+    private val sessionStore: FireSessionStore,
 ) : ViewModel() {
 
     private val _session = MutableStateFlow<SessionState?>(null)
@@ -141,9 +148,6 @@ class HomeViewModel(
 
     private val _topicListRefreshEvents = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
     val topicListRefreshEvents = _topicListRefreshEvents.asSharedFlow()
-
-    private val _cloudflareChallenge = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
-    val cloudflareChallenge = _cloudflareChallenge.asSharedFlow()
 
     private val _error = MutableSharedFlow<String>(extraBufferCapacity = 1)
     val error = _error.asSharedFlow()
@@ -167,6 +171,7 @@ class HomeViewModel(
             }
             HomeTopicFilter(
                 kind = kind,
+                baseUrl = session?.bootstrap?.baseUrl,
                 categoryId = category?.id,
                 categorySlug = category?.slug?.takeIf { it.isNotBlank() },
                 parentCategorySlug = parentCategory?.slug?.takeIf { it.isNotBlank() },
@@ -181,10 +186,51 @@ class HomeViewModel(
     private var messageBusJob: Job? = null
     private var pendingMessageBusRefreshJob: Job? = null
 
+    init {
+        runCatching { sessionStore.currentHomeTopicListScope() }
+            .onSuccess(::applyCurrentHomeTopicListScope)
+            .onFailure(::reportHomeScopeSyncError)
+
+        viewModelScope.launchWithFireErrorHandling(
+            operation = "home.attach_authoritative_session",
+            sessionStore = sessionStore,
+            fallbackMessage = "刷新会话失败",
+            onError = ::handleReportedError,
+        ) {
+            val snapshot = sessionStore.snapshot()
+            _session.value = snapshot
+            if (snapshot.readiness.canOpenMessageBus) {
+                startRealtimeRefresh()
+            }
+        }
+
+        viewModelScope.launch {
+            FireStateObserverRepository.sessionSnapshots.collectLatest { snapshot ->
+                _session.value = snapshot
+            }
+        }
+
+        viewModelScope.launch {
+            FireAppStateRefreshRepository.events.collectLatest { event ->
+                try {
+                    handleAppStateRefreshEvent(event.batch)
+                } catch (error: Exception) {
+                    val reported = FireErrorReporter.report(
+                        operation = "home.app_state_refresh",
+                        error = error,
+                        sessionStore = sessionStore,
+                    )
+                    handleReportedError(reported)
+                }
+            }
+        }
+    }
+
     fun selectKind(kind: TopicListKindState) {
         if (_selectedKind.value == kind) return
         _selectedKind.value = kind
         clearPendingMessageBusRefresh()
+        syncCurrentHomeTopicListScope()
     }
 
     fun selectCategory(categoryId: ULong?) {
@@ -192,6 +238,7 @@ class HomeViewModel(
         _selectedCategoryId.value = categoryId
         _selectedTags.value = emptyList()
         clearPendingMessageBusRefresh()
+        syncCurrentHomeTopicListScope()
     }
 
     fun selectTag(tag: String) {
@@ -199,18 +246,21 @@ class HomeViewModel(
         if (_selectedTags.value.contains(normalizedTag)) return
         _selectedTags.value = _selectedTags.value + normalizedTag
         clearPendingMessageBusRefresh()
+        syncCurrentHomeTopicListScope()
     }
 
     fun removeTag(tag: String) {
         if (!_selectedTags.value.contains(tag)) return
         _selectedTags.value = _selectedTags.value.filterNot { it == tag }
         clearPendingMessageBusRefresh()
+        syncCurrentHomeTopicListScope()
     }
 
     fun clearTags() {
         if (_selectedTags.value.isEmpty()) return
         _selectedTags.value = emptyList()
         clearPendingMessageBusRefresh()
+        syncCurrentHomeTopicListScope()
     }
 
     private fun createPagingFlow(filter: HomeTopicFilter): Flow<PagingData<TopicRowState>> {
@@ -226,6 +276,7 @@ class HomeViewModel(
                 TopicListPagingSource(
                     repository = topicRepository,
                     kind = filter.kind,
+                    baseUrl = filter.baseUrl,
                     categorySlug = filter.categorySlug,
                     categoryId = filter.categoryId,
                     parentCategorySlug = filter.parentCategorySlug,
@@ -235,26 +286,6 @@ class HomeViewModel(
                 )
             },
         ).flow
-    }
-
-    fun restoreSession() {
-        viewModelScope.launch {
-            val restored = sessionRepository.restoreSession()
-            _session.value = restored
-            if (restored?.readiness?.canOpenMessageBus == true) {
-                startRealtimeRefresh()
-            }
-        }
-    }
-
-    fun refreshSession() {
-        viewModelScope.launch {
-            val snap = sessionRepository.snapshot()
-            _session.value = snap
-            if (snap.readiness.canOpenMessageBus) {
-                startRealtimeRefresh()
-            }
-        }
     }
 
     fun startRealtimeRefresh() {
@@ -268,12 +299,71 @@ class HomeViewModel(
                 throw error
             } catch (error: Exception) {
                 messageBusJob = null
-                if (CloudflareChallengeDetector.isChallenge(error)) {
-                    _cloudflareChallenge.tryEmit(Unit)
-                } else {
-                    error.localizedMessage?.let { _error.tryEmit(it) }
-                }
+                val reported = FireErrorReporter.report(
+                    operation = "home.messagebus.topic_list",
+                    error = error,
+                    sessionStore = sessionStore,
+                )
+                _error.tryEmit(reported.displayMessage)
             }
+        }
+    }
+
+    private fun stopRealtimeRefresh() {
+        pendingMessageBusRefreshJob?.cancel()
+        pendingMessageBusRefreshJob = null
+        messageBusJob?.cancel()
+        messageBusJob = null
+        topicListMessageBusRefreshController.clearPending(currentRefreshScope())
+    }
+
+    private fun currentHomeTopicListScopeState(): HomeTopicListScopeState {
+        return HomeTopicListScopeState(
+            kind = _selectedKind.value,
+            categoryId = _selectedCategoryId.value,
+            tags = _selectedTags.value,
+        )
+    }
+
+    private fun applyCurrentHomeTopicListScope(scope: HomeTopicListScopeState) {
+        _selectedKind.value = scope.kind
+        _selectedCategoryId.value = scope.categoryId
+        _selectedTags.value = scope.tags
+    }
+
+    private fun syncCurrentHomeTopicListScope() {
+        runCatching {
+            sessionStore.setCurrentHomeTopicListScope(currentHomeTopicListScopeState())
+        }.onSuccess(::applyCurrentHomeTopicListScope)
+            .onFailure(::reportHomeScopeSyncError)
+    }
+
+    private fun reportHomeScopeSyncError(error: Throwable) {
+        handleReportedError(
+            FireErrorReporter.report(
+                operation = "home.sync_topic_list_scope",
+                error = error,
+                sessionStore = sessionStore,
+            ),
+        )
+    }
+
+    private fun handleReportedError(error: FireReportedError) {
+        _error.tryEmit(error.displayMessage)
+    }
+
+    private suspend fun handleAppStateRefreshEvent(batch: RefreshBatchState) {
+        applyCurrentHomeTopicListScope(sessionStore.currentHomeTopicListScope())
+        val snapshot = sessionStore.snapshot()
+        _session.value = snapshot
+        if (snapshot.readiness.canOpenMessageBus) {
+            startRealtimeRefresh()
+        } else {
+            stopRealtimeRefresh()
+        }
+
+        if (batch == RefreshBatchState.CORE) {
+            _topicListRefreshEvents.tryEmit(Unit)
         }
     }
 
@@ -328,10 +418,9 @@ class HomeViewModel(
 
     companion object {
         fun create(sessionStore: FireSessionStore): HomeViewModel {
-            val sessionRepo = SessionRepository(sessionStore)
             val topicRepo = TopicRepository(sessionStore)
             val messageBus = FireMessageBusCoordinator(sessionStore)
-            return HomeViewModel(sessionRepo, topicRepo, messageBus)
+            return HomeViewModel(topicRepo, messageBus, sessionStore)
         }
     }
 

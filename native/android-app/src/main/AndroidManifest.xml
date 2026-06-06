@@ -39,7 +39,8 @@
             </intent-filter>
         </activity>
         <activity
-            android:name=".ui.cloudflare.CloudflareChallengeActivity"
-            android:exported="false" />
+            android:name=".session.FireCloudflareChallengeActivity"
+            android:exported="false"
+            android:launchMode="singleTop" />
     </application>
 </manifest>

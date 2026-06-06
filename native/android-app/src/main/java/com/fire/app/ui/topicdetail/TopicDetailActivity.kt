@@ -1,38 +1,48 @@
 package com.fire.app.ui.topicdetail
 
+import android.app.Dialog
 import android.content.Context
 import android.content.Intent
-import android.graphics.Bitmap
+import android.graphics.Color
 import android.net.Uri
 import android.os.Bundle
 import android.view.View
-import android.webkit.WebChromeClient
-import android.webkit.WebResourceRequest
-import android.webkit.WebView
+import android.widget.ArrayAdapter
+import android.widget.EditText
+import android.widget.FrameLayout
+import android.widget.ImageView
+import android.widget.LinearLayout
 import android.widget.Toast
 import android.widget.ProgressBar
+import android.widget.Spinner
 import android.widget.TextView
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.text.HtmlCompat
 import androidx.core.view.ViewCompat
-import androidx.core.view.isVisible
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.updatePadding
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.ConcatAdapter
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
-import androidx.webkit.SafeBrowsingResponseCompat
-import androidx.webkit.WebResourceErrorCompat
-import androidx.webkit.WebViewClientCompat
-import androidx.webkit.WebViewFeature
 import com.fire.app.R
+import com.fire.app.core.image.FireImageLoader
+import com.fire.app.displayName
 import com.fire.app.databinding.ActivityTopicDetailBinding
+import com.fire.app.richtext.FireCookedImage
+import com.fire.app.session.FireSessionStore
 import com.fire.app.session.FireSessionStoreRepository
-import com.fire.app.ui.cloudflare.CloudflareChallengeSupport
-import com.fire.app.ui.cloudflare.CloudflareWebViewCookieSyncer
+import com.fire.app.ui.composer.ComposerTagAssist
 import com.fire.app.ui.composer.ReplyComposerSheet
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import uniffi.fire_uniffi_session.TopicCategoryState
+import uniffi.fire_uniffi_topics.PostActionTypeState
+import uniffi.fire_uniffi_topics.PostFlagRequestState
+import uniffi.fire_uniffi_topics.TopicDetailState
+import uniffi.fire_uniffi_topics.TopicPostState
+import uniffi.fire_uniffi_topics.VotedUserState
 
 class TopicDetailActivity : AppCompatActivity() {
 
@@ -46,15 +56,14 @@ class TopicDetailActivity : AppCompatActivity() {
 
     private var viewModel: TopicDetailViewModel? = null
     private var route: TopicDetailRoute? = null
+    private lateinit var sessionStore: FireSessionStore
 
-    private val headerAdapter = HeaderAdapter { /* original post click handler */ }
-    private val postListAdapter = PostListAdapter { /* post click handler */ }
+    private lateinit var headerAdapter: HeaderAdapter
+    private lateinit var postListAdapter: PostListAdapter
     private val loadingFooterAdapter = LoadingFooterAdapter()
     private var loadMorePostsPosted = false
     private var pendingScrollTargetPostNumber: UInt? = null
-    private var isCloudflareChallengeVisible = false
-    private var cloudflareWebViewConfigured = false
-    private var cloudflareCookieSyncer: CloudflareWebViewCookieSyncer? = null
+    private var enabledReactionIds: List<String> = emptyList()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -82,13 +91,41 @@ class TopicDetailActivity : AppCompatActivity() {
         binding.topicDetailToolbar.title = parsedRoute.title
             ?: getString(R.string.topic_detail_title_fallback, parsedRoute.topicId.toString())
 
-        val sessionStore = FireSessionStoreRepository.get(this)
+        sessionStore = FireSessionStoreRepository.get(this)
         viewModel = TopicDetailViewModel.create(sessionStore)
-        cloudflareCookieSyncer = CloudflareWebViewCookieSyncer(sessionStore, lifecycleScope)
+
+        val postCallbacks = PostRowCallbacks(
+            reactionIds = { enabledReactionIds },
+            onReplyClick = ::showReplyComposerForPost,
+            onHeartClick = { post -> viewModel?.toggleHeart(post) },
+            onReactClick = ::showReactionPicker,
+            onBookmarkClick = ::showPostBookmarkEditor,
+            onVotePoll = { post, poll, options -> viewModel?.votePoll(post, poll, options) },
+            onUnvotePoll = { post, poll -> viewModel?.unvotePoll(post, poll) },
+            onReactionsClick = ::showReactionUsers,
+            onReplyContextClick = ::showReplyContext,
+            onDeletePostClick = ::confirmDeletePost,
+            onRecoverPostClick = ::confirmRecoverPost,
+            onFlagPostClick = ::showFlagPostOptions,
+            onEditPostClick = ::showPostEditor,
+            onImageClick = ::showImageViewer,
+            onAuthorClick = ::openProfile,
+        )
+        headerAdapter = HeaderAdapter(
+            callbacks = postCallbacks,
+            onReloadAiSummary = { viewModel?.reloadTopicAiSummary() },
+            onToggleTopicVote = { viewModel?.toggleTopicVote() },
+            onShowTopicVoters = ::showTopicVoters,
+            onEditTopicClick = ::showTopicEditor,
+            onTopicBookmarkClick = ::showTopicBookmarkEditor,
+            onTopicNotificationClick = ::showTopicNotificationOptions,
+        )
+        postListAdapter = PostListAdapter(postCallbacks)
 
         val concatAdapter = ConcatAdapter(headerAdapter, postListAdapter, loadingFooterAdapter)
         recyclerView.layoutManager = LinearLayoutManager(this)
         recyclerView.adapter = concatAdapter
+        loadEnabledReactionIds()
 
         recyclerView.addOnScrollListener(object : RecyclerView.OnScrollListener() {
             override fun onScrolled(rv: RecyclerView, dx: Int, dy: Int) {
@@ -99,6 +136,13 @@ class TopicDetailActivity : AppCompatActivity() {
                     scheduleLoadMorePosts(rv)
                 }
             }
+
+            override fun onScrollStateChanged(rv: RecyclerView, newState: Int) {
+                super.onScrollStateChanged(rv, newState)
+                viewModel?.setTopicDetailScrollInteractionActive(
+                    newState != RecyclerView.SCROLL_STATE_IDLE
+                )
+            }
         })
 
         observeViewModel()
@@ -108,30 +152,16 @@ class TopicDetailActivity : AppCompatActivity() {
         }
 
         replyFab.setOnClickListener {
-            val sheet = ReplyComposerSheet.newInstance(parsedRoute.topicId) {
-                viewModel?.loadTopicDetail(parsedRoute.topicId.toULong())
-            }
-            sheet.show(supportFragmentManager, "reply_composer")
+            showReplyComposer(replyToPostNumber = null)
         }
 
         loadRoute(parsedRoute)
-    }
-
-    override fun onDestroy() {
-        if (cloudflareWebViewConfigured) {
-            binding.cfChallengeWebview.destroy()
-        }
-        super.onDestroy()
     }
 
     private fun observeViewModel() {
         val vm = viewModel ?: return
         lifecycleScope.launch {
             vm.isLoading.collectLatest { loading ->
-                if (isCloudflareChallengeVisible) {
-                    loadingView.visibility = View.GONE
-                    return@collectLatest
-                }
                 loadingView.visibility = if (loading) View.VISIBLE else View.GONE
                 recyclerView.visibility = if (loading && vm.postRows.value.isEmpty()) View.GONE else View.VISIBLE
             }
@@ -139,10 +169,6 @@ class TopicDetailActivity : AppCompatActivity() {
 
         lifecycleScope.launch {
             vm.errorMessage.collectLatest { error ->
-                if (isCloudflareChallengeVisible) {
-                    errorView.visibility = View.GONE
-                    return@collectLatest
-                }
                 if (error != null) {
                     errorView.visibility = View.VISIBLE
                     errorText.text = error
@@ -162,6 +188,24 @@ class TopicDetailActivity : AppCompatActivity() {
         }
 
         lifecycleScope.launch {
+            vm.topicAiSummary.collectLatest { summary ->
+                headerAdapter.aiSummary = summary
+            }
+        }
+
+        lifecycleScope.launch {
+            vm.isLoadingTopicAiSummary.collectLatest { loading ->
+                headerAdapter.isAiSummaryLoading = loading
+            }
+        }
+
+        lifecycleScope.launch {
+            vm.topicAiSummaryError.collectLatest { error ->
+                headerAdapter.aiSummaryError = error
+            }
+        }
+
+        lifecycleScope.launch {
             vm.postRows.collectLatest { rows ->
                 postListAdapter.submitList(rows) {
                     pendingScrollTargetPostNumber?.let { scrollToPostNumber(it) }
@@ -176,8 +220,8 @@ class TopicDetailActivity : AppCompatActivity() {
         }
 
         lifecycleScope.launch {
-            vm.cloudflareChallenge.collect {
-                route?.let(::showCloudflareChallengeForTopic)
+            vm.actionError.collectLatest { error ->
+                Toast.makeText(this@TopicDetailActivity, error, Toast.LENGTH_SHORT).show()
             }
         }
 
@@ -188,113 +232,843 @@ class TopicDetailActivity : AppCompatActivity() {
         }
     }
 
-    private fun loadRoute(route: TopicDetailRoute) {
-        hideCloudflareChallenge()
-        val targetPostNumber = route.targetPostNumber.takeIf { it > 0 }?.toUInt()
-        viewModel?.loadTopicDetail(route.topicId.toULong(), targetPostNumber)
+    private fun showReplyComposerForPost(post: TopicPostState) {
+        showReplyComposer(replyToPostNumber = post.postNumber.toInt())
     }
 
-    private fun showCloudflareChallengeForTopic(route: TopicDetailRoute) {
-        val challengeUrl = CloudflareChallengeSupport.topicUrl(route.topicId)
-        configureCloudflareWebViewIfNeeded()
-
-        isCloudflareChallengeVisible = true
-        loadingView.visibility = View.GONE
-        errorView.visibility = View.GONE
-        recyclerView.visibility = View.GONE
-        replyFab.visibility = View.GONE
-        binding.cfChallengeWebview.visibility = View.VISIBLE
-        binding.cfChallengeLoadingIndicator.visibility = View.VISIBLE
-        binding.cfChallengeWebview.loadUrl(challengeUrl)
+    private fun showReplyComposer(replyToPostNumber: Int?) {
+        val currentRoute = route ?: return
+        val sheet = ReplyComposerSheet.newInstance(
+            topicId = currentRoute.topicId,
+            replyToPostNumber = replyToPostNumber,
+        ) {
+            viewModel?.loadTopicDetail(
+                topicId = currentRoute.topicId.toULong(),
+                targetPostNumber = replyToPostNumber?.toUInt(),
+            )
+        }
+        sheet.show(supportFragmentManager, "reply_composer")
     }
 
-    private fun hideCloudflareChallenge() {
-        if (!cloudflareWebViewConfigured) return
-
-        isCloudflareChallengeVisible = false
-        binding.cfChallengeWebview.visibility = View.GONE
-        binding.cfChallengeLoadingIndicator.visibility = View.GONE
-        recyclerView.visibility = View.VISIBLE
-        replyFab.visibility = View.VISIBLE
+    private fun confirmDeletePost(post: TopicPostState) {
+        AlertDialog.Builder(this)
+            .setTitle(
+                getString(
+                    R.string.topic_detail_delete_confirm_title,
+                    post.postNumber.toString(),
+                ),
+            )
+            .setMessage(R.string.topic_detail_delete_confirm_message)
+            .setPositiveButton(R.string.topic_detail_delete_post) { _, _ ->
+                viewModel?.deletePost(post)
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
     }
 
-    private fun configureCloudflareWebViewIfNeeded() {
-        if (cloudflareWebViewConfigured) return
-        cloudflareWebViewConfigured = true
-
-        val webView = binding.cfChallengeWebview
-        val loadingIndicator = binding.cfChallengeLoadingIndicator
-        CloudflareChallengeSupport.configureWebView(webView)
-
-        webView.webViewClient = object : WebViewClientCompat() {
-            override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
-                super.onPageStarted(view, url, favicon)
-                loadingIndicator.isVisible = true
-                syncCloudflareCookieIfReady(webView, url)
+    private fun confirmRecoverPost(post: TopicPostState) {
+        AlertDialog.Builder(this)
+            .setTitle(
+                getString(
+                    R.string.topic_detail_recover_confirm_title,
+                    post.postNumber.toString(),
+                ),
+            )
+            .setMessage(R.string.topic_detail_recover_confirm_message)
+            .setPositiveButton(R.string.topic_detail_recover_post) { _, _ ->
+                viewModel?.recoverPost(post)
             }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
 
-            override fun onPageFinished(view: WebView?, url: String?) {
-                super.onPageFinished(view, url)
-                loadingIndicator.isVisible = false
-                syncCloudflareCookieIfReady(webView, url)
-            }
-
-            override fun onReceivedError(
-                view: WebView,
-                request: WebResourceRequest,
-                error: WebResourceErrorCompat,
-            ) {
-                super.onReceivedError(view, request, error)
-                if (request.isForMainFrame) {
-                    loadingIndicator.isVisible = false
-                }
-            }
-
-            override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
-                val scheme = request.url.scheme?.lowercase()
-                if (scheme == "http" || scheme == "https") {
-                    return false
-                }
+    private fun showPostEditor(post: TopicPostState) {
+        Toast.makeText(this, R.string.topic_detail_edit_post_loading, Toast.LENGTH_SHORT).show()
+        lifecycleScope.launch {
+            try {
+                val editablePost = sessionStore.fetchPost(post.id)
+                val raw = editablePost.raw
+                    ?.takeIf { it.isNotBlank() }
+                    ?: plainText(editablePost.cooked)
+                showPostEditorDialog(post, raw)
+            } catch (e: Exception) {
                 Toast.makeText(
                     this@TopicDetailActivity,
-                    R.string.cloudflare_blocked_external_navigation,
+                    e.localizedMessage ?: getString(R.string.topic_detail_edit_post_error),
                     Toast.LENGTH_SHORT,
                 ).show()
-                return true
-            }
-
-            override fun onSafeBrowsingHit(
-                view: WebView,
-                request: WebResourceRequest,
-                threatType: Int,
-                callback: SafeBrowsingResponseCompat,
-            ) {
-                loadingIndicator.isVisible = false
-                Toast.makeText(
-                    this@TopicDetailActivity,
-                    R.string.login_safe_browsing_blocked,
-                    Toast.LENGTH_LONG,
-                ).show()
-                if (WebViewFeature.isFeatureSupported(WebViewFeature.SAFE_BROWSING_RESPONSE_BACK_TO_SAFETY)) {
-                    callback.backToSafety(true)
-                } else {
-                    callback.showInterstitial(true)
-                }
-            }
-        }
-
-        webView.webChromeClient = object : WebChromeClient() {
-            override fun onProgressChanged(view: WebView?, newProgress: Int) {
-                super.onProgressChanged(view, newProgress)
-                loadingIndicator.visibility = if (newProgress < 100) View.VISIBLE else View.GONE
-                loadingIndicator.progress = newProgress
-                syncCloudflareCookieIfReady(webView, webView.url)
             }
         }
     }
 
-    private fun syncCloudflareCookieIfReady(webView: WebView, url: String?) {
-        cloudflareCookieSyncer?.syncIfClearanceAvailable(webView, url)
+    private fun showPostEditorDialog(post: TopicPostState, raw: String) {
+        val bodyInput = EditText(this).apply {
+            setText(raw)
+            hint = getString(R.string.topic_detail_edit_post_body_hint)
+            minLines = 8
+            gravity = android.view.Gravity.TOP
+        }
+        val reasonInput = EditText(this).apply {
+            hint = getString(R.string.topic_detail_edit_post_reason_hint)
+            setSingleLine(true)
+        }
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(48, 8, 48, 0)
+            addView(bodyInput)
+            addView(reasonInput)
+        }
+
+        val dialog = AlertDialog.Builder(this)
+            .setTitle(getString(R.string.topic_detail_edit_post_title, post.postNumber.toString()))
+            .setView(content)
+            .setPositiveButton(R.string.topic_detail_edit_save, null)
+            .setNegativeButton(android.R.string.cancel, null)
+            .create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val nextRaw = bodyInput.text.toString()
+                if (nextRaw.isBlank()) {
+                    Toast.makeText(
+                        this,
+                        R.string.topic_detail_edit_post_error,
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                    return@setOnClickListener
+                }
+                viewModel?.updatePost(
+                    post = post,
+                    raw = nextRaw,
+                    editReason = reasonInput.text.toString(),
+                )
+                dialog.dismiss()
+            }
+        }
+        dialog.show()
+    }
+
+    private fun showPostBookmarkEditor(post: TopicPostState) {
+        showBookmarkEditor(
+            bookmarkableId = post.id,
+            bookmarkableType = "Post",
+            bookmarkId = post.bookmarkId,
+            bookmarkName = post.bookmarkName,
+            bookmarkReminderAt = post.bookmarkReminderAt,
+            targetPostNumber = post.postNumber,
+        )
+    }
+
+    private fun showTopicBookmarkEditor(detail: TopicDetailState) {
+        showBookmarkEditor(
+            bookmarkableId = detail.id,
+            bookmarkableType = "Topic",
+            bookmarkId = detail.bookmarkId,
+            bookmarkName = detail.bookmarkName,
+            bookmarkReminderAt = detail.bookmarkReminderAt,
+            targetPostNumber = null,
+        )
+    }
+
+    private fun showBookmarkEditor(
+        bookmarkableId: ULong,
+        bookmarkableType: String,
+        bookmarkId: ULong?,
+        bookmarkName: String?,
+        bookmarkReminderAt: String?,
+        targetPostNumber: UInt?,
+    ) {
+        val nameInput = EditText(this).apply {
+            setText(bookmarkName.orEmpty())
+            hint = getString(R.string.topic_detail_bookmark_name_hint)
+            setSingleLine(true)
+        }
+        val reminderInput = EditText(this).apply {
+            setText(bookmarkReminderAt.orEmpty())
+            hint = getString(R.string.topic_detail_bookmark_reminder_hint)
+            setSingleLine(true)
+        }
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(48, 8, 48, 0)
+            addView(nameInput)
+            addView(reminderInput)
+        }
+
+        val dialog = AlertDialog.Builder(this)
+            .setTitle(
+                if (bookmarkId == null) {
+                    R.string.topic_detail_bookmark_add_title
+                } else {
+                    R.string.topic_detail_bookmark_edit_title
+                },
+            )
+            .setView(content)
+            .setPositiveButton(R.string.topic_detail_bookmark_save, null)
+            .setNegativeButton(android.R.string.cancel, null)
+            .apply {
+                if (bookmarkId != null) {
+                    setNeutralButton(R.string.topic_detail_bookmark_delete, null)
+                }
+            }
+            .create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                viewModel?.saveBookmark(
+                    bookmarkableId = bookmarkableId,
+                    bookmarkableType = bookmarkableType,
+                    bookmarkId = bookmarkId,
+                    name = nameInput.text.toString(),
+                    reminderAt = reminderInput.text.toString(),
+                    targetPostNumber = targetPostNumber,
+                )
+                dialog.dismiss()
+            }
+            if (bookmarkId != null) {
+                dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
+                    viewModel?.deleteBookmark(bookmarkId, targetPostNumber)
+                    dialog.dismiss()
+                }
+            }
+        }
+        dialog.show()
+    }
+
+    private fun showFlagPostOptions(post: TopicPostState) {
+        lifecycleScope.launch {
+            try {
+                val options = sessionStore.fetchPostActionTypes()
+                    .mapNotNull(::postFlagOption)
+                    .ifEmpty { fallbackPostFlagOptions() }
+                val labels = options.map { option ->
+                    if (option.detail.isBlank()) {
+                        option.title
+                    } else {
+                        "${option.title}\n${option.detail}"
+                    }
+                }.toTypedArray()
+                AlertDialog.Builder(this@TopicDetailActivity)
+                    .setTitle(
+                        getString(
+                            R.string.topic_detail_flag_type_title,
+                            post.postNumber.toString(),
+                        ),
+                    )
+                    .setItems(labels) { _, which ->
+                        promptFlagPost(post, options[which])
+                    }
+                    .setNegativeButton(android.R.string.cancel, null)
+                    .show()
+            } catch (e: Exception) {
+                Toast.makeText(
+                    this@TopicDetailActivity,
+                    e.localizedMessage ?: getString(R.string.topic_detail_flag_message_required),
+                    Toast.LENGTH_SHORT,
+                ).show()
+            }
+        }
+    }
+
+    private fun postFlagOption(type: PostActionTypeState): PostFlagOption? {
+        if (!type.isFlag || !type.enabled) return null
+        if (type.appliesTo.isNotEmpty() && !type.appliesTo.contains("Post")) return null
+
+        val detail = type.description.ifBlank { type.shortDescription.orEmpty() }
+        return PostFlagOption(
+            id = type.id,
+            title = type.name.ifBlank { fallbackFlagTitle(type.nameKey, type.id) },
+            detail = plainText(detail),
+            requireMessage = type.requireMessage,
+        )
+    }
+
+    private fun fallbackPostFlagOptions(): List<PostFlagOption> {
+        return listOf(
+            PostFlagOption(3u, "Off topic", "This post is off topic.", false),
+            PostFlagOption(4u, "Inappropriate", "This post is inappropriate.", false),
+            PostFlagOption(8u, "Spam", "This post looks like spam.", false),
+            PostFlagOption(7u, "Notify moderators", "Add details for moderators.", true),
+        )
+    }
+
+    private fun fallbackFlagTitle(nameKey: String, id: UInt): String {
+        return when (nameKey) {
+            "off_topic" -> "Off topic"
+            "inappropriate" -> "Inappropriate"
+            "spam" -> "Spam"
+            "notify_moderators" -> "Notify moderators"
+            else -> nameKey.ifBlank { "#$id" }
+        }
+    }
+
+    private fun promptFlagPost(post: TopicPostState, option: PostFlagOption) {
+        if (option.requireMessage) {
+            val input = EditText(this).apply {
+                hint = getString(R.string.topic_detail_flag_message_hint)
+                minLines = 3
+            }
+            AlertDialog.Builder(this)
+                .setTitle(getString(R.string.topic_detail_flag_message_title, option.title))
+                .setView(input)
+                .setPositiveButton(R.string.topic_detail_flag_submit) { _, _ ->
+                    val message = input.text.toString().trim()
+                    if (message.isBlank()) {
+                        Toast.makeText(
+                            this,
+                            R.string.topic_detail_flag_message_required,
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                    } else {
+                        submitFlagPost(post, option, message)
+                    }
+                }
+                .setNegativeButton(android.R.string.cancel, null)
+                .show()
+        } else {
+            AlertDialog.Builder(this)
+                .setTitle(getString(R.string.topic_detail_flag_confirm_title, option.title))
+                .setMessage(option.detail.ifBlank { getString(R.string.topic_detail_flag_confirm_message) })
+                .setPositiveButton(R.string.topic_detail_flag_submit) { _, _ ->
+                    submitFlagPost(post, option, null)
+                }
+                .setNegativeButton(android.R.string.cancel, null)
+                .show()
+        }
+    }
+
+    private fun submitFlagPost(
+        post: TopicPostState,
+        option: PostFlagOption,
+        message: String?,
+    ) {
+        lifecycleScope.launch {
+            try {
+                sessionStore.flagPost(
+                    PostFlagRequestState(
+                        postId = post.id,
+                        flagTypeId = option.id,
+                        message = message,
+                    ),
+                )
+                Toast.makeText(
+                    this@TopicDetailActivity,
+                    R.string.topic_detail_flag_submitted,
+                    Toast.LENGTH_SHORT,
+                ).show()
+            } catch (e: Exception) {
+                Toast.makeText(
+                    this@TopicDetailActivity,
+                    e.localizedMessage ?: getString(R.string.topic_detail_action_error),
+                    Toast.LENGTH_SHORT,
+                ).show()
+            }
+        }
+    }
+
+    private fun plainText(html: String): String {
+        return HtmlCompat.fromHtml(html, HtmlCompat.FROM_HTML_MODE_LEGACY)
+            .toString()
+            .trim()
+    }
+
+    private fun openProfile(username: String) {
+        val normalized = username.trim().takeIf { it.isNotEmpty() } ?: return
+        val intent = Intent(
+            Intent.ACTION_VIEW,
+            Uri.parse("fire://profile/${Uri.encode(normalized)}"),
+        ).setPackage(packageName)
+        startActivity(intent)
+    }
+
+    private fun showImageViewer(image: FireCookedImage) {
+        val dialog = Dialog(this, android.R.style.Theme_Black_NoTitleBar_Fullscreen)
+        val imageView = ImageView(this).apply {
+            contentDescription = image.altText ?: getString(R.string.topic_detail_image_attachment)
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            adjustViewBounds = true
+            setBackgroundColor(Color.BLACK)
+        }
+        val closeButton = TextView(this).apply {
+            text = getString(R.string.action_close)
+            setTextColor(Color.WHITE)
+            setPadding(24, 24, 24, 24)
+            textSize = 16f
+            setOnClickListener { dialog.dismiss() }
+        }
+        val frame = FrameLayout(this).apply {
+            setBackgroundColor(Color.BLACK)
+            addView(
+                imageView,
+                FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                ),
+            )
+            addView(
+                closeButton,
+                FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.WRAP_CONTENT,
+                    FrameLayout.LayoutParams.WRAP_CONTENT,
+                    android.view.Gravity.TOP or android.view.Gravity.END,
+                ),
+            )
+            setOnClickListener { dialog.dismiss() }
+        }
+        imageView.setOnClickListener { }
+        dialog.setContentView(frame)
+        dialog.show()
+        FireImageLoader.load(image.url, imageView)
+    }
+
+    private fun showReactionUsers(post: TopicPostState) {
+        lifecycleScope.launch {
+            try {
+                val groups = sessionStore.fetchReactionUsers(post.id)
+                val message = if (groups.isEmpty()) {
+                    getString(R.string.topic_detail_reaction_users_empty)
+                } else {
+                    groups.joinToString("\n\n") { group ->
+                        val users = group.users
+                            .joinToString(", ") { user ->
+                                user.name?.takeIf { it.isNotBlank() } ?: "@${user.username}"
+                            }
+                            .ifBlank { getString(R.string.topic_detail_reaction_users_empty) }
+                        getString(
+                            R.string.topic_detail_reaction_users_group,
+                            group.id,
+                            group.count.toString(),
+                        ) + "\n" + users
+                    }
+                }
+                AlertDialog.Builder(this@TopicDetailActivity)
+                    .setTitle(R.string.topic_detail_reaction_users_title)
+                    .setMessage(message)
+                    .setPositiveButton(android.R.string.ok, null)
+                    .show()
+            } catch (e: Exception) {
+                Toast.makeText(
+                    this@TopicDetailActivity,
+                    e.localizedMessage ?: getString(R.string.topic_detail_reaction_users_error),
+                    Toast.LENGTH_SHORT,
+                ).show()
+            }
+        }
+    }
+
+    private fun showReactionPicker(post: TopicPostState) {
+        val currentReaction = post.currentUserReaction
+        if (currentReaction?.canUndo == false) {
+            Toast.makeText(
+                this,
+                R.string.topic_detail_reaction_locked,
+                Toast.LENGTH_SHORT,
+            ).show()
+            return
+        }
+
+        lifecycleScope.launch {
+            val options = customReactionOptionsForPost(post)
+            if (options.isEmpty()) {
+                Toast.makeText(
+                    this@TopicDetailActivity,
+                    R.string.topic_detail_reaction_empty,
+                    Toast.LENGTH_SHORT,
+                ).show()
+                return@launch
+            }
+
+            val labels = options.map { option ->
+                val count = post.reactions
+                    .firstOrNull { it.id == option.id }
+                    ?.count
+                    ?: 0u
+                val label = getString(
+                    R.string.topic_detail_reaction_choice,
+                    "${option.symbol} ${option.label}",
+                    count.toString(),
+                )
+                if (currentReaction?.id == option.id) {
+                    getString(R.string.topic_detail_reaction_choice_selected, label)
+                } else {
+                    label
+                }
+            }.toTypedArray()
+
+            AlertDialog.Builder(this@TopicDetailActivity)
+                .setTitle(
+                    getString(
+                        R.string.topic_detail_reaction_title,
+                        post.postNumber.toString(),
+                    ),
+                )
+                .setItems(labels) { _, which ->
+                    options.getOrNull(which)?.let { option ->
+                        viewModel?.toggleReaction(post, option.id)
+                    }
+                }
+                .setNegativeButton(android.R.string.cancel, null)
+                .show()
+        }
+    }
+
+    private suspend fun customReactionOptionsForPost(post: TopicPostState): List<ReactionOption> {
+        if (enabledReactionIds.isEmpty()) {
+            enabledReactionIds = runCatching {
+                sessionStore.snapshot().bootstrap.enabledReactionIds
+            }.getOrDefault(emptyList())
+            refreshReactionRows()
+        }
+        return ReactionPresentation.customOptions(
+            reactionIds = enabledReactionIds,
+            currentReactionId = post.currentUserReaction?.id,
+        )
+    }
+
+    private fun loadEnabledReactionIds() {
+        lifecycleScope.launch {
+            enabledReactionIds = runCatching {
+                sessionStore.snapshot().bootstrap.enabledReactionIds
+            }.getOrDefault(emptyList())
+            refreshReactionRows()
+        }
+    }
+
+    private fun refreshReactionRows() {
+        headerAdapter.refreshRows()
+        postListAdapter.refreshRows()
+    }
+
+    private fun showTopicNotificationOptions(detail: TopicDetailState) {
+        val options = listOf(
+            TopicNotificationOption(
+                level = 0,
+                title = getString(R.string.topic_detail_notification_muted),
+                description = getString(R.string.topic_detail_notification_muted_description),
+            ),
+            TopicNotificationOption(
+                level = 1,
+                title = getString(R.string.topic_detail_notification_regular),
+                description = getString(R.string.topic_detail_notification_regular_description),
+            ),
+            TopicNotificationOption(
+                level = 2,
+                title = getString(R.string.topic_detail_notification_tracking),
+                description = getString(R.string.topic_detail_notification_tracking_description),
+            ),
+            TopicNotificationOption(
+                level = 3,
+                title = getString(R.string.topic_detail_notification_watching),
+                description = getString(R.string.topic_detail_notification_watching_description),
+            ),
+        )
+        val labels = options.map { option ->
+            getString(
+                R.string.topic_detail_notification_option,
+                option.title,
+                option.description,
+            )
+        }.toTypedArray()
+        val selectedIndex = options.indexOfFirst {
+            it.level == (detail.details.notificationLevel ?: 1)
+        }.coerceAtLeast(0)
+
+        AlertDialog.Builder(this)
+            .setTitle(R.string.topic_detail_notification_title)
+            .setSingleChoiceItems(labels, selectedIndex) { dialog, which ->
+                viewModel?.setTopicNotificationLevel(options[which].level)
+                dialog.dismiss()
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private fun showTopicEditor(detail: TopicDetailState) {
+        lifecycleScope.launch {
+            try {
+                val session = sessionStore.snapshot()
+                val currentCategoryId = detail.categoryId
+                val categories = session.bootstrap.categories.filter { category ->
+                    category.id == currentCategoryId ||
+                        category.permission?.toInt()?.let { it <= 1 } ?: true
+                }
+                if (categories.isEmpty()) {
+                    Toast.makeText(
+                        this@TopicDetailActivity,
+                        R.string.topic_detail_edit_topic_no_categories,
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                    return@launch
+                }
+                showTopicEditorDialog(
+                    detail = detail,
+                    categories = categories,
+                    minTitleLength = session.bootstrap.minTopicTitleLength.toInt().coerceAtLeast(1),
+                )
+            } catch (e: Exception) {
+                Toast.makeText(
+                    this@TopicDetailActivity,
+                    e.localizedMessage ?: getString(R.string.topic_detail_edit_topic_error),
+                    Toast.LENGTH_SHORT,
+                ).show()
+            }
+        }
+    }
+
+    private fun showTopicEditorDialog(
+        detail: TopicDetailState,
+        categories: List<TopicCategoryState>,
+        minTitleLength: Int,
+    ) {
+        val titleInput = EditText(this).apply {
+            setText(detail.title.trim())
+            hint = getString(R.string.topic_detail_edit_topic_title_hint)
+            setSingleLine(true)
+        }
+        val categorySpinner = Spinner(this).apply {
+            adapter = ArrayAdapter(
+                this@TopicDetailActivity,
+                android.R.layout.simple_spinner_item,
+                categories.map { it.displayName() },
+            ).apply {
+                setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+            }
+            val selectedIndex = categories.indexOfFirst { it.id == detail.categoryId }
+            if (selectedIndex >= 0) {
+                setSelection(selectedIndex)
+            }
+        }
+        val tagsInput = EditText(this).apply {
+            setText(detail.tags.joinToString(" ") { it.name })
+            hint = getString(R.string.topic_detail_edit_topic_tags_hint)
+            setSingleLine(true)
+        }
+        val tagSuggestions = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = View.GONE
+        }
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(48, 8, 48, 0)
+            addView(titleInput)
+            addView(categorySpinner)
+            addView(tagsInput)
+            addView(tagSuggestions)
+        }
+        ComposerTagAssist(
+            input = tagsInput,
+            suggestions = tagSuggestions,
+            sessionStore = sessionStore,
+            scope = lifecycleScope,
+            categoryIdProvider = { categories.getOrNull(categorySpinner.selectedItemPosition)?.id },
+            selectedTagsProvider = {
+                tagsInput.text.toString()
+                    .split("[,\\s]+".toRegex())
+                    .filter { it.isNotBlank() }
+            },
+        ).attach()
+
+        val dialog = AlertDialog.Builder(this)
+            .setTitle(R.string.topic_detail_edit_topic_title)
+            .setView(content)
+            .setPositiveButton(R.string.topic_detail_edit_save, null)
+            .setNegativeButton(android.R.string.cancel, null)
+            .create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val title = titleInput.text.toString().trim()
+                val category = categories.getOrNull(categorySpinner.selectedItemPosition)
+                val tags = tagsInput.text.toString()
+                    .split("[,\\s]+".toRegex())
+                    .filter { it.isNotBlank() }
+
+                if (title.length < minTitleLength) {
+                    Toast.makeText(
+                        this,
+                        getString(
+                            R.string.topic_detail_edit_topic_title_min_length,
+                            minTitleLength.toString(),
+                        ),
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                    return@setOnClickListener
+                }
+                if (category == null) {
+                    Toast.makeText(
+                        this,
+                        R.string.topic_detail_edit_topic_category_required,
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                    return@setOnClickListener
+                }
+                if (tags.size < category.minimumRequiredTags.toInt()) {
+                    Toast.makeText(
+                        this,
+                        getString(
+                            R.string.topic_detail_edit_topic_tags_required,
+                            category.minimumRequiredTags.toString(),
+                        ),
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                    return@setOnClickListener
+                }
+                val disallowedTags = if (category.allowedTags.isEmpty()) {
+                    emptyList()
+                } else {
+                    tags.filterNot { tag -> category.allowedTags.contains(tag) }
+                }
+                if (disallowedTags.isNotEmpty()) {
+                    Toast.makeText(
+                        this,
+                        getString(
+                            R.string.topic_detail_edit_topic_tags_not_allowed,
+                            disallowedTags.joinToString(", "),
+                        ),
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                    return@setOnClickListener
+                }
+                viewModel?.updateTopic(title, category.id, tags)
+                dialog.dismiss()
+            }
+        }
+        dialog.show()
+    }
+
+    private fun showTopicVoters(detail: TopicDetailState) {
+        Toast.makeText(
+            this,
+            R.string.topic_detail_vote_voters_loading,
+            Toast.LENGTH_SHORT,
+        ).show()
+        lifecycleScope.launch {
+            try {
+                val voters = sessionStore.fetchTopicVoters(detail.id)
+                showTopicVotersDialog(voters)
+            } catch (e: Exception) {
+                Toast.makeText(
+                    this@TopicDetailActivity,
+                    e.localizedMessage ?: getString(R.string.topic_detail_vote_voters_empty),
+                    Toast.LENGTH_SHORT,
+                ).show()
+            }
+        }
+    }
+
+    private fun showTopicVotersDialog(voters: List<VotedUserState>) {
+        if (voters.isEmpty()) {
+            AlertDialog.Builder(this)
+                .setTitle(R.string.topic_detail_vote_voters_title)
+                .setMessage(R.string.topic_detail_vote_voters_empty)
+                .setPositiveButton(android.R.string.ok, null)
+                .show()
+            return
+        }
+
+        val labels = voters.map(::topicVoterLabel).toTypedArray()
+        AlertDialog.Builder(this)
+            .setTitle(R.string.topic_detail_vote_voters_title)
+            .setItems(labels) { _, which ->
+                voters.getOrNull(which)?.username?.let(::openProfile)
+            }
+            .setPositiveButton(android.R.string.ok, null)
+            .show()
+    }
+
+    private fun topicVoterLabel(voter: VotedUserState): String {
+        val displayName = voter.name?.takeIf { it.isNotBlank() } ?: voter.username
+        return "$displayName\n@${voter.username}"
+    }
+
+    private fun showReplyContext(post: TopicPostState) {
+        val currentRoute = route ?: return
+        Toast.makeText(
+            this,
+            R.string.topic_detail_reply_context_loading,
+            Toast.LENGTH_SHORT,
+        ).show()
+        lifecycleScope.launch {
+            try {
+                val history = if (post.replyToPostNumber != null) {
+                    sessionStore.fetchPostReplyHistory(post.id)
+                } else {
+                    emptyList()
+                }
+                val directReplies = fetchDirectReplies(currentRoute.topicId.toULong(), post)
+                val message = replyContextMessage(history, directReplies)
+                AlertDialog.Builder(this@TopicDetailActivity)
+                    .setTitle(
+                        getString(
+                            R.string.topic_detail_reply_context_title,
+                            post.postNumber.toString(),
+                        ),
+                    )
+                    .setMessage(message)
+                    .setPositiveButton(android.R.string.ok, null)
+                    .show()
+            } catch (e: Exception) {
+                Toast.makeText(
+                    this@TopicDetailActivity,
+                    e.localizedMessage ?: getString(R.string.topic_detail_reply_context_empty),
+                    Toast.LENGTH_SHORT,
+                ).show()
+            }
+        }
+    }
+
+    private suspend fun fetchDirectReplies(
+        topicId: ULong,
+        post: TopicPostState,
+    ): List<TopicPostState> {
+        if (post.replyCount == 0u) {
+            return emptyList()
+        }
+        val replyIds = sessionStore.fetchPostReplyIds(post.id)
+            .filter { it > 0u }
+            .distinct()
+        if (replyIds.isEmpty()) {
+            return sessionStore.fetchPostReplies(post.id, after = 1u)
+        }
+
+        return replyIds.chunked(REPLY_CONTEXT_POST_BATCH_SIZE).flatMap { batch ->
+            sessionStore.fetchTopicPosts(topicId, batch)
+        }
+    }
+
+    private fun replyContextMessage(
+        history: List<TopicPostState>,
+        directReplies: List<TopicPostState>,
+    ): String {
+        if (history.isEmpty() && directReplies.isEmpty()) {
+            return getString(R.string.topic_detail_reply_context_empty)
+        }
+
+        return buildString {
+            if (history.isNotEmpty()) {
+                appendLine(getString(R.string.topic_detail_reply_context_history))
+                appendLine(history.joinToString("\n\n", transform = ::replyContextPostLine))
+            }
+            if (directReplies.isNotEmpty()) {
+                if (isNotEmpty()) appendLine()
+                appendLine(getString(R.string.topic_detail_reply_context_direct))
+                appendLine(directReplies.joinToString("\n\n", transform = ::replyContextPostLine))
+            }
+        }.trim()
+    }
+
+    private fun replyContextPostLine(post: TopicPostState): String {
+        val author = post.name?.takeIf { it.isNotBlank() } ?: "@${post.username}"
+        val body = HtmlCompat.fromHtml(post.cooked, HtmlCompat.FROM_HTML_MODE_LEGACY)
+            .toString()
+            .lineSequence()
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .joinToString(" ")
+            .take(180)
+        return "#${post.postNumber} $author\n$body"
+    }
+
+    private fun loadRoute(route: TopicDetailRoute) {
+        val targetPostNumber = route.targetPostNumber.takeIf { it > 0 }?.toUInt()
+        viewModel?.loadTopicDetail(route.topicId.toULong(), targetPostNumber)
     }
 
     private fun scheduleLoadMorePosts(rv: RecyclerView) {
@@ -387,6 +1161,7 @@ class TopicDetailActivity : AppCompatActivity() {
         private const val EXTRA_TOPIC_ID = "com.fire.app.extra.TOPIC_ID"
         private const val EXTRA_TOPIC_TITLE = "com.fire.app.extra.TOPIC_TITLE"
         private const val EXTRA_TARGET_POST_NUMBER = "com.fire.app.extra.TARGET_POST_NUMBER"
+        private const val REPLY_CONTEXT_POST_BATCH_SIZE = 20
 
         fun createIntent(
             context: Context,
@@ -418,3 +1193,16 @@ class TopicDetailActivity : AppCompatActivity() {
         }
     }
 }
+
+private data class TopicNotificationOption(
+    val level: Int,
+    val title: String,
+    val description: String,
+)
+
+private data class PostFlagOption(
+    val id: UInt,
+    val title: String,
+    val detail: String,
+    val requireMessage: Boolean,
+)

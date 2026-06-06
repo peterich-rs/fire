@@ -1,0 +1,586 @@
+import SwiftUI
+import WebKit
+
+final class FireWebViewBox: ObservableObject {
+    weak var webView: WKWebView?
+    @Published var canGoBack = false
+    @Published var canGoForward = false
+    @Published var isLoading = false
+    @Published var pageTitle = "LinuxDo Login"
+    @Published var currentURL: String?
+
+    func attach(_ webView: WKWebView) {
+        self.webView = webView
+        syncState(from: webView)
+    }
+
+    func syncState(from webView: WKWebView) {
+        let nextCanGoBack = webView.canGoBack
+        if canGoBack != nextCanGoBack {
+            canGoBack = nextCanGoBack
+        }
+
+        let nextCanGoForward = webView.canGoForward
+        if canGoForward != nextCanGoForward {
+            canGoForward = nextCanGoForward
+        }
+
+        let nextIsLoading = webView.isLoading
+        if isLoading != nextIsLoading {
+            isLoading = nextIsLoading
+        }
+
+        let nextPageTitle = webView.title ?? "LinuxDo Login"
+        if pageTitle != nextPageTitle {
+            pageTitle = nextPageTitle
+        }
+
+        let nextCurrentURL = webView.url?.absoluteString ?? webView.url?.host
+        if currentURL != nextCurrentURL {
+            currentURL = nextCurrentURL
+        }
+    }
+
+    func goBack() {
+        webView?.goBack()
+    }
+
+    func goForward() {
+        webView?.goForward()
+    }
+
+    func reload() {
+        webView?.reload()
+    }
+
+    func loadHome() {
+        guard let webView, let url = URL(string: "https://linux.do/login") else {
+            return
+        }
+        webView.load(URLRequest(url: url))
+    }
+}
+
+public final class FireLoginWebViewProbeBridge: NSObject, WKHTTPCookieStoreObserver {
+    private static let cookieProbeDebounceDelay: TimeInterval = 0.35
+
+    private weak var observedWebView: WKWebView?
+    private weak var observedCookieStore: WKHTTPCookieStore?
+    private var pendingProbeWorkItem: DispatchWorkItem?
+    private let onProbeRequested: (WKWebView) -> Void
+
+    public init(onProbeRequested: @escaping (WKWebView) -> Void) {
+        self.onProbeRequested = onProbeRequested
+    }
+
+    deinit {
+        pendingProbeWorkItem?.cancel()
+        observedCookieStore?.remove(self)
+    }
+
+    public func attach(to webView: WKWebView) {
+        let cookieStore = webView.configuration.websiteDataStore.httpCookieStore
+        if observedCookieStore !== cookieStore {
+            observedCookieStore?.remove(self)
+            cookieStore.add(self)
+            observedCookieStore = cookieStore
+        }
+        observedWebView = webView
+    }
+
+    public func detach() {
+        pendingProbeWorkItem?.cancel()
+        pendingProbeWorkItem = nil
+        observedCookieStore?.remove(self)
+        observedCookieStore = nil
+        observedWebView = nil
+    }
+
+    public func requestProbe() {
+        requestProbe(after: 0)
+    }
+
+    private func requestProbe(after delay: TimeInterval) {
+        pendingProbeWorkItem?.cancel()
+        guard let observedWebView else {
+            return
+        }
+
+        let workItem = DispatchWorkItem { [weak self, weak observedWebView] in
+            guard self != nil, let observedWebView else {
+                return
+            }
+            self?.pendingProbeWorkItem = nil
+            self?.onProbeRequested(observedWebView)
+        }
+        pendingProbeWorkItem = workItem
+
+        if delay <= 0 {
+            DispatchQueue.main.async(execute: workItem)
+        } else {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
+        }
+    }
+
+    public func cookiesDidChange(in cookieStore: WKHTTPCookieStore) {
+        requestProbe(after: Self.cookieProbeDebounceDelay)
+    }
+}
+
+struct FireLoginWebView: UIViewRepresentable {
+    let url: URL
+    let preferredUserAgent: String?
+    let credential: FireSavedCredential?
+    @ObservedObject var webViewBox: FireWebViewBox
+    let onWebViewReady: (WKWebView) -> Void
+    let onNavigationStateChange: (WKWebView) -> Void
+    let onLoginCredentials: (String, String) -> Void
+    let onFingerprintDone: () -> Void
+
+    func makeUIView(context: Context) -> WKWebView {
+        let webView = WKWebView(
+            frame: .zero,
+            configuration: Self.makeConfiguration(
+                messageHandler: context.coordinator,
+                credential: credential
+            )
+        )
+        webView.navigationDelegate = context.coordinator
+        webView.uiDelegate = context.coordinator
+        FireWebViewBrowserProfile.configure(webView, preferredUserAgent: preferredUserAgent)
+        context.coordinator.attach(to: webView)
+        webView.allowsBackForwardNavigationGestures = true
+        webViewBox.attach(webView)
+        onWebViewReady(webView)
+        return webView
+    }
+
+    func updateUIView(_ uiView: WKWebView, context: Context) {
+        context.coordinator.attach(to: uiView)
+        webViewBox.webView = uiView
+        context.coordinator.applyCredential(credential, to: uiView)
+    }
+
+    static func dismantleUIView(_ uiView: WKWebView, coordinator: Coordinator) {
+        coordinator.detach()
+        uiView.navigationDelegate = nil
+        uiView.uiDelegate = nil
+        uiView.configuration.userContentController.removeScriptMessageHandler(
+            forName: FireLoginScripts.loginCredentialsMessageName
+        )
+        uiView.configuration.userContentController.removeScriptMessageHandler(
+            forName: FireLoginScripts.fingerprintDoneMessageName
+        )
+    }
+
+    static func makeConfiguration(
+        messageHandler: WKScriptMessageHandler,
+        credential: FireSavedCredential?
+    ) -> WKWebViewConfiguration {
+        FireWebViewBrowserProfile.makeLoginConfiguration(
+            credential: credential,
+            messageHandler: messageHandler
+        )
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(
+            webViewBox: webViewBox,
+            onNavigationStateChange: onNavigationStateChange,
+            onLoginCredentials: onLoginCredentials,
+            onFingerprintDone: onFingerprintDone
+        )
+    }
+
+    final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler {
+        private let webViewBox: FireWebViewBox
+        private let probeBridge: FireLoginWebViewProbeBridge
+        private let onLoginCredentials: (String, String) -> Void
+        private let onFingerprintDone: () -> Void
+        private var lastInjectedCredential: FireSavedCredential?
+
+        init(
+            webViewBox: FireWebViewBox,
+            onNavigationStateChange: @escaping (WKWebView) -> Void,
+            onLoginCredentials: @escaping (String, String) -> Void,
+            onFingerprintDone: @escaping () -> Void
+        ) {
+            self.webViewBox = webViewBox
+            self.probeBridge = FireLoginWebViewProbeBridge(onProbeRequested: onNavigationStateChange)
+            self.onLoginCredentials = onLoginCredentials
+            self.onFingerprintDone = onFingerprintDone
+        }
+
+        func attach(to webView: WKWebView) {
+            probeBridge.attach(to: webView)
+        }
+
+        func detach() {
+            probeBridge.detach()
+        }
+
+        private func syncBrowserState(from webView: WKWebView) {
+            webViewBox.syncState(from: webView)
+        }
+
+        func applyCredential(_ credential: FireSavedCredential?, to webView: WKWebView) {
+            guard credential != lastInjectedCredential else {
+                return
+            }
+            lastInjectedCredential = credential
+            let script = FireLoginScripts.credentialAutoFillSource(credential: credential)
+            webView.evaluateJavaScript(script)
+        }
+
+        private func handleTerminalStateChange(for webView: WKWebView) {
+            syncBrowserState(from: webView)
+            probeBridge.attach(to: webView)
+            probeBridge.requestProbe()
+        }
+
+        private func openInCurrentWebViewIfNeeded(
+            _ navigationAction: WKNavigationAction,
+            in webView: WKWebView
+        ) -> Bool {
+            guard navigationAction.targetFrame == nil else {
+                return false
+            }
+
+            webView.load(navigationAction.request)
+            syncBrowserState(from: webView)
+            return true
+        }
+
+        func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+            syncBrowserState(from: webView)
+        }
+
+        func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+            syncBrowserState(from: webView)
+        }
+
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            handleTerminalStateChange(for: webView)
+        }
+
+        func webView(
+            _ webView: WKWebView,
+            didFail navigation: WKNavigation!,
+            withError error: Error
+        ) {
+            handleTerminalStateChange(for: webView)
+        }
+
+        func webView(
+            _ webView: WKWebView,
+            didFailProvisionalNavigation navigation: WKNavigation!,
+            withError error: Error
+        ) {
+            handleTerminalStateChange(for: webView)
+        }
+
+        func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+            handleTerminalStateChange(for: webView)
+        }
+
+        func webView(
+            _ webView: WKWebView,
+            createWebViewWith configuration: WKWebViewConfiguration,
+            for navigationAction: WKNavigationAction,
+            windowFeatures: WKWindowFeatures
+        ) -> WKWebView? {
+            _ = openInCurrentWebViewIfNeeded(navigationAction, in: webView)
+            return nil
+        }
+
+        func userContentController(
+            _ userContentController: WKUserContentController,
+            didReceive message: WKScriptMessage
+        ) {
+            switch message.name {
+            case FireLoginScripts.loginCredentialsMessageName:
+                guard
+                    let body = message.body as? [String: Any],
+                    let username = body["username"] as? String,
+                    let password = body["password"] as? String
+                else {
+                    return
+                }
+                onLoginCredentials(username, password)
+            case FireLoginScripts.fingerprintDoneMessageName:
+                onFingerprintDone()
+            default:
+                break
+            }
+        }
+    }
+}
+
+struct FireAuthScreen: View {
+    @Environment(\.scenePhase) private var scenePhase
+    @ObservedObject var viewModel: FireAppViewModel
+    let presentationState: FireAuthPresentationState
+    @StateObject private var webViewBox = FireWebViewBox()
+
+    private var title: String {
+        "登录 LinuxDo"
+    }
+
+    private var url: URL {
+        viewModel.authPresentationURL
+    }
+
+    private var route: String {
+        "auth.login"
+    }
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                if webViewBox.isLoading {
+                    ProgressView()
+                        .progressViewStyle(.linear)
+                        .tint(FireTheme.accent)
+                }
+
+                FireLoginAddressBar(currentURL: webViewBox.currentURL)
+
+                if let errorMessage = viewModel.errorMessage {
+                    FireLoginErrorBanner(
+                        message: errorMessage,
+                        onDismiss: { viewModel.dismissError() }
+                    )
+                }
+
+                FireLoginWebView(
+                    url: url,
+                    preferredUserAgent: viewModel.session.browserUserAgent,
+                    credential: viewModel.savedLoginCredential,
+                    webViewBox: webViewBox,
+                    onWebViewReady: { webView in
+                        viewModel.prepareAuthWebView(webView)
+                    },
+                    onNavigationStateChange: { webView in
+                        viewModel.refreshLoginSyncReadiness(from: webView)
+                    },
+                    onLoginCredentials: { username, password in
+                        viewModel.saveLoginCredential(username: username, password: password)
+                    },
+                    onFingerprintDone: {
+                        viewModel.recordLoginFingerprintDone()
+                    }
+                )
+                .frame(maxHeight: .infinity)
+            }
+            .background(Color(.systemBackground))
+            .navigationTitle(title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("关闭") { viewModel.dismissAuthPresentation() }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        webViewBox.reload()
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                }
+            }
+            .safeAreaInset(edge: .bottom) {
+                FireAuthBottomBar(
+                    viewModel: viewModel,
+                    presentationState: presentationState,
+                    webViewBox: webViewBox,
+                    onLoginSync: {
+                        guard let webView = webViewBox.webView else { return }
+                        viewModel.completeLogin(from: webView)
+                    }
+                )
+            }
+            .onAppear {
+                viewModel.setAPMRoute(route)
+            }
+            .onChange(of: scenePhase) { _, phase in
+                guard phase == .active, let webView = webViewBox.webView else {
+                    return
+                }
+                switch presentationState {
+                case .login:
+                    viewModel.refreshLoginSyncReadiness(from: webView)
+                }
+            }
+            .onChange(of: webViewBox.isLoading) { _, isLoading in
+                guard let webView = webViewBox.webView else {
+                    return
+                }
+                guard !isLoading else {
+                    return
+                }
+                viewModel.refreshLoginSyncReadiness(from: webView)
+            }
+            .onDisappear {
+                viewModel.restoreTopLevelAPMRoute()
+            }
+        }
+    }
+}
+
+private struct FireLoginAddressBar: View {
+    let currentURL: String?
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "lock.fill")
+                .font(.caption2)
+                .foregroundStyle(FireTheme.tertiaryInk)
+
+            Text(currentURL ?? "linux.do")
+                .font(.caption)
+                .foregroundStyle(FireTheme.subtleInk)
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 6)
+        .background(Color(.secondarySystemBackground))
+    }
+}
+
+private struct FireAuthBottomBar: View {
+    @ObservedObject var viewModel: FireAppViewModel
+    let presentationState: FireAuthPresentationState
+    @ObservedObject var webViewBox: FireWebViewBox
+    let onLoginSync: () -> Void
+
+    private var isRunningAction: Bool {
+        switch presentationState {
+        case .login:
+            return viewModel.isSyncingLoginSession
+        }
+    }
+
+    private var actionTitle: String {
+        switch presentationState {
+        case .login:
+            return viewModel.isSyncingLoginSession ? "同步中…" : "完成登录"
+        }
+    }
+
+    private var isActionEnabled: Bool {
+        guard webViewBox.webView != nil else {
+            return false
+        }
+        guard !webViewBox.isLoading else {
+            return false
+        }
+        guard !isRunningAction else {
+            return false
+        }
+
+        switch presentationState {
+        case .login:
+            return viewModel.canSyncLoginSession
+        }
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Divider()
+
+            HStack(spacing: 16) {
+                HStack(spacing: 20) {
+                    Button(action: webViewBox.goBack) {
+                        Image(systemName: "chevron.backward")
+                            .font(.body)
+                    }
+                    .disabled(!webViewBox.canGoBack)
+
+                    Button(action: webViewBox.goForward) {
+                        Image(systemName: "chevron.forward")
+                            .font(.body)
+                    }
+                    .disabled(!webViewBox.canGoForward)
+                }
+                .foregroundStyle(.primary)
+
+                Spacer()
+
+                Button(action: performPrimaryAction) {
+                    HStack(spacing: 6) {
+                        if isRunningAction {
+                            ProgressView()
+                                .tint(.white)
+                                .controlSize(.small)
+                        }
+                        Text(actionTitle)
+                    }
+                }
+                .buttonStyle(FirePrimaryButtonStyle())
+                .disabled(!isActionEnabled)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .background(.bar)
+        }
+    }
+
+    private func performPrimaryAction() {
+        switch presentationState {
+        case .login:
+            onLoginSync()
+        }
+    }
+}
+
+private struct FireLoginErrorBanner: View {
+    let message: String
+    let onDismiss: () -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(FireTheme.warning)
+                .font(.caption)
+
+            Text(message)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+
+            Spacer(minLength: 0)
+
+            Button(action: onDismiss) {
+                Image(systemName: "xmark")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(Color(.secondarySystemBackground))
+    }
+}
+
+private struct FireAuthInfoBanner: View {
+    let message: String
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "shield.lefthalf.filled")
+                .foregroundStyle(FireTheme.accent)
+                .font(.caption)
+
+            Text(message)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(3)
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(Color(.secondarySystemBackground))
+    }
+}

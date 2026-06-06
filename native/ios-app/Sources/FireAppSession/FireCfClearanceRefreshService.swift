@@ -100,8 +100,8 @@ final class FireCfClearanceRefreshService: NSObject, WKNavigationDelegate, WKScr
     private weak var loginCoordinator: FireWebViewLoginCoordinator?
     private var onSessionRefreshed: ((SessionState) async -> Void)?
     private var session: SessionState = .placeholder()
+    private var loginStateConfirmed = false
     private var sceneActive = false
-    private var interactiveRecoveryActive = false
     private var startupTask: Task<Void, Never>?
     private var retryTask: Task<Void, Never>?
     private var initialSolveTimeoutTask: Task<Void, Never>?
@@ -131,6 +131,9 @@ final class FireCfClearanceRefreshService: NSObject, WKNavigationDelegate, WKScr
         onSessionRefreshed: ((SessionState) async -> Void)? = nil
     ) {
         self.session = session
+        if !session.readiness.hasCurrentUser {
+            loginStateConfirmed = false
+        }
         self.loginCoordinator = loginCoordinator
         if let onSessionRefreshed {
             self.onSessionRefreshed = onSessionRefreshed
@@ -148,19 +151,20 @@ final class FireCfClearanceRefreshService: NSObject, WKNavigationDelegate, WKScr
         reconfigureRuntime(reason: active ? "scene_active" : "scene_inactive")
     }
 
-    func setInteractiveRecoveryActive(_ active: Bool) {
-        interactiveRecoveryActive = active
-        reconfigureRuntime(reason: active ? "interactive_recovery_started" : "interactive_recovery_ended")
+    func setLoginStateConfirmed(_ confirmed: Bool) {
+        loginStateConfirmed = confirmed
+        reconfigureRuntime(reason: confirmed ? "login_state_confirmed" : "login_state_unconfirmed")
     }
 
     nonisolated static func shouldAutoRefresh(
         session: SessionState,
         sceneActive: Bool,
-        interactiveRecoveryActive: Bool = false
+        loginStateConfirmed: Bool
     ) -> Bool {
         sceneActive
-            && !interactiveRecoveryActive
+            && loginStateConfirmed
             && session.readiness.canReadAuthenticatedApi
+            && session.readiness.hasCurrentUser
             && session.readiness.hasCloudflareClearance
             && !(session.bootstrap.turnstileSitekey?.isEmpty ?? true)
     }
@@ -248,7 +252,7 @@ final class FireCfClearanceRefreshService: NSObject, WKNavigationDelegate, WKScr
         Self.shouldAutoRefresh(
             session: session,
             sceneActive: sceneActive,
-            interactiveRecoveryActive: interactiveRecoveryActive
+            loginStateConfirmed: loginStateConfirmed
         )
     }
 

@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use url::Url;
 
 use crate::cookie::{is_non_empty, merge_string_patch, CookieSnapshot, PlatformCookie};
@@ -435,4 +436,142 @@ fn normalized_top_tags(tags: Vec<String>) -> Vec<String> {
         normalized.push(trimmed.to_string());
     }
     normalized
+}
+
+#[derive(Debug, Clone)]
+pub struct LoginFinalizationResult {
+    pub success: bool,
+    pub session: SessionSnapshot,
+    pub t_token_verified: bool,
+    pub fingerprint_wait_needed: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct PassiveLogoutTrigger {
+    pub source: String,
+    pub signal_strength: SignalStrength,
+    pub cookie_diagnostic: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum SignalStrength {
+    Strong,
+    Weak,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AuthRuntimeSignalStrength {
+    Diagnostic,
+    Weak,
+    Strong,
+    Terminal,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AuthRuntimeSignalSource {
+    HttpResponse,
+    SetCookieIngress,
+    Probe,
+    StartupAuthority,
+    PlatformSync,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AuthRuntimeSignalKind {
+    NotLoggedInBody,
+    DiscourseLoggedOutHeader,
+    MixedLoggedOutHeader,
+    AuthCookieDeletion,
+    MixedSignalCookieDeletionBlocked,
+    InvalidAccessForbidden,
+    BadCsrf,
+    CloudflareChallenge,
+    RateLimit,
+    ProbeValid,
+    ProbeInvalid,
+    ProbeInconclusive,
+    ProbeInconclusiveEscalated,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AuthRuntimeSignal {
+    pub kind: AuthRuntimeSignalKind,
+    pub strength: AuthRuntimeSignalStrength,
+    pub source: AuthRuntimeSignalSource,
+    pub operation: Option<String>,
+    pub status: Option<u16>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ProbeResult {
+    Valid { username: String },
+    Invalid,
+    Inconclusive,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CloudflareChallengeRequest {
+    pub operation: String,
+    pub request_url: String,
+    pub origin_url: Option<String>,
+    pub is_foreground: bool,
+    pub session_epoch: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CloudflareChallengeResult {
+    pub completed: bool,
+    pub user_cancelled: bool,
+    pub cookies: Vec<PlatformCookie>,
+    pub browser_user_agent: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct PreloadedDataResult {
+    pub current_user: Option<crate::user::CurrentUserSnapshot>,
+    pub site_settings: Option<serde_json::Value>,
+    pub site: Option<serde_json::Value>,
+    pub topic_tracking_state_meta: Option<HashMap<String, u64>>,
+    pub topic_tracking_states: Option<Vec<serde_json::Value>>,
+    pub custom_emoji: Option<Vec<serde_json::Value>>,
+    pub topic_list: Option<serde_json::Value>,
+    pub enabled_reaction_ids: Vec<String>,
+    pub categories: Vec<TopicCategory>,
+    pub top_tags: Vec<String>,
+    pub can_tag_topics: Option<bool>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PreloadedDataState {
+    NotStarted,
+    Loading,
+    Ready,
+    Failed,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RefreshTrigger {
+    LoginCompleted,
+    LogoutCompleted,
+    SessionRestored,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RefreshBatch {
+    Core,
+    Secondary,
+}
+
+#[derive(Debug, Clone)]
+pub struct AppStateRefreshEvent {
+    pub batch: RefreshBatch,
+    pub trigger: RefreshTrigger,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum LoginStateDetermination {
+    LoggedIn { username: String, user_id: u64 },
+    NotLoggedIn,
+    SessionExpired,
+    NetworkErrorPreserveState,
 }

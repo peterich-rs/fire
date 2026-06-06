@@ -9,9 +9,13 @@ use fire_uniffi_types::{
 pub mod records;
 
 pub use records::{
-    AuthRecoveryHintState, BootstrapState, CookieState, LoginPhaseState, LoginSyncState,
-    PlatformCookieState, SessionPersistenceState, SessionReadinessState, SessionState,
-    TopicCategoryState,
+    format_probe_result, AppStateRefreshEventState, AppStateRefreshHandler, AuthRecoveryHintState,
+    BootstrapState, CloudflareChallengeHandler, CloudflareChallengeRequestState,
+    CloudflareChallengeResultState, CookieReplayEntryState, CookieState, CurrentUserSnapshotState,
+    HomeTopicListScopeState, LoginFinalizationResultState, LoginPhaseState,
+    LoginStateDeterminationState, LoginSyncState, PassiveLogoutTriggerState, PlatformCookieState,
+    PreloadedDataStateState, RefreshBatchState, RefreshTriggerState, SessionPersistenceState,
+    SessionReadinessState, SessionState, TopicCategoryState,
 };
 
 #[derive(uniffi::Object)]
@@ -80,6 +84,29 @@ impl FireSessionHandle {
         )
     }
 
+    pub fn current_home_topic_list_scope(
+        &self,
+    ) -> Result<HomeTopicListScopeState, FireUniFfiError> {
+        run_infallible(
+            &self.shared.panic_state,
+            &self.shared.core,
+            "current_home_topic_list_scope",
+            |inner| inner.current_home_topic_list_scope().into(),
+        )
+    }
+
+    pub fn set_current_home_topic_list_scope(
+        &self,
+        scope: HomeTopicListScopeState,
+    ) -> Result<HomeTopicListScopeState, FireUniFfiError> {
+        run_infallible(
+            &self.shared.panic_state,
+            &self.shared.core,
+            "set_current_home_topic_list_scope",
+            move |inner| inner.set_current_home_topic_list_scope(scope.into()).into(),
+        )
+    }
+
     pub fn session_epoch(&self) -> Result<u64, FireUniFfiError> {
         run_infallible(
             &self.shared.panic_state,
@@ -104,6 +131,33 @@ impl FireSessionHandle {
             &self.shared.core,
             "auth_recovery_hint",
             |inner| inner.auth_recovery_hint().map(Into::into),
+        )
+    }
+
+    pub fn register_cloudflare_challenge_handler(
+        &self,
+        handler: Arc<dyn CloudflareChallengeHandler>,
+    ) -> Result<(), FireUniFfiError> {
+        run_infallible(
+            &self.shared.panic_state,
+            &self.shared.core,
+            "register_cloudflare_challenge_handler",
+            move |inner| {
+                let handler = handler.clone();
+                inner.set_cloudflare_challenge_handler(move |request| {
+                    let handler = handler.clone();
+                    async move { handler.complete_cloudflare_challenge(request.into()).into() }
+                });
+            },
+        )
+    }
+
+    pub fn unregister_cloudflare_challenge_handler(&self) -> Result<(), FireUniFfiError> {
+        run_infallible(
+            &self.shared.panic_state,
+            &self.shared.core,
+            "unregister_cloudflare_challenge_handler",
+            |inner| inner.clear_cloudflare_challenge_handler(),
         )
     }
 
@@ -334,5 +388,192 @@ impl FireSessionHandle {
         })
         .await?;
         Ok(SessionState::from_snapshot(snapshot))
+    }
+
+    pub fn finalize_login_from_webview(
+        &self,
+        username: String,
+        csrf_token: Option<String>,
+        raw_preloaded_html: Option<String>,
+        browser_user_agent: Option<String>,
+        cookies: Vec<PlatformCookieState>,
+        allow_low_confidence_session_cookies: bool,
+    ) -> Result<LoginFinalizationResultState, FireUniFfiError> {
+        run_infallible(
+            &self.shared.panic_state,
+            &self.shared.core,
+            "finalize_login_from_webview",
+            move |inner| {
+                inner
+                    .finalize_login_from_webview(
+                        username,
+                        csrf_token,
+                        raw_preloaded_html,
+                        browser_user_agent,
+                        cookies.into_iter().map(Into::into).collect(),
+                        allow_low_confidence_session_cookies,
+                    )
+                    .into()
+            },
+        )
+    }
+
+    pub fn cookie_replay_queue(&self) -> Result<Vec<CookieReplayEntryState>, FireUniFfiError> {
+        run_fallible(
+            &self.shared.panic_state,
+            &self.shared.core,
+            "cookie_replay_queue",
+            |inner| {
+                inner
+                    .cookie_replay_list()
+                    .map(|entries| entries.into_iter().map(Into::into).collect())
+            },
+        )
+    }
+
+    pub fn clear_cookie_replay_queue(&self) -> Result<(), FireUniFfiError> {
+        run_fallible(
+            &self.shared.panic_state,
+            &self.shared.core,
+            "clear_cookie_replay_queue",
+            |inner| inner.cookie_replay_clear(),
+        )
+    }
+
+    pub async fn probe_session(&self) -> Result<String, FireUniFfiError> {
+        let inner = self.shared.core.clone();
+        let panic_state = self.shared.panic_state.clone();
+        let result = run_on_ffi_runtime("probe_session", panic_state, async move {
+            inner.probe_session().await
+        })
+        .await?;
+        Ok(format_probe_result(result))
+    }
+
+    pub fn record_fingerprint_done(&self) {}
+
+    pub async fn ensure_preloaded_data_loaded(&self) -> Result<(), FireUniFfiError> {
+        let inner = self.shared.core.clone();
+        let panic_state = self.shared.panic_state.clone();
+        run_on_ffi_runtime("ensure_preloaded_data_loaded", panic_state, async move {
+            let service = inner.preloaded_data_service();
+            service.ensure_loaded().await?;
+            Ok(())
+        })
+        .await
+    }
+
+    pub async fn await_preloaded_data(&self) -> Result<PreloadedDataStateState, FireUniFfiError> {
+        let inner = self.shared.core.clone();
+        let panic_state = self.shared.panic_state.clone();
+        let result = run_on_ffi_runtime("await_preloaded_data", panic_state, async move {
+            let service = inner.preloaded_data_service();
+            service.ensure_loaded().await
+        })
+        .await;
+        match result {
+            Ok(_) => Ok(PreloadedDataStateState::Ready),
+            Err(e) => Ok(PreloadedDataStateState::Failed {
+                error: e.to_string(),
+            }),
+        }
+    }
+
+    pub fn current_user_snapshot(
+        &self,
+    ) -> Result<Option<CurrentUserSnapshotState>, FireUniFfiError> {
+        run_infallible(
+            &self.shared.panic_state,
+            &self.shared.core,
+            "current_user_snapshot",
+            |inner| {
+                inner
+                    .preloaded_data_service()
+                    .get_current_user()
+                    .map(CurrentUserSnapshotState::from)
+            },
+        )
+    }
+
+    pub fn cached_user(&self) -> Result<Option<CurrentUserSnapshotState>, FireUniFfiError> {
+        run_infallible(
+            &self.shared.panic_state,
+            &self.shared.core,
+            "cached_user",
+            |inner| {
+                inner
+                    .preloaded_data_service()
+                    .get_cached_user()
+                    .map(CurrentUserSnapshotState::from)
+            },
+        )
+    }
+
+    pub fn determine_login_state(&self) -> Result<LoginStateDeterminationState, FireUniFfiError> {
+        run_infallible(
+            &self.shared.panic_state,
+            &self.shared.core,
+            "determine_login_state",
+            |inner| inner.determine_login_state().into(),
+        )
+    }
+
+    pub async fn determine_login_state_with_probe(
+        &self,
+    ) -> Result<LoginStateDeterminationState, FireUniFfiError> {
+        let inner = self.shared.core.clone();
+        let panic_state = self.shared.panic_state.clone();
+        let result = run_on_ffi_runtime(
+            "determine_login_state_with_probe",
+            panic_state,
+            async move {
+                Ok::<_, fire_core::FireCoreError>(inner.determine_login_state_with_probe().await)
+            },
+        )
+        .await?;
+        Ok(result.into())
+    }
+
+    pub async fn trigger_app_state_refresh(
+        &self,
+        trigger: RefreshTriggerState,
+    ) -> Result<(), FireUniFfiError> {
+        let inner = self.shared.core.clone();
+        let panic_state = self.shared.panic_state.clone();
+        let rust_trigger = fire_models::RefreshTrigger::from(trigger);
+        run_on_ffi_runtime("trigger_app_state_refresh", panic_state, async move {
+            inner
+                .app_state_refresher()
+                .refresh_all(rust_trigger)
+                .await?;
+            Ok(())
+        })
+        .await
+    }
+
+    pub async fn trigger_app_state_refresh_with_handler(
+        &self,
+        trigger: RefreshTriggerState,
+        handler: Arc<dyn AppStateRefreshHandler>,
+    ) -> Result<(), FireUniFfiError> {
+        let inner = self.shared.core.clone();
+        let panic_state = self.shared.panic_state.clone();
+        let rust_trigger = fire_models::RefreshTrigger::from(trigger);
+        let observer: Arc<dyn Fn(fire_models::AppStateRefreshEvent) + Send + Sync> =
+            Arc::new(move |event: fire_models::AppStateRefreshEvent| {
+                handler.on_app_state_refresh_event(event.into());
+            });
+        run_on_ffi_runtime(
+            "trigger_app_state_refresh_with_handler",
+            panic_state,
+            async move {
+                inner
+                    .app_state_refresher()
+                    .refresh_all_with_handler(rust_trigger, Some(observer))
+                    .await?;
+                Ok(())
+            },
+        )
+        .await
     }
 }

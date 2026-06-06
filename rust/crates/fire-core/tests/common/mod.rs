@@ -348,6 +348,10 @@ impl TestServer {
         format!("http://{}", self.addr)
     }
 
+    pub(crate) fn request_count(&self) -> usize {
+        self.requests.load(Ordering::SeqCst)
+    }
+
     pub(crate) async fn shutdown(self) -> Arc<AtomicUsize> {
         let _ = self.handle.await;
         self.requests

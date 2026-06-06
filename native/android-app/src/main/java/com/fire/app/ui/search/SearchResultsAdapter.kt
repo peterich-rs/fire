@@ -5,6 +5,8 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.ImageView
 import android.widget.TextView
+import androidx.recyclerview.widget.DiffUtil
+import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 import coil.ImageLoader
 import coil.request.ImageRequest
@@ -15,19 +17,17 @@ import uniffi.fire_uniffi_search.SearchTopicState
 import uniffi.fire_uniffi_search.SearchUserState
 
 sealed class SearchRow {
+    data class SectionHeader(val title: String) : SearchRow()
     data class TopicRow(val topic: SearchTopicState) : SearchRow()
     data class PostRow(val post: SearchPostState) : SearchRow()
     data class UserRow(val user: SearchUserState) : SearchRow()
-    data object SectionHeader : SearchRow()
 }
 
 class SearchResultsAdapter(
     private val onTopicClick: (SearchTopicState) -> Unit,
     private val onPostClick: (SearchPostState) -> Unit,
     private val onUserClick: (SearchUserState) -> Unit,
-) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
-
-    private val items = mutableListOf<SearchRow>()
+) : ListAdapter<SearchRow, RecyclerView.ViewHolder>(DiffCallback) {
 
     companion object {
         private const val TYPE_TOPIC = 0
@@ -36,15 +36,7 @@ class SearchResultsAdapter(
         private const val TYPE_SECTION = 3
     }
 
-    fun submitList(rows: List<SearchRow>) {
-        items.clear()
-        items.addAll(rows)
-        notifyDataSetChanged()
-    }
-
-    override fun getItemCount(): Int = items.size
-
-    override fun getItemViewType(position: Int): Int = when (items[position]) {
+    override fun getItemViewType(position: Int): Int = when (getItem(position)) {
         is SearchRow.TopicRow -> TYPE_TOPIC
         is SearchRow.PostRow -> TYPE_POST
         is SearchRow.UserRow -> TYPE_USER
@@ -71,12 +63,31 @@ class SearchResultsAdapter(
     }
 
     override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
-        when (val row = items[position]) {
+        when (val row = getItem(position)) {
             is SearchRow.TopicRow -> (holder as TopicViewHolder).bind(row.topic, onTopicClick)
             is SearchRow.PostRow -> (holder as PostViewHolder).bind(row.post, onPostClick)
             is SearchRow.UserRow -> (holder as UserViewHolder).bind(row.user, onUserClick)
-            is SearchRow.SectionHeader -> { /* no-op */ }
+            is SearchRow.SectionHeader -> (holder as SectionViewHolder).bind(row.title)
         }
+    }
+
+    private object DiffCallback : DiffUtil.ItemCallback<SearchRow>() {
+        override fun areItemsTheSame(oldItem: SearchRow, newItem: SearchRow): Boolean {
+            return when {
+                oldItem is SearchRow.SectionHeader && newItem is SearchRow.SectionHeader ->
+                    oldItem.title == newItem.title
+                oldItem is SearchRow.TopicRow && newItem is SearchRow.TopicRow ->
+                    oldItem.topic.id == newItem.topic.id
+                oldItem is SearchRow.PostRow && newItem is SearchRow.PostRow ->
+                    oldItem.post.id == newItem.post.id
+                oldItem is SearchRow.UserRow && newItem is SearchRow.UserRow ->
+                    oldItem.user.id == newItem.user.id
+                else -> false
+            }
+        }
+
+        override fun areContentsTheSame(oldItem: SearchRow, newItem: SearchRow): Boolean =
+            oldItem == newItem
     }
 
     class TopicViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
@@ -149,5 +160,11 @@ class SearchResultsAdapter(
         }
     }
 
-    class SectionViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView)
+    class SectionViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
+        private val title: TextView = itemView.findViewById(R.id.section_title)
+
+        fun bind(value: String) {
+            title.text = value
+        }
+    }
 }

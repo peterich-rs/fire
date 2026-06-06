@@ -1,4 +1,5 @@
 {
+  "originHash" : "19783afca4ed280456c43eca88609c6a6851eaa56ae94575e6db0928e8b15f48",
   "pins" : [
     {
       "identity" : "confettiswiftui",
@@ -7,15 +8,6 @@
       "state" : {
         "revision" : "9ae5bc2ce2149980884d4612321c3a266d6bf82c",
         "version" : "3.0.0"
-      }
-    },
-    {
-      "identity" : "iglistkit",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/Instagram/IGListKit.git",
-      "state" : {
-        "revision" : "894c34db0593a0049520ccf9444803db78c64c28",
-        "version" : "5.2.0"
       }
     },
     {
@@ -37,5 +29,5 @@
       }
     }
   ],
-  "version" : 2
+  "version" : 3
 }

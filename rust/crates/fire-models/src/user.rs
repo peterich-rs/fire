@@ -195,3 +195,107 @@ pub struct VoteResponse {
     #[serde(default)]
     pub who_voted: Vec<VotedUser>,
 }
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UserStatus {
+    pub description: Option<String>,
+    pub emoji: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CurrentUserSnapshot {
+    pub id: u64,
+    pub username: String,
+    pub name: Option<String>,
+    pub avatar_template: Option<String>,
+    pub animated_avatar: Option<String>,
+    #[serde(default)]
+    pub trust_level: u8,
+    #[serde(default)]
+    pub status: Option<UserStatus>,
+    pub flair_url: Option<String>,
+    pub flair_name: Option<String>,
+    pub flair_bg_color: Option<String>,
+    pub flair_color: Option<String>,
+    pub flair_group_id: Option<u64>,
+    pub gamification_score: Option<i64>,
+    #[serde(default)]
+    pub unread_notifications: u32,
+    #[serde(default)]
+    pub unread_high_priority_notifications: u32,
+    #[serde(default)]
+    pub all_unread_notifications_count: u32,
+    #[serde(default)]
+    pub seen_notification_id: u64,
+    #[serde(default = "default_notification_channel_position")]
+    pub notification_channel_position: i64,
+    pub last_posted_at: Option<String>,
+    pub last_seen_at: Option<String>,
+    pub created_at: Option<String>,
+    pub location: Option<String>,
+    pub website: Option<String>,
+    pub website_name: Option<String>,
+    pub can_follow: Option<bool>,
+    pub is_followed: Option<bool>,
+    pub total_followers: Option<u32>,
+    pub total_following: Option<u32>,
+    pub can_send_private_messages: Option<bool>,
+    pub can_send_private_message_to_user: Option<bool>,
+    pub muted: Option<bool>,
+    pub ignored: Option<bool>,
+    pub can_mute_user: Option<bool>,
+    pub can_ignore_user: Option<bool>,
+    pub suspend_reason: Option<String>,
+    pub suspended_till: Option<String>,
+    pub silence_reason: Option<String>,
+    pub silenced_till: Option<String>,
+}
+
+impl Default for CurrentUserSnapshot {
+    fn default() -> Self {
+        Self {
+            id: 0,
+            username: String::new(),
+            name: None,
+            avatar_template: None,
+            animated_avatar: None,
+            trust_level: 0,
+            status: None,
+            flair_url: None,
+            flair_name: None,
+            flair_bg_color: None,
+            flair_color: None,
+            flair_group_id: None,
+            gamification_score: None,
+            unread_notifications: 0,
+            unread_high_priority_notifications: 0,
+            all_unread_notifications_count: 0,
+            seen_notification_id: 0,
+            notification_channel_position: default_notification_channel_position(),
+            last_posted_at: None,
+            last_seen_at: None,
+            created_at: None,
+            location: None,
+            website: None,
+            website_name: None,
+            can_follow: None,
+            is_followed: None,
+            total_followers: None,
+            total_following: None,
+            can_send_private_messages: None,
+            can_send_private_message_to_user: None,
+            muted: None,
+            ignored: None,
+            can_mute_user: None,
+            can_ignore_user: None,
+            suspend_reason: None,
+            suspended_till: None,
+            silence_reason: None,
+            silenced_till: None,
+        }
+    }
+}
+
+fn default_notification_channel_position() -> i64 {
+    -1
+}

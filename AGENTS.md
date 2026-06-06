@@ -50,6 +50,10 @@ Preserve the following architectural split:
   - networking integration
   - logging integration
 
+Keep implementation paths clear and simple:
+- Do not add fallback, compatibility, or parallel rendering logic unless it is required by a current production constraint and has an explicit removal or ownership story.
+- Prefer one authoritative implementation path per feature. If behavior is missing, fix the authoritative path instead of hiding the gap behind a secondary fallback.
+- In iOS topic detail, post and reply rows should stay on the native runtime cell path; do not reintroduce SwiftUI post-row fallbacks for layout misses, polls, rich text, or missing render data.
 
 # Workflow Orchestration
 

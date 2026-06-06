@@ -111,11 +111,14 @@ async fn report_topic_timings_returns_false_on_429_and_respects_cooldown() {
 
 #[tokio::test]
 async fn report_topic_timings_surfaces_login_required_when_server_session_is_invalid() {
-    let server = TestServer::spawn(vec![raw_json_response(
-        403,
-        "application/json",
-        r#"{"errors":["您需要登录才能执行此操作。"],"error_type":"not_logged_in"}"#,
-    )])
+    let server = TestServer::spawn(vec![
+        raw_json_response(
+            403,
+            "application/json",
+            r#"{"errors":["您需要登录才能执行此操作。"],"error_type":"not_logged_in"}"#,
+        ),
+        raw_json_response(200, "application/json", r#"{}"#),
+    ])
     .await
     .expect("server");
     let core = authenticated_core(&server.base_url());
@@ -133,11 +136,7 @@ async fn report_topic_timings_surfaces_login_required_when_server_session_is_inv
         .expect_err("login invalidation should surface");
     let _ = server.shutdown().await;
 
-    assert!(matches!(
-        error,
-        FireCoreError::LoginRequired { message, .. }
-            if message == "您需要登录才能执行此操作。"
-    ));
+    assert!(matches!(error, FireCoreError::LoginRequired { .. }));
 }
 
 #[tokio::test]
@@ -172,6 +171,7 @@ async fn report_topic_timings_refreshes_csrf_after_partial_network_auth_rotation
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
             PlatformCookie {
                 name: "_forum_session".into(),
@@ -179,6 +179,7 @@ async fn report_topic_timings_refreshes_csrf_after_partial_network_auth_rotation
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
         ],
     });

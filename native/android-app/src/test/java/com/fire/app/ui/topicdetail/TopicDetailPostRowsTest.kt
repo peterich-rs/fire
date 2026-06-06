@@ -3,17 +3,17 @@ package com.fire.app.ui.topicdetail
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import uniffi.fire_uniffi_topics.TopicPostState
-import uniffi.fire_uniffi_topics.TopicResponseRowState
+import uniffi.fire_uniffi_topics.TopicTreeRowState
 
 class TopicDetailPostRowsTest {
     @Test
-    fun uniqueResponseRows_excludesBodyPostAndKeepsLatestDuplicateValue() {
+    fun uniqueTreeRows_excludesBodyPostAndKeepsLatestDuplicateValue() {
         val body = post(id = 1uL, postNumber = 1u, username = "author")
         val firstReply = post(id = 2uL, postNumber = 2u, username = "reply-old")
         val refreshedReply = post(id = 2uL, postNumber = 2u, username = "reply-new")
         val secondReply = post(id = 3uL, postNumber = 3u, username = "reply-b")
 
-        val rows = TopicDetailPostRows.uniqueResponseRows(
+        val rows = TopicDetailPostRows.uniqueTreeRows(
             rows = listOf(row(body), row(firstReply), row(refreshedReply), row(secondReply)),
             bodyPostId = body.id,
         )
@@ -23,7 +23,7 @@ class TopicDetailPostRowsTest {
     }
 
     @Test
-    fun postsForDetail_keepsBodyPostAndDeduplicatesResponseRows() {
+    fun postsForDetail_keepsBodyPostAndDeduplicatesTreeRows() {
         val body = post(id = 1uL, postNumber = 1u, username = "author")
         val duplicateBody = post(id = 1uL, postNumber = 1u, username = "duplicate-author")
         val firstReply = post(id = 2uL, postNumber = 2u, username = "reply-old")
@@ -31,7 +31,7 @@ class TopicDetailPostRowsTest {
 
         val posts = TopicDetailPostRows.postsForDetail(
             bodyPost = body,
-            responseRows = listOf(row(duplicateBody), row(firstReply), row(refreshedReply)),
+            replyRows = listOf(row(duplicateBody), row(firstReply), row(refreshedReply)),
         )
 
         assertEquals(listOf(1uL, 2uL), posts.map { it.id })
@@ -65,6 +65,7 @@ class TopicDetailPostRowsTest {
             reactions = emptyList(),
             currentUserReaction = null,
             polls = emptyList(),
+            renderDocument = null,
             acceptedAnswer = false,
             canAcceptAnswer = false,
             canUnacceptAnswer = false,
@@ -75,8 +76,8 @@ class TopicDetailPostRowsTest {
         )
     }
 
-    private fun row(post: TopicPostState): TopicResponseRowState {
-        return TopicResponseRowState(
+    private fun row(post: TopicPostState): TopicTreeRowState {
+        return TopicTreeRowState(
             post = post,
             rootPostNumber = 1u,
             parentPostNumber = 1u,

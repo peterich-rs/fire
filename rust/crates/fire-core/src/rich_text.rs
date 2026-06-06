@@ -1,7 +1,8 @@
 use std::collections::BTreeMap;
 
 use ego_tree::NodeRef;
-use fire_models::{CookedHtmlDocument, CookedHtmlNode, CookedHtmlNodeKind};
+use fire_models::{CookedHtmlDocument, CookedHtmlNode, CookedHtmlNodeKind, RenderDocument};
+use fire_rich_text::render_document as shared_render_document;
 use html5ever::tendril::TendrilSink;
 use html5ever::{local_name, ns, QualName};
 use scraper::{ElementRef, Html, HtmlTreeSink, Node as ScraperNode};
@@ -17,6 +18,11 @@ pub fn parse_cooked_html(raw_html: &str) -> CookedHtmlDocument {
     }
 
     builder.finish()
+}
+
+pub fn render_cooked_html(raw_html: &str, base_url: &str) -> RenderDocument {
+    let document = parse_cooked_html(raw_html);
+    shared_render_document(&document, base_url)
 }
 
 fn parse_fragment(raw_html: &str) -> Html {
@@ -471,6 +477,7 @@ fn node_kind_for_element(tag: &str, classes: &str) -> Option<CookedHtmlNodeKind>
         "blockquote" => Some(CookedHtmlNodeKind::Blockquote),
         "aside" if has_class("quote") => Some(CookedHtmlNodeKind::DiscourseQuote),
         "aside" => Some(CookedHtmlNodeKind::Onebox),
+        "hr" => Some(CookedHtmlNodeKind::Divider),
         "ul" | "ol" => Some(CookedHtmlNodeKind::List),
         "li" => Some(CookedHtmlNodeKind::ListItem),
         "details" => Some(CookedHtmlNodeKind::Details),

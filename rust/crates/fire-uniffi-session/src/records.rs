@@ -3,11 +3,14 @@ use fire_core::{
     FireSessionPersistenceState as CoreSessionPersistenceState,
 };
 use fire_models::{
-    BootstrapArtifacts, CookieSnapshot, LoginPhase, LoginSyncInput, PlatformCookie,
-    SessionReadiness, SessionSnapshot, TopicCategory,
+    AppStateRefreshEvent, BootstrapArtifacts, CloudflareChallengeRequest,
+    CloudflareChallengeResult, CookieSnapshot, HomeTopicListScope, LoginFinalizationResult,
+    LoginPhase, LoginSyncInput, PassiveLogoutTrigger, PlatformCookie, ProbeResult, RefreshBatch,
+    SessionReadiness, SessionSnapshot, SignalStrength, TopicCategory,
 };
+use fire_store::cookie_replay::CookieReplayEntry;
 
-use fire_uniffi_types::RequiredTagGroupState;
+use fire_uniffi_types::{RequiredTagGroupState, TopicListKindState};
 
 #[derive(uniffi::Enum, Debug, Clone, Copy)]
 pub enum AuthRecoveryHintReasonState {
@@ -61,6 +64,7 @@ pub struct PlatformCookieState {
     pub domain: Option<String>,
     pub path: Option<String>,
     pub expires_at_unix_ms: Option<i64>,
+    pub same_site: Option<String>,
 }
 
 impl From<PlatformCookie> for PlatformCookieState {
@@ -71,6 +75,7 @@ impl From<PlatformCookie> for PlatformCookieState {
             domain: value.domain,
             path: value.path,
             expires_at_unix_ms: value.expires_at_unix_ms,
+            same_site: value.same_site,
         }
     }
 }
@@ -83,6 +88,7 @@ impl From<PlatformCookieState> for PlatformCookie {
             domain: value.domain,
             path: value.path,
             expires_at_unix_ms: value.expires_at_unix_ms,
+            same_site: value.same_site,
         }
     }
 }
@@ -178,6 +184,33 @@ impl From<TopicCategoryState> for TopicCategory {
             allowed_tags: value.allowed_tags,
             permission: value.permission,
             notification_level: value.notification_level,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct HomeTopicListScopeState {
+    pub kind: TopicListKindState,
+    pub category_id: Option<u64>,
+    pub tags: Vec<String>,
+}
+
+impl From<HomeTopicListScope> for HomeTopicListScopeState {
+    fn from(value: HomeTopicListScope) -> Self {
+        Self {
+            kind: value.kind.into(),
+            category_id: value.category_id,
+            tags: value.tags,
+        }
+    }
+}
+
+impl From<HomeTopicListScopeState> for HomeTopicListScope {
+    fn from(value: HomeTopicListScopeState) -> Self {
+        Self {
+            kind: value.kind.into(),
+            category_id: value.category_id,
+            tags: value.tags,
         }
     }
 }
@@ -384,4 +417,262 @@ impl SessionState {
             browser_user_agent: snapshot.browser_user_agent,
         }
     }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct LoginFinalizationResultState {
+    pub success: bool,
+    pub session: SessionState,
+    pub t_token_verified: bool,
+    pub fingerprint_wait_needed: bool,
+}
+
+impl From<LoginFinalizationResult> for LoginFinalizationResultState {
+    fn from(value: LoginFinalizationResult) -> Self {
+        Self {
+            success: value.success,
+            session: SessionState::from_snapshot(value.session),
+            t_token_verified: value.t_token_verified,
+            fingerprint_wait_needed: value.fingerprint_wait_needed,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct PassiveLogoutTriggerState {
+    pub source: String,
+    pub signal_strength: String,
+    pub cookie_diagnostic: String,
+}
+
+impl From<PassiveLogoutTrigger> for PassiveLogoutTriggerState {
+    fn from(value: PassiveLogoutTrigger) -> Self {
+        Self {
+            source: value.source,
+            signal_strength: match value.signal_strength {
+                SignalStrength::Strong => "strong".to_string(),
+                SignalStrength::Weak => "weak".to_string(),
+            },
+            cookie_diagnostic: value.cookie_diagnostic,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct CookieReplayEntryState {
+    pub url: String,
+    pub raw_set_cookie: String,
+    pub cookie_name: String,
+    pub domain: String,
+    pub inserted_at: u64,
+}
+
+impl From<CookieReplayEntry> for CookieReplayEntryState {
+    fn from(value: CookieReplayEntry) -> Self {
+        Self {
+            url: value.url,
+            raw_set_cookie: value.raw_set_cookie,
+            cookie_name: value.cookie_name,
+            domain: value.domain,
+            inserted_at: value.inserted_at,
+        }
+    }
+}
+
+pub fn format_probe_result(result: ProbeResult) -> String {
+    match result {
+        ProbeResult::Valid { username } => format!("valid:{}", username),
+        ProbeResult::Invalid => "invalid".to_string(),
+        ProbeResult::Inconclusive => "inconclusive".to_string(),
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct CloudflareChallengeRequestState {
+    pub operation: String,
+    pub request_url: String,
+    pub origin_url: Option<String>,
+    pub is_foreground: bool,
+    pub session_epoch: u64,
+}
+
+impl From<CloudflareChallengeRequest> for CloudflareChallengeRequestState {
+    fn from(value: CloudflareChallengeRequest) -> Self {
+        Self {
+            operation: value.operation,
+            request_url: value.request_url,
+            origin_url: value.origin_url,
+            is_foreground: value.is_foreground,
+            session_epoch: value.session_epoch,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct CloudflareChallengeResultState {
+    pub completed: bool,
+    pub user_cancelled: bool,
+    pub cookies: Vec<PlatformCookieState>,
+    pub browser_user_agent: Option<String>,
+}
+
+impl From<CloudflareChallengeResultState> for CloudflareChallengeResult {
+    fn from(value: CloudflareChallengeResultState) -> Self {
+        Self {
+            completed: value.completed,
+            user_cancelled: value.user_cancelled,
+            cookies: value.cookies.into_iter().map(Into::into).collect(),
+            browser_user_agent: value.browser_user_agent,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct CurrentUserSnapshotState {
+    pub id: u64,
+    pub username: String,
+    pub name: Option<String>,
+    pub avatar_template: Option<String>,
+    pub animated_avatar: Option<String>,
+    pub trust_level: u8,
+    pub status_description: Option<String>,
+    pub status_emoji: Option<String>,
+    pub flair_url: Option<String>,
+    pub flair_name: Option<String>,
+    pub flair_bg_color: Option<String>,
+    pub flair_color: Option<String>,
+    pub flair_group_id: Option<u64>,
+    pub gamification_score: Option<i64>,
+    pub unread_notifications: u32,
+    pub unread_high_priority_notifications: u32,
+    pub all_unread_notifications_count: u32,
+    pub seen_notification_id: u64,
+    pub notification_channel_position: i64,
+}
+
+impl From<fire_models::CurrentUserSnapshot> for CurrentUserSnapshotState {
+    fn from(value: fire_models::CurrentUserSnapshot) -> Self {
+        Self {
+            id: value.id,
+            username: value.username,
+            name: value.name,
+            avatar_template: value.avatar_template,
+            animated_avatar: value.animated_avatar,
+            trust_level: value.trust_level,
+            status_description: value.status.as_ref().and_then(|s| s.description.clone()),
+            status_emoji: value.status.and_then(|s| s.emoji),
+            flair_url: value.flair_url,
+            flair_name: value.flair_name,
+            flair_bg_color: value.flair_bg_color,
+            flair_color: value.flair_color,
+            flair_group_id: value.flair_group_id,
+            gamification_score: value.gamification_score,
+            unread_notifications: value.unread_notifications,
+            unread_high_priority_notifications: value.unread_high_priority_notifications,
+            all_unread_notifications_count: value.all_unread_notifications_count,
+            seen_notification_id: value.seen_notification_id,
+            notification_channel_position: value.notification_channel_position,
+        }
+    }
+}
+
+#[derive(uniffi::Enum, Debug, Clone)]
+pub enum PreloadedDataStateState {
+    NotStarted,
+    Loading,
+    Ready,
+    Failed { error: String },
+}
+
+#[derive(uniffi::Enum, Debug, Clone)]
+pub enum LoginStateDeterminationState {
+    LoggedIn { username: String, user_id: u64 },
+    NotLoggedIn,
+    SessionExpired,
+    NetworkErrorPreserveState,
+}
+
+impl From<fire_models::LoginStateDetermination> for LoginStateDeterminationState {
+    fn from(value: fire_models::LoginStateDetermination) -> Self {
+        match value {
+            fire_models::LoginStateDetermination::LoggedIn { username, user_id } => {
+                Self::LoggedIn { username, user_id }
+            }
+            fire_models::LoginStateDetermination::NotLoggedIn => Self::NotLoggedIn,
+            fire_models::LoginStateDetermination::SessionExpired => Self::SessionExpired,
+            fire_models::LoginStateDetermination::NetworkErrorPreserveState => {
+                Self::NetworkErrorPreserveState
+            }
+        }
+    }
+}
+
+#[derive(uniffi::Enum, Debug, Clone)]
+pub enum RefreshTriggerState {
+    LoginCompleted,
+    LogoutCompleted,
+    SessionRestored,
+}
+
+impl From<RefreshTriggerState> for fire_models::RefreshTrigger {
+    fn from(value: RefreshTriggerState) -> Self {
+        match value {
+            RefreshTriggerState::LoginCompleted => Self::LoginCompleted,
+            RefreshTriggerState::LogoutCompleted => Self::LogoutCompleted,
+            RefreshTriggerState::SessionRestored => Self::SessionRestored,
+        }
+    }
+}
+
+impl From<fire_models::RefreshTrigger> for RefreshTriggerState {
+    fn from(value: fire_models::RefreshTrigger) -> Self {
+        match value {
+            fire_models::RefreshTrigger::LoginCompleted => Self::LoginCompleted,
+            fire_models::RefreshTrigger::LogoutCompleted => Self::LogoutCompleted,
+            fire_models::RefreshTrigger::SessionRestored => Self::SessionRestored,
+        }
+    }
+}
+
+#[derive(uniffi::Enum, Debug, Clone, Copy)]
+pub enum RefreshBatchState {
+    Core,
+    Secondary,
+}
+
+impl From<RefreshBatch> for RefreshBatchState {
+    fn from(value: RefreshBatch) -> Self {
+        match value {
+            RefreshBatch::Core => Self::Core,
+            RefreshBatch::Secondary => Self::Secondary,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct AppStateRefreshEventState {
+    pub batch: RefreshBatchState,
+    pub trigger: RefreshTriggerState,
+}
+
+impl From<AppStateRefreshEvent> for AppStateRefreshEventState {
+    fn from(value: AppStateRefreshEvent) -> Self {
+        Self {
+            batch: value.batch.into(),
+            trigger: value.trigger.into(),
+        }
+    }
+}
+
+#[uniffi::export(with_foreign)]
+pub trait AppStateRefreshHandler: Send + Sync {
+    fn on_app_state_refresh_event(&self, event: AppStateRefreshEventState);
+}
+
+#[uniffi::export(with_foreign)]
+pub trait CloudflareChallengeHandler: Send + Sync {
+    fn complete_cloudflare_challenge(
+        &self,
+        request: CloudflareChallengeRequestState,
+    ) -> CloudflareChallengeResultState;
 }

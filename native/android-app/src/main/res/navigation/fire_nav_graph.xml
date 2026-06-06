@@ -2,7 +2,23 @@
 <navigation xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/fire_nav_graph"
-    app:startDestination="@id/onboardingFragment">
+    app:startDestination="@id/preheatGateFragment">
+
+    <fragment
+        android:id="@+id/preheatGateFragment"
+        android:name="com.fire.app.ui.startup.PreheatGateFragment"
+        android:label="Loading">
+        <action
+            android:id="@+id/action_preheatGate_to_home"
+            app:destination="@id/homeFragment"
+            app:popUpTo="@id/preheatGateFragment"
+            app:popUpToInclusive="true" />
+        <action
+            android:id="@+id/action_preheatGate_to_onboarding"
+            app:destination="@id/onboardingFragment"
+            app:popUpTo="@id/preheatGateFragment"
+            app:popUpToInclusive="true" />
+    </fragment>
 
     <fragment
         android:id="@+id/onboardingFragment"
@@ -11,11 +27,6 @@
         <action
             android:id="@+id/action_onboarding_to_loginWebView"
             app:destination="@id/loginWebViewFragment" />
-        <action
-            android:id="@+id/action_onboarding_to_home"
-            app:destination="@id/homeFragment"
-            app:popUpTo="@id/onboardingFragment"
-            app:popUpToInclusive="true" />
     </fragment>
 
     <fragment

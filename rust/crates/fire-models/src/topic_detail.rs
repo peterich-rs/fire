@@ -264,20 +264,15 @@ pub struct TopicPostStream {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct TopicScreenQuery {
+pub struct TopicDetailSourceQuery {
     pub topic_id: u64,
     pub target_post_number: Option<u32>,
-    pub root_page_size: u16,
-    pub row_page_size: u16,
     pub track_visit: bool,
     pub force_load: bool,
-}
-
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct TopicScreen {
-    pub header: TopicHeader,
-    pub body: TopicBody,
-    pub response: TopicResponsePage,
+    pub initial_batch_size: u16,
+    pub load_more_batch_size: u16,
+    pub max_auto_batches_per_gesture: u8,
+    pub max_auto_posts_per_gesture: u16,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -317,45 +312,94 @@ pub struct TopicBody {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct TopicResponseCursor {
-    pub topic_id: u64,
-    pub session_id: u64,
-    pub next_root_offset: u32,
-    pub next_branch_offset: u32,
-    pub page_size: u16,
-    pub row_page_size: u16,
+pub struct TopicLoadedRange {
+    pub start_offset: u32,
+    pub end_offset_exclusive: u32,
+    pub first_post_id: u64,
+    pub last_post_id: u64,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct TopicResponsePageQuery {
-    pub cursor: TopicResponseCursor,
-}
-
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct TopicResponsePage {
-    pub rows: Vec<TopicResponseRow>,
-    pub next_cursor: Option<TopicResponseCursor>,
-    pub total_root_count: u32,
-    pub loaded_root_count: u32,
-    pub total_response_count: u32,
+pub struct TopicDetailSourceSnapshot {
+    pub header: TopicHeader,
+    pub body: TopicBody,
+    pub raw_stream_ids: Vec<u64>,
+    pub loaded_posts: Vec<TopicPost>,
+    pub loaded_ranges: Vec<TopicLoadedRange>,
+    pub source_cursor: Option<TopicSourceCursor>,
+    pub source_exhausted: bool,
     pub focused_post_number: Option<u32>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct TopicResponseRow {
+pub struct TopicSourceCursor {
+    pub topic_id: u64,
+    pub session_id: u64,
+    pub next_stream_offset: u32,
+    pub last_loaded_post_id: Option<u64>,
+    pub batch_size: u16,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LoadMoreTopicPostsQuery {
+    pub cursor: TopicSourceCursor,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TopicDetailSourceAppend {
+    pub appended_posts: Vec<TopicPost>,
+    pub loaded_ranges: Vec<TopicLoadedRange>,
+    pub source_cursor: Option<TopicSourceCursor>,
+    pub source_exhausted: bool,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TopicTreePresentationQuery {
+    pub body_post: TopicPost,
+    pub raw_stream_ids: Vec<u64>,
+    pub loaded_posts: Vec<TopicPost>,
+    pub focused_post_number: Option<u32>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TopicTreePresentation {
+    pub original_post: TopicPost,
+    pub reply_rows: Vec<TopicTreeRow>,
+    pub total_loaded_post_count: u32,
+    pub visible_root_post_numbers: Vec<u32>,
+    pub gained_new_root_progress: bool,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TopicTreeRow {
     pub post: TopicPost,
     pub root_post_number: u32,
     pub parent_post_number: Option<u32>,
-    /// Visual depth within the topic timeline.
-    ///
-    /// The original post is depth 0, a root reply is depth 1, and each nested reply increments
-    /// by one from there.
     pub depth: u16,
     pub preorder_index: u32,
     pub has_children: bool,
-    pub descendant_count: u32,
     pub sibling_index: u16,
     pub is_last_sibling: bool,
+    pub descendant_count: u32,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TopicLoadMoreStopReason {
+    #[default]
+    GainedVisibleRootProgress,
+    SourceExhausted,
+    MaxAutoBatchesReached,
+    MaxAutoPostsReached,
+    RequestFailed,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TopicLoadMoreOutcome {
+    pub source_snapshot: TopicDetailSourceSnapshot,
+    pub tree_presentation: TopicTreePresentation,
+    pub chained_batches: u8,
+    pub chained_posts: u16,
+    pub stop_reason: TopicLoadMoreStopReason,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

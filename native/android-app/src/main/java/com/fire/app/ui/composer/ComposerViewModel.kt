@@ -2,8 +2,9 @@ package com.fire.app.ui.composer
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.fire.app.core.error.FireErrorReporter
 import com.fire.app.session.FireSessionStore
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
@@ -25,6 +26,9 @@ class ComposerViewModel(
     private val _topicCreated = MutableStateFlow<ULong?>(null)
     val topicCreated = _topicCreated.asStateFlow()
 
+    private val _privateMessageCreated = MutableStateFlow<ULong?>(null)
+    val privateMessageCreated = _privateMessageCreated.asStateFlow()
+
     private val _error = MutableStateFlow<String?>(null)
     val error = _error.asStateFlow()
 
@@ -42,8 +46,10 @@ class ComposerViewModel(
                 )
                 val post = sessionStore.createReply(input)
                 _result.value = post
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
-                _error.value = e.message
+                handleError(e)
             } finally {
                 _isSubmitting.value = false
             }
@@ -56,6 +62,7 @@ class ComposerViewModel(
             _isSubmitting.value = true
             _error.value = null
             _topicCreated.value = null
+            _privateMessageCreated.value = null
             try {
                 val input = TopicCreateRequestState(
                     title = title,
@@ -65,32 +72,48 @@ class ComposerViewModel(
                 )
                 val topicId = sessionStore.createTopic(input)
                 _topicCreated.value = topicId
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
-                _error.value = e.message
+                handleError(e)
             } finally {
                 _isSubmitting.value = false
             }
         }
     }
 
-    fun submitPrivateMessage(title: String, body: String, targetUsername: String) {
+    fun submitPrivateMessage(title: String, body: String, targetUsernames: List<String>) {
         if (_isSubmitting.value) return
         viewModelScope.launch {
             _isSubmitting.value = true
             _error.value = null
+            _topicCreated.value = null
+            _privateMessageCreated.value = null
             try {
                 val input = PrivateMessageCreateRequestState(
                     title = title,
                     raw = body,
-                    targetRecipients = listOf(targetUsername),
+                    targetRecipients = targetUsernames,
                 )
-                sessionStore.createPrivateMessage(input)
+                val topicId = sessionStore.createPrivateMessage(input)
+                _privateMessageCreated.value = topicId
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
-                _error.value = e.message
+                handleError(e)
             } finally {
                 _isSubmitting.value = false
             }
         }
+    }
+
+    private fun handleError(error: Exception) {
+        val reported = FireErrorReporter.report(
+            operation = "composer.submit",
+            error = error,
+            sessionStore = sessionStore,
+        )
+        _error.value = reported.displayMessage
     }
 
     companion object {

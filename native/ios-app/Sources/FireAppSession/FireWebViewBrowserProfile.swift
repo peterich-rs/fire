@@ -1,6 +1,198 @@
 import UIKit
 import WebKit
 
+enum FireLoginScripts {
+    static let loginCredentialsMessageName = "loginCredentials"
+    static let fingerprintDoneMessageName = "fingerprintDone"
+
+    static var preloadedDataCapture: WKUserScript {
+        WKUserScript(
+            source: """
+            new MutationObserver(function(_, obs) {
+              var el = document.querySelector('[data-preloaded]');
+              if (!el) return;
+              obs.disconnect();
+              var parts = [el.outerHTML];
+              document.querySelectorAll('meta[name]').forEach(function(m) {
+                parts.push(m.outerHTML);
+              });
+              var setup = document.getElementById('data-discourse-setup');
+              if (setup) parts.push(setup.outerHTML);
+              window.__rawPreloaded = parts.join('\\n');
+            }).observe(document.documentElement, {childList: true, subtree: true});
+            """,
+            injectionTime: .atDocumentStart,
+            forMainFrameOnly: true
+        )
+    }
+
+    static func credentialAutoFillUserScript(
+        credential: FireSavedCredential?
+    ) -> WKUserScript {
+        WKUserScript(
+            source: credentialAutoFillSource(credential: credential),
+            injectionTime: .atDocumentEnd,
+            forMainFrameOnly: true
+        )
+    }
+
+    static func credentialAutoFillSource(credential: FireSavedCredential?) -> String {
+        let username = jsStringLiteral(credential?.username)
+        let password = jsStringLiteral(credential?.password)
+        return """
+        (function() {
+          if (window.__fireLoginHookTimer) {
+            clearInterval(window.__fireLoginHookTimer);
+          }
+          var savedUser = \(username);
+          var savedPass = \(password);
+          var filled = !!window.__fireLoginFilled;
+          var hooked = !!window.__fireLoginHooked;
+          var attempts = 0;
+          window.__fireLoginHookTimer = setInterval(function() {
+            var userInput = document.getElementById('login-account-name');
+            var passInput = document.getElementById('login-account-password');
+            if (userInput && passInput) {
+              if (!filled && savedUser && savedPass) {
+                filled = true;
+                window.__fireLoginFilled = true;
+                userInput.value = savedUser;
+                passInput.value = savedPass;
+                userInput.dispatchEvent(new Event('input', { bubbles: true }));
+                passInput.dispatchEvent(new Event('input', { bubbles: true }));
+              }
+              if (!hooked) {
+                hooked = true;
+                window.__fireLoginHooked = true;
+                var loginBtn = document.getElementById('login-button');
+                if (loginBtn) {
+                  loginBtn.addEventListener('click', function() {
+                    var u = document.getElementById('login-account-name');
+                    var p = document.getElementById('login-account-password');
+                    if (
+                      u && p && u.value && p.value
+                      && window.webkit
+                      && window.webkit.messageHandlers
+                      && window.webkit.messageHandlers.\(loginCredentialsMessageName)
+                    ) {
+                      window.webkit.messageHandlers.\(loginCredentialsMessageName).postMessage({
+                        username: u.value,
+                        password: p.value
+                      });
+                    }
+                  }, true);
+                }
+              }
+              clearInterval(window.__fireLoginHookTimer);
+              window.__fireLoginHookTimer = null;
+            }
+            if (++attempts > 30) {
+              clearInterval(window.__fireLoginHookTimer);
+              window.__fireLoginHookTimer = null;
+            }
+          }, 300);
+        })();
+        """
+    }
+
+    static var fingerprintIntercept: WKUserScript {
+        WKUserScript(
+            source: """
+            (function() {
+              if (window.__fpHooked) return;
+              window.__fpHooked = true;
+              function notify() {
+                try {
+                  if (
+                    window.webkit
+                    && window.webkit.messageHandlers
+                    && window.webkit.messageHandlers.\(fingerprintDoneMessageName)
+                  ) {
+                    window.webkit.messageHandlers.\(fingerprintDoneMessageName).postMessage("done");
+                  }
+                } catch (error) {}
+              }
+
+              var originalFetch = window.fetch;
+              if (originalFetch) {
+                window.fetch = function(input, init) {
+                  var result = originalFetch.apply(this, arguments);
+                  if (
+                    init && init.method && init.method.toUpperCase() === 'POST'
+                    && typeof init.body === 'string'
+                    && init.body.indexOf('visitor_id=') !== -1
+                  ) {
+                    result.then(notify, notify);
+                  }
+                  return result;
+                };
+              }
+
+              var originalOpen = XMLHttpRequest.prototype.open;
+              var originalSend = XMLHttpRequest.prototype.send;
+              XMLHttpRequest.prototype.open = function(method) {
+                this.__fireMethod = method;
+                return originalOpen.apply(this, arguments);
+              };
+              XMLHttpRequest.prototype.send = function(body) {
+                if (
+                  this.__fireMethod === 'POST'
+                  && typeof body === 'string'
+                  && body.indexOf('visitor_id=') !== -1
+                ) {
+                  this.addEventListener('loadend', notify);
+                }
+                return originalSend.apply(this, arguments);
+              };
+            })();
+            """,
+            injectionTime: .atDocumentEnd,
+            forMainFrameOnly: true
+        )
+    }
+
+    static var readCurrentUsername: String {
+        """
+        (function() {
+          try {
+            var meta = document.querySelector('meta[name="current-username"]');
+            if (meta && meta.content) return meta.content;
+            if (
+              typeof Discourse !== 'undefined'
+              && Discourse.User
+              && typeof Discourse.User.current === 'function'
+            ) {
+              var currentUser = Discourse.User.current();
+              if (currentUser && currentUser.username) return currentUser.username;
+            }
+          } catch (error) {}
+          return null;
+        })();
+        """
+    }
+
+    static var readCsrfToken: String {
+        """
+        (function() {
+          var meta = document.querySelector('meta[name="csrf-token"]');
+          return meta && meta.content ? meta.content : null;
+        })();
+        """
+    }
+
+    static var readPreloadedData: String {
+        "(function(){return window.__rawPreloaded||null;})()"
+    }
+
+    private static func jsStringLiteral(_ value: String?) -> String {
+        guard let value else {
+            return "null"
+        }
+        let data = try? JSONEncoder().encode(value)
+        return String(data: data ?? Data("null".utf8), encoding: .utf8) ?? "null"
+    }
+}
+
 @MainActor
 enum FireWebViewBrowserProfile {
     static var mobileSafariUserAgent: String {
@@ -21,6 +213,27 @@ enum FireWebViewBrowserProfile {
 
     static func makeConfiguration() -> WKWebViewConfiguration {
         makeConfiguration(userContentController: WKUserContentController())
+    }
+
+    static func makeLoginConfiguration(
+        credential: FireSavedCredential?,
+        messageHandler: WKScriptMessageHandler
+    ) -> WKWebViewConfiguration {
+        let userContentController = WKUserContentController()
+        userContentController.addUserScript(FireLoginScripts.preloadedDataCapture)
+        userContentController.addUserScript(
+            FireLoginScripts.credentialAutoFillUserScript(credential: credential)
+        )
+        userContentController.addUserScript(FireLoginScripts.fingerprintIntercept)
+        userContentController.add(
+            messageHandler,
+            name: FireLoginScripts.loginCredentialsMessageName
+        )
+        userContentController.add(
+            messageHandler,
+            name: FireLoginScripts.fingerprintDoneMessageName
+        )
+        return makeConfiguration(userContentController: userContentController)
     }
 
     static func makeConfiguration(userContentController: WKUserContentController) -> WKWebViewConfiguration {

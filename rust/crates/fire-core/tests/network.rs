@@ -10,8 +10,8 @@ use fire_core::{
     FireAuthRecoveryHint, FireAuthRecoveryHintReason, FireCore, FireCoreConfig, FireCoreError,
 };
 use fire_models::{
-    LoginSyncInput, PlatformCookie, TopicDetailQuery, TopicListKind, TopicListQuery,
-    TopicReplyRequest, TopicScreenQuery, TopicTag,
+    LoginSyncInput, PlatformCookie, TopicDetailQuery, TopicDetailSourceQuery, TopicListKind,
+    TopicListQuery, TopicReplyRequest, TopicTag,
 };
 use serde_json::{json, Value};
 use tokio::time::{sleep, Duration};
@@ -211,6 +211,7 @@ async fn fetch_private_message_mailboxes_use_username_routes_and_parse_participa
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
             PlatformCookie {
                 name: "_forum_session".into(),
@@ -218,6 +219,7 @@ async fn fetch_private_message_mailboxes_use_username_routes_and_parse_participa
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
         ],
     });
@@ -510,6 +512,91 @@ async fn fetch_topic_list_surfaces_cloudflare_challenge_error() {
 }
 
 #[tokio::test]
+async fn fetch_topic_list_retries_once_after_cloudflare_challenge_completion() {
+    let responses = vec![
+        raw_cloudflare_challenge_response(
+            403,
+            r#"<html><head><title>Just a moment...</title></head><body>__cf_chl_opt</body></html>"#,
+        ),
+        raw_json_response(200, "application/json", &sample_latest_json()),
+    ];
+    let server = TestServer::spawn(responses).await.expect("server");
+    let core = FireCore::new(FireCoreConfig {
+        base_url: server.base_url(),
+        workspace_path: None,
+    })
+    .expect("core");
+    core.set_cloudflare_challenge_handler(|request| async move {
+        assert_eq!(request.operation, "fetch topic list");
+        assert!(request.request_url.contains("/latest.json"));
+        fire_models::CloudflareChallengeResult {
+            completed: true,
+            user_cancelled: false,
+            cookies: vec![PlatformCookie {
+                name: "cf_clearance".into(),
+                value: "new-clearance".into(),
+                domain: Some("linux.do".into()),
+                path: Some("/".into()),
+                expires_at_unix_ms: None,
+                same_site: None,
+            }],
+            browser_user_agent: Some("FireBrowser/1.0".into()),
+        }
+    });
+
+    let response = core
+        .fetch_topic_list(TopicListQuery {
+            kind: TopicListKind::Latest,
+            ..TopicListQuery::default()
+        })
+        .await
+        .expect("cloudflare challenge should retry once");
+    let requests = server.shutdown_with_requests().await;
+
+    assert_eq!(response.rows.len(), 1);
+    assert_eq!(requests.len(), 2);
+    let snapshot = core.snapshot();
+    assert_eq!(
+        snapshot.cookies.cf_clearance.as_deref(),
+        Some("new-clearance")
+    );
+    assert_eq!(
+        snapshot.browser_user_agent.as_deref(),
+        Some("FireBrowser/1.0")
+    );
+}
+
+#[tokio::test]
+async fn fetch_topic_list_surfaces_rate_limited_cloudflare_challenge_error() {
+    let responses = vec![raw_cloudflare_challenge_response(
+        429,
+        r#"<html><head><title>Just a moment...</title></head><body>__cf_chl_opt</body></html>"#,
+    )];
+    let server = TestServer::spawn(responses).await.expect("server");
+    let core = FireCore::new(FireCoreConfig {
+        base_url: server.base_url(),
+        workspace_path: None,
+    })
+    .expect("core");
+
+    let error = core
+        .fetch_topic_list(TopicListQuery {
+            kind: TopicListKind::Latest,
+            ..TopicListQuery::default()
+        })
+        .await
+        .expect_err("429 Cloudflare challenge should surface as a challenge error");
+    let _ = server.shutdown().await;
+
+    assert!(matches!(
+        error,
+        FireCoreError::CloudflareChallenge {
+            operation: "fetch topic list"
+        }
+    ));
+}
+
+#[tokio::test]
 async fn fetch_topic_list_does_not_treat_non_cloudflare_403_body_as_challenge() {
     let responses = vec![raw_json_response(
         403,
@@ -569,6 +656,7 @@ async fn fetch_topic_list_keeps_local_login_when_success_response_only_clears_au
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
             PlatformCookie {
                 name: "_forum_session".into(),
@@ -576,6 +664,7 @@ async fn fetch_topic_list_keeps_local_login_when_success_response_only_clears_au
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
             PlatformCookie {
                 name: "cf_clearance".into(),
@@ -583,6 +672,7 @@ async fn fetch_topic_list_keeps_local_login_when_success_response_only_clears_au
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
         ],
     });
@@ -637,6 +727,7 @@ async fn fetch_topic_posts_keeps_local_login_when_forbidden_invalid_access_sets_
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
             PlatformCookie {
                 name: "_forum_session".into(),
@@ -644,6 +735,7 @@ async fn fetch_topic_posts_keeps_local_login_when_forbidden_invalid_access_sets_
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
             PlatformCookie {
                 name: "cf_clearance".into(),
@@ -651,6 +743,7 @@ async fn fetch_topic_posts_keeps_local_login_when_forbidden_invalid_access_sets_
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
         ],
     });
@@ -715,6 +808,7 @@ async fn fetch_topic_detail_partial_auth_rotation_advances_epoch_and_clears_csrf
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
             PlatformCookie {
                 name: "_forum_session".into(),
@@ -722,6 +816,7 @@ async fn fetch_topic_detail_partial_auth_rotation_advances_epoch_and_clears_csrf
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
         ],
     });
@@ -764,7 +859,7 @@ async fn fetch_topic_detail_partial_auth_rotation_advances_epoch_and_clears_csrf
 }
 
 #[tokio::test]
-async fn fetch_topic_list_surfaces_login_required_when_success_response_invalidates_auth() {
+async fn fetch_topic_list_preserves_local_login_when_success_response_reports_logged_out() {
     let body = sample_latest_json();
     let response = format!(
         "HTTP/1.1 200 TEST\r\nContent-Type: application/json\r\nContent-Length: {}\r\nDiscourse-Logged-Out: 1\r\nSet-Cookie: _t=; path=/; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax\r\nConnection: close\r\n\r\n{body}",
@@ -790,6 +885,7 @@ async fn fetch_topic_list_surfaces_login_required_when_success_response_invalida
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
             PlatformCookie {
                 name: "_forum_session".into(),
@@ -797,6 +893,7 @@ async fn fetch_topic_list_surfaces_login_required_when_success_response_invalida
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
             PlatformCookie {
                 name: "cf_clearance".into(),
@@ -804,40 +901,46 @@ async fn fetch_topic_list_surfaces_login_required_when_success_response_invalida
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
         ],
     });
 
-    let error = core
+    let response = core
         .fetch_topic_list(TopicListQuery {
             kind: TopicListKind::Latest,
             page: Some(1),
             ..TopicListQuery::default()
         })
         .await
-        .expect_err("auth invalidation should surface");
+        .expect("successful response should not force login invalidation");
     let _ = server.shutdown().await;
 
-    assert!(matches!(
-        error,
-        FireCoreError::LoginRequired { message, .. }
-            if message == "登录状态已失效，请重新登录。"
-    ));
+    assert_eq!(response.rows.len(), 1);
 
     let snapshot = core.snapshot();
-    assert_eq!(snapshot.cookies.t_token, None);
-    assert_eq!(snapshot.cookies.forum_session, None);
-    assert_eq!(snapshot.cookies.csrf_token, None);
+    assert_eq!(snapshot.cookies.t_token.as_deref(), Some("token"));
+    assert_eq!(snapshot.cookies.forum_session.as_deref(), Some("forum"));
+    assert_eq!(snapshot.cookies.csrf_token.as_deref(), Some("csrf-token"));
     assert_eq!(snapshot.cookies.cf_clearance.as_deref(), Some("clearance"));
-    assert_eq!(snapshot.bootstrap.current_username, None);
-    assert!(!snapshot.bootstrap.has_preloaded_data);
+    assert_eq!(
+        snapshot.bootstrap.current_username.as_deref(),
+        Some("alice")
+    );
+    assert!(snapshot.bootstrap.has_preloaded_data);
 }
 
 #[tokio::test]
-async fn fetch_topic_list_surfaces_login_required_and_clears_local_state_for_not_logged_in_error() {
+async fn fetch_topic_list_surfaces_login_required_and_preserves_local_state_for_not_logged_in_error(
+) {
     let body = r#"{"errors":["需要登录才能执行此操作。"],"error_type":"not_logged_in"}"#;
-    let response = raw_json_response(403, "application/json", body);
-    let server = TestServer::spawn(vec![response]).await.expect("server");
+    let probe_body = r#"{"current_user":{"username":"alice"}}"#;
+    let server = TestServer::spawn(vec![
+        raw_json_response(403, "application/json", body),
+        raw_json_response(200, "application/json", probe_body),
+    ])
+    .await
+    .expect("server");
     let core = FireCore::new(FireCoreConfig {
         base_url: server.base_url(),
         workspace_path: None,
@@ -857,6 +960,7 @@ async fn fetch_topic_list_surfaces_login_required_and_clears_local_state_for_not
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
             PlatformCookie {
                 name: "_forum_session".into(),
@@ -864,6 +968,7 @@ async fn fetch_topic_list_surfaces_login_required_and_clears_local_state_for_not
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
             PlatformCookie {
                 name: "cf_clearance".into(),
@@ -871,6 +976,7 @@ async fn fetch_topic_list_surfaces_login_required_and_clears_local_state_for_not
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
         ],
     });
@@ -884,18 +990,18 @@ async fn fetch_topic_list_surfaces_login_required_and_clears_local_state_for_not
         .expect_err("login-required error should surface");
     let _ = server.shutdown().await;
 
-    assert!(matches!(
-        error,
-        FireCoreError::LoginRequired { message, .. }
-            if message == "需要登录才能执行此操作。"
-    ));
+    assert!(matches!(error, FireCoreError::LoginRequired { .. }));
 
     let snapshot = core.snapshot();
-    assert_eq!(snapshot.cookies.t_token, None);
-    assert_eq!(snapshot.cookies.forum_session, None);
-    assert_eq!(snapshot.cookies.csrf_token, None);
+    assert_eq!(snapshot.cookies.t_token.as_deref(), Some("token"));
+    assert_eq!(snapshot.cookies.forum_session.as_deref(), Some("forum"));
+    assert_eq!(snapshot.cookies.csrf_token.as_deref(), Some("csrf-token"));
     assert_eq!(snapshot.cookies.cf_clearance.as_deref(), Some("clearance"));
-    assert!(!snapshot.bootstrap.has_preloaded_data);
+    assert_eq!(
+        snapshot.bootstrap.current_username.as_deref(),
+        Some("alice")
+    );
+    assert!(snapshot.bootstrap.has_preloaded_data);
 }
 
 #[tokio::test]
@@ -930,6 +1036,7 @@ async fn stale_response_is_discarded_after_local_logout() {
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
             PlatformCookie {
                 name: "_forum_session".into(),
@@ -937,6 +1044,7 @@ async fn stale_response_is_discarded_after_local_logout() {
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
         ],
     });
@@ -1010,6 +1118,7 @@ async fn stale_response_is_discarded_after_session_rotation() {
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
             PlatformCookie {
                 name: "_forum_session".into(),
@@ -1017,6 +1126,7 @@ async fn stale_response_is_discarded_after_session_rotation() {
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
         ],
     });
@@ -1045,6 +1155,7 @@ async fn stale_response_is_discarded_after_session_rotation() {
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
             PlatformCookie {
                 name: "_forum_session".into(),
@@ -1052,6 +1163,7 @@ async fn stale_response_is_discarded_after_session_rotation() {
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
         ],
     });
@@ -1147,35 +1259,147 @@ async fn fetch_topic_detail_parses_detail_payload() {
 }
 
 #[tokio::test]
-async fn fetch_topic_screen_opens_web_detail_before_internal_top_level_filter() {
-    let mut top_level_payload: Value =
+async fn fetch_topic_detail_rejects_mismatched_topic_identity() {
+    let payload = sample_topic_detail_json().replace("\"id\": 123", "\"id\": 999");
+    let responses = vec![raw_json_response(200, "application/json", &payload)];
+    let server = TestServer::spawn(responses).await.expect("server");
+    let core = FireCore::new(FireCoreConfig {
+        base_url: server.base_url(),
+        workspace_path: None,
+    })
+    .expect("core");
+
+    let error = core
+        .fetch_topic_detail(TopicDetailQuery {
+            topic_id: 123,
+            post_number: None,
+            track_visit: false,
+            force_load: false,
+            filter: None,
+            username_filters: None,
+            filter_top_level_replies: false,
+        })
+        .await
+        .expect_err("mismatched topic id should fail");
+    let _ = server.shutdown().await;
+
+    assert!(matches!(
+        error,
+        FireCoreError::UnexpectedTopicDetail {
+            requested_topic_id: 123,
+            actual_topic_id: 999,
+        }
+    ));
+}
+
+#[tokio::test]
+async fn fetch_topic_detail_source_snapshot_tracks_visit_headers_and_force_load_query() {
+    let responses = vec![raw_json_response(
+        200,
+        "application/json",
+        &sample_topic_detail_json(),
+    )];
+    let server = TestServer::spawn(responses).await.expect("server");
+    let core = FireCore::new(FireCoreConfig {
+        base_url: server.base_url(),
+        workspace_path: None,
+    })
+    .expect("core");
+
+    let snapshot = core
+        .fetch_topic_detail_source_snapshot(TopicDetailSourceQuery {
+            topic_id: 123,
+            target_post_number: None,
+            track_visit: true,
+            force_load: true,
+            initial_batch_size: 40,
+            load_more_batch_size: 40,
+            max_auto_batches_per_gesture: 3,
+            max_auto_posts_per_gesture: 120,
+        })
+        .await
+        .expect("topic source snapshot");
+    let requests = server.shutdown_with_requests().await;
+
+    assert_eq!(snapshot.body.post.post_number, 1);
+    assert_eq!(snapshot.loaded_posts.len(), 1);
+    assert_eq!(requests.len(), 1);
+    let first_request_headers = requests[0].to_ascii_lowercase();
+    assert!(requests[0].contains("GET /t/123.json?track_visit=true&forceLoad=true HTTP/1.1"));
+    assert!(first_request_headers.contains("discourse-track-view: 1"));
+    assert!(first_request_headers.contains("discourse-track-view-topic-id: 123"));
+}
+
+#[tokio::test]
+async fn fetch_topic_detail_source_snapshot_preserves_target_anchor_and_source_cursor() {
+    let target_post_number = 14_u32;
+    let mut detail_payload: Value =
         serde_json::from_str(&sample_topic_detail_json()).expect("detail fixture json");
-    top_level_payload
+    detail_payload
         .as_object_mut()
         .expect("detail fixture object")
+        .insert("posts_count".into(), json!(26));
+
+    let root_posts = (2_u32..=26)
+        .map(|post_number| {
+            json!({
+                "id": 9000 + u64::from(post_number),
+                "username": format!("user-{post_number}"),
+                "cooked": format!("<p>Reply {post_number}</p>"),
+                "post_number": post_number,
+                "reply_to_post_number": 1,
+                "reply_count": 0
+            })
+        })
+        .collect::<Vec<_>>();
+    let root_stream = root_posts
+        .iter()
+        .map(|post| {
+            post.get("id")
+                .and_then(Value::as_u64)
+                .expect("root post id")
+        })
+        .collect::<Vec<_>>();
+    let target_root = root_posts
+        .iter()
+        .find(|post| {
+            post.get("post_number").and_then(Value::as_u64) == Some(u64::from(target_post_number))
+        })
+        .cloned()
+        .expect("target root post");
+    let body_post = detail_payload
+        .get("post_stream")
+        .and_then(Value::as_object)
+        .and_then(|post_stream| post_stream.get("posts"))
+        .and_then(Value::as_array)
+        .and_then(|posts| posts.first())
+        .cloned()
+        .expect("body post");
+    let mut top_level_payload = detail_payload.clone();
+    top_level_payload
+        .as_object_mut()
+        .expect("top-level fixture object")
         .get_mut("post_stream")
         .and_then(Value::as_object_mut)
-        .expect("post stream object")
+        .expect("top-level post stream object")
         .extend([
-            ("stream".into(), json!([9002])),
-            (
-                "posts".into(),
-                json!([
-                    {
-                        "id": 9002,
-                        "username": "bob",
-                        "cooked": "<p>First reply</p>",
-                        "post_number": 2,
-                        "reply_to_post_number": 1,
-                        "reply_count": 0
-                    }
-                ]),
-            ),
+            ("posts".into(), Value::Array(vec![body_post, target_root])),
+            ("stream".into(), json!(root_stream.clone())),
         ]);
-    let top_level_body = top_level_payload.to_string();
+
     let responses = vec![
-        raw_json_response(200, "application/json", &sample_topic_detail_json()),
-        raw_json_response(200, "application/json", &top_level_body),
+        raw_json_response(200, "application/json", &top_level_payload.to_string()),
+        raw_json_response(
+            200,
+            "application/json",
+            &json!({
+                "post_stream": {
+                    "posts": root_posts.iter().take(10).cloned().collect::<Vec<_>>(),
+                    "stream": root_stream.iter().take(10).copied().collect::<Vec<_>>()
+                }
+            })
+            .to_string(),
+        ),
     ];
     let server = TestServer::spawn(responses).await.expect("server");
     let core = FireCore::new(FireCoreConfig {
@@ -1184,33 +1408,33 @@ async fn fetch_topic_screen_opens_web_detail_before_internal_top_level_filter() 
     })
     .expect("core");
 
-    let screen = core
-        .fetch_topic_screen(TopicScreenQuery {
+    let snapshot = core
+        .fetch_topic_detail_source_snapshot(TopicDetailSourceQuery {
             topic_id: 123,
-            target_post_number: None,
-            root_page_size: 10,
-            row_page_size: 40,
+            target_post_number: Some(target_post_number),
             track_visit: true,
             force_load: true,
+            initial_batch_size: 10,
+            load_more_batch_size: 10,
+            max_auto_batches_per_gesture: 3,
+            max_auto_posts_per_gesture: 120,
         })
         .await
-        .expect("topic screen");
+        .expect("topic source snapshot");
     let requests = server.shutdown_with_requests().await;
 
-    assert_eq!(screen.body.post.post_number, 1);
-    assert_eq!(screen.response.rows.len(), 1);
-    assert_eq!(screen.response.rows[0].post.post_number, 2);
+    assert_eq!(snapshot.focused_post_number, Some(target_post_number));
+    assert!(snapshot
+        .loaded_posts
+        .iter()
+        .any(|post| post.post_number == target_post_number));
+    let next_cursor = snapshot.source_cursor.expect("next source cursor");
+    assert_eq!(next_cursor.topic_id, 123);
+    assert_eq!(next_cursor.next_stream_offset, 10);
+    assert_eq!(next_cursor.batch_size, 10);
     assert_eq!(requests.len(), 2);
-    let first_request_headers = requests[0].to_ascii_lowercase();
-    let second_request_headers = requests[1].to_ascii_lowercase();
-    assert!(requests[0].contains("GET /t/123.json?track_visit=true&forceLoad=true HTTP/1.1"));
-    assert!(!requests[0].contains("filter_top_level_replies"));
-    assert!(first_request_headers.contains("discourse-track-view: 1"));
-    assert!(first_request_headers.contains("discourse-track-view-topic-id: 123"));
-    assert!(requests[1].contains("GET /t/123.json?filter_top_level_replies=true HTTP/1.1"));
-    assert!(!requests[1].contains("track_visit=true"));
-    assert!(!requests[1].contains("forceLoad=true"));
-    assert!(!second_request_headers.contains("discourse-track-view: 1"));
+    assert!(requests[0].contains("GET /t/123/14.json?track_visit=true&forceLoad=true HTTP/1.1"));
+    assert!(requests[1].contains("GET /t/123/posts.json"));
 }
 
 #[tokio::test]
@@ -1553,6 +1777,16 @@ async fn fetch_topic_posts_parses_batch_response() {
 async fn fetch_topic_posts_reuses_active_topic_response_session_cache() {
     let mut top_level_payload: Value =
         serde_json::from_str(&sample_topic_detail_json()).expect("detail fixture json");
+    let body_post = top_level_payload
+        .as_object()
+        .expect("detail fixture object")
+        .get("post_stream")
+        .and_then(Value::as_object)
+        .and_then(|post_stream| post_stream.get("posts"))
+        .and_then(Value::as_array)
+        .and_then(|posts| posts.first())
+        .cloned()
+        .expect("body post");
     top_level_payload
         .as_object_mut()
         .expect("detail fixture object")
@@ -1564,6 +1798,7 @@ async fn fetch_topic_posts_reuses_active_topic_response_session_cache() {
             (
                 "posts".into(),
                 json!([
+                    body_post,
                     {
                         "id": 9002,
                         "username": "bob",
@@ -1591,7 +1826,6 @@ async fn fetch_topic_posts_reuses_active_topic_response_session_cache() {
     })
     .to_string();
     let responses = vec![
-        raw_json_response(200, "application/json", &sample_topic_detail_json()),
         raw_json_response(200, "application/json", &top_level_payload.to_string()),
         raw_json_response(200, "application/json", &post_payload),
     ];
@@ -1602,17 +1836,19 @@ async fn fetch_topic_posts_reuses_active_topic_response_session_cache() {
     })
     .expect("core");
 
-    let _screen = core
-        .fetch_topic_screen(TopicScreenQuery {
+    let _snapshot = core
+        .fetch_topic_detail_source_snapshot(TopicDetailSourceQuery {
             topic_id: 123,
             target_post_number: None,
-            root_page_size: 10,
-            row_page_size: 40,
             track_visit: true,
             force_load: true,
+            initial_batch_size: 1,
+            load_more_batch_size: 40,
+            max_auto_batches_per_gesture: 3,
+            max_auto_posts_per_gesture: 120,
         })
         .await
-        .expect("topic screen");
+        .expect("topic source snapshot");
     let posts = core
         .fetch_topic_posts(123, vec![9002, 9003])
         .await
@@ -1631,10 +1867,10 @@ async fn fetch_topic_posts_reuses_active_topic_response_session_cache() {
         cached_posts.iter().map(|post| post.id).collect::<Vec<_>>(),
         vec![9002, 9003]
     );
-    assert_eq!(requests.len(), 3);
-    assert!(requests[2]
+    assert_eq!(requests.len(), 2);
+    assert!(requests[1]
         .contains("GET /t/123/posts.json?post_ids%5B%5D=9003&include_suggested=false HTTP/1.1"));
-    assert!(!requests[2].contains("post_ids%5B%5D=9002"));
+    assert!(!requests[1].contains("post_ids%5B%5D=9002"));
 }
 
 #[tokio::test]
@@ -1878,6 +2114,72 @@ async fn refresh_csrf_token_updates_session_from_network() {
 }
 
 #[tokio::test]
+async fn refresh_csrf_token_preserves_login_when_success_response_reports_logged_out() {
+    let body = r#"{"csrf":"fresh-csrf"}"#;
+    let response = format!(
+        "HTTP/1.1 200 TEST\r\nContent-Type: application/json\r\nContent-Length: {}\r\nDiscourse-Logged-Out: 1\r\nSet-Cookie: _t=; path=/; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax\r\nConnection: close\r\n\r\n{body}",
+        body.len()
+    );
+    let server = TestServer::spawn(vec![response]).await.expect("server");
+    let core = FireCore::new(FireCoreConfig {
+        base_url: server.base_url(),
+        workspace_path: None,
+    })
+    .expect("core");
+
+    let _ = core.sync_login_context(LoginSyncInput {
+        username: Some("alice".into()),
+        home_html: None,
+        csrf_token: None,
+        current_url: Some(server.base_url()),
+        browser_user_agent: None,
+        cookies: vec![
+            PlatformCookie {
+                name: "_t".into(),
+                value: "token".into(),
+                domain: None,
+                path: None,
+                expires_at_unix_ms: None,
+                same_site: None,
+            },
+            PlatformCookie {
+                name: "_forum_session".into(),
+                value: "forum".into(),
+                domain: None,
+                path: None,
+                expires_at_unix_ms: None,
+                same_site: None,
+            },
+            PlatformCookie {
+                name: "cf_clearance".into(),
+                value: "clearance".into(),
+                domain: None,
+                path: None,
+                expires_at_unix_ms: None,
+                same_site: None,
+            },
+        ],
+    });
+
+    let snapshot = core
+        .refresh_csrf_token_if_needed()
+        .await
+        .expect("successful csrf response should be usable");
+    let requests = server.shutdown_with_requests().await;
+
+    assert_eq!(snapshot.cookies.csrf_token.as_deref(), Some("fresh-csrf"));
+    assert_eq!(snapshot.cookies.t_token.as_deref(), Some("token"));
+    assert_eq!(snapshot.cookies.forum_session.as_deref(), Some("forum"));
+    assert_eq!(snapshot.cookies.cf_clearance.as_deref(), Some("clearance"));
+    assert_eq!(requests.len(), 1);
+    let request = requests[0].to_ascii_lowercase();
+    assert!(request.contains("get /session/csrf http/1.1"));
+    assert!(request.contains("discourse-logged-in: true"));
+    assert!(request.contains("_t=token"));
+    assert!(request.contains("_forum_session=forum"));
+}
+
+#[tokio::test]
 async fn refresh_csrf_token_accepts_scalar_tokens() {
     let responses = vec![raw_json_response(
         200,
@@ -1923,6 +2225,7 @@ async fn concurrent_csrf_refresh_if_needed_shares_in_flight_request() {
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
             PlatformCookie {
                 name: "_forum_session".into(),
@@ -1930,6 +2233,7 @@ async fn concurrent_csrf_refresh_if_needed_shares_in_flight_request() {
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
         ],
     });
@@ -1944,6 +2248,73 @@ async fn concurrent_csrf_refresh_if_needed_shares_in_flight_request() {
 
     assert_eq!(first.cookies.csrf_token.as_deref(), Some("fresh-csrf"));
     assert_eq!(second.cookies.csrf_token.as_deref(), Some("fresh-csrf"));
+    assert_eq!(requests.len(), 1);
+    assert!(requests[0].contains("GET /session/csrf HTTP/1.1"));
+}
+
+#[tokio::test]
+async fn queued_csrf_refresh_if_needed_does_not_retry_after_session_logout() {
+    let server = TestServer::spawn_scripted(vec![TestServerStep::delayed(
+        raw_json_response(200, "application/json", r#"{"csrf":"fresh-csrf"}"#),
+        Duration::from_millis(120),
+    )])
+    .await
+    .expect("server");
+    let core = FireCore::new(FireCoreConfig {
+        base_url: server.base_url(),
+        workspace_path: None,
+    })
+    .expect("core");
+    let _ = core.sync_login_context(LoginSyncInput {
+        username: Some("alice".into()),
+        home_html: None,
+        csrf_token: None,
+        current_url: Some(server.base_url()),
+        browser_user_agent: None,
+        cookies: vec![
+            PlatformCookie {
+                name: "_t".into(),
+                value: "token".into(),
+                domain: None,
+                path: None,
+                expires_at_unix_ms: None,
+                same_site: None,
+            },
+            PlatformCookie {
+                name: "_forum_session".into(),
+                value: "forum".into(),
+                domain: None,
+                path: None,
+                expires_at_unix_ms: None,
+                same_site: None,
+            },
+        ],
+    });
+
+    let first_core = core.clone();
+    let first = tokio::spawn(async move { first_core.refresh_csrf_token_if_needed().await });
+    sleep(Duration::from_millis(20)).await;
+
+    let second_core = core.clone();
+    let second = tokio::spawn(async move { second_core.refresh_csrf_token_if_needed().await });
+    sleep(Duration::from_millis(20)).await;
+
+    let logged_out = core.logout_local(true);
+    assert!(!logged_out.cookies.can_authenticate_requests());
+
+    let first = first.await.expect("first task");
+    let second = second.await.expect("second task");
+    let requests = server.shutdown_with_requests().await;
+
+    assert!(matches!(
+        first,
+        Err(FireCoreError::StaleSessionResponse {
+            operation: "refresh csrf token"
+        })
+    ));
+    let second = second.expect("queued csrf refresh should skip after logout");
+    assert_eq!(second.cookies.csrf_token, None);
+    assert!(!second.cookies.can_authenticate_requests());
     assert_eq!(requests.len(), 1);
     assert!(requests[0].contains("GET /session/csrf HTTP/1.1"));
 }
@@ -1975,6 +2346,7 @@ async fn logout_remote_retries_after_bad_csrf() {
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
             PlatformCookie {
                 name: "_forum_session".into(),
@@ -1982,6 +2354,7 @@ async fn logout_remote_retries_after_bad_csrf() {
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
             PlatformCookie {
                 name: "cf_clearance".into(),
@@ -1989,6 +2362,7 @@ async fn logout_remote_retries_after_bad_csrf() {
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
         ],
     });
@@ -2123,6 +2497,7 @@ async fn refresh_bootstrap_uses_browser_user_agent_and_full_platform_cookies() {
                 domain: None,
                 path: Some("/".into()),
                 expires_at_unix_ms: None,
+                same_site: None,
             },
             PlatformCookie {
                 name: "_forum_session".into(),
@@ -2130,6 +2505,7 @@ async fn refresh_bootstrap_uses_browser_user_agent_and_full_platform_cookies() {
                 domain: None,
                 path: Some("/".into()),
                 expires_at_unix_ms: None,
+                same_site: None,
             },
             PlatformCookie {
                 name: "__cf_bm".into(),
@@ -2137,6 +2513,7 @@ async fn refresh_bootstrap_uses_browser_user_agent_and_full_platform_cookies() {
                 domain: None,
                 path: Some("/".into()),
                 expires_at_unix_ms: None,
+                same_site: None,
             },
         ],
     });
@@ -2210,6 +2587,7 @@ async fn create_reply_refreshes_csrf_and_parses_wrapped_post_payload() {
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
             PlatformCookie {
                 name: "_forum_session".into(),
@@ -2217,6 +2595,7 @@ async fn create_reply_refreshes_csrf_and_parses_wrapped_post_payload() {
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
         ],
     });
@@ -2274,6 +2653,7 @@ async fn create_reply_surfaces_pending_review_state() {
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
             PlatformCookie {
                 name: "_forum_session".into(),
@@ -2281,6 +2661,7 @@ async fn create_reply_surfaces_pending_review_state() {
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
         ],
     });
@@ -2327,6 +2708,7 @@ async fn create_reply_surfaces_cloudflare_challenge_error() {
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
             PlatformCookie {
                 name: "_forum_session".into(),
@@ -2334,6 +2716,7 @@ async fn create_reply_surfaces_cloudflare_challenge_error() {
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
         ],
     });
@@ -2389,6 +2772,7 @@ async fn toggle_post_reaction_parses_reaction_update_payload() {
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
             PlatformCookie {
                 name: "_forum_session".into(),
@@ -2396,6 +2780,7 @@ async fn toggle_post_reaction_parses_reaction_update_payload() {
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
         ],
     });
@@ -2466,6 +2851,7 @@ async fn toggle_post_reaction_tolerates_malformed_current_user_reaction() {
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
             PlatformCookie {
                 name: "_forum_session".into(),
@@ -2473,6 +2859,7 @@ async fn toggle_post_reaction_tolerates_malformed_current_user_reaction() {
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
         ],
     });
@@ -2519,6 +2906,7 @@ async fn toggle_post_reaction_encodes_reaction_path_segment() {
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
             PlatformCookie {
                 name: "_forum_session".into(),
@@ -2526,6 +2914,7 @@ async fn toggle_post_reaction_encodes_reaction_path_segment() {
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
         ],
     });
@@ -2599,6 +2988,7 @@ async fn fetch_reaction_users_uses_reactions_users_endpoint_and_skips_malformed_
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
             PlatformCookie {
                 name: "_forum_session".into(),
@@ -2606,6 +2996,7 @@ async fn fetch_reaction_users_uses_reactions_users_endpoint_and_skips_malformed_
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
         ],
     });
@@ -2661,6 +3052,7 @@ async fn like_post_uses_post_actions_endpoint() {
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
             PlatformCookie {
                 name: "_forum_session".into(),
@@ -2668,6 +3060,7 @@ async fn like_post_uses_post_actions_endpoint() {
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
         ],
     });
@@ -2682,6 +3075,25 @@ async fn like_post_uses_post_actions_endpoint() {
         .to_ascii_lowercase()
         .contains("x-csrf-token: csrf-token"));
     assert!(requests[0].contains("id=9001&post_action_type_id=2"));
+}
+
+#[tokio::test]
+async fn like_post_without_auth_session_does_not_send_undefined_csrf_request() {
+    let server = TestServer::spawn(Vec::new()).await.expect("server");
+    let core = FireCore::new(FireCoreConfig {
+        base_url: server.base_url(),
+        workspace_path: None,
+    })
+    .expect("core");
+
+    let error = core
+        .like_post(9001)
+        .await
+        .expect_err("write without an auth session should fail before network");
+    let requests = server.shutdown_with_requests().await;
+
+    assert!(matches!(error, FireCoreError::MissingLoginSession));
+    assert!(requests.is_empty());
 }
 
 #[tokio::test]
@@ -2719,6 +3131,7 @@ async fn like_post_parses_reaction_update_when_response_includes_reaction_fields
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
             PlatformCookie {
                 name: "_forum_session".into(),
@@ -2726,6 +3139,7 @@ async fn like_post_parses_reaction_update_when_response_includes_reaction_fields
                 domain: None,
                 path: None,
                 expires_at_unix_ms: None,
+                same_site: None,
             },
         ],
     });

@@ -7,15 +7,19 @@ use fire_core::{
     parse_cooked_html as shared_parse_cooked_html,
     plain_text_from_html as shared_plain_text_from_html,
     preview_text_from_html as shared_preview_text_from_html,
+    render_cooked_html as shared_render_cooked_html, FireStateObserverCallbacks,
 };
 use fire_models::{CookedHtmlDocument, CookedHtmlNode, CookedHtmlNodeKind};
 use fire_uniffi_diagnostics::FireDiagnosticsHandle;
 use fire_uniffi_messagebus::FireMessageBusHandle;
-use fire_uniffi_notifications::FireNotificationsHandle;
+use fire_uniffi_notifications::{FireNotificationsHandle, NotificationCenterState};
 use fire_uniffi_search::FireSearchHandle;
-use fire_uniffi_session::FireSessionHandle;
+use fire_uniffi_session::{FireSessionHandle, SessionState};
 use fire_uniffi_topics::FireTopicsHandle;
-use fire_uniffi_types::{FireUniFfiError, SharedFireCore};
+use fire_uniffi_types::{
+    FireUniFfiError, RenderDocumentState, RenderImageAttachmentState, SharedFireCore,
+    TopicListState,
+};
 use fire_uniffi_user::FireUserHandle;
 
 #[uniffi::export]
@@ -26,6 +30,26 @@ pub fn plain_text_from_html(raw_html: String) -> String {
 #[uniffi::export]
 pub fn parse_cooked_html(raw_html: String) -> CookedHtmlDocumentState {
     shared_parse_cooked_html(&raw_html).into()
+}
+
+#[uniffi::export]
+pub fn render_cooked_html(raw_html: String, base_url: String) -> RenderDocumentState {
+    shared_render_cooked_html(&raw_html, &base_url).into()
+}
+
+#[uniffi::export]
+pub fn collect_images_from_render_document(
+    document: RenderDocumentState,
+) -> Vec<RenderImageAttachmentState> {
+    fire_rich_text::collect_images(&document.into())
+        .into_iter()
+        .map(Into::into)
+        .collect()
+}
+
+#[uniffi::export]
+pub fn plain_text_from_render_document(document: RenderDocumentState) -> String {
+    fire_rich_text::plain_text_from_render_document(&document.into())
 }
 
 #[uniffi::export]
@@ -55,6 +79,7 @@ pub enum CookedHtmlNodeKindState {
     CodeBlock,
     Blockquote,
     DiscourseQuote,
+    Divider,
     List,
     ListItem,
     Spoiler,
@@ -88,6 +113,7 @@ impl From<CookedHtmlNodeKind> for CookedHtmlNodeKindState {
             CookedHtmlNodeKind::CodeBlock => Self::CodeBlock,
             CookedHtmlNodeKind::Blockquote => Self::Blockquote,
             CookedHtmlNodeKind::DiscourseQuote => Self::DiscourseQuote,
+            CookedHtmlNodeKind::Divider => Self::Divider,
             CookedHtmlNodeKind::List => Self::List,
             CookedHtmlNodeKind::ListItem => Self::ListItem,
             CookedHtmlNodeKind::Spoiler => Self::Spoiler,
@@ -167,8 +193,16 @@ impl From<CookedHtmlDocument> for CookedHtmlDocumentState {
     }
 }
 
+#[uniffi::export(with_foreign)]
+pub trait StateObserver: Send + Sync {
+    fn on_session_snapshot(&self, snapshot: SessionState);
+    fn on_topic_list_snapshot(&self, snapshot: TopicListState);
+    fn on_notification_center_snapshot(&self, snapshot: NotificationCenterState);
+}
+
 #[derive(uniffi::Object)]
 pub struct FireAppCore {
+    shared: Arc<SharedFireCore>,
     diagnostics: Arc<FireDiagnosticsHandle>,
     messagebus: Arc<FireMessageBusHandle>,
     notifications: Arc<FireNotificationsHandle>,
@@ -187,6 +221,7 @@ impl FireAppCore {
     ) -> Result<Arc<Self>, FireUniFfiError> {
         let shared = Arc::new(SharedFireCore::bootstrap(base_url, workspace_path)?);
         Ok(Arc::new(Self {
+            shared: shared.clone(),
             diagnostics: FireDiagnosticsHandle::from_shared(shared.clone()),
             messagebus: FireMessageBusHandle::from_shared(shared.clone()),
             notifications: FireNotificationsHandle::from_shared(shared.clone()),
@@ -223,6 +258,30 @@ impl FireAppCore {
 
     pub fn user(&self) -> Arc<FireUserHandle> {
         self.user.clone()
+    }
+
+    pub fn register_state_observer(&self, observer: Arc<dyn StateObserver>) {
+        let session_observer = observer.clone();
+        let topic_list_observer = observer.clone();
+        let notification_observer = observer;
+        self.shared
+            .core
+            .state_observers()
+            .set(FireStateObserverCallbacks {
+                session: Arc::new(move |snapshot| {
+                    session_observer.on_session_snapshot(SessionState::from_snapshot(snapshot));
+                }),
+                topic_list: Arc::new(move |snapshot| {
+                    topic_list_observer.on_topic_list_snapshot(snapshot.into());
+                }),
+                notification_center: Arc::new(move |snapshot| {
+                    notification_observer.on_notification_center_snapshot(snapshot.into());
+                }),
+            });
+    }
+
+    pub fn unregister_state_observer(&self) {
+        self.shared.core.state_observers().clear();
     }
 }
 

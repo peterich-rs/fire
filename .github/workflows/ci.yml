@@ -89,7 +89,7 @@ jobs:
 
       - name: Run workspace tests
         shell: bash
-        run: cargo test -p fire-models -p fire-core -p fire-uniffi --all-targets
+        run: cargo test -p fire-models -p fire-store -p fire-core -p fire-uniffi --all-targets
 
   # ──────────────────────────────────────────────
   #  Rust UniFFI build (always, feeds native-ios-test)

@@ -38,5 +38,9 @@
                     android:host="topic" />
             </intent-filter>
         </activity>
+        <activity
+            android:name=".session.FireCloudflareChallengeActivity"
+            android:exported="false"
+            android:launchMode="singleTop" />
     </application>
 </manifest>

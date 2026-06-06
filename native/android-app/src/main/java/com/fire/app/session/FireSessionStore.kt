@@ -25,6 +25,7 @@ import uniffi.fire_uniffi_search.TagSearchResultState
 import uniffi.fire_uniffi_search.UserMentionQueryState
 import uniffi.fire_uniffi_search.UserMentionResultState
 import uniffi.fire_uniffi_session.AppStateRefreshHandler
+import uniffi.fire_uniffi_session.CloudflareChallengeHandler
 import uniffi.fire_uniffi_session.CookieReplayEntryState
 import uniffi.fire_uniffi_session.CurrentUserSnapshotState
 import uniffi.fire_uniffi_session.HomeTopicListScopeState
@@ -88,6 +89,14 @@ class FireSessionStore(
 
     suspend fun snapshot(): SessionState = withContext(Dispatchers.Default) {
         core.session().snapshot()
+    }
+
+    fun registerCloudflareChallengeHandler(handler: CloudflareChallengeHandler) {
+        core.session().registerCloudflareChallengeHandler(handler)
+    }
+
+    fun unregisterCloudflareChallengeHandler() {
+        core.session().unregisterCloudflareChallengeHandler()
     }
 
     suspend fun restorePersistedSessionIfAvailable(): SessionState? = withContext(Dispatchers.IO) {

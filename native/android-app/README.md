@@ -86,14 +86,21 @@ capability boundary.
 
 Android now keeps request-failure handling single-path:
 
-- `CloudflareChallenge` and `LoginRequired` errors from Rust no longer auto-open
-  host-owned challenge/login WebViews and no longer trigger local logout side
-  effects during ordinary request handling.
+- `LoginRequired` no longer auto-opens login UI and no longer triggers local
+  logout side effects during ordinary request handling; navigation back to
+  onboarding still depends on the authoritative Rust session snapshot.
+- Foreground-capable `CloudflareChallenge` requests now go through a registered
+  host-owned challenge Activity, which waits for a new `cf_clearance` and then
+  returns the relevant browser cookies to Rust so Rust can retry the original
+  request once.
+- Background or silent `CloudflareChallenge` work does not steal focus; the
+  platform returns an incomplete challenge result and Rust surfaces the error.
 - Home, topic detail, notifications, search, bookmarks, private messages, and
   composer flows all surface those failures through the same error-display path
   used for any other request failure.
-- The only remaining interactive browser surface is the explicit login WebView,
-  which still uses `FireWebViewSupport` and remains platform-owned.
+- The remaining interactive browser surfaces are the explicit login WebView and
+  the dedicated Cloudflare challenge Activity; both still use
+  `FireWebViewSupport` and remain platform-owned.
 
 Do not move explicit login WebView rendering, CookieManager extraction, or
 platform browser context ownership into Rust. Rust remains responsible for

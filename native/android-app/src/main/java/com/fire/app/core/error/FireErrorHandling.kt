@@ -78,7 +78,7 @@ object FireErrorClassifier {
             FireErrorKind.CloudflareChallenge -> "需要完成 Cloudflare 验证"
             FireErrorKind.Network -> fallbackMessage ?: "网络请求失败，请检查连接后重试"
             FireErrorKind.Authentication,
-            FireErrorKind.LoginRequired -> fallbackMessage ?: "登录状态不可用，请重新登录"
+            FireErrorKind.LoginRequired -> fallbackMessage ?: "当前请求需要有效登录会话，请稍后重试"
             FireErrorKind.StaleSession -> fallbackMessage ?: "会话已更新，请重试"
             FireErrorKind.HttpStatus -> httpStatusMessage(error, fallbackMessage)
             FireErrorKind.Storage -> fallbackMessage ?: "本地数据访问失败"

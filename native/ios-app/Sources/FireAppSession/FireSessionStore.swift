@@ -125,6 +125,16 @@ public actor FireSessionStore {
         core.unregisterStateObserver()
     }
 
+    public func registerCloudflareChallengeHandler(
+        _ handler: any CloudflareChallengeHandler
+    ) throws {
+        try core.session().registerCloudflareChallengeHandler(handler: handler)
+    }
+
+    public func unregisterCloudflareChallengeHandler() throws {
+        try core.session().unregisterCloudflareChallengeHandler()
+    }
+
     public func ensurePreloadedDataLoaded() async throws {
         try await core.session().ensurePreloadedDataLoaded()
         try persistCurrentSessionIfNeeded()
@@ -280,7 +290,7 @@ public actor FireSessionStore {
     @discardableResult
     public func finalizeLoginFromWebView(
         _ captured: FireCapturedLoginState,
-        allowLowConfidenceSessionCookies: Bool = true
+        allowLowConfidenceSessionCookies: Bool = false
     ) throws -> LoginFinalizationResultState {
         let result = try core.session().finalizeLoginFromWebview(
             username: captured.username ?? "",

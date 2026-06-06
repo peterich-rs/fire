@@ -53,10 +53,14 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
   - continuously supports login readiness probing: navigation, scene-activation, debounced WebKit cookie-store changes, and WebView loading transitions all re-check the same readiness used by the `完成登录` button
   - treats the persistent `WKWebsiteDataStore` as the authoritative browser cookie source: login/challenge/clearance refresh only read browser cookies back into Rust, and shared session updates never write Rust cookies back into WebKit
   - only treats login as ready to sync once it can read `current-username`, same-site auth cookies, and reusable bootstrap HTML
-  - completes login through the Rust-owned `finalize_login_from_webview` path, with an optional follow-up bootstrap refresh only when the captured preloaded bootstrap is still incomplete
+  - completes login through the Rust-owned `finalize_login_from_webview` path, defaulting production login finalization to high-confidence session cookies and only following up with bootstrap refresh when the captured preloaded bootstrap is still incomplete
   - persists captured credentials in Keychain on the host side and leaves missing or stale CSRF repair to the shared authenticated-write preflight instead of an eager login-time refresh
   - if the follow-up Rust bootstrap refresh still fails, it now surfaces that request failure directly instead of locally logging the user out or starting an automatic recovery path
   - clears host-side LinuxDo auth cookies after a successful explicit logout while preserving `cf_clearance`
+- `FireCloudflareChallengeCoordinator.swift`
+  - implements the registered Rust `CloudflareChallengeHandler` bridge for foreground-capable iOS requests
+  - opens a host-owned full-screen `WKWebView`, records the baseline `cf_clearance`, waits for a new clearance plus the absence of active challenge markers, and then returns only the relevant browser cookies back to Rust
+  - leaves background/silent work on the non-interactive path: if the request was not marked foreground-capable, the handler returns an incomplete result and Rust surfaces `CloudflareChallenge`
 - `FireCfClearanceRefreshService.swift`
   - owns an offscreen `WKWebView` that keeps a Turnstile widget alive once the shared session is authenticated, scene-active, and bootstrap has exposed a Turnstile sitekey
   - configures that hidden WebView with the captured login browser user agent exposed on `SessionState`, falling back to the same Mobile Safari-style profile used by login
@@ -87,7 +91,8 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
   - now also owns native private-message inbox/sent loading plus private-message creation on top of the shared Rust mailbox and `/posts.json` PM surfaces
   - now acts as a session/runtime facade for feature stores instead of also owning every screen's transient state directly
   - now owns the foreground MessageBus transport lifecycle on iOS and forwards runtime refresh work into the bound feature stores instead of publishing home/topic-detail state itself
-  - now treats Rust-owned `CloudflareChallenge` and `LoginRequired` request failures as ordinary errors during automatic reads/writes; the host no longer auto-presents recovery WebViews, auto-retries blocked operations, or performs non-manual local logout in response to those errors
+  - now registers the Rust-owned Cloudflare challenge handler on session initialization, so foreground blocked requests can complete a host-owned challenge WebView and then let Rust retry the original operation once
+  - still treats `LoginRequired` as an ordinary request failure unless the authoritative Rust session snapshot has actually transitioned to logged out
   - now attempts a single-flight host cookie resync on passive reads (home feed, topic detail): if the WebKit cookie store has already rotated `_t` / `_forum_session` past the shared Rust epoch, the resync rotates the shared session in place and the read retries once; otherwise the original request failure is surfaced unchanged
   - now probes login sync readiness from the embedded `WKWebView` and keeps the `完成登录` button disabled until the shared login prerequisites are actually satisfied
   - now also emits host-owned APM spans for cold-start restore, login sync, bootstrap refresh, latest-feed load, topic-detail load, reply submit, notification refresh, and MessageBus start

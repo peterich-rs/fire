@@ -231,7 +231,7 @@ public final class FireWebViewLoginCoordinator {
     ) async throws -> SessionState {
         let finalized = try await sessionStore.finalizeLoginFromWebView(
             captured,
-            allowLowConfidenceSessionCookies: true
+            allowLowConfidenceSessionCookies: false
         )
         if finalized.session.loginPhase == .ready {
             return finalized.session

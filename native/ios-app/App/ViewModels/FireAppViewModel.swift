@@ -281,6 +281,7 @@ final class FireAppViewModel: ObservableObject {
 
     private var sessionStore: FireSessionStore?
     private var loginCoordinator: FireWebViewLoginCoordinator?
+    private var cloudflareChallengeHandler: FireCloudflareChallengeRuntimeHandler?
     private var sessionStoreInitializationTask: Task<FireSessionStore, Error>?
     private var initialStateTask: Task<Void, Never>?
     private var initialStateLoadingDelayTask: Task<Void, Never>?
@@ -2161,6 +2162,17 @@ final class FireAppViewModel: ObservableObject {
                 return nil
             }
             return try await loginCoordinator.platformCookiesForSessionResync()
+        }
+
+        if cloudflareChallengeHandler == nil {
+            cloudflareChallengeHandler = FireCloudflareChallengeRuntimeHandler(
+                sessionStore: sessionStore
+            )
+        }
+        if let cloudflareChallengeHandler {
+            try? await sessionStore.registerCloudflareChallengeHandler(
+                cloudflareChallengeHandler
+            )
         }
     }
 

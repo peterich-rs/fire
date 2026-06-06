@@ -128,6 +128,7 @@
 		C71C2D1C073DD5D89D71E445 /* FireRichTextParagraphBoundaryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DBBEC3D8CF3903B3357395DC /* FireRichTextParagraphBoundaryTests.swift */; };
 		C8C0449611CDEF356A42A487 /* FireTopicDetailVisibilityCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A283C548CFC6BEDC0D406679 /* FireTopicDetailVisibilityCoordinator.swift */; };
 		CEC557CB91456A379F8FE867 /* FireReadHistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C71352CB3CEB9F98E23B2696 /* FireReadHistoryView.swift */; };
+		CF0700843F7CDFE2F9140016 /* FireCloudflareChallengeCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = ABA36C072D3004B0CFDF73D3 /* FireCloudflareChallengeCoordinator.swift */; };
 		D0125C21FE7596D530229F97 /* FireDiagnosticsShared.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FC1DB73221DE5E0CE4B0BB6 /* FireDiagnosticsShared.swift */; };
 		D914CE5CE076533C2C932623 /* FirePushDiagnosticsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C710FF0F248498E25E02037D /* FirePushDiagnosticsView.swift */; };
 		DA6BD635BF623E34D242CB15 /* FireNavigationState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 627535804DAD392D5972B8FF /* FireNavigationState.swift */; };
@@ -283,6 +284,7 @@
 		A5264103A412DF3C9798D470 /* FireAPMModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireAPMModels.swift; sourceTree = "<group>"; };
 		A67A6C835A2196246871D5FD /* FireComposerValidationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireComposerValidationTests.swift; sourceTree = "<group>"; };
 		AA736A1F443337C34A6E33D6 /* Fire.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Fire.entitlements; sourceTree = "<group>"; };
+		ABA36C072D3004B0CFDF73D3 /* FireCloudflareChallengeCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireCloudflareChallengeCoordinator.swift; sourceTree = "<group>"; };
 		B17BF0CB4137B71949AACC0C /* FireSearchStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireSearchStoreTests.swift; sourceTree = "<group>"; };
 		B220305F1DFD0C508260CFA9 /* FirePostCellLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FirePostCellLayout.swift; sourceTree = "<group>"; };
 		B5E5271F93B7DF18859B101F /* FireWebViewLoginCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireWebViewLoginCoordinator.swift; sourceTree = "<group>"; };
@@ -447,6 +449,7 @@
 			children = (
 				C313FFDD8D569FA6D9B1C0E0 /* FireAuthCookieKeychainStore.swift */,
 				F01E5248AEF9002E2919AC0F /* FireCfClearanceRefreshService.swift */,
+				ABA36C072D3004B0CFDF73D3 /* FireCloudflareChallengeCoordinator.swift */,
 				8834ADE6E3ADB8A03391560C /* FireSessionStore.swift */,
 				E6A1ACC49B5E391857645187 /* FireWebViewBrowserProfile.swift */,
 				B5E5271F93B7DF18859B101F /* FireWebViewLoginCoordinator.swift */,
@@ -1017,6 +1020,7 @@
 				E74952BCA8EF2D8E92C528CD /* FireBookmarksView.swift in Sources */,
 				E96C65EF805B1CE2F1A620B9 /* FireCategoriesView.swift in Sources */,
 				0AABB8FE83B25A7D6D7C67FC /* FireCfClearanceRefreshService.swift in Sources */,
+				CF0700843F7CDFE2F9140016 /* FireCloudflareChallengeCoordinator.swift in Sources */,
 				F8963543E87EACAD49C9B131 /* FireCollectionHost.swift in Sources */,
 				B9E25AF09D46C9889B98E8A2 /* FireComponents.swift in Sources */,
 				05C52CE77FB1F87C538848AB /* FireComposerView.swift in Sources */,

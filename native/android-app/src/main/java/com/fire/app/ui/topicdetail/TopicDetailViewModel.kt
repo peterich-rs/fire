@@ -8,7 +8,7 @@ import com.fire.app.core.error.FireErrorReporter
 import com.fire.app.data.repository.TopicRepository
 import com.fire.app.messagebus.FireMessageBusCoordinator
 import com.fire.app.richtext.FireRichTextContent
-import com.fire.app.richtext.FireRichTextParser
+import com.fire.app.richtext.FireRenderBlockBuilder
 import com.fire.app.richtext.FireSpannableBuilder
 import com.fire.app.session.FireSessionStore
 import kotlinx.coroutines.CancellationException
@@ -732,9 +732,9 @@ class TopicDetailViewModel(
     }
 
     private fun parsePostContent(post: TopicPostState): FireRichTextContent? {
-        if (post.cooked.isBlank() && post.renderDocument == null) return null
+        val document = post.renderDocument ?: return null
         return try {
-            FireRichTextParser.parse(post, "https://linux.do")
+            FireRenderBlockBuilder.build(document)
         } catch (_: Exception) {
             null
         }

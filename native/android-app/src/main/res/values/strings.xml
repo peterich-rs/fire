@@ -32,6 +32,7 @@
     <string name="login_safe_browsing_blocked">Unsafe page blocked.</string>
     <string name="login_sync_error">Unable to sync login.</string>
     <string name="browser_title">Topic Browser</string>
+    <string name="in_app_web_title">Web Page</string>
     <string name="diagnostics_title">Diagnostics</string>
     <string name="diagnostics_subtitle">Readable app logs plus captured network request traces.</string>
     <string name="diagnostics_no_traces">No captured network requests yet.</string>

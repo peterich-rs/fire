@@ -68,11 +68,7 @@ class TopicPostImageView(context: Context) : FrameLayout(context) {
         retryButton.setOnClickListener { loadImage() }
         setOnClickListener {
             val boundImage = image ?: return@setOnClickListener
-            if (loaded) {
-                onImageClick?.invoke(boundImage)
-            } else {
-                loadImage()
-            }
+            onImageClick?.invoke(boundImage)
         }
     }
 

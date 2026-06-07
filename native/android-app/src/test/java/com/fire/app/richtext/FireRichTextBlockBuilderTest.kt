@@ -3,6 +3,10 @@ package com.fire.app.richtext
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import uniffi.fire_uniffi_types.RenderBlockKindState
+import uniffi.fire_uniffi_types.RenderBlockState
+import uniffi.fire_uniffi_types.RenderDocumentState
+import uniffi.fire_uniffi_types.RenderImageAttachmentState
 
 class FireRichTextBlockBuilderTest {
 
@@ -104,6 +108,45 @@ class FireRichTextBlockBuilderTest {
         val blocks = FireRichTextBlockBuilder.build(content)
 
         assertEquals("https://linux.do/uploads/default/original/1X/fire-full.png", (blocks[1] as FireRichTextBlock.Image).image.url)
+    }
+
+    @Test
+    fun build_adaptsSharedRenderDocumentWithoutCookedHtmlFallback() {
+        val document = RenderDocumentState(
+            blocks = listOf(
+                RenderBlockState(0u, null, 0u, RenderBlockKindState.Document),
+                RenderBlockState(1u, 0u, 1u, RenderBlockKindState.Paragraph),
+                RenderBlockState(2u, 1u, 2u, RenderBlockKindState.Text("caption")),
+                RenderBlockState(
+                    3u,
+                    0u,
+                    1u,
+                    RenderBlockKindState.Image(
+                        url = "https://linux.do/uploads/default/original/1X/fire.png",
+                        alt = "fire",
+                        width = 1080u,
+                        height = 1920u,
+                    ),
+                ),
+            ),
+            plainText = "caption\n\nfire",
+            imageAttachments = listOf(
+                RenderImageAttachmentState(
+                    url = "https://linux.do/uploads/default/original/1X/fire.png",
+                    altText = "fire",
+                    width = 1080u,
+                    height = 1920u,
+                ),
+            ),
+        )
+
+        val content = FireRenderBlockBuilder.build(document)
+        val blocks = FireRichTextBlockBuilder.build(content)
+
+        assertEquals("caption\n\nfire", content.plainText)
+        assertEquals(2, blocks.size)
+        assertTrue(blocks[0] is FireRichTextBlock.Text)
+        assertEquals("https://linux.do/uploads/default/original/1X/fire.png", (blocks[1] as FireRichTextBlock.Image).image.url)
     }
 
     @Test

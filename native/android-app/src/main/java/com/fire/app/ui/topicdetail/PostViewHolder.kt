@@ -1,6 +1,5 @@
 package com.fire.app.ui.topicdetail
 
-import android.text.SpannableString
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -16,7 +15,7 @@ import com.fire.app.core.image.FireImageLoader
 import com.fire.app.richtext.FireRichTextBlock
 import com.fire.app.richtext.FireRichTextBlockBuilder
 import com.fire.app.richtext.FireRichTextContent
-import com.fire.app.richtext.FireRichTextParser
+import com.fire.app.richtext.FireRenderBlockBuilder
 import com.fire.app.richtext.FireRichTextView
 import com.fire.app.richtext.FireSpannableBuilder
 import uniffi.fire_uniffi_topics.PollState
@@ -82,14 +81,10 @@ class PostViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
             replyContextText.setOnClickListener(null)
         }
 
-        val contentId = "${post.id}:${post.cooked.hashCode()}"
+        val contentId = "${post.id}:${post.renderDocument.hashCode()}"
         if (bodyContainer.getTag(R.id.tag_post_content_id) != contentId) {
-            val parsed = try {
-                FireRichTextParser.parse(post, "https://linux.do")
-            } catch (_: Exception) {
-                null
-            }
-            bindPostBody(contentId, parsed, post.cooked, callbacks)
+            val parsed = post.renderDocument?.let { FireRenderBlockBuilder.build(it) }
+            bindPostBody(contentId, parsed, callbacks)
             bodyContainer.setTag(R.id.tag_post_content_id, contentId)
             bodyContainer.setTag(R.id.tag_post_content, parsed)
         }
@@ -224,7 +219,6 @@ class PostViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
     private fun bindPostBody(
         contentId: String,
         content: FireRichTextContent?,
-        cooked: String,
         callbacks: PostRowCallbacks,
     ) {
         bodyContainer.removeAllViews()
@@ -233,15 +227,12 @@ class PostViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
             val blocks = FireRichTextBlockBuilder.build(content)
             blocks.forEachIndexed { index, block ->
                 when (block) {
-                    is FireRichTextBlock.Text -> addTextBlock(contentId, index, block)
+                    is FireRichTextBlock.Text -> addTextBlock(contentId, index, block, callbacks)
                     is FireRichTextBlock.Image -> addImageBlock(index, block, callbacks)
                 }
             }
         }
 
-        if (bodyContainer.childCount == 0 && cooked.isNotBlank()) {
-            addFallbackTextBlock(contentId, cooked)
-        }
         bodyContainer.visibility = if (bodyContainer.childCount == 0) View.GONE else View.VISIBLE
     }
 
@@ -249,26 +240,24 @@ class PostViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
         contentId: String,
         index: Int,
         block: FireRichTextBlock.Text,
+        callbacks: PostRowCallbacks,
     ) {
-        val spannable = FireSpannableBuilder.build(block.nodes, itemView.context)
+        val spannable = FireSpannableBuilder.build(
+            nodes = block.nodes,
+            context = itemView.context,
+            onLinkClicked = callbacks.onLinkClick,
+        )
         if (spannable.isBlank()) return
         val textView = FireRichTextView(itemView.context).apply {
             setTextAppearance(androidx.appcompat.R.style.TextAppearance_AppCompat_Body1)
             setTextColor(itemView.context.getColor(R.color.fire_text_primary))
             setTextIsSelectable(true)
+            setOnLongClickListener {
+                requestFocus()
+                false
+            }
             setContent("$contentId:text:$index", spannable)
             layoutParams = bodyBlockLayoutParams(index)
-        }
-        bodyContainer.addView(textView)
-    }
-
-    private fun addFallbackTextBlock(contentId: String, cooked: String) {
-        val textView = FireRichTextView(itemView.context).apply {
-            setTextAppearance(androidx.appcompat.R.style.TextAppearance_AppCompat_Body1)
-            setTextColor(itemView.context.getColor(R.color.fire_text_primary))
-            setTextIsSelectable(true)
-            setContent("$contentId:fallback", SpannableString(cooked))
-            layoutParams = bodyBlockLayoutParams(0)
         }
         bodyContainer.addView(textView)
     }

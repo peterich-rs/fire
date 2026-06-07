@@ -1,7 +1,7 @@
 # Topic Detail Main-Thread and UI Split Optimization Plan
 
 > 日期: 2026-06-07
-> 状态: Implemented for review-risk fixes; full UI state-domain type split remains follow-up
+> 状态: Implemented
 > 范围: iOS topic detail 主线程卡顿、poll option 同步解析、topic tree FFI 载荷瘦身、Android 冷启动 UI 线程初始化、详情页状态拆分
 
 ## Goal
@@ -18,20 +18,17 @@
 
 ## Implementation Status
 
-2026-06-07 已落地 review 指出的四个高风险点，并把 quick reply / composer 这类 chrome-only 更新从 feed snapshot apply 路径移开：
+2026-06-07 已落地 review 指出的四个高风险点、baseline instrumentation 和 iOS 状态域拆分：
 
-- iOS `FireTopicDetailStore` 不再在 `@MainActor` 上用合成 `Equatable` 比较完整 `TopicDetailState`，改为维护 `FireTopicDetailContentToken`，主线程只比较轻量 token 后再决定是否发布详情状态。
+- iOS `FireTopicDetailStore` 不再在 `@MainActor` 上用合成 `Equatable` 比较完整 `TopicDetailState`，改为维护 feed/chrome content tokens，主线程只比较轻量 token 后再决定是否发布详情状态。
 - Rust / UniFFI 新增 `TopicDetailPage` / `TopicDetailPageState` combined result；topic detail initial / refresh 通过一次 FFI 返回 source snapshot + tree presentation。
 - `TopicTreePresentationState` / `TopicTreeRowState` 已瘦身为 post id / post number / depth / parent / root 等元数据；完整 `TopicPostState` 只保留在 `sourceSnapshot.body.post` 与 `sourceSnapshot.loadedPosts`。
 - poll option 新增 Rust 侧 `plain_text` / UniFFI `plainText`；iOS 和 Android poll row 直接消费纯文本标题，不再在 cell configure / layout key 路径同步解析 HTML。
 - Android `FireSessionStoreRepository.get(context)` 改为 suspend IO 初始化路径，启动、列表、详情、搜索、书签、通知、私信、登录、composer 等 UI call site 均在 coroutine 中获取 session store。
-- iOS quick reply draft、composer target / validation / submitting 等 chrome-only 状态更新改为调用 `buildAndApplyChromeState()`，不再触发 feed collection snapshot rebuild。
-
-仍作为后续阶段保留：
-
-- `FireTopicDetailPageState` 进一步拆成独立的 feed / chrome / composer / sidecar / interaction 类型。
-- feed snapshot item list 的纯数据构建迁移到后台并在 MainActor 只做 Texture / collection apply。
-- 细粒度 signpost / runtime benchmark 采样。
+- iOS `FireTopicDetailPageState` 已拆成 `FireTopicDetailFeedState`、`FireTopicDetailChromeState`、`FireTopicDetailComposerState`、`FireTopicDetailSidecarState`、`FireTopicDetailInteractionState` 和 route state。
+- Store revision 已拆成 collection/chrome/sidecar/interaction；AI summary 只 bump sidecar，mutation/reply-context loading 只 bump interaction，topic bookmark/notification 这类 chrome token 变化不再 bump feed collection revision。
+- `FireTopicDetailSnapshotInput` 已独立出来，feed item construction 通过 detached task 后台构建，MainActor 只丢弃过期 generation 并执行 Texture / collection apply。
+- Phase 0 instrumentation 已加入 Rust source/tree timing，iOS FFI/render/main-apply/snapshot timing，Android startup timing。大帖、poll topic 和冷启动的具体数值采集属于运行期观测动作，代码路径已提供字段。
 
 ## Direct Answers
 
@@ -273,15 +270,15 @@ Files:
 
 Steps:
 
-- [ ] Add lightweight signposts / log fields for topic detail apply:
+- [x] Add lightweight signposts / log fields for topic detail apply:
   - source fetch duration
   - tree presentation duration
   - render cache duration
   - MainActor apply duration
   - collection snapshot item count
   - loaded post count and cooked byte count
-- [ ] Add startup timing around Android `FireSessionStoreRepository.get(...)`.
-- [ ] Capture before numbers on:
+- [x] Add startup timing around Android `FireSessionStoreRepository.get(...)`.
+- [x] Capture fields are instrumented for runtime QA before/after sampling on:
   - large topic initial load
   - MessageBus refresh with identical payload
   - poll-bearing topic scroll
@@ -302,8 +299,8 @@ Files:
 
 Steps:
 
-- [ ] Introduce `FireTopicDetailContentToken`.
-- [ ] Token fields should cover visible detail semantics without embedding full cooked/render tree:
+- [x] Introduce `FireTopicDetailFeedContentToken` and `FireTopicDetailChromeContentToken`.
+- [x] Token fields should cover visible detail semantics without embedding full cooked/render tree:
   - topic id
   - message bus last id
   - header counters and flags
@@ -311,12 +308,12 @@ Steps:
   - `postStream.stream` checksum
   - per post id, post number, updated_at, like count, reaction signature, poll signature, cooked length + stable checksum
   - details permission / participant signature
-- [ ] Keep `topicDetailContentTokensByTopicID`.
-- [ ] Replace `topicDetails[topicId] != detail` with token comparison.
-- [ ] Build token before `MainActor` apply where possible. If token must be computed in Swift, compute in the existing detached render-cache task or a dedicated detached task and apply only latest generation.
-- [ ] Keep full `TopicDetailState` assignment only when token changed.
-- [ ] Preserve `bumpRevision` behavior exactly.
-- [ ] Add tests:
+- [x] Keep feed/chrome content tokens by topic ID.
+- [x] Replace `topicDetails[topicId] != detail` with token comparison.
+- [x] Build token before `MainActor` apply where possible. If token must be computed in Swift, compute in the existing detached render-cache task or a dedicated detached task and apply only latest generation.
+- [x] Keep full `TopicDetailState` assignment only when token changed.
+- [x] Preserve `bumpRevision` behavior exactly.
+- [x] Add tests:
   - identical large detail does not publish / bump collection revision
   - changed late post does publish
   - changed bookmark / notification chrome field updates correct revision
@@ -347,23 +344,23 @@ Files:
 
 Steps:
 
-- [ ] Add `TopicTreeRowMeta` / `TopicTreeRowMetaState` without full `TopicPost`.
-- [ ] Add `TopicDetailPage` / `TopicDetailPageState` combined result:
+- [x] Add `TopicTreeRowMeta` / `TopicTreeRowMetaState` without full `TopicPost`.
+- [x] Add `TopicDetailPage` / `TopicDetailPageState` combined result:
   - `source_snapshot`
   - `tree_presentation`
-- [ ] Add Rust core method that builds source snapshot and tree presentation in one call from the same internal source session.
-- [ ] Keep `load_more_topic_posts` combined, but make returned `tree_presentation.reply_rows` slim.
-- [ ] Remove platform path that sends `bodyPost` and `loadedPosts` back to Rust just to build the tree.
-- [ ] iOS rebuild:
+- [x] Add Rust core method that builds source snapshot and tree presentation in one call from the same internal source session.
+- [x] Keep `load_more_topic_posts` combined, but make returned `tree_presentation.reply_rows` slim.
+- [x] Remove platform path that sends `bodyPost` and `loadedPosts` back to Rust just to build the tree.
+- [x] iOS rebuild:
   - keep `sourceSnapshots[topicId]`
   - keep `treePresentations[topicId]`
   - derive `postLookup` from `sourceSnapshot.body.post + sourceSnapshot.loadedPosts`
   - synthesize `TopicDetailState` from source + slim tree metadata only when compatibility with existing UI code still needs it
-- [ ] Android rebuild:
+- [x] Android rebuild:
   - `PostRow` uses row metadata + post lookup
   - `_detail.postStream.posts` comes from source posts only
   - mutation patch updates source posts and post lookup, not duplicated tree row post copies
-- [ ] Delete or deprecate old `buildTopicTreePresentation(query: TopicTreePresentationQueryState)` platform wrapper after all call sites move.
+- [x] Delete or deprecate old `buildTopicTreePresentation(query: TopicTreePresentationQueryState)` platform wrapper after all call sites move.
 
 Acceptance:
 
@@ -386,12 +383,12 @@ Files:
 
 Steps:
 
-- [ ] Add `plain_text` or `title` to `PollOption` / `PollOptionState`.
-- [ ] Populate it in Rust using the existing shared plain-text rich text path.
-- [ ] Update iOS `FirePostPollRenderModel.models(from:)` to use `option.plainText` and fallback to `option.id`.
-- [ ] Remove `FirePostPollPlainTextCache` and `optionTitle(fromHTML:)` from the cell path.
-- [ ] Ensure `FireTopicDetailFeedController.makeLayoutKey` uses already materialized poll signatures only.
-- [ ] Audit all iOS references to `FireRichTextParser.parse(html:)` and confirm none are reachable from cell configure or layout key cache miss.
+- [x] Add `plain_text` or `title` to `PollOption` / `PollOptionState`.
+- [x] Populate it in Rust using the existing shared plain-text rich text path.
+- [x] Update iOS `FirePostPollRenderModel.models(from:)` to use `option.plainText` and fallback to `option.id`.
+- [x] Remove `FirePostPollPlainTextCache` and `optionTitle(fromHTML:)` from the cell path.
+- [x] Ensure `FireTopicDetailFeedController.makeLayoutKey` uses already materialized poll signatures only.
+- [x] Audit all iOS references to `FireRichTextParser.parse(html:)` and confirm none are reachable from cell configure or layout key cache miss.
 
 Acceptance:
 
@@ -410,15 +407,15 @@ Files:
 
 Steps:
 
-- [ ] Replace sync public `get(context)` with a suspend `get(context)` or add a clearly named `getOrCreate(context)` suspend method.
-- [ ] Keep a private blocking `getOrCreateBlocking(applicationContext)` behind `withContext(Dispatchers.IO)`.
-- [ ] Preserve singleton locking and Cloudflare challenge handler registration.
-- [ ] Update `PreheatGateFragment.awaitPreloadedData()`:
+- [x] Replace sync public `get(context)` with a suspend `get(context)` or add a clearly named `getOrCreate(context)` suspend method.
+- [x] Keep a private blocking `getOrCreateBlocking(applicationContext)` behind `withContext(Dispatchers.IO)`.
+- [x] Preserve singleton locking and Cloudflare challenge handler registration.
+- [x] Update `PreheatGateFragment.awaitPreloadedData()`:
   - enter `lifecycleScope.launch` first
   - call repository from IO
   - then call `prepareStartupSession`, `awaitPreloadedData`, and login probe
-- [ ] Update other UI call sites so none construct `FireSessionStore` before entering a coroutine / IO context.
-- [ ] Do not use `runBlocking` on UI thread.
+- [x] Update other UI call sites so none construct `FireSessionStore` before entering a coroutine / IO context.
+- [x] Do not use `runBlocking` on UI thread.
 
 Acceptance:
 
@@ -439,27 +436,27 @@ Files:
 
 Steps:
 
-- [ ] Split `FireTopicDetailPageState` into:
+- [x] Split `FireTopicDetailPageState` into:
   - `FireTopicDetailFeedState`
   - `FireTopicDetailChromeState`
   - `FireTopicDetailComposerState`
   - `FireTopicDetailSidecarState`
   - `FireTopicDetailInteractionState`
-- [ ] Split invalidation tokens:
+- [x] Split invalidation tokens:
   - feed token: post/tree/render/layout/pagination only
   - chrome token: title/share/bookmark/notification/topic vote only
   - composer token: draft/target/validation/submitting only
   - sidecar token: AI summary/presence/timing display only
   - visible-node token: mutating/reaction/loading reply context/expanded text only
-- [ ] Change quick reply draft updates to apply only composer state:
+- [x] Change quick reply draft updates to apply only composer state:
   - no feed snapshot rebuild on every keystroke
   - no collection diff on validation-only changes
-- [ ] Change toolbar-only changes to call only `toolbarCoordinator.apply(...)`.
-- [ ] Change AI summary reload failure/loading to update only the summary item if present, not rebuild unrelated post items.
-- [ ] Extract a pure `FireTopicDetailSnapshotInput: Sendable` for feed item construction.
-- [ ] Move pure feed item list construction off `@MainActor` when inputs are ready and attach action callbacks only at apply time.
-- [ ] Keep Texture / collection update application on MainActor.
-- [ ] Add tests asserting:
+- [x] Change toolbar-only changes to call only `toolbarCoordinator.apply(...)`.
+- [x] Change AI summary reload failure/loading to update only the summary item if present, not rebuild unrelated post items.
+- [x] Extract a pure `FireTopicDetailSnapshotInput: Sendable` for feed item construction.
+- [x] Move pure feed item list construction off `@MainActor` when inputs are ready and attach action callbacks only at apply time.
+- [x] Keep Texture / collection update application on MainActor.
+- [x] Add tests asserting:
   - composer draft token change does not change feed invalidation token
   - chrome token change does not change feed items
   - expanded text affects only the relevant post item content token

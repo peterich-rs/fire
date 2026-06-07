@@ -114,6 +114,8 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
   - now loads Rust-fetched topic AI summaries non-blockingly when the detail payload advertises `summarizable`, `hasCachedSummary`, or `hasSummary`, caching success/unavailable/error state per topic without blocking the main detail body
   - now defers MessageBus-driven source-snapshot refresh apply work while the detail feed is actively scrolling, then applies the latest deferred source snapshot + tree presentation once scrolling stops so live topic/reaction updates do not interrupt the scroll path
   - now keeps quick-reply typing / submit-state invalidation off the feed snapshot path, so those chrome-only changes no longer force a Texture feed snapshot rebuild
+  - now splits topic-detail refresh domains into feed, chrome, composer, sidecar, and interaction state so AI summary loading/error, mutation flags, reply-context loading, and toolbar-only changes publish through their own revision paths instead of reusing the feed collection revision
+  - now builds topic-detail runtime snapshot items from a sendable snapshot input on a background task and returns to the main actor only to apply Texture/collection updates, with timing logs for snapshot build/apply and loaded item counts
   - renders poll option titles from Rust-provided `PollOptionState.plainText`, avoiding synchronous HTML parsing on cell configure and layout paths
   - keeps topic-detail subscription, presence heartbeat, quick reply, reaction toggles, and post-edit refresh reconciliation out of `FireAppViewModel`
 - `App/Stores/FireSearchStore.swift`

@@ -105,6 +105,8 @@ Android now keeps request-failure handling single-path:
 - First `FireSessionStore` / `FireAppCore` creation goes through the suspend
   `FireSessionStoreRepository.get(context)` IO path before returning to UI
   work, including startup preheat and other Fragment/Activity entry points.
+  Startup preheat logs timing fields for session-store get/create,
+  startup-session preparation, preloaded-data wait, and the login probe.
 - `LoginRequired` no longer auto-opens login UI and no longer triggers local
   logout side effects during ordinary request handling; navigation back to
   onboarding still depends on the authoritative Rust session snapshot.

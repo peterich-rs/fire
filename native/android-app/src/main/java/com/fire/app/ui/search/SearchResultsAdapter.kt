@@ -8,10 +8,9 @@ import android.widget.TextView
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
-import coil.ImageLoader
-import coil.request.ImageRequest
 import com.fire.app.R
 import com.fire.app.TopicPresentation
+import com.fire.app.core.image.FireImageLoader
 import uniffi.fire_uniffi_search.SearchPostState
 import uniffi.fire_uniffi_search.SearchTopicState
 import uniffi.fire_uniffi_search.SearchUserState
@@ -144,12 +143,9 @@ class SearchResultsAdapter(
             val avatarTemplate = user.avatarTemplate
             if (!avatarTemplate.isNullOrBlank()) {
                 val url = buildAvatarUrl(avatarTemplate, 36)
-                val request = ImageRequest.Builder(avatar.context)
-                    .data(url)
-                    .crossfade(true)
-                    .target(avatar)
-                    .build()
-                ImageLoader.Builder(avatar.context).build().enqueue(request)
+                FireImageLoader.load(url, avatar)
+            } else {
+                avatar.setImageDrawable(null)
             }
             itemView.setOnClickListener { onClick(user) }
         }

@@ -8,10 +8,9 @@ import android.widget.TextView
 import androidx.paging.PagingDataAdapter
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.RecyclerView
-import coil.ImageLoader
-import coil.request.ImageRequest
 import com.fire.app.R
 import com.fire.app.TopicPresentation
+import com.fire.app.core.image.FireImageLoader
 import uniffi.fire_uniffi_notifications.NotificationItemState
 
 class NotificationListAdapter(
@@ -49,12 +48,7 @@ class NotificationListAdapter(
             val avatarTemplate = item.actingUserAvatarTemplate
             if (!avatarTemplate.isNullOrBlank()) {
                 val url = buildAvatarUrl(avatarTemplate, 36)
-                val request = ImageRequest.Builder(avatar.context)
-                    .data(url)
-                    .crossfade(true)
-                    .target(avatar)
-                    .build()
-                ImageLoader.Builder(avatar.context).build().enqueue(request)
+                FireImageLoader.load(url, avatar)
             } else {
                 avatar.setImageDrawable(null)
             }

@@ -19,7 +19,7 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
 
     // MARK: - Nodes
 
-    private let avatarNode = ASNetworkImageNode()
+    private let avatarNode = ASImageNode()
     private let avatarMonogramNode = ASTextNode()
     private let avatarContainerNode = ASDisplayNode()
     private let threadLineNode = ASDisplayNode()
@@ -52,6 +52,8 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
     private var currentContentSizeCategory: UIContentSizeCategory = .large
     private var renderedContentID: String?
     private var avatarSignature: String?
+    private var avatarLoadTask: Task<Void, Never>?
+    private var avatarLoadGeneration: UInt64 = 0
     private var contentSegmentNodes: [ASDisplayNode] = []
     private var contentSegmentSignature: [String] = []
     private var pollViews: [FirePostPollView] = []
@@ -117,7 +119,6 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
         avatarNode.cornerRadius = 16
         avatarNode.isHidden = true
         avatarNode.alpha = 0
-        avatarNode.delegate = self
         avatarMonogramNode.isLayerBacked = true
         avatarContainerNode.automaticallyManagesSubnodes = true
         avatarContainerNode.layoutSpecBlock = { [weak self] _, _ in
@@ -267,10 +268,10 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
         if let avatarURL {
             avatarNode.isHidden = false
             avatarNode.alpha = 0
-            avatarNode.setURL(avatarURL, resetToDefault: true)
+            loadAvatar(url: avatarURL)
         } else {
+            cancelAvatarLoad()
             avatarNode.isHidden = true
-            avatarNode.setURL(nil, resetToDefault: true)
         }
     }
 
@@ -1329,6 +1330,62 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
         avatarNode.alpha = 0
     }
 
+    private func cancelAvatarLoad() {
+        avatarLoadTask?.cancel()
+        avatarLoadTask = nil
+        avatarLoadGeneration &+= 1
+        avatarNode.image = nil
+        showAvatarFallback()
+    }
+
+    private func loadAvatar(url: URL) {
+        avatarLoadTask?.cancel()
+        avatarLoadGeneration &+= 1
+        let generation = avatarLoadGeneration
+        let request = FireRemoteImageRequest(url: url)
+
+        if let cachedImage = FireRemoteImagePipeline.shared.cachedImage(for: request) {
+            avatarNode.image = cachedImage
+            showLoadedAvatar()
+            return
+        }
+
+        avatarNode.image = nil
+        showAvatarFallback()
+        avatarLoadTask = Task { [weak self] in
+            do {
+                let image = try await FireRemoteImagePipeline.shared.loadImage(for: request)
+                guard !Task.isCancelled else { return }
+                await MainActor.run {
+                    self?.applyLoadedAvatar(image, generation: generation)
+                }
+            } catch is CancellationError {
+                return
+            } catch {
+                guard !Task.isCancelled else { return }
+                await MainActor.run {
+                    self?.applyFailedAvatarLoad(generation: generation)
+                }
+            }
+        }
+    }
+
+    private func applyLoadedAvatar(_ image: UIImage, generation: UInt64) {
+        guard generation == avatarLoadGeneration else { return }
+        avatarNode.image = image
+        showLoadedAvatar()
+    }
+
+    private func applyFailedAvatarLoad(generation: UInt64) {
+        guard generation == avatarLoadGeneration else { return }
+        avatarNode.image = nil
+        showAvatarFallback()
+    }
+
+    deinit {
+        avatarLoadTask?.cancel()
+    }
+
     private func nearestViewController() -> UIViewController? {
         var responder: UIResponder? = view
         while let current = responder {
@@ -1338,29 +1395,6 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
             responder = current.next
         }
         return nil
-    }
-}
-
-extension FirePostCellNode: ASNetworkImageNodeDelegate {
-    func imageNodeDidLoadImage(fromCache imageNode: ASNetworkImageNode) {
-        guard imageNode === avatarNode else {
-            return
-        }
-        showLoadedAvatar()
-    }
-
-    func imageNode(_ imageNode: ASNetworkImageNode, didLoad image: UIImage) {
-        guard imageNode === avatarNode else {
-            return
-        }
-        showLoadedAvatar()
-    }
-
-    func imageNode(_ imageNode: ASNetworkImageNode, didFailWithError error: Error) {
-        guard imageNode === avatarNode else {
-            return
-        }
-        showAvatarFallback()
     }
 }
 

@@ -1,7 +1,7 @@
 # Topic Detail Main-Thread and UI Split Optimization Plan
 
 > 日期: 2026-06-07
-> 状态: Plan
+> 状态: Implemented for review-risk fixes; full UI state-domain type split remains follow-up
 > 范围: iOS topic detail 主线程卡顿、poll option 同步解析、topic tree FFI 载荷瘦身、Android 冷启动 UI 线程初始化、详情页状态拆分
 
 ## Goal
@@ -15,6 +15,23 @@
 - iOS 详情页拆成 feed、chrome、composer、sidecar、interaction 几个刷新域，避免输入框、toolbar、sidecar 状态触发整页 feed diff
 
 核心原则：不是简单把所有逻辑塞进后台线程，而是先减少主路径要做的工作，再把仍然昂贵、纯计算的派生步骤放到后台。主线程只保留状态发布、UIKit / Texture apply、导航和用户交互收口。
+
+## Implementation Status
+
+2026-06-07 已落地 review 指出的四个高风险点，并把 quick reply / composer 这类 chrome-only 更新从 feed snapshot apply 路径移开：
+
+- iOS `FireTopicDetailStore` 不再在 `@MainActor` 上用合成 `Equatable` 比较完整 `TopicDetailState`，改为维护 `FireTopicDetailContentToken`，主线程只比较轻量 token 后再决定是否发布详情状态。
+- Rust / UniFFI 新增 `TopicDetailPage` / `TopicDetailPageState` combined result；topic detail initial / refresh 通过一次 FFI 返回 source snapshot + tree presentation。
+- `TopicTreePresentationState` / `TopicTreeRowState` 已瘦身为 post id / post number / depth / parent / root 等元数据；完整 `TopicPostState` 只保留在 `sourceSnapshot.body.post` 与 `sourceSnapshot.loadedPosts`。
+- poll option 新增 Rust 侧 `plain_text` / UniFFI `plainText`；iOS 和 Android poll row 直接消费纯文本标题，不再在 cell configure / layout key 路径同步解析 HTML。
+- Android `FireSessionStoreRepository.get(context)` 改为 suspend IO 初始化路径，启动、列表、详情、搜索、书签、通知、私信、登录、composer 等 UI call site 均在 coroutine 中获取 session store。
+- iOS quick reply draft、composer target / validation / submitting 等 chrome-only 状态更新改为调用 `buildAndApplyChromeState()`，不再触发 feed collection snapshot rebuild。
+
+仍作为后续阶段保留：
+
+- `FireTopicDetailPageState` 进一步拆成独立的 feed / chrome / composer / sidecar / interaction 类型。
+- feed snapshot item list 的纯数据构建迁移到后台并在 MainActor 只做 Texture / collection apply。
+- 细粒度 signpost / runtime benchmark 采样。
 
 ## Direct Answers
 
@@ -57,7 +74,7 @@
 - sidecar state: AI summary、presence、timings
 - interaction state: mutating post IDs、expanded text IDs、reply thread expansion
 
-## Current Evidence
+## Pre-Fix Evidence
 
 ### iOS deep compare on MainActor
 
@@ -89,7 +106,7 @@ FireRichTextParser.parse(html: html, baseURLString: "")
 
 ### FFI tree payload 当前重复带完整 post
 
-当前 source snapshot:
+修复前 source snapshot:
 
 ```rust
 TopicDetailSourceSnapshotState {
@@ -99,7 +116,7 @@ TopicDetailSourceSnapshotState {
 }
 ```
 
-当前 tree query 又把完整 post 传回 Rust：
+修复前 tree query 又把完整 post 传回 Rust：
 
 ```rust
 TopicTreePresentationQueryState {
@@ -110,7 +127,7 @@ TopicTreePresentationQueryState {
 }
 ```
 
-当前 tree result 再把完整 post 带回平台：
+修复前 tree result 再把完整 post 带回平台：
 
 ```rust
 TopicTreeRowState {
@@ -468,7 +485,7 @@ iOS:
 
 ```bash
 xcodegen generate --spec native/ios-app/project.yml
-FIRE_SKIP_UNIFFI_BINDGEN=1 xcodebuild -project native/ios-app/Fire.xcodeproj -scheme Fire-Local-Unit -destination 'platform=iOS Simulator,name=iPhone 16' test
+FIRE_SKIP_UNIFFI_BINDGEN=1 xcodebuild -project native/ios-app/Fire.xcodeproj -scheme 'Fire Local' -destination 'platform=iOS Simulator,id=<simulator-device-id>' test
 ```
 
 Android:
@@ -489,14 +506,22 @@ Runtime checks:
 - iOS MessageBus identical refresh during/after scroll: no full detail deep compare.
 - Android cold start: first `FireSessionStore` construction happens on IO dispatcher.
 
+Validated on this branch:
+
+- `cargo fmt --all --check`
+- `cargo test -p fire-models -p fire-core -p fire-uniffi-topics --all-targets`
+- `xcodegen generate --spec native/ios-app/project.yml`
+- `FIRE_SKIP_UNIFFI_BINDGEN=1 xcodebuild -project native/ios-app/Fire.xcodeproj -scheme 'Fire Local' -destination 'platform=iOS Simulator,id=5318776E-FF02-4468-8549-DFF919ED16E0' test`
+- `cd native/android-app && ./gradlew testDebugUnitTest assembleDebug`
+
+Note: the iPhone 16 / iOS 18.0 simulator path failed because CoreSimulator could not clone the device and left it stuck in creation state; the same iOS test lane passed on an existing iPhone 15 Pro / iOS 17.5 simulator.
+
 ## Suggested Commit Split
 
-1. `perf(ios): replace topic detail deep compare with content tokens`
-2. `refactor(topics): slim topic tree presentation over uniffi`
-3. `perf(ios): precompute poll option titles in rust payloads`
-4. `perf(android): initialize fire session store off main thread`
-5. `refactor(ios): split topic detail refresh domains`
-6. `docs: document topic detail performance boundaries`
+1. `perf(topics): collapse topic detail page ffi payloads`
+2. `perf(ios): reduce topic detail main thread refresh work`
+3. `perf(android): initialize fire session store off main thread`
+4. `docs: document topic detail performance boundaries`
 
 ## Risk Notes
 
@@ -510,8 +535,8 @@ Runtime checks:
 
 After implementation, update:
 
-- `docs/knowledge/api/03-topics.md`: source snapshot + slim tree presentation contract
-- `docs/architecture/2026-06-05-rich-text-and-state-observer-design.md`: poll option plain text and topic detail observer boundary notes
-- `docs/superpowers/plans/2026-06-06-topic-detail-api-consolidation.md`: mark combined/slim FFI decisions as the current direction or supersede stale sections
+- `docs/knowledge/api/03-topics.md`: already describes the raw source + tree presentation boundary; no HTTP protocol change was needed.
+- `docs/architecture/2026-06-05-rich-text-and-state-observer-design.md`: updated with poll option plain text and topic detail render-boundary notes.
+- `docs/superpowers/plans/2026-06-06-topic-detail-api-consolidation.md`: updated so the source/presentation contract reflects combined page fetch and slim tree rows.
 
 Documentation should be synchronized after code lands, not before, because code remains the source of truth.

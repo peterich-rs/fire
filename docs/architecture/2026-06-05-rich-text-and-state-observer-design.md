@@ -4,7 +4,7 @@
 > 状态: Implemented
 > 范围: `fire-rich-text`、UniFFI 富文本/observer 边界、iOS/Android 双端接入
 > 结论: 富文本语义已收口到 Rust；StateObserver 已落到当前可稳定消费的 snapshot 边界；未引入并行渲染路径或平台回退路径
-> 备注: 文中早期提到的 `TopicDetailFeedSnapshotState` 已在 2026-06-06 的 topic-detail source/presentation 收口中被 `TopicDetailSourceSnapshotState + TopicTreePresentationState` 取代；本文件保留为富文本与 observer 设计的历史实现记录。
+> 备注: 文中早期提到的 `TopicDetailFeedSnapshotState` 已在 2026-06-06 的 topic-detail source/presentation 收口中被 `TopicDetailSourceSnapshotState + TopicTreePresentationState` 取代；2026-06-07 起 topic-detail poll option 纯文本也由 Rust payload 提供，平台 cell/layout 路径不再同步解析 option HTML；本文件保留为富文本与 observer 设计的历史实现记录。
 
 ---
 
@@ -57,6 +57,12 @@
   - `SessionState`
   - `TopicListState`
   - `NotificationCenterState`
+
+### 1.5 Topic detail poll option boundary
+
+- `PollOption` / `PollOptionState` 现在携带 Rust 侧生成的 `plain_text` / `plainText`。
+- iOS `FirePostPollRenderModel` 和 Android `PostViewHolder` 直接消费这个纯文本标题，空值才回退到 option id。
+- poll-bearing cell configure、layout key、layout precompute 路径不得调用 `render_cooked_html` / `FireRichTextParser.parse(html:)` 来同步解析 option HTML。
 
 ---
 

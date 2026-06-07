@@ -108,11 +108,13 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
 - `App/Stores/FireTopicDetailStore.swift`
   - owns topic-detail cache, anchor post numbers, post hydration/pagination, reply presence, and topic-detail mutation flags
   - now builds a host-only render cache for timeline rows plus cooked text/image payloads, including compact render signatures that let list diff/layout tokens avoid re-hashing large cooked HTML on the main thread
-  - now consumes Rust-owned `TopicDetailSourceSnapshot` + `TopicTreePresentation`, keeping raw source pagination (`post_stream.stream` + source cursor + batched `post_ids[]`) strictly separate from tree-shaped UI rows
+  - now consumes Rust-owned `TopicDetailPageState` from the combined `fetchTopicDetailPage` path, keeping raw source pagination (`post_stream.stream` + source cursor + batched `post_ids[]`) strictly separate from slim tree-shaped UI rows that carry post id / number and hierarchy metadata
+  - now compares compact topic-detail content tokens instead of full `TopicDetailState` values on the main actor, so identical refreshes and late-row changes avoid deep cooked/render-document equality scans
   - now caches Rust-fetched per-post reply context from `fetchPostReplyIds` / batched `fetchTopicPosts` plus `fetchPostReplyHistory`, and hydrates any returned posts back into the active topic detail cache when they belong to the current stream
   - now loads Rust-fetched topic AI summaries non-blockingly when the detail payload advertises `summarizable`, `hasCachedSummary`, or `hasSummary`, caching success/unavailable/error state per topic without blocking the main detail body
   - now defers MessageBus-driven source-snapshot refresh apply work while the detail feed is actively scrolling, then applies the latest deferred source snapshot + tree presentation once scrolling stops so live topic/reaction updates do not interrupt the scroll path
   - now keeps quick-reply typing / submit-state invalidation off the feed snapshot path, so those chrome-only changes no longer force a Texture feed snapshot rebuild
+  - renders poll option titles from Rust-provided `PollOptionState.plainText`, avoiding synchronous HTML parsing on cell configure and layout paths
   - keeps topic-detail subscription, presence heartbeat, quick reply, reaction toggles, and post-edit refresh reconciliation out of `FireAppViewModel`
 - `App/Stores/FireSearchStore.swift`
   - owns the search screen's query, scope, result, paging, loading, and error state

@@ -51,11 +51,13 @@ the shared Rust core at build time.
 
 ## Topic Detail
 
-`TopicDetailActivity` now loads a Rust-owned topic-detail source snapshot,
-builds a Rust-owned tree presentation from the loaded raw posts, and renders a
-`ConcatAdapter` made of the topic header, original post, reply rows, and a
-loading footer. Load-more is driven only by the Rust source cursor over raw
-`post_stream.stream`, not by host-managed row windows.
+`TopicDetailActivity` now loads Rust-owned `TopicDetailPageState` from the
+combined topic-detail page path, where the source snapshot carries the full
+posts and the slim tree presentation carries only post id / number plus
+hierarchy metadata. It renders a `ConcatAdapter` made of the topic header,
+original post, reply rows, and a loading footer. Load-more is driven only by the
+Rust source cursor over raw `post_stream.stream`, not by host-managed row
+windows.
 
 Current topic-detail interactions:
 
@@ -75,6 +77,8 @@ Current topic-detail interactions:
 - topic vote / remove-vote plus topic voter lookup when the backend exposes
   topic voting
 - post poll display and regular/multiple poll vote submission/removal
+- poll option titles from Rust-provided plain text, without HTML parsing in the
+  row binding path
 - reaction-user lookup from the rendered post reaction summary
 - topic notification-level selection for non-private-message topics
 - reply-context lookup from the rendered reply target, showing source and
@@ -98,6 +102,9 @@ capability boundary.
 
 Android now keeps request-failure handling single-path:
 
+- First `FireSessionStore` / `FireAppCore` creation goes through the suspend
+  `FireSessionStoreRepository.get(context)` IO path before returning to UI
+  work, including startup preheat and other Fragment/Activity entry points.
 - `LoginRequired` no longer auto-opens login UI and no longer triggers local
   logout side effects during ordinary request handling; navigation back to
   onboarding still depends on the authoritative Rust session snapshot.

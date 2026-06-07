@@ -606,6 +606,7 @@ final class FireTopicDetailStore: ObservableObject {
         }
 
         var currentForce = force
+        let allowsSuggestedUnreadRootScrollTarget = targetPostNumber == nil && topicDetails[topicId] == nil
         while true {
             if !currentForce,
                topicSourceSnapshots[topicId] != nil,
@@ -633,7 +634,8 @@ final class FireTopicDetailStore: ObservableObject {
                 await applyTopicDetailPagePayload(
                     payload,
                     detailNotice: nil,
-                    topicId: topicId
+                    topicId: topicId,
+                    allowsSuggestedUnreadRootScrollTarget: allowsSuggestedUnreadRootScrollTarget
                 )
                 appViewModel.topicDetailLogger()?.debug(
                     "loaded topic detail source topic_id=\(topicId) loaded_posts=\(payload.sourceSnapshot.loadedPosts.count) reply_rows=\(payload.treePresentation.replyRows.count) source_cursor_present=\(payload.sourceSnapshot.sourceCursor != nil)"
@@ -807,13 +809,20 @@ final class FireTopicDetailStore: ObservableObject {
     private func applyTopicDetailPagePayload(
         _ payload: FireTopicDetailPagePayload,
         detailNotice: FireTopicDetailStatusMessage?,
-        topicId: UInt64
+        topicId: UInt64,
+        allowsSuggestedUnreadRootScrollTarget: Bool = false
     ) async {
         let applyStartedAt = Date()
         var treePresentation = payload.treePresentation
         treePresentation.replyRows = FireTopicPresentation
             .uniqueTreeRowsPreservingOrder(treePresentation.replyRows)
             .filter { $0.postId != payload.sourceSnapshot.body.post.id }
+        if allowsSuggestedUnreadRootScrollTarget,
+           let suggestedTarget = treePresentation.firstUnreadRootPostNumber,
+           suggestedTarget > 1,
+           topicDetailTargetPostNumbers[topicId] == nil {
+            setPendingScrollTarget(suggestedTarget, topicId: topicId)
+        }
         rememberTopicRecoverySlug(payload.sourceSnapshot.header.slug, topicId: topicId)
         updateTopicDetailNotice(detailNotice, topicId: topicId)
         topicSourceSnapshots[topicId] = payload.sourceSnapshot

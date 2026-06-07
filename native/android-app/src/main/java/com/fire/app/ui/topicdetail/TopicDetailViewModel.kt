@@ -96,6 +96,7 @@ class TopicDetailViewModel(
             _isLoading.value = true
             _errorMessage.value = null
             try {
+                val shouldUseSuggestedUnreadRootTarget = targetPostNumber == null && _detail.value == null
                 val payload = fetchTopicDetailPagePayload(
                     topicId = topicId,
                     targetPostNumber = targetPostNumber,
@@ -106,9 +107,12 @@ class TopicDetailViewModel(
                 preloadRenderContent(allPosts)
                 loadTopicAiSummaryIfNeeded(topicId, _detail.value)
                 maintainTopicDetailMessageBus(topicId, payload.sourceSnapshot.header.messageBusLastId)
-                targetPostNumber
-                    ?.takeIf { it > 0u }
-                    ?.let { scrollToPostWhenLoaded(it) }
+                val scrollTargetPostNumber = TopicDetailPostRows.initialScrollTargetPostNumber(
+                    explicitTargetPostNumber = targetPostNumber,
+                    suggestedUnreadRootPostNumber = payload.treePresentation.firstUnreadRootPostNumber,
+                    shouldUseSuggestedUnreadRootTarget = shouldUseSuggestedUnreadRootTarget,
+                )
+                scrollTargetPostNumber?.let { scrollToPostWhenLoaded(it) }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -855,6 +859,16 @@ object TopicDetailPostRows {
             rowsByPostId[row.postId] = row
         }
         return rowsByPostId.values.toList()
+    }
+
+    fun initialScrollTargetPostNumber(
+        explicitTargetPostNumber: UInt?,
+        suggestedUnreadRootPostNumber: UInt?,
+        shouldUseSuggestedUnreadRootTarget: Boolean,
+    ): UInt? {
+        explicitTargetPostNumber?.takeIf { it > 0u }?.let { return it }
+        if (!shouldUseSuggestedUnreadRootTarget) return null
+        return suggestedUnreadRootPostNumber?.takeIf { it > 1u }
     }
 
     fun postsForDetail(

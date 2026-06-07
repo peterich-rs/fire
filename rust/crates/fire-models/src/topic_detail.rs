@@ -307,6 +307,7 @@ pub struct TopicHeader {
     pub like_count: u32,
     pub posts_count: u32,
     pub reply_count: u32,
+    pub highest_post_number: u32,
     pub created_at: Option<String>,
     pub last_read_post_number: Option<u32>,
     pub bookmarks: Vec<u64>,
@@ -385,6 +386,7 @@ pub struct TopicTreePresentationQuery {
     pub raw_stream_ids: Vec<u64>,
     pub loaded_posts: Vec<TopicPost>,
     pub focused_post_number: Option<u32>,
+    pub last_read_post_number: Option<u32>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -394,6 +396,7 @@ pub struct TopicTreePresentation {
     pub reply_rows: Vec<TopicTreeRow>,
     pub total_loaded_post_count: u32,
     pub visible_root_post_numbers: Vec<u32>,
+    pub first_unread_root_post_number: Option<u32>,
     pub gained_new_root_progress: bool,
 }
 
@@ -653,6 +656,7 @@ pub struct TopicDetail {
     pub views: u32,
     pub like_count: u32,
     pub created_at: Option<String>,
+    pub highest_post_number: u32,
     pub last_read_post_number: Option<u32>,
     pub bookmarks: Vec<u64>,
     pub bookmarked: bool,
@@ -699,6 +703,7 @@ impl TopicDetail {
             like_count: self.like_count,
             posts_count: self.posts_count,
             reply_count: self.reply_count(),
+            highest_post_number: self.highest_post_number,
             created_at: self.created_at.clone(),
             last_read_post_number: self.last_read_post_number,
             bookmarks: self.bookmarks.clone(),

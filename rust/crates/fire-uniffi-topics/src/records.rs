@@ -832,6 +832,7 @@ pub struct TopicHeaderState {
     pub views: u32,
     pub like_count: u32,
     pub created_at: Option<String>,
+    pub highest_post_number: u32,
     pub last_read_post_number: Option<u32>,
     pub bookmarks: Vec<u64>,
     pub bookmarked: bool,
@@ -864,6 +865,7 @@ impl From<TopicHeader> for TopicHeaderState {
             views: value.views,
             like_count: value.like_count,
             created_at: value.created_at,
+            highest_post_number: value.highest_post_number,
             last_read_post_number: value.last_read_post_number,
             bookmarks: value.bookmarks,
             bookmarked: value.bookmarked,
@@ -931,6 +933,7 @@ pub struct TopicTreePresentationState {
     pub reply_rows: Vec<TopicTreeRowState>,
     pub total_loaded_post_count: u32,
     pub visible_root_post_numbers: Vec<u32>,
+    pub first_unread_root_post_number: Option<u32>,
     pub gained_new_root_progress: bool,
 }
 
@@ -947,6 +950,7 @@ pub(crate) fn topic_tree_presentation_state_from_model(
             .collect(),
         total_loaded_post_count: value.total_loaded_post_count,
         visible_root_post_numbers: value.visible_root_post_numbers,
+        first_unread_root_post_number: value.first_unread_root_post_number,
         gained_new_root_progress: value.gained_new_root_progress,
     }
 }

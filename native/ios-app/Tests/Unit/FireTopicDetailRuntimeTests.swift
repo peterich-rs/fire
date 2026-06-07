@@ -938,6 +938,7 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
             views: 128,
             likeCount: 9,
             createdAt: "2026-03-28T10:00:00Z",
+            highestPostNumber: replyCount + 1,
             lastReadPostNumber: nil,
             bookmarks: [],
             bookmarked: false,

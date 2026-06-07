@@ -1174,6 +1174,7 @@ final class FireTopicPresentationTests: XCTestCase {
                 views: 128,
                 likeCount: 9,
                 createdAt: "2026-03-28T10:00:00Z",
+                highestPostNumber: UInt32(replyRows.count + 1),
                 lastReadPostNumber: nil,
                 bookmarks: [],
                 bookmarked: false,
@@ -1222,6 +1223,7 @@ final class FireTopicPresentationTests: XCTestCase {
             replyRows: replyRows,
             totalLoadedPostCount: UInt32(replyRows.count + 1),
             visibleRootPostNumbers: Array(Set(replyRows.map(\.rootPostNumber))).sorted(),
+            firstUnreadRootPostNumber: nil,
             gainedNewRootProgress: !replyRows.isEmpty
         )
     }

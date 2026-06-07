@@ -127,7 +127,7 @@ Core orchestration engine. Owns session state, networking, API orchestration, an
 - **Session management**: Cookie sync, Bootstrap parsing, login state machine
 - **API orchestration**: topic list, topic detail, post CRUD, user, search, notifications
 - **MessageBus**: long-polling, subscription management, channel routing
-- **Topic detail orchestration**: raw-source session (`post_stream.stream`, source cursor, batched `post_ids[]` append) plus tree-presentation rebuild; post author metadata such as title, group/flair, staff markers, and status remains part of the Rust-owned post model exposed through UniFFI
+- **Topic detail orchestration**: raw-source session (`post_stream.stream`, source cursor, batched `post_ids[]` append) plus tree-presentation rebuild; the tree presentation also exposes `first_unread_root_post_number` for first-open, no-explicit-target positioning while preserving notification/bookmark/search deep-link priority; post author metadata such as title, group/flair, staff markers, and status remains part of the Rust-owned post model exposed through UniFFI
 - **Image request orchestration**: delegates to `fire-image`
 - **Rich text request orchestration**: delegates to `fire-rich-text`
 - **Logging**: mars-xlog integration

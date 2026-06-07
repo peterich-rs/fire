@@ -1,6 +1,7 @@
 package com.fire.app.ui.topicdetail
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Test
 import uniffi.fire_uniffi_topics.TopicPostAuthorMetadataState
 import uniffi.fire_uniffi_topics.TopicPostState
@@ -38,6 +39,43 @@ class TopicDetailPostRowsTest {
 
         assertEquals(listOf(1uL, 2uL), posts.map { it.id })
         assertEquals(listOf("author", "reply-new"), posts.map { it.username })
+    }
+
+    @Test
+    fun initialScrollTargetPostNumber_prefersExplicitTarget() {
+        val target = TopicDetailPostRows.initialScrollTargetPostNumber(
+            explicitTargetPostNumber = 42u,
+            suggestedUnreadRootPostNumber = 7u,
+            shouldUseSuggestedUnreadRootTarget = true,
+        )
+
+        assertEquals(42u, target)
+    }
+
+    @Test
+    fun initialScrollTargetPostNumber_usesSuggestedUnreadRootOnlyWhenAllowed() {
+        assertEquals(
+            7u,
+            TopicDetailPostRows.initialScrollTargetPostNumber(
+                explicitTargetPostNumber = null,
+                suggestedUnreadRootPostNumber = 7u,
+                shouldUseSuggestedUnreadRootTarget = true,
+            ),
+        )
+        assertNull(
+            TopicDetailPostRows.initialScrollTargetPostNumber(
+                explicitTargetPostNumber = null,
+                suggestedUnreadRootPostNumber = 7u,
+                shouldUseSuggestedUnreadRootTarget = false,
+            ),
+        )
+        assertNull(
+            TopicDetailPostRows.initialScrollTargetPostNumber(
+                explicitTargetPostNumber = 0u,
+                suggestedUnreadRootPostNumber = 1u,
+                shouldUseSuggestedUnreadRootTarget = true,
+            ),
+        )
     }
 
     private fun post(

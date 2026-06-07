@@ -1130,6 +1130,8 @@ pub(crate) struct RawTopicDetail {
     slug: String,
     #[serde(default, deserialize_with = "deserialize_default_u32")]
     posts_count: u32,
+    #[serde(default, deserialize_with = "deserialize_optional_u32")]
+    highest_post_number: Option<u32>,
     #[serde(default, deserialize_with = "deserialize_optional_u64")]
     category_id: Option<u64>,
     #[serde(default, deserialize_with = "deserialize_topic_tags")]
@@ -1223,6 +1225,7 @@ impl RawTopicDetail {
             title: value.title,
             slug: value.slug,
             posts_count: value.posts_count,
+            highest_post_number: value.highest_post_number.unwrap_or(value.posts_count),
             category_id: value.category_id,
             tags: value.tags,
             views: value.views,

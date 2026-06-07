@@ -177,6 +177,8 @@ Fire 当前主详情页不再把 `GET /t/{id}.json` 或 `GET /t/{id}/posts.json`
   - Rust 基于已加载的 raw posts 生成 `reply_rows`、`depth`、`parent_post_number`、`root_post_number`
   - 树状 rows 只属于呈现层，不能反向决定下一批网络边界
   - Fire 的 UniFFI tree presentation 只传 post id / post number / hierarchy 元数据，完整 post payload 仍只来自 source snapshot
+  - 当没有显式 `target_post_number` 时，Rust 会依据 detail header 的 `last_read_post_number` / `highest_post_number` 和已加载根帖计算 `first_unread_root_post_number`；如果首批尚未覆盖首个未读根帖，`fetchTopicDetailPage` 会按现有自动 batch 限额继续拉 source batch，直到找到该根帖、source exhausted，或达到自动补批上限
+  - iOS/Android 只在首次打开且没有通知、书签、搜索、分享链接等显式 target 时消费 `first_unread_root_post_number`，刷新、load-more、MessageBus 更新不得触发自动跳转
 
 每个 raw post 还会保留作者展示元数据：`user_id`、`user_title`、`primary_group_name`、`flair_url`、`flair_name`、`flair_bg_color`、`flair_color`、`flair_group_id`、`admin`、`moderator`、`group_moderator`，以及 `user_status.emoji` / `user_status.description`。Fire 在 Rust 模型中将这些字段收敛为 `TopicPostAuthorMetadata`，通过 UniFFI 暴露给 iOS/Android 原生 runtime cell；平台只负责展示，不重新解析 `post.cooked` 或从 profile API 拼装这些字段。
 
@@ -220,6 +222,7 @@ GET /t/{topicId}/posts.json
 - `GET /t/{topicId}/posts.json` 在 Fire 主详情页中只作为 raw-source append 接口使用
 - 平台不得自己切 `post_stream.posts` 窗口当主分页，也不得用 root-level rows 反推 `post_ids[]`
 - `postNumber` deep link 只影响首包 anchor，不改变后续 load-more 的 raw stream 线性分页模型
+- 显式 `target_post_number` 优先于 Rust 的首个未读根帖建议；平台不得用 `first_unread_root_post_number` 覆盖通知、书签、搜索或分享链接定位
 
 ---
 

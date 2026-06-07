@@ -1517,6 +1517,137 @@ async fn fetch_topic_detail_source_snapshot_preserves_target_anchor_and_source_c
 }
 
 #[tokio::test]
+async fn fetch_topic_detail_page_auto_extends_to_first_unread_root() {
+    let mut detail_payload: Value =
+        serde_json::from_str(&sample_topic_detail_json()).expect("detail fixture json");
+    detail_payload
+        .as_object_mut()
+        .expect("detail fixture object")
+        .extend([
+            ("posts_count".into(), json!(12)),
+            ("last_read_post_number".into(), json!(6)),
+        ]);
+
+    let root_posts = (2_u32..=12)
+        .map(|post_number| {
+            json!({
+                "id": 9000 + u64::from(post_number),
+                "username": format!("user-{post_number}"),
+                "cooked": format!("<p>Reply {post_number}</p>"),
+                "post_number": post_number,
+                "reply_to_post_number": 1,
+                "reply_count": 0
+            })
+        })
+        .collect::<Vec<_>>();
+    let root_stream = root_posts
+        .iter()
+        .map(|post| {
+            post.get("id")
+                .and_then(Value::as_u64)
+                .expect("root post id")
+        })
+        .collect::<Vec<_>>();
+    let body_post = detail_payload
+        .get("post_stream")
+        .and_then(Value::as_object)
+        .and_then(|post_stream| post_stream.get("posts"))
+        .and_then(Value::as_array)
+        .and_then(|posts| posts.first())
+        .cloned()
+        .expect("body post");
+    detail_payload
+        .as_object_mut()
+        .expect("detail fixture object")
+        .get_mut("post_stream")
+        .and_then(Value::as_object_mut)
+        .expect("post stream object")
+        .extend([
+            ("posts".into(), Value::Array(vec![body_post])),
+            ("stream".into(), json!(root_stream)),
+        ]);
+
+    let responses = vec![
+        raw_json_response(200, "application/json", &detail_payload.to_string()),
+        raw_json_response(
+            200,
+            "application/json",
+            &json!({
+                "post_stream": {
+                    "posts": root_posts.iter().take(3).cloned().collect::<Vec<_>>(),
+                    "stream": root_posts
+                        .iter()
+                        .take(3)
+                        .filter_map(|post| post.get("id").and_then(Value::as_u64))
+                        .collect::<Vec<_>>()
+                }
+            })
+            .to_string(),
+        ),
+        raw_json_response(
+            200,
+            "application/json",
+            &json!({
+                "post_stream": {
+                    "posts": root_posts.iter().skip(3).take(3).cloned().collect::<Vec<_>>(),
+                    "stream": root_posts
+                        .iter()
+                        .skip(3)
+                        .take(3)
+                        .filter_map(|post| post.get("id").and_then(Value::as_u64))
+                        .collect::<Vec<_>>()
+                }
+            })
+            .to_string(),
+        ),
+    ];
+    let server = TestServer::spawn(responses).await.expect("server");
+    let core = FireCore::new(FireCoreConfig {
+        base_url: server.base_url(),
+        workspace_path: None,
+    })
+    .expect("core");
+
+    let page = core
+        .fetch_topic_detail_page(TopicDetailSourceQuery {
+            topic_id: 123,
+            target_post_number: None,
+            track_visit: true,
+            force_load: true,
+            initial_batch_size: 3,
+            load_more_batch_size: 3,
+            max_auto_batches_per_gesture: 3,
+            max_auto_posts_per_gesture: 120,
+        })
+        .await
+        .expect("topic detail page");
+    let requests = server.shutdown_with_requests().await;
+
+    assert_eq!(
+        page.tree_presentation.first_unread_root_post_number,
+        Some(7)
+    );
+    assert!(page
+        .source_snapshot
+        .loaded_posts
+        .iter()
+        .any(|post| post.post_number == 7));
+    assert_eq!(
+        page.source_snapshot
+            .source_cursor
+            .expect("next source cursor")
+            .next_stream_offset,
+        6
+    );
+    assert_eq!(requests.len(), 3);
+    assert!(requests[0].contains("GET /t/123.json?track_visit=true&forceLoad=true HTTP/1.1"));
+    assert!(requests[1].contains("post_ids%5B%5D=9002"));
+    assert!(requests[1].contains("post_ids%5B%5D=9004"));
+    assert!(requests[2].contains("post_ids%5B%5D=9005"));
+    assert!(requests[2].contains("post_ids%5B%5D=9007"));
+}
+
+#[tokio::test]
 async fn fetch_topic_ai_summary_parses_payload_and_query_params() {
     let body = r#"{
   "ai_topic_summary": {

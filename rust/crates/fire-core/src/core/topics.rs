@@ -63,6 +63,12 @@ struct TopicLoadMorePolicy {
     require_new_root_progress: bool,
 }
 
+#[derive(Default)]
+struct TopicUnreadRootAutoSeekStats {
+    chained_batches: u8,
+    chained_posts: u16,
+}
+
 struct TopicDetailSourceSessionInit {
     session_epoch: u64,
     header: TopicHeader,
@@ -356,22 +362,38 @@ impl FireCore {
         query: TopicDetailSourceQuery,
     ) -> Result<TopicDetailPage, FireCoreError> {
         let topic_id = query.topic_id;
+        let should_seek_unread_root = query.target_post_number.is_none();
         let source_started_at = Instant::now();
-        let source_snapshot = self.fetch_topic_detail_source_snapshot(query).await?;
+        let mut source_snapshot = self.fetch_topic_detail_source_snapshot(query).await?;
         let source_fetch_ms = source_started_at.elapsed().as_millis();
         let tree_started_at = Instant::now();
-        let tree_presentation =
+        let mut tree_presentation =
             build_topic_tree_presentation_from_source_snapshot(&source_snapshot);
         let tree_presentation_ms = tree_started_at.elapsed().as_millis();
+        let auto_seek_started_at = Instant::now();
+        let auto_seek = if should_seek_unread_root {
+            self.extend_topic_source_to_unread_root_if_needed(
+                &mut source_snapshot,
+                &mut tree_presentation,
+            )
+            .await?
+        } else {
+            TopicUnreadRootAutoSeekStats::default()
+        };
+        let auto_seek_ms = auto_seek_started_at.elapsed().as_millis();
         info!(
             topic_id,
             source_fetch_ms,
             tree_presentation_ms,
+            auto_unread_root_ms = auto_seek_ms,
+            auto_unread_root_batches = auto_seek.chained_batches,
+            auto_unread_root_posts = auto_seek.chained_posts,
             source_loaded_posts = source_snapshot.loaded_posts.len(),
             body_post_included = true,
             cooked_byte_count = topic_detail_source_cooked_byte_count(&source_snapshot),
             reply_rows = tree_presentation.reply_rows.len(),
             visible_root_count = tree_presentation.visible_root_post_numbers.len(),
+            first_unread_root_post_number = ?tree_presentation.first_unread_root_post_number,
             total_loaded_post_count = tree_presentation.total_loaded_post_count,
             "topic detail page built"
         );
@@ -386,6 +408,77 @@ impl FireCore {
         query: TopicTreePresentationQuery,
     ) -> TopicTreePresentation {
         build_topic_tree_presentation_from_query(query)
+    }
+
+    async fn extend_topic_source_to_unread_root_if_needed(
+        &self,
+        source_snapshot: &mut TopicDetailSourceSnapshot,
+        tree_presentation: &mut TopicTreePresentation,
+    ) -> Result<TopicUnreadRootAutoSeekStats, FireCoreError> {
+        let mut stats = TopicUnreadRootAutoSeekStats::default();
+        if !topic_tree_needs_unread_root_extension(source_snapshot, tree_presentation) {
+            return Ok(stats);
+        }
+
+        let Some(initial_cursor) = source_snapshot.source_cursor.clone() else {
+            return Ok(stats);
+        };
+        let policy = self
+            .clone_active_source_session(
+                initial_cursor.topic_id,
+                initial_cursor.session_id,
+                None,
+                None,
+            )?
+            .load_more_policy;
+        let mut current_cursor = initial_cursor;
+
+        while topic_tree_needs_unread_root_extension(source_snapshot, tree_presentation) {
+            let append_result = self.append_topic_source_batch(current_cursor.clone()).await;
+            let append = match append_result {
+                Ok(append) => append,
+                Err(error) => {
+                    warn!(
+                        topic_id = current_cursor.topic_id,
+                        session_id = current_cursor.session_id,
+                        batches = stats.chained_batches,
+                        posts = stats.chained_posts,
+                        error = %error,
+                        "topic unread root auto seek stopped after source append failure"
+                    );
+                    return Ok(stats);
+                }
+            };
+
+            stats.chained_batches = stats.chained_batches.saturating_add(1);
+            stats.chained_posts = stats
+                .chained_posts
+                .saturating_add(u16::try_from(append.appended_posts.len()).unwrap_or(u16::MAX));
+            let session = self.clone_active_source_session(
+                current_cursor.topic_id,
+                current_cursor.session_id,
+                None,
+                None,
+            )?;
+            *source_snapshot = session.source_snapshot();
+            *tree_presentation =
+                build_topic_tree_presentation_from_source_snapshot(source_snapshot);
+
+            if !topic_tree_needs_unread_root_extension(source_snapshot, tree_presentation)
+                || source_snapshot.source_exhausted
+                || stats.chained_batches >= policy.max_auto_batches_per_gesture
+                || stats.chained_posts >= policy.max_auto_posts_per_gesture
+            {
+                return Ok(stats);
+            }
+
+            let Some(next_cursor) = source_snapshot.source_cursor.clone() else {
+                return Ok(stats);
+            };
+            current_cursor = next_cursor;
+        }
+
+        Ok(stats)
     }
 
     pub async fn append_topic_detail_source(
@@ -1270,6 +1363,11 @@ fn build_topic_tree_presentation_from_query(
     TopicTreePresentation {
         original_post_id: original_post.id,
         original_post_number: original_post.post_number,
+        first_unread_root_post_number: first_unread_root_post_number(
+            &reply_rows,
+            original_post.post_number,
+            query.last_read_post_number,
+        ),
         reply_rows,
         total_loaded_post_count: posts_by_id.len() as u32,
         visible_root_post_numbers,
@@ -1285,7 +1383,36 @@ fn build_topic_tree_presentation_from_source_snapshot(
         raw_stream_ids: snapshot.raw_stream_ids.clone(),
         loaded_posts: snapshot.loaded_posts.clone(),
         focused_post_number: snapshot.focused_post_number,
+        last_read_post_number: snapshot.header.last_read_post_number,
     })
+}
+
+fn topic_tree_needs_unread_root_extension(
+    snapshot: &TopicDetailSourceSnapshot,
+    presentation: &TopicTreePresentation,
+) -> bool {
+    let Some(last_read_post_number) = snapshot.header.last_read_post_number else {
+        return false;
+    };
+    last_read_post_number > 0
+        && last_read_post_number < snapshot.header.highest_post_number
+        && presentation.first_unread_root_post_number.is_none()
+        && !snapshot.source_exhausted
+}
+
+fn first_unread_root_post_number(
+    reply_rows: &[TopicTreeRow],
+    original_post_number: u32,
+    last_read_post_number: Option<u32>,
+) -> Option<u32> {
+    let last_read_post_number = last_read_post_number?;
+    reply_rows
+        .iter()
+        .find(|row| {
+            row.parent_post_number == Some(original_post_number)
+                && row.post_number > last_read_post_number
+        })
+        .map(|row| row.post_number)
 }
 
 fn topic_detail_source_cooked_byte_count(snapshot: &TopicDetailSourceSnapshot) -> usize {
@@ -1640,6 +1767,7 @@ mod tests {
                 second_root.clone(),
             ],
             focused_post_number: None,
+            last_read_post_number: Some(4),
         });
 
         assert_eq!(
@@ -1670,6 +1798,7 @@ mod tests {
             vec![2, 2, 2, 5]
         );
         assert_eq!(presentation.visible_root_post_numbers, vec![2, 5]);
+        assert_eq!(presentation.first_unread_root_post_number, Some(5));
     }
 
     #[test]
@@ -1683,6 +1812,7 @@ mod tests {
             raw_stream_ids: vec![body_post.id, orphan_root.id, orphan_child.id],
             loaded_posts: vec![body_post.clone(), orphan_root.clone(), orphan_child.clone()],
             focused_post_number: None,
+            last_read_post_number: Some(5),
         });
 
         assert_eq!(
@@ -1706,6 +1836,25 @@ mod tests {
             vec![5, 6]
         );
         assert_eq!(presentation.visible_root_post_numbers, vec![5, 6]);
+        assert_eq!(presentation.first_unread_root_post_number, Some(6));
+    }
+
+    #[test]
+    fn tree_presentation_ignores_nested_unread_posts_for_root_target() {
+        let body_post = make_topic_post(1, None);
+        let root_post = make_topic_post(2, Some(1));
+        let child_post = make_topic_post(9, Some(2));
+
+        let presentation = build_topic_tree_presentation_from_query(TopicTreePresentationQuery {
+            body_post: body_post.clone(),
+            raw_stream_ids: vec![body_post.id, root_post.id, child_post.id],
+            loaded_posts: vec![body_post.clone(), root_post.clone(), child_post.clone()],
+            focused_post_number: None,
+            last_read_post_number: Some(8),
+        });
+
+        assert_eq!(presentation.visible_root_post_numbers, vec![2]);
+        assert_eq!(presentation.first_unread_root_post_number, None);
     }
 
     #[test]

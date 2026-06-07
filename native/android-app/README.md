@@ -54,10 +54,15 @@ the shared Rust core at build time.
 `TopicDetailActivity` now loads Rust-owned `TopicDetailPageState` from the
 combined topic-detail page path, where the source snapshot carries the full
 posts and the slim tree presentation carries only post id / number plus
-hierarchy metadata. It renders a `ConcatAdapter` made of the topic header,
-original post, reply rows, and a loading footer. Load-more is driven only by the
-Rust source cursor over raw `post_stream.stream`, not by host-managed row
-windows.
+hierarchy metadata plus the optional first-unread-root suggestion. It renders a
+`ConcatAdapter` made of the topic header, original post, reply rows, and a
+loading footer. Load-more is driven only by the Rust source cursor over raw
+`post_stream.stream`, not by host-managed row windows.
+
+When Rust returns `firstUnreadRootPostNumber`, Android consumes it only for the
+initial topic-detail load with no explicit notification/search/bookmark/share
+target. Explicit target post numbers keep priority, and refresh or MessageBus
+updates never trigger unread-root scrolling.
 
 Post rows consume Rust-owned `TopicPostAuthorMetadata` for display name,
 username, title, group/flair name, staff markers, and status text. Android only
@@ -105,7 +110,8 @@ Current topic-detail interactions:
 - post delete/recover actions when the backend exposes those permissions
 - post report flow using Rust-provided post action types with moderator-message
   prompts when required
-- target post scrolling for notification/search deep links
+- target post scrolling for notification/search deep links, with Rust's
+  first-unread-root suggestion used only when no explicit target was supplied
 - topic/reaction/poll MessageBus subscriptions with debounced detail refresh
 - MessageBus-driven detail refresh now waits until RecyclerView scrolling returns
   to idle before applying the latest refreshed source snapshot + tree presentation,

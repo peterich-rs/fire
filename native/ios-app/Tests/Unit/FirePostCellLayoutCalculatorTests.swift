@@ -23,6 +23,7 @@ final class FirePostCellLayoutCalculatorTests: XCTestCase {
             replyShortcutCount: nil,
             textExpansionState: .disabled,
             acceptedAnswer: false,
+            hasAuthorMetadata: false,
             trait: trait
         )
 
@@ -87,6 +88,7 @@ final class FirePostCellLayoutCalculatorTests: XCTestCase {
             replyShortcutCount: nil,
             textExpansionState: .disabled,
             acceptedAnswer: false,
+            hasAuthorMetadata: false,
             trait: trait
         )
 
@@ -96,6 +98,62 @@ final class FirePostCellLayoutCalculatorTests: XCTestCase {
         )
 
         XCTAssertEqual(availableWidth, 256, accuracy: 0.01)
+    }
+
+    func testAuthorMetadataIncreasesPrecomputedHeight() {
+        let trait = FirePostLayoutTraitSignature(
+            contentWidthPixels: 320,
+            contentSizeCategory: UIContentSizeCategory.large.rawValue
+        )
+        let baselineKey = FirePostCellLayoutKey(
+            postID: 84,
+            depth: 1,
+            showsThreadLine: false,
+            showsDivider: false,
+            replyTargetPostNumber: nil,
+            replyContext: nil,
+            textContentID: "text",
+            imageSignature: [],
+            pollSignature: [],
+            hasReactions: false,
+            replyShortcutCount: nil,
+            textExpansionState: .disabled,
+            acceptedAnswer: false,
+            hasAuthorMetadata: false,
+            trait: trait
+        )
+        let metadataKey = FirePostCellLayoutKey(
+            postID: 84,
+            depth: 1,
+            showsThreadLine: false,
+            showsDivider: false,
+            replyTargetPostNumber: nil,
+            replyContext: nil,
+            textContentID: "text",
+            imageSignature: [],
+            pollSignature: [],
+            hasReactions: false,
+            replyShortcutCount: nil,
+            textExpansionState: .disabled,
+            acceptedAnswer: false,
+            hasAuthorMetadata: true,
+            trait: trait
+        )
+
+        let baseline = FirePostCellLayoutCalculator.calculate(
+            key: baselineKey,
+            textHeight: 40,
+            imageSizes: [],
+            trait: trait
+        )
+        let withMetadata = FirePostCellLayoutCalculator.calculate(
+            key: metadataKey,
+            textHeight: 40,
+            imageSizes: [],
+            trait: trait
+        )
+
+        XCTAssertGreaterThan(withMetadata.totalHeight, baseline.totalHeight)
     }
 
     func testCollapsedTextAddsInlineExpansionTokenAndCapsHeight() {
@@ -117,6 +175,7 @@ final class FirePostCellLayoutCalculatorTests: XCTestCase {
             replyShortcutCount: 3,
             textExpansionState: FirePostTextExpansionState(isCollapsible: true, isExpanded: false),
             acceptedAnswer: false,
+            hasAuthorMetadata: false,
             trait: trait
         )
 
@@ -162,6 +221,7 @@ final class FirePostCellLayoutCalculatorTests: XCTestCase {
             replyShortcutCount: nil,
             textExpansionState: .disabled,
             acceptedAnswer: false,
+            hasAuthorMetadata: false,
             trait: trait
         )
 
@@ -242,6 +302,7 @@ final class FirePostCellLayoutCalculatorTests: XCTestCase {
             replyShortcutCount: nil,
             textExpansionState: FirePostTextExpansionState(isCollapsible: true, isExpanded: false),
             acceptedAnswer: false,
+            hasAuthorMetadata: false,
             trait: trait
         )
         let availableWidth = FirePostCellLayoutCalculator.availableContentWidth(
@@ -289,6 +350,7 @@ final class FirePostCellLayoutCalculatorTests: XCTestCase {
             replyShortcutCount: nil,
             textExpansionState: FirePostTextExpansionState(isCollapsible: true, isExpanded: false),
             acceptedAnswer: false,
+            hasAuthorMetadata: false,
             trait: trait
         )
         let collapsedHeight = FirePostCellLayoutCalculator.collapsedTextHeight(contentSizeCategory: .large)
@@ -437,6 +499,7 @@ final class FirePostCellLayoutCalculatorTests: XCTestCase {
             replyShortcutCount: 3,
             textExpansionState: .disabled,
             acceptedAnswer: false,
+            hasAuthorMetadata: false,
             trait: trait
         )
         let textHeight = FirePostCellLayoutCalculator.measureRichTextHeight(
@@ -507,6 +570,7 @@ final class FirePostCellLayoutCalculatorTests: XCTestCase {
             username: username,
             name: nil,
             avatarTemplate: nil,
+            authorMetadata: fireEmptyPostAuthorMetadataState(),
             cooked: cooked,
             renderDocument: fireRenderDocumentFixture(cooked),
             raw: username,

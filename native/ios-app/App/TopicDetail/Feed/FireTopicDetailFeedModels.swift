@@ -875,6 +875,7 @@ struct FireTopicDetailRuntimeConfiguration: @unchecked Sendable {
     ) -> String {
         [
             String(post.id),
+            FirePostAuthorMetadataDisplay.contentToken(for: post),
             renderContent?.signature.token ?? "pending",
             Self.pollsContentToken(post.polls),
             String(!post.reactions.isEmpty),
@@ -893,10 +894,11 @@ struct FireTopicDetailRuntimeConfiguration: @unchecked Sendable {
         textExpansionState: FirePostTextExpansionState
     ) -> String {
         var parts: [String] = []
-        parts.reserveCapacity(29)
+        parts.reserveCapacity(30)
         parts.append(String(post.id))
         parts.append(String(post.postNumber))
         parts.append(post.username)
+        parts.append(FirePostAuthorMetadataDisplay.contentToken(for: post))
         parts.append(post.avatarTemplate ?? "")
         parts.append(post.createdAt ?? "")
         parts.append(post.updatedAt ?? "")

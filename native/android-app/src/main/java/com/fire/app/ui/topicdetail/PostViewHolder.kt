@@ -25,6 +25,7 @@ class PostViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
 
     private val avatar: ImageView = itemView.findViewById(R.id.post_avatar)
     private val usernameText: TextView = itemView.findViewById(R.id.post_username)
+    private val authorMetadataText: TextView = itemView.findViewById(R.id.post_author_metadata)
     private val metaText: TextView = itemView.findViewById(R.id.post_meta)
     private val floorText: TextView = itemView.findViewById(R.id.post_floor)
     private val replyContextText: TextView = itemView.findViewById(R.id.post_reply_context)
@@ -52,9 +53,17 @@ class PostViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
             it.marginStart = depthIndent
         }
 
-        usernameText.text = post.name?.ifBlank { null } ?: post.username
+        usernameText.text = displayName(post)
         usernameText.setOnClickListener { callbacks.onAuthorClick(post.username) }
         avatar.setOnClickListener { callbacks.onAuthorClick(post.username) }
+        val authorMetadata = authorMetadataParts(post)
+        if (authorMetadata.isEmpty()) {
+            authorMetadataText.visibility = View.GONE
+            authorMetadataText.text = null
+        } else {
+            authorMetadataText.visibility = View.VISIBLE
+            authorMetadataText.text = authorMetadata.joinToString(" · ")
+        }
 
         val meta = buildList {
             post.createdAt?.let { TopicPresentation.formatTimestamp(it)?.let { ts -> add(ts) } }
@@ -439,6 +448,63 @@ class PostViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
             val view = LayoutInflater.from(parent.context)
                 .inflate(R.layout.item_post, parent, false)
             return PostViewHolder(view)
+        }
+
+        private fun displayName(post: TopicPostState): String {
+            return cleaned(post.name)
+                ?: cleaned(post.username)
+                ?: "Unknown"
+        }
+
+        private fun authorMetadataParts(post: TopicPostState): List<String> {
+            val metadata = post.authorMetadata
+            val username = cleaned(post.username)
+            val displayName = displayName(post)
+            val title = cleaned(metadata.userTitle)
+            val group = cleaned(metadata.primaryGroupName)
+            val flair = cleaned(metadata.flairName)
+            val statusDescription = cleaned(metadata.userStatusDescription)
+            val statusEmoji = cleaned(metadata.userStatusEmoji)?.let { ":$it:" }
+            val hasMetadataBeyondUsername = title != null ||
+                group != null ||
+                flair != null ||
+                metadata.admin ||
+                metadata.moderator ||
+                metadata.groupModerator ||
+                statusDescription != null ||
+                statusEmoji != null
+
+            return buildList {
+                if (
+                    username != null &&
+                    (!displayName.equals(username, ignoreCase = true) || hasMetadataBeyondUsername)
+                ) {
+                    add("@$username")
+                }
+                title?.let(::add)
+                group?.let(::add)
+                if (flair != null && !flair.equals(group, ignoreCase = true)) {
+                    add(flair)
+                }
+                if (metadata.admin) {
+                    add("管理员")
+                }
+                if (metadata.moderator) {
+                    add("版主")
+                }
+                if (metadata.groupModerator) {
+                    add("组版主")
+                }
+                if (statusDescription != null) {
+                    add(statusDescription)
+                } else {
+                    statusEmoji?.let(::add)
+                }
+            }
+        }
+
+        private fun cleaned(value: String?): String? {
+            return value?.trim()?.takeIf { it.isNotEmpty() }
         }
     }
 }

@@ -1055,6 +1055,7 @@ final class FireTopicPresentationTests: XCTestCase {
             username: username,
             name: nil,
             avatarTemplate: nil,
+            authorMetadata: fireEmptyPostAuthorMetadataState(),
             cooked: cooked,
             renderDocument: renderDocument,
             raw: nil,

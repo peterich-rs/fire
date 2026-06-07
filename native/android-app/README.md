@@ -59,6 +59,11 @@ original post, reply rows, and a loading footer. Load-more is driven only by the
 Rust source cursor over raw `post_stream.stream`, not by host-managed row
 windows.
 
+Post rows consume Rust-owned `TopicPostAuthorMetadata` for display name,
+username, title, group/flair name, staff markers, and status text. Android only
+renders this metadata in the native RecyclerView row; it does not reconstruct
+author badges from profile fetches or parsed cooked HTML.
+
 Current topic-detail interactions:
 
 - topic-level reply FAB through `ReplyComposerSheet`, with `@mention`

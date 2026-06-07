@@ -14,9 +14,9 @@ pub use records::{
     TopicDetailCreatedByState, TopicDetailMetaState, TopicDetailPageState,
     TopicDetailSourceQueryState, TopicDetailSourceSnapshotState, TopicDetailState,
     TopicHeaderState, TopicListQueryState, TopicLoadMoreOutcomeState, TopicLoadMoreStopReasonState,
-    TopicLoadedRangeState, TopicPostState, TopicPostStreamState, TopicReactionState,
-    TopicReplyRequestState, TopicReplyToUserState, TopicSourceCursorState, TopicTimingEntryState,
-    TopicTimingsRequestState, TopicTreePresentationState, TopicTreeRowState,
+    TopicLoadedRangeState, TopicPostAuthorMetadataState, TopicPostState, TopicPostStreamState,
+    TopicReactionState, TopicReplyRequestState, TopicReplyToUserState, TopicSourceCursorState,
+    TopicTimingEntryState, TopicTimingsRequestState, TopicTreePresentationState, TopicTreeRowState,
     TopicUpdateRequestState, UploadImageRequestState, UploadResultState, VoteResponseState,
     VotedUserState,
 };

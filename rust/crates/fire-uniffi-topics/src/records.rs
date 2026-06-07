@@ -5,9 +5,10 @@ use fire_models::{
     ResolvedUploadUrl, TopicAiSummary, TopicBody, TopicCreateRequest, TopicDetail,
     TopicDetailCreatedBy, TopicDetailMeta, TopicDetailPage, TopicDetailSourceQuery,
     TopicDetailSourceSnapshot, TopicHeader, TopicListQuery, TopicLoadMoreOutcome,
-    TopicLoadMoreStopReason, TopicLoadedRange, TopicPost, TopicPostStream, TopicReaction,
-    TopicReplyRequest, TopicReplyToUser, TopicSourceCursor, TopicTimingEntry, TopicTimingsRequest,
-    TopicTreePresentation, TopicTreeRow, TopicUpdateRequest, UploadResult, VoteResponse, VotedUser,
+    TopicLoadMoreStopReason, TopicLoadedRange, TopicPost, TopicPostAuthorMetadata, TopicPostStream,
+    TopicReaction, TopicReplyRequest, TopicReplyToUser, TopicSourceCursor, TopicTimingEntry,
+    TopicTimingsRequest, TopicTreePresentation, TopicTreeRow, TopicUpdateRequest, UploadResult,
+    VoteResponse, VotedUser,
 };
 
 use fire_uniffi_types::{
@@ -581,11 +582,69 @@ impl From<TopicReplyToUser> for TopicReplyToUserState {
 }
 
 #[derive(uniffi::Record, Debug, Clone)]
+pub struct TopicPostAuthorMetadataState {
+    pub user_id: Option<u64>,
+    pub user_title: Option<String>,
+    pub primary_group_name: Option<String>,
+    pub flair_url: Option<String>,
+    pub flair_name: Option<String>,
+    pub flair_bg_color: Option<String>,
+    pub flair_color: Option<String>,
+    pub flair_group_id: Option<u64>,
+    pub moderator: bool,
+    pub admin: bool,
+    pub group_moderator: bool,
+    pub user_status_emoji: Option<String>,
+    pub user_status_description: Option<String>,
+}
+
+impl From<TopicPostAuthorMetadata> for TopicPostAuthorMetadataState {
+    fn from(value: TopicPostAuthorMetadata) -> Self {
+        Self {
+            user_id: value.user_id,
+            user_title: value.user_title,
+            primary_group_name: value.primary_group_name,
+            flair_url: value.flair_url,
+            flair_name: value.flair_name,
+            flair_bg_color: value.flair_bg_color,
+            flair_color: value.flair_color,
+            flair_group_id: value.flair_group_id,
+            moderator: value.moderator,
+            admin: value.admin,
+            group_moderator: value.group_moderator,
+            user_status_emoji: value.user_status_emoji,
+            user_status_description: value.user_status_description,
+        }
+    }
+}
+
+impl From<TopicPostAuthorMetadataState> for TopicPostAuthorMetadata {
+    fn from(value: TopicPostAuthorMetadataState) -> Self {
+        Self {
+            user_id: value.user_id,
+            user_title: value.user_title,
+            primary_group_name: value.primary_group_name,
+            flair_url: value.flair_url,
+            flair_name: value.flair_name,
+            flair_bg_color: value.flair_bg_color,
+            flair_color: value.flair_color,
+            flair_group_id: value.flair_group_id,
+            moderator: value.moderator,
+            admin: value.admin,
+            group_moderator: value.group_moderator,
+            user_status_emoji: value.user_status_emoji,
+            user_status_description: value.user_status_description,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
 pub struct TopicPostState {
     pub id: u64,
     pub username: String,
     pub name: Option<String>,
     pub avatar_template: Option<String>,
+    pub author_metadata: TopicPostAuthorMetadataState,
     pub cooked: String,
     pub render_document: Option<RenderDocumentState>,
     pub raw: Option<String>,
@@ -629,6 +688,7 @@ pub(crate) fn topic_post_state_from_model(value: TopicPost, base_url: &str) -> T
         username: value.username,
         name: value.name,
         avatar_template: value.avatar_template,
+        author_metadata: value.author_metadata.into(),
         cooked: value.cooked,
         render_document,
         raw: value.raw,
@@ -674,6 +734,7 @@ impl From<TopicPostState> for TopicPost {
             username: value.username,
             name: value.name,
             avatar_template: value.avatar_template,
+            author_metadata: value.author_metadata.into(),
             cooked: value.cooked,
             raw: value.raw,
             post_number: value.post_number,

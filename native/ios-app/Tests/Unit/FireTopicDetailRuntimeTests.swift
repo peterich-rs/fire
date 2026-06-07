@@ -972,6 +972,7 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
             username: username,
             name: nil,
             avatarTemplate: nil,
+            authorMetadata: fireEmptyPostAuthorMetadataState(),
             cooked: cooked,
             renderDocument: renderCookedHtml(rawHtml: cooked, baseUrl: "https://linux.do"),
             raw: username,

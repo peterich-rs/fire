@@ -2,6 +2,7 @@ package com.fire.app.ui.topicdetail
 
 import org.junit.Assert.assertEquals
 import org.junit.Test
+import uniffi.fire_uniffi_topics.TopicPostAuthorMetadataState
 import uniffi.fire_uniffi_topics.TopicPostState
 import uniffi.fire_uniffi_topics.TopicTreeRowState
 
@@ -49,6 +50,7 @@ class TopicDetailPostRowsTest {
             username = username,
             name = null,
             avatarTemplate = null,
+            authorMetadata = emptyAuthorMetadata(),
             cooked = "<p>$username</p>",
             raw = null,
             postNumber = postNumber,
@@ -89,6 +91,24 @@ class TopicDetailPostRowsTest {
             descendantCount = 0u,
             siblingIndex = 0u.toUShort(),
             isLastSibling = true,
+        )
+    }
+
+    private fun emptyAuthorMetadata(): TopicPostAuthorMetadataState {
+        return TopicPostAuthorMetadataState(
+            userId = null,
+            userTitle = null,
+            primaryGroupName = null,
+            flairUrl = null,
+            flairName = null,
+            flairBgColor = null,
+            flairColor = null,
+            flairGroupId = null,
+            moderator = false,
+            admin = false,
+            groupModerator = false,
+            userStatusEmoji = null,
+            userStatusDescription = null,
         )
     }
 }

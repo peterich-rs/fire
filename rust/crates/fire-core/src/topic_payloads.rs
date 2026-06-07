@@ -1,8 +1,9 @@
 use fire_models::{
     Poll, PollOption, PostReactionUpdate, ReactionUser, ReactionUsersGroup, TopicAiSummary,
     TopicDetail, TopicDetailCreatedBy, TopicDetailMeta, TopicListResponse, TopicParticipant,
-    TopicPost, TopicPostStream, TopicPoster, TopicReaction, TopicReplyToUser, TopicRow,
-    TopicSummary, TopicTag, TopicThread, TopicUser, VoteResponse, VotedUser,
+    TopicPost, TopicPostAuthorMetadata, TopicPostStream, TopicPoster, TopicReaction,
+    TopicReplyToUser, TopicRow, TopicSummary, TopicTag, TopicThread, TopicUser, VoteResponse,
+    VotedUser,
 };
 use serde::{
     de::{DeserializeOwned, Error as DeError},
@@ -673,6 +674,14 @@ impl From<RawTopicReplyToUser> for TopicReplyToUser {
 }
 
 #[derive(Debug, Default, Deserialize)]
+struct RawTopicPostUserStatus {
+    #[serde(default, deserialize_with = "deserialize_optional_scalar_string")]
+    emoji: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_optional_scalar_string")]
+    description: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize)]
 struct RawTopicPost {
     #[serde(default, deserialize_with = "deserialize_default_u64")]
     id: u64,
@@ -682,6 +691,30 @@ struct RawTopicPost {
     name: Option<String>,
     #[serde(default, deserialize_with = "deserialize_optional_scalar_string")]
     avatar_template: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_optional_u64")]
+    user_id: Option<u64>,
+    #[serde(default, deserialize_with = "deserialize_optional_scalar_string")]
+    user_title: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_optional_scalar_string")]
+    primary_group_name: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_optional_scalar_string")]
+    flair_url: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_optional_scalar_string")]
+    flair_name: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_optional_scalar_string")]
+    flair_bg_color: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_optional_scalar_string")]
+    flair_color: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_optional_u64")]
+    flair_group_id: Option<u64>,
+    #[serde(default, deserialize_with = "deserialize_default_bool")]
+    moderator: bool,
+    #[serde(default, deserialize_with = "deserialize_default_bool")]
+    admin: bool,
+    #[serde(default, deserialize_with = "deserialize_default_bool")]
+    group_moderator: bool,
+    #[serde(default, deserialize_with = "deserialize_optional_record")]
+    user_status: Option<RawTopicPostUserStatus>,
     #[serde(default, deserialize_with = "deserialize_default_string")]
     cooked: String,
     #[serde(default, deserialize_with = "deserialize_optional_scalar_string")]
@@ -763,6 +796,24 @@ impl From<RawTopicPost> for TopicPost {
             username: value.username,
             name: value.name,
             avatar_template: value.avatar_template,
+            author_metadata: TopicPostAuthorMetadata {
+                user_id: value.user_id,
+                user_title: value.user_title,
+                primary_group_name: value.primary_group_name,
+                flair_url: value.flair_url,
+                flair_name: value.flair_name,
+                flair_bg_color: value.flair_bg_color,
+                flair_color: value.flair_color,
+                flair_group_id: value.flair_group_id,
+                moderator: value.moderator,
+                admin: value.admin,
+                group_moderator: value.group_moderator,
+                user_status_emoji: value
+                    .user_status
+                    .as_ref()
+                    .and_then(|status| status.emoji.clone()),
+                user_status_description: value.user_status.and_then(|status| status.description),
+            },
             cooked: value.cooked,
             raw: value.raw,
             post_number: value.post_number,

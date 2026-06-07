@@ -165,6 +165,7 @@ final class FirePostLayoutManagerTests: XCTestCase {
             replyShortcutCount: nil,
             textExpansionState: textExpansionState,
             acceptedAnswer: false,
+            hasAuthorMetadata: false,
             trait: FirePostLayoutTraitSignature(
                 contentWidthPixels: width,
                 contentSizeCategory: UIContentSizeCategory.large.rawValue

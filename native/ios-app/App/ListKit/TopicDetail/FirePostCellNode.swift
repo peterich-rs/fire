@@ -24,6 +24,7 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
     private let avatarContainerNode = ASDisplayNode()
     private let threadLineNode = ASDisplayNode()
     private let usernameNode = ASTextNode()
+    private let authorMetadataNode = ASTextNode()
     private let replyContextNode = ASButtonNode()
     private let timestampNode = ASTextNode()
     private let acceptedAnswerNode = ASTextNode()
@@ -146,6 +147,11 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
         usernameNode.truncationMode = .byTruncatingTail
         usernameNode.isLayerBacked = true
         usernameNode.style.flexShrink = 1.0
+        authorMetadataNode.maximumNumberOfLines = 1
+        authorMetadataNode.truncationMode = .byTruncatingTail
+        authorMetadataNode.isLayerBacked = true
+        authorMetadataNode.style.flexShrink = 1.0
+        authorMetadataNode.isHidden = true
 
         replyContextNode.titleNode.maximumNumberOfLines = 1
         replyContextNode.titleNode.truncationMode = .byTruncatingTail
@@ -290,10 +296,22 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
         )
 
         usernameNode.attributedText = NSAttributedString(
-            string: payload.post.username.isEmpty ? "Unknown" : payload.post.username,
+            string: FirePostAuthorMetadataDisplay.displayName(for: payload.post),
             attributes: [.font: subheadlineFont, .foregroundColor: UIColor.label]
         )
         usernameNode.isUserInteractionEnabled = !payload.post.username.isEmpty
+
+        let authorMetadataParts = FirePostAuthorMetadataDisplay.metadataParts(for: payload.post)
+        if authorMetadataParts.isEmpty {
+            authorMetadataNode.isHidden = true
+            authorMetadataNode.attributedText = nil
+        } else {
+            authorMetadataNode.isHidden = false
+            authorMetadataNode.attributedText = NSAttributedString(
+                string: authorMetadataParts.joined(separator: " · "),
+                attributes: [.font: UIFont.preferredFont(forTextStyle: .caption1), .foregroundColor: Self.tertiaryInkColor]
+            )
+        }
 
         if let replyContext = payload.replyContext,
            let targetPN = payload.replyTargetPostNumber, targetPN > 0 {
@@ -773,6 +791,9 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
 
         // Content column
         var contentChildren: [ASLayoutElement] = [metaRow]
+        if !authorMetadataNode.isHidden {
+            contentChildren.append(authorMetadataNode)
+        }
 
         if !bodyTextNode.isHidden {
             contentChildren.append(bodyTextNode)

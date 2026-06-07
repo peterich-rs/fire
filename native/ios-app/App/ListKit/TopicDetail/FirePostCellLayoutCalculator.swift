@@ -110,6 +110,13 @@ enum FirePostCellLayoutCalculator {
             height: metaHeight
         )
         cursorY += metaHeight + metaLineSpacing
+        if key.hasAuthorMetadata {
+            let metadataHeight = ceil(UIFont.preferredFont(
+                forTextStyle: .caption1,
+                compatibleWith: contentTraitCollection
+            ).lineHeight)
+            cursorY += metadataHeight + metaLineSpacing
+        }
 
         // Text frame
         let textFrame: CGRect?

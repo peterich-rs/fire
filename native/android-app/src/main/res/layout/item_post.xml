@@ -35,6 +35,17 @@
                 android:textStyle="bold" />
 
             <TextView
+                android:id="@+id/post_author_metadata"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="1dp"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:textAppearance="@style/TextAppearance.AppCompat.Caption"
+                android:textColor="@color/fire_text_secondary"
+                android:visibility="gone" />
+
+            <TextView
                 android:id="@+id/post_meta"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"

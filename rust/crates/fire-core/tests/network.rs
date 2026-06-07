@@ -1259,6 +1259,85 @@ async fn fetch_topic_detail_parses_detail_payload() {
 }
 
 #[tokio::test]
+async fn fetch_topic_detail_parses_post_author_metadata() {
+    let mut payload: Value =
+        serde_json::from_str(&sample_topic_detail_json()).expect("detail payload json");
+    let post = payload
+        .get_mut("post_stream")
+        .and_then(Value::as_object_mut)
+        .and_then(|stream| stream.get_mut("posts"))
+        .and_then(Value::as_array_mut)
+        .and_then(|posts| posts.first_mut())
+        .and_then(Value::as_object_mut)
+        .expect("first post");
+    post.insert("user_id".into(), json!(42));
+    post.insert("user_title".into(), json!("Core Team"));
+    post.insert("primary_group_name".into(), json!("staff"));
+    post.insert("flair_url".into(), json!("/images/flair/staff.svg"));
+    post.insert("flair_name".into(), json!("Staff"));
+    post.insert("flair_bg_color".into(), json!("0057ff"));
+    post.insert("flair_color".into(), json!("ffffff"));
+    post.insert("flair_group_id".into(), json!("7"));
+    post.insert("moderator".into(), json!(true));
+    post.insert("admin".into(), json!(false));
+    post.insert("group_moderator".into(), json!(true));
+    post.insert(
+        "user_status".into(),
+        json!({
+            "emoji": "coffee",
+            "description": "Reviewing patches"
+        }),
+    );
+
+    let responses = vec![raw_json_response(
+        200,
+        "application/json",
+        &payload.to_string(),
+    )];
+    let server = TestServer::spawn(responses).await.expect("server");
+    let core = FireCore::new(FireCoreConfig {
+        base_url: server.base_url(),
+        workspace_path: None,
+    })
+    .expect("core");
+
+    let detail = core
+        .fetch_topic_detail(TopicDetailQuery {
+            topic_id: 123,
+            post_number: None,
+            track_visit: true,
+            force_load: false,
+            filter: None,
+            username_filters: None,
+            filter_top_level_replies: false,
+        })
+        .await
+        .expect("detail");
+    let _ = server.shutdown().await;
+
+    let metadata = &detail.post_stream.posts[0].author_metadata;
+    assert_eq!(metadata.user_id, Some(42));
+    assert_eq!(metadata.user_title.as_deref(), Some("Core Team"));
+    assert_eq!(metadata.primary_group_name.as_deref(), Some("staff"));
+    assert_eq!(
+        metadata.flair_url.as_deref(),
+        Some("/images/flair/staff.svg")
+    );
+    assert_eq!(metadata.flair_name.as_deref(), Some("Staff"));
+    assert_eq!(metadata.flair_bg_color.as_deref(), Some("0057ff"));
+    assert_eq!(metadata.flair_color.as_deref(), Some("ffffff"));
+    assert_eq!(metadata.flair_group_id, Some(7));
+    assert!(metadata.moderator);
+    assert!(!metadata.admin);
+    assert!(metadata.group_moderator);
+    assert_eq!(metadata.user_status_emoji.as_deref(), Some("coffee"));
+    assert_eq!(
+        metadata.user_status_description.as_deref(),
+        Some("Reviewing patches")
+    );
+}
+
+#[tokio::test]
 async fn fetch_topic_detail_rejects_mismatched_topic_identity() {
     let payload = sample_topic_detail_json().replace("\"id\": 123", "\"id\": 999");
     let responses = vec![raw_json_response(200, "application/json", &payload)];

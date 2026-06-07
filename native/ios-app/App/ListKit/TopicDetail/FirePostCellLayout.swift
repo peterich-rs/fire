@@ -20,6 +20,7 @@ struct FirePostCellLayoutKey: Hashable, Sendable {
     let replyShortcutCount: UInt32?
     let textExpansionState: FirePostTextExpansionState
     let acceptedAnswer: Bool
+    let hasAuthorMetadata: Bool
     let trait: FirePostLayoutTraitSignature
 }
 
@@ -140,4 +141,91 @@ struct FirePostCellCallbacks {
     let onVotePoll: (TopicPostState, PollState, [String]) -> Void
     let onUnvotePoll: (TopicPostState, PollState) -> Void
     let onSwipeReply: (TopicPostState) -> Void
+}
+
+enum FirePostAuthorMetadataDisplay {
+    static func displayName(for post: TopicPostState) -> String {
+        cleaned(post.name) ?? cleaned(post.username) ?? "Unknown"
+    }
+
+    static func metadataParts(for post: TopicPostState) -> [String] {
+        let metadata = post.authorMetadata
+        let username = cleaned(post.username)
+        let displayName = displayName(for: post)
+
+        let title = cleaned(metadata.userTitle)
+        let group = cleaned(metadata.primaryGroupName)
+        let flair = cleaned(metadata.flairName)
+        let statusDescription = cleaned(metadata.userStatusDescription)
+        let statusEmoji = cleaned(metadata.userStatusEmoji).map { ":\($0):" }
+        let hasMetadataBeyondUsername = title != nil
+            || group != nil
+            || flair != nil
+            || metadata.admin
+            || metadata.moderator
+            || metadata.groupModerator
+            || statusDescription != nil
+            || statusEmoji != nil
+
+        var parts: [String] = []
+        if let username {
+            let showsUsername = displayName.caseInsensitiveCompare(username) != .orderedSame
+                || hasMetadataBeyondUsername
+            if showsUsername {
+                parts.append("@\(username)")
+            }
+        }
+        if let title {
+            parts.append(title)
+        }
+        if let group {
+            parts.append(group)
+        }
+        if let flair,
+           flair.caseInsensitiveCompare(group ?? "") != .orderedSame {
+            parts.append(flair)
+        }
+        if metadata.admin {
+            parts.append("管理员")
+        }
+        if metadata.moderator {
+            parts.append("版主")
+        }
+        if metadata.groupModerator {
+            parts.append("组版主")
+        }
+        if let statusDescription {
+            parts.append(statusDescription)
+        } else if let statusEmoji {
+            parts.append(statusEmoji)
+        }
+        return parts
+    }
+
+    static func hasVisibleMetadata(_ post: TopicPostState) -> Bool {
+        !metadataParts(for: post).isEmpty
+    }
+
+    static func contentToken(for post: TopicPostState) -> String {
+        let metadata = post.authorMetadata
+        var parts: [String] = []
+        parts.reserveCapacity(10)
+        parts.append(displayName(for: post))
+        parts.append(metadataParts(for: post).joined(separator: "|"))
+        parts.append(metadata.userId.map(String.init) ?? "")
+        parts.append(metadata.flairUrl ?? "")
+        parts.append(metadata.flairBgColor ?? "")
+        parts.append(metadata.flairColor ?? "")
+        parts.append(metadata.flairGroupId.map(String.init) ?? "")
+        parts.append(String(metadata.admin))
+        parts.append(String(metadata.moderator))
+        parts.append(String(metadata.groupModerator))
+        return parts.joined(separator: "\u{1F}")
+    }
+
+    private static func cleaned(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
 }

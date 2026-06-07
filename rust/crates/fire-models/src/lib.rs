@@ -922,6 +922,7 @@ mod tests {
             username: format!("user-{post_number}"),
             name: None,
             avatar_template: None,
+            author_metadata: Default::default(),
             cooked: format!("<p>{post_number}</p>"),
             raw: None,
             post_number,

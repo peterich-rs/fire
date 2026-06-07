@@ -228,11 +228,29 @@ pub struct TopicReplyToUser {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TopicPostAuthorMetadata {
+    pub user_id: Option<u64>,
+    pub user_title: Option<String>,
+    pub primary_group_name: Option<String>,
+    pub flair_url: Option<String>,
+    pub flair_name: Option<String>,
+    pub flair_bg_color: Option<String>,
+    pub flair_color: Option<String>,
+    pub flair_group_id: Option<u64>,
+    pub moderator: bool,
+    pub admin: bool,
+    pub group_moderator: bool,
+    pub user_status_emoji: Option<String>,
+    pub user_status_description: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TopicPost {
     pub id: u64,
     pub username: String,
     pub name: Option<String>,
     pub avatar_template: Option<String>,
+    pub author_metadata: TopicPostAuthorMetadata,
     pub cooked: String,
     pub raw: Option<String>,
     pub post_number: u32,

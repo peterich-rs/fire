@@ -613,6 +613,7 @@ final class FireTopicDetailFeedController: NSObject,
             replyShortcutCount: context.replyShortcutCount,
             textExpansionState: context.textExpansionState,
             acceptedAnswer: context.post.acceptedAnswer,
+            hasAuthorMetadata: FirePostAuthorMetadataDisplay.hasVisibleMetadata(context.post),
             trait: trait
         )
     }

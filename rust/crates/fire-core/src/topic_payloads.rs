@@ -17,8 +17,8 @@ use crate::json_helpers::{
     boolean, integer_i32, integer_u32, integer_u64, invalid_json, parse_array_items_lossy,
     scalar_string,
 };
-use crate::preview_text_from_html;
 use crate::topic_status_labels;
+use crate::{plain_text_from_html, preview_text_from_html};
 
 #[derive(Debug, Default, Deserialize)]
 pub(crate) struct RawTopicListResponse {
@@ -593,9 +593,11 @@ struct RawPollOption {
 
 impl From<RawPollOption> for PollOption {
     fn from(value: RawPollOption) -> Self {
+        let plain_text = plain_text_from_html(&value.html).trim().to_string();
         Self {
             id: value.id,
             html: value.html,
+            plain_text,
             votes: value.votes,
         }
     }

@@ -25,6 +25,7 @@ import uniffi.fire_uniffi_topics.PostUpdateRequestState
 import uniffi.fire_uniffi_topics.PostReactionUpdateState
 import uniffi.fire_uniffi_topics.TopicAiSummaryState
 import uniffi.fire_uniffi_topics.TopicBodyState
+import uniffi.fire_uniffi_topics.TopicDetailPageState
 import uniffi.fire_uniffi_topics.TopicDetailState
 import uniffi.fire_uniffi_topics.TopicDetailSourceSnapshotState
 import uniffi.fire_uniffi_topics.TopicPostState
@@ -33,11 +34,6 @@ import uniffi.fire_uniffi_topics.TopicSourceCursorState
 import uniffi.fire_uniffi_topics.TopicTreePresentationState
 import uniffi.fire_uniffi_topics.TopicTreeRowState
 import uniffi.fire_uniffi_topics.TopicUpdateRequestState
-
-private data class TopicDetailPagePayload(
-    val sourceSnapshot: TopicDetailSourceSnapshotState,
-    val treePresentation: TopicTreePresentationState,
-)
 
 class TopicDetailViewModel(
     private val topicRepository: TopicRepository,
@@ -83,7 +79,7 @@ class TopicDetailViewModel(
     private var isScrollInteractionActive = false
     private var deferredMessageBusRefreshTopicId: ULong? = null
     private var deferredMessageBusPayloadTopicId: ULong? = null
-    private var deferredMessageBusPayload: TopicDetailPagePayload? = null
+    private var deferredMessageBusPayload: TopicDetailPageState? = null
     private var topicAiSummaryJob: Job? = null
     private var topicAiSummaryTopicId: ULong? = null
     private var topicAiSummaryUnavailable: Boolean = false
@@ -142,18 +138,16 @@ class TopicDetailViewModel(
         targetPostNumber: UInt? = null,
         forceLoad: Boolean,
         trackVisit: Boolean,
-    ): TopicDetailPagePayload {
-        val snapshot = topicRepository.fetchTopicDetailSourceSnapshot(
+    ): TopicDetailPageState {
+        return topicRepository.fetchTopicDetailPage(
             topicId = topicId,
             targetPostNumber = targetPostNumber,
             forceLoad = forceLoad,
             trackVisit = trackVisit,
         )
-        val presentation = topicRepository.buildTopicTreePresentation(snapshot)
-        return TopicDetailPagePayload(snapshot, presentation)
     }
 
-    private fun applyFetchedPayload(payload: TopicDetailPagePayload): List<TopicPostState> {
+    private fun applyFetchedPayload(payload: TopicDetailPageState): List<TopicPostState> {
         val bodyPost = payload.sourceSnapshot.body.post
         val normalizedReplyRows = TopicDetailPostRows.uniqueTreeRows(
             rows = payload.treePresentation.replyRows,
@@ -164,8 +158,13 @@ class TopicDetailViewModel(
         sourceCursor = payload.sourceSnapshot.sourceCursor
 
         val header = payload.sourceSnapshot.header
-        val allPosts = TopicDetailPostRows.postsForDetail(bodyPost, normalizedReplyRows)
-        val rows = normalizedReplyRows.map(::postRow)
+        val allPosts = TopicDetailPostRows.postsForDetail(
+            bodyPost = bodyPost,
+            loadedPosts = payload.sourceSnapshot.loadedPosts,
+            replyRows = normalizedReplyRows,
+        )
+        val postsById = TopicDetailPostRows.postsById(allPosts)
+        val rows = normalizedReplyRows.mapNotNull { row -> postRow(row, postsById) }
 
         val nextDetail = TopicDetailState(
             id = header.topicId,
@@ -696,7 +695,7 @@ class TopicDetailViewModel(
                 ?.mapTo(LinkedHashSet()) { it.id }
                 ?: linkedSetOf()
             val allPosts = applyFetchedPayload(
-                TopicDetailPagePayload(
+                TopicDetailPageState(
                     sourceSnapshot = outcome.sourceSnapshot,
                     treePresentation = outcome.treePresentation,
                 ),
@@ -719,9 +718,13 @@ class TopicDetailViewModel(
         }
     }
 
-    private fun postRow(row: TopicTreeRowState): PostRow {
+    private fun postRow(
+        row: TopicTreeRowState,
+        postsById: Map<ULong, TopicPostState>,
+    ): PostRow? {
+        val post = postsById[row.postId] ?: return null
         return PostRow(
-            post = row.post,
+            post = post,
             depth = row.depth.toInt(),
             parentPostNumber = row.parentPostNumber,
             hasChildren = row.hasChildren,
@@ -789,25 +792,7 @@ class TopicDetailViewModel(
             )
         }
 
-        treePresentation = treePresentation?.let { current ->
-            current.copy(
-                originalPost = if (current.originalPost.id == postId) {
-                    transform(current.originalPost)
-                } else {
-                    current.originalPost
-                },
-                replyRows = current.replyRows.map { row ->
-                    if (row.post.id == postId) {
-                        row.copy(post = transform(row.post))
-                    } else {
-                        row
-                    }
-                },
-            )
-        }
-
-        _postRows.value = treePresentation?.replyRows?.map(::postRow).orEmpty()
-        _detail.value = _detail.value?.let { current ->
+        val updatedDetail = _detail.value?.let { current ->
             val updatedPosts = current.postStream.posts.map { post ->
                 if (post.id == postId) transform(post) else post
             }
@@ -818,6 +803,17 @@ class TopicDetailViewModel(
                 ),
             )
         }
+        _detail.value = updatedDetail
+
+        val postsById = updatedDetail
+            ?.postStream
+            ?.posts
+            ?.let(TopicDetailPostRows::postsById)
+            ?: emptyMap()
+        _postRows.value = treePresentation
+            ?.replyRows
+            ?.mapNotNull { row -> postRow(row, postsById) }
+            .orEmpty()
     }
 
     private fun handleActionError(error: Exception, fallbackMessage: String) {
@@ -855,21 +851,27 @@ object TopicDetailPostRows {
     ): List<TopicTreeRowState> {
         val rowsByPostId = LinkedHashMap<ULong, TopicTreeRowState>(rows.size)
         for (row in rows) {
-            if (row.post.id == bodyPostId) continue
-            rowsByPostId[row.post.id] = row
+            if (row.postId == bodyPostId) continue
+            rowsByPostId[row.postId] = row
         }
         return rowsByPostId.values.toList()
     }
 
     fun postsForDetail(
         bodyPost: TopicPostState,
+        loadedPosts: List<TopicPostState>,
         replyRows: List<TopicTreeRowState>,
     ): List<TopicPostState> {
+        val postsById = postsById(listOf(bodyPost) + loadedPosts)
         return uniquePosts(
-            listOf(bodyPost) + replyRows
-                .filter { it.post.id != bodyPost.id }
-                .map { it.post },
+            listOf(bodyPost) + replyRows.mapNotNull { row ->
+                if (row.postId == bodyPost.id) null else postsById[row.postId]
+            },
         )
+    }
+
+    fun postsById(posts: List<TopicPostState>): Map<ULong, TopicPostState> {
+        return posts.associateBy { it.id }
     }
 
     fun uniquePosts(posts: List<TopicPostState>): List<TopicPostState> {

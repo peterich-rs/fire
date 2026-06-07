@@ -9,7 +9,6 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
-import androidx.core.text.HtmlCompat
 import androidx.recyclerview.widget.RecyclerView
 import com.fire.app.R
 import com.fire.app.TopicPresentation
@@ -333,7 +332,7 @@ class PostViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
             val checkBox = CheckBox(context).apply {
                 text = context.getString(
                     R.string.topic_detail_poll_option_with_votes,
-                    optionLabel(option.html),
+                    option.plainText.trim().ifBlank { option.id },
                     option.votes.toString(),
                 )
                 isChecked = selected.contains(option.id)
@@ -417,13 +416,6 @@ class PostViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
                 bottomMargin = 10
             }
         }
-    }
-
-    private fun optionLabel(html: String): String {
-        return HtmlCompat.fromHtml(html, HtmlCompat.FROM_HTML_MODE_LEGACY)
-            .toString()
-            .trim()
-            .ifBlank { html }
     }
 
     private fun buildAvatarUrl(baseUrl: String, template: String, size: Int): String {

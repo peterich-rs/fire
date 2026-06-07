@@ -5,13 +5,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import uniffi.fire_uniffi_topics.LoadMoreTopicPostsQueryState
 import uniffi.fire_uniffi_topics.TopicListQueryState
+import uniffi.fire_uniffi_topics.TopicDetailPageState
 import uniffi.fire_uniffi_topics.TopicDetailSourceQueryState
 import uniffi.fire_uniffi_topics.TopicDetailSourceSnapshotState
 import uniffi.fire_uniffi_topics.TopicLoadMoreOutcomeState
 import uniffi.fire_uniffi_topics.TopicAiSummaryState
 import uniffi.fire_uniffi_topics.TopicSourceCursorState
-import uniffi.fire_uniffi_topics.TopicTreePresentationQueryState
-import uniffi.fire_uniffi_topics.TopicTreePresentationState
 import uniffi.fire_uniffi_types.TopicListKindState
 import uniffi.fire_uniffi_types.TopicListState
 import uniffi.fire_uniffi_types.TopicRowState
@@ -70,15 +69,26 @@ class TopicRepository(private val sessionStore: FireSessionStore) {
         )
     }
 
-    suspend fun buildTopicTreePresentation(
-        sourceSnapshot: TopicDetailSourceSnapshotState,
-    ): TopicTreePresentationState = withContext(Dispatchers.Default) {
-        sessionStore.buildTopicTreePresentation(
-            TopicTreePresentationQueryState(
-                bodyPost = sourceSnapshot.body.post,
-                rawStreamIds = sourceSnapshot.rawStreamIds,
-                loadedPosts = sourceSnapshot.loadedPosts,
-                focusedPostNumber = sourceSnapshot.focusedPostNumber,
+    suspend fun fetchTopicDetailPage(
+        topicId: ULong,
+        targetPostNumber: UInt? = null,
+        forceLoad: Boolean = true,
+        trackVisit: Boolean = true,
+        initialBatchSize: UShort = 40u,
+        loadMoreBatchSize: UShort = 40u,
+        maxAutoBatchesPerGesture: UByte = 3u,
+        maxAutoPostsPerGesture: UShort = 120u,
+    ): TopicDetailPageState = withContext(Dispatchers.Default) {
+        sessionStore.fetchTopicDetailPage(
+            TopicDetailSourceQueryState(
+                topicId = topicId,
+                targetPostNumber = targetPostNumber,
+                trackVisit = trackVisit,
+                forceLoad = forceLoad,
+                initialBatchSize = initialBatchSize,
+                loadMoreBatchSize = loadMoreBatchSize,
+                maxAutoBatchesPerGesture = maxAutoBatchesPerGesture,
+                maxAutoPostsPerGesture = maxAutoPostsPerGesture,
             ),
         )
     }

@@ -256,9 +256,9 @@ enum FireTopicPresentation {
 
     private static func timelineRowInput(for treeRow: TopicTreeRowState) -> FireTopicTimelineRowInput {
         FireTopicTimelineRowInput(
-            postID: treeRow.post.id,
-            postNumber: treeRow.post.postNumber,
-            replyToPostNumber: treeRow.post.replyToPostNumber,
+            postID: treeRow.postId,
+            postNumber: treeRow.postNumber,
+            replyToPostNumber: treeRow.parentPostNumber,
             responseParentPostNumber: treeRow.parentPostNumber,
             responseDepth: treeRow.depth,
             responsePreorderIndex: treeRow.preorderIndex,
@@ -316,8 +316,8 @@ enum FireTopicPresentation {
     private static func replyTimelineRow(from treeRow: TopicTreeRowState) -> FirePreparedTopicTimelineRow {
         FirePreparedTopicTimelineRow(
             entry: FireTopicTimelineEntry(
-                postId: treeRow.post.id,
-                postNumber: treeRow.post.postNumber,
+                postId: treeRow.postId,
+                postNumber: treeRow.postNumber,
                 parentPostNumber: treeRow.parentPostNumber,
                 depth: UInt32(treeRow.depth),
                 isOriginalPost: false
@@ -394,10 +394,11 @@ enum FireTopicPresentation {
         previous: FireTopicDetailRenderCache? = nil
     ) -> FireTopicDetailRenderCache {
         let normalizedReplyRows = uniqueTreeRowsPreservingOrder(treePresentation.replyRows).filter { row in
-            row.post.id != sourceSnapshot.body.post.id
+            row.postId != sourceSnapshot.body.post.id
         }
+        let postsByID = topicPostsByID([sourceSnapshot.body.post] + sourceSnapshot.loadedPosts)
         let orderedPosts = uniqueTopicPostsPreservingOrder(
-            [sourceSnapshot.body.post] + normalizedReplyRows.map(\.post)
+            [sourceSnapshot.body.post] + normalizedReplyRows.compactMap { postsByID[$0.postId] }
         )
         let rowInputs = [timelineRowInput(for: sourceSnapshot.body.post)]
             + normalizedReplyRows.map(timelineRowInput(for:))
@@ -478,8 +479,11 @@ enum FireTopicPresentation {
         var contentByPostID = previous.renderState.contentByPostID
         contentByPostID.reserveCapacity(contentByPostID.count + replyRows.count)
 
+        let postsByID = topicPostsByID([sourceSnapshot.body.post] + sourceSnapshot.loadedPosts)
         for treeRow in replyRows {
-            let post = treeRow.post
+            guard let post = postsByID[treeRow.postId] else {
+                return nil
+            }
             guard contentInputsByPostID[post.id] == nil else {
                 return nil
             }
@@ -599,10 +603,10 @@ enum FireTopicPresentation {
         rowsByPostID.reserveCapacity(rows.count)
 
         for row in rows {
-            if rowsByPostID[row.post.id] == nil {
-                orderedPostIDs.append(row.post.id)
+            if rowsByPostID[row.postId] == nil {
+                orderedPostIDs.append(row.postId)
             }
-            rowsByPostID[row.post.id] = row
+            rowsByPostID[row.postId] = row
         }
 
         return orderedPostIDs.compactMap { rowsByPostID[$0] }

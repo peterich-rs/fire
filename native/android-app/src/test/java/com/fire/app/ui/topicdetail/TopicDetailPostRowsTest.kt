@@ -18,8 +18,8 @@ class TopicDetailPostRowsTest {
             bodyPostId = body.id,
         )
 
-        assertEquals(listOf(2uL, 3uL), rows.map { it.post.id })
-        assertEquals(listOf("reply-new", "reply-b"), rows.map { it.post.username })
+        assertEquals(listOf(2uL, 3uL), rows.map { it.postId })
+        assertEquals(listOf(2u, 3u), rows.map { it.postNumber })
     }
 
     @Test
@@ -31,6 +31,7 @@ class TopicDetailPostRowsTest {
 
         val posts = TopicDetailPostRows.postsForDetail(
             bodyPost = body,
+            loadedPosts = listOf(duplicateBody, firstReply, refreshedReply),
             replyRows = listOf(row(duplicateBody), row(firstReply), row(refreshedReply)),
         )
 
@@ -78,7 +79,8 @@ class TopicDetailPostRowsTest {
 
     private fun row(post: TopicPostState): TopicTreeRowState {
         return TopicTreeRowState(
-            post = post,
+            postId = post.id,
+            postNumber = post.postNumber,
             rootPostNumber = 1u,
             parentPostNumber = 1u,
             depth = 1u.toUShort(),

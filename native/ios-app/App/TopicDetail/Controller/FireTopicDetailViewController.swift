@@ -365,7 +365,7 @@ final class FireTopicDetailViewController: UIViewController {
             onDraftChanged: { [weak self] draft in
                 self?.replyDraft = draft
                 self?.quickReplyError = nil
-                self?.buildAndApplySnapshot()
+                self?.buildAndApplyChromeState()
             },
             onSubmit: { [weak self] in
                 self?.submitQuickReply()
@@ -740,7 +740,7 @@ final class FireTopicDetailViewController: UIViewController {
             replyToPostNumber: replyToPost?.postNumber,
             replyToUsername: replyToPost?.username
         )
-        buildAndApplySnapshot()
+        buildAndApplyChromeState()
         quickReplyBarNode.focusInput()
     }
 
@@ -764,7 +764,7 @@ final class FireTopicDetailViewController: UIViewController {
 
     private func clearComposerTarget() {
         composerContext = nil
-        buildAndApplySnapshot()
+        buildAndApplyChromeState()
     }
 
     private func openAdvancedComposer() {
@@ -793,7 +793,7 @@ final class FireTopicDetailViewController: UIViewController {
                 self.replyDraft = ""
                 self.composerContext = nil
                 self.quickReplyError = nil
-                self.buildAndApplySnapshot()
+                self.buildAndApplyChromeState()
                 Task {
                     await self.loadTopicDetail(force: true)
                 }
@@ -808,19 +808,19 @@ final class FireTopicDetailViewController: UIViewController {
         let trimmed = replyDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             quickReplyError = "回复内容不能为空。"
-            buildAndApplySnapshot()
+            buildAndApplyChromeState()
             return
         }
         guard trimmed.count >= minimumReplyLength else {
             quickReplyError = "回复至少需要 \(minimumReplyLength) 个字。"
-            buildAndApplySnapshot()
+            buildAndApplyChromeState()
             return
         }
 
         let topicId = composerContext?.topicId ?? topic.id
         let replyToPostNumber = composerContext?.replyToPostNumber
         quickReplyError = nil
-        buildAndApplySnapshot()
+        buildAndApplyChromeState()
 
         Task { @MainActor in
             do {
@@ -832,19 +832,19 @@ final class FireTopicDetailViewController: UIViewController {
                 replyDraft = ""
                 composerContext = nil
                 quickReplyBarNode.resignInputFocus()
-                buildAndApplySnapshot()
+                buildAndApplyChromeState()
             } catch {
                 let message = error.localizedDescription
                 if message.localizedCaseInsensitiveContains("pending review") {
                     replyDraft = ""
                     composerContext = nil
                     quickReplyBarNode.resignInputFocus()
-                    buildAndApplySnapshot()
+                    buildAndApplyChromeState()
                     modalRouter.presentNotice(message: "回复已提交，等待审核。")
                     return
                 }
                 quickReplyError = message
-                buildAndApplySnapshot()
+                buildAndApplyChromeState()
             }
         }
     }

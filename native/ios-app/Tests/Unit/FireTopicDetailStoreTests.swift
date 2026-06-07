@@ -666,7 +666,8 @@ final class FireTopicDetailStoreTests: XCTestCase {
         let sibling = makePost(postNumber: 5, replyToPostNumber: 1, username: "sibling")
         let existingRows = [
             TopicTreeRowState(
-                post: root,
+                postId: root.id,
+                postNumber: root.postNumber,
                 rootPostNumber: 1,
                 parentPostNumber: 1,
                 depth: 1,
@@ -677,7 +678,8 @@ final class FireTopicDetailStoreTests: XCTestCase {
                 isLastSibling: false
             ),
             TopicTreeRowState(
-                post: sibling,
+                postId: sibling.id,
+                postNumber: sibling.postNumber,
                 rootPostNumber: 1,
                 parentPostNumber: 1,
                 depth: 1,
@@ -698,7 +700,7 @@ final class FireTopicDetailStoreTests: XCTestCase {
             contextPosts: [grandchild, child]
         )
 
-        XCTAssertEqual(merged.map { $0.post.postNumber }, [2, 5, 3, 4])
+        XCTAssertEqual(merged.map(\.postNumber), [2, 5, 3, 4])
         XCTAssertEqual(merged.map { $0.depth }, [1, 1, 2, 3] as [UInt16])
         XCTAssertEqual(merged.suffix(2).map { $0.parentPostNumber }, [2, 3] as [UInt32?])
         XCTAssertEqual(merged.suffix(2).map { $0.rootPostNumber }, [1, 1] as [UInt32])
@@ -710,12 +712,14 @@ final class FireTopicDetailStoreTests: XCTestCase {
         depth: UInt16,
         username: String
     ) -> TopicTreeRowState {
-        TopicTreeRowState(
-            post: makePost(
-                postNumber: postNumber,
-                replyToPostNumber: parentPostNumber,
-                username: username
-            ),
+        let post = makePost(
+            postNumber: postNumber,
+            replyToPostNumber: parentPostNumber,
+            username: username
+        )
+        return TopicTreeRowState(
+            postId: post.id,
+            postNumber: post.postNumber,
             rootPostNumber: 1,
             parentPostNumber: parentPostNumber,
             depth: depth,

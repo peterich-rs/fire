@@ -265,7 +265,14 @@ final class FireTopicPresentationTests: XCTestCase {
 
         let appended = try XCTUnwrap(
             FireTopicPresentation.detailRenderCache(
-                sourceSnapshot: sourceSnapshot,
+                sourceSnapshot: makeSourceSnapshot(
+                    originalPost: originalPost,
+                    replyRows: [
+                        makeTreeRow(postNumber: 2, parentPostNumber: 1, depth: 1, username: "reply-a"),
+                        makeTreeRow(postNumber: 3, parentPostNumber: 2, depth: 2, username: "reply-b"),
+                        makeTreeRow(postNumber: 4, parentPostNumber: 1, depth: 1, username: "reply-c")
+                    ]
+                ),
                 appending: [
                     makeTreeRow(postNumber: 3, parentPostNumber: 2, depth: 2, username: "reply-b"),
                     makeTreeRow(postNumber: 4, parentPostNumber: 1, depth: 1, username: "reply-c")
@@ -372,7 +379,14 @@ final class FireTopicPresentationTests: XCTestCase {
         ]
 
         let renderCache = FireTopicPresentation.detailRenderCache(
-            sourceSnapshot: makeSourceSnapshot(originalPost: originalPost, replyRows: rows),
+            sourceSnapshot: makeSourceSnapshot(
+                originalPost: originalPost,
+                replyRows: rows,
+                replyPosts: [
+                    makePost(postNumber: 2, replyToPostNumber: 1, username: "reply-old"),
+                    makePost(postNumber: 2, replyToPostNumber: 1, username: "reply-new")
+                ]
+            ),
             treePresentation: makeTreePresentation(originalPost: originalPost, replyRows: rows),
             baseURLString: "https://linux.do"
         )
@@ -1025,12 +1039,14 @@ final class FireTopicPresentationTests: XCTestCase {
         depth: UInt16,
         username: String
     ) -> TopicTreeRowState {
-        TopicTreeRowState(
-            post: makePost(
-                postNumber: postNumber,
-                replyToPostNumber: parentPostNumber,
-                username: username
-            ),
+        let post = makePost(
+            postNumber: postNumber,
+            replyToPostNumber: parentPostNumber,
+            username: username
+        )
+        return TopicTreeRowState(
+            postId: post.id,
+            postNumber: post.postNumber,
             rootPostNumber: 1,
             parentPostNumber: parentPostNumber,
             depth: depth,
@@ -1044,9 +1060,17 @@ final class FireTopicPresentationTests: XCTestCase {
 
     private func makeSourceSnapshot(
         originalPost: TopicPostState,
-        replyRows: [TopicTreeRowState]
+        replyRows: [TopicTreeRowState],
+        replyPosts: [TopicPostState]? = nil
     ) -> TopicDetailSourceSnapshotState {
-        TopicDetailSourceSnapshotState(
+        let loadedReplyPosts = replyPosts ?? replyRows.map { row in
+            makePost(
+                postNumber: row.postNumber,
+                replyToPostNumber: row.parentPostNumber,
+                username: "reply-\(row.postNumber)"
+            )
+        }
+        return TopicDetailSourceSnapshotState(
             header: TopicHeaderState(
                 topicId: 42,
                 messageBusLastId: nil,
@@ -1082,14 +1106,14 @@ final class FireTopicPresentationTests: XCTestCase {
                 )
             ),
             body: TopicBodyState(post: originalPost),
-            rawStreamIds: [originalPost.id] + replyRows.map(\.post.id),
-            loadedPosts: [originalPost] + replyRows.map(\.post),
+            rawStreamIds: [originalPost.id] + replyRows.map(\.postId),
+            loadedPosts: loadedReplyPosts,
             loadedRanges: [],
             sourceCursor: TopicSourceCursorState(
                 topicId: 42,
                 sessionId: 7,
                 nextStreamOffset: UInt32(replyRows.count + 1),
-                lastLoadedPostId: replyRows.last?.post.id ?? originalPost.id,
+                lastLoadedPostId: replyRows.last?.postId ?? originalPost.id,
                 batchSize: 10
             ),
             sourceExhausted: false,
@@ -1102,7 +1126,8 @@ final class FireTopicPresentationTests: XCTestCase {
         replyRows: [TopicTreeRowState]
     ) -> TopicTreePresentationState {
         TopicTreePresentationState(
-            originalPost: originalPost,
+            originalPostId: originalPost.id,
+            originalPostNumber: originalPost.postNumber,
             replyRows: replyRows,
             totalLoadedPostCount: UInt32(replyRows.count + 1),
             visibleRootPostNumbers: Array(Set(replyRows.map(\.rootPostNumber))).sorted(),

@@ -30,6 +30,8 @@ pub struct TopicReaction {
 pub struct PollOption {
     pub id: String,
     pub html: String,
+    #[serde(default)]
+    pub plain_text: String,
     pub votes: u32,
 }
 
@@ -332,6 +334,12 @@ pub struct TopicDetailSourceSnapshot {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TopicDetailPage {
+    pub source_snapshot: TopicDetailSourceSnapshot,
+    pub tree_presentation: TopicTreePresentation,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TopicSourceCursor {
     pub topic_id: u64,
     pub session_id: u64,
@@ -363,7 +371,8 @@ pub struct TopicTreePresentationQuery {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TopicTreePresentation {
-    pub original_post: TopicPost,
+    pub original_post_id: u64,
+    pub original_post_number: u32,
     pub reply_rows: Vec<TopicTreeRow>,
     pub total_loaded_post_count: u32,
     pub visible_root_post_numbers: Vec<u32>,
@@ -372,7 +381,8 @@ pub struct TopicTreePresentation {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TopicTreeRow {
-    pub post: TopicPost,
+    pub post_id: u64,
+    pub post_number: u32,
     pub root_post_number: u32,
     pub parent_post_number: Option<u32>,
     pub depth: u16,

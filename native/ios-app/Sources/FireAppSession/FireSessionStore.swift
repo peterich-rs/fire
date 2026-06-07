@@ -633,10 +633,12 @@ public actor FireSessionStore {
         }
     }
 
-    public func buildTopicTreePresentation(
-        query: TopicTreePresentationQueryState
-    ) throws -> TopicTreePresentationState {
-        try core.topics().buildTopicTreePresentation(query: query)
+    public func fetchTopicDetailPage(
+        query: TopicDetailSourceQueryState
+    ) async throws -> TopicDetailPageState {
+        try await runPersistingSessionChanges {
+            try await core.topics().fetchTopicDetailPage(query: query)
+        }
     }
 
     public func loadMoreTopicPosts(

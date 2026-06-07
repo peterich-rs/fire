@@ -249,9 +249,7 @@ pub(crate) struct TracedRequest {
     pub(crate) request: Request<RequestBody>,
 }
 
-fn clone_request_for_retry(
-    request: &Request<RequestBody>,
-) -> Option<Request<RequestBody>> {
+fn clone_request_for_retry(request: &Request<RequestBody>) -> Option<Request<RequestBody>> {
     let cloned_body = request.body().try_clone()?;
     let request_profile = request.extensions().get::<FireRequestProfile>().copied();
     let request_epoch = request.extensions().get::<FireRequestEpoch>().copied();
@@ -1588,9 +1586,7 @@ mod tests {
             .uri("https://example.com/latest.json")
             .body(RequestBody::empty())
             .expect("request");
-        request
-            .extensions_mut()
-            .insert(FireRequestProfile::JsonApi);
+        request.extensions_mut().insert(FireRequestProfile::JsonApi);
         request.extensions_mut().insert(FireRequestEpoch(7));
         let original_trace_id = diagnostics.prepare_request_trace("fetch topic list", &mut request);
 
@@ -1603,11 +1599,17 @@ mod tests {
             .get::<crate::diagnostics::FireRequestTraceMetadata>()
             .is_none());
         assert!(matches!(
-            retry_request.extensions().get::<FireRequestProfile>().copied(),
+            retry_request
+                .extensions()
+                .get::<FireRequestProfile>()
+                .copied(),
             Some(FireRequestProfile::JsonApi)
         ));
         assert!(matches!(
-            retry_request.extensions().get::<FireRequestEpoch>().copied(),
+            retry_request
+                .extensions()
+                .get::<FireRequestEpoch>()
+                .copied(),
             Some(FireRequestEpoch(7))
         ));
     }

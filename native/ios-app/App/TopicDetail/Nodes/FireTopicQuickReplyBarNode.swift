@@ -24,6 +24,10 @@ final class FireTopicQuickReplyBarNode: ASDisplayNode {
         }
     }
 
+    var isInputFocused: Bool {
+        contentView.isInputFocused
+    }
+
     private var currentState = FireTopicDetailQuickReplyState(
         isVisible: false,
         typingSummary: nil,
@@ -155,6 +159,10 @@ private final class FireTopicQuickReplyBarView: UIView, UITextFieldDelegate {
     private let messageLabel = UILabel()
 
     var callbacks: FireTopicQuickReplyBarNode.Callbacks?
+
+    var isInputFocused: Bool {
+        textField.isFirstResponder
+    }
 
     private var applyingState = false
     private var contentStackBottomConstraint: NSLayoutConstraint?

@@ -880,43 +880,65 @@ fn subtree_contains_inline_image(node: &CookedHtmlNode, tree: &CookedTree<'_>) -
 }
 
 fn looks_like_image_attachment_metadata(value: &str) -> bool {
-    let mut compact = value
+    let normalized = value
         .replace('\u{00A0}', " ")
         .replace('×', "x")
         .to_ascii_lowercase()
         .chars()
-        .filter(|character| {
-            !character.is_whitespace()
-                && !matches!(character, '(' | ')' | '[' | ']' | ',' | ';' | ':')
+        .map(|character| {
+            if character.is_ascii_alphanumeric() || character == '.' {
+                character
+            } else {
+                ' '
+            }
         })
         .collect::<String>();
+    let tokens = normalized.split_whitespace().collect::<Vec<_>>();
 
-    if let Some(rest) = compact.strip_prefix("image") {
-        compact = rest.to_string();
-    } else {
-        return false;
-    }
-
-    let Some((after_dimensions, width, height)) = parse_image_dimensions_prefix(&compact) else {
-        return false;
-    };
-    if width == 0 || height == 0 {
-        return false;
-    }
-    after_dimensions.is_empty() || parse_file_size_suffix(after_dimensions)
+    tokens.iter().enumerate().any(|(index, token)| {
+        let Some((after_dimensions, width, height)) = parse_image_dimensions_segment(token) else {
+            return false;
+        };
+        if width == 0 || height == 0 || width > 50_000 || height > 50_000 {
+            return false;
+        }
+        let suffix = std::iter::once(after_dimensions)
+            .chain(tokens[index + 1..].iter().copied())
+            .collect::<String>();
+        parse_file_size_suffix(&suffix)
+    })
 }
 
-fn parse_image_dimensions_prefix(value: &str) -> Option<(&str, u32, u32)> {
-    let x_index = value.find('x')?;
-    let width = value[..x_index].parse::<u32>().ok()?;
-    let tail = &value[x_index + 1..];
-    let height_digits = tail
-        .char_indices()
-        .take_while(|(_, character)| character.is_ascii_digit())
-        .last()
-        .map(|(index, character)| index + character.len_utf8())?;
-    let height = tail[..height_digits].parse::<u32>().ok()?;
-    Some((&tail[height_digits..], width, height))
+fn parse_image_dimensions_segment(value: &str) -> Option<(&str, u32, u32)> {
+    for (x_index, _) in value.match_indices('x') {
+        let before = &value[..x_index];
+        let width_start = before
+            .char_indices()
+            .rev()
+            .find(|(_, character)| !character.is_ascii_digit())
+            .map(|(index, character)| index + character.len_utf8())
+            .unwrap_or(0);
+        if width_start == x_index {
+            continue;
+        }
+        let Ok(width) = before[width_start..].parse::<u32>() else {
+            continue;
+        };
+        let tail = &value[x_index + 1..];
+        let height_digits = tail
+            .char_indices()
+            .take_while(|(_, character)| character.is_ascii_digit())
+            .last()
+            .map(|(index, character)| index + character.len_utf8());
+        let Some(height_digits) = height_digits else {
+            continue;
+        };
+        let Ok(height) = tail[..height_digits].parse::<u32>() else {
+            continue;
+        };
+        return Some((&tail[height_digits..], width, height));
+    }
+    None
 }
 
 fn parse_file_size_suffix(value: &str) -> bool {
@@ -1204,7 +1226,7 @@ mod tests {
 
     use fire_models::{CookedHtmlDocument, CookedHtmlNode, CookedHtmlNodeKind, RenderBlockKind};
 
-    use super::render_document;
+    use super::*;
 
     #[test]
     fn render_document_preserves_quote_and_details_semantics() {
@@ -1289,9 +1311,13 @@ mod tests {
                 link_node(2, 1, 2, "/uploads/full.png", "lightbox"),
                 image_node(3, 2, 3, "/uploads/thumb.png", "", "1080", "1920"),
                 text_node(4, 1, 2, "image 1080x1920 52.5kb"),
-                text_node(5, 1, 2, "caption"),
+                text_node(5, 1, 2, "screen-shot 1080x1920 34kb"),
+                text_node(6, 1, 2, "a1b2c3_690x388_11kb"),
+                text_node(7, 1, 2, "caption"),
             ],
-            plain_text: "image 1080x1920 52.5kb caption".to_string(),
+            plain_text:
+                "image 1080x1920 52.5kb screen-shot 1080x1920 34kb a1b2c3_690x388_11kb caption"
+                    .to_string(),
             image_urls: vec!["/uploads/thumb.png".to_string()],
             link_urls: vec!["/uploads/full.png".to_string()],
         };
@@ -1302,10 +1328,36 @@ mod tests {
             &block.kind,
             RenderBlockKind::Text { content } if content.contains("1080x1920")
         )));
+        assert!(!rendered.blocks.iter().any(|block| matches!(
+            &block.kind,
+            RenderBlockKind::Text { content } if content.contains("34kb")
+        )));
+        assert!(!rendered.blocks.iter().any(|block| matches!(
+            &block.kind,
+            RenderBlockKind::Text { content } if content.contains("a1b2c3")
+        )));
         assert!(rendered.blocks.iter().any(|block| matches!(
             &block.kind,
             RenderBlockKind::Text { content } if content == "caption"
         )));
+    }
+
+    #[test]
+    fn image_metadata_detection_allows_unknown_prefixes_but_not_captions() {
+        assert!(looks_like_image_attachment_metadata(
+            "screen-shot 1080x1920 34kb"
+        ));
+        assert!(looks_like_image_attachment_metadata("a1b2c3_690x388_11kb"));
+        assert!(looks_like_image_attachment_metadata("hash1080x1920 34kb"));
+        assert!(looks_like_image_attachment_metadata("截图 1080×1920 34 KB"));
+
+        assert!(!looks_like_image_attachment_metadata(
+            "screen-shot 1080x1920 34kb actual caption"
+        ));
+        assert!(!looks_like_image_attachment_metadata("bug 1080x1920"));
+        assert!(!looks_like_image_attachment_metadata(
+            "1080x1920 screenshot only"
+        ));
     }
 
     #[test]

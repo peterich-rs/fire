@@ -433,6 +433,7 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
                 let textNode = FireSelectableRichTextNode()
                 configureSelectableTextNode(textNode)
                 textNode.attributedText = attributedText
+                textNode.isHidden = false
                 textNode.onLink = { [weak self] url in
                     self?.currentCallbacks?.onLinkTapped(url)
                 }
@@ -983,8 +984,7 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
         let horizontalMovement = max(abs(translation.x), abs(velocity.x))
         let verticalMovement = max(abs(translation.y), abs(velocity.y))
 
-        if location.x <= 44,
-           nearestViewController()?.navigationController?.viewControllers.count ?? 0 > 1 {
+        if location.x <= 44 {
             return false
         }
         guard replySwipeActivationRect().contains(location) else {

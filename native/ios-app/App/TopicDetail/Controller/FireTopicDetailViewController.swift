@@ -2,7 +2,7 @@ import Combine
 import UIKit
 
 @MainActor
-final class FireTopicDetailViewController: UIViewController {
+final class FireTopicDetailViewController: UIViewController, UIGestureRecognizerDelegate {
     let viewModel: FireAppViewModel
     let topicDetailStore: FireTopicDetailStore
     let row: FireTopicRowPresentation
@@ -14,6 +14,16 @@ final class FireTopicDetailViewController: UIViewController {
     private let layoutManager = FirePostLayoutManager()
     private let quickReplyBarNode: FireTopicQuickReplyBarNode
     let rootNode: FireTopicDetailRootNode
+    private lazy var pageBackEdgePanGestureRecognizer: UIScreenEdgePanGestureRecognizer = {
+        let gesture = UIScreenEdgePanGestureRecognizer(
+            target: self,
+            action: #selector(handlePageBackEdgePan(_:))
+        )
+        gesture.edges = .left
+        gesture.cancelsTouchesInView = false
+        gesture.delegate = self
+        return gesture
+    }()
 
     private lazy var feedUpdatePipeline = FireTopicDetailFeedUpdatePipeline(
         feedController: feedController,
@@ -202,6 +212,7 @@ final class FireTopicDetailViewController: UIViewController {
         configureNavigationAppearance()
         toolbarCoordinator.configureNavigationItem(navigationItem)
         updateDismissButtonIfNeeded()
+        view.addGestureRecognizer(pageBackEdgePanGestureRecognizer)
         beginPageLifecycle()
         buildAndApplySnapshot()
     }
@@ -229,6 +240,7 @@ final class FireTopicDetailViewController: UIViewController {
         super.viewDidAppear(animated)
         navigationController?.interactivePopGestureRecognizer?.isEnabled =
             (navigationController?.viewControllers.count ?? 0) > 1
+        pageBackEdgePanGestureRecognizer.isEnabled = needsPresentedRootEdgeDismissGesture
         Task {
             await timingTracker.setSceneActive(true)
         }
@@ -457,6 +469,51 @@ final class FireTopicDetailViewController: UIViewController {
 
     private func dismissPresentedTopicDetail() {
         navigationController?.dismiss(animated: true)
+    }
+
+    private var needsPresentedRootEdgeDismissGesture: Bool {
+        (navigationController?.viewControllers.count ?? 0) <= 1
+            && (navigationController?.presentingViewController != nil || presentingViewController != nil)
+    }
+
+    @objc private func handlePageBackEdgePan(_ gestureRecognizer: UIScreenEdgePanGestureRecognizer) {
+        guard gestureRecognizer.state == .ended,
+              needsPresentedRootEdgeDismissGesture,
+              navigationController?.transitionCoordinator == nil else {
+            return
+        }
+        let translation = gestureRecognizer.translation(in: view)
+        let velocity = gestureRecognizer.velocity(in: view)
+        let horizontalDistance = max(translation.x, 0)
+        let horizontalVelocity = max(velocity.x, 0)
+        guard horizontalDistance > 72 || horizontalVelocity > 420,
+              max(abs(translation.x), abs(velocity.x)) > max(abs(translation.y), abs(velocity.y)) else {
+            return
+        }
+        navigateBackFromTopicDetail()
+    }
+
+    private func navigateBackFromTopicDetail() {
+        if let navigationController, navigationController.viewControllers.count > 1 {
+            navigationController.popViewController(animated: true)
+        } else if let navigationController {
+            navigationController.dismiss(animated: true)
+        } else {
+            dismiss(animated: true)
+        }
+    }
+
+    func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        guard gestureRecognizer === pageBackEdgePanGestureRecognizer,
+              let panGesture = gestureRecognizer as? UIScreenEdgePanGestureRecognizer else {
+            return true
+        }
+        guard needsPresentedRootEdgeDismissGesture,
+              navigationController?.transitionCoordinator == nil else {
+            return false
+        }
+        let velocity = panGesture.velocity(in: view)
+        return velocity.x >= 0 && abs(velocity.x) >= abs(velocity.y)
     }
 
     private func configureNavigationAppearance() {
@@ -891,8 +948,12 @@ final class FireTopicDetailViewController: UIViewController {
     }
 
     private func clearComposerTarget() {
+        let shouldKeepFocus = quickReplyBarNode.isInputFocused
         composerContext = nil
         buildAndApplyChromeState()
+        if shouldKeepFocus {
+            quickReplyBarNode.focusInput()
+        }
     }
 
     private func openAdvancedComposer() {

@@ -465,7 +465,7 @@ final class FireTopicPresentationTests: XCTestCase {
     }
 
     func testRenderContentSuppressesInlineImageMetadataText() {
-        let content = fireRenderContentFixture(#"<p><a class="lightbox" href="/uploads/default/original/1X/fire-full.png"><img src="/uploads/default/optimized/1X/fire_690x388.png" width="690" height="388" alt="fire"></a> image 1080x1920 52.5kb</p>"#)
+        let content = fireRenderContentFixture(#"<p><a class="lightbox" href="/uploads/default/original/1X/fire-full.png"><img src="/uploads/default/optimized/1X/fire_690x388.png" width="690" height="388" alt="fire"></a> screen-shot 1080x1920 34kb</p>"#)
         let segmentText = content.segments.compactMap { segment -> String? in
             if case .text(let text) = segment {
                 return text.string
@@ -475,9 +475,11 @@ final class FireTopicPresentationTests: XCTestCase {
 
         XCTAssertEqual(content.imageAttachments.count, 1)
         XCTAssertFalse(content.plainText.contains("1080x1920"))
-        XCTAssertFalse(content.plainText.contains("52.5kb"))
+        XCTAssertFalse(content.plainText.contains("screen-shot"))
+        XCTAssertFalse(content.plainText.contains("34kb"))
         XCTAssertFalse(segmentText.contains("1080x1920"))
-        XCTAssertFalse(segmentText.contains("52.5kb"))
+        XCTAssertFalse(segmentText.contains("screen-shot"))
+        XCTAssertFalse(segmentText.contains("34kb"))
     }
 
     func testHeadingAttributedTextCarriesExpandedParagraphLineHeight() throws {
@@ -527,12 +529,13 @@ final class FireTopicPresentationTests: XCTestCase {
     }
 
     func testRenderContentBuildsQuotedReplyHeaderWithInternalLinks() throws {
-        let content = fireRenderContentFixture(#"<aside class="quote" data-username="alice" data-post="12" data-topic="987"><blockquote><p>Hello Fire</p></blockquote></aside>"#)
+        let content = fireRenderContentFixture(#"<aside class="quote" data-username="alice" data-post="12" data-topic="987"><blockquote><p>Hello <a href="https://linux.do/t/fire/987/12">Fire link</a></p></blockquote></aside>"#)
 
         let attributedText = try XCTUnwrap(content.attributedText)
         let text = attributedText.string as NSString
         let authorRange = text.range(of: "@alice")
         let postRange = text.range(of: "#12")
+        let bodyLinkRange = text.range(of: "Fire link")
 
         XCTAssertNotEqual(authorRange.location, NSNotFound)
         XCTAssertNotEqual(postRange.location, NSNotFound)
@@ -544,8 +547,11 @@ final class FireTopicPresentationTests: XCTestCase {
             attributedText.attribute(.link, at: postRange.location, effectiveRange: nil) as? URL,
             URL(string: "fire://topic/987/12")
         )
-        XCTAssertTrue(attributedText.string.contains("引用"))
-        XCTAssertTrue(attributedText.string.contains("Hello Fire"))
+        XCTAssertNotEqual(bodyLinkRange.location, NSNotFound)
+        XCTAssertEqual(
+            attributedText.attribute(.link, at: bodyLinkRange.location, effectiveRange: nil) as? URL,
+            URL(string: "https://linux.do/t/fire/987/12")
+        )
     }
 
     func testRenderContentDoesNotPromoteQuoteAvatarToPostAttachment() throws {

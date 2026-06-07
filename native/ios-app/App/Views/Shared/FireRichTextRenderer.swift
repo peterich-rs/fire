@@ -607,24 +607,86 @@ enum FireRichTextAttributedStringBuilder {
     }
 
     private static func compactQuoteBody(_ body: NSAttributedString) -> NSAttributedString {
-        let lines = body.string
-            .components(separatedBy: .newlines)
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-        let limited = lines.prefix(3).joined(separator: "\n")
-        let compact = limited.isEmpty
-            ? body.string.trimmingCharacters(in: .whitespacesAndNewlines)
-            : limited
-        let display = compact.count > 160
-            ? String(compact.prefix(157)).trimmingCharacters(in: .whitespacesAndNewlines) + "..."
-            : compact
-        return NSAttributedString(
-            string: display,
-            attributes: [
-                .font: UIFont.preferredFont(forTextStyle: .footnote),
-                .foregroundColor: UIColor.secondaryLabel,
-            ]
-        )
+        let compact = NSMutableAttributedString()
+        let source = body.string as NSString
+        let ranges = nonBlankLineRanges(in: source)
+        let selectedRanges = ranges.isEmpty
+            ? trimmedRange(in: source, range: NSRange(location: 0, length: source.length)).map { [$0] } ?? []
+            : Array(ranges.prefix(3))
+
+        for (index, range) in selectedRanges.enumerated() {
+            if index > 0 {
+                compact.append(NSAttributedString(string: "\n"))
+            }
+            compact.append(body.attributedSubstring(from: range))
+        }
+
+        truncateQuoteBody(compact)
+        if compact.length > 0 {
+            compact.addAttributes(
+                [
+                    .font: UIFont.preferredFont(forTextStyle: .footnote),
+                    .foregroundColor: UIColor.secondaryLabel,
+                ],
+                range: NSRange(location: 0, length: compact.length)
+            )
+        }
+        return compact
+    }
+
+    private static func nonBlankLineRanges(in source: NSString) -> [NSRange] {
+        var ranges: [NSRange] = []
+        var lineStart = 0
+        while lineStart <= source.length {
+            let searchRange = NSRange(location: lineStart, length: source.length - lineStart)
+            let newlineRange = source.range(of: "\n", options: [], range: searchRange)
+            let lineEnd = newlineRange.location == NSNotFound ? source.length : newlineRange.location
+            if let range = trimmedRange(
+                in: source,
+                range: NSRange(location: lineStart, length: lineEnd - lineStart)
+            ) {
+                ranges.append(range)
+            }
+            if lineEnd >= source.length {
+                break
+            }
+            lineStart = lineEnd + 1
+        }
+        return ranges
+    }
+
+    private static func trimmedRange(in source: NSString, range: NSRange) -> NSRange? {
+        var location = range.location
+        var end = range.location + range.length
+        let whitespace = CharacterSet.whitespacesAndNewlines
+        while location < end,
+              let scalar = UnicodeScalar(source.character(at: location)),
+              whitespace.contains(scalar) {
+            location += 1
+        }
+        while end > location,
+              let scalar = UnicodeScalar(source.character(at: end - 1)),
+              whitespace.contains(scalar) {
+            end -= 1
+        }
+        return location < end
+            ? NSRange(location: location, length: end - location)
+            : nil
+    }
+
+    private static func truncateQuoteBody(_ body: NSMutableAttributedString) {
+        let maxLength = 160
+        let ellipsis = "..."
+        guard body.length > maxLength else {
+            return
+        }
+        body.deleteCharacters(in: NSRange(location: maxLength - ellipsis.count, length: body.length - (maxLength - ellipsis.count)))
+        while body.length > 0,
+              let scalar = UnicodeScalar((body.string as NSString).character(at: body.length - 1)),
+              CharacterSet.whitespacesAndNewlines.contains(scalar) {
+            body.deleteCharacters(in: NSRange(location: body.length - 1, length: 1))
+        }
+        body.append(NSAttributedString(string: ellipsis))
     }
 
     private static func quoteHeaderAttributedString(

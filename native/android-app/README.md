@@ -130,6 +130,9 @@ Android now keeps request-failure handling single-path:
   request once.
 - Background or silent `CloudflareChallenge` work does not steal focus; the
   platform returns an incomplete challenge result and Rust surfaces the error.
+- Rust marks the user-opened notification history request as foreground-capable
+  so notification-tab refreshes align with home, topic detail, search, and other
+  visible reads; recent notification cache refreshes remain background.
 - Home, topic detail, notifications, search, bookmarks, private messages, and
   composer flows all surface those failures through the same error-display path
   used for any other request failure.

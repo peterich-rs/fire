@@ -2,9 +2,9 @@ mod common;
 
 use std::time::Duration;
 
-use common::{raw_json_response, TestServer};
-use fire_core::{FireCore, FireCoreConfig};
-use fire_models::{BootstrapArtifacts, CookieSnapshot, MessageBusClientMode};
+use common::{raw_cloudflare_challenge_response, raw_json_response, TestServer};
+use fire_core::{FireCore, FireCoreConfig, FireCoreError};
+use fire_models::{BootstrapArtifacts, CookieSnapshot, MessageBusClientMode, PlatformCookie};
 use tokio::{sync::mpsc::unbounded_channel, time::timeout};
 
 #[tokio::test]
@@ -415,6 +415,94 @@ fn notification_state_reads_counters_from_stringified_current_user_payload() {
     assert_eq!(state.counters.all_unread, 5);
     assert_eq!(state.counters.unread, 4);
     assert_eq!(state.counters.high_priority, 2);
+}
+
+#[tokio::test]
+async fn fetch_notifications_marks_cloudflare_challenge_as_foreground() {
+    let server = TestServer::spawn(vec![
+        raw_cloudflare_challenge_response(
+            403,
+            r#"<html><head><title>Just a moment...</title></head><body>__cf_chl_opt</body></html>"#,
+        ),
+        raw_json_response(
+            200,
+            "application/json",
+            &notification_page_json(
+                &[notification_json(100, false, false, "Topic A")],
+                1,
+                Some(100),
+                None,
+            ),
+        ),
+    ])
+    .await
+    .expect("server");
+    let core = authenticated_core(&server.base_url());
+    core.set_cloudflare_challenge_handler(|request| async move {
+        assert_eq!(request.operation, "fetch notifications");
+        assert!(request.is_foreground);
+        fire_models::CloudflareChallengeResult {
+            completed: true,
+            user_cancelled: false,
+            cookies: vec![PlatformCookie {
+                name: "cf_clearance".into(),
+                value: "notification-clearance".into(),
+                domain: Some("linux.do".into()),
+                path: Some("/".into()),
+                expires_at_unix_ms: None,
+                same_site: None,
+            }],
+            browser_user_agent: None,
+        }
+    });
+
+    let page = core
+        .fetch_notifications(None, None)
+        .await
+        .expect("fetch notifications after challenge");
+    let requests = server.shutdown_with_requests().await;
+
+    assert_eq!(page.notifications.len(), 1);
+    assert_eq!(requests.len(), 2);
+    assert_eq!(
+        core.snapshot().cookies.cf_clearance.as_deref(),
+        Some("notification-clearance")
+    );
+}
+
+#[tokio::test]
+async fn fetch_recent_notifications_keeps_cloudflare_challenge_background() {
+    let server = TestServer::spawn(vec![raw_cloudflare_challenge_response(
+        403,
+        r#"<html><head><title>Just a moment...</title></head><body>__cf_chl_opt</body></html>"#,
+    )])
+    .await
+    .expect("server");
+    let core = authenticated_core(&server.base_url());
+    core.set_cloudflare_challenge_handler(|request| async move {
+        assert_eq!(request.operation, "fetch recent notifications");
+        assert!(!request.is_foreground);
+        fire_models::CloudflareChallengeResult {
+            completed: false,
+            user_cancelled: false,
+            cookies: Vec::new(),
+            browser_user_agent: None,
+        }
+    });
+
+    let error = core
+        .fetch_recent_notifications(None)
+        .await
+        .expect_err("recent notifications should stay non-interactive");
+    let requests = server.shutdown_with_requests().await;
+
+    assert!(matches!(
+        error,
+        FireCoreError::CloudflareChallenge {
+            operation: "fetch recent notifications"
+        }
+    ));
+    assert_eq!(requests.len(), 1);
 }
 
 fn authenticated_core(base_url: &str) -> FireCore {

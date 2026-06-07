@@ -12,7 +12,10 @@ use openwire::RequestBody;
 use serde_json::Value;
 use tracing::{debug, info};
 
-use super::{network::expect_success, FireCore};
+use super::{
+    network::{expect_success, FireChallengePresentation},
+    FireCore,
+};
 use crate::{
     error::FireCoreError,
     json_helpers::{boolean, integer_u32, integer_u64},
@@ -81,16 +84,18 @@ impl FireCore {
         let limit = normalized_limit(limit, DEFAULT_RECENT_LIMIT);
         info!(limit, "fetching recent notifications");
 
-        let traced = self.build_json_get_request(
-            "fetch recent notifications",
-            "/notifications",
-            vec![
-                ("recent", "true".to_string()),
-                ("limit", limit.to_string()),
-                ("bump_last_seen_reviewable", "true".to_string()),
-            ],
-            &[],
-        )?;
+        let traced = self
+            .build_json_get_request(
+                "fetch recent notifications",
+                "/notifications",
+                vec![
+                    ("recent", "true".to_string()),
+                    ("limit", limit.to_string()),
+                    ("bump_last_seen_reviewable", "true".to_string()),
+                ],
+                &[],
+            )?
+            .with_challenge_presentation(FireChallengePresentation::Background);
         let (trace_id, response) = self.execute_request(traced).await?;
         let response =
             expect_success(self, "fetch recent notifications", trace_id, response).await?;
@@ -133,12 +138,9 @@ impl FireCore {
             query_params.push(("offset", offset.to_string()));
         }
 
-        let traced = self.build_json_get_request(
-            "fetch notifications",
-            "/notifications",
-            query_params,
-            &[],
-        )?;
+        let traced = self
+            .build_json_get_request("fetch notifications", "/notifications", query_params, &[])?
+            .with_challenge_presentation(FireChallengePresentation::Foreground);
         let (trace_id, response) = self.execute_request(traced).await?;
         let response = expect_success(self, "fetch notifications", trace_id, response).await?;
         let value: Value = self

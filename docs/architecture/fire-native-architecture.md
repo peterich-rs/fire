@@ -185,6 +185,12 @@ Storage                         →  Storage                   →  Degrade to n
 Other                           →  Runtime                   →  Generic error toast
 ```
 
+Rust carries the foreground/background Cloudflare presentation context on the
+request itself instead of leaving platforms to infer it. User-visible reads such
+as home, topic detail, search, and the full notification history can invoke the
+host-owned challenge UI. Silent work such as recent notification cache refresh,
+topic timings, bootstrap probes, and MessageBus polling stays non-interactive.
+
 ---
 
 ## 3. iOS Platform Architecture

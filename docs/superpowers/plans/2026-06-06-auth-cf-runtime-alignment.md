@@ -414,6 +414,12 @@ Onboarding remains a single login entry. Startup session restoration stays in `P
 
 Foreground operations may route to manual challenge. Passive/background operations should record diagnostics and show a non-blocking retry message.
 
+Current implementation note: Rust now carries Cloudflare presentation context on
+the traced request. The full notification history fetch is explicitly
+foreground-capable, while recent notification cache refreshes remain
+background. This keeps notification-tab user gestures aligned with home/topic
+detail/search reads without letting silent notification work steal focus.
+
 - [ ] **Step 3: State-driven navigation**
 
 Navigation to onboarding/login must be driven by authoritative session snapshot state, not by a local platform classifier.

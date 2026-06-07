@@ -65,6 +65,7 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
   - implements the registered Rust `CloudflareChallengeHandler` bridge for foreground-capable iOS requests
   - opens a host-owned full-screen `WKWebView`, records the baseline `cf_clearance`, waits for a new clearance plus the absence of active challenge markers, and then returns only the relevant browser cookies back to Rust
   - leaves background/silent work on the non-interactive path: if the request was not marked foreground-capable, the handler returns an incomplete result and Rust surfaces `CloudflareChallenge`
+  - relies on Rust request-level presentation context, so user-opened notification history refreshes are foreground-capable while recent notification cache refreshes and other silent work stay non-interactive
 - `FireCfClearanceRefreshService.swift`
   - owns an offscreen `WKWebView` that keeps a Turnstile widget alive once the shared session is authenticated, scene-active, and bootstrap has exposed a Turnstile sitekey
   - configures that hidden WebView with the captured login browser user agent exposed on `SessionState`, falling back to the same Mobile Safari-style profile used by login

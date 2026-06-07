@@ -103,6 +103,12 @@ pub(crate) enum FireCallProfile {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum FireChallengePresentation {
+    Foreground,
+    Background,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct FireRequestEpoch(pub(crate) u64);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -249,10 +255,24 @@ pub(crate) struct TracedRequest {
     pub(crate) request: Request<RequestBody>,
 }
 
+impl TracedRequest {
+    pub(crate) fn with_challenge_presentation(
+        mut self,
+        presentation: FireChallengePresentation,
+    ) -> Self {
+        self.request.extensions_mut().insert(presentation);
+        self
+    }
+}
+
 fn clone_request_for_retry(request: &Request<RequestBody>) -> Option<Request<RequestBody>> {
     let cloned_body = request.body().try_clone()?;
     let request_profile = request.extensions().get::<FireRequestProfile>().copied();
     let request_epoch = request.extensions().get::<FireRequestEpoch>().copied();
+    let challenge_presentation = request
+        .extensions()
+        .get::<FireChallengePresentation>()
+        .copied();
     let mut builder = Request::builder()
         .method(request.method().clone())
         .uri(request.uri().clone())
@@ -266,6 +286,9 @@ fn clone_request_for_retry(request: &Request<RequestBody>) -> Option<Request<Req
     }
     if let Some(epoch) = request_epoch {
         request.extensions_mut().insert(epoch);
+    }
+    if let Some(presentation) = challenge_presentation {
+        request.extensions_mut().insert(presentation);
     }
     Some(request)
 }
@@ -315,7 +338,15 @@ fn request_origin_url(base_url: &Url, request: &Request<RequestBody>) -> Option<
     Some(url.to_string())
 }
 
-fn should_present_foreground_challenge(operation: &'static str, profile: FireCallProfile) -> bool {
+fn should_present_foreground_challenge(
+    operation: &'static str,
+    profile: FireCallProfile,
+    request: &Request<RequestBody>,
+) -> bool {
+    if let Some(presentation) = request.extensions().get::<FireChallengePresentation>() {
+        return *presentation == FireChallengePresentation::Foreground;
+    }
+
     if profile == FireCallProfile::MessageBusPoll {
         return false;
     }
@@ -731,8 +762,11 @@ impl FireCore {
         };
         let request_url = request_url_string(&traced.request);
         let origin_url = request_origin_url(&self.base_url, &traced.request);
-        let is_foreground =
-            should_present_foreground_challenge(traced.operation, FireCallProfile::DefaultApi);
+        let is_foreground = should_present_foreground_challenge(
+            traced.operation,
+            FireCallProfile::DefaultApi,
+            &traced.request,
+        );
         let operation = traced.operation;
         let (trace_id, response) = self
             .network

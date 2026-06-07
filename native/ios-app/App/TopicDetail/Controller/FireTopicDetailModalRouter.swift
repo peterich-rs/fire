@@ -204,9 +204,7 @@ final class FireTopicDetailModalRouter {
     }
 
     func presentImageViewer(image: FireCookedImage) {
-        let rootView = FireTopicImageViewer(image: image)
-        let controller = UIHostingController(rootView: rootView)
-        controller.modalPresentationStyle = .fullScreen
+        let controller = FireTopicImageViewerController(image: image)
         viewController?.present(controller, animated: true)
     }
 

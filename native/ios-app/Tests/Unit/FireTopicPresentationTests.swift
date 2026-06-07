@@ -454,6 +454,46 @@ final class FireTopicPresentationTests: XCTestCase {
         XCTAssertEqual(Double(content.imageAttachments.first?.aspectRatio ?? 0), 690.0 / 388.0, accuracy: 0.001)
     }
 
+    func testRenderContentKeepsImagesInInlineSegmentOrder() {
+        let content = FireTopicPresentation.renderContent(
+            from: #"<p>Before</p><p><a class="lightbox" href="/uploads/default/original/1X/fire-full.png"><img src="/uploads/default/optimized/1X/fire_690x388.png" width="690" height="388" alt="fire"></a></p><p>After</p>"#,
+            baseURLString: "https://linux.do"
+        )
+
+        XCTAssertEqual(content.segments.count, 3)
+        if case .text(let beforeText) = content.segments[0] {
+            XCTAssertEqual(beforeText.string, "Before")
+        } else {
+            XCTFail("Expected leading text segment")
+        }
+        if case .image(let image) = content.segments[1] {
+            XCTAssertEqual(image.url.absoluteString, "https://linux.do/uploads/default/original/1X/fire-full.png")
+            XCTAssertEqual(image.altText, "fire")
+        } else {
+            XCTFail("Expected middle image segment")
+        }
+        if case .text(let afterText) = content.segments[2] {
+            XCTAssertEqual(afterText.string, "After")
+        } else {
+            XCTFail("Expected trailing text segment")
+        }
+    }
+
+    func testHeadingAttributedTextCarriesExpandedParagraphLineHeight() throws {
+        let content = FireTopicPresentation.renderContent(
+            from: "<h1>Big heading wraps onto another line</h1>",
+            baseURLString: "https://linux.do"
+        )
+        let attributedText = try XCTUnwrap(content.attributedText)
+        let paragraph = try XCTUnwrap(
+            attributedText.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle
+        )
+        let font = try XCTUnwrap(attributedText.attribute(.font, at: 0, effectiveRange: nil) as? UIFont)
+
+        XCTAssertGreaterThanOrEqual(paragraph.minimumLineHeight, ceil(font.lineHeight))
+        XCTAssertGreaterThan(paragraph.lineSpacing, 0)
+    }
+
     func testImageAttachmentsPreferGenericLinkedImageURL() {
         let content = FireTopicPresentation.renderContent(
             from: #"<p><a href="/uploads/default/original/1X/fire-full.png"><img src="/uploads/default/optimized/1X/fire_690x388.png" width="690" height="388"></a></p>"#,

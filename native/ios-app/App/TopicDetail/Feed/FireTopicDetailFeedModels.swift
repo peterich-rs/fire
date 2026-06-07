@@ -718,6 +718,7 @@ struct FireTopicDetailRuntimeConfiguration: @unchecked Sendable {
             plainText: plainText,
             attributedText: attributedText,
             imageAttachments: [],
+            segments: attributedText.map { [.text($0)] } ?? [],
             signature: FireTopicPostRenderSignature.make(
                 source: post.cooked,
                 imageAttachments: []
@@ -746,6 +747,15 @@ struct FireTopicDetailRuntimeConfiguration: @unchecked Sendable {
                 ]
             ),
             imageAttachments: renderContent.imageAttachments,
+            segments: renderContent.segments.isEmpty
+                ? [.text(NSAttributedString(
+                    string: renderContent.plainText,
+                    attributes: [
+                        .font: UIFont.preferredFont(forTextStyle: .body),
+                        .foregroundColor: UIColor.label,
+                    ]
+                ))]
+                : renderContent.segments,
             signature: renderContent.signature
         )
         return renderContent

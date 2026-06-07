@@ -459,6 +459,7 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
                     plainText: "Original plain text",
                     attributedText: nil,
                     imageAttachments: [],
+                    segments: [],
                     signature: FireTopicPostRenderSignature.make(
                         source: original.cooked,
                         imageAttachments: []
@@ -1016,6 +1017,7 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
             plainText: plainText,
             attributedText: nil,
             imageAttachments: [],
+            segments: [],
             signature: FireTopicPostRenderSignature.make(source: plainText, imageAttachments: [])
         )
     }

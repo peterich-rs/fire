@@ -996,7 +996,11 @@ enum FireRichTextAttributedStringBuilder {
                 headingContext.isBold = true
                 let headingResult = NSMutableAttributedString()
                 appendNodes(children, to: headingResult, context: headingContext)
-                headingResult.addAttribute(.font, value: headingFont, range: NSRange(location: 0, length: headingResult.length))
+                let headingRange = NSRange(location: 0, length: headingResult.length)
+                headingResult.addAttributes([
+                    .font: headingFont,
+                    .paragraphStyle: headingParagraphStyle(for: headingFont),
+                ], range: headingRange)
                 result.append(headingResult)
 
             case .blockquote(let children):
@@ -1287,6 +1291,18 @@ enum FireRichTextAttributedStringBuilder {
         paragraph.paragraphSpacingBefore = 4
         result.addAttribute(.paragraphStyle, value: paragraph, range: NSRange(location: 0, length: result.length))
         return result
+    }
+
+    private static func headingParagraphStyle(for font: UIFont) -> NSParagraphStyle {
+        let paragraph = NSMutableParagraphStyle()
+        let lineHeight = ceil(font.lineHeight * 1.12)
+        paragraph.minimumLineHeight = lineHeight
+        paragraph.maximumLineHeight = lineHeight
+        paragraph.lineSpacing = max(2, ceil(font.pointSize * 0.12))
+        paragraph.paragraphSpacingBefore = 2
+        paragraph.paragraphSpacing = 6
+        paragraph.lineBreakMode = .byWordWrapping
+        return paragraph
     }
 
     private static func makeEmojiAttachment(

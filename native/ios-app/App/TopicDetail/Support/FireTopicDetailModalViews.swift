@@ -1,5 +1,6 @@
 import Photos
 import SwiftUI
+import UIKit
 
 struct FireTopicVotersSheet: View {
     let voters: [VotedUserState]
@@ -49,6 +50,372 @@ struct FireTopicVotersSheet: View {
         }
         .navigationTitle("投票用户")
         .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+final class FireTopicImageViewerController: UIViewController, UIScrollViewDelegate, UIGestureRecognizerDelegate {
+    private enum PhotoSaveError: Error {
+        case unknownFailure
+    }
+
+    private let image: FireCookedImage
+    private let imageRequest: FireRemoteImageRequest
+    private let scrollView = UIScrollView()
+    private let imageView = UIImageView()
+    private let toolbar = UIStackView()
+    private let statusStack = UIStackView()
+    private let statusLabel = UILabel()
+    private let activityIndicator = UIActivityIndicatorView(style: .large)
+    private let retryButton = UIButton(type: .system)
+    private var loadedImage: UIImage?
+    private var loadTask: Task<Void, Never>?
+    private var dragStartCenter: CGPoint = .zero
+    private var lastLayoutBoundsSize: CGSize = .zero
+
+    init(image: FireCookedImage) {
+        self.image = image
+        self.imageRequest = FireTopicImageRequestBuilder.cookedImageRequest(image)
+        super.init(nibName: nil, bundle: nil)
+        modalPresentationStyle = .fullScreen
+        modalTransitionStyle = .crossDissolve
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    deinit {
+        loadTask?.cancel()
+    }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        configureView()
+        loadImage()
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        let boundsSize = scrollView.bounds.size
+        guard boundsSize != lastLayoutBoundsSize else {
+            centerImageView()
+            return
+        }
+        lastLayoutBoundsSize = boundsSize
+        updateImageFrame()
+        updateZoomScale()
+    }
+
+    func viewForZooming(in scrollView: UIScrollView) -> UIView? {
+        imageView
+    }
+
+    func scrollViewDidZoom(_ scrollView: UIScrollView) {
+        centerImageView()
+    }
+
+    private func configureView() {
+        view.backgroundColor = .black
+
+        scrollView.delegate = self
+        scrollView.minimumZoomScale = 1
+        scrollView.maximumZoomScale = 4
+        scrollView.showsHorizontalScrollIndicator = false
+        scrollView.showsVerticalScrollIndicator = false
+        scrollView.alwaysBounceVertical = true
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(scrollView)
+
+        imageView.contentMode = .scaleAspectFit
+        imageView.isUserInteractionEnabled = true
+        scrollView.addSubview(imageView)
+
+        toolbar.axis = .horizontal
+        toolbar.alignment = .center
+        toolbar.distribution = .equalSpacing
+        toolbar.spacing = 12
+        toolbar.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(toolbar)
+
+        toolbar.addArrangedSubview(controlButton(systemName: "xmark", action: #selector(closeTapped)))
+        toolbar.addArrangedSubview(UIView())
+        toolbar.addArrangedSubview(controlButton(systemName: "square.and.arrow.up", action: #selector(shareTapped)))
+        toolbar.addArrangedSubview(controlButton(systemName: "arrow.down.to.line", action: #selector(saveTapped)))
+
+        statusStack.axis = .vertical
+        statusStack.alignment = .center
+        statusStack.spacing = 12
+        statusStack.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(statusStack)
+        statusLabel.font = .preferredFont(forTextStyle: .subheadline)
+        statusLabel.textColor = .white
+        statusLabel.textAlignment = .center
+        statusLabel.numberOfLines = 0
+        retryButton.setTitle("重试", for: .normal)
+        retryButton.addTarget(self, action: #selector(retryTapped), for: .touchUpInside)
+        retryButton.tintColor = .white
+        statusStack.addArrangedSubview(activityIndicator)
+        statusStack.addArrangedSubview(statusLabel)
+        statusStack.addArrangedSubview(retryButton)
+
+        let doubleTap = UITapGestureRecognizer(target: self, action: #selector(handleDoubleTap(_:)))
+        doubleTap.numberOfTapsRequired = 2
+        scrollView.addGestureRecognizer(doubleTap)
+
+        let dismissPan = UIPanGestureRecognizer(target: self, action: #selector(handleDismissPan(_:)))
+        dismissPan.delegate = self
+        view.addGestureRecognizer(dismissPan)
+
+        NSLayoutConstraint.activate([
+            scrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            scrollView.topAnchor.constraint(equalTo: view.topAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+
+            toolbar.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 16),
+            toolbar.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -16),
+            toolbar.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 12),
+            toolbar.heightAnchor.constraint(equalToConstant: 44),
+
+            statusStack.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            statusStack.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+            statusStack.leadingAnchor.constraint(greaterThanOrEqualTo: view.leadingAnchor, constant: 32),
+            statusStack.trailingAnchor.constraint(lessThanOrEqualTo: view.trailingAnchor, constant: -32),
+        ])
+    }
+
+    private func controlButton(systemName: String, action: Selector) -> UIButton {
+        var configuration = UIButton.Configuration.filled()
+        configuration.image = UIImage(systemName: systemName)
+        configuration.baseForegroundColor = .white
+        configuration.baseBackgroundColor = UIColor.black.withAlphaComponent(0.42)
+        configuration.cornerStyle = .capsule
+        let button = UIButton(configuration: configuration)
+        button.addTarget(self, action: action, for: .touchUpInside)
+        button.widthAnchor.constraint(equalToConstant: 42).isActive = true
+        button.heightAnchor.constraint(equalToConstant: 42).isActive = true
+        return button
+    }
+
+    private func loadImage() {
+        loadTask?.cancel()
+        showLoading()
+        if let cachedImage = FireRemoteImagePipeline.shared.cachedImage(for: imageRequest) {
+            applyLoadedImage(cachedImage)
+            return
+        }
+
+        loadTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let resolvedImage = try await FireRemoteImagePipeline.shared.loadImage(for: imageRequest)
+                guard !Task.isCancelled else { return }
+                await MainActor.run {
+                    self.applyLoadedImage(resolvedImage)
+                }
+            } catch is CancellationError {
+                return
+            } catch {
+                guard !Task.isCancelled else { return }
+                await MainActor.run {
+                    self.showFailure()
+                }
+            }
+        }
+    }
+
+    private func showLoading() {
+        loadedImage = nil
+        imageView.image = nil
+        statusStack.isHidden = false
+        retryButton.isHidden = true
+        statusLabel.text = "图片加载中..."
+        activityIndicator.startAnimating()
+    }
+
+    private func showFailure() {
+        loadedImage = nil
+        imageView.image = nil
+        statusStack.isHidden = false
+        retryButton.isHidden = false
+        statusLabel.text = "图片加载失败"
+        activityIndicator.stopAnimating()
+    }
+
+    private func applyLoadedImage(_ image: UIImage) {
+        loadedImage = image
+        imageView.image = image
+        statusStack.isHidden = true
+        activityIndicator.stopAnimating()
+        updateImageFrame()
+        updateZoomScale()
+    }
+
+    private func updateImageFrame() {
+        guard let loadedImage else {
+            imageView.frame = scrollView.bounds
+            return
+        }
+        let bounds = scrollView.bounds
+        let imageSize = loadedImage.size
+        guard imageSize.width > 0, imageSize.height > 0, bounds.width > 0, bounds.height > 0 else {
+            imageView.frame = bounds
+            return
+        }
+        let widthScale = bounds.width / imageSize.width
+        let heightScale = bounds.height / imageSize.height
+        let scale = min(widthScale, heightScale)
+        let fittedSize = CGSize(width: imageSize.width * scale, height: imageSize.height * scale)
+        imageView.frame = CGRect(origin: .zero, size: fittedSize)
+        scrollView.contentSize = fittedSize
+        centerImageView()
+    }
+
+    private func updateZoomScale() {
+        scrollView.minimumZoomScale = 1
+        scrollView.maximumZoomScale = 4
+        scrollView.zoomScale = 1
+        centerImageView()
+    }
+
+    private func centerImageView() {
+        let boundsSize = scrollView.bounds.size
+        var frame = imageView.frame
+        frame.origin.x = frame.size.width < boundsSize.width ? (boundsSize.width - frame.size.width) / 2 : 0
+        frame.origin.y = frame.size.height < boundsSize.height ? (boundsSize.height - frame.size.height) / 2 : 0
+        imageView.frame = frame
+    }
+
+    func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        guard let panRecognizer = gestureRecognizer as? UIPanGestureRecognizer else {
+            return true
+        }
+        guard scrollView.zoomScale <= scrollView.minimumZoomScale + 0.01 else {
+            return false
+        }
+        let velocity = panRecognizer.velocity(in: view)
+        return velocity.y > abs(velocity.x)
+    }
+
+    @objc private func handleDoubleTap(_ recognizer: UITapGestureRecognizer) {
+        guard loadedImage != nil else { return }
+        if scrollView.zoomScale > scrollView.minimumZoomScale + 0.01 {
+            scrollView.setZoomScale(scrollView.minimumZoomScale, animated: true)
+        } else {
+            let point = recognizer.location(in: imageView)
+            let targetScale = min(scrollView.maximumZoomScale, 2.5)
+            let size = CGSize(width: scrollView.bounds.width / targetScale, height: scrollView.bounds.height / targetScale)
+            let rect = CGRect(x: point.x - size.width / 2, y: point.y - size.height / 2, width: size.width, height: size.height)
+            scrollView.zoom(to: rect, animated: true)
+        }
+    }
+
+    @objc private func handleDismissPan(_ recognizer: UIPanGestureRecognizer) {
+        guard scrollView.zoomScale <= scrollView.minimumZoomScale + 0.01 else { return }
+        let translation = recognizer.translation(in: view)
+        switch recognizer.state {
+        case .began:
+            dragStartCenter = imageView.center
+        case .changed:
+            guard translation.y > 0 else { return }
+            imageView.center = CGPoint(x: dragStartCenter.x + translation.x * 0.18, y: dragStartCenter.y + translation.y)
+            let progress = min(max(translation.y / 240, 0), 1)
+            view.backgroundColor = UIColor.black.withAlphaComponent(1 - progress * 0.72)
+        case .ended, .cancelled:
+            if max(translation.y, recognizer.velocity(in: view).y * 0.18) > 140 {
+                dismiss(animated: true)
+            } else {
+                UIView.animate(withDuration: 0.22, delay: 0, options: [.curveEaseOut]) {
+                    self.imageView.center = self.dragStartCenter
+                    self.view.backgroundColor = .black
+                }
+            }
+        default:
+            break
+        }
+    }
+
+    @objc private func retryTapped() {
+        loadImage()
+    }
+
+    @objc private func closeTapped() {
+        dismiss(animated: true)
+    }
+
+    @objc private func shareTapped() {
+        Task { @MainActor in
+            guard let image = await resolvedToolbarImage() else { return }
+            let controller = UIActivityViewController(activityItems: [image], applicationActivities: nil)
+            present(controller, animated: true)
+        }
+    }
+
+    @objc private func saveTapped() {
+        Task { @MainActor in
+            guard let image = await resolvedToolbarImage() else { return }
+            let status = await photoLibraryAuthorizationStatus()
+            guard status == .authorized || status == .limited else {
+                presentAlert(title: "无法保存到相册", message: "Fire 需要照片权限才能保存当前图片。")
+                return
+            }
+            do {
+                try await saveImageToPhotoLibrary(image)
+                presentAlert(title: "已保存到相册", message: "当前帖子图片已经保存。")
+            } catch {
+                presentAlert(title: "保存失败", message: "系统暂时无法写入相册，请稍后再试。")
+            }
+        }
+    }
+
+    @MainActor
+    private func resolvedToolbarImage() async -> UIImage? {
+        if let loadedImage {
+            return loadedImage
+        }
+        do {
+            let image = try await FireRemoteImagePipeline.shared.loadImage(for: imageRequest)
+            applyLoadedImage(image)
+            return image
+        } catch {
+            showFailure()
+            return nil
+        }
+    }
+
+    private func photoLibraryAuthorizationStatus() async -> PHAuthorizationStatus {
+        let currentStatus = PHPhotoLibrary.authorizationStatus(for: .addOnly)
+        guard currentStatus == .notDetermined else {
+            return currentStatus
+        }
+        return await withCheckedContinuation { continuation in
+            PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
+                continuation.resume(returning: status)
+            }
+        }
+    }
+
+    private func saveImageToPhotoLibrary(_ image: UIImage) async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            PHPhotoLibrary.shared().performChanges {
+                PHAssetCreationRequest.creationRequestForAsset(from: image)
+            } completionHandler: { success, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                } else if success {
+                    continuation.resume(returning: ())
+                } else {
+                    continuation.resume(throwing: PhotoSaveError.unknownFailure)
+                }
+            }
+        }
+    }
+
+    private func presentAlert(title: String, message: String) {
+        let alert = UIAlertController(title: title, message: message, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "知道了", style: .cancel))
+        present(alert, animated: true)
     }
 }
 

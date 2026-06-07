@@ -50,8 +50,8 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
     private var currentContentSizeCategory: UIContentSizeCategory = .large
     private var renderedContentID: String?
     private var avatarSignature: String?
-    private var imageNodes: [FirePostImageNode] = []
-    private var imageSignature: [String] = []
+    private var contentSegmentNodes: [ASDisplayNode] = []
+    private var contentSegmentSignature: [String] = []
     private var pollViews: [FirePostPollView] = []
     private var pollHeights: [CGFloat] = []
     private var pollSignature: [String] = []
@@ -151,13 +151,7 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
         menuNode.accessibilityLabel = "帖子操作"
 
         // Body text
-        bodyTextNode.linkAttributeNames = [NSAttributedString.Key.link.rawValue]
-        bodyTextNode.passthroughNonlinkTouches = true
-        bodyTextNode.alwaysHandleTruncationTokenTap = true
-        bodyTextNode.isUserInteractionEnabled = true
-        bodyTextNode.placeholderEnabled = true
-        bodyTextNode.placeholderColor = .tertiarySystemFill
-        bodyTextNode.style.flexShrink = 1.0
+        configureRichTextNode(bodyTextNode)
 
         // Images
         imageContainerNode.isHidden = true
@@ -210,8 +204,7 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
         configureAvatar(payload: payload, avatarSize: avatarSz)
         configureThreadLine(shows: showsThreadLine)
         configureMeta(payload: payload)
-        configureBodyText(payload: payload)
-        configureImages(payload: payload)
+        configureBodyContent(payload: payload)
         configurePolls(payload: payload)
         configureReplyShortcut(payload: payload)
         configureReactions(payload: payload)
@@ -323,6 +316,62 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
         menuNode.isEnabled = canShowMenu
     }
 
+    private func configureRichTextNode(_ node: ASTextNode) {
+        node.linkAttributeNames = [NSAttributedString.Key.link.rawValue]
+        node.passthroughNonlinkTouches = true
+        node.alwaysHandleTruncationTokenTap = true
+        node.isUserInteractionEnabled = true
+        node.placeholderEnabled = true
+        node.placeholderColor = .tertiarySystemFill
+        node.style.flexShrink = 1.0
+    }
+
+    private func configureBodyContent(payload: FirePostCellRenderPayload) {
+        let hasInlineImages = payload.renderContent.segments.contains(where: \.isImage)
+        guard hasInlineImages, !payload.textExpansionState.isCollapsed else {
+            configureBodyText(payload: payload)
+            rebuildContentSegmentNodes([], renderSizes: [])
+            return
+        }
+
+        bodyTextNode.attributedText = nil
+        bodyTextNode.isHidden = true
+        renderedContentID = nil
+        linkDelegate = RichTextNodeLinkDelegate(
+            onLink: { [weak self] url in
+                self?.currentCallbacks?.onLinkTapped(url)
+            },
+            onTruncation: { [weak self] in
+                guard let self, let payload = self.currentPayload, let callbacks = self.currentCallbacks else { return }
+                callbacks.onExpandText(payload.post)
+            }
+        )
+
+        let availableWidth = Self.availableContentWidth(
+            totalWidth: payload.layoutWidth,
+            depth: currentDepth,
+            avatarSize: currentAvatarSize,
+            avatarSpacing: currentAvatarSpacing
+        )
+        let renderSizes = payload.renderContent.segments.map { segment -> CGSize? in
+            guard case .image(let image) = segment else {
+                return nil
+            }
+            return FirePostCellLayoutCalculator.imageRenderSize(
+                for: image,
+                availableWidth: availableWidth,
+                depth: currentDepth
+            )
+        }
+        let nextSignature = payload.renderContent.segments.map(\.signatureToken)
+        if contentSegmentSignature != nextSignature {
+            rebuildContentSegmentNodes(payload.renderContent.segments, renderSizes: renderSizes)
+            contentSegmentSignature = nextSignature
+        } else {
+            updateContentSegmentImageSizes(renderSizes)
+        }
+    }
+
     private func configureBodyText(payload: FirePostCellRenderPayload) {
         guard let attrText = payload.renderContent.attributedText, attrText.length > 0 else {
             bodyTextNode.attributedText = nil
@@ -357,55 +406,41 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
         bodyTextNode.delegate = linkDelegate
     }
 
-    private func configureImages(payload: FirePostCellRenderPayload) {
-        let images = payload.renderContent.imageAttachments
-        let nextSignature = images.map(\.id)
-
-        guard !images.isEmpty else {
-            imageContainerNode.isHidden = true
-            rebuildImageNodes([])
-            return
+    private func rebuildContentSegmentNodes(
+        _ segments: [FireTopicPostRenderSegment],
+        renderSizes: [CGSize?]
+    ) {
+        for node in contentSegmentNodes {
+            node.removeFromSupernode()
         }
+        contentSegmentNodes.removeAll()
+        contentSegmentSignature = segments.map(\.signatureToken)
 
-        imageContainerNode.isHidden = false
-        let availableWidth = Self.availableContentWidth(
-            totalWidth: payload.layoutWidth,
-            depth: currentDepth,
-            avatarSize: currentAvatarSize,
-            avatarSpacing: currentAvatarSpacing
-        )
-        let renderSizes = images.map { image in
-            FirePostCellLayoutCalculator.imageRenderSize(
-                for: image,
-                availableWidth: availableWidth,
-                depth: currentDepth
-            )
-        }
-        if imageSignature != nextSignature {
-            rebuildImageNodes(images, renderSizes: renderSizes)
-            imageSignature = nextSignature
-        } else {
-            for (imageNode, renderSize) in zip(imageNodes, renderSizes) {
-                imageNode.updateRenderSize(renderSize)
+        for (index, segment) in segments.enumerated() {
+            switch segment {
+            case .text(let attributedText):
+                let textNode = ASTextNode()
+                configureRichTextNode(textNode)
+                textNode.attributedText = attributedText
+                textNode.delegate = linkDelegate
+                contentSegmentNodes.append(textNode)
+            case .image(let image):
+                let renderSize = index < renderSizes.count
+                    ? (renderSizes[index] ?? CGSize(width: 1, height: 1))
+                    : CGSize(width: 1, height: 1)
+                let imageNode = FirePostImageNode(image: image, renderSize: renderSize)
+                imageNode.addTarget(self, action: #selector(handleImageTap(_:)), forControlEvents: .touchUpInside)
+                contentSegmentNodes.append(imageNode)
             }
         }
     }
 
-    private func rebuildImageNodes(_ images: [FireCookedImage], renderSizes: [CGSize] = []) {
-        for node in imageNodes {
-            node.removeFromSupernode()
-        }
-        imageNodes.removeAll()
-        imageSignature = images.map(\.id)
-
-        for (index, image) in images.enumerated() {
-            let renderSize = index < renderSizes.count
-                ? renderSizes[index]
-                : CGSize(width: 1, height: 1)
-            let imageNode = FirePostImageNode(image: image, renderSize: renderSize)
-            imageNode.style.spacingBefore = 10
-            imageNode.addTarget(self, action: #selector(handleImageTap(_:)), forControlEvents: .touchUpInside)
-            imageNodes.append(imageNode)
+    private func updateContentSegmentImageSizes(_ renderSizes: [CGSize?]) {
+        for (node, renderSize) in zip(contentSegmentNodes, renderSizes) {
+            guard let imageNode = node as? FirePostImageNode, let renderSize else {
+                continue
+            }
+            imageNode.updateRenderSize(renderSize)
         }
     }
 
@@ -637,7 +672,8 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
         if let currentResolvedLayout {
             shouldSuppressAttachments = currentResolvedLayout.textExpansionFrame != nil
         } else {
-            shouldSuppressAttachments = (!imageNodes.isEmpty || !pollContainerNode.isHidden)
+            let hasImageSegments = currentPayload?.renderContent.segments.contains(where: \.isImage) ?? false
+            shouldSuppressAttachments = (hasImageSegments || !pollContainerNode.isHidden)
                 && Self.shouldSuppressAttachmentsForCollapsedText(
                     plainText: currentPayload?.renderContent.plainText ?? "",
                     hasAttributedText: currentPayload?.renderContent.attributedText != nil,
@@ -695,11 +731,9 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
             contentChildren.append(bodyTextNode)
         }
 
-        // Image nodes
         if !shouldSuppressAttachments {
-            // Image nodes
-            for imageNode in imageNodes {
-                contentChildren.append(imageNode)
+            for segmentNode in contentSegmentNodes {
+                contentChildren.append(segmentNode)
             }
 
             // Poll container
@@ -1175,8 +1209,15 @@ extension FirePostCellNode: ASNetworkImageNodeDelegate {
 
 private final class FirePostImageNode: ASControlNode {
     let image: FireCookedImage
-    private let imageNode = ASNetworkImageNode()
+    private let imageNode = ASImageNode()
+    private let statusNode = ASTextNode()
+    private let retryNode = ASButtonNode()
     private var renderSize: CGSize
+    private var loadTask: Task<Void, Never>?
+    private var loadGeneration: UInt64 = 0
+    private var isLoaded = false
+    private var isLoading = false
+    private var didFail = false
 
     init(image: FireCookedImage, renderSize: CGSize) {
         self.image = image
@@ -1187,17 +1228,38 @@ private final class FirePostImageNode: ASControlNode {
         accessibilityLabel = image.altText?.trimmingCharacters(in: .whitespacesAndNewlines).ifEmpty("帖子图片")
         accessibilityTraits = [.image, .button]
 
-        imageNode.url = image.url
         imageNode.contentMode = .scaleAspectFit
         imageNode.clipsToBounds = true
         imageNode.cornerRadius = 16
         imageNode.borderColor = UIColor.separator.cgColor
         imageNode.borderWidth = 0.5
-        imageNode.placeholderEnabled = true
-        imageNode.placeholderColor = .tertiarySystemFill
         imageNode.backgroundColor = .tertiarySystemFill
         imageNode.isUserInteractionEnabled = false
+        imageNode.displaysAsynchronously = true
+
+        statusNode.maximumNumberOfLines = 2
+        statusNode.isLayerBacked = true
+
+        retryNode.setAttributedTitle(NSAttributedString(
+            string: "重试",
+            attributes: [
+                .font: UIFont.preferredFont(forTextStyle: .caption1),
+                .foregroundColor: UIColor.systemBlue,
+            ]
+        ), for: .normal)
+        retryNode.contentEdgeInsets = UIEdgeInsets(top: 5, left: 10, bottom: 5, right: 10)
+        retryNode.cornerRadius = 12
+        retryNode.borderWidth = 1
+        retryNode.borderColor = UIColor.systemBlue.withAlphaComponent(0.45).cgColor
+        retryNode.backgroundColor = UIColor.systemBackground.withAlphaComponent(0.8)
+        retryNode.addTarget(self, action: #selector(handleRetryTap), forControlEvents: .touchUpInside)
+
         updateRenderSize(renderSize)
+        loadImage()
+    }
+
+    deinit {
+        loadTask?.cancel()
     }
 
     func updateRenderSize(_ renderSize: CGSize) {
@@ -1206,6 +1268,9 @@ private final class FirePostImageNode: ASControlNode {
         style.preferredSize = renderSize
         imageNode.style.preferredSize = renderSize
         if didChange {
+            if isLoaded {
+                loadImage()
+            }
             setNeedsLayout()
         }
     }
@@ -1217,7 +1282,110 @@ private final class FirePostImageNode: ASControlNode {
         let ratio = renderSize.height / max(renderSize.width, 1)
         let boundedSize = CGSize(width: max(maxWidth, 1), height: max(maxWidth * ratio, 1))
         imageNode.style.preferredSize = boundedSize
-        return ASWrapperLayoutSpec(layoutElement: imageNode)
+        guard !isLoaded else {
+            return ASWrapperLayoutSpec(layoutElement: imageNode)
+        }
+
+        statusNode.attributedText = statusAttributedText()
+        retryNode.isHidden = !didFail
+
+        let statusChildren: [ASLayoutElement] = didFail ? [statusNode, retryNode] : [statusNode]
+        let statusStack = ASStackLayoutSpec(
+            direction: .vertical,
+            spacing: 8,
+            justifyContent: .center,
+            alignItems: .center,
+            children: statusChildren
+        )
+        statusStack.style.maxWidth = ASDimensionMake(max(boundedSize.width - 24, 1))
+
+        let centeredStatus = ASCenterLayoutSpec(
+            centeringOptions: .XY,
+            sizingOptions: [],
+            child: statusStack
+        )
+        centeredStatus.style.preferredSize = boundedSize
+
+        return ASOverlayLayoutSpec(child: imageNode, overlay: centeredStatus)
+    }
+
+    private func loadImage() {
+        loadTask?.cancel()
+        loadGeneration &+= 1
+        let generation = loadGeneration
+        let request = FireTopicImageRequestBuilder.cookedImageRequest(image)
+
+        if let cachedImage = FireRemoteImagePipeline.shared.cachedImage(for: request) {
+            applyLoadedImage(cachedImage, generation: generation)
+            return
+        }
+
+        isLoaded = false
+        isLoading = true
+        didFail = false
+        imageNode.image = nil
+        setNeedsLayout()
+
+        loadTask = Task { [weak self] in
+            do {
+                let resolvedImage = try await FireRemoteImagePipeline.shared.loadImage(for: request)
+                guard !Task.isCancelled else { return }
+                await MainActor.run {
+                    self?.applyLoadedImage(resolvedImage, generation: generation)
+                }
+            } catch is CancellationError {
+                return
+            } catch {
+                guard !Task.isCancelled else { return }
+                await MainActor.run {
+                    self?.applyFailedLoad(generation: generation)
+                }
+            }
+        }
+    }
+
+    private func applyLoadedImage(_ loadedImage: UIImage, generation: UInt64) {
+        guard generation == loadGeneration else { return }
+        imageNode.image = thumbnailImage(for: loadedImage)
+        isLoaded = true
+        isLoading = false
+        didFail = false
+        setNeedsLayout()
+    }
+
+    private func applyFailedLoad(generation: UInt64) {
+        guard generation == loadGeneration else { return }
+        isLoaded = false
+        isLoading = false
+        didFail = true
+        imageNode.image = nil
+        setNeedsLayout()
+    }
+
+    @objc private func handleRetryTap() {
+        loadImage()
+    }
+
+    private func statusAttributedText() -> NSAttributedString {
+        let text = didFail ? "图片加载失败" : "图片加载中..."
+        return NSAttributedString(
+            string: text,
+            attributes: [
+                .font: UIFont.preferredFont(forTextStyle: .caption1),
+                .foregroundColor: UIColor.secondaryLabel,
+            ]
+        )
+    }
+
+    private func thumbnailImage(for image: UIImage) -> UIImage {
+        let scale = UIScreen.main.scale
+        let targetSize = CGSize(
+            width: max(renderSize.width * scale, 1),
+            height: max(renderSize.height * scale, 1)
+        )
+        return image.byPreparingThumbnail(ofSize: targetSize)
+            ?? image.preparingForDisplay()
+            ?? image
     }
 }
 

@@ -362,9 +362,10 @@ class HomeViewModel(
             stopRealtimeRefresh()
         }
 
-        if (batch == RefreshBatchState.CORE) {
-            _topicListRefreshEvents.tryEmit(Unit)
-        }
+        // Rust core refresh already fetched the current home scope. Triggering
+        // Paging.refresh() here reissues the same request and can invalidate a
+        // deep scroll position at the wrong anchor page.
+        if (batch == RefreshBatchState.CORE) return
     }
 
     private fun handleTopicListMessageBusEvent(event: MessageBusEventState) {

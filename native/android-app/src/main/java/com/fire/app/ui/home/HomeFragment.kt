@@ -47,6 +47,7 @@ class HomeFragment : Fragment() {
     private lateinit var createTopicButton: View
 
     private var viewModel: HomeViewModel? = null
+    private var pendingAutoRefresh = false
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -90,6 +91,11 @@ class HomeFragment : Fragment() {
         recyclerView.layoutManager = LinearLayoutManager(requireContext())
         recyclerView.adapter = adapter
         recyclerView.optimizeForPaging()
+        recyclerView.addOnScrollListener(object : RecyclerView.OnScrollListener() {
+            override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
+                flushPendingAutoRefreshIfAtTop()
+            }
+        })
         adapter.addLoadStateListener { loadStates ->
             val refresh = loadStates.refresh
             val isInitialLoading = refresh is LoadState.Loading && adapter.itemCount == 0
@@ -108,6 +114,7 @@ class HomeFragment : Fragment() {
             }
             if (refresh !is LoadState.Loading) {
                 swipeRefresh.isRefreshing = false
+                flushPendingAutoRefreshIfAtTop()
             }
         }
 
@@ -146,7 +153,12 @@ class HomeFragment : Fragment() {
                     }
                     launch {
                         vm.topicListRefreshEvents.collect {
-                            adapter.refresh()
+                            if (isTopicListAtTop()) {
+                                pendingAutoRefresh = false
+                                adapter.refresh()
+                            } else {
+                                pendingAutoRefresh = true
+                            }
                         }
                     }
                     launch {
@@ -183,6 +195,7 @@ class HomeFragment : Fragment() {
 
     private fun setupSwipeRefresh() {
         swipeRefresh.setOnRefreshListener {
+            pendingAutoRefresh = false
             adapter.refresh()
         }
     }
@@ -222,6 +235,27 @@ class HomeFragment : Fragment() {
             }
             selectedTagsGroup.addView(chip)
         }
+    }
+
+    private fun isTopicListAtTop(): Boolean {
+        val layoutManager = recyclerView.layoutManager as? LinearLayoutManager ?: return true
+        val firstVisiblePosition = layoutManager.findFirstVisibleItemPosition()
+        if (firstVisiblePosition > 0) {
+            return false
+        }
+        val firstVisibleView = layoutManager.findViewByPosition(firstVisiblePosition)
+        return firstVisibleView == null || firstVisibleView.top >= recyclerView.paddingTop
+    }
+
+    private fun flushPendingAutoRefreshIfAtTop() {
+        if (!pendingAutoRefresh || swipeRefresh.isRefreshing) {
+            return
+        }
+        if (!isTopicListAtTop()) {
+            return
+        }
+        pendingAutoRefresh = false
+        adapter.refresh()
     }
 
     private class HomeViewModelFactory(

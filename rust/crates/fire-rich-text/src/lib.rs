@@ -231,7 +231,7 @@ fn map_node(node: &CookedHtmlNode, tree: &CookedTree<'_>, base_url: &str) -> Vec
     match &node.kind {
         CookedHtmlNodeKind::Document => children,
         CookedHtmlNodeKind::Text => normalized_text(node.text.as_deref())
-            .filter(|content| !should_suppress_text_node(node, content, tree))
+            .and_then(|content| cleaned_text_node_content(node, content, tree))
             .map(|content| {
                 vec![TreeRenderBlock {
                     kind: RenderBlockKind::Text { content },
@@ -846,8 +846,21 @@ fn should_suppress_link_for_inline_image(
     image_like_url && looks_like_image_filename(&visible_text)
 }
 
-fn should_suppress_text_node(node: &CookedHtmlNode, content: &str, tree: &CookedTree<'_>) -> bool {
-    looks_like_image_attachment_metadata(content) && has_imageish_sibling(node, tree)
+fn cleaned_text_node_content(
+    node: &CookedHtmlNode,
+    content: String,
+    tree: &CookedTree<'_>,
+) -> Option<String> {
+    if !has_imageish_sibling(node, tree) {
+        return Some(content);
+    }
+    if belongs_to_split_image_attachment_metadata(node, tree) {
+        return None;
+    }
+    if let Some(stripped) = strip_trailing_image_attachment_metadata(&content) {
+        return normalized_text(Some(&stripped));
+    }
+    Some(content)
 }
 
 fn has_imageish_sibling(node: &CookedHtmlNode, tree: &CookedTree<'_>) -> bool {
@@ -858,6 +871,201 @@ fn has_imageish_sibling(node: &CookedHtmlNode, tree: &CookedTree<'_>) -> bool {
         .into_iter()
         .filter(|sibling| sibling.id != node.id)
         .any(|sibling| subtree_contains_inline_image(sibling, tree))
+}
+
+fn belongs_to_split_image_attachment_metadata(
+    node: &CookedHtmlNode,
+    tree: &CookedTree<'_>,
+) -> bool {
+    let Some(parent) = tree.node(node.parent_id) else {
+        return false;
+    };
+    let siblings = tree.children_of(parent);
+    let Some(index) = siblings.iter().position(|sibling| sibling.id == node.id) else {
+        return false;
+    };
+
+    let mut start = index;
+    while start > 0 && siblings[start - 1].kind == CookedHtmlNodeKind::Text {
+        start -= 1;
+    }
+
+    let mut end = index + 1;
+    while end < siblings.len() && siblings[end].kind == CookedHtmlNodeKind::Text {
+        end += 1;
+    }
+
+    if end - start <= 1 {
+        return false;
+    }
+
+    let text_run = siblings[start..end]
+        .iter()
+        .filter_map(|sibling| {
+            normalized_text(sibling.text.as_deref()).map(|content| (sibling.id, content))
+        })
+        .collect::<Vec<_>>();
+    let Some(run_index) = text_run
+        .iter()
+        .position(|(sibling_id, _)| *sibling_id == node.id)
+    else {
+        return false;
+    };
+
+    split_image_attachment_metadata_range(&text_run)
+        .is_some_and(|(start, end)| (start..end).contains(&run_index))
+}
+
+fn strip_trailing_image_attachment_metadata(value: &str) -> Option<String> {
+    let trimmed_end = value.trim_end();
+    if trimmed_end.is_empty() {
+        return None;
+    }
+    let size_start = trailing_file_size_start(trimmed_end)?;
+    let before_size = trimmed_end[..size_start].trim_end();
+    let dimension_token_start = trailing_dimension_token_start(before_size)?;
+    let metadata_start = immediate_prefix_token_start(&before_size[..dimension_token_start])
+        .unwrap_or(dimension_token_start);
+    Some(trimmed_end[..metadata_start].trim_end().to_string())
+}
+
+fn trailing_file_size_start(value: &str) -> Option<usize> {
+    let normalized = value.to_ascii_lowercase();
+    let unit = ["kib", "mib", "gib", "kb", "mb", "gb", "b"]
+        .into_iter()
+        .find(|unit| normalized.ends_with(unit))?;
+    let unit_start = value.len() - unit.len();
+    let number_end = value[..unit_start].trim_end().len();
+    if number_end == 0 {
+        return None;
+    }
+
+    let mut number_start = number_end;
+    for (index, character) in value[..number_end].char_indices().rev() {
+        if character.is_ascii_digit() || character == '.' {
+            number_start = index;
+        } else {
+            break;
+        }
+    }
+    let number = &value[number_start..number_end];
+    if number.is_empty()
+        || number == "."
+        || number.parse::<f32>().ok().is_none()
+        || !number.chars().any(|character| character.is_ascii_digit())
+    {
+        return None;
+    }
+    Some(number_start)
+}
+
+fn trailing_dimension_token_start(value: &str) -> Option<usize> {
+    let trimmed = value.trim_end_matches(|character: char| {
+        character.is_whitespace() || matches!(character, '_' | '-' | '.')
+    });
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    for (x_index, x_character) in trimmed.char_indices().rev() {
+        if !matches!(x_character, 'x' | 'X' | '×') {
+            continue;
+        }
+        let tail = &trimmed[x_index + x_character.len_utf8()..];
+        let Some(height_end) = tail
+            .char_indices()
+            .take_while(|(_, character)| character.is_ascii_digit())
+            .last()
+            .map(|(index, character)| index + character.len_utf8())
+        else {
+            continue;
+        };
+        if height_end != tail.len() {
+            continue;
+        }
+        let Ok(height) = tail[..height_end].parse::<u32>() else {
+            continue;
+        };
+
+        let before_x = &trimmed[..x_index];
+        let Some((width_start, width)) = trailing_number_start(before_x) else {
+            continue;
+        };
+        if width == 0 || height == 0 || width > 50_000 || height > 50_000 {
+            continue;
+        }
+        return Some(token_start_before(width_start, trimmed));
+    }
+    None
+}
+
+fn trailing_number_start(value: &str) -> Option<(usize, u32)> {
+    let mut start = value.len();
+    for (index, character) in value.char_indices().rev() {
+        if character.is_ascii_digit() {
+            start = index;
+        } else {
+            break;
+        }
+    }
+    if start == value.len() {
+        return None;
+    }
+    value[start..]
+        .parse::<u32>()
+        .ok()
+        .map(|number| (start, number))
+}
+
+fn token_start_before(index: usize, value: &str) -> usize {
+    value[..index]
+        .char_indices()
+        .rev()
+        .find(|(_, character)| character.is_whitespace())
+        .map(|(index, character)| index + character.len_utf8())
+        .unwrap_or(0)
+}
+
+fn immediate_prefix_token_start(value: &str) -> Option<usize> {
+    let trimmed = value.trim_end();
+    if trimmed.is_empty() {
+        return None;
+    }
+    Some(
+        trimmed
+            .char_indices()
+            .rev()
+            .find(|(_, character)| character.is_whitespace())
+            .map(|(index, character)| index + character.len_utf8())
+            .unwrap_or(0),
+    )
+}
+
+fn split_image_attachment_metadata_range(text_run: &[(u32, String)]) -> Option<(usize, usize)> {
+    for start in (0..text_run.len()).rev() {
+        for end in start + 1..=text_run.len() {
+            let combined = text_run[start..end]
+                .iter()
+                .map(|(_, content)| content.as_str())
+                .collect::<Vec<_>>()
+                .join(" ");
+            if !looks_like_image_attachment_metadata(&combined) {
+                continue;
+            }
+            if start > 0 {
+                let expanded = text_run[start - 1..end]
+                    .iter()
+                    .map(|(_, content)| content.as_str())
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                if looks_like_image_attachment_metadata(&expanded) {
+                    return Some((start - 1, end));
+                }
+            }
+            return Some((start, end));
+        }
+    }
+    None
 }
 
 fn subtree_contains_inline_image(node: &CookedHtmlNode, tree: &CookedTree<'_>) -> bool {
@@ -983,11 +1191,14 @@ fn should_skip_render_image(
     attrs: &BTreeMap<String, String>,
     tree: &CookedTree<'_>,
 ) -> bool {
+    let classes = class_names(attrs.get("class").map(String::as_str));
     tree.nearest_ancestor(node, |ancestor| {
         ancestor.kind == CookedHtmlNodeKind::DiscourseQuote
     })
     .is_some()
-        && (class_names(attrs.get("class").map(String::as_str)).contains("quote-avatar")
+        && (classes.contains("quote-avatar")
+            || classes.contains("avatar")
+            || classes.contains("user-avatar")
             || is_avatar_url(source_url))
 }
 
@@ -1343,6 +1554,126 @@ mod tests {
     }
 
     #[test]
+    fn render_document_suppresses_split_inline_image_metadata_text() {
+        let document = CookedHtmlDocument {
+            nodes: vec![
+                node(0, None, 0, CookedHtmlNodeKind::Document),
+                node(1, Some(0), 1, CookedHtmlNodeKind::Paragraph),
+                link_node(2, 1, 2, "/uploads/full.png", "lightbox"),
+                image_node(3, 2, 3, "/uploads/thumb.png", "", "1080", "1920"),
+                text_node(4, 1, 2, "image"),
+                text_node(5, 1, 2, "1080x1920 52.5kb"),
+                text_node(6, 1, 2, "caption"),
+            ],
+            plain_text: "image 1080x1920 52.5kb caption".to_string(),
+            image_urls: vec!["/uploads/thumb.png".to_string()],
+            link_urls: vec!["/uploads/full.png".to_string()],
+        };
+
+        let rendered = render_document(&document, "https://linux.do");
+        assert_eq!(rendered.plain_text, "caption");
+        assert!(!rendered.blocks.iter().any(|block| matches!(
+            &block.kind,
+            RenderBlockKind::Text { content } if content == "image"
+        )));
+        assert!(!rendered.blocks.iter().any(|block| matches!(
+            &block.kind,
+            RenderBlockKind::Text { content } if content.contains("1080x1920")
+        )));
+        assert!(rendered.blocks.iter().any(|block| matches!(
+            &block.kind,
+            RenderBlockKind::Text { content } if content == "caption"
+        )));
+    }
+
+    #[test]
+    fn render_document_keeps_text_before_split_image_metadata() {
+        let document = CookedHtmlDocument {
+            nodes: vec![
+                node(0, None, 0, CookedHtmlNodeKind::Document),
+                node(1, Some(0), 1, CookedHtmlNodeKind::Paragraph),
+                link_node(2, 1, 2, "/uploads/full.png", "lightbox"),
+                image_node(3, 2, 3, "/uploads/thumb.png", "", "1080", "1920"),
+                text_node(4, 1, 2, "caption"),
+                text_node(5, 1, 2, "image"),
+                text_node(6, 1, 2, "1080x1920 52.5kb"),
+            ],
+            plain_text: "caption image 1080x1920 52.5kb".to_string(),
+            image_urls: vec!["/uploads/thumb.png".to_string()],
+            link_urls: vec!["/uploads/full.png".to_string()],
+        };
+
+        let rendered = render_document(&document, "https://linux.do");
+        assert_eq!(rendered.plain_text, "caption");
+        assert!(rendered.blocks.iter().any(|block| matches!(
+            &block.kind,
+            RenderBlockKind::Text { content } if content == "caption"
+        )));
+        assert!(!rendered.blocks.iter().any(|block| matches!(
+            &block.kind,
+            RenderBlockKind::Text { content } if content == "image"
+        )));
+        assert!(!rendered.blocks.iter().any(|block| matches!(
+            &block.kind,
+            RenderBlockKind::Text { content } if content.contains("1080x1920")
+        )));
+    }
+
+    #[test]
+    fn render_document_strips_trailing_image_metadata_line_without_dropping_body_text() {
+        let document = CookedHtmlDocument {
+            nodes: vec![
+                node(0, None, 0, CookedHtmlNodeKind::Document),
+                node(1, Some(0), 1, CookedHtmlNodeKind::Paragraph),
+                link_node(2, 1, 2, "/uploads/full.png", "lightbox"),
+                image_node(3, 2, 3, "/uploads/thumb.png", "", "1080", "1920"),
+                text_node(4, 1, 2, "body text\nscreen-shot 1080x1920 52.5kb"),
+            ],
+            plain_text: "body text\nscreen-shot 1080x1920 52.5kb".to_string(),
+            image_urls: vec!["/uploads/thumb.png".to_string()],
+            link_urls: vec!["/uploads/full.png".to_string()],
+        };
+
+        let rendered = render_document(&document, "https://linux.do");
+        assert_eq!(rendered.plain_text, "body text");
+        assert!(rendered.blocks.iter().any(|block| matches!(
+            &block.kind,
+            RenderBlockKind::Text { content } if content == "body text"
+        )));
+        assert!(!rendered.blocks.iter().any(|block| matches!(
+            &block.kind,
+            RenderBlockKind::Text { content } if content.contains("1080x1920")
+        )));
+    }
+
+    #[test]
+    fn render_document_strips_trailing_image_metadata_suffix_without_dropping_body_text() {
+        let document = CookedHtmlDocument {
+            nodes: vec![
+                node(0, None, 0, CookedHtmlNodeKind::Document),
+                node(1, Some(0), 1, CookedHtmlNodeKind::Paragraph),
+                link_node(2, 1, 2, "/uploads/full.png", "lightbox"),
+                image_node(3, 2, 3, "/uploads/thumb.png", "", "1080", "1920"),
+                text_node(4, 1, 2, "body text screen-shot 1080x1920 52.5kb"),
+            ],
+            plain_text: "body text screen-shot 1080x1920 52.5kb".to_string(),
+            image_urls: vec!["/uploads/thumb.png".to_string()],
+            link_urls: vec!["/uploads/full.png".to_string()],
+        };
+
+        let rendered = render_document(&document, "https://linux.do");
+        assert_eq!(rendered.plain_text, "body text");
+        assert!(rendered.blocks.iter().any(|block| matches!(
+            &block.kind,
+            RenderBlockKind::Text { content } if content == "body text"
+        )));
+        assert!(!rendered.blocks.iter().any(|block| matches!(
+            &block.kind,
+            RenderBlockKind::Text { content } if content.contains("screen-shot")
+        )));
+    }
+
+    #[test]
     fn image_metadata_detection_allows_unknown_prefixes_but_not_captions() {
         assert!(looks_like_image_attachment_metadata(
             "screen-shot 1080x1920 34kb"
@@ -1386,15 +1717,28 @@ mod tests {
                     "24",
                     BTreeMap::from([("class".to_string(), "avatar quote-avatar".to_string())]),
                 ),
-                link_node(4, 2, 3, "/u/alice", ""),
-                text_node(5, 4, 4, "alice"),
-                text_node(6, 2, 3, ":"),
-                node(7, Some(1), 2, CookedHtmlNodeKind::Blockquote),
-                node(8, Some(7), 3, CookedHtmlNodeKind::Paragraph),
-                text_node(9, 8, 4, "Hello Fire"),
+                image_node_with_attrs(
+                    4,
+                    2,
+                    3,
+                    "https://cdn.example.com/avatar/alice.png",
+                    "avatar",
+                    "24",
+                    "24",
+                    BTreeMap::from([("class".to_string(), "avatar".to_string())]),
+                ),
+                link_node(5, 2, 3, "/u/alice", ""),
+                text_node(6, 5, 4, "alice"),
+                text_node(7, 2, 3, ":"),
+                node(8, Some(1), 2, CookedHtmlNodeKind::Blockquote),
+                node(9, Some(8), 3, CookedHtmlNodeKind::Paragraph),
+                text_node(10, 9, 4, "Hello Fire"),
             ],
             plain_text: "alice:\n\nHello Fire".to_string(),
-            image_urls: vec!["/user_avatar/linux.do/alice/48/1_2.png".to_string()],
+            image_urls: vec![
+                "/user_avatar/linux.do/alice/48/1_2.png".to_string(),
+                "https://cdn.example.com/avatar/alice.png".to_string(),
+            ],
             link_urls: vec!["/u/alice".to_string()],
         };
 

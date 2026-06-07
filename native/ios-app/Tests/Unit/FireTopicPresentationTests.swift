@@ -482,6 +482,23 @@ final class FireTopicPresentationTests: XCTestCase {
         XCTAssertFalse(segmentText.contains("34kb"))
     }
 
+    func testRenderContentPreservesTextBeforeInlineImageMetadataSuffix() {
+        let content = fireRenderContentFixture(#"<p><a class="lightbox" href="/uploads/default/original/1X/fire-full.png"><img src="/uploads/default/optimized/1X/fire_690x388.png" width="690" height="388"></a> body text screen-shot 1080x1920 34kb</p>"#)
+        let segmentText = content.segments.compactMap { segment -> String? in
+            if case .text(let text) = segment {
+                return text.string
+            }
+            return nil
+        }.joined(separator: "\n")
+
+        XCTAssertEqual(content.imageAttachments.count, 1)
+        XCTAssertEqual(content.plainText, "body text")
+        XCTAssertEqual(segmentText, "body text")
+        XCTAssertFalse(segmentText.contains("screen-shot"))
+        XCTAssertFalse(segmentText.contains("1080x1920"))
+        XCTAssertFalse(segmentText.contains("34kb"))
+    }
+
     func testHeadingAttributedTextCarriesExpandedParagraphLineHeight() throws {
         let content = fireRenderContentFixture("<h1>Big heading wraps onto another line</h1>")
         let attributedText = try XCTUnwrap(content.attributedText)

@@ -73,13 +73,13 @@ final class FireRichTextParagraphBoundaryTests: XCTestCase {
     }
 
     private func renderedText(_ html: String) -> String {
-        FireTopicPresentation.renderContent(from: html, baseURLString: "https://linux.do")
+        fireRenderContentFixture(html)
             .attributedText?
             .string ?? ""
     }
 
     private func renderedAttributedText(_ html: String) -> NSAttributedString? {
-        FireTopicPresentation.renderContent(from: html, baseURLString: "https://linux.do")
+        fireRenderContentFixture(html)
             .attributedText
     }
 }

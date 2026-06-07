@@ -1,17 +1,16 @@
 package com.fire.app.ui.topicdetail
 
-import android.app.Dialog
 import android.content.Context
 import android.content.Intent
-import android.graphics.Color
 import android.net.Uri
 import android.os.Bundle
+import android.view.Gravity
 import android.view.View
 import android.widget.ArrayAdapter
 import android.widget.EditText
-import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.Toast
 import android.widget.ProgressBar
 import android.widget.Spinner
@@ -27,14 +26,18 @@ import androidx.recyclerview.widget.ConcatAdapter
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.fire.app.R
-import com.fire.app.core.image.FireImageLoader
 import com.fire.app.displayName
 import com.fire.app.databinding.ActivityTopicDetailBinding
 import com.fire.app.richtext.FireCookedImage
 import com.fire.app.session.FireSessionStore
 import com.fire.app.session.FireSessionStoreRepository
 import com.fire.app.ui.composer.ComposerTagAssist
+import com.fire.app.ui.composer.PrivateMessageComposerSheet
 import com.fire.app.ui.composer.ReplyComposerSheet
+import com.fire.app.ui.webview.FireInAppWebViewActivity
+import com.fire.app.core.ext.dp
+import com.fire.app.core.image.FireImageLoader
+import com.google.android.material.bottomsheet.BottomSheetDialog
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import uniffi.fire_uniffi_session.TopicCategoryState
@@ -43,6 +46,8 @@ import uniffi.fire_uniffi_topics.PostFlagRequestState
 import uniffi.fire_uniffi_topics.TopicDetailState
 import uniffi.fire_uniffi_topics.TopicPostState
 import uniffi.fire_uniffi_topics.VotedUserState
+import uniffi.fire_uniffi_user.UserProfileState
+import uniffi.fire_uniffi_user.UserSummaryState
 
 class TopicDetailActivity : AppCompatActivity() {
 
@@ -91,71 +96,74 @@ class TopicDetailActivity : AppCompatActivity() {
         binding.topicDetailToolbar.title = parsedRoute.title
             ?: getString(R.string.topic_detail_title_fallback, parsedRoute.topicId.toString())
 
-        sessionStore = FireSessionStoreRepository.get(this)
-        viewModel = TopicDetailViewModel.create(sessionStore)
+        lifecycleScope.launch {
+            sessionStore = FireSessionStoreRepository.get(this@TopicDetailActivity)
+            viewModel = TopicDetailViewModel.create(sessionStore)
 
-        val postCallbacks = PostRowCallbacks(
-            reactionIds = { enabledReactionIds },
-            onReplyClick = ::showReplyComposerForPost,
-            onHeartClick = { post -> viewModel?.toggleHeart(post) },
-            onReactClick = ::showReactionPicker,
-            onBookmarkClick = ::showPostBookmarkEditor,
-            onVotePoll = { post, poll, options -> viewModel?.votePoll(post, poll, options) },
-            onUnvotePoll = { post, poll -> viewModel?.unvotePoll(post, poll) },
-            onReactionsClick = ::showReactionUsers,
-            onReplyContextClick = ::showReplyContext,
-            onDeletePostClick = ::confirmDeletePost,
-            onRecoverPostClick = ::confirmRecoverPost,
-            onFlagPostClick = ::showFlagPostOptions,
-            onEditPostClick = ::showPostEditor,
-            onImageClick = ::showImageViewer,
-            onAuthorClick = ::openProfile,
-        )
-        headerAdapter = HeaderAdapter(
-            callbacks = postCallbacks,
-            onReloadAiSummary = { viewModel?.reloadTopicAiSummary() },
-            onToggleTopicVote = { viewModel?.toggleTopicVote() },
-            onShowTopicVoters = ::showTopicVoters,
-            onEditTopicClick = ::showTopicEditor,
-            onTopicBookmarkClick = ::showTopicBookmarkEditor,
-            onTopicNotificationClick = ::showTopicNotificationOptions,
-        )
-        postListAdapter = PostListAdapter(postCallbacks)
+            val postCallbacks = PostRowCallbacks(
+                reactionIds = { enabledReactionIds },
+                onReplyClick = ::showReplyComposerForPost,
+                onHeartClick = { post -> viewModel?.toggleHeart(post) },
+                onReactClick = ::showReactionPicker,
+                onBookmarkClick = ::showPostBookmarkEditor,
+                onVotePoll = { post, poll, options -> viewModel?.votePoll(post, poll, options) },
+                onUnvotePoll = { post, poll -> viewModel?.unvotePoll(post, poll) },
+                onReactionsClick = ::showReactionUsers,
+                onReplyContextClick = ::showReplyContext,
+                onDeletePostClick = ::confirmDeletePost,
+                onRecoverPostClick = ::confirmRecoverPost,
+                onFlagPostClick = ::showFlagPostOptions,
+                onEditPostClick = ::showPostEditor,
+                onImageClick = ::showImageViewer,
+                onAuthorClick = ::showUserInfoSheet,
+                onLinkClick = ::handleRichTextLink,
+            )
+            headerAdapter = HeaderAdapter(
+                callbacks = postCallbacks,
+                onReloadAiSummary = { viewModel?.reloadTopicAiSummary() },
+                onToggleTopicVote = { viewModel?.toggleTopicVote() },
+                onShowTopicVoters = ::showTopicVoters,
+                onEditTopicClick = ::showTopicEditor,
+                onTopicBookmarkClick = ::showTopicBookmarkEditor,
+                onTopicNotificationClick = ::showTopicNotificationOptions,
+            )
+            postListAdapter = PostListAdapter(postCallbacks)
 
-        val concatAdapter = ConcatAdapter(headerAdapter, postListAdapter, loadingFooterAdapter)
-        recyclerView.layoutManager = LinearLayoutManager(this)
-        recyclerView.adapter = concatAdapter
-        loadEnabledReactionIds()
+            val concatAdapter = ConcatAdapter(headerAdapter, postListAdapter, loadingFooterAdapter)
+            recyclerView.layoutManager = LinearLayoutManager(this@TopicDetailActivity)
+            recyclerView.adapter = concatAdapter
+            loadEnabledReactionIds()
 
-        recyclerView.addOnScrollListener(object : RecyclerView.OnScrollListener() {
-            override fun onScrolled(rv: RecyclerView, dx: Int, dy: Int) {
-                val layoutManager = rv.layoutManager as? LinearLayoutManager ?: return
-                val totalItemCount = layoutManager.itemCount
-                val lastVisible = layoutManager.findLastVisibleItemPosition()
-                if (lastVisible >= totalItemCount - 5) {
-                    scheduleLoadMorePosts(rv)
+            recyclerView.addOnScrollListener(object : RecyclerView.OnScrollListener() {
+                override fun onScrolled(rv: RecyclerView, dx: Int, dy: Int) {
+                    val layoutManager = rv.layoutManager as? LinearLayoutManager ?: return
+                    val totalItemCount = layoutManager.itemCount
+                    val lastVisible = layoutManager.findLastVisibleItemPosition()
+                    if (lastVisible >= totalItemCount - 5) {
+                        scheduleLoadMorePosts(rv)
+                    }
                 }
+
+                override fun onScrollStateChanged(rv: RecyclerView, newState: Int) {
+                    super.onScrollStateChanged(rv, newState)
+                    viewModel?.setTopicDetailScrollInteractionActive(
+                        newState != RecyclerView.SCROLL_STATE_IDLE
+                    )
+                }
+            })
+
+            observeViewModel()
+
+            retryButton.setOnClickListener {
+                loadRoute(parsedRoute)
             }
 
-            override fun onScrollStateChanged(rv: RecyclerView, newState: Int) {
-                super.onScrollStateChanged(rv, newState)
-                viewModel?.setTopicDetailScrollInteractionActive(
-                    newState != RecyclerView.SCROLL_STATE_IDLE
-                )
+            replyFab.setOnClickListener {
+                showReplyComposer(replyToPostNumber = null)
             }
-        })
 
-        observeViewModel()
-
-        retryButton.setOnClickListener {
             loadRoute(parsedRoute)
         }
-
-        replyFab.setOnClickListener {
-            showReplyComposer(replyToPostNumber = null)
-        }
-
-        loadRoute(parsedRoute)
     }
 
     private fun observeViewModel() {
@@ -289,7 +297,7 @@ class TopicDetailActivity : AppCompatActivity() {
                 val editablePost = sessionStore.fetchPost(post.id)
                 val raw = editablePost.raw
                     ?.takeIf { it.isNotBlank() }
-                    ?: plainText(editablePost.cooked)
+                    ?: throw IllegalStateException(getString(R.string.topic_detail_edit_post_error))
                 showPostEditorDialog(post, raw)
             } catch (e: Exception) {
                 Toast.makeText(
@@ -570,53 +578,213 @@ class TopicDetailActivity : AppCompatActivity() {
             .trim()
     }
 
-    private fun openProfile(username: String) {
-        val normalized = username.trim().takeIf { it.isNotEmpty() } ?: return
-        val intent = Intent(
-            Intent.ACTION_VIEW,
-            Uri.parse("fire://profile/${Uri.encode(normalized)}"),
-        ).setPackage(packageName)
-        startActivity(intent)
+    private fun handleRichTextLink(rawUrl: String) {
+        val uri = runCatching { Uri.parse(rawUrl) }.getOrNull() ?: return
+        profileUsernameFromUri(uri)?.let { username ->
+            showUserInfoSheet(username)
+            return
+        }
+        topicRouteFromUri(uri)?.let { route ->
+            TopicDetailActivity.start(
+                context = this,
+                topicId = route.first,
+                targetPostNumber = route.second,
+            )
+            return
+        }
+        val url = uri.toString()
+        if (url.startsWith("http://") || url.startsWith("https://")) {
+            FireInAppWebViewActivity.start(this, url)
+            return
+        }
+        runCatching {
+            startActivity(Intent(Intent.ACTION_VIEW, uri))
+        }
+    }
+
+    private fun showUserInfoSheet(username: String) {
+        val normalized = username.trim().removePrefix("@").takeIf { it.isNotEmpty() } ?: return
+        val dialog = BottomSheetDialog(this)
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(18), dp(20), dp(24))
+        }
+        val loading = TextView(this).apply {
+            text = getString(R.string.profile_loading)
+            setTextAppearance(androidx.appcompat.R.style.TextAppearance_AppCompat_Body1)
+            setTextColor(getColor(R.color.fire_text_secondary))
+        }
+        content.addView(loading)
+        dialog.setContentView(ScrollView(this).apply { addView(content) })
+        dialog.show()
+
+        lifecycleScope.launch {
+            try {
+                val profile = sessionStore.fetchUserProfile(normalized)
+                val summary = runCatching { sessionStore.fetchUserSummary(normalized) }.getOrNull()
+                val currentUsername = runCatching {
+                    sessionStore.snapshot().bootstrap.currentUsername
+                }.getOrNull()?.trim()
+                if (!dialog.isShowing) return@launch
+                renderUserInfoSheet(
+                    content = content,
+                    dialog = dialog,
+                    profile = profile,
+                    summary = summary,
+                    isOwnProfile = currentUsername.equals(profile.username.trim(), ignoreCase = true),
+                )
+            } catch (e: Exception) {
+                if (!dialog.isShowing) return@launch
+                content.removeAllViews()
+                content.addView(TextView(this@TopicDetailActivity).apply {
+                    text = e.localizedMessage ?: getString(R.string.profile_error)
+                    setTextAppearance(androidx.appcompat.R.style.TextAppearance_AppCompat_Body1)
+                    setTextColor(getColor(R.color.fire_text_secondary))
+                })
+            }
+        }
+    }
+
+    private fun renderUserInfoSheet(
+        content: LinearLayout,
+        dialog: BottomSheetDialog,
+        profile: UserProfileState,
+        summary: UserSummaryState?,
+        isOwnProfile: Boolean,
+    ) {
+        content.removeAllViews()
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        val avatar = ImageView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(dp(64), dp(64))
+            scaleType = ImageView.ScaleType.CENTER_CROP
+            contentDescription = getString(R.string.content_desc_avatar)
+        }
+        profile.avatarTemplate?.takeIf { it.isNotBlank() }?.let { template ->
+            FireImageLoader.load(buildAvatarUrl(template, 128), avatar)
+        }
+        val titleStack = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(14), 0, 0, 0)
+        }
+        titleStack.addView(TextView(this).apply {
+            text = profile.name?.takeIf { it.isNotBlank() } ?: profile.username
+            setTextAppearance(androidx.appcompat.R.style.TextAppearance_AppCompat_Title)
+            setTextColor(getColor(R.color.fire_text_primary))
+        })
+        titleStack.addView(TextView(this).apply {
+            text = "@${profile.username} · ${profile.trustLevelLabel}"
+            setTextAppearance(androidx.appcompat.R.style.TextAppearance_AppCompat_Caption)
+            setTextColor(getColor(R.color.fire_text_secondary))
+        })
+        header.addView(avatar)
+        header.addView(titleStack)
+        content.addView(header)
+
+        val stats = summary?.stats
+        val statText = buildList {
+            add(getString(R.string.profile_topics_count, (stats?.topicCount ?: 0u).toString()))
+            add(getString(R.string.profile_posts_count, (stats?.postCount ?: 0u).toString()))
+            add(getString(R.string.profile_likes_received, (stats?.likesReceived ?: 0u).toString()))
+            add(getString(R.string.profile_followers_count, profile.totalFollowers.toString()))
+        }.joinToString("\n")
+        content.addView(TextView(this).apply {
+            text = statText
+            setPadding(0, dp(16), 0, 0)
+            setTextAppearance(androidx.appcompat.R.style.TextAppearance_AppCompat_Body1)
+            setTextColor(getColor(R.color.fire_text_primary))
+        })
+
+        profile.bioCooked?.trim()?.takeIf { it.isNotEmpty() }?.let { bio ->
+            content.addView(TextView(this).apply {
+                text = plainText(bio)
+                setPadding(0, dp(14), 0, 0)
+                setTextIsSelectable(true)
+                setTextAppearance(androidx.appcompat.R.style.TextAppearance_AppCompat_Body2)
+                setTextColor(getColor(R.color.fire_text_secondary))
+            })
+        }
+
+        if (!isOwnProfile && profile.canSendPrivateMessageToUser) {
+            content.addView(TextView(this).apply {
+                text = getString(R.string.profile_send_private_message)
+                gravity = Gravity.CENTER
+                setPadding(dp(12), dp(10), dp(12), dp(10))
+                setTextAppearance(androidx.appcompat.R.style.TextAppearance_AppCompat_Button)
+                setTextColor(getColor(R.color.fire_accent))
+                setOnClickListener {
+                    dialog.dismiss()
+                    PrivateMessageComposerSheet.newInstance(
+                        targetUsername = profile.username,
+                        displayName = profile.name?.takeIf { it.isNotBlank() } ?: profile.username,
+                        onPrivateMessageCreated = { topicId, title ->
+                            TopicDetailActivity.start(
+                                context = this@TopicDetailActivity,
+                                topicId = topicId.toLong(),
+                                topicTitle = title,
+                            )
+                        },
+                    ).show(supportFragmentManager, "private_message_composer")
+                }
+            })
+        }
+    }
+
+    private fun buildAvatarUrl(template: String, size: Int): String {
+        if (template.startsWith("http")) return template.replace("{size}", size.toString())
+        return "https://linux.do/${template.trimStart('/').replace("{size}", size.toString())}"
+    }
+
+    private fun profileUsernameFromUri(uri: Uri): String? {
+        if (uri.scheme == "fire" && (uri.host == "profile" || uri.host == "user")) {
+            return uri.pathSegments.firstOrNull()
+        }
+        if ((uri.scheme == "http" || uri.scheme == "https") &&
+            uri.host?.endsWith("linux.do") == true &&
+            uri.pathSegments.firstOrNull() == "u"
+        ) {
+            return uri.pathSegments.getOrNull(1)
+        }
+        return null
+    }
+
+    private fun topicRouteFromUri(uri: Uri): Pair<Long, Int>? {
+        if (uri.scheme == "fire" && uri.host == "topic") {
+            val topicId = uri.pathSegments.getOrNull(0)?.toLongOrNull()?.takeIf { it > 0 } ?: return null
+            val postNumber = uri.pathSegments.getOrNull(1)?.toIntOrNull() ?: -1
+            return topicId to postNumber
+        }
+        if ((uri.scheme != "http" && uri.scheme != "https") ||
+            uri.host?.endsWith("linux.do") != true ||
+            uri.pathSegments.firstOrNull() != "t"
+        ) {
+            return null
+        }
+        val tail = uri.pathSegments.drop(1)
+        if (tail.size == 2) {
+            val topicId = tail[0].toLongOrNull()?.takeIf { it > 0 }
+            val postNumber = tail[1].toIntOrNull()
+            if (topicId != null && postNumber != null) {
+                return topicId to postNumber
+            }
+        }
+        if (tail.size >= 3) {
+            val postNumber = tail.last().toIntOrNull()
+            val topicId = tail.getOrNull(tail.size - 2)?.toLongOrNull()?.takeIf { it > 0 }
+            if (topicId != null && postNumber != null) {
+                return topicId to postNumber
+            }
+        }
+        val topicId = tail.lastOrNull()?.toLongOrNull()?.takeIf { it > 0 } ?: return null
+        return topicId to -1
     }
 
     private fun showImageViewer(image: FireCookedImage) {
-        val dialog = Dialog(this, android.R.style.Theme_Black_NoTitleBar_Fullscreen)
-        val imageView = ImageView(this).apply {
-            contentDescription = image.altText ?: getString(R.string.topic_detail_image_attachment)
-            scaleType = ImageView.ScaleType.FIT_CENTER
-            adjustViewBounds = true
-            setBackgroundColor(Color.BLACK)
-        }
-        val closeButton = TextView(this).apply {
-            text = getString(R.string.action_close)
-            setTextColor(Color.WHITE)
-            setPadding(24, 24, 24, 24)
-            textSize = 16f
-            setOnClickListener { dialog.dismiss() }
-        }
-        val frame = FrameLayout(this).apply {
-            setBackgroundColor(Color.BLACK)
-            addView(
-                imageView,
-                FrameLayout.LayoutParams(
-                    FrameLayout.LayoutParams.MATCH_PARENT,
-                    FrameLayout.LayoutParams.MATCH_PARENT,
-                ),
-            )
-            addView(
-                closeButton,
-                FrameLayout.LayoutParams(
-                    FrameLayout.LayoutParams.WRAP_CONTENT,
-                    FrameLayout.LayoutParams.WRAP_CONTENT,
-                    android.view.Gravity.TOP or android.view.Gravity.END,
-                ),
-            )
-            setOnClickListener { dialog.dismiss() }
-        }
-        imageView.setOnClickListener { }
-        dialog.setContentView(frame)
-        dialog.show()
-        FireImageLoader.load(image.url, imageView)
+        TopicImagePreviewDialogFragment
+            .newInstance(image)
+            .show(supportFragmentManager, "topic_image_preview")
     }
 
     private fun showReactionUsers(post: TopicPostState) {
@@ -967,7 +1135,7 @@ class TopicDetailActivity : AppCompatActivity() {
         AlertDialog.Builder(this)
             .setTitle(R.string.topic_detail_vote_voters_title)
             .setItems(labels) { _, which ->
-                voters.getOrNull(which)?.username?.let(::openProfile)
+                voters.getOrNull(which)?.username?.let(::showUserInfoSheet)
             }
             .setPositiveButton(android.R.string.ok, null)
             .show()
@@ -1056,8 +1224,7 @@ class TopicDetailActivity : AppCompatActivity() {
 
     private fun replyContextPostLine(post: TopicPostState): String {
         val author = post.name?.takeIf { it.isNotBlank() } ?: "@${post.username}"
-        val body = HtmlCompat.fromHtml(post.cooked, HtmlCompat.FROM_HTML_MODE_LEGACY)
-            .toString()
+        val body = post.renderDocument?.plainText.orEmpty()
             .lineSequence()
             .map { it.trim() }
             .filter { it.isNotEmpty() }

@@ -51,40 +51,42 @@ class SearchFragment : Fragment() {
         emptyView = view.findViewById(R.id.empty_view)
         loadingView = view.findViewById(R.id.loading_view)
 
-        val sessionStore = FireSessionStoreRepository.get(requireContext())
-        viewModel = SearchViewModel.create(sessionStore)
+        viewLifecycleOwner.lifecycleScope.launch {
+            val sessionStore = FireSessionStoreRepository.get(requireContext())
+            viewModel = SearchViewModel.create(sessionStore)
 
-        adapter = SearchResultsAdapter(
-            onTopicClick = { topic ->
-                TopicDetailActivity.start(
-                    context = requireContext(),
-                    topicId = topic.id.toLong(),
-                    topicTitle = topic.title,
-                )
-            },
-            onPostClick = { post ->
-                val topicId = post.topicId ?: return@SearchResultsAdapter
-                TopicDetailActivity.start(
-                    context = requireContext(),
-                    topicId = topicId.toLong(),
-                    targetPostNumber = post.postNumber.toInt(),
-                )
-            },
-            onUserClick = { user ->
-                val action = SearchFragmentDirections.actionSearchFragmentToProfileFragment(
-                    username = user.username,
-                )
-                findNavController().navigate(action)
-            },
-        )
+            adapter = SearchResultsAdapter(
+                onTopicClick = { topic ->
+                    TopicDetailActivity.start(
+                        context = requireContext(),
+                        topicId = topic.id.toLong(),
+                        topicTitle = topic.title,
+                    )
+                },
+                onPostClick = { post ->
+                    val topicId = post.topicId ?: return@SearchResultsAdapter
+                    TopicDetailActivity.start(
+                        context = requireContext(),
+                        topicId = topicId.toLong(),
+                        targetPostNumber = post.postNumber.toInt(),
+                    )
+                },
+                onUserClick = { user ->
+                    val action = SearchFragmentDirections.actionSearchFragmentToProfileFragment(
+                        username = user.username,
+                    )
+                    findNavController().navigate(action)
+                },
+            )
 
-        recyclerView.layoutManager = LinearLayoutManager(requireContext())
-        recyclerView.adapter = adapter
+            recyclerView.layoutManager = LinearLayoutManager(requireContext())
+            recyclerView.adapter = adapter
 
-        setupFilterChips()
-        observeViewModel()
-        setupSearchInput()
-        setupLoadMore()
+            setupFilterChips()
+            observeViewModel()
+            setupSearchInput()
+            setupLoadMore()
+        }
     }
 
     private fun setupSearchInput() {

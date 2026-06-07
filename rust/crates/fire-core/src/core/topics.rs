@@ -1,9 +1,10 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::time::Instant;
 
 use fire_models::{
-    LoadMoreTopicPostsQuery, TopicAiSummary, TopicBody, TopicDetail, TopicDetailQuery,
-    TopicDetailSourceAppend, TopicDetailSourceQuery, TopicDetailSourceSnapshot, TopicHeader,
-    TopicListKind, TopicListQuery, TopicListResponse, TopicLoadMoreOutcome,
+    LoadMoreTopicPostsQuery, TopicAiSummary, TopicBody, TopicDetail, TopicDetailPage,
+    TopicDetailQuery, TopicDetailSourceAppend, TopicDetailSourceQuery, TopicDetailSourceSnapshot,
+    TopicHeader, TopicListKind, TopicListQuery, TopicListResponse, TopicLoadMoreOutcome,
     TopicLoadMoreStopReason, TopicLoadedRange, TopicPost, TopicPostStream, TopicSourceCursor,
     TopicThread, TopicTreePresentation, TopicTreePresentationQuery, TopicTreeRow,
 };
@@ -350,6 +351,36 @@ impl FireCore {
         Ok(snapshot)
     }
 
+    pub async fn fetch_topic_detail_page(
+        &self,
+        query: TopicDetailSourceQuery,
+    ) -> Result<TopicDetailPage, FireCoreError> {
+        let topic_id = query.topic_id;
+        let source_started_at = Instant::now();
+        let source_snapshot = self.fetch_topic_detail_source_snapshot(query).await?;
+        let source_fetch_ms = source_started_at.elapsed().as_millis();
+        let tree_started_at = Instant::now();
+        let tree_presentation =
+            build_topic_tree_presentation_from_source_snapshot(&source_snapshot);
+        let tree_presentation_ms = tree_started_at.elapsed().as_millis();
+        info!(
+            topic_id,
+            source_fetch_ms,
+            tree_presentation_ms,
+            source_loaded_posts = source_snapshot.loaded_posts.len(),
+            body_post_included = true,
+            cooked_byte_count = topic_detail_source_cooked_byte_count(&source_snapshot),
+            reply_rows = tree_presentation.reply_rows.len(),
+            visible_root_count = tree_presentation.visible_root_post_numbers.len(),
+            total_loaded_post_count = tree_presentation.total_loaded_post_count,
+            "topic detail page built"
+        );
+        Ok(TopicDetailPage {
+            source_snapshot,
+            tree_presentation,
+        })
+    }
+
     pub fn build_topic_tree_presentation(
         &self,
         query: TopicTreePresentationQuery,
@@ -375,12 +406,7 @@ impl FireCore {
             None,
         )?;
         let initial_snapshot = initial_session.source_snapshot();
-        let baseline_tree = build_topic_tree_presentation_from_query(TopicTreePresentationQuery {
-            body_post: initial_snapshot.body.post.clone(),
-            raw_stream_ids: initial_snapshot.raw_stream_ids.clone(),
-            loaded_posts: initial_snapshot.loaded_posts.clone(),
-            focused_post_number: initial_snapshot.focused_post_number,
-        });
+        let baseline_tree = build_topic_tree_presentation_from_source_snapshot(&initial_snapshot);
         let baseline_visible_roots = baseline_tree.visible_root_post_numbers.clone();
         let policy = initial_session.load_more_policy;
 
@@ -428,12 +454,7 @@ impl FireCore {
                 None,
             )?;
             latest_snapshot = session.source_snapshot();
-            latest_tree = build_topic_tree_presentation_from_query(TopicTreePresentationQuery {
-                body_post: latest_snapshot.body.post.clone(),
-                raw_stream_ids: latest_snapshot.raw_stream_ids.clone(),
-                loaded_posts: latest_snapshot.loaded_posts.clone(),
-                focused_post_number: latest_snapshot.focused_post_number,
-            });
+            latest_tree = build_topic_tree_presentation_from_source_snapshot(&latest_snapshot);
             latest_tree.gained_new_root_progress = gained_visible_root_progress(
                 &baseline_visible_roots,
                 &latest_tree.visible_root_post_numbers,
@@ -1247,12 +1268,35 @@ fn build_topic_tree_presentation_from_query(
     }
 
     TopicTreePresentation {
-        original_post,
+        original_post_id: original_post.id,
+        original_post_number: original_post.post_number,
         reply_rows,
         total_loaded_post_count: posts_by_id.len() as u32,
         visible_root_post_numbers,
         gained_new_root_progress: false,
     }
+}
+
+fn build_topic_tree_presentation_from_source_snapshot(
+    snapshot: &TopicDetailSourceSnapshot,
+) -> TopicTreePresentation {
+    build_topic_tree_presentation_from_query(TopicTreePresentationQuery {
+        body_post: snapshot.body.post.clone(),
+        raw_stream_ids: snapshot.raw_stream_ids.clone(),
+        loaded_posts: snapshot.loaded_posts.clone(),
+        focused_post_number: snapshot.focused_post_number,
+    })
+}
+
+fn topic_detail_source_cooked_byte_count(snapshot: &TopicDetailSourceSnapshot) -> usize {
+    let mut seen_post_ids = HashSet::new();
+    let mut total = 0usize;
+    for post in std::iter::once(&snapshot.body.post).chain(snapshot.loaded_posts.iter()) {
+        if seen_post_ids.insert(post.id) {
+            total += post.cooked.len();
+        }
+    }
+    total
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1289,7 +1333,8 @@ fn append_tree_rows_preorder(
             .cloned()
             .unwrap_or_default();
         reply_rows.push(TopicTreeRow {
-            post: post.clone(),
+            post_id: post.id,
+            post_number: post.post_number,
             root_post_number,
             parent_post_number: Some(parent_post_number),
             depth: parent_depth.saturating_add(1),
@@ -1601,7 +1646,7 @@ mod tests {
             presentation
                 .reply_rows
                 .iter()
-                .map(|row| row.post.id)
+                .map(|row| row.post_id)
                 .collect::<Vec<_>>(),
             vec![
                 root_post.id,
@@ -1644,7 +1689,7 @@ mod tests {
             presentation
                 .reply_rows
                 .iter()
-                .map(|row| row.post.id)
+                .map(|row| row.post_id)
                 .collect::<Vec<_>>(),
             vec![orphan_root.id, orphan_child.id]
         );

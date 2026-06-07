@@ -11,6 +11,9 @@ packages:
   Nuke:
     url: https://github.com/kean/Nuke.git
     exactVersion: 12.8.0
+  JXPhotoBrowser:
+    url: https://github.com/JiongXing/PhotoBrowser.git
+    exactVersion: 4.0.3
 fileGroups:
   - Configs/Fire-Debug.xcconfig
   - Configs/Fire-Info.plist
@@ -61,6 +64,8 @@ targets:
         product: ConfettiSwiftUI
       - package: Nuke
         product: Nuke
+      - package: JXPhotoBrowser
+        product: JXPhotoBrowser
       - framework: LocalPackages/TextureCore/Artifacts/AsyncDisplayKit.xcframework
         embed: true
         codeSign: true

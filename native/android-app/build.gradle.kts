@@ -144,6 +144,7 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
     implementation("net.java.dev.jna:jna:5.16.0@aar")
     implementation("io.coil-kt:coil:2.7.0")
+    implementation("io.github.panpf.zoomimage:zoomimage-view-coil2:1.4.0")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")
 }

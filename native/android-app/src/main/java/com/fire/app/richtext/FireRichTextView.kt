@@ -26,8 +26,9 @@ class FireRichTextView @JvmOverloads constructor(
     init {
         isClickable = true
         isFocusable = false
+        includeFontPadding = true
         movementMethod = android.text.method.LinkMovementMethod.getInstance()
-        setLineSpacing(2f, 1.05f)
+        setLineSpacing(4f, 1.12f)
     }
 
     fun setContent(contentId: String, spannable: Spanned) {

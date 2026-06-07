@@ -1,6 +1,8 @@
 package com.fire.app.ui.startup
 
 import android.os.Bundle
+import android.os.SystemClock
+import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -10,6 +12,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.navigation.fragment.findNavController
 import com.fire.app.R
 import com.fire.app.session.FireAppStateRefreshRepository
+import com.fire.app.session.FireSessionStore
 import com.fire.app.session.FireSessionStoreRepository
 import com.google.android.material.button.MaterialButton
 import kotlinx.coroutines.launch
@@ -17,6 +20,9 @@ import uniffi.fire_uniffi_session.LoginStateDeterminationState
 import uniffi.fire_uniffi_session.RefreshTriggerState
 
 class PreheatGateFragment : Fragment() {
+    private companion object {
+        private const val TAG = "FirePreheatGate"
+    }
 
     private lateinit var errorText: TextView
     private lateinit var statusButton: MaterialButton
@@ -43,11 +49,20 @@ class PreheatGateFragment : Fragment() {
         statusButton.text = getString(R.string.onboarding_checking_login_state)
         errorText.visibility = View.GONE
 
-        val store = FireSessionStoreRepository.get(requireContext())
         viewLifecycleOwner.lifecycleScope.launch {
             try {
+                val storeStartedAt = SystemClock.elapsedRealtime()
+                val store = FireSessionStoreRepository.get(requireContext())
+                logStartupStep("session_store_get_ms", storeStartedAt)
+
+                val prepareStartedAt = SystemClock.elapsedRealtime()
                 store.prepareStartupSession()
+                logStartupStep("prepare_startup_session_ms", prepareStartedAt)
+
+                val preloadedStartedAt = SystemClock.elapsedRealtime()
                 store.awaitPreloadedData()
+                logStartupStep("await_preloaded_ms", preloadedStartedAt)
+
                 onPreloadedDataReady(store)
             } catch (e: Exception) {
                 showError(e.message ?: "\u52a0\u8f7d\u5931\u8d25")
@@ -55,8 +70,11 @@ class PreheatGateFragment : Fragment() {
         }
     }
 
-    private suspend fun onPreloadedDataReady(store: com.fire.app.session.FireSessionStore) {
-        when (store.determineLoginStateWithProbe()) {
+    private suspend fun onPreloadedDataReady(store: FireSessionStore) {
+        val loginProbeStartedAt = SystemClock.elapsedRealtime()
+        when (store.determineLoginStateWithProbe().also {
+            logStartupStep("login_probe_ms", loginProbeStartedAt)
+        }) {
             is LoginStateDeterminationState.LoggedIn -> {
                 store.triggerAppStateRefresh(
                     RefreshTriggerState.SESSION_RESTORED,
@@ -78,5 +96,9 @@ class PreheatGateFragment : Fragment() {
         errorText.text = message
         statusButton.isEnabled = true
         statusButton.text = getString(R.string.onboarding_retry_login_check)
+    }
+
+    private fun logStartupStep(field: String, startedAtMs: Long) {
+        Log.d(TAG, "startup preheat timing $field=${SystemClock.elapsedRealtime() - startedAtMs}")
     }
 }

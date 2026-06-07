@@ -47,6 +47,7 @@ import uniffi.fire_uniffi_topics.ReactionUsersGroupState
 import uniffi.fire_uniffi_topics.ResolvedUploadUrlState
 import uniffi.fire_uniffi_topics.TopicAiSummaryState
 import uniffi.fire_uniffi_topics.TopicCreateRequestState
+import uniffi.fire_uniffi_topics.TopicDetailPageState
 import uniffi.fire_uniffi_topics.TopicDetailSourceQueryState
 import uniffi.fire_uniffi_topics.TopicDetailSourceSnapshotState
 import uniffi.fire_uniffi_topics.LoadMoreTopicPostsQueryState
@@ -54,8 +55,6 @@ import uniffi.fire_uniffi_topics.TopicListQueryState
 import uniffi.fire_uniffi_topics.TopicLoadMoreOutcomeState
 import uniffi.fire_uniffi_topics.TopicPostState
 import uniffi.fire_uniffi_topics.TopicReplyRequestState
-import uniffi.fire_uniffi_topics.TopicTreePresentationQueryState
-import uniffi.fire_uniffi_topics.TopicTreePresentationState
 import uniffi.fire_uniffi_topics.TopicUpdateRequestState
 import uniffi.fire_uniffi_topics.UploadImageRequestState
 import uniffi.fire_uniffi_topics.UploadResultState
@@ -370,10 +369,10 @@ class FireSessionStore(
         core.topics().fetchTopicDetailSourceSnapshot(query)
     }
 
-    suspend fun buildTopicTreePresentation(
-        query: TopicTreePresentationQueryState,
-    ): TopicTreePresentationState = withContext(Dispatchers.IO) {
-        core.topics().buildTopicTreePresentation(query)
+    suspend fun fetchTopicDetailPage(
+        query: TopicDetailSourceQueryState,
+    ): TopicDetailPageState = withContext(Dispatchers.IO) {
+        core.topics().fetchTopicDetailPage(query)
     }
 
     suspend fun loadMoreTopicPosts(

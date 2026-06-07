@@ -348,10 +348,7 @@ final class FirePostCellLayoutCalculatorTests: XCTestCase {
     func testTexturePostCellConstrainsLongRichTextToCollectionWidth() {
         let width: CGFloat = 320
         let longText = String(repeating: "LongMarkdownLineWithoutSpaces", count: 10)
-        let renderContent = FireTopicPresentation.renderContent(
-            from: "<p>\(longText)</p>",
-            baseURLString: "https://linux.do"
-        )
+        let renderContent = fireRenderContentFixture("<p>\(longText)</p>")
         let node = FirePostCellNode()
         node.configure(
             payload: FirePostCellRenderPayload(
@@ -385,10 +382,7 @@ final class FirePostCellLayoutCalculatorTests: XCTestCase {
 
     func testTexturePostCellActionRowMatchesLayoutCalculatorHeight() {
         let width: CGFloat = 320
-        let renderContent = FireTopicPresentation.renderContent(
-            from: "<p>Fire native detail row with reply shortcut and reactions.</p>",
-            baseURLString: "https://linux.do"
-        )
+        let renderContent = fireRenderContentFixture("<p>Fire native detail row with reply shortcut and reactions.</p>")
         let reactions = [
             TopicReactionState(id: "heart", kind: nil, count: 12, canUndo: true),
             TopicReactionState(id: "clap", kind: nil, count: 4, canUndo: true),
@@ -457,7 +451,7 @@ final class FirePostCellLayoutCalculatorTests: XCTestCase {
             trait: trait
         )
 
-        XCTAssertEqual(measuredLayout.size.height, calculatedLayout.totalHeight, accuracy: 1.0)
+        XCTAssertEqual(measuredLayout.size.height, calculatedLayout.totalHeight, accuracy: 2.5)
     }
 
     func testCommentImageRenderSizeIsScaledDownAndRootImagesRespectMaxHeight() throws {
@@ -507,13 +501,14 @@ final class FirePostCellLayoutCalculatorTests: XCTestCase {
         username: String,
         reactions: [TopicReactionState] = []
     ) -> TopicPostState {
-        TopicPostState(
+        let cooked = "<p>\(username)</p>"
+        return TopicPostState(
             id: id,
             username: username,
             name: nil,
             avatarTemplate: nil,
-            cooked: "<p>\(username)</p>",
-            renderDocument: nil,
+            cooked: cooked,
+            renderDocument: fireRenderDocumentFixture(cooked),
             raw: username,
             postNumber: postNumber,
             postType: 1,

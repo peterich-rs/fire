@@ -4,42 +4,32 @@ import Foundation
 ///
 /// The assembler is a stateless service — it holds no mutable state and
 /// produces a new snapshot on every call to `buildSnapshot(from:configuration:)`.
-///
-/// Threading: must be called on the main actor (all store state is `@MainActor`).
-@MainActor
-struct FireTopicDetailSnapshotAssembler {
+struct FireTopicDetailSnapshotAssembler: Sendable {
 
     // MARK: - Build
 
-    /// Builds an immutable page snapshot from the current page state.
-    ///
-    /// - Parameters:
-    ///   - state: The current page state, assembled by the controller.
-    ///   - configuration: The controller-owned runtime configuration used to
-    ///     produce feed items and stable content tokens.
     func buildSnapshot(
-        from state: FireTopicDetailPageState,
-        configuration: FireTopicDetailRuntimeConfiguration
+        from input: FireTopicDetailSnapshotInput
     ) -> FireTopicDetailPageSnapshot {
-        let runtimeSnapshot = configuration.makeSnapshot()
+        let runtimeSnapshot = input.configuration.makeSnapshot()
 
         return FireTopicDetailPageSnapshot(
             items: runtimeSnapshot.items,
             replyIndexByPostID: runtimeSnapshot.replyIndexByPostID,
-            canWriteInteractions: state.canWriteInteractions,
-            hasDetail: state.detail != nil,
-            toolbarState: makeToolbarState(from: state),
-            quickReplyState: makeQuickReplyState(from: state),
-            pendingScrollTarget: state.pendingScrollTarget,
-            invalidationToken: configuration.snapshotInvalidationToken
+            canWriteInteractions: input.configuration.canWriteInteractions,
+            hasDetail: input.configuration.detail != nil,
+            toolbarState: input.toolbarState,
+            quickReplyState: input.quickReplyState,
+            pendingScrollTarget: input.pendingScrollTarget,
+            invalidationToken: input.invalidationToken
         )
     }
 
-    func makeToolbarState(from state: FireTopicDetailPageState) -> FireTopicDetailToolbarState {
+    func makeToolbarState(from state: FireTopicDetailChromeState) -> FireTopicDetailToolbarState {
         let slug = (state.detail?.slug ?? state.row.topic.slug)
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        let path = slug.isEmpty ? "topic-\(state.topic.id)" : slug
-        let shareURL = URL(string: "\(state.baseURLString)/t/\(path)/\(state.topic.id)")
+        let path = slug.isEmpty ? "topic-\(state.row.topic.id)" : slug
+        let shareURL = URL(string: "\(state.baseURLString)/t/\(path)/\(state.row.topic.id)")
 
         return FireTopicDetailToolbarState(
             title: "话题",
@@ -54,7 +44,7 @@ struct FireTopicDetailSnapshotAssembler {
         )
     }
 
-    func makeQuickReplyState(from state: FireTopicDetailPageState) -> FireTopicDetailQuickReplyState {
+    func makeQuickReplyState(from state: FireTopicDetailComposerState) -> FireTopicDetailQuickReplyState {
         let trimmedDraft = state.replyDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         let validationMessage: String?
         if let quickReplyError = state.quickReplyError,
@@ -75,6 +65,62 @@ struct FireTopicDetailSnapshotAssembler {
             isSubmitting: state.isSubmittingReply,
             validationMessage: validationMessage
         )
+    }
+
+    func makeChromeToken(from state: FireTopicDetailChromeState) -> FireTopicDetailChromeInvalidationToken {
+        FireTopicDetailChromeInvalidationToken(
+            topicID: state.row.topic.id,
+            title: state.detail?.title ?? state.row.topic.title,
+            slug: state.detail?.slug ?? state.row.topic.slug,
+            bookmarked: state.detail?.bookmarked == true,
+            canWriteInteractions: state.canWriteInteractions,
+            canEditTopic: state.detail?.details.canEdit == true,
+            archetype: state.detail?.archetype,
+            notificationLevel: state.detail?.details.notificationLevel,
+            baseURLString: state.baseURLString
+        )
+    }
+
+    func makeComposerToken(from state: FireTopicDetailComposerState) -> FireTopicDetailComposerInvalidationToken {
+        FireTopicDetailComposerInvalidationToken(
+            canWriteInteractions: state.canWriteInteractions,
+            typingUsernames: state.typingUsers.map(\.username),
+            composerContextID: state.composerContext?.id,
+            replyDraft: state.replyDraft,
+            quickReplyError: state.quickReplyError,
+            isSubmittingReply: state.isSubmittingReply,
+            minimumReplyLength: state.minimumReplyLength
+        )
+    }
+
+    func makeSidecarToken(from state: FireTopicDetailSidecarState) -> FireTopicDetailSidecarInvalidationToken {
+        FireTopicDetailSidecarInvalidationToken(
+            topicAiSummaryToken: state.topicAiSummary.map(Self.topicAiSummaryToken(_:)) ?? "",
+            isLoadingTopicAiSummary: state.isLoadingTopicAiSummary,
+            topicAiSummaryError: state.topicAiSummaryError ?? ""
+        )
+    }
+
+    func makeInteractionToken(
+        from state: FireTopicDetailInteractionState
+    ) -> FireTopicDetailInteractionInvalidationToken {
+        FireTopicDetailInteractionInvalidationToken(
+            mutatingPostIDs: state.mutatingPostIDs,
+            loadingPostReplyContextIDs: state.loadingPostReplyContextIDs,
+            expandedPostTextIDs: state.expandedPostTextIDs,
+            expandedReplyRootPostIDs: state.expandedReplyRootPostIDs
+        )
+    }
+
+    private static func topicAiSummaryToken(_ summary: TopicAiSummaryState) -> String {
+        [
+            summary.summarizedText,
+            summary.algorithm ?? "",
+            String(summary.outdated),
+            String(summary.canRegenerate),
+            String(summary.newPostsSinceSummary),
+            summary.updatedAt ?? "",
+        ].joined(separator: "\u{1F}")
     }
 
     private func typingSummary(from users: [TopicPresenceUserState]) -> String? {

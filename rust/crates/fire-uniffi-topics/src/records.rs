@@ -3,12 +3,11 @@ use fire_models::{
     LoadMoreTopicPostsQuery, Poll, PollOption, PostActionType, PostFlagRequest, PostReactionUpdate,
     PostUpdateRequest, PrivateMessageCreateRequest, ReactionUser, ReactionUsersGroup,
     ResolvedUploadUrl, TopicAiSummary, TopicBody, TopicCreateRequest, TopicDetail,
-    TopicDetailCreatedBy, TopicDetailMeta, TopicDetailSourceQuery, TopicDetailSourceSnapshot,
-    TopicHeader, TopicListQuery, TopicLoadMoreOutcome, TopicLoadMoreStopReason, TopicLoadedRange,
-    TopicPost, TopicPostStream, TopicReaction, TopicReplyRequest, TopicReplyToUser,
-    TopicSourceCursor, TopicTimingEntry, TopicTimingsRequest, TopicTreePresentation,
-    TopicTreePresentationQuery, TopicTreeRow, TopicUpdateRequest, UploadResult, VoteResponse,
-    VotedUser,
+    TopicDetailCreatedBy, TopicDetailMeta, TopicDetailPage, TopicDetailSourceQuery,
+    TopicDetailSourceSnapshot, TopicHeader, TopicListQuery, TopicLoadMoreOutcome,
+    TopicLoadMoreStopReason, TopicLoadedRange, TopicPost, TopicPostStream, TopicReaction,
+    TopicReplyRequest, TopicReplyToUser, TopicSourceCursor, TopicTimingEntry, TopicTimingsRequest,
+    TopicTreePresentation, TopicTreeRow, TopicUpdateRequest, UploadResult, VoteResponse, VotedUser,
 };
 
 use fire_uniffi_types::{
@@ -171,14 +170,6 @@ impl From<LoadMoreTopicPostsQueryState> for LoadMoreTopicPostsQuery {
 }
 
 #[derive(uniffi::Record, Debug, Clone)]
-pub struct TopicTreePresentationQueryState {
-    pub body_post: TopicPostState,
-    pub raw_stream_ids: Vec<u64>,
-    pub loaded_posts: Vec<TopicPostState>,
-    pub focused_post_number: Option<u32>,
-}
-
-#[derive(uniffi::Record, Debug, Clone)]
 pub struct TopicAiSummaryState {
     pub summarized_text: String,
     pub algorithm: Option<String>,
@@ -271,6 +262,7 @@ impl From<ReactionUsersGroup> for ReactionUsersGroupState {
 pub struct PollOptionState {
     pub id: String,
     pub html: String,
+    pub plain_text: String,
     pub votes: u32,
 }
 
@@ -279,6 +271,7 @@ impl From<PollOption> for PollOptionState {
         Self {
             id: value.id,
             html: value.html,
+            plain_text: value.plain_text,
             votes: value.votes,
         }
     }
@@ -289,6 +282,7 @@ impl From<PollOptionState> for PollOption {
         Self {
             id: value.id,
             html: value.html,
+            plain_text: value.plain_text,
             votes: value.votes,
         }
     }
@@ -840,20 +834,10 @@ fn topic_body_state_from_model(value: TopicBody, base_url: &str) -> TopicBodySta
     }
 }
 
-impl From<TopicTreePresentationQueryState> for TopicTreePresentationQuery {
-    fn from(value: TopicTreePresentationQueryState) -> Self {
-        Self {
-            body_post: value.body_post.into(),
-            raw_stream_ids: value.raw_stream_ids,
-            loaded_posts: value.loaded_posts.into_iter().map(Into::into).collect(),
-            focused_post_number: value.focused_post_number,
-        }
-    }
-}
-
 #[derive(uniffi::Record, Debug, Clone)]
 pub struct TopicTreeRowState {
-    pub post: TopicPostState,
+    pub post_id: u64,
+    pub post_number: u32,
     pub root_post_number: u32,
     pub parent_post_number: Option<u32>,
     pub depth: u16,
@@ -864,9 +848,10 @@ pub struct TopicTreeRowState {
     pub is_last_sibling: bool,
 }
 
-fn topic_tree_row_state_from_model(value: TopicTreeRow, base_url: &str) -> TopicTreeRowState {
+fn topic_tree_row_state_from_model(value: TopicTreeRow) -> TopicTreeRowState {
     TopicTreeRowState {
-        post: topic_post_state_from_model(value.post, base_url),
+        post_id: value.post_id,
+        post_number: value.post_number,
         root_post_number: value.root_post_number,
         parent_post_number: value.parent_post_number,
         depth: value.depth,
@@ -880,7 +865,8 @@ fn topic_tree_row_state_from_model(value: TopicTreeRow, base_url: &str) -> Topic
 
 #[derive(uniffi::Record, Debug, Clone)]
 pub struct TopicTreePresentationState {
-    pub original_post: TopicPostState,
+    pub original_post_id: u64,
+    pub original_post_number: u32,
     pub reply_rows: Vec<TopicTreeRowState>,
     pub total_loaded_post_count: u32,
     pub visible_root_post_numbers: Vec<u32>,
@@ -889,18 +875,37 @@ pub struct TopicTreePresentationState {
 
 pub(crate) fn topic_tree_presentation_state_from_model(
     value: TopicTreePresentation,
-    base_url: &str,
 ) -> TopicTreePresentationState {
     TopicTreePresentationState {
-        original_post: topic_post_state_from_model(value.original_post, base_url),
+        original_post_id: value.original_post_id,
+        original_post_number: value.original_post_number,
         reply_rows: value
             .reply_rows
             .into_iter()
-            .map(|row| topic_tree_row_state_from_model(row, base_url))
+            .map(topic_tree_row_state_from_model)
             .collect(),
         total_loaded_post_count: value.total_loaded_post_count,
         visible_root_post_numbers: value.visible_root_post_numbers,
         gained_new_root_progress: value.gained_new_root_progress,
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct TopicDetailPageState {
+    pub source_snapshot: TopicDetailSourceSnapshotState,
+    pub tree_presentation: TopicTreePresentationState,
+}
+
+pub fn topic_detail_page_state_from_model(
+    value: TopicDetailPage,
+    base_url: &str,
+) -> TopicDetailPageState {
+    TopicDetailPageState {
+        source_snapshot: topic_detail_source_snapshot_state_from_model(
+            value.source_snapshot,
+            base_url,
+        ),
+        tree_presentation: topic_tree_presentation_state_from_model(value.tree_presentation),
     }
 }
 
@@ -963,10 +968,7 @@ pub fn topic_load_more_outcome_state_from_model(
             value.source_snapshot,
             base_url,
         ),
-        tree_presentation: topic_tree_presentation_state_from_model(
-            value.tree_presentation,
-            base_url,
-        ),
+        tree_presentation: topic_tree_presentation_state_from_model(value.tree_presentation),
         chained_batches: value.chained_batches,
         chained_posts: value.chained_posts,
         stop_reason: value.stop_reason.into(),

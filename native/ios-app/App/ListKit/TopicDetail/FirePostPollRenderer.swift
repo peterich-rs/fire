@@ -61,7 +61,7 @@ struct FirePostPollRenderModel: Hashable, Sendable {
                 options: poll.options.map { option in
                     FirePostPollOptionRenderModel(
                         id: option.id,
-                        title: optionTitle(fromHTML: option.html, fallback: option.id),
+                        title: trimmedNonEmpty(option.plainText) ?? option.id,
                         votes: option.votes,
                         isSelected: selected.contains(option.id)
                     )
@@ -75,23 +75,6 @@ struct FirePostPollRenderModel: Hashable, Sendable {
         return trimmed.isEmpty ? nil : trimmed
     }
 
-    private static func optionTitle(fromHTML html: String, fallback: String) -> String {
-        let cacheKey = html as NSString
-        if let cached = FirePostPollPlainTextCache.cache.object(forKey: cacheKey) {
-            return cached as String
-        }
-
-        let parsed = FireRichTextParser.parse(html: html, baseURLString: "")
-            .plainText
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let title = parsed.isEmpty ? fallback : parsed
-        FirePostPollPlainTextCache.cache.setObject(title as NSString, forKey: cacheKey)
-        return title
-    }
-}
-
-private enum FirePostPollPlainTextCache {
-    static let cache = NSCache<NSString, NSString>()
 }
 
 final class FirePostPollView: UIView {

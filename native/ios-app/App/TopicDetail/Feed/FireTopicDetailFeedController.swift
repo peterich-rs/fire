@@ -170,7 +170,7 @@ final class FireTopicDetailFeedController: NSObject,
         animated: Bool,
         completion: @escaping () -> Void
     ) {
-        guard !updatePlan.isEmpty else {
+        guard updatePlan.hasBatchUpdates else {
             completion()
             return
         }
@@ -215,6 +215,10 @@ final class FireTopicDetailFeedController: NSObject,
         reloadReplyFooterIfNeeded(items: items, attempt: 0, completion: completion)
     }
 
+    func reloadItemsIfNeeded(at indexPaths: [IndexPath], completion: (() -> Void)? = nil) {
+        reloadItemsIfNeeded(at: indexPaths, attempt: 0, completion: completion)
+    }
+
     private func reloadReplyFooterIfNeeded(
         items: [FireTopicDetailRuntimeItem],
         attempt: Int,
@@ -239,6 +243,42 @@ final class FireTopicDetailFeedController: NSObject,
             return
         }
         collectionNode.reloadItems(at: [indexPath])
+        completion?()
+    }
+
+    private func reloadItemsIfNeeded(
+        at indexPaths: [IndexPath],
+        attempt: Int,
+        completion: (() -> Void)?
+    ) {
+        let validIndexPaths = Array(Set(indexPaths.filter { indexPath in
+            indexPath.section == 0
+                && indexPath.item >= 0
+                && indexPath.item < currentItems.count
+        })).sorted()
+
+        guard !validIndexPaths.isEmpty,
+              collectionNode.view.window != nil else {
+            completion?()
+            return
+        }
+
+        if collectionNode.isProcessingUpdates {
+            guard attempt < Self.maxReplyFooterReloadAttempts else {
+                collectionNode.reloadData(completion: completion)
+                return
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.collectionUpdateRetryDelay) { [weak self] in
+                self?.reloadItemsIfNeeded(
+                    at: validIndexPaths,
+                    attempt: attempt + 1,
+                    completion: completion
+                )
+            }
+            return
+        }
+
+        collectionNode.reloadItems(at: validIndexPaths)
         completion?()
     }
 
@@ -567,7 +607,7 @@ final class FireTopicDetailFeedController: NSObject,
             replyTargetPostNumber: context.replyTargetPostNumber,
             replyContext: context.replyContext,
             textContentID: textContentID,
-            imageSignature: context.renderContent.imageAttachments.map(\.id),
+            imageSignature: context.renderContent.segments.map(\.signatureToken),
             pollSignature: pollSignature,
             hasReactions: !context.post.reactions.isEmpty,
             replyShortcutCount: context.replyShortcutCount,

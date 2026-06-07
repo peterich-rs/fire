@@ -89,21 +89,34 @@ LoadMoreTopicPostsQuery { cursor }
 ### Tree Presentation Contract
 
 ```text
-TopicTreePresentationQuery {
-  body_post,
-  raw_stream_ids,
-  loaded_posts,
-  focused_post_number?
-}
-  -> TopicTreePresentation {
-       original_post,
-       reply_rows,
-       loaded_range,
-       missing_parent_hints?
+fetch_topic_detail_page(TopicDetailSourceQuery)
+  -> TopicDetailPage {
+       source_snapshot,
+       tree_presentation
      }
+
+TopicTreePresentation {
+  original_post_id,
+  original_post_number,
+  reply_rows,
+  total_loaded_post_count,
+  visible_root_post_numbers,
+  gained_new_root_progress
+}
+
+TopicTreeRow {
+  post_id,
+  post_number,
+  root_post_number,
+  parent_post_number?,
+  depth,
+  sibling_index,
+  is_last_sibling,
+  descendant_count
+}
 ```
 
-树状 depth、parent、root grouping、thread 展示都属于这一层。它可以继续作为 Fire 双端特色存在，但不得反向决定下一次网络分页边界。
+树状 depth、parent、root grouping、thread 展示都属于这一层。它可以继续作为 Fire 双端特色存在，但不得反向决定下一次网络分页边界。完整 `TopicPost` 只通过 source snapshot 传输，tree presentation 只携带 post id / number 和展示元数据。
 
 ### Targeted Context Contract
 
@@ -213,7 +226,8 @@ pub struct TopicDetailSourceAppend {
 }
 
 pub struct TopicTreePresentation {
-    pub original_post: TopicPost,
+    pub original_post_id: u64,
+    pub original_post_number: u32,
     pub reply_rows: Vec<TopicTreeRow>,
     pub total_loaded_post_count: u32,
     pub visible_root_post_numbers: Vec<u32>,
@@ -221,7 +235,8 @@ pub struct TopicTreePresentation {
 }
 
 pub struct TopicTreeRow {
-    pub post: TopicPost,
+    pub post_id: u64,
+    pub post_number: u32,
     pub root_post_number: u32,
     pub parent_post_number: Option<u32>,
     pub depth: u16,
@@ -250,7 +265,7 @@ pub struct TopicLoadMoreOutcome {
 字段约束：
 
 - `TopicDetailSourceSnapshot` 是 raw-source 状态快照，不包含预先树化的 rows
-- `TopicTreePresentation` 是 source snapshot 的派生结果，可重复构建
+- `TopicTreePresentation` 是 source snapshot 的派生结果，可重复构建；跨 UniFFI 只返回 slim row 元数据，不重复携带 `TopicPost`
 - `gained_new_root_progress` 只用于判定本次用户手势是否继续自动拉下一批，不代表 `hasMore`
 - `TopicLoadMoreOutcome` 把“source 是否到底”和“本次是否带来新的 root 进展”显式分开
 
@@ -502,6 +517,7 @@ iOS / Android README 都要保持同一结论：
 - `TopicSourceCursor`
 - `LoadMoreTopicPostsQuery`
 - `TopicDetailSourceAppend`
+- `TopicDetailPage`
 - `TopicTreePresentation`
 - `TopicTreeRow`
 - `TopicLoadMoreStopReason`

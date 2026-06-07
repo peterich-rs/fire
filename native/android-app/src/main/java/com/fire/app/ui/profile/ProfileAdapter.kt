@@ -5,6 +5,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.ImageView
 import android.widget.TextView
+import androidx.core.text.HtmlCompat
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
@@ -12,9 +13,7 @@ import coil.ImageLoader
 import coil.request.ImageRequest
 import com.fire.app.R
 import com.fire.app.TopicPresentation
-import com.fire.app.richtext.FireRichTextParser
 import com.fire.app.richtext.FireRichTextView
-import com.fire.app.richtext.FireSpannableBuilder
 import uniffi.fire_uniffi_user.BadgeState
 import uniffi.fire_uniffi_user.ProfileSummaryTopicState
 import uniffi.fire_uniffi_user.UserProfileState
@@ -116,17 +115,9 @@ class ProfileAdapter(
 
             val bioCooked = profile.bioCooked?.trim()?.takeIf { it.isNotEmpty() }
             if (bioCooked != null) {
-                val contentId = "profile-${profile.id}-bio"
-                if (bio.renderedContentId != contentId) {
-                    val content = runCatching {
-                        FireRichTextParser.parse(bioCooked, "https://linux.do")
-                    }.getOrNull()
-                    if (content != null) {
-                        bio.setContent(contentId, FireSpannableBuilder.build(content.nodes, bio.context))
-                    } else {
-                        bio.text = bioCooked
-                    }
-                }
+                bio.text = HtmlCompat.fromHtml(bioCooked, HtmlCompat.FROM_HTML_MODE_LEGACY)
+                    .toString()
+                    .trim()
                 bio.visibility = View.VISIBLE
             } else {
                 bio.visibility = View.GONE

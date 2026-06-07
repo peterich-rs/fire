@@ -53,53 +53,54 @@ class NotificationsFragment : Fragment() {
         loadingView = view.findViewById(R.id.loading_view)
         markAllReadButton = view.findViewById(R.id.mark_all_read_button)
 
-        val sessionStore = FireSessionStoreRepository.get(requireContext())
-        viewModel = ViewModelProvider(
-            this,
-            NotificationsViewModelFactory(sessionStore),
-        )[NotificationsViewModel::class.java]
+        viewLifecycleOwner.lifecycleScope.launch {
+            val sessionStore = FireSessionStoreRepository.get(requireContext())
+            viewModel = ViewModelProvider(
+                this@NotificationsFragment,
+                NotificationsViewModelFactory(sessionStore),
+            )[NotificationsViewModel::class.java]
 
-        adapter = NotificationListAdapter(::onNotificationClick)
+            adapter = NotificationListAdapter(::onNotificationClick)
 
-        recyclerView.layoutManager = LinearLayoutManager(requireContext())
-        recyclerView.adapter = adapter
-        adapter.addLoadStateListener { loadStates ->
-            val refresh = loadStates.refresh
-            val isInitialLoading = refresh is LoadState.Loading && adapter.itemCount == 0
-            loadingView.visibility = if (isInitialLoading) View.VISIBLE else View.GONE
-            emptyView.visibility = when {
-                refresh is LoadState.Error -> {
-                    emptyView.text = refresh.error.localizedMessage
-                        ?: getString(R.string.notifications_error)
-                    View.VISIBLE
+            recyclerView.layoutManager = LinearLayoutManager(requireContext())
+            recyclerView.adapter = adapter
+            adapter.addLoadStateListener { loadStates ->
+                val refresh = loadStates.refresh
+                val isInitialLoading = refresh is LoadState.Loading && adapter.itemCount == 0
+                loadingView.visibility = if (isInitialLoading) View.VISIBLE else View.GONE
+                emptyView.visibility = when {
+                    refresh is LoadState.Error -> {
+                        emptyView.text = refresh.error.localizedMessage
+                            ?: getString(R.string.notifications_error)
+                        View.VISIBLE
+                    }
+                    refresh is LoadState.NotLoading && adapter.itemCount == 0 -> {
+                        emptyView.text = getString(R.string.notifications_empty)
+                        View.VISIBLE
+                    }
+                    else -> View.GONE
                 }
-                refresh is LoadState.NotLoading && adapter.itemCount == 0 -> {
-                    emptyView.text = getString(R.string.notifications_empty)
-                    View.VISIBLE
+                if (refresh !is LoadState.Loading) {
+                    swipeRefresh.isRefreshing = false
                 }
-                else -> View.GONE
             }
-            if (refresh !is LoadState.Loading) {
-                swipeRefresh.isRefreshing = false
+
+            swipeRefresh.setOnRefreshListener {
+                refreshNotifications()
             }
-        }
 
-        swipeRefresh.setOnRefreshListener {
-            refreshNotifications()
-        }
+            markAllReadButton.setOnClickListener {
+                viewModel?.markAllRead()
+            }
 
-        markAllReadButton.setOnClickListener {
-            viewModel?.markAllRead()
-        }
-
-        viewModel?.let { vm ->
-            viewLifecycleOwner.lifecycleScope.launch {
+            val vm = viewModel ?: return@launch
+            launch {
                 vm.notificationPagingFlow().collectLatest { pagingData ->
                     adapter.submitData(pagingData)
                 }
             }
 
-            viewLifecycleOwner.lifecycleScope.launch {
+            launch {
                 var hasObservedNotificationCenter = false
                 vm.notificationCenter.collect { state ->
                     val unreadCount = state?.counters?.allUnread?.toInt() ?: 0
@@ -112,13 +113,13 @@ class NotificationsFragment : Fragment() {
                 }
             }
 
-            viewLifecycleOwner.lifecycleScope.launch {
+            launch {
                 vm.isRefreshing.collect { refreshing ->
                     swipeRefresh.isRefreshing = refreshing
                 }
             }
 
-            viewLifecycleOwner.lifecycleScope.launch {
+            launch {
                 vm.error.collect { error ->
                     if (!error.isNullOrBlank()) {
                         Toast.makeText(requireContext(), error, Toast.LENGTH_SHORT).show()

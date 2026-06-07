@@ -1,6 +1,5 @@
 package com.fire.app.ui.topicdetail
 
-import android.text.SpannableString
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -9,14 +8,14 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
-import androidx.core.text.HtmlCompat
 import androidx.recyclerview.widget.RecyclerView
 import com.fire.app.R
 import com.fire.app.TopicPresentation
 import com.fire.app.core.image.FireImageLoader
-import com.fire.app.richtext.FireCookedImage
+import com.fire.app.richtext.FireRichTextBlock
+import com.fire.app.richtext.FireRichTextBlockBuilder
 import com.fire.app.richtext.FireRichTextContent
-import com.fire.app.richtext.FireRichTextParser
+import com.fire.app.richtext.FireRenderBlockBuilder
 import com.fire.app.richtext.FireRichTextView
 import com.fire.app.richtext.FireSpannableBuilder
 import uniffi.fire_uniffi_topics.PollState
@@ -29,8 +28,7 @@ class PostViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
     private val metaText: TextView = itemView.findViewById(R.id.post_meta)
     private val floorText: TextView = itemView.findViewById(R.id.post_floor)
     private val replyContextText: TextView = itemView.findViewById(R.id.post_reply_context)
-    private val bodyView: FireRichTextView = itemView.findViewById(R.id.post_body)
-    private val imageContainer: LinearLayout = itemView.findViewById(R.id.post_image_container)
+    private val bodyContainer: LinearLayout = itemView.findViewById(R.id.post_body_container)
     private val pollContainer: LinearLayout = itemView.findViewById(R.id.post_poll_container)
     private val likeAction: TextView = itemView.findViewById(R.id.action_like)
     private val reactAction: TextView = itemView.findViewById(R.id.action_react)
@@ -83,28 +81,13 @@ class PostViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
             replyContextText.setOnClickListener(null)
         }
 
-        // Rich text body
-        val contentId = "${post.id}:${post.cooked.hashCode()}"
-        val content = if (bodyView.getTag(R.id.tag_post_content_id) == contentId) {
-            bodyView.getTag(R.id.tag_post_content) as? FireRichTextContent
-        } else {
-            val parsed = try {
-                FireRichTextParser.parse(post, "https://linux.do")
-            } catch (_: Exception) {
-                null
-            }
-
-            if (parsed != null) {
-                val spannable = FireSpannableBuilder.build(parsed.nodes, bodyView.context)
-                bodyView.setContent(contentId, spannable)
-            } else {
-                bodyView.setContent(contentId, SpannableString(post.cooked))
-            }
-            bodyView.setTag(R.id.tag_post_content_id, contentId)
-            bodyView.setTag(R.id.tag_post_content, parsed)
-            parsed
+        val contentId = "${post.id}:${post.renderDocument.hashCode()}"
+        if (bodyContainer.getTag(R.id.tag_post_content_id) != contentId) {
+            val parsed = post.renderDocument?.let { FireRenderBlockBuilder.build(it) }
+            bindPostBody(contentId, parsed, callbacks)
+            bodyContainer.setTag(R.id.tag_post_content_id, contentId)
+            bodyContainer.setTag(R.id.tag_post_content, parsed)
         }
-        bindImages(content?.imageAttachments.orEmpty(), callbacks)
 
         // Avatar
         val avatarTemplate = post.avatarTemplate
@@ -233,46 +216,71 @@ class PostViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
         itemView.setOnClickListener { callbacks.onPostClick(post) }
     }
 
-    private fun bindImages(
-        images: List<FireCookedImage>,
+    private fun bindPostBody(
+        contentId: String,
+        content: FireRichTextContent?,
         callbacks: PostRowCallbacks,
     ) {
-        imageContainer.removeAllViews()
-        if (images.isEmpty()) {
-            imageContainer.visibility = View.GONE
-            return
+        bodyContainer.removeAllViews()
+
+        if (content != null) {
+            val blocks = FireRichTextBlockBuilder.build(content)
+            blocks.forEachIndexed { index, block ->
+                when (block) {
+                    is FireRichTextBlock.Text -> addTextBlock(contentId, index, block, callbacks)
+                    is FireRichTextBlock.Image -> addImageBlock(index, block, callbacks)
+                }
+            }
         }
 
-        imageContainer.visibility = View.VISIBLE
-        images.forEachIndexed { index, image ->
-            val imageView = ImageView(itemView.context).apply {
-                contentDescription = image.altText ?: itemView.context.getString(R.string.topic_detail_image_attachment)
-                scaleType = ImageView.ScaleType.CENTER_CROP
-                adjustViewBounds = false
-                setBackgroundColor(itemView.context.getColor(R.color.fire_background_surface))
-                layoutParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    attachmentImageHeight(image),
-                ).apply {
-                    if (index > 0) topMargin = 8
-                }
-                setOnClickListener { callbacks.onImageClick(image) }
-            }
-            FireImageLoader.load(image.url, imageView)
-            imageContainer.addView(imageView)
-        }
+        bodyContainer.visibility = if (bodyContainer.childCount == 0) View.GONE else View.VISIBLE
     }
 
-    private fun attachmentImageHeight(image: FireCookedImage): Int {
-        val density = itemView.resources.displayMetrics.density
-        val width = image.width ?: 0f
-        val height = image.height ?: 0f
-        val dp = when {
-            width > 0f && height > width * 1.2f -> 260
-            width > 0f && height > 0f && width > height * 1.4f -> 170
-            else -> 220
+    private fun addTextBlock(
+        contentId: String,
+        index: Int,
+        block: FireRichTextBlock.Text,
+        callbacks: PostRowCallbacks,
+    ) {
+        val spannable = FireSpannableBuilder.build(
+            nodes = block.nodes,
+            context = itemView.context,
+            onLinkClicked = callbacks.onLinkClick,
+        )
+        if (spannable.isBlank()) return
+        val textView = FireRichTextView(itemView.context).apply {
+            setTextAppearance(androidx.appcompat.R.style.TextAppearance_AppCompat_Body1)
+            setTextColor(itemView.context.getColor(R.color.fire_text_primary))
+            setTextIsSelectable(true)
+            setOnLongClickListener {
+                requestFocus()
+                false
+            }
+            setContent("$contentId:text:$index", spannable)
+            layoutParams = bodyBlockLayoutParams(index)
         }
-        return (dp * density).toInt()
+        bodyContainer.addView(textView)
+    }
+
+    private fun addImageBlock(
+        index: Int,
+        block: FireRichTextBlock.Image,
+        callbacks: PostRowCallbacks,
+    ) {
+        val imageView = TopicPostImageView(itemView.context).apply {
+            layoutParams = bodyBlockLayoutParams(index)
+            bind(block.image, callbacks.onImageClick)
+        }
+        bodyContainer.addView(imageView)
+    }
+
+    private fun bodyBlockLayoutParams(index: Int): LinearLayout.LayoutParams {
+        return LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT,
+        ).apply {
+            if (index > 0) topMargin = itemView.resources.displayMetrics.density.times(8).toInt()
+        }
     }
 
     private fun bindPolls(post: TopicPostState, callbacks: PostRowCallbacks) {
@@ -333,7 +341,7 @@ class PostViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
             val checkBox = CheckBox(context).apply {
                 text = context.getString(
                     R.string.topic_detail_poll_option_with_votes,
-                    optionLabel(option.html),
+                    option.plainText.trim().ifBlank { option.id },
                     option.votes.toString(),
                 )
                 isChecked = selected.contains(option.id)
@@ -417,13 +425,6 @@ class PostViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
                 bottomMargin = 10
             }
         }
-    }
-
-    private fun optionLabel(html: String): String {
-        return HtmlCompat.fromHtml(html, HtmlCompat.FROM_HTML_MODE_LEGACY)
-            .toString()
-            .trim()
-            .ifBlank { html }
     }
 
     private fun buildAvatarUrl(baseUrl: String, template: String, size: Int): String {

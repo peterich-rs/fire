@@ -1,3 +1,4 @@
+import SafariServices
 import SwiftUI
 import UIKit
 
@@ -53,11 +54,50 @@ final class FireTopicDetailModalRouter {
     }
 
     func presentProfile(username: String) {
-        let rootView = NavigationStack {
-            FirePublicProfileView(viewModel: viewModel, username: username)
-        }
+        let rootView = FireTopicUserInfoSheet(
+            viewModel: viewModel,
+            username: username,
+            onMessage: { [weak self] profile in
+                guard let self else { return }
+                self.viewController?.dismiss(animated: true) {
+                    Task { @MainActor in
+                        self.presentPrivateMessageComposer(
+                            username: profile.username,
+                            displayName: profile.name?.trimmingCharacters(in: .whitespacesAndNewlines)
+                                .ifEmpty(profile.username) ?? profile.username
+                        )
+                    }
+                }
+            }
+        )
         let controller = UIHostingController(rootView: rootView)
         presentSheetController(controller)
+    }
+
+    func presentWebLink(_ url: URL) {
+        let controller = SFSafariViewController(url: url)
+        viewController?.present(controller, animated: true)
+    }
+
+    private func presentPrivateMessageComposer(username: String, displayName: String) {
+        let rootView = NavigationStack {
+            FireComposerView(
+                viewModel: viewModel,
+                route: FireComposerRoute(kind: .privateMessage(recipients: [username], title: nil)),
+                onPrivateMessageCreated: { [weak self] topicID, title in
+                    self?.viewController?.dismiss(animated: true) {
+                        self?.push(route: .topic(
+                            topicId: topicID,
+                            postNumber: nil,
+                            preview: FireTopicRoutePreview.fromMetadata(title: title, slug: nil)
+                        ))
+                    }
+                }
+            )
+        }
+        let controller = UIHostingController(rootView: rootView)
+        controller.modalPresentationStyle = .fullScreen
+        viewController?.present(controller, animated: true)
     }
 
     func presentBookmarkEditor(
@@ -204,10 +244,9 @@ final class FireTopicDetailModalRouter {
     }
 
     func presentImageViewer(image: FireCookedImage) {
-        let rootView = FireTopicImageViewer(image: image)
-        let controller = UIHostingController(rootView: rootView)
-        controller.modalPresentationStyle = .fullScreen
-        viewController?.present(controller, animated: true)
+        guard let viewController else { return }
+        let controller = FireTopicPhotoBrowserController(image: image)
+        controller.present(from: viewController)
     }
 
     func presentDeleteConfirmation(
@@ -267,6 +306,140 @@ private struct FireTopicDetailFlagSheetHost: View {
         .task {
             await store.loadPostActionTypesIfNeeded()
         }
+    }
+}
+
+private struct FireTopicUserInfoSheet: View {
+    @ObservedObject var viewModel: FireAppViewModel
+    let username: String
+    let onMessage: (UserProfileState) -> Void
+
+    @State private var profile: UserProfileState?
+    @State private var summary: UserSummaryState?
+    @State private var isLoading = false
+    @State private var errorMessage: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            if let profile {
+                header(profile)
+                FireProfileStatsRow(items: [
+                    (formatNumber(summary?.stats.topicCount ?? 0), "话题"),
+                    (formatNumber(summary?.stats.postCount ?? 0), "回复"),
+                    (formatNumber(summary?.stats.likesReceived ?? 0), "获赞"),
+                    (formatNumber(profile.totalFollowers), "粉丝"),
+                ])
+                metaRows(profile)
+                if let bio = profile.bioCooked?.trimmingCharacters(in: .whitespacesAndNewlines),
+                   !bio.isEmpty {
+                    Text(plainTextFromHtml(rawHtml: bio))
+                        .font(.footnote)
+                        .foregroundStyle(FireTheme.subtleInk)
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if canSendPrivateMessage(profile) {
+                    Button {
+                        onMessage(profile)
+                    } label: {
+                        Label("发私信", systemImage: "envelope")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(FireTheme.accent)
+                }
+            } else if isLoading {
+                ProgressView("正在加载用户信息...")
+                    .frame(maxWidth: .infinity, alignment: .center)
+            } else {
+                Text(errorMessage ?? "无法加载用户信息。")
+                    .font(.footnote)
+                    .foregroundStyle(FireTheme.subtleInk)
+            }
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .task(id: username) {
+            await load()
+        }
+    }
+
+    private func header(_ profile: UserProfileState) -> some View {
+        HStack(alignment: .center, spacing: 14) {
+            AsyncImage(url: fireAvatarURL(
+                avatarTemplate: profile.avatarTemplate,
+                size: 64,
+                scale: UIScreen.main.scale,
+                baseURLString: viewModel.session.bootstrap.baseUrl.ifEmpty("https://linux.do")
+            )) { phase in
+                switch phase {
+                case .success(let image):
+                    image.resizable().scaledToFill()
+                default:
+                    Circle()
+                        .fill(FireTheme.accent.opacity(0.14))
+                        .overlay(Text(String(profile.username.prefix(1)).uppercased()))
+                }
+            }
+            .frame(width: 64, height: 64)
+            .clipShape(Circle())
+
+            VStack(alignment: .leading, spacing: 5) {
+                Text((profile.name ?? "").ifEmpty(profile.username))
+                    .font(.headline)
+                    .foregroundStyle(FireTheme.ink)
+                Text("@\(profile.username) · \(profile.trustLevelLabel)")
+                    .font(.caption)
+                    .foregroundStyle(FireTheme.tertiaryInk)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func metaRows(_ profile: UserProfileState) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if let createdAt = profile.createdAt, !createdAt.isEmpty {
+                FireProfileMetaEntryView(symbol: "calendar", label: "加入时间", value: createdAt)
+            }
+            if let lastSeenAt = profile.lastSeenAt, !lastSeenAt.isEmpty {
+                FireProfileMetaEntryView(symbol: "clock", label: "最近活跃", value: lastSeenAt)
+            }
+            if let score = profile.gamificationScore {
+                FireProfileMetaEntryView(symbol: "sparkles", label: "积分", value: formatNumber(score))
+            }
+        }
+    }
+
+    private func load() async {
+        let normalized = username.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else { return }
+        isLoading = true
+        errorMessage = nil
+        do {
+            async let fetchedProfile = viewModel.fetchUserProfile(username: normalized)
+            async let fetchedSummary = viewModel.fetchUserSummary(username: normalized)
+            let (profile, summary) = try await (fetchedProfile, fetchedSummary)
+            self.profile = profile
+            self.summary = summary
+            isLoading = false
+        } catch {
+            isLoading = false
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func canSendPrivateMessage(_ profile: UserProfileState) -> Bool {
+        let current = viewModel.session.bootstrap.currentUsername?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return current?.localizedCaseInsensitiveCompare(profile.username) != ComparisonResult.orderedSame
+            && profile.canSendPrivateMessageToUser
+    }
+
+    private func formatNumber(_ value: UInt32) -> String {
+        if value >= 10_000 {
+            return String(format: "%.1f万", Double(value) / 10_000.0)
+        }
+        return "\(value)"
     }
 }
 

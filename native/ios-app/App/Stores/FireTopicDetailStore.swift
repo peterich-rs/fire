@@ -10,6 +10,229 @@ private struct FireTopicDetailPagePayload {
     let treePresentation: TopicTreePresentationState
 }
 
+private struct FireTopicDetailFeedContentToken: Equatable {
+    let header: FireTopicDetailFeedHeaderToken
+    let stream: [UInt64]
+    let posts: [FireTopicPostContentToken]
+
+    init(detail: TopicDetailState) {
+        header = FireTopicDetailFeedHeaderToken(detail: detail)
+        stream = detail.postStream.stream
+        posts = detail.postStream.posts.map(FireTopicPostContentToken.init(post:))
+    }
+}
+
+private struct FireTopicDetailFeedHeaderToken: Equatable {
+    let id: UInt64
+    let messageBusLastId: Int64?
+    let title: String
+    let postsCount: UInt32
+    let categoryId: UInt64?
+    let tagNames: [String]
+    let views: UInt32
+    let likeCount: UInt32
+    let createdAt: String?
+    let lastReadPostNumber: UInt32?
+    let bookmarks: [UInt64]
+    let acceptedAnswer: Bool
+    let hasAcceptedAnswer: Bool
+    let canVote: Bool
+    let voteCount: Int32
+    let userVoted: Bool
+    let summarizable: Bool
+    let hasCachedSummary: Bool
+    let hasSummary: Bool
+    let archetype: String?
+    let participants: [FireTopicParticipantContentToken]
+
+    init(detail: TopicDetailState) {
+        id = detail.id
+        messageBusLastId = detail.messageBusLastId
+        title = detail.title
+        postsCount = detail.postsCount
+        categoryId = detail.categoryId
+        tagNames = detail.tags.map(\.name)
+        views = detail.views
+        likeCount = detail.likeCount
+        createdAt = detail.createdAt
+        lastReadPostNumber = detail.lastReadPostNumber
+        bookmarks = detail.bookmarks
+        acceptedAnswer = detail.acceptedAnswer
+        hasAcceptedAnswer = detail.hasAcceptedAnswer
+        canVote = detail.canVote
+        voteCount = detail.voteCount
+        userVoted = detail.userVoted
+        summarizable = detail.summarizable
+        hasCachedSummary = detail.hasCachedSummary
+        hasSummary = detail.hasSummary
+        archetype = detail.archetype
+        participants = detail.details.participants.map(FireTopicParticipantContentToken.init(participant:))
+    }
+}
+
+private struct FireTopicDetailChromeContentToken: Equatable {
+    let id: UInt64
+    let title: String
+    let slug: String
+    let bookmarked: Bool
+    let bookmarkId: UInt64?
+    let bookmarkName: String?
+    let bookmarkReminderAt: String?
+    let notificationLevel: Int32?
+    let canEdit: Bool
+    let archetype: String?
+
+    init(detail: TopicDetailState) {
+        id = detail.id
+        title = detail.title
+        slug = detail.slug
+        bookmarked = detail.bookmarked
+        bookmarkId = detail.bookmarkId
+        bookmarkName = detail.bookmarkName
+        bookmarkReminderAt = detail.bookmarkReminderAt
+        notificationLevel = detail.details.notificationLevel
+        canEdit = detail.details.canEdit
+        archetype = detail.archetype
+    }
+}
+
+private struct FireTopicParticipantContentToken: Equatable {
+    let userId: UInt64
+    let username: String?
+    let name: String?
+
+    init(participant: TopicParticipantState) {
+        userId = participant.userId
+        username = participant.username
+        name = participant.name
+    }
+}
+
+private struct FireTopicPostContentToken: Equatable {
+    let id: UInt64
+    let username: String
+    let name: String?
+    let avatarTemplate: String?
+    let cookedLength: Int
+    let cookedChecksum: UInt64
+    let rawLength: Int
+    let rawChecksum: UInt64
+    let postNumber: UInt32
+    let postType: Int32
+    let createdAt: String?
+    let updatedAt: String?
+    let likeCount: UInt32
+    let replyCount: UInt32
+    let replyToPostNumber: UInt32?
+    let replyToUsername: String?
+    let bookmarked: Bool
+    let bookmarkId: UInt64?
+    let bookmarkName: String?
+    let bookmarkReminderAt: String?
+    let reactions: [FireTopicReactionContentToken]
+    let currentUserReaction: FireTopicReactionContentToken?
+    let polls: [FireTopicPollContentToken]
+    let acceptedAnswer: Bool
+    let canAcceptAnswer: Bool
+    let canUnacceptAnswer: Bool
+    let canEdit: Bool
+    let canDelete: Bool
+    let canRecover: Bool
+    let hidden: Bool
+
+    init(post: TopicPostState) {
+        id = post.id
+        username = post.username
+        name = post.name
+        avatarTemplate = post.avatarTemplate
+        cookedLength = post.cooked.utf8.count
+        cookedChecksum = Self.checksum(post.cooked)
+        rawLength = post.raw?.utf8.count ?? 0
+        rawChecksum = post.raw.map(Self.checksum) ?? 0
+        postNumber = post.postNumber
+        postType = post.postType
+        createdAt = post.createdAt
+        updatedAt = post.updatedAt
+        likeCount = post.likeCount
+        replyCount = post.replyCount
+        replyToPostNumber = post.replyToPostNumber
+        replyToUsername = post.replyToUser?.username
+        bookmarked = post.bookmarked
+        bookmarkId = post.bookmarkId
+        bookmarkName = post.bookmarkName
+        bookmarkReminderAt = post.bookmarkReminderAt
+        reactions = post.reactions.map(FireTopicReactionContentToken.init(reaction:))
+        currentUserReaction = post.currentUserReaction.map(FireTopicReactionContentToken.init(reaction:))
+        polls = post.polls.map(FireTopicPollContentToken.init(poll:))
+        acceptedAnswer = post.acceptedAnswer
+        canAcceptAnswer = post.canAcceptAnswer
+        canUnacceptAnswer = post.canUnacceptAnswer
+        canEdit = post.canEdit
+        canDelete = post.canDelete
+        canRecover = post.canRecover
+        hidden = post.hidden
+    }
+
+    private static func checksum(_ value: String) -> UInt64 {
+        var hash: UInt64 = 14_695_981_039_346_656_037
+        for byte in value.utf8 {
+            hash ^= UInt64(byte)
+            hash = hash &* 1_099_511_628_211
+        }
+        return hash
+    }
+}
+
+private struct FireTopicReactionContentToken: Equatable {
+    let id: String
+    let kind: String?
+    let count: UInt32
+    let canUndo: Bool?
+
+    init(reaction: TopicReactionState) {
+        id = reaction.id
+        kind = reaction.kind
+        count = reaction.count
+        canUndo = reaction.canUndo
+    }
+}
+
+private struct FireTopicPollContentToken: Equatable {
+    let id: UInt64
+    let name: String
+    let kind: String
+    let status: String
+    let results: String
+    let options: [FireTopicPollOptionContentToken]
+    let voters: UInt32
+    let userVotes: [String]
+
+    init(poll: PollState) {
+        id = poll.id
+        name = poll.name
+        kind = poll.kind
+        status = poll.status
+        results = poll.results
+        options = poll.options.map(FireTopicPollOptionContentToken.init(option:))
+        voters = poll.voters
+        userVotes = poll.userVotes
+    }
+}
+
+private struct FireTopicPollOptionContentToken: Equatable {
+    let id: String
+    let plainText: String
+    let htmlLength: Int
+    let votes: UInt32
+
+    init(option: PollOptionState) {
+        id = option.id
+        plainText = option.plainText
+        htmlLength = option.html.utf8.count
+        votes = option.votes
+    }
+}
+
 @MainActor
 final class FireTopicDetailStore: ObservableObject {
     nonisolated private static let topicPostPageSize = 30
@@ -41,6 +264,8 @@ final class FireTopicDetailStore: ObservableObject {
     @Published private(set) var topicAiSummaryErrorsByTopicID: [UInt64: String] = [:]
     @Published private(set) var topicCollectionRevisions: [UInt64: UInt64] = [:]
     @Published private(set) var topicChromeRevisions: [UInt64: UInt64] = [:]
+    @Published private(set) var topicSidecarRevisions: [UInt64: UInt64] = [:]
+    @Published private(set) var topicInteractionRevisions: [UInt64: UInt64] = [:]
     @Published private(set) var errorMessagesByTopicID: [UInt64: String] = [:]
 
     private let appViewModel: FireAppViewModel
@@ -58,6 +283,8 @@ final class FireTopicDetailStore: ObservableObject {
     private var topicRenderCaches: [UInt64: FireTopicDetailRenderCache] = [:]
     private var topicRenderGenerations: [UInt64: UInt64] = [:]
     private var topicPostLookups: [UInt64: [UInt64: TopicPostState]] = [:]
+    private var topicDetailFeedContentTokens: [UInt64: FireTopicDetailFeedContentToken] = [:]
+    private var topicDetailChromeContentTokens: [UInt64: FireTopicDetailChromeContentToken] = [:]
     private var topicScrollInteractionStates: [UInt64: Bool] = [:]
     private var deferredTopicDetailRefreshTopicIDs: Set<UInt64> = []
     private var deferredTopicDetailRefreshPayloads: [UInt64: FireTopicDetailPagePayload] = [:]
@@ -83,6 +310,14 @@ final class FireTopicDetailStore: ObservableObject {
 
     private func bumpTopicChromeRevision(topicId: UInt64) {
         topicChromeRevisions[topicId, default: 0] &+= 1
+    }
+
+    private func bumpTopicSidecarRevision(topicId: UInt64) {
+        topicSidecarRevisions[topicId, default: 0] &+= 1
+    }
+
+    private func bumpTopicInteractionRevision(topicId: UInt64) {
+        topicInteractionRevisions[topicId, default: 0] &+= 1
     }
 
     private func setLoadingTopic(_ isLoading: Bool, topicId: UInt64) {
@@ -130,7 +365,7 @@ final class FireTopicDetailStore: ObservableObject {
             changed = loadingTopicAiSummaryIDs.remove(topicId) != nil
         }
         if changed {
-            bumpTopicCollectionRevision(topicId: topicId)
+            bumpTopicSidecarRevision(topicId: topicId)
         }
     }
 
@@ -146,7 +381,7 @@ final class FireTopicDetailStore: ObservableObject {
             changed = mutatingPostIDs.remove(postId) != nil
         }
         if changed {
-            bumpTopicCollectionRevision(topicId: topicId)
+            bumpTopicInteractionRevision(topicId: topicId)
         }
     }
 
@@ -177,7 +412,7 @@ final class FireTopicDetailStore: ObservableObject {
             changed = loadingPostReplyContextIDs.remove(postId) != nil
         }
         if changed {
-            bumpTopicCollectionRevision(topicId: topicId)
+            bumpTopicInteractionRevision(topicId: topicId)
         }
     }
 
@@ -317,6 +552,8 @@ final class FireTopicDetailStore: ObservableObject {
         topicRenderCaches = [:]
         topicRenderGenerations = [:]
         topicPostLookups = [:]
+        topicDetailFeedContentTokens = [:]
+        topicDetailChromeContentTokens = [:]
         topicSourceSnapshots = [:]
         topicDetailNoticesByTopic = [:]
         topicRecoverySlugsByTopic = [:]
@@ -329,6 +566,8 @@ final class FireTopicDetailStore: ObservableObject {
         topicAiSummaryErrorsByTopicID = [:]
         topicCollectionRevisions = [:]
         topicChromeRevisions = [:]
+        topicSidecarRevisions = [:]
+        topicInteractionRevisions = [:]
         topicPresenceUsersByTopic = [:]
         loadingMoreTopicPostIDs = []
         loadMoreTopicPostErrorsByTopicID = [:]
@@ -447,7 +686,8 @@ final class FireTopicDetailStore: ObservableObject {
                     operation: operation,
                     originURL: recoveryURL
                 ) {
-                    let sourceSnapshot = try await sessionStore.fetchTopicDetailSourceSnapshot(
+                    let fetchStartedAt = Date()
+                    let page = try await sessionStore.fetchTopicDetailPage(
                         query: TopicDetailSourceQueryState(
                             topicId: topicId,
                             targetPostNumber: targetPostNumber,
@@ -459,17 +699,12 @@ final class FireTopicDetailStore: ObservableObject {
                             maxAutoPostsPerGesture: 120
                         )
                     )
-                    let treePresentation = try await sessionStore.buildTopicTreePresentation(
-                        query: TopicTreePresentationQueryState(
-                            bodyPost: sourceSnapshot.body.post,
-                            rawStreamIds: sourceSnapshot.rawStreamIds,
-                            loadedPosts: sourceSnapshot.loadedPosts,
-                            focusedPostNumber: sourceSnapshot.focusedPostNumber
-                        )
+                    appViewModel.topicDetailLogger()?.debug(
+                        "topic detail page ffi topic_id=\(topicId) ffi_page_ms=\(Self.elapsedMilliseconds(since: fetchStartedAt)) source_loaded_posts=\(page.sourceSnapshot.loadedPosts.count) body_post_included=true tree_total_loaded_post_count=\(page.treePresentation.totalLoadedPostCount) reply_rows=\(page.treePresentation.replyRows.count) cooked_byte_count=\(Self.cookedByteCount(sourceSnapshot: page.sourceSnapshot))"
                     )
                     return FireTopicDetailPagePayload(
-                        sourceSnapshot: sourceSnapshot,
-                        treePresentation: treePresentation
+                        sourceSnapshot: page.sourceSnapshot,
+                        treePresentation: page.treePresentation
                     )
                 }
             }
@@ -527,10 +762,13 @@ final class FireTopicDetailStore: ObservableObject {
         let replyRows = FireTopicPresentation
             .uniqueTreeRowsPreservingOrder(treePresentation.replyRows)
             .filter { row in
-                row.post.id != sourceSnapshot.body.post.id
+                row.postId != sourceSnapshot.body.post.id
             }
+        let postsByID = FireTopicPresentation.topicPostsByID(
+            [sourceSnapshot.body.post] + sourceSnapshot.loadedPosts
+        )
         let posts = FireTopicPresentation.uniqueTopicPostsPreservingOrder(
-            [sourceSnapshot.body.post] + replyRows.map(\.post)
+            [sourceSnapshot.body.post] + replyRows.compactMap { postsByID[$0.postId] }
         )
         return TopicDetailState(
             id: sourceSnapshot.header.topicId,
@@ -571,10 +809,11 @@ final class FireTopicDetailStore: ObservableObject {
         detailNotice: FireTopicDetailStatusMessage?,
         topicId: UInt64
     ) async {
+        let applyStartedAt = Date()
         var treePresentation = payload.treePresentation
         treePresentation.replyRows = FireTopicPresentation
             .uniqueTreeRowsPreservingOrder(treePresentation.replyRows)
-            .filter { $0.post.id != payload.sourceSnapshot.body.post.id }
+            .filter { $0.postId != payload.sourceSnapshot.body.post.id }
         rememberTopicRecoverySlug(payload.sourceSnapshot.header.slug, topicId: topicId)
         updateTopicDetailNotice(detailNotice, topicId: topicId)
         topicSourceSnapshots[topicId] = payload.sourceSnapshot
@@ -589,6 +828,9 @@ final class FireTopicDetailStore: ObservableObject {
             sourceSnapshot: payload.sourceSnapshot,
             treePresentation: treePresentation,
             topicId: topicId
+        )
+        appViewModel.topicDetailLogger()?.debug(
+            "topic detail page main apply topic_id=\(topicId) main_apply_ms=\(Self.elapsedMilliseconds(since: applyStartedAt)) source_loaded_posts=\(payload.sourceSnapshot.loadedPosts.count) body_post_included=true tree_total_loaded_post_count=\(treePresentation.totalLoadedPostCount) reply_rows=\(treePresentation.replyRows.count) cooked_byte_count=\(Self.cookedByteCount(sourceSnapshot: payload.sourceSnapshot))"
         )
         _ = await buildTopicDetailRenderUpdate(detail: detail, topicId: topicId)
         loadTopicAiSummaryIfNeeded(topicId: topicId, detail: detail)
@@ -690,6 +932,14 @@ final class FireTopicDetailStore: ObservableObject {
 
     func topicCollectionRevision(topicId: UInt64) -> UInt64 {
         topicCollectionRevisions[topicId] ?? 0
+    }
+
+    func topicSidecarRevision(topicId: UInt64) -> UInt64 {
+        topicSidecarRevisions[topicId] ?? 0
+    }
+
+    func topicInteractionRevision(topicId: UInt64) -> UInt64 {
+        topicInteractionRevisions[topicId] ?? 0
     }
 
     func isLoadingTopic(topicId: UInt64) -> Bool {
@@ -1246,7 +1496,7 @@ final class FireTopicDetailStore: ObservableObject {
         contextPosts: [TopicPostState]
     ) -> [TopicTreeRowState]? {
         guard var treePresentation = topicTreePresentations[topicId],
-              let sourceSnapshot = topicSourceSnapshots[topicId] else {
+              var sourceSnapshot = topicSourceSnapshots[topicId] else {
             return nil
         }
 
@@ -1262,7 +1512,13 @@ final class FireTopicDetailStore: ObservableObject {
         }
 
         treePresentation.replyRows = mergedRows
+        sourceSnapshot.loadedPosts = FireTopicPresentation.mergeTopicPosts(
+            existing: sourceSnapshot.loadedPosts,
+            incoming: contextPosts,
+            orderedPostIDs: sourceSnapshot.rawStreamIds
+        )
         topicTreePresentations[topicId] = treePresentation
+        topicSourceSnapshots[topicId] = sourceSnapshot
         return mergedRows
     }
 
@@ -1282,8 +1538,8 @@ final class FireTopicDetailStore: ObservableObject {
         rowIndexByPostID.reserveCapacity(existingRows.count + contextPosts.count)
         rowByPostNumber.reserveCapacity(existingRows.count + contextPosts.count)
         for (index, row) in rows.enumerated() {
-            rowIndexByPostID[row.post.id] = index
-            rowByPostNumber[row.post.postNumber] = row
+            rowIndexByPostID[row.postId] = index
+            rowByPostNumber[row.postNumber] = row
         }
 
         let rootRow = rowByPostNumber[rootPost.postNumber]
@@ -1315,7 +1571,6 @@ final class FireTopicDetailStore: ObservableObject {
 
         for post in orderedContextPosts {
             if let existingIndex = rowIndexByPostID[post.id] {
-                rows[existingIndex].post = post
                 rowByPostNumber[post.postNumber] = rows[existingIndex]
                 continue
             }
@@ -1327,7 +1582,8 @@ final class FireTopicDetailStore: ObservableObject {
             let siblingIndex = nextSiblingIndexByParent[parentPostNumber, default: 0]
             nextSiblingIndexByParent[parentPostNumber] = siblingIndex + 1
             let row = TopicTreeRowState(
-                post: post,
+                postId: post.id,
+                postNumber: post.postNumber,
                 rootPostNumber: rootPostNumber,
                 parentPostNumber: parentPostNumber,
                 depth: UInt16(clamping: depth),
@@ -1640,6 +1896,8 @@ final class FireTopicDetailStore: ObservableObject {
             .union(topicAiSummaryErrorsByTopicID.keys)
             .union(topicAiSummaryTasks.keys)
             .union(topicChromeRevisions.keys)
+            .union(topicSidecarRevisions.keys)
+            .union(topicInteractionRevisions.keys)
             .union(topicScrollInteractionStates.keys)
             .union(deferredTopicDetailRefreshTopicIDs)
             .union(deferredTopicDetailRefreshPayloads.keys)
@@ -1690,6 +1948,8 @@ final class FireTopicDetailStore: ObservableObject {
         topicScrollInteractionStates.removeValue(forKey: topicId)
         deferredTopicDetailRefreshTopicIDs.remove(topicId)
         deferredTopicDetailRefreshPayloads.removeValue(forKey: topicId)
+        topicDetailFeedContentTokens.removeValue(forKey: topicId)
+        topicDetailChromeContentTokens.removeValue(forKey: topicId)
         let removedDetail = topicDetails.removeValue(forKey: topicId) != nil
         let removedRenderState = topicRenderStates.removeValue(forKey: topicId) != nil
         topicRenderCaches.removeValue(forKey: topicId)
@@ -1702,6 +1962,8 @@ final class FireTopicDetailStore: ObservableObject {
         let removedAiSummaryError = topicAiSummaryErrorsByTopicID.removeValue(forKey: topicId) != nil
         topicCollectionRevisions.removeValue(forKey: topicId)
         topicChromeRevisions.removeValue(forKey: topicId)
+        topicSidecarRevisions.removeValue(forKey: topicId)
+        topicInteractionRevisions.removeValue(forKey: topicId)
         let removedLoadingTopic = loadingTopicIDs.remove(topicId) != nil
         let removedLoadingMore = loadingMoreTopicPostIDs.remove(topicId) != nil
         let removedLoadMoreError = loadMoreTopicPostErrorsByTopicID.removeValue(forKey: topicId) != nil
@@ -1784,11 +2046,20 @@ final class FireTopicDetailStore: ObservableObject {
         topicId: UInt64,
         bumpRevision: Bool = true
     ) -> Bool {
-        let changed = topicDetails[topicId] != detail
+        let feedToken = FireTopicDetailFeedContentToken(detail: detail)
+        let chromeToken = FireTopicDetailChromeContentToken(detail: detail)
+        let feedChanged = topicDetailFeedContentTokens[topicId] != feedToken
+        let chromeChanged = topicDetailChromeContentTokens[topicId] != chromeToken
+        let changed = feedChanged || chromeChanged
         if changed {
             topicDetails[topicId] = detail
-            if bumpRevision {
+            topicDetailFeedContentTokens[topicId] = feedToken
+            topicDetailChromeContentTokens[topicId] = chromeToken
+            if bumpRevision, feedChanged {
                 bumpTopicCollectionRevision(topicId: topicId)
+            }
+            if chromeChanged {
+                bumpTopicChromeRevision(topicId: topicId)
             }
         }
         return changed
@@ -1816,6 +2087,21 @@ final class FireTopicDetailStore: ObservableObject {
             }
         }
         return true
+    }
+
+    nonisolated private static func elapsedMilliseconds(since startedAt: Date) -> Int64 {
+        Int64((Date().timeIntervalSince(startedAt) * 1_000).rounded())
+    }
+
+    nonisolated private static func cookedByteCount(sourceSnapshot: TopicDetailSourceSnapshotState) -> Int {
+        var seenPostIDs = Set<UInt64>()
+        var total = 0
+        for post in [sourceSnapshot.body.post] + sourceSnapshot.loadedPosts {
+            if seenPostIDs.insert(post.id).inserted {
+                total += post.cooked.utf8.count
+            }
+        }
+        return total
     }
 
     private func rebuildTopicDetail(
@@ -1847,11 +2133,16 @@ final class FireTopicDetailStore: ObservableObject {
 
         topicRenderTasks[topicId]?.cancel()
         let renderTask = Task { [weak self] in
-            let renderCache = await Task.detached(priority: .userInitiated) {
-                return FireTopicPresentation.detailRenderCache(
+            let renderResult = await Task.detached(priority: .userInitiated) {
+                let renderStartedAt = Date()
+                let renderCache = FireTopicPresentation.detailRenderCache(
                     from: cachedDetail,
                     baseURLString: baseURLString,
                     previous: previousRenderCache
+                )
+                return (
+                    renderCache: renderCache,
+                    renderCacheMs: Self.elapsedMilliseconds(since: renderStartedAt)
                 )
             }.value
 
@@ -1861,7 +2152,8 @@ final class FireTopicDetailStore: ObservableObject {
 
             await self?.applyTopicDetailRenderUpdate(
                 detail: cachedDetail,
-                renderCache: renderCache,
+                renderCache: renderResult.renderCache,
+                renderCacheMs: renderResult.renderCacheMs,
                 topicId: topicId,
                 generation: generation
             )
@@ -1875,6 +2167,7 @@ final class FireTopicDetailStore: ObservableObject {
     private func applyTopicDetailRenderUpdate(
         detail: TopicDetailState,
         renderCache: FireTopicDetailRenderCache,
+        renderCacheMs: Int64,
         topicId: UInt64,
         generation: UInt64
     ) {
@@ -1912,6 +2205,9 @@ final class FireTopicDetailStore: ObservableObject {
         if didUpdateDetail || didUpdateRenderState {
             bumpTopicCollectionRevision(topicId: topicId)
         }
+        appViewModel.topicDetailLogger()?.debug(
+            "topic detail render cache topic_id=\(topicId) render_cache_ms=\(renderCacheMs) row_input_count=\(renderCache.rowInputs.count) content_input_count=\(renderCache.contentInputsByPostID.count) did_update_detail=\(didUpdateDetail) did_update_render_state=\(didUpdateRenderState)"
+        )
     }
 
     private func scheduleTopicRenderCacheUpdate(
@@ -1925,11 +2221,16 @@ final class FireTopicDetailStore: ObservableObject {
 
         topicRenderTasks[topicId]?.cancel()
         topicRenderTasks[topicId] = Task { [weak self] in
-            let renderCache = await Task.detached(priority: .userInitiated) {
-                return FireTopicPresentation.detailRenderCache(
+            let renderResult = await Task.detached(priority: .userInitiated) {
+                let renderStartedAt = Date()
+                let renderCache = FireTopicPresentation.detailRenderCache(
                     from: detail,
                     baseURLString: baseURLString,
                     previous: previousRenderCache
+                )
+                return (
+                    renderCache: renderCache,
+                    renderCacheMs: Self.elapsedMilliseconds(since: renderStartedAt)
                 )
             }.value
 
@@ -1938,7 +2239,8 @@ final class FireTopicDetailStore: ObservableObject {
             }
 
             await self?.applyTopicRenderCache(
-                renderCache,
+                renderResult.renderCache,
+                renderCacheMs: renderResult.renderCacheMs,
                 topicId: topicId,
                 generation: generation
             )
@@ -1947,6 +2249,7 @@ final class FireTopicDetailStore: ObservableObject {
 
     private func applyTopicRenderCache(
         _ renderCache: FireTopicDetailRenderCache,
+        renderCacheMs: Int64,
         topicId: UInt64,
         generation: UInt64
     ) {
@@ -1977,6 +2280,9 @@ final class FireTopicDetailStore: ObservableObject {
             topicRenderStates[topicId] = renderCache.renderState
             bumpTopicCollectionRevision(topicId: topicId)
         }
+        appViewModel.topicDetailLogger()?.debug(
+            "topic detail render cache topic_id=\(topicId) render_cache_ms=\(renderCacheMs) row_input_count=\(renderCache.rowInputs.count) content_input_count=\(renderCache.contentInputsByPostID.count) did_update_detail=false did_update_render_state=\(didUpdateRenderState)"
+        )
     }
 
     private func applyTopicDetail(
@@ -2041,7 +2347,7 @@ final class FireTopicDetailStore: ObservableObject {
         let clearedError = topicAiSummaryErrorsByTopicID.removeValue(forKey: topicId) != nil
         setLoadingTopicAiSummary(true, topicId: topicId)
         if clearedUnavailable || clearedError {
-            bumpTopicCollectionRevision(topicId: topicId)
+            bumpTopicSidecarRevision(topicId: topicId)
         }
 
         topicAiSummaryTasks[topicId] = Task { @MainActor [weak self] in
@@ -2070,13 +2376,13 @@ final class FireTopicDetailStore: ObservableObject {
                     let clearedUnavailable = self.unavailableTopicAiSummaryIDs.remove(topicId) != nil
                     let clearedError = self.topicAiSummaryErrorsByTopicID.removeValue(forKey: topicId) != nil
                     if didChangeSummary || clearedUnavailable || clearedError {
-                        self.bumpTopicCollectionRevision(topicId: topicId)
+                        self.bumpTopicSidecarRevision(topicId: topicId)
                     }
                 } else {
                     let removedSummary = self.topicAiSummaries.removeValue(forKey: topicId) != nil
                     let insertedUnavailable = self.unavailableTopicAiSummaryIDs.insert(topicId).inserted
                     if removedSummary || insertedUnavailable {
-                        self.bumpTopicCollectionRevision(topicId: topicId)
+                        self.bumpTopicSidecarRevision(topicId: topicId)
                     }
                 }
             } catch {
@@ -2088,7 +2394,7 @@ final class FireTopicDetailStore: ObservableObject {
                 }
                 if self.topicAiSummaryErrorsByTopicID[topicId] != error.localizedDescription {
                     self.topicAiSummaryErrorsByTopicID[topicId] = error.localizedDescription
-                    self.bumpTopicCollectionRevision(topicId: topicId)
+                    self.bumpTopicSidecarRevision(topicId: topicId)
                 }
                 self.appViewModel.topicDetailLogger()?.error(
                     "topic AI summary load failed topic_id=\(topicId) error=\(error.localizedDescription)"
@@ -2908,11 +3214,6 @@ final class FireTopicDetailStore: ObservableObject {
                 sourceSnapshot.loadedPosts[loadedIndex] = post
             }
             topicSourceSnapshots[topicId] = sourceSnapshot
-        }
-        if var treePresentation = topicTreePresentations[topicId],
-           let rowIndex = treePresentation.replyRows.firstIndex(where: { $0.post.id == postId }) {
-            treePresentation.replyRows[rowIndex].post = post
-            topicTreePresentations[topicId] = treePresentation
         }
         _ = cacheTopicDetail(detail, topicId: topicId)
     }

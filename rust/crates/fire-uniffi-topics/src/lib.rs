@@ -11,12 +11,12 @@ pub use records::{
     PostFlagRequestState, PostReactionUpdateState, PostUpdateRequestState,
     PrivateMessageCreateRequestState, ReactionUserState, ReactionUsersGroupState,
     ResolvedUploadUrlState, TopicAiSummaryState, TopicBodyState, TopicCreateRequestState,
-    TopicDetailCreatedByState, TopicDetailMetaState, TopicDetailSourceQueryState,
-    TopicDetailSourceSnapshotState, TopicDetailState, TopicHeaderState, TopicListQueryState,
-    TopicLoadMoreOutcomeState, TopicLoadMoreStopReasonState, TopicLoadedRangeState, TopicPostState,
-    TopicPostStreamState, TopicReactionState, TopicReplyRequestState, TopicReplyToUserState,
-    TopicSourceCursorState, TopicTimingEntryState, TopicTimingsRequestState,
-    TopicTreePresentationQueryState, TopicTreePresentationState, TopicTreeRowState,
+    TopicDetailCreatedByState, TopicDetailMetaState, TopicDetailPageState,
+    TopicDetailSourceQueryState, TopicDetailSourceSnapshotState, TopicDetailState,
+    TopicHeaderState, TopicListQueryState, TopicLoadMoreOutcomeState, TopicLoadMoreStopReasonState,
+    TopicLoadedRangeState, TopicPostState, TopicPostStreamState, TopicReactionState,
+    TopicReplyRequestState, TopicReplyToUserState, TopicSourceCursorState, TopicTimingEntryState,
+    TopicTimingsRequestState, TopicTreePresentationState, TopicTreeRowState,
     TopicUpdateRequestState, UploadImageRequestState, UploadResultState, VoteResponseState,
     VotedUserState,
 };
@@ -74,23 +74,19 @@ impl FireTopicsHandle {
         ))
     }
 
-    pub fn build_topic_tree_presentation(
+    pub async fn fetch_topic_detail_page(
         &self,
-        query: TopicTreePresentationQueryState,
-    ) -> Result<TopicTreePresentationState, FireUniFfiError> {
+        query: TopicDetailSourceQueryState,
+    ) -> Result<TopicDetailPageState, FireUniFfiError> {
         let inner = self.shared.core.clone();
         let panic_state = self.shared.panic_state.clone();
-        let response = fire_uniffi_types::run_fallible(
-            &panic_state,
-            &inner,
-            "build_topic_tree_presentation",
-            move |core| {
-                let base_url = core.base_url().to_string();
-                let presentation = core.build_topic_tree_presentation(query.into());
-                Ok((base_url, presentation))
-            },
-        )?;
-        Ok(records::topic_tree_presentation_state_from_model(
+        let response = run_on_ffi_runtime("fetch_topic_detail_page", panic_state, async move {
+            let base_url = inner.base_url().to_string();
+            let page = inner.fetch_topic_detail_page(query.into()).await?;
+            Ok::<_, fire_core::FireCoreError>((base_url, page))
+        })
+        .await?;
+        Ok(records::topic_detail_page_state_from_model(
             response.1,
             &response.0,
         ))

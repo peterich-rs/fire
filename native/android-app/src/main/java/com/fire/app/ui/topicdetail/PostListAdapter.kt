@@ -42,6 +42,7 @@ data class PostRowCallbacks(
     val onEditPostClick: (TopicPostState) -> Unit = {},
     val onImageClick: (FireCookedImage) -> Unit = {},
     val onAuthorClick: (String) -> Unit = {},
+    val onLinkClick: (String) -> Unit = {},
 )
 
 class PostListAdapter(

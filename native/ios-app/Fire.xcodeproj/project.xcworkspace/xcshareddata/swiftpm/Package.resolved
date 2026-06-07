@@ -1,5 +1,5 @@
 {
-  "originHash" : "19783afca4ed280456c43eca88609c6a6851eaa56ae94575e6db0928e8b15f48",
+  "originHash" : "63e95164ba217d8490f26c3d4307ad861cfb786de718938a0ea5c7a56add570a",
   "pins" : [
     {
       "identity" : "confettiswiftui",
@@ -17,6 +17,15 @@
       "state" : {
         "revision" : "0ead44350d2737db384908569c012fe67c421e4d",
         "version" : "12.8.0"
+      }
+    },
+    {
+      "identity" : "photobrowser",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/JiongXing/PhotoBrowser.git",
+      "state" : {
+        "revision" : "f70648e0e69c9104e14a6135a337102284730304",
+        "version" : "4.0.3"
       }
     },
     {

@@ -52,43 +52,43 @@ class PrivateMessagesFragment : Fragment() {
         scopeChips = view.findViewById(R.id.pm_scope_chips)
         newMessageButton = view.findViewById(R.id.pm_new_message_button)
 
-        val sessionStore = FireSessionStoreRepository.get(requireContext())
-        viewModel = PrivateMessagesViewModel.create(sessionStore)
+        viewLifecycleOwner.lifecycleScope.launch {
+            val sessionStore = FireSessionStoreRepository.get(requireContext())
+            viewModel = PrivateMessagesViewModel.create(sessionStore)
 
-        adapter = TopicListAdapter { row ->
-            TopicDetailActivity.start(
-                context = requireContext(),
-                topicId = row.topic.id.toLong(),
-                topicTitle = row.topic.title,
-            )
-        }
-
-        recyclerView.layoutManager = LinearLayoutManager(requireContext())
-        recyclerView.adapter = adapter
-        adapter.addLoadStateListener { loadStates ->
-            val refresh = loadStates.refresh
-            val isInitialLoading = refresh is LoadState.Loading && adapter.itemCount == 0
-            loadingView.visibility = if (isInitialLoading) View.VISIBLE else View.GONE
-            emptyView.visibility = when {
-                refresh is LoadState.Error -> {
-                    emptyView.text = refresh.error.localizedMessage
-                        ?: getString(R.string.feed_private_messages_empty)
-                    View.VISIBLE
-                }
-                refresh is LoadState.NotLoading && adapter.itemCount == 0 -> {
-                    emptyView.text = getString(R.string.feed_private_messages_empty)
-                    View.VISIBLE
-                }
-                else -> View.GONE
+            adapter = TopicListAdapter { row ->
+                TopicDetailActivity.start(
+                    context = requireContext(),
+                    topicId = row.topic.id.toLong(),
+                    topicTitle = row.topic.title,
+                )
             }
-        }
 
-        setupScopeChips()
-        newMessageButton.setOnClickListener {
-            showPrivateMessageComposer()
-        }
-        viewModel?.let { vm ->
-            viewLifecycleOwner.lifecycleScope.launch {
+            recyclerView.layoutManager = LinearLayoutManager(requireContext())
+            recyclerView.adapter = adapter
+            adapter.addLoadStateListener { loadStates ->
+                val refresh = loadStates.refresh
+                val isInitialLoading = refresh is LoadState.Loading && adapter.itemCount == 0
+                loadingView.visibility = if (isInitialLoading) View.VISIBLE else View.GONE
+                emptyView.visibility = when {
+                    refresh is LoadState.Error -> {
+                        emptyView.text = refresh.error.localizedMessage
+                            ?: getString(R.string.feed_private_messages_empty)
+                        View.VISIBLE
+                    }
+                    refresh is LoadState.NotLoading && adapter.itemCount == 0 -> {
+                        emptyView.text = getString(R.string.feed_private_messages_empty)
+                        View.VISIBLE
+                    }
+                    else -> View.GONE
+                }
+            }
+
+            setupScopeChips()
+            newMessageButton.setOnClickListener {
+                showPrivateMessageComposer()
+            }
+            viewModel?.let { vm ->
                 viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
                     launch {
                         vm.pmPagingFlow.collectLatest { pagingData ->

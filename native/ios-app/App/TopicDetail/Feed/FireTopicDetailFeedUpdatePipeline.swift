@@ -7,9 +7,26 @@ struct FireTopicDetailCollectionUpdatePlan: Equatable {
     let deletions: [IndexPath]
     let insertions: [IndexPath]
     let reloads: [IndexPath]
+    let postUpdateReloads: [IndexPath]
+
+    init(
+        deletions: [IndexPath],
+        insertions: [IndexPath],
+        reloads: [IndexPath],
+        postUpdateReloads: [IndexPath] = []
+    ) {
+        self.deletions = deletions
+        self.insertions = insertions
+        self.reloads = reloads
+        self.postUpdateReloads = postUpdateReloads
+    }
+
+    var hasBatchUpdates: Bool {
+        !deletions.isEmpty || !insertions.isEmpty || !reloads.isEmpty
+    }
 
     var isEmpty: Bool {
-        deletions.isEmpty && insertions.isEmpty && reloads.isEmpty
+        !hasBatchUpdates && postUpdateReloads.isEmpty
     }
 }
 
@@ -37,21 +54,33 @@ func fireTopicDetailCollectionUpdatePlan(
     }
     .sorted()
 
-    let currentByID = Dictionary(uniqueKeysWithValues: current.map { ($0.id, $0) })
+    let currentByID = Dictionary(
+        uniqueKeysWithValues: current.enumerated().map { index, item in
+            (item.id, (index: index, item: item))
+        }
+    )
     let insertedItems = Set(insertions.map(\.item))
-    let reloads = next.enumerated().compactMap { index, item -> IndexPath? in
+    var reloads: [IndexPath] = []
+    var postUpdateReloads: [IndexPath] = []
+    for (index, item) in next.enumerated() {
         guard insertedItems.contains(index) == false,
               let previous = currentByID[item.id],
-              previous.hasSameRenderedContent(as: item) == false else {
-            return nil
+              previous.item.hasSameRenderedContent(as: item) == false else {
+            continue
         }
-        return IndexPath(item: index, section: 0)
+
+        if previous.index == index {
+            reloads.append(IndexPath(item: previous.index, section: 0))
+        } else {
+            postUpdateReloads.append(IndexPath(item: index, section: 0))
+        }
     }
 
     return FireTopicDetailCollectionUpdatePlan(
         deletions: deletions,
         insertions: insertions,
-        reloads: reloads
+        reloads: reloads,
+        postUpdateReloads: postUpdateReloads
     )
 }
 
@@ -269,11 +298,12 @@ final class FireTopicDetailFeedUpdatePipeline {
             updatePlan = FireTopicDetailCollectionUpdatePlan(
                 deletions: updatePlan.deletions,
                 insertions: updatePlan.insertions,
-                reloads: updatePlan.reloads.filter { !relayoutSet.contains($0) }
+                reloads: updatePlan.reloads.filter { !relayoutSet.contains($0) },
+                postUpdateReloads: updatePlan.postUpdateReloads
             )
         }
 
-        let completion = { [weak self] in
+        let finishSnapshotUpdate = { [weak self] in
             guard let self,
                   let feedController = self.feedController else { return }
 
@@ -302,13 +332,33 @@ final class FireTopicDetailFeedUpdatePipeline {
             self.evaluatePaginationAfterSnapshotUpdate(configuration: configuration)
         }
 
+        let completion = { [weak feedController] in
+            guard !updatePlan.postUpdateReloads.isEmpty else {
+                finishSnapshotUpdate()
+                return
+            }
+            guard let feedController else {
+                finishSnapshotUpdate()
+                return
+            }
+            feedController.reloadItemsIfNeeded(at: updatePlan.postUpdateReloads) {
+                finishSnapshotUpdate()
+            }
+        }
+
         guard !updatePlan.isEmpty else {
+            completion()
+            return
+        }
+
+        guard updatePlan.hasBatchUpdates else {
             completion()
             return
         }
 
         if updatePlan.deletions.isEmpty,
            updatePlan.insertions.isEmpty,
+           updatePlan.postUpdateReloads.isEmpty,
            updatePlan.reloads.count == 1,
            let reloadIndexPath = updatePlan.reloads.first,
            reloadIndexPath.item >= 0,

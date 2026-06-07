@@ -42,6 +42,51 @@ final class FireListPaginationAndUpdateTests: XCTestCase {
         XCTAssertEqual(plan.reloads, [])
     }
 
+    func testTopicDetailCollectionUpdatePlanDefersReloadsForItemsShiftedByDeletion() {
+        let current = [
+            makeRuntimeItem(id: "a", contentToken: "1"),
+            makeRuntimeItem(id: "b", contentToken: "2"),
+            makeRuntimeItem(id: "c", contentToken: "3"),
+            makeRuntimeItem(id: "d", contentToken: "4"),
+            makeRuntimeItem(id: "removed", contentToken: "removed"),
+            makeRuntimeItem(id: "shifted", contentToken: "old"),
+        ]
+        let next = [
+            makeRuntimeItem(id: "a", contentToken: "1"),
+            makeRuntimeItem(id: "b", contentToken: "2"),
+            makeRuntimeItem(id: "c", contentToken: "3"),
+            makeRuntimeItem(id: "d", contentToken: "4"),
+            makeRuntimeItem(id: "shifted", contentToken: "new"),
+        ]
+
+        let plan = fireTopicDetailCollectionUpdatePlan(from: current, to: next)
+
+        XCTAssertEqual(plan.deletions, [IndexPath(item: 4, section: 0)])
+        XCTAssertEqual(plan.insertions, [])
+        XCTAssertEqual(plan.reloads, [])
+        XCTAssertEqual(plan.postUpdateReloads, [IndexPath(item: 4, section: 0)])
+    }
+
+    func testTopicDetailCollectionUpdatePlanDefersReloadsForItemsMovedByInsertDeleteDiff() {
+        let current = [
+            makeRuntimeItem(id: "a", contentToken: "old-a"),
+            makeRuntimeItem(id: "b", contentToken: "old-b"),
+            makeRuntimeItem(id: "c", contentToken: "old-c"),
+        ]
+        let next = [
+            makeRuntimeItem(id: "b", contentToken: "new-b"),
+            makeRuntimeItem(id: "a", contentToken: "old-a"),
+            makeRuntimeItem(id: "c", contentToken: "old-c"),
+        ]
+
+        let plan = fireTopicDetailCollectionUpdatePlan(from: current, to: next)
+
+        XCTAssertEqual(plan.deletions, [IndexPath(item: 0, section: 0)])
+        XCTAssertEqual(plan.insertions, [IndexPath(item: 1, section: 0)])
+        XCTAssertEqual(plan.reloads, [])
+        XCTAssertEqual(plan.postUpdateReloads, [IndexPath(item: 0, section: 0)])
+    }
+
     func testTopicDetailCollectionUpdatePlanRebuildsFooterWhenStateChanges() {
         let current = [
             makeRuntimeItem(id: "header", kind: .header, contentToken: "header"),

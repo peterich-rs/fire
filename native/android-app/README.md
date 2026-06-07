@@ -51,11 +51,13 @@ the shared Rust core at build time.
 
 ## Topic Detail
 
-`TopicDetailActivity` now loads a Rust-owned topic-detail source snapshot,
-builds a Rust-owned tree presentation from the loaded raw posts, and renders a
-`ConcatAdapter` made of the topic header, original post, reply rows, and a
-loading footer. Load-more is driven only by the Rust source cursor over raw
-`post_stream.stream`, not by host-managed row windows.
+`TopicDetailActivity` now loads Rust-owned `TopicDetailPageState` from the
+combined topic-detail page path, where the source snapshot carries the full
+posts and the slim tree presentation carries only post id / number plus
+hierarchy metadata. It renders a `ConcatAdapter` made of the topic header,
+original post, reply rows, and a loading footer. Load-more is driven only by the
+Rust source cursor over raw `post_stream.stream`, not by host-managed row
+windows.
 
 Current topic-detail interactions:
 
@@ -67,14 +69,30 @@ Current topic-detail interactions:
 - per-post custom reaction selection from Rust bootstrap-enabled reactions
 - topic and per-post bookmark create/update/delete through shared Rust
   notification bookmark APIs
-- topic edit and post edit through shared Rust mutation APIs
-- author/profile navigation through the app `fire://profile/{username}` route
-- cooked image attachment rendering with a full-screen native viewer
+- topic edit and post edit through shared Rust mutation APIs; post edit requires
+  server-provided raw text and does not derive editable text from `cooked`
+- author/profile taps, mentions, and profile links open the compact user sheet,
+  with a private-message entry when the backend allows it
+- rich text and image blocks rendered inline from Rust `RenderDocument` order,
+  without Android-side `post.cooked` parsing or render-document fallback, with
+  compact loading/error placeholders, manual retry, and a full-screen ZoomImage
+  + Coil preview that supports pinch/pan gestures and reuses the shared image
+  cache for the same URL
+- Rust filters attachment metadata text whose prefix may be a filename/hash but
+  whose suffix is dimensions plus file size, and quote chrome/avatar content
+  before Android maps blocks to `Spannable` / image views
+- quote previews render as shared two-line compact blocks, and onebox previews
+  display Rust-derived title/description without Android-side link-preview
+  fetching or HTML parsing
+- ordinary web links open the host-owned in-app WebView, while LinuxDo topic
+  links route to native topic detail
 - AI summary loading in the topic header when Rust reports summary availability,
   including retry and metadata display
 - topic vote / remove-vote plus topic voter lookup when the backend exposes
   topic voting
 - post poll display and regular/multiple poll vote submission/removal
+- poll option titles from Rust-provided plain text, without HTML parsing in the
+  row binding path
 - reaction-user lookup from the rendered post reaction summary
 - topic notification-level selection for non-private-message topics
 - reply-context lookup from the rendered reply target, showing source and
@@ -98,6 +116,11 @@ capability boundary.
 
 Android now keeps request-failure handling single-path:
 
+- First `FireSessionStore` / `FireAppCore` creation goes through the suspend
+  `FireSessionStoreRepository.get(context)` IO path before returning to UI
+  work, including startup preheat and other Fragment/Activity entry points.
+  Startup preheat logs timing fields for session-store get/create,
+  startup-session preparation, preloaded-data wait, and the login probe.
 - `LoginRequired` no longer auto-opens login UI and no longer triggers local
   logout side effects during ordinary request handling; navigation back to
   onboarding still depends on the authoritative Rust session snapshot.

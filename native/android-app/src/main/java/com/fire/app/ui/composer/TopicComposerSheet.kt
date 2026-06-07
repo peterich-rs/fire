@@ -78,45 +78,45 @@ class TopicComposerSheet : BottomSheetDialogFragment() {
         previewContainer = view.findViewById(R.id.topic_preview_container)
         progressBar = view.findViewById(R.id.topic_progress)
 
-        sessionStore = FireSessionStoreRepository.get(requireContext())
-        viewModel = ComposerViewModel.create(sessionStore)
-        previewRenderer = ComposerPreviewRenderer(
-            previewContainer,
-            sessionStore,
-            viewLifecycleOwner.lifecycleScope,
-        )
-
-        ComposerMentionAssist(
-            input = bodyInput,
-            suggestions = view.findViewById(R.id.topic_mention_suggestions),
-            sessionStore = sessionStore,
-            scope = viewLifecycleOwner.lifecycleScope,
-            includeGroups = true,
-            categoryIdProvider = { categories.getOrNull(categorySpinner.selectedItemPosition)?.id },
-        ).attach()
-        ComposerTagAssist(
-            input = tagsInput,
-            suggestions = view.findViewById(R.id.topic_tag_suggestions),
-            sessionStore = sessionStore,
-            scope = viewLifecycleOwner.lifecycleScope,
-            categoryIdProvider = { categories.getOrNull(categorySpinner.selectedItemPosition)?.id },
-            selectedTagsProvider = { tagValues() },
-        ).attach()
-        draftAutosave = ComposerDraftAutosave(
-            scope = viewLifecycleOwner.lifecycleScope,
-            saveDraft = { persistDraftIfNeeded() },
-            onSaveFailed = { error ->
-                FireErrorReporter.report(
-                    operation = "topic_composer.draft_autosave",
-                    error = error,
-                    sessionStore = sessionStore,
-                )
-            },
-        ).also { autosave ->
-            autosave.attach(titleInput, bodyInput, tagsInput)
-        }
-
         viewLifecycleOwner.lifecycleScope.launch {
+            sessionStore = FireSessionStoreRepository.get(requireContext())
+            viewModel = ComposerViewModel.create(sessionStore)
+            previewRenderer = ComposerPreviewRenderer(
+                previewContainer,
+                sessionStore,
+                viewLifecycleOwner.lifecycleScope,
+            )
+
+            ComposerMentionAssist(
+                input = bodyInput,
+                suggestions = view.findViewById(R.id.topic_mention_suggestions),
+                sessionStore = sessionStore,
+                scope = viewLifecycleOwner.lifecycleScope,
+                includeGroups = true,
+                categoryIdProvider = { categories.getOrNull(categorySpinner.selectedItemPosition)?.id },
+            ).attach()
+            ComposerTagAssist(
+                input = tagsInput,
+                suggestions = view.findViewById(R.id.topic_tag_suggestions),
+                sessionStore = sessionStore,
+                scope = viewLifecycleOwner.lifecycleScope,
+                categoryIdProvider = { categories.getOrNull(categorySpinner.selectedItemPosition)?.id },
+                selectedTagsProvider = { tagValues() },
+            ).attach()
+            draftAutosave = ComposerDraftAutosave(
+                scope = viewLifecycleOwner.lifecycleScope,
+                saveDraft = { persistDraftIfNeeded() },
+                onSaveFailed = { error ->
+                    FireErrorReporter.report(
+                        operation = "topic_composer.draft_autosave",
+                        error = error,
+                        sessionStore = sessionStore,
+                    )
+                },
+            ).also { autosave ->
+                autosave.attach(titleInput, bodyInput, tagsInput)
+            }
+
             val session = sessionStore.snapshot()
             baseUrl = session.bootstrap.baseUrl.ifBlank { "https://linux.do" }
             minTitleLength = session.bootstrap.minTopicTitleLength.toInt().coerceAtLeast(1)
@@ -155,71 +155,70 @@ class TopicComposerSheet : BottomSheetDialogFragment() {
             }
             restoreDraftIfAvailable()
             draftAutosave?.start()
-        }
 
-        uploadButton.setOnClickListener {
-            imagePicker.launch("image/*")
-        }
-        previewButton.setOnClickListener {
-            previewMode = !previewMode
-            updatePreviewMode()
-        }
-
-        submitButton.setOnClickListener {
-            val title = titleInput.text.toString()
-            val body = bodyInput.text.toString()
-            val tags = tagValues()
-            val category = categories.getOrNull(categorySpinner.selectedItemPosition)
-
-            if (title.length < minTitleLength) {
-                titleInput.error = getString(
-                    R.string.create_topic_title_min_length,
-                    minTitleLength.toString(),
-                )
-                return@setOnClickListener
+            uploadButton.setOnClickListener {
+                imagePicker.launch("image/*")
             }
-            if (body.length < minBodyLength) {
-                bodyInput.error = getString(
-                    R.string.create_topic_body_min_length,
-                    minBodyLength.toString(),
-                )
-                return@setOnClickListener
-            }
-            if (category == null) {
-                Toast.makeText(requireContext(), R.string.create_topic_no_categories, Toast.LENGTH_SHORT).show()
-                return@setOnClickListener
-            }
-            if (tags.size < category.minimumRequiredTags.toInt()) {
-                tagsInput.error = getString(
-                    R.string.create_topic_tags_required,
-                    category.minimumRequiredTags.toString(),
-                )
-                return@setOnClickListener
-            }
-            val disallowedTags = if (category.allowedTags.isEmpty()) {
-                emptyList()
-            } else {
-                tags.filterNot { tag -> category.allowedTags.contains(tag) }
-            }
-            if (disallowedTags.isNotEmpty()) {
-                tagsInput.error = getString(
-                    R.string.create_topic_tags_not_allowed,
-                    disallowedTags.joinToString(", "),
-                )
-                return@setOnClickListener
+            previewButton.setOnClickListener {
+                previewMode = !previewMode
+                updatePreviewMode()
             }
 
-            viewModel?.submitTopic(title, body, category.id, tags)
-        }
+            submitButton.setOnClickListener {
+                val title = titleInput.text.toString()
+                val body = bodyInput.text.toString()
+                val tags = tagValues()
+                val category = categories.getOrNull(categorySpinner.selectedItemPosition)
 
-        viewModel?.let { vm ->
-            viewLifecycleOwner.lifecycleScope.launch {
+                if (title.length < minTitleLength) {
+                    titleInput.error = getString(
+                        R.string.create_topic_title_min_length,
+                        minTitleLength.toString(),
+                    )
+                    return@setOnClickListener
+                }
+                if (body.length < minBodyLength) {
+                    bodyInput.error = getString(
+                        R.string.create_topic_body_min_length,
+                        minBodyLength.toString(),
+                    )
+                    return@setOnClickListener
+                }
+                if (category == null) {
+                    Toast.makeText(requireContext(), R.string.create_topic_no_categories, Toast.LENGTH_SHORT).show()
+                    return@setOnClickListener
+                }
+                if (tags.size < category.minimumRequiredTags.toInt()) {
+                    tagsInput.error = getString(
+                        R.string.create_topic_tags_required,
+                        category.minimumRequiredTags.toString(),
+                    )
+                    return@setOnClickListener
+                }
+                val disallowedTags = if (category.allowedTags.isEmpty()) {
+                    emptyList()
+                } else {
+                    tags.filterNot { tag -> category.allowedTags.contains(tag) }
+                }
+                if (disallowedTags.isNotEmpty()) {
+                    tagsInput.error = getString(
+                        R.string.create_topic_tags_not_allowed,
+                        disallowedTags.joinToString(", "),
+                    )
+                    return@setOnClickListener
+                }
+
+                viewModel?.submitTopic(title, body, category.id, tags)
+            }
+
+            viewModel?.let { vm ->
+                launch {
                 vm.isSubmitting.collectLatest { submitting ->
                     progressBar.visibility = if (submitting) View.VISIBLE else View.GONE
                     submitButton.isEnabled = !submitting && canCreateTopic
                 }
             }
-            viewLifecycleOwner.lifecycleScope.launch {
+                launch {
                 vm.topicCreated.collectLatest { topicId ->
                     if (topicId != null) {
                         didSubmit = true
@@ -230,7 +229,7 @@ class TopicComposerSheet : BottomSheetDialogFragment() {
                     }
                 }
             }
-            viewLifecycleOwner.lifecycleScope.launch {
+                launch {
                 vm.error.collectLatest { error ->
                     if (error != null) {
                         Toast.makeText(
@@ -240,6 +239,7 @@ class TopicComposerSheet : BottomSheetDialogFragment() {
                         ).show()
                     }
                 }
+            }
             }
         }
     }

@@ -32,6 +32,7 @@
     <string name="login_safe_browsing_blocked">Unsafe page blocked.</string>
     <string name="login_sync_error">Unable to sync login.</string>
     <string name="browser_title">Topic Browser</string>
+    <string name="in_app_web_title">Web Page</string>
     <string name="diagnostics_title">Diagnostics</string>
     <string name="diagnostics_subtitle">Readable app logs plus captured network request traces.</string>
     <string name="diagnostics_no_traces">No captured network requests yet.</string>
@@ -143,6 +144,9 @@
     <string name="topic_detail_ai_summary_new_posts">%1$s new replies</string>
     <string name="topic_detail_ai_summary_can_regenerate">can regenerate</string>
     <string name="topic_detail_image_attachment">Image attachment</string>
+    <string name="topic_detail_image_loading">Loading image...</string>
+    <string name="topic_detail_image_error">Unable to load image.</string>
+    <string name="topic_detail_image_retry">Retry image</string>
     <string name="topic_detail_no_replies">No replies yet.</string>
     <string name="topic_detail_replies_section">Replies</string>
     <string name="topic_detail_load_more_replies">Load more replies</string>

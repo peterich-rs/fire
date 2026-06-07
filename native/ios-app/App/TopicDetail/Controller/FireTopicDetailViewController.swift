@@ -2,7 +2,7 @@ import Combine
 import UIKit
 
 @MainActor
-final class FireTopicDetailViewController: UIViewController {
+final class FireTopicDetailViewController: UIViewController, UIGestureRecognizerDelegate {
     let viewModel: FireAppViewModel
     let topicDetailStore: FireTopicDetailStore
     let row: FireTopicRowPresentation
@@ -14,6 +14,16 @@ final class FireTopicDetailViewController: UIViewController {
     private let layoutManager = FirePostLayoutManager()
     private let quickReplyBarNode: FireTopicQuickReplyBarNode
     let rootNode: FireTopicDetailRootNode
+    private lazy var pageBackEdgePanGestureRecognizer: UIScreenEdgePanGestureRecognizer = {
+        let gesture = UIScreenEdgePanGestureRecognizer(
+            target: self,
+            action: #selector(handlePageBackEdgePan(_:))
+        )
+        gesture.edges = .left
+        gesture.cancelsTouchesInView = false
+        gesture.delegate = self
+        return gesture
+    }()
 
     private lazy var feedUpdatePipeline = FireTopicDetailFeedUpdatePipeline(
         feedController: feedController,
@@ -145,6 +155,8 @@ final class FireTopicDetailViewController: UIViewController {
 
     private var initialLoadTask: Task<Void, Never>?
     private var subscriptionTask: Task<Void, Never>?
+    private var snapshotBuildTask: Task<Void, Never>?
+    private var snapshotBuildGeneration: UInt64 = 0
     private var cancellables = Set<AnyCancellable>()
 
     private var expandedPostTextIDs: Set<UInt64> = []
@@ -185,6 +197,7 @@ final class FireTopicDetailViewController: UIViewController {
     deinit {
         initialLoadTask?.cancel()
         subscriptionTask?.cancel()
+        snapshotBuildTask?.cancel()
     }
 
     override func loadView() {
@@ -199,6 +212,7 @@ final class FireTopicDetailViewController: UIViewController {
         configureNavigationAppearance()
         toolbarCoordinator.configureNavigationItem(navigationItem)
         updateDismissButtonIfNeeded()
+        view.addGestureRecognizer(pageBackEdgePanGestureRecognizer)
         beginPageLifecycle()
         buildAndApplySnapshot()
     }
@@ -226,6 +240,7 @@ final class FireTopicDetailViewController: UIViewController {
         super.viewDidAppear(animated)
         navigationController?.interactivePopGestureRecognizer?.isEnabled =
             (navigationController?.viewControllers.count ?? 0) > 1
+        pageBackEdgePanGestureRecognizer.isEnabled = canNavigateBackFromTopicDetail
         Task {
             await timingTracker.setSceneActive(true)
         }
@@ -365,7 +380,7 @@ final class FireTopicDetailViewController: UIViewController {
             onDraftChanged: { [weak self] draft in
                 self?.replyDraft = draft
                 self?.quickReplyError = nil
-                self?.buildAndApplySnapshot()
+                self?.buildAndApplyChromeState()
             },
             onSubmit: { [weak self] in
                 self?.submitQuickReply()
@@ -408,6 +423,8 @@ final class FireTopicDetailViewController: UIViewController {
         initialLoadTask = nil
         subscriptionTask?.cancel()
         subscriptionTask = nil
+        snapshotBuildTask?.cancel()
+        snapshotBuildTask = nil
         cancellables.removeAll()
         topicDetailStore.setTopicDetailScrollInteractionActive(
             false,
@@ -452,6 +469,59 @@ final class FireTopicDetailViewController: UIViewController {
 
     private func dismissPresentedTopicDetail() {
         navigationController?.dismiss(animated: true)
+    }
+
+    private var needsPresentedRootEdgeDismissGesture: Bool {
+        (navigationController?.viewControllers.count ?? 0) <= 1
+            && (navigationController?.presentingViewController != nil || presentingViewController != nil)
+    }
+
+    private var canNavigateBackFromTopicDetail: Bool {
+        if let navigationController {
+            return navigationController.viewControllers.count > 1
+                || navigationController.presentingViewController != nil
+        }
+        return presentingViewController != nil
+    }
+
+    @objc private func handlePageBackEdgePan(_ gestureRecognizer: UIScreenEdgePanGestureRecognizer) {
+        guard gestureRecognizer.state == .ended,
+              canNavigateBackFromTopicDetail,
+              navigationController?.transitionCoordinator == nil else {
+            return
+        }
+        let translation = gestureRecognizer.translation(in: view)
+        let velocity = gestureRecognizer.velocity(in: view)
+        let horizontalDistance = max(translation.x, 0)
+        let horizontalVelocity = max(velocity.x, 0)
+        guard horizontalDistance > 72 || horizontalVelocity > 420,
+              max(abs(translation.x), abs(velocity.x)) > max(abs(translation.y), abs(velocity.y)) else {
+            return
+        }
+        navigateBackFromTopicDetail()
+    }
+
+    private func navigateBackFromTopicDetail() {
+        if let navigationController, navigationController.viewControllers.count > 1 {
+            navigationController.popViewController(animated: true)
+        } else if let navigationController {
+            navigationController.dismiss(animated: true)
+        } else {
+            dismiss(animated: true)
+        }
+    }
+
+    func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        guard gestureRecognizer === pageBackEdgePanGestureRecognizer,
+              let panGesture = gestureRecognizer as? UIScreenEdgePanGestureRecognizer else {
+            return true
+        }
+        guard canNavigateBackFromTopicDetail,
+              navigationController?.transitionCoordinator == nil else {
+            return false
+        }
+        let velocity = panGesture.velocity(in: view)
+        return velocity.x >= 0 && abs(velocity.x) >= abs(velocity.y)
     }
 
     private func configureNavigationAppearance() {
@@ -515,6 +585,24 @@ final class FireTopicDetailViewController: UIViewController {
                 self?.buildAndApplyChromeState()
             }
             .store(in: &cancellables)
+
+        topicDetailStore.$topicSidecarRevisions
+            .map { revisions in revisions[topicId] ?? 0 }
+            .removeDuplicates()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.buildAndApplySnapshot()
+            }
+            .store(in: &cancellables)
+
+        topicDetailStore.$topicInteractionRevisions
+            .map { revisions in revisions[topicId] ?? 0 }
+            .removeDuplicates()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.buildAndApplySnapshot()
+            }
+            .store(in: &cancellables)
     }
 
     private func subscribeToKeyboardNotifications() {
@@ -527,103 +615,208 @@ final class FireTopicDetailViewController: UIViewController {
             .store(in: &cancellables)
     }
 
-    private func buildCurrentPageState() -> FireTopicDetailPageState {
-        let topicId = row.topic.id
-        let store = topicDetailStore
-
-        return FireTopicDetailPageState(
-            detail: store.topicDetail(for: topicId),
-            renderState: store.topicRenderState(for: topicId),
-            postLookup: store.topicPostLookup(for: topicId),
-            topicAiSummary: store.topicAiSummary(for: topicId),
-            isLoadingTopic: store.isLoadingTopic(topicId: topicId),
-            isLoadingMoreTopicPosts: store.isLoadingMoreTopicPosts(topicId: topicId),
-            loadMoreTopicPostsError: store.loadMoreTopicPostsError(topicId: topicId),
-            isLoadingTopicAiSummary: store.isLoadingTopicAiSummary(topicId: topicId),
-            hasMoreTopicPosts: store.hasMoreTopicPosts(topicId: topicId),
-            detailError: store.errorMessage(for: topicId),
-            detailNotice: store.detailNotice(topicId: topicId),
-            topicAiSummaryError: store.topicAiSummaryError(for: topicId),
-            loadingPostReplyContextIDs: store.loadingPostReplyContextIDs,
-            mutatingPostIDs: store.mutatingPostIDs,
-            typingUsers: store.topicPresenceUsers(for: topicId),
-            topicCollectionRevision: store.topicCollectionRevision(topicId: topicId),
-            pendingScrollTarget: store.pendingScrollTarget(topicId: topicId),
+    private func buildCurrentRouteState(topicId: UInt64) -> FireTopicDetailRouteState {
+        let detail = topicDetailStore.topicDetail(for: topicId)
+        return FireTopicDetailRouteState(
             currentUsername: viewModel.session.bootstrap.currentUsername,
             baseURLString: baseURLString,
             canWriteInteractions: canWriteInteractions,
-            expandedPostTextIDs: expandedPostTextIDs,
-            expandedReplyRootPostIDs: expandedReplyRootPostIDs,
+            row: row,
+            displayedCategory: viewModel.categoryPresentation(for: detail?.categoryId ?? row.topic.categoryId)
+        )
+    }
+
+    private func buildCurrentFeedState(topicId: UInt64) -> FireTopicDetailFeedState {
+        let store = topicDetailStore
+        return FireTopicDetailFeedState(
+            detail: store.topicDetail(for: topicId),
+            renderState: store.topicRenderState(for: topicId),
+            postLookup: store.topicPostLookup(for: topicId),
+            isLoadingTopic: store.isLoadingTopic(topicId: topicId),
+            isLoadingMoreTopicPosts: store.isLoadingMoreTopicPosts(topicId: topicId),
+            loadMoreTopicPostsError: store.loadMoreTopicPostsError(topicId: topicId),
+            hasMoreTopicPosts: store.hasMoreTopicPosts(topicId: topicId),
+            detailError: store.errorMessage(for: topicId),
+            detailNotice: store.detailNotice(topicId: topicId),
+            topicCollectionRevision: store.topicCollectionRevision(topicId: topicId),
+            pendingScrollTarget: store.pendingScrollTarget(topicId: topicId)
+        )
+    }
+
+    private func buildCurrentChromeState(topicId: UInt64) -> FireTopicDetailChromeState {
+        FireTopicDetailChromeState(
+            detail: topicDetailStore.topicDetail(for: topicId),
+            row: row,
+            baseURLString: baseURLString,
+            canWriteInteractions: canWriteInteractions
+        )
+    }
+
+    private func buildCurrentComposerState(topicId: UInt64) -> FireTopicDetailComposerState {
+        FireTopicDetailComposerState(
+            typingUsers: topicDetailStore.topicPresenceUsers(for: topicId),
             composerContext: composerContext,
             replyDraft: replyDraft,
             quickReplyError: quickReplyError,
-            isSubmittingReply: store.isSubmittingReply(topicId: topicId),
+            isSubmittingReply: topicDetailStore.isSubmittingReply(topicId: topicId),
             minimumReplyLength: minimumReplyLength,
-            row: row,
-            displayedCategory: viewModel.categoryPresentation(for: detail?.categoryId ?? row.topic.categoryId)
+            canWriteInteractions: canWriteInteractions
+        )
+    }
+
+    private func buildCurrentSidecarState(topicId: UInt64) -> FireTopicDetailSidecarState {
+        FireTopicDetailSidecarState(
+            topicAiSummary: topicDetailStore.topicAiSummary(for: topicId),
+            isLoadingTopicAiSummary: topicDetailStore.isLoadingTopicAiSummary(topicId: topicId),
+            topicAiSummaryError: topicDetailStore.topicAiSummaryError(for: topicId)
+        )
+    }
+
+    private func buildCurrentInteractionState() -> FireTopicDetailInteractionState {
+        FireTopicDetailInteractionState(
+            mutatingPostIDs: topicDetailStore.mutatingPostIDs,
+            loadingPostReplyContextIDs: topicDetailStore.loadingPostReplyContextIDs,
+            expandedPostTextIDs: expandedPostTextIDs,
+            expandedReplyRootPostIDs: expandedReplyRootPostIDs
+        )
+    }
+
+    private func buildCurrentPageState() -> FireTopicDetailPageState {
+        let topicId = row.topic.id
+        return FireTopicDetailPageState(
+            feed: buildCurrentFeedState(topicId: topicId),
+            chrome: buildCurrentChromeState(topicId: topicId),
+            composer: buildCurrentComposerState(topicId: topicId),
+            sidecar: buildCurrentSidecarState(topicId: topicId),
+            interaction: buildCurrentInteractionState(),
+            route: buildCurrentRouteState(topicId: topicId)
         )
     }
 
     private func buildRuntimeConfiguration(from state: FireTopicDetailPageState) -> FireTopicDetailRuntimeConfiguration {
         FireTopicDetailRuntimeConfiguration(
             viewModel: viewModel,
-            displayedCategory: state.displayedCategory,
-            currentUsername: state.currentUsername,
-            row: state.row,
-            baseURLString: state.baseURLString,
-            detail: state.detail,
-            renderState: state.renderState,
-            pendingScrollTarget: state.pendingScrollTarget,
-            detailError: state.detailError,
-            detailNotice: state.detailNotice,
-            hasMoreTopicPosts: state.hasMoreTopicPosts,
-            isLoadingTopic: state.isLoadingTopic,
-            isLoadingMoreTopicPosts: state.isLoadingMoreTopicPosts,
-            loadMoreTopicPostsError: state.loadMoreTopicPostsError,
-            topicAiSummary: state.topicAiSummary,
-            isLoadingTopicAiSummary: state.isLoadingTopicAiSummary,
-            topicAiSummaryError: state.topicAiSummaryError,
-            topicCollectionRevision: state.topicCollectionRevision,
-            canWriteInteractions: state.canWriteInteractions,
-            postLookup: state.postLookup,
-            snapshotInvalidationToken: AnyHashable(FireTopicDetailPageInvalidationToken(
+            displayedCategory: state.route.displayedCategory,
+            currentUsername: state.route.currentUsername,
+            row: state.route.row,
+            baseURLString: state.route.baseURLString,
+            detail: state.feed.detail,
+            renderState: state.feed.renderState,
+            pendingScrollTarget: state.feed.pendingScrollTarget,
+            detailError: state.feed.detailError,
+            detailNotice: state.feed.detailNotice,
+            hasMoreTopicPosts: state.feed.hasMoreTopicPosts,
+            isLoadingTopic: state.feed.isLoadingTopic,
+            isLoadingMoreTopicPosts: state.feed.isLoadingMoreTopicPosts,
+            loadMoreTopicPostsError: state.feed.loadMoreTopicPostsError,
+            topicAiSummary: state.sidecar.topicAiSummary,
+            isLoadingTopicAiSummary: state.sidecar.isLoadingTopicAiSummary,
+            topicAiSummaryError: state.sidecar.topicAiSummaryError,
+            topicCollectionRevision: state.feed.topicCollectionRevision,
+            canWriteInteractions: state.route.canWriteInteractions,
+            postLookup: state.feed.postLookup,
+            interactionState: state.interaction,
+            snapshotInvalidationToken: AnyHashable(FireTopicDetailFeedInvalidationToken(
                 topicID: state.topic.id,
-                topicCollectionRevision: state.topicCollectionRevision,
-                pendingScrollTarget: state.pendingScrollTarget,
-                detailError: state.detailError ?? "",
-                detailNotice: state.detailNotice,
-                hasDetail: state.detail != nil,
-                isLoadingTopic: state.isLoadingTopic,
-                isLoadingMoreTopicPosts: state.isLoadingMoreTopicPosts,
-                loadMoreTopicPostsError: state.loadMoreTopicPostsError ?? "",
-                hasMoreTopicPosts: state.hasMoreTopicPosts,
-                canWriteInteractions: state.canWriteInteractions,
-                currentUsername: state.currentUsername ?? "",
-                baseURLString: state.baseURLString,
-                expandedPostTextIDs: state.expandedPostTextIDs,
-                expandedReplyRootPostIDs: state.expandedReplyRootPostIDs,
-                loadingPostReplyContextIDs: state.loadingPostReplyContextIDs
+                topicCollectionRevision: state.feed.topicCollectionRevision,
+                pendingScrollTarget: state.feed.pendingScrollTarget,
+                detailError: state.feed.detailError ?? "",
+                detailNotice: state.feed.detailNotice,
+                hasDetail: state.feed.detail != nil,
+                isLoadingTopic: state.feed.isLoadingTopic,
+                isLoadingMoreTopicPosts: state.feed.isLoadingMoreTopicPosts,
+                loadMoreTopicPostsError: state.feed.loadMoreTopicPostsError ?? "",
+                hasMoreTopicPosts: state.feed.hasMoreTopicPosts,
+                canWriteInteractions: state.route.canWriteInteractions,
+                currentUsername: state.route.currentUsername ?? "",
+                baseURLString: state.route.baseURLString,
+                expandedReplyRootPostIDs: state.interaction.expandedReplyRootPostIDs
             )),
             interactions: runtimeInteractions
         )
     }
 
     private func buildAndApplySnapshot() {
+        snapshotBuildGeneration &+= 1
+        let generation = snapshotBuildGeneration
         let pageState = buildCurrentPageState()
-        applyChromeState(from: pageState)
         let configuration = buildRuntimeConfiguration(from: pageState)
-        let snapshot = snapshotAssembler.buildSnapshot(from: pageState, configuration: configuration)
-        feedUpdatePipeline.apply(snapshot: snapshot, configuration: configuration)
+        let input = FireTopicDetailSnapshotInput(
+            configuration: configuration,
+            toolbarState: snapshotAssembler.makeToolbarState(from: pageState.chrome),
+            quickReplyState: snapshotAssembler.makeQuickReplyState(from: pageState.composer),
+            pendingScrollTarget: pageState.feed.pendingScrollTarget,
+            invalidationToken: configuration.snapshotInvalidationToken
+        )
+
+        applyChromeState(chrome: pageState.chrome, composer: pageState.composer)
+
+        snapshotBuildTask?.cancel()
+        snapshotBuildTask = Task.detached(priority: .userInitiated) { [weak self, snapshotAssembler, input, configuration, generation] in
+            let buildStartedAt = Date()
+            let snapshot = snapshotAssembler.buildSnapshot(from: input)
+            let buildDurationMs = Self.elapsedMilliseconds(since: buildStartedAt)
+
+            await MainActor.run { [weak self] in
+                guard let self,
+                      self.snapshotBuildGeneration == generation,
+                      !Task.isCancelled else {
+                    return
+                }
+                self.applyBuiltSnapshot(
+                    snapshot,
+                    configuration: configuration,
+                    buildDurationMs: buildDurationMs
+                )
+            }
+        }
     }
 
     private func buildAndApplyChromeState() {
-        let pageState = buildCurrentPageState()
-        applyChromeState(from: pageState)
+        let topicId = row.topic.id
+        applyChromeState(
+            chrome: buildCurrentChromeState(topicId: topicId),
+            composer: buildCurrentComposerState(topicId: topicId)
+        )
     }
 
-    private func applyChromeState(from pageState: FireTopicDetailPageState) {
-        toolbarCoordinator.apply(state: snapshotAssembler.makeToolbarState(from: pageState))
-        quickReplyBarNode.apply(state: snapshotAssembler.makeQuickReplyState(from: pageState))
+    private func applyChromeState(
+        chrome: FireTopicDetailChromeState,
+        composer: FireTopicDetailComposerState
+    ) {
+        toolbarCoordinator.apply(state: snapshotAssembler.makeToolbarState(from: chrome))
+        quickReplyBarNode.apply(state: snapshotAssembler.makeQuickReplyState(from: composer))
+    }
+
+    private func applyBuiltSnapshot(
+        _ snapshot: FireTopicDetailPageSnapshot,
+        configuration: FireTopicDetailRuntimeConfiguration,
+        buildDurationMs: Int64
+    ) {
+        let applyStartedAt = Date()
+        feedUpdatePipeline.apply(snapshot: snapshot, configuration: configuration)
+        let applyDurationMs = Self.elapsedMilliseconds(since: applyStartedAt)
+        logSnapshotApply(
+            snapshot: snapshot,
+            configuration: configuration,
+            buildDurationMs: buildDurationMs,
+            applyDurationMs: applyDurationMs
+        )
+    }
+
+    private func logSnapshotApply(
+        snapshot: FireTopicDetailPageSnapshot,
+        configuration: FireTopicDetailRuntimeConfiguration,
+        buildDurationMs: Int64,
+        applyDurationMs: Int64
+    ) {
+        viewModel.topicDetailLogger()?.debug(
+            "topic detail snapshot apply topic_id=\(topic.id) snapshot_build_ms=\(buildDurationMs) feed_apply_ms=\(applyDurationMs) snapshot_item_count=\(snapshot.items.count) topic_collection_revision=\(configuration.topicCollectionRevision) has_detail=\(configuration.detail != nil)"
+        )
+    }
+
+    nonisolated private static func elapsedMilliseconds(since startedAt: Date) -> Int64 {
+        Int64((Date().timeIntervalSince(startedAt) * 1_000).rounded())
     }
 
     private func handleLayoutRevisionChanged() {
@@ -700,7 +893,7 @@ final class FireTopicDetailViewController: UIViewController {
         timingTracker.recordInteraction()
 
         guard let route = FireRouteParser.parse(url: url) else {
-            UIApplication.shared.open(url)
+            modalRouter.presentWebLink(url)
             return
         }
 
@@ -740,7 +933,7 @@ final class FireTopicDetailViewController: UIViewController {
             replyToPostNumber: replyToPost?.postNumber,
             replyToUsername: replyToPost?.username
         )
-        buildAndApplySnapshot()
+        buildAndApplyChromeState()
         quickReplyBarNode.focusInput()
     }
 
@@ -763,8 +956,15 @@ final class FireTopicDetailViewController: UIViewController {
     }
 
     private func clearComposerTarget() {
+        let shouldKeepFocus = quickReplyBarNode.isInputFocused
         composerContext = nil
-        buildAndApplySnapshot()
+        buildAndApplyChromeState()
+        if shouldKeepFocus {
+            quickReplyBarNode.focusInput()
+            DispatchQueue.main.async { [weak self] in
+                self?.quickReplyBarNode.focusInput()
+            }
+        }
     }
 
     private func openAdvancedComposer() {
@@ -793,7 +993,7 @@ final class FireTopicDetailViewController: UIViewController {
                 self.replyDraft = ""
                 self.composerContext = nil
                 self.quickReplyError = nil
-                self.buildAndApplySnapshot()
+                self.buildAndApplyChromeState()
                 Task {
                     await self.loadTopicDetail(force: true)
                 }
@@ -808,19 +1008,19 @@ final class FireTopicDetailViewController: UIViewController {
         let trimmed = replyDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             quickReplyError = "回复内容不能为空。"
-            buildAndApplySnapshot()
+            buildAndApplyChromeState()
             return
         }
         guard trimmed.count >= minimumReplyLength else {
             quickReplyError = "回复至少需要 \(minimumReplyLength) 个字。"
-            buildAndApplySnapshot()
+            buildAndApplyChromeState()
             return
         }
 
         let topicId = composerContext?.topicId ?? topic.id
         let replyToPostNumber = composerContext?.replyToPostNumber
         quickReplyError = nil
-        buildAndApplySnapshot()
+        buildAndApplyChromeState()
 
         Task { @MainActor in
             do {
@@ -832,19 +1032,19 @@ final class FireTopicDetailViewController: UIViewController {
                 replyDraft = ""
                 composerContext = nil
                 quickReplyBarNode.resignInputFocus()
-                buildAndApplySnapshot()
+                buildAndApplyChromeState()
             } catch {
                 let message = error.localizedDescription
                 if message.localizedCaseInsensitiveContains("pending review") {
                     replyDraft = ""
                     composerContext = nil
                     quickReplyBarNode.resignInputFocus()
-                    buildAndApplySnapshot()
+                    buildAndApplyChromeState()
                     modalRouter.presentNotice(message: "回复已提交，等待审核。")
                     return
                 }
                 quickReplyError = message
-                buildAndApplySnapshot()
+                buildAndApplyChromeState()
             }
         }
     }

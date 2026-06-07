@@ -45,26 +45,32 @@ struct FireCookedImage: Identifiable, Hashable, Sendable {
 struct FireTopicPostRenderSignature: Hashable, Sendable {
     let sourceLength: Int
     let sourceChecksum: UInt64
-    let imageIDs: [String]
+    let segmentIDs: [String]
 
     var token: String {
         var parts: [String] = []
-        parts.reserveCapacity(imageIDs.count + 2)
+        parts.reserveCapacity(segmentIDs.count + 2)
         parts.append(String(sourceLength))
         parts.append(String(sourceChecksum, radix: 16))
-        parts.append(contentsOf: imageIDs)
+        parts.append(contentsOf: segmentIDs)
         return parts.joined(separator: ":")
     }
 
-    static func make(source: String, imageAttachments: [FireCookedImage]) -> Self {
+    static func make(
+        source: String,
+        imageAttachments: [FireCookedImage],
+        segments: [FireTopicPostRenderSegment] = []
+    ) -> Self {
         FireTopicPostRenderSignature(
             sourceLength: source.utf8.count,
             sourceChecksum: stableChecksum(source),
-            imageIDs: imageAttachments.map(\.id)
+            segmentIDs: segments.isEmpty
+                ? imageAttachments.map { "image:\($0.id)" }
+                : segments.map(\.signatureToken)
         )
     }
 
-    private static func stableChecksum(_ value: String) -> UInt64 {
+    fileprivate static func stableChecksum(_ value: String) -> UInt64 {
         var hash: UInt64 = 0xcbf29ce484222325
         for byte in value.utf8 {
             hash ^= UInt64(byte)
@@ -84,7 +90,28 @@ struct FireTopicPostRenderContent: @unchecked Sendable {
     let plainText: String
     let attributedText: NSAttributedString?
     let imageAttachments: [FireCookedImage]
+    let segments: [FireTopicPostRenderSegment]
     let signature: FireTopicPostRenderSignature
+}
+
+// NSAttributedString is immutable after construction and segment values are only read by the UI layer.
+enum FireTopicPostRenderSegment: @unchecked Sendable {
+    case text(NSAttributedString)
+    case image(FireCookedImage)
+
+    var signatureToken: String {
+        switch self {
+        case .text(let attributedText):
+            return "text:\(attributedText.string.utf8.count):\(FireTopicPostRenderSignature.stableChecksum(attributedText.string))"
+        case .image(let image):
+            return "image:\(image.id)"
+        }
+    }
+
+    var isImage: Bool {
+        if case .image = self { return true }
+        return false
+    }
 }
 
 struct FirePreparedTopicTimelineRow: Identifiable, Sendable {
@@ -131,7 +158,7 @@ struct FireTopicTimelineRowInput: Equatable, Sendable {
 }
 
 struct FireTopicPostRenderInput: Equatable, Sendable {
-    let cooked: String
+    let renderDocumentChecksum: UInt64?
 }
 
 struct FireTopicDetailRenderState: Sendable {
@@ -191,22 +218,36 @@ enum FireTopicPresentation {
         compactCount(UInt64(value))
     }
 
-    static func imageAttachments(from html: String, baseURLString: String) -> [FireCookedImage] {
-        guard !html.isEmpty else {
-            return []
+    static func imageAttachments(from document: RenderDocumentState) -> [FireCookedImage] {
+        FireRenderBlockNodeBuilder.build(document: document).imageAttachments
+    }
+
+    static func renderContent(
+        from document: RenderDocumentState,
+        sourceToken: String
+    ) -> FireTopicPostRenderContent {
+        let richContent = FireRenderBlockNodeBuilder.build(document: document)
+        return renderContent(from: richContent, source: sourceToken)
+    }
+
+    static func renderContent(from post: TopicPostState) -> FireTopicPostRenderContent? {
+        guard let document = post.renderDocument else {
+            return nil
         }
-
-        return FireRichTextParser.parse(html: html, baseURLString: baseURLString).imageAttachments
+        return renderContent(
+            from: document,
+            sourceToken: Self.renderInput(for: post).renderDocumentChecksum.map(String.init) ?? "missing"
+        )
     }
 
-    static func renderContent(from html: String, baseURLString: String) -> FireTopicPostRenderContent {
-        let richContent = FireRichTextParser.parse(html: html, baseURLString: baseURLString)
-        return renderContent(from: richContent, source: html)
+    private static func renderInput(for post: TopicPostState) -> FireTopicPostRenderInput {
+        FireTopicPostRenderInput(
+            renderDocumentChecksum: post.renderDocument.map(renderDocumentChecksum(_:))
+        )
     }
 
-    static func renderContent(from post: TopicPostState, baseURLString: String) -> FireTopicPostRenderContent {
-        let richContent = FireRichTextParser.parse(post: post, baseURLString: baseURLString)
-        return renderContent(from: richContent, source: post.cooked)
+    private static func renderDocumentChecksum(_ document: RenderDocumentState) -> UInt64 {
+        FireTopicPostRenderSignature.stableChecksum(String(reflecting: document))
     }
 
     private static func renderContent(
@@ -218,15 +259,194 @@ enum FireTopicPresentation {
                 from: richContent.nodes,
                 accentColor: FireTopicDetailCellColors.accent
             )
+        let segments = renderSegments(from: richContent)
         return FireTopicPostRenderContent(
             plainText: richContent.plainText,
             attributedText: attributedText,
             imageAttachments: richContent.imageAttachments,
+            segments: segments,
             signature: FireTopicPostRenderSignature.make(
                 source: source,
-                imageAttachments: richContent.imageAttachments
+                imageAttachments: richContent.imageAttachments,
+                segments: segments
             )
         )
+    }
+
+    private enum RawRenderSegment {
+        case nodes([FireRichTextNode])
+        case image(FireCookedImage)
+    }
+
+    private static func renderSegments(from richContent: FireRichTextContent) -> [FireTopicPostRenderSegment] {
+        var attachmentIndex = 0
+        let rawSegments = rawRenderSegments(
+            from: richContent.nodes,
+            imageAttachments: richContent.imageAttachments,
+            attachmentIndex: &attachmentIndex
+        )
+        return rawSegments.compactMap { segment in
+            switch segment {
+            case .nodes(let nodes):
+                guard !nodes.isEmpty else { return nil }
+                let attributedText = FireRichTextAttributedStringBuilder.build(
+                    from: nodes,
+                    accentColor: FireTopicDetailCellColors.accent
+                )
+                return attributedText.length > 0 ? .text(attributedText) : nil
+            case .image(let image):
+                return .image(image)
+            }
+        }
+    }
+
+    private static func rawRenderSegments(
+        from nodes: [FireRichTextNode],
+        imageAttachments: [FireCookedImage],
+        attachmentIndex: inout Int
+    ) -> [RawRenderSegment] {
+        var segments: [RawRenderSegment] = []
+        for node in nodes {
+            appendRawRenderSegments(
+                for: node,
+                to: &segments,
+                imageAttachments: imageAttachments,
+                attachmentIndex: &attachmentIndex
+            )
+        }
+        return segments
+    }
+
+    private static func appendRawRenderSegments(
+        for node: FireRichTextNode,
+        to segments: inout [RawRenderSegment],
+        imageAttachments: [FireCookedImage],
+        attachmentIndex: inout Int
+    ) {
+        switch node {
+        case .image(let src, let alt, let width, let height):
+            appendImageSegment(
+                src: src,
+                altText: alt,
+                width: width,
+                height: height,
+                to: &segments,
+                imageAttachments: imageAttachments,
+                attachmentIndex: &attachmentIndex
+            )
+        case .paragraph(let children):
+            appendContainerSegments(
+                children,
+                wrap: { .paragraph($0) },
+                to: &segments,
+                imageAttachments: imageAttachments,
+                attachmentIndex: &attachmentIndex
+            )
+        case .heading(let level, let children):
+            appendContainerSegments(
+                children,
+                wrap: { .heading(level: level, children: $0) },
+                to: &segments,
+                imageAttachments: imageAttachments,
+                attachmentIndex: &attachmentIndex
+            )
+        case .blockquote(let children):
+            appendContainerSegments(
+                children,
+                wrap: { .blockquote($0) },
+                to: &segments,
+                imageAttachments: imageAttachments,
+                attachmentIndex: &attachmentIndex
+            )
+        case .quote(let author, let postNumber, let topicId, let children):
+            appendContainerSegments(
+                children,
+                wrap: { .quote(author: author, postNumber: postNumber, topicId: topicId, children: $0) },
+                to: &segments,
+                imageAttachments: imageAttachments,
+                attachmentIndex: &attachmentIndex
+            )
+        case .details(let summary, let children):
+            let summaryNode = FireRichTextNode.details(summary: summary, children: [])
+            appendTextSegment([summaryNode], to: &segments)
+            appendContainerSegments(
+                children,
+                wrap: { .paragraph($0) },
+                to: &segments,
+                imageAttachments: imageAttachments,
+                attachmentIndex: &attachmentIndex
+            )
+        case .list(let ordered, let items):
+            for item in items {
+                appendContainerSegments(
+                    item,
+                    wrap: { .list(ordered: ordered, items: [$0]) },
+                    to: &segments,
+                    imageAttachments: imageAttachments,
+                    attachmentIndex: &attachmentIndex
+                )
+            }
+        default:
+            appendTextSegment([node], to: &segments)
+        }
+    }
+
+    private static func appendContainerSegments(
+        _ children: [FireRichTextNode],
+        wrap: ([FireRichTextNode]) -> FireRichTextNode,
+        to segments: inout [RawRenderSegment],
+        imageAttachments: [FireCookedImage],
+        attachmentIndex: inout Int
+    ) {
+        let childSegments = rawRenderSegments(
+            from: children,
+            imageAttachments: imageAttachments,
+            attachmentIndex: &attachmentIndex
+        )
+        for segment in childSegments {
+            switch segment {
+            case .nodes(let nodes):
+                appendTextSegment([wrap(nodes)], to: &segments)
+            case .image(let image):
+                appendImageSegment(image, to: &segments)
+            }
+        }
+    }
+
+    private static func appendImageSegment(
+        src: String,
+        altText: String?,
+        width: CGFloat?,
+        height: CGFloat?,
+        to segments: inout [RawRenderSegment],
+        imageAttachments: [FireCookedImage],
+        attachmentIndex: inout Int
+    ) {
+        defer { attachmentIndex += 1 }
+        if attachmentIndex < imageAttachments.count {
+            appendImageSegment(imageAttachments[attachmentIndex], to: &segments)
+            return
+        }
+        guard let url = URL(string: src) else {
+            return
+        }
+        appendImageSegment(
+            FireCookedImage(url: url, altText: altText, width: width, height: height),
+            to: &segments
+        )
+    }
+
+    private static func appendImageSegment(_ image: FireCookedImage, to segments: inout [RawRenderSegment]) {
+        segments.append(.image(image))
+    }
+
+    private static func appendTextSegment(_ nodes: [FireRichTextNode], to segments: inout [RawRenderSegment]) {
+        guard !nodes.isEmpty else { return }
+        if case .nodes(let existingNodes) = segments.last {
+            segments[segments.count - 1] = .nodes(existingNodes + nodes)
+        } else {
+            segments.append(.nodes(nodes))
+        }
     }
 
     static func detailRenderState(
@@ -256,9 +476,9 @@ enum FireTopicPresentation {
 
     private static func timelineRowInput(for treeRow: TopicTreeRowState) -> FireTopicTimelineRowInput {
         FireTopicTimelineRowInput(
-            postID: treeRow.post.id,
-            postNumber: treeRow.post.postNumber,
-            replyToPostNumber: treeRow.post.replyToPostNumber,
+            postID: treeRow.postId,
+            postNumber: treeRow.postNumber,
+            replyToPostNumber: treeRow.parentPostNumber,
             responseParentPostNumber: treeRow.parentPostNumber,
             responseDepth: treeRow.depth,
             responsePreorderIndex: treeRow.preorderIndex,
@@ -316,8 +536,8 @@ enum FireTopicPresentation {
     private static func replyTimelineRow(from treeRow: TopicTreeRowState) -> FirePreparedTopicTimelineRow {
         FirePreparedTopicTimelineRow(
             entry: FireTopicTimelineEntry(
-                postId: treeRow.post.id,
-                postNumber: treeRow.post.postNumber,
+                postId: treeRow.postId,
+                postNumber: treeRow.postNumber,
                 parentPostNumber: treeRow.parentPostNumber,
                 depth: UInt32(treeRow.depth),
                 isOriginalPost: false
@@ -340,7 +560,7 @@ enum FireTopicPresentation {
         let rowInputs = orderedPosts.map(timelineRowInput(for:))
         let contentInputsByPostID = Dictionary(
             orderedPosts.map { post in
-                (post.id, FireTopicPostRenderInput(cooked: post.cooked))
+                (post.id, renderInput(for: post))
             },
             uniquingKeysWith: { _, newest in newest }
         )
@@ -368,10 +588,7 @@ enum FireTopicPresentation {
                let cachedContent = previous?.renderState.contentByPostID[post.id] {
                 contentByPostID[post.id] = cachedContent
             } else {
-                contentByPostID[post.id] = renderContent(
-                    from: post,
-                    baseURLString: baseURLString
-                )
+                contentByPostID[post.id] = renderContent(from: post)
             }
         }
 
@@ -394,16 +611,17 @@ enum FireTopicPresentation {
         previous: FireTopicDetailRenderCache? = nil
     ) -> FireTopicDetailRenderCache {
         let normalizedReplyRows = uniqueTreeRowsPreservingOrder(treePresentation.replyRows).filter { row in
-            row.post.id != sourceSnapshot.body.post.id
+            row.postId != sourceSnapshot.body.post.id
         }
+        let postsByID = topicPostsByID([sourceSnapshot.body.post] + sourceSnapshot.loadedPosts)
         let orderedPosts = uniqueTopicPostsPreservingOrder(
-            [sourceSnapshot.body.post] + normalizedReplyRows.map(\.post)
+            [sourceSnapshot.body.post] + normalizedReplyRows.compactMap { postsByID[$0.postId] }
         )
         let rowInputs = [timelineRowInput(for: sourceSnapshot.body.post)]
             + normalizedReplyRows.map(timelineRowInput(for:))
         let contentInputsByPostID = Dictionary(
             orderedPosts.map { post in
-                (post.id, FireTopicPostRenderInput(cooked: post.cooked))
+                (post.id, renderInput(for: post))
             },
             uniquingKeysWith: { _, newest in newest }
         )
@@ -430,10 +648,7 @@ enum FireTopicPresentation {
                let cachedContent = previous?.renderState.contentByPostID[post.id] {
                 contentByPostID[post.id] = cachedContent
             } else {
-                contentByPostID[post.id] = renderContent(
-                    from: post,
-                    baseURLString: baseURLString
-                )
+                contentByPostID[post.id] = renderContent(from: post)
             }
         }
 
@@ -455,7 +670,7 @@ enum FireTopicPresentation {
         baseURLString: String,
         previous: FireTopicDetailRenderCache
     ) -> FireTopicDetailRenderCache? {
-        let originalInput = FireTopicPostRenderInput(cooked: sourceSnapshot.body.post.cooked)
+        let originalInput = renderInput(for: sourceSnapshot.body.post)
         guard !replyRows.isEmpty,
               previous.baseURLString == baseURLString,
               previous.rowInputs.first == timelineRowInput(for: sourceSnapshot.body.post),
@@ -478,19 +693,19 @@ enum FireTopicPresentation {
         var contentByPostID = previous.renderState.contentByPostID
         contentByPostID.reserveCapacity(contentByPostID.count + replyRows.count)
 
+        let postsByID = topicPostsByID([sourceSnapshot.body.post] + sourceSnapshot.loadedPosts)
         for treeRow in replyRows {
-            let post = treeRow.post
+            guard let post = postsByID[treeRow.postId] else {
+                return nil
+            }
             guard contentInputsByPostID[post.id] == nil else {
                 return nil
             }
 
             rowInputs.append(timelineRowInput(for: treeRow))
-            contentInputsByPostID[post.id] = FireTopicPostRenderInput(cooked: post.cooked)
+            contentInputsByPostID[post.id] = renderInput(for: post)
             preparedReplyRows.append(replyTimelineRow(from: treeRow))
-            contentByPostID[post.id] = renderContent(
-                from: post,
-                baseURLString: baseURLString
-            )
+            contentByPostID[post.id] = renderContent(from: post)
         }
 
         return FireTopicDetailRenderCache(
@@ -599,10 +814,10 @@ enum FireTopicPresentation {
         rowsByPostID.reserveCapacity(rows.count)
 
         for row in rows {
-            if rowsByPostID[row.post.id] == nil {
-                orderedPostIDs.append(row.post.id)
+            if rowsByPostID[row.postId] == nil {
+                orderedPostIDs.append(row.postId)
             }
-            rowsByPostID[row.post.id] = row
+            rowsByPostID[row.postId] = row
         }
 
         return orderedPostIDs.compactMap { rowsByPostID[$0] }

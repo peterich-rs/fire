@@ -1,117 +1,60 @@
 import Foundation
 
-/// Controller-local page state for the topic-detail screen.
-///
-/// Combines store-backed data snapshots with page-local ephemeral UI state.
-/// The controller builds a new `FireTopicDetailPageState` whenever relevant
-/// store publications arrive, then hands it to `FireTopicDetailSnapshotAssembler`
-/// to produce an immutable render snapshot.
-///
-/// All stored values are value types so that the assembler can safely compare
-/// them across snapshot cycles without coordination.
-struct FireTopicDetailPageState {
+/// Store-backed data that can change the structural topic-detail feed.
+struct FireTopicDetailFeedState {
 
-    // MARK: - Store-Backed Entity State
-
-    /// Current loaded topic detail, or `nil` if not yet loaded.
     let detail: TopicDetailState?
-
-    /// Precise layout + presentation render state, or `nil` if not yet available.
     let renderState: FireTopicDetailRenderState?
-
-    /// Post lookup keyed by post ID, built from the loaded post stream.
     let postLookup: [UInt64: TopicPostState]
-
-    /// AI summary for the topic, or `nil` if not loaded or unavailable.
-    let topicAiSummary: TopicAiSummaryState?
-
-    // MARK: - Store-Backed Loading Flags
-
     let isLoadingTopic: Bool
     let isLoadingMoreTopicPosts: Bool
     let loadMoreTopicPostsError: String?
-    let isLoadingTopicAiSummary: Bool
     let hasMoreTopicPosts: Bool
-
-    // MARK: - Store-Backed Notices and Errors
-
     let detailError: String?
     let detailNotice: FireTopicDetailStatusMessage?
-    let topicAiSummaryError: String?
-
-    // MARK: - Store-Backed Per-Item State
-
-    /// IDs of posts whose reply context is currently loading.
-    let loadingPostReplyContextIDs: Set<UInt64>
-
-    /// IDs of posts currently accepting a mutation request.
-    let mutatingPostIDs: Set<UInt64>
-
-    /// Presence users actively typing in this topic.
-    let typingUsers: [TopicPresenceUserState]
-
-    // MARK: - Store-Backed Revision Token
-
-    /// Opaque revision token that bumps on any entity or loading-flag change.
     let topicCollectionRevision: UInt64
-
-    // MARK: - Route and Scroll State
-
-    /// Pending post-number scroll target, if any.
     let pendingScrollTarget: UInt32?
-
-    // MARK: - Page-Local Session State
-
-    /// Current username from the session bootstrap.
-    let currentUsername: String?
-
-    /// Base URL for rendering links and share URLs.
-    let baseURLString: String
-
-    /// Whether the current session can perform write interactions.
-    let canWriteInteractions: Bool
-
-    // MARK: - Page-Local Ephemeral UI State
-
-    /// Set of post IDs whose overflow text the reader has explicitly expanded.
-    let expandedPostTextIDs: Set<UInt64>
-
-    /// Set of post IDs whose reply-root thread the reader has expanded.
-    let expandedReplyRootPostIDs: Set<UInt64>
-
-    /// Current quick-reply composer context.
-    let composerContext: FireReplyComposerContext?
-
-    /// Current quick-reply draft text.
-    let replyDraft: String
-
-    /// Current quick-reply validation or submission error.
-    let quickReplyError: String?
-
-    /// Whether the quick-reply action is currently in flight.
-    let isSubmittingReply: Bool
-
-    /// Minimum reply length enforced by the current session.
-    let minimumReplyLength: Int
-
-    // MARK: - Route Inputs (immutable per-page constants)
-
-    /// The original topic row from the navigation route.
-    let row: FireTopicRowPresentation
-
-    /// Category presentation for the topic's category, if available.
-    let displayedCategory: FireTopicCategoryPresentation?
-
-    // MARK: - Convenience
-
-    var topic: TopicSummaryState {
-        row.topic
-    }
 }
 
-// MARK: - Predicate Helpers
+/// Toolbar-level state. Changes here should not rebuild feed items.
+struct FireTopicDetailChromeState {
+    let detail: TopicDetailState?
+    let row: FireTopicRowPresentation
+    let baseURLString: String
+    let canWriteInteractions: Bool
+}
 
-extension FireTopicDetailPageState {
+/// Quick-reply state. Typing and validation changes should only apply chrome.
+struct FireTopicDetailComposerState {
+    let typingUsers: [TopicPresenceUserState]
+    let composerContext: FireReplyComposerContext?
+    let replyDraft: String
+    let quickReplyError: String?
+    let isSubmittingReply: Bool
+    let minimumReplyLength: Int
+    let canWriteInteractions: Bool
+}
+
+/// Sidecar state rendered outside the core post stream.
+struct FireTopicDetailSidecarState {
+    let topicAiSummary: TopicAiSummaryState?
+    let isLoadingTopicAiSummary: Bool
+    let topicAiSummaryError: String?
+}
+
+/// Per-item interaction state used for targeted item refresh and visible-node updates.
+struct FireTopicDetailInteractionState: Equatable {
+    let mutatingPostIDs: Set<UInt64>
+    let loadingPostReplyContextIDs: Set<UInt64>
+    let expandedPostTextIDs: Set<UInt64>
+    let expandedReplyRootPostIDs: Set<UInt64>
+
+    static let empty = FireTopicDetailInteractionState(
+        mutatingPostIDs: [],
+        loadingPostReplyContextIDs: [],
+        expandedPostTextIDs: [],
+        expandedReplyRootPostIDs: []
+    )
 
     func isMutatingPost(_ postID: UInt64) -> Bool {
         mutatingPostIDs.contains(postID)
@@ -128,4 +71,51 @@ extension FireTopicDetailPageState {
     func isLoadingPostReplyContext(_ postID: UInt64) -> Bool {
         loadingPostReplyContextIDs.contains(postID)
     }
+}
+
+/// Route/session constants needed by feed construction.
+struct FireTopicDetailRouteState {
+    let currentUsername: String?
+    let baseURLString: String
+    let canWriteInteractions: Bool
+    let row: FireTopicRowPresentation
+    let displayedCategory: FireTopicCategoryPresentation?
+
+    var topic: TopicSummaryState {
+        row.topic
+    }
+}
+
+/// Controller-local page state for the topic-detail screen.
+///
+/// The controller keeps feed, chrome, composer, sidecar, and interaction state
+/// as separate domains so local UI changes can apply only the affected surface.
+struct FireTopicDetailPageState {
+
+    let feed: FireTopicDetailFeedState
+    let chrome: FireTopicDetailChromeState
+    let composer: FireTopicDetailComposerState
+    let sidecar: FireTopicDetailSidecarState
+    let interaction: FireTopicDetailInteractionState
+    let route: FireTopicDetailRouteState
+
+    var topic: TopicSummaryState {
+        route.topic
+    }
+
+    var detail: TopicDetailState? {
+        feed.detail
+    }
+
+    var pendingScrollTarget: UInt32? {
+        feed.pendingScrollTarget
+    }
+}
+
+struct FireTopicDetailSnapshotInput: @unchecked Sendable {
+    let configuration: FireTopicDetailRuntimeConfiguration
+    let toolbarState: FireTopicDetailToolbarState
+    let quickReplyState: FireTopicDetailQuickReplyState
+    let pendingScrollTarget: UInt32?
+    let invalidationToken: AnyHashable
 }

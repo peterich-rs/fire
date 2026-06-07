@@ -449,7 +449,7 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
         XCTAssertNil(configuration.scrollItem(for: missingReply.postNumber))
     }
 
-    func testOriginalPostContextFallsBackToPlainTextWhenAttributedTextIsMissing() {
+    func testOriginalPostContextUsesRenderPlainTextWhenAttributedTextIsMissing() {
         let original = makePost(id: 100, postNumber: 1, username: "alice")
         let renderState = FireTopicDetailRenderState(
             originalRow: makeTimelineRow(post: original, depth: 0, isOriginalPost: true),
@@ -459,8 +459,9 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
                     plainText: "Original plain text",
                     attributedText: nil,
                     imageAttachments: [],
+                    segments: [],
                     signature: FireTopicPostRenderSignature.make(
-                        source: original.cooked,
+                        source: "render-document-test-token",
                         imageAttachments: []
                     )
                 )
@@ -476,10 +477,11 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
         )
         let context = item.flatMap(configuration.postContext(for:))
 
-        XCTAssertEqual(context?.renderContent.attributedText?.string, "Original plain text")
+        XCTAssertEqual(context?.renderContent.plainText, "Original plain text")
+        XCTAssertNil(context?.renderContent.attributedText)
     }
 
-    func testOriginalPostContextFallsBackToDetailPostWhileRenderStateIsPending() throws {
+    func testOriginalPostContextIsUnavailableWhileRenderStateIsPending() throws {
         let original = makePost(id: 100, postNumber: 1, username: "alice")
         let configuration = makeConfiguration(
             detail: makeTopicDetail(posts: [original]),
@@ -490,19 +492,22 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
         let item = try XCTUnwrap(
             configuration.makeSnapshot().items.first(where: { $0.kind == .originalPost })
         )
-        let context = try XCTUnwrap(configuration.postContext(for: item))
 
-        XCTAssertEqual(context.post.id, original.id)
-        XCTAssertEqual(context.post.postNumber, original.postNumber)
-        XCTAssertEqual(context.renderContent.plainText, "alice")
-        XCTAssertEqual(context.renderContent.attributedText?.string, "alice")
+        XCTAssertNil(configuration.postContext(for: item))
     }
 
     func testOriginalPostContextDoesNotShowInlineDivider() throws {
         let original = makePost(id: 100, postNumber: 1, username: "alice")
+        let renderState = FireTopicDetailRenderState(
+            originalRow: makeTimelineRow(post: original, depth: 0, isOriginalPost: true),
+            replyRows: [],
+            contentByPostID: [
+                original.id: makeRenderContent("alice"),
+            ]
+        )
         let configuration = makeConfiguration(
             detail: makeTopicDetail(posts: [original]),
-            renderState: nil,
+            renderState: renderState,
             postLookup: [original.id: original]
         )
 
@@ -567,6 +572,92 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
             hasCurrentItems: true,
             itemsHaveSameRenderedContent: false
         ))
+    }
+
+    func testComposerDraftChangeDoesNotChangeFeedInvalidationToken() {
+        let feedToken = FireTopicDetailFeedInvalidationToken(
+            topicID: 42,
+            topicCollectionRevision: 7,
+            pendingScrollTarget: nil,
+            detailError: "",
+            detailNotice: nil,
+            hasDetail: true,
+            isLoadingTopic: false,
+            isLoadingMoreTopicPosts: false,
+            loadMoreTopicPostsError: "",
+            hasMoreTopicPosts: true,
+            canWriteInteractions: true,
+            currentUsername: "alice",
+            baseURLString: "https://linux.do",
+            expandedReplyRootPostIDs: []
+        )
+        let firstComposerToken = FireTopicDetailComposerInvalidationToken(
+            canWriteInteractions: true,
+            typingUsernames: [],
+            composerContextID: nil,
+            replyDraft: "",
+            quickReplyError: nil,
+            isSubmittingReply: false,
+            minimumReplyLength: 5
+        )
+        let secondComposerToken = FireTopicDetailComposerInvalidationToken(
+            canWriteInteractions: true,
+            typingUsernames: [],
+            composerContextID: nil,
+            replyDraft: "typing",
+            quickReplyError: nil,
+            isSubmittingReply: false,
+            minimumReplyLength: 5
+        )
+
+        XCTAssertEqual(feedToken, feedToken)
+        XCTAssertNotEqual(firstComposerToken, secondComposerToken)
+    }
+
+    func testChromeAndSidecarTokensAreIndependentFromFeedToken() {
+        let feedToken = FireTopicDetailFeedInvalidationToken(
+            topicID: 42,
+            topicCollectionRevision: 3,
+            pendingScrollTarget: nil,
+            detailError: "",
+            detailNotice: nil,
+            hasDetail: true,
+            isLoadingTopic: false,
+            isLoadingMoreTopicPosts: false,
+            loadMoreTopicPostsError: "",
+            hasMoreTopicPosts: false,
+            canWriteInteractions: true,
+            currentUsername: "alice",
+            baseURLString: "https://linux.do",
+            expandedReplyRootPostIDs: []
+        )
+        let changedChromeToken = FireTopicDetailChromeInvalidationToken(
+            topicID: 42,
+            title: "Fire Native",
+            slug: "fire-native",
+            bookmarked: true,
+            canWriteInteractions: true,
+            canEditTopic: true,
+            archetype: nil,
+            notificationLevel: 3,
+            baseURLString: "https://linux.do"
+        )
+        let loadingSidecarToken = FireTopicDetailSidecarInvalidationToken(
+            topicAiSummaryToken: "",
+            isLoadingTopicAiSummary: true,
+            topicAiSummaryError: ""
+        )
+        let interactionToken = FireTopicDetailInteractionInvalidationToken(
+            mutatingPostIDs: [100],
+            loadingPostReplyContextIDs: [200],
+            expandedPostTextIDs: [300],
+            expandedReplyRootPostIDs: [400]
+        )
+
+        XCTAssertEqual(feedToken.topicCollectionRevision, 3)
+        XCTAssertTrue(changedChromeToken.bookmarked)
+        XCTAssertTrue(loadingSidecarToken.isLoadingTopicAiSummary)
+        XCTAssertEqual(interactionToken.mutatingPostIDs, [100])
     }
 
     func testAnimatedUpdatePolicyAllowsOnlySmallIdleAttachedUpdates() {
@@ -683,7 +774,13 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
         expandedReplyRootPostIDs: Set<UInt64> = [],
         loadingReplyContextPostIDs: Set<UInt64> = []
     ) -> FireTopicDetailRuntimeConfiguration {
-        FireTopicDetailRuntimeConfiguration(
+        let interactionState = FireTopicDetailInteractionState(
+            mutatingPostIDs: [],
+            loadingPostReplyContextIDs: loadingReplyContextPostIDs,
+            expandedPostTextIDs: [],
+            expandedReplyRootPostIDs: expandedReplyRootPostIDs
+        )
+        return FireTopicDetailRuntimeConfiguration(
             viewModel: nil,
             displayedCategory: nil,
             currentUsername: nil,
@@ -704,6 +801,7 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
             topicCollectionRevision: 1,
             canWriteInteractions: true,
             postLookup: postLookup,
+            interactionState: interactionState,
             snapshotInvalidationToken: AnyHashable("test"),
             interactions: FireTopicDetailRuntimeInteractions(
                 isMutatingPost: { _ in false },
@@ -868,13 +966,14 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
         reactions: [TopicReactionState] = [],
         replyToPostNumber: UInt32? = nil
     ) -> TopicPostState {
-        TopicPostState(
+        let cooked = "<p>\(username)</p>"
+        return TopicPostState(
             id: id,
             username: username,
             name: nil,
             avatarTemplate: nil,
-            cooked: "<p>\(username)</p>",
-            renderDocument: nil,
+            cooked: cooked,
+            renderDocument: renderCookedHtml(rawHtml: cooked, baseUrl: "https://linux.do"),
             raw: username,
             postNumber: postNumber,
             postType: 1,
@@ -923,6 +1022,7 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
             plainText: plainText,
             attributedText: nil,
             imageAttachments: [],
+            segments: [],
             signature: FireTopicPostRenderSignature.make(source: plainText, imageAttachments: [])
         )
     }

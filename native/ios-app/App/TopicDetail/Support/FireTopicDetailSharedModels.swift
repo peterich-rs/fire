@@ -99,9 +99,9 @@ struct FireTopicFilterRoute: Identifiable, Hashable {
     }
 }
 
-// MARK: - Runtime Invalidation Token
+// MARK: - Runtime Invalidation Tokens
 
-struct FireTopicDetailPageInvalidationToken: Hashable {
+struct FireTopicDetailFeedInvalidationToken: Hashable {
     let topicID: UInt64
     let topicCollectionRevision: UInt64
     let pendingScrollTarget: UInt32?
@@ -115,9 +115,42 @@ struct FireTopicDetailPageInvalidationToken: Hashable {
     let canWriteInteractions: Bool
     let currentUsername: String
     let baseURLString: String
+    let expandedReplyRootPostIDs: Set<UInt64>
+}
+
+struct FireTopicDetailChromeInvalidationToken: Hashable {
+    let topicID: UInt64
+    let title: String
+    let slug: String
+    let bookmarked: Bool
+    let canWriteInteractions: Bool
+    let canEditTopic: Bool
+    let archetype: String?
+    let notificationLevel: Int32?
+    let baseURLString: String
+}
+
+struct FireTopicDetailComposerInvalidationToken: Hashable {
+    let canWriteInteractions: Bool
+    let typingUsernames: [String]
+    let composerContextID: String?
+    let replyDraft: String
+    let quickReplyError: String?
+    let isSubmittingReply: Bool
+    let minimumReplyLength: Int
+}
+
+struct FireTopicDetailSidecarInvalidationToken: Hashable {
+    let topicAiSummaryToken: String
+    let isLoadingTopicAiSummary: Bool
+    let topicAiSummaryError: String
+}
+
+struct FireTopicDetailInteractionInvalidationToken: Hashable {
+    let mutatingPostIDs: Set<UInt64>
+    let loadingPostReplyContextIDs: Set<UInt64>
     let expandedPostTextIDs: Set<UInt64>
     let expandedReplyRootPostIDs: Set<UInt64>
-    let loadingPostReplyContextIDs: Set<UInt64>
 }
 
 // MARK: - Topic Notification Level

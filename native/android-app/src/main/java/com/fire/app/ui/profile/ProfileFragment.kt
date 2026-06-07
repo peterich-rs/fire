@@ -53,34 +53,37 @@ class ProfileFragment : Fragment() {
         bookmarksButton = view.findViewById(R.id.bookmarks_button)
         privateMessagesButton = view.findViewById(R.id.private_messages_button)
 
-        val sessionStore = FireSessionStoreRepository.get(requireContext())
-        viewModel = ViewModelProvider(this, ProfileViewModelFactory(sessionStore))[ProfileViewModel::class.java]
-
-        adapter = ProfileAdapter(
-            onFollowClick = { viewModel?.toggleFollow() },
-            onMessageClick = { profile -> showPrivateMessageComposer(profile) },
-            onTopicClick = { topic ->
-                TopicDetailActivity.start(
-                    context = requireContext(),
-                    topicId = topic.id.toLong(),
-                    topicTitle = topic.title,
-                )
-            },
-        )
-        recyclerView.layoutManager = LinearLayoutManager(requireContext())
-        recyclerView.adapter = adapter
-
-        observeViewModel()
-
-        requestedUsername = ProfileFragmentArgs.fromBundle(requireArguments()).username
         viewLifecycleOwner.lifecycleScope.launch {
+            val sessionStore = FireSessionStoreRepository.get(requireContext())
+            viewModel = ViewModelProvider(
+                this@ProfileFragment,
+                ProfileViewModelFactory(sessionStore),
+            )[ProfileViewModel::class.java]
+
+            adapter = ProfileAdapter(
+                onFollowClick = { viewModel?.toggleFollow() },
+                onMessageClick = { profile -> showPrivateMessageComposer(profile) },
+                onTopicClick = { topic ->
+                    TopicDetailActivity.start(
+                        context = requireContext(),
+                        topicId = topic.id.toLong(),
+                        topicTitle = topic.title,
+                    )
+                },
+            )
+            recyclerView.layoutManager = LinearLayoutManager(requireContext())
+            recyclerView.adapter = adapter
+
+            observeViewModel()
+
+            requestedUsername = ProfileFragmentArgs.fromBundle(requireArguments()).username
             currentUsername = runCatching {
                 sessionStore.snapshot().bootstrap.currentUsername
             }.getOrNull()
             updateProfileRows()
+            setupNavigation(requestedUsername)
+            viewModel?.loadProfile(requestedUsername)
         }
-        setupNavigation(requestedUsername)
-        viewModel?.loadProfile(requestedUsername)
     }
 
     private fun observeViewModel() {

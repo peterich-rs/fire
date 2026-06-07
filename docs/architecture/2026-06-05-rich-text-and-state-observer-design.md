@@ -4,7 +4,7 @@
 > 状态: Implemented
 > 范围: `fire-rich-text`、UniFFI 富文本/observer 边界、iOS/Android 双端接入
 > 结论: 富文本语义已收口到 Rust；StateObserver 已落到当前可稳定消费的 snapshot 边界；未引入并行渲染路径或平台回退路径
-> 备注: 文中早期提到的 `TopicDetailFeedSnapshotState` 已在 2026-06-06 的 topic-detail source/presentation 收口中被 `TopicDetailSourceSnapshotState + TopicTreePresentationState` 取代；本文件保留为富文本与 observer 设计的历史实现记录。
+> 备注: 文中早期提到的 `TopicDetailFeedSnapshotState` 已在 2026-06-06 的 topic-detail source/presentation 收口中被 `TopicDetailSourceSnapshotState + TopicTreePresentationState` 取代；2026-06-07 起 topic-detail poll option 纯文本也由 Rust payload 提供，平台 cell/layout 路径不再同步解析 option HTML；本文件保留为富文本与 observer 设计的历史实现记录。
 
 ---
 
@@ -18,7 +18,7 @@
   - `fire-models::RenderBlock`
   - `fire-models::RenderDocument`
   - `fire-models::RenderImageAttachment`
-- `fire-core` 新增 `render_cooked_html(raw_html, base_url)`，保留 `parse_cooked_html(raw_html)` 兼容旧 AST 调试/测试路径
+- `fire-core` 新增 `render_cooked_html(raw_html, base_url)`；`parse_cooked_html(raw_html)` 是 Rust 内部 parser / AST 单测入口，不是平台渲染入口
 
 ### 1.2 FFI 边界
 
@@ -37,15 +37,15 @@
 ### 1.3 双端接入
 
 - iOS:
-  - `FireRichTextParser` 不再消费 `CookedHtmlDocumentState`
-  - 改为消费 `RenderDocumentState`
+  - 删除平台侧 cooked HTML 解析路径
+  - 只消费 `TopicPostState.render_document` / `RenderDocumentState`
   - `FireRenderBlockNodeBuilder` 负责 `RenderDocumentState -> [FireRichTextNode]` 的轻映射
-  - `FireTopicPresentation.renderContent(from post:)` 优先使用 `TopicPostState.renderDocument`
+  - `FireTopicPresentation.renderContent(from post:)` 缺少 `renderDocument` 时返回空，不再从 `post.cooked` 生成正文 fallback
 - Android:
-  - `FireRichTextParser` 不再消费 `CookedHtmlDocumentState`
-  - 改为消费 `RenderDocumentState`
+  - 删除平台侧 cooked HTML 解析路径
+  - 只消费 `TopicPostState.render_document` / `RenderDocumentState`
   - `FireRenderBlockBuilder` 负责 `RenderDocumentState -> [FireRichTextNode]` 的轻映射
-  - `PostViewHolder` / `TopicDetailViewModel` 优先使用 `TopicPostState.renderDocument`
+  - `PostViewHolder` / `TopicDetailViewModel` 缺少 `renderDocument` 时不显示伪造正文，不再从 `post.cooked` 生成正文 fallback
 
 ### 1.4 StateObserver
 
@@ -57,6 +57,12 @@
   - `SessionState`
   - `TopicListState`
   - `NotificationCenterState`
+
+### 1.5 Topic detail poll option boundary
+
+- `PollOption` / `PollOptionState` 现在携带 Rust 侧生成的 `plain_text` / `plainText`。
+- iOS `FirePostPollRenderModel` 和 Android `PostViewHolder` 直接消费这个纯文本标题，空值才回退到 option id。
+- poll-bearing cell configure、layout key、layout precompute 路径不得调用 `render_cooked_html` 或任何平台 HTML parser 来同步解析 option HTML。
 
 ---
 
@@ -104,6 +110,7 @@ pub struct RenderBlock {
 
 - 平台端只做轻映射
 - quote/details/emoji/attachment/lightbox 规则只有 Rust 一处
+- onebox 标题/描述提取也只有 Rust 一处，平台不抓取或解析 Open Graph / HTML preview
 - 现有 iOS `NSAttributedString` / Android `Spannable` 渲染器可以直接复用
 
 ### 2.3 图片附件提取也回到 Rust
@@ -116,6 +123,19 @@ pub struct RenderBlock {
 - 宽高在 Rust 侧标准化成 `Option<u32>`
 
 平台端不再各自维护一套附件提取和去重规则。
+
+2026-06-07 起，双端 topic detail 不再把 `image_attachments` 当成“文末附件区”单独追加。平台仍从
+`RenderBlockKind::Image` 保留图片在正文中的顺序，但图片展示 URL 以 Rust 生成的
+`RenderDocument.image_attachments` 为准：lightbox / generic linked image 场景优先使用 original URL，
+正文缩略展示和点击预览因此共享同一个缓存键。平台端只负责按节点顺序切分 text/image segment、选择显示尺寸、
+展示加载/失败/重试状态，以及打开原生图片预览。
+
+图片附件旁的上传元信息 chrome 也只在 Rust 侧过滤。匹配规则不依赖 `image` 这种固定前缀，前缀可以是文件名、
+hash 或其他服务器输出字符串；只有末尾满足“尺寸 + 文件大小”的附件说明会被剥离，普通 caption / 正文文本必须保留。
+
+Quote / onebox preview 的语义同样在 Rust 侧收口。Rust 会移除 Discourse quote chrome/avatar，并从 onebox
+节点树提取标题与描述；iOS / Android 只负责把共享节点映射成两行以内的 compact quote preview、可点击链接和原生
+onebox 文本展示，不保留平台侧 link-preview fetcher 或 HTML fallback。
 
 ### 2.4 RenderDocument 辅助能力也回到 Rust
 
@@ -190,27 +210,28 @@ pub struct RenderBlock {
 
 ```text
 TopicPostState.render_document / render_cooked_html()
-  -> FireRichTextParser
   -> FireRenderBlockNodeBuilder
   -> [FireRichTextNode]
-  -> FireRichTextAttributedStringBuilder
-  -> ASTextNode / 原生图片节点
+  -> FireTopicPostRenderSegment
+  -> ASTextNode / Nuke-backed 原生图片节点 / JXPhotoBrowser preview
 ```
 
 保留下来的平台职责：
 
 - 原生字体、颜色、交互样式
 - `NSAttributedString` 生成
-- Texture 节点布局
+- Texture 节点布局、图片显示尺寸、失败重试和 JXPhotoBrowser 图片预览手势
 
 已移出平台的职责：
 
 - mention / mention-group / hashtag 语义识别
 - quote 标准化
 - details summary/body 拆分
+- onebox 标题/描述提取
 - emoji fallback 解析
-- image attachment 选择与过滤
+- image attachment 选择与过滤，包括图片元信息文本和 quote chrome/avatar 过滤
 - 相对 URL 解析
+- 平台本地从 cooked HTML 合成 RenderDocument 的路径
 
 ### 4.2 Android
 
@@ -218,18 +239,17 @@ TopicPostState.render_document / render_cooked_html()
 
 ```text
 TopicPostState.render_document / render_cooked_html()
-  -> FireRichTextParser
   -> FireRenderBlockBuilder
   -> [FireRichTextNode]
-  -> FireSpannableBuilder
-  -> FireRichTextView / ImageView
+  -> FireRichTextBlockBuilder
+  -> FireRichTextView / Coil-backed ImageView / ZoomImage preview
 ```
 
 保留下来的平台职责：
 
 - `Spannable` span 组合
 - 文本/链接/代码块样式
-- `TextView` / `ImageView` 展示
+- `TextView` / `ImageView` 展示、图片失败重试和 ZoomImage 预览手势
 
 已移出平台的职责与 iOS 相同，语义解析不再双写。
 
@@ -247,6 +267,7 @@ TopicPostState.render_document / render_cooked_html()
 - [x] iOS 富文本改为消费 `RenderDocumentState`
 - [x] Android 富文本改为消费 `RenderDocumentState`
 - [x] 双端提取出 RenderDocument builder 分层，平台 parser 不再承担语义映射
+- [x] 删除双端 topic detail 正文 cooked HTML fallback；平台缺少 `render_document` 时暴露缺口，不伪造正文
 - [x] 新增统一 `StateObserver`
 - [x] Rust 内部建立 observer 注册与推送机制
 - [x] Rust observer 推送具备 debounce 与 callback 错误隔离
@@ -255,9 +276,9 @@ TopicPostState.render_document / render_cooked_html()
 
 ### 5.2 当前明确保留的边界
 
-- [x] 保留平台原生渲染器，不引入并行 fallback renderer
+- [x] 保留平台原生显示适配器，不引入并行 renderer 或 cooked HTML fallback
 - [x] 保留显式分页/刷新命令
-- [x] 保留 `parse_cooked_html()` 兼容旧 AST 调试路径
+- [x] Rust 内部保留 `parse_cooked_html()` 作为 parser / AST 单测入口；平台不得调用它来渲染 topic body
 - [x] 不把 observer 扩大成无边界的“任何状态变化都广播”
 
 ---

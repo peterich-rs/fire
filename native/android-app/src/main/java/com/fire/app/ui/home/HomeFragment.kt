@@ -70,64 +70,64 @@ class HomeFragment : Fragment() {
         searchButton = view.findViewById(R.id.search_button)
         createTopicButton = view.findViewById(R.id.create_topic_button)
 
-        val sessionStore = FireSessionStoreRepository.get(requireContext())
-        viewModel = ViewModelProvider(this, HomeViewModelFactory(sessionStore))[HomeViewModel::class.java]
+        viewLifecycleOwner.lifecycleScope.launch {
+            val sessionStore = FireSessionStoreRepository.get(requireContext())
+            viewModel = ViewModelProvider(this@HomeFragment, HomeViewModelFactory(sessionStore))[HomeViewModel::class.java]
 
-        adapter = TopicListAdapter(
-            onTopicClick = { row ->
-                TopicDetailActivity.start(
-                    context = requireContext(),
-                    topicId = row.topic.id.toLong(),
-                    topicTitle = row.topic.title,
-                )
-            },
-            onTagClick = { tag ->
-                viewModel?.selectTag(tag)
-                recyclerView.scrollToPosition(0)
-            },
-        )
+            adapter = TopicListAdapter(
+                onTopicClick = { row ->
+                    TopicDetailActivity.start(
+                        context = requireContext(),
+                        topicId = row.topic.id.toLong(),
+                        topicTitle = row.topic.title,
+                    )
+                },
+                onTagClick = { tag ->
+                    viewModel?.selectTag(tag)
+                    recyclerView.scrollToPosition(0)
+                },
+            )
 
-        recyclerView.layoutManager = LinearLayoutManager(requireContext())
-        recyclerView.adapter = adapter
-        recyclerView.optimizeForPaging()
-        recyclerView.addOnScrollListener(object : RecyclerView.OnScrollListener() {
-            override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
-                flushPendingAutoRefreshIfAtTop()
-            }
-        })
-        adapter.addLoadStateListener { loadStates ->
-            val refresh = loadStates.refresh
-            val isInitialLoading = refresh is LoadState.Loading && adapter.itemCount == 0
-            loadingSkeletonView.visibility = if (isInitialLoading) View.VISIBLE else View.GONE
-            swipeRefresh.isEnabled = !isInitialLoading
-            if (refresh is LoadState.Loading && adapter.itemCount > 0) {
-                swipeRefresh.isRefreshing = true
-            }
-            emptyView.visibility = when {
-                refresh is LoadState.Error -> {
-                    emptyView.text = refresh.error.localizedMessage
-                        ?: getString(R.string.browser_empty)
-                    View.VISIBLE
+            recyclerView.layoutManager = LinearLayoutManager(requireContext())
+            recyclerView.adapter = adapter
+            recyclerView.optimizeForPaging()
+            recyclerView.addOnScrollListener(object : RecyclerView.OnScrollListener() {
+                override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
+                    flushPendingAutoRefreshIfAtTop()
                 }
-                refresh is LoadState.NotLoading && adapter.itemCount == 0 -> {
-                    emptyView.text = getString(R.string.browser_empty)
-                    View.VISIBLE
+            })
+            adapter.addLoadStateListener { loadStates ->
+                val refresh = loadStates.refresh
+                val isInitialLoading = refresh is LoadState.Loading && adapter.itemCount == 0
+                loadingSkeletonView.visibility = if (isInitialLoading) View.VISIBLE else View.GONE
+                swipeRefresh.isEnabled = !isInitialLoading
+                if (refresh is LoadState.Loading && adapter.itemCount > 0) {
+                    swipeRefresh.isRefreshing = true
                 }
-                else -> View.GONE
+                emptyView.visibility = when {
+                    refresh is LoadState.Error -> {
+                        emptyView.text = refresh.error.localizedMessage
+                            ?: getString(R.string.browser_empty)
+                        View.VISIBLE
+                    }
+                    refresh is LoadState.NotLoading && adapter.itemCount == 0 -> {
+                        emptyView.text = getString(R.string.browser_empty)
+                        View.VISIBLE
+                    }
+                    else -> View.GONE
+                }
+                if (refresh !is LoadState.Loading) {
+                    swipeRefresh.isRefreshing = false
+                    flushPendingAutoRefreshIfAtTop()
+                }
             }
-            if (refresh !is LoadState.Loading) {
-                swipeRefresh.isRefreshing = false
-                flushPendingAutoRefreshIfAtTop()
-            }
-        }
 
-        setupCategoryBar()
-        setupFeedKindBar()
-        setupSwipeRefresh()
-        setupToolbarActions()
+            setupCategoryBar()
+            setupFeedKindBar()
+            setupSwipeRefresh()
+            setupToolbarActions()
 
-        viewModel?.let { vm ->
-            viewLifecycleOwner.lifecycleScope.launch {
+            viewModel?.let { vm ->
                 viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
                     launch {
                         vm.topicPagingFlow.collectLatest { pagingData ->

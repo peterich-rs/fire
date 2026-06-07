@@ -87,46 +87,46 @@ class PrivateMessageComposerSheet : BottomSheetDialogFragment() {
             }
         recipientInput.setText(targetUsername)
 
-        sessionStore = FireSessionStoreRepository.get(requireContext())
-        viewModel = ComposerViewModel.create(sessionStore)
-        previewRenderer = ComposerPreviewRenderer(
-            previewContainer,
-            sessionStore,
-            viewLifecycleOwner.lifecycleScope,
-        )
-
-        ComposerRecipientAssist(
-            input = recipientInput,
-            suggestions = view.findViewById(R.id.private_message_recipient_suggestions),
-            sessionStore = sessionStore,
-            scope = viewLifecycleOwner.lifecycleScope,
-        ).attach()
-        ComposerRecipientTokenView(
-            input = recipientInput,
-            tokens = recipientTokens,
-        ).attach()
-        ComposerMentionAssist(
-            input = bodyInput,
-            suggestions = view.findViewById(R.id.private_message_mention_suggestions),
-            sessionStore = sessionStore,
-            scope = viewLifecycleOwner.lifecycleScope,
-            includeGroups = false,
-        ).attach()
-        draftAutosave = ComposerDraftAutosave(
-            scope = viewLifecycleOwner.lifecycleScope,
-            saveDraft = { persistDraftIfNeeded() },
-            onSaveFailed = { error ->
-                FireErrorReporter.report(
-                    operation = "private_message_composer.draft_autosave",
-                    error = error,
-                    sessionStore = sessionStore,
-                )
-            },
-        ).also { autosave ->
-            autosave.attach(titleInput, recipientInput, bodyInput)
-        }
-
         viewLifecycleOwner.lifecycleScope.launch {
+            sessionStore = FireSessionStoreRepository.get(requireContext())
+            viewModel = ComposerViewModel.create(sessionStore)
+            previewRenderer = ComposerPreviewRenderer(
+                previewContainer,
+                sessionStore,
+                viewLifecycleOwner.lifecycleScope,
+            )
+
+            ComposerRecipientAssist(
+                input = recipientInput,
+                suggestions = view.findViewById(R.id.private_message_recipient_suggestions),
+                sessionStore = sessionStore,
+                scope = viewLifecycleOwner.lifecycleScope,
+            ).attach()
+            ComposerRecipientTokenView(
+                input = recipientInput,
+                tokens = recipientTokens,
+            ).attach()
+            ComposerMentionAssist(
+                input = bodyInput,
+                suggestions = view.findViewById(R.id.private_message_mention_suggestions),
+                sessionStore = sessionStore,
+                scope = viewLifecycleOwner.lifecycleScope,
+                includeGroups = false,
+            ).attach()
+            draftAutosave = ComposerDraftAutosave(
+                scope = viewLifecycleOwner.lifecycleScope,
+                saveDraft = { persistDraftIfNeeded() },
+                onSaveFailed = { error ->
+                    FireErrorReporter.report(
+                        operation = "private_message_composer.draft_autosave",
+                        error = error,
+                        sessionStore = sessionStore,
+                    )
+                },
+            ).also { autosave ->
+                autosave.attach(titleInput, recipientInput, bodyInput)
+            }
+
             runCatching { sessionStore.snapshot() }
                 .onSuccess { session ->
                     baseUrl = session.bootstrap.baseUrl.ifBlank { "https://linux.do" }
@@ -153,57 +153,56 @@ class PrivateMessageComposerSheet : BottomSheetDialogFragment() {
                 }
             restoreDraftIfAvailable()
             draftAutosave?.start()
-        }
 
-        uploadButton.setOnClickListener {
-            imagePicker.launch("image/*")
-        }
-        previewButton.setOnClickListener {
-            previewMode = !previewMode
-            updatePreviewMode()
-        }
+            uploadButton.setOnClickListener {
+                imagePicker.launch("image/*")
+            }
+            previewButton.setOnClickListener {
+                previewMode = !previewMode
+                updatePreviewMode()
+            }
 
-        submitButton.setOnClickListener {
-            val title = titleInput.text.toString().trim()
-            val recipients = recipientValues()
-            val body = bodyInput.text.toString().trim()
-            if (recipients.isEmpty()) {
-                recipientInput.error = getString(R.string.profile_private_message_recipient_required)
-                return@setOnClickListener
+            submitButton.setOnClickListener {
+                val title = titleInput.text.toString().trim()
+                val recipients = recipientValues()
+                val body = bodyInput.text.toString().trim()
+                if (recipients.isEmpty()) {
+                    recipientInput.error = getString(R.string.profile_private_message_recipient_required)
+                    return@setOnClickListener
+                }
+                if (title.length < minTitleLength) {
+                    titleInput.error = getString(
+                        R.string.profile_private_message_title_min_length,
+                        minTitleLength.toString(),
+                    )
+                    return@setOnClickListener
+                }
+                if (body.length < minBodyLength) {
+                    bodyInput.error = getString(
+                        R.string.profile_private_message_body_min_length,
+                        minBodyLength.toString(),
+                    )
+                    return@setOnClickListener
+                }
+                if (!canSendMessage) {
+                    Toast.makeText(
+                        requireContext(),
+                        R.string.profile_private_message_login_required,
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                    return@setOnClickListener
+                }
+                viewModel?.submitPrivateMessage(title, body, recipients)
             }
-            if (title.length < minTitleLength) {
-                titleInput.error = getString(
-                    R.string.profile_private_message_title_min_length,
-                    minTitleLength.toString(),
-                )
-                return@setOnClickListener
-            }
-            if (body.length < minBodyLength) {
-                bodyInput.error = getString(
-                    R.string.profile_private_message_body_min_length,
-                    minBodyLength.toString(),
-                )
-                return@setOnClickListener
-            }
-            if (!canSendMessage) {
-                Toast.makeText(
-                    requireContext(),
-                    R.string.profile_private_message_login_required,
-                    Toast.LENGTH_SHORT,
-                ).show()
-                return@setOnClickListener
-            }
-            viewModel?.submitPrivateMessage(title, body, recipients)
-        }
 
-        viewModel?.let { vm ->
-            viewLifecycleOwner.lifecycleScope.launch {
+            viewModel?.let { vm ->
+                launch {
                 vm.isSubmitting.collectLatest { submitting ->
                     progressBar.visibility = if (submitting) View.VISIBLE else View.GONE
                     submitButton.isEnabled = !submitting && canSendMessage
                 }
             }
-            viewLifecycleOwner.lifecycleScope.launch {
+                launch {
                 vm.privateMessageCreated.collectLatest { topicId ->
                     if (topicId != null) {
                         didSubmit = true
@@ -215,7 +214,7 @@ class PrivateMessageComposerSheet : BottomSheetDialogFragment() {
                     }
                 }
             }
-            viewLifecycleOwner.lifecycleScope.launch {
+                launch {
                 vm.error.collectLatest { error ->
                     if (error != null) {
                         Toast.makeText(
@@ -225,6 +224,7 @@ class PrivateMessageComposerSheet : BottomSheetDialogFragment() {
                         ).show()
                     }
                 }
+            }
             }
         }
     }

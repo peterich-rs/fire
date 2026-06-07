@@ -17,6 +17,7 @@ import com.fire.app.session.FireSessionStoreRepository
 import com.fire.app.ui.home.TopicListAdapter
 import com.fire.app.ui.topicdetail.TopicDetailActivity
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.launch
 
 class BookmarksFragment : Fragment() {
 
@@ -41,8 +42,6 @@ class BookmarksFragment : Fragment() {
         recyclerView = view.findViewById(R.id.bookmarks_list)
         emptyView = view.findViewById(R.id.empty_view)
         loadingView = view.findViewById(R.id.loading_view)
-
-        val sessionStore = FireSessionStoreRepository.get(requireContext())
 
         adapter = TopicListAdapter { row ->
             TopicDetailActivity.start(
@@ -74,25 +73,28 @@ class BookmarksFragment : Fragment() {
         }
 
         // Get username and set up paging
-        viewLifecycleOwner.lifecycleScope.launchWithFireErrorHandling(
-            operation = "bookmarks.restore_session_snapshot",
-            sessionStore = sessionStore,
-            fallbackMessage = getString(R.string.feed_bookmarks_login_required),
-            onError = { error ->
-                emptyView.text = error.displayMessage
-                emptyView.visibility = View.VISIBLE
-            },
-        ) {
-            val session = sessionStore.snapshot()
-            val username = session.bootstrap.currentUsername
-            if (username.isNullOrBlank()) {
-                emptyView.text = getString(R.string.feed_bookmarks_login_required)
-                emptyView.visibility = View.VISIBLE
-            } else {
-                viewModel = BookmarksViewModel.create(sessionStore, username)
+        viewLifecycleOwner.lifecycleScope.launch {
+            val sessionStore = FireSessionStoreRepository.get(requireContext())
+            viewLifecycleOwner.lifecycleScope.launchWithFireErrorHandling(
+                operation = "bookmarks.restore_session_snapshot",
+                sessionStore = sessionStore,
+                fallbackMessage = getString(R.string.feed_bookmarks_login_required),
+                onError = { error ->
+                    emptyView.text = error.displayMessage
+                    emptyView.visibility = View.VISIBLE
+                },
+            ) {
+                val session = sessionStore.snapshot()
+                val username = session.bootstrap.currentUsername
+                if (username.isNullOrBlank()) {
+                    emptyView.text = getString(R.string.feed_bookmarks_login_required)
+                    emptyView.visibility = View.VISIBLE
+                } else {
+                    viewModel = BookmarksViewModel.create(sessionStore, username)
 
-                viewModel?.bookmarksPagingFlow()?.collectLatest { pagingData ->
-                    adapter.submitData(pagingData)
+                    viewModel?.bookmarksPagingFlow()?.collectLatest { pagingData ->
+                        adapter.submitData(pagingData)
+                    }
                 }
             }
         }

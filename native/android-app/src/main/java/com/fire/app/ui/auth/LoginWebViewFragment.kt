@@ -65,24 +65,25 @@ class LoginWebViewFragment : Fragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
-        sessionStore = FireSessionStoreRepository.get(requireContext())
-        loginCoordinator = FireWebViewLoginCoordinator(requireNotNull(sessionStore))
-        credential = FireCredentialStore.load(requireContext())
+        viewLifecycleOwner.lifecycleScope.launch {
+            sessionStore = FireSessionStoreRepository.get(requireContext())
+            loginCoordinator = FireWebViewLoginCoordinator(requireNotNull(sessionStore))
+            credential = FireCredentialStore.load(requireContext())
 
-        val webView: WebView = view.findViewById(R.id.login_webview)
-        val loadingIndicator: ProgressBar = view.findViewById(R.id.loading_indicator)
-        val closeButton: ImageView = view.findViewById(R.id.close_button)
-        val syncButton: MaterialButton = view.findViewById(R.id.sync_button)
-        val pageTitleText: TextView = view.findViewById(R.id.page_title_text)
-        val pageUrlText: TextView = view.findViewById(R.id.page_url_text)
+            val webView: WebView = view.findViewById(R.id.login_webview)
+            val loadingIndicator: ProgressBar = view.findViewById(R.id.loading_indicator)
+            val closeButton: ImageView = view.findViewById(R.id.close_button)
+            val syncButton: MaterialButton = view.findViewById(R.id.sync_button)
+            val pageTitleText: TextView = view.findViewById(R.id.page_title_text)
+            val pageUrlText: TextView = view.findViewById(R.id.page_url_text)
 
-        configureLoginWebView(webView)
-        installDocumentStartScript(webView)
-        webView.addJavascriptInterface(FireLoginJsInterface(this), "Android")
+            configureLoginWebView(webView)
+            installDocumentStartScript(webView)
+            webView.addJavascriptInterface(FireLoginJsInterface(this@LoginWebViewFragment), "Android")
 
-        syncButton.isEnabled = false
+            syncButton.isEnabled = false
 
-        webView.webViewClient = object : WebViewClientCompat() {
+            webView.webViewClient = object : WebViewClientCompat() {
             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                 super.onPageStarted(view, url, favicon)
                 loadingIndicator.isVisible = true
@@ -155,9 +156,9 @@ class LoginWebViewFragment : Fragment() {
                     callback.showInterstitial(true)
                 }
             }
-        }
+            }
 
-        webView.webChromeClient = object : WebChromeClient() {
+            webView.webChromeClient = object : WebChromeClient() {
             override fun onReceivedTitle(view: WebView?, title: String?) {
                 super.onReceivedTitle(view, title)
                 updateChrome(webView, pageTitleText, pageUrlText)
@@ -178,19 +179,20 @@ class LoginWebViewFragment : Fragment() {
             ): Boolean {
                 return FireWebViewSupport.routePopupIntoParent(webView, resultMsg)
             }
+            }
+
+            replayCookiesAndLoadLogin(webView)
+
+            closeButton.setOnClickListener {
+                findNavController().popBackStack()
+            }
+
+            syncButton.setOnClickListener {
+                completeLoginAndNavigate(webView, syncButton)
+            }
+
+            updateChrome(webView, pageTitleText, pageUrlText)
         }
-
-        replayCookiesAndLoadLogin(webView)
-
-        closeButton.setOnClickListener {
-            findNavController().popBackStack()
-        }
-
-        syncButton.setOnClickListener {
-            completeLoginAndNavigate(webView, syncButton)
-        }
-
-        updateChrome(webView, pageTitleText, pageUrlText)
     }
 
     override fun onDestroyView() {

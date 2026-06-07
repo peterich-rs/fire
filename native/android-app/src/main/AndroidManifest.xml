@@ -42,5 +42,8 @@
             android:name=".session.FireCloudflareChallengeActivity"
             android:exported="false"
             android:launchMode="singleTop" />
+        <activity
+            android:name=".ui.webview.FireInAppWebViewActivity"
+            android:exported="false" />
     </application>
 </manifest>

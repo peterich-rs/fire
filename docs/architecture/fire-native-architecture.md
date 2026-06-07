@@ -123,7 +123,7 @@ Rich text render instruction generation.
 
 Core orchestration engine. Owns session state, networking, API orchestration, and delegates to subsystems.
 
-- **Networking**: openwire client + request epoch guard + CSRF retry + auth signal/probe policy + Cloudflare challenge handler retry + logging
+- **Networking**: openwire client + transparent gzip/zlib/brotli/zstd response compression + request epoch guard + CSRF retry + auth signal/probe policy + Cloudflare challenge handler retry + logging
 - **Session management**: Cookie sync, Bootstrap parsing, login state machine
 - **API orchestration**: topic list, topic detail, post CRUD, user, search, notifications
 - **MessageBus**: long-polling, subscription management, channel routing
@@ -287,7 +287,7 @@ native/ios-app/
     Image/
       FireImageBridge.swift              # Rust decoded pixels → CGImage → Texture / Nuke
     RichText/
-      FireRichTextRenderer.swift         # RenderBlock → NSAttributedString (fallback)
+      FireRichTextRenderer.swift         # RenderBlock nodes → NSAttributedString
     Widgets/
       FireAvatarView.swift
       FireActionButton.swift
@@ -364,12 +364,12 @@ Rust fire-rich-text                   iOS Platform
   │   flat semantic blocks +           │
   │   normalized image attachments     │
   │                                    │
-  └─ Return RenderDocumentState ─────> FireRichTextParser
+  └─ Return RenderDocumentState ─────> FireRenderBlockNodeBuilder
                                        │
                                        ├─ shared blocks → FireRichTextNode
                                        ├─ FireRichTextAttributedStringBuilder
                                        ├─ ASTextNode / native image nodes
-                                       └─ no platform-owned semantic parser
+                                       └─ no platform-owned cooked fallback
 ```
 
 ### 3.7 Design Tokens
@@ -584,12 +584,12 @@ Rust fire-rich-text                   Android Platform
   ├─ HTML → AST                        │
   ├─ AST → RenderDocument              │
   │                                    │
-  └─ Return RenderDocumentState ─────> FireRichTextParser
+  └─ Return RenderDocumentState ─────> FireRenderBlockBuilder
                                        │
                                        ├─ shared blocks → FireRichTextNode
                                        ├─ FireSpannableBuilder
                                        ├─ FireRichTextView / ImageView
-                                       └─ no platform-owned semantic parser
+                                       └─ no platform-owned cooked fallback
 ```
 
 ### 4.7 Design Tokens
@@ -885,6 +885,9 @@ enum CellAlignmentState { Left, Center, Right }
 
 ```rust
 impl fire_uniffi {
+    // Parser / AST inspection entry only; native topic body rendering consumes
+    // TopicPostState.render_document and must not synthesize a RenderDocument
+    // from cooked HTML on the platform side.
     fn parse_cooked_html(html: String) -> CookedHtmlDocumentState;
     fn render_cooked_html(html: String, base_url: String) -> RenderDocumentState;
     fn collect_images_from_render_document(document: RenderDocumentState) -> Vec<RenderImageAttachmentState>;

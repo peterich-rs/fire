@@ -65,39 +65,9 @@ class ReplyComposerSheet : BottomSheetDialogFragment() {
         previewContainer = view.findViewById(R.id.reply_preview_container)
         progressBar = view.findViewById(R.id.reply_progress)
 
-        sessionStore = FireSessionStoreRepository.get(requireContext())
-        viewModel = ComposerViewModel.create(sessionStore)
-        previewRenderer = ComposerPreviewRenderer(
-            previewContainer,
-            sessionStore,
-            viewLifecycleOwner.lifecycleScope,
-        )
-
         arguments?.let { args ->
             topicId = args.getLong(ARG_TOPIC_ID).toULong()
             replyToPostNumber = args.getInt(ARG_REPLY_TO_POST_NUMBER).takeIf { it > 0 }?.toUInt()
-        }
-
-        ComposerMentionAssist(
-            input = bodyInput,
-            suggestions = view.findViewById(R.id.reply_mention_suggestions),
-            sessionStore = sessionStore,
-            scope = viewLifecycleOwner.lifecycleScope,
-            includeGroups = true,
-            topicId = topicId.takeIf { it > 0u },
-        ).attach()
-        draftAutosave = ComposerDraftAutosave(
-            scope = viewLifecycleOwner.lifecycleScope,
-            saveDraft = { persistDraftIfNeeded() },
-            onSaveFailed = { error ->
-                FireErrorReporter.report(
-                    operation = "reply_composer.draft_autosave",
-                    error = error,
-                    sessionStore = sessionStore,
-                )
-            },
-        ).also { autosave ->
-            autosave.attach(bodyInput)
         }
 
         val title = if (replyToPostNumber != null) {
@@ -108,39 +78,68 @@ class ReplyComposerSheet : BottomSheetDialogFragment() {
         view.findViewById<TextView>(R.id.reply_title).text = title
 
         viewLifecycleOwner.lifecycleScope.launch {
+            sessionStore = FireSessionStoreRepository.get(requireContext())
+            viewModel = ComposerViewModel.create(sessionStore)
+            previewRenderer = ComposerPreviewRenderer(
+                previewContainer,
+                sessionStore,
+                viewLifecycleOwner.lifecycleScope,
+            )
+
+            ComposerMentionAssist(
+                input = bodyInput,
+                suggestions = view.findViewById(R.id.reply_mention_suggestions),
+                sessionStore = sessionStore,
+                scope = viewLifecycleOwner.lifecycleScope,
+                includeGroups = true,
+                topicId = topicId.takeIf { it > 0u },
+            ).attach()
+            draftAutosave = ComposerDraftAutosave(
+                scope = viewLifecycleOwner.lifecycleScope,
+                saveDraft = { persistDraftIfNeeded() },
+                onSaveFailed = { error ->
+                    FireErrorReporter.report(
+                        operation = "reply_composer.draft_autosave",
+                        error = error,
+                        sessionStore = sessionStore,
+                    )
+                },
+            ).also { autosave ->
+                autosave.attach(bodyInput)
+            }
+
             baseUrl = runCatching { sessionStore.snapshot().bootstrap.baseUrl }
                 .getOrNull()
                 ?.ifBlank { "https://linux.do" }
                 ?: "https://linux.do"
             restoreDraftIfAvailable()
             draftAutosave?.start()
-        }
 
-        uploadButton.setOnClickListener {
-            imagePicker.launch("image/*")
-        }
-        previewButton.setOnClickListener {
-            previewMode = !previewMode
-            updatePreviewMode()
-        }
-
-        submitButton.setOnClickListener {
-            val body = bodyInput.text.toString()
-            if (body.length < 5) {
-                bodyInput.error = getString(R.string.topic_detail_reply_min_length, "5")
-                return@setOnClickListener
+            uploadButton.setOnClickListener {
+                imagePicker.launch("image/*")
             }
-            viewModel?.submitReply(topicId, body, replyToPostNumber)
-        }
+            previewButton.setOnClickListener {
+                previewMode = !previewMode
+                updatePreviewMode()
+            }
 
-        viewModel?.let { vm ->
-            viewLifecycleOwner.lifecycleScope.launch {
+            submitButton.setOnClickListener {
+                val body = bodyInput.text.toString()
+                if (body.length < 5) {
+                    bodyInput.error = getString(R.string.topic_detail_reply_min_length, "5")
+                    return@setOnClickListener
+                }
+                viewModel?.submitReply(topicId, body, replyToPostNumber)
+            }
+
+            viewModel?.let { vm ->
+                launch {
                 vm.isSubmitting.collectLatest { submitting ->
                     progressBar.visibility = if (submitting) View.VISIBLE else View.GONE
                     submitButton.isEnabled = !submitting
                 }
             }
-            viewLifecycleOwner.lifecycleScope.launch {
+                launch {
                 vm.result.collectLatest { result ->
                     if (result != null) {
                         didSubmit = true
@@ -151,7 +150,7 @@ class ReplyComposerSheet : BottomSheetDialogFragment() {
                     }
                 }
             }
-            viewLifecycleOwner.lifecycleScope.launch {
+                launch {
                 vm.error.collectLatest { error ->
                     if (error != null) {
                         Toast.makeText(
@@ -161,6 +160,7 @@ class ReplyComposerSheet : BottomSheetDialogFragment() {
                         ).show()
                     }
                 }
+            }
             }
         }
     }

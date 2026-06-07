@@ -223,7 +223,7 @@ final class FireTopicDetailRuntimeInteractions {
     }
 }
 
-struct FireTopicDetailRuntimeConfiguration {
+struct FireTopicDetailRuntimeConfiguration: @unchecked Sendable {
     let viewModel: FireAppViewModel?
     let displayedCategory: FireTopicCategoryPresentation?
     let currentUsername: String?
@@ -244,13 +244,14 @@ struct FireTopicDetailRuntimeConfiguration {
     let topicCollectionRevision: UInt64
     let canWriteInteractions: Bool
     let postLookup: [UInt64: TopicPostState]
+    let interactionState: FireTopicDetailInteractionState
     let snapshotInvalidationToken: AnyHashable
     let interactions: FireTopicDetailRuntimeInteractions
 
-    var isMutatingPost: (UInt64) -> Bool { interactions.isMutatingPost }
-    var isPostTextExpanded: (UInt64) -> Bool { interactions.isPostTextExpanded }
-    var isReplyThreadExpanded: (UInt64) -> Bool { interactions.isReplyThreadExpanded }
-    var isLoadingPostReplyContext: (UInt64) -> Bool { interactions.isLoadingPostReplyContext }
+    var isMutatingPost: (UInt64) -> Bool { interactionState.isMutatingPost }
+    var isPostTextExpanded: (UInt64) -> Bool { interactionState.isPostTextExpanded }
+    var isReplyThreadExpanded: (UInt64) -> Bool { interactionState.isReplyThreadExpanded }
+    var isLoadingPostReplyContext: (UInt64) -> Bool { interactionState.isLoadingPostReplyContext }
     var onVisiblePostNumbersChanged: (Set<UInt32>) -> Void { interactions.onVisiblePostNumbersChanged }
     var onRefresh: () async -> Void { interactions.onRefresh }
     var onLoadTopicDetail: () async -> Void { interactions.onLoadTopicDetail }
@@ -637,13 +638,10 @@ struct FireTopicDetailRuntimeConfiguration {
     func postContext(for item: FireTopicDetailRuntimeItem) -> FireTopicDetailRuntimePostContext? {
         switch item.kind {
         case .originalPost:
-            guard let post = originalPost else {
+            guard let post = originalPost,
+                  let renderContent = originalPostRenderContent else {
                 return nil
             }
-            let renderContent = Self.normalizedRenderContent(
-                originalPostRenderContent,
-                for: post
-            )
             return FireTopicDetailRuntimePostContext(
                 post: post,
                 renderContent: renderContent,
@@ -661,16 +659,13 @@ struct FireTopicDetailRuntimeConfiguration {
             // The feed item carries its reply index; keep the bounds checks here so stale items cannot index the filtered reply list.
             guard let postID = item.postID,
                   let post = postLookup[postID],
+                  let renderContent = renderState?.contentByPostID[postID],
                   let index = item.replyIndex,
                   index >= 0,
                   index < availableReplyRows.count,
                   availableReplyRows[index].entry.postId == postID else {
                 return nil
             }
-            let renderContent = Self.normalizedRenderContent(
-                renderState?.contentByPostID[postID],
-                for: post
-            )
             let row = availableReplyRows[index]
             return FireTopicDetailRuntimePostContext(
                 post: post,
@@ -697,57 +692,6 @@ struct FireTopicDetailRuntimeConfiguration {
         default:
             return nil
         }
-    }
-
-    static func fallbackRenderContent(for post: TopicPostState) -> FireTopicPostRenderContent {
-        let plainText = post.raw ?? plainTextFromHtml(rawHtml: post.cooked)
-        let attributedText: NSAttributedString?
-        if plainText.isEmpty {
-            attributedText = nil
-        } else {
-            attributedText = NSAttributedString(
-                string: plainText,
-                attributes: [
-                    .font: UIFont.preferredFont(forTextStyle: .body),
-                    .foregroundColor: UIColor.label,
-                ]
-            )
-        }
-        return FireTopicPostRenderContent(
-            plainText: plainText,
-            attributedText: attributedText,
-            imageAttachments: [],
-            signature: FireTopicPostRenderSignature.make(
-                source: post.cooked,
-                imageAttachments: []
-            )
-        )
-    }
-
-    private static func normalizedRenderContent(
-        _ renderContent: FireTopicPostRenderContent?,
-        for post: TopicPostState
-    ) -> FireTopicPostRenderContent {
-        guard var renderContent else {
-            return fallbackRenderContent(for: post)
-        }
-        if renderContent.attributedText?.length ?? 0 > 0 || renderContent.plainText.isEmpty {
-            return renderContent
-        }
-
-        renderContent = FireTopicPostRenderContent(
-            plainText: renderContent.plainText,
-            attributedText: NSAttributedString(
-                string: renderContent.plainText,
-                attributes: [
-                    .font: UIFont.preferredFont(forTextStyle: .body),
-                    .foregroundColor: UIColor.label,
-                ]
-            ),
-            imageAttachments: renderContent.imageAttachments,
-            signature: renderContent.signature
-        )
-        return renderContent
     }
 
     func scrollItem(for postNumber: UInt32) -> FireTopicDetailRuntimeItem? {

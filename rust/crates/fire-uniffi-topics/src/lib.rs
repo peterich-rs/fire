@@ -44,10 +44,9 @@ impl FireTopicsHandle {
             inner.fetch_topic_list(query.into()).await
         })
         .await?;
-        self.shared
-            .core
-            .state_observers()
-            .notify_topic_list(response.clone());
+        // Hosts apply direct topic-list fetch results themselves. Broadcasting
+        // every page through the global observer causes home feeds to treat
+        // paginated slices as authoritative full-list snapshots.
         Ok(response.into())
     }
 

@@ -250,10 +250,8 @@ pub(crate) struct TracedRequest {
 }
 
 fn clone_request_for_retry(
-    diagnostics: &Arc<FireDiagnosticsStore>,
-    operation: &'static str,
     request: &Request<RequestBody>,
-) -> Option<TracedRequest> {
+) -> Option<Request<RequestBody>> {
     let cloned_body = request.body().try_clone()?;
     let request_profile = request.extensions().get::<FireRequestProfile>().copied();
     let request_epoch = request.extensions().get::<FireRequestEpoch>().copied();
@@ -271,12 +269,20 @@ fn clone_request_for_retry(
     if let Some(epoch) = request_epoch {
         request.extensions_mut().insert(epoch);
     }
+    Some(request)
+}
+
+fn trace_request(
+    diagnostics: &Arc<FireDiagnosticsStore>,
+    operation: &'static str,
+    mut request: Request<RequestBody>,
+) -> TracedRequest {
     let trace_id = diagnostics.prepare_request_trace(operation, &mut request);
-    Some(TracedRequest {
+    TracedRequest {
         trace_id,
         operation,
         request,
-    })
+    }
 }
 
 fn response_from_parts<B>(parts: http::response::Parts, body: B) -> Response<ResponseBody>
@@ -721,7 +727,7 @@ impl FireCore {
     ) -> Result<(u64, Response<ResponseBody>), FireCoreError> {
         let has_challenge_handler = self.cloudflare_challenge_handler.get().is_some();
         let retry_request = if has_challenge_handler {
-            clone_request_for_retry(&self.diagnostics, traced.operation, &traced.request)
+            clone_request_for_retry(&traced.request)
         } else {
             None
         };
@@ -800,11 +806,11 @@ impl FireCore {
                 && session.cookies.has_cloudflare_clearance();
             if !has_new_clearance {
                 Err(FireCoreError::CloudflareChallenge { operation })
-            } else if let Some(mut retry) = retry_request {
-                retry
-                    .request
+            } else if let Some(mut retry_request) = retry_request {
+                retry_request
                     .extensions_mut()
                     .insert(FireRequestEpoch(self.current_session_epoch()));
+                let retry = trace_request(&self.diagnostics, operation, retry_request);
                 self.network
                     .execute_traced(retry, FireCallProfile::DefaultApi)
                     .await
@@ -1572,5 +1578,37 @@ mod tests {
             .get("X-CSRF-Token")
             .and_then(|value| value.to_str().ok());
         assert_eq!(csrf_header, Some("real-csrf"));
+    }
+
+    #[test]
+    fn clone_request_for_retry_does_not_create_a_second_trace_until_replayed() {
+        let diagnostics = Arc::new(FireDiagnosticsStore::new());
+        let mut request = Request::builder()
+            .method(Method::GET)
+            .uri("https://example.com/latest.json")
+            .body(RequestBody::empty())
+            .expect("request");
+        request
+            .extensions_mut()
+            .insert(FireRequestProfile::JsonApi);
+        request.extensions_mut().insert(FireRequestEpoch(7));
+        let original_trace_id = diagnostics.prepare_request_trace("fetch topic list", &mut request);
+
+        let retry_request = clone_request_for_retry(&request).expect("retry request");
+
+        assert_eq!(diagnostics.summaries(10).len(), 1);
+        assert_eq!(diagnostics.summaries(10)[0].id, original_trace_id);
+        assert!(retry_request
+            .extensions()
+            .get::<crate::diagnostics::FireRequestTraceMetadata>()
+            .is_none());
+        assert!(matches!(
+            retry_request.extensions().get::<FireRequestProfile>().copied(),
+            Some(FireRequestProfile::JsonApi)
+        ));
+        assert!(matches!(
+            retry_request.extensions().get::<FireRequestEpoch>().copied(),
+            Some(FireRequestEpoch(7))
+        ));
     }
 }

@@ -10,6 +10,7 @@ import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.RecyclerView
 import com.fire.app.R
 import com.fire.app.TopicPresentation
+import com.fire.app.core.image.FireAvatarUrls
 import com.fire.app.core.image.FireImageLoader
 import uniffi.fire_uniffi_notifications.NotificationItemState
 
@@ -47,18 +48,14 @@ class NotificationListAdapter(
 
             val avatarTemplate = item.actingUserAvatarTemplate
             if (!avatarTemplate.isNullOrBlank()) {
-                val url = buildAvatarUrl(avatarTemplate, 36)
-                FireImageLoader.load(url, avatar)
+                FireAvatarUrls.build(avatarTemplate)?.let { url ->
+                    FireImageLoader.load(url, avatar)
+                }
             } else {
                 avatar.setImageDrawable(null)
             }
 
             itemView.setOnClickListener { onClick(item) }
-        }
-
-        private fun buildAvatarUrl(template: String, size: Int): String {
-            if (template.startsWith("http")) return template.replace("{size}", size.toString())
-            return "https://linux.do/${template.trimStart('/').replace("{size}", size.toString())}"
         }
 
         private fun NotificationItemState.resolvedUsername(): String? {

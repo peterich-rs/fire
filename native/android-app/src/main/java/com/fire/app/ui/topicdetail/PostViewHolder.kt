@@ -16,6 +16,7 @@ import android.widget.Toast
 import androidx.recyclerview.widget.RecyclerView
 import com.fire.app.R
 import com.fire.app.TopicPresentation
+import com.fire.app.core.image.FireAvatarUrls
 import com.fire.app.core.image.FireImageLoader
 import com.fire.app.richtext.FireRichTextBlock
 import com.fire.app.richtext.FireRichTextBlockBuilder
@@ -112,10 +113,11 @@ class PostViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
         // Avatar
         val avatarTemplate = post.avatarTemplate
         if (!avatarTemplate.isNullOrBlank()) {
-            val baseUrl = "https://linux.do"
-            val size = 72
-            val url = buildAvatarUrl(baseUrl, avatarTemplate, size)
-            FireImageLoader.load(url, avatar)
+            FireAvatarUrls.build(avatarTemplate)?.let { url ->
+                FireImageLoader.load(url, avatar)
+            }
+        } else {
+            avatar.setImageDrawable(null)
         }
 
         bindPolls(post, callbacks)
@@ -584,11 +586,6 @@ class PostViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
                 bottomMargin = 10
             }
         }
-    }
-
-    private fun buildAvatarUrl(baseUrl: String, template: String, size: Int): String {
-        if (template.startsWith("http")) return template.replace("{size}", size.toString())
-        return "${baseUrl.trimEnd('/')}/${template.trimStart('/').replace("{size}", size.toString())}"
     }
 
     private fun dp(value: Int): Int {

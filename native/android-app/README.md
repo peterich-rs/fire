@@ -91,8 +91,11 @@ Current topic-detail interactions:
   + Coil preview that supports pinch/pan gestures and reuses the shared image
   cache for the same URL
 - notification, search, profile, user-sheet, and topic-detail avatars all use
-  the shared `FireImageLoader` Coil pipeline with memory and disk caching,
-  instead of constructing per-row image loaders
+  the shared `FireImageLoader` Coil pipeline with memory and disk caching.
+  `FireAvatarUrls` resolves common avatar surfaces to a canonical 384px
+  request URL so detail rows, notifications, search results, profiles, and
+  compact user sheets reuse the same cache entry instead of downloading the
+  same avatar at per-surface `{size}` URLs.
 - Rust filters attachment metadata text whose prefix may be a filename/hash but
   whose suffix is dimensions plus file size, and quote chrome/avatar content
   before Android maps blocks to `Spannable` / image views

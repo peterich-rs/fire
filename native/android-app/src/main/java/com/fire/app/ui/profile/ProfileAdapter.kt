@@ -11,6 +11,7 @@ import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 import com.fire.app.R
 import com.fire.app.TopicPresentation
+import com.fire.app.core.image.FireAvatarUrls
 import com.fire.app.core.image.FireImageLoader
 import com.fire.app.richtext.FireRichTextView
 import uniffi.fire_uniffi_user.BadgeState
@@ -145,16 +146,12 @@ class ProfileAdapter(
 
             val avatarTemplate = profile.avatarTemplate
             if (!avatarTemplate.isNullOrBlank()) {
-                val url = buildAvatarUrl(avatarTemplate, 120)
-                FireImageLoader.load(url, avatar)
+                FireAvatarUrls.build(avatarTemplate)?.let { url ->
+                    FireImageLoader.load(url, avatar)
+                }
             } else {
                 avatar.setImageDrawable(null)
             }
-        }
-
-        private fun buildAvatarUrl(template: String, size: Int): String {
-            if (template.startsWith("http")) return template.replace("{size}", size.toString())
-            return "https://linux.do/${template.trimStart('/').replace("{size}", size.toString())}"
         }
     }
 

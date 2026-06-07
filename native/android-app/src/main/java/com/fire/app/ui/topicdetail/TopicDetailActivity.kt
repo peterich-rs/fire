@@ -31,6 +31,7 @@ import com.fire.app.databinding.ActivityTopicDetailBinding
 import com.fire.app.richtext.FireCookedImage
 import com.fire.app.session.FireSessionStore
 import com.fire.app.session.FireSessionStoreRepository
+import com.fire.app.core.image.FireAvatarUrls
 import com.fire.app.ui.composer.ComposerTagAssist
 import com.fire.app.ui.composer.PrivateMessageComposerSheet
 import com.fire.app.ui.composer.ReplyComposerSheet
@@ -665,7 +666,9 @@ class TopicDetailActivity : AppCompatActivity() {
             contentDescription = getString(R.string.content_desc_avatar)
         }
         profile.avatarTemplate?.takeIf { it.isNotBlank() }?.let { template ->
-            FireImageLoader.load(buildAvatarUrl(template, 128), avatar)
+            FireAvatarUrls.build(template)?.let { url ->
+                FireImageLoader.load(url, avatar)
+            }
         }
         val titleStack = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -732,11 +735,6 @@ class TopicDetailActivity : AppCompatActivity() {
                 }
             })
         }
-    }
-
-    private fun buildAvatarUrl(template: String, size: Int): String {
-        if (template.startsWith("http")) return template.replace("{size}", size.toString())
-        return "https://linux.do/${template.trimStart('/').replace("{size}", size.toString())}"
     }
 
     private fun profileUsernameFromUri(uri: Uri): String? {

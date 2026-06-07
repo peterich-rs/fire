@@ -672,6 +672,7 @@ struct FlowLayout: Layout {
 // MARK: - Avatar View
 
 private let fireAvatarPlaceholderOpacity = 0.6
+private let fireAvatarCanonicalPixelSize = 384
 
 struct FireRemoteImageRequest: Hashable, Sendable {
     let url: URL
@@ -868,7 +869,8 @@ func fireAvatarURL(
         return nil
     }
 
-    let pixelSize = Int(size * scale)
+    let displayPixelSize = max(1, Int((size * scale).rounded(.up)))
+    let pixelSize = max(displayPixelSize, fireAvatarCanonicalPixelSize)
     let path = avatarTemplate.replacingOccurrences(of: "{size}", with: "\(pixelSize)")
     if path.hasPrefix("http") {
         return URL(string: path)

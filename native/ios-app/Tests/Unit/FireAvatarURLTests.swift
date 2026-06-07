@@ -12,7 +12,7 @@ final class FireAvatarURLTests: XCTestCase {
 
         XCTAssertEqual(
             url?.absoluteString,
-            "https://linux.do/user_avatar/linux.do/alice/102/1_2.png"
+            "https://linux.do/user_avatar/linux.do/alice/384/1_2.png"
         )
     }
 
@@ -26,7 +26,28 @@ final class FireAvatarURLTests: XCTestCase {
 
         XCTAssertEqual(
             url?.absoluteString,
-            "https://cdn.linux.do/user_avatar/linux.do/alice/64/1_2.png"
+            "https://cdn.linux.do/user_avatar/linux.do/alice/384/1_2.png"
+        )
+    }
+
+    func testAvatarURLUsesCanonicalSizeAcrossCommonDisplaySizes() {
+        let compact = fireAvatarURL(
+            avatarTemplate: "/user_avatar/linux.do/alice/{size}/1_2.png",
+            size: 34,
+            scale: 3,
+            baseURLString: "https://linux.do"
+        )
+        let profile = fireAvatarURL(
+            avatarTemplate: "/user_avatar/linux.do/alice/{size}/1_2.png",
+            size: 120,
+            scale: 3,
+            baseURLString: "https://linux.do"
+        )
+
+        XCTAssertEqual(compact, profile)
+        XCTAssertEqual(
+            profile?.absoluteString,
+            "https://linux.do/user_avatar/linux.do/alice/384/1_2.png"
         )
     }
 }

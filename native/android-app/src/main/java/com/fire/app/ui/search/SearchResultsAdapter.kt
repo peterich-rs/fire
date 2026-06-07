@@ -10,6 +10,7 @@ import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 import com.fire.app.R
 import com.fire.app.TopicPresentation
+import com.fire.app.core.image.FireAvatarUrls
 import com.fire.app.core.image.FireImageLoader
 import uniffi.fire_uniffi_search.SearchPostState
 import uniffi.fire_uniffi_search.SearchTopicState
@@ -142,17 +143,13 @@ class SearchResultsAdapter(
             name.visibility = if (user.name.isNullOrBlank()) View.GONE else View.VISIBLE
             val avatarTemplate = user.avatarTemplate
             if (!avatarTemplate.isNullOrBlank()) {
-                val url = buildAvatarUrl(avatarTemplate, 36)
-                FireImageLoader.load(url, avatar)
+                FireAvatarUrls.build(avatarTemplate)?.let { url ->
+                    FireImageLoader.load(url, avatar)
+                }
             } else {
                 avatar.setImageDrawable(null)
             }
             itemView.setOnClickListener { onClick(user) }
-        }
-
-        private fun buildAvatarUrl(template: String, size: Int): String {
-            if (template.startsWith("http")) return template.replace("{size}", size.toString())
-            return "https://linux.do/${template.trimStart('/').replace("{size}", size.toString())}"
         }
     }
 

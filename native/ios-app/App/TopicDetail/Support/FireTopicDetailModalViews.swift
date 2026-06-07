@@ -448,7 +448,7 @@ private struct FirePostReplyContextRow: View {
     }
 
     private var excerpt: String {
-        plainTextFromHtml(rawHtml: post.cooked)
+        (post.renderDocument?.plainText ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .ifEmpty("无正文预览")
     }

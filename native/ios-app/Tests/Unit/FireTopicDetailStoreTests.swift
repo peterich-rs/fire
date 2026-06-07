@@ -160,7 +160,7 @@ final class FireTopicDetailStoreTests: XCTestCase {
             name: nil,
             avatarTemplate: nil,
             cooked: "<p>Original</p>",
-            renderDocument: nil,
+            renderDocument: renderCookedHtml(rawHtml: "<p>Original</p>", baseUrl: "https://linux.do"),
             raw: "Original",
             postNumber: 1,
             postType: 1,
@@ -191,7 +191,7 @@ final class FireTopicDetailStoreTests: XCTestCase {
             name: nil,
             avatarTemplate: nil,
             cooked: "<p>Reply</p>",
-            renderDocument: nil,
+            renderDocument: renderCookedHtml(rawHtml: "<p>Reply</p>", baseUrl: "https://linux.do"),
             raw: "Reply",
             postNumber: 2,
             postType: 1,
@@ -220,10 +220,7 @@ final class FireTopicDetailStoreTests: XCTestCase {
             FireTopicTimelineRowInput(postID: original.id, postNumber: 1, replyToPostNumber: nil),
             FireTopicTimelineRowInput(postID: reply.id, postNumber: 2, replyToPostNumber: 1),
         ]
-        let renderContent = FireTopicPresentation.renderContent(
-            from: "<p>text</p>",
-            baseURLString: "https://linux.do"
-        )
+        let renderContent = fireRenderContentFixture("<p>text</p>")
         let validState = FireTopicDetailRenderState(
             originalRow: FirePreparedTopicTimelineRow(
                 entry: FireTopicTimelineEntry(
@@ -736,13 +733,14 @@ final class FireTopicDetailStoreTests: XCTestCase {
         replyToPostNumber: UInt32?,
         username: String
     ) -> TopicPostState {
-        TopicPostState(
+        let cooked = "<p>\(username)</p>"
+        return TopicPostState(
             id: UInt64(postNumber),
             username: username,
             name: nil,
             avatarTemplate: nil,
-            cooked: "<p>\(username)</p>",
-            renderDocument: nil,
+            cooked: cooked,
+            renderDocument: renderCookedHtml(rawHtml: cooked, baseUrl: "https://linux.do"),
             raw: nil,
             postNumber: postNumber,
             postType: 1,

@@ -30,6 +30,7 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
     private let postNumberNode = ASTextNode()
     private let menuNode = ASButtonNode()
     private let bodyTextNode = ASTextNode()
+    private let bodySelectableTextNode = FireSelectableRichTextNode()
     private let imageContainerNode = ASDisplayNode()
     private let pollContainerNode = ASDisplayNode()
     private let replyShortcutNode = ASButtonNode()
@@ -152,6 +153,7 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
 
         // Body text
         configureRichTextNode(bodyTextNode)
+        configureSelectableTextNode(bodySelectableTextNode)
 
         // Images
         imageContainerNode.isHidden = true
@@ -336,6 +338,8 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
 
         bodyTextNode.attributedText = nil
         bodyTextNode.isHidden = true
+        bodySelectableTextNode.attributedText = nil
+        bodySelectableTextNode.isHidden = true
         renderedContentID = nil
         linkDelegate = RichTextNodeLinkDelegate(
             onLink: { [weak self] url in
@@ -376,6 +380,8 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
         guard let attrText = payload.renderContent.attributedText, attrText.length > 0 else {
             bodyTextNode.attributedText = nil
             bodyTextNode.isHidden = true
+            bodySelectableTextNode.attributedText = nil
+            bodySelectableTextNode.isHidden = true
             return
         }
 
@@ -385,8 +391,10 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
         if renderedContentID != contentID {
             renderedContentID = contentID
             bodyTextNode.attributedText = attrText
+            bodySelectableTextNode.attributedText = attrText
         }
-        bodyTextNode.isHidden = false
+        bodyTextNode.isHidden = !isCollapsed
+        bodySelectableTextNode.isHidden = isCollapsed
         bodyTextNode.maximumNumberOfLines = isCollapsed
             ? UInt(FirePostTextExpansionState.collapsedLineLimit)
             : 0
@@ -404,6 +412,9 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
             }
         )
         bodyTextNode.delegate = linkDelegate
+        bodySelectableTextNode.onLink = { [weak self] url in
+            self?.currentCallbacks?.onLinkTapped(url)
+        }
     }
 
     private func rebuildContentSegmentNodes(
@@ -419,10 +430,12 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
         for (index, segment) in segments.enumerated() {
             switch segment {
             case .text(let attributedText):
-                let textNode = ASTextNode()
-                configureRichTextNode(textNode)
+                let textNode = FireSelectableRichTextNode()
+                configureSelectableTextNode(textNode)
                 textNode.attributedText = attributedText
-                textNode.delegate = linkDelegate
+                textNode.onLink = { [weak self] url in
+                    self?.currentCallbacks?.onLinkTapped(url)
+                }
                 contentSegmentNodes.append(textNode)
             case .image(let image):
                 let renderSize = index < renderSizes.count
@@ -730,6 +743,9 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
         if !bodyTextNode.isHidden {
             contentChildren.append(bodyTextNode)
         }
+        if !bodySelectableTextNode.isHidden {
+            contentChildren.append(bodySelectableTextNode)
+        }
 
         if !shouldSuppressAttachments {
             for segmentNode in contentSegmentNodes {
@@ -967,8 +983,14 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
         let horizontalMovement = max(abs(translation.x), abs(velocity.x))
         let verticalMovement = max(abs(translation.y), abs(velocity.y))
 
-        if location.x <= 28,
+        if location.x <= 44,
            nearestViewController()?.navigationController?.viewControllers.count ?? 0 > 1 {
+            return false
+        }
+        guard replySwipeActivationRect().contains(location) else {
+            return false
+        }
+        if isTouchInsideInteractiveContent(at: location) {
             return false
         }
 
@@ -1110,6 +1132,44 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
         )
     }
 
+    private func configureSelectableTextNode(_ node: FireSelectableRichTextNode) {
+        node.isHidden = true
+        node.style.flexShrink = 1.0
+    }
+
+    private func replySwipeActivationRect() -> CGRect {
+        let indent = FirePostCellLayoutCalculator.indentWidth(for: currentDepth)
+        let leading = FirePostCellLayoutCalculator.outerHorizontalPadding
+            + indent
+            + currentAvatarSize
+            + currentAvatarSpacing
+        return CGRect(
+            x: leading,
+            y: 0,
+            width: max(view.bounds.width - leading - FirePostCellLayoutCalculator.outerHorizontalPadding, 1),
+            height: view.bounds.height
+        )
+    }
+
+    private func isTouchInsideInteractiveContent(at location: CGPoint) -> Bool {
+        guard let hitView = view.hitTest(location, with: nil) else {
+            return false
+        }
+        if hitView.isDescendant(ofType: UITextView.self) {
+            return true
+        }
+        if hitView.isDescendant(ofType: UIControl.self) {
+            return true
+        }
+        for node in contentSegmentNodes where node is FirePostImageNode {
+            let frame = node.view.convert(node.view.bounds, to: view)
+            if frame.contains(location) {
+                return true
+            }
+        }
+        return false
+    }
+
     static func shouldSuppressAttachmentsForCollapsedText(
         plainText: String,
         hasAttributedText: Bool,
@@ -1204,6 +1264,99 @@ extension FirePostCellNode: ASNetworkImageNodeDelegate {
             return
         }
         showAvatarFallback()
+    }
+}
+
+private final class FireSelectableRichTextNode: ASDisplayNode, UITextViewDelegate {
+    var attributedText: NSAttributedString? {
+        didSet {
+            applyText()
+            setNeedsLayout()
+        }
+    }
+
+    var onLink: ((URL) -> Void)?
+    private var richTextView: UITextView?
+
+    override init() {
+        super.init()
+        isUserInteractionEnabled = true
+        style.flexShrink = 1.0
+    }
+
+    override func didLoad() {
+        super.didLoad()
+        let textView = UITextView()
+        textView.backgroundColor = .clear
+        textView.isEditable = false
+        textView.isSelectable = true
+        textView.isScrollEnabled = false
+        textView.textContainerInset = .zero
+        textView.textContainer.lineFragmentPadding = 0
+        textView.textContainer.lineBreakMode = .byWordWrapping
+        textView.adjustsFontForContentSizeCategory = true
+        textView.dataDetectorTypes = []
+        textView.delegate = self
+        view.addSubview(textView)
+        richTextView = textView
+        applyText()
+    }
+
+    override func layout() {
+        super.layout()
+        richTextView?.frame = bounds
+    }
+
+    override func calculateSizeThatFits(_ constrainedSize: CGSize) -> CGSize {
+        guard let attributedText, attributedText.length > 0 else {
+            return .zero
+        }
+        let width = max(constrainedSize.width, 1)
+        let bounds = attributedText.boundingRect(
+            with: CGSize(width: width, height: .greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            context: nil
+        )
+        return CGSize(width: width, height: max(ceil(bounds.height), 1))
+    }
+
+    func textView(
+        _ textView: UITextView,
+        shouldInteractWith URL: URL,
+        in characterRange: NSRange,
+        interaction: UITextItemInteraction
+    ) -> Bool {
+        onLink?(URL)
+        return false
+    }
+
+    func textView(
+        _ textView: UITextView,
+        shouldInteractWith URL: URL,
+        in characterRange: NSRange
+    ) -> Bool {
+        onLink?(URL)
+        return false
+    }
+
+    private func applyText() {
+        guard isNodeLoaded else {
+            return
+        }
+        richTextView?.attributedText = attributedText
+    }
+}
+
+private extension UIView {
+    func isDescendant<T: UIView>(ofType type: T.Type) -> Bool {
+        var current: UIView? = self
+        while let view = current {
+            if view is T {
+                return true
+            }
+            current = view.superview
+        }
+        return false
     }
 }
 

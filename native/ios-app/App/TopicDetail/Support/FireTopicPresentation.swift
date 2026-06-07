@@ -158,7 +158,7 @@ struct FireTopicTimelineRowInput: Equatable, Sendable {
 }
 
 struct FireTopicPostRenderInput: Equatable, Sendable {
-    let cooked: String
+    let renderDocumentChecksum: UInt64?
 }
 
 struct FireTopicDetailRenderState: Sendable {
@@ -218,22 +218,36 @@ enum FireTopicPresentation {
         compactCount(UInt64(value))
     }
 
-    static func imageAttachments(from html: String, baseURLString: String) -> [FireCookedImage] {
-        guard !html.isEmpty else {
-            return []
+    static func imageAttachments(from document: RenderDocumentState) -> [FireCookedImage] {
+        FireRenderBlockNodeBuilder.build(document: document).imageAttachments
+    }
+
+    static func renderContent(
+        from document: RenderDocumentState,
+        sourceToken: String
+    ) -> FireTopicPostRenderContent {
+        let richContent = FireRenderBlockNodeBuilder.build(document: document)
+        return renderContent(from: richContent, source: sourceToken)
+    }
+
+    static func renderContent(from post: TopicPostState) -> FireTopicPostRenderContent? {
+        guard let document = post.renderDocument else {
+            return nil
         }
-
-        return FireRichTextParser.parse(html: html, baseURLString: baseURLString).imageAttachments
+        return renderContent(
+            from: document,
+            sourceToken: Self.renderInput(for: post).renderDocumentChecksum.map(String.init) ?? "missing"
+        )
     }
 
-    static func renderContent(from html: String, baseURLString: String) -> FireTopicPostRenderContent {
-        let richContent = FireRichTextParser.parse(html: html, baseURLString: baseURLString)
-        return renderContent(from: richContent, source: html)
+    private static func renderInput(for post: TopicPostState) -> FireTopicPostRenderInput {
+        FireTopicPostRenderInput(
+            renderDocumentChecksum: post.renderDocument.map(renderDocumentChecksum(_:))
+        )
     }
 
-    static func renderContent(from post: TopicPostState, baseURLString: String) -> FireTopicPostRenderContent {
-        let richContent = FireRichTextParser.parse(post: post, baseURLString: baseURLString)
-        return renderContent(from: richContent, source: post.cooked)
+    private static func renderDocumentChecksum(_ document: RenderDocumentState) -> UInt64 {
+        FireTopicPostRenderSignature.stableChecksum(String(reflecting: document))
     }
 
     private static func renderContent(
@@ -546,7 +560,7 @@ enum FireTopicPresentation {
         let rowInputs = orderedPosts.map(timelineRowInput(for:))
         let contentInputsByPostID = Dictionary(
             orderedPosts.map { post in
-                (post.id, FireTopicPostRenderInput(cooked: post.cooked))
+                (post.id, renderInput(for: post))
             },
             uniquingKeysWith: { _, newest in newest }
         )
@@ -574,10 +588,7 @@ enum FireTopicPresentation {
                let cachedContent = previous?.renderState.contentByPostID[post.id] {
                 contentByPostID[post.id] = cachedContent
             } else {
-                contentByPostID[post.id] = renderContent(
-                    from: post,
-                    baseURLString: baseURLString
-                )
+                contentByPostID[post.id] = renderContent(from: post)
             }
         }
 
@@ -610,7 +621,7 @@ enum FireTopicPresentation {
             + normalizedReplyRows.map(timelineRowInput(for:))
         let contentInputsByPostID = Dictionary(
             orderedPosts.map { post in
-                (post.id, FireTopicPostRenderInput(cooked: post.cooked))
+                (post.id, renderInput(for: post))
             },
             uniquingKeysWith: { _, newest in newest }
         )
@@ -637,10 +648,7 @@ enum FireTopicPresentation {
                let cachedContent = previous?.renderState.contentByPostID[post.id] {
                 contentByPostID[post.id] = cachedContent
             } else {
-                contentByPostID[post.id] = renderContent(
-                    from: post,
-                    baseURLString: baseURLString
-                )
+                contentByPostID[post.id] = renderContent(from: post)
             }
         }
 
@@ -662,7 +670,7 @@ enum FireTopicPresentation {
         baseURLString: String,
         previous: FireTopicDetailRenderCache
     ) -> FireTopicDetailRenderCache? {
-        let originalInput = FireTopicPostRenderInput(cooked: sourceSnapshot.body.post.cooked)
+        let originalInput = renderInput(for: sourceSnapshot.body.post)
         guard !replyRows.isEmpty,
               previous.baseURLString == baseURLString,
               previous.rowInputs.first == timelineRowInput(for: sourceSnapshot.body.post),
@@ -695,12 +703,9 @@ enum FireTopicPresentation {
             }
 
             rowInputs.append(timelineRowInput(for: treeRow))
-            contentInputsByPostID[post.id] = FireTopicPostRenderInput(cooked: post.cooked)
+            contentInputsByPostID[post.id] = renderInput(for: post)
             preparedReplyRows.append(replyTimelineRow(from: treeRow))
-            contentByPostID[post.id] = renderContent(
-                from: post,
-                baseURLString: baseURLString
-            )
+            contentByPostID[post.id] = renderContent(from: post)
         }
 
         return FireTopicDetailRenderCache(

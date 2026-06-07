@@ -638,13 +638,10 @@ struct FireTopicDetailRuntimeConfiguration: @unchecked Sendable {
     func postContext(for item: FireTopicDetailRuntimeItem) -> FireTopicDetailRuntimePostContext? {
         switch item.kind {
         case .originalPost:
-            guard let post = originalPost else {
+            guard let post = originalPost,
+                  let renderContent = originalPostRenderContent else {
                 return nil
             }
-            let renderContent = Self.normalizedRenderContent(
-                originalPostRenderContent,
-                for: post
-            )
             return FireTopicDetailRuntimePostContext(
                 post: post,
                 renderContent: renderContent,
@@ -662,16 +659,13 @@ struct FireTopicDetailRuntimeConfiguration: @unchecked Sendable {
             // The feed item carries its reply index; keep the bounds checks here so stale items cannot index the filtered reply list.
             guard let postID = item.postID,
                   let post = postLookup[postID],
+                  let renderContent = renderState?.contentByPostID[postID],
                   let index = item.replyIndex,
                   index >= 0,
                   index < availableReplyRows.count,
                   availableReplyRows[index].entry.postId == postID else {
                 return nil
             }
-            let renderContent = Self.normalizedRenderContent(
-                renderState?.contentByPostID[postID],
-                for: post
-            )
             let row = availableReplyRows[index]
             return FireTopicDetailRuntimePostContext(
                 post: post,
@@ -698,67 +692,6 @@ struct FireTopicDetailRuntimeConfiguration: @unchecked Sendable {
         default:
             return nil
         }
-    }
-
-    static func fallbackRenderContent(for post: TopicPostState) -> FireTopicPostRenderContent {
-        let plainText = post.raw ?? plainTextFromHtml(rawHtml: post.cooked)
-        let attributedText: NSAttributedString?
-        if plainText.isEmpty {
-            attributedText = nil
-        } else {
-            attributedText = NSAttributedString(
-                string: plainText,
-                attributes: [
-                    .font: UIFont.preferredFont(forTextStyle: .body),
-                    .foregroundColor: UIColor.label,
-                ]
-            )
-        }
-        return FireTopicPostRenderContent(
-            plainText: plainText,
-            attributedText: attributedText,
-            imageAttachments: [],
-            segments: attributedText.map { [.text($0)] } ?? [],
-            signature: FireTopicPostRenderSignature.make(
-                source: post.cooked,
-                imageAttachments: []
-            )
-        )
-    }
-
-    private static func normalizedRenderContent(
-        _ renderContent: FireTopicPostRenderContent?,
-        for post: TopicPostState
-    ) -> FireTopicPostRenderContent {
-        guard var renderContent else {
-            return fallbackRenderContent(for: post)
-        }
-        if renderContent.attributedText?.length ?? 0 > 0 || renderContent.plainText.isEmpty {
-            return renderContent
-        }
-
-        renderContent = FireTopicPostRenderContent(
-            plainText: renderContent.plainText,
-            attributedText: NSAttributedString(
-                string: renderContent.plainText,
-                attributes: [
-                    .font: UIFont.preferredFont(forTextStyle: .body),
-                    .foregroundColor: UIColor.label,
-                ]
-            ),
-            imageAttachments: renderContent.imageAttachments,
-            segments: renderContent.segments.isEmpty
-                ? [.text(NSAttributedString(
-                    string: renderContent.plainText,
-                    attributes: [
-                        .font: UIFont.preferredFont(forTextStyle: .body),
-                        .foregroundColor: UIColor.label,
-                    ]
-                ))]
-                : renderContent.segments,
-            signature: renderContent.signature
-        )
-        return renderContent
     }
 
     func scrollItem(for postNumber: UInt32) -> FireTopicDetailRuntimeItem? {

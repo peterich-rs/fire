@@ -828,7 +828,7 @@ final class FireTopicDetailViewController: UIViewController {
         timingTracker.recordInteraction()
 
         guard let route = FireRouteParser.parse(url: url) else {
-            UIApplication.shared.open(url)
+            modalRouter.presentWebLink(url)
             return
         }
 

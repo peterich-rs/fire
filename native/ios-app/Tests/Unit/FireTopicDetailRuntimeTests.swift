@@ -449,7 +449,7 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
         XCTAssertNil(configuration.scrollItem(for: missingReply.postNumber))
     }
 
-    func testOriginalPostContextFallsBackToPlainTextWhenAttributedTextIsMissing() {
+    func testOriginalPostContextUsesRenderPlainTextWhenAttributedTextIsMissing() {
         let original = makePost(id: 100, postNumber: 1, username: "alice")
         let renderState = FireTopicDetailRenderState(
             originalRow: makeTimelineRow(post: original, depth: 0, isOriginalPost: true),
@@ -461,7 +461,7 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
                     imageAttachments: [],
                     segments: [],
                     signature: FireTopicPostRenderSignature.make(
-                        source: original.cooked,
+                        source: "render-document-test-token",
                         imageAttachments: []
                     )
                 )
@@ -477,10 +477,11 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
         )
         let context = item.flatMap(configuration.postContext(for:))
 
-        XCTAssertEqual(context?.renderContent.attributedText?.string, "Original plain text")
+        XCTAssertEqual(context?.renderContent.plainText, "Original plain text")
+        XCTAssertNil(context?.renderContent.attributedText)
     }
 
-    func testOriginalPostContextFallsBackToDetailPostWhileRenderStateIsPending() throws {
+    func testOriginalPostContextIsUnavailableWhileRenderStateIsPending() throws {
         let original = makePost(id: 100, postNumber: 1, username: "alice")
         let configuration = makeConfiguration(
             detail: makeTopicDetail(posts: [original]),
@@ -491,19 +492,22 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
         let item = try XCTUnwrap(
             configuration.makeSnapshot().items.first(where: { $0.kind == .originalPost })
         )
-        let context = try XCTUnwrap(configuration.postContext(for: item))
 
-        XCTAssertEqual(context.post.id, original.id)
-        XCTAssertEqual(context.post.postNumber, original.postNumber)
-        XCTAssertEqual(context.renderContent.plainText, "alice")
-        XCTAssertEqual(context.renderContent.attributedText?.string, "alice")
+        XCTAssertNil(configuration.postContext(for: item))
     }
 
     func testOriginalPostContextDoesNotShowInlineDivider() throws {
         let original = makePost(id: 100, postNumber: 1, username: "alice")
+        let renderState = FireTopicDetailRenderState(
+            originalRow: makeTimelineRow(post: original, depth: 0, isOriginalPost: true),
+            replyRows: [],
+            contentByPostID: [
+                original.id: makeRenderContent("alice"),
+            ]
+        )
         let configuration = makeConfiguration(
             detail: makeTopicDetail(posts: [original]),
-            renderState: nil,
+            renderState: renderState,
             postLookup: [original.id: original]
         )
 
@@ -962,13 +966,14 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
         reactions: [TopicReactionState] = [],
         replyToPostNumber: UInt32? = nil
     ) -> TopicPostState {
-        TopicPostState(
+        let cooked = "<p>\(username)</p>"
+        return TopicPostState(
             id: id,
             username: username,
             name: nil,
             avatarTemplate: nil,
-            cooked: "<p>\(username)</p>",
-            renderDocument: nil,
+            cooked: cooked,
+            renderDocument: renderCookedHtml(rawHtml: cooked, baseUrl: "https://linux.do"),
             raw: username,
             postNumber: postNumber,
             postType: 1,

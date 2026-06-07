@@ -17,15 +17,12 @@ final class FireTopicPresentationTests: XCTestCase {
     }
 
     func testImageAttachmentsResolveRelativeUploadsAndSkipEmoji() {
-        let attachments = FireTopicPresentation.imageAttachments(
-            from: """
+        let attachments = fireImageAttachmentFixture("""
             <p>Hello</p>
             <img class="emoji" src="/images/emoji/twitter/smile.png">
             <img src="/uploads/default/original/1X/fire.png" alt="fire" width="1200" height="800">
             <img src="https://cdn.example.com/second.jpg">
-            """,
-            baseURLString: "https://linux.do"
-        )
+            """)
 
         XCTAssertEqual(attachments.count, 2)
         XCTAssertEqual(
@@ -415,20 +412,14 @@ final class FireTopicPresentationTests: XCTestCase {
     }
 
     func testRenderContentPlainTextIncludesImageAttachmentAltTextFromSharedRenderer() {
-        let content = FireTopicPresentation.renderContent(
-            from: #"<p>Hello&nbsp;Fire</p><img src="/uploads/default/original/1X/fire.png" alt="fire">"#,
-            baseURLString: "https://linux.do"
-        )
+        let content = fireRenderContentFixture(#"<p>Hello&nbsp;Fire</p><img src="/uploads/default/original/1X/fire.png" alt="fire">"#)
 
         XCTAssertEqual(content.plainText, "Hello Fire\n\nfire")
         XCTAssertEqual(content.imageAttachments.first?.altText, "fire")
     }
 
     func testRenderContentMakesMentionsTappableAsInAppProfiles() throws {
-        let content = FireTopicPresentation.renderContent(
-            from: #"<p>Hello <a class="mention" href="/u/alice">@alice</a></p>"#,
-            baseURLString: "https://linux.do"
-        )
+        let content = fireRenderContentFixture(#"<p>Hello <a class="mention" href="/u/alice">@alice</a></p>"#)
 
         let attributedText = try XCTUnwrap(content.attributedText)
         let range = (attributedText.string as NSString).range(of: "@alice")
@@ -441,10 +432,7 @@ final class FireTopicPresentationTests: XCTestCase {
     }
 
     func testImageAttachmentsPreferLightboxOriginalURL() {
-        let content = FireTopicPresentation.renderContent(
-            from: #"<p><a class="lightbox" href="/uploads/default/original/1X/fire-full.png"><img src="/uploads/default/optimized/1X/fire_690x388.png" width="690" height="388"></a></p>"#,
-            baseURLString: "https://linux.do"
-        )
+        let content = fireRenderContentFixture(#"<p><a class="lightbox" href="/uploads/default/original/1X/fire-full.png"><img src="/uploads/default/optimized/1X/fire_690x388.png" width="690" height="388"></a></p>"#)
 
         XCTAssertEqual(content.attributedText?.length ?? 0, 0)
         XCTAssertEqual(
@@ -455,10 +443,7 @@ final class FireTopicPresentationTests: XCTestCase {
     }
 
     func testRenderContentKeepsImagesInInlineSegmentOrder() {
-        let content = FireTopicPresentation.renderContent(
-            from: #"<p>Before</p><p><a class="lightbox" href="/uploads/default/original/1X/fire-full.png"><img src="/uploads/default/optimized/1X/fire_690x388.png" width="690" height="388" alt="fire"></a></p><p>After</p>"#,
-            baseURLString: "https://linux.do"
-        )
+        let content = fireRenderContentFixture(#"<p>Before</p><p><a class="lightbox" href="/uploads/default/original/1X/fire-full.png"><img src="/uploads/default/optimized/1X/fire_690x388.png" width="690" height="388" alt="fire"></a></p><p>After</p>"#)
 
         XCTAssertEqual(content.segments.count, 3)
         if case .text(let beforeText) = content.segments[0] {
@@ -479,11 +464,24 @@ final class FireTopicPresentationTests: XCTestCase {
         }
     }
 
+    func testRenderContentSuppressesInlineImageMetadataText() {
+        let content = fireRenderContentFixture(#"<p><a class="lightbox" href="/uploads/default/original/1X/fire-full.png"><img src="/uploads/default/optimized/1X/fire_690x388.png" width="690" height="388" alt="fire"></a> image 1080x1920 52.5kb</p>"#)
+        let segmentText = content.segments.compactMap { segment -> String? in
+            if case .text(let text) = segment {
+                return text.string
+            }
+            return nil
+        }.joined(separator: "\n")
+
+        XCTAssertEqual(content.imageAttachments.count, 1)
+        XCTAssertFalse(content.plainText.contains("1080x1920"))
+        XCTAssertFalse(content.plainText.contains("52.5kb"))
+        XCTAssertFalse(segmentText.contains("1080x1920"))
+        XCTAssertFalse(segmentText.contains("52.5kb"))
+    }
+
     func testHeadingAttributedTextCarriesExpandedParagraphLineHeight() throws {
-        let content = FireTopicPresentation.renderContent(
-            from: "<h1>Big heading wraps onto another line</h1>",
-            baseURLString: "https://linux.do"
-        )
+        let content = fireRenderContentFixture("<h1>Big heading wraps onto another line</h1>")
         let attributedText = try XCTUnwrap(content.attributedText)
         let paragraph = try XCTUnwrap(
             attributedText.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle
@@ -495,10 +493,7 @@ final class FireTopicPresentationTests: XCTestCase {
     }
 
     func testImageAttachmentsPreferGenericLinkedImageURL() {
-        let content = FireTopicPresentation.renderContent(
-            from: #"<p><a href="/uploads/default/original/1X/fire-full.png"><img src="/uploads/default/optimized/1X/fire_690x388.png" width="690" height="388"></a></p>"#,
-            baseURLString: "https://linux.do"
-        )
+        let content = fireRenderContentFixture(#"<p><a href="/uploads/default/original/1X/fire-full.png"><img src="/uploads/default/optimized/1X/fire_690x388.png" width="690" height="388"></a></p>"#)
 
         XCTAssertEqual(content.attributedText?.length ?? 0, 0)
         XCTAssertEqual(
@@ -508,10 +503,7 @@ final class FireTopicPresentationTests: XCTestCase {
     }
 
     func testRenderContentEmbedsEmojiAttachments() throws {
-        let content = FireTopicPresentation.renderContent(
-            from: #"<p><img class="emoji" title="smile" src="/images/emoji/twitter/smile.png?v=12"></p>"#,
-            baseURLString: "https://linux.do"
-        )
+        let content = fireRenderContentFixture(#"<p><img class="emoji" title="smile" src="/images/emoji/twitter/smile.png?v=12"></p>"#)
 
         let attributedText = try XCTUnwrap(content.attributedText)
         let attachment = try XCTUnwrap(
@@ -524,10 +516,7 @@ final class FireTopicPresentationTests: XCTestCase {
     }
 
     func testRenderContentDerivesEmojiShortcodeFromToneVariantPath() throws {
-        let content = FireTopicPresentation.renderContent(
-            from: #"<p><img class="emoji" src="/images/emoji/twitter/wave/t3.png?v=12"></p>"#,
-            baseURLString: "https://linux.do"
-        )
+        let content = fireRenderContentFixture(#"<p><img class="emoji" src="/images/emoji/twitter/wave/t3.png?v=12"></p>"#)
 
         let attributedText = try XCTUnwrap(content.attributedText)
         let attachment = try XCTUnwrap(
@@ -538,10 +527,7 @@ final class FireTopicPresentationTests: XCTestCase {
     }
 
     func testRenderContentBuildsQuotedReplyHeaderWithInternalLinks() throws {
-        let content = FireTopicPresentation.renderContent(
-            from: #"<aside class="quote" data-username="alice" data-post="12" data-topic="987"><blockquote><p>Hello Fire</p></blockquote></aside>"#,
-            baseURLString: "https://linux.do"
-        )
+        let content = fireRenderContentFixture(#"<aside class="quote" data-username="alice" data-post="12" data-topic="987"><blockquote><p>Hello Fire</p></blockquote></aside>"#)
 
         let attributedText = try XCTUnwrap(content.attributedText)
         let text = attributedText.string as NSString
@@ -563,8 +549,7 @@ final class FireTopicPresentationTests: XCTestCase {
     }
 
     func testRenderContentDoesNotPromoteQuoteAvatarToPostAttachment() throws {
-        let content = FireTopicPresentation.renderContent(
-            from: #"""
+        let content = fireRenderContentFixture(#"""
             <aside class="quote" data-username="alice" data-post="12" data-topic="987">
               <div class="title">
                 <img class="avatar" src="/user_avatar/linux.do/alice/48/1_2.png" width="24" height="24">
@@ -572,23 +557,19 @@ final class FireTopicPresentationTests: XCTestCase {
               </div>
               <blockquote><p>Hello Fire</p></blockquote>
             </aside>
-            """#,
-            baseURLString: "https://linux.do"
-        )
+            """#)
 
         let attributedText = try XCTUnwrap(content.attributedText)
 
         XCTAssertTrue(content.imageAttachments.isEmpty)
         XCTAssertTrue(attributedText.string.contains("引用"))
         XCTAssertTrue(attributedText.string.contains("Hello Fire"))
-        XCTAssertTrue(attributedText.string.contains("alice"))
+        XCTAssertFalse(attributedText.string.contains("alice:"))
+        XCTAssertEqual(attributedText.string.components(separatedBy: "alice").count - 1, 1)
     }
 
     func testRenderContentMakesMentionGroupsAndHashtagsTappable() throws {
-        let content = FireTopicPresentation.renderContent(
-            from: #"<p><a class="mention-group" href="/groups/moderators">@moderators</a> <a class="hashtag-cooked" data-type="tag" href="/tag/rust">#rust</a></p>"#,
-            baseURLString: "https://linux.do"
-        )
+        let content = fireRenderContentFixture(#"<p><a class="mention-group" href="/groups/moderators">@moderators</a> <a class="hashtag-cooked" data-type="tag" href="/tag/rust">#rust</a></p>"#)
 
         let attributedText = try XCTUnwrap(content.attributedText)
         let text = attributedText.string as NSString
@@ -608,10 +589,7 @@ final class FireTopicPresentationTests: XCTestCase {
     }
 
     func testRenderContentPreservesDetailsAndSpoilerText() throws {
-        let content = FireTopicPresentation.renderContent(
-            from: #"<details><summary>展开说明</summary><p>可见 <span class="spoiler">隐藏内容</span></p></details>"#,
-            baseURLString: "https://linux.do"
-        )
+        let content = fireRenderContentFixture(#"<details><summary>展开说明</summary><p>可见 <span class="spoiler">隐藏内容</span></p></details>"#)
 
         let attributedText = try XCTUnwrap(content.attributedText)
         let text = attributedText.string as NSString
@@ -623,14 +601,11 @@ final class FireTopicPresentationTests: XCTestCase {
     }
 
     func testRenderContentSupportsOrderedListsTablesAndOneboxes() throws {
-        let content = FireTopicPresentation.renderContent(
-            from: #"""
+        let content = fireRenderContentFixture(#"""
             <ol><li>第一项</li><li><strong>第二项</strong></li></ol>
             <table><tr><th>A</th><th>B</th></tr><tr><td>1</td><td>2</td></tr></table>
             <aside class="onebox"><header><a href="https://example.com/post">example.com</a></header><div class="onebox-body"><h3><a href="https://example.com/post">Example title</a></h3><p>Example description</p></div></aside>
-            """#,
-            baseURLString: "https://linux.do"
-        )
+            """#)
 
         let attributedText = try XCTUnwrap(content.attributedText)
         XCTAssertTrue(attributedText.string.contains("1. 第一项"))
@@ -992,21 +967,44 @@ final class FireTopicPresentationTests: XCTestCase {
         )
     }
 
+    func testRenderContentRequiresRenderDocumentEvenWhenCookedExists() {
+        let post = makePost(
+            postNumber: 1,
+            replyToPostNumber: nil,
+            username: "author",
+            cooked: "<p>Cooked only</p>",
+            includeRenderDocument: false
+        )
+        let detail = makeTopicDetail(posts: [post], stream: [post.id])
+        let renderState = FireTopicPresentation.detailRenderState(
+            from: detail,
+            baseURLString: "https://linux.do"
+        )
+
+        XCTAssertNil(FireTopicPresentation.renderContent(from: post))
+        XCTAssertNil(renderState.contentByPostID[post.id])
+    }
+
     private func makePost(
         postNumber: UInt32,
         replyToPostNumber: UInt32?,
         username: String,
         likeCount: UInt32 = 0,
         reactions: [TopicReactionState] = [],
-        cooked: String? = nil
+        cooked: String? = nil,
+        includeRenderDocument: Bool = true
     ) -> TopicPostState {
-        TopicPostState(
+        let cooked = cooked ?? "<p>\(username)</p>"
+        let renderDocument = includeRenderDocument
+            ? renderCookedHtml(rawHtml: cooked, baseUrl: "https://linux.do")
+            : nil
+        return TopicPostState(
             id: UInt64(postNumber),
             username: username,
             name: nil,
             avatarTemplate: nil,
-            cooked: cooked ?? "<p>\(username)</p>",
-            renderDocument: nil,
+            cooked: cooked,
+            renderDocument: renderDocument,
             raw: nil,
             postNumber: postNumber,
             postType: 1,

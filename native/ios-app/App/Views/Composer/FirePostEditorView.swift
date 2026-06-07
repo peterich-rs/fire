@@ -83,8 +83,13 @@ struct FirePostEditorView: View {
 
         do {
             let post = try await viewModel.fetchPost(postID: postID)
-            rawText = post.raw ?? plainTextFromHtml(rawHtml: post.cooked)
-            errorMessage = nil
+            if let raw = post.raw,
+               !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                rawText = raw
+                errorMessage = nil
+            } else {
+                errorMessage = "服务端未返回可编辑原文，无法打开编辑器"
+            }
         } catch {
             errorMessage = error.localizedDescription
         }

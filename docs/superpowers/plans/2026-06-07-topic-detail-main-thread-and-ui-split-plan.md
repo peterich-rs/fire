@@ -83,23 +83,11 @@ let changed = topicDetails[topicId] != detail
 
 `TopicDetailState` 包含 `postStream.posts`，每个 `TopicPostState` 又包含 `cooked` 和 `renderDocument`。大帖刷新、MessageBus refresh、返回相同数据或差异靠后时，这个比较会在主线程走深比较。
 
-### iOS render cache 已部分后台化，但 poll title 仍在 cell/layout 路径
+### iOS render cache 已部分后台化，但 poll title 修复前仍在 cell/layout 路径
 
 `FireTopicDetailStore.scheduleTopicRenderCacheUpdate` / `buildTopicDetailRenderUpdate` 已用 `Task.detached` 构建 `FireTopicPresentation.detailRenderCache(...)`，这是正确方向。
 
-但 `FirePostPollRenderModel.models(from:)` 仍会在 poll option cache miss 时调用：
-
-```swift
-FireRichTextParser.parse(html: html, baseURLString: "")
-```
-
-该 parser 会同步调用 `renderCookedHtml(...)` FFI。调用点包括：
-
-- cell configure: `FirePostCellNode`
-- layout precompute: `FireTopicDetailFeedController.prepareLayoutsIfNeeded`
-- layout key: `FireTopicDetailFeedController.makeLayoutKey`
-
-所以 poll-bearing posts 仍可能在滚动和 layout key 构建路径阻塞。
+修复前 `FirePostPollRenderModel.models(from:)` 会在 poll option cache miss 时从 option HTML 同步派生标题，调用点覆盖 cell configure、layout precompute 和 layout key 构建。修复后 poll option 标题由 Rust 在共享 rich-text plain-text 路径产出，iOS / Android 都只消费 `plainText`，平台侧不再保留正文或 poll 标题的 HTML 解析 fallback。
 
 ### FFI tree payload 当前重复带完整 post
 
@@ -388,11 +376,11 @@ Steps:
 - [x] Update iOS `FirePostPollRenderModel.models(from:)` to use `option.plainText` and fallback to `option.id`.
 - [x] Remove `FirePostPollPlainTextCache` and `optionTitle(fromHTML:)` from the cell path.
 - [x] Ensure `FireTopicDetailFeedController.makeLayoutKey` uses already materialized poll signatures only.
-- [x] Audit all iOS references to `FireRichTextParser.parse(html:)` and confirm none are reachable from cell configure or layout key cache miss.
+- [x] Audit iOS topic-detail poll title call sites and confirm none are reachable from cell configure or layout key cache miss.
 
 Acceptance:
 
-- No `renderCookedHtml(...)` FFI can be triggered by poll model construction.
+- No synchronous HTML parsing can be triggered by poll model construction.
 - Poll-bearing rows can configure and compute layout keys without synchronous HTML parsing.
 
 ### Phase 4: Move Android core initialization off UI thread
@@ -498,7 +486,7 @@ cd native/android-app
 Runtime checks:
 
 - iOS large topic initial load: no visible main-thread freeze during identical refresh.
-- iOS poll-bearing topic scroll: no synchronous `renderCookedHtml` from cell/layout stack.
+- iOS poll-bearing topic scroll: no synchronous HTML parsing from cell/layout stack.
 - iOS quick reply typing: no feed collection diff.
 - iOS MessageBus identical refresh during/after scroll: no full detail deep compare.
 - Android cold start: first `FireSessionStore` construction happens on IO dispatcher.

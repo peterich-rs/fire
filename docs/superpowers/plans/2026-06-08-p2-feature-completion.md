@@ -56,96 +56,19 @@
 - Create: `rust/crates/fire-models/src/ldc.rs`
 - Modify: `rust/crates/fire-models/src/lib.rs`
 
-- [ ] **Step 1: 创建 LDC 模型类型**
+- [x] **Step 1: 创建 LDC/CDK 模型类型**
 
-```rust
-use serde::{Deserialize, Serialize};
+Implemented in `rust/crates/fire-models/src/ldc.rs`.
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct LdcUserInfo {
-    pub id: u64,
-    pub username: String,
-    pub avatar_url: Option<String>,
-    pub trust_level: Option<u32>,
-    pub balance: String,
-    pub total_earned: Option<String>,
-    pub total_paid: Option<String>,
-    pub pending_balance: Option<String>,
-}
+Implementation note: the original schematic fields were replaced with the observed protocol contract from `docs/knowledge/api/13-ldc-cdk-oauth.md` and `references/fluxdo/lib/models/`.
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct LdcPayment {
-    pub id: u64,
-    pub amount: String,
-    pub description: Option<String>,
-    pub created_at: Option<String>,
-    pub payment_type: Option<String>,
-}
+- `LdcUserInfo` mirrors `GET https://credit.linux.do/api/v1/oauth/user-info`: `nickname`, `trust_level`, `avatar_url`, receive/payment/transfer/community totals, balances, quota, pay flags, pay level, daily limit, and optional gamification score.
+- `CdkUserInfo` mirrors `GET https://cdk.linux.do/api/v1/oauth/user-info`: `nickname`, `trust_level`, `avatar_url`, and `score`; it intentionally does not reuse LDC balance/payment fields.
+- `LdcAuthorizationUrl`, `CdkAuthorizationUrl`, `LdcApprovalStatus`, `LdcPayment`, `LdcPaymentList`, `ConnectTrustLevelProgress`, and `TrustLevelRequirement` are present for the next core and UI tasks.
+- `LdcApprovalStatus::Approved` carries both `code` and `state`, matching the OAuth approval redirect.
+- Serialization tests cover the documented LDC and CDK `user-info` shapes.
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct LdcPaymentList {
-    pub payments: Vec<LdcPayment>,
-    pub has_more: bool,
-}
-
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct LdcAuthorizationUrl {
-    pub url: String,
-    pub state: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum LdcApprovalStatus {
-    Pending,
-    Approved { code: String },
-    Denied,
-}
-
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ConnectTrustLevelProgress {
-    pub current_level: u32,
-    pub next_level: Option<u32>,
-    pub days_visited: u32,
-    pub topics_read: u32,
-    pub posts_read: u32,
-    pub time_read: u64,
-    pub likes_given: u32,
-    pub likes_received: u32,
-    pub topics_entered: u32,
-    pub posts_created: u32,
-    pub requirements: Vec<TrustLevelRequirement>,
-}
-
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct TrustLevelRequirement {
-    pub name: String,
-    pub current: String,
-    pub required: String,
-    pub satisfied: bool,
-}
-```
-
-CDK 模型（结构对称，不同字段名）：
-
-```rust
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct CdkUserInfo {
-    pub id: u64,
-    pub username: String,
-    pub avatar_url: Option<String>,
-    pub cdk_points: Option<String>,
-    pub cdk_level: Option<u32>,
-    pub is_bound: bool,
-}
-
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct CdkAuthorizationUrl {
-    pub url: String,
-    pub state: String,
-}
-```
-
-- [ ] **Step 2: 注册模块**
+- [x] **Step 2: 注册模块**
 
 在 `rust/crates/fire-models/src/lib.rs` 中添加：
 
@@ -154,12 +77,12 @@ mod ldc;
 pub use ldc::*;
 ```
 
-- [ ] **Step 3: 构建验证**
+- [x] **Step 3: 构建验证**
 
 Run: `cd rust && cargo check -p fire-models 2>&1 | tail -5`
 Expected: `Finished` without errors
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add rust/crates/fire-models/src/ldc.rs rust/crates/fire-models/src/lib.rs

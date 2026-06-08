@@ -114,25 +114,25 @@ git commit -m "refactor(ios): unify corner radius and background tokens across F
 - Modify: `native/ios-app/App/Views/FireFilteredTopicListView.swift`
 - Reference: `native/ios-app/App/Core/FireComponents.swift` (contains `FireFeedKindSelector`)
 
-- [ ] **Step 1: 定位 FireFilteredTopicListView 中的简易筛选器**
+- [x] **Step 1: 定位 FireFilteredTopicListView 中的简易筛选器**
 
 读取 `FireFilteredTopicListView.swift`，找到使用 `Capsule().fill()` 的筛选器代码段。
 
-- [ ] **Step 2: 替换为 FireFeedKindSelector**
+- [x] **Step 2: 替换为 FireFeedKindSelector**
 
 将内联的 Capsule 筛选器替换为 `FireFeedKindSelector`（使用 `matchedGeometryEffect` 的版本），确保与首页视觉完全一致。
 
-需要传递的参数：
-- `kinds: [TopicListKindState]`
-- `selectedKind: Binding<TopicListKindState>`
+实际集成参数：
+- `selectedKind: TopicListKindState`
+- `namespace: Namespace.ID`
 - `onSelect: (TopicListKindState) -> Void`
 
-- [ ] **Step 3: 构建验证**
+- [x] **Step 3: 构建验证**
 
-Run: `cd native/ios-app && xcodebuild build -scheme FireApp -destination 'platform=iOS Simulator,name=iPhone 16' -quiet 2>&1 | tail -5`
-Expected: `** BUILD SUCCEEDED **`
+Verified:
+- `cd native/ios-app && xcodebuild build -scheme Fire -destination 'id=D733CCB1-7B2A-49B5-B3F8-36CB6D0CB2BF' -quiet`
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add native/ios-app/App/Views/FireFilteredTopicListView.swift

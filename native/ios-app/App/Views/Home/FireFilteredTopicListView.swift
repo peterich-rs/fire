@@ -106,9 +106,15 @@ final class FireFilteredTopicListViewModel: ObservableObject {
         await load(page: nil, reset: true)
     }
 
-    func selectKind(_ kind: TopicListKindState) async {
+    func selectKind(_ kind: TopicListKindState, animation: Animation? = nil) async {
         guard selectedKind != kind else { return }
-        selectedKind = kind
+        if let animation {
+            withAnimation(animation) {
+                selectedKind = kind
+            }
+        } else {
+            selectedKind = kind
+        }
         await load(page: nil, reset: true)
     }
 
@@ -202,6 +208,7 @@ struct FireFilteredTopicListView: View {
     @StateObject private var listViewModel: FireFilteredTopicListViewModel
     @State private var copiedErrorMessage = false
     @State private var selectedRoute: FireAppRoute?
+    @Namespace private var feedSelectorNamespace
     @Namespace private var pushTransitionNamespace
 
     init(
@@ -309,35 +316,16 @@ struct FireFilteredTopicListView: View {
 
     private var kindSelectorSection: some View {
         Section {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 4) {
-                    ForEach(TopicListKindState.orderedCases, id: \.self) { kind in
-                        Button {
-                            _ = withAnimation(.easeInOut(duration: 0.2)) {
-                                Task<Void, Never> {
-                                    await listViewModel.selectKind(kind)
-                                }
-                            }
-                        } label: {
-                            Text(kind.title)
-                                .font(.subheadline.weight(.medium))
-                                .foregroundStyle(
-                                    listViewModel.selectedKind == kind ? Color.white : Color(.label)
-                                )
-                                .padding(.horizontal, 14)
-                                .padding(.vertical, 7)
-                                .background(
-                                    Capsule().fill(
-                                        listViewModel.selectedKind == kind
-                                            ? FireTheme.accent
-                                            : Color(.tertiarySystemFill)
-                                    )
-                                )
-                        }
-                        .buttonStyle(.plain)
-                    }
+            FireFeedKindSelector(
+                selectedKind: listViewModel.selectedKind,
+                namespace: feedSelectorNamespace
+            ) { kind in
+                Task<Void, Never> {
+                    await listViewModel.selectKind(
+                        kind,
+                        animation: .easeInOut(duration: 0.2)
+                    )
                 }
-                .padding(.vertical, 2)
             }
         }
         .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))

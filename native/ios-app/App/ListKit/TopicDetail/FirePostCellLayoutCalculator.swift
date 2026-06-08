@@ -20,6 +20,12 @@ enum FirePostCellLayoutCalculator {
     static let boostSpacing: CGFloat = 6
     static let boostHorizontalInset: CGFloat = 10
     static let boostVerticalInset: CGFloat = 6
+    static let fixedBoostTickerRows = 2
+    static let fixedBoostTickerRowHeight: CGFloat = 30
+    static let fixedBoostTickerRowSpacing: CGFloat = 4
+    static let fixedBoostTickerHeight: CGFloat =
+        CGFloat(fixedBoostTickerRows) * fixedBoostTickerRowHeight
+        + CGFloat(fixedBoostTickerRows - 1) * fixedBoostTickerRowSpacing
     static let replyShortcutTopSpacing: CGFloat = 8
     static let replyShortcutHeight: CGFloat = 30
     static let reactionTopSpacing: CGFloat = 0
@@ -200,31 +206,18 @@ enum FirePostCellLayoutCalculator {
 
         // Boost frames
         var boostFrames: [CGRect] = []
-        if !shouldCollapseText {
-            let boostHeights = boostLines.map { line in
-                boostHeight(
-                    text: line,
-                    containerWidth: contentAvailableWidth,
-                    contentSizeCategory: contentSizeCategory
-                )
+        if !shouldCollapseText && boostLines.contains(where: { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) {
+            if textFrame != nil || !imageFrames.isEmpty || !pollFrames.isEmpty {
+                cursorY += boostTopSpacing
             }
-            for (index, boostHeight) in boostHeights.enumerated() where boostHeight > 0 {
-                if index == 0 {
-                    if textFrame != nil || !imageFrames.isEmpty || !pollFrames.isEmpty {
-                        cursorY += boostTopSpacing
-                    }
-                } else {
-                    cursorY += boostSpacing
-                }
-                let frame = CGRect(
-                    x: contentLeading,
-                    y: cursorY,
-                    width: contentAvailableWidth,
-                    height: boostHeight
-                )
-                boostFrames.append(frame)
-                cursorY += boostHeight
-            }
+            let frame = CGRect(
+                x: contentLeading,
+                y: cursorY,
+                width: contentAvailableWidth,
+                height: fixedBoostTickerHeight
+            )
+            boostFrames.append(frame)
+            cursorY += fixedBoostTickerHeight
         }
 
         // Action row: nested-reply shortcut and reactions share one compact line.

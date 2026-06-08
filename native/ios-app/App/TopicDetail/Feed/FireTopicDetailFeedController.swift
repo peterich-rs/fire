@@ -446,6 +446,7 @@ final class FireTopicDetailFeedController: NSObject,
         let capturedConfiguration = configuration
         let capturedLayoutManager = layoutManager
         let capturedCellFactory = cellFactory
+        let capturedBoostAnimationsEnabled = !isScrollInteractionActive
 
         return {
             if let postContext = capturedPostContext {
@@ -464,6 +465,7 @@ final class FireTopicDetailFeedController: NSObject,
                         textExpansionState: postContext.textExpansionState,
                         showsDivider: postContext.showsDivider,
                         layoutWidth: capturedLayoutWidth,
+                        boostAnimationsEnabled: capturedBoostAnimationsEnabled,
                         layout: capturedLayoutKey.flatMap { capturedLayoutManager?.cachedLayout(forKey: $0) },
                         layoutKey: capturedLayoutKey
                     ),
@@ -581,6 +583,7 @@ final class FireTopicDetailFeedController: NSObject,
                 textExpansionState: context.textExpansionState,
                 showsDivider: context.showsDivider,
                 layoutWidth: width,
+                boostAnimationsEnabled: !isScrollInteractionActive,
                 layout: layoutManager?.cachedLayout(forKey: layoutKey),
                 layoutKey: layoutKey
             ),
@@ -746,6 +749,7 @@ final class FireTopicDetailFeedController: NSObject,
                 pendingScrollTarget: configuration.pendingScrollTarget
             )
         }
+        updateVisibleBoostAnimationState()
     }
 
     private func publishScrollInteractionStateIfNeeded() {
@@ -753,6 +757,17 @@ final class FireTopicDetailFeedController: NSObject,
         guard lastPublishedScrollInteractionActive != isActive else { return }
         lastPublishedScrollInteractionActive = isActive
         onScrollInteractionChanged?(isActive)
+        updateVisibleBoostAnimationState()
+    }
+
+    private func updateVisibleBoostAnimationState() {
+        let enabled = !isScrollInteractionActive
+        for indexPath in visibleIndexPaths {
+            guard let node = collectionNode.nodeForItem(at: indexPath) as? FirePostCellNode else {
+                continue
+            }
+            node.setBoostAnimationsEnabled(enabled)
+        }
     }
 
     @objc

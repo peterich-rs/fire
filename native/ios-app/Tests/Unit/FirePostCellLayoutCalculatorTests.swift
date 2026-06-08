@@ -295,14 +295,47 @@ final class FirePostCellLayoutCalculatorTests: XCTestCase {
             trait: trait
         )
 
-        XCTAssertEqual(layout.boostFrames.count, 2)
+        XCTAssertEqual(layout.boostFrames.count, 1)
         XCTAssertGreaterThan(layout.boostFrames[0].minY, layout.textFrame?.maxY ?? 0)
         XCTAssertEqual(
-            layout.boostFrames[1].minY,
-            layout.boostFrames[0].maxY + FirePostCellLayoutCalculator.boostSpacing,
+            layout.boostFrames[0].height,
+            FirePostCellLayoutCalculator.fixedBoostTickerHeight,
             accuracy: 0.01
         )
-        XCTAssertGreaterThan(layout.reactionsFrame?.minY ?? 0, layout.boostFrames[1].maxY)
+        XCTAssertGreaterThan(layout.reactionsFrame?.minY ?? 0, layout.boostFrames[0].maxY)
+    }
+
+    func testFixedBoostTickerKeepsManyBoostsToTwoRows() {
+        let trait = FirePostLayoutTraitSignature(contentWidthPixels: 360, contentSizeCategory: UIContentSizeCategory.large.rawValue)
+        let key = FirePostCellLayoutKey(
+            postID: 999,
+            depth: 1,
+            showsThreadLine: false,
+            showsDivider: true,
+            replyTargetPostNumber: nil,
+            replyContext: nil,
+            textContentID: "many-boosts",
+            imageSignature: [],
+            pollSignature: [],
+            boostSignature: (0..<8).map { "boost-\($0)" },
+            hasReactions: true,
+            replyShortcutCount: nil,
+            textExpansionState: .disabled,
+            acceptedAnswer: false,
+            hasAuthorMetadata: false,
+            trait: trait
+        )
+
+        let layout = FirePostCellLayoutCalculator.calculate(
+            key: key,
+            textHeight: 40,
+            imageSizes: [],
+            boostLines: (0..<8).map { "@user\($0): boost text \($0)" },
+            trait: trait
+        )
+
+        XCTAssertEqual(layout.boostFrames.count, 1)
+        XCTAssertEqual(layout.boostFrames[0].height, FirePostCellLayoutCalculator.fixedBoostTickerHeight, accuracy: 0.01)
     }
 
     func testBoostDisplayUsesBarrageOnlyForExpandedOriginalBodyText() {

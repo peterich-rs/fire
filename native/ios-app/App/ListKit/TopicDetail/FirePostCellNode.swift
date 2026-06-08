@@ -42,7 +42,10 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
         })
         node.onDidLoad { [weak self] node in
             guard let view = node.view as? FirePostBoostBarrageView else { return }
-            view.configure(lines: self?.boostBarrageLines ?? [])
+            view.configure(
+                lines: self?.boostBarrageLines ?? [],
+                animationsEnabled: self?.boostAnimationsEnabled ?? true
+            )
         }
         return node
     }()
@@ -72,9 +75,23 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
     private var pollHeights: [CGFloat] = []
     private var pollSignature: [String] = []
     private var pollWidth: CGFloat = 0
-    private var boostNodes: [FirePostBoostNode] = []
+    private lazy var boostTickerNode: ASDisplayNode = {
+        let node = ASDisplayNode(viewBlock: {
+            FirePostBoostTickerView()
+        })
+        node.onDidLoad { [weak self] node in
+            guard let view = node.view as? FirePostBoostTickerView else { return }
+            view.configure(
+                lines: self?.boostTickerLines ?? [],
+                animationsEnabled: self?.boostAnimationsEnabled ?? true
+            )
+        }
+        return node
+    }()
     private var boostSignature: [String] = []
     private var boostBarrageLines: [String] = []
+    private var boostTickerLines: [String] = []
+    private var boostAnimationsEnabled = true
     private var reactionButtons: [ASButtonNode] = []
     private var reactionButtonIDs: [String] = []
     private var displayedReactions: [TopicReactionState] = []
@@ -205,31 +222,23 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
         boostContainerNode.isHidden = true
         boostContainerNode.automaticallyManagesSubnodes = true
         boostContainerNode.layoutSpecBlock = { [weak self] _, _ in
-            guard let self else { return ASLayoutSpec() }
-            let nodes = self.boostNodes.filter { !$0.isHidden }
-            guard !nodes.isEmpty else { return ASLayoutSpec() }
-            let availableWidth = Self.availableContentWidth(
-                totalWidth: self.currentLayoutWidth,
-                depth: self.currentDepth,
-                avatarSize: self.currentAvatarSize,
-                avatarSpacing: self.currentAvatarSpacing
+            guard let self, !self.boostTickerNode.isHidden else { return ASLayoutSpec() }
+            self.boostTickerNode.style.preferredSize = CGSize(
+                width: max(
+                    Self.availableContentWidth(
+                        totalWidth: self.currentLayoutWidth,
+                        depth: self.currentDepth,
+                        avatarSize: self.currentAvatarSize,
+                        avatarSpacing: self.currentAvatarSpacing
+                    ),
+                    1
+                ),
+                height: FirePostCellLayoutCalculator.fixedBoostTickerHeight
             )
-            for node in nodes {
-                node.style.maxWidth = ASDimensionMake(max(availableWidth, 1))
-                node.style.flexShrink = 1.0
-            }
-            let stack = ASStackLayoutSpec(
-                direction: .horizontal,
-                spacing: FirePostCellLayoutCalculator.boostSpacing,
-                justifyContent: .start,
-                alignItems: .start,
-                children: nodes
-            )
-            stack.flexWrap = .wrap
-            stack.alignContent = .start
-            stack.lineSpacing = FirePostCellLayoutCalculator.boostSpacing
-            return stack
+            return ASWrapperLayoutSpec(layoutElement: self.boostTickerNode)
         }
+        boostTickerNode.isHidden = true
+        boostTickerNode.isUserInteractionEnabled = false
         boostBarrageNode.isHidden = true
         boostBarrageNode.isUserInteractionEnabled = false
 
@@ -280,6 +289,7 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
         configureMeta(payload: payload)
         configureBodyContent(payload: payload)
         configurePolls(payload: payload)
+        boostAnimationsEnabled = payload.boostAnimationsEnabled
         configureBoosts(payload: payload)
         configureReplyShortcut(payload: payload)
         configureReactions(payload: payload)
@@ -706,7 +716,7 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
             boostContainerNode.isHidden = true
             boostBarrageNode.isHidden = true
             configureBoostBarrage(lines: [])
-            rebuildBoostNodes([])
+            configureFixedBoostTicker(lines: [])
             boostSignature = []
             return
         }
@@ -722,7 +732,7 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
             : [])
         boostContainerNode.isHidden = usesBodyBarrage
         if usesBodyBarrage {
-            rebuildBoostNodes([])
+            configureFixedBoostTicker(lines: [])
             boostSignature = []
             return
         }
@@ -736,31 +746,20 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
             ].joined(separator: "\u{1E}")
         }
         if boostSignature != nextSignature {
-            rebuildBoostNodes(payload.post.boosts)
             boostSignature = nextSignature
-        } else {
-            updateBoostNodes(payload.post.boosts)
         }
-    }
-
-    private func rebuildBoostNodes(_ boosts: [TopicPostBoostState]) {
-        for node in boostNodes {
-            node.removeFromSupernode()
-        }
-        boostNodes.removeAll()
-
-        for boost in boosts {
-            let node = FirePostBoostNode()
-            node.configure(boost: boost)
-            boostNodes.append(node)
-        }
+        configureFixedBoostTicker(lines: payload.post.boosts.map(FirePostBoostDisplay.displayLine(for:)))
         boostContainerNode.setNeedsLayout()
     }
 
-    private func updateBoostNodes(_ boosts: [TopicPostBoostState]) {
-        for (node, boost) in zip(boostNodes, boosts) {
-            node.configure(boost: boost)
+    private func configureFixedBoostTicker(lines: [String]) {
+        boostTickerLines = lines
+        boostTickerNode.isHidden = lines.isEmpty
+        guard boostTickerNode.isNodeLoaded,
+              let view = boostTickerNode.view as? FirePostBoostTickerView else {
+            return
         }
+        view.configure(lines: lines, animationsEnabled: boostAnimationsEnabled)
     }
 
     private func configureBoostBarrage(lines: [String]) {
@@ -769,7 +768,20 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
               let view = boostBarrageNode.view as? FirePostBoostBarrageView else {
             return
         }
-        view.configure(lines: lines)
+        view.configure(lines: lines, animationsEnabled: boostAnimationsEnabled)
+    }
+
+    func setBoostAnimationsEnabled(_ enabled: Bool) {
+        guard boostAnimationsEnabled != enabled else { return }
+        boostAnimationsEnabled = enabled
+        if boostBarrageNode.isNodeLoaded,
+           let view = boostBarrageNode.view as? FirePostBoostBarrageView {
+            view.setAnimationsEnabled(enabled)
+        }
+        if boostTickerNode.isNodeLoaded,
+           let view = boostTickerNode.view as? FirePostBoostTickerView {
+            view.setAnimationsEnabled(enabled)
+        }
     }
 
     private func configureReactions(payload: FirePostCellRenderPayload) {
@@ -940,6 +952,13 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
         if !authorBadgeNode.isHidden {
             authorChildren.append(authorBadgeNode)
         }
+        if !acceptedAnswerNode.isHidden {
+            authorChildren.append(acceptedAnswerNode)
+        }
+        if !menuNode.isHidden {
+            menuNode.style.preferredSize = CGSize(width: 20, height: 20)
+            authorChildren.append(menuNode)
+        }
         let authorRow = ASStackLayoutSpec(
             direction: .horizontal,
             spacing: 5,
@@ -952,14 +971,7 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
         let firstLineSpacer = ASLayoutSpec()
         firstLineSpacer.style.flexGrow = 1.0
 
-        var metaChildren: [ASLayoutElement] = [authorRow, firstLineSpacer, timestampNode]
-        if !acceptedAnswerNode.isHidden {
-            metaChildren.append(acceptedAnswerNode)
-        }
-        if !menuNode.isHidden {
-            menuNode.style.preferredSize = CGSize(width: 20, height: 20)
-            metaChildren.append(menuNode)
-        }
+        let metaChildren: [ASLayoutElement] = [authorRow, firstLineSpacer, timestampNode]
         let metaRow = ASStackLayoutSpec(
             direction: .horizontal,
             spacing: 6,
@@ -1958,6 +1970,7 @@ private final class FirePostBoostBarrageView: UIView {
     private var labels: [UILabel] = []
     private var signature: String = ""
     private var lastAnimatedBounds: CGRect = .null
+    private var animationsEnabled = true
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -1971,16 +1984,19 @@ private final class FirePostBoostBarrageView: UIView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    func configure(lines: [String]) {
+    func configure(lines: [String], animationsEnabled: Bool) {
+        self.animationsEnabled = animationsEnabled
         let visibleLines = lines
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
             .prefix(Self.maximumVisibleLines)
         let nextSignature = visibleLines.joined(separator: "\u{1E}")
-        guard nextSignature != signature else { return }
+        guard nextSignature != signature else {
+            restartLayoutAndAnimations()
+            return
+        }
 
         signature = nextSignature
-        lastAnimatedBounds = .null
         labels.forEach { label in
             label.layer.removeAllAnimations()
             label.removeFromSuperview()
@@ -2005,7 +2021,13 @@ private final class FirePostBoostBarrageView: UIView {
             addSubview(label)
             labels.append(label)
         }
-        setNeedsLayout()
+        restartLayoutAndAnimations()
+    }
+
+    func setAnimationsEnabled(_ enabled: Bool) {
+        guard animationsEnabled != enabled else { return }
+        animationsEnabled = enabled
+        restartLayoutAndAnimations()
     }
 
     override func layoutSubviews() {
@@ -2026,7 +2048,7 @@ private final class FirePostBoostBarrageView: UIView {
         let activeHeight = max(min(bounds.height * 0.46, CGFloat(laneCount) * (Self.chipHeight + 12)), Self.chipHeight)
         let laneHeight = max(activeHeight / CGFloat(laneCount), Self.chipHeight + 8)
         let maxChipWidth = max(bounds.width * 0.72, 1)
-        let reduceMotion = UIAccessibility.isReduceMotionEnabled
+        let shouldAnimate = animationsEnabled && !UIAccessibility.isReduceMotionEnabled
 
         for (index, label) in labels.enumerated() {
             label.layer.removeAllAnimations()
@@ -2042,14 +2064,14 @@ private final class FirePostBoostBarrageView: UIView {
             )
             let startX = bounds.width + CGFloat(index) * 84 + CGFloat(laneCycle) * 42
             label.frame = CGRect(
-                x: reduceMotion ? staticX(for: index, width: chipWidth) : startX,
+                x: shouldAnimate ? startX : staticX(for: index, width: chipWidth),
                 y: y,
                 width: chipWidth,
                 height: Self.chipHeight
             )
             label.alpha = 0.92
 
-            guard !reduceMotion else { continue }
+            guard shouldAnimate else { continue }
             let travel = bounds.width + chipWidth + CGFloat(index) * 84 + 48
             UIView.animate(
                 withDuration: 10.5 + Double(index % 3) * 1.4,
@@ -2068,58 +2090,156 @@ private final class FirePostBoostBarrageView: UIView {
         let progress = CGFloat(index + 1) / CGFloat(slotCount)
         return max((bounds.width - width) * progress, 0)
     }
-}
 
-// MARK: - Boost Chip
-
-private final class FirePostBoostNode: ASDisplayNode {
-    private let textNode = ASTextNode()
-    private var signature: String?
-
-    override init() {
-        super.init()
-        automaticallyManagesSubnodes = true
-        backgroundColor = UIColor.secondarySystemFill.withAlphaComponent(0.78)
-        cornerRadius = 13
-        clipsToBounds = true
-        textNode.maximumNumberOfLines = 2
-        textNode.truncationMode = .byTruncatingTail
-        textNode.isLayerBacked = true
-        textNode.style.flexShrink = 1.0
-    }
-
-    func configure(boost: TopicPostBoostState) {
-        let line = FirePostBoostDisplay.displayLine(for: boost)
-        let nextSignature = [
-            String(boost.id),
-            boost.user.username,
-            boost.user.name ?? "",
-            line,
-        ].joined(separator: "\u{1F}")
-        guard signature != nextSignature else { return }
-        signature = nextSignature
-
-        textNode.attributedText = NSAttributedString(
-            string: line,
-            attributes: [
-                .font: UIFont.preferredFont(forTextStyle: .caption1),
-                .foregroundColor: UIColor.secondaryLabel,
-            ]
-        )
-        accessibilityLabel = line
+    private func restartLayoutAndAnimations() {
+        lastAnimatedBounds = .null
+        labels.forEach { label in
+            label.layer.removeAllAnimations()
+            label.transform = .identity
+        }
         setNeedsLayout()
     }
+}
 
-    override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
-        ASInsetLayoutSpec(
-            insets: UIEdgeInsets(
-                top: FirePostCellLayoutCalculator.boostVerticalInset,
-                left: FirePostCellLayoutCalculator.boostHorizontalInset,
-                bottom: FirePostCellLayoutCalculator.boostVerticalInset,
-                right: FirePostCellLayoutCalculator.boostHorizontalInset
-            ),
-            child: textNode
-        )
+// MARK: - Fixed Boost Ticker
+
+private final class FirePostBoostTickerView: UIView {
+    private static let laneCount = 2
+    private static let chipHeight: CGFloat = 26
+
+    private var rowViews: [UIView] = []
+    private var labels: [UILabel] = []
+    private var signature: String = ""
+    private var animationsEnabled = true
+    private var lastAnimatedBounds: CGRect = .null
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        isUserInteractionEnabled = false
+        clipsToBounds = true
+        backgroundColor = .clear
+        for _ in 0..<Self.laneCount {
+            let row = UIView()
+            row.clipsToBounds = false
+            addSubview(row)
+            rowViews.append(row)
+        }
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func configure(lines: [String], animationsEnabled: Bool) {
+        self.animationsEnabled = animationsEnabled
+        let visibleLines = lines
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        let nextSignature = visibleLines.joined(separator: "\u{1E}")
+        guard nextSignature != signature else {
+            restartLayoutAndAnimations()
+            return
+        }
+
+        signature = nextSignature
+        labels.forEach { label in
+            label.layer.removeAllAnimations()
+            label.removeFromSuperview()
+        }
+        labels.removeAll()
+        isHidden = visibleLines.isEmpty
+
+        for (index, line) in visibleLines.enumerated() {
+            let label = UILabel()
+            label.text = line
+            label.font = .preferredFont(forTextStyle: .caption1)
+            label.textColor = .secondaryLabel
+            label.backgroundColor = UIColor.secondarySystemFill.withAlphaComponent(0.78)
+            label.layer.cornerRadius = Self.chipHeight / 2
+            label.layer.masksToBounds = true
+            label.textAlignment = .center
+            label.numberOfLines = 1
+            label.lineBreakMode = .byTruncatingTail
+            label.isUserInteractionEnabled = false
+            rowViews[index % Self.laneCount].addSubview(label)
+            labels.append(label)
+        }
+        restartLayoutAndAnimations()
+    }
+
+    func setAnimationsEnabled(_ enabled: Bool) {
+        guard animationsEnabled != enabled else { return }
+        animationsEnabled = enabled
+        restartLayoutAndAnimations()
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        layoutRowsAndStartAnimationIfNeeded()
+    }
+
+    private func layoutRowsAndStartAnimationIfNeeded() {
+        guard bounds.width > 1,
+              bounds.height > 1,
+              lastAnimatedBounds != bounds else {
+            return
+        }
+        lastAnimatedBounds = bounds
+
+        let rowHeight = FirePostCellLayoutCalculator.fixedBoostTickerRowHeight
+        let rowSpacing = FirePostCellLayoutCalculator.fixedBoostTickerRowSpacing
+        for (rowIndex, row) in rowViews.enumerated() {
+            row.layer.removeAllAnimations()
+            row.transform = .identity
+            row.frame = CGRect(
+                x: 0,
+                y: CGFloat(rowIndex) * (rowHeight + rowSpacing),
+                width: bounds.width,
+                height: rowHeight
+            )
+        }
+
+        let maxChipWidth = max(bounds.width * 0.72, 1)
+        var cursorXByRow = Array(repeating: CGFloat(0), count: Self.laneCount)
+        for (index, label) in labels.enumerated() {
+            label.layer.removeAllAnimations()
+            label.transform = .identity
+            let rowIndex = index % Self.laneCount
+            let measured = label.sizeThatFits(CGSize(width: maxChipWidth, height: Self.chipHeight))
+            let chipWidth = min(max(measured.width + 20, 48), maxChipWidth)
+            label.frame = CGRect(
+                x: cursorXByRow[rowIndex],
+                y: max((rowHeight - Self.chipHeight) / 2, 0),
+                width: chipWidth,
+                height: Self.chipHeight
+            )
+            label.alpha = 1
+            cursorXByRow[rowIndex] += chipWidth + 8
+        }
+
+        let shouldAnimate = animationsEnabled && !UIAccessibility.isReduceMotionEnabled
+        for (rowIndex, row) in rowViews.enumerated() {
+            let overflow = cursorXByRow[rowIndex] - 8 - bounds.width
+            guard shouldAnimate, overflow > 8 else { continue }
+            UIView.animate(
+                withDuration: min(14.0, 4.8 + Double(overflow) * 0.014),
+                delay: Double(rowIndex) * 0.65,
+                options: [.curveLinear, .allowUserInteraction, .repeat, .autoreverse],
+                animations: {
+                    row.transform = CGAffineTransform(translationX: -overflow, y: 0)
+                }
+            )
+        }
+    }
+
+    private func restartLayoutAndAnimations() {
+        lastAnimatedBounds = .null
+        rowViews.forEach { row in
+            row.layer.removeAllAnimations()
+            row.transform = .identity
+        }
+        setNeedsLayout()
     }
 }
 

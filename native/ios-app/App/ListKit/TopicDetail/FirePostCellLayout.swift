@@ -159,6 +159,7 @@ struct FirePostCellRenderPayload {
     let textExpansionState: FirePostTextExpansionState
     let showsDivider: Bool
     let layoutWidth: CGFloat
+    let boostAnimationsEnabled: Bool
     let layout: FirePostCellLayout?
     let layoutKey: FirePostCellLayoutKey?
 
@@ -175,6 +176,7 @@ struct FirePostCellRenderPayload {
         textExpansionState: FirePostTextExpansionState,
         showsDivider: Bool,
         layoutWidth: CGFloat,
+        boostAnimationsEnabled: Bool = true,
         layout: FirePostCellLayout? = nil,
         layoutKey: FirePostCellLayoutKey? = nil
     ) {
@@ -190,6 +192,7 @@ struct FirePostCellRenderPayload {
         self.textExpansionState = textExpansionState
         self.showsDivider = showsDivider
         self.layoutWidth = layoutWidth
+        self.boostAnimationsEnabled = boostAnimationsEnabled
         self.layout = layout
         self.layoutKey = layoutKey
     }

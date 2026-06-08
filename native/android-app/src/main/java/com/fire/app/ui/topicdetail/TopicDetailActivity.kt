@@ -148,8 +148,11 @@ class TopicDetailActivity : AppCompatActivity() {
 
                 override fun onScrollStateChanged(rv: RecyclerView, newState: Int) {
                     super.onScrollStateChanged(rv, newState)
+                    val isIdle = newState == RecyclerView.SCROLL_STATE_IDLE
+                    headerAdapter.setBoostAnimationsEnabled(isIdle)
+                    postListAdapter.setBoostAnimationsEnabled(isIdle)
                     viewModel?.setTopicDetailScrollInteractionActive(
-                        newState != RecyclerView.SCROLL_STATE_IDLE
+                        !isIdle
                     )
                 }
             })

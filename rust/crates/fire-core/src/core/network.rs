@@ -139,6 +139,7 @@ struct FireCommonProfileHeaderContext<'a> {
     user_agent: &'a str,
     has_login_session: bool,
     csrf_token: Option<&'a str>,
+    skip_csrf_header: bool,
 }
 
 #[derive(Clone)]
@@ -184,6 +185,7 @@ impl FireCommonHeaderInterceptor {
                 .unwrap_or(FIRE_USER_AGENT),
             has_login_session: snapshot.cookies.has_login_session(),
             csrf_token: snapshot.cookies.csrf_token.as_deref(),
+            skip_csrf_header: request.extensions().get::<FireSkipCsrfHeader>().is_some(),
         };
         apply_common_profile_headers(request.headers_mut(), context);
     }
@@ -255,6 +257,9 @@ pub(crate) struct TracedRequest {
     pub(crate) request: Request<RequestBody>,
 }
 
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct FireSkipCsrfHeader;
+
 impl TracedRequest {
     pub(crate) fn with_challenge_presentation(
         mut self,
@@ -263,12 +268,18 @@ impl TracedRequest {
         self.request.extensions_mut().insert(presentation);
         self
     }
+
+    pub(crate) fn without_csrf_header(mut self) -> Self {
+        self.request.extensions_mut().insert(FireSkipCsrfHeader);
+        self
+    }
 }
 
 fn clone_request_for_retry(request: &Request<RequestBody>) -> Option<Request<RequestBody>> {
     let cloned_body = request.body().try_clone()?;
     let request_profile = request.extensions().get::<FireRequestProfile>().copied();
     let request_epoch = request.extensions().get::<FireRequestEpoch>().copied();
+    let skip_csrf_header = request.extensions().get::<FireSkipCsrfHeader>().copied();
     let challenge_presentation = request
         .extensions()
         .get::<FireChallengePresentation>()
@@ -286,6 +297,9 @@ fn clone_request_for_retry(request: &Request<RequestBody>) -> Option<Request<Req
     }
     if let Some(epoch) = request_epoch {
         request.extensions_mut().insert(epoch);
+    }
+    if let Some(skip) = skip_csrf_header {
+        request.extensions_mut().insert(skip);
     }
     if let Some(presentation) = challenge_presentation {
         request.extensions_mut().insert(presentation);
@@ -409,6 +423,16 @@ impl FireNetworkLayer {
         traced: TracedRequest,
         profile: FireCallProfile,
     ) -> Result<(u64, Response<ResponseBody>), FireCoreError> {
+        self.execute_traced_with_options(traced, profile, CallOptions::default())
+            .await
+    }
+
+    pub(crate) async fn execute_traced_with_options(
+        &self,
+        traced: TracedRequest,
+        profile: FireCallProfile,
+        options: CallOptions,
+    ) -> Result<(u64, Response<ResponseBody>), FireCoreError> {
         let trace_id = traced.trace_id;
         let operation = traced.operation;
         let request_epoch = traced
@@ -429,7 +453,9 @@ impl FireNetworkLayer {
             "Request cancelled",
             "Future dropped before the trace reached a terminal state",
         );
-        let execute = apply_call_profile(self.client.new_call(traced.request), profile).execute();
+        let execute = apply_call_profile(self.client.new_call(traced.request), profile)
+            .options(options)
+            .execute();
         let execute = FIRE_REQUEST_TRACE_ID.scope(trace_id, async move {
             FIRE_REQUEST_EPOCH.scope(request_epoch.0, execute).await
         });
@@ -552,6 +578,36 @@ impl FireCore {
             .method(Method::GET)
             .uri(uri.as_str())
             .header("Accept", "text/html")
+            .body(RequestBody::empty())
+            .map_err(FireCoreError::RequestBuild)?;
+        request
+            .extensions_mut()
+            .insert(FireRequestProfile::HomeHtml);
+        request.extensions_mut().insert(FireRequestEpoch(epoch));
+        let trace_id = self
+            .diagnostics
+            .prepare_request_trace(operation, &mut request);
+        Ok(TracedRequest {
+            trace_id,
+            operation,
+            request,
+        })
+    }
+
+    pub(crate) fn build_html_get_request(
+        &self,
+        operation: &'static str,
+        url: &str,
+    ) -> Result<TracedRequest, FireCoreError> {
+        let uri = self.base_url.join(url)?;
+        let (_, epoch) = self.snapshot_with_epoch();
+        let mut request = Request::builder()
+            .method(Method::GET)
+            .uri(uri.as_str())
+            .header(
+                "Accept",
+                "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            )
             .body(RequestBody::empty())
             .map_err(FireCoreError::RequestBuild)?;
         request
@@ -754,6 +810,15 @@ impl FireCore {
         &self,
         traced: TracedRequest,
     ) -> Result<(u64, Response<ResponseBody>), FireCoreError> {
+        self.execute_request_with_options(traced, CallOptions::default())
+            .await
+    }
+
+    pub(crate) async fn execute_request_with_options(
+        &self,
+        traced: TracedRequest,
+        options: CallOptions,
+    ) -> Result<(u64, Response<ResponseBody>), FireCoreError> {
         let has_challenge_handler = self.cloudflare_challenge_handler.get().is_some();
         let retry_request = if has_challenge_handler {
             clone_request_for_retry(&traced.request)
@@ -770,7 +835,7 @@ impl FireCore {
         let operation = traced.operation;
         let (trace_id, response) = self
             .network
-            .execute_traced(traced, FireCallProfile::DefaultApi)
+            .execute_traced_with_options(traced, FireCallProfile::DefaultApi, options)
             .await?;
 
         if !has_challenge_handler {
@@ -844,7 +909,7 @@ impl FireCore {
                     .insert(FireRequestEpoch(self.current_session_epoch()));
                 let retry = trace_request(&self.diagnostics, operation, retry_request);
                 self.network
-                    .execute_traced(retry, FireCallProfile::DefaultApi)
+                    .execute_traced_with_options(retry, FireCallProfile::DefaultApi, options)
                     .await
             } else {
                 Err(FireCoreError::CloudflareChallenge { operation })
@@ -1479,8 +1544,10 @@ fn apply_common_profile_headers(
                 },
             );
             insert_static_header_if_missing(headers, "Priority", "u=1, i");
-            if let Some(csrf_token) = context.csrf_token.filter(|value| !value.is_empty()) {
-                insert_string_header_if_missing(headers, "X-CSRF-Token", csrf_token);
+            if !context.skip_csrf_header {
+                if let Some(csrf_token) = context.csrf_token.filter(|value| !value.is_empty()) {
+                    insert_string_header_if_missing(headers, "X-CSRF-Token", csrf_token);
+                }
             }
             apply_login_headers(headers, context.has_login_session);
         }
@@ -1610,6 +1677,38 @@ mod tests {
             .get("X-CSRF-Token")
             .and_then(|value| value.to_str().ok());
         assert_eq!(csrf_header, Some("real-csrf"));
+    }
+
+    #[test]
+    fn json_api_profile_can_skip_cached_csrf_header() {
+        let mut headers = HeaderMap::new();
+        apply_common_profile_headers(
+            &mut headers,
+            FireCommonProfileHeaderContext {
+                profile: FireRequestProfile::JsonApi,
+                origin: "https://linux.do",
+                referer: "https://linux.do/",
+                same_origin: false,
+                user_agent: "test-agent",
+                has_login_session: true,
+                csrf_token: Some("real-csrf"),
+                skip_csrf_header: true,
+            },
+        );
+
+        assert!(headers.get("X-CSRF-Token").is_none());
+        assert_eq!(
+            headers
+                .get("Sec-Fetch-Site")
+                .and_then(|value| value.to_str().ok()),
+            Some("cross-site")
+        );
+        assert_eq!(
+            headers
+                .get("Discourse-Logged-In")
+                .and_then(|value| value.to_str().ok()),
+            Some("true")
+        );
     }
 
     #[test]

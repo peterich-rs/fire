@@ -66,6 +66,22 @@ pub struct LdcPaymentList {
     pub has_more: bool,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct LdcRewardRequest {
+    pub user_id: u64,
+    pub username: String,
+    pub amount: f64,
+    pub out_trade_no: String,
+    pub remark: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LdcRewardResult {
+    pub success: bool,
+    pub trade_no: Option<String>,
+    pub error_message: Option<String>,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ConnectTrustLevelProgress {
     pub current_level: u32,

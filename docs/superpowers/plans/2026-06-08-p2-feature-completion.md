@@ -98,160 +98,58 @@ git commit -m "feat(models): add LDC Credit and CDK OAuth model types"
 - Create: `rust/crates/fire-core/src/core/cdk.rs`
 - Create: `rust/crates/fire-core/src/ldc_payloads.rs`
 - Modify: `rust/crates/fire-core/src/core/mod.rs`
+- Modify: `rust/crates/fire-core/src/core/network.rs`
+- Modify: `rust/crates/fire-core/src/lib.rs`
+- Modify: `rust/crates/fire-core/Cargo.toml`
+- Modify: `rust/crates/fire-models/src/ldc.rs`
 
-- [ ] **Step 1: 实现 LDC OAuth 流程**
+- [x] **Step 1: 实现 LDC OAuth 流程**
 
-`rust/crates/fire-core/src/core/ldc.rs`：
+Implemented in `rust/crates/fire-core/src/core/ldc.rs`.
 
-```rust
-use fire_models::{
-    LdcAuthorizationUrl, LdcPaymentList, LdcUserInfo,
-};
-use http::Method;
-use openwire::RequestBody;
-use serde_json::Value;
-use tracing::info;
-use url::Url;
+Implementation note: the stale schematic endpoints were replaced with the observed contract in `docs/knowledge/api/13-ldc-cdk-oauth.md`.
 
-use super::{network::expect_success, FireCore};
-use crate::{
-    error::FireCoreError,
-    ldc_payloads::{parse_ldc_user_info_value, parse_ldc_payment_list_value},
-};
+- `ldc_authorization_url()` calls `GET https://credit.linux.do/api/v1/oauth/login`.
+- `ldc_approval_link()` loads the returned authorization URL as HTML and parses `a[href*="/oauth2/approve/"]`.
+- `ldc_approve()` calls `https://connect.linux.do/oauth2/approve/...` with redirects disabled and parses `code` + `state` from `Location`.
+- `ldc_callback(code, state)` posts `application/x-www-form-urlencoded` to `https://credit.linux.do/api/v1/oauth/callback`.
+- `ldc_user_info()` calls `GET https://credit.linux.do/api/v1/oauth/user-info`.
+- `ldc_logout()` calls `GET https://credit.linux.do/api/v1/oauth/logout`.
+- `ldc_reward()` implements the documented Basic-auth JSON reward API at `https://credit.linux.do/epay/pay/distribute`.
+- No LDC payment-history endpoint was added because it is not present in the current knowledge doc.
 
-impl FireCore {
-    pub async fn ldc_authorization_url(&self) -> Result<LdcAuthorizationUrl, FireCoreError> {
-        info!("generating LDC authorization URL");
-        let redirect_uri = "fire://ldc/callback";
-        let path = format!(
-            "/auth/oauth2_authorize?redirect_uri={}&response_type=code",
-            urlencoding::encode(redirect_uri)
-        );
-        let url = format!("https://connect.linux.do{}", path);
-        Ok(LdcAuthorizationUrl {
-            url,
-            state: "fire_ldc".to_string(),
-        })
-    }
+- [x] **Step 2: 实现 CDK OAuth 流程**
 
-    pub async fn ldc_handle_callback(
-        &self,
-        code: &str,
-    ) -> Result<LdcUserInfo, FireCoreError> {
-        info!("handling LDC OAuth callback");
-        let body = serde_json::json!({
-            "code": code,
-        });
-        let traced = self.build_json_post_request(
-            "ldc callback",
-            "https://connect.linux.do/auth/oauth2_callback.json",
-            vec![],
-            RequestBody::Json(body),
-        )?;
-        let (trace_id, response) = self.execute_request(traced).await?;
-        let response = expect_success(self, "ldc callback", trace_id, response).await?;
-        let raw: Value = self
-            .read_response_json("ldc callback", trace_id, response)
-            .await?;
-        parse_ldc_user_info_value(raw).map_err(|source| FireCoreError::ResponseDeserialize {
-            operation: "ldc callback",
-            source,
-        })
-    }
+Implemented in `rust/crates/fire-core/src/core/cdk.rs`.
 
-    pub async fn ldc_user_info(&self) -> Result<LdcUserInfo, FireCoreError> {
-        info!("fetching LDC user info");
-        let traced = self.build_json_get_request(
-            "ldc user info",
-            "https://connect.linux.do/api/user.json",
-            vec![],
-            &[],
-        )?;
-        let (trace_id, response) = self.execute_request(traced).await?;
-        let response = expect_success(self, "ldc user info", trace_id, response).await?;
-        let raw: Value = self
-            .read_response_json("ldc user info", trace_id, response)
-            .await?;
-        parse_ldc_user_info_value(raw).map_err(|source| FireCoreError::ResponseDeserialize {
-            operation: "ldc user info",
-            source,
-        })
-    }
+- CDK uses the same OAuth flow helpers as LDC against `https://cdk.linux.do/api/v1/oauth/*`.
+- CDK user-info is parsed into `CdkUserInfo` with `score`; it does not reuse LDC balance/payment fields.
 
-    pub async fn ldc_payments(
-        &self,
-        page: Option<u32>,
-    ) -> Result<LdcPaymentList, FireCoreError> {
-        info!(?page, "fetching LDC payments");
-        let mut params = vec![];
-        if let Some(page) = page.filter(|p| *p > 0) {
-            params.push(("page", page.to_string()));
-        }
-        let traced = self.build_json_get_request(
-            "ldc payments",
-            "https://connect.linux.do/api/payments.json",
-            params,
-            &[],
-        )?;
-        let (trace_id, response) = self.execute_request(traced).await?;
-        let response = expect_success(self, "ldc payments", trace_id, response).await?;
-        let raw: Value = self
-            .read_response_json("ldc payments", trace_id, response)
-            .await?;
-        parse_ldc_payment_list_value(raw).map_err(|source| FireCoreError::ResponseDeserialize {
-            operation: "ldc payments",
-            source,
-        })
-    }
-}
-```
+- [x] **Step 3: 实现 JSON/HTML 解析**
 
-- [ ] **Step 2: 实现 CDK OAuth 流程**
+Implemented in `rust/crates/fire-core/src/ldc_payloads.rs`.
 
-`rust/crates/fire-core/src/core/cdk.rs` — 与 LDC 对称结构，使用 `cdk.linux.do` 域名，不同 user-info 字段。
+- Parsers return `serde_json::Error`, matching existing `fire-core` payload modules.
+- Unit tests cover LDC user-info, CDK user-info, authorization URL state extraction, approval HTML link extraction, and reward success/failure response shapes.
 
-- [ ] **Step 3: 实现 JSON 解析**
+- [x] **Step 4: 注册模块**
 
-`rust/crates/fire-core/src/ldc_payloads.rs`：
+`rust/crates/fire-core/src/core/mod.rs` registers `mod ldc;` and `mod cdk;`. `rust/crates/fire-core/src/lib.rs` registers `mod ldc_payloads;`.
 
-```rust
-use fire_models::{LdcPayment, LdcPaymentList, LdcUserInfo};
-use serde_json::Value;
+- [x] **Step 5: 构建验证**
 
-pub(crate) fn parse_ldc_user_info_value(raw: Value) -> Result<LdcUserInfo, crate::json_helpers::JsonHelperError> {
-    // 解析 user object
-    Ok(LdcUserInfo { ... })
-}
+Run: `cd rust && cargo check -p fire-core`
+Result: passed.
 
-pub(crate) fn parse_ldc_payment_list_value(raw: Value) -> Result<LdcPaymentList, crate::json_helpers::JsonHelperError> {
-    // 解析 payments array
-    Ok(LdcPaymentList { ... })
-}
-```
+- [x] **Step 6: 运行测试**
 
-- [ ] **Step 4: 注册模块**
+Run: `cd rust && cargo test -p fire-core`
+Result: passed.
 
-在 `rust/crates/fire-core/src/core/mod.rs` 中添加：
-
-```rust
-mod ldc;
-mod cdk;
-```
-
-- [ ] **Step 5: 构建验证**
-
-Run: `cd rust && cargo check -p fire-core 2>&1 | tail -5`
-Expected: `Finished` without errors
-
-- [ ] **Step 6: 运行测试**
-
-Run: `cd rust && cargo test -p fire-core 2>&1 | tail -10`
-Expected: All tests pass
-
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
-git add rust/crates/fire-core/src/core/ldc.rs rust/crates/fire-core/src/core/cdk.rs rust/crates/fire-core/src/ldc_payloads.rs rust/crates/fire-core/src/core/mod.rs
+git add rust/crates/fire-core/Cargo.toml Cargo.lock rust/crates/fire-core/src/core/ldc.rs rust/crates/fire-core/src/core/cdk.rs rust/crates/fire-core/src/ldc_payloads.rs rust/crates/fire-core/src/core/mod.rs rust/crates/fire-core/src/core/network.rs rust/crates/fire-core/src/lib.rs rust/crates/fire-models/src/ldc.rs docs/superpowers/plans/2026-06-08-p2-feature-completion.md
 git commit -m "feat(core): implement LDC Credit and CDK OAuth flows"
 ```
 
@@ -287,9 +185,18 @@ impl FireLdcHandle {
         Ok(result.url)
     }
 
-    pub async fn handle_callback(&self, code: String) -> Result<LdcUserInfoState, FireUniFfiError> {
-        let info = self.core.ldc_handle_callback(&code).await?;
-        Ok(LdcUserInfoState::from(info))
+    pub async fn approval_link(&self, authorization_url: String) -> Result<String, FireUniFfiError> {
+        self.core.ldc_approval_link(&authorization_url).await.map_err(Into::into)
+    }
+
+    pub async fn approve(&self, approve_path: String) -> Result<LdcApprovalStatusState, FireUniFfiError> {
+        let status = self.core.ldc_approve(&approve_path).await?;
+        Ok(LdcApprovalStatusState::from(status))
+    }
+
+    pub async fn callback(&self, code: String, state: String) -> Result<(), FireUniFfiError> {
+        self.core.ldc_callback(&code, &state).await?;
+        Ok(())
     }
 
     pub async fn user_info(&self) -> Result<LdcUserInfoState, FireUniFfiError> {
@@ -297,14 +204,14 @@ impl FireLdcHandle {
         Ok(LdcUserInfoState::from(info))
     }
 
-    pub async fn payments(&self, page: Option<u32>) -> Result<LdcPaymentListState, FireUniFfiError> {
-        let list = self.core.ldc_payments(page).await?;
-        Ok(LdcPaymentListState::from(list))
+    pub async fn logout(&self) -> Result<(), FireUniFfiError> {
+        self.core.ldc_logout().await?;
+        Ok(())
     }
 }
 ```
 
-State types（`LdcUserInfoState`, `LdcPaymentListState`）使用 `#[derive(uniffi::Record)]`。
+State types（`LdcUserInfoState`, `CdkUserInfoState`, `LdcApprovalStatusState`, reward request/result states）使用 `#[derive(uniffi::Record)]` 或合适的 UniFFI enum/object 形态。CDK handle should expose the symmetric authorization URL, approval link, approve, callback, user-info, and logout methods. LDC reward can be exposed from the same handle after deciding where client credentials are stored.
 
 - [ ] **Step 2: 在 FireAppCore 中暴露 handle**
 

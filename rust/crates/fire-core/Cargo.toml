@@ -10,6 +10,7 @@ authors.workspace = true
 fire-models = { path = "../fire-models" }
 fire-rich-text = { path = "../fire-rich-text" }
 fire-store = { path = "../fire-store" }
+base64.workspace = true
 futures-util.workspace = true
 http.workspace = true
 http-body-util.workspace = true

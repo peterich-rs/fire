@@ -28,7 +28,7 @@ repository = "https://github.com/peterich-rs/fire.git"
 [workspace.dependencies]
 mars-xlog = { version = "0.1.0-preview.2", default-features = false, features = ["rust-backend", "tracing"] }
 mars-xlog-core = "0.1.0-preview.2"
-openwire = { path = "third_party/openwire/crates/openwire", default-features = false, features = ["tls-rustls", "json", "compression"] }
+openwire = { version = "0.1.0", default-features = false, features = ["tls-rustls", "json", "compression"] }
 async-trait = "0.1.89"
 async-compression = { version = "=0.4.18", default-features = false }
 base64 = "0.22"

@@ -430,7 +430,7 @@ Navigation to onboarding/login must be driven by authoritative session snapshot 
 ### Task 9: Redirect delta audit against openwire
 
 **Files:**
-- Inspect: `third_party/openwire/crates/openwire/src/**`
+- Inspect: upstream `openwire` sources for the crates.io version in use
 - No Fire-side redirect interceptor required
 - Potential openwire change only if future callers need stricter explicit-`Cookie` redirect handling
 - Test: openwire redirect tests

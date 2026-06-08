@@ -26,7 +26,6 @@ fun registerSyncFireUniffiBindingsTask(
     inputs.file(fireRepoRoot.resolve("rust-toolchain.toml"))
     inputs.file(fireRepoRoot.resolve("rust/crates/fire-uniffi/uniffi.toml"))
     inputs.dir(fireRepoRoot.resolve("rust/crates"))
-    inputs.dir(fireRepoRoot.resolve("third_party/openwire"))
     inputs.property("fireRustProfile", rustProfile)
 
     outputs.dir(generatedKotlinDir)

@@ -590,7 +590,7 @@ Run: `cargo build --workspace`
 
 Run: `cargo test --workspace`
 
-截至 2026-06-05，已知基线问题为 `third_party/openwire/crates/openwire-test` 的 websocket feature / trait 不匹配。该问题与启动改造不直接同源，但如果要把本任务标记为“全量验证完成”，必须满足二选一：
+截至 2026-06-05，已知基线问题为源码版 openwire workspace 的 websocket feature / trait 不匹配。Fire 现已改为从 crates.io 解析 openwire；如果要把本任务标记为“全量验证完成”，必须满足二选一：
 
 - 修复该基线问题
 - 明确得到 owner 决策，将其作为独立前置 blocker 记录并从本任务验收项中显式剥离

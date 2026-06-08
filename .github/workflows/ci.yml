@@ -27,11 +27,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@v5
-
-      - name: Verify required submodules are initialized and clean
-        shell: bash
-        run: ./scripts/check_clean_submodules.sh
-
       - name: Install Rust toolchain
         shell: bash
         run: |
@@ -66,11 +61,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@v5
-
-      - name: Verify required submodules are initialized and clean
-        shell: bash
-        run: ./scripts/check_clean_submodules.sh
-
       - name: Install Rust toolchain
         shell: bash
         run: |
@@ -96,11 +86,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@v5
-
-      - name: Verify required submodules are initialized and clean
-        shell: bash
-        run: ./scripts/check_clean_submodules.sh
-
       - name: Install Rust toolchain and iOS simulator targets
         shell: bash
         run: |
@@ -135,11 +120,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@v5
-
-      - name: Verify required submodules are initialized and clean
-        shell: bash
-        run: ./scripts/check_clean_submodules.sh
-
       - name: Install Rust toolchain
         shell: bash
         run: |
@@ -179,11 +159,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@v5
-
-      - name: Verify required submodules are initialized and clean
-        shell: bash
-        run: ./scripts/check_clean_submodules.sh
-
       - uses: android-actions/setup-android@v4
 
       - name: Install Rust toolchain
@@ -259,11 +234,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@v5
-
-      - name: Verify required submodules are initialized and clean
-        shell: bash
-        run: ./scripts/check_clean_submodules.sh
-
       - name: Install XcodeGen
         shell: bash
         env:
@@ -330,11 +300,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@v5
-
-      - name: Verify required submodules are initialized and clean
-        shell: bash
-        run: ./scripts/check_clean_submodules.sh
-
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
@@ -401,11 +366,6 @@ jobs:
       - name: Verify Xcode 26 App Store toolchain
         shell: bash
         run: ./scripts/ios/verify_xcode26_toolchain.sh
-
-      - name: Verify required submodules are initialized and clean
-        shell: bash
-        run: ./scripts/check_clean_submodules.sh
-
       - name: Install Rust toolchain and iOS targets
         shell: bash
         run: |
@@ -469,11 +429,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@v5
-
-      - name: Verify required submodules are initialized and clean
-        shell: bash
-        run: ./scripts/check_clean_submodules.sh
-
       - uses: actions/setup-java@v5
         with:
           distribution: temurin

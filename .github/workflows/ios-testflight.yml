@@ -59,11 +59,6 @@ jobs:
       - name: Verify Xcode 26 App Store toolchain
         shell: bash
         run: ./scripts/ios/verify_xcode26_toolchain.sh
-
-      - name: Verify required submodules are initialized and clean
-        shell: bash
-        run: ./scripts/check_clean_submodules.sh
-
       - name: Install Rust toolchain and iOS targets
         shell: bash
         run: |

@@ -10,6 +10,7 @@
 /rust/target/
 /uniffi/
 /artifacts/
+/third_party/openwire/
 **/*.xcodeproj/xcuserdata/
 **/*.xcworkspace/xcuserdata/
 **/DerivedData/

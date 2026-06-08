@@ -21,10 +21,5 @@ CI now validates this workspace in three layers:
 - Android cross-target Rust builds for the UniFFI shared library targets
 - iOS cross-target Rust builds for the UniFFI static library targets
 
-Local third-party dependencies are wired in from:
-
-- `third_party/openwire`
-
-That repository lives inside this repository tree and is tracked as a Git submodule.
-
-`mars-xlog` and `mars-xlog-core` are now resolved from crates.io, pinned through the workspace `Cargo.lock`.
+`openwire`, `mars-xlog`, and `mars-xlog-core` are resolved from crates.io and
+pinned through the workspace `Cargo.lock`.

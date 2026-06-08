@@ -76,10 +76,6 @@ prepare_uniffi_artifacts() {
   export FIRE_SKIP_UNIFFI_BINDGEN=1
 }
 
-pushd "$ROOT_DIR" >/dev/null
-./scripts/check_clean_submodules.sh
-popd >/dev/null
-
 prepare_uniffi_artifacts
 
 pushd "$ROOT_DIR" >/dev/null

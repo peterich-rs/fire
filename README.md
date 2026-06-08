@@ -9,7 +9,7 @@ Fire 是一个全新的原生客户端工作区，目标栈为 `Swift + Kotlin +
 - `rust/`: 共享 Rust 核心、模型与 UniFFI 边界
 - `native/`: iOS / Android 原生宿主工程占位
 - `docs/knowledge/`: 供不同客户端和技术栈复刻使用的后端协议知识库
-- `third_party/`: `openwire` 与 `xlog-rs` 两个 Rust 依赖子模块
+- `third_party/`: 仓内第三方基础设施检出位；Fire 构建依赖优先从 crates.io 解析
 - `references/fluxdo`: `fluxdo` 参考子模块，只用于协议行为核对
 
 ## 定位
@@ -88,14 +88,13 @@ fire/
       fire-core/
       fire-uniffi/
   third_party/
-    openwire/
     xlog-rs/
 ```
 
 ## 当前状态
 
 - Rust workspace 已初始化
-- `openwire` / `xlog-rs` 已纳入仓内子模块位
+- `openwire` 已切换为 crates.io `0.1.0` 标准依赖；`mars-xlog` / `mars-xlog-core` 也从 crates.io 解析
 - API 文档已按原生重构路径补充登录、CSRF、Cloudflare、MessageBus 等关键前置条件
 - iOS / Android 宿主壳已打通登录、会话恢复、bootstrap 刷新与首个 topic list / detail 读取路径
 - Android 现已在构建时生成 Kotlin UniFFI bindings 并打包真实 Rust `.so`

@@ -396,6 +396,7 @@ final class FirePostCellLayoutCalculatorTests: XCTestCase {
     }
 
     func testBodyBarrageBatchSignatureUsesVisibleNormalizedBoostBody() {
+        XCTAssertEqual(FirePostBoostDisplay.bodyBarrageVisibleLineLimit, 5)
         let visibleBoosts = (0..<FirePostBoostDisplay.bodyBarrageVisibleLineLimit).map { index in
             makeBoost(id: UInt64(index + 1), username: "user\(index)", displayText: "  Body \(index)  ")
         }

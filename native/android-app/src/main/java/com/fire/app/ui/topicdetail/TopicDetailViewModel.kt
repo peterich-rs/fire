@@ -905,3 +905,8 @@ object TopicDetailPostRows {
         return postsById.values.toList()
     }
 }
+
+object TopicDetailBoostPresentation {
+    const val BODY_BARRAGE_VISIBLE_LINE_LIMIT = 5
+    const val BODY_BARRAGE_MAX_LANES = 5
+}

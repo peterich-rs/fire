@@ -9,6 +9,7 @@ import android.view.ViewGroup
 import android.view.animation.LinearInterpolator
 import android.widget.CheckBox
 import android.widget.FrameLayout
+import android.widget.HorizontalScrollView
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -37,10 +38,12 @@ class PostViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
     private val metaText: TextView = itemView.findViewById(R.id.post_meta)
     private val floorText: TextView = itemView.findViewById(R.id.post_floor)
     private val replyContextText: TextView = itemView.findViewById(R.id.post_reply_context)
+    private val bodyFrame: FrameLayout = itemView.findViewById(R.id.post_body_frame)
     private val bodyContainer: LinearLayout = itemView.findViewById(R.id.post_body_container)
     private val pollContainer: LinearLayout = itemView.findViewById(R.id.post_poll_container)
     private val boostContainer: LinearLayout = itemView.findViewById(R.id.post_boost_container)
     private val boostBarrageContainer: FrameLayout = itemView.findViewById(R.id.post_boost_barrage_container)
+    private val actionsScroll: HorizontalScrollView = itemView.findViewById(R.id.post_actions_scroll)
     private val likeAction: TextView = itemView.findViewById(R.id.action_like)
     private val reactAction: TextView = itemView.findViewById(R.id.action_react)
     private val replyAction: TextView = itemView.findViewById(R.id.action_reply)
@@ -68,6 +71,7 @@ class PostViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
         (itemView.layoutParams as? RecyclerView.LayoutParams)?.let {
             it.marginStart = depthIndent
         }
+        applyContentWidthMode(row.usesTitleWidthBody)
 
         val normalizedUsername = post.username.trim().takeIf { it.isNotEmpty() }
         usernameText.isClickable = normalizedUsername != null
@@ -259,7 +263,7 @@ class PostViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
 
     fun onDetachedFromWindow() {
         isAttachedToWindow = false
-        pauseBoostAnimations()
+        stopBoostAnimations()
     }
 
     fun setBoostAnimationsEnabled(enabled: Boolean) {
@@ -417,7 +421,7 @@ class PostViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
     private fun bindBoostBarrage(boosts: List<TopicPostBoostState>) {
         val context = itemView.context
         boostBarrageContainer.visibility = View.VISIBLE
-        val visibleBoosts = boosts.take(MAX_BARRAGE_BOOSTS)
+        val visibleBoosts = boosts.take(TopicDetailBoostPresentation.BODY_BARRAGE_VISIBLE_LINE_LIMIT)
         visibleBoosts.forEach { boost ->
             val boostView = TextView(context).apply {
                 text = displayBoostLine(boost)
@@ -464,13 +468,19 @@ class PostViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
         }
 
         val childCount = boostBarrageContainer.childCount
-        val laneCount = childCount.coerceIn(1, MAX_BARRAGE_LANES)
-        val laneHeight = dp(BARRAGE_LANE_HEIGHT_DP)
+        val laneHeight = dp(BARRAGE_CHIP_HEIGHT_DP)
+        val laneGap = dp(BARRAGE_MIN_LANE_GAP_DP)
+        val availableLaneCount = ((height + laneGap) / (laneHeight + laneGap))
+            .coerceAtLeast(1)
+        val laneCount = minOf(
+            childCount,
+            TopicDetailBoostPresentation.BODY_BARRAGE_MAX_LANES,
+            availableLaneCount,
+        ).coerceAtLeast(1)
         val verticalStride = if (laneCount <= 1) {
             0
         } else {
-            ((height - dp(BARRAGE_CHIP_HEIGHT_DP)).coerceAtLeast(0) / laneCount)
-                .coerceAtLeast(laneHeight)
+            ((height - laneHeight).coerceAtLeast(0) / (laneCount - 1))
         }
         val maxChipWidth = (width * 0.72f).toInt().coerceAtLeast(1)
         val animationsEnabled = ValueAnimator.areAnimatorsEnabled()
@@ -484,10 +494,10 @@ class PostViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
             )
             val chipWidth = child.measuredWidth.coerceIn(dp(48), maxChipWidth)
             val lane = index % laneCount
-            val y = (lane * verticalStride).coerceAtMost((height - dp(BARRAGE_CHIP_HEIGHT_DP)).coerceAtLeast(0))
+            val y = (lane * verticalStride).coerceAtMost((height - laneHeight).coerceAtLeast(0))
             val params = child.layoutParams as FrameLayout.LayoutParams
             params.width = chipWidth
-            params.height = dp(BARRAGE_CHIP_HEIGHT_DP)
+            params.height = laneHeight
             child.layoutParams = params
             child.translationY = y.toFloat()
             child.alpha = BARRAGE_START_ALPHA
@@ -576,11 +586,15 @@ class PostViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
 
     private fun updateBoostAnimationState() {
         if (shouldRunBoostAnimations()) {
-            if (boostBarrageContainer.visibility == View.VISIBLE && boostBarrageAnimators.isEmpty()) {
-                scheduleBoostBarrageAfterLayout()
+            if (boostBarrageContainer.visibility == View.VISIBLE) {
+                if (!resumePausedAnimators(boostBarrageAnimators) && boostBarrageAnimators.isEmpty()) {
+                    scheduleBoostBarrageAfterLayout()
+                }
             }
-            if (boostContainer.visibility == View.VISIBLE && boostTickerAnimators.isEmpty()) {
-                boostContainer.post { startBoostTickerAnimationsIfPossible() }
+            if (boostContainer.visibility == View.VISIBLE) {
+                if (!resumePausedAnimators(boostTickerAnimators) && boostTickerAnimators.isEmpty()) {
+                    boostContainer.post { startBoostTickerAnimationsIfPossible() }
+                }
             }
         } else {
             pauseBoostAnimations()
@@ -590,14 +604,58 @@ class PostViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
     private fun pauseBoostAnimations() {
         boostBarrageStartRunnable?.let(boostBarrageContainer::removeCallbacks)
         boostBarrageStartRunnable = null
+        pauseAnimators(boostBarrageAnimators)
+        pauseAnimators(boostTickerAnimators)
+    }
+
+    private fun stopBoostAnimations() {
+        boostBarrageStartRunnable?.let(boostBarrageContainer::removeCallbacks)
+        boostBarrageStartRunnable = null
         boostBarrageAnimators.forEach { it.cancel() }
         boostBarrageAnimators.clear()
         boostTickerAnimators.forEach { it.cancel() }
         boostTickerAnimators.clear()
     }
 
+    private fun pauseAnimators(animators: List<ValueAnimator>) {
+        animators.forEach { animator ->
+            if (animator.isStarted && !animator.isPaused) {
+                animator.pause()
+            }
+        }
+    }
+
+    private fun resumePausedAnimators(animators: List<ValueAnimator>): Boolean {
+        if (animators.isEmpty()) return false
+        var resumed = false
+        animators.forEach { animator ->
+            if (animator.isPaused) {
+                animator.resume()
+                resumed = true
+            }
+        }
+        return resumed || animators.any { it.isStarted }
+    }
+
     private fun shouldRunBoostAnimations(): Boolean {
         return isAttachedToWindow && boostAnimationsEnabled
+    }
+
+    private fun applyContentWidthMode(usesTitleWidthBody: Boolean) {
+        val leadingMargin = if (usesTitleWidthBody) 0 else POST_CONTENT_LEADING_MARGIN_DP
+        applyStartMargin(replyContextText, leadingMargin)
+        applyStartMargin(bodyFrame, leadingMargin)
+        applyStartMargin(pollContainer, leadingMargin)
+        applyStartMargin(boostContainer, leadingMargin)
+        applyStartMargin(actionsScroll, leadingMargin)
+    }
+
+    private fun applyStartMargin(view: View, marginDp: Int) {
+        val params = view.layoutParams as? ViewGroup.MarginLayoutParams ?: return
+        val marginPx = dp(marginDp)
+        if (params.marginStart == marginPx) return
+        params.marginStart = marginPx
+        view.layoutParams = params
     }
 
     private fun bindAuthorChips(chips: List<AuthorMetadataChip>) {
@@ -761,10 +819,8 @@ class PostViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
 
     companion object {
         private const val HEART_REACTION_ID = "heart"
-        private const val MAX_BARRAGE_BOOSTS = 6
-        private const val MAX_BARRAGE_LANES = 2
         private const val BARRAGE_CHIP_HEIGHT_DP = 24
-        private const val BARRAGE_LANE_HEIGHT_DP = 32
+        private const val BARRAGE_MIN_LANE_GAP_DP = 4
         private const val BARRAGE_BASE_DURATION_MS = 12_500L
         private const val BARRAGE_LANE_DURATION_STEP_MS = 1_400L
         private const val BARRAGE_LANE_STAGGER_MS = 1_500L
@@ -780,6 +836,7 @@ class PostViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
         private const val FIXED_BOOST_TICKER_MS_PER_PX = 14L
         private const val FIXED_BOOST_TICKER_MAX_DURATION_MS = 14_000L
         private const val FIXED_BOOST_TICKER_ROW_STAGGER_MS = 650L
+        private const val POST_CONTENT_LEADING_MARGIN_DP = 46
 
         fun create(parent: ViewGroup): PostViewHolder {
             val view = LayoutInflater.from(parent.context)

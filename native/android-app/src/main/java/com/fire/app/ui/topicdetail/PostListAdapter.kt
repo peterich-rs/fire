@@ -23,6 +23,7 @@ data class PostRow(
     val depth: Int = 0,
     val parentPostNumber: UInt? = null,
     val hasChildren: Boolean = false,
+    val usesTitleWidthBody: Boolean = false,
 )
 
 data class PostRowCallbacks(
@@ -317,7 +318,7 @@ class HeaderAdapter(
                     originalPostContainer.paddingBottom,
                 )
                 originalPostHolder.bind(
-                    PostRow(post = originalPost, depth = 0),
+                    PostRow(post = originalPost, depth = 0, usesTitleWidthBody = true),
                     callbacks,
                 )
             } else {

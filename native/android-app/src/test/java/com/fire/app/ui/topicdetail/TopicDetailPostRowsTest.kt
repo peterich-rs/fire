@@ -100,6 +100,24 @@ class TopicDetailPostRowsTest {
         assertEquals(false, TopicDetailPostRows.usesBoostBarrage(originalWithoutBoosts))
     }
 
+    @Test
+    fun boostBarragePresentation_isFixedToFiveVisibleRows() {
+        assertEquals(5, TopicDetailBoostPresentation.BODY_BARRAGE_VISIBLE_LINE_LIMIT)
+        assertEquals(5, TopicDetailBoostPresentation.BODY_BARRAGE_MAX_LANES)
+    }
+
+    @Test
+    fun postRow_bodyUsesRegularInsetUnlessHeaderRequestsTitleWidth() {
+        val regular = PostRow(post = post(id = 1uL, postNumber = 1u, username = "author"))
+        val headerOriginal = PostRow(
+            post = post(id = 1uL, postNumber = 1u, username = "author"),
+            usesTitleWidthBody = true,
+        )
+
+        assertEquals(false, regular.usesTitleWidthBody)
+        assertEquals(true, headerOriginal.usesTitleWidthBody)
+    }
+
     private fun post(
         id: ULong,
         postNumber: UInt,

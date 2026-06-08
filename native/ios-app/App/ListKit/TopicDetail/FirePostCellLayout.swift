@@ -63,7 +63,7 @@ enum FirePostReactionDisplayPolicy {
 }
 
 enum FirePostBoostDisplay {
-    static let bodyBarrageVisibleLineLimit = 8
+    static let bodyBarrageVisibleLineLimit = 5
 
     static func usesBodyBarrage(
         depth: Int,

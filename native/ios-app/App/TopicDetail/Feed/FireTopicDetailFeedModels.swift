@@ -316,10 +316,14 @@ struct FireTopicDetailRuntimeConfiguration: @unchecked Sendable {
     let canWriteInteractions: Bool
     let postLookup: [UInt64: TopicPostState]
     let interactionState: FireTopicDetailInteractionState
+    let activeSearchPostID: UInt64?
     let snapshotInvalidationToken: AnyHashable
     let interactions: FireTopicDetailRuntimeInteractions
 
     var isMutatingPost: (UInt64) -> Bool { interactionState.isMutatingPost }
+    func isSearchHighlighted(postID: UInt64) -> Bool {
+        activeSearchPostID == postID
+    }
     var isPostTextExpanded: (UInt64) -> Bool { interactionState.isPostTextExpanded }
     var isReplyThreadExpanded: (UInt64) -> Bool { interactionState.isReplyThreadExpanded }
     var isLoadingPostReplyContext: (UInt64) -> Bool { interactionState.isLoadingPostReplyContext }
@@ -1037,6 +1041,7 @@ struct FireTopicDetailRuntimeConfiguration: @unchecked Sendable {
         parts.append(String(textExpansionState.isCollapsible))
         parts.append(String(canWriteInteractions))
         parts.append(String(isMutatingPost(post.id)))
+        parts.append(String(isSearchHighlighted(postID: post.id)))
         return parts.joined(separator: "\u{1F}")
     }
 

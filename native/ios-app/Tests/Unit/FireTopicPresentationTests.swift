@@ -68,6 +68,44 @@ final class FireTopicPresentationTests: XCTestCase {
         XCTAssertEqual(FireTopicPresentation.filterReactionOptions(options, query: " ").map(\.id), options.map(\.id))
     }
 
+    func testTopicSearchMatchesLoadedRenderPlainTextInPostOrder() {
+        let first = makePost(
+            postNumber: 3,
+            replyToPostNumber: nil,
+            username: "first",
+            cooked: "<p>Needle in a later post</p>"
+        )
+        let earlier = makePost(
+            postNumber: 2,
+            replyToPostNumber: nil,
+            username: "earlier",
+            cooked: "<p>accent NEEDLE match</p>"
+        )
+        let duplicate = makePost(
+            postNumber: 2,
+            replyToPostNumber: nil,
+            username: "duplicate",
+            cooked: "<p>needle duplicate</p>"
+        )
+        let cookedOnly = makePost(
+            postNumber: 4,
+            replyToPostNumber: nil,
+            username: "cooked-only",
+            cooked: "<p>needle in cooked only</p>",
+            includeRenderDocument: false
+        )
+
+        let matches = FireTopicPresentation.topicSearchMatches(
+            query: " needle ",
+            posts: [first, earlier, duplicate, cookedOnly]
+        )
+
+        XCTAssertEqual(matches, [
+            FireTopicSearchMatch(postID: earlier.id, postNumber: 2),
+            FireTopicSearchMatch(postID: first.id, postNumber: 3),
+        ])
+    }
+
     func testMinimumReplyLengthFallsBackToOne() {
         XCTAssertEqual(FireTopicPresentation.minimumReplyLength(from: 15), 15)
         XCTAssertEqual(FireTopicPresentation.minimumReplyLength(from: 0), 1)

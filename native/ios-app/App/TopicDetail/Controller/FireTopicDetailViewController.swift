@@ -40,6 +40,9 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
     private lazy var toolbarCoordinator = FireTopicDetailToolbarCoordinator(
         viewController: self,
         actions: .init(
+            onToggleSearch: { [weak self] in
+                self?.toggleTopicSearch()
+            },
             onPresentTopicEditor: { [weak self] in
                 self?.presentTopicEditor()
             },
@@ -181,6 +184,17 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
     private var replyDraft = ""
     private var quickReplyError: String?
     private var keyboardFrameInScreen: CGRect = .null
+    private let topicSearchBar = FireTopicSearchBar()
+    private var topicSearchQuery = ""
+    private var topicSearchMatches: [FireTopicSearchMatch] = []
+    private var topicSearchIndex = -1
+    private var activeTopicSearchMatch: FireTopicSearchMatch? {
+        guard topicSearchIndex >= 0,
+              topicSearchIndex < topicSearchMatches.count else {
+            return nil
+        }
+        return topicSearchMatches[topicSearchIndex]
+    }
 
     init(
         viewModel: FireAppViewModel,
@@ -225,6 +239,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         view.backgroundColor = .systemBackground
         view.tintColor = FireTopicDetailCellColors.accent
         configureRuntime()
+        configureTopicSearchBar()
         configureNavigationAppearance()
         toolbarCoordinator.configureNavigationItem(navigationItem)
         updateDismissButtonIfNeeded()
@@ -235,6 +250,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
+        layoutTopicSearchBar()
         quickReplyBarNode.updateLayoutWidth(view.bounds.width)
         updateBottomChromeInset()
         feedController.invalidateLayoutIfWidthChanged()
@@ -415,6 +431,24 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
                 self?.handleQuickReplyFocusChanged(focused)
             }
         )
+    }
+
+    private func configureTopicSearchBar() {
+        topicSearchBar.translatesAutoresizingMaskIntoConstraints = true
+        topicSearchBar.isHidden = true
+        topicSearchBar.onQueryChanged = { [weak self] query in
+            self?.updateTopicSearchQuery(query)
+        }
+        topicSearchBar.onPrevious = { [weak self] in
+            self?.navigateTopicSearch(delta: -1)
+        }
+        topicSearchBar.onNext = { [weak self] in
+            self?.navigateTopicSearch(delta: 1)
+        }
+        topicSearchBar.onClose = { [weak self] in
+            self?.hideTopicSearch()
+        }
+        view.addSubview(topicSearchBar)
     }
 
     private func beginPageLifecycle() {
@@ -740,6 +774,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
             canWriteInteractions: state.route.canWriteInteractions,
             postLookup: state.feed.postLookup,
             interactionState: state.interaction,
+            activeSearchPostID: activeTopicSearchMatch?.postID,
             snapshotInvalidationToken: AnyHashable(FireTopicDetailFeedInvalidationToken(
                 topicID: state.topic.id,
                 viewMode: state.feed.viewMode,
@@ -757,7 +792,8 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
                 baseURLString: state.route.baseURLString,
                 expandedReplyRootPostIDs: state.feed.viewMode == .conversation
                     ? state.interaction.expandedReplyRootPostIDs
-                    : []
+                    : [],
+                activeSearchPostID: activeTopicSearchMatch?.postID
             )),
             interactions: runtimeInteractions
         )
@@ -876,6 +912,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
 
     private func updateBottomChromeInset(animatedWith notification: Notification? = nil) {
         rootNode.updateBottomSafeAreaInset(currentBottomChromeInset)
+        updateFeedTopInset()
 
         guard let notification else { return }
         let duration = (notification.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? NSNumber)?
@@ -894,6 +931,10 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
 
     private var currentBottomChromeInset: CGFloat {
         max(view.safeAreaInsets.bottom, keyboardOverlapHeight)
+    }
+
+    private var currentSearchBarHeight: CGFloat {
+        topicSearchBar.isHidden ? 0 : topicSearchBar.bounds.height
     }
 
     private var keyboardOverlapHeight: CGFloat {
@@ -969,6 +1010,89 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         Task {
             await loadTopicDetail(targetPostNumber: postNumber)
         }
+    }
+
+    private func toggleTopicSearch() {
+        if topicSearchBar.isHidden {
+            showTopicSearch()
+        } else {
+            hideTopicSearch()
+        }
+    }
+
+    private func showTopicSearch() {
+        topicSearchBar.isHidden = false
+        layoutTopicSearchBar()
+        updateFeedTopInset()
+        topicSearchBar.focusInput()
+        recomputeTopicSearch(scrollToActiveMatch: false)
+    }
+
+    private func hideTopicSearch() {
+        topicSearchQuery = ""
+        topicSearchMatches = []
+        topicSearchIndex = -1
+        topicSearchBar.reset()
+        topicSearchBar.isHidden = true
+        view.endEditing(true)
+        layoutTopicSearchBar()
+        updateFeedTopInset()
+        buildAndApplySnapshot()
+    }
+
+    private func updateTopicSearchQuery(_ query: String) {
+        topicSearchQuery = query
+        recomputeTopicSearch(scrollToActiveMatch: true)
+    }
+
+    private func recomputeTopicSearch(scrollToActiveMatch: Bool) {
+        if topicSearchBar.isHidden && topicSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return
+        }
+        let previousPostID = activeTopicSearchMatch?.postID
+        topicSearchMatches = FireTopicPresentation.topicSearchMatches(
+            query: topicSearchQuery,
+            posts: detail?.postStream.posts ?? []
+        )
+        if topicSearchMatches.isEmpty {
+            topicSearchIndex = -1
+        } else if let previousPostID,
+                  let index = topicSearchMatches.firstIndex(where: { $0.postID == previousPostID }) {
+            topicSearchIndex = index
+        } else {
+            topicSearchIndex = 0
+        }
+        topicSearchBar.updateResult(index: topicSearchIndex, total: topicSearchMatches.count)
+        buildAndApplySnapshot()
+        if scrollToActiveMatch, let match = activeTopicSearchMatch {
+            openPostNumber(match.postNumber)
+        }
+    }
+
+    private func navigateTopicSearch(delta: Int) {
+        guard !topicSearchMatches.isEmpty else { return }
+        let size = topicSearchMatches.count
+        topicSearchIndex = (topicSearchIndex + delta + size) % size
+        topicSearchBar.updateResult(index: topicSearchIndex, total: size)
+        buildAndApplySnapshot()
+        if let match = activeTopicSearchMatch {
+            openPostNumber(match.postNumber)
+        }
+    }
+
+    private func layoutTopicSearchBar() {
+        let height: CGFloat = topicSearchBar.isHidden ? 0 : 56
+        topicSearchBar.frame = CGRect(
+            x: 0,
+            y: view.safeAreaInsets.top,
+            width: view.bounds.width,
+            height: height
+        )
+    }
+
+    private func updateFeedTopInset() {
+        rootNode.updateTopChromeInset(currentSearchBarHeight)
+        rootNode.setNeedsLayout()
     }
 
     private func openPostReplies(for post: TopicPostState) {
@@ -1424,5 +1548,128 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
                 modalRouter.presentNotice(message: error.localizedDescription)
             }
         }
+    }
+}
+
+@MainActor
+private final class FireTopicSearchBar: UIView, UITextFieldDelegate {
+    var onQueryChanged: ((String) -> Void)?
+    var onPrevious: (() -> Void)?
+    var onNext: (() -> Void)?
+    var onClose: (() -> Void)?
+
+    private let textField = UITextField()
+    private let resultLabel = UILabel()
+    private let previousButton = UIButton(type: .system)
+    private let nextButton = UIButton(type: .system)
+    private let closeButton = UIButton(type: .system)
+    private let stackView = UIStackView()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        setup()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) is not supported")
+    }
+
+    func focusInput() {
+        textField.becomeFirstResponder()
+    }
+
+    func reset() {
+        textField.text = ""
+        updateResult(index: -1, total: 0)
+    }
+
+    func updateResult(index: Int, total: Int) {
+        resultLabel.text = total > 0 && index >= 0 ? "\(index + 1)/\(total)" : "0/0"
+    }
+
+    private func setup() {
+        backgroundColor = .systemBackground
+        layer.shadowColor = UIColor.black.cgColor
+        layer.shadowOpacity = 0.08
+        layer.shadowRadius = 8
+        layer.shadowOffset = CGSize(width: 0, height: 2)
+
+        stackView.axis = .horizontal
+        stackView.alignment = .center
+        stackView.spacing = 8
+        stackView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(stackView)
+
+        textField.borderStyle = .roundedRect
+        textField.placeholder = "搜索已加载帖子"
+        textField.returnKeyType = .search
+        textField.clearButtonMode = .whileEditing
+        textField.delegate = self
+        textField.addTarget(self, action: #selector(textDidChange), for: .editingChanged)
+        textField.setContentHuggingPriority(.defaultLow, for: .horizontal)
+
+        resultLabel.font = .preferredFont(forTextStyle: .caption1)
+        resultLabel.adjustsFontForContentSizeCategory = true
+        resultLabel.textColor = .secondaryLabel
+        resultLabel.textAlignment = .center
+        resultLabel.widthAnchor.constraint(equalToConstant: 48).isActive = true
+        updateResult(index: -1, total: 0)
+
+        configureButton(previousButton, systemName: "chevron.up", label: "上一个结果", action: #selector(previousTapped))
+        configureButton(nextButton, systemName: "chevron.down", label: "下一个结果", action: #selector(nextTapped))
+        configureButton(closeButton, systemName: "xmark", label: "关闭搜索", action: #selector(closeTapped))
+
+        stackView.addArrangedSubview(textField)
+        stackView.addArrangedSubview(resultLabel)
+        stackView.addArrangedSubview(previousButton)
+        stackView.addArrangedSubview(nextButton)
+        stackView.addArrangedSubview(closeButton)
+
+        NSLayoutConstraint.activate([
+            stackView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            stackView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+            stackView.topAnchor.constraint(equalTo: topAnchor, constant: 8),
+            stackView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -8),
+            previousButton.widthAnchor.constraint(equalToConstant: 34),
+            previousButton.heightAnchor.constraint(equalToConstant: 34),
+            nextButton.widthAnchor.constraint(equalToConstant: 34),
+            nextButton.heightAnchor.constraint(equalToConstant: 34),
+            closeButton.widthAnchor.constraint(equalToConstant: 34),
+            closeButton.heightAnchor.constraint(equalToConstant: 34),
+        ])
+    }
+
+    private func configureButton(
+        _ button: UIButton,
+        systemName: String,
+        label: String,
+        action: Selector
+    ) {
+        button.setImage(UIImage(systemName: systemName), for: .normal)
+        button.tintColor = FireTopicDetailCellColors.accent
+        button.accessibilityLabel = label
+        button.addTarget(self, action: action, for: .touchUpInside)
+    }
+
+    @objc private func textDidChange() {
+        onQueryChanged?(textField.text ?? "")
+    }
+
+    @objc private func previousTapped() {
+        onPrevious?()
+    }
+
+    @objc private func nextTapped() {
+        onNext?()
+    }
+
+    @objc private func closeTapped() {
+        onClose?()
+    }
+
+    func textFieldShouldReturn(_ textField: UITextField) -> Bool {
+        onNext?()
+        return true
     }
 }

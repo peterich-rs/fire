@@ -301,7 +301,20 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
         configureBoosts(payload: payload)
         configureReplyShortcut(payload: payload)
         configureReactions(payload: payload)
+        configureSearchHighlight(payload.isSearchHighlighted)
         configureDivider(shows: showsDivider)
+    }
+
+    private func configureSearchHighlight(_ isHighlighted: Bool) {
+        backgroundColor = isHighlighted
+            ? Self.accentTextColor.withAlphaComponent(0.10)
+            : .systemBackground
+        borderWidth = isHighlighted ? 1 : 0
+        borderColor = isHighlighted
+            ? Self.accentTextColor.withAlphaComponent(0.70).cgColor
+            : UIColor.clear.cgColor
+        cornerRadius = isHighlighted ? 8 : 0
+        clipsToBounds = isHighlighted
     }
 
     private func configureAvatar(payload: FirePostCellRenderPayload, avatarSize: CGFloat) {

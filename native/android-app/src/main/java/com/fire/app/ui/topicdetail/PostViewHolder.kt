@@ -67,9 +67,11 @@ class PostViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
     fun bind(
         row: PostRow,
         callbacks: PostRowCallbacks,
+        isSearchHighlighted: Boolean = false,
     ) {
         val post = row.post
         val context = itemView.context
+        applySearchHighlight(isSearchHighlighted)
 
         // Thread depth indent
         val depthIndent = (row.depth * 24).coerceAtMost(72)
@@ -278,6 +280,22 @@ class PostViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
         if (boostAnimationsEnabled == enabled) return
         boostAnimationsEnabled = enabled
         updateBoostAnimationState()
+    }
+
+    private fun applySearchHighlight(isHighlighted: Boolean) {
+        if (itemView.getTag(R.id.tag_post_original_background) == null) {
+            itemView.setTag(R.id.tag_post_original_background, itemView.background)
+        }
+
+        if (isHighlighted) {
+            itemView.background = GradientDrawable().apply {
+                cornerRadius = dp(8).toFloat()
+                setColor(itemView.context.getColor(R.color.fire_chip_accent_background))
+                setStroke(dp(1), itemView.context.getColor(R.color.fire_accent))
+            }
+        } else {
+            itemView.background = itemView.getTag(R.id.tag_post_original_background) as? android.graphics.drawable.Drawable
+        }
     }
 
     private fun bindPostBody(

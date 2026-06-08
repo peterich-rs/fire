@@ -674,6 +674,7 @@ final class FirePostCellLayoutCalculatorTests: XCTestCase {
                 replyShortcutCount: nil,
                 isLoadingReplyContext: false,
                 textExpansionState: .disabled,
+                isSearchHighlighted: false,
                 showsDivider: false,
                 layoutWidth: width
             ),
@@ -718,6 +719,7 @@ final class FirePostCellLayoutCalculatorTests: XCTestCase {
                 replyShortcutCount: 3,
                 isLoadingReplyContext: false,
                 textExpansionState: .disabled,
+                isSearchHighlighted: false,
                 showsDivider: false,
                 layoutWidth: width
             ),
@@ -802,6 +804,7 @@ final class FirePostCellLayoutCalculatorTests: XCTestCase {
                 replyShortcutCount: nil,
                 isLoadingReplyContext: false,
                 textExpansionState: collapsed,
+                isSearchHighlighted: false,
                 showsDivider: false,
                 layoutWidth: width
             ),
@@ -833,6 +836,7 @@ final class FirePostCellLayoutCalculatorTests: XCTestCase {
                 replyShortcutCount: nil,
                 isLoadingReplyContext: false,
                 textExpansionState: collapsed,
+                isSearchHighlighted: false,
                 showsDivider: false,
                 layoutWidth: width
             ),

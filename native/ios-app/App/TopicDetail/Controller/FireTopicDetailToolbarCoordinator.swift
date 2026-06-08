@@ -3,6 +3,7 @@ import UIKit
 @MainActor
 final class FireTopicDetailToolbarCoordinator {
     struct Actions {
+        let onToggleSearch: () -> Void
         let onPresentTopicEditor: () -> Void
         let onPresentBookmarkEditor: () -> Void
         let onUpdateNotificationLevel: (FireTopicNotificationLevelOption) -> Void
@@ -48,6 +49,15 @@ final class FireTopicDetailToolbarCoordinator {
 
     private func buildRightBarButtonItems() -> [UIBarButtonItem] {
         var items: [UIBarButtonItem] = []
+
+        let searchItem = UIBarButtonItem(
+            image: UIImage(systemName: "magnifyingglass"),
+            primaryAction: UIAction { [actions] _ in
+                actions.onToggleSearch()
+            }
+        )
+        searchItem.accessibilityLabel = "搜索已加载帖子"
+        items.append(searchItem)
 
         if let shareURL = state.shareURL {
             var shareButton: UIBarButtonItem!

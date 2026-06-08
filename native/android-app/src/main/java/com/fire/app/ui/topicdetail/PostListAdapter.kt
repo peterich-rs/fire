@@ -53,13 +53,25 @@ class PostListAdapter(
     private val attachedHolders = mutableSetOf<PostViewHolder>()
     private var boostAnimationsEnabled = true
 
+    var highlightedPostId: ULong? = null
+        set(value) {
+            if (field == value) return
+            field = value
+            refreshRows()
+        }
+
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): PostViewHolder {
         return PostViewHolder.create(parent)
     }
 
     override fun onBindViewHolder(holder: PostViewHolder, position: Int) {
+        val row = getItem(position)
         holder.setBoostAnimationsEnabled(boostAnimationsEnabled)
-        holder.bind(getItem(position), callbacks)
+        holder.bind(
+            row = row,
+            callbacks = callbacks,
+            isSearchHighlighted = row.post.id == highlightedPostId,
+        )
     }
 
     override fun onViewAttachedToWindow(holder: PostViewHolder) {
@@ -106,6 +118,13 @@ class HeaderAdapter(
 ) : RecyclerView.Adapter<HeaderAdapter.HeaderViewHolder>() {
     private val attachedHolders = mutableSetOf<HeaderViewHolder>()
     private var boostAnimationsEnabled = true
+
+    var highlightedPostId: ULong? = null
+        set(value) {
+            if (field == value) return
+            field = value
+            notifyHeaderChanged()
+        }
 
     var detail: TopicDetailState? = null
         set(value) {
@@ -159,7 +178,15 @@ class HeaderAdapter(
 
     override fun onBindViewHolder(holder: HeaderViewHolder, position: Int) {
         holder.setBoostAnimationsEnabled(boostAnimationsEnabled)
-        detail?.let { holder.bind(it, aiSummary, isAiSummaryLoading, aiSummaryError) }
+        detail?.let {
+            holder.bind(
+                detail = it,
+                aiSummary = aiSummary,
+                isAiSummaryLoading = isAiSummaryLoading,
+                aiSummaryError = aiSummaryError,
+                highlightedPostId = highlightedPostId,
+            )
+        }
     }
 
     override fun onViewAttachedToWindow(holder: HeaderViewHolder) {
@@ -267,6 +294,7 @@ class HeaderAdapter(
             aiSummary: TopicAiSummaryState?,
             isAiSummaryLoading: Boolean,
             aiSummaryError: String?,
+            highlightedPostId: ULong?,
         ) {
             titleText.text = detail.title.trim()
             val tagNames = TopicPresentation.tagNames(detail.tags)
@@ -314,8 +342,9 @@ class HeaderAdapter(
                     originalPostContainer.paddingBottom,
                 )
                 originalPostHolder.bind(
-                    PostRow(post = originalPost, depth = 0, usesTitleWidthBody = true),
-                    callbacks,
+                    row = PostRow(post = originalPost, depth = 0, usesTitleWidthBody = true),
+                    callbacks = callbacks,
+                    isSearchHighlighted = originalPost.id == highlightedPostId,
                 )
             } else {
                 originalPostContainer.visibility = View.GONE

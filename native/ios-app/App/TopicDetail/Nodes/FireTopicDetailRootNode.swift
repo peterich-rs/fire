@@ -12,6 +12,7 @@ final class FireTopicDetailRootNode: ASDisplayNode {
     let feedNode: ASCollectionNode
     let quickReplyBarNode: FireTopicQuickReplyBarNode
     private var bottomSafeAreaInset: CGFloat = 0
+    private var topChromeInset: CGFloat = 0
 
     // MARK: - Init
 
@@ -36,10 +37,18 @@ final class FireTopicDetailRootNode: ASDisplayNode {
         setNeedsLayout()
     }
 
+    @MainActor
+    func updateTopChromeInset(_ inset: CGFloat) {
+        guard abs(topChromeInset - inset) > 0.5 else { return }
+        topChromeInset = inset
+        setNeedsLayout()
+    }
+
     override func layout() {
         super.layout()
         guard let scrollView = feedNode.view as? UIScrollView else { return }
         var insets = scrollView.contentInset
+        insets.top = topChromeInset
         if !quickReplyBarNode.isHidden {
             insets.bottom = quickReplyBarNode.calculatedSize.height
         } else {

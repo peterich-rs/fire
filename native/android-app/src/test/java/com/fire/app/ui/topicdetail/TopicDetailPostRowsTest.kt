@@ -8,6 +8,7 @@ import uniffi.fire_uniffi_topics.TopicPostBoostState
 import uniffi.fire_uniffi_topics.TopicPostBoostUserState
 import uniffi.fire_uniffi_topics.TopicPostState
 import uniffi.fire_uniffi_topics.TopicTreeRowState
+import uniffi.fire_uniffi_types.RenderDocumentState
 
 class TopicDetailPostRowsTest {
     @Test
@@ -162,12 +163,53 @@ class TopicDetailPostRowsTest {
         assertEquals(listOf(null, 2u, null), projected.map { it.parentPostNumber })
     }
 
+    @Test
+    fun searchMatches_usesLoadedRenderPlainTextAndSortsByFloor() {
+        val later = post(
+            id = 3uL,
+            postNumber = 3u,
+            username = "later",
+            plainText = "Needle in a later post",
+        )
+        val earlier = post(
+            id = 2uL,
+            postNumber = 2u,
+            username = "earlier",
+            plainText = "accent NEEDLE match",
+        )
+        val duplicate = post(
+            id = 2uL,
+            postNumber = 2u,
+            username = "duplicate",
+            plainText = "needle duplicate",
+        )
+        val cookedOnly = post(
+            id = 4uL,
+            postNumber = 4u,
+            username = "needle-cooked-only",
+        )
+
+        val matches = TopicDetailPostRows.searchMatches(
+            query = " needle ",
+            posts = listOf(later, earlier, duplicate, cookedOnly),
+        )
+
+        assertEquals(
+            listOf(
+                TopicDetailPostRows.SearchMatch(postId = earlier.id, postNumber = 2u),
+                TopicDetailPostRows.SearchMatch(postId = later.id, postNumber = 3u),
+            ),
+            matches,
+        )
+    }
+
     private fun post(
         id: ULong,
         postNumber: UInt,
         username: String,
         boosts: List<TopicPostBoostState> = emptyList(),
         replyToPostNumber: UInt? = null,
+        plainText: String? = null,
     ): TopicPostState {
         return TopicPostState(
             id = id,
@@ -194,7 +236,13 @@ class TopicDetailPostRowsTest {
             boosts = boosts,
             canBoost = false,
             polls = emptyList(),
-            renderDocument = null,
+            renderDocument = plainText?.let {
+                RenderDocumentState(
+                    blocks = emptyList(),
+                    plainText = it,
+                    imageAttachments = emptyList(),
+                )
+            },
             acceptedAnswer = false,
             canAcceptAnswer = false,
             canUnacceptAnswer = false,

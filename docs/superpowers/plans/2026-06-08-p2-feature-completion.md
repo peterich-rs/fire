@@ -753,62 +753,59 @@ git commit -m "feat(bookmarks): add reminder date picker and local notifications
 ## Task 14: 话题内搜索
 
 **Files:**
-- Create: `native/ios-app/App/TopicDetail/FireTopicSearchBar.swift`
-- Modify: `native/ios-app/App/TopicDetail/FireTopicDetailViewController.swift`
+- Modify: `native/ios-app/App/TopicDetail/Controller/FireTopicDetailViewController.swift`
+- Modify: `native/ios-app/App/TopicDetail/Controller/FireTopicDetailToolbarCoordinator.swift`
+- Modify: `native/ios-app/App/TopicDetail/Nodes/FireTopicDetailRootNode.swift`
+- Modify: `native/ios-app/App/TopicDetail/Feed/FireTopicDetailFeedController.swift`
+- Modify: `native/ios-app/App/TopicDetail/Feed/FireTopicDetailFeedModels.swift`
+- Modify: `native/ios-app/App/ListKit/TopicDetail/FirePostCellNode.swift`
+- Modify: `native/ios-app/App/ListKit/TopicDetail/FirePostCellLayout.swift`
+- Modify: `native/ios-app/App/TopicDetail/Support/FireTopicPresentation.swift`
 - Create: `native/android-app/src/main/java/com/fire/app/ui/topicdetail/TopicSearchOverlay.kt`
 - Modify: `native/android-app/src/main/java/com/fire/app/ui/topicdetail/TopicDetailActivity.kt`
+- Modify: `native/android-app/src/main/java/com/fire/app/ui/topicdetail/PostListAdapter.kt`
+- Modify: `native/android-app/src/main/java/com/fire/app/ui/topicdetail/PostViewHolder.kt`
+- Modify: `native/android-app/src/main/java/com/fire/app/ui/topicdetail/TopicDetailViewModel.kt`
 
-- [ ] **Step 1: iOS 话题搜索 UI**
+- [x] **Step 1: iOS 话题搜索 UI**
 
-在话题详情工具栏添加搜索按钮。点击后顶部展示搜索栏：
+Implemented on the existing UIKit/Texture topic-detail runtime path, not as a
+new SwiftUI post-row or SwiftUI search component. `FireTopicDetailToolbarCoordinator`
+adds a toolbar `magnifyingglass` button, and `FireTopicDetailViewController`
+owns a small UIKit `FireTopicSearchBar` subview above the `ASCollectionNode`.
+`FireTopicDetailRootNode` tracks the top chrome inset so the search bar does not
+cover feed content.
 
-```swift
-struct FireTopicSearchBar: View {
-    @Binding var query: String
-    let resultCount: Int
-    let currentIndex: Int
-    let onPrevious: () -> Void
-    let onNext: () -> Void
-    let onClose: () -> Void
+- [x] **Step 2: 搜索逻辑**
 
-    var body: some View {
-        HStack {
-            TextField("搜索话题内容", text: $query)
-                .textFieldStyle(.roundedBorder)
-            if resultCount > 0 {
-                Text("\(currentIndex + 1)/\(resultCount)")
-                    .font(.caption)
-                    .foregroundStyle(FireTheme.tertiaryInk)
-                Button(action: onPrevious) { Image(systemName: "chevron.up") }
-                Button(action: onNext) { Image(systemName: "chevron.down") }
-            }
-            Button(action: onClose) { Image(systemName: "xmark.circle.fill") }
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
-        .background(FireTheme.chrome)
-    }
-}
-```
+Both platforms search only loaded `TopicPostState.renderDocument.plainText`.
+The helper returns de-duplicated matches sorted by post number, ignores posts
+without Rust render documents, highlights the active matched post, and supports
+previous/next wraparound navigation. Navigation reuses the authoritative
+topic-detail floor scroll path instead of adding a server-side search API or a
+parallel post projection.
 
-- [ ] **Step 2: 搜索逻辑**
+- [x] **Step 3: Android 话题搜索**
 
-在已加载的帖子列表中搜索纯文本内容：
-- 输入关键词后匹配所有帖子的 `plain_text`
-- 高亮匹配帖子
-- 支持上/下导航
+`TopicSearchOverlay` is a native ViewBinding-backed toolbar overlay under the
+Material toolbar. `TopicDetailActivity` owns query/result state and scrolls via
+the existing `scrollToPostNumber` helper. `PostListAdapter`, `HeaderAdapter`,
+and `PostViewHolder` render the current active-match highlight across the
+original post and reply rows.
 
-- [ ] **Step 3: Android 话题搜索**
+- [x] **Step 4: 构建验证**
 
-顶部搜索覆盖层，同样的匹配和导航逻辑。
+Run:
+- `cd native/android-app && ./gradlew testDebugUnitTest --tests com.fire.app.ui.topicdetail.TopicDetailPostRowsTest`
+- `cd native/android-app && ./gradlew assembleDebug`
+- `cd native/ios-app && xcodebuild test -scheme Fire -destination 'platform=iOS Simulator,name=iPhone 16,OS=18.3.1' -only-testing:FireTests/FireTopicPresentationTests/testTopicSearchMatchesLoadedRenderPlainTextInPostOrder -quiet`
+- `cd native/ios-app && xcodebuild build -scheme Fire -destination 'platform=iOS Simulator,name=iPhone 16,OS=18.3.1' -quiet`
 
-- [ ] **Step 4: 构建验证**
-
-Run: Both platforms build successfully
+Result: passed, with existing iOS deprecation / Swift 6 migration warnings.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add native/ios-app/App/TopicDetail/FireTopicSearchBar.swift native/ios-app/App/TopicDetail/ native/android-app/src/main/java/com/fire/app/ui/topicdetail/TopicSearchOverlay.kt native/android-app/src/main/java/com/fire/app/ui/topicdetail/TopicDetailActivity.kt
+git add native/ios-app/App/TopicDetail/ native/ios-app/App/ListKit/TopicDetail/ native/ios-app/Tests/Unit/FireTopicPresentationTests.swift native/ios-app/Tests/Unit/FirePostCellLayoutCalculatorTests.swift native/ios-app/Tests/Unit/FireTopicDetailRuntimeTests.swift native/android-app/src/main/java/com/fire/app/ui/topicdetail/ native/android-app/src/main/res/layout/activity_topic_detail.xml native/android-app/src/main/res/values/ids.xml native/android-app/src/main/res/values/strings.xml native/android-app/src/test/java/com/fire/app/ui/topicdetail/TopicDetailPostRowsTest.kt docs/superpowers/plans/2026-06-08-p2-feature-completion.md native/ios-app/README.md native/android-app/README.md
 git commit -m "feat(topic-detail): add in-topic text search with highlight navigation"
 ```

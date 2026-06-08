@@ -266,6 +266,7 @@ struct FirePostCellRenderPayload {
     let isLoadingReplyContext: Bool
     let replyContextError: String?
     let textExpansionState: FirePostTextExpansionState
+    let isSearchHighlighted: Bool
     let showsDivider: Bool
     let layoutWidth: CGFloat
     let boostAnimationsEnabled: Bool
@@ -284,6 +285,7 @@ struct FirePostCellRenderPayload {
         isLoadingReplyContext: Bool,
         replyContextError: String? = nil,
         textExpansionState: FirePostTextExpansionState,
+        isSearchHighlighted: Bool = false,
         showsDivider: Bool,
         layoutWidth: CGFloat,
         boostAnimationsEnabled: Bool = true,
@@ -301,6 +303,7 @@ struct FirePostCellRenderPayload {
         self.isLoadingReplyContext = isLoadingReplyContext
         self.replyContextError = replyContextError
         self.textExpansionState = textExpansionState
+        self.isSearchHighlighted = isSearchHighlighted
         self.showsDivider = showsDivider
         self.layoutWidth = layoutWidth
         self.boostAnimationsEnabled = boostAnimationsEnabled

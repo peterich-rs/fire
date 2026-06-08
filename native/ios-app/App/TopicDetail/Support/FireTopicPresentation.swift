@@ -180,6 +180,11 @@ struct FireReactionOption: Identifiable, Hashable, Sendable {
     let label: String
 }
 
+struct FireTopicSearchMatch: Equatable, Sendable {
+    let postID: UInt64
+    let postNumber: UInt32
+}
+
 enum FireTopicPresentation {
     static func isPrivateMessageArchetype(_ archetype: String?) -> Bool {
         let trimmed = archetype?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -216,6 +221,31 @@ enum FireTopicPresentation {
 
     static func compactCount(_ value: UInt32) -> String {
         compactCount(UInt64(value))
+    }
+
+    static func topicSearchMatches(
+        query: String,
+        posts: [TopicPostState]
+    ) -> [FireTopicSearchMatch] {
+        let needle = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !needle.isEmpty else {
+            return []
+        }
+
+        var seenPostIDs = Set<UInt64>()
+        return posts
+            .filter { seenPostIDs.insert($0.id).inserted }
+            .filter { post in
+                let plainText = post.renderDocument?.plainText ?? ""
+                return plainText.range(of: needle, options: [.caseInsensitive, .diacriticInsensitive]) != nil
+            }
+            .sorted { lhs, rhs in
+                if lhs.postNumber == rhs.postNumber {
+                    return lhs.id < rhs.id
+                }
+                return lhs.postNumber < rhs.postNumber
+            }
+            .map { FireTopicSearchMatch(postID: $0.id, postNumber: $0.postNumber) }
     }
 
     static func imageAttachments(from document: RenderDocumentState) -> [FireCookedImage] {

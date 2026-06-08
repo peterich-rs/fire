@@ -925,6 +925,11 @@ class TopicDetailViewModelFactory(
 }
 
 object TopicDetailPostRows {
+    data class SearchMatch(
+        val postId: ULong,
+        val postNumber: UInt,
+    )
+
     fun uniqueTreeRows(
         rows: List<TopicTreeRowState>,
         bodyPostId: ULong? = null,
@@ -949,6 +954,32 @@ object TopicDetailPostRows {
 
     fun usesBoostBarrage(row: PostRow): Boolean {
         return row.depth == 0 && row.post.boosts.isNotEmpty()
+    }
+
+    fun searchMatches(query: String, posts: List<TopicPostState>): List<SearchMatch> {
+        val needle = query.trim()
+        if (needle.isEmpty()) return emptyList()
+
+        val seenPostIds = LinkedHashSet<ULong>()
+        return posts
+            .asSequence()
+            .filter { post -> seenPostIds.add(post.id) }
+            .filter { post ->
+                post.renderDocument
+                    ?.plainText
+                    ?.contains(needle, ignoreCase = true) == true
+            }
+            .sortedWith(
+                compareBy<TopicPostState> { it.postNumber }
+                    .thenBy { it.id },
+            )
+            .map { post ->
+                SearchMatch(
+                    postId = post.id,
+                    postNumber = post.postNumber,
+                )
+            }
+            .toList()
     }
 
     fun projectRows(

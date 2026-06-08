@@ -17,6 +17,12 @@
         app:title="@string/topic_detail_title_fallback"
         app:titleTextColor="@color/fire_text_primary" />
 
+    <com.fire.app.ui.topicdetail.TopicSearchOverlay
+        android:id="@+id/topic_search_overlay"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:visibility="gone" />
+
     <FrameLayout
         android:id="@+id/topic_detail_content"
         android:layout_width="match_parent"

@@ -284,6 +284,13 @@
     <string name="topic_detail_notification_tracking">Tracking</string>
     <string name="topic_detail_notification_watching">Watching</string>
     <string name="topic_detail_notification_error">Unable to update topic notifications.</string>
+    <string name="topic_detail_search_topic">Search</string>
+    <string name="topic_detail_search_hint">Search loaded posts</string>
+    <string name="topic_detail_search_count">%1$s/%2$s</string>
+    <string name="topic_detail_search_no_results">0/0</string>
+    <string name="topic_detail_search_previous">Previous result</string>
+    <string name="topic_detail_search_next">Next result</string>
+    <string name="topic_detail_search_close">Close search</string>
     <string name="topic_detail_delete_post">Delete</string>
     <string name="topic_detail_recover_post">Recover</string>
     <string name="topic_detail_flag_post">Report</string>

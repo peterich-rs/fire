@@ -129,6 +129,7 @@ struct FireTopicDetailFeedInvalidationToken: Hashable {
     let currentUsername: String
     let baseURLString: String
     let expandedReplyRootPostIDs: Set<UInt64>
+    let activeSearchPostID: UInt64?
 }
 
 struct FireTopicDetailChromeInvalidationToken: Hashable {

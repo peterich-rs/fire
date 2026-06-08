@@ -701,7 +701,8 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
             canWriteInteractions: true,
             currentUsername: "alice",
             baseURLString: "https://linux.do",
-            expandedReplyRootPostIDs: []
+            expandedReplyRootPostIDs: [],
+            activeSearchPostID: nil
         )
         let firstComposerToken = FireTopicDetailComposerInvalidationToken(
             canWriteInteractions: true,
@@ -742,7 +743,8 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
             canWriteInteractions: true,
             currentUsername: "alice",
             baseURLString: "https://linux.do",
-            expandedReplyRootPostIDs: []
+            expandedReplyRootPostIDs: [],
+            activeSearchPostID: nil
         )
         let changedChromeToken = FireTopicDetailChromeInvalidationToken(
             topicID: 42,
@@ -920,6 +922,7 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
             canWriteInteractions: true,
             postLookup: postLookup,
             interactionState: interactionState,
+            activeSearchPostID: nil,
             snapshotInvalidationToken: AnyHashable("test"),
             interactions: FireTopicDetailRuntimeInteractions(
                 isMutatingPost: { _ in false },

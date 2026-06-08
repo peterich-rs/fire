@@ -157,6 +157,8 @@ Current topic-detail interactions:
 - toolbar bell notification-level selection for non-private-message topics
 - bookmark reminder date/time picker with host-owned local notifications after
   successful Rust bookmark mutations
+- in-topic search over already loaded Rust `RenderDocumentState.plainText`, with
+  active-result highlight and previous/next floor navigation
 - reply-context lookup from the rendered reply target, showing source and
   direct replies
 - post delete/recover actions when the backend exposes those permissions

@@ -81,6 +81,7 @@ class TopicDetailActivity : AppCompatActivity() {
     private lateinit var errorText: TextView
     private lateinit var retryButton: View
     private lateinit var replyFab: View
+    private lateinit var searchOverlay: TopicSearchOverlay
 
     private var viewModel: TopicDetailViewModel? = null
     private var route: TopicDetailRoute? = null
@@ -93,8 +94,12 @@ class TopicDetailActivity : AppCompatActivity() {
     private var pendingScrollTargetPostNumber: UInt? = null
     private var enabledReactionIds: List<String> = emptyList()
     private var timingTracker: TopicTimingTracker? = null
+    private var searchMenuItem: MenuItem? = null
     private var viewModeMenuItem: MenuItem? = null
     private var notificationMenuItem: MenuItem? = null
+    private var topicSearchQuery: String = ""
+    private var topicSearchMatches: List<TopicDetailPostRows.SearchMatch> = emptyList()
+    private var topicSearchIndex: Int = -1
     private val pendingBookmarkReminders = mutableMapOf<BookmarkReminderKey, BookmarkReminderRequest>()
     private var pendingNotificationPermissionRequest: BookmarkReminderRequest? = null
     private val notificationPermissionLauncher = registerForActivityResult(
@@ -130,12 +135,23 @@ class TopicDetailActivity : AppCompatActivity() {
         errorText = binding.errorText
         retryButton = binding.retryButton
         replyFab = binding.replyFab
+        searchOverlay = binding.topicSearchOverlay
 
         binding.topicDetailToolbar.setNavigationOnClickListener {
             finish()
         }
         binding.topicDetailToolbar.title = parsedRoute.title
             ?: getString(R.string.topic_detail_title_fallback, parsedRoute.topicId.toString())
+        searchMenuItem = binding.topicDetailToolbar.menu.add(
+            R.string.topic_detail_search_topic,
+        ).apply {
+            setIcon(R.drawable.ic_search)
+            setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS)
+            setOnMenuItemClickListener {
+                showTopicSearch()
+                true
+            }
+        }
         viewModeMenuItem = binding.topicDetailToolbar.menu.add(
             R.string.topic_detail_view_mode_threaded,
         ).apply {
@@ -203,6 +219,12 @@ class TopicDetailActivity : AppCompatActivity() {
             recyclerView.layoutManager = LinearLayoutManager(this@TopicDetailActivity)
             recyclerView.adapter = concatAdapter
             loadEnabledReactionIds()
+            searchOverlay.bind(
+                onQueryChanged = ::updateTopicSearchQuery,
+                onPrevious = { navigateTopicSearch(-1) },
+                onNext = { navigateTopicSearch(1) },
+                onClose = ::hideTopicSearch,
+            )
 
             recyclerView.addOnScrollListener(object : RecyclerView.OnScrollListener() {
                 override fun onScrolled(rv: RecyclerView, dx: Int, dy: Int) {
@@ -292,6 +314,7 @@ class TopicDetailActivity : AppCompatActivity() {
                     binding.topicDetailToolbar.title = detail.title.trim()
                 }
                 updateTopicNotificationToolbar(detail)
+                recomputeTopicSearch()
                 updateVisiblePostTimings()
             }
         }
@@ -320,6 +343,7 @@ class TopicDetailActivity : AppCompatActivity() {
                     updateVisiblePostTimings()
                     pendingScrollTargetPostNumber?.let { scrollToPostNumber(it) }
                 }
+                recomputeTopicSearch()
             }
         }
 
@@ -450,6 +474,63 @@ class TopicDetailActivity : AppCompatActivity() {
                 TopicDetailViewMode.THREADED -> R.string.topic_detail_view_mode_threaded
             },
         )
+    }
+
+    private fun showTopicSearch() {
+        searchOverlay.visibility = View.VISIBLE
+        searchOverlay.focusSearch()
+        recomputeTopicSearch()
+    }
+
+    private fun hideTopicSearch() {
+        topicSearchQuery = ""
+        topicSearchMatches = emptyList()
+        topicSearchIndex = -1
+        searchOverlay.reset()
+        searchOverlay.visibility = View.GONE
+        applyTopicSearchHighlight()
+    }
+
+    private fun updateTopicSearchQuery(query: String) {
+        topicSearchQuery = query
+        recomputeTopicSearch(scrollToActiveMatch = true)
+    }
+
+    private fun recomputeTopicSearch(scrollToActiveMatch: Boolean = false) {
+        if (searchOverlay.visibility != View.VISIBLE && topicSearchQuery.isBlank()) {
+            return
+        }
+        val posts = viewModel?.detail?.value?.postStream?.posts.orEmpty()
+        val previousPostId = topicSearchMatches.getOrNull(topicSearchIndex)?.postId
+        topicSearchMatches = TopicDetailPostRows.searchMatches(topicSearchQuery, posts)
+        topicSearchIndex = when {
+            topicSearchMatches.isEmpty() -> -1
+            previousPostId != null -> topicSearchMatches
+                .indexOfFirst { it.postId == previousPostId }
+                .takeIf { it >= 0 }
+                ?: 0
+            else -> 0
+        }
+        searchOverlay.updateResult(topicSearchIndex, topicSearchMatches.size)
+        applyTopicSearchHighlight()
+        if (scrollToActiveMatch) {
+            topicSearchMatches.getOrNull(topicSearchIndex)?.postNumber?.let(::scrollToPostNumber)
+        }
+    }
+
+    private fun navigateTopicSearch(delta: Int) {
+        if (topicSearchMatches.isEmpty()) return
+        val size = topicSearchMatches.size
+        topicSearchIndex = Math.floorMod(topicSearchIndex + delta, size)
+        searchOverlay.updateResult(topicSearchIndex, size)
+        applyTopicSearchHighlight()
+        topicSearchMatches[topicSearchIndex].postNumber.let(::scrollToPostNumber)
+    }
+
+    private fun applyTopicSearchHighlight() {
+        val highlightedPostId = topicSearchMatches.getOrNull(topicSearchIndex)?.postId
+        headerAdapter.highlightedPostId = highlightedPostId
+        postListAdapter.highlightedPostId = highlightedPostId
     }
 
     private fun showReplyComposer(replyToPostNumber: Int?, initialBody: String? = null) {

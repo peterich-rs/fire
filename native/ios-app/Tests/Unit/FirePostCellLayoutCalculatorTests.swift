@@ -376,7 +376,7 @@ final class FirePostCellLayoutCalculatorTests: XCTestCase {
                 textExpansionState: expanded,
                 hasBodyTextTarget: true
             ),
-            ["@carol: Hello"]
+            ["Hello"]
         )
         XCTAssertEqual(
             FirePostBoostDisplay.fixedDisplayLines(
@@ -385,8 +385,69 @@ final class FirePostCellLayoutCalculatorTests: XCTestCase {
                 textExpansionState: expanded,
                 hasBodyTextTarget: false
             ),
-            ["@carol: Hello"]
+            ["Hello"]
         )
+    }
+
+    func testBoostDisplayLineUsesOnlyBoostBody() {
+        let boost = makeBoost(username: "carol", displayText: "  Thanks for the detail  ")
+
+        XCTAssertEqual(FirePostBoostDisplay.displayLine(for: boost), "Thanks for the detail")
+    }
+
+    func testBodyBarrageBatchSignatureUsesVisibleNormalizedBoostBody() {
+        let visibleBoosts = (0..<FirePostBoostDisplay.bodyBarrageVisibleLineLimit).map { index in
+            makeBoost(id: UInt64(index + 1), username: "user\(index)", displayText: "  Body \(index)  ")
+        }
+        let normalizedVisibleBoosts = (0..<FirePostBoostDisplay.bodyBarrageVisibleLineLimit).map { index in
+            makeBoost(id: UInt64(index + 1), username: "user\(index)", displayText: "\nBody \(index)\t")
+        }
+        let signature = FirePostBoostDisplay.bodyBarrageBatchSignature(
+            postID: 42,
+            boosts: visibleBoosts
+        )
+
+        XCTAssertEqual(
+            FirePostBoostDisplay.bodyBarrageLines(for: visibleBoosts),
+            (0..<FirePostBoostDisplay.bodyBarrageVisibleLineLimit).map { "Body \($0)" }
+        )
+        XCTAssertEqual(
+            signature,
+            FirePostBoostDisplay.bodyBarrageBatchSignature(
+                postID: 42,
+                boosts: normalizedVisibleBoosts
+            )
+        )
+        XCTAssertEqual(
+            signature,
+            FirePostBoostDisplay.bodyBarrageBatchSignature(
+                postID: 42,
+                boosts: visibleBoosts + [makeBoost(id: 99, username: "late", displayText: "Hidden extra")]
+            )
+        )
+        XCTAssertNotEqual(
+            signature,
+            FirePostBoostDisplay.bodyBarrageBatchSignature(
+                postID: 42,
+                boosts: [makeBoost(id: 99, username: "late", displayText: "New visible")]
+                    + visibleBoosts.dropLast()
+            )
+        )
+        XCTAssertTrue(FirePostBoostDisplay.bodyBarrageLines(
+            for: [makeBoost(id: 100, username: "blank", displayText: "  \n  ")]
+        ).isEmpty)
+        XCTAssertEqual(
+            FirePostBoostDisplay.bodyBarrageBatchSignature(
+                postID: 42,
+                boosts: [makeBoost(id: 100, username: "blank", displayText: "  \n  ")]
+            ),
+            ""
+        )
+    }
+
+    func testFixedBoostTickerHeightIsCompact() {
+        XCTAssertEqual(FirePostCellLayoutCalculator.fixedBoostTickerRows, 2)
+        XCTAssertEqual(FirePostCellLayoutCalculator.fixedBoostTickerHeight, 54, accuracy: 0.01)
     }
 
     func testBoostBarrageTextTargetRequiresRenderedText() throws {
@@ -905,11 +966,12 @@ final class FirePostCellLayoutCalculatorTests: XCTestCase {
     }
 
     private func makeBoost(
+        id: UInt64 = 9,
         username: String,
         displayText: String
     ) -> TopicPostBoostState {
         TopicPostBoostState(
-            id: 9,
+            id: id,
             cooked: "<p>\(displayText)</p>",
             displayText: displayText,
             user: TopicPostBoostUserState(

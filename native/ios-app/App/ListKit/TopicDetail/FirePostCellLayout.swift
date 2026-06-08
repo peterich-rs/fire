@@ -63,6 +63,8 @@ enum FirePostReactionDisplayPolicy {
 }
 
 enum FirePostBoostDisplay {
+    static let bodyBarrageVisibleLineLimit = 8
+
     static func usesBodyBarrage(
         depth: Int,
         textExpansionState: FirePostTextExpansionState,
@@ -87,15 +89,29 @@ enum FirePostBoostDisplay {
         return boosts.map(displayLine(for:))
     }
 
+    static func bodyBarrageLines(for boosts: [TopicPostBoostState]) -> [String] {
+        Array(boosts.compactMap { cleaned($0.displayText) }.prefix(bodyBarrageVisibleLineLimit))
+    }
+
+    static func bodyBarrageBatchSignature(
+        postID: UInt64,
+        boosts: [TopicPostBoostState]
+    ) -> String {
+        let boostTokens = boosts.compactMap { boost -> String? in
+            guard let text = cleaned(boost.displayText) else { return nil }
+            return [
+                String(boost.id),
+                text,
+            ].joined(separator: "\u{1E}")
+        }
+        .prefix(bodyBarrageVisibleLineLimit)
+        .joined(separator: "\u{1D}")
+        guard !boostTokens.isEmpty else { return "" }
+        return [String(postID), boostTokens].joined(separator: "\u{1F}")
+    }
+
     static func displayLine(for boost: TopicPostBoostState) -> String {
-        let username = cleaned(boost.user.username)
-        let displayName = cleaned(boost.user.name)
-        let author = username.map { "@\($0)" }
-            ?? displayName
-            ?? "User \(boost.user.id)"
-        let text = cleaned(boost.displayText)
-        guard let text else { return author }
-        return "\(author): \(text)"
+        cleaned(boost.displayText) ?? ""
     }
 
     static func contentToken(for boosts: [TopicPostBoostState]) -> String {
@@ -156,6 +172,7 @@ struct FirePostCellRenderPayload {
     let replyTargetPostNumber: UInt32?
     let replyShortcutCount: UInt32?
     let isLoadingReplyContext: Bool
+    let replyContextError: String?
     let textExpansionState: FirePostTextExpansionState
     let showsDivider: Bool
     let layoutWidth: CGFloat
@@ -173,6 +190,7 @@ struct FirePostCellRenderPayload {
         replyTargetPostNumber: UInt32?,
         replyShortcutCount: UInt32?,
         isLoadingReplyContext: Bool,
+        replyContextError: String? = nil,
         textExpansionState: FirePostTextExpansionState,
         showsDivider: Bool,
         layoutWidth: CGFloat,
@@ -189,6 +207,7 @@ struct FirePostCellRenderPayload {
         self.replyTargetPostNumber = replyTargetPostNumber
         self.replyShortcutCount = replyShortcutCount
         self.isLoadingReplyContext = isLoadingReplyContext
+        self.replyContextError = replyContextError
         self.textExpansionState = textExpansionState
         self.showsDivider = showsDivider
         self.layoutWidth = layoutWidth

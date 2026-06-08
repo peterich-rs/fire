@@ -327,6 +327,73 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
         XCTAssertTrue(loadingItem!.needsVisibleNodeUpdate(comparedTo: idleItem!))
     }
 
+    func testReplyShortcutErrorStateUsesInPlaceUpdateTokenInsteadOfLayoutReload() {
+        let original = makePost(id: 100, postNumber: 1, username: "alice")
+        let rootReply = makePost(id: 200, postNumber: 2, username: "bob", replyCount: 2, replyToPostNumber: 1)
+        let renderState = FireTopicDetailRenderState(
+            originalRow: makeTimelineRow(post: original, depth: 0, isOriginalPost: true),
+            replyRows: [makeTimelineRow(post: rootReply, parentPostNumber: 1, depth: 1)],
+            contentByPostID: [
+                original.id: makeRenderContent("Original"),
+                rootReply.id: makeRenderContent("Root"),
+            ]
+        )
+        let detail = makeTopicDetail(posts: [original, rootReply])
+        let idle = makeConfiguration(
+            detail: detail,
+            renderState: renderState,
+            postLookup: [original.id: original, rootReply.id: rootReply]
+        )
+        let failed = makeConfiguration(
+            detail: detail,
+            renderState: renderState,
+            postLookup: [original.id: original, rootReply.id: rootReply],
+            postReplyContextErrorsByPostID: [rootReply.id: "offline"]
+        )
+
+        let idleItem = idle.makeSnapshot().items.first { $0.kind == .reply }
+        let failedItem = failed.makeSnapshot().items.first { $0.kind == .reply }
+
+        XCTAssertEqual(failed.postContext(for: failedItem!)?.replyContextError, "offline")
+        XCTAssertTrue(fireTopicDetailItemsHaveSameRenderedContent([idleItem!], [failedItem!]))
+        XCTAssertTrue(failedItem!.needsVisibleNodeUpdate(comparedTo: idleItem!))
+    }
+
+    func testReplyContextLoadPolicySkipsNetworkWhenLocalSecondaryRowsAreComplete() {
+        let original = makePost(id: 100, postNumber: 1, username: "alice")
+        let rootReply = makePost(id: 200, postNumber: 2, username: "bob", replyCount: 2, replyToPostNumber: 1)
+        let child = makePost(id: 300, postNumber: 3, username: "c1", replyToPostNumber: 2)
+        let grandchild = makePost(id: 400, postNumber: 4, username: "c2", replyToPostNumber: 3)
+        let rows = [
+            makeTimelineRow(post: rootReply, parentPostNumber: 1, depth: 1),
+            makeTimelineRow(post: child, parentPostNumber: 2, depth: 2),
+            makeTimelineRow(post: grandchild, parentPostNumber: 3, depth: 3),
+        ]
+        let postLookup = Dictionary(uniqueKeysWithValues: [original, rootReply, child, grandchild].map { ($0.id, $0) })
+
+        XCTAssertFalse(FireTopicDetailReplyContextLoadPolicy.shouldLoadReplyContext(
+            for: rootReply,
+            replyRows: rows,
+            postLookup: postLookup
+        ))
+    }
+
+    func testReplyContextLoadPolicyLoadsWhenLocalSecondaryRowsArePartial() {
+        let rootReply = makePost(id: 200, postNumber: 2, username: "bob", replyCount: 2, replyToPostNumber: 1)
+        let child = makePost(id: 300, postNumber: 3, username: "c1", replyToPostNumber: 2)
+        let rows = [
+            makeTimelineRow(post: rootReply, parentPostNumber: 1, depth: 1),
+            makeTimelineRow(post: child, parentPostNumber: 2, depth: 2),
+        ]
+        let postLookup = Dictionary(uniqueKeysWithValues: [rootReply, child].map { ($0.id, $0) })
+
+        XCTAssertTrue(FireTopicDetailReplyContextLoadPolicy.shouldLoadReplyContext(
+            for: rootReply,
+            replyRows: rows,
+            postLookup: postLookup
+        ))
+    }
+
     func testSnapshotShowsLoadMoreFooterForNonEmptyRepliesWhenMoreAvailable() {
         let original = makePost(id: 100, postNumber: 1, username: "alice")
         let reply = makePost(id: 200, postNumber: 2, username: "bob", replyToPostNumber: 1)
@@ -650,6 +717,7 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
         let interactionToken = FireTopicDetailInteractionInvalidationToken(
             mutatingPostIDs: [100],
             loadingPostReplyContextIDs: [200],
+            postReplyContextErrorIDs: [500],
             expandedPostTextIDs: [300],
             expandedReplyRootPostIDs: [400]
         )
@@ -658,6 +726,7 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
         XCTAssertTrue(changedChromeToken.bookmarked)
         XCTAssertTrue(loadingSidecarToken.isLoadingTopicAiSummary)
         XCTAssertEqual(interactionToken.mutatingPostIDs, [100])
+        XCTAssertEqual(interactionToken.postReplyContextErrorIDs, [500])
     }
 
     func testAnimatedUpdatePolicyAllowsOnlySmallIdleAttachedUpdates() {
@@ -770,11 +839,13 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
         isLoadingMoreTopicPosts: Bool = false,
         loadMoreTopicPostsError: String? = nil,
         expandedReplyRootPostIDs: Set<UInt64> = [],
-        loadingReplyContextPostIDs: Set<UInt64> = []
+        loadingReplyContextPostIDs: Set<UInt64> = [],
+        postReplyContextErrorsByPostID: [UInt64: String] = [:]
     ) -> FireTopicDetailRuntimeConfiguration {
         let interactionState = FireTopicDetailInteractionState(
             mutatingPostIDs: [],
             loadingPostReplyContextIDs: loadingReplyContextPostIDs,
+            postReplyContextErrorsByPostID: postReplyContextErrorsByPostID,
             expandedPostTextIDs: [],
             expandedReplyRootPostIDs: expandedReplyRootPostIDs
         )
@@ -806,6 +877,7 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
                 isPostTextExpanded: { _ in false },
                 isReplyThreadExpanded: { expandedReplyRootPostIDs.contains($0) },
                 isLoadingPostReplyContext: { loadingReplyContextPostIDs.contains($0) },
+                postReplyContextError: { postReplyContextErrorsByPostID[$0] },
                 onVisiblePostNumbersChanged: { _ in },
                 onRefresh: {},
                 onLoadTopicDetail: {},

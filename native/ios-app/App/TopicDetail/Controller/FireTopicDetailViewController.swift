@@ -65,6 +65,9 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         isLoadingPostReplyContext: { [weak self] postID in
             self?.topicDetailStore.isLoadingPostReplyContext(postID: postID) ?? false
         },
+        postReplyContextError: { [weak self] postID in
+            self?.topicDetailStore.postReplyContextError(for: postID)
+        },
         onVisiblePostNumbersChanged: { [weak self] visiblePostNumbers in
             self?.handleVisiblePostNumbersChanged(visiblePostNumbers)
         },
@@ -679,6 +682,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         FireTopicDetailInteractionState(
             mutatingPostIDs: topicDetailStore.mutatingPostIDs,
             loadingPostReplyContextIDs: topicDetailStore.loadingPostReplyContextIDs,
+            postReplyContextErrorsByPostID: topicDetailStore.postReplyContextErrorsByPostID,
             expandedPostTextIDs: expandedPostTextIDs,
             expandedReplyRootPostIDs: expandedReplyRootPostIDs
         )
@@ -950,12 +954,30 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
     private func openPostReplies(for post: TopicPostState) {
         expandedReplyRootPostIDs.insert(post.id)
         buildAndApplySnapshot()
+        guard shouldLoadReplyContext(for: post) else {
+            return
+        }
         Task {
             await topicDetailStore.loadPostReplyContextIfNeeded(
                 topicID: topic.id,
                 post: post
             )
         }
+    }
+
+    private func shouldLoadReplyContext(for post: TopicPostState) -> Bool {
+        let declaredReplyCount = Int(post.replyCount)
+        guard declaredReplyCount > 0 else {
+            return false
+        }
+        guard let renderState = topicDetailStore.topicRenderState(for: topic.id) else {
+            return true
+        }
+        return FireTopicDetailReplyContextLoadPolicy.shouldLoadReplyContext(
+            for: post,
+            replyRows: renderState.replyRows,
+            postLookup: topicDetailStore.topicPostLookup(for: topic.id)
+        )
     }
 
     private func clearComposerTarget() {

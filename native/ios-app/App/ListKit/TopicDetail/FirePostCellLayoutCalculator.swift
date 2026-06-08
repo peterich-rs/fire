@@ -16,13 +16,13 @@ enum FirePostCellLayoutCalculator {
     static let textTopSpacing: CGFloat = 0
     static let imageTopSpacing: CGFloat = 10
     static let imageSpacing: CGFloat = 10
-    static let boostTopSpacing: CGFloat = 8
+    static let boostTopSpacing: CGFloat = 4
     static let boostSpacing: CGFloat = 6
     static let boostHorizontalInset: CGFloat = 10
     static let boostVerticalInset: CGFloat = 6
     static let fixedBoostTickerRows = 2
-    static let fixedBoostTickerRowHeight: CGFloat = 30
-    static let fixedBoostTickerRowSpacing: CGFloat = 4
+    static let fixedBoostTickerRowHeight: CGFloat = 26
+    static let fixedBoostTickerRowSpacing: CGFloat = 2
     static let fixedBoostTickerHeight: CGFloat =
         CGFloat(fixedBoostTickerRows) * fixedBoostTickerRowHeight
         + CGFloat(fixedBoostTickerRows - 1) * fixedBoostTickerRowSpacing

@@ -416,6 +416,20 @@ final class FireTopicDetailStore: ObservableObject {
         }
     }
 
+    private func setPostReplyContextError(
+        _ message: String?,
+        topicId: UInt64,
+        postId: UInt64
+    ) {
+        let normalized = message?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let nextValue = normalized?.isEmpty == false ? normalized : nil
+        guard postReplyContextErrorsByPostID[postId] != nextValue else {
+            return
+        }
+        postReplyContextErrorsByPostID[postId] = nextValue
+        bumpTopicInteractionRevision(topicId: topicId)
+    }
+
     private func setTopicPresenceUsers(
         _ users: [TopicPresenceUserState],
         topicId: UInt64
@@ -1443,7 +1457,7 @@ final class FireTopicDetailStore: ObservableObject {
             return
         }
         setLoadingPostReplyContext(true, topicId: topicID, postId: post.id)
-        postReplyContextErrorsByPostID[post.id] = nil
+        setPostReplyContextError(nil, topicId: topicID, postId: post.id)
         defer { setLoadingPostReplyContext(false, topicId: topicID, postId: post.id) }
 
         guard let sessionStore = try? await appViewModel.sessionStoreValue() else {
@@ -1501,7 +1515,7 @@ final class FireTopicDetailStore: ObservableObject {
             if await appViewModel.handleRecoverableSessionErrorIfNeeded(error) {
                 return
             }
-            postReplyContextErrorsByPostID[post.id] = error.localizedDescription
+            setPostReplyContextError(error.localizedDescription, topicId: topicID, postId: post.id)
         }
     }
 

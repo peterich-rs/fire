@@ -44,6 +44,7 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
             guard let view = node.view as? FirePostBoostBarrageView else { return }
             view.configure(
                 lines: self?.boostBarrageLines ?? [],
+                batchSignature: self?.boostBarrageBatchSignature ?? "",
                 animationsEnabled: self?.boostAnimationsEnabled ?? true
             )
         }
@@ -90,6 +91,7 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
     }()
     private var boostSignature: [String] = []
     private var boostBarrageLines: [String] = []
+    private var boostBarrageBatchSignature = ""
     private var boostTickerLines: [String] = []
     private var boostAnimationsEnabled = true
     private var reactionButtons: [ASButtonNode] = []
@@ -181,9 +183,9 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
         usernameNode.isLayerBacked = true
         usernameNode.style.flexShrink = 1.0
         authorBadgeNode.maximumNumberOfLines = 1
-        authorBadgeNode.truncationMode = .byTruncatingTail
+        authorBadgeNode.truncationMode = .byClipping
         authorBadgeNode.isLayerBacked = true
-        authorBadgeNode.style.flexShrink = 1.0
+        authorBadgeNode.style.flexShrink = 0.0
         authorBadgeNode.isHidden = true
         authorMetadataNode.maximumNumberOfLines = 1
         authorMetadataNode.truncationMode = .byTruncatingTail
@@ -223,7 +225,7 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
         boostContainerNode.automaticallyManagesSubnodes = true
         boostContainerNode.layoutSpecBlock = { [weak self] _, _ in
             guard let self, !self.boostTickerNode.isHidden else { return ASLayoutSpec() }
-            self.boostTickerNode.style.preferredSize = CGSize(
+            let tickerSize = CGSize(
                 width: max(
                     Self.availableContentWidth(
                         totalWidth: self.currentLayoutWidth,
@@ -235,8 +237,13 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
                 ),
                 height: FirePostCellLayoutCalculator.fixedBoostTickerHeight
             )
+            self.boostTickerNode.style.preferredSize = tickerSize
+            self.boostTickerNode.style.minHeight = ASDimensionMake(tickerSize.height)
+            self.boostTickerNode.style.maxHeight = ASDimensionMake(tickerSize.height)
             return ASWrapperLayoutSpec(layoutElement: self.boostTickerNode)
         }
+        boostContainerNode.style.minHeight = ASDimensionMake(FirePostCellLayoutCalculator.fixedBoostTickerHeight)
+        boostContainerNode.style.maxHeight = ASDimensionMake(FirePostCellLayoutCalculator.fixedBoostTickerHeight)
         boostTickerNode.isHidden = true
         boostTickerNode.isUserInteractionEnabled = false
         boostBarrageNode.isHidden = true
@@ -698,14 +705,21 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
         }
         replyShortcutNode.isHidden = false
         replyShortcutNode.isEnabled = !payload.isLoadingReplyContext
-        let title = payload.isLoadingReplyContext
-            ? "正在加载回复..."
-            : (count > 0 ? "查看更多 \(count) 条回复" : "查看更多回复")
+        let title: String
+        if payload.isLoadingReplyContext {
+            title = "正在加载回复..."
+        } else if payload.replyContextError?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
+            title = "加载失败，点按重试"
+        } else {
+            title = count > 0 ? "查看更多 \(count) 条回复" : "查看更多回复"
+        }
         replyShortcutNode.setAttributedTitle(NSAttributedString(
             string: title,
             attributes: [
                 .font: UIFont.preferredFont(forTextStyle: .caption1),
-                .foregroundColor: Self.accentTextColor,
+                .foregroundColor: payload.replyContextError == nil
+                    ? Self.accentTextColor
+                    : UIColor.systemRed,
             ]
         ), for: .normal)
         replyShortcutNode.accessibilityLabel = title
@@ -715,7 +729,7 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
         guard !payload.post.boosts.isEmpty else {
             boostContainerNode.isHidden = true
             boostBarrageNode.isHidden = true
-            configureBoostBarrage(lines: [])
+            configureBoostBarrage(lines: [], batchSignature: "")
             configureFixedBoostTicker(lines: [])
             boostSignature = []
             return
@@ -726,10 +740,19 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
             textExpansionState: payload.textExpansionState,
             hasBodyTextTarget: payload.renderContent.hasBoostBarrageTextTarget
         )
-        boostBarrageNode.isHidden = !usesBodyBarrage
-        configureBoostBarrage(lines: usesBodyBarrage
-            ? payload.post.boosts.map(FirePostBoostDisplay.displayLine(for:))
-            : [])
+        let bodyBarrageLines = usesBodyBarrage
+            ? FirePostBoostDisplay.bodyBarrageLines(for: payload.post.boosts)
+            : []
+        boostBarrageNode.isHidden = !usesBodyBarrage || bodyBarrageLines.isEmpty
+        configureBoostBarrage(
+            lines: bodyBarrageLines,
+            batchSignature: usesBodyBarrage && !bodyBarrageLines.isEmpty
+                ? FirePostBoostDisplay.bodyBarrageBatchSignature(
+                    postID: payload.post.id,
+                    boosts: payload.post.boosts
+                )
+                : ""
+        )
         boostContainerNode.isHidden = usesBodyBarrage
         if usesBodyBarrage {
             configureFixedBoostTicker(lines: [])
@@ -762,13 +785,14 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
         view.configure(lines: lines, animationsEnabled: boostAnimationsEnabled)
     }
 
-    private func configureBoostBarrage(lines: [String]) {
+    private func configureBoostBarrage(lines: [String], batchSignature: String) {
         boostBarrageLines = lines
+        boostBarrageBatchSignature = batchSignature
         guard boostBarrageNode.isNodeLoaded,
               let view = boostBarrageNode.view as? FirePostBoostBarrageView else {
             return
         }
-        view.configure(lines: lines, animationsEnabled: boostAnimationsEnabled)
+        view.configure(lines: lines, batchSignature: batchSignature, animationsEnabled: boostAnimationsEnabled)
     }
 
     func setBoostAnimationsEnabled(_ enabled: Bool) {
@@ -967,6 +991,7 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
             children: authorChildren
         )
         authorRow.style.flexShrink = 1.0
+        authorRow.style.flexGrow = 0.0
 
         let firstLineSpacer = ASLayoutSpec()
         firstLineSpacer.style.flexGrow = 1.0
@@ -1960,17 +1985,70 @@ private final class FirePostImageNode: ASControlNode {
     }
 }
 
+// MARK: - Boost Animation Helpers
+
+private enum FirePostBoostLayerAnimator {
+    static func pause(_ layers: [CALayer]) {
+        for layer in layers where layer.speed != 0 {
+            let pausedTime = layer.convertTime(CACurrentMediaTime(), from: nil)
+            layer.speed = 0
+            layer.timeOffset = pausedTime
+        }
+    }
+
+    static func resume(_ layers: [CALayer]) {
+        for layer in layers where layer.speed == 0 {
+            let pausedTime = layer.timeOffset
+            layer.speed = 1
+            layer.timeOffset = 0
+            layer.beginTime = 0
+            let elapsed = layer.convertTime(CACurrentMediaTime(), from: nil) - pausedTime
+            layer.beginTime = elapsed
+        }
+    }
+
+    static func hasPausedAnimation(_ layers: [CALayer]) -> Bool {
+        layers.contains { $0.speed == 0 }
+    }
+
+    static func hasAnimation(_ layers: [CALayer]) -> Bool {
+        layers.contains { !($0.animationKeys() ?? []).isEmpty }
+    }
+
+    static func resetTiming(_ layers: [CALayer]) {
+        for layer in layers {
+            layer.speed = 1
+            layer.timeOffset = 0
+            layer.beginTime = 0
+        }
+    }
+
+    static func stableHash(text: String?, index: Int) -> UInt32 {
+        var hash: UInt32 = 2_166_136_261
+        for byte in (text ?? "").utf8 {
+            hash ^= UInt32(byte)
+            hash = hash &* 16_777_619
+        }
+        hash ^= UInt32(index & 0xFFFF)
+        return hash
+    }
+}
+
 // MARK: - Boost Barrage
 
 private final class FirePostBoostBarrageView: UIView {
-    private static let maximumVisibleLines = 5
-    private static let maximumLaneCount = 2
+    private static let maximumLaneCount = 5
     private static let chipHeight: CGFloat = 24
+    private static let minimumLaneGap: CGFloat = 4
+    private static var displayedBatchSignatures: Set<String> = []
 
     private var labels: [UILabel] = []
     private var signature: String = ""
+    private var batchSignature: String = ""
     private var lastAnimatedBounds: CGRect = .null
     private var animationsEnabled = true
+    private var animationRunID: UInt64 = 0
+    private var pendingAnimationCompletionCount = 0
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -1984,19 +2062,29 @@ private final class FirePostBoostBarrageView: UIView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    func configure(lines: [String], animationsEnabled: Bool) {
-        self.animationsEnabled = animationsEnabled
+    func configure(lines: [String], batchSignature: String, animationsEnabled: Bool) {
         let visibleLines = lines
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
-            .prefix(Self.maximumVisibleLines)
+        let isCurrentActiveBatch = batchSignature == self.batchSignature && !labels.isEmpty
+        guard !batchSignature.isEmpty,
+              !Self.displayedBatchSignatures.contains(batchSignature) || isCurrentActiveBatch else {
+            signature = ""
+            self.batchSignature = batchSignature
+            removeAllLabels()
+            isHidden = true
+            return
+        }
         let nextSignature = visibleLines.joined(separator: "\u{1E}")
-        guard nextSignature != signature else {
-            restartLayoutAndAnimations()
+        guard nextSignature != signature || batchSignature != self.batchSignature else {
+            isHidden = visibleLines.isEmpty
+            setAnimationsEnabled(animationsEnabled)
             return
         }
 
+        self.animationsEnabled = animationsEnabled
         signature = nextSignature
+        self.batchSignature = batchSignature
         labels.forEach { label in
             label.layer.removeAllAnimations()
             label.removeFromSuperview()
@@ -2027,7 +2115,18 @@ private final class FirePostBoostBarrageView: UIView {
     func setAnimationsEnabled(_ enabled: Bool) {
         guard animationsEnabled != enabled else { return }
         animationsEnabled = enabled
-        restartLayoutAndAnimations()
+        if enabled {
+            let layers = labels.map(\.layer)
+            if FirePostBoostLayerAnimator.hasPausedAnimation(layers),
+               FirePostBoostLayerAnimator.hasAnimation(layers) {
+                FirePostBoostLayerAnimator.resume(layers)
+            } else if !FirePostBoostLayerAnimator.hasAnimation(layers) {
+                FirePostBoostLayerAnimator.resetTiming(layers)
+                restartLayoutAndAnimations()
+            }
+        } else {
+            FirePostBoostLayerAnimator.pause(labels.map(\.layer))
+        }
     }
 
     override func layoutSubviews() {
@@ -2044,11 +2143,29 @@ private final class FirePostBoostBarrageView: UIView {
         }
         lastAnimatedBounds = bounds
 
-        let laneCount = max(1, min(labels.count, Self.maximumLaneCount))
-        let activeHeight = max(min(bounds.height * 0.46, CGFloat(laneCount) * (Self.chipHeight + 12)), Self.chipHeight)
-        let laneHeight = max(activeHeight / CGFloat(laneCount), Self.chipHeight + 8)
+        let availableLaneCount = max(
+            1,
+            min(
+                Self.maximumLaneCount,
+                Int((bounds.height + Self.minimumLaneGap) / (Self.chipHeight + Self.minimumLaneGap))
+            )
+        )
+        let laneCount = max(1, min(labels.count, availableLaneCount))
         let maxChipWidth = max(bounds.width * 0.72, 1)
         let shouldAnimate = animationsEnabled && !UIAccessibility.isReduceMotionEnabled
+        let laneStep = laneCount > 1
+            ? max((bounds.height - Self.chipHeight) / CGFloat(laneCount - 1), Self.minimumLaneGap)
+            : 0
+        let runID: UInt64
+        if shouldAnimate {
+            animationRunID &+= 1
+            runID = animationRunID
+            pendingAnimationCompletionCount = labels.count
+            Self.displayedBatchSignatures.insert(batchSignature)
+        } else {
+            runID = animationRunID
+            pendingAnimationCompletionCount = 0
+        }
 
         for (index, label) in labels.enumerated() {
             label.layer.removeAllAnimations()
@@ -2057,12 +2174,19 @@ private final class FirePostBoostBarrageView: UIView {
             let chipWidth = min(max(measured.width + 20, 48), maxChipWidth)
             let lane = index % laneCount
             let laneCycle = index / laneCount
-            let yJitter = CGFloat((index * 7) % 5)
+            let hash = FirePostBoostLayerAnimator.stableHash(text: label.text, index: index)
+            let jitterLimit = laneCount > 1 ? min(laneStep * 0.18, 4) : 0
+            let jitter = jitterLimit > 0
+                ? (CGFloat(Int(hash % 100)) / 99 - 0.5) * jitterLimit
+                : 0
             let y = min(
-                CGFloat(lane) * laneHeight + yJitter,
-                max(activeHeight - Self.chipHeight, 0)
+                max(CGFloat(lane) * laneStep + jitter, 0),
+                max(bounds.height - Self.chipHeight, 0)
             )
-            let startX = bounds.width + CGFloat(index) * 84 + CGFloat(laneCycle) * 42
+            let startOffset = CGFloat(hash % 42)
+            let startX = bounds.width
+                + startOffset
+                + CGFloat(laneCycle) * (bounds.width * 0.22 + 56)
             label.frame = CGRect(
                 x: shouldAnimate ? startX : staticX(for: index, width: chipWidth),
                 y: y,
@@ -2072,14 +2196,19 @@ private final class FirePostBoostBarrageView: UIView {
             label.alpha = 0.92
 
             guard shouldAnimate else { continue }
-            let travel = bounds.width + chipWidth + CGFloat(index) * 84 + 48
+            let travel = startX + chipWidth + 24
+            let durationJitter = Double((hash >> 8) % 90) / 100
+            let delayJitter = Double((hash >> 16) % 45) / 100
             UIView.animate(
-                withDuration: 10.5 + Double(index % 3) * 1.4,
-                delay: Double(index) * 1.15,
-                options: [.curveLinear, .allowUserInteraction, .repeat],
+                withDuration: 9.4 + durationJitter + Double(laneCycle) * 0.35,
+                delay: Double(index) * 0.48 + delayJitter,
+                options: [.curveLinear, .allowUserInteraction],
                 animations: {
                     label.transform = CGAffineTransform(translationX: -travel, y: 0)
                     label.alpha = 0.62
+                },
+                completion: { [weak self] finished in
+                    self?.recordAnimationCompletion(runID: runID, finished: finished)
                 }
             )
         }
@@ -2093,11 +2222,41 @@ private final class FirePostBoostBarrageView: UIView {
 
     private func restartLayoutAndAnimations() {
         lastAnimatedBounds = .null
+        FirePostBoostLayerAnimator.resetTiming(labels.map(\.layer))
+        animationRunID &+= 1
+        pendingAnimationCompletionCount = 0
         labels.forEach { label in
             label.layer.removeAllAnimations()
             label.transform = .identity
         }
         setNeedsLayout()
+    }
+
+    private func removeAllLabels() {
+        animationRunID &+= 1
+        pendingAnimationCompletionCount = 0
+        labels.forEach { label in
+            label.layer.removeAllAnimations()
+            label.removeFromSuperview()
+        }
+        labels.removeAll()
+        lastAnimatedBounds = .null
+    }
+
+    private func recordAnimationCompletion(runID: UInt64, finished: Bool) {
+        guard finished,
+              runID == animationRunID,
+              pendingAnimationCompletionCount > 0 else {
+            return
+        }
+        pendingAnimationCompletionCount -= 1
+        guard pendingAnimationCompletionCount == 0,
+              !batchSignature.isEmpty else {
+            return
+        }
+        removeAllLabels()
+        signature = ""
+        isHidden = true
     }
 }
 
@@ -2105,7 +2264,7 @@ private final class FirePostBoostBarrageView: UIView {
 
 private final class FirePostBoostTickerView: UIView {
     private static let laneCount = 2
-    private static let chipHeight: CGFloat = 26
+    private static let chipHeight: CGFloat = 22
 
     private var rowViews: [UIView] = []
     private var labels: [UILabel] = []
@@ -2132,16 +2291,17 @@ private final class FirePostBoostTickerView: UIView {
     }
 
     func configure(lines: [String], animationsEnabled: Bool) {
-        self.animationsEnabled = animationsEnabled
         let visibleLines = lines
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
         let nextSignature = visibleLines.joined(separator: "\u{1E}")
         guard nextSignature != signature else {
-            restartLayoutAndAnimations()
+            isHidden = visibleLines.isEmpty
+            setAnimationsEnabled(animationsEnabled)
             return
         }
 
+        self.animationsEnabled = animationsEnabled
         signature = nextSignature
         labels.forEach { label in
             label.layer.removeAllAnimations()
@@ -2171,7 +2331,18 @@ private final class FirePostBoostTickerView: UIView {
     func setAnimationsEnabled(_ enabled: Bool) {
         guard animationsEnabled != enabled else { return }
         animationsEnabled = enabled
-        restartLayoutAndAnimations()
+        let layers = rowViews.map(\.layer)
+        if enabled {
+            if FirePostBoostLayerAnimator.hasPausedAnimation(layers),
+               FirePostBoostLayerAnimator.hasAnimation(layers) {
+                FirePostBoostLayerAnimator.resume(layers)
+            } else if !FirePostBoostLayerAnimator.hasAnimation(layers) {
+                FirePostBoostLayerAnimator.resetTiming(layers)
+                restartLayoutAndAnimations()
+            }
+        } else {
+            FirePostBoostLayerAnimator.pause(layers)
+        }
     }
 
     override func layoutSubviews() {
@@ -2222,9 +2393,16 @@ private final class FirePostBoostTickerView: UIView {
         for (rowIndex, row) in rowViews.enumerated() {
             let overflow = cursorXByRow[rowIndex] - 8 - bounds.width
             guard shouldAnimate, overflow > 8 else { continue }
+            let hash = FirePostBoostLayerAnimator.stableHash(
+                text: labels.indices.compactMap { index in
+                    index % Self.laneCount == rowIndex ? labels[index].text : nil
+                }.joined(separator: "|"),
+                index: rowIndex
+            )
+            let delayJitter = Double(hash % 25) / 100
             UIView.animate(
                 withDuration: min(14.0, 4.8 + Double(overflow) * 0.014),
-                delay: Double(rowIndex) * 0.65,
+                delay: Double(rowIndex) * 0.65 + delayJitter,
                 options: [.curveLinear, .allowUserInteraction, .repeat, .autoreverse],
                 animations: {
                     row.transform = CGAffineTransform(translationX: -overflow, y: 0)
@@ -2235,6 +2413,7 @@ private final class FirePostBoostTickerView: UIView {
 
     private func restartLayoutAndAnimations() {
         lastAnimatedBounds = .null
+        FirePostBoostLayerAnimator.resetTiming(rowViews.map(\.layer))
         rowViews.forEach { row in
             row.layer.removeAllAnimations()
             row.transform = .identity

@@ -146,11 +146,11 @@ git commit -m "refactor(ios): unify feed kind selector between home and filtered
 **Files:**
 - Modify: `native/ios-app/App/Core/SessionState+Helpers.swift`（或 TopicListKindState extension 所在文件）
 
-- [ ] **Step 1: 定位 TopicListKindState.title 定义**
+- [x] **Step 1: 定位 TopicListKindState.title 定义**
 
 搜索 `TopicListKindState` 的 `title` computed property。当前返回英文如 "Latest", "New"。
 
-- [ ] **Step 2: 统一为中文标题**
+- [x] **Step 2: 统一为中文标题**
 
 ```swift
 var title: String {
@@ -167,12 +167,13 @@ var title: String {
 }
 ```
 
-- [ ] **Step 3: 构建验证**
+- [x] **Step 3: 构建验证**
 
-Run: `cd native/ios-app && xcodebuild build -scheme FireApp -destination 'platform=iOS Simulator,name=iPhone 16' -quiet 2>&1 | tail -5`
-Expected: `** BUILD SUCCEEDED **`
+Verified:
+- `cd native/ios-app && xcodebuild test -scheme Fire -destination 'id=D733CCB1-7B2A-49B5-B3F8-36CB6D0CB2BF' -only-testing:FireTests/FireEntityStateTests`
+- `cd native/ios-app && xcodebuild build -scheme Fire -destination 'id=D733CCB1-7B2A-49B5-B3F8-36CB6D0CB2BF' -quiet`
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add -u

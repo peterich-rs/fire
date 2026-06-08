@@ -252,17 +252,17 @@ extension TopicListKindState {
     var title: String {
         switch self {
         case .latest:
-            return "Latest"
+            return "最新"
         case .new:
-            return "New"
+            return "最新发布"
         case .unread:
-            return "Unread"
+            return "未读"
         case .unseen:
-            return "Unseen"
+            return "未看"
         case .hot:
-            return "Hot"
+            return "热门"
         case .top:
-            return "Top"
+            return "精华"
         case .privateMessagesInbox:
             return "收件箱"
         case .privateMessagesSent:

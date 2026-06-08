@@ -49,6 +49,17 @@ final class FireEntityStateTests: XCTestCase {
 
         XCTAssertEqual(orderedValues.map(\.title), ["three", "one", "two"])
     }
+
+    func testTopicListKindTitlesUseChineseLabels() {
+        XCTAssertEqual(TopicListKindState.latest.title, "最新")
+        XCTAssertEqual(TopicListKindState.new.title, "最新发布")
+        XCTAssertEqual(TopicListKindState.unread.title, "未读")
+        XCTAssertEqual(TopicListKindState.unseen.title, "未看")
+        XCTAssertEqual(TopicListKindState.hot.title, "热门")
+        XCTAssertEqual(TopicListKindState.top.title, "精华")
+        XCTAssertEqual(TopicListKindState.privateMessagesInbox.title, "收件箱")
+        XCTAssertEqual(TopicListKindState.privateMessagesSent.title, "已发送")
+    }
 }
 
 private struct TestEntity: Equatable {

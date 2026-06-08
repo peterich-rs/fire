@@ -93,6 +93,10 @@ enum FirePostBoostDisplay {
         Array(boosts.compactMap { cleaned($0.displayText) }.prefix(bodyBarrageVisibleLineLimit))
     }
 
+    static func bodyBarrageBoosts(for boosts: [TopicPostBoostState]) -> [TopicPostBoostState] {
+        Array(boosts.filter { cleaned($0.displayText) != nil }.prefix(bodyBarrageVisibleLineLimit))
+    }
+
     static func bodyBarrageBatchSignature(
         postID: UInt64,
         boosts: [TopicPostBoostState]
@@ -102,6 +106,7 @@ enum FirePostBoostDisplay {
             return [
                 String(boost.id),
                 text,
+                contentSignature(for: boost),
             ].joined(separator: "\u{1E}")
         }
         .prefix(bodyBarrageVisibleLineLimit)
@@ -114,6 +119,45 @@ enum FirePostBoostDisplay {
         cleaned(boost.displayText) ?? ""
     }
 
+    static func contentSignature(for boost: TopicPostBoostState) -> String {
+        [
+            String(boost.id),
+            boost.displayText,
+            boost.cooked,
+            boost.renderDocument?.plainText ?? "",
+        ].joined(separator: "\u{1E}")
+    }
+
+    static func displayContent(
+        for boost: TopicPostBoostState,
+        baseFont: UIFont = .preferredFont(forTextStyle: .caption1),
+        textColor: UIColor = .label,
+        accentColor: UIColor = .systemBlue
+    ) -> NSAttributedString {
+        let result = NSMutableAttributedString()
+        result.append(NSAttributedString(
+            string: displayAuthor(for: boost),
+            attributes: [
+                .font: UIFont.systemFont(ofSize: baseFont.pointSize, weight: .semibold),
+                .foregroundColor: textColor,
+            ]
+        ))
+        if let content = richTextContent(for: boost, baseFont: baseFont, textColor: textColor, accentColor: accentColor),
+           content.length > 0 {
+            result.append(NSAttributedString(
+                string: ": ",
+                attributes: [.font: baseFont, .foregroundColor: textColor]
+            ))
+            result.append(content)
+        } else if let text = cleaned(boost.displayText) {
+            result.append(NSAttributedString(
+                string: ": \(text)",
+                attributes: [.font: baseFont, .foregroundColor: textColor]
+            ))
+        }
+        return result
+    }
+
     static func contentToken(for boosts: [TopicPostBoostState]) -> String {
         boosts.map { boost in
             [
@@ -121,6 +165,7 @@ enum FirePostBoostDisplay {
                 boost.user.username,
                 boost.user.name ?? "",
                 boost.displayText,
+                boost.cooked,
                 String(boost.canDelete),
                 String(boost.canFlag),
             ].joined(separator: "\u{1E}")
@@ -131,6 +176,54 @@ enum FirePostBoostDisplay {
         guard let value else { return nil }
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private static func displayAuthor(for boost: TopicPostBoostState) -> String {
+        if let username = cleaned(boost.user.username) {
+            return "@\(username)"
+        }
+        if let name = cleaned(boost.user.name) {
+            return name
+        }
+        return "User \(boost.user.id)"
+    }
+
+    private static func richTextContent(
+        for boost: TopicPostBoostState,
+        baseFont: UIFont,
+        textColor: UIColor,
+        accentColor: UIColor
+    ) -> NSAttributedString? {
+        guard let document = boost.renderDocument else {
+            return nil
+        }
+        let content = FireRenderBlockNodeBuilder.build(document: document)
+        guard !content.nodes.isEmpty else {
+            return nil
+        }
+        let attributedText = FireRichTextAttributedStringBuilder.build(
+            from: content.nodes,
+            baseFont: baseFont,
+            textColor: textColor,
+            accentColor: accentColor
+        )
+        let mutable = NSMutableAttributedString(attributedString: attributedText)
+        trimWhitespaceAndNewlines(mutable)
+        return mutable.length > 0 ? mutable : nil
+    }
+
+    private static func trimWhitespaceAndNewlines(_ attributedText: NSMutableAttributedString) {
+        while attributedText.length > 0 {
+            let scalar = attributedText.string.unicodeScalars[attributedText.string.unicodeScalars.startIndex]
+            guard CharacterSet.whitespacesAndNewlines.contains(scalar) else { break }
+            attributedText.deleteCharacters(in: NSRange(location: 0, length: 1))
+        }
+        while attributedText.length > 0 {
+            let string = attributedText.string
+            let scalar = string.unicodeScalars[string.unicodeScalars.index(before: string.unicodeScalars.endIndex)]
+            guard CharacterSet.whitespacesAndNewlines.contains(scalar) else { break }
+            attributedText.deleteCharacters(in: NSRange(location: attributedText.length - 1, length: 1))
+        }
     }
 }
 

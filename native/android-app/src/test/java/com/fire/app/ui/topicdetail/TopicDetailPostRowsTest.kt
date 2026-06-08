@@ -164,6 +164,7 @@ class TopicDetailPostRowsTest {
         return TopicPostBoostState(
             id = 99uL,
             cooked = "<p>Hello</p>",
+            renderDocument = null,
             displayText = "Hello",
             user = TopicPostBoostUserState(
                 id = 7uL,

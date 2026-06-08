@@ -43,6 +43,7 @@ final class FireTopicDetailFeedController: NSObject,
     var onBackgroundTap: (() -> Void)?
     var onScrollInteractionChanged: ((Bool) -> Void)?
     private var lastPublishedScrollInteractionActive = false
+    private var deferredIdleCheckGeneration: UInt64 = 0
 
     func setup() {
         collectionNode.dataSource = self
@@ -514,16 +515,19 @@ final class FireTopicDetailFeedController: NSObject,
     func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
         publishScrollInteractionStateIfNeeded()
         if !decelerate {
+            scheduleDeferredScrollIdleCheck()
             reevaluateVisibleState(forceLoadMoreEvaluation: true)
         }
     }
 
     func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
         publishScrollInteractionStateIfNeeded()
+        scheduleDeferredScrollIdleCheck()
         reevaluateVisibleState(forceLoadMoreEvaluation: true)
     }
 
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        deferredIdleCheckGeneration &+= 1
         publishScrollInteractionStateIfNeeded()
     }
 
@@ -760,6 +764,19 @@ final class FireTopicDetailFeedController: NSObject,
         lastPublishedScrollInteractionActive = isActive
         onScrollInteractionChanged?(isActive)
         updateVisibleBoostAnimationState()
+    }
+
+    private func scheduleDeferredScrollIdleCheck() {
+        deferredIdleCheckGeneration &+= 1
+        let generation = deferredIdleCheckGeneration
+        DispatchQueue.main.async { [weak self] in
+            guard let self,
+                  self.deferredIdleCheckGeneration == generation else {
+                return
+            }
+            self.publishScrollInteractionStateIfNeeded()
+            self.updateVisibleBoostAnimationState()
+        }
     }
 
     private func updateVisibleBoostAnimationState() {

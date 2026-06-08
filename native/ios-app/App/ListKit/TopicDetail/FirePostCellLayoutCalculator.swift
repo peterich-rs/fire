@@ -20,12 +20,12 @@ enum FirePostCellLayoutCalculator {
     static let boostSpacing: CGFloat = 6
     static let boostHorizontalInset: CGFloat = 10
     static let boostVerticalInset: CGFloat = 6
-    static let fixedBoostTickerRows = 2
-    static let fixedBoostTickerRowHeight: CGFloat = 26
-    static let fixedBoostTickerRowSpacing: CGFloat = 2
-    static let fixedBoostTickerHeight: CGFloat =
-        CGFloat(fixedBoostTickerRows) * fixedBoostTickerRowHeight
-        + CGFloat(fixedBoostTickerRows - 1) * fixedBoostTickerRowSpacing
+    static let fixedBoostManualRows = 2
+    static let fixedBoostManualRowHeight: CGFloat = 26
+    static let fixedBoostManualRowSpacing: CGFloat = 2
+    static let fixedBoostManualHeight: CGFloat =
+        CGFloat(fixedBoostManualRows) * fixedBoostManualRowHeight
+        + CGFloat(fixedBoostManualRows - 1) * fixedBoostManualRowSpacing
     static let replyShortcutTopSpacing: CGFloat = 8
     static let replyShortcutHeight: CGFloat = 30
     static let reactionTopSpacing: CGFloat = 0
@@ -214,10 +214,10 @@ enum FirePostCellLayoutCalculator {
                 x: contentLeading,
                 y: cursorY,
                 width: contentAvailableWidth,
-                height: fixedBoostTickerHeight
+                height: fixedBoostManualHeight
             )
             boostFrames.append(frame)
-            cursorY += fixedBoostTickerHeight
+            cursorY += fixedBoostManualHeight
         }
 
         // Action row: nested-reply shortcut and reactions share one compact line.

@@ -129,13 +129,13 @@ Current topic-detail interactions:
 - original-post body, poll, Boost, and action surfaces use the same content
   width as the topic title instead of inheriting the reply avatar-column inset
 - Boost short replies render from Rust-owned `TopicPostBoostState.displayText`
-  as a body overlay/barrage for original posts with visible body text, and as
-  a fixed two-row RecyclerView ticker for replies or posts without a body text
-  target, without Android-side Boost HTML parsing; overlay mode caps visible
-  boosts to five display lines, uses at most five lanes, and pauses/resumes
-  animation timing around active RecyclerView scrolling to avoid overlap and
-  broad body-text occlusion, while ticker animation only runs for attached rows
-  when the detail list is idle
+  and `renderDocument` as a body overlay/barrage for original posts with
+  visible body text, and as a fixed-height two-row manual horizontal chip
+  scroller for replies or posts without a body text target, without
+  Android-side Boost HTML parsing; overlay mode caps visible boosts to five
+  display lines, uses at most five lanes, and pauses/resumes animation timing
+  around active RecyclerView scrolling to avoid overlap and broad body-text
+  occlusion, while reply/comment Boost chips move only through user swipes
 - reaction-user lookup from the rendered post reaction summary
 - topic notification-level selection for non-private-message topics
 - reply-context lookup from the rendered reply target, showing source and

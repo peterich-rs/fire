@@ -674,6 +674,7 @@ impl From<TopicPostBoostUserState> for TopicPostBoostUser {
 pub struct TopicPostBoostState {
     pub id: u64,
     pub cooked: String,
+    pub render_document: Option<RenderDocumentState>,
     pub display_text: String,
     pub user: TopicPostBoostUserState,
     pub can_delete: bool,
@@ -684,16 +685,22 @@ pub struct TopicPostBoostState {
 
 impl From<TopicPostBoost> for TopicPostBoostState {
     fn from(value: TopicPostBoost) -> Self {
-        Self {
-            id: value.id,
-            cooked: value.cooked,
-            display_text: value.display_text,
-            user: value.user.into(),
-            can_delete: value.can_delete,
-            can_flag: value.can_flag,
-            user_flag_status: value.user_flag_status,
-            available_flags: value.available_flags,
-        }
+        topic_post_boost_state_from_model(value, "https://linux.do")
+    }
+}
+
+fn topic_post_boost_state_from_model(value: TopicPostBoost, base_url: &str) -> TopicPostBoostState {
+    let render_document = render_document_state_from_cooked(&value.cooked, base_url);
+    TopicPostBoostState {
+        id: value.id,
+        cooked: value.cooked,
+        render_document,
+        display_text: value.display_text,
+        user: value.user.into(),
+        can_delete: value.can_delete,
+        can_flag: value.can_flag,
+        user_flag_status: value.user_flag_status,
+        available_flags: value.available_flags,
     }
 }
 
@@ -782,7 +789,11 @@ pub(crate) fn topic_post_state_from_model(value: TopicPost, base_url: &str) -> T
         bookmark_reminder_at: value.bookmark_reminder_at,
         reactions: value.reactions.into_iter().map(Into::into).collect(),
         current_user_reaction: value.current_user_reaction.map(Into::into),
-        boosts: value.boosts.into_iter().map(Into::into).collect(),
+        boosts: value
+            .boosts
+            .into_iter()
+            .map(|boost| topic_post_boost_state_from_model(boost, base_url))
+            .collect(),
         can_boost: value.can_boost,
         polls: value.polls.into_iter().map(Into::into).collect(),
         accepted_answer: value.accepted_answer,

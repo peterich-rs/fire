@@ -1,8 +1,13 @@
 package com.fire.app.ui.topicdetail
 
 import android.animation.ValueAnimator
+import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.text.SpannableStringBuilder
+import android.text.Spanned
 import android.text.TextUtils
+import android.text.style.ForegroundColorSpan
+import android.text.style.StyleSpan
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -54,7 +59,6 @@ class PostViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
     private val flagAction: TextView = itemView.findViewById(R.id.action_flag)
     private var boostBarrageStartRunnable: Runnable? = null
     private val boostBarrageAnimators = mutableListOf<ValueAnimator>()
-    private val boostTickerAnimators = mutableListOf<ValueAnimator>()
     private var bodyHasTextTarget: Boolean = false
     private var boostAnimationsEnabled = true
     private var isAttachedToWindow = false
@@ -363,7 +367,6 @@ class PostViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
     private fun bindBoosts(row: PostRow) {
         val post = row.post
         boostContainer.removeAllViews()
-        clearBoostTicker()
         clearBoostBarrage()
         if (post.boosts.isEmpty()) {
             boostContainer.visibility = View.GONE
@@ -378,44 +381,62 @@ class PostViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
         }
 
         boostBarrageContainer.visibility = View.GONE
-        val context = itemView.context
         boostContainer.visibility = View.VISIBLE
-        val tickerRows = mutableListOf<LinearLayout>()
-        post.boosts.forEachIndexed { index, boost ->
-            val rowIndex = index % FIXED_BOOST_TICKER_ROWS
-            val row = tickerRows.getOrNull(rowIndex) ?: LinearLayout(context).apply {
+        bindManualBoostScroller(post.boosts)
+    }
+
+    private fun bindManualBoostScroller(boosts: List<TopicPostBoostState>) {
+        val context = itemView.context
+        val scroller = HorizontalScrollView(context).apply {
+            isHorizontalScrollBarEnabled = false
+            isVerticalScrollBarEnabled = false
+            overScrollMode = View.OVER_SCROLL_IF_CONTENT_SCROLLS
+            clipToPadding = false
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            )
+        }
+        val rowsContainer = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            clipToPadding = false
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+            )
+        }
+        val manualRows = mutableListOf<LinearLayout>()
+        boosts.forEachIndexed { index, boost ->
+            val rowIndex = index % FIXED_BOOST_MANUAL_ROWS
+            val row = manualRows.getOrNull(rowIndex) ?: LinearLayout(context).apply {
                 orientation = LinearLayout.HORIZONTAL
                 clipToPadding = false
                 layoutParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
-                    dp(FIXED_BOOST_ROW_HEIGHT_DP),
+                    dp(FIXED_BOOST_MANUAL_ROW_HEIGHT_DP),
                 ).apply {
-                    if (tickerRows.isNotEmpty()) topMargin = dp(4)
+                    if (manualRows.isNotEmpty()) topMargin = dp(4)
                 }
-                boostContainer.addView(this)
-                tickerRows += this
+                rowsContainer.addView(this)
+                manualRows += this
             }
-            val boostView = TextView(context).apply {
-                text = displayBoostLine(boost)
-                setTextAppearance(androidx.appcompat.R.style.TextAppearance_AppCompat_Caption)
-                setTextColor(context.getColor(R.color.fire_text_secondary))
-                maxLines = 1
-                ellipsize = TextUtils.TruncateAt.END
-                setPadding(dp(10), dp(6), dp(10), dp(6))
-                background = GradientDrawable().apply {
-                    cornerRadius = dp(13).toFloat()
-                    setColor(context.getColor(R.color.fire_boost_background))
-                }
+            val boostView = boostChipView(
+                boost = boost,
+                textColor = context.getColor(R.color.fire_text_secondary),
+                backgroundColor = context.getColor(R.color.fire_boost_background),
+                heightDp = FIXED_BOOST_MANUAL_CHIP_HEIGHT_DP,
+            ).apply {
                 layoutParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.WRAP_CONTENT,
-                    dp(FIXED_BOOST_CHIP_HEIGHT_DP),
+                    dp(FIXED_BOOST_MANUAL_CHIP_HEIGHT_DP),
                 ).apply {
                     if (row.childCount > 0) marginStart = dp(8)
                 }
             }
             row.addView(boostView)
         }
-        boostContainer.post { startBoostTickerAnimationsIfPossible() }
+        scroller.addView(rowsContainer)
+        boostContainer.addView(scroller)
     }
 
     private fun bindBoostBarrage(boosts: List<TopicPostBoostState>) {
@@ -423,18 +444,13 @@ class PostViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
         boostBarrageContainer.visibility = View.VISIBLE
         val visibleBoosts = boosts.take(TopicDetailBoostPresentation.BODY_BARRAGE_VISIBLE_LINE_LIMIT)
         visibleBoosts.forEach { boost ->
-            val boostView = TextView(context).apply {
-                text = displayBoostLine(boost)
-                setTextAppearance(androidx.appcompat.R.style.TextAppearance_AppCompat_Caption)
-                setTextColor(context.getColor(R.color.fire_text_primary))
-                maxLines = 1
-                ellipsize = TextUtils.TruncateAt.END
+            val boostView = boostChipView(
+                boost = boost,
+                textColor = context.getColor(R.color.fire_text_primary),
+                backgroundColor = context.getColor(R.color.fire_boost_barrage_background),
+                heightDp = BARRAGE_CHIP_HEIGHT_DP,
+            ).apply {
                 importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-                setPadding(dp(10), 0, dp(10), 0)
-                background = GradientDrawable().apply {
-                    cornerRadius = dp(12).toFloat()
-                    setColor(context.getColor(R.color.fire_boost_barrage_background))
-                }
                 layoutParams = FrameLayout.LayoutParams(
                     FrameLayout.LayoutParams.WRAP_CONTENT,
                     dp(24),
@@ -445,6 +461,78 @@ class PostViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
         val startRunnable = Runnable { startBoostBarrageAnimations() }
         boostBarrageStartRunnable = startRunnable
         boostBarrageContainer.post(startRunnable)
+    }
+
+    private fun boostChipView(
+        boost: TopicPostBoostState,
+        textColor: Int,
+        backgroundColor: Int,
+        heightDp: Int,
+    ): FireRichTextView {
+        return FireRichTextView(itemView.context).apply {
+            setTextAppearance(androidx.appcompat.R.style.TextAppearance_AppCompat_Caption)
+            setTextColor(textColor)
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
+            includeFontPadding = false
+            setPadding(dp(10), 0, dp(10), 0)
+            background = GradientDrawable().apply {
+                cornerRadius = dp(heightDp / 2).toFloat()
+                setColor(backgroundColor)
+            }
+            val contentId = listOf(
+                boost.id,
+                boost.displayText.hashCode(),
+                boost.cooked.hashCode(),
+                boost.renderDocument?.plainText?.hashCode() ?: 0,
+            ).joinToString(separator = ":")
+            setContent(
+                "boost:$contentId",
+                buildBoostChipText(boost, textColor),
+            )
+        }
+    }
+
+    private fun buildBoostChipText(boost: TopicPostBoostState, textColor: Int): Spanned {
+        val builder = SpannableStringBuilder()
+        val authorStart = builder.length
+        builder.append(boostAuthor(boost))
+        builder.setSpan(StyleSpan(Typeface.BOLD), authorStart, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+
+        val content = boost.renderDocument?.let { FireRenderBlockBuilder.build(it) }
+        val richText = content
+            ?.nodes
+            ?.takeIf { it.isNotEmpty() }
+            ?.let { nodes ->
+                trimSpannable(
+                    FireSpannableBuilder.build(
+                        nodes = nodes,
+                        context = itemView.context,
+                        onLinkClicked = null,
+                    ),
+                )
+            }
+            ?.takeIf { it.isNotBlank() }
+        val fallbackText = cleaned(boost.displayText)
+        when {
+            richText != null -> {
+                builder.append(": ")
+                builder.append(richText)
+            }
+            fallbackText != null -> builder.append(": ").append(fallbackText)
+        }
+        builder.setSpan(ForegroundColorSpan(textColor), 0, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        return builder
+    }
+
+    private fun trimSpannable(value: SpannableStringBuilder): SpannableStringBuilder {
+        while (value.isNotEmpty() && value.first().isWhitespace()) {
+            value.delete(0, 1)
+        }
+        while (value.isNotEmpty() && value.last().isWhitespace()) {
+            value.delete(value.length - 1, value.length)
+        }
+        return value
     }
 
     private fun clearBoostBarrage() {
@@ -537,63 +625,11 @@ class PostViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
         boostBarrageContainer.postDelayed(startRunnable, BARRAGE_LAYOUT_RETRY_MS)
     }
 
-    private fun clearBoostTicker() {
-        boostTickerAnimators.forEach { it.cancel() }
-        boostTickerAnimators.clear()
-        for (rowIndex in 0 until boostContainer.childCount) {
-            val row = boostContainer.getChildAt(rowIndex) as? LinearLayout ?: continue
-            row.animate().cancel()
-            row.translationX = 0f
-        }
-    }
-
-    private fun startBoostTickerAnimationsIfPossible() {
-        clearBoostTicker()
-        if (boostContainer.visibility != View.VISIBLE || boostContainer.childCount == 0) return
-        val width = boostContainer.width
-        if (width <= 0) {
-            boostContainer.postDelayed({ startBoostTickerAnimationsIfPossible() }, FIXED_BOOST_LAYOUT_RETRY_MS)
-            return
-        }
-
-        for (rowIndex in 0 until boostContainer.childCount) {
-            val row = boostContainer.getChildAt(rowIndex) as? LinearLayout ?: continue
-            row.measure(
-                View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
-                View.MeasureSpec.makeMeasureSpec(dp(FIXED_BOOST_ROW_HEIGHT_DP), View.MeasureSpec.EXACTLY),
-            )
-            val rowWidth = row.measuredWidth
-            val overflow = rowWidth - width
-            row.translationX = 0f
-            if (overflow <= dp(8) || !shouldRunBoostAnimations() || !ValueAnimator.areAnimatorsEnabled()) {
-                continue
-            }
-            val animator = ValueAnimator.ofFloat(0f, -overflow.toFloat()).apply {
-                duration = (FIXED_BOOST_TICKER_BASE_DURATION_MS + overflow * FIXED_BOOST_TICKER_MS_PER_PX)
-                    .coerceAtMost(FIXED_BOOST_TICKER_MAX_DURATION_MS)
-                startDelay = rowIndex * FIXED_BOOST_TICKER_ROW_STAGGER_MS
-                repeatCount = ValueAnimator.INFINITE
-                repeatMode = ValueAnimator.REVERSE
-                interpolator = LinearInterpolator()
-                addUpdateListener { animation ->
-                    row.translationX = animation.animatedValue as Float
-                }
-            }
-            boostTickerAnimators.add(animator)
-            animator.start()
-        }
-    }
-
     private fun updateBoostAnimationState() {
         if (shouldRunBoostAnimations()) {
             if (boostBarrageContainer.visibility == View.VISIBLE) {
                 if (!resumePausedAnimators(boostBarrageAnimators) && boostBarrageAnimators.isEmpty()) {
                     scheduleBoostBarrageAfterLayout()
-                }
-            }
-            if (boostContainer.visibility == View.VISIBLE) {
-                if (!resumePausedAnimators(boostTickerAnimators) && boostTickerAnimators.isEmpty()) {
-                    boostContainer.post { startBoostTickerAnimationsIfPossible() }
                 }
             }
         } else {
@@ -605,7 +641,6 @@ class PostViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
         boostBarrageStartRunnable?.let(boostBarrageContainer::removeCallbacks)
         boostBarrageStartRunnable = null
         pauseAnimators(boostBarrageAnimators)
-        pauseAnimators(boostTickerAnimators)
     }
 
     private fun stopBoostAnimations() {
@@ -613,8 +648,6 @@ class PostViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
         boostBarrageStartRunnable = null
         boostBarrageAnimators.forEach { it.cancel() }
         boostBarrageAnimators.clear()
-        boostTickerAnimators.forEach { it.cancel() }
-        boostTickerAnimators.clear()
     }
 
     private fun pauseAnimators(animators: List<ValueAnimator>) {
@@ -828,14 +861,9 @@ class PostViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
         private const val BARRAGE_START_ALPHA = 0.82f
         private const val BARRAGE_ALPHA_DELTA = 0.16f
         private const val BARRAGE_LAYOUT_RETRY_MS = 48L
-        private const val FIXED_BOOST_TICKER_ROWS = 2
-        private const val FIXED_BOOST_ROW_HEIGHT_DP = 30
-        private const val FIXED_BOOST_CHIP_HEIGHT_DP = 26
-        private const val FIXED_BOOST_LAYOUT_RETRY_MS = 48L
-        private const val FIXED_BOOST_TICKER_BASE_DURATION_MS = 4_800L
-        private const val FIXED_BOOST_TICKER_MS_PER_PX = 14L
-        private const val FIXED_BOOST_TICKER_MAX_DURATION_MS = 14_000L
-        private const val FIXED_BOOST_TICKER_ROW_STAGGER_MS = 650L
+        private const val FIXED_BOOST_MANUAL_ROWS = 2
+        private const val FIXED_BOOST_MANUAL_ROW_HEIGHT_DP = 30
+        private const val FIXED_BOOST_MANUAL_CHIP_HEIGHT_DP = 26
         private const val POST_CONTENT_LEADING_MARGIN_DP = 46
 
         fun create(parent: ViewGroup): PostViewHolder {
@@ -901,12 +929,10 @@ class PostViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
             return AuthorMetadataChip("Lv.$label", R.color.fire_warning, R.color.fire_chip_warning_background)
         }
 
-        private fun displayBoostLine(boost: TopicPostBoostState): String {
-            val username = cleaned(boost.user.username)?.let { "@$it" }
-            val displayName = cleaned(boost.user.name)
-            val author = username ?: displayName ?: "User ${boost.user.id}"
-            val text = cleaned(boost.displayText)
-            return if (text == null) author else "$author: $text"
+        private fun boostAuthor(boost: TopicPostBoostState): String {
+            return cleaned(boost.user.username)?.let { "@$it" }
+                ?: cleaned(boost.user.name)
+                ?: "User ${boost.user.id}"
         }
 
         private fun cleaned(value: String?): String? {

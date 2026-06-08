@@ -734,8 +734,14 @@ fn numeric_attribute(name: &str, attrs: &BTreeMap<String, String>) -> Option<u32
 }
 
 fn emoji_fallback_text(attrs: &BTreeMap<String, String>, resolved_url: &str) -> String {
-    normalized_text(attrs.get("title").map(String::as_str))
-        .or_else(|| normalized_text(attrs.get("alt").map(String::as_str)))
+    attrs
+        .get("title")
+        .and_then(|value| normalized_emoji_fallback(value))
+        .or_else(|| {
+            attrs
+                .get("alt")
+                .and_then(|value| normalized_emoji_fallback(value))
+        })
         .or_else(|| emoji_shortcode(resolved_url))
         .unwrap_or_else(|| ":emoji:".to_string())
 }
@@ -1555,6 +1561,41 @@ mod tests {
     }
 
     #[test]
+    fn render_document_normalizes_emoji_image_fallbacks() {
+        let document = CookedHtmlDocument {
+            nodes: vec![
+                node(0, None, 0, CookedHtmlNodeKind::Document),
+                node(1, Some(0), 1, CookedHtmlNodeKind::Paragraph),
+                emoji_node_with_attrs(
+                    2,
+                    1,
+                    2,
+                    "/images/emoji/twitter/smile.png?v=12",
+                    BTreeMap::from([
+                        ("class".to_string(), "emoji".to_string()),
+                        ("title".to_string(), "smile".to_string()),
+                    ]),
+                ),
+                emoji_node_with_attrs(
+                    3,
+                    1,
+                    2,
+                    "/images/emoji/twitter/wave/t3.png?v=12",
+                    BTreeMap::from([("class".to_string(), "emoji".to_string())]),
+                ),
+            ],
+            plain_text: String::new(),
+            image_urls: Vec::new(),
+            link_urls: Vec::new(),
+        };
+
+        let rendered = render_document(&document, "https://linux.do");
+
+        assert_eq!(rendered.plain_text, ":smile::wave:t3:");
+        assert!(rendered.image_attachments.is_empty());
+    }
+
+    #[test]
     fn render_document_suppresses_inline_image_metadata_text() {
         let document = CookedHtmlDocument {
             nodes: vec![
@@ -1930,6 +1971,20 @@ mod tests {
             alt: Some(alt.to_string()),
             attributes,
             ..node(id, Some(parent_id), depth, CookedHtmlNodeKind::Image)
+        }
+    }
+
+    fn emoji_node_with_attrs(
+        id: u32,
+        parent_id: u32,
+        depth: u32,
+        url: &str,
+        attributes: BTreeMap<String, String>,
+    ) -> CookedHtmlNode {
+        CookedHtmlNode {
+            url: Some(url.to_string()),
+            attributes,
+            ..node(id, Some(parent_id), depth, CookedHtmlNodeKind::Emoji)
         }
     }
 }

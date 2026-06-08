@@ -299,13 +299,13 @@ final class FirePostCellLayoutCalculatorTests: XCTestCase {
         XCTAssertGreaterThan(layout.boostFrames[0].minY, layout.textFrame?.maxY ?? 0)
         XCTAssertEqual(
             layout.boostFrames[0].height,
-            FirePostCellLayoutCalculator.fixedBoostTickerHeight,
+            FirePostCellLayoutCalculator.fixedBoostManualHeight,
             accuracy: 0.01
         )
         XCTAssertGreaterThan(layout.reactionsFrame?.minY ?? 0, layout.boostFrames[0].maxY)
     }
 
-    func testFixedBoostTickerKeepsManyBoostsToTwoRows() {
+    func testFixedBoostManualScrollerKeepsManyBoostsToTwoRows() {
         let trait = FirePostLayoutTraitSignature(contentWidthPixels: 360, contentSizeCategory: UIContentSizeCategory.large.rawValue)
         let key = FirePostCellLayoutKey(
             postID: 999,
@@ -335,7 +335,7 @@ final class FirePostCellLayoutCalculatorTests: XCTestCase {
         )
 
         XCTAssertEqual(layout.boostFrames.count, 1)
-        XCTAssertEqual(layout.boostFrames[0].height, FirePostCellLayoutCalculator.fixedBoostTickerHeight, accuracy: 0.01)
+        XCTAssertEqual(layout.boostFrames[0].height, FirePostCellLayoutCalculator.fixedBoostManualHeight, accuracy: 0.01)
     }
 
     func testBoostDisplayUsesBarrageOnlyForExpandedOriginalBodyText() {
@@ -446,9 +446,9 @@ final class FirePostCellLayoutCalculatorTests: XCTestCase {
         )
     }
 
-    func testFixedBoostTickerHeightIsCompact() {
-        XCTAssertEqual(FirePostCellLayoutCalculator.fixedBoostTickerRows, 2)
-        XCTAssertEqual(FirePostCellLayoutCalculator.fixedBoostTickerHeight, 54, accuracy: 0.01)
+    func testFixedBoostManualScrollerHeightIsCompact() {
+        XCTAssertEqual(FirePostCellLayoutCalculator.fixedBoostManualRows, 2)
+        XCTAssertEqual(FirePostCellLayoutCalculator.fixedBoostManualHeight, 54, accuracy: 0.01)
     }
 
     func testBoostBarrageTextTargetRequiresRenderedText() throws {
@@ -974,6 +974,7 @@ final class FirePostCellLayoutCalculatorTests: XCTestCase {
         TopicPostBoostState(
             id: id,
             cooked: "<p>\(displayText)</p>",
+            renderDocument: fireRenderDocumentFixture("<p>\(displayText)</p>"),
             displayText: displayText,
             user: TopicPostBoostUserState(
                 id: 7,

@@ -19,7 +19,7 @@ use crate::json_helpers::{
     scalar_string,
 };
 use crate::topic_status_labels;
-use crate::{plain_text_from_html, preview_text_from_html};
+use crate::{plain_text_from_html, preview_text_from_html, render_cooked_html};
 
 #[derive(Debug, Default, Deserialize)]
 pub(crate) struct RawTopicListResponse {
@@ -529,7 +529,7 @@ fn normalized_scalar(value: Option<&str>) -> Option<String> {
 }
 
 fn boost_display_text(cooked: &str) -> String {
-    let plain_text = plain_text_from_html(cooked);
+    let plain_text = render_cooked_html(cooked, "https://linux.do").plain_text;
     separate_boost_emoji_shortcodes(&plain_text)
         .split_whitespace()
         .collect::<Vec<_>>()
@@ -576,17 +576,36 @@ fn separate_boost_emoji_shortcodes(value: &str) -> String {
 fn boost_emoji_shortcode_at(value: &str, index: usize) -> Option<(&str, usize)> {
     let remaining = value.get(index..)?;
     let after_open = remaining.strip_prefix(':')?;
-    let end = after_open.find(':')?;
-    let name = &after_open[..end];
-    if name.is_empty()
-        || !name.chars().all(|character| {
-            character.is_ascii_alphanumeric() || matches!(character, '_' | '-' | '+')
-        })
-    {
-        return None;
+    for (end, character) in after_open.char_indices() {
+        if character != ':' {
+            continue;
+        }
+        let name = &after_open[..end];
+        if !is_boost_emoji_shortcode_name(name) {
+            continue;
+        }
+        let next_index = index + end + 2;
+        let next_character = value[next_index..].chars().next();
+        if next_character.is_some_and(is_boost_emoji_shortcode_component_character) {
+            continue;
+        }
+        return Some((&value[index..next_index], next_index));
     }
-    let next_index = index + end + 2;
-    Some((&value[index..next_index], next_index))
+    None
+}
+
+fn is_boost_emoji_shortcode_name(value: &str) -> bool {
+    !value.is_empty()
+        && value.split(':').all(|component| {
+            !component.is_empty()
+                && component
+                    .chars()
+                    .all(is_boost_emoji_shortcode_component_character)
+        })
+}
+
+fn is_boost_emoji_shortcode_component_character(character: char) -> bool {
+    character.is_ascii_alphanumeric() || matches!(character, '_' | '-' | '+')
 }
 
 fn timestamp_unix_ms(raw_value: Option<&str>) -> Option<u64> {
@@ -1881,5 +1900,38 @@ mod tests {
         assert!(boost.can_flag);
         assert_eq!(boost.user_flag_status, Some(0));
         assert_eq!(boost.available_flags, ["off_topic", "9"]);
+    }
+
+    #[test]
+    fn topic_post_boost_display_text_normalizes_emoji_images_without_alt() {
+        let detail = serde_json::from_value::<RawTopicDetail>(json!({
+            "id": 42,
+            "title": "Topic",
+            "slug": "topic",
+            "post_stream": {
+                "posts": [
+                    {
+                        "id": 101,
+                        "username": "alice",
+                        "cooked": "<p>root</p>",
+                        "post_number": 1,
+                        "boosts": [
+                            {
+                                "id": 501,
+                                "cooked": "<p><img class=\"emoji\" title=\"smile\" src=\"/images/emoji/twitter/smile.png?v=12\"><img class=\"emoji\" src=\"/images/emoji/twitter/wave/t3.png?v=12\"> 🎉</p>",
+                                "user": {"id": 7, "username": "carol"}
+                            }
+                        ]
+                    }
+                ],
+                "stream": [101]
+            },
+            "details": {}
+        }))
+        .expect("sample topic detail should deserialize")
+        .into_topic_detail(false);
+        let boost = &detail.post_stream.posts[0].boosts[0];
+
+        assert_eq!(boost.display_text, ":smile: :wave:t3: 🎉");
     }
 }

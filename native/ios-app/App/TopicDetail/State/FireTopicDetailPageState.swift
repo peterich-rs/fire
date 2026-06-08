@@ -3,6 +3,7 @@ import Foundation
 /// Store-backed data that can change the structural topic-detail feed.
 struct FireTopicDetailFeedState {
 
+    let viewMode: FireTopicDetailViewMode
     let detail: TopicDetailState?
     let renderState: FireTopicDetailRenderState?
     let postLookup: [UInt64: TopicPostState]
@@ -18,6 +19,7 @@ struct FireTopicDetailFeedState {
 
 /// Toolbar-level state. Changes here should not rebuild feed items.
 struct FireTopicDetailChromeState {
+    let viewMode: FireTopicDetailViewMode
     let detail: TopicDetailState?
     let row: FireTopicRowPresentation
     let baseURLString: String

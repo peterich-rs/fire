@@ -289,6 +289,7 @@ final class FireTopicDetailRuntimeInteractions {
 
 struct FireTopicDetailRuntimeConfiguration: @unchecked Sendable {
     let viewModel: FireAppViewModel?
+    let viewMode: FireTopicDetailViewMode
     let displayedCategory: FireTopicCategoryPresentation?
     let currentUsername: String?
     let row: FireTopicRowPresentation
@@ -660,6 +661,7 @@ struct FireTopicDetailRuntimeConfiguration: @unchecked Sendable {
                     replyShowsDivider: displayedRow.showsDivider,
                     replyShortcutCount: displayedRow.replyShortcutCount,
                     contentToken: AnyHashable([
+                        viewMode.rawValue,
                         String(displayedRow.sourceIndex),
                         post.map {
                             postLayoutContentToken(
@@ -769,6 +771,10 @@ struct FireTopicDetailRuntimeConfiguration: @unchecked Sendable {
     }
 
     private func makeReplyDisplayPlan() -> FireTopicDetailReplyDisplayPlan {
+        if viewMode == .threaded {
+            return makeThreadedReplyDisplayPlan()
+        }
+
         var sourceIndexByPostID: [UInt64: Int] = [:]
         sourceIndexByPostID.reserveCapacity(availableReplyRows.count)
         for (index, row) in availableReplyRows.enumerated() {
@@ -828,6 +834,31 @@ struct FireTopicDetailRuntimeConfiguration: @unchecked Sendable {
                 showsThreadLine: displayedRows[lastIndex].showsThreadLine,
                 showsDivider: false,
                 replyShortcutCount: displayedRows[lastIndex].replyShortcutCount
+            )
+        }
+
+        return FireTopicDetailReplyDisplayPlan(
+            rows: displayedRows,
+            sourceIndexByPostID: sourceIndexByPostID
+        )
+    }
+
+    private func makeThreadedReplyDisplayPlan() -> FireTopicDetailReplyDisplayPlan {
+        var sourceIndexByPostID: [UInt64: Int] = [:]
+        sourceIndexByPostID.reserveCapacity(availableReplyRows.count)
+
+        let lastIndex = availableReplyRows.indices.last
+        let displayedRows = availableReplyRows.enumerated().map { index, row in
+            sourceIndexByPostID[row.entry.postId] = index
+            let nextDepth = availableReplyRows.index(after: index) < availableReplyRows.endIndex
+                ? availableReplyRows[availableReplyRows.index(after: index)].entry.depth
+                : nil
+            return FireTopicDetailReplyDisplayPlan.DisplayedRow(
+                row: row,
+                sourceIndex: index,
+                showsThreadLine: nextDepth.map { $0 > row.entry.depth } ?? false,
+                showsDivider: index != lastIndex,
+                replyShortcutCount: nil
             )
         }
 

@@ -2,6 +2,18 @@ import Foundation
 
 // MARK: - Composer Contexts
 
+enum FireTopicDetailViewMode: String, CaseIterable, Hashable, Sendable {
+    case conversation
+    case threaded
+
+    var title: String {
+        switch self {
+        case .conversation: "对话"
+        case .threaded: "线程"
+        }
+    }
+}
+
 struct FireReplyComposerContext: Identifiable, Equatable {
     let topicId: UInt64
     let postId: UInt64?
@@ -103,6 +115,7 @@ struct FireTopicFilterRoute: Identifiable, Hashable {
 
 struct FireTopicDetailFeedInvalidationToken: Hashable {
     let topicID: UInt64
+    let viewMode: FireTopicDetailViewMode
     let topicCollectionRevision: UInt64
     let pendingScrollTarget: UInt32?
     let detailError: String
@@ -120,6 +133,7 @@ struct FireTopicDetailFeedInvalidationToken: Hashable {
 
 struct FireTopicDetailChromeInvalidationToken: Hashable {
     let topicID: UInt64
+    let viewMode: FireTopicDetailViewMode
     let title: String
     let slug: String
     let bookmarked: Bool

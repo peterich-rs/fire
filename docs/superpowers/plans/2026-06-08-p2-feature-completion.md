@@ -31,7 +31,7 @@
 | Create | `App/Views/Profile/FireLDCView.swift` | LDC 信用主页 |
 | Create | `App/Views/Profile/FireCDKView.swift` | CDK 连接页 |
 | Create | `App/Views/FireConnectStatsView.swift` | Connect 统计页 |
-| Create | `App/Views/FireThreadedView.swift` | 线程视图 |
+| Modify | `App/TopicDetail/` | 原生 runtime 话题详情视图模式切换 |
 | Create | `App/Core/FireMarkdownToolbar.swift` | Markdown 格式化工具栏 |
 | Modify | `App/Views/FireComposerView.swift` | 集成工具栏和引用插入 |
 | Modify | `App/Views/FirePostEditorView.swift` | 升级为 FireComposerTextView |
@@ -314,113 +314,42 @@ git commit -m "feat(android): add LDC Credit and CDK connection screens"
 ## Task 6: 线程视图 — iOS
 
 **Files:**
-- Create: `native/ios-app/App/Views/FireThreadedView.swift`
-- Modify: `native/ios-app/App/TopicDetail/FireTopicDetailToolbarCoordinator.swift` (添加切换按钮)
-- Reference: `rust/crates/fire-models/src/topic_detail.rs` (TopicThread, TopicThreadFlatPost)
+- Modify: `native/ios-app/App/TopicDetail/Support/FireTopicDetailSharedModels.swift`
+- Modify: `native/ios-app/App/TopicDetail/State/FireTopicDetailPageState.swift`
+- Modify: `native/ios-app/App/TopicDetail/State/FireTopicDetailPageSnapshot.swift`
+- Modify: `native/ios-app/App/TopicDetail/State/FireTopicDetailSnapshotAssembler.swift`
+- Modify: `native/ios-app/App/TopicDetail/Feed/FireTopicDetailFeedModels.swift`
+- Modify: `native/ios-app/App/TopicDetail/Controller/FireTopicDetailToolbarCoordinator.swift`
+- Modify: `native/ios-app/App/TopicDetail/Controller/FireTopicDetailViewController.swift`
+- Modify: `native/ios-app/Tests/Unit/FireTopicDetailRuntimeTests.swift`
 
-- [ ] **Step 1: 创建线程视图组件**
+- [x] **Step 1: 创建线程视图组件**
 
-```swift
-import SwiftUI
+Implemented as a topic-detail native runtime view mode instead of a SwiftUI post-row surface.
 
-struct FireThreadedView: View {
-    let threads: [TopicThreadState]
-    let onPostTap: (UInt64) -> Void
-    let onReplyTap: (UInt64) -> Void
+- `FireTopicDetailViewMode` adds `conversation` and `threaded`.
+- The existing Texture `ASCollectionNode` feed and `FirePostCellNode` path remain authoritative for original post and reply rows.
+- Conversation mode preserves the existing collapsed root-reply projection.
+- Threaded mode renders every loaded Rust tree row in order, preserves Rust-provided depth, disables root shortcut hiding, and keeps scroll lookup available for loaded nested replies.
 
-    var body: some View {
-        LazyVStack(alignment: .leading, spacing: 0) {
-            ForEach(threads) { thread in
-                FireThreadRow(thread: thread, onPostTap: onPostTap, onReplyTap: onReplyTap)
-                FireTheme.divider.frame(height: 1)
-            }
-        }
-    }
-}
+- [x] **Step 2: 话题详情工具栏添加视图切换**
 
-struct FireThreadRow: View {
-    let thread: TopicThreadState
-    let onPostTap: (UInt64) -> Void
-    let onReplyTap: (UInt64) -> Void
+`FireTopicDetailToolbarCoordinator` adds a compact view-mode menu in the navigation bar. Switching modes updates controller-local presentation state and rebuilds the feed snapshot; Rust source snapshots, raw-stream pagination, render documents, and native cell layout remain unchanged.
 
-    @State private var isExpanded = true
+Unit coverage in `FireTopicDetailRuntimeTests` asserts the conversation projection still hides secondary replies by default while threaded mode shows all loaded nested replies with the native runtime cell context.
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            // Root post (always visible)
-            FireThreadedPostRow(post: thread.rootPost, depth: 0, onTap: onPostTap)
+- [x] **Step 3: 构建验证**
 
-            // Replies (expandable)
-            if isExpanded {
-                ForEach(thread.replies) { reply in
-                    FireThreadedPostRow(post: reply, depth: 1, onTap: onPostTap)
-                }
-            }
+Run: `cd native/ios-app && xcodebuild build -scheme Fire -destination 'platform=iOS Simulator,name=iPhone 16,OS=18.3.1' -quiet`
+Result: `** BUILD SUCCEEDED **`
 
-            Button {
-                withAnimation(.fireDefault) { isExpanded.toggle() }
-            } label: {
-                Text(isExpanded ? "收起回复" : "展开 \(thread.replies.count) 条回复")
-                    .font(.caption)
-                    .foregroundStyle(FireTheme.accent)
-                    .padding(.leading, 20)
-                    .padding(.vertical, 8)
-            }
-        }
-    }
-}
+Run: `cd native/ios-app && xcodebuild test -scheme Fire -destination 'platform=iOS Simulator,name=iPhone 16,OS=18.3.1' -only-testing:FireTests/FireTopicDetailRuntimeTests -quiet`
+Result: passed.
 
-struct FireThreadedPostRow: View {
-    let post: TopicThreadFlatPostState
-    let depth: Int
-    let onTap: (UInt64) -> Void
-
-    var body: some View {
-        HStack(spacing: 0) {
-            if depth > 0 {
-                RoundedRectangle(cornerRadius: 2)
-                    .fill(FireTheme.accent.opacity(0.3))
-                    .frame(width: 3)
-                    .padding(.trailing, 12)
-                    .padding(.leading, 8)
-            }
-            VStack(alignment: .leading, spacing: 4) {
-                // Author + timestamp
-                HStack {
-                    Text(post.username)
-                        .font(.subheadline.bold())
-                    Spacer()
-                    Text(post.createdAt)
-                        .font(.caption)
-                        .foregroundStyle(FireTheme.tertiaryInk)
-                }
-                // Excerpt
-                Text(post.excerpt)
-                    .font(.subheadline)
-                    .foregroundStyle(FireTheme.ink)
-                    .lineLimit(3)
-            }
-            .padding(.vertical, 8)
-        }
-        .contentShape(Rectangle())
-        .onTapGesture { onTap(post.id) }
-    }
-}
-```
-
-- [ ] **Step 2: 话题详情工具栏添加视图切换**
-
-在话题详情顶部工具栏添加「树状」/「线程」切换按钮。切换时重新渲染帖子列表。
-
-- [ ] **Step 3: 构建验证**
-
-Run: `cd native/ios-app && xcodebuild build -scheme FireApp -destination 'platform=iOS Simulator,name=iPhone 16' -quiet 2>&1 | tail -5`
-Expected: `** BUILD SUCCEEDED **`
-
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
-git add native/ios-app/App/Views/FireThreadedView.swift native/ios-app/App/TopicDetail/
+git add native/ios-app/App/TopicDetail/ native/ios-app/Tests/Unit/FireTopicDetailRuntimeTests.swift native/ios-app/README.md docs/superpowers/plans/2026-06-08-p2-feature-completion.md
 git commit -m "feat(ios): add threaded view mode for topic detail"
 ```
 

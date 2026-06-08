@@ -6,6 +6,7 @@ final class FireTopicDetailToolbarCoordinator {
         let onPresentTopicEditor: () -> Void
         let onPresentBookmarkEditor: () -> Void
         let onUpdateNotificationLevel: (FireTopicNotificationLevelOption) -> Void
+        let onChangeViewMode: (FireTopicDetailViewMode) -> Void
     }
 
     private weak var viewController: UIViewController?
@@ -13,6 +14,7 @@ final class FireTopicDetailToolbarCoordinator {
     private var state = FireTopicDetailToolbarState(
         title: "话题",
         shareURL: nil,
+        viewMode: .conversation,
         isBookmarked: false,
         canWriteInteractions: false,
         canEditTopic: false,
@@ -58,6 +60,13 @@ final class FireTopicDetailToolbarCoordinator {
             shareButton.accessibilityLabel = "分享话题"
             items.append(shareButton)
         }
+
+        let viewModeItem = UIBarButtonItem(
+            title: state.viewMode.title,
+            menu: buildViewModeMenu()
+        )
+        viewModeItem.accessibilityLabel = "切换话题视图"
+        items.append(viewModeItem)
 
         let menuItem = UIBarButtonItem(
             image: UIImage(systemName: "ellipsis.circle"),
@@ -105,6 +114,18 @@ final class FireTopicDetailToolbarCoordinator {
         }
 
         return UIMenu(title: "", children: sections)
+    }
+
+    private func buildViewModeMenu() -> UIMenu {
+        let modeActions = FireTopicDetailViewMode.allCases.map { mode in
+            UIAction(
+                title: mode.title,
+                image: mode == state.viewMode ? UIImage(systemName: "checkmark") : nil
+            ) { [actions] _ in
+                actions.onChangeViewMode(mode)
+            }
+        }
+        return UIMenu(title: "话题视图", options: .displayInline, children: modeActions)
     }
 
     private func presentShareSheet(url: URL, anchor: UIBarButtonItem?) {

@@ -3,6 +3,7 @@ import Foundation
 struct FireTopicDetailToolbarState: Equatable {
     let title: String
     let shareURL: URL?
+    let viewMode: FireTopicDetailViewMode
     let isBookmarked: Bool
     let canWriteInteractions: Bool
     let canEditTopic: Bool

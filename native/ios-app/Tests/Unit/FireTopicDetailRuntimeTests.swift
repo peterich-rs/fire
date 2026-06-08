@@ -231,6 +231,50 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
         XCTAssertEqual(configuration.postContext(for: replyItems[0])?.depth, 1)
     }
 
+    func testThreadedViewModeShowsAllLoadedRepliesWithoutRootShortcut() {
+        let original = makePost(id: 100, postNumber: 1, username: "alice")
+        let rootReply = makePost(
+            id: 200,
+            postNumber: 2,
+            username: "bob",
+            replyCount: 3,
+            replyToPostNumber: 1
+        )
+        let child = makePost(id: 300, postNumber: 3, username: "c1", replyToPostNumber: 2)
+        let grandchild = makePost(id: 400, postNumber: 4, username: "c2", replyToPostNumber: 3)
+        let sibling = makePost(id: 500, postNumber: 5, username: "c3", replyToPostNumber: 2)
+        let posts = [original, rootReply, child, grandchild, sibling]
+        let renderState = FireTopicDetailRenderState(
+            originalRow: makeTimelineRow(post: original, depth: 0, isOriginalPost: true),
+            replyRows: [
+                makeTimelineRow(post: rootReply, parentPostNumber: 1, depth: 1),
+                makeTimelineRow(post: child, parentPostNumber: 2, depth: 2),
+                makeTimelineRow(post: grandchild, parentPostNumber: 3, depth: 3),
+                makeTimelineRow(post: sibling, parentPostNumber: 2, depth: 2),
+            ],
+            contentByPostID: Dictionary(uniqueKeysWithValues: posts.map { ($0.id, makeRenderContent($0.username)) })
+        )
+        let configuration = makeConfiguration(
+            detail: makeTopicDetail(posts: posts),
+            renderState: renderState,
+            postLookup: Dictionary(uniqueKeysWithValues: posts.map { ($0.id, $0) }),
+            viewMode: .threaded
+        )
+
+        let snapshot = configuration.makeSnapshot()
+        let replyItems = snapshot.items.filter { $0.kind == .reply }
+
+        XCTAssertEqual(replyItems.map(\.postNumber), [2, 3, 4, 5])
+        XCTAssertTrue(replyItems.allSatisfy { $0.replyShortcutCount == nil })
+        XCTAssertEqual(configuration.postContext(for: replyItems[0])?.depth, 1)
+        XCTAssertEqual(configuration.postContext(for: replyItems[1])?.depth, 2)
+        XCTAssertEqual(configuration.postContext(for: replyItems[2])?.depth, 3)
+        XCTAssertEqual(configuration.postContext(for: replyItems[0])?.showsThreadLine, true)
+        XCTAssertEqual(configuration.postContext(for: replyItems[1])?.showsThreadLine, true)
+        XCTAssertEqual(configuration.postContext(for: replyItems[2])?.showsThreadLine, false)
+        XCTAssertEqual(configuration.scrollItem(for: 3)?.id, "reply:300:3")
+    }
+
     func testPendingSecondaryScrollTargetShowsAncestryWithoutFlatteningDepth() {
         let original = makePost(id: 100, postNumber: 1, username: "alice")
         let rootReply = makePost(id: 200, postNumber: 2, username: "bob", replyCount: 2, replyToPostNumber: 1)
@@ -644,6 +688,7 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
     func testComposerDraftChangeDoesNotChangeFeedInvalidationToken() {
         let feedToken = FireTopicDetailFeedInvalidationToken(
             topicID: 42,
+            viewMode: .conversation,
             topicCollectionRevision: 7,
             pendingScrollTarget: nil,
             detailError: "",
@@ -684,6 +729,7 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
     func testChromeAndSidecarTokensAreIndependentFromFeedToken() {
         let feedToken = FireTopicDetailFeedInvalidationToken(
             topicID: 42,
+            viewMode: .conversation,
             topicCollectionRevision: 3,
             pendingScrollTarget: nil,
             detailError: "",
@@ -700,6 +746,7 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
         )
         let changedChromeToken = FireTopicDetailChromeInvalidationToken(
             topicID: 42,
+            viewMode: .threaded,
             title: "Fire Native",
             slug: "fire-native",
             bookmarked: true,
@@ -838,6 +885,7 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
         hasMoreTopicPosts: Bool = false,
         isLoadingMoreTopicPosts: Bool = false,
         loadMoreTopicPostsError: String? = nil,
+        viewMode: FireTopicDetailViewMode = .conversation,
         expandedReplyRootPostIDs: Set<UInt64> = [],
         loadingReplyContextPostIDs: Set<UInt64> = [],
         postReplyContextErrorsByPostID: [UInt64: String] = [:]
@@ -851,6 +899,7 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
         )
         return FireTopicDetailRuntimeConfiguration(
             viewModel: nil,
+            viewMode: viewMode,
             displayedCategory: nil,
             currentUsername: nil,
             row: makeTopicRow(),

@@ -34,6 +34,7 @@ struct FireTopicDetailSnapshotAssembler: Sendable {
         return FireTopicDetailToolbarState(
             title: "话题",
             shareURL: shareURL,
+            viewMode: state.viewMode,
             isBookmarked: state.detail?.bookmarked == true,
             canWriteInteractions: state.canWriteInteractions,
             canEditTopic: state.detail?.details.canEdit == true,
@@ -70,6 +71,7 @@ struct FireTopicDetailSnapshotAssembler: Sendable {
     func makeChromeToken(from state: FireTopicDetailChromeState) -> FireTopicDetailChromeInvalidationToken {
         FireTopicDetailChromeInvalidationToken(
             topicID: state.row.topic.id,
+            viewMode: state.viewMode,
             title: state.detail?.title ?? state.row.topic.title,
             slug: state.detail?.slug ?? state.row.topic.slug,
             bookmarked: state.detail?.bookmarked == true,

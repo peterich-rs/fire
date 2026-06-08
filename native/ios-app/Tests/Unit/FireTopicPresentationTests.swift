@@ -46,6 +46,28 @@ final class FireTopicPresentationTests: XCTestCase {
         XCTAssertEqual(options[2].label, "赞同")
     }
 
+    func testReactionOptionsIncludeCurrentReactionWhenMissingFromBootstrap() {
+        let options = FireTopicPresentation.reactionOptions(
+            from: ["heart", "laughing"],
+            currentReactionID: "tada"
+        )
+
+        XCTAssertEqual(options.map(\.id), ["heart", "laughing", "tada"])
+        XCTAssertEqual(options[2].symbol, "🎉")
+    }
+
+    func testReactionOptionFilteringMatchesIdLabelOrSymbol() {
+        let options = FireTopicPresentation.reactionOptions(
+            from: ["heart", "laughing", "thumbsup"],
+            currentReactionID: nil
+        )
+
+        XCTAssertEqual(FireTopicPresentation.filterReactionOptions(options, query: "laugh").map(\.id), ["laughing"])
+        XCTAssertEqual(FireTopicPresentation.filterReactionOptions(options, query: "赞同").map(\.id), ["thumbsup"])
+        XCTAssertEqual(FireTopicPresentation.filterReactionOptions(options, query: "❤️").map(\.id), ["heart"])
+        XCTAssertEqual(FireTopicPresentation.filterReactionOptions(options, query: " ").map(\.id), options.map(\.id))
+    }
+
     func testMinimumReplyLengthFallsBackToOne() {
         XCTAssertEqual(FireTopicPresentation.minimumReplyLength(from: 15), 15)
         XCTAssertEqual(FireTopicPresentation.minimumReplyLength(from: 0), 1)

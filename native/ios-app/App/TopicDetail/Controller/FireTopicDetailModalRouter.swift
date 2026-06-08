@@ -201,6 +201,45 @@ final class FireTopicDetailModalRouter {
         presentSheetController(UIHostingController(rootView: rootView))
     }
 
+    func presentReactionPicker(
+        post: TopicPostState,
+        options: [FireReactionOption],
+        onSelectReaction: @escaping @MainActor (String) -> Void,
+        onShowUsers: @escaping @MainActor (String) -> Void
+    ) {
+        let rootView = NavigationStack {
+            FirePostReactionPickerSheet(
+                post: post,
+                options: options,
+                onSelectReaction: { [weak self] reactionID in
+                    self?.viewController?.dismiss(animated: true) {
+                        Task { @MainActor in
+                            onSelectReaction(reactionID)
+                        }
+                    }
+                },
+                onShowUsers: { [weak self] reactionID in
+                    self?.viewController?.dismiss(animated: true) {
+                        Task { @MainActor in
+                            onShowUsers(reactionID)
+                        }
+                    }
+                }
+            )
+        }
+        presentSheetController(UIHostingController(rootView: rootView))
+    }
+
+    func presentReactionUsers(
+        groups: [ReactionUsersGroupState],
+        reactionID: String?
+    ) {
+        let rootView = NavigationStack {
+            FireReactionUsersSheet(groups: groups, reactionID: reactionID)
+        }
+        presentSheetController(UIHostingController(rootView: rootView))
+    }
+
     func presentPostReplies(
         topicID: UInt64,
         context: FirePostReplyContext,

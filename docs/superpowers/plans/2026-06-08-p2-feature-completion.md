@@ -632,27 +632,55 @@ git commit -m "feat(topic-detail): add topic notification level control to toolb
 ## Task 12: Reaction 选择器增强
 
 **Files:**
-- Modify: iOS topic detail reaction picker
-- Modify: Android topic detail reaction picker
+- Modify: `native/ios-app/App/TopicDetail/Controller/FireTopicDetailViewController.swift`
+- Modify: `native/ios-app/App/TopicDetail/Controller/FireTopicDetailModalRouter.swift`
+- Modify: `native/ios-app/App/TopicDetail/Support/FireTopicDetailModalViews.swift`
+- Modify: `native/ios-app/App/TopicDetail/Support/FireTopicPresentation.swift`
+- Modify: `native/ios-app/Sources/FireAppSession/FireSessionStore.swift`
+- Modify: `native/android-app/src/main/java/com/fire/app/ui/topicdetail/ReactionPresentation.kt`
+- Modify: `native/android-app/src/main/java/com/fire/app/ui/topicdetail/TopicDetailActivity.kt`
 - Reference: `docs/knowledge/api/04-posts.md` (reaction APIs)
 
-- [ ] **Step 1: 获取可用 Reaction 列表**
+- [x] **Step 1: 获取可用 Reaction 列表**
 
-调用 Rust core 获取 `availableReactions` 列表，在选择器中展示完整表情网格。
+iOS and Android now build reaction picker options from the Rust-owned bootstrap
+`enabledReactionIds` list, with `heart` retained in the picker and the current
+reaction preserved if it is not present in bootstrap. iOS exposes the picker
+from the native post operation menu; Android upgrades the existing React action
+dialog.
 
-- [ ] **Step 2: 搜索表情**
+- [x] **Step 2: 搜索表情**
 
-在选择器中添加搜索栏，过滤表情列表。
+Both picker implementations support search over reaction id, localized label,
+and emoji symbol.
 
-- [ ] **Step 3: Reaction 用户列表**
+- [x] **Step 3: Reaction 用户列表**
 
-长按某个 Reaction 显示使用了该 Reaction 的用户列表。
+iOS adds a Rust-backed reaction-user sheet via
+`FireSessionStore.fetchReactionUsers(postID:)`. Android keeps the existing
+summary-level reaction-user lookup and adds long-press lookup from a specific
+picker row.
 
-- [ ] **Step 4: 构建验证**
+- [x] **Step 4: 构建验证**
 
-Run: Both platforms build successfully
+Run:
 
-- [ ] **Step 5: Commit**
+```bash
+cd native/android-app
+./gradlew testDebugUnitTest --tests com.fire.app.ui.topicdetail.ReactionPresentationTest
+./gradlew assembleDebug
+
+cd native/ios-app
+xcodebuild test -scheme Fire -destination 'platform=iOS Simulator,name=iPhone 16,OS=18.3.1' -only-testing:FireTests/FireTopicPresentationTests -quiet
+xcodebuild build -scheme Fire -destination 'platform=iOS Simulator,name=iPhone 16,OS=18.3.1' -quiet
+```
+
+Result: all commands completed successfully. iOS still emits the existing
+deprecation / Swift 6 migration warnings noted in earlier tasks.
+
+- [x] **Step 5: Commit**
+
+Included in `feat(reactions): enhance reaction picker with full list, search, and user list`.
 
 ```bash
 git add -u

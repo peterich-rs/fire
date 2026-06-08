@@ -854,6 +854,12 @@ public actor FireSessionStore {
         }
     }
 
+    public func fetchReactionUsers(postID: UInt64) async throws -> [ReactionUsersGroupState] {
+        try await runPersistingSessionChanges {
+            try await core.topics().fetchReactionUsers(postId: postID)
+        }
+    }
+
     public func votePoll(
         postID: UInt64,
         pollName: String,

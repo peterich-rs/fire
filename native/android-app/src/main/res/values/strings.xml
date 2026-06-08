@@ -200,9 +200,10 @@
     <string name="topic_detail_like_error">Unable to update like state.</string>
     <string name="topic_detail_react_post">React</string>
     <string name="topic_detail_reaction_title">React to post #%1$s</string>
+    <string name="topic_detail_reaction_search_hint">Search reactions</string>
     <string name="topic_detail_reaction_choice">%1$s (%2$s)</string>
     <string name="topic_detail_reaction_choice_selected">Selected: %1$s</string>
-    <string name="topic_detail_reaction_empty">No custom reactions are available.</string>
+    <string name="topic_detail_reaction_empty">No reactions are available.</string>
     <string name="topic_detail_reaction_locked">This reaction cannot be changed yet.</string>
     <string name="topic_detail_reaction_error">Unable to update reaction.</string>
     <string name="topic_detail_reaction_users_title">Reactions</string>
@@ -210,6 +211,7 @@
     <string name="topic_detail_reaction_users_empty">No reactions available.</string>
     <string name="topic_detail_reaction_users_error">Unable to load reaction users.</string>
     <string name="topic_detail_reaction_users_group">%1$s (%2$s)</string>
+    <string name="topic_detail_reaction_users_title_for_reaction">%1$s %2$s users</string>
     <string name="topic_detail_poll_title">Poll</string>
     <string name="topic_detail_poll_multiple">multiple choice</string>
     <string name="topic_detail_poll_closed">closed</string>

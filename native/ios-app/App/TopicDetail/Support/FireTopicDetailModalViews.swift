@@ -54,6 +54,153 @@ struct FireTopicVotersSheet: View {
     }
 }
 
+struct FirePostReactionPickerSheet: View {
+    let post: TopicPostState
+    let options: [FireReactionOption]
+    let onSelectReaction: @MainActor (String) -> Void
+    let onShowUsers: @MainActor (String) -> Void
+
+    @State private var query = ""
+
+    private var filteredOptions: [FireReactionOption] {
+        FireTopicPresentation.filterReactionOptions(options, query: query)
+    }
+
+    var body: some View {
+        List {
+            ForEach(filteredOptions) { option in
+                reactionRow(option)
+            }
+        }
+        .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "搜索表情")
+        .navigationTitle("回应 #\(post.postNumber)")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private func reactionRow(_ option: FireReactionOption) -> some View {
+        let count = post.reactions
+            .first { $0.id.caseInsensitiveCompare(option.id) == .orderedSame }
+            .map(\.count) ?? 0
+        let isSelected = post.currentUserReaction?.id.caseInsensitiveCompare(option.id) == .orderedSame
+
+        return HStack(spacing: 12) {
+            Text(option.symbol)
+                .font(.title3)
+                .frame(width: 32, alignment: .center)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(option.label)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(FireTheme.ink)
+                Text("\(option.id) · \(count)")
+                    .font(.caption)
+                    .foregroundStyle(FireTheme.subtleInk)
+            }
+
+            Spacer()
+
+            Button {
+                onShowUsers(option.id)
+            } label: {
+                Image(systemName: "person.2")
+                    .font(.subheadline.weight(.semibold))
+            }
+            .buttonStyle(.borderless)
+            .accessibilityLabel("查看\(option.label)用户")
+
+            if isSelected {
+                Image(systemName: "checkmark")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(FireTheme.accent)
+            }
+        }
+        .padding(.vertical, 4)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            onSelectReaction(option.id)
+        }
+        .contextMenu {
+            Button {
+                onShowUsers(option.id)
+            } label: {
+                Label("查看回应用户", systemImage: "person.2")
+            }
+        }
+    }
+}
+
+struct FireReactionUsersSheet: View {
+    let groups: [ReactionUsersGroupState]
+    let reactionID: String?
+
+    var body: some View {
+        List {
+            if groups.isEmpty {
+                VStack(spacing: 10) {
+                    Image(systemName: "person.2")
+                        .font(.title2)
+                        .foregroundStyle(FireTheme.subtleInk)
+                    Text("暂时没有回应用户")
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(FireTheme.ink)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 28)
+            } else {
+                ForEach(groups, id: \.id) { group in
+                    Section {
+                        ForEach(group.users, id: \.id) { user in
+                            HStack(spacing: 12) {
+                                FireAvatarView(
+                                    avatarTemplate: user.avatarTemplate,
+                                    username: user.username,
+                                    size: 36
+                                )
+
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text((user.name ?? "").ifEmpty(user.username))
+                                        .font(.subheadline.weight(.medium))
+                                        .foregroundStyle(FireTheme.ink)
+                                    Text("@\(user.username)")
+                                        .font(.caption)
+                                        .foregroundStyle(FireTheme.subtleInk)
+                                }
+                            }
+                            .padding(.vertical, 3)
+                        }
+                    } header: {
+                        let option = FireTopicPresentation.reactionOption(for: group.id)
+                        Text("\(option.symbol) \(option.label) · \(group.count)")
+                    }
+                }
+            }
+        }
+        .navigationTitle(title)
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private var title: String {
+        guard let reactionID,
+              !reactionID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return "回应用户"
+        }
+        let option = FireTopicPresentation.reactionOption(for: reactionID)
+        return "\(option.symbol) \(option.label)"
+    }
+}
+
+extension Array where Element == ReactionUsersGroupState {
+    func filter(for reactionID: String?) -> [ReactionUsersGroupState] {
+        guard let reactionID = reactionID?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !reactionID.isEmpty else {
+            return self
+        }
+        return filter { group in
+            group.id.caseInsensitiveCompare(reactionID) == .orderedSame
+        }
+    }
+}
+
 final class FireTopicPhotoBrowserController: JXPhotoBrowserViewController, JXPhotoBrowserDelegate {
     private enum PhotoSaveError: Error {
         case unknownFailure

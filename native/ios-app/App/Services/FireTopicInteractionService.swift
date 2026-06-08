@@ -38,6 +38,11 @@ final class FireTopicInteractionService {
         )
     }
 
+    func fetchReactionUsers(postID: UInt64) async throws -> [ReactionUsersGroupState] {
+        let sessionStore = try await host.sessionStoreValue()
+        return try await sessionStore.fetchReactionUsers(postID: postID)
+    }
+
     func votePoll(
         topicID: UInt64,
         postID: UInt64,

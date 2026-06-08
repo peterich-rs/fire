@@ -119,6 +119,9 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         onSelectReaction: { [weak self] post, reactionID in
             self?.toggleReaction(reactionID, for: post)
         },
+        onOpenReactionPicker: { [weak self] post in
+            self?.presentReactionPicker(for: post)
+        },
         onQuotePost: { [weak self] post in
             self?.openQuoteComposer(for: post)
         },
@@ -1165,6 +1168,33 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         )
     }
 
+    private func presentReactionPicker(for post: TopicPostState) {
+        if post.currentUserReaction?.canUndo == false {
+            modalRouter.presentNotice(message: "当前表情回应已超过可撤销时间，暂时不能修改。")
+            return
+        }
+
+        let options = FireTopicPresentation.reactionOptions(
+            from: viewModel.session.bootstrap.enabledReactionIds,
+            currentReactionID: post.currentUserReaction?.id
+        )
+        guard !options.isEmpty else {
+            modalRouter.presentNotice(message: "当前没有可用的表情回应。")
+            return
+        }
+
+        modalRouter.presentReactionPicker(
+            post: post,
+            options: options,
+            onSelectReaction: { [weak self] reactionID in
+                self?.toggleReaction(reactionID, for: post)
+            },
+            onShowUsers: { [weak self] reactionID in
+                self?.showReactionUsers(for: post, reactionID: reactionID)
+            }
+        )
+    }
+
     private func applyReactionChange(
         from currentReaction: TopicReactionState?,
         to desiredReactionID: String?,
@@ -1189,6 +1219,18 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
                     toggledReactionId: toggledReactionID,
                     postId: postId
                 )
+            } catch {
+                modalRouter.presentNotice(message: error.localizedDescription)
+            }
+        }
+    }
+
+    private func showReactionUsers(for post: TopicPostState, reactionID: String?) {
+        Task { @MainActor in
+            do {
+                let groups = try await viewModel.topicInteraction.fetchReactionUsers(postID: post.id)
+                let filteredGroups = groups.filter(for: reactionID)
+                modalRouter.presentReactionUsers(groups: filteredGroups, reactionID: reactionID)
             } catch {
                 modalRouter.presentNotice(message: error.localizedDescription)
             }

@@ -26,16 +26,36 @@ object ReactionPresentation {
         reactionIds: List<String>,
         currentReactionId: String?,
     ): List<ReactionOption> {
-        val options = enabledOptions(reactionIds)
+        val options = fullOptions(
+            reactionIds = reactionIds,
+            currentReactionId = currentReactionId,
+        )
             .filterNot { it.id.equals(HEART_ID, ignoreCase = true) }
-            .toMutableList()
+        return options
+    }
+
+    fun fullOptions(
+        reactionIds: List<String>,
+        currentReactionId: String?,
+    ): List<ReactionOption> {
+        val options = enabledOptions(reactionIds).toMutableList()
         val currentCustomId = currentReactionId
             ?.trim()
-            ?.takeIf { it.isNotEmpty() && !it.equals(HEART_ID, ignoreCase = true) }
-        if (currentCustomId != null && options.none { it.id == currentCustomId }) {
+            ?.takeIf { it.isNotEmpty() }
+        if (currentCustomId != null && options.none { it.id.equals(currentCustomId, ignoreCase = true) }) {
             options.add(optionFor(currentCustomId))
         }
         return options
+    }
+
+    fun filteredOptions(options: List<ReactionOption>, query: String): List<ReactionOption> {
+        val needle = query.trim().lowercase()
+        if (needle.isEmpty()) return options
+        return options.filter { option ->
+            option.id.lowercase().contains(needle) ||
+                option.label.lowercase().contains(needle) ||
+                option.symbol.contains(needle)
+        }
     }
 
     fun optionFor(reactionId: String): ReactionOption {

@@ -152,7 +152,8 @@ Current topic-detail interactions:
   display lines, uses at most five lanes, and pauses/resumes animation timing
   around active RecyclerView scrolling to avoid overlap and broad body-text
   occlusion, while reply/comment Boost chips move only through user swipes
-- reaction-user lookup from the rendered post reaction summary
+- searchable full reaction picker from Rust-provided enabled reactions, with
+  reaction-user lookup from both the rendered summary and picker rows
 - toolbar bell notification-level selection for non-private-message topics
 - reply-context lookup from the rendered reply target, showing source and
   direct replies

@@ -1240,6 +1240,9 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
             })
         }
         if payload.canWriteInteractions && !post.hidden {
+            alert.addAction(UIAlertAction(title: "回应", style: .default) { _ in
+                callbacks.onOpenReactionPicker(post)
+            })
             alert.addAction(UIAlertAction(title: "引用回复", style: .default) { _ in
                 callbacks.onQuotePost(post)
             })

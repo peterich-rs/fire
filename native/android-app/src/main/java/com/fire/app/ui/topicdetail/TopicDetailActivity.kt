@@ -10,6 +10,7 @@ import android.view.View
 import android.widget.ArrayAdapter
 import android.widget.EditText
 import android.widget.ImageView
+import android.widget.ListView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.Toast
@@ -23,6 +24,7 @@ import androidx.core.text.HtmlCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.updatePadding
+import androidx.core.widget.doAfterTextChanged
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.ConcatAdapter
 import androidx.recyclerview.widget.LinearLayoutManager
@@ -44,11 +46,14 @@ import com.fire.app.ui.webview.FireInAppWebViewActivity
 import com.fire.app.core.ext.dp
 import com.fire.app.core.image.FireImageLoader
 import com.google.android.material.bottomsheet.BottomSheetDialog
+import com.google.android.material.textfield.TextInputEditText
+import com.google.android.material.textfield.TextInputLayout
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import uniffi.fire_uniffi_session.TopicCategoryState
 import uniffi.fire_uniffi_topics.PostActionTypeState
 import uniffi.fire_uniffi_topics.PostFlagRequestState
+import uniffi.fire_uniffi_topics.ReactionUsersGroupState
 import uniffi.fire_uniffi_topics.TopicDetailState
 import uniffi.fire_uniffi_topics.TopicPostState
 import uniffi.fire_uniffi_topics.VotedUserState
@@ -944,27 +949,26 @@ class TopicDetailActivity : AppCompatActivity() {
     }
 
     private fun showReactionUsers(post: TopicPostState) {
+        showReactionUsers(post, reactionId = null)
+    }
+
+    private fun showReactionUsers(post: TopicPostState, reactionId: String?) {
         lifecycleScope.launch {
             try {
                 val groups = sessionStore.fetchReactionUsers(post.id)
+                    .filterForReaction(reactionId)
                 val message = if (groups.isEmpty()) {
                     getString(R.string.topic_detail_reaction_users_empty)
                 } else {
-                    groups.joinToString("\n\n") { group ->
-                        val users = group.users
-                            .joinToString(", ") { user ->
-                                user.name?.takeIf { it.isNotBlank() } ?: "@${user.username}"
-                            }
-                            .ifBlank { getString(R.string.topic_detail_reaction_users_empty) }
-                        getString(
-                            R.string.topic_detail_reaction_users_group,
-                            group.id,
-                            group.count.toString(),
-                        ) + "\n" + users
-                    }
+                    groups.joinToString("\n\n", transform = ::formatReactionUsersGroup)
                 }
                 AlertDialog.Builder(this@TopicDetailActivity)
-                    .setTitle(R.string.topic_detail_reaction_users_title)
+                    .setTitle(
+                        reactionId
+                            ?.let { ReactionPresentation.optionFor(it) }
+                            ?.let { getString(R.string.topic_detail_reaction_users_title_for_reaction, it.symbol, it.label) }
+                            ?: getString(R.string.topic_detail_reaction_users_title),
+                    )
                     .setMessage(message)
                     .setPositiveButton(android.R.string.ok, null)
                     .show()
@@ -976,6 +980,24 @@ class TopicDetailActivity : AppCompatActivity() {
                 ).show()
             }
         }
+    }
+
+    private fun List<ReactionUsersGroupState>.filterForReaction(reactionId: String?): List<ReactionUsersGroupState> {
+        val trimmedReactionId = reactionId?.trim()?.takeIf { it.isNotEmpty() } ?: return this
+        return filter { group -> group.id.equals(trimmedReactionId, ignoreCase = true) }
+    }
+
+    private fun formatReactionUsersGroup(group: ReactionUsersGroupState): String {
+        val users = group.users
+            .joinToString(", ") { user ->
+                user.name?.takeIf { it.isNotBlank() } ?: "@${user.username}"
+            }
+            .ifBlank { getString(R.string.topic_detail_reaction_users_empty) }
+        return getString(
+            R.string.topic_detail_reaction_users_group,
+            group.id,
+            group.count.toString(),
+        ) + "\n" + users
     }
 
     private fun showReactionPicker(post: TopicPostState) {
@@ -990,7 +1012,7 @@ class TopicDetailActivity : AppCompatActivity() {
         }
 
         lifecycleScope.launch {
-            val options = customReactionOptionsForPost(post)
+            val options = fullReactionOptionsForPost(post)
             if (options.isEmpty()) {
                 Toast.makeText(
                     this@TopicDetailActivity,
@@ -1000,48 +1022,110 @@ class TopicDetailActivity : AppCompatActivity() {
                 return@launch
             }
 
-            val labels = options.map { option ->
-                val count = post.reactions
-                    .firstOrNull { it.id == option.id }
-                    ?.count
-                    ?: 0u
-                val label = getString(
-                    R.string.topic_detail_reaction_choice,
-                    "${option.symbol} ${option.label}",
-                    count.toString(),
-                )
-                if (currentReaction?.id == option.id) {
-                    getString(R.string.topic_detail_reaction_choice_selected, label)
-                } else {
-                    label
-                }
-            }.toTypedArray()
+            val content = LinearLayout(this@TopicDetailActivity).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(20), dp(8), dp(20), 0)
+            }
+            val searchLayout = TextInputLayout(this@TopicDetailActivity).apply {
+                hint = getString(R.string.topic_detail_reaction_search_hint)
+            }
+            val searchInput = TextInputEditText(searchLayout.context).apply {
+                isSingleLine = true
+            }
+            searchLayout.addView(
+                searchInput,
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                ),
+            )
+            val listView = ListView(this@TopicDetailActivity).apply {
+                divider = null
+                choiceMode = ListView.CHOICE_MODE_NONE
+            }
+            content.addView(
+                searchLayout,
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                ),
+            )
+            content.addView(
+                listView,
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    dp(360),
+                ),
+            )
 
-            AlertDialog.Builder(this@TopicDetailActivity)
+            var visibleOptions = options
+            val adapter = ArrayAdapter(
+                this@TopicDetailActivity,
+                android.R.layout.simple_list_item_1,
+                visibleOptions.map { option -> reactionChoiceLabel(post, option) }.toMutableList(),
+            )
+            fun submitVisibleOptions(query: String) {
+                visibleOptions = ReactionPresentation.filteredOptions(options, query)
+                adapter.clear()
+                adapter.addAll(visibleOptions.map { option -> reactionChoiceLabel(post, option) })
+                adapter.notifyDataSetChanged()
+            }
+            listView.adapter = adapter
+            listView.setOnItemLongClickListener { _, _, position, _ ->
+                visibleOptions.getOrNull(position)?.let { option ->
+                    showReactionUsers(post, option.id)
+                }
+                true
+            }
+            searchInput.doAfterTextChanged { text ->
+                submitVisibleOptions(text?.toString().orEmpty())
+            }
+
+            val dialog = AlertDialog.Builder(this@TopicDetailActivity)
                 .setTitle(
                     getString(
                         R.string.topic_detail_reaction_title,
                         post.postNumber.toString(),
                     ),
                 )
-                .setItems(labels) { _, which ->
-                    options.getOrNull(which)?.let { option ->
-                        viewModel?.toggleReaction(post, option.id)
-                    }
-                }
+                .setView(content)
                 .setNegativeButton(android.R.string.cancel, null)
-                .show()
+                .create()
+            listView.setOnItemClickListener { _, _, position, _ ->
+                visibleOptions.getOrNull(position)?.let { option ->
+                    viewModel?.toggleReaction(post, option.id)
+                    dialog.dismiss()
+                }
+            }
+            dialog.show()
         }
     }
 
-    private suspend fun customReactionOptionsForPost(post: TopicPostState): List<ReactionOption> {
+    private fun reactionChoiceLabel(post: TopicPostState, option: ReactionOption): String {
+        val count = post.reactions
+            .firstOrNull { it.id.equals(option.id, ignoreCase = true) }
+            ?.count
+            ?: 0u
+        val label = getString(
+            R.string.topic_detail_reaction_choice,
+            "${option.symbol} ${option.label}",
+            count.toString(),
+        )
+        return if (post.currentUserReaction?.id?.equals(option.id, ignoreCase = true) == true) {
+            getString(R.string.topic_detail_reaction_choice_selected, label)
+        } else {
+            label
+        }
+    }
+
+    private suspend fun fullReactionOptionsForPost(post: TopicPostState): List<ReactionOption> {
         if (enabledReactionIds.isEmpty()) {
             enabledReactionIds = runCatching {
                 sessionStore.snapshot().bootstrap.enabledReactionIds
             }.getOrDefault(emptyList())
             refreshReactionRows()
         }
-        return ReactionPresentation.customOptions(
+        return ReactionPresentation.fullOptions(
             reactionIds = enabledReactionIds,
             currentReactionId = post.currentUserReaction?.id,
         )

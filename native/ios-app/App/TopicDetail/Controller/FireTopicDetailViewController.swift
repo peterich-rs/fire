@@ -411,7 +411,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
 
         timingTracker.start { [weak viewModel] topicId, topicTimeMs, timings in
             guard let viewModel else { return false }
-            return await viewModel.reportTopicTimings(
+            return await viewModel.topicInteraction.reportTopicTimings(
                 topicId: topicId,
                 topicTimeMs: topicTimeMs,
                 timings: timings
@@ -1130,11 +1130,11 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
     ) async throws {
         switch (currentReactionID, desiredReactionID) {
         case (nil, "heart"):
-            try await topicDetailStore.setPostLiked(topicId: topic.id, postId: postId, liked: true)
+            try await viewModel.topicInteraction.setPostLiked(topicId: topic.id, postId: postId, liked: true)
         case ("heart", nil):
-            try await topicDetailStore.setPostLiked(topicId: topic.id, postId: postId, liked: false)
+            try await viewModel.topicInteraction.setPostLiked(topicId: topic.id, postId: postId, liked: false)
         default:
-            try await topicDetailStore.togglePostReaction(
+            try await viewModel.topicInteraction.togglePostReaction(
                 topicId: topic.id,
                 postId: postId,
                 reactionId: toggledReactionId
@@ -1238,7 +1238,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
     private func updateTopicNotificationLevel(_ option: FireTopicNotificationLevelOption) {
         Task { @MainActor in
             do {
-                try await viewModel.setTopicNotificationLevel(
+                try await viewModel.topicInteraction.setTopicNotificationLevel(
                     topicID: topic.id,
                     notificationLevel: option.rawValue,
                     recoveryOriginURL: topicCloudflareRecoveryURL
@@ -1253,7 +1253,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
     private func toggleTopicVote() async {
         guard let detail else { return }
         do {
-            _ = try await viewModel.voteTopic(
+            _ = try await viewModel.topicInteraction.voteTopic(
                 topicID: topic.id,
                 voted: !detail.userVoted,
                 recoveryOriginURL: topicCloudflareRecoveryURL
@@ -1265,7 +1265,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
 
     private func presentTopicVoters() async {
         do {
-            let voters = try await viewModel.fetchTopicVoters(topicID: topic.id)
+            let voters = try await viewModel.topicInteraction.fetchTopicVoters(topicID: topic.id)
             modalRouter.presentTopicVoters(voters, isLoading: false)
         } catch {
             modalRouter.presentNotice(message: error.localizedDescription)
@@ -1279,7 +1279,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
     ) {
         Task { @MainActor in
             do {
-                _ = try await viewModel.votePoll(
+                _ = try await viewModel.topicInteraction.votePoll(
                     topicID: topic.id,
                     postID: post.id,
                     pollName: poll.name,
@@ -1295,7 +1295,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
     private func removePollVote(for post: TopicPostState, poll: PollState) {
         Task { @MainActor in
             do {
-                _ = try await viewModel.unvotePoll(
+                _ = try await viewModel.topicInteraction.unvotePoll(
                     topicID: topic.id,
                     postID: post.id,
                     pollName: poll.name,

@@ -288,6 +288,10 @@ final class FireAppViewModel: ObservableObject {
     private let loginURL = URL(string: "https://linux.do/login")!
     private let loginCoordinatorPreloader: LoginCoordinatorPreloader?
     private let loginNetworkWarmup: LoginNetworkWarmup?
+    private lazy var appServiceHost = FireAppServiceHost(owner: self)
+    lazy var topicInteraction = FireTopicInteractionService(host: appServiceHost)
+    lazy var notificationService = FireNotificationService(host: appServiceHost)
+    lazy var searchService = FireSearchService(host: appServiceHost)
     // MessageBus
     private var messageBusCoordinator: FireMessageBusCoordinator?
     private var isMessageBusActive = false
@@ -777,6 +781,10 @@ final class FireAppViewModel: ObservableObject {
         session.readiness.canReadAuthenticatedApi
     }
 
+    var boundTopicDetailStore: FireTopicDetailStore? {
+        topicDetailStore
+    }
+
     func fetchFilteredTopicList(query: TopicListQueryState) async throws -> TopicListState {
         let sessionStore = try await sessionStoreValue()
         return try await sessionStore.fetchTopicList(query: query)
@@ -1025,261 +1033,6 @@ final class FireAppViewModel: ObservableObject {
         return try await performWriteWithCloudflareRetry {
             try await sessionStore.lookupUploadUrls(shortUrls: shortUrls)
         }
-    }
-
-    func setPostLiked(
-        topicId: UInt64,
-        postId: UInt64,
-        liked: Bool
-    ) async throws {
-        guard let topicDetailStore else {
-            throw FireTopicInteractionError.unavailable
-        }
-        try await topicDetailStore.setPostLiked(
-            topicId: topicId,
-            postId: postId,
-            liked: liked
-        )
-    }
-
-    func togglePostReaction(
-        topicId: UInt64,
-        postId: UInt64,
-        reactionId: String
-    ) async throws {
-        guard let topicDetailStore else {
-            throw FireTopicInteractionError.unavailable
-        }
-        try await topicDetailStore.togglePostReaction(
-            topicId: topicId,
-            postId: postId,
-            reactionId: reactionId
-        )
-    }
-
-    func votePoll(
-        topicID: UInt64,
-        postID: UInt64,
-        pollName: String,
-        options: [String],
-        recoveryOriginURL: URL? = nil
-    ) async throws -> PollState {
-        let sessionStore = try await sessionStoreValue()
-        guard canStartAuthenticatedMutation else {
-            throw FireTopicInteractionError.requiresAuthenticatedWrite
-        }
-        guard topicDetailStore?.isMutatingPost(postId: postID) != true else {
-            throw FireTopicInteractionError.unavailable
-        }
-
-        do {
-            errorMessage = nil
-            let poll = try await performWriteWithCloudflareRetry(originURL: recoveryOriginURL) {
-                try await sessionStore.votePoll(
-                    postID: postID,
-                    pollName: pollName,
-                    options: options
-                )
-            }
-            await topicDetailStore?.refreshTopicDetailAfterMutation(topicId: topicID)
-            return poll
-        } catch {
-            _ = await handleInteractionError(error)
-            throw error
-        }
-    }
-
-    func unvotePoll(
-        topicID: UInt64,
-        postID: UInt64,
-        pollName: String,
-        recoveryOriginURL: URL? = nil
-    ) async throws -> PollState {
-        let sessionStore = try await sessionStoreValue()
-        guard canStartAuthenticatedMutation else {
-            throw FireTopicInteractionError.requiresAuthenticatedWrite
-        }
-        guard topicDetailStore?.isMutatingPost(postId: postID) != true else {
-            throw FireTopicInteractionError.unavailable
-        }
-
-        do {
-            errorMessage = nil
-            let poll = try await performWriteWithCloudflareRetry(originURL: recoveryOriginURL) {
-                try await sessionStore.unvotePoll(postID: postID, pollName: pollName)
-            }
-            await topicDetailStore?.refreshTopicDetailAfterMutation(topicId: topicID)
-            return poll
-        } catch {
-            _ = await handleInteractionError(error)
-            throw error
-        }
-    }
-
-    func voteTopic(
-        topicID: UInt64,
-        voted: Bool,
-        recoveryOriginURL: URL? = nil
-    ) async throws -> VoteResponseState {
-        let sessionStore = try await sessionStoreValue()
-        guard canStartAuthenticatedMutation else {
-            throw FireTopicInteractionError.requiresAuthenticatedWrite
-        }
-
-        do {
-            errorMessage = nil
-            let response = try await performWriteWithCloudflareRetry(originURL: recoveryOriginURL) {
-                if voted {
-                    try await sessionStore.voteTopic(topicID: topicID)
-                } else {
-                    try await sessionStore.unvoteTopic(topicID: topicID)
-                }
-            }
-            await topicDetailStore?.refreshTopicDetailAfterMutation(topicId: topicID)
-            return response
-        } catch {
-            _ = await handleInteractionError(error)
-            throw error
-        }
-    }
-
-    func fetchTopicVoters(topicID: UInt64) async throws -> [VotedUserState] {
-        let sessionStore = try await sessionStoreValue()
-        return try await sessionStore.fetchTopicVoters(topicID: topicID)
-    }
-
-    func reportTopicTimings(
-        topicId: UInt64,
-        topicTimeMs: UInt32,
-        timings: [UInt32: UInt32]
-    ) async -> Bool {
-        guard let sessionStore else { return false }
-        guard canStartAuthenticatedMutation else { return false }
-        guard topicTimeMs > 0 else { return true }
-
-        let timingEntries = timings
-            .filter { $0.key > 0 && $0.value > 0 }
-            .sorted { $0.key < $1.key }
-            .map { postNumber, milliseconds in
-                TopicTimingEntryState(
-                    postNumber: postNumber,
-                    milliseconds: milliseconds
-                )
-            }
-        guard !timingEntries.isEmpty else { return true }
-
-        do {
-            let accepted = try await sessionStore.reportTopicTimings(
-                input: TopicTimingsRequestState(
-                    topicId: topicId,
-                    topicTimeMs: topicTimeMs,
-                    timings: timingEntries
-                )
-            )
-            return accepted
-        } catch {
-            _ = await handleRecoverableSessionErrorIfNeeded(error)
-            return false
-        }
-    }
-
-    // MARK: - Notification helpers
-
-    func notificationCenterState() async throws -> NotificationCenterState {
-        let sessionStore = try await sessionStoreValue()
-        return try await sessionStore.notificationState()
-    }
-
-    func fetchRecentNotificationsData(limit: UInt32? = nil) async throws -> NotificationListState {
-        let sessionStore = try await sessionStoreValue()
-        return try await performWithCloudflareRecovery(operation: "刷新通知列表") {
-            try await sessionStore.fetchRecentNotifications(limit: limit)
-        }
-    }
-
-    func fetchNotificationsData(
-        limit: UInt32? = nil,
-        offset: UInt32? = nil
-    ) async throws -> NotificationListState {
-        let sessionStore = try await sessionStoreValue()
-        return try await performWithCloudflareRecovery(operation: "加载更多通知") {
-            try await sessionStore.fetchNotifications(limit: limit, offset: offset)
-        }
-    }
-
-    func markNotificationReadState(id: UInt64) async throws -> NotificationCenterState {
-        let sessionStore = try await sessionStoreValue()
-        return try await performWriteWithCloudflareRetry(
-            operationDescription: "标记通知已读"
-        ) {
-            try await sessionStore.markNotificationRead(id: id)
-        }
-    }
-
-    func markAllNotificationsReadState() async throws -> NotificationCenterState {
-        let sessionStore = try await sessionStoreValue()
-        return try await performWriteWithCloudflareRetry(
-            operationDescription: "全部通知标记已读"
-        ) {
-            try await sessionStore.markAllNotificationsRead()
-        }
-    }
-
-    // MARK: - Search helpers
-
-    func search(
-        query: String,
-        typeFilter: SearchTypeFilterState?,
-        page: UInt32? = nil
-    ) async throws -> SearchResultState {
-        let sessionStore = try await sessionStoreValue()
-        return try await sessionStore.search(
-            query: SearchQueryState(
-                q: query,
-                page: page,
-                typeFilter: typeFilter
-            )
-        )
-    }
-
-    // Reserved for upcoming composer tag autocomplete surfaces.
-    func searchTags(
-        query: String?,
-        filterForInput: Bool = false,
-        limit: UInt32? = nil,
-        categoryID: UInt64? = nil,
-        selectedTags: [String] = []
-    ) async throws -> TagSearchResultState {
-        let sessionStore = try await sessionStoreValue()
-        return try await sessionStore.searchTags(
-            query: TagSearchQueryState(
-                q: query,
-                filterForInput: filterForInput,
-                limit: limit,
-                categoryId: categoryID,
-                selectedTags: selectedTags
-            )
-        )
-    }
-
-    // Reserved for upcoming composer @mention autocomplete surfaces.
-    func searchUsers(
-        term: String,
-        includeGroups: Bool = true,
-        limit: UInt32 = 6,
-        topicID: UInt64? = nil,
-        categoryID: UInt64? = nil
-    ) async throws -> UserMentionResultState {
-        let sessionStore = try await sessionStoreValue()
-        return try await sessionStore.searchUsers(
-            query: UserMentionQueryState(
-                term: term,
-                includeGroups: includeGroups,
-                limit: limit,
-                topicId: topicID,
-                categoryId: categoryID
-            )
-        )
     }
 
     // MARK: - Diagnostics
@@ -2017,7 +1770,7 @@ final class FireAppViewModel: ObservableObject {
     }
 
     @discardableResult
-    private func handleInteractionError(_ error: Error) async -> Bool {
+    func handleInteractionError(_ error: Error) async -> Bool {
         if await handleRecoverableSessionErrorIfNeeded(error) {
             return true
         }
@@ -2250,64 +2003,5 @@ final class FireAppViewModel: ObservableObject {
     func fetchBadgeDetail(badgeID: UInt64) async throws -> BadgeState {
         let sessionStore = try await sessionStoreValue()
         return try await sessionStore.fetchBadgeDetail(badgeID: badgeID)
-    }
-
-    func createBookmark(
-        bookmarkableID: UInt64,
-        bookmarkableType: String,
-        name: String? = nil,
-        reminderAt: String? = nil,
-        autoDeletePreference: Int32? = nil,
-        recoveryOriginURL: URL? = nil
-    ) async throws -> UInt64 {
-        let sessionStore = try await sessionStoreValue()
-        return try await performWriteWithCloudflareRetry(originURL: recoveryOriginURL) {
-            try await sessionStore.createBookmark(
-                bookmarkableID: bookmarkableID,
-                bookmarkableType: bookmarkableType,
-                name: name,
-                reminderAt: reminderAt,
-                autoDeletePreference: autoDeletePreference
-            )
-        }
-    }
-
-    func updateBookmark(
-        bookmarkID: UInt64,
-        name: String? = nil,
-        reminderAt: String? = nil,
-        autoDeletePreference: Int32? = nil,
-        recoveryOriginURL: URL? = nil
-    ) async throws {
-        let sessionStore = try await sessionStoreValue()
-        try await performWriteWithCloudflareRetry(originURL: recoveryOriginURL) {
-            try await sessionStore.updateBookmark(
-                bookmarkID: bookmarkID,
-                name: name,
-                reminderAt: reminderAt,
-                autoDeletePreference: autoDeletePreference
-            )
-        }
-    }
-
-    func deleteBookmark(bookmarkID: UInt64, recoveryOriginURL: URL? = nil) async throws {
-        let sessionStore = try await sessionStoreValue()
-        try await performWriteWithCloudflareRetry(originURL: recoveryOriginURL) {
-            try await sessionStore.deleteBookmark(bookmarkID: bookmarkID)
-        }
-    }
-
-    func setTopicNotificationLevel(
-        topicID: UInt64,
-        notificationLevel: Int32,
-        recoveryOriginURL: URL? = nil
-    ) async throws {
-        let sessionStore = try await sessionStoreValue()
-        try await performWriteWithCloudflareRetry(originURL: recoveryOriginURL) {
-            try await sessionStore.setTopicNotificationLevel(
-                topicID: topicID,
-                notificationLevel: notificationLevel
-            )
-        }
     }
 }

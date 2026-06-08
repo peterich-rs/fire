@@ -92,7 +92,7 @@ final class FireNotificationStore: ObservableObject {
         }
 
         do {
-            let state = try await appViewModel.notificationCenterState()
+            let state = try await appViewModel.notificationService.notificationCenterState()
             apply(centerState: state, updateRecent: state.hasLoadedRecent, updateFull: state.hasLoadedFull)
         } catch {
             _ = await appViewModel.handleRecoverableSessionErrorIfNeeded(error)
@@ -109,11 +109,11 @@ final class FireNotificationStore: ObservableObject {
 
         do {
             try await FireAPMManager.shared.withSpan(.notificationsRefresh) {
-                let list = try await appViewModel.fetchRecentNotificationsData()
+                let list = try await appViewModel.notificationService.fetchRecentNotifications()
                 recentNotifications = list.notifications
                 hasLoadedRecentOnce = true
                 recentErrorMessage = nil
-                if let state = try? await appViewModel.notificationCenterState() {
+                if let state = try? await appViewModel.notificationService.notificationCenterState() {
                     apply(centerState: state, updateRecent: true, updateFull: state.hasLoadedFull)
                 }
             }
@@ -128,7 +128,7 @@ final class FireNotificationStore: ObservableObject {
     func markRead(id: UInt64) {
         Task {
             do {
-                let state = try await appViewModel.markNotificationReadState(id: id)
+                let state = try await appViewModel.notificationService.markNotificationRead(id: id)
                 apply(centerState: state, updateRecent: true, updateFull: state.hasLoadedFull)
             } catch {
                 _ = await appViewModel.handleRecoverableSessionErrorIfNeeded(error)
@@ -139,7 +139,7 @@ final class FireNotificationStore: ObservableObject {
     func markAllRead() {
         Task {
             do {
-                let state = try await appViewModel.markAllNotificationsReadState()
+                let state = try await appViewModel.notificationService.markAllNotificationsRead()
                 apply(centerState: state, updateRecent: true, updateFull: state.hasLoadedFull)
             } catch {
                 _ = await appViewModel.handleRecoverableSessionErrorIfNeeded(error)
@@ -156,8 +156,8 @@ final class FireNotificationStore: ObservableObject {
         defer { isLoadingFullPage = false }
 
         do {
-            _ = try await appViewModel.fetchNotificationsData(offset: offset)
-            let state = try await appViewModel.notificationCenterState()
+            _ = try await appViewModel.notificationService.fetchNotifications(offset: offset)
+            let state = try await appViewModel.notificationService.notificationCenterState()
             apply(centerState: state, updateRecent: state.hasLoadedRecent, updateFull: true)
         } catch {
             if await appViewModel.handleRecoverableSessionErrorIfNeeded(error) {
@@ -175,7 +175,7 @@ final class FireNotificationStore: ObservableObject {
             guard let self else { return }
 
             do {
-                let state = try await self.appViewModel.notificationCenterState()
+                let state = try await self.appViewModel.notificationService.notificationCenterState()
                 self.apply(
                     centerState: state,
                     updateRecent: true,

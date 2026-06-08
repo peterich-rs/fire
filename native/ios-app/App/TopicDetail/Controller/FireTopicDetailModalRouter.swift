@@ -109,14 +109,14 @@ final class FireTopicDetailModalRouter {
             context: context,
             onSave: { [viewModel] name, reminderAt in
                 if let bookmarkID = context.bookmarkID {
-                    try await viewModel.updateBookmark(
+                    try await viewModel.topicInteraction.updateBookmark(
                         bookmarkID: bookmarkID,
                         name: name,
                         reminderAt: reminderAt,
                         recoveryOriginURL: recoveryOriginURL
                     )
                 } else {
-                    _ = try await viewModel.createBookmark(
+                    _ = try await viewModel.topicInteraction.createBookmark(
                         bookmarkableID: context.bookmarkableID,
                         bookmarkableType: context.bookmarkableType,
                         name: name,
@@ -128,7 +128,7 @@ final class FireTopicDetailModalRouter {
             },
             onDelete: context.bookmarkID.map { [viewModel] bookmarkID in
                 {
-                    try await viewModel.deleteBookmark(
+                    try await viewModel.topicInteraction.deleteBookmark(
                         bookmarkID: bookmarkID,
                         recoveryOriginURL: recoveryOriginURL
                     )

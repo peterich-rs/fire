@@ -204,7 +204,7 @@ struct FireBookmarksView: View {
                 context: context,
                 onSave: { name, reminderAt in
                     guard let bookmarkID = context.bookmarkID else { return }
-                    try await viewModel.updateBookmark(
+                    try await viewModel.topicInteraction.updateBookmark(
                         bookmarkID: bookmarkID,
                         name: name,
                         reminderAt: reminderAt
@@ -213,7 +213,7 @@ struct FireBookmarksView: View {
                 },
                 onDelete: context.bookmarkID.map { bookmarkID in
                     {
-                        try await viewModel.deleteBookmark(bookmarkID: bookmarkID)
+                        try await viewModel.topicInteraction.deleteBookmark(bookmarkID: bookmarkID)
                         await bookmarksViewModel.refresh()
                     }
                 }
@@ -468,7 +468,7 @@ struct FireBookmarksView: View {
     private func deleteBookmark(for row: FireTopicRowPresentation) async {
         guard let bookmarkID = row.topic.bookmarkId else { return }
         do {
-            try await viewModel.deleteBookmark(bookmarkID: bookmarkID)
+            try await viewModel.topicInteraction.deleteBookmark(bookmarkID: bookmarkID)
             await bookmarksViewModel.refresh()
         } catch {
             bookmarksViewModel.errorMessage = error.localizedDescription

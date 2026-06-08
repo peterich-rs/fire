@@ -616,7 +616,7 @@ git commit -m "feat(ios): add context menus to topic rows and notifications"
 - Create: `native/ios-app/App/Services/FireTopicInteractionService.swift`
 - Modify: `native/ios-app/App/ViewModels/FireAppViewModel.swift`
 
-- [ ] **Step 1: 创建 FireTopicInteractionService**
+- [x] **Step 1: 创建 FireTopicInteractionService**
 
 从 `FireAppViewModel` 中提取以下方法到 `FireTopicInteractionService`：
 
@@ -644,7 +644,7 @@ final class FireTopicInteractionService {
 }
 ```
 
-- [ ] **Step 2: FireAppViewModel 持有 service 实例**
+- [x] **Step 2: FireAppViewModel 持有 service 实例**
 
 在 `FireAppViewModel` 中添加：
 
@@ -654,12 +654,12 @@ let topicInteraction: FireTopicInteractionService
 
 在 `init` 中初始化。所有调用 `toggleLike` 等方法的视图改为通过 `appViewModel.topicInteraction.toggleLike(...)`。
 
-- [ ] **Step 3: 构建验证**
+- [x] **Step 3: 构建验证**
 
 Run: `cd native/ios-app && xcodebuild build -scheme FireApp -destination 'platform=iOS Simulator,name=iPhone 16' -quiet 2>&1 | tail -5`
 Expected: `** BUILD SUCCEEDED **`
 
-- [ ] **Step 4: 运行相关测试**
+- [x] **Step 4: 运行相关测试**
 
 Run: `cd native/ios-app && xcodebuild test -scheme FireApp -destination 'platform=iOS Simulator,name=iPhone 16' 2>&1 | grep -E '(Test Suite|Executed|FAILED)'`
 Expected: All tests pass, 0 failures
@@ -679,7 +679,7 @@ git commit -m "refactor(ios): extract FireTopicInteractionService from FireAppVi
 - Create: `native/ios-app/App/Services/FireNotificationService.swift`
 - Modify: `native/ios-app/App/ViewModels/FireAppViewModel.swift`
 
-- [ ] **Step 1: 创建 FireNotificationService**
+- [x] **Step 1: 创建 FireNotificationService**
 
 从 `FireAppViewModel` 中提取：
 
@@ -700,13 +700,13 @@ final class FireNotificationService {
 }
 ```
 
-- [ ] **Step 2: FireAppViewModel 持有 service 实例**
+- [x] **Step 2: FireAppViewModel 持有 service 实例**
 
 ```swift
 let notificationService: FireNotificationService
 ```
 
-- [ ] **Step 3: 构建并测试**
+- [x] **Step 3: 构建并测试**
 
 Run: `cd native/ios-app && xcodebuild build -scheme FireApp -destination 'platform=iOS Simulator,name=iPhone 16' -quiet 2>&1 | tail -5`
 Expected: `** BUILD SUCCEEDED **`
@@ -726,7 +726,7 @@ git commit -m "refactor(ios): extract FireNotificationService from FireAppViewMo
 - Create: `native/ios-app/App/Services/FireSearchService.swift`
 - Modify: `native/ios-app/App/ViewModels/FireAppViewModel.swift`
 
-- [ ] **Step 1: 创建 FireSearchService**
+- [x] **Step 1: 创建 FireSearchService**
 
 ```swift
 @MainActor
@@ -744,13 +744,13 @@ final class FireSearchService {
 }
 ```
 
-- [ ] **Step 2: FireAppViewModel 持有 service 实例**
+- [x] **Step 2: FireAppViewModel 持有 service 实例**
 
 ```swift
 let searchService: FireSearchService
 ```
 
-- [ ] **Step 3: 构建并测试**
+- [x] **Step 3: 构建并测试**
 
 Run: `cd native/ios-app && xcodebuild build -scheme FireApp -destination 'platform=iOS Simulator,name=iPhone 16' -quiet 2>&1 | tail -5`
 Expected: `** BUILD SUCCEEDED **`

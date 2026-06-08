@@ -168,7 +168,7 @@ struct FireTagPickerSheet: View {
                 try await Task.sleep(for: .milliseconds(300))
                 guard !Task.isCancelled else { return }
 
-                let result = try await viewModel.searchTags(
+                let result = try await viewModel.searchService.searchTags(
                     query: trimmed,
                     filterForInput: true,
                     limit: 20,

@@ -75,7 +75,7 @@ final class FireSearchStore: ObservableObject {
             guard let self else { return }
 
             do {
-                let response = try await self.appViewModel.search(
+                let response = try await self.appViewModel.searchService.search(
                     query: trimmedQuery,
                     typeFilter: currentScope.typeFilter,
                     page: nextPage

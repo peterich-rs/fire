@@ -97,6 +97,7 @@ struct FireNotificationHistoryView: View {
                     )
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel(notificationAccessibilityLabel(for: item))
                 .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
                 .listRowSeparator(.hidden)
                 .listRowBackground(Color.clear)
@@ -166,6 +167,7 @@ struct FireNotificationHistoryView: View {
             }
 
             Image(systemName: "bell.slash")
+                .accessibilityHidden(true)
                 .font(.system(size: 40, weight: .light))
                 .foregroundStyle(FireTheme.tertiaryInk)
 
@@ -199,5 +201,14 @@ struct FireNotificationHistoryView: View {
             return
         }
         selectedRoute = route
+    }
+
+    private func notificationAccessibilityLabel(for item: NotificationItemState) -> String {
+        var parts = [item.displayDescription]
+        if let timestamp = FireTopicPresentation.compactTimestamp(item.createdAt) {
+            parts.append(timestamp)
+        }
+        parts.append(item.read ? "已读" : "未读")
+        return parts.joined(separator: "，")
     }
 }

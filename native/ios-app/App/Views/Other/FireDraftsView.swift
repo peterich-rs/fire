@@ -135,6 +135,7 @@ struct FireDraftsView: View {
                 Section {
                     VStack(spacing: 10) {
                         Image(systemName: "tray.full")
+                            .accessibilityHidden(true)
                             .font(.title2)
                             .foregroundStyle(FireTheme.subtleInk)
                         Text("草稿箱是空的")
@@ -260,6 +261,7 @@ struct FireDraftsView: View {
                     Image(systemName: draftIcon(for: draft))
                         .font(.footnote.weight(.semibold))
                         .foregroundStyle(supported ? FireTheme.accent : FireTheme.subtleInk)
+                        .accessibilityHidden(true)
                 }
 
             VStack(alignment: .leading, spacing: 6) {
@@ -302,6 +304,8 @@ struct FireDraftsView: View {
             }
         }
         .padding(.vertical, 8)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(draftAccessibilityLabel(for: draft, supported: supported))
     }
 
     private func draftTitle(for draft: DraftState) -> String {
@@ -342,5 +346,19 @@ struct FireDraftsView: View {
         default:
             return "arrowshape.turn.up.left"
         }
+    }
+
+    private func draftAccessibilityLabel(for draft: DraftState, supported: Bool) -> String {
+        var parts = [draftTitle(for: draft), draftKindLabel(for: draft)]
+        if let excerpt = draftExcerpt(for: draft) {
+            parts.append(excerpt)
+        }
+        if let updatedAt = FireTopicPresentation.compactTimestamp(draft.updatedAt) {
+            parts.append(updatedAt)
+        }
+        if !supported {
+            parts.append("暂不支持")
+        }
+        return parts.joined(separator: "，")
     }
 }

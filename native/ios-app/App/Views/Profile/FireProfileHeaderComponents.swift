@@ -25,6 +25,7 @@ struct FireProfileMetaEntryView: View {
     var body: some View {
         HStack(alignment: .top, spacing: 9) {
             Image(systemName: symbol)
+                .accessibilityHidden(true)
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(tint)
                 .frame(width: 16, height: 16)
@@ -43,5 +44,6 @@ struct FireProfileMetaEntryView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 2)
+        .accessibilityElement(children: .combine)
     }
 }

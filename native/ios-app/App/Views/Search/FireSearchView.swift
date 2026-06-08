@@ -42,6 +42,7 @@ struct FireSearchView: View {
         VStack(spacing: 12) {
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass")
+                    .accessibilityHidden(true)
                     .foregroundStyle(FireTheme.tertiaryInk)
 
                 TextField("搜索话题、帖子、用户…", text: $searchStore.query)
@@ -63,6 +64,7 @@ struct FireSearchView: View {
                             .foregroundStyle(FireTheme.tertiaryInk)
                     }
                     .buttonStyle(.plain)
+                    .accessibilityLabel("清除搜索内容")
                 }
             }
             .padding(.horizontal, 12)
@@ -161,6 +163,7 @@ struct FireSearchView: View {
                             )
                         }
                         .buttonStyle(.plain)
+                        .accessibilityLabel("搜索结果：\(topic.title)")
                     }
                 }
             }
@@ -179,6 +182,7 @@ struct FireSearchView: View {
                                 FireSearchPostRow(post: post, row: row)
                             }
                             .buttonStyle(.plain)
+                            .accessibilityLabel("搜索结果：\(post.topicTitleHeadline ?? row.topic.title)")
                         } else {
                             FireSearchPostRow(post: post, row: nil)
                         }
@@ -195,6 +199,7 @@ struct FireSearchView: View {
                             FireSearchUserRow(user: user)
                         }
                         .buttonStyle(.plain)
+                        .accessibilityLabel("用户搜索结果：\(user.name ?? user.username)，@\(user.username)")
                     }
                 }
             }
@@ -226,6 +231,7 @@ struct FireSearchView: View {
                 Section {
                     VStack(spacing: 12) {
                         Image(systemName: "magnifyingglass")
+                            .accessibilityHidden(true)
                             .font(.title)
                             .foregroundStyle(FireTheme.tertiaryInk)
                         Text("没有找到相关结果")
@@ -251,6 +257,7 @@ struct FireSearchView: View {
                     .frame(height: 40)
 
                 Image(systemName: "text.magnifyingglass")
+                    .accessibilityHidden(true)
                     .font(.system(size: 48))
                     .foregroundStyle(FireTheme.tertiaryInk)
 
@@ -423,6 +430,7 @@ private struct FireSearchPostRow: View {
             .foregroundStyle(.secondary)
         }
         .padding(.vertical, 4)
+        .accessibilityElement(children: .combine)
     }
 }
 
@@ -454,5 +462,6 @@ private struct FireSearchUserRow: View {
             Spacer()
         }
         .padding(.vertical, 4)
+        .accessibilityElement(children: .combine)
     }
 }

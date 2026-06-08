@@ -308,6 +308,7 @@ struct FireNotificationsView: View {
                         .font(.subheadline.weight(.medium))
                         .foregroundStyle(FireTheme.accent)
                     Image(systemName: "chevron.right")
+                        .accessibilityHidden(true)
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(FireTheme.accent)
                     Spacer()
@@ -335,6 +336,7 @@ struct FireNotificationsView: View {
             notificationRowContent(item)
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(notificationAccessibilityLabel(for: item))
     }
 
     private func handleNotificationTap(_ item: NotificationItemState) {
@@ -380,6 +382,7 @@ struct FireNotificationsView: View {
                 }
                 .padding(.vertical, 10)
                 .redacted(reason: .placeholder)
+                .accessibilityHidden(true)
                 .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
                 .listRowSeparator(.hidden)
                 .listRowBackground(Color.clear)
@@ -406,6 +409,7 @@ struct FireNotificationsView: View {
             }
 
             Image(systemName: "bell.slash")
+                .accessibilityHidden(true)
                 .font(.system(size: 40, weight: .light))
                 .foregroundStyle(FireTheme.tertiaryInk)
 
@@ -434,6 +438,15 @@ struct FireNotificationsView: View {
         }
         selectedRoute = route
     }
+
+    private func notificationAccessibilityLabel(for item: NotificationItemState) -> String {
+        var parts = [item.displayDescription]
+        if let timestamp = FireTopicPresentation.compactTimestamp(item.createdAt) {
+            parts.append(timestamp)
+        }
+        parts.append(item.read ? "已读" : "未读")
+        return parts.joined(separator: "，")
+    }
 }
 
 // MARK: - Shared notification row
@@ -448,6 +461,7 @@ struct FireNotificationRowContent: View {
                 .fill(item.read ? Color.clear : FireTheme.accent)
                 .frame(width: 7, height: 7)
                 .padding(.top, 6)
+                .accessibilityHidden(true)
 
             ZStack {
                 Circle()
@@ -465,8 +479,10 @@ struct FireNotificationRowContent: View {
                     Image(systemName: item.typeSystemImage)
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(item.typeIconColor)
+                        .accessibilityHidden(true)
                 }
             }
+            .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(item.displayDescription)
@@ -491,5 +507,6 @@ struct FireNotificationRowContent: View {
                 : FireTheme.accent.opacity(0.03)
         )
         .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
     }
 }

@@ -644,11 +644,13 @@ struct FireComposerView: View {
                 } label: {
                     HStack(spacing: 8) {
                         Image(systemName: "folder")
+                            .accessibilityHidden(true)
                             .foregroundStyle(FireTheme.accent)
                         Text(selectedCategory.map(categoryDisplayName(for:)) ?? "选择分类")
                             .foregroundStyle(selectedCategory == nil ? .secondary : .primary)
                         Spacer()
                         Image(systemName: "chevron.up.chevron.down")
+                            .accessibilityHidden(true)
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -660,6 +662,9 @@ struct FireComposerView: View {
                     )
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel(
+                    selectedCategory.map { "选择分类，当前 \(categoryDisplayName(for: $0))" } ?? "选择分类"
+                )
             }
 
             createTopicRequirementsCard
@@ -710,6 +715,7 @@ struct FireComposerView: View {
                                     .padding(.vertical, 10)
                                 }
                                 .buttonStyle(.plain)
+                                .accessibilityLabel("添加标签 \(item.name)")
 
                                 if item.name != tagResults.last?.name {
                                     Divider()
@@ -833,6 +839,8 @@ struct FireComposerView: View {
                     .font(.subheadline.weight(.semibold))
             }
             .disabled(isUploadingImage || isSubmitting)
+            .accessibilityLabel("上传图片")
+            .accessibilityValue(isUploadingImage ? "上传中" : "未上传")
 
             Button {
                 previewMode.toggle()
@@ -841,6 +849,8 @@ struct FireComposerView: View {
                     .font(.subheadline.weight(.semibold))
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("切换预览")
+            .accessibilityValue(previewMode ? "正在预览" : "正在编辑")
 
             Spacer()
 
@@ -1005,6 +1015,7 @@ struct FireComposerView: View {
                         if isSubmitting {
                             ProgressView()
                                 .tint(.white)
+                                .accessibilityHidden(true)
                         }
                         Text(route.submitLabel)
                             .font(.headline)
@@ -1019,6 +1030,7 @@ struct FireComposerView: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(!canSubmit)
+                .accessibilityLabel(route.submitLabel)
                 .fireCTAPress()
                 .fireSuccessFeedback(trigger: saveCompletionPulse)
             }
@@ -1031,6 +1043,7 @@ struct FireComposerView: View {
     private func noticeBanner(_ message: String, tint: Color) -> some View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: tint == .red ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
+                .accessibilityHidden(true)
                 .foregroundStyle(tint)
             Text(message)
                 .font(.subheadline)
@@ -1052,6 +1065,7 @@ struct FireComposerView: View {
                 Text("#\(tag)")
                     .font(.caption.weight(.medium))
                 Image(systemName: "xmark")
+                    .accessibilityHidden(true)
                     .font(.system(size: 8, weight: .bold))
             }
             .foregroundStyle(FireTheme.accent)
@@ -1062,6 +1076,7 @@ struct FireComposerView: View {
             )
         }
         .buttonStyle(.plain)
+        .accessibilityLabel("移除标签 \(tag)")
     }
 
     private func suggestedTagChip(_ tag: String) -> some View {
@@ -1070,6 +1085,7 @@ struct FireComposerView: View {
         } label: {
             HStack(spacing: 6) {
                 Image(systemName: "plus")
+                    .accessibilityHidden(true)
                     .font(.system(size: 9, weight: .bold))
                 Text("#\(tag)")
                     .font(.caption.weight(.medium))
@@ -1082,6 +1098,7 @@ struct FireComposerView: View {
             )
         }
         .buttonStyle(.plain)
+        .accessibilityLabel("添加标签 \(tag)")
     }
 
     private func mentionResultsList(mentionContext: FireComposerMentionContext) -> some View {
@@ -1096,6 +1113,7 @@ struct FireComposerView: View {
                             .foregroundStyle(.white)
                             .frame(width: 28, height: 28)
                             .background(Circle().fill(FireTheme.accent))
+                            .accessibilityHidden(true)
                         VStack(alignment: .leading, spacing: 2) {
                             Text("@\(user.username)")
                                 .foregroundStyle(.primary)
@@ -1111,6 +1129,10 @@ struct FireComposerView: View {
                     .padding(.vertical, 10)
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel(user.name?.isEmpty == false
+                    ? "提及 @\(user.username)，\(user.name ?? "")"
+                    : "提及 @\(user.username)"
+                )
 
                 if user.username != mentionUsers.last?.username || !mentionGroups.isEmpty {
                     Divider()
@@ -1123,6 +1145,7 @@ struct FireComposerView: View {
                 } label: {
                     HStack(spacing: 10) {
                         Image(systemName: "person.3.fill")
+                            .accessibilityHidden(true)
                             .foregroundStyle(FireTheme.accent)
                         VStack(alignment: .leading, spacing: 2) {
                             Text("@\(group.name)")
@@ -1139,6 +1162,10 @@ struct FireComposerView: View {
                     .padding(.vertical, 10)
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel(group.fullName?.isEmpty == false
+                    ? "提及群组 @\(group.name)，\(group.fullName ?? "")"
+                    : "提及群组 @\(group.name)"
+                )
 
                 if group.name != mentionGroups.last?.name {
                     Divider()
@@ -1154,6 +1181,7 @@ struct FireComposerView: View {
     private func previewImageFallback(label: String) -> some View {
         HStack(spacing: 10) {
             Image(systemName: "photo")
+                .accessibilityHidden(true)
                 .foregroundStyle(.secondary)
             Text(label)
                 .font(.caption)
@@ -1795,11 +1823,14 @@ private struct FireComposerCategorySheet: View {
                     Spacer()
                     if selectedCategoryID == category.id {
                         Image(systemName: "checkmark")
+                            .accessibilityHidden(true)
                             .foregroundStyle(FireTheme.accent)
                     }
                 }
             }
             .buttonStyle(.plain)
+            .accessibilityLabel(categoryLabel(category))
+            .accessibilityValue(selectedCategoryID == category.id ? "已选择" : "")
         }
         .navigationTitle("选择分类")
         .navigationBarTitleDisplayMode(.inline)

@@ -297,6 +297,7 @@ struct FireProfileView: View {
                     } label: {
                         HStack(spacing: 12) {
                             Image(systemName: "clock.arrow.trianglehead.counterclockwise.rotate.90")
+                                .accessibilityHidden(true)
                                 .font(.subheadline.weight(.semibold))
                                 .foregroundStyle(FireTheme.accent)
                                 .frame(width: 24)
@@ -327,6 +328,7 @@ struct FireProfileView: View {
                         Image(systemName: "gearshape")
                             .foregroundStyle(FireTheme.subtleInk)
                     }
+                    .accessibilityLabel("设置")
                 }
             }
             .refreshable {
@@ -437,6 +439,7 @@ struct FireProfileView: View {
                 .frame(width: 36, height: 36)
                 .overlay {
                     Image(systemName: icon)
+                        .accessibilityHidden(true)
                         .font(.footnote.weight(.semibold))
                         .foregroundStyle(tint)
                 }
@@ -456,6 +459,7 @@ struct FireProfileView: View {
         }
         .padding(.vertical, 4)
         .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
     }
 
     private func errorBanner(message: String) -> some View {

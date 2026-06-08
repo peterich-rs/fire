@@ -60,6 +60,7 @@ struct FireProfileActivityRow: View {
                     Image(systemName: actionIcon)
                         .font(.footnote.weight(.semibold))
                         .foregroundStyle(actionIconColor)
+                        .accessibilityHidden(true)
                 }
 
             VStack(alignment: .leading, spacing: 6) {
@@ -97,6 +98,7 @@ struct FireProfileActivityRow: View {
         }
         .padding(.vertical, 12)
         .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
     }
 
     private func relativeTimeString(_ isoDate: String) -> String {

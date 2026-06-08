@@ -13,6 +13,7 @@ struct FireOnboardingView: View {
 
                 VStack(spacing: 20) {
                     Image(systemName: "flame.fill")
+                        .accessibilityHidden(true)
                         .font(.system(size: 56))
                         .foregroundStyle(
                             LinearGradient(
@@ -38,6 +39,7 @@ struct FireOnboardingView: View {
                     if let errorMessage = viewModel.errorMessage {
                         HStack(spacing: 8) {
                             Image(systemName: "exclamationmark.triangle.fill")
+                                .accessibilityHidden(true)
                                 .foregroundStyle(.orange)
                                 .font(.subheadline)
 
@@ -56,6 +58,7 @@ struct FireOnboardingView: View {
                                     .foregroundStyle(.secondary)
                             }
                             .buttonStyle(.plain)
+                            .accessibilityLabel("关闭错误提示")
                         }
                         .padding(12)
                         .background(
@@ -114,6 +117,7 @@ struct FireOnboardingView: View {
                     } label: {
                         Image(systemName: "ant")
                     }
+                    .accessibilityLabel("开发者工具")
                 }
             }
         }

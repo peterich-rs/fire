@@ -231,15 +231,19 @@ git commit -m "a11y(ios): add accessibility labels to topic rows and home button
 ## Task 5: iOS Accessibility 标注 — 编辑器、搜索、通知、其他
 
 **Files:**
-- Modify: `native/ios-app/App/Views/FireComposerView.swift`
-- Modify: `native/ios-app/App/Views/FireSearchView.swift`
-- Modify: `native/ios-app/App/Views/FireNotificationsView.swift`
-- Modify: `native/ios-app/App/Views/FireBookmarksView.swift`
-- Modify: `native/ios-app/App/Views/FireDraftsView.swift`
-- Modify: `native/ios-app/App/Views/FireOnboardingView.swift`
-- Modify: `native/ios-app/App/Views/FireProfileView.swift`
+- Modify: `native/ios-app/App/Views/Composer/FireComposerView.swift`
+- Modify: `native/ios-app/App/Views/Messages/FireRecipientTokenField.swift`
+- Modify: `native/ios-app/App/Views/Search/FireSearchView.swift`
+- Modify: `native/ios-app/App/Views/Notifications/FireNotificationsView.swift`
+- Modify: `native/ios-app/App/Views/Notifications/FireNotificationHistoryView.swift`
+- Modify: `native/ios-app/App/Views/Bookmarks/FireBookmarksView.swift`
+- Modify: `native/ios-app/App/Views/Other/FireDraftsView.swift`
+- Modify: `native/ios-app/App/Views/Other/FireOnboardingView.swift`
+- Modify: `native/ios-app/App/Views/Profile/FireProfileView.swift`
+- Modify: `native/ios-app/App/Views/Profile/FireProfileActivityRow.swift`
+- Modify: `native/ios-app/App/Views/Profile/FireProfileHeaderComponents.swift`
 
-- [ ] **Step 1: FireComposerView 工具栏按钮标注**
+- [x] **Step 1: FireComposerView 工具栏按钮标注**
 
 为编辑器工具栏按钮添加 accessibility 标注：
 
@@ -254,7 +258,7 @@ git commit -m "a11y(ios): add accessibility labels to topic rows and home button
 .accessibilityLabel("草稿已自动保存")
 ```
 
-- [ ] **Step 2: FireSearchView 标注**
+- [x] **Step 2: FireSearchView 标注**
 
 ```swift
 // 搜索结果行
@@ -264,7 +268,7 @@ git commit -m "a11y(ios): add accessibility labels to topic rows and home button
 .accessibilityLabel("筛选: \(scope.title)")
 ```
 
-- [ ] **Step 3: FireNotificationsView 标注**
+- [x] **Step 3: FireNotificationsView 标注**
 
 ```swift
 // 通知行
@@ -274,20 +278,20 @@ git commit -m "a11y(ios): add accessibility labels to topic rows and home button
 .accessibilityLabel("标记为已读")
 ```
 
-- [ ] **Step 4: 其余视图批量标注**
+- [x] **Step 4: 其余视图批量标注**
 
 对 `FireBookmarksView`, `FireDraftsView`, `FireOnboardingView`, `FireProfileView` 的交互元素添加 `.accessibilityLabel()`。
 
-- [ ] **Step 5: 构建验证**
+- [x] **Step 5: 构建验证**
 
-Run: `cd native/ios-app && xcodebuild build -scheme FireApp -destination 'platform=iOS Simulator,name=iPhone 16' -quiet 2>&1 | tail -5`
-Expected: `** BUILD SUCCEEDED **`
+Verified:
+- `cd native/ios-app && xcodebuild build -scheme Fire -destination 'id=D733CCB1-7B2A-49B5-B3F8-36CB6D0CB2BF' -quiet`
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
-git add native/ios-app/App/Views/
-git commit -m "a11y(ios): add accessibility labels to composer, search, notifications, and remaining views"
+git add docs/superpowers/plans/2026-06-08-p1-foundation.md native/ios-app/App/Views/Composer/FireComposerView.swift native/ios-app/App/Views/Messages/FireRecipientTokenField.swift native/ios-app/App/Views/Search/FireSearchView.swift native/ios-app/App/Views/Notifications/FireNotificationsView.swift native/ios-app/App/Views/Notifications/FireNotificationHistoryView.swift native/ios-app/App/Views/Bookmarks/FireBookmarksView.swift native/ios-app/App/Views/Other/FireDraftsView.swift native/ios-app/App/Views/Other/FireOnboardingView.swift native/ios-app/App/Views/Profile/FireProfileView.swift native/ios-app/App/Views/Profile/FireProfileActivityRow.swift native/ios-app/App/Views/Profile/FireProfileHeaderComponents.swift
+git commit -m "a11y(ios): label composer search notifications and profile views"
 ```
 
 ---

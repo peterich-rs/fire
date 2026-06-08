@@ -314,6 +314,7 @@ struct FireBookmarksView: View {
         case .empty:
             VStack(spacing: 12) {
                 Image(systemName: "bookmark")
+                    .accessibilityHidden(true)
                     .font(.system(size: 34, weight: .light))
                     .foregroundStyle(FireTheme.tertiaryInk)
                 Text("还没有书签")
@@ -436,6 +437,7 @@ struct FireBookmarksView: View {
                                 .frame(width: 24, height: 24)
                         }
                         .buttonStyle(.plain)
+                        .accessibilityLabel("书签操作")
                     }
                 }
                 .padding(.horizontal, 2)

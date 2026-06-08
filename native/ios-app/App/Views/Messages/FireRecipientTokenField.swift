@@ -19,6 +19,7 @@ struct FireRecipientTokenField: View {
                                 Text("@\(username)")
                                     .font(.caption.weight(.medium))
                                 Image(systemName: "xmark")
+                                    .accessibilityHidden(true)
                                     .font(.system(size: 8, weight: .bold))
                             }
                             .foregroundStyle(FireTheme.accent)
@@ -29,6 +30,7 @@ struct FireRecipientTokenField: View {
                             )
                         }
                         .buttonStyle(.plain)
+                        .accessibilityLabel("移除收件人 @\(username)")
                     }
                 }
             }
@@ -50,6 +52,7 @@ struct FireRecipientTokenField: View {
                                     .foregroundStyle(.white)
                                     .frame(width: 28, height: 28)
                                     .background(Circle().fill(FireTheme.accent))
+                                    .accessibilityHidden(true)
 
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text("@\(user.username)")
@@ -67,6 +70,10 @@ struct FireRecipientTokenField: View {
                             .padding(.vertical, 10)
                         }
                         .buttonStyle(.plain)
+                        .accessibilityLabel(user.name?.isEmpty == false
+                            ? "添加收件人 @\(user.username)，\(user.name ?? "")"
+                            : "添加收件人 @\(user.username)"
+                        )
 
                         if user.username != results.last?.username {
                             Divider()

@@ -354,115 +354,41 @@ git commit -m "fix(ios): replace hardcoded composer colors with theme tokens"
 - Create: `native/ios-app/App/Stores/FirePaginatedStore.swift`
 - Modify: `native/ios-app/App/Stores/FireSearchStore.swift`
 - Modify: `native/ios-app/App/Stores/FireNotificationStore.swift`
+- Modify: `native/ios-app/Fire.xcodeproj/project.pbxproj`
+- Modify: `native/ios-app/README.md`
 
-- [ ] **Step 1: 创建 FirePaginatedStore 协议**
+- [x] **Step 1: 创建 FirePaginatedStore 基类**
 
-```swift
-import Foundation
+`FirePaginatedStore<Item>` now owns shared paginated list state:
+- `items`, `isLoading`, `isLoadingMore`, `hasLoadedOnce`
+- blocking/non-blocking errors
+- next cursor tracking
+- cancellable fire-and-forget `load` / `loadMore`
+- awaited `loadAsync` / `loadMoreAsync`
+- overridable `fetchPage`, `mergeItems`, and recoverable-error hook
 
-@MainActor
-class FirePaginatedStore<Item>: ObservableObject {
-    @Published private(set) var items: [Item] = []
-    @Published private(set) var isLoading: Bool = false
-    @Published private(set) var isLoadingMore: Bool = false
-    @Published private(set) var hasLoadedOnce: Bool = false
-    @Published private(set) var blockingError: String?
-    @Published private(set) var nonBlockingError: String?
+- [x] **Step 2: 迁移 FireSearchStore**
 
-    private var nextOffset: UInt32?
-    private var loadTask: Task<Void, Never>?
+`FireSearchStore` now inherits `FirePaginatedStore<SearchResultState>` while preserving its existing public API (`result`, `currentPage`, `isSearching`, `isAppending`, `errorMessage`, `submit(reset:)`). Search keeps the aggregate `SearchResultState` model and uses page numbers as the base cursor instead of introducing a fake item wrapper.
 
-    var hasMore: Bool { nextOffset != nil }
+- [x] **Step 3: 迁移 FireNotificationStore 全量通知分页**
 
-    func load(forceRefresh: Bool = false) {
-        guard forceRefresh || !hasLoadedOnce else { return }
-        loadTask?.cancel()
-        loadTask = Task {
-            guard !isLoading else { return }
-            isLoading = true
-            blockingError = nil
-            do {
-                let result = try await fetchPage(offset: nil)
-                items = result.items
-                nextOffset = result.nextOffset
-                hasLoadedOnce = true
-            } catch {
-                blockingError = error.localizedDescription
-            }
-            isLoading = false
-        }
-    }
+`FireNotificationStore` now delegates full-history pagination to a private `FirePaginatedStore<NotificationItemState>` subclass and bridges `objectWillChange` back to the outer store. Recent notifications, unread count, read mutations, and MessageBus refresh remain explicit in `FireNotificationStore`.
 
-    func loadMore() {
-        guard hasMore, !isLoadingMore, !isLoading else { return }
-        let offset = nextOffset
-        loadTask = Task {
-            isLoadingMore = true
-            nonBlockingError = nil
-            do {
-                let result = try await fetchPage(offset: offset)
-                items.append(contentsOf: result.items)
-                nextOffset = result.nextOffset
-            } catch {
-                nonBlockingError = error.localizedDescription
-            }
-            isLoadingMore = false
-        }
-    }
+- [x] **Step 4: 构建验证**
 
-    func reset() {
-        loadTask?.cancel()
-        items = []
-        nextOffset = nil
-        hasLoadedOnce = false
-        blockingError = nil
-        nonBlockingError = nil
-        isLoading = false
-        isLoadingMore = false
-    }
+Verified:
+- `cd native/ios-app && xcodebuild build -scheme Fire -destination 'id=D733CCB1-7B2A-49B5-B3F8-36CB6D0CB2BF' -quiet`
 
-    func clearErrors() {
-        blockingError = nil
-        nonBlockingError = nil
-    }
+- [x] **Step 5: 运行搜索相关测试**
 
-    func recordFailure(_ message: String, isBlocking: Bool = true) {
-        if isBlocking {
-            blockingError = message
-        } else {
-            nonBlockingError = message
-        }
-    }
+Verified:
+- `cd native/ios-app && xcodebuild test -scheme Fire -destination 'id=D733CCB1-7B2A-49B5-B3F8-36CB6D0CB2BF' -only-testing:FireTests/FireSearchStoreTests`
 
-    struct PageResult {
-        let items: [Item]
-        let nextOffset: UInt32?
-    }
-
-    func fetchPage(offset: UInt32?) async throws -> PageResult {
-        fatalError("Subclass must override fetchPage(offset:)")
-    }
-}
-```
-
-- [ ] **Step 2: FireSearchStore 继承 FirePaginatedStore**
-
-重构 `FireSearchStore` 继承 `FirePaginatedStore<SearchResultItem>`，删除重复的 `isLoading`, `isAppending`, `errorMessage` 属性，override `fetchPage(offset:)`。
-
-- [ ] **Step 3: 构建验证**
-
-Run: `cd native/ios-app && xcodebuild build -scheme FireApp -destination 'platform=iOS Simulator,name=iPhone 16' -quiet 2>&1 | tail -5`
-Expected: `** BUILD SUCCEEDED **`
-
-- [ ] **Step 4: 运行搜索相关测试**
-
-Run: `cd native/ios-app && xcodebuild test -scheme FireApp -destination 'platform=iOS Simulator,name=iPhone 16' -only-testing:FireAppTests/FireSearchStoreTests 2>&1 | tail -10`
-Expected: All tests pass
-
-- [ ] **Step 5: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
-git add native/ios-app/App/Stores/FirePaginatedStore.swift native/ios-app/App/Stores/FireSearchStore.swift
+git add docs/superpowers/plans/2026-06-08-p1-foundation.md native/ios-app/README.md native/ios-app/App/Stores/FirePaginatedStore.swift native/ios-app/App/Stores/FireSearchStore.swift native/ios-app/App/Stores/FireNotificationStore.swift native/ios-app/Fire.xcodeproj/project.pbxproj
 git commit -m "refactor(ios): extract generic FirePaginatedStore base class"
 ```
 

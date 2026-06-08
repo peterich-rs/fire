@@ -1,4 +1,5 @@
 import Foundation
+import Combine
 
 @MainActor
 final class FireNotificationStore: ObservableObject {
@@ -7,19 +8,51 @@ final class FireNotificationStore: ObservableObject {
     @Published private(set) var isLoadingRecent = false
     @Published private(set) var hasLoadedRecentOnce = false
     @Published private(set) var recentErrorMessage: String?
-    @Published private(set) var fullNotifications: [NotificationItemState] = []
-    @Published private(set) var fullNextOffset: UInt32?
-    @Published private(set) var isLoadingFullPage = false
-    @Published private(set) var hasLoadedFullOnce = false
-    @Published private(set) var hasMoreFull = false
-    @Published private(set) var fullErrorMessage: String?
 
     private let appViewModel: FireAppViewModel
+    private let fullPagination = FireNotificationFullPaginationStore()
     private var pendingStateRefreshTask: Task<Void, Never>?
     private var lastFailedFullOffset: UInt32?
+    private var cancellables: Set<AnyCancellable> = []
 
     init(appViewModel: FireAppViewModel) {
         self.appViewModel = appViewModel
+        fullPagination.configure(appViewModel: appViewModel)
+        fullPagination.onPageLoaded = { [weak self] in
+            self?.lastFailedFullOffset = nil
+        }
+        fullPagination.onPageFailed = { [weak self] offset in
+            self?.lastFailedFullOffset = offset
+        }
+        fullPagination.objectWillChange
+            .sink { [weak self] _ in
+                self?.objectWillChange.send()
+            }
+            .store(in: &cancellables)
+    }
+
+    var fullNotifications: [NotificationItemState] {
+        fullPagination.items
+    }
+
+    var fullNextOffset: UInt32? {
+        fullPagination.currentNextOffset
+    }
+
+    var isLoadingFullPage: Bool {
+        fullPagination.isLoading || fullPagination.isLoadingMore
+    }
+
+    var hasLoadedFullOnce: Bool {
+        fullPagination.hasLoadedOnce
+    }
+
+    var hasMoreFull: Bool {
+        fullPagination.hasMore
+    }
+
+    var fullErrorMessage: String? {
+        fullPagination.blockingErrorMessage ?? fullPagination.nonBlockingErrorMessage
     }
 
     var blockingRecentErrorMessage: String? {
@@ -31,11 +64,11 @@ final class FireNotificationStore: ObservableObject {
     }
 
     var blockingFullErrorMessage: String? {
-        hasLoadedFullOnce ? nil : fullErrorMessage
+        fullPagination.blockingErrorMessage
     }
 
     var fullNonBlockingErrorMessage: String? {
-        hasLoadedFullOnce ? fullErrorMessage : nil
+        fullPagination.nonBlockingErrorMessage
     }
 
     var shouldShowFullPaginationRetry: Bool {
@@ -50,12 +83,7 @@ final class FireNotificationStore: ObservableObject {
         isLoadingRecent = false
         hasLoadedRecentOnce = false
         recentErrorMessage = nil
-        fullNotifications = []
-        fullNextOffset = nil
-        isLoadingFullPage = false
-        hasLoadedFullOnce = false
-        hasMoreFull = false
-        fullErrorMessage = nil
+        fullPagination.reset()
         lastFailedFullOffset = nil
     }
 
@@ -69,7 +97,8 @@ final class FireNotificationStore: ObservableObject {
     }
 
     func clearFullError() {
-        fullErrorMessage = nil
+        fullPagination.clearErrors()
+        lastFailedFullOffset = nil
     }
 
     func recordRecentLoadFailure(_ message: String) {
@@ -77,12 +106,12 @@ final class FireNotificationStore: ObservableObject {
     }
 
     func recordFullLoadFailure(_ message: String, offset: UInt32? = nil) {
-        fullErrorMessage = message
+        fullPagination.recordFailure(message, isBlocking: !fullPagination.hasLoadedOnce)
         lastFailedFullOffset = offset
     }
 
     func retryFullLoad() async {
-        await loadFullPage(offset: lastFailedFullOffset)
+        await loadFullPage(offset: lastFailedFullOffset ?? fullPagination.currentNextOffset)
     }
 
     func syncStateFromRuntimeIfAvailable() async {
@@ -149,21 +178,11 @@ final class FireNotificationStore: ObservableObject {
 
     func loadFullPage(offset: UInt32?) async {
         guard appViewModel.session.readiness.canReadAuthenticatedApi else { return }
-        guard !isLoadingFullPage else { return }
-
-        isLoadingFullPage = true
-        fullErrorMessage = nil
-        defer { isLoadingFullPage = false }
-
-        do {
-            _ = try await appViewModel.notificationService.fetchNotifications(offset: offset)
-            let state = try await appViewModel.notificationService.notificationCenterState()
-            apply(centerState: state, updateRecent: state.hasLoadedRecent, updateFull: true)
-        } catch {
-            if await appViewModel.handleRecoverableSessionErrorIfNeeded(error) {
-                return
-            }
-            recordFullLoadFailure(error.localizedDescription, offset: offset)
+        lastFailedFullOffset = nil
+        if let offset {
+            await fullPagination.loadPage(offset: offset)
+        } else {
+            await fullPagination.loadAsync(forceRefresh: true)
         }
     }
 
@@ -201,13 +220,89 @@ final class FireNotificationStore: ObservableObject {
             recentErrorMessage = nil
         }
         if updateFull {
-            fullNotifications = centerState.full
-            fullNextOffset = centerState.fullNextOffset
-            hasLoadedFullOnce = true
-            hasMoreFull = centerState.fullNextOffset != nil
-            fullErrorMessage = nil
+            fullPagination.applyPage(
+                FirePaginatedStore<NotificationItemState>.PageResult(
+                    items: centerState.full,
+                    nextOffset: centerState.fullNextOffset
+                ),
+                reset: true
+            )
             lastFailedFullOffset = nil
         }
     }
 }
 
+@MainActor
+private final class FireNotificationFullPaginationStore: FirePaginatedStore<NotificationItemState> {
+    private weak var appViewModel: FireAppViewModel?
+    private var requestedOffset: UInt32?
+    var onPageLoaded: (() -> Void)?
+    var onPageFailed: ((UInt32?) -> Void)?
+
+    func configure(appViewModel: FireAppViewModel) {
+        self.appViewModel = appViewModel
+    }
+
+    func loadPage(offset: UInt32) async {
+        requestedOffset = offset
+        await loadMoreAsync()
+    }
+
+    override func fetchPage(offset: UInt32?) async throws -> PageResult {
+        guard let appViewModel else {
+            throw FireNotificationPaginationError.missingAppViewModel
+        }
+
+        let pageOffset = offset ?? requestedOffset
+        let list = try await appViewModel.notificationService.fetchNotifications(offset: pageOffset)
+        requestedOffset = nil
+        return PageResult(
+            items: list.notifications,
+            nextOffset: list.nextOffset,
+            loadedOffset: pageOffset
+        )
+    }
+
+    override func applyPage(_ result: PageResult, reset: Bool) {
+        super.applyPage(result, reset: reset)
+        onPageLoaded?()
+    }
+
+    override func mergeItems(
+        existing: [NotificationItemState],
+        incoming: [NotificationItemState]
+    ) -> [NotificationItemState] {
+        var merged = Dictionary(uniqueKeysWithValues: existing.map { ($0.id, $0) })
+        var orderedIDs = existing.map(\.id)
+
+        for item in incoming {
+            if merged[item.id] == nil {
+                orderedIDs.append(item.id)
+            }
+            merged[item.id] = item
+        }
+
+        return orderedIDs.compactMap { merged[$0] }
+    }
+
+    override func handlePageLoadError(_ error: Error, offset: UInt32?) async -> Bool {
+        guard let appViewModel else { return false }
+        requestedOffset = offset ?? requestedOffset
+        let handled = await appViewModel.handleRecoverableSessionErrorIfNeeded(error)
+        if !handled {
+            onPageFailed?(requestedOffset)
+        }
+        return handled
+    }
+}
+
+private enum FireNotificationPaginationError: LocalizedError {
+    case missingAppViewModel
+
+    var errorDescription: String? {
+        switch self {
+        case .missingAppViewModel:
+            return "Notification pagination store is not configured."
+        }
+    }
+}

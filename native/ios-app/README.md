@@ -124,9 +124,11 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
   - keeps topic-detail subscription, presence heartbeat, quick reply, reaction toggles, and post-edit refresh reconciliation out of `FireAppViewModel`
 - `App/Stores/FireSearchStore.swift`
   - owns the search screen's query, scope, result, paging, loading, and error state
+  - inherits the shared `FirePaginatedStore<SearchResultState>` load/reset/error state machine while preserving the search screen's aggregate result API
   - keeps the actual `/search.json` call path on `FireAppViewModel` so session ownership and recoverable-auth handling stay centralized during the W2 split
 - `App/Stores/FireNotificationStore.swift`
   - owns unread count, recent notifications, full-history paging, and notification-specific loading state
+  - delegates full-history pagination to `FirePaginatedStore<NotificationItemState>` while keeping recent notification and unread-count state explicit
   - keeps MessageBus-triggered runtime refresh and notification read mutations outside `FireAppViewModel`, while still delegating Rust calls and recoverable-auth handling back through the shared app/session facade
 - `App/Stores/Shared/FireEntityIndex.swift` and `App/Stores/Shared/FireOrderedIDList.swift`
   - provide the minimal entity-by-id and stable-order primitives used by the home feed to support incremental list patching

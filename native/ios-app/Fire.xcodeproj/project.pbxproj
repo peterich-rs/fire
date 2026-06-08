@@ -114,6 +114,7 @@
 		B0AA426C24E27249B4AE2E57 /* FireAppViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C063DC3D3814082F9655534 /* FireAppViewModel.swift */; };
 		B31E376321DE4A930954DFB5 /* FireLoginWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19BB7B37B7FD26B1CF0A143D /* FireLoginWebView.swift */; };
 		B4AA77D05D86AB070BE06A93 /* FireNotificationStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 502CE714A74D91C33212BF57 /* FireNotificationStore.swift */; };
+		F7A7E160400A000000000001 /* FirePaginatedStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7A7E160400A000000000000 /* FirePaginatedStore.swift */; };
 		B76556FFB0AC923853985D87 /* FireNotificationHistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1AAF2993FFB26B6D9309E47F /* FireNotificationHistoryView.swift */; };
 		B7784C41CA7002BF3223029B /* FireTopicDetailFeedCells.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8A36DF217F215CDEB23FDE1 /* FireTopicDetailFeedCells.swift */; };
 		B80E44034285312AABCD80A0 /* FireTopicImagePipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = D411B9ABE5C61805B92A2DD2 /* FireTopicImagePipeline.swift */; };
@@ -249,6 +250,7 @@
 		4B1EECEB8CD1DD9B64C8D92E /* FireFollowListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireFollowListView.swift; sourceTree = "<group>"; };
 		4B79252C493DBB0CE379F302 /* FireCategoriesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireCategoriesView.swift; sourceTree = "<group>"; };
 		502CE714A74D91C33212BF57 /* FireNotificationStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireNotificationStore.swift; sourceTree = "<group>"; };
+		F7A7E160400A000000000000 /* FirePaginatedStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FirePaginatedStore.swift; sourceTree = "<group>"; };
 		5267F5B3B48F8FCBF2B891BD /* FireTopicDetailFeedController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireTopicDetailFeedController.swift; sourceTree = "<group>"; };
 		52BB1F5B0970DC2504ACD989 /* FirePushRegistrationCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FirePushRegistrationCoordinator.swift; sourceTree = "<group>"; };
 		52FD2E866B8BC3532AA8274A /* FireSearchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireSearchView.swift; sourceTree = "<group>"; };
@@ -737,6 +739,7 @@
 			children = (
 				EC7384EAE1C43817CAE71D9F /* FireHomeFeedStore.swift */,
 				502CE714A74D91C33212BF57 /* FireNotificationStore.swift */,
+				F7A7E160400A000000000000 /* FirePaginatedStore.swift */,
 				25FD219C2BFB0727FD0D3DD2 /* FireSearchStore.swift */,
 				9267FBC4BA4FD365E6F4E371 /* FireTopicDetailStore.swift */,
 				2662344E7D6ECEF292716835 /* Shared */,
@@ -1084,6 +1087,7 @@
 				13C14E92B46B8FA37CFD3B1A /* FireNetworkTraceDetailView.swift in Sources */,
 				B76556FFB0AC923853985D87 /* FireNotificationHistoryView.swift in Sources */,
 				760B8351400A000000000001 /* FireNotificationService.swift in Sources */,
+				F7A7E160400A000000000001 /* FirePaginatedStore.swift in Sources */,
 				B4AA77D05D86AB070BE06A93 /* FireNotificationStore.swift in Sources */,
 				659462A28F8ADF3054995F7B /* FireNotificationsView.swift in Sources */,
 				47478A1EF4F9D689EFA0FD9E /* FireOnboardingView.swift in Sources */,

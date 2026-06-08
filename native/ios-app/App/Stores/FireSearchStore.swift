@@ -1,21 +1,37 @@
 import Foundation
 
 @MainActor
-final class FireSearchStore: ObservableObject {
+final class FireSearchStore: FirePaginatedStore<SearchResultState> {
     @Published var query = ""
     @Published private(set) var scope: FireSearchScope = .all
-    @Published private(set) var result: SearchResultState?
-    @Published private(set) var currentPage: UInt32 = 1
-    @Published private(set) var isSearching = false
-    @Published private(set) var isAppending = false
-    @Published private(set) var errorMessage: String?
 
     private let appViewModel: FireAppViewModel
-    private var searchTask: Task<Void, Never>?
-    private var latestSearchRequestID: UInt64 = 0
+    private var activeSearchQuery = ""
+    private var activeSearchScope: FireSearchScope = .all
+    private var latestCompletedPage: UInt32 = 1
 
     init(appViewModel: FireAppViewModel) {
         self.appViewModel = appViewModel
+    }
+
+    var result: SearchResultState? {
+        items.first
+    }
+
+    var currentPage: UInt32 {
+        latestCompletedPage
+    }
+
+    var isSearching: Bool {
+        isLoading
+    }
+
+    var isAppending: Bool {
+        isLoadingMore
+    }
+
+    var errorMessage: String? {
+        blockingErrorMessage ?? nonBlockingErrorMessage
     }
 
     var canLoadMoreResults: Bool {
@@ -54,61 +70,53 @@ final class FireSearchStore: ObservableObject {
             clear(resetQuery: false)
             return
         }
-        if !reset && (isSearching || isAppending) {
-            return
-        }
 
-        searchTask?.cancel()
-        let nextPage = reset ? UInt32(1) : currentPage + 1
-        let requestID = latestSearchRequestID &+ 1
-        latestSearchRequestID = requestID
-        let currentScope = scope
+        activeSearchQuery = trimmedQuery
+        activeSearchScope = scope
 
-        if reset {
-            isSearching = true
-            isAppending = false
+        if reset || result == nil {
+            super.load(forceRefresh: true)
         } else {
-            isAppending = true
+            super.loadMore()
         }
+    }
 
-        searchTask = Task { [weak self] in
-            guard let self else { return }
+    override func fetchPage(offset: UInt32?) async throws -> PageResult {
+        let page = offset ?? 1
+        let response = try await appViewModel.searchService.search(
+            query: activeSearchQuery,
+            typeFilter: activeSearchScope.typeFilter,
+            page: page
+        )
+        let hasMore = Self.canLoadMoreResults(in: response, scope: activeSearchScope)
+        return PageResult(
+            items: [response],
+            nextOffset: hasMore ? page + 1 : nil,
+            loadedOffset: page
+        )
+    }
 
-            do {
-                let response = try await self.appViewModel.searchService.search(
-                    query: trimmedQuery,
-                    typeFilter: currentScope.typeFilter,
-                    page: nextPage
-                )
-                guard !Task.isCancelled, requestID == self.latestSearchRequestID else {
-                    return
-                }
+    override func applyPage(_ result: PageResult, reset: Bool) {
+        super.applyPage(result, reset: reset)
+        latestCompletedPage = result.loadedOffset ?? 1
+    }
 
-                self.errorMessage = nil
-                self.currentPage = nextPage
-                self.result = reset
-                    ? response
-                    : Self.merge(existing: self.result, incoming: response)
-            } catch is CancellationError {
-                return
-            } catch {
-                guard !Task.isCancelled, requestID == self.latestSearchRequestID else {
-                    return
-                }
-                if await self.appViewModel.handleRecoverableSessionErrorIfNeeded(error) {
-                    self.errorMessage = nil
-                } else {
-                    self.errorMessage = error.localizedDescription
-                }
-            }
-
-            guard requestID == self.latestSearchRequestID else {
-                return
-            }
-            self.isSearching = false
-            self.isAppending = false
-            self.searchTask = nil
+    override func mergeItems(
+        existing: [SearchResultState],
+        incoming: [SearchResultState]
+    ) -> [SearchResultState] {
+        guard let next = incoming.first else {
+            return existing
         }
+        return [Self.merge(existing: existing.first, incoming: next)]
+    }
+
+    override func handlePageLoadError(_ error: Error, offset: UInt32?) async -> Bool {
+        if await appViewModel.handleRecoverableSessionErrorIfNeeded(error) {
+            clearErrors()
+            return true
+        }
+        return false
     }
 
     nonisolated static func merge(
@@ -147,17 +155,30 @@ final class FireSearchStore: ObservableObject {
     }
 
     private func clear(resetQuery: Bool) {
-        searchTask?.cancel()
-        searchTask = nil
-        latestSearchRequestID = latestSearchRequestID &+ 1
+        super.reset()
         if resetQuery {
             query = ""
         }
-        result = nil
-        currentPage = 1
-        isSearching = false
-        isAppending = false
-        errorMessage = nil
+        activeSearchQuery = ""
+        activeSearchScope = .all
+        latestCompletedPage = 1
         scope = .all
+    }
+
+    private nonisolated static func canLoadMoreResults(
+        in result: SearchResultState,
+        scope: FireSearchScope
+    ) -> Bool {
+        switch scope {
+        case .all:
+            return result.groupedResult.moreFullPageResults
+                || result.groupedResult.morePosts
+                || result.groupedResult.moreUsers
+        case .topic, .post:
+            return result.groupedResult.moreFullPageResults
+                || result.groupedResult.morePosts
+        case .user:
+            return result.groupedResult.moreUsers
+        }
     }
 }

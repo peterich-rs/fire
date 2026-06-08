@@ -1196,7 +1196,7 @@ class TopicDetailActivity : AppCompatActivity() {
             .filter { it > 0u }
             .distinct()
         if (replyIds.isEmpty()) {
-            return sessionStore.fetchPostReplies(post.id, after = 1u)
+            return emptyList()
         }
 
         return replyIds.chunked(REPLY_CONTEXT_POST_BATCH_SIZE).flatMap { batch ->

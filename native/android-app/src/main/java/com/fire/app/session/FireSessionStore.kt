@@ -502,10 +502,6 @@ class FireSessionStore(
         core.topics().lookupUploadUrls(shortUrls)
     }
 
-    suspend fun fetchPostReplies(postId: ULong, after: UInt? = 1u): List<TopicPostState> = withContext(Dispatchers.IO) {
-        core.topics().fetchPostReplies(postId, after)
-    }
-
     suspend fun fetchPostReplyIds(postId: ULong): List<ULong> = withContext(Dispatchers.IO) {
         core.topics().fetchPostReplyIds(postId)
     }

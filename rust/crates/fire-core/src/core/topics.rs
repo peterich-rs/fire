@@ -15,9 +15,10 @@ use tracing::{debug, info, warn};
 use super::{network::expect_success, FireCore};
 use crate::{
     error::FireCoreError,
+    json_helpers::invalid_json,
     topic_payloads::{
-        parse_topic_ai_summary_value, parse_topic_post_stream_value, parse_topic_post_value,
-        RawTopicDetail, RawTopicListResponse,
+        parse_topic_ai_summary_value, parse_topic_post_stream_value, RawTopicDetail,
+        RawTopicListResponse,
     },
 };
 
@@ -706,17 +707,34 @@ impl FireCore {
         topic_id: u64,
         post_number: u32,
     ) -> Result<TopicPost, FireCoreError> {
-        let path = format!("/posts/by_number/{topic_id}/{post_number}.json");
-        let traced = self.build_json_get_request("fetch post by number", &path, vec![], &[])?;
+        let path = format!("/t/{topic_id}/posts.json");
+        let params = vec![
+            ("post_number", post_number.to_string()),
+            ("asc", "true".to_string()),
+            ("include_suggested", "false".to_string()),
+        ];
+        let traced = self.build_json_get_request("fetch post by number", &path, params, &[])?;
         let (trace_id, response) = self.execute_request(traced).await?;
         let response = expect_success(self, "fetch post by number", trace_id, response).await?;
         let value: Value = self
             .read_response_json("fetch post by number", trace_id, response)
             .await?;
-        parse_topic_post_value(value).map_err(|source| FireCoreError::ResponseDeserialize {
-            operation: "fetch post by number",
-            source,
-        })
+        let post_stream = parse_topic_post_stream_value(value).map_err(|source| {
+            FireCoreError::ResponseDeserialize {
+                operation: "fetch post by number",
+                source,
+            }
+        })?;
+        post_stream
+            .posts
+            .into_iter()
+            .find(|post| post.post_number == post_number)
+            .ok_or_else(|| FireCoreError::ResponseDeserialize {
+                operation: "fetch post by number",
+                source: invalid_json(format!(
+                    "topic post stream did not contain post number {post_number}"
+                )),
+            })
     }
 
     pub async fn fetch_topic_ai_summary(

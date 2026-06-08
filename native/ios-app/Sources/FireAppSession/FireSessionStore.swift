@@ -673,12 +673,6 @@ public actor FireSessionStore {
         }
     }
 
-    public func fetchPostReplies(postID: UInt64, after: UInt32? = 1) async throws -> [TopicPostState] {
-        try await runPersistingSessionChanges {
-            try await core.topics().fetchPostReplies(postId: postID, after: after)
-        }
-    }
-
     public func fetchPostReplyIds(postID: UInt64) async throws -> [UInt64] {
         try await runPersistingSessionChanges {
             try await core.topics().fetchPostReplyIds(postId: postID)

@@ -1463,12 +1463,23 @@ async fn fetch_topic_detail_source_snapshot_preserves_target_anchor_and_source_c
         .and_then(Value::as_object_mut)
         .expect("top-level post stream object")
         .extend([
-            ("posts".into(), Value::Array(vec![body_post, target_root])),
+            ("posts".into(), Value::Array(vec![body_post])),
             ("stream".into(), json!(root_stream.clone())),
         ]);
 
     let responses = vec![
         raw_json_response(200, "application/json", &top_level_payload.to_string()),
+        raw_json_response(
+            200,
+            "application/json",
+            &json!({
+                "post_stream": {
+                    "posts": [target_root],
+                    "stream": [9014]
+                }
+            })
+            .to_string(),
+        ),
         raw_json_response(
             200,
             "application/json",
@@ -1513,9 +1524,12 @@ async fn fetch_topic_detail_source_snapshot_preserves_target_anchor_and_source_c
     assert_eq!(next_cursor.topic_id, 123);
     assert_eq!(next_cursor.next_stream_offset, 10);
     assert_eq!(next_cursor.batch_size, 10);
-    assert_eq!(requests.len(), 2);
+    assert_eq!(requests.len(), 3);
     assert!(requests[0].contains("GET /t/123/14.json?track_visit=true&forceLoad=true HTTP/1.1"));
     assert!(requests[1].contains("GET /t/123/posts.json"));
+    assert!(requests[1].contains("post_number=14"));
+    assert!(requests[1].contains("asc=true"));
+    assert!(requests[2].contains("GET /t/123/posts.json"));
 }
 
 #[tokio::test]

@@ -26,11 +26,13 @@ In that mode, the shared-session header can replace ordinary same-origin cookies
 ### Request Headers
 
 ```http
-Accept: application/json
-Content-Type: application/x-www-form-urlencoded
-Discourse-Background: true
+Accept: text/plain, */*; q=0.01
+Content-Type: application/x-www-form-urlencoded; charset=UTF-8
+Dont-Chunk: true
 X-SILENCE-LOGGER: true
 ```
+
+`Discourse-Background: true` is only sent for background polling mode.
 
 CSRF is not required for MessageBus polling.
 

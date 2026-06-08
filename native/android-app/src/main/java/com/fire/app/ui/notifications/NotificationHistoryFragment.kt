@@ -8,32 +8,37 @@ import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.fragment.app.Fragment
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.navigation.fragment.findNavController
 import androidx.paging.LoadState
+import androidx.paging.insertSeparators
+import androidx.paging.map
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import com.fire.app.MainActivity
 import com.fire.app.R
+import com.fire.app.core.ext.optimizeForPaging
 import com.fire.app.session.FireSessionStore
 import com.fire.app.session.FireSessionStoreRepository
 import com.fire.app.ui.topicdetail.TopicDetailActivity
+import java.time.LocalDate
+import java.time.OffsetDateTime
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import uniffi.fire_uniffi_notifications.NotificationItemState
 
-class NotificationsFragment : Fragment() {
+class NotificationHistoryFragment : Fragment() {
 
     private lateinit var recyclerView: RecyclerView
-    private lateinit var adapter: NotificationListAdapter
+    private lateinit var adapter: NotificationHistoryAdapter
     private lateinit var swipeRefresh: SwipeRefreshLayout
     private lateinit var emptyView: TextView
     private lateinit var loadingView: ProgressBar
-    private lateinit var markAllReadButton: View
-    private lateinit var viewAllButton: View
 
     private var viewModel: NotificationsViewModel? = null
 
@@ -42,30 +47,28 @@ class NotificationsFragment : Fragment() {
         container: ViewGroup?,
         savedInstanceState: Bundle?,
     ): View? {
-        return inflater.inflate(R.layout.fragment_notifications, container, false)
+        return inflater.inflate(R.layout.fragment_notification_history, container, false)
     }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
-        recyclerView = view.findViewById(R.id.notification_list)
+        recyclerView = view.findViewById(R.id.notification_history_list)
         swipeRefresh = view.findViewById(R.id.swipe_refresh)
         emptyView = view.findViewById(R.id.empty_view)
         loadingView = view.findViewById(R.id.loading_view)
-        markAllReadButton = view.findViewById(R.id.mark_all_read_button)
-        viewAllButton = view.findViewById(R.id.view_all_notifications_button)
 
         viewLifecycleOwner.lifecycleScope.launch {
             val sessionStore = FireSessionStoreRepository.get(requireContext())
             viewModel = ViewModelProvider(
-                this@NotificationsFragment,
+                this@NotificationHistoryFragment,
                 NotificationsViewModelFactory(sessionStore),
             )[NotificationsViewModel::class.java]
 
-            adapter = NotificationListAdapter(::onNotificationClick)
-
+            adapter = NotificationHistoryAdapter(::onNotificationClick)
             recyclerView.layoutManager = LinearLayoutManager(requireContext())
             recyclerView.adapter = adapter
+            recyclerView.optimizeForPaging()
             adapter.addLoadStateListener { loadStates ->
                 val refresh = loadStates.refresh
                 val isInitialLoading = refresh is LoadState.Loading && adapter.itemCount == 0
@@ -88,51 +91,48 @@ class NotificationsFragment : Fragment() {
             }
 
             swipeRefresh.setOnRefreshListener {
-                refreshNotifications()
-            }
-
-            markAllReadButton.setOnClickListener {
-                viewModel?.markAllRead()
-            }
-            viewAllButton.setOnClickListener {
-                findNavController().navigate(NotificationsFragmentDirections.actionNotificationsToHistory())
+                viewModel?.refreshNotificationCenter()
+                adapter.refresh()
             }
 
             val vm = viewModel ?: return@launch
-            launch {
-                vm.notificationPagingFlow().collectLatest { pagingData ->
-                    adapter.submitData(pagingData)
+            viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                launch {
+                    vm.notificationPagingFlow()
+                        .collectLatest { pagingData ->
+                            adapter.submitData(
+                                pagingData
+                                    .map { notification -> NotificationHistoryRow.Item(notification) }
+                                    .insertSeparators { before, after ->
+                                        val afterGroup = after?.notification?.historyGroup() ?: return@insertSeparators null
+                                        val beforeGroup = before?.notification?.historyGroup()
+                                        if (afterGroup == beforeGroup) {
+                                            null
+                                        } else {
+                                            NotificationHistoryRow.Header(
+                                                groupKey = afterGroup,
+                                                label = afterGroup.label(),
+                                            )
+                                        }
+                                    },
+                            )
+                        }
                 }
-            }
-
-            launch {
-                var hasObservedNotificationCenter = false
-                vm.notificationCenter.collect { state ->
-                    val unreadCount = state?.counters?.allUnread?.toInt() ?: 0
-                    markAllReadButton.visibility = if (unreadCount > 0) View.VISIBLE else View.GONE
-                    if (state != null && hasObservedNotificationCenter) {
-                        adapter.refresh()
-                    }
-                    hasObservedNotificationCenter = true
-                    (activity as? MainActivity)?.refreshNotificationBadge()
-                }
-            }
-
-            launch {
-                vm.isRefreshing.collect { refreshing ->
-                    swipeRefresh.isRefreshing = refreshing
-                }
-            }
-
-            launch {
-                vm.error.collect { error ->
-                    if (!error.isNullOrBlank()) {
-                        Toast.makeText(requireContext(), error, Toast.LENGTH_SHORT).show()
+                launch {
+                    vm.notificationCenter.collect { state ->
+                        if (state != null) {
+                            (activity as? MainActivity)?.refreshNotificationBadge()
+                        }
                     }
                 }
+                launch {
+                    vm.error.collect { error ->
+                        if (!error.isNullOrBlank()) {
+                            Toast.makeText(requireContext(), error, Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }
             }
-
-            vm.refreshRecentNotifications()
         }
     }
 
@@ -154,17 +154,13 @@ class NotificationsFragment : Fragment() {
 
         val username = item.resolvedUsername()
         if (username != null) {
-            val action = NotificationsFragmentDirections.actionNotificationsToProfile(username)
+            val action = NotificationHistoryFragmentDirections
+                .actionNotificationHistoryToProfile(username)
             findNavController().navigate(action)
             return
         }
 
         Toast.makeText(requireContext(), R.string.notifications_no_target, Toast.LENGTH_SHORT).show()
-    }
-
-    private fun refreshNotifications() {
-        viewModel?.refreshRecentNotifications(force = true)
-        adapter.refresh()
     }
 
     private fun NotificationItemState.resolvedUsername(): String? {
@@ -174,6 +170,30 @@ class NotificationsFragment : Fragment() {
             data.originalUsername,
         ).firstNotNullOfOrNull { value ->
             value?.trim()?.takeIf { it.isNotEmpty() && !it.equals("null", ignoreCase = true) }
+        }
+    }
+
+    private fun NotificationItemState.historyGroup(): NotificationHistoryGroup {
+        val createdDate = createdAt?.localDate()
+        val today = LocalDate.now()
+        return when (createdDate) {
+            today -> NotificationHistoryGroup.TODAY
+            today.minusDays(1) -> NotificationHistoryGroup.YESTERDAY
+            else -> NotificationHistoryGroup.EARLIER
+        }
+    }
+
+    private fun String.localDate(): LocalDate? {
+        return runCatching {
+            OffsetDateTime.parse(this).toLocalDate()
+        }.getOrNull()
+    }
+
+    private fun NotificationHistoryGroup.label(): String {
+        return when (this) {
+            NotificationHistoryGroup.TODAY -> getString(R.string.notifications_history_today)
+            NotificationHistoryGroup.YESTERDAY -> getString(R.string.notifications_history_yesterday)
+            NotificationHistoryGroup.EARLIER -> getString(R.string.notifications_history_earlier)
         }
     }
 

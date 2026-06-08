@@ -860,36 +860,47 @@ git commit -m "feat(android): add read history screen with pagination"
 ## Task 16: Android — 通知历史全屏页
 
 **Files:**
+- Modify: `native/android-app/src/main/java/com/fire/app/ui/notifications/NotificationListAdapter.kt`
+- Create: `native/android-app/src/main/java/com/fire/app/ui/notifications/NotificationHistoryAdapter.kt`
 - Create: `native/android-app/src/main/java/com/fire/app/ui/notifications/NotificationHistoryFragment.kt`
 - Create: `native/android-app/src/main/res/layout/fragment_notification_history.xml`
+- Create: `native/android-app/src/main/res/layout/item_notification_history_header.xml`
+- Modify: `native/android-app/src/main/java/com/fire/app/ui/notifications/NotificationsFragment.kt`
+- Modify: `native/android-app/src/main/res/layout/fragment_notifications.xml`
 - Modify: `native/android-app/src/main/res/navigation/fire_nav_graph.xml`
+- Modify: `native/android-app/src/main/res/values/strings.xml`
 
-- [ ] **Step 1: 创建 NotificationHistoryFragment**
+- [x] **Step 1: Create grouped notification history screen**
 
-复用 `NotificationPagingSource`，独立全屏页面展示所有通知历史，支持分组显示（今天/昨天/更早）。
+`NotificationHistoryFragment` reuses `NotificationsViewModel` and the existing `NotificationPagingSource` through `notificationPagingFlow()`. It maps notification rows into a history row model and uses Paging `insertSeparators` for Today / Yesterday / Earlier section headers.
 
-```kotlin
-package com.fire.app.ui.notifications
+- [x] **Step 2: Reuse notification row rendering**
 
-// 分页通知列表，与 NotificationsFragment 共享 PagingSource
-// 区别：全屏显示、分组 section headers
-```
+`NotificationListAdapter` now exposes a reusable `NotificationViewHolder`, and `NotificationHistoryAdapter` wraps it for notification rows while rendering section headers from `item_notification_history_header.xml`.
 
-- [ ] **Step 2: 布局和导航**
+- [x] **Step 3: Add layout and navigation**
 
-`fragment_notification_history.xml`：SwipeRefreshLayout + RecyclerView。
-在 `fire_nav_graph.xml` 中添加 `notificationHistoryFragment`。
-在 `NotificationsFragment` 中添加「查看全部」按钮导航。
+`fragment_notification_history.xml` provides a full-screen `SwipeRefreshLayout` + `RecyclerView` list with loading and empty/error states. `NotificationsFragment` now has a `View All` text button that navigates to `notificationHistoryFragment`; the history screen can still navigate profile-targeted notifications to `profileFragment`.
 
-- [ ] **Step 3: 构建验证**
+- [x] **Step 4: Build verification**
 
-Run: `cd native/android-app && ./gradlew assembleDebug 2>&1 | tail -5`
-Expected: `BUILD SUCCESSFUL`
+Run: `cd native/android-app && ./gradlew assembleDebug`
 
-- [ ] **Step 4: Commit**
+Result: `BUILD SUCCESSFUL`
+
+- [x] **Step 5: Commit**
 
 ```bash
-git add native/android-app/src/main/java/com/fire/app/ui/notifications/NotificationHistoryFragment.kt native/android-app/src/main/res/layout/fragment_notification_history.xml native/android-app/src/main/res/navigation/fire_nav_graph.xml
+git add docs/superpowers/plans/2026-06-08-p1-foundation.md \
+  native/android-app/src/main/java/com/fire/app/ui/notifications/NotificationListAdapter.kt \
+  native/android-app/src/main/java/com/fire/app/ui/notifications/NotificationHistoryAdapter.kt \
+  native/android-app/src/main/java/com/fire/app/ui/notifications/NotificationHistoryFragment.kt \
+  native/android-app/src/main/java/com/fire/app/ui/notifications/NotificationsFragment.kt \
+  native/android-app/src/main/res/layout/fragment_notifications.xml \
+  native/android-app/src/main/res/layout/fragment_notification_history.xml \
+  native/android-app/src/main/res/layout/item_notification_history_header.xml \
+  native/android-app/src/main/res/navigation/fire_nav_graph.xml \
+  native/android-app/src/main/res/values/strings.xml
 git commit -m "feat(android): add full-page notification history with grouped sections"
 ```
 

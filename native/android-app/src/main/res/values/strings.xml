@@ -357,10 +357,15 @@
     <string name="profile_likes_given">%1$s likes given</string>
     <string name="profile_bookmarks_count">%1$s bookmarks</string>
     <string name="notifications_title">Notifications</string>
+    <string name="notifications_history_title">Notification History</string>
     <string name="notifications_loading">Loading notifications…</string>
     <string name="notifications_error">Unable to load notifications.</string>
     <string name="notifications_empty">No notifications available.</string>
     <string name="notifications_mark_all_read">Mark All Read</string>
+    <string name="notifications_view_all">View All</string>
+    <string name="notifications_history_today">Today</string>
+    <string name="notifications_history_yesterday">Yesterday</string>
+    <string name="notifications_history_earlier">Earlier</string>
     <string name="notifications_mark_read_error">Unable to update notification read state.</string>
     <string name="notifications_no_target">This notification has no native destination yet.</string>
     <string name="notifications_unread_count">%1$s unread</string>

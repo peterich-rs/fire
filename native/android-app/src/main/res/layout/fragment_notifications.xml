@@ -23,6 +23,14 @@
             android:textAppearance="@style/TextAppearance.AppCompat.Title" />
 
         <com.google.android.material.button.MaterialButton
+            android:id="@+id/view_all_notifications_button"
+            style="@style/Widget.MaterialComponents.Button.TextButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/notifications_view_all"
+            app:iconTint="@color/fire_accent" />
+
+        <com.google.android.material.button.MaterialButton
             android:id="@+id/mark_all_read_button"
             style="@style/Widget.MaterialComponents.Button.TextButton"
             android:layout_width="wrap_content"

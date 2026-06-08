@@ -130,6 +130,7 @@
     <string name="feed_drafts_delete_confirm">Delete</string>
     <string name="feed_drafts_resume_unavailable">This draft cannot be resumed on Android yet.</string>
     <string name="feed_read_history">Read History</string>
+    <string name="feed_read_history_short">History</string>
     <string name="feed_read_history_empty">No read history available.</string>
     <string name="feed_read_history_last_read">Last read #%1$s</string>
     <string name="topic_detail_error">Unable to load topic detail.</string>

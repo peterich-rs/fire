@@ -74,6 +74,9 @@
             android:id="@+id/action_profile_to_drafts"
             app:destination="@id/draftsFragment" />
         <action
+            android:id="@+id/action_profile_to_readHistory"
+            app:destination="@id/readHistoryFragment" />
+        <action
             android:id="@+id/action_profile_to_privateMessages"
             app:destination="@id/privateMessagesFragment" />
         <deepLink
@@ -99,6 +102,11 @@
         android:id="@+id/draftsFragment"
         android:name="com.fire.app.ui.drafts.DraftsFragment"
         android:label="@string/feed_drafts" />
+
+    <fragment
+        android:id="@+id/readHistoryFragment"
+        android:name="com.fire.app.ui.readhistory.ReadHistoryFragment"
+        android:label="@string/feed_read_history" />
 
     <fragment
         android:id="@+id/privateMessagesFragment"

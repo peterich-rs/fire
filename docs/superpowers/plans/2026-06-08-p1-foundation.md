@@ -813,97 +813,45 @@ git commit -m "feat(android): add Firebase Cloud Messaging push notification sup
 ## Task 15: Android — 阅读历史页
 
 **Files:**
+- Create: `native/android-app/src/main/java/com/fire/app/data/paging/ReadHistoryPagingSource.kt`
 - Create: `native/android-app/src/main/java/com/fire/app/ui/readhistory/ReadHistoryFragment.kt`
 - Create: `native/android-app/src/main/java/com/fire/app/ui/readhistory/ReadHistoryViewModel.kt`
 - Create: `native/android-app/src/main/res/layout/fragment_read_history.xml`
 - Modify: `native/android-app/src/main/res/navigation/fire_nav_graph.xml`
 - Modify: `native/android-app/src/main/java/com/fire/app/ui/profile/ProfileFragment.kt`
+- Modify: `native/android-app/src/main/res/layout/fragment_profile.xml`
+- Modify: `native/android-app/src/main/res/values/strings.xml`
 
-- [ ] **Step 1: 创建 ReadHistoryViewModel**
+- [x] **Step 1: Add Paging-backed read history data flow**
 
-```kotlin
-package com.fire.app.ui.readhistory
+`ReadHistoryPagingSource` calls `FireSessionStore.fetchReadHistory(page)` and returns `TopicRowState` rows directly from `TopicListState`, using `nextPage` as the authoritative continuation. `ReadHistoryViewModel` owns the `Pager` and caches it in `viewModelScope`.
 
-import androidx.lifecycle.ViewModel
-import androidx.lifecycle.viewModelScope
-import com.fire.app.session.FireSessionStore
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.launch
-import uniffi.fire_uniffi_types.TopicRowState
+- [x] **Step 2: Add read history screen**
 
-class ReadHistoryViewModel(private val sessionStore: FireSessionStore) : ViewModel() {
+`ReadHistoryFragment` reuses `TopicListAdapter`, `TopicDetailActivity`, `SwipeRefreshLayout`, and the existing loading/empty/error list-state pattern. Topic taps open the topic detail at `lastReadPostNumber` when available.
 
-    private val _topics = MutableStateFlow<List<TopicRowState>>(emptyList())
-    val topics = _topics.asStateFlow()
+- [x] **Step 3: Add profile navigation entry**
 
-    private val _isLoading = MutableStateFlow(false)
-    val isLoading = _isLoading.asStateFlow()
+`fire_nav_graph.xml` now includes `readHistoryFragment` and the generated `actionProfileToReadHistory()` Safe Args action. The own-profile action row now exposes Bookmarks, Drafts, Messages, and History.
 
-    private val _errorMessage = MutableStateFlow<String?>(null)
-    val errorMessage = _errorMessage.asStateFlow()
+- [x] **Step 4: Build verification**
 
-    private var currentPage: UInt = 0u
-    private var hasMore = true
+Run: `cd native/android-app && ./gradlew assembleDebug`
 
-    fun loadHistory(forceRefresh: Boolean = false) {
-        if (!forceRefresh && _topics.value.isNotEmpty()) return
-        currentPage = 0u
-        hasMore = true
-        viewModelScope.launch {
-            _isLoading.value = true
-            _errorMessage.value = null
-            try {
-                val result = sessionStore.fetchReadHistory(page = 0u)
-                _topics.value = result.topics
-                hasMore = result.moreTopicsUrl != null
-                currentPage = 1u
-            } catch (e: Exception) {
-                _errorMessage.value = e.localizedMessage ?: "加载阅读历史失败"
-            }
-            _isLoading.value = false
-        }
-    }
+Result: `BUILD SUCCESSFUL`
 
-    fun loadMore() {
-        if (!hasMore || _isLoading.value) return
-        viewModelScope.launch {
-            try {
-                val result = sessionStore.fetchReadHistory(page = currentPage)
-                _topics.value = _topics.value + result.topics
-                hasMore = result.moreTopicsUrl != null
-                currentPage++
-            } catch (_: Exception) { }
-        }
-    }
-
-    companion object {
-        fun create(sessionStore: FireSessionStore): ReadHistoryViewModel {
-            return ReadHistoryViewModel(sessionStore)
-        }
-    }
-}
-```
-
-- [ ] **Step 2: 创建布局和 Fragment**
-
-`fragment_read_history.xml`：SwipeRefreshLayout + RecyclerView + 空状态。
-`ReadHistoryFragment`：复用 `TopicListAdapter` 模式，点击跳转到 `TopicDetailActivity`。
-
-- [ ] **Step 3: 添加导航和入口**
-
-在 `fire_nav_graph.xml` 中添加 `readHistoryFragment`。
-在 `ProfileFragment` 中添加「阅读历史」入口按钮。
-
-- [ ] **Step 4: 构建验证**
-
-Run: `cd native/android-app && ./gradlew assembleDebug 2>&1 | tail -5`
-Expected: `BUILD SUCCESSFUL`
-
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
-git add native/android-app/src/main/java/com/fire/app/ui/readhistory/ native/android-app/src/main/res/layout/fragment_read_history.xml native/android-app/src/main/res/navigation/fire_nav_graph.xml
+git add docs/superpowers/plans/2026-06-08-p1-foundation.md \
+  native/android-app/src/main/java/com/fire/app/data/paging/ReadHistoryPagingSource.kt \
+  native/android-app/src/main/java/com/fire/app/ui/readhistory/ReadHistoryViewModel.kt \
+  native/android-app/src/main/java/com/fire/app/ui/readhistory/ReadHistoryFragment.kt \
+  native/android-app/src/main/java/com/fire/app/ui/profile/ProfileFragment.kt \
+  native/android-app/src/main/res/layout/fragment_read_history.xml \
+  native/android-app/src/main/res/layout/fragment_profile.xml \
+  native/android-app/src/main/res/navigation/fire_nav_graph.xml \
+  native/android-app/src/main/res/values/strings.xml
 git commit -m "feat(android): add read history screen with pagination"
 ```
 

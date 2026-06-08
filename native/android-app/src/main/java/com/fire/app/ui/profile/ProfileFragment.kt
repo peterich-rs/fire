@@ -30,6 +30,7 @@ class ProfileFragment : Fragment() {
     private lateinit var profileActions: View
     private lateinit var bookmarksButton: View
     private lateinit var draftsButton: View
+    private lateinit var readHistoryButton: View
     private lateinit var privateMessagesButton: View
 
     private var viewModel: ProfileViewModel? = null
@@ -53,6 +54,7 @@ class ProfileFragment : Fragment() {
         profileActions = view.findViewById(R.id.profile_actions)
         bookmarksButton = view.findViewById(R.id.bookmarks_button)
         draftsButton = view.findViewById(R.id.drafts_button)
+        readHistoryButton = view.findViewById(R.id.read_history_button)
         privateMessagesButton = view.findViewById(R.id.private_messages_button)
 
         viewLifecycleOwner.lifecycleScope.launch {
@@ -154,6 +156,9 @@ class ProfileFragment : Fragment() {
         }
         draftsButton.setOnClickListener {
             findNavController().navigate(ProfileFragmentDirections.actionProfileToDrafts())
+        }
+        readHistoryButton.setOnClickListener {
+            findNavController().navigate(ProfileFragmentDirections.actionProfileToReadHistory())
         }
         privateMessagesButton.setOnClickListener {
             findNavController().navigate(ProfileFragmentDirections.actionProfileToPrivateMessages())

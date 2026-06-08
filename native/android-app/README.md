@@ -35,6 +35,13 @@ the shared Rust core at build time.
 - `NotificationsFragment` renders paginated notifications, supports single/all
   mark-read, refreshes the bottom-tab unread badge, and routes notifications to
   topic detail or profile.
+- `FireFirebaseMessagingService` receives Firebase Cloud Messaging payloads
+  when `google-services.json` is supplied locally or by CI. Android owns the
+  local notification channel/display and tap routing to native topic/profile
+  destinations, while Rust remains the authority for notification state refresh.
+  FCM token backend registration is intentionally pending a shared Rust/core
+  registration API instead of being implemented as a platform-only backend
+  client.
 - `ProfileFragment` renders current or public profiles, summary stats, badges,
   profile bio through the shared rich-text renderer, follow/unfollow, and top
   topic navigation. Public profiles expose a private-message composer when the
@@ -159,6 +166,10 @@ Current topic-detail interactions:
   successful Rust bookmark mutations
 - in-topic search over already loaded Rust `RenderDocumentState.plainText`, with
   active-result highlight and previous/next floor navigation
+- FCM push payloads are parsed in the Android host for local display only:
+  topic ids, post numbers, profile usernames, and LinuxDo/fire deep links route
+  to existing native surfaces, then Rust notification state is refreshed through
+  the existing session store path when possible
 - reply-context lookup from the rendered reply target, showing source and
   direct replies
 - post delete/recover actions when the backend exposes those permissions

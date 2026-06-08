@@ -735,55 +735,41 @@ git commit -m "feat(android): add drafts list screen"
 **Files:**
 - Modify: `native/android-app/build.gradle.kts`
 - Create: `native/android-app/src/main/java/com/fire/app/push/FireFirebaseMessagingService.kt`
+- Create: `native/android-app/src/main/java/com/fire/app/push/FirePushNotification.kt`
+- Create: `native/android-app/src/main/java/com/fire/app/push/FirePushNotificationDispatcher.kt`
 - Modify: `native/android-app/src/main/AndroidManifest.xml`
-- Create: `native/android-app/google-services.json` (project config)
+- Local/CI config: `native/android-app/google-services.json` (ignored production project config)
 
-- [ ] **Step 1: 添加 Firebase 依赖**
+- [x] **Step 1: 添加 Firebase 依赖**
 
-在 `build.gradle.kts` 的 `dependencies` 中添加：
+`build.gradle.kts` now declares the Google Services plugin and Firebase
+Messaging dependencies:
 
 ```kotlin
+id("com.google.gms.google-services") version "4.4.2" apply false
+
 implementation(platform("com.google.firebase:firebase-bom:33.15.0"))
 implementation("com.google.firebase:firebase-messaging-ktx")
 ```
 
-在项目级 `build.gradle.kts`（如果存在）添加：
-```kotlin
-id("com.google.gms.google-services") version "4.4.2" apply false
-```
+The Google Services plugin is applied only when a real
+`native/android-app/google-services.json` exists, so source builds remain
+repeatable without checking private Firebase project configuration into git.
+`native/android-app/.gitignore` excludes that file.
 
-在 app 级 `plugins` 中添加：
-```kotlin
-id("com.google.gms.google-services")
-```
+- [x] **Step 2: 创建 FCM Service**
 
-- [ ] **Step 2: 创建 FCM Service**
+`FireFirebaseMessagingService` receives token refreshes and FCM messages. Token
+refreshes are logged to Rust diagnostics, but not registered directly from
+Android because there is no shared Rust/core token-registration API yet. Message
+handling parses common Discourse/LinuxDo payload fields through
+`FirePushPayloadParser`, displays a local notification through
+`FirePushNotificationDispatcher`, and refreshes Rust notification state
+opportunistically without making notification display depend on network success.
 
-```kotlin
-package com.fire.app.push
+- [x] **Step 3: 注册 Service 和通知 Channel**
 
-import com.google.firebase.messaging.FirebaseMessagingService
-import com.google.firebase.messaging.RemoteMessage
-
-class FireFirebaseMessagingService : FirebaseMessagingService() {
-
-    override fun onNewToken(token: String) {
-        super.onNewToken(token)
-        // 将 token 发送给 Rust core 或后端注册
-    }
-
-    override fun onMessageReceived(message: RemoteMessage) {
-        super.onMessageReceived(message)
-        val data = message.data
-        // 根据通知类型显示本地通知
-        // 或刷新 FireNotificationStore
-    }
-}
-```
-
-- [ ] **Step 3: 注册 Service 和通知 Channel**
-
-在 `AndroidManifest.xml` 中添加：
+`AndroidManifest.xml` registers the non-exported Firebase messaging service:
 
 ```xml
 <service
@@ -795,32 +781,24 @@ class FireFirebaseMessagingService : FirebaseMessagingService() {
 </service>
 ```
 
-在 `FireApplication.onCreate()` 中创建通知 Channel：
+`FireApplication.onCreate()` creates the `fire_notifications` channel through
+`FirePushNotificationDispatcher`, separate from the existing bookmark reminder
+channel.
 
-```kotlin
-import android.app.NotificationChannel
-import android.app.NotificationManager
+- [x] **Step 4: 构建验证**
 
-private fun createNotificationChannels() {
-    val channel = NotificationChannel(
-        "fire_notifications",
-        "Fire 通知",
-        NotificationManager.IMPORTANCE_HIGH,
-    )
-    val manager = getSystemService(NotificationManager::class.java)
-    manager.createNotificationChannel(channel)
-}
-```
+Run:
+- `cd native/android-app && ./gradlew testDebugUnitTest --tests com.fire.app.push.FirePushPayloadParserTest`
+- `cd native/android-app && ./gradlew assembleDebug`
 
-- [ ] **Step 4: 构建验证**
+Result: passed.
 
-Run: `cd native/android-app && ./gradlew assembleDebug 2>&1 | tail -5`
-Expected: `BUILD SUCCESSFUL`
+- [x] **Step 5: Commit**
 
-- [ ] **Step 5: Commit**
+Included in this commit.
 
 ```bash
-git add native/android-app/build.gradle.kts native/android-app/src/main/java/com/fire/app/push/ native/android-app/src/main/AndroidManifest.xml native/android-app/src/main/java/com/fire/app/FireApplication.kt
+git add native/android-app/.gitignore native/android-app/build.gradle.kts native/android-app/src/main/java/com/fire/app/push/ native/android-app/src/test/java/com/fire/app/push/ native/android-app/src/main/AndroidManifest.xml native/android-app/src/main/java/com/fire/app/FireApplication.kt native/android-app/src/main/res/values/strings.xml native/android-app/README.md docs/superpowers/plans/2026-06-08-p1-foundation.md
 git commit -m "feat(android): add Firebase Cloud Messaging push notification support"
 ```
 

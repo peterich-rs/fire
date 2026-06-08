@@ -276,6 +276,8 @@
     <string name="bookmark_reminder_channel_name">Bookmark Reminders</string>
     <string name="bookmark_reminder_channel_description">Local reminders for saved Linux.do bookmarks</string>
     <string name="bookmark_reminder_notification_title">Bookmark Reminder</string>
+    <string name="push_notification_channel_name">Fire Notifications</string>
+    <string name="push_notification_channel_description">Linux.do replies, mentions, and account notifications</string>
     <string name="topic_detail_notification_topic">Notify</string>
     <string name="topic_detail_notification_button">Notify: %1$s</string>
     <string name="topic_detail_notification_title">Topic Notifications</string>

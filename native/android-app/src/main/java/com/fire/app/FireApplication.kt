@@ -2,6 +2,7 @@ package com.fire.app
 
 import android.app.Application
 import com.fire.app.core.image.FireImageLoader
+import com.fire.app.push.FirePushNotificationDispatcher
 import com.fire.app.ui.topicdetail.BookmarkReminderScheduler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -16,6 +17,7 @@ class FireApplication : Application() {
         instance = this
         FireImageLoader.initialize(this)
         BookmarkReminderScheduler.createNotificationChannel(this)
+        FirePushNotificationDispatcher.createNotificationChannel(this)
     }
 
     override fun onTerminate() {

@@ -4,11 +4,17 @@ plugins {
     id("com.android.application") version "8.11.2"
     id("org.jetbrains.kotlin.android") version "2.2.0"
     id("androidx.navigation.safeargs.kotlin") version "2.8.9"
+    id("com.google.gms.google-services") version "4.4.2" apply false
 }
 
 val fireRepoRoot = rootDir.parentFile?.parentFile
     ?: error("Unable to resolve Fire repository root from $rootDir")
 val generatedUniffiRootDir = layout.buildDirectory.dir("generated/source/uniffi")
+val googleServicesJson = layout.projectDirectory.file("google-services.json")
+
+if (googleServicesJson.asFile.exists()) {
+    apply(plugin = "com.google.gms.google-services")
+}
 
 fun registerSyncFireUniffiBindingsTask(
     taskName: String,
@@ -139,6 +145,8 @@ dependencies {
     implementation("androidx.datastore:datastore-preferences:1.1.4")
     implementation("androidx.webkit:webkit:1.13.0")
     implementation("com.google.android.material:material:1.12.0")
+    implementation(platform("com.google.firebase:firebase-bom:33.15.0"))
+    implementation("com.google.firebase:firebase-messaging-ktx")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
     implementation("net.java.dev.jna:jna:5.16.0@aar")

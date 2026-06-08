@@ -118,11 +118,56 @@ class TopicDetailPostRowsTest {
         assertEquals(true, headerOriginal.usesTitleWidthBody)
     }
 
+    @Test
+    fun projectRows_threadedPreservesTreeOrderAndDepth() {
+        val root = post(id = 2uL, postNumber = 2u, username = "root")
+        val child = post(id = 3uL, postNumber = 3u, username = "child")
+        val laterRoot = post(id = 4uL, postNumber = 4u, username = "later")
+        val rows = listOf(
+            row(root, parentPostNumber = 1u, depth = 1u),
+            row(child, parentPostNumber = 2u, depth = 2u),
+            row(laterRoot, parentPostNumber = 1u, depth = 1u),
+        )
+
+        val projected = TopicDetailPostRows.projectRows(
+            rows = rows,
+            postsById = TopicDetailPostRows.postsById(listOf(root, child, laterRoot)),
+            mode = TopicDetailViewMode.THREADED,
+        )
+
+        assertEquals(listOf(2u, 3u, 4u), projected.map { it.post.postNumber })
+        assertEquals(listOf(1, 2, 1), projected.map { it.depth })
+        assertEquals(listOf(1u, 2u, 1u), projected.map { it.parentPostNumber })
+    }
+
+    @Test
+    fun projectRows_flatSortsByFloorAndRemovesTreeIndent() {
+        val root = post(id = 2uL, postNumber = 2u, username = "root")
+        val child = post(id = 3uL, postNumber = 3u, username = "child", replyToPostNumber = 2u)
+        val laterRoot = post(id = 4uL, postNumber = 4u, username = "later")
+        val rows = listOf(
+            row(laterRoot, parentPostNumber = 1u, depth = 1u),
+            row(child, parentPostNumber = 2u, depth = 2u),
+            row(root, parentPostNumber = 1u, depth = 1u),
+        )
+
+        val projected = TopicDetailPostRows.projectRows(
+            rows = rows,
+            postsById = TopicDetailPostRows.postsById(listOf(root, child, laterRoot)),
+            mode = TopicDetailViewMode.FLAT,
+        )
+
+        assertEquals(listOf(2u, 3u, 4u), projected.map { it.post.postNumber })
+        assertEquals(listOf(0, 0, 0), projected.map { it.depth })
+        assertEquals(listOf(null, 2u, null), projected.map { it.parentPostNumber })
+    }
+
     private fun post(
         id: ULong,
         postNumber: UInt,
         username: String,
         boosts: List<TopicPostBoostState> = emptyList(),
+        replyToPostNumber: UInt? = null,
     ): TopicPostState {
         return TopicPostState(
             id = id,
@@ -138,7 +183,7 @@ class TopicDetailPostRowsTest {
             updatedAt = "2026-03-28T10:00:00Z",
             likeCount = 0u,
             replyCount = 0u,
-            replyToPostNumber = null,
+            replyToPostNumber = replyToPostNumber,
             replyToUser = null,
             bookmarked = false,
             bookmarkId = null,
@@ -179,15 +224,19 @@ class TopicDetailPostRowsTest {
         )
     }
 
-    private fun row(post: TopicPostState): TopicTreeRowState {
+    private fun row(
+        post: TopicPostState,
+        parentPostNumber: UInt = 1u,
+        depth: UInt = 1u,
+    ): TopicTreeRowState {
         return TopicTreeRowState(
             postId = post.id,
             postNumber = post.postNumber,
             rootPostNumber = 1u,
-            parentPostNumber = 1u,
-            depth = 1u.toUShort(),
+            parentPostNumber = parentPostNumber,
+            depth = depth.toUShort(),
             preorderIndex = post.postNumber - 1u,
-            hasChildren = false,
+            hasChildren = depth == 1u,
             descendantCount = 0u,
             siblingIndex = 0u.toUShort(),
             isLastSibling = true,

@@ -44,7 +44,8 @@
 | Create | `ui/ldc/LDCFragment.kt` | LDC 信用主页 |
 | Create | `ui/ldc/LDCViewModel.kt` | LDC ViewModel |
 | Create | `ui/ldc/CDKFragment.kt` | CDK 连接页 |
-| Create | `ui/topicdetail/ThreadedPostAdapter.kt` | 线程视图适配器 |
+| Modify | `ui/topicdetail/TopicDetailViewModel.kt` | 线程/平铺 row projection |
+| Modify | `ui/topicdetail/TopicDetailActivity.kt` | 话题详情视图模式切换 |
 | Create | `ui/composer/MarkdownToolbarView.kt` | Markdown 工具栏 |
 | Modify | `ui/composer/ReplyComposerSheet.kt` | 集成工具栏 |
 
@@ -358,27 +359,42 @@ git commit -m "feat(ios): add threaded view mode for topic detail"
 ## Task 7: 线程视图 — Android
 
 **Files:**
-- Create: `native/android-app/src/main/java/com/fire/app/ui/topicdetail/ThreadedPostAdapter.kt`
-- Modify: `native/android-app/src/main/java/com/fire/app/ui/topicdetail/TopicDetailActivity.kt` (添加切换按钮)
-- Modify: `native/android-app/src/main/res/layout/activity_topic_detail.xml` (添加切换 toggle)
+- Modify: `native/android-app/src/main/java/com/fire/app/ui/topicdetail/TopicDetailViewModel.kt`
+- Modify: `native/android-app/src/main/java/com/fire/app/ui/topicdetail/TopicDetailActivity.kt`
+- Modify: `native/android-app/src/main/res/values/strings.xml`
+- Modify: `native/android-app/src/test/java/com/fire/app/ui/topicdetail/TopicDetailPostRowsTest.kt`
 
-- [ ] **Step 1: 创建 ThreadedPostAdapter**
+- [x] **Step 1: 添加 view-mode row projection**
 
-展开/折叠式线程列表适配器，使用缩进表示层级。
+Implemented on the existing authoritative topic-detail list path instead of adding
+a second adapter. `TopicDetailViewMode` defaults to `THREADED`, preserving the
+current Rust tree row order, depth, parent post number, and child markers. `FLAT`
+sorts loaded reply rows by floor, removes tree indentation, and keeps reply
+context from the post's `replyToPostNumber`.
 
-- [ ] **Step 2: TopicDetailActivity 添加视图模式切换**
+- [x] **Step 2: TopicDetailActivity 添加视图模式切换**
 
-工具栏添加切换按钮（树状 ↔ 线程），切换时更换 RecyclerView 的 Adapter。
+The toolbar opens a single-choice mode dialog. Both modes continue to use the
+same `ConcatAdapter` / `PostListAdapter`, the same Rust source snapshot, and the
+same Rust tree presentation rows; switching only republishes projected rows from
+the ViewModel.
 
-- [ ] **Step 3: 构建验证**
+- [x] **Step 3: 构建验证**
 
-Run: `cd native/android-app && ./gradlew assembleDebug 2>&1 | tail -5`
-Expected: `BUILD SUCCESSFUL`
+Run:
+
+```bash
+cd native/android-app
+./gradlew testDebugUnitTest --tests com.fire.app.ui.topicdetail.TopicDetailPostRowsTest
+./gradlew assembleDebug
+```
+
+Result: both commands completed with `BUILD SUCCESSFUL`.
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add native/android-app/src/main/java/com/fire/app/ui/topicdetail/ThreadedPostAdapter.kt native/android-app/src/main/java/com/fire/app/ui/topicdetail/TopicDetailActivity.kt
+git add docs/superpowers/plans/2026-06-08-p2-feature-completion.md native/android-app/README.md native/android-app/src/main/java/com/fire/app/ui/topicdetail/TopicDetailActivity.kt native/android-app/src/main/java/com/fire/app/ui/topicdetail/TopicDetailViewModel.kt native/android-app/src/main/res/values/strings.xml native/android-app/src/test/java/com/fire/app/ui/topicdetail/TopicDetailPostRowsTest.kt
 git commit -m "feat(android): add threaded view mode for topic detail"
 ```
 

@@ -5,6 +5,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.view.Gravity
+import android.view.MenuItem
 import android.view.View
 import android.widget.ArrayAdapter
 import android.widget.EditText
@@ -74,6 +75,7 @@ class TopicDetailActivity : AppCompatActivity() {
     private var pendingScrollTargetPostNumber: UInt? = null
     private var enabledReactionIds: List<String> = emptyList()
     private var timingTracker: TopicTimingTracker? = null
+    private var viewModeMenuItem: MenuItem? = null
     private val appScope by lazy { FireApplication.applicationScope() }
     private val viewModelDelegate: TopicDetailViewModel by viewModels {
         TopicDetailViewModelFactory(sessionStore)
@@ -104,6 +106,15 @@ class TopicDetailActivity : AppCompatActivity() {
         }
         binding.topicDetailToolbar.title = parsedRoute.title
             ?: getString(R.string.topic_detail_title_fallback, parsedRoute.topicId.toString())
+        viewModeMenuItem = binding.topicDetailToolbar.menu.add(
+            R.string.topic_detail_view_mode_threaded,
+        ).apply {
+            setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS)
+            setOnMenuItemClickListener {
+                showViewModeChooser()
+                true
+            }
+        }
 
         lifecycleScope.launch {
             sessionStore = FireSessionStoreRepository.get(this@TopicDetailActivity)
@@ -271,6 +282,12 @@ class TopicDetailActivity : AppCompatActivity() {
         }
 
         lifecycleScope.launch {
+            vm.viewMode.collectLatest { mode ->
+                updateViewModeToolbar(mode)
+            }
+        }
+
+        lifecycleScope.launch {
             vm.scrollTargetPostNumber.collectLatest { postNumber ->
                 scrollToPostNumber(postNumber)
             }
@@ -291,6 +308,34 @@ class TopicDetailActivity : AppCompatActivity() {
 
     private fun showReplyComposerForPost(post: TopicPostState) {
         showReplyComposer(replyToPostNumber = post.postNumber.toInt())
+    }
+
+    private fun showViewModeChooser() {
+        val currentMode = viewModel?.viewMode?.value ?: TopicDetailViewMode.THREADED
+        val modes = arrayOf(TopicDetailViewMode.THREADED, TopicDetailViewMode.FLAT)
+        val labels = modes.map(::viewModeLabel).toTypedArray()
+        val checkedItem = modes.indexOf(currentMode).coerceAtLeast(0)
+        AlertDialog.Builder(this)
+            .setTitle(R.string.topic_detail_view_mode_title)
+            .setSingleChoiceItems(labels, checkedItem) { dialog, which ->
+                viewModel?.setViewMode(modes[which])
+                dialog.dismiss()
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private fun updateViewModeToolbar(mode: TopicDetailViewMode) {
+        viewModeMenuItem?.title = viewModeLabel(mode)
+    }
+
+    private fun viewModeLabel(mode: TopicDetailViewMode): String {
+        return getString(
+            when (mode) {
+                TopicDetailViewMode.FLAT -> R.string.topic_detail_view_mode_flat
+                TopicDetailViewMode.THREADED -> R.string.topic_detail_view_mode_threaded
+            },
+        )
     }
 
     private fun showReplyComposer(replyToPostNumber: Int?) {

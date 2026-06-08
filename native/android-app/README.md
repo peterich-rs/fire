@@ -66,6 +66,12 @@ hierarchy metadata plus the optional first-unread-root suggestion. It renders a
 loading footer. Load-more is driven only by the Rust source cursor over raw
 `post_stream.stream`, not by host-managed row windows.
 
+The topic-detail toolbar switches between Threaded and Flat reply projections.
+Threaded mode preserves Rust tree row order and indentation; Flat mode projects
+the same loaded rows by floor with no tree indentation. Both modes stay on the
+same RecyclerView, `ConcatAdapter`, and `PostListAdapter` path, so Android does
+not maintain a duplicate adapter or host-owned data source for threaded display.
+
 When Rust returns `firstUnreadRootPostNumber`, Android consumes it only for the
 initial topic-detail load with no explicit notification/search/bookmark/share
 target. Android only enables the Rust unread-root suggestion query for that

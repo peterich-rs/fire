@@ -162,10 +162,10 @@ evidence is missing, that fake-evidence markers, malformed store media,
 flat PNG placeholders, non-measurement performance results, target misses marked
 `Pass`, ambiguous or misleading multi-value memory results, duplicate manual
 evidence rows, invalid calendar dates, placeholder metadata fields, dead local
-evidence paths, malformed evidence URLs, placeholder URL hosts, extra Markdown
-table columns, missing Markdown table boundaries, and weak accepted-waiver notes
-are rejected, and that checked P4 roadmap acceptance is allowed only when the
-full fixture suite passes.
+evidence paths, malformed evidence URLs, malformed URL hosts, placeholder URL
+hosts, extra Markdown table columns, missing Markdown table boundaries, and weak
+accepted-waiver notes are rejected, and that checked P4 roadmap acceptance is
+allowed only when the full fixture suite passes.
 
 The final evidence register can also be checked directly:
 

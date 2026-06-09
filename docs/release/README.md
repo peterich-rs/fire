@@ -49,7 +49,9 @@ scripts/verify-performance-benchmarks.sh
 
 The verifier is expected to fail while the results log is empty, while any iOS
 or Android target metric is missing, or while threshold failures lack an
-accepted disposition.
+accepted disposition with explicit approval/waiver context, such as
+`Approved by ...; reason: ...`, in `Notes`. Result values must include numeric
+units such as seconds, milliseconds, fps plus janky-frame percentage, or MB/GB.
 
 ## Accessibility Evidence
 
@@ -63,7 +65,8 @@ scripts/verify-accessibility-audit.sh
 
 The verifier is expected to fail while the results log is empty, while any
 required screen or audit category lacks iOS/Android coverage, or while blocking
-failures lack an accepted disposition.
+failures lack an accepted disposition with approval/waiver context and a reason
+in `Notes`, for example `Approved by ...; reason: ...`.
 
 ## Internal Testing Evidence
 
@@ -76,7 +79,10 @@ scripts/verify-internal-testing-evidence.sh
 ```
 
 The verifier is expected to fail while required iOS or Android testing-track
-evidence rows are missing or incomplete.
+evidence rows are missing or incomplete. `Accepted` rows require
+approval/waiver context and a reason in `Notes`, for example
+`Approved by ...; reason: ...`. Evidence links must be plain HTTP(S) URLs or
+safe repo-relative paths to non-empty local files.
 
 ## Privacy Review Evidence
 
@@ -89,7 +95,9 @@ scripts/verify-privacy-review-evidence.sh
 ```
 
 The verifier is expected to fail while required review rows are missing or
-incomplete.
+incomplete. `Accepted` rows require approval/waiver context and a waiver reason
+in `Notes`, for example `Approved by ...; reason: ...`. Evidence links must be
+plain HTTP(S) URLs or safe repo-relative paths to non-empty local files.
 
 ## Manual Release Inputs
 
@@ -123,9 +131,10 @@ scripts/test-release-verifiers.sh
 That script uses temporary fixtures only. It proves that the shared suite can
 pass with complete fixture evidence, that the full release-readiness wrapper can
 pass with complete fixture evidence, that both fail when lower-level fixture
-evidence is missing, that fake-evidence markers and malformed store media are
-rejected, and that checked P4 roadmap acceptance is allowed only when the full
-fixture suite passes.
+evidence is missing, that fake-evidence markers, malformed store media,
+non-measurement performance results, target misses marked `Pass`, dead local
+evidence paths, and weak accepted-waiver notes are rejected, and that checked P4
+roadmap acceptance is allowed only when the full fixture suite passes.
 
 The final evidence register can also be checked directly:
 
@@ -136,8 +145,10 @@ scripts/verify-release-gates.sh
 The evidence verifier is expected to fail while any evidence row is still
 `Not started`, missing owner/link/date metadata, or out of sync with the exact
 required gate set in `release-gate-evidence.md`. `Accepted` release-gate rows
-must also include waiver/approval language and a reason in `Notes`; vague status
-notes do not close a manual gate. Manual evidence verifiers also reject
+must also include explicit waiver/approval language and a reason in `Notes`,
+such as `Approved by ...; reason: ...`; vague status notes do not close a manual
+gate. Evidence links must be plain HTTP(S) URLs or safe repo-relative paths to
+non-empty local files. Manual evidence verifiers also reject
 completed or accepted rows whose evidence links or notes still contain fake, mock,
 placeholder, dummy, synthetic, TODO/TBD, `example.com`, `not-real`, or
 `not real` markers.

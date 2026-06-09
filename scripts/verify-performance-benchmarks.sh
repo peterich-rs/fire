@@ -41,6 +41,124 @@ function contains_fake_evidence_marker(value, normalized) {
     normalized ~ /example[.]com|not[- ]real/
 }
 
+function contains_accepted_waiver_metadata(value) {
+  return (value ~ /[Aa]pprov(ed)?[[:space:]]+by[[:space:]]+[^;,.]+/ ||
+      value ~ /[Aa]pprover[[:space:]]*:[[:space:]]*[^;,.]+/ ||
+      value ~ /[Ww]aiv(ed)?[[:space:]]+by[[:space:]]+[^;,.]+/ ||
+      value ~ /[Ww]aiver[[:space:]]*:[[:space:]]*[^;,.]+/ ||
+      value ~ /[Aa]ccept(ed)?[[:space:]]+by[[:space:]]+[^;,.]+/) &&
+    (value ~ /[Rr]eason[[:space:]]*:/ ||
+      value ~ /[Bb]ecause/ ||
+      value ~ /[Dd]ue to/ ||
+      value ~ /[Rr]isk[[:space:]]*:/ ||
+      value ~ /[Ee]xception[[:space:]]*:/ ||
+      value ~ /[Nn]o-ship/)
+}
+
+function first_number(value) {
+  if (match(value, /[0-9]+([.][0-9]+)?/)) {
+    return substr(value, RSTART, RLENGTH) + 0
+  }
+  return -1
+}
+
+function parse_duration_seconds(value, lower, number) {
+  lower = tolower(value)
+  number = first_number(value)
+  if (number < 0) {
+    return -1
+  }
+  if (lower ~ /ms|millisecond/) {
+    return number / 1000.0
+  }
+  if (lower ~ /(^|[^[:alpha:]])s([^[:alpha:]]|$)|sec|second/) {
+    return number
+  }
+  return -1
+}
+
+function parse_memory_mb(value, lower, number) {
+  lower = tolower(value)
+  number = first_number(value)
+  if (number < 0) {
+    return -1
+  }
+  if (lower ~ /gb|gib/) {
+    return number * 1024.0
+  }
+  if (lower ~ /mb|mib/) {
+    return number
+  }
+  return -1
+}
+
+function parse_fps(value, lower, number) {
+  lower = tolower(value)
+  number = first_number(value)
+  if (number < 0 || lower !~ /fps|frame/) {
+    return -1
+  }
+  return number
+}
+
+function parse_percent(value, text) {
+  text = value
+  if (match(text, /[0-9]+([.][0-9]+)?[[:space:]]*%/)) {
+    return substr(text, RSTART, RLENGTH - 1) + 0
+  }
+  return -1
+}
+
+function metric_target_passed(metric, result, duration, memory, fps, jank) {
+  if (metric == "Cold start to home visible") {
+    duration = parse_duration_seconds(result)
+    if (duration < 0) {
+      fail(metric, "result must include a numeric duration in seconds or milliseconds")
+      return 0
+    }
+    return duration < 3.0
+  }
+
+  if (metric == "Topic detail first screen") {
+    duration = parse_duration_seconds(result)
+    if (duration < 0) {
+      fail(metric, "result must include a numeric duration in seconds or milliseconds")
+      return 0
+    }
+    return duration < 2.0
+  }
+
+  if (metric == "Home feed memory") {
+    memory = parse_memory_mb(result)
+    if (memory < 0) {
+      fail(metric, "result must include a numeric memory value in MB or GB")
+      return 0
+    }
+    return memory < 200.0
+  }
+
+  if (metric == "Topic detail memory after 100 posts") {
+    memory = parse_memory_mb(result)
+    if (memory < 0) {
+      fail(metric, "result must include a numeric memory value in MB or GB")
+      return 0
+    }
+    return memory < 350.0
+  }
+
+  if (metric == "Home feed scroll fluency") {
+    fps = parse_fps(result)
+    jank = parse_percent(result)
+    if (fps < 0 || jank < 0) {
+      fail(metric, "result must include numeric fps and janky-frame percentage")
+      return 0
+    }
+    return fps >= 58.0 && jank <= 5.0
+  }
+
+  return 0
+}
+
 function normalize_platform(value) {
   value = trim(value)
   if (tolower(value) == "ios") {
@@ -134,14 +252,27 @@ in_results_log && /^\|/ {
     fail(row_label, "result is required")
   }
 
+  target_passed = 0
+  if (metric in required_metric && result != "") {
+    target_passed = metric_target_passed(metric, result)
+  }
+
   if (status == "Fail") {
     fail(row_label, "failing threshold results must be fixed or explicitly Accepted")
   } else if (status != "Pass" && status != "Accepted") {
     fail(row_label, "status must be Pass or Accepted, found " status)
   }
 
-  if (status == "Accepted" && notes == "") {
-    fail(row_label, "accepted threshold waivers require notes")
+  if (status == "Pass" && !target_passed) {
+    fail(row_label, "Pass status requires a measured result inside the release target")
+  }
+
+  if (status == "Accepted") {
+    if (notes == "") {
+      fail(row_label, "accepted threshold waivers require notes")
+    } else if (!contains_accepted_waiver_metadata(notes)) {
+      fail(row_label, "accepted threshold waivers require approver and reason in notes")
+    }
   }
 
   if ((status == "Pass" || status == "Accepted") && contains_fake_evidence_marker(notes)) {

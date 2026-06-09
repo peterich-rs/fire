@@ -28,9 +28,14 @@ Record one row for each gate below:
 
 - `Status` must be `Complete` or `Accepted`.
 - `Evidence Link` may point to store-console exports, screenshots, build
-  metadata, tester group records, or feedback triage notes.
-- Internal testing build notes must include build number and commit SHA.
+  metadata, tester group records, or feedback triage notes. Use a plain HTTP(S)
+  URL or a safe repo-relative path to a non-empty local file.
+- Internal testing build notes must include a build number and 7-40 character
+  commit SHA.
 - Tester invite notes must include group/list name and invite date.
-- Feedback triage notes must summarize blocker count, accepted risks, and links
-  to any release-blocking issues.
-- `Accepted` rows require approver and reason in `Notes`.
+- Feedback triage notes must summarize numeric blocker count, accepted risks,
+  and links to any release-blocking issues, or state `none` when no blocking
+  issues remain.
+- `Accepted` rows require approval/waiver context and a reason, risk, or
+  exception in `Notes`; use a clear shape such as
+  `Approved by <owner>; reason: <decision>`.

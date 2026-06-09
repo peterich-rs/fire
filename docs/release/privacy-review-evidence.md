@@ -31,6 +31,10 @@ Record one row for each review area below:
   approver for the row.
 - `Evidence Link` may point to signed review notes, issue approvals, checklist
   exports, generated inventories, or repository files with reviewer comments.
-- `Accepted` rows require approver and waiver reason in `Notes`.
-- `Final publication approval` notes must mention approval to publish the
-  privacy policy and store-console answers for the release candidate.
+  Use a plain HTTP(S) URL or a safe repo-relative path to a non-empty local file.
+- `Accepted` rows require approval/waiver context and a waiver reason, risk, or
+  exception in `Notes`; use a clear shape such as
+  `Approved by <reviewer>; reason: <decision>`.
+- `Final publication approval` notes must mention approval to publish, release,
+  or submit the privacy policy and store-console answers for the release
+  candidate.

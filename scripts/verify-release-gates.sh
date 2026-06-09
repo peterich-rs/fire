@@ -59,8 +59,46 @@ function contains_fake_evidence_marker(value, normalized) {
 }
 
 function contains_accepted_waiver_metadata(value) {
-  return value ~ /[Aa]pprov|[Aa]ccept|[Ww]aiv/ &&
-    value ~ /[Rr]eason|[Bb]ecause|[Dd]ue to|[Rr]isk|[Ee]xception|[Nn]o-ship/
+  return (value ~ /[Aa]pprov(ed)?[[:space:]]+by[[:space:]]+[^;,.]+/ ||
+      value ~ /[Aa]pprover[[:space:]]*:[[:space:]]*[^;,.]+/ ||
+      value ~ /[Ww]aiv(ed)?[[:space:]]+by[[:space:]]+[^;,.]+/ ||
+      value ~ /[Ww]aiver[[:space:]]*:[[:space:]]*[^;,.]+/ ||
+      value ~ /[Aa]ccept(ed)?[[:space:]]+by[[:space:]]+[^;,.]+/) &&
+    (value ~ /[Rr]eason[[:space:]]*:/ ||
+      value ~ /[Bb]ecause/ ||
+      value ~ /[Dd]ue to/ ||
+      value ~ /[Rr]isk[[:space:]]*:/ ||
+      value ~ /[Ee]xception[[:space:]]*:/ ||
+      value ~ /[Nn]o-ship/)
+}
+
+function is_http_url(value) {
+  return value ~ /^https?:\/\//
+}
+
+function is_safe_repo_path(value) {
+  return value ~ /^[A-Za-z0-9_.\/-]+$/ &&
+    value !~ /^\// &&
+    value !~ /^-/ &&
+    value !~ /(^|\/)[.][.](\/|$)/ &&
+    value !~ /\/$/
+}
+
+function repo_path_exists(value, command) {
+  command = "test -s " value
+  return system(command) == 0
+}
+
+function validate_evidence_link(row_label, link) {
+  if (link == "") {
+    fail(row_label, "evidence link is required")
+  } else if (!is_http_url(link)) {
+    if (!is_safe_repo_path(link)) {
+      fail(row_label, "evidence link must be an HTTP(S) URL or safe repo-relative file path")
+    } else if (!repo_path_exists(link)) {
+      fail(row_label, "evidence link path must exist and be non-empty")
+    }
+  }
 }
 
 /^## Required Evidence[[:space:]]*$/ {
@@ -107,9 +145,7 @@ in_required_evidence && /^\|/ {
   if (owner == "") {
     fail(row_label, "owner is required")
   }
-  if (link == "") {
-    fail(row_label, "evidence link is required")
-  }
+  validate_evidence_link(row_label, link)
   if (date !~ /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/) {
     fail(row_label, "date must use YYYY-MM-DD")
   }

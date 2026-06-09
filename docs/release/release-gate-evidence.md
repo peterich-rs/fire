@@ -30,7 +30,8 @@ reviewer, and date.
 ## Evidence Rules
 
 - Evidence links may point to files in this repository, store-console exports,
-  issue trackers, test-run artifacts, or signed review notes.
+  issue trackers, test-run artifacts, or signed review notes. Use a plain
+  HTTP(S) URL or a safe repo-relative path to a non-empty local file.
 - Keep exactly one row for every required gate in the table above. Do not rename,
   add, or remove gate rows; `scripts/verify-release-gates.sh` treats the exact
   gate names as the release-readiness contract.
@@ -39,6 +40,7 @@ reviewer, and date.
 - If a gate is intentionally waived, set `Status` to `Accepted`, link the
   decision, and include the approver and reason in `Notes`. The verifier rejects
   vague accepted-waiver notes that do not explicitly describe approval/waiver
-  context and a reason, risk, exception, or no-ship decision.
+  context and a reason, risk, exception, or no-ship decision. Use a clear shape
+  such as `Approved by <owner>; reason: <decision>`.
 - Do not replace this register with prose-only status updates. The table is the
   source of truth for manual P4 gate closure.

@@ -53,6 +53,20 @@ function contains_fake_evidence_marker(value, normalized) {
     normalized ~ /example[.]com|not[- ]real/
 }
 
+function contains_accepted_waiver_metadata(value) {
+  return (value ~ /[Aa]pprov(ed)?[[:space:]]+by[[:space:]]+[^;,.]+/ ||
+      value ~ /[Aa]pprover[[:space:]]*:[[:space:]]*[^;,.]+/ ||
+      value ~ /[Ww]aiv(ed)?[[:space:]]+by[[:space:]]+[^;,.]+/ ||
+      value ~ /[Ww]aiver[[:space:]]*:[[:space:]]*[^;,.]+/ ||
+      value ~ /[Aa]ccept(ed)?[[:space:]]+by[[:space:]]+[^;,.]+/) &&
+    (value ~ /[Rr]eason[[:space:]]*:/ ||
+      value ~ /[Bb]ecause/ ||
+      value ~ /[Dd]ue to/ ||
+      value ~ /[Rr]isk[[:space:]]*:/ ||
+      value ~ /[Ee]xception[[:space:]]*:/ ||
+      value ~ /[Nn]o-ship/)
+}
+
 function normalize_platform(value) {
   value = trim(value)
   if (tolower(value) == "ios") {
@@ -142,8 +156,12 @@ in_results_log && /^\|/ {
     fail(row_label, "result must be Pass or Accepted, found " result)
   }
 
-  if (result == "Accepted" && notes == "") {
-    fail(row_label, "accepted accessibility waivers require notes")
+  if (result == "Accepted") {
+    if (notes == "") {
+      fail(row_label, "accepted accessibility waivers require notes")
+    } else if (!contains_accepted_waiver_metadata(notes)) {
+      fail(row_label, "accepted accessibility waivers require approver and reason in notes")
+    }
   }
 
   if ((result == "Pass" || result == "Accepted") && contains_fake_evidence_marker(notes)) {

@@ -190,7 +190,7 @@ def write_marketing(root: Path, include_feature_graphic=True, mutation="valid"):
     elif mutation == "invalid-mp4":
         preview.write_bytes(b"not an mp4")
 
-def write_release_gate(path: Path, marker="", accepted_note=None):
+def write_release_gate(path: Path, marker="", accepted_note=None, missing_local_link=False):
     lines = [
         "# Release Gate Evidence",
         "",
@@ -207,13 +207,26 @@ def write_release_gate(path: Path, marker="", accepted_note=None):
             status = "Accepted"
         if index == 0 and marker:
             note += f" {marker}"
+        link = (
+            "docs/release/missing-evidence.md"
+            if missing_local_link and index == 0
+            else f"https://evidence.local/release-{index}"
+        )
         lines.append(
             f"| {gate} | Required evidence | Release owner | {status} | "
-            f"docs/release/evidence-{index}.md | 2026-06-09 | {note} |"
+            f"{link} | 2026-06-09 | {note} |"
         )
     path.write_text("\n".join(lines) + "\n")
 
-def write_internal(path: Path, marker=""):
+def write_internal(
+    path: Path,
+    marker="",
+    accepted_note=None,
+    weak_build_note=False,
+    weak_invite_note=False,
+    weak_feedback_note=False,
+    missing_local_link=False,
+):
     lines = [
         "# Internal Testing Evidence",
         "",
@@ -223,15 +236,30 @@ def write_internal(path: Path, marker=""):
         "| --- | --- | --- | --- | --- | --- | --- |",
     ]
     for index, (platform, gate, note) in enumerate(internal_rows):
+        status = "Complete"
+        if index == 0 and accepted_note:
+            note = accepted_note
+            status = "Accepted"
+        if platform == "iOS" and gate == "Internal testing build" and weak_build_note:
+            note = "Build pending commit unknown"
+        if platform == "iOS" and gate == "Tester invites" and weak_invite_note:
+            note = "Group Core invite pending"
+        if platform == "iOS" and gate == "Feedback triage" and weak_feedback_note:
+            note = "Blockers reviewed; accepted risks follow-up"
         if index == 0 and marker:
             note += f" {marker}"
+        link = (
+            "docs/release/missing-internal-evidence.md"
+            if missing_local_link and index == 0
+            else f"https://evidence.local/internal-{index}"
+        )
         lines.append(
-            f"| 2026-06-09 | {platform} | {gate} | Release owner | Complete | "
-            f"docs/release/internal-{index}.md | {note} |"
+            f"| 2026-06-09 | {platform} | {gate} | Release owner | {status} | "
+            f"{link} | {note} |"
         )
     path.write_text("\n".join(lines) + "\n")
 
-def write_privacy(path: Path, marker=""):
+def write_privacy(path: Path, marker="", accepted_note=None, final_note=None, missing_local_link=False):
     lines = [
         "# Privacy Review Evidence",
         "",
@@ -242,15 +270,42 @@ def write_privacy(path: Path, marker=""):
     ]
     for index, area in enumerate(privacy_areas):
         note = "Release publication approval complete" if area == "Final publication approval" else "Review complete"
+        status = "Complete"
+        if index == 0 and accepted_note:
+            note = accepted_note
+            status = "Accepted"
+        if area == "Final publication approval" and final_note:
+            note = final_note
         if index == 0 and marker:
             note += f" {marker}"
+        link = (
+            "docs/release/missing-privacy-evidence.md"
+            if missing_local_link and index == 0
+            else f"https://evidence.local/privacy-{index}"
+        )
         lines.append(
-            f"| 2026-06-09 | {area} | Reviewer | Complete | "
-            f"docs/release/privacy-{index}.md | {note} |"
+            f"| 2026-06-09 | {area} | Reviewer | {status} | "
+            f"{link} | {note} |"
         )
     path.write_text("\n".join(lines) + "\n")
 
-def write_performance(path: Path, omit_last=False, marker=""):
+def performance_result(metric: str) -> str:
+    return {
+        "Cold start to home visible": "2.4s",
+        "Home feed scroll fluency": "59 fps, 1% janky frames",
+        "Topic detail first screen": "1.6s",
+        "Home feed memory": "180 MB",
+        "Topic detail memory after 100 posts": "320 MB",
+    }[metric]
+
+def write_performance(
+    path: Path,
+    omit_last=False,
+    marker="",
+    accepted_note=None,
+    invalid_result=False,
+    target_miss=False,
+):
     lines = [
         "# Fire Performance Benchmarks",
         "",
@@ -268,15 +323,23 @@ def write_performance(path: Path, omit_last=False, marker=""):
         entries.pop()
     for index, (platform, device, metric) in enumerate(entries):
         note = "Measured on release candidate"
+        status = "Pass"
+        result = "OK" if invalid_result and index == 0 else performance_result(metric)
+        if target_miss and index == 0:
+            result = "3.5s"
+        if index == 0 and accepted_note:
+            note = accepted_note
+            status = "Accepted"
+            result = "5.2s"
         if index == 0 and marker:
             note += f" {marker}"
         lines.append(
             f"| 2026-06-09 | abc1234 | {platform} | {device} | Release archive | "
-            f"{metric} | OK | Pass | {note} |"
+            f"{metric} | {result} | {status} | {note} |"
         )
     path.write_text("\n".join(lines) + "\n")
 
-def write_accessibility(path: Path, marker=""):
+def write_accessibility(path: Path, marker="", accepted_note=None):
     lines = [
         "# Fire Accessibility Audit Checklist",
         "",
@@ -290,11 +353,15 @@ def write_accessibility(path: Path, marker=""):
         device = "iPhone 15 Pro" if platform == "iOS" else "Pixel 8 Pro"
         for screen in screens + audits:
             note = "Audited on release candidate"
+            result = "Pass"
+            if row_index == 0 and accepted_note:
+                note = accepted_note
+                result = "Accepted"
             if row_index == 0 and marker:
                 note += f" {marker}"
             lines.append(
                 f"| 2026-06-09 | Tester | {platform} | {device} | {screen} | "
-                f"Pass | {note} |"
+                f"{result} | {note} |"
             )
             row_index += 1
     path.write_text("\n".join(lines) + "\n")
@@ -307,16 +374,59 @@ write_marketing(fixture / "marketing-tiny-screenshot", mutation="tiny-screenshot
 write_marketing(fixture / "marketing-malformed-png", mutation="malformed-png")
 write_marketing(fixture / "marketing-invalid-mp4", mutation="invalid-mp4")
 write_performance(fixture / "performance.md")
+write_performance(
+    fixture / "performance-accepted-valid.md",
+    accepted_note="Approved by performance owner; reason: no-ship decision documented for threshold risk.",
+)
+write_performance(
+    fixture / "performance-accepted-weak.md",
+    accepted_note="Accepted risk.",
+)
 write_performance(fixture / "performance-missing.md", omit_last=True)
+write_performance(fixture / "performance-invalid-result.md", invalid_result=True)
+write_performance(fixture / "performance-target-miss-pass.md", target_miss=True)
 write_performance(fixture / "performance-not-real.md", marker="not-real")
 write_performance(fixture / "performance-not-real-space.md", marker="not real")
 write_accessibility(fixture / "accessibility.md")
+write_accessibility(
+    fixture / "accessibility-accepted-valid.md",
+    accepted_note="Approved by accessibility owner; reason: exception accepted with tracked follow-up risk.",
+)
+write_accessibility(
+    fixture / "accessibility-accepted-weak.md",
+    accepted_note="Accepted risk.",
+)
 write_accessibility(fixture / "accessibility-not-real.md", marker="not-real")
 write_accessibility(fixture / "accessibility-not-real-space.md", marker="not real")
 write_internal(fixture / "internal.md")
+write_internal(
+    fixture / "internal-accepted-valid.md",
+    accepted_note="Approved by release owner; reason: store-record exception accepted before final rollout.",
+)
+write_internal(
+    fixture / "internal-accepted-weak.md",
+    accepted_note="Accepted risk.",
+)
+write_internal(fixture / "internal-weak-build.md", weak_build_note=True)
+write_internal(fixture / "internal-weak-invite.md", weak_invite_note=True)
+write_internal(fixture / "internal-weak-feedback.md", weak_feedback_note=True)
+write_internal(fixture / "internal-missing-link.md", missing_local_link=True)
 write_internal(fixture / "internal-not-real.md", marker="not-real")
 write_internal(fixture / "internal-not-real-space.md", marker="not real")
 write_privacy(fixture / "privacy.md")
+write_privacy(
+    fixture / "privacy-accepted-valid.md",
+    accepted_note="Approved by privacy reviewer; reason: waiver accepted with documented exception.",
+)
+write_privacy(
+    fixture / "privacy-accepted-weak.md",
+    accepted_note="Accepted risk.",
+)
+write_privacy(
+    fixture / "privacy-final-approval-weak.md",
+    final_note="Release notes prepared.",
+)
+write_privacy(fixture / "privacy-missing-link.md", missing_local_link=True)
 write_privacy(fixture / "privacy-not-real.md", marker="not-real")
 write_privacy(fixture / "privacy-not-real-space.md", marker="not real")
 write_release_gate(fixture / "release-gates.md")
@@ -326,8 +436,9 @@ write_release_gate(
 )
 write_release_gate(
     fixture / "release-gates-accepted-weak.md",
-    accepted_note="Decision recorded.",
+    accepted_note="Accepted risk.",
 )
+write_release_gate(fixture / "release-gates-missing-link.md", missing_local_link=True)
 write_release_gate(fixture / "release-gates-not-real.md", marker="not-real")
 write_release_gate(fixture / "release-gates-not-real-space.md", marker="not real")
 
@@ -431,6 +542,28 @@ expect_fail_contains "P4 release evidence suite rejects missing performance row"
   "FIRE_RELEASE_GATE_EVIDENCE_FILE=$fixture/release-gates.md" \
   scripts/verify-p4-release-evidence-suite.sh
 
+expect_fail_contains "P4 release evidence suite rejects non-measurement performance result" \
+  "result must include a numeric duration" \
+  env \
+  "FIRE_MARKETING_ASSETS_ROOT=$fixture/marketing" \
+  "FIRE_PERFORMANCE_BENCHMARK_FILE=$fixture/performance-invalid-result.md" \
+  "FIRE_ACCESSIBILITY_AUDIT_FILE=$fixture/accessibility.md" \
+  "FIRE_INTERNAL_TESTING_EVIDENCE_FILE=$fixture/internal.md" \
+  "FIRE_PRIVACY_REVIEW_EVIDENCE_FILE=$fixture/privacy.md" \
+  "FIRE_RELEASE_GATE_EVIDENCE_FILE=$fixture/release-gates.md" \
+  scripts/verify-p4-release-evidence-suite.sh
+
+expect_fail_contains "P4 release evidence suite rejects target miss marked pass" \
+  "Pass status requires a measured result inside the release target" \
+  env \
+  "FIRE_MARKETING_ASSETS_ROOT=$fixture/marketing" \
+  "FIRE_PERFORMANCE_BENCHMARK_FILE=$fixture/performance-target-miss-pass.md" \
+  "FIRE_ACCESSIBILITY_AUDIT_FILE=$fixture/accessibility.md" \
+  "FIRE_INTERNAL_TESTING_EVIDENCE_FILE=$fixture/internal.md" \
+  "FIRE_PRIVACY_REVIEW_EVIDENCE_FILE=$fixture/privacy.md" \
+  "FIRE_RELEASE_GATE_EVIDENCE_FILE=$fixture/release-gates.md" \
+  scripts/verify-p4-release-evidence-suite.sh
+
 marker_failure="not-real, or not real markers"
 
 expect_pass "release gates accept explicit waiver metadata" \
@@ -439,6 +572,9 @@ expect_pass "release gates accept explicit waiver metadata" \
 expect_fail_contains "release gates reject weak accepted waiver notes" \
   "accepted waivers require approver and reason in notes" \
   scripts/verify-release-gates.sh "$fixture/release-gates-accepted-weak.md"
+expect_fail_contains "release gates reject missing local evidence path" \
+  "evidence link path must exist and be non-empty" \
+  scripts/verify-release-gates.sh "$fixture/release-gates-missing-link.md"
 
 expect_fail_contains "release gates reject not-real marker" "$marker_failure" \
   scripts/verify-release-gates.sh "$fixture/release-gates-not-real.md"
@@ -450,20 +586,62 @@ expect_fail_contains "internal testing rejects not-real marker" "$marker_failure
 expect_fail_contains "internal testing rejects not real marker" "$marker_failure" \
   scripts/verify-internal-testing-evidence.sh "$fixture/internal-not-real-space.md"
 
+expect_pass "internal testing accepts explicit waiver metadata" \
+  scripts/verify-internal-testing-evidence.sh "$fixture/internal-accepted-valid.md"
+expect_fail_contains "internal testing rejects weak accepted waiver notes" \
+  "accepted rows require approver and reason in notes" \
+  scripts/verify-internal-testing-evidence.sh "$fixture/internal-accepted-weak.md"
+expect_fail_contains "internal testing rejects weak build metadata" \
+  "internal testing build notes must include build number" \
+  scripts/verify-internal-testing-evidence.sh "$fixture/internal-weak-build.md"
+expect_fail_contains "internal testing rejects missing invite date" \
+  "tester invite notes must include invite date" \
+  scripts/verify-internal-testing-evidence.sh "$fixture/internal-weak-invite.md"
+expect_fail_contains "internal testing rejects weak feedback triage" \
+  "feedback triage notes must summarize blocker count" \
+  scripts/verify-internal-testing-evidence.sh "$fixture/internal-weak-feedback.md"
+expect_fail_contains "internal testing rejects missing local evidence path" \
+  "evidence link path must exist and be non-empty" \
+  scripts/verify-internal-testing-evidence.sh "$fixture/internal-missing-link.md"
+
 expect_fail_contains "privacy review rejects not-real marker" "$marker_failure" \
   scripts/verify-privacy-review-evidence.sh "$fixture/privacy-not-real.md"
 expect_fail_contains "privacy review rejects not real marker" "$marker_failure" \
   scripts/verify-privacy-review-evidence.sh "$fixture/privacy-not-real-space.md"
+
+expect_pass "privacy review accepts explicit waiver metadata" \
+  scripts/verify-privacy-review-evidence.sh "$fixture/privacy-accepted-valid.md"
+expect_fail_contains "privacy review rejects weak accepted waiver notes" \
+  "accepted rows require approver and waiver reason in notes" \
+  scripts/verify-privacy-review-evidence.sh "$fixture/privacy-accepted-weak.md"
+expect_fail_contains "privacy review rejects weak final publication approval notes" \
+  "final publication approval notes must mention approval to publish, release, or submit" \
+  scripts/verify-privacy-review-evidence.sh "$fixture/privacy-final-approval-weak.md"
+expect_fail_contains "privacy review rejects missing local evidence path" \
+  "evidence link path must exist and be non-empty" \
+  scripts/verify-privacy-review-evidence.sh "$fixture/privacy-missing-link.md"
 
 expect_fail_contains "performance rejects not-real marker" "$marker_failure" \
   scripts/verify-performance-benchmarks.sh "$fixture/performance-not-real.md"
 expect_fail_contains "performance rejects not real marker" "$marker_failure" \
   scripts/verify-performance-benchmarks.sh "$fixture/performance-not-real-space.md"
 
+expect_pass "performance accepts explicit waiver metadata" \
+  scripts/verify-performance-benchmarks.sh "$fixture/performance-accepted-valid.md"
+expect_fail_contains "performance rejects weak accepted waiver notes" \
+  "accepted threshold waivers require approver and reason in notes" \
+  scripts/verify-performance-benchmarks.sh "$fixture/performance-accepted-weak.md"
+
 expect_fail_contains "accessibility rejects not-real marker" "$marker_failure" \
   scripts/verify-accessibility-audit.sh "$fixture/accessibility-not-real.md"
 expect_fail_contains "accessibility rejects not real marker" "$marker_failure" \
   scripts/verify-accessibility-audit.sh "$fixture/accessibility-not-real-space.md"
+
+expect_pass "accessibility accepts explicit waiver metadata" \
+  scripts/verify-accessibility-audit.sh "$fixture/accessibility-accepted-valid.md"
+expect_fail_contains "accessibility rejects weak accepted waiver notes" \
+  "accepted accessibility waivers require approver and reason in notes" \
+  scripts/verify-accessibility-audit.sh "$fixture/accessibility-accepted-weak.md"
 
 expect_pass "roadmap P4 acceptance allows checked roadmap with complete fixture evidence" \
   "${suite_env[@]}" \

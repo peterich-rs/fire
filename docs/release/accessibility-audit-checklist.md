@@ -64,8 +64,10 @@ All release candidates must pass this checklist on both iOS and Android before s
 
 Use exactly the screen and audit category names from this checklist. `Result`
 accepts `Pass` for completed release-candidate coverage or `Accepted` for an
-explicit waiver with notes. Simulator and emulator rows may be linked as
-supporting context elsewhere, but they do not satisfy this log.
+explicit waiver with approval/waiver context and a reason, risk, or exception in
+`Notes`; use a clear shape such as `Approved by <owner>; reason: <decision>`.
+Simulator and emulator rows may be linked as supporting context elsewhere, but
+they do not satisfy this log.
 
 ## Release Rule
 
@@ -79,4 +81,5 @@ scripts/verify-accessibility-audit.sh
 
 The verifier fails until every listed screen and audit category has an iOS and
 Android physical-device row with date, tester, device, and `Pass` or `Accepted`
-disposition.
+disposition. `Accepted` dispositions must be reasoned waivers, not vague status
+notes.

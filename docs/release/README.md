@@ -88,11 +88,11 @@ scripts/verify-internal-testing-evidence.sh
 The verifier is expected to fail while required iOS or Android testing-track
 evidence rows are missing, duplicated, or incomplete. `Accepted` rows require
 approval/waiver context and a reason in `Notes`, for example
-`Approved by ...; reason: ...`. Evidence links must be plain HTTP(S) URLs or
-safe repo-relative paths to non-empty local files; placeholder hosts such as
-localhost, `.local`, `.test`, and `.invalid` are rejected. Owner, evidence-link,
-and notes metadata must not contain fake/mock/placeholder markers. Dates must be
-real calendar dates in `YYYY-MM-DD` form.
+`Approved by ...; reason: ...`. Evidence links must be well-formed HTTP(S) URLs
+with hostnames or safe repo-relative paths to non-empty local files; placeholder
+hosts such as localhost, `.local`, `.test`, and `.invalid` are rejected. Owner,
+evidence-link, and notes metadata must not contain fake/mock/placeholder markers.
+Dates must be real calendar dates in `YYYY-MM-DD` form.
 
 ## Privacy Review Evidence
 
@@ -107,11 +107,11 @@ scripts/verify-privacy-review-evidence.sh
 The verifier is expected to fail while required review rows are missing,
 duplicated, or incomplete. `Accepted` rows require approval/waiver context and a
 waiver reason in `Notes`, for example `Approved by ...; reason: ...`. Evidence
-links must be plain HTTP(S) URLs or safe repo-relative paths to non-empty local
-files; placeholder hosts such as localhost, `.local`, `.test`, and `.invalid`
-are rejected. Reviewer, evidence-link, and notes metadata must not contain
-fake/mock/placeholder markers. Dates must be real calendar dates in `YYYY-MM-DD`
-form.
+links must be well-formed HTTP(S) URLs with hostnames or safe repo-relative paths
+to non-empty local files; placeholder hosts such as localhost, `.local`, `.test`,
+and `.invalid` are rejected. Reviewer, evidence-link, and notes metadata must
+not contain fake/mock/placeholder markers. Dates must be real calendar dates in
+`YYYY-MM-DD` form.
 
 ## Manual Release Inputs
 
@@ -149,9 +149,9 @@ evidence is missing, that fake-evidence markers, malformed store media,
 flat PNG placeholders, non-measurement performance results, target misses marked
 `Pass`, ambiguous or misleading multi-value memory results, duplicate manual
 evidence rows, invalid calendar dates, placeholder metadata fields, dead local
-evidence paths, placeholder URL hosts, and weak accepted-waiver notes are
-rejected, and that checked P4 roadmap acceptance is allowed only when the full
-fixture suite passes.
+evidence paths, malformed evidence URLs, placeholder URL hosts, and weak
+accepted-waiver notes are rejected, and that checked P4 roadmap acceptance is
+allowed only when the full fixture suite passes.
 
 The final evidence register can also be checked directly:
 
@@ -164,13 +164,13 @@ The evidence verifier is expected to fail while any evidence row is still
 required gate set in `release-gate-evidence.md`. `Accepted` release-gate rows
 must also include explicit waiver/approval language and a reason in `Notes`,
 such as `Approved by ...; reason: ...`; vague status notes do not close a manual
-gate. Evidence links must be plain HTTP(S) URLs or safe repo-relative paths to
-non-empty local files; placeholder hosts such as localhost, `.local`, `.test`,
-and `.invalid` are rejected. Manual evidence verifiers also reject completed or
-accepted rows whose owner, reviewer, tester, device, result, evidence-link, or
-notes metadata still contain fake, mock, placeholder, dummy, synthetic, TODO/TBD,
-`example.com`, `not-real`, or `not real` markers, or whose dates are impossible
-calendar dates.
+gate. Evidence links must be well-formed HTTP(S) URLs with hostnames or safe
+repo-relative paths to non-empty local files; placeholder hosts such as
+localhost, `.local`, `.test`, and `.invalid` are rejected. Manual evidence
+verifiers also reject completed or accepted rows whose owner, reviewer, tester,
+device, result, evidence-link, or notes metadata still contain fake, mock,
+placeholder, dummy, synthetic, TODO/TBD, `example.com`, `not-real`, or `not real`
+markers, or whose dates are impossible calendar dates.
 
 The roadmap acceptance boxes can also be checked directly:
 

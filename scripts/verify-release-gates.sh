@@ -98,7 +98,7 @@ function contains_accepted_waiver_metadata(value) {
 }
 
 function is_http_url(value) {
-  return value ~ /^https?:\/\//
+  return value ~ /^https?:\/\/[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?(:[0-9]+)?([\/?#][^[:space:]]*)?$/
 }
 
 function is_safe_repo_path(value) {

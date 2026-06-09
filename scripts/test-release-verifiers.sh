@@ -190,7 +190,7 @@ def write_marketing(root: Path, include_feature_graphic=True, mutation="valid"):
     elif mutation == "invalid-mp4":
         preview.write_bytes(b"not an mp4")
 
-def write_release_gate(path: Path, marker=""):
+def write_release_gate(path: Path, marker="", accepted_note=None):
     lines = [
         "# Release Gate Evidence",
         "",
@@ -201,10 +201,14 @@ def write_release_gate(path: Path, marker=""):
     ]
     for index, gate in enumerate(release_gates):
         note = "Completed release evidence"
+        status = "Complete"
+        if index == 0 and accepted_note:
+            note = accepted_note
+            status = "Accepted"
         if index == 0 and marker:
             note += f" {marker}"
         lines.append(
-            f"| {gate} | Required evidence | Release owner | Complete | "
+            f"| {gate} | Required evidence | Release owner | {status} | "
             f"docs/release/evidence-{index}.md | 2026-06-09 | {note} |"
         )
     path.write_text("\n".join(lines) + "\n")
@@ -316,6 +320,14 @@ write_privacy(fixture / "privacy.md")
 write_privacy(fixture / "privacy-not-real.md", marker="not-real")
 write_privacy(fixture / "privacy-not-real-space.md", marker="not real")
 write_release_gate(fixture / "release-gates.md")
+write_release_gate(
+    fixture / "release-gates-accepted-valid.md",
+    accepted_note="Approved by release owner; reason: no-ship decision for optional app preview.",
+)
+write_release_gate(
+    fixture / "release-gates-accepted-weak.md",
+    accepted_note="Decision recorded.",
+)
 write_release_gate(fixture / "release-gates-not-real.md", marker="not-real")
 write_release_gate(fixture / "release-gates-not-real-space.md", marker="not real")
 
@@ -420,6 +432,13 @@ expect_fail_contains "P4 release evidence suite rejects missing performance row"
   scripts/verify-p4-release-evidence-suite.sh
 
 marker_failure="not-real, or not real markers"
+
+expect_pass "release gates accept explicit waiver metadata" \
+  scripts/verify-release-gates.sh "$fixture/release-gates-accepted-valid.md"
+
+expect_fail_contains "release gates reject weak accepted waiver notes" \
+  "accepted waivers require approver and reason in notes" \
+  scripts/verify-release-gates.sh "$fixture/release-gates-accepted-weak.md"
 
 expect_fail_contains "release gates reject not-real marker" "$marker_failure" \
   scripts/verify-release-gates.sh "$fixture/release-gates-not-real.md"

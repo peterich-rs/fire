@@ -37,6 +37,8 @@ reviewer, and date.
 - Record only release-candidate evidence. Simulator and emulator smoke runs may
   be linked as supporting context, but they do not satisfy physical-device gates.
 - If a gate is intentionally waived, set `Status` to `Accepted`, link the
-  decision, and include the approver and reason in `Notes`.
+  decision, and include the approver and reason in `Notes`. The verifier rejects
+  vague accepted-waiver notes that do not explicitly describe approval/waiver
+  context and a reason, risk, exception, or no-ship decision.
 - Do not replace this register with prose-only status updates. The table is the
   source of truth for manual P4 gate closure.

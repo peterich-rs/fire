@@ -58,6 +58,11 @@ function contains_fake_evidence_marker(value, normalized) {
     normalized ~ /example[.]com|not[- ]real/
 }
 
+function contains_accepted_waiver_metadata(value) {
+  return value ~ /[Aa]pprov|[Aa]ccept|[Ww]aiv/ &&
+    value ~ /[Rr]eason|[Bb]ecause|[Dd]ue to|[Rr]isk|[Ee]xception|[Nn]o-ship/
+}
+
 /^## Required Evidence[[:space:]]*$/ {
   in_required_evidence = 1
   next
@@ -108,8 +113,12 @@ in_required_evidence && /^\|/ {
   if (date !~ /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/) {
     fail(row_label, "date must use YYYY-MM-DD")
   }
-  if (status == "Accepted" && notes == "") {
-    fail(row_label, "accepted waivers require notes")
+  if (status == "Accepted") {
+    if (notes == "") {
+      fail(row_label, "accepted waivers require notes")
+    } else if (!contains_accepted_waiver_metadata(notes)) {
+      fail(row_label, "accepted waivers require approver and reason in notes")
+    }
   }
   if ((status in allowed) && contains_fake_evidence_marker(link " " notes)) {
     fail(row_label, "evidence link/notes must not contain fake, mock, placeholder, dummy, synthetic, TODO, TBD, example.com, not-real, or not real markers")

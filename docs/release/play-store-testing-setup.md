@@ -27,7 +27,7 @@ native/android-app/build/outputs/bundle/release/app-release.aab
 2. Confirm package name `com.fire.app`.
 3. Fill listing copy from `docs/release/play-store-description.md`.
 4. Fill data-safety answers from `docs/release/play-store-data-safety.md`.
-5. Upload real screenshots and feature graphic from `native/android-app/marketing/`.
+5. Upload real screenshots and feature graphic from `native/android-app/marketing/` after `scripts/verify-marketing-assets.sh` validation.
 6. Upload the signed AAB to Internal testing.
 7. Complete content rating, target audience, data safety, and app access declarations.
 

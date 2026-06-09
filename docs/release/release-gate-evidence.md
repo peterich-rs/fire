@@ -8,10 +8,10 @@ reviewer, and date.
 
 | Gate | Required Evidence | Owner | Status | Evidence Link | Date | Notes |
 | --- | --- | --- | --- | --- | --- | --- |
-| App Store screenshots | Final screenshots captured from a release-candidate iOS build for all required device classes. | | Not started | | | Do not use mock screenshots. |
-| App Preview video | Explicit ship/no-ship decision, and final video asset if shipping one. | | Not started | | | Record decision even if no video ships. |
-| Play Store screenshots | Final screenshots captured from a release-candidate Android build for phone, 7 inch tablet, and 10 inch tablet classes. | | Not started | | | Do not use mock screenshots. |
-| Play Store feature graphic | Approved 1024x500 feature graphic. | | Not started | | | Store-ready bitmap required. |
+| App Store screenshots | Final screenshots captured from a release-candidate iOS build for all required device classes. | | Not started | | | Do not use mock screenshots; run `scripts/verify-marketing-assets.sh` before completion. |
+| App Preview video | Explicit ship/no-ship decision, and final video asset if shipping one. | | Not started | | | Record decision even if no video ships; verifier accepts either no file or `preview-video/app-preview.mp4`. |
+| Play Store screenshots | Final screenshots captured from a release-candidate Android build for phone, 7 inch tablet, and 10 inch tablet classes. | | Not started | | | Do not use mock screenshots; run `scripts/verify-marketing-assets.sh` before completion. |
+| Play Store feature graphic | Approved 1024x500 feature graphic. | | Not started | | | Store-ready bitmap required; verifier enforces exact `1024x500` dimensions. |
 | Maintainer/legal privacy review | Signed review of privacy policy, App Store privacy answers, Play Data Safety answers, backup behavior, diagnostic export redaction, and license inventory. | | Not started | | | Draft docs are not legal approval. |
 | App Store Connect record | App record exists with bundle ID, pricing, category, privacy, and listing metadata entered. | | Not started | | | Link to App Store Connect record or checklist export. |
 | Play Console record | App record exists with package name, data safety, content rating, store listing, and testing setup entered. | | Not started | | | Link to Play Console record or checklist export. |

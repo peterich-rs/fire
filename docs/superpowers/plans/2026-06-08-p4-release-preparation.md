@@ -14,6 +14,7 @@ P4 is process-heavy and does not require changes to the Rust/native architecture
 - `scripts/ios/archive_release.sh` -- existing iOS archive/upload path used by the TestFlight guide.
 - `scripts/ios/verify_xcode26_toolchain.sh` -- existing App Store Connect toolchain guard used before iOS uploads.
 - `scripts/collect-licenses.sh` -- generated third-party dependency inventory.
+- `scripts/verify-marketing-assets.sh` -- store marketing asset verifier for final screenshots, optional App Preview file placement, and Play feature-graphic dimensions.
 - `scripts/verify-release-gates.sh` -- release-gate evidence verifier.
 - `scripts/benchmark-*.sh` -- benchmark workflows for cold start, scroll fluency, topic load, and memory.
 - `native/android-app/src/main/AndroidManifest.xml` -- Android backup is release-disabled with `allowBackup="false"`.
@@ -37,6 +38,7 @@ P4 is process-heavy and does not require changes to the Rust/native architecture
 5. **Separate repository completion from release acceptance.** P4 acceptance boxes in the roadmap remain unchecked until real store/test/performance/accessibility evidence exists.
 6. **Keep manual gate evidence centralized.** `docs/release/release-gate-evidence.md` is the register for screenshots, store records, legal signoff, release-build benchmarks, accessibility audit runs, and any accepted waivers. It does not satisfy those gates by itself.
 7. **Make the final release gate fail closed.** `scripts/verify-release-gates.sh` checks the evidence register and fails until every row has an accepted/completed status, owner, evidence link, and date. Current failure is expected because manual gates are still open.
+8. **Make store-media structure checkable before evidence closure.** `scripts/verify-marketing-assets.sh` validates that required screenshot buckets contain real PNG/JPEG files with readable dimensions, the optional App Preview path is unambiguous, and the Play feature graphic is PNG content with exact `1024x500` dimensions. The script is expected to fail until final release-candidate media exists.
 
 ## Phased Implementation
 
@@ -55,10 +57,12 @@ P4 is process-heavy and does not require changes to the Rust/native architecture
 - `native/android-app/marketing/screenshots/phone/.gitkeep`
 - `native/android-app/marketing/screenshots/tablet7/.gitkeep`
 - `native/android-app/marketing/screenshots/tablet10/.gitkeep`
+- `scripts/verify-marketing-assets.sh`
 
 - [x] Create App Store and Play Store listing drafts.
 - [x] Create iOS and Android marketing asset folder structures.
 - [x] Document that real release-candidate media is still required.
+- [x] Add a store marketing asset verifier that fails until final assets exist.
 - [ ] Capture and validate final App Store screenshots.
 - [ ] Capture or decide not to ship an App Preview video.
 - [ ] Capture and validate final Play Store screenshots.
@@ -150,6 +154,7 @@ P4 is process-heavy and does not require changes to the Rust/native architecture
 - Generated release media is intentionally absent until captured from real release-candidate builds.
 - Privacy and data-safety drafts are conservative working documents, not final legal text.
 - `docs/release/release-gate-evidence.md` tracks manual gate proof, but rows start as `Not started` and must be updated by the humans or release engineers who perform those actions.
+- `scripts/verify-marketing-assets.sh` is expected to fail while marketing folders contain only `.gitkeep` placeholders; it is a precondition for store-media evidence closure, not a replacement for human asset review.
 - `scripts/verify-release-gates.sh` is expected to fail until the manual P4 evidence rows are populated; this is a release guard, not a development-test failure.
 - Roadmap P4 acceptance remains unchecked until manual evidence exists.
 
@@ -189,6 +194,7 @@ P4 is process-heavy and does not require changes to the Rust/native architecture
 - `scripts/benchmark-scroll-fps.sh` -- scroll fluency benchmark workflow.
 - `scripts/benchmark-topic-load.sh` -- topic detail load benchmark workflow.
 - `scripts/collect-licenses.sh` -- dependency license inventory generator.
+- `scripts/verify-marketing-assets.sh` -- validates final store screenshot files, optional App Preview placement, and Play feature-graphic dimensions.
 - `scripts/verify-release-gates.sh` -- release-gate evidence verifier.
 - `rust/crates/fire-core/src/core/persistence.rs` -- writes redacted session exports through the redacted envelope.
 - `rust/crates/fire-core/src/session_store.rs` -- creates versioned redacted envelopes with auth cookies stripped.

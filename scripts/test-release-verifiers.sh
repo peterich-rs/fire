@@ -525,6 +525,7 @@ write_performance(fixture / "performance-fake-device.md", fake_device=True)
 write_performance(fixture / "performance-invalid-date.md", invalid_date=True)
 write_performance(fixture / "performance-extra-column.md", extra_column=True)
 write_performance(fixture / "performance-escaped-pipe.md", escaped_pipe=True)
+write_performance(fixture / "performance-placeholder-url-host.md", marker="https://localhost/performance-evidence")
 write_performance(fixture / "performance-not-real.md", marker="not-real")
 write_performance(fixture / "performance-not-real-space.md", marker="not real")
 write_accessibility(fixture / "accessibility.md")
@@ -542,6 +543,7 @@ write_accessibility(fixture / "accessibility-fake-tester.md", fake_tester=True)
 write_accessibility(fixture / "accessibility-invalid-date.md", invalid_date=True)
 write_accessibility(fixture / "accessibility-extra-column.md", extra_column=True)
 write_accessibility(fixture / "accessibility-escaped-pipe.md", escaped_pipe=True)
+write_accessibility(fixture / "accessibility-placeholder-url-host.md", marker="https://audit.invalid/accessibility-evidence")
 write_internal(fixture / "internal.md")
 write_internal(
     fixture / "internal-accepted-valid.md",
@@ -918,6 +920,9 @@ expect_fail_contains "performance rejects extra Markdown table column" \
   scripts/verify-performance-benchmarks.sh "$fixture/performance-extra-column.md"
 expect_pass "performance accepts escaped pipe in metadata" \
   scripts/verify-performance-benchmarks.sh "$fixture/performance-escaped-pipe.md"
+expect_fail_contains "performance rejects placeholder URL host in metadata" \
+  "placeholder URL hosts" \
+  scripts/verify-performance-benchmarks.sh "$fixture/performance-placeholder-url-host.md"
 
 expect_pass "performance accepts explicit waiver metadata" \
   scripts/verify-performance-benchmarks.sh "$fixture/performance-accepted-valid.md"
@@ -940,6 +945,9 @@ expect_fail_contains "accessibility rejects extra Markdown table column" \
   scripts/verify-accessibility-audit.sh "$fixture/accessibility-extra-column.md"
 expect_pass "accessibility accepts escaped pipe in metadata" \
   scripts/verify-accessibility-audit.sh "$fixture/accessibility-escaped-pipe.md"
+expect_fail_contains "accessibility rejects placeholder URL host in metadata" \
+  "placeholder URL hosts" \
+  scripts/verify-accessibility-audit.sh "$fixture/accessibility-placeholder-url-host.md"
 
 expect_pass "accessibility accepts explicit waiver metadata" \
   scripts/verify-accessibility-audit.sh "$fixture/accessibility-accepted-valid.md"

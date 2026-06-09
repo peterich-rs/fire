@@ -96,7 +96,9 @@ function contains_fake_evidence_marker(value, normalized) {
   normalized = tolower(value)
   return normalized ~ /(^|[^[:alnum:]])(fake|mock|placeholder|dummy|synthetic)([^[:alnum:]]|$)/ ||
     normalized ~ /(^|[^[:alnum:]])(todo|tbd)([^[:alnum:]]|$)/ ||
-    normalized ~ /example[.]com|not[- ]real/
+    normalized ~ /example[.]com|not[- ]real/ ||
+    normalized ~ /(^|\/)(localhost|127[.]0[.]0[.]1|0[.]0[.]0[.]0)([:\/]|$)/ ||
+    normalized ~ /[.](local|test|invalid)([:\/]|$)/
 }
 
 function contains_accepted_waiver_metadata(value) {
@@ -215,7 +217,7 @@ in_results_log && /^\|/ {
   }
 
   if ((result == "Pass" || result == "Accepted") && contains_fake_evidence_marker(tester " " device " " notes)) {
-    fail(row_label, "accessibility metadata must not contain fake, mock, placeholder, dummy, synthetic, TODO, TBD, example.com, not-real, or not real markers")
+    fail(row_label, "accessibility metadata must not contain fake, mock, placeholder, dummy, synthetic, TODO, TBD, example.com, not-real, or not real markers, or placeholder URL hosts")
   }
 
   if (screen in required_screen) {

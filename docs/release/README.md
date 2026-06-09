@@ -56,7 +56,8 @@ units such as seconds, milliseconds, fps plus janky-frame percentage, or MB/GB;
 memory rows with multiple values must label the peak value with `peak`, such as
 `peak 190 MB` or `190 MB peak`; if multiple peak values are labelled, the
 verifier compares the highest labelled peak. Device, build type, result, and
-notes metadata must not contain fake/mock/placeholder markers. Dates must be real
+notes metadata must not contain fake/mock/placeholder markers or placeholder URL
+hosts such as localhost, `.local`, `.test`, and `.invalid`. Dates must be real
 calendar dates in `YYYY-MM-DD` form. Rows with extra Markdown table columns are
 rejected; escape literal `|` characters in cell text.
 
@@ -74,7 +75,9 @@ The verifier is expected to fail while the results log is empty, while any
 required screen or audit category lacks iOS/Android coverage, or while blocking
 failures lack an accepted disposition with approval/waiver context and a reason
 in `Notes`, for example `Approved by ...; reason: ...`. Dates must be real
-calendar dates in `YYYY-MM-DD` form. Rows with extra Markdown table columns are
+calendar dates in `YYYY-MM-DD` form. Tester, device, and notes metadata must not
+contain fake/mock/placeholder markers or placeholder URL hosts such as localhost,
+`.local`, `.test`, and `.invalid`. Rows with extra Markdown table columns are
 rejected; escape literal `|` characters in cell text.
 
 ## Internal Testing Evidence

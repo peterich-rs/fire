@@ -52,7 +52,8 @@ exception, or no-ship decision in `Notes`; use a clear shape such as
 `Approved by <owner>; reason: <decision>`. Simulator and emulator rows may be
 linked as supporting context elsewhere, but they do not satisfy this log. Device,
 build type, result, and notes metadata must not contain fake/mock/placeholder
-markers.
+markers or placeholder URL hosts such as localhost, `.local`, `.test`, or
+`.invalid`.
 
 ## Release Rule
 

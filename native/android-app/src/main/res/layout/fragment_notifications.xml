@@ -40,6 +40,8 @@
             app:iconTint="@color/fire_accent" />
     </LinearLayout>
 
+    <include layout="@layout/view_offline_banner" />
+
     <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
         android:id="@+id/swipe_refresh"
         android:layout_width="match_parent"

@@ -39,6 +39,7 @@ class NotificationHistoryFragment : Fragment() {
     private lateinit var swipeRefresh: SwipeRefreshLayout
     private lateinit var emptyView: TextView
     private lateinit var loadingView: ProgressBar
+    private lateinit var offlineBanner: View
 
     private var viewModel: NotificationsViewModel? = null
 
@@ -57,6 +58,7 @@ class NotificationHistoryFragment : Fragment() {
         swipeRefresh = view.findViewById(R.id.swipe_refresh)
         emptyView = view.findViewById(R.id.empty_view)
         loadingView = view.findViewById(R.id.loading_view)
+        offlineBanner = view.findViewById(R.id.offline_banner)
 
         viewLifecycleOwner.lifecycleScope.launch {
             val sessionStore = FireSessionStoreRepository.get(requireContext())
@@ -91,6 +93,7 @@ class NotificationHistoryFragment : Fragment() {
             }
 
             swipeRefresh.setOnRefreshListener {
+                viewModel?.prepareFullNotificationRefresh()
                 viewModel?.refreshNotificationCenter()
                 adapter.refresh()
             }
@@ -123,6 +126,11 @@ class NotificationHistoryFragment : Fragment() {
                         if (state != null) {
                             (activity as? MainActivity)?.refreshNotificationBadge()
                         }
+                    }
+                }
+                launch {
+                    vm.isFullOffline.collect { isOffline ->
+                        offlineBanner.visibility = if (isOffline) View.VISIBLE else View.GONE
                     }
                 }
                 launch {

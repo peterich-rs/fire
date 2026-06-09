@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/offline_banner"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginHorizontal="12dp"
+    android:layout_marginBottom="8dp"
+    android:background="@drawable/bg_offline_banner"
+    android:contentDescription="@string/offline_cache_banner"
+    android:gravity="center_vertical"
+    android:orientation="horizontal"
+    android:paddingHorizontal="14dp"
+    android:paddingVertical="10dp"
+    android:visibility="gone">
+
+    <ImageView
+        android:layout_width="18dp"
+        android:layout_height="18dp"
+        android:importantForAccessibility="no"
+        android:src="@drawable/ic_wifi_off" />
+
+    <TextView
+        android:id="@+id/offline_message"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="10dp"
+        android:layout_weight="1"
+        android:text="@string/offline_cache_banner"
+        android:textAppearance="@style/TextAppearance.AppCompat.Caption"
+        android:textColor="@color/fire_warning"
+        android:textStyle="bold" />
+
+</LinearLayout>

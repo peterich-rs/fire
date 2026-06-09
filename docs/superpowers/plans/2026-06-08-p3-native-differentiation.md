@@ -946,72 +946,37 @@ FireWidgetData.updateWidgetData(
 ### Task 9: Offline Cache Layer (iOS)
 
 **Files:**
-- Create: `native/ios-app/App/Core/FireOfflineBanner.swift`
+- Modify: `native/ios-app/App/Core/FireComponents.swift`
 - Modify: `native/ios-app/App/Stores/FireHomeFeedStore.swift`
 - Modify: `native/ios-app/App/Stores/FireNotificationStore.swift`
+- Modify: `native/ios-app/App/Stores/FirePaginatedStore.swift`
 - Modify: `native/ios-app/App/Views/Home/FireHomeView.swift`
+- Modify: `native/ios-app/App/Views/Notifications/FireNotificationsView.swift`
+- Modify: `native/ios-app/App/Views/Notifications/FireNotificationHistoryView.swift`
 
-- [ ] **Step 1: Create `FireOfflineBanner.swift`**
+- [x] **Step 1: Add shared `FireOfflineBanner` to `FireComponents.swift`**
 
-```swift
-import SwiftUI
+  Added a compact warning-colored banner using the existing `FireTheme` tokens and SF Symbol `wifi.slash`. The banner lives with the shared SwiftUI components instead of adding a one-off file.
 
-struct FireOfflineBanner: View {
-    let message: String
-    @Binding var isDismissed: Bool
+- [x] **Step 2: Add `isOffline` state to `FireHomeFeedStore`**
 
-    var body: some View {
-        if !isDismissed {
-            HStack(spacing: 8) {
-                Image(systemName: "wifi.slash")
-                    .font(.system(size: 14))
-                    .foregroundStyle(FireTheme.warning)
-                Text(message)
-                    .font(.subheadline)
-                    .foregroundStyle(FireTheme.subtleInk)
-                Spacer()
-                Button {
-                    isDismissed = true
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 12, weight: .bold))
-                        .foregroundStyle(FireTheme.tertiaryInk)
-                }
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
-            .background(FireTheme.warning.opacity(0.10))
-        }
-    }
-}
-```
+  `FireHomeFeedStore` now updates `isOffline` from `TopicListState.isCached` and clears it on explicit feed scope changes. The platform store still uses the normal topic-list fetch path; Rust owns the read-through cache behavior.
 
-- [ ] **Step 2: Add `isOffline` published property to `FireHomeFeedStore`**
+- [x] **Step 3: Carry cached page metadata through `FirePaginatedStore`**
 
-```swift
-@Published private(set) var isOffline = false
-@Published private(set) var showOfflineBanner = false
-```
+  `PageResult` now includes `isCached` with a default of `false`, so pagination stores can expose cache state without changing unrelated callers.
 
-- [ ] **Step 3: Set `isOffline = true` when Rust core returns cached data (read-through path)**
+- [x] **Step 4: Add offline state to `FireNotificationStore`**
 
-The Rust FFI layer should expose whether the response came from cache. Add a flag or check `topicLoadErrorMessage` for network-related errors with existing data.
+  Recent notifications use `NotificationListState.isCached` / `NotificationCenterState.recentIsCached`; full notification history uses the paginated store and `NotificationListState.isCached` / `NotificationCenterState.fullIsCached`.
 
-- [ ] **Step 4: Add `isOffline` tracking to `FireNotificationStore`**
+- [x] **Step 5: Add banners to home and notification views**
 
-Same pattern as `FireHomeFeedStore`.
+  `FireHomeView`, `FireNotificationsView`, and `FireNotificationHistoryView` render `FireOfflineBanner` above their existing list content when the corresponding store state reports cached data.
 
-- [ ] **Step 5: Add `FireOfflineBanner` to `FireHomeView`**
+- [x] **Step 6: Verify iOS build**
 
-```swift
-VStack(spacing: 0) {
-    FireOfflineBanner(
-        message: "离线模式 — 显示缓存内容",
-        isDismissed: $offlineBannerDismissed
-    )
-    // ... existing content
-}
-```
+  - `cd native/ios-app && xcodebuild build -scheme Fire -destination 'platform=iOS Simulator,id=D733CCB1-7B2A-49B5-B3F8-36CB6D0CB2BF,OS=18.3.1' -quiet` — passed
 
 **Commit message:** `feat(offline-ios): add offline banner and cache-aware state to iOS home and notification views`
 
@@ -1022,111 +987,44 @@ VStack(spacing: 0) {
 **Files:**
 - Modify: `native/android-app/src/main/java/com/fire/app/data/paging/TopicListPagingSource.kt`
 - Modify: `native/android-app/src/main/java/com/fire/app/data/paging/NotificationPagingSource.kt`
-- Create: `native/android-app/src/main/java/com/fire/app/core/ui/FireOfflineBanner.kt`
+- Modify: `native/android-app/src/main/java/com/fire/app/ui/home/HomeViewModel.kt`
 - Modify: `native/android-app/src/main/java/com/fire/app/ui/home/HomeFragment.kt`
+- Modify: `native/android-app/src/main/java/com/fire/app/ui/notifications/NotificationsViewModel.kt`
 - Modify: `native/android-app/src/main/java/com/fire/app/ui/notifications/NotificationsFragment.kt`
+- Modify: `native/android-app/src/main/java/com/fire/app/ui/notifications/NotificationHistoryFragment.kt`
+- Create: `native/android-app/src/main/res/layout/view_offline_banner.xml`
+- Create: `native/android-app/src/main/res/drawable/bg_offline_banner.xml`
+- Create: `native/android-app/src/main/res/drawable/ic_wifi_off.xml`
+- Modify: `native/android-app/src/main/res/layout/fragment_home.xml`
+- Modify: `native/android-app/src/main/res/layout/fragment_notifications.xml`
+- Modify: `native/android-app/src/main/res/layout/fragment_notification_history.xml`
+- Modify: `native/android-app/src/main/res/values/strings.xml`
 
-- [ ] **Step 1: Modify `TopicListPagingSource` to return cached data on error**
+- [x] **Step 1: Keep Android on the normal Rust fetch path**
 
-```kotlin
-override suspend fun load(params: LoadParams<UInt>): LoadResult<UInt, TopicRowState> {
-    val page = params.key ?: 0u
-    return try {
-        val response = repository.fetchTopicList(
-            kind = kind,
-            page = params.key,
-            categorySlug = categorySlug,
-            categoryId = categoryId,
-            parentCategorySlug = parentCategorySlug,
-            tag = tag,
-            additionalTags = additionalTags,
-            matchAllTags = matchAllTags,
-        )
-        LoadResult.Page(
-            data = response.rows,
-            prevKey = if (page == 0u) null else page - 1u,
-            nextKey = response.nextPage,
-        )
-    } catch (e: Exception) {
-        val cached = repository.fetchCachedTopicList(kind, page)
-        if (cached != null) {
-            LoadResult.Page(
-                data = cached.rows,
-                prevKey = if (page == 0u) null else page - 1u,
-                nextKey = cached.nextPage,
-            )
-        } else {
-            LoadResult.Error(e)
-        }
-    }
-}
-```
+  No Android `fetchCachedTopicList()` or `fetchCachedNotifications()` path was added. `TopicListPagingSource` and `NotificationPagingSource` call the same repository methods as before; Rust decides whether a network failure can read through to cache.
 
-- [ ] **Step 2: Add `fetchCachedTopicList()` to `TopicRepository`**
+- [x] **Step 2: Report cached page metadata from PagingSources**
 
-```kotlin
-suspend fun fetchCachedTopicList(kind: TopicListKindState, page: UInt): TopicListState? =
-    withContext(Dispatchers.Default) {
-        sessionStore.fetchCachedTopicList(kind, page)
-    }
-```
+  Both paging sources now accept an `onPageLoaded` callback and pass through `response.isCached`. Existing callers that do not show offline state use the default no-op callback.
 
-- [ ] **Step 3: Apply same pattern to `NotificationPagingSource` and `NotificationRepository`**
+- [x] **Step 3: Add offline state to Android view models**
 
-- [ ] **Step 4: Create `FireOfflineBanner.kt`**
+  `HomeViewModel` exposes `isOffline` and resets it on feed/filter refresh. `NotificationsViewModel` exposes recent, full-history, and combined offline flows using `NotificationListState.isCached` and `NotificationCenterState.recentIsCached` / `fullIsCached`.
 
-```kotlin
-package com.fire.app.core.ui
+- [x] **Step 4: Add XML banner resources**
 
-import android.content.Context
-import android.util.AttributeSet
-import android.widget.LinearLayout
-import android.widget.TextView
-import com.fire.app.R
+  Added `view_offline_banner.xml`, `bg_offline_banner.xml`, `ic_wifi_off.xml`, and `offline_cache_banner`. The banner uses existing `fire_warning` and `fire_chip_warning_background` colors.
 
-class FireOfflineBanner @JvmOverloads constructor(
-    context: Context,
-    attrs: AttributeSet? = null,
-    defStyle: Int = 0
-) : LinearLayout(context, attrs, defStyle) {
+- [x] **Step 5: Add banner visibility to home and notification fragments**
 
-    init {
-        orientation = HORIZONTAL
-        inflate(context, R.layout.view_offline_banner, this)
-    }
+  `HomeFragment`, `NotificationsFragment`, and `NotificationHistoryFragment` include the shared banner layout and bind visibility to the view model flows. Explicit swipe/manual refresh clears the banner before requesting fresh data.
 
-    fun setMessage(message: String) {
-        findViewById<TextView>(R.id.offline_message).text = message
-    }
-}
-```
+- [x] **Step 6: Verify Android build**
 
-- [ ] **Step 5: Add banner layout `view_offline_banner.xml`**
+  - `cd native/android-app && ./gradlew testDebugUnitTest --tests com.fire.app.ui.composer.MarkdownInsertionTest` — passed
 
-```xml
-<?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="match_parent"
-    android:layout_height="wrap_content"
-    android:orientation="horizontal"
-    android:paddingHorizontal="16dp"
-    android:paddingVertical="10dp"
-    android:background="#1AFF9800">
-    <TextView
-        android:id="@+id/offline_message"
-        android:layout_width="0dp"
-        android:layout_height="wrap_content"
-        android:layout_weight="1"
-        android:textColor="@color/fire_text_secondary"
-        android:textSize="14sp" />
-</LinearLayout>
-```
-
-- [ ] **Step 6: Add offline banner visibility to `HomeFragment` and `NotificationsFragment`**
-
-Show the banner above the `RecyclerView` when the PagingSource returns cached data. Track this with a LiveData or state flow flag.
-
-**Commit message:** `feat(offline-android): add cache-aware PagingSource fallback and offline banner`
+**Commit message:** `feat(offline-android): add cache-aware offline banners`
 
 ---
 

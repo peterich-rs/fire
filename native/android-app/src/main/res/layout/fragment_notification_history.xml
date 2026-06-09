@@ -4,6 +4,8 @@
     android:layout_height="match_parent"
     android:orientation="vertical">
 
+    <include layout="@layout/view_offline_banner" />
+
     <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
         android:id="@+id/swipe_refresh"
         android:layout_width="match_parent"

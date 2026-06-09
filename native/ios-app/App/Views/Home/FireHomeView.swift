@@ -72,6 +72,15 @@ struct FireHomeView: View {
                 onScrollMetricsChanged: handleTopicListScrollMetricsChange(_: ),
                 baseURLString: baseURLString
             )
+            .overlay(alignment: .top) {
+                if homeFeedStore.isOffline {
+                    FireOfflineBanner()
+                        .padding(.horizontal, 16)
+                        .padding(.top, 8)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
+            }
+            .animation(.easeOut(duration: 0.2), value: homeFeedStore.isOffline)
             .onAppear {
                 homeFeedStore.setTopicListVisible(true)
             }

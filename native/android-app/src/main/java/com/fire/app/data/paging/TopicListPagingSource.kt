@@ -15,6 +15,7 @@ class TopicListPagingSource(
     private val tag: String? = null,
     private val additionalTags: List<String> = emptyList(),
     private val matchAllTags: Boolean = false,
+    private val onPageLoaded: (page: UInt, isCached: Boolean) -> Unit = { _, _ -> },
 ) : PagingSource<UInt, TopicRowState>() {
 
     override fun getRefreshKey(state: PagingState<UInt, TopicRowState>): UInt? {
@@ -37,6 +38,7 @@ class TopicListPagingSource(
                 matchAllTags = matchAllTags,
             )
             val rows = response.rows
+            onPageLoaded(page, response.isCached)
             LoadResult.Page(
                 data = rows,
                 prevKey = if (page == 0u) null else page - 1u,

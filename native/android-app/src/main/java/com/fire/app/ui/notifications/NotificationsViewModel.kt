@@ -14,7 +14,10 @@ import com.fire.app.session.FireStateObserverRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import uniffi.fire_uniffi_notifications.NotificationCenterState
 import uniffi.fire_uniffi_notifications.NotificationItemState
@@ -33,6 +36,16 @@ class NotificationsViewModel(
     private val _error = MutableStateFlow<String?>(null)
     val error = _error.asStateFlow()
 
+    private val _isRecentOffline = MutableStateFlow(false)
+    val isRecentOffline = _isRecentOffline.asStateFlow()
+
+    private val _isFullOffline = MutableStateFlow(false)
+    val isFullOffline = _isFullOffline.asStateFlow()
+
+    val isOffline = combine(_isRecentOffline, _isFullOffline) { recent, full ->
+        recent || full
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
     private var initialRefreshStarted = false
 
     private val pagingFlow: Flow<PagingData<NotificationItemState>> = Pager(
@@ -42,14 +55,18 @@ class NotificationsViewModel(
             initialLoadSize = 20,
             enablePlaceholders = false,
         ),
-        pagingSourceFactory = { NotificationPagingSource(repository) },
+        pagingSourceFactory = {
+            NotificationPagingSource(
+                repository = repository,
+                onPageLoaded = ::handleNotificationPageLoaded,
+            )
+        },
     ).flow.cachedIn(viewModelScope)
 
     init {
         viewModelScope.launch {
             FireStateObserverRepository.notificationCenterSnapshots.collect { snapshot ->
-                _notificationCenter.value = snapshot
-                _error.value = null
+                applyNotificationCenter(snapshot)
             }
         }
     }
@@ -62,8 +79,7 @@ class NotificationsViewModel(
         viewModelScope.launch {
             try {
                 val state = repository.markNotificationsRead()
-                _notificationCenter.value = state
-                _error.value = null
+                applyNotificationCenter(state)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -76,8 +92,7 @@ class NotificationsViewModel(
         viewModelScope.launch {
             try {
                 val state = repository.markNotificationRead(id)
-                _notificationCenter.value = state
-                _error.value = null
+                applyNotificationCenter(state)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -90,8 +105,7 @@ class NotificationsViewModel(
         viewModelScope.launch {
             try {
                 val state = repository.fetchNotificationState()
-                _notificationCenter.value = state
-                _error.value = null
+                applyNotificationCenter(state)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -108,9 +122,9 @@ class NotificationsViewModel(
         viewModelScope.launch {
             _isRefreshing.value = true
             try {
-                repository.fetchRecentNotifications()
-                _notificationCenter.value = repository.fetchNotificationState()
-                _error.value = null
+                val recent = repository.fetchRecentNotifications()
+                _isRecentOffline.value = recent.isCached
+                applyNotificationCenter(repository.fetchNotificationState())
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -121,6 +135,30 @@ class NotificationsViewModel(
             } finally {
                 _isRefreshing.value = false
             }
+        }
+    }
+
+    fun prepareNotificationRefresh() {
+        _isRecentOffline.value = false
+        _isFullOffline.value = false
+    }
+
+    fun prepareFullNotificationRefresh() {
+        _isFullOffline.value = false
+    }
+
+    private fun applyNotificationCenter(state: NotificationCenterState) {
+        _notificationCenter.value = state
+        _isRecentOffline.value = state.recentIsCached
+        _isFullOffline.value = state.fullIsCached
+        _error.value = null
+    }
+
+    private fun handleNotificationPageLoaded(offset: UInt, isCached: Boolean) {
+        if (offset == 0u) {
+            _isFullOffline.value = isCached
+        } else if (isCached) {
+            _isFullOffline.value = true
         }
     }
 

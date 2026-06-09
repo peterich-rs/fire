@@ -151,6 +151,9 @@ class HomeViewModel(
     private val _error = MutableSharedFlow<String>(extraBufferCapacity = 1)
     val error = _error.asSharedFlow()
 
+    private val _isOffline = MutableStateFlow(false)
+    val isOffline = _isOffline.asStateFlow()
+
     val topicListKinds = listOf(
         TopicListKindState.LATEST,
         TopicListKindState.NEW,
@@ -227,6 +230,7 @@ class HomeViewModel(
     fun selectKind(kind: TopicListKindState) {
         if (_selectedKind.value == kind) return
         _selectedKind.value = kind
+        _isOffline.value = false
         clearPendingMessageBusRefresh()
         syncCurrentHomeTopicListScope()
     }
@@ -235,6 +239,7 @@ class HomeViewModel(
         if (_selectedCategoryId.value == categoryId) return
         _selectedCategoryId.value = categoryId
         _selectedTags.value = emptyList()
+        _isOffline.value = false
         clearPendingMessageBusRefresh()
         syncCurrentHomeTopicListScope()
     }
@@ -243,6 +248,7 @@ class HomeViewModel(
         val normalizedTag = tag.trim().removePrefix("#").takeIf { it.isNotBlank() } ?: return
         if (_selectedTags.value.contains(normalizedTag)) return
         _selectedTags.value = _selectedTags.value + normalizedTag
+        _isOffline.value = false
         clearPendingMessageBusRefresh()
         syncCurrentHomeTopicListScope()
     }
@@ -250,6 +256,7 @@ class HomeViewModel(
     fun removeTag(tag: String) {
         if (!_selectedTags.value.contains(tag)) return
         _selectedTags.value = _selectedTags.value.filterNot { it == tag }
+        _isOffline.value = false
         clearPendingMessageBusRefresh()
         syncCurrentHomeTopicListScope()
     }
@@ -257,8 +264,13 @@ class HomeViewModel(
     fun clearTags() {
         if (_selectedTags.value.isEmpty()) return
         _selectedTags.value = emptyList()
+        _isOffline.value = false
         clearPendingMessageBusRefresh()
         syncCurrentHomeTopicListScope()
+    }
+
+    fun prepareTopicRefresh() {
+        _isOffline.value = false
     }
 
     private fun createPagingFlow(filter: HomeTopicFilter): Flow<PagingData<TopicRowState>> {
@@ -280,9 +292,18 @@ class HomeViewModel(
                     tag = primaryTag,
                     additionalTags = additionalTags,
                     matchAllTags = additionalTags.isNotEmpty(),
+                    onPageLoaded = ::handleTopicPageLoaded,
                 )
             },
         ).flow
+    }
+
+    private fun handleTopicPageLoaded(page: UInt, isCached: Boolean) {
+        if (page == 0u) {
+            _isOffline.value = isCached
+        } else if (isCached) {
+            _isOffline.value = true
+        }
     }
 
     fun startRealtimeRefresh() {

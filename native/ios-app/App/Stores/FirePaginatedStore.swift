@@ -90,11 +90,18 @@ class FirePaginatedStore<Item>: ObservableObject {
         let items: [Item]
         let nextOffset: UInt32?
         let loadedOffset: UInt32?
+        let isCached: Bool
 
-        init(items: [Item], nextOffset: UInt32?, loadedOffset: UInt32? = nil) {
+        init(
+            items: [Item],
+            nextOffset: UInt32?,
+            loadedOffset: UInt32? = nil,
+            isCached: Bool = false
+        ) {
             self.items = items
             self.nextOffset = nextOffset
             self.loadedOffset = loadedOffset
+            self.isCached = isCached
         }
     }
 

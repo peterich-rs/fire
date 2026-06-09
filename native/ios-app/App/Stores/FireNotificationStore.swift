@@ -8,6 +8,7 @@ final class FireNotificationStore: ObservableObject {
     @Published private(set) var isLoadingRecent = false
     @Published private(set) var hasLoadedRecentOnce = false
     @Published private(set) var recentErrorMessage: String?
+    @Published private(set) var isRecentOffline = false
 
     private let appViewModel: FireAppViewModel
     private let fullPagination = FireNotificationFullPaginationStore()
@@ -41,6 +42,10 @@ final class FireNotificationStore: ObservableObject {
 
     var isLoadingFullPage: Bool {
         fullPagination.isLoading || fullPagination.isLoadingMore
+    }
+
+    var isFullOffline: Bool {
+        fullPagination.isOffline
     }
 
     var hasLoadedFullOnce: Bool {
@@ -83,6 +88,7 @@ final class FireNotificationStore: ObservableObject {
         isLoadingRecent = false
         hasLoadedRecentOnce = false
         recentErrorMessage = nil
+        isRecentOffline = false
         fullPagination.reset()
         lastFailedFullOffset = nil
     }
@@ -140,6 +146,7 @@ final class FireNotificationStore: ObservableObject {
             try await FireAPMManager.shared.withSpan(.notificationsRefresh) {
                 let list = try await appViewModel.notificationService.fetchRecentNotifications()
                 recentNotifications = list.notifications
+                isRecentOffline = list.isCached
                 hasLoadedRecentOnce = true
                 recentErrorMessage = nil
                 if let state = try? await appViewModel.notificationService.notificationCenterState() {
@@ -217,13 +224,15 @@ final class FireNotificationStore: ObservableObject {
         if updateRecent {
             recentNotifications = centerState.recent
             hasLoadedRecentOnce = true
+            isRecentOffline = centerState.recentIsCached
             recentErrorMessage = nil
         }
         if updateFull {
             fullPagination.applyPage(
                 FirePaginatedStore<NotificationItemState>.PageResult(
                     items: centerState.full,
-                    nextOffset: centerState.fullNextOffset
+                    nextOffset: centerState.fullNextOffset,
+                    isCached: centerState.fullIsCached
                 ),
                 reset: true
             )
@@ -236,6 +245,7 @@ final class FireNotificationStore: ObservableObject {
 private final class FireNotificationFullPaginationStore: FirePaginatedStore<NotificationItemState> {
     private weak var appViewModel: FireAppViewModel?
     private var requestedOffset: UInt32?
+    private(set) var isOffline = false
     var onPageLoaded: (() -> Void)?
     var onPageFailed: ((UInt32?) -> Void)?
 
@@ -259,13 +269,20 @@ private final class FireNotificationFullPaginationStore: FirePaginatedStore<Noti
         return PageResult(
             items: list.notifications,
             nextOffset: list.nextOffset,
-            loadedOffset: pageOffset
+            loadedOffset: pageOffset,
+            isCached: list.isCached
         )
     }
 
     override func applyPage(_ result: PageResult, reset: Bool) {
         super.applyPage(result, reset: reset)
+        isOffline = result.isCached
         onPageLoaded?()
+    }
+
+    override func reset() {
+        super.reset()
+        isOffline = false
     }
 
     override func mergeItems(

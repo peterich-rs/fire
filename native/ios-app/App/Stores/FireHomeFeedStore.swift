@@ -51,6 +51,7 @@ final class FireHomeFeedStore: ObservableObject {
     @Published private(set) var isLoadingTopics = false
     @Published private(set) var isAppendingTopics = false
     @Published private(set) var topicLoadErrorMessage: String?
+    @Published private(set) var isOffline = false
 
     private(set) var visibleTopicIDs: Set<UInt64> = []
     private(set) var isTopicListVisible = false
@@ -213,6 +214,7 @@ final class FireHomeFeedStore: ObservableObject {
         }
         selectedTopicKind = kind
         topicLoadErrorMessage = nil
+        isOffline = false
         syncCurrentHomeTopicListScope()
         scheduleDebouncedRefresh()
     }
@@ -222,6 +224,7 @@ final class FireHomeFeedStore: ObservableObject {
         selectedHomeCategoryId = categoryId
         selectedHomeTags = []
         topicLoadErrorMessage = nil
+        isOffline = false
         syncCurrentHomeTopicListScope()
         scheduleDebouncedRefresh()
     }
@@ -230,6 +233,7 @@ final class FireHomeFeedStore: ObservableObject {
         guard !selectedHomeTags.contains(tag) else { return }
         selectedHomeTags.append(tag)
         topicLoadErrorMessage = nil
+        isOffline = false
         syncCurrentHomeTopicListScope()
         scheduleDebouncedRefresh()
     }
@@ -238,6 +242,7 @@ final class FireHomeFeedStore: ObservableObject {
         guard selectedHomeTags.contains(tag) else { return }
         selectedHomeTags.removeAll { $0 == tag }
         topicLoadErrorMessage = nil
+        isOffline = false
         syncCurrentHomeTopicListScope()
         scheduleDebouncedRefresh()
     }
@@ -246,6 +251,7 @@ final class FireHomeFeedStore: ObservableObject {
         guard !selectedHomeTags.isEmpty else { return }
         selectedHomeTags = []
         topicLoadErrorMessage = nil
+        isOffline = false
         syncCurrentHomeTopicListScope()
         scheduleDebouncedRefresh()
     }
@@ -269,6 +275,7 @@ final class FireHomeFeedStore: ObservableObject {
         applyTopicRows(mergeResult)
         renderedTopicListScope = currentTopicListRefreshScope
         topicLoadErrorMessage = nil
+        isOffline = state.isCached
         moreTopicsUrl = state.moreTopicsUrl
         nextTopicsPage = state.nextPage
         isLoadingTopics = false
@@ -356,6 +363,7 @@ final class FireHomeFeedStore: ObservableObject {
         isLoadingTopics = false
         isAppendingTopics = false
         topicLoadErrorMessage = nil
+        isOffline = false
         renderedTopicListScope = nil
         selectedHomeCategoryId = nil
         selectedHomeTags = []
@@ -466,6 +474,9 @@ final class FireHomeFeedStore: ObservableObject {
         isLoadingTopics = true
         isAppendingTopics = !reset
         topicLoadErrorMessage = nil
+        if reset {
+            isOffline = false
+        }
         defer {
             isLoadingTopics = false
             isAppendingTopics = false
@@ -563,6 +574,7 @@ final class FireHomeFeedStore: ObservableObject {
             applyTopicRows(mergeResult)
             renderedTopicListScope = requestedScope
             topicLoadErrorMessage = nil
+            isOffline = response.isCached
 
             if !usesIncrementalRefresh {
                 moreTopicsUrl = response.moreTopicsUrl

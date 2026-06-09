@@ -77,6 +77,8 @@
 
     </HorizontalScrollView>
 
+    <include layout="@layout/view_offline_banner" />
+
     <FrameLayout
         android:id="@+id/topic_list_container"
         android:layout_width="match_parent"

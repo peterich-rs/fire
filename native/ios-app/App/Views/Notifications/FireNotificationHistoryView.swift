@@ -71,6 +71,15 @@ struct FireNotificationHistoryView: View {
 
     private var notificationList: some View {
         List {
+            if notificationStore.isFullOffline {
+                Section {
+                    FireOfflineBanner("正在显示离线通知缓存")
+                }
+                .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                .listRowSeparator(.hidden)
+                .listRowBackground(Color.clear)
+            }
+
             if let errorMessage = notificationStore.fullNonBlockingErrorMessage {
                 Section {
                     FireErrorBanner(

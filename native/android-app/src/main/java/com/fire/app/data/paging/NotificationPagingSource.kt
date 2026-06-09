@@ -7,6 +7,7 @@ import uniffi.fire_uniffi_notifications.NotificationItemState
 
 class NotificationPagingSource(
     private val repository: NotificationRepository,
+    private val onPageLoaded: (offset: UInt, isCached: Boolean) -> Unit = { _, _ -> },
 ) : PagingSource<UInt, NotificationItemState>() {
 
     override fun getRefreshKey(state: PagingState<UInt, NotificationItemState>): UInt? {
@@ -25,6 +26,7 @@ class NotificationPagingSource(
                 limit = minOf(params.loadSize, API_PAGE_SIZE).toUInt(),
                 offset = offset.takeIf { it > 0u },
             )
+            onPageLoaded(offset, result.isCached)
             LoadResult.Page(
                 data = result.notifications,
                 prevKey = null,

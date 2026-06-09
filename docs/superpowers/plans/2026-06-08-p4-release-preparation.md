@@ -20,7 +20,7 @@ P4 is process-heavy and does not require changes to the Rust/native architecture
 - `scripts/verify-internal-testing-evidence.sh` -- internal testing evidence verifier for store records, uploaded builds, tester invites, and feedback triage.
 - `scripts/verify-privacy-review-evidence.sh` -- maintainer/legal privacy review evidence verifier.
 - `scripts/verify-release-readiness.sh` -- composite P4 release-readiness verifier that runs every release guard.
-- `scripts/verify-release-gates.sh` -- release-gate evidence verifier.
+- `scripts/verify-release-gates.sh` -- release-gate evidence verifier for the exact required manual gate set.
 - `scripts/benchmark-*.sh` -- benchmark workflows for cold start, scroll fluency, topic load, and memory.
 - `native/android-app/src/main/AndroidManifest.xml` -- Android backup is release-disabled with `allowBackup="false"`.
 - `native/android-app/src/main/res/xml/backup_rules.xml` -- all-exclude Android Auto Backup rules.
@@ -42,7 +42,7 @@ P4 is process-heavy and does not require changes to the Rust/native architecture
 4. **Generate license inventory from current declarations.** `scripts/collect-licenses.sh` uses `cargo metadata --locked` for Rust crate license fields and resolves Android `releaseRuntimeClasspath` with Gradle before reading Maven POM license metadata. Full legal review and Swift package license-text review remain required.
 5. **Separate repository completion from release acceptance.** P4 acceptance boxes in the roadmap remain unchecked until real store/test/performance/accessibility evidence exists.
 6. **Keep manual gate evidence centralized.** `docs/release/release-gate-evidence.md` is the register for screenshots, store records, legal signoff, release-build benchmarks, accessibility audit runs, and any accepted waivers. It does not satisfy those gates by itself.
-7. **Make the final release gate fail closed.** `scripts/verify-release-gates.sh` checks the evidence register and fails until every row has an accepted/completed status, owner, evidence link, and date. Current failure is expected because manual gates are still open.
+7. **Make the final release gate fail closed.** `scripts/verify-release-gates.sh` checks the evidence register and fails until the exact required gate rows are present once, with no unknown rows, and every row has an accepted/completed status, owner, evidence link, and date. Current failure is expected because manual gates are still open.
 8. **Make store-media structure checkable before evidence closure.** `scripts/verify-marketing-assets.sh` validates that required screenshot buckets contain real PNG/JPEG files with readable dimensions, the optional App Preview path is unambiguous, and the Play feature graphic is PNG content with exact `1024x500` dimensions. The script is expected to fail until final release-candidate media exists.
 9. **Make benchmark evidence complete by metric and platform.** `scripts/verify-performance-benchmarks.sh` checks `performance-benchmarks.md` for iOS and Android release-build physical-device rows for every target metric, and fails until threshold failures are fixed or explicitly accepted with notes.
 10. **Make accessibility evidence complete by screen and audit area.** `scripts/verify-accessibility-audit.sh` checks `accessibility-audit-checklist.md` for iOS and Android physical-device rows covering every listed screen and audit category, and fails until blocking failures are fixed or explicitly accepted with notes.
@@ -182,7 +182,7 @@ P4 is process-heavy and does not require changes to the Rust/native architecture
 - `scripts/verify-internal-testing-evidence.sh` is expected to fail while store records, uploaded builds, tester invites, or feedback triage rows are absent; it is a precondition for internal-testing evidence closure, not a substitute for store-console access.
 - `scripts/verify-privacy-review-evidence.sh` is expected to fail while maintainer/legal review evidence is absent; it is a precondition for privacy evidence closure, not a substitute for legal approval.
 - `scripts/verify-release-readiness.sh` is expected to fail while any lower-level P4 verifier fails; it is the final repo-owned readiness command before changing roadmap P4 acceptance.
-- `scripts/verify-release-gates.sh` is expected to fail until the manual P4 evidence rows are populated; this is a release guard, not a development-test failure.
+- `scripts/verify-release-gates.sh` is expected to fail until the manual P4 evidence rows are populated, and it also fails if required gate rows are renamed, duplicated, missing, or unknown; this is a release guard, not a development-test failure.
 - Roadmap P4 acceptance remains unchecked until manual evidence exists.
 
 ## File Change Summary
@@ -229,7 +229,7 @@ P4 is process-heavy and does not require changes to the Rust/native architecture
 - `scripts/verify-performance-benchmarks.sh` -- verifies release benchmark result rows across iOS and Android target metrics.
 - `scripts/verify-privacy-review-evidence.sh` -- verifies maintainer/legal privacy review evidence rows.
 - `scripts/verify-release-readiness.sh` -- runs all P4 release-readiness verifiers as one final command.
-- `scripts/verify-release-gates.sh` -- release-gate evidence verifier.
+- `scripts/verify-release-gates.sh` -- verifies exact manual P4 gate rows and required completion metadata.
 - `rust/crates/fire-core/src/core/persistence.rs` -- writes redacted session exports through the redacted envelope.
 - `rust/crates/fire-core/src/session_store.rs` -- creates versioned redacted envelopes with auth cookies stripped.
 - `rust/crates/fire-core/tests/session_flow.rs` -- covers redacted JSON and file persistence restore behavior.

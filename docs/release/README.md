@@ -106,4 +106,5 @@ scripts/verify-release-gates.sh
 ```
 
 The evidence verifier is expected to fail while any evidence row is still
-`Not started` or missing owner/link/date metadata.
+`Not started`, missing owner/link/date metadata, or out of sync with the exact
+required gate set in `release-gate-evidence.md`.

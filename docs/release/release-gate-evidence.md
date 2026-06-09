@@ -31,6 +31,9 @@ reviewer, and date.
 
 - Evidence links may point to files in this repository, store-console exports,
   issue trackers, test-run artifacts, or signed review notes.
+- Keep exactly one row for every required gate in the table above. Do not rename,
+  add, or remove gate rows; `scripts/verify-release-gates.sh` treats the exact
+  gate names as the release-readiness contract.
 - Record only release-candidate evidence. Simulator and emulator smoke runs may
   be linked as supporting context, but they do not satisfy physical-device gates.
 - If a gate is intentionally waived, set `Status` to `Accepted`, link the

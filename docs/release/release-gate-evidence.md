@@ -31,7 +31,8 @@ reviewer, and date.
 
 - Evidence links may point to files in this repository, store-console exports,
   issue trackers, test-run artifacts, or signed review notes. Use a plain
-  HTTP(S) URL or a safe repo-relative path to a non-empty local file.
+  HTTP(S) URL or a safe repo-relative path to a non-empty local file; placeholder
+  hosts such as localhost, `.local`, `.test`, and `.invalid` are rejected.
 - Keep exactly one row for every required gate in the table above. Do not rename,
   add, or remove gate rows; `scripts/verify-release-gates.sh` treats the exact
   gate names as the release-readiness contract.

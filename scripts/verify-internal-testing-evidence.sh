@@ -63,7 +63,9 @@ function contains_fake_evidence_marker(value, normalized) {
   normalized = tolower(value)
   return normalized ~ /(^|[^[:alnum:]])(fake|mock|placeholder|dummy|synthetic)([^[:alnum:]]|$)/ ||
     normalized ~ /(^|[^[:alnum:]])(todo|tbd)([^[:alnum:]]|$)/ ||
-    normalized ~ /example[.]com|not[- ]real/
+    normalized ~ /example[.]com|not[- ]real/ ||
+    normalized ~ /(^|\/)(localhost|127[.]0[.]0[.]1|0[.]0[.]0[.]0)([:\/]|$)/ ||
+    normalized ~ /[.](local|test|invalid)([:\/]|$)/
 }
 
 function contains_accepted_waiver_metadata(value) {

@@ -31,7 +31,9 @@ Record one row for each review area below:
   approver for the row.
 - `Evidence Link` may point to signed review notes, issue approvals, checklist
   exports, generated inventories, or repository files with reviewer comments.
-  Use a plain HTTP(S) URL or a safe repo-relative path to a non-empty local file.
+  Use a plain HTTP(S) URL or a safe repo-relative path to a non-empty local file;
+  placeholder hosts such as localhost, `.local`, `.test`, and `.invalid` are
+  rejected.
 - `Accepted` rows require approval/waiver context and a waiver reason, risk, or
   exception in `Notes`; use a clear shape such as
   `Approved by <reviewer>; reason: <decision>`.

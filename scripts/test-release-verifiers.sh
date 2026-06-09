@@ -190,7 +190,13 @@ def write_marketing(root: Path, include_feature_graphic=True, mutation="valid"):
     elif mutation == "invalid-mp4":
         preview.write_bytes(b"not an mp4")
 
-def write_release_gate(path: Path, marker="", accepted_note=None, missing_local_link=False):
+def write_release_gate(
+    path: Path,
+    marker="",
+    accepted_note=None,
+    missing_local_link=False,
+    placeholder_url=False,
+):
     lines = [
         "# Release Gate Evidence",
         "",
@@ -210,7 +216,9 @@ def write_release_gate(path: Path, marker="", accepted_note=None, missing_local_
         link = (
             "docs/release/missing-evidence.md"
             if missing_local_link and index == 0
-            else f"https://evidence.local/release-{index}"
+            else "https://evidence.local/release-0"
+            if placeholder_url and index == 0
+            else f"https://github.com/peterich-rs/fire/issues/{1000 + index}"
         )
         lines.append(
             f"| {gate} | Required evidence | Release owner | {status} | "
@@ -226,6 +234,7 @@ def write_internal(
     weak_invite_note=False,
     weak_feedback_note=False,
     missing_local_link=False,
+    placeholder_url=False,
 ):
     lines = [
         "# Internal Testing Evidence",
@@ -251,7 +260,9 @@ def write_internal(
         link = (
             "docs/release/missing-internal-evidence.md"
             if missing_local_link and index == 0
-            else f"https://evidence.local/internal-{index}"
+            else "https://localhost/internal-0"
+            if placeholder_url and index == 0
+            else f"https://github.com/peterich-rs/fire/issues/{2000 + index}"
         )
         lines.append(
             f"| 2026-06-09 | {platform} | {gate} | Release owner | {status} | "
@@ -259,7 +270,14 @@ def write_internal(
         )
     path.write_text("\n".join(lines) + "\n")
 
-def write_privacy(path: Path, marker="", accepted_note=None, final_note=None, missing_local_link=False):
+def write_privacy(
+    path: Path,
+    marker="",
+    accepted_note=None,
+    final_note=None,
+    missing_local_link=False,
+    placeholder_url=False,
+):
     lines = [
         "# Privacy Review Evidence",
         "",
@@ -281,7 +299,9 @@ def write_privacy(path: Path, marker="", accepted_note=None, final_note=None, mi
         link = (
             "docs/release/missing-privacy-evidence.md"
             if missing_local_link and index == 0
-            else f"https://evidence.local/privacy-{index}"
+            else "https://review.invalid/privacy-0"
+            if placeholder_url and index == 0
+            else f"https://github.com/peterich-rs/fire/issues/{3000 + index}"
         )
         lines.append(
             f"| 2026-06-09 | {area} | Reviewer | {status} | "
@@ -411,6 +431,7 @@ write_internal(fixture / "internal-weak-build.md", weak_build_note=True)
 write_internal(fixture / "internal-weak-invite.md", weak_invite_note=True)
 write_internal(fixture / "internal-weak-feedback.md", weak_feedback_note=True)
 write_internal(fixture / "internal-missing-link.md", missing_local_link=True)
+write_internal(fixture / "internal-placeholder-url.md", placeholder_url=True)
 write_internal(fixture / "internal-not-real.md", marker="not-real")
 write_internal(fixture / "internal-not-real-space.md", marker="not real")
 write_privacy(fixture / "privacy.md")
@@ -427,6 +448,7 @@ write_privacy(
     final_note="Release notes prepared.",
 )
 write_privacy(fixture / "privacy-missing-link.md", missing_local_link=True)
+write_privacy(fixture / "privacy-placeholder-url.md", placeholder_url=True)
 write_privacy(fixture / "privacy-not-real.md", marker="not-real")
 write_privacy(fixture / "privacy-not-real-space.md", marker="not real")
 write_release_gate(fixture / "release-gates.md")
@@ -439,6 +461,7 @@ write_release_gate(
     accepted_note="Accepted risk.",
 )
 write_release_gate(fixture / "release-gates-missing-link.md", missing_local_link=True)
+write_release_gate(fixture / "release-gates-placeholder-url.md", placeholder_url=True)
 write_release_gate(fixture / "release-gates-not-real.md", marker="not-real")
 write_release_gate(fixture / "release-gates-not-real-space.md", marker="not real")
 
@@ -575,6 +598,8 @@ expect_fail_contains "release gates reject weak accepted waiver notes" \
 expect_fail_contains "release gates reject missing local evidence path" \
   "evidence link path must exist and be non-empty" \
   scripts/verify-release-gates.sh "$fixture/release-gates-missing-link.md"
+expect_fail_contains "release gates reject placeholder evidence URL host" "$marker_failure" \
+  scripts/verify-release-gates.sh "$fixture/release-gates-placeholder-url.md"
 
 expect_fail_contains "release gates reject not-real marker" "$marker_failure" \
   scripts/verify-release-gates.sh "$fixture/release-gates-not-real.md"
@@ -603,6 +628,8 @@ expect_fail_contains "internal testing rejects weak feedback triage" \
 expect_fail_contains "internal testing rejects missing local evidence path" \
   "evidence link path must exist and be non-empty" \
   scripts/verify-internal-testing-evidence.sh "$fixture/internal-missing-link.md"
+expect_fail_contains "internal testing rejects placeholder evidence URL host" "$marker_failure" \
+  scripts/verify-internal-testing-evidence.sh "$fixture/internal-placeholder-url.md"
 
 expect_fail_contains "privacy review rejects not-real marker" "$marker_failure" \
   scripts/verify-privacy-review-evidence.sh "$fixture/privacy-not-real.md"
@@ -620,6 +647,8 @@ expect_fail_contains "privacy review rejects weak final publication approval not
 expect_fail_contains "privacy review rejects missing local evidence path" \
   "evidence link path must exist and be non-empty" \
   scripts/verify-privacy-review-evidence.sh "$fixture/privacy-missing-link.md"
+expect_fail_contains "privacy review rejects placeholder evidence URL host" "$marker_failure" \
+  scripts/verify-privacy-review-evidence.sh "$fixture/privacy-placeholder-url.md"
 
 expect_fail_contains "performance rejects not-real marker" "$marker_failure" \
   scripts/verify-performance-benchmarks.sh "$fixture/performance-not-real.md"

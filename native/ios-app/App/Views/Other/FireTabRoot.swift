@@ -11,6 +11,7 @@ struct FireTabRoot: View {
     @StateObject private var profileViewModel: FireProfileViewModel
     @AppStorage("fire.appearancePreference") private var appearancePreferenceRawValue = FireAppearancePreference.system.rawValue
     @State private var preheatComplete = false
+    @State private var tabSelectionFeedbackPulse: Int = 0
 
     init() {
         let vm = FireAppViewModel()
@@ -72,6 +73,7 @@ struct FireTabRoot: View {
                 .environmentObject(homeFeedStore)
                 .environmentObject(topicDetailStore)
                 .fireTopicRoutePresenter(.appRoot(navigationState: navigationState))
+                .fireSelectionFeedback(trigger: tabSelectionFeedbackPulse)
             } else {
                 FireOnboardingView(
                     viewModel: viewModel,
@@ -150,6 +152,9 @@ struct FireTabRoot: View {
             @unknown default:
                 break
             }
+        }
+        .onChange(of: navigationState.selectedTab) { _, _ in
+            tabSelectionFeedbackPulse += 1
         }
         .onChange(of: navigationState.pendingRoute) { _, route in
             selectTabForPendingRouteIfReady(route)

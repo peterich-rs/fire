@@ -30,6 +30,8 @@ struct FireBookmarkEditorSheet: View {
     @State private var isSubmitting = false
     @State private var errorMessage: String?
     @State private var saveCompletionPulse: Int = 0
+    @State private var deleteCompletionPulse: Int = 0
+    @State private var errorFeedbackPulse: Int = 0
 
     init(
         context: FireBookmarkEditorContext,
@@ -148,6 +150,8 @@ struct FireBookmarkEditorSheet: View {
                 }
             }
         }
+        .fireSuccessFeedback(trigger: deleteCompletionPulse)
+        .fireErrorFeedback(trigger: errorFeedbackPulse)
     }
 
     private func submitSave() async {
@@ -161,7 +165,7 @@ struct FireBookmarkEditorSheet: View {
             saveCompletionPulse += 1
             dismiss()
         } catch {
-            errorMessage = error.localizedDescription
+            showError(error.localizedDescription)
         }
     }
 
@@ -173,10 +177,16 @@ struct FireBookmarkEditorSheet: View {
         do {
             try await onDelete()
             await FireBookmarkReminderScheduler.cancel(context: context)
+            deleteCompletionPulse += 1
             dismiss()
         } catch {
-            errorMessage = error.localizedDescription
+            showError(error.localizedDescription)
         }
+    }
+
+    private func showError(_ message: String) {
+        errorMessage = message
+        errorFeedbackPulse += 1
     }
 
     private static func parseReminder(_ rawValue: String?) -> Date? {

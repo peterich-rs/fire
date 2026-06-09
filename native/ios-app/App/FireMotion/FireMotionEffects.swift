@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import ConfettiSwiftUI
 
 extension View {
@@ -27,6 +28,18 @@ extension View {
     /// Motion does not silence haptics — so this fires regardless.
     func fireSuccessFeedback(trigger: some Equatable) -> some View {
         sensoryFeedback(.success, trigger: trigger)
+    }
+
+    func fireErrorFeedback(trigger: some Equatable) -> some View {
+        sensoryFeedback(.error, trigger: trigger)
+    }
+
+    func fireSelectionFeedback(trigger: some Equatable) -> some View {
+        sensoryFeedback(.selection, trigger: trigger)
+    }
+
+    func fireImpactFeedback(trigger: some Equatable, weight: SensoryFeedback.Weight = .medium) -> some View {
+        sensoryFeedback(.impact(weight: weight), trigger: trigger)
     }
 
     /// Non-repeating pulse on a notification badge symbol on every
@@ -186,5 +199,23 @@ enum FireMotionCelebrationGate {
 
     static func reset() {
         firstFollowFiredThisSession = false
+    }
+}
+
+enum FireMotionHaptics {
+    static func success() {
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+    }
+
+    static func error() {
+        UINotificationFeedbackGenerator().notificationOccurred(.error)
+    }
+
+    static func selection() {
+        UISelectionFeedbackGenerator().selectionChanged()
+    }
+
+    static func impact(_ style: UIImpactFeedbackGenerator.FeedbackStyle = .medium) {
+        UIImpactFeedbackGenerator(style: style).impactOccurred()
     }
 }

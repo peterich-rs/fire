@@ -39,7 +39,7 @@ Fully feasible. The Rust `fire-store` crate already has a SQLite migration syste
 
 3. **Shimmer replaces `.redacted(reason: .placeholder)` everywhere.** The SwiftUI redaction API produces static gray blocks that look broken, not loading. A custom `FireShimmerView` with an animated gradient sweep matches the visual polish bar set by `FireTheme`. On Android, a custom `ShimmerLayout` wraps existing `RecyclerView` item layouts without changing their structure.
 
-4. **Haptic feedback is gated behind `UIAccessibility.isReduceMotionEnabled`.** All haptic generators check this flag before firing. This is not optional polish — it is an accessibility requirement that Apple enforces during review.
+4. **Haptic feedback uses the existing `FireMotion` layer.** SwiftUI surfaces prefer declarative `sensoryFeedback` modifiers, while UIKit/Texture surfaces call a small `FireMotionHaptics` bridge at confirmed interaction points. Decorative motion remains Reduce Motion-aware through `FireMotionTokens` and `fireRespectingReduceMotion`.
 
 5. **Material You uses `DynamicColors` from the Material component library.** Android already depends on `com.google.android.material`. Dynamic Color support is a one-time theme configuration, not a new dependency. The `FireColors.kt` resolver pattern is extended with a `dynamicColorsEnabled` check that falls back to static colors on API < 31.
 
@@ -856,80 +856,37 @@ FireWidgetData.updateWidgetData(
 ### Task 7: Haptic Feedback Full Coverage (iOS)
 
 **Files:**
-- Create: `native/ios-app/App/Core/FireHaptics.swift`
-- Modify: interaction points across iOS views (see specific files below)
+- Modify: `native/ios-app/App/FireMotion/FireMotionEffects.swift`
+- Modify: `native/ios-app/App/Views/Other/FireTabRoot.swift`
+- Modify: `native/ios-app/App/ListKit/FireDiffableListController.swift`
+- Modify: `native/ios-app/App/ListKit/TopicDetail/FirePostCellNode.swift`
+- Modify: `native/ios-app/App/Views/Composer/FireComposerView.swift`
+- Modify: `native/ios-app/App/Views/Composer/FirePostEditorView.swift`
+- Modify: `native/ios-app/App/Views/Bookmarks/FireBookmarkEditorSheet.swift`
 
-- [ ] **Step 1: Create `FireHaptics.swift` with accessibility-gated haptic wrappers**
+- [x] **Step 1: Extend the existing `FireMotion` haptic layer**
 
-```swift
-import UIKit
+  Added declarative SwiftUI helpers for error, selection, and impact feedback, plus a small `FireMotionHaptics` UIKit bridge for Texture/UIKit event handlers. No separate `FireHaptics.swift` was introduced, preserving one authoritative motion/haptics path.
 
-enum FireHaptics {
-    static func impact(_ style: UIImpactFeedbackGenerator.FeedbackStyle = .light) {
-        guard !UIAccessibility.isReduceMotionEnabled else { return }
-        let generator = UIImpactFeedbackGenerator(style: style)
-        generator.impactOccurred()
-    }
+- [x] **Step 2: Add haptics to like toggle, reaction toggle, bookmark toggle**
 
-    static func selection() {
-        guard !UIAccessibility.isReduceMotionEnabled else { return }
-        let generator = UISelectionFeedbackGenerator()
-        generator.selectionChanged()
-    }
+  Topic-detail native cells now fire medium impact for heart/like, selection feedback for custom reactions, and light impact for bookmark actions from both action sheet and context menu paths. Existing SwiftUI like/bookmark/follow effects continue to use `FireMotion` modifiers.
 
-    static func notification(_ type: UINotificationFeedbackGenerator.FeedbackType) {
-        guard !UIAccessibility.isReduceMotionEnabled else { return }
-        let generator = UINotificationFeedbackGenerator()
-        generator.notificationOccurred(type)
-    }
+- [x] **Step 3: Add haptics to pull-to-refresh completion**
 
-    static func success() { notification(.success) }
-    static func error() { notification(.error) }
-    static func warning() { notification(.warning) }
-}
-```
+  `FireDiffableListController` fires a light impact when the shared UIKit refresh control completes, covering Home and other collection-hosted refresh surfaces through the authoritative list controller.
 
-- [ ] **Step 2: Add haptics to like toggle, reaction toggle, bookmark toggle**
+- [x] **Step 4: Add haptics to send success/failure in composer**
 
-In the interaction handler for each toggle (likely in `FireTopicDetailModalViews.swift`, `FireTopicRow.swift`, and `FireBookmarksView.swift`):
+  Existing composer, post editor, and bookmark editor success pulses remain on `fireSuccessFeedback`; validation and server failures now pulse `fireErrorFeedback`.
 
-```swift
-// Like toggle:
-FireHaptics.impact(.medium)
-// Reaction toggle:
-FireHaptics.selection()
-// Bookmark toggle:
-FireHaptics.impact(.light)
-```
+- [x] **Step 5: Add haptics to tab switch, context menu, and swipe reply**
 
-- [ ] **Step 3: Add haptics to pull-to-refresh completion in `FireHomeView.swift`**
+  `FireTabRoot` emits selection feedback on tab changes, topic-detail menu presentation emits medium impact, and swipe-to-reply emits medium impact when the gesture crosses the reply threshold.
 
-```swift
-// After refresh completes:
-FireHaptics.impact()
-```
+- [x] **Step 6: Verify**
 
-- [ ] **Step 4: Add haptics to send success/failure in composer**
-
-In `FireComposerView.swift` or `FirePostEditorView.swift`:
-
-```swift
-// On send success:
-FireHaptics.success()
-// On send failure:
-FireHaptics.error()
-```
-
-- [ ] **Step 5: Add haptics to tab switch, context menu, long press**
-
-```swift
-// Tab switch in FireTabRoot:
-FireHaptics.selection()
-// Context menu presentation:
-FireHaptics.impact(.medium)
-// Long press on topic row:
-FireHaptics.impact(.medium)
-```
+  - `cd native/ios-app && xcodebuild build -scheme Fire -destination 'platform=iOS Simulator,id=D733CCB1-7B2A-49B5-B3F8-36CB6D0CB2BF,OS=18.3.1' -quiet` — passed; existing unrelated warnings remain
 
 **Commit message:** `feat(haptics): add accessibility-gated haptic feedback to all interaction points`
 
@@ -1608,7 +1565,7 @@ Verify all text-on-background combinations pass WCAG AA (4.5:1 for normal text, 
 - **No new external dependencies:** Glance and Material Dynamic Colors are part of the standard AndroidX/Material libraries already used. WidgetKit and AppIntents ship with iOS 17+ SDK. No third-party packages are added.
 - **Backward compatibility:** Material You falls back to static Fire colors on API < 31. Siri Shortcuts require iOS 17+ but do not break iOS 16 builds. Glance widgets require API 31+ but gracefully degrade.
 - **Widget memory:** iOS widget timelines are capped at 30-minute refresh intervals and read from lightweight UserDefaults data — no Rust FFI calls in the widget extension process.
-- **Haptic accessibility:** Every haptic call is gated behind `UIAccessibility.isReduceMotionEnabled`. Skipping this will trigger App Store review rejection.
+- **Motion accessibility:** Decorative motion is gated or degraded through `FireMotionTokens` / `fireRespectingReduceMotion`. Haptics use SwiftUI `sensoryFeedback` where available and the small `FireMotionHaptics` UIKit bridge for Texture cells.
 - **Cache staleness:** Cache entries have no TTL — they are invalidated on logout and overwritten on every successful fetch. This is intentional: stale data is better than no data for offline mode, and the next successful fetch always replaces it.
 - **OLED mode scope:** OLED mode only affects dark-theme canvas/surface colors. Text, accent, and semantic colors remain unchanged to maintain contrast ratios.
 
@@ -1636,10 +1593,10 @@ Verify all text-on-background combinations pass WCAG AA (4.5:1 for normal text, 
 - `native/android-app/src/main/java/com/fire/app/widget/FireTopicListWidget.kt` — Topic list Glance widget
 - `native/android-app/src/main/res/xml/fire_unread_widget_info.xml` — Widget metadata
 - `native/android-app/src/main/res/xml/fire_topic_list_widget_info.xml` — Widget metadata
-- `native/ios-app/App/Core/FireHaptics.swift` — Accessibility-gated haptic feedback wrapper
-- `native/ios-app/App/Views/Home/FireTopicRow.swift` — Add haptics to like/bookmark/long-press
+- `native/ios-app/App/FireMotion/FireMotionEffects.swift` — Shared SwiftUI feedback modifiers and UIKit haptic bridge
 - `native/ios-app/App/Views/Other/FireTabRoot.swift` — Add haptics to tab switch
-- `native/ios-app/App/TopicDetail/Support/FireTopicDetailModalViews.swift` — Add haptics to interactions
+- `native/ios-app/App/ListKit/FireDiffableListController.swift` — Add haptic to pull-to-refresh completion
+- `native/ios-app/App/ListKit/TopicDetail/FirePostCellNode.swift` — Add haptics to native Texture post interactions
 - `rust/crates/fire-store/src/migrations.rs` — Migration 4 for topic/notification cache
 - `rust/crates/fire-store/src/lib.rs` — Cache read/write methods
 - `rust/crates/fire-core/src/core/topics.rs` — Read-through cache on fetch

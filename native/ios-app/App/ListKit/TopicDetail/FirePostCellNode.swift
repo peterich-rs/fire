@@ -1235,6 +1235,7 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
               abs(translation.x) > abs(translation.y) else {
             return
         }
+        FireMotionHaptics.impact(.medium)
         callbacks.onSwipeReply(payload.post)
     }
 
@@ -1260,6 +1261,7 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
                 callbacks.onQuotePost(post)
             })
             alert.addAction(UIAlertAction(title: post.bookmarked ? "编辑书签" : "添加书签", style: .default) { _ in
+                FireMotionHaptics.impact(.light)
                 callbacks.onBookmarkPost(post)
             })
             alert.addAction(UIAlertAction(title: "举报", style: .default) { _ in
@@ -1284,6 +1286,7 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
         }
         alert.popoverPresentationController?.sourceView = menuNode.view
         alert.popoverPresentationController?.sourceRect = menuNode.view.bounds
+        FireMotionHaptics.impact(.medium)
         presenter.present(alert, animated: true)
     }
 
@@ -1296,8 +1299,10 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
         }
         let reaction = displayedReactions[index]
         if reaction.id == "heart" {
+            FireMotionHaptics.impact(.medium)
             callbacks.onToggleLike(payload.post)
         } else {
+            FireMotionHaptics.selection()
             callbacks.onSelectReaction(payload.post, reaction.id)
         }
     }
@@ -1366,6 +1371,7 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
             let bookmarkTitle = post.bookmarked ? "编辑书签" : "添加书签"
             let bookmarkIcon = post.bookmarked ? "bookmark.fill" : "bookmark"
             let bookmark = UIAction(title: bookmarkTitle, image: UIImage(systemName: bookmarkIcon)) { _ in
+                FireMotionHaptics.impact(.light)
                 callbacks.onBookmarkPost(post)
             }
             bookmark.attributes = isMutating ? .disabled : []

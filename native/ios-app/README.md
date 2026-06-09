@@ -106,6 +106,8 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
   - now forwards LDC/CDK profile commands through `FireSessionStore`, keeping OAuth API orchestration in Rust while the profile views own only native UI state
 - `App/FireMessageBusCoordinator.swift`
   - buffers and coalesces foreground MessageBus bursts before MainActor delivery so topic/detail/notification spikes no longer spawn one task per event on iOS
+- `App/FireMotion/`
+  - centralizes SwiftUI motion and haptic feedback through `FireMotionEffects`, including success/error/selection/impact sensory feedback modifiers plus a small UIKit bridge for Texture topic-detail cells
 - `App/Stores/FireHomeFeedStore.swift`
   - owns selected feed kind, selected category/tags, paginated home rows, and bootstrap-derived category/tag metadata for the authenticated home shell
   - applies MessageBus-driven home refreshes only as incremental entity patching while the home list surface is actually foreground-visible and the app scene is active, instead of falling back to whole-array replacement or pulling from background/off-screen pages
@@ -176,6 +178,7 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
 - `App/ListKit/`
   - now contains the W3 collection-host foundation built around `UICollectionView`, diffable data source snapshots, and `UIHostingConfiguration`
   - `FireCollectionHost.swift` bridges SwiftUI into a reusable collection-backed host while `FireDiffableListController.swift` preserves the top visible item and relative offset across snapshot applies, forwards scroll metrics, supports native pull-to-refresh, and defers anchor restoration through the entire refresh-control rebound (including the post-`endRefreshing()` deceleration window) so large-title shells like Home keep UIKit's native rebound behavior and the navigation chrome stays in sync with contentOffset
+  - `FireDiffableListController.swift` also owns pull-to-refresh completion feedback, keeping refresh haptics on the same UIKit controller path as the refresh gesture
   - topic detail now bypasses the generic diffable ListKit host and uses the dedicated `App/TopicDetail/` module, where `FireTopicDetailViewController` owns page lifecycle, `FireTopicDetailFeedController` owns the Texture `ASCollectionNode` runtime, and the controller-local snapshot pipeline coordinates toolbar, quick reply, pagination, visibility, and modal ownership without routing those concerns back through SwiftUI page state
   - `FireListSectionModel.swift` provides the section/item shape shared by later home/notification/topic-detail migrations
   - `Home/FireHomeCollectionView.swift` is the first W3 migration slice and now drives the authenticated home feed through diffable collection snapshots instead of SwiftUI `List`

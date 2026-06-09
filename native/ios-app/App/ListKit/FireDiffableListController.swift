@@ -675,6 +675,7 @@ final class FireDiffableListController<SectionID: Hashable, ItemID: Hashable, Ro
             }
             await MainActor.run {
                 guard let self else { return }
+                FireMotionHaptics.impact(.light)
                 self.collectionView?.refreshControl?.endRefreshing()
                 self.isRefreshing = false
                 self.beginPostRefreshSettling()

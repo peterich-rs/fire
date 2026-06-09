@@ -726,6 +726,7 @@ struct FireComposerView: View {
     @State private var selectedPhoto: PhotosPickerItem?
     @State private var resolvedUploads: [String: ResolvedUploadUrlState] = [:]
     @State private var saveCompletionPulse: Int = 0
+    @State private var errorFeedbackPulse: Int = 0
 
     private var baseURLString: String {
         let trimmed = viewModel.session.bootstrap.baseUrl.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -917,6 +918,8 @@ struct FireComposerView: View {
             }
         }
         .interactiveDismissDisabled(isSubmitting)
+        .fireSuccessFeedback(trigger: saveCompletionPulse)
+        .fireErrorFeedback(trigger: errorFeedbackPulse)
         .safeAreaInset(edge: .bottom) {
             bottomActionBar
         }
@@ -1384,7 +1387,6 @@ struct FireComposerView: View {
                 .disabled(!canSubmit)
                 .accessibilityLabel(route.submitLabel)
                 .fireCTAPress()
-                .fireSuccessFeedback(trigger: saveCompletionPulse)
             }
             .padding(.horizontal, 16)
             .padding(.bottom, 12)
@@ -1896,27 +1898,27 @@ struct FireComposerView: View {
         switch route.kind {
         case .createTopic:
             guard !trimmedTitle.isEmpty else {
-                errorMessage = "标题不能为空。"
+                showSubmissionError("标题不能为空。")
                 return
             }
             guard trimmedTitle.count >= minimumTitleLength else {
-                errorMessage = "标题至少需要 \(minimumTitleLength) 个字。"
+                showSubmissionError("标题至少需要 \(minimumTitleLength) 个字。")
                 return
             }
             guard let selectedCategoryID else {
-                errorMessage = "请选择分类。"
+                showSubmissionError("请选择分类。")
                 return
             }
             guard !trimmedBody.isEmpty else {
-                errorMessage = "正文不能为空。"
+                showSubmissionError("正文不能为空。")
                 return
             }
             guard trimmedBody.count >= minimumBodyLength else {
-                errorMessage = "正文至少需要 \(minimumBodyLength) 个字。"
+                showSubmissionError("正文至少需要 \(minimumBodyLength) 个字。")
                 return
             }
             guard selectedTags.count >= selectedCategoryMinimumTags else {
-                errorMessage = "当前分类至少需要 \(selectedCategoryMinimumTags) 个标签。"
+                showSubmissionError("当前分类至少需要 \(selectedCategoryMinimumTags) 个标签。")
                 return
             }
 
@@ -1945,29 +1947,29 @@ struct FireComposerView: View {
                         dismiss()
                         return
                     }
-                    errorMessage = message
+                    showSubmissionError(message)
                 }
             }
 
         case .privateMessage:
             guard !trimmedTitle.isEmpty else {
-                errorMessage = "标题不能为空。"
+                showSubmissionError("标题不能为空。")
                 return
             }
             guard trimmedTitle.count >= minimumTitleLength else {
-                errorMessage = "标题至少需要 \(minimumTitleLength) 个字。"
+                showSubmissionError("标题至少需要 \(minimumTitleLength) 个字。")
                 return
             }
             guard !trimmedBody.isEmpty else {
-                errorMessage = "正文不能为空。"
+                showSubmissionError("正文不能为空。")
                 return
             }
             guard trimmedBody.count >= minimumBodyLength else {
-                errorMessage = "正文至少需要 \(minimumBodyLength) 个字。"
+                showSubmissionError("正文至少需要 \(minimumBodyLength) 个字。")
                 return
             }
             guard !selectedRecipients.isEmpty else {
-                errorMessage = "请至少添加一个收件人。"
+                showSubmissionError("请至少添加一个收件人。")
                 return
             }
 
@@ -1995,17 +1997,17 @@ struct FireComposerView: View {
                         dismiss()
                         return
                     }
-                    errorMessage = message
+                    showSubmissionError(message)
                 }
             }
 
         case .advancedReply(let topicID, _, _, let replyToPostNumber, _, _):
             guard !trimmedBody.isEmpty else {
-                errorMessage = "回复内容不能为空。"
+                showSubmissionError("回复内容不能为空。")
                 return
             }
             guard trimmedBody.count >= minimumBodyLength else {
-                errorMessage = "回复至少需要 \(minimumBodyLength) 个字。"
+                showSubmissionError("回复至少需要 \(minimumBodyLength) 个字。")
                 return
             }
 
@@ -2034,10 +2036,15 @@ struct FireComposerView: View {
                         dismiss()
                         return
                     }
-                    errorMessage = message
+                    showSubmissionError(message)
                 }
             }
         }
+    }
+
+    private func showSubmissionError(_ message: String) {
+        errorMessage = message
+        errorFeedbackPulse += 1
     }
 
     private func insertMention(_ mention: String) {

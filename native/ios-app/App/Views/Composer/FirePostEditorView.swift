@@ -16,6 +16,7 @@ struct FirePostEditorView: View {
     @State private var isSaving = false
     @State private var errorMessage: String?
     @State private var saveCompletionPulse: Int = 0
+    @State private var errorFeedbackPulse: Int = 0
 
     private var canSubmit: Bool {
         !rawText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -89,6 +90,7 @@ struct FirePostEditorView: View {
         .task {
             await loadPost()
         }
+        .fireErrorFeedback(trigger: errorFeedbackPulse)
     }
 
     private func loadPost() async {
@@ -104,10 +106,10 @@ struct FirePostEditorView: View {
                 rawTextSelection = NSRange(location: (raw as NSString).length, length: 0)
                 errorMessage = nil
             } else {
-                errorMessage = "服务端未返回可编辑原文，无法打开编辑器"
+                showError("服务端未返回可编辑原文，无法打开编辑器")
             }
         } catch {
-            errorMessage = error.localizedDescription
+            showError(error.localizedDescription)
         }
     }
 
@@ -137,7 +139,12 @@ struct FirePostEditorView: View {
             onSaved?()
             dismiss()
         } catch {
-            errorMessage = error.localizedDescription
+            showError(error.localizedDescription)
         }
+    }
+
+    private func showError(_ message: String) {
+        errorMessage = message
+        errorFeedbackPulse += 1
     }
 }

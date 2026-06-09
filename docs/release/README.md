@@ -60,9 +60,9 @@ memory rows with multiple values must label the peak value with `peak`, such as
 verifier compares the highest labelled peak. Device, build type, result, and
 notes metadata must not contain fake/mock/placeholder markers or placeholder URL
 hosts such as localhost, `.local`, `.test`, and `.invalid`. Dates must be real
-calendar dates in `YYYY-MM-DD` form. Rows with missing or extra Markdown table
-columns are rejected; keep the exact table shape and escape literal `|`
-characters in cell text.
+calendar dates in `YYYY-MM-DD` form. Duplicate platform/metric rows and rows
+with missing or extra Markdown table columns are rejected; keep the exact table
+shape and escape literal `|` characters in cell text.
 
 ## Accessibility Evidence
 
@@ -80,9 +80,9 @@ failures lack an accepted disposition with approval/waiver context and a reason
 in `Notes`, for example `Approved by ...; reason: ...`. Dates must be real
 calendar dates in `YYYY-MM-DD` form. Tester, device, and notes metadata must not
 contain fake/mock/placeholder markers or placeholder URL hosts such as localhost,
-`.local`, `.test`, and `.invalid`. Rows with missing or extra Markdown table
-columns are rejected; keep the exact table shape and escape literal `|`
-characters in cell text.
+`.local`, `.test`, and `.invalid`. Duplicate platform/screen coverage rows and
+rows with missing or extra Markdown table columns are rejected; keep the exact
+table shape and escape literal `|` characters in cell text.
 
 ## Internal Testing Evidence
 
@@ -165,9 +165,10 @@ pass with complete fixture evidence, that both fail when lower-level fixture
 evidence is missing, that fake-evidence markers, malformed store media,
 flat PNG placeholders, non-measurement performance results, target misses marked
 `Pass`, ambiguous or misleading multi-value memory results, duplicate manual
-evidence rows, invalid calendar dates, placeholder metadata fields, dead local
-evidence paths, malformed evidence URLs, malformed URL hosts, placeholder URL
-hosts, extra Markdown table columns, missing Markdown table boundaries, and weak
+evidence rows, duplicate performance/accessibility coverage rows, invalid
+calendar dates, placeholder metadata fields, dead local evidence paths,
+malformed evidence URLs, malformed URL hosts, placeholder URL hosts, extra
+Markdown table columns, missing Markdown table boundaries, and weak
 accepted-waiver notes are rejected, and that checked P4 roadmap acceptance is
 allowed only when the full fixture suite passes.
 

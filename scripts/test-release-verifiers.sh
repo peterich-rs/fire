@@ -206,6 +206,7 @@ def write_release_gate(
     marker="",
     accepted_note=None,
     missing_local_link=False,
+    directory_local_link=False,
     placeholder_url=False,
     placeholder_owner=False,
     invalid_date=False,
@@ -234,6 +235,8 @@ def write_release_gate(
         link = (
             "docs/release/missing-evidence.md"
             if missing_local_link and index == 0
+            else "docs/release"
+            if directory_local_link and index == 0
             else "https:///release-0"
             if malformed_url and index == 0
             else "https://bad-.github.com/release-0"
@@ -265,6 +268,7 @@ def write_internal(
     weak_invite_note=False,
     weak_feedback_note=False,
     missing_local_link=False,
+    directory_local_link=False,
     placeholder_url=False,
     duplicate_row=False,
     placeholder_owner=False,
@@ -299,6 +303,8 @@ def write_internal(
         link = (
             "docs/release/missing-internal-evidence.md"
             if missing_local_link and index == 0
+            else "docs/release"
+            if directory_local_link and index == 0
             else "https:///internal-0"
             if malformed_url and index == 0
             else "https://bad-.github.com/internal-0"
@@ -333,6 +339,7 @@ def write_privacy(
     accepted_note=None,
     final_note=None,
     missing_local_link=False,
+    directory_local_link=False,
     placeholder_url=False,
     duplicate_row=False,
     placeholder_reviewer=False,
@@ -364,6 +371,8 @@ def write_privacy(
         link = (
             "docs/release/missing-privacy-evidence.md"
             if missing_local_link and index == 0
+            else "docs/release"
+            if directory_local_link and index == 0
             else "https:///privacy-0"
             if malformed_url and index == 0
             else "https://bad-.github.com/privacy-0"
@@ -583,6 +592,7 @@ write_internal(fixture / "internal-weak-build.md", weak_build_note=True)
 write_internal(fixture / "internal-weak-invite.md", weak_invite_note=True)
 write_internal(fixture / "internal-weak-feedback.md", weak_feedback_note=True)
 write_internal(fixture / "internal-missing-link.md", missing_local_link=True)
+write_internal(fixture / "internal-directory-link.md", directory_local_link=True)
 write_internal(fixture / "internal-malformed-url.md", malformed_url=True)
 write_internal(fixture / "internal-malformed-host.md", malformed_host=True)
 write_internal(fixture / "internal-placeholder-url.md", placeholder_url=True)
@@ -608,6 +618,7 @@ write_privacy(
     final_note="Release notes prepared.",
 )
 write_privacy(fixture / "privacy-missing-link.md", missing_local_link=True)
+write_privacy(fixture / "privacy-directory-link.md", directory_local_link=True)
 write_privacy(fixture / "privacy-malformed-url.md", malformed_url=True)
 write_privacy(fixture / "privacy-malformed-host.md", malformed_host=True)
 write_privacy(fixture / "privacy-placeholder-url.md", placeholder_url=True)
@@ -629,6 +640,7 @@ write_release_gate(
     accepted_note="Accepted risk.",
 )
 write_release_gate(fixture / "release-gates-missing-link.md", missing_local_link=True)
+write_release_gate(fixture / "release-gates-directory-link.md", directory_local_link=True)
 write_release_gate(fixture / "release-gates-malformed-url.md", malformed_url=True)
 write_release_gate(fixture / "release-gates-malformed-host.md", malformed_host=True)
 write_release_gate(fixture / "release-gates-placeholder-url.md", placeholder_url=True)
@@ -835,8 +847,11 @@ expect_fail_contains "release gates reject weak accepted waiver notes" \
   "accepted waivers require approver and reason in notes" \
   scripts/verify-release-gates.sh "$fixture/release-gates-accepted-weak.md"
 expect_fail_contains "release gates reject missing local evidence path" \
-  "evidence link path must exist and be non-empty" \
+  "evidence link path must exist and be a non-empty file" \
   scripts/verify-release-gates.sh "$fixture/release-gates-missing-link.md"
+expect_fail_contains "release gates reject local evidence directory path" \
+  "evidence link path must exist and be a non-empty file" \
+  scripts/verify-release-gates.sh "$fixture/release-gates-directory-link.md"
 expect_fail_contains "release gates reject malformed evidence URL" \
   "evidence link must be an HTTP(S) URL or safe repo-relative file path" \
   scripts/verify-release-gates.sh "$fixture/release-gates-malformed-url.md"
@@ -885,8 +900,11 @@ expect_fail_contains "internal testing rejects weak feedback triage" \
   "feedback triage notes must summarize blocker count" \
   scripts/verify-internal-testing-evidence.sh "$fixture/internal-weak-feedback.md"
 expect_fail_contains "internal testing rejects missing local evidence path" \
-  "evidence link path must exist and be non-empty" \
+  "evidence link path must exist and be a non-empty file" \
   scripts/verify-internal-testing-evidence.sh "$fixture/internal-missing-link.md"
+expect_fail_contains "internal testing rejects local evidence directory path" \
+  "evidence link path must exist and be a non-empty file" \
+  scripts/verify-internal-testing-evidence.sh "$fixture/internal-directory-link.md"
 expect_fail_contains "internal testing rejects malformed evidence URL" \
   "evidence link must be an HTTP(S) URL or safe repo-relative file path" \
   scripts/verify-internal-testing-evidence.sh "$fixture/internal-malformed-url.md"
@@ -927,8 +945,11 @@ expect_fail_contains "privacy review rejects weak final publication approval not
   "final publication approval notes must mention approval to publish, release, or submit" \
   scripts/verify-privacy-review-evidence.sh "$fixture/privacy-final-approval-weak.md"
 expect_fail_contains "privacy review rejects missing local evidence path" \
-  "evidence link path must exist and be non-empty" \
+  "evidence link path must exist and be a non-empty file" \
   scripts/verify-privacy-review-evidence.sh "$fixture/privacy-missing-link.md"
+expect_fail_contains "privacy review rejects local evidence directory path" \
+  "evidence link path must exist and be a non-empty file" \
+  scripts/verify-privacy-review-evidence.sh "$fixture/privacy-directory-link.md"
 expect_fail_contains "privacy review rejects malformed evidence URL" \
   "evidence link must be an HTTP(S) URL or safe repo-relative file path" \
   scripts/verify-privacy-review-evidence.sh "$fixture/privacy-malformed-url.md"

@@ -39,9 +39,10 @@ Record one row for each review area below:
 - `Evidence Link` may point to signed review notes, issue approvals, checklist
   exports, generated inventories, or repository files with reviewer comments.
   Use a well-formed HTTP(S) URL with a hostname or a safe repo-relative path to a
-  non-empty local file; placeholder hosts such as localhost, `.local`, `.test`,
-  and `.invalid` are rejected, as are malformed hosts with empty labels or labels
-  that start or end with `-`.
+  non-empty local file; directories do not satisfy local evidence links.
+  Placeholder hosts such as localhost, `.local`, `.test`, and `.invalid` are
+  rejected, as are malformed hosts with empty labels or labels that start or end
+  with `-`.
 - `Accepted` rows require approval/waiver context and a waiver reason, risk, or
   exception in `Notes`; use a clear shape such as
   `Approved by <reviewer>; reason: <decision>`.

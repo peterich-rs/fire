@@ -150,8 +150,8 @@ function is_safe_repo_path(value) {
     value !~ /\/$/
 }
 
-function repo_path_exists(value, command) {
-  command = "test -s " value
+function repo_path_is_non_empty_file(value, command) {
+  command = "test -f " value " && test -s " value
   return system(command) == 0
 }
 
@@ -161,8 +161,8 @@ function validate_evidence_link(row_label, link) {
   } else if (!is_http_url(link)) {
     if (!is_safe_repo_path(link)) {
       fail(row_label, "evidence link must be an HTTP(S) URL or safe repo-relative file path")
-    } else if (!repo_path_exists(link)) {
-      fail(row_label, "evidence link path must exist and be non-empty")
+    } else if (!repo_path_is_non_empty_file(link)) {
+      fail(row_label, "evidence link path must exist and be a non-empty file")
     }
   }
 }

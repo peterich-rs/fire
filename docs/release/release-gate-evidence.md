@@ -32,9 +32,9 @@ reviewer, and date.
 - Evidence links may point to files in this repository, store-console exports,
   issue trackers, test-run artifacts, or signed review notes. Use a well-formed
   HTTP(S) URL with a hostname or a safe repo-relative path to a non-empty local
-  file; placeholder hosts such as localhost, `.local`, `.test`, and `.invalid`
-  are rejected, as are malformed hosts with empty labels or labels that start or
-  end with `-`.
+  file; directories do not satisfy local evidence links. Placeholder hosts such
+  as localhost, `.local`, `.test`, and `.invalid` are rejected, as are malformed
+  hosts with empty labels or labels that start or end with `-`.
 - Owner, evidence-link, and notes metadata must identify real release evidence;
   fake, mock, placeholder, dummy, synthetic, TODO/TBD, `example.com`,
   `not-real`, or `not real` markers are rejected.

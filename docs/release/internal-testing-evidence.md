@@ -38,9 +38,9 @@ Record one row for each gate below:
 - `Evidence Link` may point to store-console exports, screenshots, build
   metadata, tester group records, or feedback triage notes. Use a well-formed
   HTTP(S) URL with a hostname or a safe repo-relative path to a non-empty local
-  file; placeholder hosts such as localhost, `.local`, `.test`, and `.invalid`
-  are rejected, as are malformed hosts with empty labels or labels that start or
-  end with `-`.
+  file; directories do not satisfy local evidence links. Placeholder hosts such
+  as localhost, `.local`, `.test`, and `.invalid` are rejected, as are malformed
+  hosts with empty labels or labels that start or end with `-`.
 - Internal testing build notes must include a build number and 7-40 character
   commit SHA.
 - Tester invite notes must include group/list name and invite date.

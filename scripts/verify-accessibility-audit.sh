@@ -222,11 +222,19 @@ in_results_log && /^\|/ {
     fail(row_label, "accessibility metadata must not contain fake, mock, placeholder, dummy, synthetic, TODO, TBD, example.com, not-real, or not real markers, or placeholder URL hosts")
   }
 
-  if (screen in required_screen) {
-    seen_screen[platform SUBSEP screen] = 1
+  if ((platform in required_platform) && (screen in required_screen)) {
+    key = platform SUBSEP screen
+    if (seen_screen[key] > 0) {
+      fail(row_label, "duplicate accessibility screen result row")
+    }
+    seen_screen[key] += 1
   }
-  if (screen in required_audit) {
-    seen_audit[platform SUBSEP screen] = 1
+  if ((platform in required_platform) && (screen in required_audit)) {
+    key = platform SUBSEP screen
+    if (seen_audit[key] > 0) {
+      fail(row_label, "duplicate accessibility audit result row")
+    }
+    seen_audit[key] += 1
   }
 }
 

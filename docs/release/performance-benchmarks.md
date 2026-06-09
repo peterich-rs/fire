@@ -53,7 +53,8 @@ exception, or no-ship decision in `Notes`; use a clear shape such as
 linked as supporting context elsewhere, but they do not satisfy this log. Device,
 build type, result, and notes metadata must not contain fake/mock/placeholder
 markers or placeholder URL hosts such as localhost, `.local`, `.test`, or
-`.invalid`.
+`.invalid`. Keep exactly one row per platform and metric pair; duplicate rows
+are rejected because they make release evidence ambiguous.
 
 ## Release Rule
 
@@ -69,5 +70,6 @@ The verifier fails until each target metric has an iOS and Android
 release-build physical-device row with date, commit, device, result, and
 `Pass` or reasoned `Accepted` disposition. `Pass` rows must parse to values
 inside the release targets. `Date` must be a real calendar date in `YYYY-MM-DD`
-form. Rows with missing or extra Markdown table columns are rejected; keep the
-exact table shape and escape literal `|` characters in cell text.
+form. Duplicate platform/metric rows and rows with missing or extra Markdown
+table columns are rejected; keep the exact table shape and escape literal `|`
+characters in cell text.

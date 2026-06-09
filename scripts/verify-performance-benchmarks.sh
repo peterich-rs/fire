@@ -359,6 +359,14 @@ in_results_log && /^\|/ {
     fail(row_label, "metric must match one of the documented target names")
   }
 
+  if ((platform in required_platform) && (metric in required_metric)) {
+    key = platform SUBSEP metric
+    if (seen[key] > 0) {
+      fail(row_label, "duplicate performance benchmark result row")
+    }
+    seen[key] += 1
+  }
+
   if (result == "") {
     fail(row_label, "result is required")
   }
@@ -389,8 +397,6 @@ in_results_log && /^\|/ {
   if ((status == "Pass" || status == "Accepted") && contains_fake_evidence_marker(device " " build_type " " result " " notes)) {
     fail(row_label, "benchmark metadata must not contain fake, mock, placeholder, dummy, synthetic, TODO, TBD, example.com, not-real, or not real markers, or placeholder URL hosts")
   }
-
-  seen[platform SUBSEP metric] = 1
 }
 
 END {

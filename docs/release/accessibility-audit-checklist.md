@@ -69,7 +69,9 @@ explicit waiver with approval/waiver context and a reason, risk, or exception in
 Simulator and emulator rows may be linked as supporting context elsewhere, but
 they do not satisfy this log. Tester, device, and notes metadata must not contain
 fake/mock/placeholder markers or placeholder URL hosts such as localhost,
-`.local`, `.test`, or `.invalid`.
+`.local`, `.test`, or `.invalid`. Keep exactly one row per platform and screen
+or audit category pair; duplicate rows are rejected because they make release
+evidence ambiguous.
 
 ## Release Rule
 
@@ -85,5 +87,6 @@ The verifier fails until every listed screen and audit category has an iOS and
 Android physical-device row with date, tester, device, and `Pass` or `Accepted`
 disposition. `Accepted` dispositions must be reasoned waivers, not vague status
 notes. `Date` must be a real calendar date in `YYYY-MM-DD` form. Rows with
-missing or extra Markdown table columns are rejected; keep the exact table shape
-and escape literal `|` characters in cell text.
+duplicate platform/screen coverage, missing Markdown table columns, or extra
+Markdown table columns are rejected; keep the exact table shape and escape
+literal `|` characters in cell text.

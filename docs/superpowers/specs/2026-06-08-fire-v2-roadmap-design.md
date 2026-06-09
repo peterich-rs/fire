@@ -3,7 +3,7 @@
 > 路线方案：基础夯实 → 功能扩展 → 原生差异化 → 发布准备
 > 目标周期：16+ 周 | 交付策略：阶段化交付，每阶段有独立可验证成果
 > 核心定位：在功能对等基础上，通过原生独有体验实现差异化
-> 文档契约：1 个设计文档 + 4 个实施计划，共 52 个顶层任务（P1 17 / P2 14 / P3 15 / P4 6），由 `scripts/verify-roadmap-plan-contract.sh` 校验。
+> 文档契约：1 个设计文档 + 4 个实施计划，共 52 个顶层任务（P1 17 / P2 14 / P3 15 / P4 6），由 `scripts/verify-roadmap-plan-contract.sh` 校验。已勾选的 P1-P3 验收代码证据由 `scripts/verify-roadmap-implementation-evidence.sh` 校验。
 
 ---
 
@@ -521,4 +521,4 @@ Rust 已有 bookmark reminder API，原生层已接入：
 - [ ] 话题详情首屏 < 2s
 - [ ] VoiceOver / TalkBack 全流程可操作
 
-P4 repository scaffolding 已完成一部分，并已有 store media / internal testing / privacy review / performance / accessibility / release gate / roadmap acceptance 校验脚本以及 `scripts/verify-release-readiness.sh` 总入口；最终验收仍依赖手动 store media、store records/test tracks/tester invites、maintainer/legal review、release-build 物理设备 benchmark，以及 VoiceOver/TalkBack/Dynamic Type/Reduce Motion/high-contrast audit 结果。`scripts/verify-roadmap-p4-acceptance.sh` 要求上方 P4 验收项保持精确命名，并在任何验收框被勾选时要求 release-gate evidence 先通过。
+P4 repository scaffolding 已完成一部分，并已有 store media / internal testing / privacy review / performance / accessibility / release gate / roadmap plan contract / roadmap implementation evidence / roadmap acceptance 校验脚本以及 `scripts/verify-release-readiness.sh` 总入口；最终验收仍依赖手动 store media、store records/test tracks/tester invites、maintainer/legal review、release-build 物理设备 benchmark，以及 VoiceOver/TalkBack/Dynamic Type/Reduce Motion/high-contrast audit 结果。`scripts/verify-roadmap-implementation-evidence.sh` 校验已勾选的 P1-P3 代码证据；`scripts/verify-roadmap-p4-acceptance.sh` 要求上方 P4 验收项保持精确命名，并在任何验收框被勾选时要求 release-gate evidence 先通过。

@@ -22,6 +22,7 @@ P4 is process-heavy and does not require changes to the Rust/native architecture
 - `scripts/verify-release-readiness.sh` -- composite P4 release-readiness verifier that runs every release guard.
 - `scripts/verify-release-gates.sh` -- release-gate evidence verifier for the exact required manual gate set.
 - `scripts/verify-roadmap-plan-contract.sh` -- roadmap document contract verifier for the one-spec/four-plan task counts.
+- `scripts/verify-roadmap-implementation-evidence.sh` -- checked P1-P3 roadmap implementation evidence verifier.
 - `scripts/verify-roadmap-p4-acceptance.sh` -- roadmap P4 acceptance verifier that keeps checked boxes tied to release-gate evidence.
 - `scripts/benchmark-*.sh` -- benchmark workflows for cold start, scroll fluency, topic load, and memory.
 - `native/android-app/src/main/AndroidManifest.xml` -- Android backup is release-disabled with `allowBackup="false"`.
@@ -50,9 +51,10 @@ P4 is process-heavy and does not require changes to the Rust/native architecture
 10. **Make accessibility evidence complete by screen and audit area.** `scripts/verify-accessibility-audit.sh` checks `accessibility-audit-checklist.md` for iOS and Android physical-device rows covering every listed screen and audit category, and fails until blocking failures are fixed or explicitly accepted with notes.
 11. **Make testing-track evidence explicit.** `docs/release/internal-testing-evidence.md` records App Store Connect / Play Console records, release-candidate uploads, tester invites, and feedback triage. `scripts/verify-internal-testing-evidence.sh` fails until all required platform rows are complete.
 12. **Make privacy review evidence explicit.** `docs/release/privacy-review-evidence.md` records maintainer/legal review of the privacy policy, store answers, backup behavior, diagnostic redaction, privacy manifests, license inventory, and final publication approval. `scripts/verify-privacy-review-evidence.sh` fails until all required review rows are complete.
-13. **Make final readiness one command.** `scripts/verify-release-readiness.sh` runs the marketing, performance, accessibility, internal-testing, privacy-review, evidence-register, roadmap plan contract, and roadmap P4 acceptance verifiers together. It does not replace any underlying gate; it fails until every lower-level verifier passes.
+13. **Make final readiness one command.** `scripts/verify-release-readiness.sh` runs the marketing, performance, accessibility, internal-testing, privacy-review, evidence-register, roadmap plan contract, roadmap implementation evidence, and roadmap P4 acceptance verifiers together. It does not replace any underlying gate; it fails until every lower-level verifier passes.
 14. **Keep the roadmap document contract checkable.** `scripts/verify-roadmap-plan-contract.sh` verifies the one design spec and four implementation plans stay present with P1/P2/P3/P4 top-level task counts of 17/14/15/6.
-15. **Keep roadmap acceptance evidence-bound.** `scripts/verify-roadmap-p4-acceptance.sh` checks the exact P4 acceptance rows in the design document and fails if any box is checked before the release-gate evidence verifier passes.
+15. **Keep checked implementation acceptance evidence-bound.** `scripts/verify-roadmap-implementation-evidence.sh` checks concrete code files, symbols, scoped cleanup patterns, and size limits that support the checked P1-P3 acceptance rows.
+16. **Keep roadmap P4 acceptance evidence-bound.** `scripts/verify-roadmap-p4-acceptance.sh` checks the exact P4 acceptance rows in the design document and fails if any box is checked before the release-gate evidence verifier passes.
 
 ## Phased Implementation
 
@@ -127,6 +129,7 @@ P4 is process-heavy and does not require changes to the Rust/native architecture
 - `scripts/verify-release-gates.sh`
 - `scripts/verify-release-readiness.sh`
 - `scripts/verify-roadmap-plan-contract.sh`
+- `scripts/verify-roadmap-implementation-evidence.sh`
 - `scripts/verify-roadmap-p4-acceptance.sh`
 
 - [x] Document TestFlight build/upload flow using existing iOS release scripts.
@@ -137,6 +140,7 @@ P4 is process-heavy and does not require changes to the Rust/native architecture
 - [x] Add an internal testing evidence log and verifier for store/test-track gates.
 - [x] Add a composite release-readiness verifier that runs every P4 guard.
 - [x] Add a roadmap plan contract verifier for the one-spec/four-plan task counts.
+- [x] Add a roadmap implementation evidence verifier for checked P1-P3 acceptance rows.
 - [x] Add a roadmap P4 acceptance verifier that blocks premature checkbox closure.
 - [ ] Create App Store Connect app record.
 - [ ] Create Play Console app record.
@@ -203,6 +207,7 @@ P4 is process-heavy and does not require changes to the Rust/native architecture
 - `scripts/verify-release-readiness.sh` is expected to fail while any lower-level P4 verifier fails; it is the final repo-owned readiness command before changing roadmap P4 acceptance.
 - `scripts/verify-release-gates.sh` is expected to fail until the manual P4 evidence rows are populated, and it also fails if required gate rows are renamed, duplicated, missing, or unknown; this is a release guard, not a development-test failure.
 - `scripts/verify-roadmap-plan-contract.sh` is expected to pass while the roadmap document set keeps one spec, four implementation plans, and the agreed 17/14/15/6 top-level task split.
+- `scripts/verify-roadmap-implementation-evidence.sh` is expected to pass while checked P1-P3 acceptance code paths remain present; it does not prove P4 release readiness.
 - `scripts/verify-roadmap-p4-acceptance.sh` is expected to pass while P4 roadmap acceptance remains unchecked, and to fail if any acceptance box is checked before release-gate evidence passes.
 - Roadmap P4 acceptance remains unchecked until manual evidence exists.
 
@@ -252,6 +257,7 @@ P4 is process-heavy and does not require changes to the Rust/native architecture
 - `scripts/verify-release-readiness.sh` -- runs all P4 release-readiness verifiers as one final command.
 - `scripts/verify-release-gates.sh` -- verifies exact manual P4 gate rows and required completion metadata.
 - `scripts/verify-roadmap-plan-contract.sh` -- verifies the roadmap spec/plan set and expected top-level task counts.
+- `scripts/verify-roadmap-implementation-evidence.sh` -- verifies checked P1-P3 acceptance code evidence remains present.
 - `scripts/verify-roadmap-p4-acceptance.sh` -- verifies exact roadmap P4 acceptance rows and requires release-gate evidence before checked acceptance.
 - `rust/crates/fire-core/src/core/persistence.rs` -- writes redacted session exports through the redacted envelope.
 - `rust/crates/fire-core/src/session_store.rs` -- creates versioned redacted envelopes with auth cookies stripped.

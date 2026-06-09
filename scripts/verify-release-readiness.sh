@@ -12,6 +12,7 @@ checks=(
   "Privacy review evidence|scripts/verify-privacy-review-evidence.sh"
   "Release gate evidence|scripts/verify-release-gates.sh"
   "Roadmap plan contract|scripts/verify-roadmap-plan-contract.sh"
+  "Roadmap implementation evidence|scripts/verify-roadmap-implementation-evidence.sh"
   "Roadmap P4 acceptance|scripts/verify-roadmap-p4-acceptance.sh"
 )
 

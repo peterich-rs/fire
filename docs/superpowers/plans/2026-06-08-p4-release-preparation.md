@@ -17,6 +17,7 @@ P4 is process-heavy and does not require changes to the Rust/native architecture
 - `scripts/verify-marketing-assets.sh` -- store marketing asset verifier for final screenshots, optional App Preview file placement, and Play feature-graphic dimensions.
 - `scripts/verify-performance-benchmarks.sh` -- release benchmark evidence verifier for physical-device iOS and Android result rows.
 - `scripts/verify-accessibility-audit.sh` -- release accessibility evidence verifier for physical-device iOS and Android screen/audit rows.
+- `scripts/verify-release-readiness.sh` -- composite P4 release-readiness verifier that runs every release guard.
 - `scripts/verify-release-gates.sh` -- release-gate evidence verifier.
 - `scripts/benchmark-*.sh` -- benchmark workflows for cold start, scroll fluency, topic load, and memory.
 - `native/android-app/src/main/AndroidManifest.xml` -- Android backup is release-disabled with `allowBackup="false"`.
@@ -43,6 +44,7 @@ P4 is process-heavy and does not require changes to the Rust/native architecture
 8. **Make store-media structure checkable before evidence closure.** `scripts/verify-marketing-assets.sh` validates that required screenshot buckets contain real PNG/JPEG files with readable dimensions, the optional App Preview path is unambiguous, and the Play feature graphic is PNG content with exact `1024x500` dimensions. The script is expected to fail until final release-candidate media exists.
 9. **Make benchmark evidence complete by metric and platform.** `scripts/verify-performance-benchmarks.sh` checks `performance-benchmarks.md` for iOS and Android release-build physical-device rows for every target metric, and fails until threshold failures are fixed or explicitly accepted with notes.
 10. **Make accessibility evidence complete by screen and audit area.** `scripts/verify-accessibility-audit.sh` checks `accessibility-audit-checklist.md` for iOS and Android physical-device rows covering every listed screen and audit category, and fails until blocking failures are fixed or explicitly accepted with notes.
+11. **Make final readiness one command.** `scripts/verify-release-readiness.sh` runs the marketing, performance, accessibility, and evidence-register verifiers together. It does not replace any underlying gate; it fails until every lower-level verifier passes.
 
 ## Phased Implementation
 
@@ -110,12 +112,14 @@ P4 is process-heavy and does not require changes to the Rust/native architecture
 - `docs/release/test-feedback-template.md`
 - `docs/release/release-gate-evidence.md`
 - `scripts/verify-release-gates.sh`
+- `scripts/verify-release-readiness.sh`
 
 - [x] Document TestFlight build/upload flow using existing iOS release scripts.
 - [x] Document Play Store internal/closed/open testing setup.
 - [x] Add a tester feedback template.
 - [x] Add a release-gate evidence register for manual P4 gates.
 - [x] Add a verifier that fails until manual gate evidence is complete.
+- [x] Add a composite release-readiness verifier that runs every P4 guard.
 - [ ] Create App Store Connect app record.
 - [ ] Create Play Console app record.
 - [ ] Upload release-candidate builds to internal testing tracks.
@@ -165,6 +169,7 @@ P4 is process-heavy and does not require changes to the Rust/native architecture
 - `scripts/verify-marketing-assets.sh` is expected to fail while marketing folders contain only `.gitkeep` placeholders; it is a precondition for store-media evidence closure, not a replacement for human asset review.
 - `scripts/verify-performance-benchmarks.sh` is expected to fail while benchmark results are absent; it is a precondition for performance evidence closure, not a substitute for release-build physical-device measurement.
 - `scripts/verify-accessibility-audit.sh` is expected to fail while accessibility results are absent; it is a precondition for accessibility evidence closure, not a substitute for a release-candidate assistive-technology audit.
+- `scripts/verify-release-readiness.sh` is expected to fail while any lower-level P4 verifier fails; it is the final repo-owned readiness command before changing roadmap P4 acceptance.
 - `scripts/verify-release-gates.sh` is expected to fail until the manual P4 evidence rows are populated; this is a release guard, not a development-test failure.
 - Roadmap P4 acceptance remains unchecked until manual evidence exists.
 
@@ -207,6 +212,7 @@ P4 is process-heavy and does not require changes to the Rust/native architecture
 - `scripts/verify-accessibility-audit.sh` -- verifies release accessibility result rows across iOS and Android screens and audit categories.
 - `scripts/verify-marketing-assets.sh` -- validates final store screenshot files, optional App Preview placement, and Play feature-graphic dimensions.
 - `scripts/verify-performance-benchmarks.sh` -- verifies release benchmark result rows across iOS and Android target metrics.
+- `scripts/verify-release-readiness.sh` -- runs all P4 release-readiness verifiers as one final command.
 - `scripts/verify-release-gates.sh` -- release-gate evidence verifier.
 - `rust/crates/fire-core/src/core/persistence.rs` -- writes redacted session exports through the redacted envelope.
 - `rust/crates/fire-core/src/session_store.rs` -- creates versioned redacted envelopes with auth cookies stripped.

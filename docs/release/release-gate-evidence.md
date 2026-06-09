@@ -25,6 +25,7 @@ reviewer, and date.
 | Dynamic Type / font-scale audit | iOS Dynamic Type and Android font scale results recorded. | | Not started | | | Include largest supported accessibility sizes. |
 | Reduce Motion / haptic audit | Motion and haptic behavior audited with accessibility settings enabled. | | Not started | | | Include any expected platform differences. |
 | High contrast / color-blindness audit | Light, dark, OLED, high-contrast, and color-state checks recorded. | | Not started | | | Include contrast failures and remediation. |
+| Accessibility failure disposition | Every blocking accessibility failure has a fixed, accepted, or no-ship decision. | | Not started | | | Required after the full accessibility audit pass. |
 
 ## Evidence Rules
 

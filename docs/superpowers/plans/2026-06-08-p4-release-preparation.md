@@ -14,6 +14,7 @@ P4 is process-heavy and does not require changes to the Rust/native architecture
 - `scripts/ios/archive_release.sh` -- existing iOS archive/upload path used by the TestFlight guide.
 - `scripts/ios/verify_xcode26_toolchain.sh` -- existing App Store Connect toolchain guard used before iOS uploads.
 - `scripts/collect-licenses.sh` -- generated third-party dependency inventory.
+- `scripts/verify-release-gates.sh` -- release-gate evidence verifier.
 - `scripts/benchmark-*.sh` -- benchmark workflows for cold start, scroll fluency, topic load, and memory.
 - `native/android-app/src/main/AndroidManifest.xml` -- Android backup is release-disabled with `allowBackup="false"`.
 - `native/android-app/src/main/res/xml/backup_rules.xml` -- all-exclude Android Auto Backup rules.
@@ -35,6 +36,7 @@ P4 is process-heavy and does not require changes to the Rust/native architecture
 4. **Generate license inventory from current declarations.** `scripts/collect-licenses.sh` uses `cargo metadata --locked` for Rust crate license fields and resolves Android `releaseRuntimeClasspath` with Gradle before reading Maven POM license metadata. Full legal review and Swift package license-text review remain required.
 5. **Separate repository completion from release acceptance.** P4 acceptance boxes in the roadmap remain unchecked until real store/test/performance/accessibility evidence exists.
 6. **Keep manual gate evidence centralized.** `docs/release/release-gate-evidence.md` is the register for screenshots, store records, legal signoff, release-build benchmarks, accessibility audit runs, and any accepted waivers. It does not satisfy those gates by itself.
+7. **Make the final release gate fail closed.** `scripts/verify-release-gates.sh` checks the evidence register and fails until every row has an accepted/completed status, owner, evidence link, and date. Current failure is expected because manual gates are still open.
 
 ## Phased Implementation
 
@@ -99,11 +101,13 @@ P4 is process-heavy and does not require changes to the Rust/native architecture
 - `docs/release/play-store-testing-setup.md`
 - `docs/release/test-feedback-template.md`
 - `docs/release/release-gate-evidence.md`
+- `scripts/verify-release-gates.sh`
 
 - [x] Document TestFlight build/upload flow using existing iOS release scripts.
 - [x] Document Play Store internal/closed/open testing setup.
 - [x] Add a tester feedback template.
 - [x] Add a release-gate evidence register for manual P4 gates.
+- [x] Add a verifier that fails until manual gate evidence is complete.
 - [ ] Create App Store Connect app record.
 - [ ] Create Play Console app record.
 - [ ] Upload release-candidate builds to internal testing tracks.
@@ -146,6 +150,7 @@ P4 is process-heavy and does not require changes to the Rust/native architecture
 - Generated release media is intentionally absent until captured from real release-candidate builds.
 - Privacy and data-safety drafts are conservative working documents, not final legal text.
 - `docs/release/release-gate-evidence.md` tracks manual gate proof, but rows start as `Not started` and must be updated by the humans or release engineers who perform those actions.
+- `scripts/verify-release-gates.sh` is expected to fail until the manual P4 evidence rows are populated; this is a release guard, not a development-test failure.
 - Roadmap P4 acceptance remains unchecked until manual evidence exists.
 
 ## File Change Summary
@@ -184,6 +189,7 @@ P4 is process-heavy and does not require changes to the Rust/native architecture
 - `scripts/benchmark-scroll-fps.sh` -- scroll fluency benchmark workflow.
 - `scripts/benchmark-topic-load.sh` -- topic detail load benchmark workflow.
 - `scripts/collect-licenses.sh` -- dependency license inventory generator.
+- `scripts/verify-release-gates.sh` -- release-gate evidence verifier.
 - `rust/crates/fire-core/src/core/persistence.rs` -- writes redacted session exports through the redacted envelope.
 - `rust/crates/fire-core/src/session_store.rs` -- creates versioned redacted envelopes with auth cookies stripped.
 - `rust/crates/fire-core/tests/session_flow.rs` -- covers redacted JSON and file persistence restore behavior.

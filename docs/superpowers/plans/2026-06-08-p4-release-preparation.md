@@ -219,7 +219,7 @@ P4 is process-heavy and does not require changes to the Rust/native architecture
 - `scripts/verify-roadmap-plan-contract.sh` is expected to pass while the roadmap document set keeps one spec, four implementation plans, and the agreed 17/14/15/6 top-level task split.
 - `scripts/verify-roadmap-architecture-constraints.sh` is expected to pass while the platform/Rust ownership split, minimum API targets, iOS topic-detail native runtime path, and reference/infrastructure boundaries stay intact.
 - `scripts/verify-roadmap-implementation-evidence.sh` is expected to pass while checked P1-P3 acceptance code paths remain present; it does not prove P4 release readiness.
-- `scripts/verify-roadmap-p4-acceptance.sh` is expected to pass while P4 roadmap acceptance remains unchecked, and to fail if any acceptance box is checked before the lower-level P4 evidence suite and release-gate evidence pass.
+- `scripts/verify-roadmap-p4-acceptance.sh` is expected to pass while P4 roadmap acceptance remains unchecked, and to fail if any acceptance box is checked before the shared P4 evidence suite passes.
 - `scripts/test-release-verifiers.sh` is expected to pass without real manual evidence because it uses isolated temporary fixtures to regression-test the release verifiers themselves, including fake-evidence marker rejection and malformed store-media failures.
 - Roadmap P4 acceptance remains unchecked until manual evidence exists.
 

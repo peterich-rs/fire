@@ -29,8 +29,8 @@ Record one row for each gate below:
 - Record each required platform/gate pair exactly once; duplicate rows are
   rejected so the release evidence remains unambiguous.
 - `Date` must be a real calendar date in `YYYY-MM-DD` form.
-- Rows with extra Markdown table columns are rejected; escape literal `|`
-  characters in cell text.
+- Rows with missing or extra Markdown table columns are rejected; keep the exact
+  table shape and escape literal `|` characters in cell text.
 - `Status` must be `Complete` or `Accepted`.
 - `Owner`, `Evidence Link`, and `Notes` must identify real release evidence;
   fake, mock, placeholder, dummy, synthetic, TODO/TBD, `example.com`,

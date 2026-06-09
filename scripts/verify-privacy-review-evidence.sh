@@ -179,7 +179,9 @@ in_required_evidence && /^\|/ {
   }
 
   row_count += 1
-  if (field_count > 8) {
+  if (field_count < 8) {
+    fail(row_label, "row is missing Markdown table columns; use the exact evidence table shape")
+  } else if (field_count > 8) {
     fail(row_label, "row has extra Markdown table columns; escape pipe characters in cells")
   }
 

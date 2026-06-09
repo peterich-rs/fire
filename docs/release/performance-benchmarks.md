@@ -69,5 +69,5 @@ The verifier fails until each target metric has an iOS and Android
 release-build physical-device row with date, commit, device, result, and
 `Pass` or reasoned `Accepted` disposition. `Pass` rows must parse to values
 inside the release targets. `Date` must be a real calendar date in `YYYY-MM-DD`
-form. Rows with extra Markdown table columns are rejected; escape literal `|`
-characters in cell text.
+form. Rows with missing or extra Markdown table columns are rejected; keep the
+exact table shape and escape literal `|` characters in cell text.

@@ -212,6 +212,7 @@ def write_release_gate(
     malformed_url=False,
     extra_column=False,
     escaped_pipe=False,
+    missing_trailing_pipe=False,
 ):
     lines = [
         "# Release Gate Evidence",
@@ -248,6 +249,8 @@ def write_release_gate(
         )
         if extra_column and index == 0:
             row = row[:-1] + "| hidden extra column |"
+        if missing_trailing_pipe and index == 0:
+            row = row[:-1]
         lines.append(row)
     path.write_text("\n".join(lines) + "\n")
 
@@ -266,6 +269,7 @@ def write_internal(
     malformed_url=False,
     extra_column=False,
     escaped_pipe=False,
+    missing_trailing_pipe=False,
 ):
     lines = [
         "# Internal Testing Evidence",
@@ -307,6 +311,8 @@ def write_internal(
         )
         if extra_column and index == 0:
             row = row[:-1] + "| hidden extra column |"
+        if missing_trailing_pipe and index == 0:
+            row = row[:-1]
         lines.append(row)
         if duplicate_row and index == 0:
             lines.append(
@@ -328,6 +334,7 @@ def write_privacy(
     malformed_url=False,
     extra_column=False,
     escaped_pipe=False,
+    missing_trailing_pipe=False,
 ):
     lines = [
         "# Privacy Review Evidence",
@@ -366,6 +373,8 @@ def write_privacy(
         )
         if extra_column and index == 0:
             row = row[:-1] + "| hidden extra column |"
+        if missing_trailing_pipe and index == 0:
+            row = row[:-1]
         lines.append(row)
         if duplicate_row and index == 0:
             lines.append(
@@ -399,6 +408,7 @@ def write_performance(
     invalid_date=False,
     extra_column=False,
     escaped_pipe=False,
+    missing_trailing_pipe=False,
 ):
     lines = [
         "# Fire Performance Benchmarks",
@@ -448,6 +458,8 @@ def write_performance(
         )
         if extra_column and index == 0:
             row = row[:-1] + "| hidden extra column |"
+        if missing_trailing_pipe and index == 0:
+            row = row[:-1]
         lines.append(row)
     path.write_text("\n".join(lines) + "\n")
 
@@ -459,6 +471,7 @@ def write_accessibility(
     invalid_date=False,
     extra_column=False,
     escaped_pipe=False,
+    missing_trailing_pipe=False,
 ):
     lines = [
         "# Fire Accessibility Audit Checklist",
@@ -489,6 +502,8 @@ def write_accessibility(
             )
             if extra_column and row_index == 0:
                 row = row[:-1] + "| hidden extra column |"
+            if missing_trailing_pipe and row_index == 0:
+                row = row[:-1]
             lines.append(row)
             row_index += 1
     path.write_text("\n".join(lines) + "\n")
@@ -525,6 +540,7 @@ write_performance(fixture / "performance-fake-device.md", fake_device=True)
 write_performance(fixture / "performance-invalid-date.md", invalid_date=True)
 write_performance(fixture / "performance-extra-column.md", extra_column=True)
 write_performance(fixture / "performance-escaped-pipe.md", escaped_pipe=True)
+write_performance(fixture / "performance-missing-trailing-pipe.md", missing_trailing_pipe=True)
 write_performance(fixture / "performance-placeholder-url-host.md", marker="https://localhost/performance-evidence")
 write_performance(fixture / "performance-not-real.md", marker="not-real")
 write_performance(fixture / "performance-not-real-space.md", marker="not real")
@@ -543,6 +559,7 @@ write_accessibility(fixture / "accessibility-fake-tester.md", fake_tester=True)
 write_accessibility(fixture / "accessibility-invalid-date.md", invalid_date=True)
 write_accessibility(fixture / "accessibility-extra-column.md", extra_column=True)
 write_accessibility(fixture / "accessibility-escaped-pipe.md", escaped_pipe=True)
+write_accessibility(fixture / "accessibility-missing-trailing-pipe.md", missing_trailing_pipe=True)
 write_accessibility(fixture / "accessibility-placeholder-url-host.md", marker="https://audit.invalid/accessibility-evidence")
 write_internal(fixture / "internal.md")
 write_internal(
@@ -564,6 +581,7 @@ write_internal(fixture / "internal-placeholder-owner.md", placeholder_owner=True
 write_internal(fixture / "internal-invalid-date.md", invalid_date=True)
 write_internal(fixture / "internal-extra-column.md", extra_column=True)
 write_internal(fixture / "internal-escaped-pipe.md", escaped_pipe=True)
+write_internal(fixture / "internal-missing-trailing-pipe.md", missing_trailing_pipe=True)
 write_internal(fixture / "internal-not-real.md", marker="not-real")
 write_internal(fixture / "internal-not-real-space.md", marker="not real")
 write_privacy(fixture / "privacy.md")
@@ -587,6 +605,7 @@ write_privacy(fixture / "privacy-placeholder-reviewer.md", placeholder_reviewer=
 write_privacy(fixture / "privacy-invalid-date.md", invalid_date=True)
 write_privacy(fixture / "privacy-extra-column.md", extra_column=True)
 write_privacy(fixture / "privacy-escaped-pipe.md", escaped_pipe=True)
+write_privacy(fixture / "privacy-missing-trailing-pipe.md", missing_trailing_pipe=True)
 write_privacy(fixture / "privacy-not-real.md", marker="not-real")
 write_privacy(fixture / "privacy-not-real-space.md", marker="not real")
 write_release_gate(fixture / "release-gates.md")
@@ -605,6 +624,7 @@ write_release_gate(fixture / "release-gates-placeholder-owner.md", placeholder_o
 write_release_gate(fixture / "release-gates-invalid-date.md", invalid_date=True)
 write_release_gate(fixture / "release-gates-extra-column.md", extra_column=True)
 write_release_gate(fixture / "release-gates-escaped-pipe.md", escaped_pipe=True)
+write_release_gate(fixture / "release-gates-missing-trailing-pipe.md", missing_trailing_pipe=True)
 write_release_gate(fixture / "release-gates-not-real.md", marker="not-real")
 write_release_gate(fixture / "release-gates-not-real-space.md", marker="not real")
 
@@ -821,6 +841,9 @@ expect_fail_contains "release gates reject extra Markdown table column" \
   scripts/verify-release-gates.sh "$fixture/release-gates-extra-column.md"
 expect_pass "release gates accept escaped pipe in metadata" \
   scripts/verify-release-gates.sh "$fixture/release-gates-escaped-pipe.md"
+expect_fail_contains "release gates reject missing Markdown table boundary" \
+  "row is missing Markdown table columns" \
+  scripts/verify-release-gates.sh "$fixture/release-gates-missing-trailing-pipe.md"
 
 expect_fail_contains "release gates reject not-real marker" "$marker_failure" \
   scripts/verify-release-gates.sh "$fixture/release-gates-not-real.md"
@@ -868,6 +891,9 @@ expect_fail_contains "internal testing rejects extra Markdown table column" \
   scripts/verify-internal-testing-evidence.sh "$fixture/internal-extra-column.md"
 expect_pass "internal testing accepts escaped pipe in metadata" \
   scripts/verify-internal-testing-evidence.sh "$fixture/internal-escaped-pipe.md"
+expect_fail_contains "internal testing rejects missing Markdown table boundary" \
+  "row is missing Markdown table columns" \
+  scripts/verify-internal-testing-evidence.sh "$fixture/internal-missing-trailing-pipe.md"
 
 expect_fail_contains "privacy review rejects not-real marker" "$marker_failure" \
   scripts/verify-privacy-review-evidence.sh "$fixture/privacy-not-real.md"
@@ -904,6 +930,9 @@ expect_fail_contains "privacy review rejects extra Markdown table column" \
   scripts/verify-privacy-review-evidence.sh "$fixture/privacy-extra-column.md"
 expect_pass "privacy review accepts escaped pipe in metadata" \
   scripts/verify-privacy-review-evidence.sh "$fixture/privacy-escaped-pipe.md"
+expect_fail_contains "privacy review rejects missing Markdown table boundary" \
+  "row is missing Markdown table columns" \
+  scripts/verify-privacy-review-evidence.sh "$fixture/privacy-missing-trailing-pipe.md"
 
 expect_fail_contains "performance rejects not-real marker" "$marker_failure" \
   scripts/verify-performance-benchmarks.sh "$fixture/performance-not-real.md"
@@ -920,6 +949,9 @@ expect_fail_contains "performance rejects extra Markdown table column" \
   scripts/verify-performance-benchmarks.sh "$fixture/performance-extra-column.md"
 expect_pass "performance accepts escaped pipe in metadata" \
   scripts/verify-performance-benchmarks.sh "$fixture/performance-escaped-pipe.md"
+expect_fail_contains "performance rejects missing Markdown table boundary" \
+  "row is missing Markdown table columns" \
+  scripts/verify-performance-benchmarks.sh "$fixture/performance-missing-trailing-pipe.md"
 expect_fail_contains "performance rejects placeholder URL host in metadata" \
   "placeholder URL hosts" \
   scripts/verify-performance-benchmarks.sh "$fixture/performance-placeholder-url-host.md"
@@ -945,6 +977,9 @@ expect_fail_contains "accessibility rejects extra Markdown table column" \
   scripts/verify-accessibility-audit.sh "$fixture/accessibility-extra-column.md"
 expect_pass "accessibility accepts escaped pipe in metadata" \
   scripts/verify-accessibility-audit.sh "$fixture/accessibility-escaped-pipe.md"
+expect_fail_contains "accessibility rejects missing Markdown table boundary" \
+  "row is missing Markdown table columns" \
+  scripts/verify-accessibility-audit.sh "$fixture/accessibility-missing-trailing-pipe.md"
 expect_fail_contains "accessibility rejects placeholder URL host in metadata" \
   "placeholder URL hosts" \
   scripts/verify-accessibility-audit.sh "$fixture/accessibility-placeholder-url-host.md"

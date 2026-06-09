@@ -325,7 +325,9 @@ in_results_log && /^\|/ {
   }
 
   row_count += 1
-  if (field_count > 11) {
+  if (field_count < 11) {
+    fail(row_label, "row is missing Markdown table columns; use the exact evidence table shape")
+  } else if (field_count > 11) {
     fail(row_label, "row has extra Markdown table columns; escape pipe characters in cells")
   }
 

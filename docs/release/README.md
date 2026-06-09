@@ -58,8 +58,9 @@ memory rows with multiple values must label the peak value with `peak`, such as
 verifier compares the highest labelled peak. Device, build type, result, and
 notes metadata must not contain fake/mock/placeholder markers or placeholder URL
 hosts such as localhost, `.local`, `.test`, and `.invalid`. Dates must be real
-calendar dates in `YYYY-MM-DD` form. Rows with extra Markdown table columns are
-rejected; escape literal `|` characters in cell text.
+calendar dates in `YYYY-MM-DD` form. Rows with missing or extra Markdown table
+columns are rejected; keep the exact table shape and escape literal `|`
+characters in cell text.
 
 ## Accessibility Evidence
 
@@ -77,8 +78,9 @@ failures lack an accepted disposition with approval/waiver context and a reason
 in `Notes`, for example `Approved by ...; reason: ...`. Dates must be real
 calendar dates in `YYYY-MM-DD` form. Tester, device, and notes metadata must not
 contain fake/mock/placeholder markers or placeholder URL hosts such as localhost,
-`.local`, `.test`, and `.invalid`. Rows with extra Markdown table columns are
-rejected; escape literal `|` characters in cell text.
+`.local`, `.test`, and `.invalid`. Rows with missing or extra Markdown table
+columns are rejected; keep the exact table shape and escape literal `|`
+characters in cell text.
 
 ## Internal Testing Evidence
 
@@ -97,8 +99,9 @@ approval/waiver context and a reason in `Notes`, for example
 with hostnames or safe repo-relative paths to non-empty local files; placeholder
 hosts such as localhost, `.local`, `.test`, and `.invalid` are rejected. Owner,
 evidence-link, and notes metadata must not contain fake/mock/placeholder markers.
-Dates must be real calendar dates in `YYYY-MM-DD` form. Rows with extra Markdown
-table columns are rejected; escape literal `|` characters in cell text.
+Dates must be real calendar dates in `YYYY-MM-DD` form. Rows with missing or
+extra Markdown table columns are rejected; keep the exact table shape and escape
+literal `|` characters in cell text.
 
 ## Privacy Review Evidence
 
@@ -117,8 +120,9 @@ links must be well-formed HTTP(S) URLs with hostnames or safe repo-relative path
 to non-empty local files; placeholder hosts such as localhost, `.local`, `.test`,
 and `.invalid` are rejected. Reviewer, evidence-link, and notes metadata must
 not contain fake/mock/placeholder markers. Dates must be real calendar dates in
-`YYYY-MM-DD` form. Rows with extra Markdown table columns are rejected; escape
-literal `|` characters in cell text.
+`YYYY-MM-DD` form. Rows with missing or extra Markdown table columns are
+rejected; keep the exact table shape and escape literal `|` characters in cell
+text.
 
 ## Manual Release Inputs
 
@@ -157,8 +161,9 @@ flat PNG placeholders, non-measurement performance results, target misses marked
 `Pass`, ambiguous or misleading multi-value memory results, duplicate manual
 evidence rows, invalid calendar dates, placeholder metadata fields, dead local
 evidence paths, malformed evidence URLs, placeholder URL hosts, extra Markdown
-table columns, and weak accepted-waiver notes are rejected, and that checked P4
-roadmap acceptance is allowed only when the full fixture suite passes.
+table columns, missing Markdown table boundaries, and weak accepted-waiver notes
+are rejected, and that checked P4 roadmap acceptance is allowed only when the
+full fixture suite passes.
 
 The final evidence register can also be checked directly:
 
@@ -177,8 +182,8 @@ localhost, `.local`, `.test`, and `.invalid` are rejected. Manual evidence
 verifiers also reject completed or accepted rows whose owner, reviewer, tester,
 device, result, evidence-link, or notes metadata still contain fake, mock,
 placeholder, dummy, synthetic, TODO/TBD, `example.com`, `not-real`, or `not real`
-markers, whose dates are impossible calendar dates, or whose rows contain extra
-Markdown table columns.
+markers, whose dates are impossible calendar dates, or whose rows have missing
+or extra Markdown table columns.
 
 The roadmap acceptance boxes can also be checked directly:
 

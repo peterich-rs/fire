@@ -26,6 +26,7 @@ class FireApplication : Application() {
             dynamicColorContext = this
         }
         FireColors.setDynamicColorsEnabled(dynamicColorsAvailable)
+        FireColors.setOledMode(FireColors.loadOledMode(this))
         FireImageLoader.initialize(this)
         BookmarkReminderScheduler.createNotificationChannel(this)
         FirePushNotificationDispatcher.createNotificationChannel(this)

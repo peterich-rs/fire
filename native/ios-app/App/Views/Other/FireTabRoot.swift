@@ -9,7 +9,7 @@ struct FireTabRoot: View {
     @StateObject private var notificationStore: FireNotificationStore
     @StateObject private var topicDetailStore: FireTopicDetailStore
     @StateObject private var profileViewModel: FireProfileViewModel
-    @AppStorage("fire.appearancePreference") private var appearancePreferenceRawValue = FireAppearancePreference.system.rawValue
+    @AppStorage(FireTheme.appearancePreferenceStorageKey) private var appearancePreferenceRawValue = FireAppearancePreference.system.rawValue
     @State private var preheatComplete = false
     @State private var tabSelectionFeedbackPulse: Int = 0
 

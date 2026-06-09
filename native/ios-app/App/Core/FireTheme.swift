@@ -5,6 +5,7 @@ enum FireAppearancePreference: String, CaseIterable, Identifiable {
     case system
     case light
     case dark
+    case oled
 
     var id: String { rawValue }
 
@@ -16,6 +17,8 @@ enum FireAppearancePreference: String, CaseIterable, Identifiable {
             return "浅色"
         case .dark:
             return "深色"
+        case .oled:
+            return "纯黑"
         }
     }
 
@@ -25,7 +28,7 @@ enum FireAppearancePreference: String, CaseIterable, Identifiable {
             return nil
         case .light:
             return .light
-        case .dark:
+        case .dark, .oled:
             return .dark
         }
     }
@@ -60,40 +63,55 @@ enum FireTheme {
 
     // MARK: - Canvas
 
-    static let canvasTop = adaptive(
+    static var canvasTop: Color { adaptive(
         UIColor(red: 0.96, green: 0.95, blue: 0.93, alpha: 1),
-        UIColor(red: 0.08, green: 0.09, blue: 0.10, alpha: 1)
-    )
-    static let canvasMid = adaptive(
+        UIColor(red: 0.08, green: 0.09, blue: 0.10, alpha: 1),
+        oled: UIColor.black
+    ) }
+    static var canvasMid: Color { adaptive(
         UIColor(red: 0.94, green: 0.93, blue: 0.91, alpha: 1),
-        UIColor(red: 0.10, green: 0.11, blue: 0.13, alpha: 1)
-    )
-    static let canvasBottom = adaptive(
+        UIColor(red: 0.10, green: 0.11, blue: 0.13, alpha: 1),
+        oled: UIColor.black
+    ) }
+    static var canvasBottom: Color { adaptive(
         UIColor(red: 0.92, green: 0.92, blue: 0.91, alpha: 1),
-        UIColor(red: 0.13, green: 0.14, blue: 0.17, alpha: 1)
-    )
+        UIColor(red: 0.13, green: 0.14, blue: 0.17, alpha: 1),
+        oled: UIColor.black
+    ) }
 
     // MARK: - Surfaces
 
-    static let canvas = canvasMid
-    static let surface = Color(uiColor: .secondarySystemBackground)
-    static let surfaceSecondary = Color(uiColor: .tertiarySystemFill)
-    static let panel = adaptive(
+    static var canvas: Color { canvasMid }
+    static var surface: Color { adaptive(
+        UIColor.secondarySystemBackground.resolvedColor(with: UITraitCollection(userInterfaceStyle: .light)),
+        UIColor.secondarySystemBackground.resolvedColor(with: UITraitCollection(userInterfaceStyle: .dark)),
+        oled: UIColor(red: 0.04, green: 0.04, blue: 0.05, alpha: 1)
+    ) }
+    static var surfaceSecondary: Color { adaptive(
+        UIColor.tertiarySystemFill.resolvedColor(with: UITraitCollection(userInterfaceStyle: .light)),
+        UIColor.tertiarySystemFill.resolvedColor(with: UITraitCollection(userInterfaceStyle: .dark)),
+        oled: UIColor(red: 0.07, green: 0.07, blue: 0.08, alpha: 1)
+    ) }
+    static var panel: Color { adaptive(
         UIColor(red: 0.14, green: 0.13, blue: 0.13, alpha: 1),
-        UIColor(red: 0.12, green: 0.12, blue: 0.13, alpha: 1)
-    )
-    static let panelElevated = adaptive(
+        UIColor(red: 0.12, green: 0.12, blue: 0.13, alpha: 1),
+        oled: UIColor(red: 0.04, green: 0.04, blue: 0.05, alpha: 1)
+    ) }
+    static var panelElevated: Color { adaptive(
         UIColor(red: 0.20, green: 0.18, blue: 0.17, alpha: 1),
-        UIColor(red: 0.17, green: 0.17, blue: 0.19, alpha: 1)
-    )
-    static let chrome = adaptive(
+        UIColor(red: 0.17, green: 0.17, blue: 0.19, alpha: 1),
+        oled: UIColor(red: 0.07, green: 0.07, blue: 0.08, alpha: 1)
+    ) }
+    static var chrome: Color { adaptive(
         UIColor(red: 1.00, green: 1.00, blue: 1.00, alpha: 0.78),
-        UIColor(red: 0.16, green: 0.17, blue: 0.19, alpha: 0.90)
-    )
-    static let chromeStrong = adaptive(
+        UIColor(red: 0.16, green: 0.17, blue: 0.19, alpha: 0.90),
+        oled: UIColor(red: 0.04, green: 0.04, blue: 0.05, alpha: 0.92)
+    ) }
+    static var chromeStrong: Color { adaptive(
         UIColor(red: 1.00, green: 1.00, blue: 1.00, alpha: 0.92),
-        UIColor(red: 0.19, green: 0.20, blue: 0.22, alpha: 0.96)
-    )
+        UIColor(red: 0.19, green: 0.20, blue: 0.22, alpha: 0.96),
+        oled: UIColor(red: 0.07, green: 0.07, blue: 0.08, alpha: 0.96)
+    ) }
     static let softSurface = adaptive(
         UIColor(red: 1.00, green: 1.00, blue: 1.00, alpha: 0.56),
         UIColor(red: 1.00, green: 1.00, blue: 1.00, alpha: 0.06)
@@ -170,17 +188,29 @@ enum FireTheme {
 
     // MARK: - Tab Bar
 
-    static let tabBarBackground = adaptive(
+    static var tabBarBackground: Color { adaptive(
         UIColor(red: 0.97, green: 0.96, blue: 0.95, alpha: 0.94),
-        UIColor(red: 0.10, green: 0.10, blue: 0.12, alpha: 0.94)
-    )
+        UIColor(red: 0.10, green: 0.10, blue: 0.12, alpha: 0.94),
+        oled: UIColor(white: 0, alpha: 0.94)
+    ) }
 
     // MARK: - Helpers
 
-    private static func adaptive(_ light: UIColor, _ dark: UIColor) -> Color {
+    static var isOledMode: Bool {
+        FireAppearancePreference(
+            rawValue: UserDefaults.standard.string(forKey: appearancePreferenceStorageKey) ?? ""
+        ) == .oled
+    }
+
+    static let appearancePreferenceStorageKey = "fire.appearancePreference"
+
+    private static func adaptive(_ light: UIColor, _ dark: UIColor, oled: UIColor? = nil) -> Color {
         Color(
             uiColor: UIColor { traits in
-                traits.userInterfaceStyle == .dark ? dark : light
+                if traits.userInterfaceStyle == .dark {
+                    return isOledMode ? (oled ?? dark) : dark
+                }
+                return light
             }
         )
     }

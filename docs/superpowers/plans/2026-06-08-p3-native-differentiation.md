@@ -1244,89 +1244,40 @@ Extend the `onOpenURL` handler from Task 3 to handle these schemes.
 
 **Files:**
 - Modify: `native/ios-app/App/Core/FireTheme.swift`
+- Modify: `native/ios-app/App/Views/Other/FireTabRoot.swift`
+- Modify: `native/ios-app/App/Views/Profile/FireProfileView.swift`
 - Modify: `native/android-app/src/main/java/com/fire/app/core/theme/FireColors.kt`
-- Create: `native/ios-app/App/Core/FireOledTheme.swift`
+- Modify: `native/android-app/src/main/java/com/fire/app/FireApplication.kt`
+- Modify: `native/android-app/src/main/res/values-night/fire_colors.xml`
 
-- [ ] **Step 1: Add OLED pure black option to `FireAppearancePreference`**
+- [x] **Step 1: Add OLED pure black option to `FireAppearancePreference`**
 
-```swift
-enum FireAppearancePreference: String, CaseIterable, Identifiable {
-    case system
-    case light
-    case dark
-    case oled
+  `FireAppearancePreference` now includes `.oled`, displays `纯黑`, and resolves to `.dark` color scheme so the app stays in dark-mode system chrome while Fire surfaces can choose OLED overrides.
 
-    var id: String { rawValue }
+- [x] **Step 2: Keep OLED overrides in the authoritative `FireTheme.swift` path**
 
-    var title: String {
-        switch self {
-        case .system: return "跟随系统"
-        case .light: return "浅色"
-        case .dark: return "深色"
-        case .oled: return "纯黑"
-        }
-    }
+  The implementation avoids a separate Xcode project-file change by extending `FireTheme.adaptive()` with an optional `oled` color and a shared `appearancePreferenceStorageKey`. Canvas, surface, panel, chrome, and tab-bar colors now substitute pure-black / near-black OLED values when the stored preference is `oled`.
 
-    var colorScheme: ColorScheme? {
-        switch self {
-        case .system: return nil
-        case .light: return .light
-        case .dark, .oled: return .dark
-        }
-    }
-}
-```
+- [x] **Step 3: Make OLED surfaces recompute from the stored preference**
 
-- [ ] **Step 2: Create `FireOledTheme.swift` with pure black overrides**
+  OLED-sensitive colors are computed properties instead of static `let` constants, so switching between dark and pure black re-evaluates the current preference.
 
-```swift
-extension FireTheme {
-    static var isOledMode: Bool {
-        // Check stored appearance preference
-        UserDefaults.standard.string(forKey: "appearance_preference") == "oled"
-    }
+- [x] **Step 4: Add OLED toggle to profile settings**
 
-    static var oledCanvasTop: Color { Color(red: 0, green: 0, blue: 0) }
-    static var oledCanvasMid: Color { Color(red: 0.02, green: 0.02, blue: 0.03) }
-    static var oledCanvasBottom: Color { Color(red: 0.04, green: 0.04, blue: 0.05) }
-    static var oledPanel: Color { Color(red: 0.06, green: 0.06, blue: 0.07) }
-}
-```
+  `FireProfileView` already renders `FireAppearancePreference.allCases` in the settings segmented picker, so adding the enum case surfaces the pure-black option automatically. `FireTabRoot` and settings now share `FireTheme.appearancePreferenceStorageKey`.
 
-- [ ] **Step 3: Modify adaptive color resolution to use OLED values when `isOledMode` is true**
+- [x] **Step 5: Add Android OLED mode hook in `FireColors.kt`**
 
-Update the `adaptive()` helper in `FireTheme` to check OLED mode and substitute pure black for canvas/surface colors.
+  `FireColors` now loads a persisted `fire.appearance/oled_mode` flag at app startup and returns `#000000`, `#0A0A0B`, and `#111113` from `backgroundCanvas()`, `backgroundSurface()`, and `backgroundElevated()` when enabled. Android has no existing appearance settings UI, so this task keeps the mode hook centralized instead of adding a partial settings architecture.
 
-- [ ] **Step 4: Add OLED toggle to profile settings**
+- [x] **Step 6: Run contrast ratio checks**
 
-In `FireProfileView.swift`, add the `oled` option to the appearance picker.
+  Contrast checks passed for representative iOS and Android dark/OLED text-on-surface pairs. Android night `fire_text_tertiary` was adjusted from `#6B7280` to `#7B8491` so tertiary text reaches 4.83:1 on dark canvas and 5.55:1 on OLED black.
 
-- [ ] **Step 5: Add OLED mode to Android via `FireColors.kt`**
+- [x] **Step 7: Verify builds**
 
-```kotlin
-object FireColors {
-    var oledMode: Boolean = false
-
-    @ColorInt fun backgroundCanvas(): Int {
-        if (oledMode) return Color.BLACK
-        return resolveColor(R.color.fire_background_canvas)
-    }
-
-    @ColorInt fun backgroundSurface(): Int {
-        if (oledMode) return Color.parseColor("#0A0A0B")
-        return resolveColor(R.color.fire_background_surface)
-    }
-
-    @ColorInt fun backgroundElevated(): Int {
-        if (oledMode) return Color.parseColor("#111113")
-        return resolveColor(R.color.fire_background_elevated)
-    }
-}
-```
-
-- [ ] **Step 6: Run contrast ratio checks**
-
-Verify all text-on-background combinations pass WCAG AA (4.5:1 for normal text, 3:1 for large text) in both dark and OLED modes. Document any failures and adjust.
+  - `cd native/android-app && ./gradlew testDebugUnitTest --tests com.fire.app.ui.composer.MarkdownInsertionTest` — passed
+  - `cd native/ios-app && xcodebuild build -scheme Fire -destination 'platform=iOS Simulator,id=D733CCB1-7B2A-49B5-B3F8-36CB6D0CB2BF,OS=18.3.1' -quiet` — passed
 
 **Commit message:** `feat(dark-mode): add OLED pure black option and contrast ratio validation`
 

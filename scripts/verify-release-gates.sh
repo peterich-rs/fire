@@ -8,7 +8,7 @@ if [[ ! -f "$evidence_file" ]]; then
   exit 2
 fi
 
-awk -F'|' '
+awk '
 BEGIN {
   add_required("App Store screenshots")
   add_required("App Preview video")
@@ -44,6 +44,29 @@ function add_required(gate) {
 function trim(value) {
   gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
   return value
+}
+
+function parse_markdown_row(line, fields, i, char, next_char, count, current) {
+  for (i in fields) {
+    delete fields[i]
+  }
+  count = 0
+  current = ""
+  for (i = 1; i <= length(line); i += 1) {
+    char = substr(line, i, 1)
+    next_char = substr(line, i + 1, 1)
+    if (char == "\\" && next_char == "|") {
+      current = current "|"
+      i += 1
+    } else if (char == "|") {
+      fields[++count] = current
+      current = ""
+    } else {
+      current = current char
+    }
+  }
+  fields[++count] = current
+  return count
 }
 
 function fail(gate, message) {
@@ -137,22 +160,23 @@ in_required_evidence && /^## / {
 }
 
 in_required_evidence && /^\|/ {
-  if ($2 ~ /^[[:space:]]*Gate[[:space:]]*$/ || $2 ~ /^[[:space:]]*---[[:space:]]*$/) {
+  field_count = parse_markdown_row($0, field)
+  if (field[2] ~ /^[[:space:]]*Gate[[:space:]]*$/ || field[2] ~ /^[[:space:]]*---[[:space:]]*$/) {
     next
   }
 
-  gate = trim($2)
+  gate = trim(field[2])
   row_label = gate
-  owner = trim($4)
-  status = trim($5)
-  link = trim($6)
-  date = trim($7)
-  notes = trim($8)
+  owner = trim(field[4])
+  status = trim(field[5])
+  link = trim(field[6])
+  date = trim(field[7])
+  notes = trim(field[8])
   row_count += 1
   if (row_label == "") {
     row_label = "row " row_count
   }
-  if (NF > 9) {
+  if (field_count > 9) {
     fail(row_label, "row has extra Markdown table columns; escape pipe characters in cells")
   }
 

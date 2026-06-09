@@ -8,7 +8,7 @@ if [[ ! -f "$benchmark_file" ]]; then
   exit 2
 fi
 
-awk -F'|' '
+awk '
 BEGIN {
   required_metric["Cold start to home visible"] = 1
   required_metric["Home feed scroll fluency"] = 1
@@ -27,6 +27,29 @@ BEGIN {
 function trim(value) {
   gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
   return value
+}
+
+function parse_markdown_row(line, fields, i, char, next_char, count, current) {
+  for (i in fields) {
+    delete fields[i]
+  }
+  count = 0
+  current = ""
+  for (i = 1; i <= length(line); i += 1) {
+    char = substr(line, i, 1)
+    next_char = substr(line, i + 1, 1)
+    if (char == "\\" && next_char == "|") {
+      current = current "|"
+      i += 1
+    } else if (char == "|") {
+      fields[++count] = current
+      current = ""
+    } else {
+      current = current char
+    }
+  }
+  fields[++count] = current
+  return count
 }
 
 function fail(row_label, message) {
@@ -279,19 +302,20 @@ in_results_log && /^## / {
 }
 
 in_results_log && /^\|/ {
-  if ($2 ~ /^[[:space:]]*Date[[:space:]]*$/ || $2 ~ /^[[:space:]]*---[[:space:]]*$/) {
+  field_count = parse_markdown_row($0, field)
+  if (field[2] ~ /^[[:space:]]*Date[[:space:]]*$/ || field[2] ~ /^[[:space:]]*---[[:space:]]*$/) {
     next
   }
 
-  date = trim($2)
-  commit = trim($3)
-  platform = normalize_platform($4)
-  device = trim($5)
-  build_type = trim($6)
-  metric = trim($7)
-  result = trim($8)
-  status = normalize_status($9)
-  notes = trim($10)
+  date = trim(field[2])
+  commit = trim(field[3])
+  platform = normalize_platform(field[4])
+  device = trim(field[5])
+  build_type = trim(field[6])
+  metric = trim(field[7])
+  result = trim(field[8])
+  status = normalize_status(field[9])
+  notes = trim(field[10])
   row_label = platform " " metric
 
   if (is_template_row(date, commit, platform, device, build_type, metric, result, status, notes)) {
@@ -299,7 +323,7 @@ in_results_log && /^\|/ {
   }
 
   row_count += 1
-  if (NF > 11) {
+  if (field_count > 11) {
     fail(row_label, "row has extra Markdown table columns; escape pipe characters in cells")
   }
 

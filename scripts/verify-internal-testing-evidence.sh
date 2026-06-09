@@ -8,7 +8,7 @@ if [[ ! -f "$evidence_file" ]]; then
   exit 2
 fi
 
-awk -F'|' '
+awk '
 BEGIN {
   required["iOS" SUBSEP "App Store Connect record"] = 1
   required["Android" SUBSEP "Play Console record"] = 1
@@ -30,6 +30,29 @@ BEGIN {
 function trim(value) {
   gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
   return value
+}
+
+function parse_markdown_row(line, fields, i, char, next_char, count, current) {
+  for (i in fields) {
+    delete fields[i]
+  }
+  count = 0
+  current = ""
+  for (i = 1; i <= length(line); i += 1) {
+    char = substr(line, i, 1)
+    next_char = substr(line, i + 1, 1)
+    if (char == "\\" && next_char == "|") {
+      current = current "|"
+      i += 1
+    } else if (char == "|") {
+      fields[++count] = current
+      current = ""
+    } else {
+      current = current char
+    }
+  }
+  fields[++count] = current
+  return count
 }
 
 function normalize_platform(value) {
@@ -149,17 +172,18 @@ in_required_evidence && /^## / {
 }
 
 in_required_evidence && /^\|/ {
-  if ($2 ~ /^[[:space:]]*Date[[:space:]]*$/ || $2 ~ /^[[:space:]]*---[[:space:]]*$/) {
+  field_count = parse_markdown_row($0, field)
+  if (field[2] ~ /^[[:space:]]*Date[[:space:]]*$/ || field[2] ~ /^[[:space:]]*---[[:space:]]*$/) {
     next
   }
 
-  date = trim($2)
-  platform = normalize_platform($3)
-  gate = trim($4)
-  owner = trim($5)
-  status = normalize_status($6)
-  link = trim($7)
-  notes = trim($8)
+  date = trim(field[2])
+  platform = normalize_platform(field[3])
+  gate = trim(field[4])
+  owner = trim(field[5])
+  status = normalize_status(field[6])
+  link = trim(field[7])
+  notes = trim(field[8])
   row_label = platform " " gate
 
   if (is_template_row(date, platform, gate, owner, status, link, notes)) {
@@ -167,7 +191,7 @@ in_required_evidence && /^\|/ {
   }
 
   row_count += 1
-  if (NF > 9) {
+  if (field_count > 9) {
     fail(row_label, "row has extra Markdown table columns; escape pipe characters in cells")
   }
 

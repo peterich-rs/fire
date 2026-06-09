@@ -8,7 +8,7 @@ if [[ ! -f "$evidence_file" ]]; then
   exit 2
 fi
 
-awk -F'|' '
+awk '
 BEGIN {
   required["Privacy policy"] = 1
   required["App Store privacy questionnaire"] = 1
@@ -30,6 +30,29 @@ BEGIN {
 function trim(value) {
   gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
   return value
+}
+
+function parse_markdown_row(line, fields, i, char, next_char, count, current) {
+  for (i in fields) {
+    delete fields[i]
+  }
+  count = 0
+  current = ""
+  for (i = 1; i <= length(line); i += 1) {
+    char = substr(line, i, 1)
+    next_char = substr(line, i + 1, 1)
+    if (char == "\\" && next_char == "|") {
+      current = current "|"
+      i += 1
+    } else if (char == "|") {
+      fields[++count] = current
+      current = ""
+    } else {
+      current = current char
+    }
+  }
+  fields[++count] = current
+  return count
 }
 
 function normalize_status(value) {
@@ -138,16 +161,17 @@ in_required_evidence && /^## / {
 }
 
 in_required_evidence && /^\|/ {
-  if ($2 ~ /^[[:space:]]*Date[[:space:]]*$/ || $2 ~ /^[[:space:]]*---[[:space:]]*$/) {
+  field_count = parse_markdown_row($0, field)
+  if (field[2] ~ /^[[:space:]]*Date[[:space:]]*$/ || field[2] ~ /^[[:space:]]*---[[:space:]]*$/) {
     next
   }
 
-  date = trim($2)
-  area = trim($3)
-  reviewer = trim($4)
-  status = normalize_status($5)
-  link = trim($6)
-  notes = trim($7)
+  date = trim(field[2])
+  area = trim(field[3])
+  reviewer = trim(field[4])
+  status = normalize_status(field[5])
+  link = trim(field[6])
+  notes = trim(field[7])
   row_label = area
 
   if (is_template_row(date, area, reviewer, status, link, notes)) {
@@ -155,7 +179,7 @@ in_required_evidence && /^\|/ {
   }
 
   row_count += 1
-  if (NF > 8) {
+  if (field_count > 8) {
     fail(row_label, "row has extra Markdown table columns; escape pipe characters in cells")
   }
 

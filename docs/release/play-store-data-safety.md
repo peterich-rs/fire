@@ -24,6 +24,7 @@ Fire does not sell data and does not include advertising or analytics SDKs. Fire
 - Network communication uses HTTPS.
 - iOS credentials/session cookies use platform keychain-backed storage where applicable.
 - Android saved credentials are encrypted with an Android Keystore AES-GCM key and stored in private SharedPreferences.
+- Android backup is disabled with `android:allowBackup="false"` and all-exclude backup/data-extraction rules, so Fire app data is excluded from Android backup and device-transfer extraction.
 - Fire has no advertising SDK and no analytics SDK.
 
 ## Deletion
@@ -32,5 +33,4 @@ Users can delete local Fire data by logging out, clearing app storage, or uninst
 
 ## Release Blockers
 
-- The Android manifest currently sets `android:allowBackup="true"`. Decide and document final backup behavior before Play Store submission.
 - Revisit this document if FCM token backend registration, analytics, cloud diagnostics, or server-side Fire services are added.

@@ -30,6 +30,21 @@ impl PersistedSessionEnvelope {
             snapshot,
         }
     }
+
+    pub(crate) fn redacted(mut snapshot: SessionSnapshot) -> Self {
+        snapshot.cookies.t_token = None;
+        snapshot.cookies.forum_session = None;
+        snapshot.cookies.cf_clearance = None;
+        snapshot.cookies.csrf_token = None;
+        snapshot.cookies.platform_cookies.clear();
+
+        Self {
+            version: Self::REDACTED_SNAPSHOT_VERSION,
+            saved_at_unix_ms: now_unix_ms(),
+            auth_cookies_redacted: true,
+            snapshot,
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]

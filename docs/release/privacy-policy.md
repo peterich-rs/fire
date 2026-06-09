@@ -47,17 +47,16 @@ Users can remove local Fire data by logging out, clearing app data in system set
 - WebView login, Cloudflare completion, cookie extraction, native UI, keychain storage, files, media, notifications, and widgets are platform-owned.
 - WidgetKit reads an App Group snapshot only.
 - PLCrashReporter and MetricKit diagnostics are local diagnostic artifacts unless the user intentionally exports diagnostics.
-- No iOS privacy manifest exists yet. Add one before App Store submission if any linked SDK or Apple policy requires it.
+- The app and WidgetKit extension include privacy manifests that declare no tracking and required-reason API usage for local defaults, local diagnostic file metadata, and local stall timing. App Store Connect data-collection answers remain documented separately in `app-store-data-collection.md`.
 
 ### Android
 
 - WebView login, Cloudflare completion, cookie extraction, native UI, keystore-backed credential storage, files, media, notifications, and widgets are platform-owned.
-- The manifest currently has `android:allowBackup="true"`. Decide before release whether app data should participate in Android backup, and document the final decision here and in Play Console.
+- Android backup is disabled with `android:allowBackup="false"` and all-exclude backup/data-extraction rules. Fire app data should not participate in Android cloud backup or device-transfer extraction.
 - FCM token backend registration is not available in the current app.
 
 ## Important Release Blockers
 
-- Do not describe `export_redacted_session_json()` or `save_redacted_session_to_path()` as safe redacted exports until the Rust behavior changes. Current tests state that the redacted export returns a full session snapshot.
 - Complete legal/privacy review before using this draft as a public privacy policy.
 
 ## Contact

@@ -187,6 +187,8 @@
 		F70000000000000000000026 /* FireWidgetEntry.swift in Sources */ = {isa = PBXBuildFile; fileRef = F70000000000000000000035 /* FireWidgetEntry.swift */; };
 		F70000000000000000000027 /* FireWidgetViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = F70000000000000000000036 /* FireWidgetViews.swift */; };
 		F70000000000000000000041 /* FireWidgetExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = F70000000000000000000043 /* FireWidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		F70000000000000000000067 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = F70000000000000000000068 /* PrivacyInfo.xcprivacy */; };
+		F70000000000000000000069 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = F70000000000000000000070 /* PrivacyInfo.xcprivacy */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -248,6 +250,8 @@
 		F70000000000000000000043 /* FireWidgetExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = FireWidgetExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		F70000000000000000000065 /* FireWidget.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = FireWidget.entitlements; sourceTree = "<group>"; };
 		F70000000000000000000066 /* FireWidget-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = "FireWidget-Info.plist"; sourceTree = "<group>"; };
+		F70000000000000000000068 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		F70000000000000000000070 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; name = PrivacyInfo.xcprivacy; path = FireWidget/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		00DA04AEF775D5BD01FC23AC /* FireOrderedIDList.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireOrderedIDList.swift; sourceTree = "<group>"; };
 		019B4B93D3FDB4C799492775 /* FirePresentationIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FirePresentationIdentity.swift; sourceTree = "<group>"; };
 		04449F91CF3EEB51F58E633B /* FireInviteLinksView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireInviteLinksView.swift; sourceTree = "<group>"; };
@@ -830,6 +834,8 @@
 				0DB69FD096A581A18D9D16C5 /* Fire-Local-Release.example.xcconfig */,
 				97B0FC401C941BC8F73B959A /* Fire-Release.xcconfig */,
 				FA8E7753E3E1BB8E3CD88E96 /* Fire-Shared.xcconfig */,
+				F70000000000000000000068 /* PrivacyInfo.xcprivacy */,
+				F70000000000000000000070 /* PrivacyInfo.xcprivacy */,
 			);
 			path = Configs;
 			sourceTree = "<group>";
@@ -1022,6 +1028,7 @@
 			buildConfigurationList = F70000000000000000000055 /* Build configuration list for PBXNativeTarget "FireWidgetExtension" */;
 			buildPhases = (
 				F70000000000000000000054 /* Sources */,
+				F70000000000000000000071 /* Resources */,
 			);
 			buildRules = (
 			);
@@ -1085,6 +1092,15 @@
 			buildActionMask = 2147483647;
 			files = (
 				0FBE234C009F7BC9A9FA0278 /* Assets.xcassets in Resources */,
+				F70000000000000000000067 /* PrivacyInfo.xcprivacy in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		F70000000000000000000071 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				F70000000000000000000069 /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

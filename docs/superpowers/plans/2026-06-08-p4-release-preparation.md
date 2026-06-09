@@ -15,18 +15,22 @@ P4 is process-heavy and does not require changes to the Rust/native architecture
 - `scripts/ios/verify_xcode26_toolchain.sh` -- existing App Store Connect toolchain guard used before iOS uploads.
 - `scripts/collect-licenses.sh` -- generated third-party dependency inventory.
 - `scripts/benchmark-*.sh` -- benchmark workflows for cold start, scroll fluency, topic load, and memory.
-- `native/android-app/src/main/AndroidManifest.xml` -- release-relevant Android `allowBackup="true"` fact.
+- `native/android-app/src/main/AndroidManifest.xml` -- Android backup is release-disabled with `allowBackup="false"`.
+- `native/android-app/src/main/res/xml/backup_rules.xml` -- all-exclude Android Auto Backup rules.
+- `native/android-app/src/main/res/xml/data_extraction_rules.xml` -- all-exclude Android cloud-backup and device-transfer rules.
+- `native/ios-app/Configs/PrivacyInfo.xcprivacy` -- app privacy manifest with required-reason API declarations.
+- `native/ios-app/Configs/FireWidget/PrivacyInfo.xcprivacy` -- widget extension privacy manifest with required-reason API declarations.
 - `native/ios-app/Sources/FireAppSession/APM/FireAPMManager.swift` -- local PLCrashReporter / MetricKit diagnostic behavior.
 - `native/ios-app/App/DeveloperTools/FirePushDiagnosticsView.swift` -- APNs token is local-only at this stage.
 - `native/android-app/src/main/java/com/fire/app/push/FireFirebaseMessagingService.kt` -- FCM token registration API is not available; payloads are local notification input.
-- `rust/crates/fire-core/tests/session_flow.rs` -- documents that current "redacted" session export still returns a full session snapshot.
+- `rust/crates/fire-core/tests/session_flow.rs` -- verifies that redacted session export strips auth cookies while preserving bootstrap context.
 
 ## Design
 
 ### Key Design Decisions
 
 1. **Version release source material, not fake final media.** The repo now includes marketing directories and `.gitkeep` placeholders, but no fabricated screenshots, preview videos, or feature graphics. Real assets must come from release-candidate builds.
-2. **Keep privacy drafts conservative.** Privacy documents state local diagnostics, widget snapshots, offline cache, local push token handling, Android backup status, and the unsafe redacted-export behavior instead of overclaiming.
+2. **Keep privacy drafts conservative.** Privacy documents state local diagnostics, widget snapshots, offline cache, local push token handling, Android backup exclusion, privacy-manifest coverage, and redacted-export behavior without overclaiming legal review.
 3. **Make benchmark scripts honest about prerequisites.** Android scripts use `adb` when available; iOS scripts print required Instruments/xctrace workflows because reliable iOS FPS/memory/topic measurements require device tooling.
 4. **Generate license inventory from current declarations.** `scripts/collect-licenses.sh` inventories Rust, Swift Package, vendored iOS, Android Gradle, and repository license sources. Full legal review and transitive license verification remain required.
 5. **Separate repository completion from release acceptance.** P4 acceptance boxes in the roadmap remain unchecked until real store/test/performance/accessibility evidence exists.
@@ -65,6 +69,15 @@ P4 is process-heavy and does not require changes to the Rust/native architecture
 - `docs/release/play-store-data-safety.md`
 - `docs/release/third-party-licenses.md`
 - `scripts/collect-licenses.sh`
+- `native/android-app/src/main/AndroidManifest.xml`
+- `native/android-app/src/main/res/xml/backup_rules.xml`
+- `native/android-app/src/main/res/xml/data_extraction_rules.xml`
+- `native/ios-app/Configs/PrivacyInfo.xcprivacy`
+- `native/ios-app/Configs/FireWidget/PrivacyInfo.xcprivacy`
+- `native/ios-app/project.yml`
+- `rust/crates/fire-core/src/core/persistence.rs`
+- `rust/crates/fire-core/src/session_store.rs`
+- `rust/crates/fire-core/tests/session_flow.rs`
 
 - [x] Create privacy policy draft aligned with current code facts.
 - [x] Create App Store privacy questionnaire draft.
@@ -74,9 +87,9 @@ P4 is process-heavy and does not require changes to the Rust/native architecture
 - [ ] Install `cargo-license` and regenerate with full Rust license names.
 - [ ] Verify Android transitive license metadata with Gradle tooling.
 - [ ] Complete maintainer/legal privacy review.
-- [ ] Decide Android `allowBackup` release behavior and update docs/store answers.
-- [ ] Add an iOS privacy manifest if required by Apple policy or linked SDK review.
-- [ ] Fix or rename redacted session export before any public diagnostic workflow claims redaction.
+- [x] Decide Android `allowBackup` release behavior and update docs/store answers.
+- [x] Add iOS app and widget privacy manifests with required-reason API declarations.
+- [x] Fix redacted session export before any public diagnostic workflow claims redaction.
 
 ### Phase 3: Internal Testing Guides
 
@@ -149,6 +162,12 @@ P4 is process-heavy and does not require changes to the Rust/native architecture
 - `native/android-app/marketing/screenshots/phone/.gitkeep` -- phone screenshot folder placeholder.
 - `native/android-app/marketing/screenshots/tablet7/.gitkeep` -- 7" tablet screenshot folder placeholder.
 - `native/android-app/marketing/screenshots/tablet10/.gitkeep` -- 10" tablet screenshot folder placeholder.
+- `native/android-app/src/main/AndroidManifest.xml` -- disables Android backup for release.
+- `native/android-app/src/main/res/xml/backup_rules.xml` -- excludes all app data from legacy Auto Backup.
+- `native/android-app/src/main/res/xml/data_extraction_rules.xml` -- excludes all app data from Android cloud backup and device transfer.
+- `native/ios-app/Configs/FireWidget/PrivacyInfo.xcprivacy` -- widget privacy manifest with UserDefaults required-reason declarations.
+- `native/ios-app/Configs/PrivacyInfo.xcprivacy` -- app privacy manifest with required-reason declarations.
+- `native/ios-app/project.yml` -- wires privacy manifests into the app and widget resource phases.
 - `native/ios-app/marketing/README.md` -- App Store asset requirements.
 - `native/ios-app/marketing/preview-video/.gitkeep` -- App Preview folder placeholder.
 - `native/ios-app/marketing/screenshots/iPad11/.gitkeep` -- iPad 11" screenshot folder placeholder.
@@ -160,3 +179,6 @@ P4 is process-heavy and does not require changes to the Rust/native architecture
 - `scripts/benchmark-scroll-fps.sh` -- scroll fluency benchmark workflow.
 - `scripts/benchmark-topic-load.sh` -- topic detail load benchmark workflow.
 - `scripts/collect-licenses.sh` -- dependency license inventory generator.
+- `rust/crates/fire-core/src/core/persistence.rs` -- writes redacted session exports through the redacted envelope.
+- `rust/crates/fire-core/src/session_store.rs` -- creates versioned redacted envelopes with auth cookies stripped.
+- `rust/crates/fire-core/tests/session_flow.rs` -- covers redacted JSON and file persistence restore behavior.

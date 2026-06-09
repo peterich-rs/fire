@@ -22,6 +22,8 @@ fileGroups:
   - Configs/Fire-Local-Release.example.xcconfig
   - Configs/Fire-Release.xcconfig
   - Configs/Fire-Shared.xcconfig
+  - Configs/FireWidget/PrivacyInfo.xcprivacy
+  - Configs/PrivacyInfo.xcprivacy
   - Fire.entitlements
   - FireWidget.entitlements
 schemes:
@@ -57,6 +59,8 @@ targets:
         optional: true
         type: group
         buildPhase: sources
+      - path: Configs/PrivacyInfo.xcprivacy
+        buildPhase: resources
     dependencies:
       - sdk: Security.framework
       - sdk: Foundation.framework
@@ -134,6 +138,8 @@ targets:
     sources:
       - path: App/Widgets
       - path: App/Shared/FireWidgetData.swift
+      - path: Configs/FireWidget/PrivacyInfo.xcprivacy
+        buildPhase: resources
     settings:
       base:
         APPLICATION_EXTENSION_API_ONLY: YES

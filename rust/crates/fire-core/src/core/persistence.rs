@@ -19,7 +19,8 @@ impl FireCore {
     }
 
     pub fn export_redacted_session_json(&self) -> Result<String, FireCoreError> {
-        self.export_session_json()
+        let envelope = PersistedSessionEnvelope::redacted(self.snapshot());
+        serde_json::to_string_pretty(&envelope).map_err(FireCoreError::PersistSerialize)
     }
 
     pub fn restore_session_json(
@@ -61,7 +62,12 @@ impl FireCore {
         &self,
         path: impl AsRef<Path>,
     ) -> Result<(), FireCoreError> {
-        self.save_session_to_path(path)
+        let path = path.as_ref();
+        let payload = self.export_redacted_session_json()?;
+        write_atomic(path, payload.as_bytes()).map_err(|source| FireCoreError::PersistIo {
+            path: path.to_path_buf(),
+            source,
+        })
     }
 
     pub fn load_session_from_path(

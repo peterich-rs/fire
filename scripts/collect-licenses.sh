@@ -13,19 +13,71 @@ echo
 
 echo "## Rust Workspace"
 echo
-if command -v cargo-license >/dev/null 2>&1; then
-  cargo license --manifest-path Cargo.toml
+if command -v cargo >/dev/null 2>&1; then
+  metadata_file="$(mktemp "${TMPDIR:-/tmp}/fire-cargo-metadata.XXXXXX.json")"
+  trap 'rm -f "$metadata_file"' EXIT
+  cargo metadata --manifest-path Cargo.toml --format-version 1 --locked > "$metadata_file"
+  python3 - "$metadata_file" "$ROOT_DIR" <<'PY'
+import json
+import os
+import sys
+from pathlib import Path
+
+metadata_path = Path(sys.argv[1])
+root = Path(sys.argv[2]).resolve()
+data = json.loads(metadata_path.read_text(encoding="utf-8"))
+
+resolved_ids = {node["id"] for node in data.get("resolve", {}).get("nodes", [])}
+workspace_ids = set(data.get("workspace_members", []))
+
+packages = [
+    package
+    for package in data.get("packages", [])
+    if not resolved_ids or package.get("id") in resolved_ids
+]
+
+
+def source_label(package):
+    source = package.get("source")
+    if package.get("id") in workspace_ids:
+        return "workspace"
+    if source is None:
+        manifest = Path(package.get("manifest_path", ""))
+        try:
+            return str(manifest.resolve().parent.relative_to(root))
+        except (OSError, ValueError):
+            return "path"
+    if source == "registry+https://github.com/rust-lang/crates.io-index":
+        return "crates.io"
+    return source
+
+
+def license_label(package):
+    license_value = package.get("license")
+    if license_value:
+        return license_value
+    license_file = package.get("license_file")
+    if license_file:
+        try:
+            return f"license file: {Path(license_file).resolve().relative_to(root)}"
+        except (OSError, ValueError):
+            return f"license file: {license_file}"
+    return "UNKNOWN"
+
+
+print("| Crate | Version | License | Source |")
+print("| --- | --- | --- | --- |")
+for package in sorted(packages, key=lambda item: (item.get("name", ""), item.get("version", ""), source_label(item))):
+    print(
+        f"| {package.get('name', 'unknown')} "
+        f"| {package.get('version', '')} "
+        f"| {license_label(package)} "
+        f"| {source_label(package)} |"
+    )
+PY
 else
-  echo "cargo-license is not installed."
+  echo "cargo is not installed; falling back to crate names declared in Cargo.lock without license fields."
   echo
-  echo "Install and regenerate:"
-  echo
-  echo '```bash'
-  echo "cargo install cargo-license"
-  echo "scripts/collect-licenses.sh > docs/release/third-party-licenses.md"
-  echo '```'
-  echo
-  echo "Workspace crates declared in Cargo.lock:"
   awk '
     /^name = / { name=$3; gsub(/"/, "", name) }
     /^version = / && name != "" { version=$3; gsub(/"/, "", version); print "- " name " " version; name="" }

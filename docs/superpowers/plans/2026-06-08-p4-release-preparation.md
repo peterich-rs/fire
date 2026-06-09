@@ -32,7 +32,7 @@ P4 is process-heavy and does not require changes to the Rust/native architecture
 1. **Version release source material, not fake final media.** The repo now includes marketing directories and `.gitkeep` placeholders, but no fabricated screenshots, preview videos, or feature graphics. Real assets must come from release-candidate builds.
 2. **Keep privacy drafts conservative.** Privacy documents state local diagnostics, widget snapshots, offline cache, local push token handling, Android backup exclusion, privacy-manifest coverage, and redacted-export behavior without overclaiming legal review.
 3. **Make benchmark scripts honest about prerequisites.** Android scripts use `adb` when available; iOS scripts print required Instruments/xctrace workflows because reliable iOS FPS/memory/topic measurements require device tooling.
-4. **Generate license inventory from current declarations.** `scripts/collect-licenses.sh` inventories Rust, Swift Package, vendored iOS, Android Gradle, and repository license sources. Full legal review and transitive license verification remain required.
+4. **Generate license inventory from current declarations.** `scripts/collect-licenses.sh` uses `cargo metadata --locked` for Rust crate license fields and inventories Swift Package, vendored iOS, Android Gradle, and repository license sources. Full legal review and Android transitive license verification remain required.
 5. **Separate repository completion from release acceptance.** P4 acceptance boxes in the roadmap remain unchecked until real store/test/performance/accessibility evidence exists.
 
 ## Phased Implementation
@@ -84,7 +84,7 @@ P4 is process-heavy and does not require changes to the Rust/native architecture
 - [x] Create Play Store Data Safety draft.
 - [x] Add license collection script.
 - [x] Generate current third-party dependency inventory.
-- [ ] Install `cargo-license` and regenerate with full Rust license names.
+- [x] Generate Rust crate license names from `cargo metadata --locked`.
 - [ ] Verify Android transitive license metadata with Gradle tooling.
 - [ ] Complete maintainer/legal privacy review.
 - [x] Decide Android `allowBackup` release behavior and update docs/store answers.

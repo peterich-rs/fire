@@ -127,7 +127,9 @@ scripts/verify-roadmap-p4-acceptance.sh
 
 This verifier fails if the design document's P4 acceptance rows are renamed,
 duplicated, or missing. If any P4 acceptance box is checked, it also requires
-the release-gate evidence verifier to pass.
+the non-recursive P4 evidence suite to pass: store marketing assets,
+performance benchmarks, accessibility audit, internal testing evidence,
+privacy review evidence, and release-gate evidence.
 
 The roadmap document set can be checked directly:
 

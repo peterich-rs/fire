@@ -4,6 +4,14 @@ set -euo pipefail
 roadmap_file="${1:-docs/superpowers/specs/2026-06-08-fire-v2-roadmap-design.md}"
 release_gate_file="${2:-docs/release/release-gate-evidence.md}"
 release_gate_verifier="scripts/verify-release-gates.sh"
+checked_release_checks=(
+  "Store marketing assets|scripts/verify-marketing-assets.sh|"
+  "Performance benchmarks|scripts/verify-performance-benchmarks.sh|"
+  "Accessibility audit|scripts/verify-accessibility-audit.sh|"
+  "Internal testing evidence|scripts/verify-internal-testing-evidence.sh|"
+  "Privacy review evidence|scripts/verify-privacy-review-evidence.sh|"
+  "Release gate evidence|$release_gate_verifier|$release_gate_file"
+)
 
 if [[ ! -f "$roadmap_file" ]]; then
   echo "roadmap design file not found: $roadmap_file" >&2
@@ -12,11 +20,6 @@ fi
 
 if [[ ! -f "$release_gate_file" ]]; then
   echo "release gate evidence file not found: $release_gate_file" >&2
-  exit 2
-fi
-
-if [[ ! -x "$release_gate_verifier" ]]; then
-  echo "release gate verifier is missing or not executable: $release_gate_verifier" >&2
   exit 2
 fi
 
@@ -116,9 +119,31 @@ if [[ -z "$row_count" || -z "$checked_count" ]]; then
 fi
 
 if [[ "$checked_count" -gt 0 ]]; then
-  if ! gate_output="$("$release_gate_verifier" "$release_gate_file" 2>&1)"; then
-    printf '%s\n' "$gate_output" >&2
-    printf 'FAIL: roadmap P4 acceptance has %d checked item(s), but release gate evidence is incomplete.\n' "$checked_count" >&2
+  checked_failure_count=0
+  for entry in "${checked_release_checks[@]}"; do
+    IFS='|' read -r label verifier argument <<< "$entry"
+
+    if [[ ! -x "$verifier" ]]; then
+      printf 'FAIL: %s: verifier is missing or not executable: %s\n' "$label" "$verifier" >&2
+      checked_failure_count=$((checked_failure_count + 1))
+      continue
+    fi
+
+    if [[ -n "$argument" ]]; then
+      if ! check_output="$("$verifier" "$argument" 2>&1)"; then
+        printf '%s\n' "$check_output" >&2
+        printf 'FAIL: roadmap P4 acceptance has %d checked item(s), but %s is incomplete.\n' "$checked_count" "$label" >&2
+        checked_failure_count=$((checked_failure_count + 1))
+      fi
+    elif ! check_output="$("$verifier" 2>&1)"; then
+      printf '%s\n' "$check_output" >&2
+      printf 'FAIL: roadmap P4 acceptance has %d checked item(s), but %s is incomplete.\n' "$checked_count" "$label" >&2
+      checked_failure_count=$((checked_failure_count + 1))
+    fi
+  done
+
+  if [[ "$checked_failure_count" -gt 0 ]]; then
+    printf 'Roadmap P4 acceptance verification failed: %d checked release evidence verifier(s) failed.\n' "$checked_failure_count" >&2
     exit 1
   fi
 fi

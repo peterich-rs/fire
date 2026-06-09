@@ -56,7 +56,8 @@ units such as seconds, milliseconds, fps plus janky-frame percentage, or MB/GB;
 memory rows with multiple values must label the peak value with `peak`, such as
 `peak 190 MB` or `190 MB peak`; if multiple peak values are labelled, the
 verifier compares the highest labelled peak. Device, build type, result, and
-notes metadata must not contain fake/mock/placeholder markers.
+notes metadata must not contain fake/mock/placeholder markers. Dates must be real
+calendar dates in `YYYY-MM-DD` form.
 
 ## Accessibility Evidence
 
@@ -71,7 +72,8 @@ scripts/verify-accessibility-audit.sh
 The verifier is expected to fail while the results log is empty, while any
 required screen or audit category lacks iOS/Android coverage, or while blocking
 failures lack an accepted disposition with approval/waiver context and a reason
-in `Notes`, for example `Approved by ...; reason: ...`.
+in `Notes`, for example `Approved by ...; reason: ...`. Dates must be real
+calendar dates in `YYYY-MM-DD` form.
 
 ## Internal Testing Evidence
 
@@ -89,7 +91,8 @@ approval/waiver context and a reason in `Notes`, for example
 `Approved by ...; reason: ...`. Evidence links must be plain HTTP(S) URLs or
 safe repo-relative paths to non-empty local files; placeholder hosts such as
 localhost, `.local`, `.test`, and `.invalid` are rejected. Owner, evidence-link,
-and notes metadata must not contain fake/mock/placeholder markers.
+and notes metadata must not contain fake/mock/placeholder markers. Dates must be
+real calendar dates in `YYYY-MM-DD` form.
 
 ## Privacy Review Evidence
 
@@ -107,7 +110,8 @@ waiver reason in `Notes`, for example `Approved by ...; reason: ...`. Evidence
 links must be plain HTTP(S) URLs or safe repo-relative paths to non-empty local
 files; placeholder hosts such as localhost, `.local`, `.test`, and `.invalid`
 are rejected. Reviewer, evidence-link, and notes metadata must not contain
-fake/mock/placeholder markers.
+fake/mock/placeholder markers. Dates must be real calendar dates in `YYYY-MM-DD`
+form.
 
 ## Manual Release Inputs
 
@@ -144,9 +148,10 @@ pass with complete fixture evidence, that both fail when lower-level fixture
 evidence is missing, that fake-evidence markers, malformed store media,
 flat PNG placeholders, non-measurement performance results, target misses marked
 `Pass`, ambiguous or misleading multi-value memory results, duplicate manual
-evidence rows, placeholder metadata fields, dead local evidence paths,
-placeholder URL hosts, and weak accepted-waiver notes are rejected, and that
-checked P4 roadmap acceptance is allowed only when the full fixture suite passes.
+evidence rows, invalid calendar dates, placeholder metadata fields, dead local
+evidence paths, placeholder URL hosts, and weak accepted-waiver notes are
+rejected, and that checked P4 roadmap acceptance is allowed only when the full
+fixture suite passes.
 
 The final evidence register can also be checked directly:
 
@@ -164,7 +169,8 @@ non-empty local files; placeholder hosts such as localhost, `.local`, `.test`,
 and `.invalid` are rejected. Manual evidence verifiers also reject completed or
 accepted rows whose owner, reviewer, tester, device, result, evidence-link, or
 notes metadata still contain fake, mock, placeholder, dummy, synthetic, TODO/TBD,
-`example.com`, `not-real`, or `not real` markers.
+`example.com`, `not-real`, or `not real` markers, or whose dates are impossible
+calendar dates.
 
 The roadmap acceptance boxes can also be checked directly:
 

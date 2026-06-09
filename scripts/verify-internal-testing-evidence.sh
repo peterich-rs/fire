@@ -59,6 +59,29 @@ function fail(row_label, message) {
   printf("FAIL: %s: %s\n", row_label, message) > "/dev/stderr"
 }
 
+function is_leap_year(year) {
+  return year % 400 == 0 || (year % 4 == 0 && year % 100 != 0)
+}
+
+function is_valid_date(value, year, month, day, max_day) {
+  if (value !~ /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/) {
+    return 0
+  }
+  year = substr(value, 1, 4) + 0
+  month = substr(value, 6, 2) + 0
+  day = substr(value, 9, 2) + 0
+  if (month < 1 || month > 12 || day < 1) {
+    return 0
+  }
+  max_day = 31
+  if (month == 4 || month == 6 || month == 9 || month == 11) {
+    max_day = 30
+  } else if (month == 2) {
+    max_day = is_leap_year(year) ? 29 : 28
+  }
+  return day <= max_day
+}
+
 function contains_fake_evidence_marker(value, normalized) {
   normalized = tolower(value)
   return normalized ~ /(^|[^[:alnum:]])(fake|mock|placeholder|dummy|synthetic)([^[:alnum:]]|$)/ ||
@@ -145,8 +168,8 @@ in_required_evidence && /^\|/ {
 
   row_count += 1
 
-  if (date !~ /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/) {
-    fail(row_label, "date must use YYYY-MM-DD")
+  if (!is_valid_date(date)) {
+    fail(row_label, "date must be a valid YYYY-MM-DD calendar date")
   }
 
   if (!(platform == "iOS" || platform == "Android")) {

@@ -28,6 +28,7 @@ Record one row for each gate below:
 
 - Record each required platform/gate pair exactly once; duplicate rows are
   rejected so the release evidence remains unambiguous.
+- `Date` must be a real calendar date in `YYYY-MM-DD` form.
 - `Status` must be `Complete` or `Accepted`.
 - `Owner`, `Evidence Link`, and `Notes` must identify real release evidence;
   fake, mock, placeholder, dummy, synthetic, TODO/TBD, `example.com`,

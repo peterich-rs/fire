@@ -28,6 +28,7 @@ Record one row for each review area below:
 
 - Record each required review area exactly once; duplicate rows are rejected so
   the release evidence remains unambiguous.
+- `Date` must be a real calendar date in `YYYY-MM-DD` form.
 - `Status` must be `Complete` or `Accepted`.
 - `Reviewer` must identify the maintainer, legal reviewer, or explicit
   approver for the row. Reviewer, evidence-link, and notes metadata must not

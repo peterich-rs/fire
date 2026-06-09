@@ -208,6 +208,7 @@ def write_release_gate(
     missing_local_link=False,
     placeholder_url=False,
     placeholder_owner=False,
+    invalid_date=False,
 ):
     lines = [
         "# Release Gate Evidence",
@@ -233,9 +234,10 @@ def write_release_gate(
             else f"https://github.com/peterich-rs/fire/issues/{1000 + index}"
         )
         owner = "placeholder owner" if placeholder_owner and index == 0 else "Release owner"
+        date = "2026-02-30" if invalid_date and index == 0 else "2026-06-09"
         lines.append(
             f"| {gate} | Required evidence | {owner} | {status} | "
-            f"{link} | 2026-06-09 | {note} |"
+            f"{link} | {date} | {note} |"
         )
     path.write_text("\n".join(lines) + "\n")
 
@@ -250,6 +252,7 @@ def write_internal(
     placeholder_url=False,
     duplicate_row=False,
     placeholder_owner=False,
+    invalid_date=False,
 ):
     lines = [
         "# Internal Testing Evidence",
@@ -280,13 +283,14 @@ def write_internal(
             else f"https://github.com/peterich-rs/fire/issues/{2000 + index}"
         )
         owner = "TODO owner" if placeholder_owner and index == 0 else "Release owner"
+        date = "2026-02-30" if invalid_date and index == 0 else "2026-06-09"
         lines.append(
-            f"| 2026-06-09 | {platform} | {gate} | {owner} | {status} | "
+            f"| {date} | {platform} | {gate} | {owner} | {status} | "
             f"{link} | {note} |"
         )
         if duplicate_row and index == 0:
             lines.append(
-                f"| 2026-06-09 | {platform} | {gate} | {owner} | {status} | "
+                f"| {date} | {platform} | {gate} | {owner} | {status} | "
                 f"{link} | {note} |"
             )
     path.write_text("\n".join(lines) + "\n")
@@ -300,6 +304,7 @@ def write_privacy(
     placeholder_url=False,
     duplicate_row=False,
     placeholder_reviewer=False,
+    invalid_date=False,
 ):
     lines = [
         "# Privacy Review Evidence",
@@ -327,13 +332,14 @@ def write_privacy(
             else f"https://github.com/peterich-rs/fire/issues/{3000 + index}"
         )
         reviewer = "TBD reviewer" if placeholder_reviewer and index == 0 else "Reviewer"
+        date = "2026-02-30" if invalid_date and index == 0 else "2026-06-09"
         lines.append(
-            f"| 2026-06-09 | {area} | {reviewer} | {status} | "
+            f"| {date} | {area} | {reviewer} | {status} | "
             f"{link} | {note} |"
         )
         if duplicate_row and index == 0:
             lines.append(
-                f"| 2026-06-09 | {area} | {reviewer} | {status} | "
+                f"| {date} | {area} | {reviewer} | {status} | "
                 f"{link} | {note} |"
             )
     path.write_text("\n".join(lines) + "\n")
@@ -360,6 +366,7 @@ def write_performance(
     memory_peak_suffix=False,
     memory_double_peak_miss=False,
     fake_device=False,
+    invalid_date=False,
 ):
     lines = [
         "# Fire Performance Benchmarks",
@@ -379,6 +386,7 @@ def write_performance(
     for index, (platform, device, metric) in enumerate(entries):
         note = "Measured on release candidate"
         status = "Pass"
+        date = "2026-02-30" if invalid_date and index == 0 else "2026-06-09"
         if fake_device and index == 0:
             device = "Mock Phone"
         result = "OK" if invalid_result and index == 0 else performance_result(metric)
@@ -401,12 +409,18 @@ def write_performance(
         if index == 0 and marker:
             note += f" {marker}"
         lines.append(
-            f"| 2026-06-09 | abc1234 | {platform} | {device} | Release archive | "
+            f"| {date} | abc1234 | {platform} | {device} | Release archive | "
             f"{metric} | {result} | {status} | {note} |"
         )
     path.write_text("\n".join(lines) + "\n")
 
-def write_accessibility(path: Path, marker="", accepted_note=None, fake_tester=False):
+def write_accessibility(
+    path: Path,
+    marker="",
+    accepted_note=None,
+    fake_tester=False,
+    invalid_date=False,
+):
     lines = [
         "# Fire Accessibility Audit Checklist",
         "",
@@ -420,6 +434,7 @@ def write_accessibility(path: Path, marker="", accepted_note=None, fake_tester=F
         device = "iPhone 15 Pro" if platform == "iOS" else "Pixel 8 Pro"
         for screen in screens + audits:
             tester = "Fake Tester" if fake_tester and row_index == 0 else "Tester"
+            date = "2026-02-30" if invalid_date and row_index == 0 else "2026-06-09"
             note = "Audited on release candidate"
             result = "Pass"
             if row_index == 0 and accepted_note:
@@ -428,7 +443,7 @@ def write_accessibility(path: Path, marker="", accepted_note=None, fake_tester=F
             if row_index == 0 and marker:
                 note += f" {marker}"
             lines.append(
-                f"| 2026-06-09 | {tester} | {platform} | {device} | {screen} | "
+                f"| {date} | {tester} | {platform} | {device} | {screen} | "
                 f"{result} | {note} |"
             )
             row_index += 1
@@ -463,6 +478,7 @@ write_performance(
 write_performance(fixture / "performance-memory-peak-suffix.md", memory_peak_suffix=True)
 write_performance(fixture / "performance-memory-double-peak-miss.md", memory_double_peak_miss=True)
 write_performance(fixture / "performance-fake-device.md", fake_device=True)
+write_performance(fixture / "performance-invalid-date.md", invalid_date=True)
 write_performance(fixture / "performance-not-real.md", marker="not-real")
 write_performance(fixture / "performance-not-real-space.md", marker="not real")
 write_accessibility(fixture / "accessibility.md")
@@ -477,6 +493,7 @@ write_accessibility(
 write_accessibility(fixture / "accessibility-not-real.md", marker="not-real")
 write_accessibility(fixture / "accessibility-not-real-space.md", marker="not real")
 write_accessibility(fixture / "accessibility-fake-tester.md", fake_tester=True)
+write_accessibility(fixture / "accessibility-invalid-date.md", invalid_date=True)
 write_internal(fixture / "internal.md")
 write_internal(
     fixture / "internal-accepted-valid.md",
@@ -493,6 +510,7 @@ write_internal(fixture / "internal-missing-link.md", missing_local_link=True)
 write_internal(fixture / "internal-placeholder-url.md", placeholder_url=True)
 write_internal(fixture / "internal-duplicate-row.md", duplicate_row=True)
 write_internal(fixture / "internal-placeholder-owner.md", placeholder_owner=True)
+write_internal(fixture / "internal-invalid-date.md", invalid_date=True)
 write_internal(fixture / "internal-not-real.md", marker="not-real")
 write_internal(fixture / "internal-not-real-space.md", marker="not real")
 write_privacy(fixture / "privacy.md")
@@ -512,6 +530,7 @@ write_privacy(fixture / "privacy-missing-link.md", missing_local_link=True)
 write_privacy(fixture / "privacy-placeholder-url.md", placeholder_url=True)
 write_privacy(fixture / "privacy-duplicate-row.md", duplicate_row=True)
 write_privacy(fixture / "privacy-placeholder-reviewer.md", placeholder_reviewer=True)
+write_privacy(fixture / "privacy-invalid-date.md", invalid_date=True)
 write_privacy(fixture / "privacy-not-real.md", marker="not-real")
 write_privacy(fixture / "privacy-not-real-space.md", marker="not real")
 write_release_gate(fixture / "release-gates.md")
@@ -526,6 +545,7 @@ write_release_gate(
 write_release_gate(fixture / "release-gates-missing-link.md", missing_local_link=True)
 write_release_gate(fixture / "release-gates-placeholder-url.md", placeholder_url=True)
 write_release_gate(fixture / "release-gates-placeholder-owner.md", placeholder_owner=True)
+write_release_gate(fixture / "release-gates-invalid-date.md", invalid_date=True)
 write_release_gate(fixture / "release-gates-not-real.md", marker="not-real")
 write_release_gate(fixture / "release-gates-not-real-space.md", marker="not real")
 
@@ -731,6 +751,9 @@ expect_fail_contains "release gates reject placeholder evidence URL host" "$mark
 expect_fail_contains "release gates reject placeholder owner metadata" \
   "evidence metadata must not contain" \
   scripts/verify-release-gates.sh "$fixture/release-gates-placeholder-owner.md"
+expect_fail_contains "release gates reject invalid calendar date" \
+  "date must be a valid YYYY-MM-DD calendar date" \
+  scripts/verify-release-gates.sh "$fixture/release-gates-invalid-date.md"
 
 expect_fail_contains "release gates reject not-real marker" "$marker_failure" \
   scripts/verify-release-gates.sh "$fixture/release-gates-not-real.md"
@@ -767,6 +790,9 @@ expect_fail_contains "internal testing rejects duplicate required row" \
 expect_fail_contains "internal testing rejects placeholder owner metadata" \
   "evidence metadata must not contain" \
   scripts/verify-internal-testing-evidence.sh "$fixture/internal-placeholder-owner.md"
+expect_fail_contains "internal testing rejects invalid calendar date" \
+  "date must be a valid YYYY-MM-DD calendar date" \
+  scripts/verify-internal-testing-evidence.sh "$fixture/internal-invalid-date.md"
 
 expect_fail_contains "privacy review rejects not-real marker" "$marker_failure" \
   scripts/verify-privacy-review-evidence.sh "$fixture/privacy-not-real.md"
@@ -792,6 +818,9 @@ expect_fail_contains "privacy review rejects duplicate required row" \
 expect_fail_contains "privacy review rejects placeholder reviewer metadata" \
   "evidence metadata must not contain" \
   scripts/verify-privacy-review-evidence.sh "$fixture/privacy-placeholder-reviewer.md"
+expect_fail_contains "privacy review rejects invalid calendar date" \
+  "date must be a valid YYYY-MM-DD calendar date" \
+  scripts/verify-privacy-review-evidence.sh "$fixture/privacy-invalid-date.md"
 
 expect_fail_contains "performance rejects not-real marker" "$marker_failure" \
   scripts/verify-performance-benchmarks.sh "$fixture/performance-not-real.md"
@@ -800,6 +829,9 @@ expect_fail_contains "performance rejects not real marker" "$marker_failure" \
 expect_fail_contains "performance rejects fake device metadata" \
   "benchmark metadata must not contain" \
   scripts/verify-performance-benchmarks.sh "$fixture/performance-fake-device.md"
+expect_fail_contains "performance rejects invalid calendar date" \
+  "date must be a valid YYYY-MM-DD calendar date" \
+  scripts/verify-performance-benchmarks.sh "$fixture/performance-invalid-date.md"
 
 expect_pass "performance accepts explicit waiver metadata" \
   scripts/verify-performance-benchmarks.sh "$fixture/performance-accepted-valid.md"
@@ -814,6 +846,9 @@ expect_fail_contains "accessibility rejects not real marker" "$marker_failure" \
 expect_fail_contains "accessibility rejects fake tester metadata" \
   "accessibility metadata must not contain" \
   scripts/verify-accessibility-audit.sh "$fixture/accessibility-fake-tester.md"
+expect_fail_contains "accessibility rejects invalid calendar date" \
+  "date must be a valid YYYY-MM-DD calendar date" \
+  scripts/verify-accessibility-audit.sh "$fixture/accessibility-invalid-date.md"
 
 expect_pass "accessibility accepts explicit waiver metadata" \
   scripts/verify-accessibility-audit.sh "$fixture/accessibility-accepted-valid.md"

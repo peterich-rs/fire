@@ -83,4 +83,4 @@ scripts/verify-accessibility-audit.sh
 The verifier fails until every listed screen and audit category has an iOS and
 Android physical-device row with date, tester, device, and `Pass` or `Accepted`
 disposition. `Accepted` dispositions must be reasoned waivers, not vague status
-notes.
+notes. `Date` must be a real calendar date in `YYYY-MM-DD` form.

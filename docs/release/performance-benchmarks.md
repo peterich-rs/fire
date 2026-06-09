@@ -67,4 +67,5 @@ scripts/verify-performance-benchmarks.sh
 The verifier fails until each target metric has an iOS and Android
 release-build physical-device row with date, commit, device, result, and
 `Pass` or reasoned `Accepted` disposition. `Pass` rows must parse to values
-inside the release targets.
+inside the release targets. `Date` must be a real calendar date in `YYYY-MM-DD`
+form.

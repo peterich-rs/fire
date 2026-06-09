@@ -101,10 +101,29 @@ Before marking P4 acceptance complete, run the full release-readiness wrapper:
 scripts/verify-release-readiness.sh
 ```
 
-It runs the store-media, performance, accessibility, internal-testing, privacy
-review, release-gate evidence, roadmap plan contract, roadmap architecture
-constraints, roadmap implementation evidence, and roadmap P4 acceptance
-verifiers. It is expected to fail until all manual P4 evidence is complete.
+It runs the shared P4 release evidence suite, roadmap plan contract, roadmap
+architecture constraints, roadmap implementation evidence, and roadmap P4
+acceptance verifiers. It is expected to fail until all manual P4 evidence is
+complete.
+
+The shared non-recursive P4 evidence suite can also be checked directly:
+
+```bash
+scripts/verify-p4-release-evidence-suite.sh
+```
+
+It runs the store-media, performance, accessibility, internal-testing,
+privacy-review, and release-gate evidence verifiers. For isolated regression
+coverage without real manual evidence, run:
+
+```bash
+scripts/test-release-verifiers.sh
+```
+
+That script uses temporary fixtures only. It proves that the shared suite can
+pass with complete fixture evidence, fails when lower-level fixture evidence is
+missing, and allows checked P4 roadmap acceptance only when the full fixture
+suite passes.
 
 The final evidence register can also be checked directly:
 
@@ -127,9 +146,9 @@ scripts/verify-roadmap-p4-acceptance.sh
 
 This verifier fails if the design document's P4 acceptance rows are renamed,
 duplicated, or missing. If any P4 acceptance box is checked, it also requires
-the non-recursive P4 evidence suite to pass: store marketing assets,
-performance benchmarks, accessibility audit, internal testing evidence,
-privacy review evidence, and release-gate evidence.
+the shared non-recursive P4 evidence suite to pass: store marketing assets,
+performance benchmarks, accessibility audit, internal testing evidence, privacy
+review evidence, and release-gate evidence.
 
 The roadmap document set can be checked directly:
 

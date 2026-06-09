@@ -4,6 +4,11 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
+MARKETING_ASSETS_ROOT="${FIRE_MARKETING_ASSETS_ROOT:-$ROOT_DIR}"
+if [[ "$MARKETING_ASSETS_ROOT" != /* ]]; then
+  MARKETING_ASSETS_ROOT="$ROOT_DIR/$MARKETING_ASSETS_ROOT"
+fi
+
 failure_count=0
 dimension_tool_warned=0
 
@@ -25,6 +30,10 @@ warn_once_dimension_tool() {
 
 lowercase() {
   printf '%s' "$1" | tr '[:upper:]' '[:lower:]'
+}
+
+asset_path() {
+  printf '%s/%s' "$MARKETING_ASSETS_ROOT" "$1"
 }
 
 contains_fake_asset_marker() {
@@ -307,7 +316,8 @@ PY
 }
 
 validate_optional_preview_video() {
-  local directory="native/ios-app/marketing/preview-video"
+  local directory
+  directory="$(asset_path "native/ios-app/marketing/preview-video")"
   local video_file="$directory/app-preview.mp4"
   local other_file
   local unexpected_count=0
@@ -341,7 +351,8 @@ validate_optional_preview_video() {
 }
 
 validate_required_feature_graphic() {
-  local graphic_file="native/android-app/marketing/feature-graphic.png"
+  local graphic_file
+  graphic_file="$(asset_path "native/android-app/marketing/feature-graphic.png")"
   local signature_hex
 
   if [[ ! -f "$graphic_file" ]]; then
@@ -373,16 +384,16 @@ validate_required_feature_graphic() {
 }
 
 ios_screenshot_sets=(
-  "App Store iPhone 6.5 screenshots|native/ios-app/marketing/screenshots/iPhone6.5"
-  "App Store iPhone 5.5 screenshots|native/ios-app/marketing/screenshots/iPhone5.5"
-  "App Store iPad 12.9 screenshots|native/ios-app/marketing/screenshots/iPad12.9"
-  "App Store iPad 11 screenshots|native/ios-app/marketing/screenshots/iPad11"
+  "App Store iPhone 6.5 screenshots|$(asset_path "native/ios-app/marketing/screenshots/iPhone6.5")"
+  "App Store iPhone 5.5 screenshots|$(asset_path "native/ios-app/marketing/screenshots/iPhone5.5")"
+  "App Store iPad 12.9 screenshots|$(asset_path "native/ios-app/marketing/screenshots/iPad12.9")"
+  "App Store iPad 11 screenshots|$(asset_path "native/ios-app/marketing/screenshots/iPad11")"
 )
 
 android_screenshot_sets=(
-  "Play Store phone screenshots|native/android-app/marketing/screenshots/phone"
-  "Play Store 7 inch tablet screenshots|native/android-app/marketing/screenshots/tablet7"
-  "Play Store 10 inch tablet screenshots|native/android-app/marketing/screenshots/tablet10"
+  "Play Store phone screenshots|$(asset_path "native/android-app/marketing/screenshots/phone")"
+  "Play Store 7 inch tablet screenshots|$(asset_path "native/android-app/marketing/screenshots/tablet7")"
+  "Play Store 10 inch tablet screenshots|$(asset_path "native/android-app/marketing/screenshots/tablet10")"
 )
 
 for entry in "${ios_screenshot_sets[@]}"; do

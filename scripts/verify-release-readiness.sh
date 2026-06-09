@@ -5,12 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
 checks=(
-  "Store marketing assets|scripts/verify-marketing-assets.sh"
-  "Performance benchmarks|scripts/verify-performance-benchmarks.sh"
-  "Accessibility audit|scripts/verify-accessibility-audit.sh"
-  "Internal testing evidence|scripts/verify-internal-testing-evidence.sh"
-  "Privacy review evidence|scripts/verify-privacy-review-evidence.sh"
-  "Release gate evidence|scripts/verify-release-gates.sh"
+  "P4 release evidence suite|scripts/verify-p4-release-evidence-suite.sh"
   "Roadmap plan contract|scripts/verify-roadmap-plan-contract.sh"
   "Roadmap architecture constraints|scripts/verify-roadmap-architecture-constraints.sh"
   "Roadmap implementation evidence|scripts/verify-roadmap-implementation-evidence.sh"

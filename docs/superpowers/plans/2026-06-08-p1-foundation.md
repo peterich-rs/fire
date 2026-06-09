@@ -4,7 +4,7 @@
 
 **Goal:** 消除视觉不一致、补齐 Accessibility、统一架构模式、Android 核心页面补全
 
-**Architecture:** iOS 侧聚焦 FireTheme Token 统一、通用分页 Store 提取、FireAppViewModel 拆分；Android 侧补全草稿列表、推送通知、阅读历史等缺失页面。两端共享上下文菜单、空状态组件、Shimmer 动画等模式。
+**Architecture:** iOS 侧已聚焦 FireTheme Token 统一、通用分页 Store 提取、FireAppViewModel 拆分；Android 侧已补全草稿列表、FCM 本地通知接入、阅读历史、通知历史和话题阅读计时。两端共享上下文菜单、空状态组件、Shimmer 动画等模式。
 
 **Tech Stack:** SwiftUI / UIKit (iOS), Kotlin + ViewBinding + Paging 3 (Android), Rust UniFFI (shared core)
 
@@ -24,7 +24,11 @@
 | Modify | `App/Stores/FireHomeFeedStore.swift` | 适配新 Token |
 | Modify | `App/Stores/FireNotificationStore.swift` | 提取通用模式 |
 | Modify | `App/Stores/FireSearchStore.swift` | 继承 FirePaginatedStore |
-| Modify | `App/ViewModels/FireAppViewModel.swift` | 拆分服务层 |
+| Modify | `App/ViewModels/FireAppViewModel.swift` | 拆分服务层和门面扩展 |
+| Create | `App/ViewModels/FireAppViewModelSupport.swift` | 支撑类型、错误、状态观察协调器、搜索 scope |
+| Create | `App/ViewModels/FireAppViewModel+Diagnostics.swift` | 诊断、日志、网络 trace、APM facade |
+| Create | `App/ViewModels/FireAppViewModel+Profile.swift` | 个人资料、关注、邀请、徽章、LDC/CDK facade |
+| Create | `App/ViewModels/FireAppViewModel+RecoveryURLs.swift` | Cloudflare 恢复 URL 构建 |
 | Create | `App/Services/FireTopicInteractionService.swift` | 话题交互服务 |
 | Create | `App/Services/FireNotificationService.swift` | 通知服务 |
 | Create | `App/Services/FireSearchService.swift` | 搜索服务 |
@@ -660,6 +664,42 @@ Expected: `** BUILD SUCCEEDED **`
 git add native/ios-app/App/Services/FireSearchService.swift native/ios-app/App/ViewModels/FireAppViewModel.swift
 git commit -m "refactor(ios): extract FireSearchService from FireAppViewModel"
 ```
+
+---
+
+## Task 12.5: iOS FireAppViewModel 拆分 — 门面扩展收敛
+
+**Files:**
+- Create: `native/ios-app/App/ViewModels/FireAppViewModelSupport.swift`
+- Create: `native/ios-app/App/ViewModels/FireAppViewModel+Diagnostics.swift`
+- Create: `native/ios-app/App/ViewModels/FireAppViewModel+Profile.swift`
+- Create: `native/ios-app/App/ViewModels/FireAppViewModel+RecoveryURLs.swift`
+- Modify: `native/ios-app/App/ViewModels/FireAppViewModel.swift`
+- Modify: `native/ios-app/Fire.xcodeproj/project.pbxproj`
+
+- [x] **Step 1: Move support types out of the main view model file**
+
+`FireAppViewModelSupport.swift` now owns login/diagnostics error types, auth presentation state, Cloudflare cookie snapshot diagnostics, app-state/state-observer coordinators, topic-detail request/window structs, and search scope helpers.
+
+- [x] **Step 2: Move diagnostics facade methods**
+
+`FireAppViewModel+Diagnostics.swift` owns log listing/reading, network trace access, diagnostic session ID, support bundle export, APM summary/export, log flushing, and diagnostics scene-phase handling.
+
+- [x] **Step 3: Move profile and LDC/CDK facade methods**
+
+`FireAppViewModel+Profile.swift` owns user profile/summary/actions/bookmarks/follows/invites/badges and LDC/CDK authorization, approval, callback, user-info, and logout pass-through methods.
+
+- [x] **Step 4: Move Cloudflare recovery URL builders**
+
+`FireAppViewModel+RecoveryURLs.swift` owns site-root, topic-list, topic-detail, filter, tag, and query-item URL normalization helpers used by the platform WebView recovery path.
+
+- [x] **Step 5: Build and line-count verification**
+
+Verified:
+- `wc -l native/ios-app/App/ViewModels/FireAppViewModel.swift` -> `1431`
+- `cd native/ios-app && xcodebuild build -scheme Fire -destination 'platform=iOS Simulator,id=D733CCB1-7B2A-49B5-B3F8-36CB6D0CB2BF,OS=18.3' -derivedDataPath /tmp/fire-ios-vm-split-build CODE_SIGNING_ALLOWED=NO -quiet` passed
+
+The split is behavior-preserving: stateful login/session/message-bus orchestration remains in `FireAppViewModel.swift`; native topic-detail rows remain on the UIKit/Texture runtime cell path.
 
 ---
 

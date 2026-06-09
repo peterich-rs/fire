@@ -33,6 +33,7 @@ class MainActivity : AppCompatActivity() {
         val navController = navHostFragment.navController
 
         configureBottomNavigation(navController)
+        handleWidgetDeepLink(navController)
 
         refreshNotificationBadge()
     }
@@ -69,6 +70,17 @@ class MainActivity : AppCompatActivity() {
                 binding.bottomNav.menu.findItem(destination.id)?.isChecked = true
             }
         }
+    }
+
+    private fun handleWidgetDeepLink(navController: NavController) {
+        val uri = intent?.data ?: return
+        if (uri.scheme != "fire") return
+        val destinationId = when (uri.host) {
+            "notifications" -> R.id.notificationsFragment
+            else -> return
+        }
+        navController.navigate(destinationId)
+        binding.bottomNav.menu.findItem(destinationId)?.isChecked = true
     }
 
     fun refreshNotificationBadge() {

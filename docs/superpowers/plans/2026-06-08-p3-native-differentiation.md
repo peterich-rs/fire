@@ -4,9 +4,9 @@
 
 **Goal:** Ship platform-differentiating features — home screen widgets, offline caching, haptic feedback, shimmer loading, Siri Shortcuts, and Material You — that make Fire feel like a first-party native app on both iOS and Android.
 
-**Architecture:** Rust owns the offline cache layer via `fire-store` SQLite tables with read-through semantics on network failure; platform stores consume cached payloads transparently. Widgets read from App Group shared containers (iOS) or Glance state (Android), both populated by the Rust core through the UniFFI bridge. All UI components follow existing `FireTheme` / `FireColors` conventions and are added to the existing component libraries (`FireComponents.swift`, `FireColors.kt`).
+**Architecture:** Rust owns the offline cache layer via `fire-store` SQLite tables with read-through semantics on network failure; platform stores consume cached payloads transparently. Widgets read from App Group shared containers (iOS) or native widget state mirrored by platform stores (Android), both populated from Rust-backed app loads through the UniFFI bridge. All UI components follow existing `FireTheme` / `FireColors` conventions and are added to the existing component libraries (`FireComponents.swift`, `FireColors.kt`).
 
-**Tech Stack:** Rust + UniFFI + rusqlite / SwiftUI + WidgetKit + AppIntents / Android Views + Glance + Material You / Kotlin Coroutines + Paging 3
+**Tech Stack:** Rust + UniFFI + rusqlite / SwiftUI + WidgetKit + AppIntents / Android Views + AppWidgetProvider + RemoteViews + Material You / Kotlin Coroutines + Paging 3
 
 ## Feasibility Assessment
 
@@ -649,207 +649,61 @@ struct FireWidgetBundle: WidgetBundle {
 
 ---
 
-### Task 6: Android Widget — Glance Implementation
+### Task 6: Android Widget — Native RemoteViews Implementation
 
 **Files:**
-- Create: `native/android-app/src/main/java/com/fire/app/widget/FireUnreadWidget.kt`
-- Create: `native/android-app/src/main/java/com/fire/app/widget/FireTopicListWidget.kt`
+- Create: `native/android-app/src/main/java/com/fire/app/widget/FireUnreadWidgetProvider.kt`
+- Create: `native/android-app/src/main/java/com/fire/app/widget/FireTopicListWidgetProvider.kt`
 - Create: `native/android-app/src/main/java/com/fire/app/widget/FireWidgetData.kt`
-- Create: `native/android-app/src/main/java/com/fire/app/widget/FireWidgetReceiver.kt`
-- Create: `native/android-app/src/main/res/xml/fire_unread_widget_info.xml`
-- Create: `native/android-app/src/main/res/xml/fire_topic_list_widget_info.xml`
+- Create: `native/android-app/src/main/res/drawable/bg_widget_panel.xml`
 - Create: `native/android-app/src/main/res/layout/widget_unread.xml`
 - Create: `native/android-app/src/main/res/layout/widget_topic_list.xml`
-- Modify: `native/android-app/build.gradle.kts` (add Glance dependency)
+- Create: `native/android-app/src/main/res/xml/fire_unread_widget_info.xml`
+- Create: `native/android-app/src/main/res/xml/fire_topic_list_widget_info.xml`
+- Modify: `native/android-app/src/main/AndroidManifest.xml`
+- Modify: `native/android-app/src/main/java/com/fire/app/MainActivity.kt`
+- Modify: `native/android-app/src/main/java/com/fire/app/data/paging/TopicListPagingSource.kt`
+- Modify: `native/android-app/src/main/java/com/fire/app/ui/home/HomeViewModel.kt`
+- Modify: `native/android-app/src/main/java/com/fire/app/ui/notifications/NotificationsViewModel.kt`
+- Modify: `native/android-app/src/main/res/values/strings.xml`
 
-- [ ] **Step 1: Add Glance dependency to `build.gradle.kts`**
+- [x] **Step 1: Use platform AppWidgetProvider/RemoteViews rather than adding Glance**
 
-```kotlin
-implementation("androidx.glance:glance-appwidget:1.1.0")
-implementation("androidx.glance:glance-material3:1.1.0")
-```
+The Android host is View/XML-based and does not have a Compose compiler setup. The widget implementation therefore uses `AppWidgetProvider` plus `RemoteViews`, preserving the existing Android stack and avoiding a widget-only Compose/Glance dependency.
 
-- [ ] **Step 2: Create `FireWidgetData.kt` with shared state management**
+- [x] **Step 2: Create `FireWidgetData.kt` with shared state management**
 
-```kotlin
-package com.fire.app.widget
+`FireWidgetData` persists a compact snapshot in `SharedPreferences` under `fire_widget_prefs`: unread count, current username, up to five topic summaries, and the last update timestamp. Topic summaries are mirrored from `TopicRowState` values returned by Rust-backed paging loads; notification counters are mirrored from `NotificationCenterState`. Widgets never call UniFFI directly.
 
-import android.content.Context
-import androidx.datastore.preferences.core.intPreferencesKey
-import androidx.datastore.preferences.core.stringPreferencesKey
-import androidx.glance.state.GlanceStateDefinition
-import java.io.File
+- [x] **Step 3: Create `FireUnreadWidgetProvider` small unread-count widget**
 
-object FireWidgetData {
-    val UNREAD_COUNT = intPreferencesKey("unread_count")
-    val TOPIC_TITLES = stringPreferencesKey("topic_titles")
-    val USERNAME = stringPreferencesKey("username")
+The small widget renders `widget_unread.xml`, pluralizes the unread notification count, shows an empty state when count is zero, and opens `fire://notifications` through `MainActivity`.
 
-    fun updateWidgetData(context: Context, unreadCount: Int, topicTitlesJson: String, username: String) {
-        // Write to DataStore / SharedPreferences for Glance to read
-        val prefs = context.getSharedPreferences("fire_widget_prefs", Context.MODE_PRIVATE)
-        prefs.edit()
-            .putInt(UNREAD_COUNT.name, unreadCount)
-            .putString(TOPIC_TITLES.name, topicTitlesJson)
-            .putString(USERNAME.name, username)
-            .apply()
-    }
-}
-```
+- [x] **Step 4: Create unread widget metadata and layout resources**
 
-- [ ] **Step 3: Create `FireUnreadWidget.kt` — small unread count widget**
+Added `widget_unread.xml`, `fire_unread_widget_info.xml`, shared `bg_widget_panel.xml`, and localized string/plural resources.
 
-```kotlin
-package com.fire.app.widget
+- [x] **Step 5: Create `FireTopicListWidgetProvider` medium topic-list widget**
 
-import android.content.Context
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.runtime.Composable
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import androidx.glance.*
-import androidx.glance.appwidget.GlanceAppWidget
-import androidx.glance.appwidget.GlanceAppWidgetReceiver
-import androidx.glance.appwidget.lazy.LazyColumn
-import androidx.glance.layout.*
-import androidx.glance.text.Text
-import androidx.glance.text.TextStyle
-import androidx.glance.unit.ColorProvider
+The medium widget renders `widget_topic_list.xml`, shows the signed-in username or default title, displays up to three recent topic rows with category/reply/like/timestamp metadata, opens the app from the root, and deep-links rows into `TopicDetailActivity`.
 
-class FireUnreadWidget : GlanceAppWidget() {
-    @Composable
-    override fun Content() {
-        val prefs = currentState preferences
-        val unread = prefs[FireWidgetData.UNREAD_COUNT] ?: 0
-        val username = prefs[FireWidgetData.USERNAME] ?: ""
+- [x] **Step 6: Create topic-list widget metadata and layout resources**
 
-        Box(modifier = GlanceModifier.fillMaxSize().background(GlanceModifier.background(android.graphics.Color.parseColor("#141517")))) {
-            Column(modifier = GlanceModifier.fillMaxSize().padding(12.dp)) {
-                Text("Fire", style = TextStyle(color = ColorProvider(android.graphics.Color.parseColor("#F57338")), fontSize = 14.sp))
-                Spacer(modifier = GlanceModifier.height(8.dp))
-                if (unread > 0) {
-                    Text("$unread", style = TextStyle(color = ColorProvider(android.graphics.Color.White), fontSize = 28.sp))
-                    Text("条未读通知", style = TextStyle(color = ColorProvider(android.graphics.Color.parseColor("#9EA0AB")), fontSize = 12.sp))
-                } else {
-                    Text("没有未读", style = TextStyle(color = ColorProvider(android.graphics.Color.parseColor("#9EA0AB")), fontSize = 16.sp))
-                }
-            }
-        }
-    }
-}
+Added `widget_topic_list.xml`, `fire_topic_list_widget_info.xml`, and topic metadata string resources.
 
-class FireUnreadWidgetReceiver : GlanceAppWidgetReceiver() {
-    override val glanceAppWidget: GlanceAppWidget = FireUnreadWidget()
-}
-```
+- [x] **Step 7: Register widget providers and notification deep link in `AndroidManifest.xml`**
 
-- [ ] **Step 4: Create `fire_unread_widget_info.xml`**
+Registered `FireUnreadWidgetProvider` and `FireTopicListWidgetProvider` with `APPWIDGET_UPDATE` receivers. Added a `fire://notifications` `MainActivity` intent filter next to the existing profile deep link.
 
-```xml
-<?xml version="1.0" encoding="utf-8"?>
-<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
-    android:minWidth="40dp"
-    android:minHeight="40dp"
-    android:targetCellWidth="2"
-    android:targetCellHeight="2"
-    android:resizeMode="horizontal|vertical"
-    android:widgetCategory="home_screen"
-    android:initialLayout="@layout/widget_unread"
-    android:description="@string/widget_unread_description"
-    android:previewLayout="@layout/widget_unread" />
-```
+- [x] **Step 8: Update widget data from app state changes**
 
-- [ ] **Step 5: Create `FireTopicListWidget.kt` — medium topic list widget**
+`TopicListPagingSource` now passes first-page topic rows to `HomeViewModel`, which mirrors them into `FireWidgetData` after every page-zero load, including an empty successful result. `NotificationsViewModel` mirrors unread counters after notification center refresh. Both paths use `FireApplication.getInstance()` to avoid introducing platform-side data ownership.
 
-```kotlin
-package com.fire.app.widget
+- [x] **Step 9: Verify Android build/test**
 
-import androidx.compose.runtime.Composable
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import androidx.glance.*
-import androidx.glance.appwidget.GlanceAppWidget
-import androidx.glance.appwidget.GlanceAppWidgetReceiver
-import androidx.glance.appwidget.lazy.LazyColumn
-import androidx.glance.layout.*
-import androidx.glance.text.Text
-import androidx.glance.text.TextStyle
-import androidx.glance.unit.ColorProvider
-import org.json.JSONArray
+`cd native/android-app && ./gradlew testDebugUnitTest --tests com.fire.app.ui.composer.MarkdownInsertionTest` — passed.
 
-class FireTopicListWidget : GlanceAppWidget() {
-    @Composable
-    override fun Content() {
-        val prefs = currentState preferences
-        val titlesJson = prefs[FireWidgetData.TOPIC_TITLES] ?: "[]"
-        val titles = try {
-            JSONArray(titlesJson).let { arr -> (0 until arr.length()).map { arr.getString(it) } }
-        } catch (_: Exception) { emptyList() }
-
-        Column(modifier = GlanceModifier.fillMaxSize().padding(12.dp)) {
-            Text("Fire 热门", style = TextStyle(color = ColorProvider(android.graphics.Color.parseColor("#F57338")), fontSize = 13.sp))
-            Spacer(modifier = GlanceModifier.height(4.dp))
-            titles.take(3).forEach { title ->
-                Text(title, style = TextStyle(color = ColorProvider(android.graphics.Color.parseColor("#F6F2EC")), fontSize = 12.sp), maxLines = 1)
-                Spacer(modifier = GlanceModifier.height(4.dp))
-            }
-        }
-    }
-}
-
-class FireTopicListWidgetReceiver : GlanceAppWidgetReceiver() {
-    override val glanceAppWidget: GlanceAppWidget = FireTopicListWidget()
-}
-```
-
-- [ ] **Step 6: Create `fire_topic_list_widget_info.xml`**
-
-```xml
-<?xml version="1.0" encoding="utf-8"?>
-<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
-    android:minWidth="250dp"
-    android:minHeight="40dp"
-    android:targetCellWidth="4"
-    android:targetCellHeight="2"
-    android:resizeMode="horizontal|vertical"
-    android:widgetCategory="home_screen"
-    android:initialLayout="@layout/widget_topic_list"
-    android:description="@string/widget_topic_list_description"
-    android:previewLayout="@layout/widget_topic_list" />
-```
-
-- [ ] **Step 7: Register receivers in `AndroidManifest.xml`**
-
-```xml
-<receiver android:name=".widget.FireUnreadWidgetReceiver" android:exported="true">
-    <intent-filter>
-        <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
-    </intent-filter>
-    <meta-data android:name="android.appwidget.provider"
-        android:resource="@xml/fire_unread_widget_info" />
-</receiver>
-<receiver android:name=".widget.FireTopicListWidgetReceiver" android:exported="true">
-    <intent-filter>
-        <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
-    </intent-filter>
-    <meta-data android:name="android.appwidget.provider"
-        android:resource="@xml/fire_topic_list_widget_info" />
-</receiver>
-```
-
-- [ ] **Step 8: Update widget data from `HomeViewModel` after topic list refresh**
-
-```kotlin
-// In HomeViewModel after successful topic load:
-FireWidgetData.updateWidgetData(
-    context = getApplication(),
-    unreadCount = notificationCount,
-    topicTitlesJson = JSONArray(currentTopics.map { it.title }).toString(),
-    username = currentUser?.username ?: ""
-)
-```
-
-**Commit message:** `feat(widget-android): add Glance-based unread and topic list widgets`
+**Commit message:** `feat(widget-android): add native app widgets`
 
 ---
 
@@ -1284,8 +1138,8 @@ Extend the `onOpenURL` handler from Task 3 to handle these schemes.
 ## Architectural Notes
 
 - **Rust ownership boundary:** Offline cache tables live in `fire-store` and are written/read only by `fire-core`. Platforms never touch SQLite directly — they receive cached or fresh data through the same UniFFI call path. This preserves the "Rust owns data" boundary.
-- **No new external dependencies:** Glance and Material Dynamic Colors are part of the standard AndroidX/Material libraries already used. WidgetKit and AppIntents ship with iOS 17+ SDK. No third-party packages are added.
-- **Backward compatibility:** Material You falls back to static Fire colors on API < 31. Siri Shortcuts require iOS 17+ but do not break iOS 16 builds. Glance widgets require API 31+ but gracefully degrade.
+- **No new external dependencies:** Android widgets use platform `AppWidgetProvider`/`RemoteViews`; Material Dynamic Colors are part of the Material library already used. WidgetKit and AppIntents ship with iOS 17+ SDK. No third-party packages are added.
+- **Backward compatibility:** Material You falls back to static Fire colors on API < 31. Siri Shortcuts require iOS 17+ but do not break iOS 16 builds. Android widgets use the app's existing minSdk-compatible widget APIs, with newer launcher sizing hints ignored on older launchers.
 - **Widget memory:** iOS widget timelines are capped at 30-minute refresh intervals and read from lightweight UserDefaults data — no Rust FFI calls in the widget extension process.
 - **Motion accessibility:** Decorative motion is gated or degraded through `FireMotionTokens` / `fireRespectingReduceMotion`. Haptics use SwiftUI `sensoryFeedback` where available and the small `FireMotionHaptics` UIKit bridge for Texture cells.
 - **Cache staleness:** Cache entries have no TTL — they are invalidated on logout and overwritten on every successful fetch. This is intentional: stale data is better than no data for offline mode, and the next successful fetch always replaces it.
@@ -1311,10 +1165,18 @@ Extend the `onOpenURL` handler from Task 3 to handle these schemes.
 - `native/ios-app/App/Widget/FireLargeWidget.swift` — Large timeline widget
 - `native/ios-app/App/ViewModels/FireAppViewModel.swift` — Widget data update, deep link handler
 - `native/android-app/src/main/java/com/fire/app/widget/FireWidgetData.kt` — Android widget shared state
-- `native/android-app/src/main/java/com/fire/app/widget/FireUnreadWidget.kt` — Unread count Glance widget
-- `native/android-app/src/main/java/com/fire/app/widget/FireTopicListWidget.kt` — Topic list Glance widget
+- `native/android-app/src/main/java/com/fire/app/widget/FireUnreadWidgetProvider.kt` — Unread count `RemoteViews` widget
+- `native/android-app/src/main/java/com/fire/app/widget/FireTopicListWidgetProvider.kt` — Topic list `RemoteViews` widget
+- `native/android-app/src/main/res/layout/widget_unread.xml` — Unread-count widget layout
+- `native/android-app/src/main/res/layout/widget_topic_list.xml` — Topic-list widget layout
+- `native/android-app/src/main/res/drawable/bg_widget_panel.xml` — Shared widget panel background
 - `native/android-app/src/main/res/xml/fire_unread_widget_info.xml` — Widget metadata
 - `native/android-app/src/main/res/xml/fire_topic_list_widget_info.xml` — Widget metadata
+- `native/android-app/src/main/AndroidManifest.xml` — Android widget receivers and notification deep link
+- `native/android-app/src/main/java/com/fire/app/MainActivity.kt` — Widget notification deep-link handling
+- `native/android-app/src/main/java/com/fire/app/data/paging/TopicListPagingSource.kt` — First-page topic rows for widget updates
+- `native/android-app/src/main/java/com/fire/app/ui/home/HomeViewModel.kt` — Topic-list widget snapshot updates
+- `native/android-app/src/main/java/com/fire/app/ui/notifications/NotificationsViewModel.kt` — Unread widget snapshot updates
 - `native/ios-app/App/FireMotion/FireMotionEffects.swift` — Shared SwiftUI feedback modifiers and UIKit haptic bridge
 - `native/ios-app/App/Views/Other/FireTabRoot.swift` — Add haptics to tab switch
 - `native/ios-app/App/ListKit/FireDiffableListController.swift` — Add haptic to pull-to-refresh completion

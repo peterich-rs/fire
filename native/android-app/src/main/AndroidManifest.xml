@@ -25,6 +25,14 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data
                     android:scheme="fire"
+                    android:host="notifications" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="fire"
                     android:host="profile" />
             </intent-filter>
         </activity>
@@ -50,6 +58,26 @@
         <receiver
             android:name=".ui.topicdetail.BookmarkReminderReceiver"
             android:exported="false" />
+        <receiver
+            android:name=".widget.FireUnreadWidgetProvider"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/fire_unread_widget_info" />
+        </receiver>
+        <receiver
+            android:name=".widget.FireTopicListWidgetProvider"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/fire_topic_list_widget_info" />
+        </receiver>
         <service
             android:name=".push.FireFirebaseMessagingService"
             android:exported="false">

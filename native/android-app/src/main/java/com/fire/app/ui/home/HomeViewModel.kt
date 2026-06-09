@@ -6,6 +6,7 @@ import androidx.paging.Pager
 import androidx.paging.PagingConfig
 import androidx.paging.PagingData
 import androidx.paging.cachedIn
+import com.fire.app.FireApplication
 import com.fire.app.core.error.FireErrorReporter
 import com.fire.app.core.error.FireReportedError
 import com.fire.app.core.error.launchWithFireErrorHandling
@@ -15,6 +16,7 @@ import com.fire.app.messagebus.FireMessageBusCoordinator
 import com.fire.app.session.FireAppStateRefreshRepository
 import com.fire.app.session.FireSessionStore
 import com.fire.app.session.FireStateObserverRepository
+import com.fire.app.widget.FireWidgetData
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
@@ -298,11 +300,22 @@ class HomeViewModel(
         ).flow
     }
 
-    private fun handleTopicPageLoaded(page: UInt, isCached: Boolean) {
+    private fun updateOfflineState(page: UInt, isCached: Boolean) {
         if (page == 0u) {
             _isOffline.value = isCached
         } else if (isCached) {
             _isOffline.value = true
+        }
+    }
+
+    private fun handleTopicPageLoaded(page: UInt, isCached: Boolean, rows: List<TopicRowState>) {
+        updateOfflineState(page, isCached)
+        if (page == 0u) {
+            FireWidgetData.updateTopicRows(
+                context = FireApplication.getInstance(),
+                rows = rows,
+                session = _session.value,
+            )
         }
     }
 

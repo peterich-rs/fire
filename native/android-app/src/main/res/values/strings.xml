@@ -48,6 +48,18 @@
     <string name="browser_loading_bookmarks">Loading bookmarks…</string>
     <string name="browser_loading_read_history">Loading read history…</string>
     <string name="offline_cache_banner">正在显示离线缓存</string>
+    <string name="widget_unread_description">Fire unread notification count</string>
+    <string name="widget_unread_zero">No unread notifications</string>
+    <plurals name="widget_unread_count">
+        <item quantity="one">%1$d unread notification</item>
+        <item quantity="other">%1$d unread notifications</item>
+    </plurals>
+    <string name="widget_unread_empty">All caught up</string>
+    <string name="widget_topic_list_title">Fire topics</string>
+    <string name="widget_topic_list_description">Latest Fire topics</string>
+    <string name="widget_topic_list_empty">Open Fire to load topics</string>
+    <string name="widget_topic_replies">%1$s replies</string>
+    <string name="widget_topic_likes">%1$s likes</string>
     <string name="browser_empty">No topics available for this feed.</string>
     <string name="browser_detail_empty">Select a topic to inspect its detail.</string>
     <string name="browser_detail_dedicated">Tap a topic row to open its dedicated detail screen.</string>

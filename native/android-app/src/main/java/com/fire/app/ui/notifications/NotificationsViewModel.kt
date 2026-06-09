@@ -6,11 +6,13 @@ import androidx.paging.Pager
 import androidx.paging.PagingConfig
 import androidx.paging.PagingData
 import androidx.paging.cachedIn
+import com.fire.app.FireApplication
 import com.fire.app.core.error.FireErrorReporter
 import com.fire.app.data.paging.NotificationPagingSource
 import com.fire.app.data.repository.NotificationRepository
 import com.fire.app.session.FireSessionStore
 import com.fire.app.session.FireStateObserverRepository
+import com.fire.app.widget.FireWidgetData
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -152,6 +154,14 @@ class NotificationsViewModel(
         _isRecentOffline.value = state.recentIsCached
         _isFullOffline.value = state.fullIsCached
         _error.value = null
+        viewModelScope.launch {
+            val session = runCatching { sessionStore.snapshot() }.getOrNull()
+            FireWidgetData.updateNotificationState(
+                context = FireApplication.getInstance(),
+                state = state,
+                session = session,
+            )
+        }
     }
 
     private fun handleNotificationPageLoaded(offset: UInt, isCached: Boolean) {

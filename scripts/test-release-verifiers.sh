@@ -498,6 +498,7 @@ def write_accessibility(
     fake_tester=False,
     invalid_date=False,
     duplicate_row=False,
+    duplicate_audit_row=False,
     extra_column=False,
     escaped_pipe=False,
     missing_trailing_pipe=False,
@@ -535,6 +536,8 @@ def write_accessibility(
                 row = row[:-1]
             lines.append(row)
             if duplicate_row and row_index == 0:
+                lines.append(row)
+            if duplicate_audit_row and row_index == len(screens):
                 lines.append(row)
             row_index += 1
     path.write_text("\n".join(lines) + "\n")
@@ -593,6 +596,7 @@ write_accessibility(fixture / "accessibility-not-real-space.md", marker="not rea
 write_accessibility(fixture / "accessibility-fake-tester.md", fake_tester=True)
 write_accessibility(fixture / "accessibility-invalid-date.md", invalid_date=True)
 write_accessibility(fixture / "accessibility-duplicate-row.md", duplicate_row=True)
+write_accessibility(fixture / "accessibility-duplicate-audit-row.md", duplicate_audit_row=True)
 write_accessibility(fixture / "accessibility-extra-column.md", extra_column=True)
 write_accessibility(fixture / "accessibility-escaped-pipe.md", escaped_pipe=True)
 write_accessibility(fixture / "accessibility-missing-trailing-pipe.md", missing_trailing_pipe=True)
@@ -1071,6 +1075,9 @@ expect_fail_contains "accessibility rejects invalid calendar date" \
 expect_fail_contains "accessibility rejects duplicate screen rows" \
   "duplicate accessibility screen result row" \
   scripts/verify-accessibility-audit.sh "$fixture/accessibility-duplicate-row.md"
+expect_fail_contains "accessibility rejects duplicate audit rows" \
+  "duplicate accessibility audit result row" \
+  scripts/verify-accessibility-audit.sh "$fixture/accessibility-duplicate-audit-row.md"
 expect_fail_contains "accessibility rejects extra Markdown table column" \
   "row has extra Markdown table columns" \
   scripts/verify-accessibility-audit.sh "$fixture/accessibility-extra-column.md"

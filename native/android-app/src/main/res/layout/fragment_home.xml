@@ -105,12 +105,12 @@
             android:paddingHorizontal="12dp"
             android:visibility="gone">
 
-            <include layout="@layout/item_topic_row_skeleton" />
-            <include layout="@layout/item_topic_row_skeleton" />
-            <include layout="@layout/item_topic_row_skeleton" />
-            <include layout="@layout/item_topic_row_skeleton" />
-            <include layout="@layout/item_topic_row_skeleton" />
-            <include layout="@layout/item_topic_row_skeleton" />
+            <include layout="@layout/item_topic_shimmer" />
+            <include layout="@layout/item_topic_shimmer" />
+            <include layout="@layout/item_topic_shimmer" />
+            <include layout="@layout/item_topic_shimmer" />
+            <include layout="@layout/item_topic_shimmer" />
+            <include layout="@layout/item_topic_shimmer" />
 
         </LinearLayout>
 

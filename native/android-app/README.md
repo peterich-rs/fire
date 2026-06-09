@@ -31,8 +31,9 @@ the shared Rust core at build time.
   suggestions, `@mention` suggestions, image upload insertion, selection-aware
   Markdown formatting, shared Rust draft restore/autosave/delete, and local
   Markdown preview with upload-image preview. Reply compose also accepts quote
-  prefill from topic detail while preserving restored drafts. Empty initial Paging loads render
-  topic-row skeletons in the list area instead of a separate blocking spinner.
+  prefill from topic detail while preserving restored drafts. Empty initial
+  Paging loads render shimmered topic-row skeletons in the list area instead of
+  a separate blocking spinner.
 - `SearchFragment` is a Navigation destination reachable from Home. It calls
   Rust search APIs for all/topic/post/user scopes, renders labeled result
   sections, loads additional full-page results while scrolling, and routes

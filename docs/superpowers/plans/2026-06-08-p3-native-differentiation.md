@@ -1336,130 +1336,25 @@ Same pattern. Use `FireShimmerRow` or a simplified variant appropriate for the r
 **Files:**
 - Create: `native/android-app/src/main/java/com/fire/app/core/ui/ShimmerLayout.kt`
 - Create: `native/android-app/src/main/res/layout/item_topic_shimmer.xml`
-- Modify: `native/android-app/src/main/java/com/fire/app/ui/home/HomeFragment.kt`
+- Modify: `native/android-app/src/main/res/layout/fragment_home.xml`
+- Modify: `native/android-app/src/main/res/values/fire_colors.xml`
+- Modify: `native/android-app/src/main/res/values-night/fire_colors.xml`
 
-- [ ] **Step 1: Create `ShimmerLayout.kt`**
+- [x] **Step 1: Create `ShimmerLayout.kt`**
 
-```kotlin
-package com.fire.app.core.ui
+  Added a reusable `FrameLayout` overlay that draws an animated linear-gradient sweep in `dispatchDraw`, cancels on detach, and respects the system animator-disabled setting through `ValueAnimator.areAnimatorsEnabled()`.
 
-import android.animation.ValueAnimator
-import android.content.Context
-import android.graphics.Canvas
-import android.graphics.LinearGradient
-import android.graphics.Paint
-import android.graphics.Shader
-import android.util.AttributeSet
-import android.view.View
-import android.widget.FrameLayout
-import com.fire.app.R
+- [x] **Step 2: Create `item_topic_shimmer.xml`**
 
-class ShimmerLayout @JvmOverloads constructor(
-    context: Context,
-    attrs: AttributeSet? = null,
-    defStyle: Int = 0
-) : FrameLayout(context, attrs, defStyle) {
+  Added a wrapper layout around the existing `item_topic_row_skeleton`, preserving the current skeleton row shape while adding the shimmer treatment.
 
-    private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
-    private var shimmerTranslate = 0f
-    private var animator: ValueAnimator? = null
+- [x] **Step 3: Add shimmer loading state to Home**
 
-    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
-        super.onSizeChanged(w, h, oldw, oldh)
-        val gradientWidth = w * 0.4f
-        paint.shader = LinearGradient(
-            -gradientWidth, 0f, gradientWidth, 0f,
-            intArrayOf(0x0DFFFFFF, 0x1AFFFFFF, 0x0DFFFFFF),
-            null,
-            Shader.TileMode.CLAMP
-        )
-    }
+  `fragment_home.xml` now uses six `item_topic_shimmer` includes in the existing `loading_skeleton_view`. `HomeFragment` load-state ownership remains unchanged.
 
-    override fun onDraw(canvas: Canvas) {
-        super.onDraw(canvas)
-        canvas.drawRect(shimmerTranslate, 0f, width.toFloat(), height.toFloat(), paint)
-    }
+- [x] **Step 4: Verify**
 
-    override fun onAttachedToWindow() {
-        super.onAttachedToWindow()
-        animator = ValueAnimator.ofFloat(0f, (width + paint.shader).toFloat().coerceAtLeast(width.toFloat() * 2)).apply {
-            duration = 1200
-            repeatCount = ValueAnimator.INFINITE
-            addUpdateListener {
-                shimmerTranslate = it.animatedValue as Float
-                invalidate()
-            }
-            start()
-        }
-    }
-
-    override fun onDetachedFromWindow() {
-        animator?.cancel()
-        animator = null
-        super.onDetachedFromWindow()
-    }
-}
-```
-
-- [ ] **Step 2: Create `item_topic_shimmer.xml`**
-
-```xml
-<?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="match_parent"
-    android:layout_height="wrap_content"
-    android:orientation="vertical"
-    android:padding="16dp"
-    android:background="@color/fire_background_canvas">
-
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="center_vertical">
-
-        <View
-            android:layout_width="36dp"
-            android:layout_height="36dp"
-            android:background="@color/fire_background_elevated" />
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="10dp"
-            android:orientation="vertical">
-
-            <View
-                android:layout_width="200dp"
-                android:layout_height="14dp"
-                android:background="@color/fire_background_elevated" />
-
-            <View
-                android:layout_width="120dp"
-                android:layout_height="12dp"
-                android:layout_marginTop="6dp"
-                android:background="@color/fire_background_elevated" />
-        </LinearLayout>
-    </LinearLayout>
-
-    <View
-        android:layout_width="match_parent"
-        android:layout_height="16dp"
-        android:layout_marginTop="10dp"
-        android:background="@color/fire_background_elevated" />
-
-    <View
-        android:layout_width="80dp"
-        android:layout_height="12dp"
-        android:layout_marginTop="8dp"
-        android:background="@color/fire_background_elevated" />
-
-</LinearLayout>
-```
-
-- [ ] **Step 3: Add shimmer loading state to `HomeFragment`**
-
-Show 5 shimmer items in the `RecyclerView` when `HomeViewModel` is in initial loading state (before first page arrives).
+  - `cd native/android-app && ./gradlew testDebugUnitTest --tests com.fire.app.ui.composer.MarkdownInsertionTest` — passed
 
 **Commit message:** `feat(shimmer-android): add shimmer loading animation for RecyclerView items`
 

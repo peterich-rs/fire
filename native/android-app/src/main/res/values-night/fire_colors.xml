@@ -19,6 +19,8 @@
     <color name="fire_chip_error_background">#FF451F27</color>
     <color name="fire_skeleton_primary">#FF34363A</color>
     <color name="fire_skeleton_secondary">#FF2B2D31</color>
+    <color name="fire_shimmer_edge">#00000000</color>
+    <color name="fire_shimmer_highlight">#24FFFFFF</color>
 
     <color name="fire_code_background">#FF1E2430</color>
     <color name="fire_quote_stripe">#4D9CA3AF</color>

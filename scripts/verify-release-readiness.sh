@@ -11,6 +11,7 @@ checks=(
   "Internal testing evidence|scripts/verify-internal-testing-evidence.sh"
   "Privacy review evidence|scripts/verify-privacy-review-evidence.sh"
   "Release gate evidence|scripts/verify-release-gates.sh"
+  "Roadmap plan contract|scripts/verify-roadmap-plan-contract.sh"
   "Roadmap P4 acceptance|scripts/verify-roadmap-p4-acceptance.sh"
 )
 

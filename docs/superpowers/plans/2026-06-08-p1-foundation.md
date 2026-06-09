@@ -667,7 +667,7 @@ git commit -m "refactor(ios): extract FireSearchService from FireAppViewModel"
 
 ---
 
-## Task 12.5: iOS FireAppViewModel 拆分 — 门面扩展收敛
+### Follow-up: iOS FireAppViewModel 拆分 — 门面扩展收敛
 
 **Files:**
 - Create: `native/ios-app/App/ViewModels/FireAppViewModelSupport.swift`

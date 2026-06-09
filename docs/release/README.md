@@ -96,8 +96,8 @@ scripts/verify-release-readiness.sh
 ```
 
 It runs the store-media, performance, accessibility, internal-testing, privacy
-review, release-gate evidence, and roadmap P4 acceptance verifiers. It is
-expected to fail until all manual P4 evidence is complete.
+review, release-gate evidence, roadmap plan contract, and roadmap P4 acceptance
+verifiers. It is expected to fail until all manual P4 evidence is complete.
 
 The final evidence register can also be checked directly:
 
@@ -118,3 +118,12 @@ scripts/verify-roadmap-p4-acceptance.sh
 This verifier fails if the design document's P4 acceptance rows are renamed,
 duplicated, or missing. If any P4 acceptance box is checked, it also requires
 the release-gate evidence verifier to pass.
+
+The roadmap document set can be checked directly:
+
+```bash
+scripts/verify-roadmap-plan-contract.sh
+```
+
+This verifier requires the one design spec and the four implementation plans to
+stay present with the expected P1/P2/P3/P4 top-level task counts.

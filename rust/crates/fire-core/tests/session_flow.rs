@@ -951,6 +951,44 @@ fn redacted_session_file_persistence_restores_bootstrap_without_auth_cookies() {
 }
 
 #[test]
+fn restore_accepts_root_base_url_without_trailing_slash() {
+    let core = FireCore::new(FireCoreConfig::default()).expect("core");
+    let json = r#"
+{
+  "version": 1,
+  "saved_at_unix_ms": 1,
+  "snapshot": {
+    "cookies": {
+      "t_token": "token",
+      "forum_session": "forum",
+      "cf_clearance": null,
+      "csrf_token": null
+    },
+    "bootstrap": {
+      "base_url": "https://linux.do",
+      "discourse_base_uri": null,
+      "shared_session_key": null,
+      "current_username": null,
+      "long_polling_base_url": null,
+      "turnstile_sitekey": null,
+      "topic_tracking_state_meta": null,
+      "preloaded_json": null,
+      "has_preloaded_data": false
+    }
+  }
+}
+"#;
+
+    let restored = core
+        .restore_session_json(json.to_string())
+        .expect("restore equivalent base url");
+
+    assert_eq!(restored.cookies.t_token.as_deref(), Some("token"));
+    assert_eq!(restored.cookies.forum_session.as_deref(), Some("forum"));
+    assert_eq!(restored.bootstrap.base_url, "https://linux.do/");
+}
+
+#[test]
 fn restore_rejects_base_url_mismatch() {
     let core = FireCore::new(FireCoreConfig::default()).expect("core");
     let json = r#"

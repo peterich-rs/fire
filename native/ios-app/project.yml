@@ -42,6 +42,7 @@ schemes:
 settings:
   base:
     SWIFT_VERSION: "5.10"
+    "ARCHS[sdk=iphonesimulator*]": arm64
 targets:
   Fire:
     type: application

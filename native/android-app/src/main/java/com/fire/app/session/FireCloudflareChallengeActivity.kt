@@ -10,6 +10,9 @@ import android.widget.ProgressBar
 import android.widget.TextView
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.ComponentActivity
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.updatePadding
 import androidx.lifecycle.lifecycleScope
 import com.fire.app.R
 import com.fire.app.ui.webview.FireWebViewSupport
@@ -39,6 +42,7 @@ class FireCloudflareChallengeActivity : ComponentActivity() {
         }
 
         setContentView(R.layout.activity_cloudflare_challenge)
+        applySystemBarInsets()
         webView = findViewById(R.id.challenge_webview)
         progressBar = findViewById(R.id.challenge_progress)
         findViewById<TextView>(R.id.challenge_close).setOnClickListener {
@@ -205,6 +209,26 @@ class FireCloudflareChallengeActivity : ComponentActivity() {
             cookies = emptyList(),
             browserUserAgent = null,
         )
+    }
+
+    private fun applySystemBarInsets() {
+        val root = findViewById<View>(R.id.challenge_root)
+        val topBar = findViewById<View>(R.id.challenge_top_bar)
+        val initialRootLeft = root.paddingLeft
+        val initialRootRight = root.paddingRight
+        val initialRootBottom = root.paddingBottom
+        val initialTopBarTop = topBar.paddingTop
+        ViewCompat.setOnApplyWindowInsetsListener(root) { _, insets ->
+            val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            root.updatePadding(
+                left = initialRootLeft + systemBars.left,
+                right = initialRootRight + systemBars.right,
+                bottom = initialRootBottom + systemBars.bottom,
+            )
+            topBar.updatePadding(top = initialTopBarTop + systemBars.top)
+            insets
+        }
+        ViewCompat.requestApplyInsets(root)
     }
 
     private suspend fun WebView.evaluateJavascriptSuspend(script: String): String =

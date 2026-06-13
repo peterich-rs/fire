@@ -222,10 +222,10 @@ struct FirePublicProfileView: View {
         .background(FireTheme.canvasTop)
         .navigationTitle(displayName)
         .navigationBarTitleDisplayMode(.inline)
-        .navigationDestination(item: $selectedRoute) { route in
+        .fireNavigationDestination(item: $selectedRoute) { route in
             FireAppRouteDestinationView(viewModel: viewModel, route: route)
         }
-        .navigationDestination(item: $selectedBadge) { item in
+        .fireNavigationDestination(item: $selectedBadge) { item in
             FireBadgeDetailView(viewModel: viewModel, badgeID: item.badge.id, initialBadge: item.badge)
         }
         .fullScreenCover(isPresented: $showPrivateMessageComposer) {
@@ -241,7 +241,7 @@ struct FirePublicProfileView: View {
                 )
             }
         }
-        .onChange(of: composerNotice) { _, message in
+        .onChange(of: composerNotice) { message in
             guard let message,
                   !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 return

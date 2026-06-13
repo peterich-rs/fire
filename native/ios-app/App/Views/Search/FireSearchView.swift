@@ -31,7 +31,7 @@ struct FireSearchView: View {
         }
         .navigationTitle("搜索")
         .navigationBarTitleDisplayMode(.inline)
-        .navigationDestination(item: $selectedRoute) { route in
+        .fireNavigationDestination(item: $selectedRoute) { route in
             FireAppRouteDestinationView(viewModel: appViewModel, route: route)
         }
         .onAppear {
@@ -70,7 +70,7 @@ struct FireSearchView: View {
                 }
             )
         }
-        .onChange(of: topicActionNotice) { _, message in
+        .onChange(of: topicActionNotice) { message in
             guard let message,
                   !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 return

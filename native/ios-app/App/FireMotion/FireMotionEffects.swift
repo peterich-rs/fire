@@ -27,19 +27,22 @@ extension View {
     /// under Reduce Motion's haptics counterpart isn't a thing — Reduce
     /// Motion does not silence haptics — so this fires regardless.
     func fireSuccessFeedback(trigger: some Equatable) -> some View {
-        sensoryFeedback(.success, trigger: trigger)
+        modifier(FireHapticFeedbackModifier(trigger: trigger, feedback: .success))
     }
 
     func fireErrorFeedback(trigger: some Equatable) -> some View {
-        sensoryFeedback(.error, trigger: trigger)
+        modifier(FireHapticFeedbackModifier(trigger: trigger, feedback: .error))
     }
 
     func fireSelectionFeedback(trigger: some Equatable) -> some View {
-        sensoryFeedback(.selection, trigger: trigger)
+        modifier(FireHapticFeedbackModifier(trigger: trigger, feedback: .selection))
     }
 
-    func fireImpactFeedback(trigger: some Equatable, weight: SensoryFeedback.Weight = .medium) -> some View {
-        sensoryFeedback(.impact(weight: weight), trigger: trigger)
+    func fireImpactFeedback(
+        trigger: some Equatable,
+        style: UIImpactFeedbackGenerator.FeedbackStyle = .medium
+    ) -> some View {
+        modifier(FireHapticFeedbackModifier(trigger: trigger, feedback: .impact(style)))
     }
 
     /// Non-repeating pulse on a notification badge symbol on every
@@ -79,38 +82,37 @@ extension View {
 
 private struct FireSymbolBounceEffect: ViewModifier {
     let active: Bool
-    let hapticOnActivate: SensoryFeedback
+    let hapticOnActivate: FireHapticFeedback
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    @ViewBuilder
     func body(content: Content) -> some View {
-        Group {
-            if reduceMotion {
-                content
-            } else {
-                content.symbolEffect(.bounce, value: active)
-            }
+        let hapticContent = content.fireHapticFeedback(active, feedback: hapticOnActivate)
+        if reduceMotion {
+            hapticContent
+        } else if #available(iOS 17, *) {
+            hapticContent.symbolEffect(.bounce, value: active)
+        } else {
+            hapticContent
         }
-        // Spec: ".sensoryFeedback(.success) on success" for like/bookmark/follow
-        // toggles. The haptic must fire on both activation and deactivation
-        // (every confirmed state flip), so trigger on the raw `active` value.
-        .sensoryFeedback(hapticOnActivate, trigger: active)
     }
 }
 
 private struct FireSymbolReplaceEffect: ViewModifier {
     let active: Bool
-    let hapticOnActivate: SensoryFeedback
+    let hapticOnActivate: FireHapticFeedback
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    @ViewBuilder
     func body(content: Content) -> some View {
-        Group {
-            if reduceMotion {
-                content
-            } else {
-                content.contentTransition(.symbolEffect(.replace))
-            }
+        let hapticContent = content.fireHapticFeedback(active, feedback: hapticOnActivate)
+        if reduceMotion {
+            hapticContent
+        } else if #available(iOS 17, *) {
+            hapticContent.contentTransition(.symbolEffect(.replace))
+        } else {
+            hapticContent
         }
-        .sensoryFeedback(hapticOnActivate, trigger: active)
     }
 }
 
@@ -118,11 +120,14 @@ private struct FireBadgePulseEffect: ViewModifier {
     let value: AnyHashable
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    @ViewBuilder
     func body(content: Content) -> some View {
         if reduceMotion {
             content
-        } else {
+        } else if #available(iOS 17, *) {
             content.symbolEffect(.pulse, options: .nonRepeating, value: value)
+        } else {
+            content
         }
     }
 }
@@ -131,13 +136,24 @@ private struct FireNumericChangeEffect: ViewModifier {
     let value: AnyHashable
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    @ViewBuilder
     func body(content: Content) -> some View {
-        content
-            .contentTransition(reduceMotion ? .identity : .numericText())
-            .animation(
-                FireMotionTokens.animation(for: .standard, reduceMotion: reduceMotion),
-                value: value
-            )
+        if reduceMotion {
+            content
+        } else if #available(iOS 17, *) {
+            content
+                .contentTransition(.numericText())
+                .animation(
+                    FireMotionTokens.animation(for: .standard, reduceMotion: false),
+                    value: value
+                )
+        } else {
+            content
+                .animation(
+                    FireMotionTokens.animation(for: .standard, reduceMotion: false),
+                    value: value
+                )
+        }
     }
 }
 
@@ -157,8 +173,10 @@ private struct FireCTAPressEffect: ViewModifier {
                     .onChanged { _ in isPressed = true }
                     .onEnded { _ in isPressed = false }
             )
-            .sensoryFeedback(.selection, trigger: isPressed) { _, newValue in
-                newValue
+            .onChange(of: isPressed) { pressed in
+                if pressed {
+                    FireMotionHaptics.selection()
+                }
             }
     }
 }
@@ -176,7 +194,47 @@ private struct FireSwipeReplyFeedbackEffect: ViewModifier {
     let trigger: AnyHashable
 
     func body(content: Content) -> some View {
-        content.sensoryFeedback(.impact(weight: .medium), trigger: trigger)
+        content.fireHapticFeedback(trigger, feedback: .impact(.medium))
+    }
+}
+
+private enum FireHapticFeedback {
+    case success
+    case error
+    case selection
+    case impact(UIImpactFeedbackGenerator.FeedbackStyle)
+
+    func fire() {
+        switch self {
+        case .success:
+            FireMotionHaptics.success()
+        case .error:
+            FireMotionHaptics.error()
+        case .selection:
+            FireMotionHaptics.selection()
+        case .impact(let style):
+            FireMotionHaptics.impact(style)
+        }
+    }
+}
+
+private struct FireHapticFeedbackModifier<Value: Equatable>: ViewModifier {
+    let trigger: Value
+    let feedback: FireHapticFeedback
+
+    func body(content: Content) -> some View {
+        content.onChange(of: trigger) { _ in
+            feedback.fire()
+        }
+    }
+}
+
+private extension View {
+    func fireHapticFeedback<Value: Equatable>(
+        _ trigger: Value,
+        feedback: FireHapticFeedback
+    ) -> some View {
+        modifier(FireHapticFeedbackModifier(trigger: trigger, feedback: feedback))
     }
 }
 

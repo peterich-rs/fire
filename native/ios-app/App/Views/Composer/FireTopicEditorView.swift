@@ -155,7 +155,7 @@ struct FireTopicEditorView: View {
                 .disabled(!canSubmit)
             }
         }
-        .onChange(of: tagInput) { _, newValue in
+        .onChange(of: tagInput) { newValue in
             searchTags(query: newValue)
         }
         .onDisappear {

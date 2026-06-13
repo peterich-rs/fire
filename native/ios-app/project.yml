@@ -47,7 +47,7 @@ targets:
   Fire:
     type: application
     platform: iOS
-    deploymentTarget: "17.0"
+    deploymentTarget: "16.0"
     configFiles:
       Debug: Configs/Fire-Debug.xcconfig
       Release: Configs/Fire-Release.xcconfig
@@ -132,7 +132,7 @@ targets:
   FireWidgetExtension:
     type: app-extension
     platform: iOS
-    deploymentTarget: "17.0"
+    deploymentTarget: "16.0"
     configFiles:
       Debug: Configs/Fire-Debug.xcconfig
       Release: Configs/Fire-Release.xcconfig
@@ -158,7 +158,7 @@ targets:
   FireTests:
     type: bundle.unit-test
     platform: iOS
-    deploymentTarget: "17.0"
+    deploymentTarget: "16.0"
     sources:
       - path: Tests/Unit
     dependencies:

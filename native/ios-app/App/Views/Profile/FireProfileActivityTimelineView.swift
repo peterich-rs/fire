@@ -107,7 +107,7 @@ struct FireProfileActivityTimelineView: View {
         }
         .navigationTitle("全部动态")
         .navigationBarTitleDisplayMode(.inline)
-        .navigationDestination(item: $selectedRoute) { route in
+        .fireNavigationDestination(item: $selectedRoute) { route in
             FireAppRouteDestinationView(viewModel: viewModel, route: route)
         }
         .refreshable {

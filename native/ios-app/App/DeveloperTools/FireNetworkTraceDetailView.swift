@@ -358,10 +358,10 @@ struct FireRequestTraceDetailView: View {
     private func timelineContent(detail: NetworkTraceDetailState) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             if detail.events.isEmpty {
-                ContentUnavailableView(
-                    "无执行链",
+                FireDiagnosticsUnavailableView(
+                    title: "无执行链",
                     systemImage: "clock.arrow.trianglehead.counterclockwise.rotate.90",
-                    description: Text("该请求没有记录执行事件。")
+                    message: "该请求没有记录执行事件。"
                 )
             } else {
                 ForEach(
@@ -456,39 +456,46 @@ struct FireRequestTraceDetailView: View {
     private func headersBlock(_ headers: [NetworkTraceHeaderState]) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             ForEach(fireIdentifiedValues(headers) { $0.fireStableBaseID }) { item in
-                (Text("\(item.value.name): ")
-                    .font(.system(.caption, design: .monospaced, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                + Text(item.value.value)
-                    .font(.system(.caption, design: .monospaced))
-                    .foregroundStyle(.primary))
-                .textSelection(.enabled)
-                .padding(.vertical, 3)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
-                .contextMenu {
-                    Button {
-                        copyToClipboard("\(item.value.name): \(item.value.value)")
-                    } label: {
-                        Label("复制 Header", systemImage: "doc.on.doc")
-                    }
-                    Button {
-                        copyToClipboard(item.value.value)
-                    } label: {
-                        Label("复制值", systemImage: "doc.on.clipboard")
-                    }
-                    Button {
-                        copyToClipboard(item.value.name)
-                    } label: {
-                        Label("复制名称", systemImage: "character.cursor.ibeam")
-                    }
-                }
+                headerRow(item.value)
             }
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color(.tertiarySystemGroupedBackground))
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+
+    private func headerRow(_ header: NetworkTraceHeaderState) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(header.name)
+                .font(.system(.caption, design: .monospaced, weight: .semibold))
+                .foregroundStyle(.secondary)
+
+            Text(header.value)
+                .font(.system(.caption, design: .monospaced))
+                .foregroundStyle(.primary)
+                .textSelection(.enabled)
+        }
+        .padding(.vertical, 3)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+        .contextMenu {
+            Button {
+                copyToClipboard("\(header.name): \(header.value)")
+            } label: {
+                Label("复制 Header", systemImage: "doc.on.doc")
+            }
+            Button {
+                copyToClipboard(header.value)
+            } label: {
+                Label("复制值", systemImage: "doc.on.clipboard")
+            }
+            Button {
+                copyToClipboard(header.name)
+            } label: {
+                Label("复制名称", systemImage: "character.cursor.ibeam")
+            }
+        }
     }
 
     private func sectionHeader(_ title: String, copyAction: (() -> Void)? = nil) -> some View {

@@ -176,7 +176,7 @@ struct FirePostFlagSheet: View {
         .onAppear {
             syncSelectedOptionID()
         }
-        .onChange(of: options) { _, _ in
+        .onChange(of: options) { _ in
             syncSelectedOptionID()
         }
     }

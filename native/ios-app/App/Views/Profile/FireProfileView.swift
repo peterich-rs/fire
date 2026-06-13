@@ -347,7 +347,7 @@ struct FireProfileView: View {
             .background(FireTheme.canvasTop)
             .navigationTitle("我的")
             .navigationBarTitleDisplayMode(.inline)
-            .navigationDestination(item: $selectedRoute) { route in
+            .fireNavigationDestination(item: $selectedRoute) { route in
                 FireAppRouteDestinationView(viewModel: viewModel, route: route)
             }
             .toolbar {

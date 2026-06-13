@@ -8,10 +8,10 @@ struct FireNetworkTracesListView: View {
     var body: some View {
         List {
             if viewModel.requestTraces.isEmpty {
-                ContentUnavailableView(
-                    "暂无请求记录",
+                FireDiagnosticsUnavailableView(
+                    title: "暂无请求记录",
                     systemImage: "network.slash",
-                    description: Text("尚未捕获到任何网络请求。")
+                    message: "尚未捕获到任何网络请求。"
                 )
             } else {
                 ForEach(viewModel.requestTraces, id: \.id) { trace in

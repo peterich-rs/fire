@@ -87,7 +87,7 @@ declare -a rust_targets=()
 case "$platform_name" in
   iphoneos)
     if [[ -z "${IPHONEOS_DEPLOYMENT_TARGET:-}" ]]; then
-      export IPHONEOS_DEPLOYMENT_TARGET="17.0"
+      export IPHONEOS_DEPLOYMENT_TARGET="16.0"
     fi
     rust_targets=("aarch64-apple-ios")
     ;;
@@ -188,9 +188,13 @@ run_target_cargo() {
   if [[ "$(uname -s)" == "Darwin" ]]; then
     local sdk_root
     local iphoneos_deployment_target
+    local ios_deployment_cfg
+    local target_rustflags
 
     sdk_root="$(xcrun --sdk macosx --show-sdk-path)"
-    iphoneos_deployment_target="${IPHONEOS_DEPLOYMENT_TARGET:-17.0}"
+    iphoneos_deployment_target="${IPHONEOS_DEPLOYMENT_TARGET:-16.0}"
+    ios_deployment_cfg="fire_ios_deployment_target_${iphoneos_deployment_target//./_}"
+    target_rustflags="${RUSTFLAGS:-} --cfg=$ios_deployment_cfg"
 
     env -i \
       HOME="$HOME" \
@@ -200,6 +204,7 @@ run_target_cargo() {
       EFFECTIVE_PLATFORM_NAME= \
       ARCHS= \
       IPHONEOS_DEPLOYMENT_TARGET="$iphoneos_deployment_target" \
+      RUSTFLAGS="$target_rustflags" \
       TVOS_DEPLOYMENT_TARGET= \
       WATCHOS_DEPLOYMENT_TARGET= \
       "$@"
@@ -219,7 +224,7 @@ dedupe_targets
   fi
   run_host_cargo "$cargo_bin" build -p fire-uniffi --bin uniffi-bindgen
   RUSTFLAGS= \
-  IPHONEOS_DEPLOYMENT_TARGET=17.0 \
+  IPHONEOS_DEPLOYMENT_TARGET=16.0 \
   "$repo_root/rust/target/debug/uniffi-bindgen" generate \
     --library "$repo_root/rust/target/$profile_dir/libfire_uniffi.dylib" \
     --language swift \

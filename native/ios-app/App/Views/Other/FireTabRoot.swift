@@ -155,7 +155,7 @@ struct FireTabRoot: View {
                 isAuthenticated: isAuthenticated
             )
         }
-        .onChange(of: scenePhase) { _, phase in
+        .onChange(of: scenePhase) { phase in
             homeFeedStore.setSceneActive(phase == .active)
             FireAPMManager.shared.setScenePhase(scenePhaseLabel(phase))
             viewModel.handleDiagnosticsScenePhaseChange(
@@ -182,19 +182,19 @@ struct FireTabRoot: View {
                 break
             }
         }
-        .onChange(of: navigationState.selectedTab) { _, _ in
+        .onChange(of: navigationState.selectedTab) { _ in
             tabSelectionFeedbackPulse += 1
         }
-        .onChange(of: navigationState.pendingRoute) { _, route in
+        .onChange(of: navigationState.pendingRoute) { route in
             selectTabForPendingRouteIfReady(route)
         }
-        .onChange(of: navigationState.selectedTab) { _, selectedTab in
+        .onChange(of: navigationState.selectedTab) { selectedTab in
             viewModel.updateTopLevelAPMRoute(
                 selectedTab: selectedTab,
                 isAuthenticated: isAuthenticated
             )
         }
-        .onChange(of: isAuthenticated) { _, authenticated in
+        .onChange(of: isAuthenticated) { authenticated in
             if !authenticated {
                 homeFeedStore.reset()
                 searchStore.reset()

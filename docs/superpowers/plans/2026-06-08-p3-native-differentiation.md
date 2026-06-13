@@ -39,7 +39,7 @@ Fully feasible. The Rust `fire-store` crate already has a SQLite migration syste
 
 3. **Shimmer uses one shared platform path.** iOS keeps the existing `FireShimmerModifier` as the single SwiftUI animation implementation and applies it through shared skeleton row components; current first-page loading screens no longer fall back to blocking spinners where row-shaped skeletons are available. On Android, a custom `ShimmerLayout` wraps existing `RecyclerView` item layouts without changing their structure.
 
-4. **Haptic feedback uses the existing `FireMotion` layer.** SwiftUI surfaces prefer declarative `sensoryFeedback` modifiers, while UIKit/Texture surfaces call a small `FireMotionHaptics` bridge at confirmed interaction points. Decorative motion remains Reduce Motion-aware through `FireMotionTokens` and `fireRespectingReduceMotion`.
+4. **Haptic feedback uses the existing `FireMotion` layer.** Remaining SwiftUI transitional surfaces use Fire's UIKit-backed haptic modifiers so the app stays iOS 16-compatible, while UIKit/Texture surfaces call the same small `FireMotionHaptics` bridge at confirmed interaction points. Decorative motion remains Reduce Motion-aware through `FireMotionTokens` and `fireRespectingReduceMotion`.
 
 5. **Material You uses `DynamicColors` from the Material component library.** Android already depends on `com.google.android.material`. Dynamic Color support is a one-time theme configuration, not a new dependency. The `FireColors.kt` resolver pattern is extended with a `dynamicColorsEnabled` check that falls back to static colors on API < 31.
 
@@ -188,7 +188,7 @@ struct FireToastView: View {
 
 - [x] **Step 1: Create `FireWidgetExtension` target**
 
-  The Xcode project and `project.yml` define a `FireWidgetExtension` app-extension target with iOS 17 deployment, App Group entitlement, and an explicit `Configs/FireWidget-Info.plist` containing the WidgetKit `NSExtension` dictionary. The app target embeds the extension in `PlugIns`.
+  The Xcode project and `project.yml` define a `FireWidgetExtension` app-extension target with iOS 16 deployment, App Group entitlement, and an explicit `Configs/FireWidget-Info.plist` containing the WidgetKit `NSExtension` dictionary. The app target embeds the extension in `PlugIns`.
 
 - [x] **Step 2: Create timeline entry/provider types**
 
@@ -568,7 +568,7 @@ Registered `FireUnreadWidgetProvider` and `FireTopicListWidgetProvider` with `AP
 
 - [x] **Step 1: Create `FireViewUnreadIntent` using AppIntents framework**
 
-  `FireViewUnreadIntent` uses `openAppWhenRun = true` and sets `FireNavigationState.shared.pendingRoute = .notifications` from `perform()`. It intentionally does not use `OpenURLIntent`, which is iOS 18-only while Fire targets iOS 17.
+  `FireViewUnreadIntent` uses `openAppWhenRun = true` and sets `FireNavigationState.shared.pendingRoute = .notifications` from `perform()`. It intentionally does not use `OpenURLIntent`, which is iOS 18-only while Fire targets iOS 16.
 
 - [x] **Step 2: Create `FireSearchTopicsIntent`**
 
@@ -677,10 +677,10 @@ Registered `FireUnreadWidgetProvider` and `FireTopicListWidgetProvider` with `AP
 ## Architectural Notes
 
 - **Rust ownership boundary:** Offline cache tables live in `fire-store` and are written/read only by `fire-core`. Platforms never touch SQLite directly — they receive cached or fresh data through the same UniFFI call path. This preserves the "Rust owns data" boundary.
-- **No new external dependencies:** Android widgets use platform `AppWidgetProvider`/`RemoteViews`; Material Dynamic Colors are part of the Material library already used. WidgetKit and AppIntents ship with iOS 17+ SDK. No third-party packages are added.
-- **Backward compatibility:** Material You falls back to static Fire colors on API < 31. Siri Shortcuts require iOS 17+ and match Fire's iOS 17 deployment target. Android widgets use the app's existing minSdk-compatible widget APIs, with newer launcher sizing hints ignored on older launchers.
+- **No new external dependencies:** Android widgets use platform `AppWidgetProvider`/`RemoteViews`; Material Dynamic Colors are part of the Material library already used. WidgetKit and AppIntents are used through APIs compatible with Fire's iOS 16 deployment target. No third-party packages are added.
+- **Backward compatibility:** Material You falls back to static Fire colors on API < 31. Siri Shortcuts remain on the iOS 16-compatible AppIntents path. Android widgets use the app's existing minSdk-compatible widget APIs, with newer launcher sizing hints ignored on older launchers.
 - **Widget memory:** iOS widget timelines are capped at 30-minute refresh intervals and read from lightweight UserDefaults data — no Rust FFI calls in the widget extension process.
-- **Motion accessibility:** Decorative motion is gated or degraded through `FireMotionTokens` / `fireRespectingReduceMotion`. Haptics use SwiftUI `sensoryFeedback` where available and the small `FireMotionHaptics` UIKit bridge for Texture cells.
+- **Motion accessibility:** Decorative motion is gated or degraded through `FireMotionTokens` / `fireRespectingReduceMotion`. Haptics use the small `FireMotionHaptics` UIKit bridge from both transitional SwiftUI surfaces and Texture/UIKit cells.
 - **Cache staleness:** Cache entries have no TTL — they are invalidated on logout and overwritten on every successful fetch. This is intentional: stale data is better than no data for offline mode, and the next successful fetch always replaces it.
 - **OLED mode scope:** OLED mode only affects dark-theme canvas/surface colors. Text, accent, and semantic colors remain unchanged to maintain contrast ratios.
 

@@ -196,7 +196,7 @@ struct FireBookmarksView: View {
         )
         .navigationTitle("我的书签")
         .navigationBarTitleDisplayMode(.inline)
-        .navigationDestination(item: $selectedRoute) { route in
+        .fireNavigationDestination(item: $selectedRoute) { route in
             FireAppRouteDestinationView(viewModel: viewModel, route: route)
                 .fireNavigationPush(
                     sourceID: route.id,
@@ -226,7 +226,7 @@ struct FireBookmarksView: View {
                 }
             )
         }
-        .onChange(of: topicActionNotice) { _, message in
+        .onChange(of: topicActionNotice) { message in
             guard let message,
                   !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 return

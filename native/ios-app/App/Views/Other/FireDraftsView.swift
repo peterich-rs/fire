@@ -209,7 +209,7 @@ struct FireDraftsView: View {
         .refreshable {
             await draftsViewModel.refresh()
         }
-        .onChange(of: composerNotice) { _, message in
+        .onChange(of: composerNotice) { message in
             guard let message,
                   !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 return

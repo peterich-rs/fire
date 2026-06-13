@@ -305,7 +305,7 @@ struct FireFilteredTopicListView: View {
         .listStyle(.plain)
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
-        .navigationDestination(item: $selectedRoute) { route in
+        .fireNavigationDestination(item: $selectedRoute) { route in
             FireAppRouteDestinationView(viewModel: viewModel, route: route)
                 .fireNavigationPush(
                     sourceID: route.id,
@@ -346,7 +346,7 @@ struct FireFilteredTopicListView: View {
                 }
             )
         }
-        .onChange(of: topicActionNotice) { _, message in
+        .onChange(of: topicActionNotice) { message in
             guard let message,
                   !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 return

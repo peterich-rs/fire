@@ -14,7 +14,7 @@ enum FireMotionTokens {
         case tap
         /// Symbol replacement / number flip / standard list-row transition.
         case standard
-        /// NavigationStack push fallback on iOS 17.
+        /// NavigationStack push fallback on iOS 16 and iOS 17.
         case navPush
     }
 

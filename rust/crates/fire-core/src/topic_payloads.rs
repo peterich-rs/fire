@@ -565,15 +565,13 @@ fn strip_boost_leading_attribution(value: &str, user: &RawTopicPostBoostUser) ->
     let Some(rest) = trimmed.strip_prefix('@') else {
         return trimmed.to_string();
     };
-    let Some(colon_index_after_at) = rest.find(|character| character == ':' || character == '：') else {
+    let Some(colon_index_after_at) = rest.find([':', '：']) else {
         return trimmed.to_string();
     };
     let username = &rest[..colon_index_after_at];
     if !username.is_empty()
         && username.len() <= 40
-        && username
-            .chars()
-            .all(|character| !character.is_whitespace())
+        && username.chars().all(|character| !character.is_whitespace())
     {
         let colon_width = rest[colon_index_after_at..]
             .chars()

@@ -189,6 +189,7 @@
     <string name="topic_detail_floor_nested_count">%1$s nested replies</string>
     <string name="topic_detail_reply_to_topic">Reply to topic</string>
     <string name="topic_detail_nested_reply_to">Reply to #%1$s</string>
+    <string name="topic_detail_load_more_replies_count">查看更多 %1$s 条回复</string>
     <string name="topic_detail_reply_context_title">Replies for #%1$s</string>
     <string name="topic_detail_reply_context_loading">Loading reply context…</string>
     <string name="topic_detail_reply_context_empty">No reply context is available.</string>

@@ -188,6 +188,7 @@ class TopicDetailActivity : AppCompatActivity() {
                 onUnvotePoll = { post, poll -> viewModel?.unvotePoll(post, poll) },
                 onReactionsClick = ::showReactionUsers,
                 onReplyContextClick = ::showReplyContext,
+                onMoreRepliesClick = { post -> viewModel?.expandReplyThread(post) },
                 onDeletePostClick = ::confirmDeletePost,
                 onRecoverPostClick = ::confirmRecoverPost,
                 onFlagPostClick = ::showFlagPostOptions,
@@ -202,7 +203,6 @@ class TopicDetailActivity : AppCompatActivity() {
                 onToggleTopicVote = { viewModel?.toggleTopicVote() },
                 onShowTopicVoters = ::showTopicVoters,
                 onEditTopicClick = ::showTopicEditor,
-                onTopicBookmarkClick = ::showTopicBookmarkEditor,
             )
             postListAdapter = PostListAdapter(postCallbacks)
 
@@ -291,8 +291,16 @@ class TopicDetailActivity : AppCompatActivity() {
                 if (error != null) {
                     errorView.visibility = View.VISIBLE
                     errorText.text = error
+                    if (vm.postRows.value.isEmpty() && vm.detail.value == null) {
+                        recyclerView.visibility = View.GONE
+                    }
                 } else {
                     errorView.visibility = View.GONE
+                    recyclerView.visibility = if (vm.isLoading.value && vm.postRows.value.isEmpty()) {
+                        View.GONE
+                    } else {
+                        View.VISIBLE
+                    }
                 }
             }
         }
@@ -620,17 +628,6 @@ class TopicDetailActivity : AppCompatActivity() {
             bookmarkName = post.bookmarkName,
             bookmarkReminderAt = post.bookmarkReminderAt,
             targetPostNumber = post.postNumber,
-        )
-    }
-
-    private fun showTopicBookmarkEditor(detail: TopicDetailState) {
-        showBookmarkEditor(
-            bookmarkableId = detail.id,
-            bookmarkableType = "Topic",
-            bookmarkId = detail.bookmarkId,
-            bookmarkName = detail.bookmarkName,
-            bookmarkReminderAt = detail.bookmarkReminderAt,
-            targetPostNumber = null,
         )
     }
 

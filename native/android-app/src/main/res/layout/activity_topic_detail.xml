@@ -47,24 +47,29 @@
             android:id="@+id/error_view"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_gravity="center"
-            android:gravity="center"
-            android:orientation="vertical"
+            android:layout_gravity="top"
+            android:layout_margin="12dp"
+            android:background="@drawable/bg_onboarding_error_banner"
+            android:elevation="6dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:padding="12dp"
             android:visibility="gone">
 
             <TextView
                 android:id="@+id/error_text"
-                android:layout_width="wrap_content"
+                android:layout_width="0dp"
                 android:layout_height="wrap_content"
+                android:layout_weight="1"
                 android:textAppearance="@style/TextAppearance.AppCompat.Body1"
-                android:textColor="@color/fire_text_secondary" />
+                android:textColor="@color/fire_error" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/retry_button"
                 style="@style/Widget.MaterialComponents.Button.TextButton"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
+                android:layout_marginStart="8dp"
                 android:text="@string/action_retry" />
         </LinearLayout>
 

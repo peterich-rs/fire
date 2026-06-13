@@ -44,6 +44,7 @@ final class FireTopicDetailFeedController: NSObject,
     var onBackgroundTap: (() -> Void)?
     var onScrollInteractionChanged: ((Bool) -> Void)?
     private var lastPublishedScrollInteractionActive = false
+    private var deferredIdleCheckGeneration: UInt64 = 0
 
     func setup() {
         collectionNode.dataSource = self
@@ -493,6 +494,7 @@ final class FireTopicDetailFeedController: NSObject,
         let capturedConfiguration = configuration
         let capturedLayoutManager = layoutManager
         let capturedCellFactory = cellFactory
+        let capturedBoostAnimationsEnabled = !isScrollInteractionActive
 
         return {
             if let postContext = capturedPostContext {
@@ -506,10 +508,13 @@ final class FireTopicDetailFeedController: NSObject,
                         isMutating: capturedConfiguration.isMutatingPost(postContext.post.id),
                         replyContext: postContext.replyContext,
                         replyTargetPostNumber: postContext.replyTargetPostNumber,
+                        replyShortcutCount: postContext.replyShortcutCount,
+                        isLoadingReplyContext: postContext.isLoadingReplyContext,
                         textExpansionState: postContext.textExpansionState,
                         isSearchHighlighted: capturedConfiguration.isSearchHighlighted(postID: postContext.post.id),
                         showsDivider: postContext.showsDivider,
                         layoutWidth: capturedLayoutWidth,
+                        boostAnimationsEnabled: capturedBoostAnimationsEnabled,
                         layout: capturedLayoutKey.flatMap { capturedLayoutManager?.cachedLayout(forKey: $0) },
                         layoutKey: capturedLayoutKey
                     ),
@@ -557,16 +562,19 @@ final class FireTopicDetailFeedController: NSObject,
     func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
         publishScrollInteractionStateIfNeeded()
         if !decelerate {
+            scheduleDeferredScrollIdleCheck()
             reevaluateVisibleState(forceLoadMoreEvaluation: true)
         }
     }
 
     func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
         publishScrollInteractionStateIfNeeded()
+        scheduleDeferredScrollIdleCheck()
         reevaluateVisibleState(forceLoadMoreEvaluation: true)
     }
 
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        deferredIdleCheckGeneration &+= 1
         publishScrollInteractionStateIfNeeded()
     }
 
@@ -594,6 +602,7 @@ final class FireTopicDetailFeedController: NSObject,
             onRecoverPost: configuration.onRecoverPost,
             onFlagPost: configuration.onFlagPost,
             onOpenReplyTarget: configuration.onOpenPostNumber,
+            onOpenReplies: configuration.onOpenPostReplies,
             onExpandText: configuration.onExpandPostText,
             onVotePoll: configuration.onVotePoll,
             onUnvotePoll: configuration.onUnvotePoll,
@@ -623,10 +632,13 @@ final class FireTopicDetailFeedController: NSObject,
                 isMutating: configuration.isMutatingPost(context.post.id),
                 replyContext: context.replyContext,
                 replyTargetPostNumber: context.replyTargetPostNumber,
+                replyShortcutCount: context.replyShortcutCount,
+                isLoadingReplyContext: context.isLoadingReplyContext,
                 textExpansionState: context.textExpansionState,
                 isSearchHighlighted: configuration.isSearchHighlighted(postID: context.post.id),
                 showsDivider: context.showsDivider,
                 layoutWidth: width,
+                boostAnimationsEnabled: !isScrollInteractionActive,
                 layout: layoutManager?.cachedLayout(forKey: layoutKey),
                 layoutKey: layoutKey
             ),
@@ -671,6 +683,7 @@ final class FireTopicDetailFeedController: NSObject,
             pollSignature: pollSignature,
             boostSignature: boostSignature,
             hasReactions: !context.post.reactions.isEmpty,
+            replyShortcutCount: context.replyShortcutCount,
             textExpansionState: context.textExpansionState,
             acceptedAnswer: context.post.acceptedAnswer,
             hasAuthorMetadata: FirePostAuthorMetadataDisplay.hasVisibleMetadata(context.post),
@@ -790,6 +803,7 @@ final class FireTopicDetailFeedController: NSObject,
                 pendingScrollTarget: configuration.pendingScrollTarget
             )
         }
+        updateVisibleBoostAnimationState()
     }
 
     private func reloadDataCompletingOnNextRunLoop(completion: @escaping () -> Void) {
@@ -811,6 +825,30 @@ final class FireTopicDetailFeedController: NSObject,
         guard lastPublishedScrollInteractionActive != isActive else { return }
         lastPublishedScrollInteractionActive = isActive
         onScrollInteractionChanged?(isActive)
+        updateVisibleBoostAnimationState()
+    }
+
+    private func scheduleDeferredScrollIdleCheck() {
+        deferredIdleCheckGeneration &+= 1
+        let generation = deferredIdleCheckGeneration
+        DispatchQueue.main.async { [weak self] in
+            guard let self,
+                  self.deferredIdleCheckGeneration == generation else {
+                return
+            }
+            self.publishScrollInteractionStateIfNeeded()
+            self.updateVisibleBoostAnimationState()
+        }
+    }
+
+    private func updateVisibleBoostAnimationState() {
+        let enabled = !isScrollInteractionActive
+        for indexPath in visibleIndexPaths {
+            guard let node = collectionNode.nodeForItem(at: indexPath) as? FirePostCellNode else {
+                continue
+            }
+            node.setBoostAnimationsEnabled(enabled)
+        }
     }
 
     @objc

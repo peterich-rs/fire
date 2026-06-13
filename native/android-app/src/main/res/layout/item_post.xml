@@ -161,54 +161,77 @@
             android:orientation="horizontal">
 
         <TextView
-            android:id="@+id/action_like"
+            android:id="@+id/action_more_replies"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:drawablePadding="4dp"
             android:gravity="center_vertical"
             android:textAppearance="@style/TextAppearance.AppCompat.Caption"
+            android:textColor="@color/fire_accent"
+            android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/action_like"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:drawablePadding="4dp"
+            android:gravity="center"
+            android:includeFontPadding="false"
+            android:padding="8dp"
+            android:textAppearance="@style/TextAppearance.AppCompat.Caption"
             android:textColor="@color/fire_text_secondary" />
 
         <TextView
             android:id="@+id/action_react"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
             android:layout_marginStart="16dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
             android:drawablePadding="4dp"
-            android:gravity="center_vertical"
-            android:text="@string/topic_detail_react_post"
+            android:gravity="center"
+            android:includeFontPadding="false"
+            android:padding="8dp"
             android:textAppearance="@style/TextAppearance.AppCompat.Caption"
             android:textColor="@color/fire_text_secondary"
             android:visibility="gone" />
 
         <TextView
             android:id="@+id/action_reply"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
             android:layout_marginStart="16dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
             android:drawablePadding="4dp"
-            android:gravity="center_vertical"
+            android:gravity="center"
+            android:includeFontPadding="false"
+            android:padding="8dp"
             android:textAppearance="@style/TextAppearance.AppCompat.Caption"
             android:textColor="@color/fire_text_secondary" />
 
         <TextView
             android:id="@+id/action_quote"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
             android:layout_marginStart="16dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
             android:drawablePadding="4dp"
-            android:gravity="center_vertical"
-            android:text="@string/topic_detail_quote_post"
+            android:gravity="center"
+            android:includeFontPadding="false"
+            android:padding="8dp"
             android:textAppearance="@style/TextAppearance.AppCompat.Caption"
             android:textColor="@color/fire_text_secondary" />
 
         <TextView
             android:id="@+id/action_bookmark"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
             android:layout_marginStart="16dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
             android:drawablePadding="4dp"
-            android:gravity="center_vertical"
+            android:gravity="center"
+            android:includeFontPadding="false"
+            android:padding="8dp"
             android:textAppearance="@style/TextAppearance.AppCompat.Caption"
             android:textColor="@color/fire_text_secondary" />
 
@@ -225,35 +248,42 @@
 
         <TextView
             android:id="@+id/action_edit"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
             android:layout_marginStart="16dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
             android:drawablePadding="4dp"
-            android:gravity="center_vertical"
-            android:text="@string/topic_detail_edit_post"
+            android:gravity="center"
+            android:includeFontPadding="false"
+            android:padding="8dp"
             android:textAppearance="@style/TextAppearance.AppCompat.Caption"
             android:textColor="@color/fire_text_secondary"
             android:visibility="gone" />
 
         <TextView
             android:id="@+id/action_delete_recover"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
             android:layout_marginStart="16dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
             android:drawablePadding="4dp"
-            android:gravity="center_vertical"
+            android:gravity="center"
+            android:includeFontPadding="false"
+            android:padding="8dp"
             android:textAppearance="@style/TextAppearance.AppCompat.Caption"
             android:textColor="@color/fire_text_secondary"
             android:visibility="gone" />
 
         <TextView
             android:id="@+id/action_flag"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
             android:layout_marginStart="16dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
             android:drawablePadding="4dp"
-            android:gravity="center_vertical"
-            android:text="@string/topic_detail_flag_post"
+            android:gravity="center"
+            android:includeFontPadding="false"
+            android:padding="8dp"
             android:textAppearance="@style/TextAppearance.AppCompat.Caption"
             android:textColor="@color/fire_text_secondary"
             android:visibility="gone" />

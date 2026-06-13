@@ -36,6 +36,7 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
     private let imageContainerNode = ASDisplayNode()
     private let pollContainerNode = ASDisplayNode()
     private let boostContainerNode = ASDisplayNode()
+    private let replyShortcutNode = ASButtonNode()
     private lazy var boostBarrageNode: ASDisplayNode = {
         let node = ASDisplayNode(viewBlock: {
             FirePostBoostBarrageView()
@@ -224,30 +225,34 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
         boostContainerNode.automaticallyManagesSubnodes = true
         boostContainerNode.layoutSpecBlock = { [weak self] _, _ in
             guard let self, !self.boostManualScrollerNode.isHidden else { return ASLayoutSpec() }
-            let scrollerSize = CGSize(
-                width: max(
-                    Self.availableContentWidth(
-                        totalWidth: self.currentLayoutWidth,
-                        depth: self.currentDepth,
-                        avatarSize: self.currentAvatarSize,
-                        avatarSpacing: self.currentAvatarSpacing
-                    ),
-                    1
+            let availableWidth = max(
+                Self.availableContentWidth(
+                    totalWidth: self.currentLayoutWidth,
+                    depth: self.currentDepth,
+                    avatarSize: self.currentAvatarSize,
+                    avatarSpacing: self.currentAvatarSpacing
                 ),
-                height: FirePostCellLayoutCalculator.fixedBoostManualHeight
+                1
+            )
+            let scrollerSize = CGSize(
+                width: availableWidth,
+                height: self.fixedBoostManualScrollerHeight(availableWidth: availableWidth)
             )
             self.boostManualScrollerNode.style.preferredSize = scrollerSize
             self.boostManualScrollerNode.style.minHeight = ASDimensionMake(scrollerSize.height)
             self.boostManualScrollerNode.style.maxHeight = ASDimensionMake(scrollerSize.height)
             return ASWrapperLayoutSpec(layoutElement: self.boostManualScrollerNode)
         }
-        boostContainerNode.style.minHeight = ASDimensionMake(FirePostCellLayoutCalculator.fixedBoostManualHeight)
-        boostContainerNode.style.maxHeight = ASDimensionMake(FirePostCellLayoutCalculator.fixedBoostManualHeight)
         boostContainerNode.isUserInteractionEnabled = true
         boostManualScrollerNode.isHidden = true
         boostManualScrollerNode.isUserInteractionEnabled = true
         boostBarrageNode.isHidden = true
         boostBarrageNode.isUserInteractionEnabled = false
+
+        // Reply shortcut
+        replyShortcutNode.isHidden = true
+        replyShortcutNode.addTarget(self, action: #selector(handleReplyShortcutTap), forControlEvents: .touchUpInside)
+        replyShortcutNode.accessibilityLabel = "查看更多回复"
 
         // Reactions
         reactionContainerNode.isHidden = true
@@ -293,6 +298,7 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
         configurePolls(payload: payload)
         boostAnimationsEnabled = payload.boostAnimationsEnabled
         configureBoosts(payload: payload)
+        configureReplyShortcut(payload: payload)
         configureReactions(payload: payload)
         configureSearchHighlight(payload.isSearchHighlighted)
         configureDivider(shows: showsDivider)
@@ -766,6 +772,23 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
         view.configure(boosts: boosts)
     }
 
+    private func fixedBoostManualScrollerHeight(availableWidth: CGFloat) -> CGFloat {
+        guard let payload = currentPayload else {
+            return FirePostCellLayoutCalculator.fixedBoostManualHeight(forUsedRowCount: 1)
+        }
+        let boostLines = FirePostBoostDisplay.fixedDisplayLines(
+            for: boostManualBoosts,
+            depth: currentDepth,
+            textExpansionState: payload.textExpansionState,
+            hasBodyTextTarget: payload.renderContent.hasBoostBarrageTextTarget
+        )
+        return FirePostCellLayoutCalculator.fixedBoostManualHeight(
+            boostLines: boostLines,
+            containerWidth: availableWidth,
+            contentSizeCategory: currentContentSizeCategory
+        )
+    }
+
     private func configureBoostBarrage(boosts: [TopicPostBoostState], batchSignature: String) {
         boostBarrageBoosts = boosts
         boostBarrageLines = boosts.map(FirePostBoostDisplay.displayLine(for:))
@@ -775,6 +798,26 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
             return
         }
         view.configure(boosts: boosts, batchSignature: batchSignature, animationsEnabled: boostAnimationsEnabled)
+    }
+
+    private func configureReplyShortcut(payload: FirePostCellRenderPayload) {
+        guard let count = payload.replyShortcutCount else {
+            replyShortcutNode.isHidden = true
+            return
+        }
+        replyShortcutNode.isHidden = false
+        replyShortcutNode.isEnabled = !payload.isLoadingReplyContext
+        let title = payload.isLoadingReplyContext
+            ? "正在加载回复..."
+            : (count > 0 ? "查看更多 \(count) 条回复" : "查看更多回复")
+        replyShortcutNode.setAttributedTitle(NSAttributedString(
+            string: title,
+            attributes: [
+                .font: UIFont.preferredFont(forTextStyle: .caption1),
+                .foregroundColor: Self.accentTextColor,
+            ]
+        ), for: .normal)
+        replyShortcutNode.accessibilityLabel = title
     }
 
     func setBoostAnimationsEnabled(_ enabled: Bool) {
@@ -912,14 +955,16 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
         let indent = CGFloat(min(vd, FirePostCellLayoutCalculator.maxVisualDepth)) * FirePostCellLayoutCalculator.indentWidthPerDepth
         let avatarSz = currentAvatarSize
         let avatarSp = currentAvatarSpacing
-        let outerPadding: CGFloat = 16
+        let outerPadding = FirePostCellLayoutCalculator.outerHorizontalPadding
         let totalWidth = constrainedSize.max.width.isFinite ? constrainedSize.max.width : currentLayoutWidth
-        let contentAvailableWidth = Self.availableContentWidth(
+        let rowAvailableWidth = max(totalWidth - outerPadding * 2 - indent, 1)
+        let bodyAvailableWidth = Self.availableContentWidth(
             totalWidth: totalWidth,
             depth: currentDepth,
             avatarSize: currentAvatarSize,
             avatarSpacing: currentAvatarSpacing
         )
+        let headerAvailableWidth = max(rowAvailableWidth - avatarSz - avatarSp, 1)
         let shouldSuppressAttachments: Bool
         if let currentResolvedLayout {
             shouldSuppressAttachments = currentResolvedLayout.textExpansionFrame != nil
@@ -939,15 +984,16 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
         }
 
         // Avatar column
-        let avatarSizeStyle = ASStackLayoutSpec(
+        let avatarColumn = ASStackLayoutSpec(
             direction: .vertical,
             spacing: 0,
             justifyContent: .start,
             alignItems: .center,
             children: [avatarContainerNode, threadLineNode].filter { !$0.isHidden }
         )
-        avatarSizeStyle.style.minWidth = ASDimensionMake(avatarSz)
-        avatarSizeStyle.style.maxWidth = ASDimensionMake(avatarSz)
+        avatarColumn.style.minWidth = ASDimensionMake(avatarSz)
+        avatarColumn.style.maxWidth = ASDimensionMake(avatarSz)
+        avatarColumn.style.flexShrink = 0.0
 
         // Meta row
         var authorChildren: [ASLayoutElement] = [usernameNode]
@@ -984,8 +1030,8 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
         )
         metaRow.style.flexShrink = 1.0
 
-        // Content column
-        var contentChildren: [ASLayoutElement] = [metaRow]
+        // Header stays to the right of the avatar; body content uses the full row width below it.
+        var headerChildren: [ASLayoutElement] = [metaRow]
         var didAttachBoostBarrage = false
         var secondaryChildren: [ASLayoutElement] = []
         if !replyContextNode.isHidden {
@@ -1007,7 +1053,7 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
                 children: secondaryChildren
             )
             secondaryRow.style.flexShrink = 1.0
-            contentChildren.append(secondaryRow)
+            headerChildren.append(secondaryRow)
         } else {
             let secondarySpacer = ASLayoutSpec()
             secondarySpacer.style.flexGrow = 1.0
@@ -1018,28 +1064,38 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
                 alignItems: .center,
                 children: [secondarySpacer, postNumberNode]
             )
-            contentChildren.append(postNumberRow)
+            headerChildren.append(postNumberRow)
         }
 
+        let headerContentStack = ASStackLayoutSpec(
+            direction: .vertical,
+            spacing: 5,
+            justifyContent: .start,
+            alignItems: .stretch,
+            children: headerChildren
+        )
+        headerContentStack.style.flexGrow = 1.0
+        headerContentStack.style.flexShrink = 1.0
+        headerContentStack.style.minWidth = ASDimensionMake(headerAvailableWidth)
+        headerContentStack.style.maxWidth = ASDimensionMake(headerAvailableWidth)
+
+        var bodyChildren: [ASLayoutElement] = []
+
         if !bodyTextNode.isHidden {
-            contentChildren.append(bodyElement(bodyTextNode, didAttachBoostBarrage: &didAttachBoostBarrage))
+            bodyChildren.append(bodyElement(bodyTextNode, didAttachBoostBarrage: &didAttachBoostBarrage))
         }
         if !bodySelectableTextNode.isHidden {
-            contentChildren.append(bodyElement(bodySelectableTextNode, didAttachBoostBarrage: &didAttachBoostBarrage))
+            bodyChildren.append(bodyElement(bodySelectableTextNode, didAttachBoostBarrage: &didAttachBoostBarrage))
         }
 
         if !shouldSuppressAttachments {
             for segmentNode in contentSegmentNodes {
-                contentChildren.append(bodyElement(segmentNode, didAttachBoostBarrage: &didAttachBoostBarrage))
+                bodyChildren.append(bodyElement(segmentNode, didAttachBoostBarrage: &didAttachBoostBarrage))
             }
 
             // Poll container
             if !pollContainerNode.isHidden {
-                contentChildren.append(pollContainerNode)
-            }
-
-            if !boostContainerNode.isHidden {
-                contentChildren.append(boostContainerNode)
+                bodyChildren.append(pollContainerNode)
             }
         }
 
@@ -1064,14 +1120,26 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
         }
 
         var actionRowChildren: [ASLayoutElement] = []
+        if !replyShortcutNode.isHidden {
+            replyShortcutNode.style.flexGrow = 0
+            replyShortcutNode.style.flexShrink = 1.0
+            actionRowChildren.append(replyShortcutNode)
+        }
         if let reactionRow {
+            if !actionRowChildren.isEmpty {
+                let actionSpacer = ASLayoutSpec()
+                actionSpacer.style.flexGrow = 1.0
+                actionRowChildren.append(actionSpacer)
+            }
             actionRowChildren.append(reactionRow)
         }
+        let actionElement: ASLayoutElement?
         if FirePostReactionDisplayPolicy.allowsWrapping(depth: currentDepth),
+           replyShortcutNode.isHidden,
            let reactionRow {
-            reactionRow.style.minWidth = ASDimensionMake(max(contentAvailableWidth, 1))
-            reactionRow.style.maxWidth = ASDimensionMake(max(contentAvailableWidth, 1))
-            contentChildren.append(reactionRow)
+            reactionRow.style.minWidth = ASDimensionMake(max(bodyAvailableWidth, 1))
+            reactionRow.style.maxWidth = ASDimensionMake(max(bodyAvailableWidth, 1))
+            actionElement = reactionRow
         } else if !actionRowChildren.isEmpty {
             let actionRow = ASStackLayoutSpec(
                 direction: .horizontal,
@@ -1081,36 +1149,90 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
                 children: actionRowChildren
             )
             actionRow.style.flexShrink = 1.0
-            actionRow.style.minHeight = ASDimensionMake(FirePostCellLayoutCalculator.actionRowHeight)
-            contentChildren.append(actionRow)
+            let minHeight = replyShortcutNode.isHidden
+                ? FirePostCellLayoutCalculator.actionRowHeight
+                : FirePostCellLayoutCalculator.replyShortcutHeight
+            actionRow.style.minHeight = ASDimensionMake(minHeight)
+            actionElement = actionRow
+        } else {
+            actionElement = nil
+        }
+
+        let boostElement: ASLayoutElement? = !shouldSuppressAttachments && !boostContainerNode.isHidden
+            ? boostContainerNode
+            : nil
+        if let boostElement, let actionElement {
+            let footerStack = ASStackLayoutSpec(
+                direction: .vertical,
+                spacing: 0,
+                justifyContent: .start,
+                alignItems: .stretch,
+                children: [boostElement, actionElement]
+            )
+            footerStack.style.flexShrink = 1.0
+            bodyChildren.append(footerStack)
+        } else if let boostElement {
+            bodyChildren.append(boostElement)
+        } else if let actionElement {
+            bodyChildren.append(actionElement)
         }
 
         // Divider
         if !dividerNode.isHidden {
-            dividerNode.style.preferredSize = CGSize(width: max(contentAvailableWidth, 1), height: 0.5)
-            contentChildren.append(dividerNode)
+            dividerNode.style.preferredSize = CGSize(width: max(bodyAvailableWidth, 1), height: 0.5)
+            bodyChildren.append(dividerNode)
         }
 
-        let contentStack = ASStackLayoutSpec(
-            direction: .vertical,
-            spacing: 5,
-            justifyContent: .start,
-            alignItems: .stretch,
-            children: contentChildren
-        )
-        contentStack.style.flexGrow = 1.0
-        contentStack.style.flexShrink = 1.0
-        contentStack.style.minWidth = ASDimensionMake(max(contentAvailableWidth, 1))
-        contentStack.style.maxWidth = ASDimensionMake(max(contentAvailableWidth, 1))
+        let rootStack: ASLayoutSpec
+        if FirePostCellLayoutCalculator.usesFullWidthBody(for: currentDepth) {
+            let headerRow = ASStackLayoutSpec(
+                direction: .horizontal,
+                spacing: avatarSp,
+                justifyContent: .start,
+                alignItems: .start,
+                children: [avatarColumn, headerContentStack]
+            )
+            headerRow.style.flexShrink = 1.0
 
-        // Root
-        let rootStack = ASStackLayoutSpec(
-            direction: .horizontal,
-            spacing: avatarSp,
-            justifyContent: .start,
-            alignItems: .stretch,
-            children: [avatarSizeStyle, contentStack]
-        )
+            let contentChildren: [ASLayoutElement] = [headerRow] + bodyChildren
+            let contentStack = ASStackLayoutSpec(
+                direction: .vertical,
+                spacing: 5,
+                justifyContent: .start,
+                alignItems: .stretch,
+                children: contentChildren
+            )
+            contentStack.style.flexGrow = 1.0
+            contentStack.style.flexShrink = 1.0
+            contentStack.style.minWidth = ASDimensionMake(max(rowAvailableWidth, 1))
+            contentStack.style.maxWidth = ASDimensionMake(max(rowAvailableWidth, 1))
+            rootStack = contentStack
+        } else {
+            let contentColumnChildren: [ASLayoutElement] = [headerContentStack] + bodyChildren
+            let contentColumn = ASStackLayoutSpec(
+                direction: .vertical,
+                spacing: 5,
+                justifyContent: .start,
+                alignItems: .stretch,
+                children: contentColumnChildren
+            )
+            contentColumn.style.flexGrow = 1.0
+            contentColumn.style.flexShrink = 1.0
+            contentColumn.style.minWidth = ASDimensionMake(max(bodyAvailableWidth, 1))
+            contentColumn.style.maxWidth = ASDimensionMake(max(bodyAvailableWidth, 1))
+
+            let row = ASStackLayoutSpec(
+                direction: .horizontal,
+                spacing: avatarSp,
+                justifyContent: .start,
+                alignItems: .stretch,
+                children: [avatarColumn, contentColumn]
+            )
+            row.style.flexShrink = 1.0
+            row.style.minWidth = ASDimensionMake(max(rowAvailableWidth, 1))
+            row.style.maxWidth = ASDimensionMake(max(rowAvailableWidth, 1))
+            rootStack = row
+        }
 
         return ASInsetLayoutSpec(
             insets: UIEdgeInsets(
@@ -1127,11 +1249,12 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
         super.layout()
 
         // Size poll views after layout
-        let availableWidth = calculatedSize.width
-            - FirePostCellLayoutCalculator.outerHorizontalPadding * 2
-            - CGFloat(min(FirePostCellLayoutCalculator.visualDepth(for: currentDepth), FirePostCellLayoutCalculator.maxVisualDepth)) * FirePostCellLayoutCalculator.indentWidthPerDepth
-            - currentAvatarSize
-            - currentAvatarSpacing
+        let availableWidth = Self.availableContentWidth(
+            totalWidth: calculatedSize.width,
+            depth: currentDepth,
+            avatarSize: currentAvatarSize,
+            avatarSpacing: currentAvatarSpacing
+        )
 
         var pollY: CGFloat = 0
         for (index, pollView) in pollViews.enumerated() {
@@ -1156,6 +1279,15 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
             return
         }
         callbacks.onOpenReplyTarget(postNumber)
+    }
+
+    @objc private func handleReplyShortcutTap() {
+        guard let payload = currentPayload,
+              !payload.isLoadingReplyContext,
+              let callbacks = currentCallbacks else {
+            return
+        }
+        callbacks.onOpenReplies(payload.post)
     }
 
     @objc private func handleImageTap(_ sender: FirePostImageNode) {
@@ -1466,8 +1598,7 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
             totalWidth
                 - FirePostCellLayoutCalculator.outerHorizontalPadding * 2
                 - indent
-                - avatarSize
-                - avatarSpacing,
+                - FirePostCellLayoutCalculator.bodyLeadingOffset(for: depth),
             1
         )
     }
@@ -1482,6 +1613,7 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
             let visibleFrames = [
                 layout.metaFrame,
                 layout.textFrame,
+                layout.replyShortcutFrame,
                 layout.reactionsFrame,
             ].compactMap { $0 } + layout.imageFrames + layout.pollFrames + layout.boostFrames
             let union = visibleFrames.reduce(CGRect.null) { partial, frame in
@@ -1495,8 +1627,7 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
         let indent = FirePostCellLayoutCalculator.indentWidth(for: currentDepth)
         let leading = FirePostCellLayoutCalculator.outerHorizontalPadding
             + indent
-            + currentAvatarSize
-            + currentAvatarSpacing
+            + FirePostCellLayoutCalculator.bodyLeadingOffset(for: currentDepth)
         return CGRect(
             x: leading,
             y: 0,
@@ -1789,7 +1920,7 @@ private final class FirePostImageNode: ASControlNode {
 
         imageNode.contentMode = .scaleAspectFit
         imageNode.clipsToBounds = true
-        imageNode.cornerRadius = 16
+        imageNode.cornerRadius = 4
         imageNode.borderColor = UIColor.separator.cgColor
         imageNode.borderWidth = 0.5
         imageNode.backgroundColor = .tertiarySystemFill
@@ -2278,18 +2409,143 @@ private final class FirePostBoostChipView: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        textView.frame = bounds.insetBy(dx: horizontalInset, dy: 0)
+        let contentBounds = bounds.insetBy(dx: horizontalInset, dy: 0)
+        let measuredHeight = measuredSingleLineTextSize(maxWidth: max(contentBounds.width, 1)).height
+        let verticalInset = max((bounds.height - measuredHeight) / 2, 0)
+        if abs(textView.textContainerInset.top - verticalInset) > 0.5
+            || abs(textView.textContainerInset.bottom - verticalInset) > 0.5 {
+            textView.textContainerInset = UIEdgeInsets(
+                top: verticalInset,
+                left: 0,
+                bottom: verticalInset,
+                right: 0
+            )
+        }
+        textView.frame = contentBounds
     }
 
     override func sizeThatFits(_ size: CGSize) -> CGSize {
-        let textSize = textView.sizeThatFits(CGSize(
-            width: max(size.width - horizontalInset * 2, 1),
-            height: size.height
-        ))
+        let textSize = FirePostBoostManualLayout.measuredSingleLineTextSize(
+            attributedText: textView.attributedText,
+            maxWidth: max(size.width - horizontalInset * 2, 1)
+        )
         return CGSize(
             width: min(textSize.width + horizontalInset * 2, size.width),
             height: size.height
         )
+    }
+
+    private func measuredSingleLineTextSize(maxWidth: CGFloat) -> CGSize {
+        FirePostBoostManualLayout.measuredSingleLineTextSize(
+            attributedText: textView.attributedText,
+            maxWidth: maxWidth
+        )
+    }
+}
+
+struct FirePostBoostManualPlacement: Equatable {
+    let rowIndex: Int
+    let x: CGFloat
+}
+
+struct FirePostBoostManualLayoutResult: Equatable {
+    let placements: [FirePostBoostManualPlacement]
+    let contentWidth: CGFloat
+    let usedRowCount: Int
+}
+
+enum FirePostBoostManualLayout {
+    static let chipSpacing: CGFloat = 8
+
+    static func placements(
+        forChipWidths chipWidths: [CGFloat],
+        pageWidth: CGFloat,
+        laneCount: Int = 2,
+        chipSpacing: CGFloat = chipSpacing
+    ) -> FirePostBoostManualLayoutResult {
+        let resolvedPageWidth = max(pageWidth, 1)
+        let resolvedLaneCount = max(laneCount, 1)
+        var pageStartX: CGFloat = 0
+        var cursorXByRow = Array(repeating: CGFloat(0), count: resolvedLaneCount)
+        var currentRowIndex = 0
+        var placements: [FirePostBoostManualPlacement] = []
+        placements.reserveCapacity(chipWidths.count)
+
+        for rawChipWidth in chipWidths {
+            let chipWidth = min(max(rawChipWidth, 1), resolvedPageWidth)
+            var x = nextX(cursorX: cursorXByRow[currentRowIndex], chipSpacing: chipSpacing)
+            if x + chipWidth > resolvedPageWidth {
+                if currentRowIndex + 1 < resolvedLaneCount {
+                    currentRowIndex += 1
+                    x = 0
+                } else {
+                    pageStartX += max(cursorXByRow.max() ?? 0, resolvedPageWidth) + chipSpacing
+                    cursorXByRow = Array(repeating: CGFloat(0), count: resolvedLaneCount)
+                    currentRowIndex = 0
+                    x = 0
+                }
+            }
+            placements.append(FirePostBoostManualPlacement(rowIndex: currentRowIndex, x: pageStartX + x))
+            cursorXByRow[currentRowIndex] = x + chipWidth
+        }
+
+        let contentWidth = max(pageStartX + (cursorXByRow.max() ?? 0), resolvedPageWidth)
+        let usedRowCount = placements.reduce(0) { partialResult, placement in
+            max(partialResult, placement.rowIndex + 1)
+        }
+        return FirePostBoostManualLayoutResult(
+            placements: placements,
+            contentWidth: contentWidth,
+            usedRowCount: usedRowCount
+        )
+    }
+
+    static func chipWidth(
+        for attributedText: NSAttributedString?,
+        maxWidth: CGFloat,
+        horizontalInset: CGFloat,
+        minWidth: CGFloat
+    ) -> CGFloat {
+        let textSize = measuredSingleLineTextSize(
+            attributedText: attributedText,
+            maxWidth: max(maxWidth - horizontalInset * 2, 1)
+        )
+        return min(max(textSize.width + horizontalInset * 2, minWidth), max(maxWidth, 1))
+    }
+
+    static func measuredSingleLineTextSize(
+        attributedText: NSAttributedString?,
+        maxWidth: CGFloat
+    ) -> CGSize {
+        guard let attributedText,
+              attributedText.length > 0 else {
+            return .zero
+        }
+        let textStorage = NSTextStorage(attributedString: attributedText)
+        let layoutManager = NSLayoutManager()
+        let textContainer = NSTextContainer(size: CGSize(
+            width: max(maxWidth, 1),
+            height: .greatestFiniteMagnitude
+        ))
+        textContainer.lineFragmentPadding = 0
+        textContainer.maximumNumberOfLines = 1
+        textContainer.lineBreakMode = .byTruncatingTail
+        layoutManager.addTextContainer(textContainer)
+        textStorage.addLayoutManager(layoutManager)
+        layoutManager.ensureLayout(for: textContainer)
+        let glyphRange = layoutManager.glyphRange(for: textContainer)
+        guard glyphRange.length > 0 else {
+            return .zero
+        }
+        let usedRect = layoutManager.usedRect(for: textContainer)
+        return CGSize(
+            width: min(ceil(usedRect.width), max(maxWidth, 1)),
+            height: ceil(usedRect.height)
+        )
+    }
+
+    private static func nextX(cursorX: CGFloat, chipSpacing: CGFloat) -> CGFloat {
+        cursorX <= 0 ? 0 : cursorX + chipSpacing
     }
 }
 
@@ -2382,23 +2638,36 @@ private final class FirePostBoostManualScrollerView: UIView {
         let rowSpacing = FirePostCellLayoutCalculator.fixedBoostManualRowSpacing
         scrollView.frame = bounds
         let maxChipWidth = max(bounds.width * 0.72, 1)
-        var cursorXByRow = Array(repeating: CGFloat(0), count: Self.laneCount)
-        for (index, chip) in chips.enumerated() {
-            let rowIndex = index % Self.laneCount
+        let chipWidths = chips.map { chip in
             let measured = chip.sizeThatFits(CGSize(width: maxChipWidth, height: Self.chipHeight))
-            let chipWidth = min(max(measured.width, 48), maxChipWidth)
+            return min(max(measured.width, 48), maxChipWidth)
+        }
+        let manualLayout = FirePostBoostManualLayout.placements(
+            forChipWidths: chipWidths,
+            pageWidth: bounds.width,
+            laneCount: Self.laneCount
+        )
+
+        for (index, chip) in chips.enumerated() {
+            guard index < manualLayout.placements.count else {
+                continue
+            }
+            let placement = manualLayout.placements[index]
+            let rowIndex = min(max(placement.rowIndex, 0), rowViews.count - 1)
+            if chip.superview !== rowViews[rowIndex] {
+                rowViews[rowIndex].addSubview(chip)
+            }
             chip.frame = CGRect(
-                x: cursorXByRow[rowIndex],
+                x: placement.x,
                 y: max((rowHeight - Self.chipHeight) / 2, 0),
-                width: chipWidth,
+                width: chipWidths[index],
                 height: Self.chipHeight
             )
             chip.alpha = 1
             chip.transform = .identity
-            cursorXByRow[rowIndex] += chipWidth + 8
         }
 
-        let contentWidth = max((cursorXByRow.max() ?? 0) - 8, bounds.width)
+        let contentWidth = manualLayout.contentWidth
         contentView.frame = CGRect(x: 0, y: 0, width: contentWidth, height: bounds.height)
         scrollView.contentSize = CGSize(width: contentWidth, height: bounds.height)
         for (rowIndex, row) in rowViews.enumerated() {

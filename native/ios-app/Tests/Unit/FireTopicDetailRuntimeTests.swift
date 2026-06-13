@@ -46,7 +46,8 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
         let configuration = makeConfiguration(
             detail: detail,
             renderState: renderState,
-            postLookup: [original.id: original, firstReply.id: firstReply, secondReply.id: secondReply]
+            postLookup: [original.id: original, firstReply.id: firstReply, secondReply.id: secondReply],
+            expandedReplyRootPostIDs: [firstReply.id]
         )
 
         let snapshot = configuration.makeSnapshot()
@@ -177,7 +178,7 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
         XCTAssertEqual(nestedItem.flatMap(configuration.postContext(for:))?.showsThreadLine, false)
     }
 
-    func testSnapshotShowsLoadedReplyTreeByDefault() {
+    func testSnapshotHidesSecondaryRepliesBehindRootShortcutByDefault() {
         let original = makePost(id: 100, postNumber: 1, username: "alice")
         let rootReply = makePost(
             id: 200,
@@ -224,13 +225,13 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
         let snapshot = configuration.makeSnapshot()
         let replyItems = snapshot.items.filter { $0.kind == .reply }
 
-        XCTAssertEqual(replyItems.map(\.postNumber), [2, 3, 4, 5, 6])
-        XCTAssertEqual(configuration.scrollItem(for: 3)?.id, "reply:300:3")
+        XCTAssertEqual(replyItems.map(\.postNumber), [2])
+        XCTAssertNil(configuration.scrollItem(for: 3))
         XCTAssertEqual(configuration.postContext(for: replyItems[0])?.depth, 1)
-        XCTAssertEqual(configuration.postContext(for: replyItems[1])?.depth, 2)
+        XCTAssertEqual(configuration.postContext(for: replyItems[0])?.replyShortcutCount, 5)
     }
 
-    func testSnapshotShowsAllLoadedRepliesWithoutRootShortcut() {
+    func testExpandedReplyThreadShowsAllLoadedSecondaryReplies() {
         let original = makePost(id: 100, postNumber: 1, username: "alice")
         let rootReply = makePost(
             id: 200,
@@ -256,7 +257,8 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
         let configuration = makeConfiguration(
             detail: makeTopicDetail(posts: posts),
             renderState: renderState,
-            postLookup: Dictionary(uniqueKeysWithValues: posts.map { ($0.id, $0) })
+            postLookup: Dictionary(uniqueKeysWithValues: posts.map { ($0.id, $0) }),
+            expandedReplyRootPostIDs: [rootReply.id]
         )
 
         let snapshot = configuration.makeSnapshot()
@@ -266,6 +268,7 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
         XCTAssertEqual(configuration.postContext(for: replyItems[0])?.depth, 1)
         XCTAssertEqual(configuration.postContext(for: replyItems[1])?.depth, 2)
         XCTAssertEqual(configuration.postContext(for: replyItems[2])?.depth, 3)
+        XCTAssertNil(configuration.postContext(for: replyItems[0])?.replyShortcutCount)
         XCTAssertEqual(configuration.postContext(for: replyItems[0])?.showsThreadLine, true)
         XCTAssertEqual(configuration.postContext(for: replyItems[1])?.showsThreadLine, true)
         XCTAssertEqual(configuration.postContext(for: replyItems[2])?.showsThreadLine, false)
@@ -301,7 +304,7 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
         XCTAssertEqual(configuration.postContext(for: replyItems[2])?.depth, 3)
     }
 
-    func testLoadedSecondaryRepliesStayVisibleWithoutExpansionState() {
+    func testLoadedSecondaryRepliesStayHiddenWithoutExpansionState() {
         let original = makePost(id: 100, postNumber: 1, username: "alice")
         let rootReply = makePost(id: 200, postNumber: 2, username: "bob", replyCount: 4, replyToPostNumber: 1)
         let secondaryReplies = [
@@ -330,7 +333,8 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
 
         let replyItems = configuration.makeSnapshot().items.filter { $0.kind == .reply }
 
-        XCTAssertEqual(replyItems.map(\.postNumber), [2, 3, 4, 5, 6])
+        XCTAssertEqual(replyItems.map(\.postNumber), [2])
+        XCTAssertEqual(configuration.postContext(for: replyItems[0])?.replyShortcutCount, 4)
     }
 
     func testSnapshotShowsLoadMoreFooterForNonEmptyRepliesWhenMoreAvailable() {
@@ -595,7 +599,8 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
             canWriteInteractions: true,
             currentUsername: "alice",
             baseURLString: "https://linux.do",
-            activeSearchPostID: nil
+            activeSearchPostID: nil,
+            expandedReplyRootPostIDs: []
         )
         let firstComposerToken = FireTopicDetailComposerInvalidationToken(
             canWriteInteractions: true,
@@ -635,7 +640,8 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
             canWriteInteractions: true,
             currentUsername: "alice",
             baseURLString: "https://linux.do",
-            activeSearchPostID: nil
+            activeSearchPostID: nil,
+            expandedReplyRootPostIDs: []
         )
         let changedChromeToken = FireTopicDetailChromeInvalidationToken(
             topicID: 42,
@@ -655,7 +661,9 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
         )
         let interactionToken = FireTopicDetailInteractionInvalidationToken(
             mutatingPostIDs: [100],
-            expandedPostTextIDs: [300]
+            loadingPostReplyContextIDs: [],
+            expandedPostTextIDs: [300],
+            expandedReplyRootPostIDs: []
         )
 
         XCTAssertEqual(feedToken.topicCollectionRevision, 3)
@@ -787,11 +795,14 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
         detailNotice: FireTopicDetailStatusMessage? = nil,
         hasMoreTopicPosts: Bool = false,
         isLoadingMoreTopicPosts: Bool = false,
-        loadMoreTopicPostsError: String? = nil
+        loadMoreTopicPostsError: String? = nil,
+        expandedReplyRootPostIDs: Set<UInt64> = []
     ) -> FireTopicDetailRuntimeConfiguration {
         let interactionState = FireTopicDetailInteractionState(
             mutatingPostIDs: [],
-            expandedPostTextIDs: []
+            loadingPostReplyContextIDs: [],
+            expandedPostTextIDs: [],
+            expandedReplyRootPostIDs: expandedReplyRootPostIDs
         )
         return FireTopicDetailRuntimeConfiguration(
             viewModel: nil,
@@ -820,6 +831,8 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
             interactions: FireTopicDetailRuntimeInteractions(
                 isMutatingPost: { _ in false },
                 isPostTextExpanded: { _ in false },
+                isReplyThreadExpanded: { expandedReplyRootPostIDs.contains($0) },
+                isLoadingPostReplyContext: { _ in false },
                 onVisiblePostNumbersChanged: { _ in },
                 onRefresh: {},
                 onLoadTopicDetail: {},
@@ -828,6 +841,7 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
                 onReloadTopicAiSummary: {},
                 onOpenComposer: { _ in },
                 onOpenPostNumber: { _ in },
+                onOpenPostReplies: { _ in },
                 onLinkTapped: { _ in },
                 onOpenProfile: { _ in },
                 onOpenImage: { _ in },

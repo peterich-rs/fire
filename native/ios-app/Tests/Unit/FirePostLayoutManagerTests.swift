@@ -192,6 +192,7 @@ final class FirePostLayoutManagerTests: XCTestCase {
             imageFrames: [],
             pollFrames: [],
             boostFrames: [],
+            replyShortcutFrame: nil,
             reactionsFrame: nil,
             menuFrame: nil,
             dividerFrame: nil

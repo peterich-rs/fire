@@ -45,11 +45,15 @@ struct FireTopicDetailSidecarState {
 /// Per-item interaction state used for targeted item refresh and visible-node updates.
 struct FireTopicDetailInteractionState: Equatable {
     let mutatingPostIDs: Set<UInt64>
+    let loadingPostReplyContextIDs: Set<UInt64>
     let expandedPostTextIDs: Set<UInt64>
+    let expandedReplyRootPostIDs: Set<UInt64>
 
     static let empty = FireTopicDetailInteractionState(
         mutatingPostIDs: [],
-        expandedPostTextIDs: []
+        loadingPostReplyContextIDs: [],
+        expandedPostTextIDs: [],
+        expandedReplyRootPostIDs: []
     )
 
     func isMutatingPost(_ postID: UInt64) -> Bool {
@@ -58,6 +62,14 @@ struct FireTopicDetailInteractionState: Equatable {
 
     func isPostTextExpanded(_ postID: UInt64) -> Bool {
         expandedPostTextIDs.contains(postID)
+    }
+
+    func isLoadingPostReplyContext(_ postID: UInt64) -> Bool {
+        loadingPostReplyContextIDs.contains(postID)
+    }
+
+    func isReplyThreadExpanded(_ postID: UInt64) -> Bool {
+        expandedReplyRootPostIDs.contains(postID)
     }
 
 }

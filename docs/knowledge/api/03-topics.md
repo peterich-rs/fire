@@ -215,12 +215,13 @@ Fire 当前主详情页不再把 `GET /t/{id}.json` 或 `GET /t/{id}/posts.json`
   - Rust 基于已加载的 raw posts 生成 `reply_rows`、`depth`、`parent_post_number`、`root_post_number`
   - 树状 rows 只属于呈现层，不能反向决定下一批网络边界
   - Fire 的 UniFFI tree presentation 只传 post id / post number / hierarchy 元数据，完整 post payload 仍只来自 source snapshot
+  - iOS/Android 可以在同一份 tree presentation 上默认只展示根回复，把二级及更深回复折叠到根回复的“查看更多 N 条回复”入口；显式跳转目标位于折叠层级时，只临时展示目标的祖先链路，不能为了折叠另建 source 或重新定义分页边界
   - 当没有显式 `target_post_number` 且查询显式允许首次未读根帖建议时，Rust 会依据 detail header 的 `last_read_post_number` / `highest_post_number` 和已加载根帖计算 `first_unread_root_post_number`；如果首批尚未覆盖首个未读根帖，`fetchTopicDetailPage` 会按现有自动 batch 限额继续拉 source batch，直到找到该根帖、source exhausted，或达到自动补批上限
   - iOS/Android 只在首次打开且没有通知、书签、搜索、分享链接等显式 target 时把该查询开关设为允许并消费 `first_unread_root_post_number`，刷新、load-more、MessageBus 更新不得触发自动补批或自动跳转
 
 每个 raw post 还会保留作者展示元数据：`user_id`、`user_title`、`primary_group_name`、`flair_url`、`flair_name`、`flair_bg_color`、`flair_color`、`flair_group_id`、`admin`、`moderator`、`group_moderator`，以及 `user_status.emoji` / `user_status.description`。Fire 在 Rust 模型中将这些字段收敛为 `TopicPostAuthorMetadata`，通过 UniFFI 暴露给 iOS/Android 原生 runtime cell；平台只负责展示，不重新解析 `post.cooked` 或从 profile API 拼装这些字段。
 
-带有 Boost 插件数据的 raw post 会暴露 `boosts` 与 `can_boost`。Fire 在 Rust 中解析每个 Boost 的 `id`、`cooked`、用户 `id` / `username` / `name` / `avatar_template`、`can_delete`、`can_flag`、`user_flag_status`、`available_flags`，生成去 HTML 的 `display_text`，并通过 UniFFI 暴露同一段 `cooked` 生成的 `render_document`，让原生端能展示 emoji 等富文本附件。iOS/Android 消费 UniFFI 的 `TopicPostBoostState`：原帖且正文可见时可以把 Boost 作为正文 overlay/弹幕展示，回复或无正文目标时使用固定高度的两行手动横向滑动 chips，不做自动 ticker；overlay 展示固定取最多 5 条可见 Boost，最多 5 条 lane，滑动期间暂停并在滑动结束后恢复，避免 Boost 之间重叠或大面积遮挡正文。平台不得重新解析 Boost `cooked` 或把 Boost 与 quote/blockquote preview 混用。
+带有 Boost 插件数据的 raw post 会暴露 `boosts` 与 `can_boost`。Fire 在 Rust 中解析每个 Boost 的 `id`、`cooked`、用户 `id` / `username` / `name` / `avatar_template`、`can_delete`、`can_flag`、`user_flag_status`、`available_flags`，生成去 HTML 且去掉开头 `@username:` / `username:` / display name 前缀的正文-only `display_text`，并通过 UniFFI 暴露同一段 `cooked` 生成的 `render_document`，让原生端能展示 emoji 等富文本附件。iOS/Android 消费 UniFFI 的 `TopicPostBoostState`：原帖且正文可见时可以把 Boost 作为正文 overlay/弹幕展示，回复或无正文目标时使用固定高度的两行手动横向滑动 chips，不做自动 ticker；overlay 展示固定取最多 5 条可见 Boost，最多 5 条 lane，每个 post/Boost 批次只播放一次，运行中可以随滚动暂停并在滚动结束后恢复，播放完成后隐藏，避免 Boost 之间重叠或大面积遮挡正文。平台不得重新解析 Boost `cooked`、不得重新添加作者前缀，或把 Boost 与 quote/blockquote preview 混用。
 
 `forceLoad` 当前仍保留在 Fire 主路径查询参数中，用于显式跳过当前 source session 缓存并重新拉取 source snapshot；它属于 Fire 运行时契约，不是 Discourse 原始端点字段。
 

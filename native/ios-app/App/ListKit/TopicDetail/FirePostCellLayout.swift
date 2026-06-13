@@ -18,10 +18,47 @@ struct FirePostCellLayoutKey: Hashable, Sendable {
     let pollSignature: [String]
     let boostSignature: [String]
     let hasReactions: Bool
+    let replyShortcutCount: UInt32?
     let textExpansionState: FirePostTextExpansionState
     let acceptedAnswer: Bool
     let hasAuthorMetadata: Bool
     let trait: FirePostLayoutTraitSignature
+
+    init(
+        postID: UInt64,
+        depth: Int,
+        showsThreadLine: Bool,
+        showsDivider: Bool,
+        replyTargetPostNumber: UInt32?,
+        replyContext: String?,
+        textContentID: String,
+        imageSignature: [String],
+        pollSignature: [String],
+        boostSignature: [String],
+        hasReactions: Bool,
+        replyShortcutCount: UInt32? = nil,
+        textExpansionState: FirePostTextExpansionState,
+        acceptedAnswer: Bool,
+        hasAuthorMetadata: Bool,
+        trait: FirePostLayoutTraitSignature
+    ) {
+        self.postID = postID
+        self.depth = depth
+        self.showsThreadLine = showsThreadLine
+        self.showsDivider = showsDivider
+        self.replyTargetPostNumber = replyTargetPostNumber
+        self.replyContext = replyContext
+        self.textContentID = textContentID
+        self.imageSignature = imageSignature
+        self.pollSignature = pollSignature
+        self.boostSignature = boostSignature
+        self.hasReactions = hasReactions
+        self.replyShortcutCount = replyShortcutCount
+        self.textExpansionState = textExpansionState
+        self.acceptedAnswer = acceptedAnswer
+        self.hasAuthorMetadata = hasAuthorMetadata
+        self.trait = trait
+    }
 }
 
 struct FirePostCellLayout: Equatable, Sendable {
@@ -36,6 +73,7 @@ struct FirePostCellLayout: Equatable, Sendable {
     let imageFrames: [CGRect]
     let pollFrames: [CGRect]
     let boostFrames: [CGRect]
+    let replyShortcutFrame: CGRect?
     let reactionsFrame: CGRect?
     let menuFrame: CGRect?
     let dividerFrame: CGRect?
@@ -88,11 +126,11 @@ enum FirePostBoostDisplay {
     }
 
     static func bodyBarrageLines(for boosts: [TopicPostBoostState]) -> [String] {
-        Array(boosts.compactMap { cleaned($0.displayText) }.prefix(bodyBarrageVisibleLineLimit))
+        Array(boosts.compactMap { strippedDisplayText(for: $0) }.prefix(bodyBarrageVisibleLineLimit))
     }
 
     static func bodyBarrageBoosts(for boosts: [TopicPostBoostState]) -> [TopicPostBoostState] {
-        Array(boosts.filter { cleaned($0.displayText) != nil }.prefix(bodyBarrageVisibleLineLimit))
+        Array(boosts.filter { strippedDisplayText(for: $0) != nil }.prefix(bodyBarrageVisibleLineLimit))
     }
 
     static func bodyBarrageBatchSignature(
@@ -100,7 +138,7 @@ enum FirePostBoostDisplay {
         boosts: [TopicPostBoostState]
     ) -> String {
         let boostTokens = boosts.compactMap { boost -> String? in
-            guard let text = cleaned(boost.displayText) else { return nil }
+            guard let text = strippedDisplayText(for: boost) else { return nil }
             return [
                 String(boost.id),
                 text,
@@ -113,7 +151,7 @@ enum FirePostBoostDisplay {
     }
 
     static func displayLine(for boost: TopicPostBoostState) -> String {
-        cleaned(boost.displayText) ?? ""
+        strippedDisplayText(for: boost) ?? ""
     }
 
     static func contentSignature(for boost: TopicPostBoostState) -> String {
@@ -131,28 +169,17 @@ enum FirePostBoostDisplay {
         textColor: UIColor = .label,
         accentColor: UIColor = .systemBlue
     ) -> NSAttributedString {
-        let result = NSMutableAttributedString()
-        result.append(NSAttributedString(
-            string: displayAuthor(for: boost),
-            attributes: [
-                .font: UIFont.systemFont(ofSize: baseFont.pointSize, weight: .semibold),
-                .foregroundColor: textColor,
-            ]
-        ))
         if let content = richTextContent(for: boost, baseFont: baseFont, textColor: textColor, accentColor: accentColor),
            content.length > 0 {
-            result.append(NSAttributedString(
-                string: ": ",
-                attributes: [.font: baseFont, .foregroundColor: textColor]
-            ))
-            result.append(content)
-        } else if let text = cleaned(boost.displayText) {
-            result.append(NSAttributedString(
-                string: ": \(text)",
-                attributes: [.font: baseFont, .foregroundColor: textColor]
-            ))
+            return content
         }
-        return result
+        if let text = strippedDisplayText(for: boost) {
+            return NSAttributedString(
+                string: text,
+                attributes: [.font: baseFont, .foregroundColor: textColor]
+            )
+        }
+        return NSAttributedString()
     }
 
     static func contentToken(for boosts: [TopicPostBoostState]) -> String {
@@ -175,14 +202,38 @@ enum FirePostBoostDisplay {
         return trimmed.isEmpty ? nil : trimmed
     }
 
-    private static func displayAuthor(for boost: TopicPostBoostState) -> String {
-        if let username = cleaned(boost.user.username) {
-            return "@\(username)"
+    private static func strippedDisplayText(for boost: TopicPostBoostState) -> String? {
+        guard var text = cleaned(boost.displayText) else { return nil }
+        let candidates = leadingAttributionCandidates(for: boost)
+        for candidate in candidates {
+            if text.range(of: candidate, options: [.caseInsensitive, .anchored]) != nil {
+                text.removeFirst(candidate.count)
+                return cleaned(text)
+            }
         }
-        if let name = cleaned(boost.user.name) {
-            return name
+        guard let colonIndex = text.firstIndex(where: { $0 == ":" || $0 == "：" }) else {
+            return cleaned(text)
         }
-        return "User \(boost.user.id)"
+        let prefix = text[..<colonIndex]
+        guard prefix.count > 1,
+              prefix.count <= 40,
+              prefix.first == "@",
+              prefix.dropFirst().allSatisfy({ !$0.isWhitespace }) else {
+            return cleaned(text)
+        }
+        text.removeSubrange(...colonIndex)
+        return cleaned(text)
+    }
+
+    private static func leadingAttributionCandidates(for boost: TopicPostBoostState) -> [String] {
+        [
+            cleaned(boost.user.username).map { "@\($0):" },
+            cleaned(boost.user.username).map { "\($0):" },
+            cleaned(boost.user.name).map { "\($0):" },
+            cleaned(boost.user.username).map { "@\($0)：" },
+            cleaned(boost.user.username).map { "\($0)：" },
+            cleaned(boost.user.name).map { "\($0)：" },
+        ].compactMap { $0 }
     }
 
     private static func richTextContent(
@@ -206,6 +257,8 @@ enum FirePostBoostDisplay {
         )
         let mutable = NSMutableAttributedString(attributedString: attributedText)
         trimWhitespaceAndNewlines(mutable)
+        stripLeadingAttribution(mutable, boost: boost)
+        trimWhitespaceAndNewlines(mutable)
         return mutable.length > 0 ? mutable : nil
     }
 
@@ -221,6 +274,49 @@ enum FirePostBoostDisplay {
             guard CharacterSet.whitespacesAndNewlines.contains(scalar) else { break }
             attributedText.deleteCharacters(in: NSRange(location: attributedText.length - 1, length: 1))
         }
+    }
+
+    private static func stripLeadingAttribution(
+        _ attributedText: NSMutableAttributedString,
+        boost: TopicPostBoostState
+    ) {
+        let string = attributedText.string
+        guard !string.isEmpty else { return }
+
+        let candidates = leadingAttributionCandidates(for: boost)
+
+        for candidate in candidates {
+            if string.range(
+                of: candidate,
+                options: [.caseInsensitive, .anchored]
+            ) != nil {
+                deleteLeadingCharacters(candidate.count, from: attributedText)
+                trimWhitespaceAndNewlines(attributedText)
+                return
+            }
+        }
+
+        guard string.first == "@",
+              let colonIndex = string.firstIndex(where: { $0 == ":" || $0 == "：" }) else {
+            return
+        }
+        let prefix = string[..<colonIndex]
+        guard prefix.count > 1,
+              prefix.count <= 40,
+              prefix.dropFirst().allSatisfy({ !$0.isWhitespace }) else {
+            return
+        }
+        deleteLeadingCharacters(prefix.count + 1, from: attributedText)
+        trimWhitespaceAndNewlines(attributedText)
+    }
+
+    private static func deleteLeadingCharacters(
+        _ characterCount: Int,
+        from attributedText: NSMutableAttributedString
+    ) {
+        guard characterCount > 0 else { return }
+        let prefix = String(attributedText.string.prefix(characterCount))
+        attributedText.deleteCharacters(in: NSRange(location: 0, length: (prefix as NSString).length))
     }
 }
 
@@ -260,6 +356,8 @@ struct FirePostCellRenderPayload {
     let isMutating: Bool
     let replyContext: String?
     let replyTargetPostNumber: UInt32?
+    let replyShortcutCount: UInt32?
+    let isLoadingReplyContext: Bool
     let textExpansionState: FirePostTextExpansionState
     let isSearchHighlighted: Bool
     let showsDivider: Bool
@@ -276,6 +374,8 @@ struct FirePostCellRenderPayload {
         isMutating: Bool,
         replyContext: String?,
         replyTargetPostNumber: UInt32?,
+        replyShortcutCount: UInt32? = nil,
+        isLoadingReplyContext: Bool = false,
         textExpansionState: FirePostTextExpansionState,
         isSearchHighlighted: Bool = false,
         showsDivider: Bool,
@@ -291,6 +391,8 @@ struct FirePostCellRenderPayload {
         self.isMutating = isMutating
         self.replyContext = replyContext
         self.replyTargetPostNumber = replyTargetPostNumber
+        self.replyShortcutCount = replyShortcutCount
+        self.isLoadingReplyContext = isLoadingReplyContext
         self.textExpansionState = textExpansionState
         self.isSearchHighlighted = isSearchHighlighted
         self.showsDivider = showsDivider
@@ -315,6 +417,7 @@ struct FirePostCellCallbacks {
     let onRecoverPost: (TopicPostState) -> Void
     let onFlagPost: (TopicPostState) -> Void
     let onOpenReplyTarget: (UInt32) -> Void
+    let onOpenReplies: (TopicPostState) -> Void
     let onExpandText: (TopicPostState) -> Void
     let onVotePoll: (TopicPostState, PollState, [String]) -> Void
     let onUnvotePoll: (TopicPostState, PollState) -> Void

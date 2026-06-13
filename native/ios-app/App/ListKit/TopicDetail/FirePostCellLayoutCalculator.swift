@@ -16,6 +16,8 @@ enum FirePostCellLayoutCalculator {
     static let textTopSpacing: CGFloat = 0
     static let imageTopSpacing: CGFloat = 10
     static let imageSpacing: CGFloat = 10
+    static let replyShortcutTopSpacing: CGFloat = 8
+    static let replyShortcutHeight: CGFloat = 30
     static let boostTopSpacing: CGFloat = 4
     static let boostSpacing: CGFloat = 6
     static let boostHorizontalInset: CGFloat = 10
@@ -26,6 +28,8 @@ enum FirePostCellLayoutCalculator {
     static let fixedBoostManualHeight: CGFloat =
         CGFloat(fixedBoostManualRows) * fixedBoostManualRowHeight
         + CGFloat(fixedBoostManualRows - 1) * fixedBoostManualRowSpacing
+    static let fixedBoostManualMinChipWidth: CGFloat = 48
+    static let fixedBoostManualMaxChipWidthRatio: CGFloat = 0.72
     static let actionRowTopSpacing: CGFloat = 8
     static let actionRowHeight: CGFloat = 30
     static let reactionTopSpacing: CGFloat = 0
@@ -53,17 +57,23 @@ enum FirePostCellLayoutCalculator {
         visualDepth(for: depth) > 0 ? avatarSpacingNested : avatarSpacingRoot
     }
 
+    static func usesFullWidthBody(for depth: Int) -> Bool {
+        depth == 0
+    }
+
+    static func bodyLeadingOffset(for depth: Int) -> CGFloat {
+        usesFullWidthBody(for: depth) ? 0 : avatarSize(for: depth) + avatarSpacing(for: depth)
+    }
+
     static func availableContentWidth(
         for key: FirePostCellLayoutKey,
         trait: FirePostLayoutTraitSignature
     ) -> CGFloat {
         let contentWidth = CGFloat(trait.contentWidthPixels)
-        let contentLeading = outerHorizontalPadding
+        let bodyLeading = outerHorizontalPadding
             + indentWidth(for: key.depth)
-            + avatarSize(for: key.depth)
-            + avatarSpacing(for: key.depth)
-        let contentTrailing = outerHorizontalPadding
-        return max(contentWidth - contentLeading - contentTrailing, 1)
+            + bodyLeadingOffset(for: key.depth)
+        return max(contentWidth - bodyLeading - outerHorizontalPadding, 1)
     }
 
     static func calculate(
@@ -79,9 +89,11 @@ enum FirePostCellLayoutCalculator {
         let avatarSp = avatarSpacing(for: key.depth)
         let contentWidth = CGFloat(trait.contentWidthPixels)
 
-        let contentLeading = outerHorizontalPadding + indent + avatarSz + avatarSp
+        let headerLeading = outerHorizontalPadding + indent + avatarSz + avatarSp
+        let bodyLeading = outerHorizontalPadding + indent + bodyLeadingOffset(for: key.depth)
         let contentTrailing = outerHorizontalPadding
-        let contentAvailableWidth = max(contentWidth - contentLeading - contentTrailing, 1)
+        let headerAvailableWidth = max(contentWidth - headerLeading - contentTrailing, 1)
+        let bodyAvailableWidth = max(contentWidth - bodyLeading - contentTrailing, 1)
 
         var cursorY = contentVerticalPadding
 
@@ -115,9 +127,9 @@ enum FirePostCellLayoutCalculator {
             menuButtonSize
         ))
         let metaFrame = CGRect(
-            x: contentLeading,
+            x: headerLeading,
             y: cursorY,
-            width: contentAvailableWidth,
+            width: headerAvailableWidth,
             height: metaHeight
         )
         let metadataHeight = ceil(UIFont.preferredFont(
@@ -140,11 +152,11 @@ enum FirePostCellLayoutCalculator {
             let displayedTextHeight = shouldCollapseText
                 ? collapsedTextHeight
                 : textHeight
-            textContainerSize = CGSize(width: contentAvailableWidth, height: displayedTextHeight)
+            textContainerSize = CGSize(width: bodyAvailableWidth, height: displayedTextHeight)
             textFrame = CGRect(
-                x: contentLeading,
+                x: bodyLeading,
                 y: cursorY,
-                width: contentAvailableWidth,
+                width: bodyAvailableWidth,
                 height: displayedTextHeight
             )
             cursorY += displayedTextHeight + textTopSpacing
@@ -172,9 +184,9 @@ enum FirePostCellLayoutCalculator {
                     cursorY += imageSpacing
                 }
                 let frame = CGRect(
-                    x: contentLeading,
+                    x: bodyLeading,
                     y: cursorY,
-                    width: min(imageSize.width, contentAvailableWidth),
+                    width: min(imageSize.width, bodyAvailableWidth),
                     height: imageSize.height
                 )
                 imageFrames.append(frame)
@@ -194,9 +206,9 @@ enum FirePostCellLayoutCalculator {
                     cursorY += imageSpacing
                 }
                 let frame = CGRect(
-                    x: contentLeading,
+                    x: bodyLeading,
                     y: cursorY,
-                    width: contentAvailableWidth,
+                    width: bodyAvailableWidth,
                     height: pollHeight
                 )
                 pollFrames.append(frame)
@@ -210,32 +222,59 @@ enum FirePostCellLayoutCalculator {
             if textFrame != nil || !imageFrames.isEmpty || !pollFrames.isEmpty {
                 cursorY += boostTopSpacing
             }
+            let boostHeight = fixedBoostManualHeight(
+                boostLines: boostLines,
+                containerWidth: bodyAvailableWidth,
+                contentSizeCategory: contentSizeCategory
+            )
             let frame = CGRect(
-                x: contentLeading,
+                x: bodyLeading,
                 y: cursorY,
-                width: contentAvailableWidth,
-                height: fixedBoostManualHeight
+                width: bodyAvailableWidth,
+                height: boostHeight
             )
             boostFrames.append(frame)
-            cursorY += fixedBoostManualHeight
+            cursorY += boostHeight
         }
 
         // Action row: reactions share one compact line below content.
+        let replyShortcutFrame: CGRect?
         let reactionsFrame: CGRect?
-        let hasActionRow = key.hasReactions
+        let hasActionRow = key.replyShortcutCount != nil || key.hasReactions
         if hasActionRow {
             if textFrame != nil || !imageFrames.isEmpty || !pollFrames.isEmpty || !boostFrames.isEmpty {
-                cursorY += actionRowTopSpacing
+                if key.replyShortcutCount != nil {
+                    cursorY += replyShortcutTopSpacing
+                } else if boostFrames.isEmpty {
+                    cursorY += actionRowTopSpacing
+                }
             }
 
             let actionRowY = cursorY
-            let rowMaxX = contentLeading + contentAvailableWidth
+            let actionSpacing: CGFloat = 8
+            var actionX = bodyLeading
+            let rowMaxX = bodyLeading + bodyAvailableWidth
+
+            if key.replyShortcutCount != nil {
+                let remaining = max(rowMaxX - actionX, 1)
+                let reservedReactionWidth: CGFloat = key.hasReactions && remaining > 180 ? 96 : 0
+                let width = max(remaining - reservedReactionWidth - actionSpacing, min(remaining, 96))
+                replyShortcutFrame = CGRect(
+                    x: actionX,
+                    y: actionRowY,
+                    width: min(width, remaining),
+                    height: Self.replyShortcutHeight
+                )
+                actionX = min(actionX + min(width, remaining) + actionSpacing, rowMaxX)
+            } else {
+                replyShortcutFrame = nil
+            }
 
             if key.hasReactions {
                 reactionsFrame = CGRect(
-                    x: contentLeading,
+                    x: actionX,
                     y: actionRowY,
-                    width: max(rowMaxX - contentLeading, 1),
+                    width: max(rowMaxX - actionX, 1),
                     height: Self.actionRowHeight
                 )
             } else {
@@ -244,6 +283,7 @@ enum FirePostCellLayoutCalculator {
 
             cursorY += Self.actionRowHeight
         } else {
+            replyShortcutFrame = nil
             reactionsFrame = nil
         }
 
@@ -287,6 +327,7 @@ enum FirePostCellLayoutCalculator {
             imageFrames: imageFrames,
             pollFrames: pollFrames,
             boostFrames: boostFrames,
+            replyShortcutFrame: replyShortcutFrame,
             reactionsFrame: reactionsFrame,
             menuFrame: nil,
             dividerFrame: dividerFrame
@@ -369,6 +410,55 @@ enum FirePostCellLayoutCalculator {
         return max(textHeight + boostVerticalInset * 2, lineHeight + boostVerticalInset * 2)
     }
 
+    static func fixedBoostManualHeight(forUsedRowCount usedRowCount: Int) -> CGFloat {
+        let rowCount = min(max(usedRowCount, 1), fixedBoostManualRows)
+        return CGFloat(rowCount) * fixedBoostManualRowHeight
+            + CGFloat(rowCount - 1) * fixedBoostManualRowSpacing
+    }
+
+    static func fixedBoostManualHeight(
+        boostLines: [String],
+        containerWidth: CGFloat,
+        contentSizeCategory: UIContentSizeCategory
+    ) -> CGFloat {
+        let chipWidths = fixedBoostManualChipWidths(
+            boostLines: boostLines,
+            containerWidth: containerWidth,
+            contentSizeCategory: contentSizeCategory
+        )
+        guard !chipWidths.isEmpty else { return 0 }
+        let layout = FirePostBoostManualLayout.placements(
+            forChipWidths: chipWidths,
+            pageWidth: containerWidth,
+            laneCount: fixedBoostManualRows
+        )
+        return fixedBoostManualHeight(forUsedRowCount: layout.usedRowCount)
+    }
+
+    private static func fixedBoostManualChipWidths(
+        boostLines: [String],
+        containerWidth: CGFloat,
+        contentSizeCategory: UIContentSizeCategory
+    ) -> [CGFloat] {
+        let traitCollection = UITraitCollection(preferredContentSizeCategory: contentSizeCategory)
+        let font = UIFont.preferredFont(forTextStyle: .caption1, compatibleWith: traitCollection)
+        let maxChipWidth = max(containerWidth * fixedBoostManualMaxChipWidthRatio, 1)
+        return boostLines.compactMap { line in
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return nil }
+            let attributedText = NSAttributedString(
+                string: trimmed,
+                attributes: [.font: font]
+            )
+            return FirePostBoostManualLayout.chipWidth(
+                for: attributedText,
+                maxWidth: maxChipWidth,
+                horizontalInset: boostHorizontalInset,
+                minWidth: fixedBoostManualMinChipWidth
+            )
+        }
+    }
+
     static func collapsedTextHeight(contentSizeCategory: UIContentSizeCategory) -> CGFloat {
         let font = UIFont.preferredFont(
             forTextStyle: .subheadline,
@@ -382,7 +472,12 @@ enum FirePostCellLayoutCalculator {
         availableWidth: CGFloat,
         depth: Int
     ) -> CGSize {
-        let aspectRatio = image.aspectRatio ?? 1.45
+        let aspectRatio = max(image.aspectRatio ?? 1.45, 0.01)
+        if usesFullWidthBody(for: depth) {
+            let width = max(availableWidth, 1)
+            return CGSize(width: width, height: width / aspectRatio)
+        }
+
         let isCommentImage = depth > 0
         let maxWidth = isCommentImage
             ? min(max(availableWidth * commentImageWidthScale, 1), commentImageMaxWidth)

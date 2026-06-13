@@ -24,6 +24,7 @@ data class PostRow(
     val parentPostNumber: UInt? = null,
     val hasChildren: Boolean = false,
     val usesTitleWidthBody: Boolean = false,
+    val hiddenReplyCount: UInt = 0u,
 )
 
 data class PostRowCallbacks(
@@ -38,6 +39,7 @@ data class PostRowCallbacks(
     val onUnvotePoll: (TopicPostState, PollState) -> Unit = { _, _ -> },
     val onReactionsClick: (TopicPostState) -> Unit = {},
     val onReplyContextClick: (TopicPostState) -> Unit = {},
+    val onMoreRepliesClick: (TopicPostState) -> Unit = {},
     val onDeletePostClick: (TopicPostState) -> Unit = {},
     val onRecoverPostClick: (TopicPostState) -> Unit = {},
     val onFlagPostClick: (TopicPostState) -> Unit = {},
@@ -114,7 +116,6 @@ class HeaderAdapter(
     private val onToggleTopicVote: () -> Unit,
     private val onShowTopicVoters: (TopicDetailState) -> Unit,
     private val onEditTopicClick: (TopicDetailState) -> Unit,
-    private val onTopicBookmarkClick: (TopicDetailState) -> Unit,
 ) : RecyclerView.Adapter<HeaderAdapter.HeaderViewHolder>() {
     private val attachedHolders = mutableSetOf<HeaderViewHolder>()
     private var boostAnimationsEnabled = true
@@ -172,7 +173,6 @@ class HeaderAdapter(
             onToggleTopicVote = onToggleTopicVote,
             onShowTopicVoters = onShowTopicVoters,
             onEditTopicClick = onEditTopicClick,
-            onTopicBookmarkClick = onTopicBookmarkClick,
         )
     }
 
@@ -255,7 +255,6 @@ class HeaderAdapter(
         private val onToggleTopicVote: () -> Unit,
         private val onShowTopicVoters: (TopicDetailState) -> Unit,
         private val onEditTopicClick: (TopicDetailState) -> Unit,
-        private val onTopicBookmarkClick: (TopicDetailState) -> Unit,
     ) : RecyclerView.ViewHolder(itemView) {
         private val titleText: TextView = itemView.findViewById(R.id.topic_title)
         private val chips: ChipGroup = itemView.findViewById(R.id.topic_chips)
@@ -302,30 +301,16 @@ class HeaderAdapter(
                 chips.visibility = View.VISIBLE
                 chips.removeAllViews()
                 detail.categoryId?.let { cid ->
-                    val chip = Chip(itemView.context).apply {
-                        text = "分类 $cid"
-                        isClickable = false
-                        isCheckable = false
-                        setChipBackgroundColorResource(R.color.fire_accent_soft)
-                        setTextColor(itemView.context.getColor(R.color.fire_accent))
-                    }
-                    chips.addView(chip)
+                    chips.addView(topicChip("分类 $cid", isCategory = true))
                 }
                 for (tagName in tagNames) {
-                    val chip = Chip(itemView.context).apply {
-                        text = "#$tagName"
-                        isClickable = false
-                        isCheckable = false
-                        setChipBackgroundColorResource(R.color.fire_accent_soft)
-                        setTextColor(itemView.context.getColor(R.color.fire_accent))
-                    }
-                    chips.addView(chip)
+                    chips.addView(topicChip("#$tagName", isCategory = false))
                 }
             } else {
                 chips.visibility = View.GONE
             }
             bindTopicEdit(detail)
-            bindTopicBookmark(detail)
+            bindTopicBookmark()
             bindAiSummary(aiSummary, isAiSummaryLoading, aiSummaryError)
             statReplies.text = "${detail.replyCount}"
             statViews.text = "${detail.views}"
@@ -364,17 +349,51 @@ class HeaderAdapter(
             }
         }
 
-        private fun bindTopicBookmark(detail: TopicDetailState) {
-            topicBookmarkButton.text = itemView.context.getString(
-                if (detail.bookmarked) {
-                    R.string.topic_detail_bookmark_topic_active
-                } else {
-                    R.string.topic_detail_bookmark_topic
-                },
-            )
-            topicBookmarkButton.setOnClickListener {
-                onTopicBookmarkClick(detail)
+        private fun bindTopicBookmark() {
+            topicBookmarkButton.visibility = View.GONE
+            topicBookmarkButton.setOnClickListener(null)
+            topicBookmarkButton.text = null
+        }
+
+        private fun topicChip(label: String, isCategory: Boolean): Chip {
+            val context = itemView.context
+            return Chip(context).apply {
+                text = label
+                isClickable = false
+                isCheckable = false
+                isFocusable = false
+                minHeight = 0
+                minimumHeight = 0
+                chipMinHeight = dp(26).toFloat()
+                setEnsureMinTouchTargetSize(false)
+                includeFontPadding = false
+                textSize = 12f
+                setChipBackgroundColorResource(
+                    if (isCategory) R.color.fire_chip_accent_background else R.color.fire_background_surface,
+                )
+                setChipStrokeColorResource(
+                    if (isCategory) R.color.fire_accent_soft else R.color.fire_divider,
+                )
+                chipStrokeWidth = dp(1).toFloat()
+                setTextColor(context.getColor(if (isCategory) R.color.fire_accent else R.color.fire_text_secondary))
+                chipStartPadding = dp(9).toFloat()
+                chipEndPadding = dp(9).toFloat()
+                textStartPadding = 0f
+                textEndPadding = 0f
+                closeIconStartPadding = 0f
+                closeIconEndPadding = 0f
+                layoutParams = ChipGroup.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    dp(28),
+                ).apply {
+                    marginEnd = dp(6)
+                    bottomMargin = dp(6)
+                }
             }
+        }
+
+        private fun dp(value: Int): Int {
+            return (itemView.resources.displayMetrics.density * value).toInt()
         }
 
         private fun bindTopicVote(detail: TopicDetailState) {

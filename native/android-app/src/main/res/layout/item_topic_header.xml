@@ -46,7 +46,8 @@
         android:paddingVertical="6dp"
         android:textAppearance="@style/TextAppearance.AppCompat.Caption"
         android:textColor="@color/fire_accent"
-        android:textStyle="bold" />
+        android:textStyle="bold"
+        android:visibility="gone" />
 
     <LinearLayout
         android:id="@+id/ai_summary_container"

@@ -529,12 +529,62 @@ fn normalized_scalar(value: Option<&str>) -> Option<String> {
     }
 }
 
-fn boost_display_text(cooked: &str) -> String {
+fn boost_display_text(cooked: &str, user: &RawTopicPostBoostUser) -> String {
     let plain_text = render_cooked_html(cooked, "https://linux.do").plain_text;
-    separate_boost_emoji_shortcodes(&plain_text)
+    let body_text = strip_boost_leading_attribution(&plain_text, user);
+    separate_boost_emoji_shortcodes(&body_text)
         .split_whitespace()
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+fn strip_boost_leading_attribution(value: &str, user: &RawTopicPostBoostUser) -> String {
+    let trimmed = value.trim_start();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+
+    let candidates = [
+        normalized_scalar(Some(user.username.as_str())).map(|username| format!("@{username}:")),
+        normalized_scalar(Some(user.username.as_str())).map(|username| format!("{username}:")),
+        normalized_scalar(user.name.as_deref()).map(|name| format!("{name}:")),
+        normalized_scalar(Some(user.username.as_str())).map(|username| format!("@{username}：")),
+        normalized_scalar(Some(user.username.as_str())).map(|username| format!("{username}：")),
+        normalized_scalar(user.name.as_deref()).map(|name| format!("{name}：")),
+    ];
+
+    for candidate in candidates.into_iter().flatten() {
+        if trimmed
+            .get(..candidate.len())
+            .is_some_and(|prefix| prefix.eq_ignore_ascii_case(&candidate))
+        {
+            return trimmed[candidate.len()..].trim_start().to_string();
+        }
+    }
+
+    let Some(rest) = trimmed.strip_prefix('@') else {
+        return trimmed.to_string();
+    };
+    let Some(colon_index_after_at) = rest.find(|character| character == ':' || character == '：') else {
+        return trimmed.to_string();
+    };
+    let username = &rest[..colon_index_after_at];
+    if !username.is_empty()
+        && username.len() <= 40
+        && username
+            .chars()
+            .all(|character| !character.is_whitespace())
+    {
+        let colon_width = rest[colon_index_after_at..]
+            .chars()
+            .next()
+            .map(char::len_utf8)
+            .unwrap_or(1);
+        let colon_end_index = 1 + colon_index_after_at + colon_width;
+        return trimmed[colon_end_index..].trim_start().to_string();
+    }
+
+    trimmed.to_string()
 }
 
 fn separate_boost_emoji_shortcodes(value: &str) -> String {
@@ -805,7 +855,7 @@ struct RawTopicPostBoost {
 
 impl From<RawTopicPostBoost> for TopicPostBoost {
     fn from(value: RawTopicPostBoost) -> Self {
-        let display_text = boost_display_text(&value.cooked);
+        let display_text = boost_display_text(&value.cooked, &value.user);
         Self {
             id: value.id,
             cooked: value.cooked,
@@ -1934,5 +1984,38 @@ mod tests {
         let boost = &detail.post_stream.posts[0].boosts[0];
 
         assert_eq!(boost.display_text, ":smile: :wave:t3: 🎉");
+    }
+
+    #[test]
+    fn topic_post_boost_display_text_strips_leading_attribution() {
+        let detail = serde_json::from_value::<RawTopicDetail>(json!({
+            "id": 42,
+            "title": "Topic",
+            "slug": "topic",
+            "post_stream": {
+                "posts": [
+                    {
+                        "id": 101,
+                        "username": "alice",
+                        "cooked": "<p>root</p>",
+                        "post_number": 1,
+                        "boosts": [
+                            {
+                                "id": 501,
+                                "cooked": "<p>@carol: Thanks for the detail</p>",
+                                "user": {"id": 7, "username": "carol", "name": "Carol"}
+                            }
+                        ]
+                    }
+                ],
+                "stream": [101]
+            },
+            "details": {}
+        }))
+        .expect("sample topic detail should deserialize")
+        .into_topic_detail(false);
+        let boost = &detail.post_stream.posts[0].boosts[0];
+
+        assert_eq!(boost.display_text, "Thanks for the detail");
     }
 }

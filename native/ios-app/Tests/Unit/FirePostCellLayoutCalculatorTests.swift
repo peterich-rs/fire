@@ -4,7 +4,7 @@ import XCTest
 @testable import Fire
 
 final class FirePostCellLayoutCalculatorTests: XCTestCase {
-    func testCalculateAlignsContentColumnAndDividerWithReplyRowContract() {
+    func testCalculateKeepsReplyBodyInAvatarContentColumn() {
         let trait = FirePostLayoutTraitSignature(
             contentWidthPixels: 320,
             contentSizeCategory: UIContentSizeCategory.large.rawValue
@@ -56,12 +56,53 @@ final class FirePostCellLayoutCalculatorTests: XCTestCase {
         XCTAssertEqual(layout.avatarFrame.origin.x, 16, accuracy: 0.01)
         XCTAssertEqual(layout.avatarFrame.origin.y, 0, accuracy: 0.01)
         XCTAssertEqual(layout.avatarFrame.width, 32, accuracy: 0.01)
+        XCTAssertEqual(layout.metaFrame.minX, 58, accuracy: 0.01)
         XCTAssertEqual(layout.metaFrame.minY, 8, accuracy: 0.01)
+        XCTAssertEqual(layout.textFrame?.minX ?? -.greatestFiniteMagnitude, 58, accuracy: 0.01)
+        XCTAssertEqual(layout.textFrame?.width ?? -.greatestFiniteMagnitude, 246, accuracy: 0.01)
         XCTAssertEqual(layout.textFrame?.minY ?? -.greatestFiniteMagnitude, expectedTextMinY, accuracy: 0.01)
         XCTAssertEqual(layout.dividerFrame?.minX ?? -.greatestFiniteMagnitude, 16, accuracy: 0.01)
         XCTAssertEqual(layout.dividerFrame?.width ?? -.greatestFiniteMagnitude, 288, accuracy: 0.01)
         XCTAssertEqual(layout.totalHeight, expectedTotalHeight, accuracy: 0.01)
         XCTAssertEqual(layout.threadLineFrame?.minY ?? -.greatestFiniteMagnitude, 38, accuracy: 0.01)
+    }
+
+    func testCalculateLetsOriginalPostBodyUseFullRowWidthBelowHeader() {
+        let trait = FirePostLayoutTraitSignature(
+            contentWidthPixels: 320,
+            contentSizeCategory: UIContentSizeCategory.large.rawValue
+        )
+        let key = FirePostCellLayoutKey(
+            postID: 43,
+            depth: 0,
+            showsThreadLine: false,
+            showsDivider: false,
+            replyTargetPostNumber: nil,
+            replyContext: nil,
+            textContentID: "original",
+            imageSignature: ["image"],
+            pollSignature: [],
+            boostSignature: [],
+            hasReactions: false,
+            textExpansionState: .disabled,
+            acceptedAnswer: false,
+            hasAuthorMetadata: false,
+            trait: trait
+        )
+
+        let layout = FirePostCellLayoutCalculator.calculate(
+            key: key,
+            textHeight: 40,
+            imageSizes: [CGSize(width: 288, height: 162)],
+            trait: trait
+        )
+
+        XCTAssertEqual(layout.avatarFrame.minX, 16, accuracy: 0.01)
+        XCTAssertEqual(layout.metaFrame.minX, 58, accuracy: 0.01)
+        XCTAssertEqual(layout.textFrame?.minX ?? -.greatestFiniteMagnitude, 16, accuracy: 0.01)
+        XCTAssertEqual(layout.textFrame?.width ?? -.greatestFiniteMagnitude, 288, accuracy: 0.01)
+        XCTAssertEqual(layout.imageFrames.first?.minX ?? -.greatestFiniteMagnitude, 16, accuracy: 0.01)
+        XCTAssertEqual(layout.imageFrames.first?.width ?? -.greatestFiniteMagnitude, 288, accuracy: 0.01)
     }
 
     func testMeasureRichTextHeightGrowsAsAvailableWidthShrinks() {
@@ -88,7 +129,7 @@ final class FirePostCellLayoutCalculatorTests: XCTestCase {
         XCTAssertGreaterThan(narrowHeight ?? 0, wideHeight ?? 0)
     }
 
-    func testAvailableContentWidthAccountsForIndentAvatarAndOuterPadding() {
+    func testAvailableContentWidthAccountsForIndentAvatarAndOuterPaddingInReplies() {
         let trait = FirePostLayoutTraitSignature(
             contentWidthPixels: 360,
             contentSizeCategory: UIContentSizeCategory.large.rawValue
@@ -293,7 +334,7 @@ final class FirePostCellLayoutCalculatorTests: XCTestCase {
             FirePostCellLayoutCalculator.fixedBoostManualHeight,
             accuracy: 0.01
         )
-        XCTAssertGreaterThan(layout.reactionsFrame?.minY ?? 0, layout.boostFrames[0].maxY)
+        XCTAssertEqual(layout.reactionsFrame?.minY ?? 0, layout.boostFrames[0].maxY, accuracy: 0.01)
     }
 
     func testFixedBoostManualScrollerKeepsManyBoostsToTwoRows() {
@@ -326,6 +367,99 @@ final class FirePostCellLayoutCalculatorTests: XCTestCase {
 
         XCTAssertEqual(layout.boostFrames.count, 1)
         XCTAssertEqual(layout.boostFrames[0].height, FirePostCellLayoutCalculator.fixedBoostManualHeight, accuracy: 0.01)
+    }
+
+    func testFixedBoostManualScrollerUsesSingleRowHeightWhenBoostsFitOneRow() {
+        let trait = FirePostLayoutTraitSignature(contentWidthPixels: 360, contentSizeCategory: UIContentSizeCategory.large.rawValue)
+        let key = FirePostCellLayoutKey(
+            postID: 998,
+            depth: 1,
+            showsThreadLine: false,
+            showsDivider: true,
+            replyTargetPostNumber: nil,
+            replyContext: nil,
+            textContentID: "single-row-boosts",
+            imageSignature: [],
+            pollSignature: [],
+            boostSignature: ["boost-a"],
+            hasReactions: true,
+            textExpansionState: .disabled,
+            acceptedAnswer: false,
+            hasAuthorMetadata: false,
+            trait: trait
+        )
+
+        let layout = FirePostCellLayoutCalculator.calculate(
+            key: key,
+            textHeight: 40,
+            imageSizes: [],
+            boostLines: ["Short boost"],
+            trait: trait
+        )
+
+        XCTAssertEqual(layout.boostFrames.count, 1)
+        XCTAssertEqual(
+            layout.boostFrames[0].height,
+            FirePostCellLayoutCalculator.fixedBoostManualHeight(forUsedRowCount: 1),
+            accuracy: 0.01
+        )
+        XCTAssertEqual(layout.reactionsFrame?.minY ?? 0, layout.boostFrames[0].maxY, accuracy: 0.01)
+    }
+
+    func testManualBoostLayoutFillsFirstRowThenSecondBeforeHorizontalOverflow() {
+        let layout = FirePostBoostManualLayout.placements(
+            forChipWidths: [60, 70, 80, 90],
+            pageWidth: 200,
+            laneCount: 2
+        )
+
+        XCTAssertEqual(layout.placements.map(\.rowIndex), [0, 0, 1, 1])
+        XCTAssertEqual(layout.placements.count, 4)
+        XCTAssertEqual(layout.placements[0].x, 0, accuracy: 0.01)
+        XCTAssertEqual(layout.placements[1].x, 68, accuracy: 0.01)
+        XCTAssertEqual(layout.placements[2].x, 0, accuracy: 0.01)
+        XCTAssertEqual(layout.placements[3].x, 88, accuracy: 0.01)
+        XCTAssertEqual(layout.contentWidth, 200, accuracy: 0.01)
+        XCTAssertEqual(layout.usedRowCount, 2)
+    }
+
+    func testManualBoostLayoutDoesNotBackfillFirstRowAfterMovingToSecondRow() {
+        let layout = FirePostBoostManualLayout.placements(
+            forChipWidths: [160, 50, 20],
+            pageWidth: 200,
+            laneCount: 2
+        )
+
+        XCTAssertEqual(layout.placements.map(\.rowIndex), [0, 1, 1])
+        XCTAssertEqual(layout.placements[0].x, 0, accuracy: 0.01)
+        XCTAssertEqual(layout.placements[1].x, 0, accuracy: 0.01)
+        XCTAssertEqual(layout.placements[2].x, 58, accuracy: 0.01)
+        XCTAssertEqual(layout.contentWidth, 200, accuracy: 0.01)
+        XCTAssertEqual(layout.usedRowCount, 2)
+    }
+
+    func testManualBoostLayoutAddsOverflowAsNextTwoRowPage() {
+        let layout = FirePostBoostManualLayout.placements(
+            forChipWidths: [120, 70, 120, 70, 100],
+            pageWidth: 200,
+            laneCount: 2
+        )
+
+        XCTAssertEqual(layout.placements.map(\.rowIndex), [0, 0, 1, 1, 0])
+        XCTAssertEqual(layout.placements[4].x, 208, accuracy: 0.01)
+        XCTAssertGreaterThan(layout.contentWidth, 200)
+        XCTAssertEqual(layout.usedRowCount, 2)
+    }
+
+    func testManualBoostLayoutReportsSingleUsedRowWhenEverythingFitsFirstRow() {
+        let layout = FirePostBoostManualLayout.placements(
+            forChipWidths: [40, 50],
+            pageWidth: 200,
+            laneCount: 2
+        )
+
+        XCTAssertEqual(layout.placements.map(\.rowIndex), [0, 0])
+        XCTAssertEqual(layout.usedRowCount, 1)
     }
 
     func testBoostDisplayUsesBarrageOnlyForExpandedOriginalBodyText() {
@@ -380,9 +514,15 @@ final class FirePostCellLayoutCalculatorTests: XCTestCase {
     }
 
     func testBoostDisplayLineUsesOnlyBoostBody() {
-        let boost = makeBoost(username: "carol", displayText: "  Thanks for the detail  ")
+        let boost = makeBoost(username: "carol", displayText: "  @carol: Thanks for the detail  ")
 
         XCTAssertEqual(FirePostBoostDisplay.displayLine(for: boost), "Thanks for the detail")
+    }
+
+    func testBoostDisplayContentStripsRichTextAttributionPrefix() {
+        let boost = makeBoost(username: "carol", displayText: "@carol: Thanks for the detail")
+
+        XCTAssertEqual(FirePostBoostDisplay.displayContent(for: boost).string, "Thanks for the detail")
     }
 
     func testBodyBarrageBatchSignatureUsesVisibleNormalizedBoostBody() {
@@ -438,6 +578,11 @@ final class FirePostCellLayoutCalculatorTests: XCTestCase {
 
     func testFixedBoostManualScrollerHeightIsCompact() {
         XCTAssertEqual(FirePostCellLayoutCalculator.fixedBoostManualRows, 2)
+        XCTAssertEqual(
+            FirePostCellLayoutCalculator.fixedBoostManualHeight(forUsedRowCount: 1),
+            FirePostCellLayoutCalculator.fixedBoostManualRowHeight,
+            accuracy: 0.01
+        )
         XCTAssertEqual(FirePostCellLayoutCalculator.fixedBoostManualHeight, 54, accuracy: 0.01)
     }
 
@@ -753,6 +898,96 @@ final class FirePostCellLayoutCalculatorTests: XCTestCase {
         XCTAssertEqual(measuredLayout.size.height, calculatedLayout.totalHeight, accuracy: 2.5)
     }
 
+    func testTexturePostCellKeepsManualBoostFooterCompact() {
+        let width: CGFloat = 320
+        let boosts = [
+            makeBoost(id: 1, username: "carol", displayText: "@carol: First boost"),
+            makeBoost(id: 2, username: "dave", displayText: "@dave: Second boost"),
+        ]
+        let reactions = [
+            TopicReactionState(id: "heart", kind: nil, count: 2, canUndo: true),
+        ]
+        let renderContent = fireRenderContentFixture("<p>Reply body</p>")
+        let post = makePost(
+            id: 701,
+            postNumber: 8,
+            username: "alice",
+            reactions: reactions,
+            boosts: boosts
+        )
+        let node = FirePostCellNode()
+        node.configure(
+            payload: FirePostCellRenderPayload(
+                post: post,
+                renderContent: renderContent,
+                baseURLString: "https://linux.do",
+                canWriteInteractions: true,
+                isMutating: false,
+                replyContext: nil,
+                replyTargetPostNumber: nil,
+                textExpansionState: .disabled,
+                isSearchHighlighted: false,
+                showsDivider: false,
+                layoutWidth: width
+            ),
+            callbacks: noopCallbacks(),
+            depth: 1,
+            showsThreadLine: false,
+            showsDivider: false
+        )
+
+        let measuredLayout = node.layoutThatFits(ASSizeRange(
+            min: CGSize(width: width, height: 0),
+            max: CGSize(width: width, height: .greatestFiniteMagnitude)
+        ))
+        let trait = FirePostLayoutTraitSignature(
+            contentWidthPixels: Int(width.rounded()),
+            contentSizeCategory: UIContentSizeCategory.large.rawValue
+        )
+        let key = FirePostCellLayoutKey(
+            postID: post.id,
+            depth: 1,
+            showsThreadLine: false,
+            showsDivider: false,
+            replyTargetPostNumber: nil,
+            replyContext: nil,
+            textContentID: renderContent.signature.token,
+            imageSignature: [],
+            pollSignature: [],
+            boostSignature: boosts.map(FirePostBoostDisplay.contentSignature(for:)),
+            hasReactions: true,
+            textExpansionState: .disabled,
+            acceptedAnswer: false,
+            hasAuthorMetadata: false,
+            trait: trait
+        )
+        let textHeight = FirePostCellLayoutCalculator.measureRichTextHeight(
+            attributedText: renderContent.attributedText,
+            containerWidth: FirePostCellLayoutCalculator.availableContentWidth(for: key, trait: trait),
+            contentSizeCategory: .large
+        )
+        let calculatedLayout = FirePostCellLayoutCalculator.calculate(
+            key: key,
+            textHeight: textHeight,
+            imageSizes: [],
+            boostLines: FirePostBoostDisplay.fixedDisplayLines(
+                for: boosts,
+                depth: 1,
+                textExpansionState: .disabled,
+                hasBodyTextTarget: renderContent.hasBoostBarrageTextTarget
+            ),
+            trait: trait
+        )
+
+        XCTAssertEqual(calculatedLayout.boostFrames.count, 1)
+        XCTAssertEqual(
+            calculatedLayout.reactionsFrame?.minY ?? 0,
+            calculatedLayout.boostFrames[0].maxY,
+            accuracy: 0.01
+        )
+        XCTAssertEqual(measuredLayout.size.height, calculatedLayout.totalHeight, accuracy: 3.5)
+    }
+
     func testTexturePostCellKeepsCommentImageVisibleWhenCollapsedTextDoesNotOverflow() throws {
         let width: CGFloat = 320
         let image = FireCookedImage(
@@ -832,7 +1067,7 @@ final class FirePostCellLayoutCalculatorTests: XCTestCase {
         XCTAssertGreaterThan(measuredLayout.size.height, textOnlyLayout.size.height + 80)
     }
 
-    func testCommentImageRenderSizeIsScaledDownAndRootImagesRespectMaxHeight() throws {
+    func testOriginalImagesUsePostWidthAndCommentImagesStayCompact() throws {
         let image = FireCookedImage(
             url: try XCTUnwrap(URL(string: "https://linux.do/uploads/default/original/1x/sample.png")),
             altText: nil,
@@ -851,7 +1086,8 @@ final class FirePostCellLayoutCalculatorTests: XCTestCase {
             depth: 1
         )
 
-        XCTAssertEqual(rootSize.height, FirePostCellLayoutCalculator.topicImageMaxHeight, accuracy: 0.01)
+        XCTAssertEqual(rootSize.width, 320, accuracy: 0.01)
+        XCTAssertEqual(rootSize.height, CGFloat(320.0 / (776.0 / 1206.0)), accuracy: 0.01)
         XCTAssertLessThan(commentSize.width, rootSize.width)
         XCTAssertLessThanOrEqual(commentSize.height, FirePostCellLayoutCalculator.commentImageMaxHeight)
     }
@@ -910,7 +1146,8 @@ final class FirePostCellLayoutCalculatorTests: XCTestCase {
         postNumber: UInt32,
         username: String,
         authorMetadata: TopicPostAuthorMetadataState = fireEmptyPostAuthorMetadataState(),
-        reactions: [TopicReactionState] = []
+        reactions: [TopicReactionState] = [],
+        boosts: [TopicPostBoostState] = []
     ) -> TopicPostState {
         let cooked = "<p>\(username)</p>"
         return TopicPostState(
@@ -936,8 +1173,8 @@ final class FirePostCellLayoutCalculatorTests: XCTestCase {
             bookmarkReminderAt: nil,
             reactions: reactions,
             currentUserReaction: nil,
-            boosts: [],
-            canBoost: false,
+            boosts: boosts,
+            canBoost: !boosts.isEmpty,
             polls: [],
             acceptedAnswer: false,
             canAcceptAnswer: false,
@@ -1006,6 +1243,7 @@ final class FirePostCellLayoutCalculatorTests: XCTestCase {
             onRecoverPost: { _ in },
             onFlagPost: { _ in },
             onOpenReplyTarget: { _ in },
+            onOpenReplies: { _ in },
             onExpandText: { _ in },
             onVotePoll: { _, _, _ in },
             onUnvotePoll: { _, _ in },

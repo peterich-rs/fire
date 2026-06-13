@@ -85,10 +85,13 @@ hierarchy metadata plus the optional first-unread-root suggestion. It renders a
 loading footer. Load-more is driven only by the Rust source cursor over raw
 `post_stream.stream`, not by host-managed row windows.
 
-Topic detail always preserves Rust tree row order and indentation for Fire's
-reply-shaped reading experience. Android keeps this on the same RecyclerView,
-`ConcatAdapter`, and `PostListAdapter` path, without a parallel display
-projection or host-owned display source.
+Topic detail preserves Rust tree row order and indentation for Fire's
+reply-shaped reading experience, but defaults secondary and deeper replies to a
+root-row “查看更多 N 条回复” shortcut so deeply nested threads do not overwhelm
+the main reading flow. Explicit target post numbers keep their visible ancestry
+while scrolling to the target. Android keeps this on the same RecyclerView,
+`ConcatAdapter`, and `PostListAdapter` path, without a parallel source or
+host-owned display data model.
 
 When Rust returns `firstUnreadRootPostNumber`, Android consumes it only for the
 initial topic-detail load with no explicit notification/search/bookmark/share
@@ -161,14 +164,19 @@ Current topic-detail interactions:
   row binding path
 - original-post body, poll, Boost, and action surfaces use the same content
   width as the topic title instead of inheriting the reply avatar-column inset
-- Boost short replies render from Rust-owned `TopicPostBoostState.displayText`
-  and `renderDocument` as a body overlay/barrage for original posts with
-  visible body text, and as a fixed-height two-row manual horizontal chip
-  scroller for replies or posts without a body text target, without
-  Android-side Boost HTML parsing; overlay mode caps visible boosts to five
-  display lines, uses at most five lanes, and pauses/resumes animation timing
-  around active RecyclerView scrolling to avoid overlap and broad body-text
-  occlusion, while reply/comment Boost chips move only through user swipes
+- Boost short replies render as body-only content from Rust-owned
+  `TopicPostBoostState.displayText` and `renderDocument`, stripping leading
+  `@username:` attribution instead of showing or re-adding the Boost author
+  prefix. They use a body overlay/barrage for original posts with visible body
+  text, and a compact one-or-two-row manual horizontal chip scroller for
+  replies or posts without a body text target, without Android-side Boost HTML
+  parsing; manual chips fill the first row left-to-right, expand to the second
+  row only when needed, then continue as the next two-row horizontal page under
+  user swipes. Overlay mode caps visible boosts to five display lines, uses at
+  most five lanes, plays each post/Boost batch once before hiding, and
+  pauses/resumes animation timing around active RecyclerView scrolling to avoid
+  overlap and broad body-text occlusion, while reply/comment Boost chips move
+  only through user swipes
 - searchable full reaction picker from Rust-provided enabled reactions, with
   reaction-user lookup from both the rendered summary and picker rows
 - toolbar bell notification-level selection for non-private-message topics
@@ -193,6 +201,9 @@ Current topic-detail interactions:
   so live updates do not rebind the visible post list mid-scroll
 - identical refreshed detail / row payloads are now dropped before they hit the
   observable UI state, avoiding redundant header and post-list submissions
+- initial-load topic-detail failures render as a solid top error banner with
+  retry, while refresh, load-more, and MessageBus failures remain transient
+  toast errors so stale page-level errors do not float over later topics
 
 Current iOS/Rust expose topic voter lookup and poll counts/votes, but not a
 poll-option voter-list API or iOS poll-voter sheet; Android follows that same
@@ -214,7 +225,8 @@ Android now keeps request-failure handling single-path:
 - Foreground-capable `CloudflareChallenge` requests now go through a registered
   host-owned challenge Activity, which waits for a new `cf_clearance` and then
   returns the relevant browser cookies to Rust so Rust can retry the original
-  request once.
+  request once. The challenge Activity owns its edge-to-edge system bar insets
+  so the title and close action remain outside the status-bar touch area.
 - Background or silent `CloudflareChallenge` work does not steal focus; the
   platform returns an incomplete challenge result and Rust surfaces the error.
 - Rust marks the user-opened notification history request as foreground-capable

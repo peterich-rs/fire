@@ -1,13 +1,15 @@
 package com.fire.app.ui.topicdetail
 
+import android.animation.Animator
 import android.animation.ValueAnimator
-import android.graphics.Typeface
+import android.content.Context
+import android.content.res.ColorStateList
 import android.graphics.drawable.GradientDrawable
 import android.text.SpannableStringBuilder
 import android.text.Spanned
 import android.text.TextUtils
+import android.util.AttributeSet
 import android.text.style.ForegroundColorSpan
-import android.text.style.StyleSpan
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -49,6 +51,7 @@ class PostViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
     private val boostContainer: LinearLayout = itemView.findViewById(R.id.post_boost_container)
     private val boostBarrageContainer: FrameLayout = itemView.findViewById(R.id.post_boost_barrage_container)
     private val actionsScroll: HorizontalScrollView = itemView.findViewById(R.id.post_actions_scroll)
+    private val moreRepliesAction: TextView = itemView.findViewById(R.id.action_more_replies)
     private val likeAction: TextView = itemView.findViewById(R.id.action_like)
     private val reactAction: TextView = itemView.findViewById(R.id.action_react)
     private val replyAction: TextView = itemView.findViewById(R.id.action_reply)
@@ -60,6 +63,9 @@ class PostViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
     private val flagAction: TextView = itemView.findViewById(R.id.action_flag)
     private var boostBarrageStartRunnable: Runnable? = null
     private val boostBarrageAnimators = mutableListOf<ValueAnimator>()
+    private var boostBarrageSignature: String? = null
+    private var boostBarrageExpectedCompletions = 0
+    private var boostBarrageCompletedCount = 0
     private var bodyHasTextTarget: Boolean = false
     private var boostAnimationsEnabled = true
     private var isAttachedToWindow = false
@@ -112,7 +118,7 @@ class PostViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
         val replyToNumber = post.replyToPostNumber
         val parentPostNumber = row.parentPostNumber
         val effectiveReplyTarget = parentPostNumber ?: replyToNumber
-        if (effectiveReplyTarget != null && effectiveReplyTarget > 0u) {
+        if (effectiveReplyTarget != null && effectiveReplyTarget > 0u && effectiveReplyTarget != 1u) {
             val replyUsername = post.replyToUser?.username?.trim()?.ifBlank { null }
             replyContextText.visibility = View.VISIBLE
             replyContextText.text = if (replyUsername != null && parentPostNumber == null) {
@@ -146,23 +152,24 @@ class PostViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
 
         bindPolls(post, callbacks)
         bindBoosts(row)
+        bindMoreRepliesAction(row, callbacks)
 
         // Actions
         val likedByCurrentUser = post.currentUserReaction?.id == HEART_REACTION_ID
-        likeAction.text = context.getString(
-            if (likedByCurrentUser) {
-                R.string.topic_detail_unlike_post
-            } else {
-                R.string.topic_detail_like_post
-            },
-            post.likeCount.toString(),
-        )
-        likeAction.setTextColor(
-            context.getColor(
-                if (likedByCurrentUser) R.color.fire_accent else R.color.fire_text_secondary,
+        configureIconAction(
+            view = likeAction,
+            iconRes = R.drawable.ic_heart,
+            active = likedByCurrentUser,
+            contentDescription = context.getString(
+                if (likedByCurrentUser) {
+                    R.string.topic_detail_unlike_post
+                } else {
+                    R.string.topic_detail_like_post
+                },
+                post.likeCount.toString(),
             ),
+            onClick = { callbacks.onHeartClick(post) },
         )
-        likeAction.setOnClickListener { callbacks.onHeartClick(post) }
 
         val currentReactionId = post.currentUserReaction?.id?.trim()
         val currentCustomReactionId = currentReactionId
@@ -172,9 +179,7 @@ class PostViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
             .isNotEmpty()
         val canUndoCurrentReaction = post.currentUserReaction?.canUndo ?: true
         if (hasCustomReactionOptions) {
-            reactAction.visibility = View.VISIBLE
-            reactAction.isEnabled = canUndoCurrentReaction
-            reactAction.text = if (currentCustomReactionId != null) {
+            val reactionDescription = if (currentCustomReactionId != null) {
                 val option = ReactionPresentation.optionFor(currentCustomReactionId)
                 context.getString(
                     R.string.topic_detail_reaction_choice_selected,
@@ -183,40 +188,45 @@ class PostViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
             } else {
                 context.getString(R.string.topic_detail_react_post)
             }
-            reactAction.setTextColor(
-                context.getColor(
-                    if (currentCustomReactionId != null) R.color.fire_accent else R.color.fire_text_secondary,
-                ),
+            configureIconAction(
+                view = reactAction,
+                iconRes = R.drawable.ic_react,
+                active = currentCustomReactionId != null,
+                enabled = canUndoCurrentReaction,
+                contentDescription = reactionDescription,
+                onClick = { callbacks.onReactClick(post) },
             )
-            reactAction.setOnClickListener { callbacks.onReactClick(post) }
         } else {
-            reactAction.visibility = View.GONE
-            reactAction.setOnClickListener(null)
+            configureHiddenAction(reactAction)
         }
 
-        replyAction.text = if (post.replyCount > 0u) {
-            "${context.getString(R.string.topic_detail_reply_post)} (${post.replyCount})"
-        } else {
-            context.getString(R.string.topic_detail_reply_post)
-        }
-        replyAction.setOnClickListener { callbacks.onReplyClick(post) }
-
-        quoteAction.text = context.getString(R.string.topic_detail_quote_post)
-        quoteAction.setOnClickListener { callbacks.onQuoteClick(post) }
-
-        bookmarkAction.text = context.getString(
-            if (post.bookmarked) {
-                R.string.topic_detail_bookmark_post_active
-            } else {
-                R.string.topic_detail_bookmark_post
-            },
+        configureIconAction(
+            view = replyAction,
+            iconRes = R.drawable.ic_reply,
+            contentDescription = context.getString(R.string.topic_detail_reply_post),
+            onClick = { callbacks.onReplyClick(post) },
         )
-        bookmarkAction.setTextColor(
-            context.getColor(
-                if (post.bookmarked) R.color.fire_accent else R.color.fire_text_secondary,
+
+        configureIconAction(
+            view = quoteAction,
+            iconRes = R.drawable.ic_quote,
+            contentDescription = context.getString(R.string.topic_detail_quote_post),
+            onClick = { callbacks.onQuoteClick(post) },
+        )
+
+        configureIconAction(
+            view = bookmarkAction,
+            iconRes = if (post.bookmarked) R.drawable.ic_bookmark_filled else R.drawable.ic_bookmark,
+            active = post.bookmarked,
+            contentDescription = context.getString(
+                if (post.bookmarked) {
+                    R.string.topic_detail_bookmark_post_active
+                } else {
+                    R.string.topic_detail_bookmark_post
+                },
             ),
+            onClick = { callbacks.onBookmarkClick(post) },
         )
-        bookmarkAction.setOnClickListener { callbacks.onBookmarkClick(post) }
 
         if (post.reactions.isNotEmpty()) {
             reactionsAction.visibility = View.VISIBLE
@@ -231,36 +241,47 @@ class PostViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
         }
 
         if (post.canEdit) {
-            editAction.visibility = View.VISIBLE
-            editAction.setOnClickListener { callbacks.onEditPostClick(post) }
+            configureIconAction(
+                view = editAction,
+                iconRes = R.drawable.ic_edit,
+                contentDescription = context.getString(R.string.topic_detail_edit_post),
+                onClick = { callbacks.onEditPostClick(post) },
+            )
         } else {
-            editAction.visibility = View.GONE
-            editAction.setOnClickListener(null)
+            configureHiddenAction(editAction)
         }
 
         when {
             post.canRecover -> {
-                deleteRecoverAction.visibility = View.VISIBLE
-                deleteRecoverAction.text = context.getString(R.string.topic_detail_recover_post)
-                deleteRecoverAction.setOnClickListener { callbacks.onRecoverPostClick(post) }
+                configureIconAction(
+                    view = deleteRecoverAction,
+                    iconRes = R.drawable.ic_restore,
+                    contentDescription = context.getString(R.string.topic_detail_recover_post),
+                    onClick = { callbacks.onRecoverPostClick(post) },
+                )
             }
             post.canDelete -> {
-                deleteRecoverAction.visibility = View.VISIBLE
-                deleteRecoverAction.text = context.getString(R.string.topic_detail_delete_post)
-                deleteRecoverAction.setOnClickListener { callbacks.onDeletePostClick(post) }
+                configureIconAction(
+                    view = deleteRecoverAction,
+                    iconRes = R.drawable.ic_delete,
+                    contentDescription = context.getString(R.string.topic_detail_delete_post),
+                    onClick = { callbacks.onDeletePostClick(post) },
+                )
             }
             else -> {
-                deleteRecoverAction.visibility = View.GONE
-                deleteRecoverAction.setOnClickListener(null)
+                configureHiddenAction(deleteRecoverAction)
             }
         }
 
         if (!post.hidden) {
-            flagAction.visibility = View.VISIBLE
-            flagAction.setOnClickListener { callbacks.onFlagPostClick(post) }
+            configureIconAction(
+                view = flagAction,
+                iconRes = R.drawable.ic_flag,
+                contentDescription = context.getString(R.string.topic_detail_flag_post),
+                onClick = { callbacks.onFlagPostClick(post) },
+            )
         } else {
-            flagAction.visibility = View.GONE
-            flagAction.setOnClickListener(null)
+            configureHiddenAction(flagAction)
         }
 
         itemView.setOnClickListener { callbacks.onPostClick(post) }
@@ -296,6 +317,40 @@ class PostViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
         } else {
             itemView.background = itemView.getTag(R.id.tag_post_original_background) as? android.graphics.drawable.Drawable
         }
+    }
+
+    private fun configureIconAction(
+        view: TextView,
+        iconRes: Int,
+        contentDescription: String,
+        active: Boolean = false,
+        enabled: Boolean = true,
+        onClick: () -> Unit,
+    ) {
+        view.visibility = View.VISIBLE
+        view.text = null
+        view.contentDescription = contentDescription
+        view.isEnabled = enabled
+        view.alpha = if (enabled) 1f else 0.45f
+        view.gravity = android.view.Gravity.CENTER
+        view.includeFontPadding = false
+        view.setCompoundDrawablesRelativeWithIntrinsicBounds(iconRes, 0, 0, 0)
+        view.compoundDrawableTintList = ColorStateList.valueOf(
+            itemView.context.getColor(if (active) R.color.fire_accent else R.color.fire_text_secondary),
+        )
+        view.setTextColor(itemView.context.getColor(if (active) R.color.fire_accent else R.color.fire_text_secondary))
+        view.setOnClickListener(if (enabled) View.OnClickListener { onClick() } else null)
+    }
+
+    private fun configureHiddenAction(view: TextView) {
+        view.visibility = View.GONE
+        view.text = null
+        view.contentDescription = null
+        view.compoundDrawableTintList = null
+        view.setCompoundDrawablesRelativeWithIntrinsicBounds(0, 0, 0, 0)
+        view.setOnClickListener(null)
+        view.alpha = 1f
+        view.isEnabled = true
     }
 
     private fun bindPostBody(
@@ -393,18 +448,21 @@ class PostViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
         if (post.boosts.isEmpty()) {
             boostContainer.visibility = View.GONE
             boostBarrageContainer.visibility = View.GONE
+            applyActionsTopMargin(ACTIONS_DEFAULT_TOP_MARGIN_DP)
             return
         }
 
         if (TopicDetailPostRows.usesBoostBarrage(row) && bodyHasTextTarget) {
             boostContainer.visibility = View.GONE
-            bindBoostBarrage(post.boosts)
+            bindBoostBarrage(post)
+            applyActionsTopMargin(ACTIONS_DEFAULT_TOP_MARGIN_DP)
             return
         }
 
         boostBarrageContainer.visibility = View.GONE
         boostContainer.visibility = View.VISIBLE
         bindManualBoostScroller(post.boosts)
+        applyActionsTopMargin(0)
     }
 
     private fun bindManualBoostScroller(boosts: List<TopicPostBoostState>) {
@@ -414,57 +472,54 @@ class PostViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
             isVerticalScrollBarEnabled = false
             overScrollMode = View.OVER_SCROLL_IF_CONTENT_SCROLLS
             clipToPadding = false
+            isFillViewport = true
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT,
             )
         }
-        val rowsContainer = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
+        val rowsContainer = FixedBoostManualChipLayout(context).apply {
+            rowCount = FIXED_BOOST_MANUAL_ROWS
+            rowHeightPx = dp(FIXED_BOOST_MANUAL_ROW_HEIGHT_DP)
+            rowSpacingPx = dp(FIXED_BOOST_MANUAL_ROW_SPACING_DP)
+            chipHeightPx = dp(FIXED_BOOST_MANUAL_CHIP_HEIGHT_DP)
+            chipSpacingPx = dp(FIXED_BOOST_MANUAL_CHIP_SPACING_DP)
+            minChipWidthPx = dp(FIXED_BOOST_MANUAL_MIN_CHIP_WIDTH_DP)
             clipToPadding = false
             layoutParams = FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.WRAP_CONTENT,
+                FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.WRAP_CONTENT,
             )
         }
-        val manualRows = mutableListOf<LinearLayout>()
-        boosts.forEachIndexed { index, boost ->
-            val rowIndex = index % FIXED_BOOST_MANUAL_ROWS
-            val row = manualRows.getOrNull(rowIndex) ?: LinearLayout(context).apply {
-                orientation = LinearLayout.HORIZONTAL
-                clipToPadding = false
-                layoutParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    dp(FIXED_BOOST_MANUAL_ROW_HEIGHT_DP),
-                ).apply {
-                    if (manualRows.isNotEmpty()) topMargin = dp(4)
-                }
-                rowsContainer.addView(this)
-                manualRows += this
-            }
+        boosts.forEach { boost ->
             val boostView = boostChipView(
                 boost = boost,
                 textColor = context.getColor(R.color.fire_text_secondary),
                 backgroundColor = context.getColor(R.color.fire_boost_background),
                 heightDp = FIXED_BOOST_MANUAL_CHIP_HEIGHT_DP,
             ).apply {
-                layoutParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                layoutParams = ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
                     dp(FIXED_BOOST_MANUAL_CHIP_HEIGHT_DP),
-                ).apply {
-                    if (row.childCount > 0) marginStart = dp(8)
-                }
+                )
             }
-            row.addView(boostView)
+            rowsContainer.addView(boostView)
         }
         scroller.addView(rowsContainer)
         boostContainer.addView(scroller)
     }
 
-    private fun bindBoostBarrage(boosts: List<TopicPostBoostState>) {
+    private fun bindBoostBarrage(post: TopicPostState) {
         val context = itemView.context
+        val visibleBoosts = post.boosts.take(TopicDetailBoostPresentation.BODY_BARRAGE_VISIBLE_LINE_LIMIT)
+        val signature = boostBarrageSignature(post, visibleBoosts)
+        boostBarrageSignature = signature
+        if (visibleBoosts.isEmpty() || hasPlayedBoostBarrage(signature)) {
+            boostBarrageContainer.visibility = View.GONE
+            return
+        }
+
         boostBarrageContainer.visibility = View.VISIBLE
-        val visibleBoosts = boosts.take(TopicDetailBoostPresentation.BODY_BARRAGE_VISIBLE_LINE_LIMIT)
         visibleBoosts.forEach { boost ->
             val boostView = boostChipView(
                 boost = boost,
@@ -485,6 +540,25 @@ class PostViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
         boostBarrageContainer.post(startRunnable)
     }
 
+    private fun boostBarrageSignature(
+        post: TopicPostState,
+        boosts: List<TopicPostBoostState>,
+    ): String {
+        return buildString {
+            append(post.id)
+            boosts.forEach { boost ->
+                append('|')
+                append(boost.id)
+                append(':')
+                append(boost.displayText.hashCode())
+                append(':')
+                append(boost.cooked.hashCode())
+                append(':')
+                append(boost.renderDocument?.plainText?.hashCode() ?: 0)
+            }
+        }
+    }
+
     private fun boostChipView(
         boost: TopicPostBoostState,
         textColor: Int,
@@ -497,6 +571,7 @@ class PostViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
             maxLines = 1
             ellipsize = TextUtils.TruncateAt.END
             includeFontPadding = false
+            gravity = android.view.Gravity.CENTER_VERTICAL
             setPadding(dp(10), 0, dp(10), 0)
             background = GradientDrawable().apply {
                 cornerRadius = dp(heightDp / 2).toFloat()
@@ -516,11 +591,6 @@ class PostViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
     }
 
     private fun buildBoostChipText(boost: TopicPostBoostState, textColor: Int): Spanned {
-        val builder = SpannableStringBuilder()
-        val authorStart = builder.length
-        builder.append(boostAuthor(boost))
-        builder.setSpan(StyleSpan(Typeface.BOLD), authorStart, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-
         val content = boost.renderDocument?.let { FireRenderBlockBuilder.build(it) }
         val richText = content
             ?.nodes
@@ -536,15 +606,53 @@ class PostViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
             }
             ?.takeIf { it.isNotBlank() }
         val fallbackText = cleaned(boost.displayText)
-        when {
-            richText != null -> {
-                builder.append(": ")
-                builder.append(richText)
-            }
-            fallbackText != null -> builder.append(": ").append(fallbackText)
+        val builder = when {
+            richText != null -> stripLeadingBoostAttribution(richText, boost)
+            fallbackText != null -> SpannableStringBuilder(stripLeadingBoostAttribution(fallbackText, boost))
+            else -> SpannableStringBuilder()
         }
         builder.setSpan(ForegroundColorSpan(textColor), 0, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
         return builder
+    }
+
+    private fun stripLeadingBoostAttribution(
+        value: SpannableStringBuilder,
+        boost: TopicPostBoostState,
+    ): SpannableStringBuilder {
+        trimSpannable(value)
+        val plain = value.toString()
+        for (candidate in boostAttributionCandidates(boost)) {
+            val prefix = "$candidate:"
+            if (plain.startsWith(prefix, ignoreCase = true)) {
+                value.delete(0, prefix.length)
+                return trimSpannable(value)
+            }
+        }
+        val generic = BOOST_ATTRIBUTION_PREFIX_REGEX.find(plain)?.value
+        if (generic != null) {
+            value.delete(0, generic.length)
+            return trimSpannable(value)
+        }
+        return value
+    }
+
+    private fun stripLeadingBoostAttribution(value: String, boost: TopicPostBoostState): String {
+        val trimmed = value.trim()
+        for (candidate in boostAttributionCandidates(boost)) {
+            val prefix = "$candidate:"
+            if (trimmed.startsWith(prefix, ignoreCase = true)) {
+                return trimmed.drop(prefix.length).trim()
+            }
+        }
+        return BOOST_ATTRIBUTION_PREFIX_REGEX.replace(trimmed, "").trim()
+    }
+
+    private fun boostAttributionCandidates(boost: TopicPostBoostState): List<String> {
+        return listOfNotNull(
+            cleaned(boost.user.username)?.let { "@$it" },
+            cleaned(boost.user.username),
+            cleaned(boost.user.name),
+        ).distinctBy { it.lowercase() }
     }
 
     private fun trimSpannable(value: SpannableStringBuilder): SpannableStringBuilder {
@@ -557,11 +665,31 @@ class PostViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
         return value
     }
 
+    private fun bindMoreRepliesAction(row: PostRow, callbacks: PostRowCallbacks) {
+        val count = row.hiddenReplyCount
+        if (count == 0u) {
+            moreRepliesAction.visibility = View.GONE
+            moreRepliesAction.setOnClickListener(null)
+            applyActionStartMargin(likeAction, 0)
+            return
+        }
+
+        moreRepliesAction.visibility = View.VISIBLE
+        moreRepliesAction.text = itemView.context.getString(
+            R.string.topic_detail_load_more_replies_count,
+            count.toString(),
+        )
+        moreRepliesAction.setOnClickListener { callbacks.onMoreRepliesClick(row.post) }
+        applyActionStartMargin(likeAction, 16)
+    }
+
     private fun clearBoostBarrage() {
         boostBarrageStartRunnable?.let(boostBarrageContainer::removeCallbacks)
         boostBarrageStartRunnable = null
         boostBarrageAnimators.forEach { it.cancel() }
         boostBarrageAnimators.clear()
+        boostBarrageExpectedCompletions = 0
+        boostBarrageCompletedCount = 0
         for (index in 0 until boostBarrageContainer.childCount) {
             boostBarrageContainer.getChildAt(index).animate().cancel()
         }
@@ -578,6 +706,9 @@ class PostViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
         }
 
         val childCount = boostBarrageContainer.childCount
+        boostBarrageAnimators.clear()
+        boostBarrageExpectedCompletions = 0
+        boostBarrageCompletedCount = 0
         val laneHeight = dp(BARRAGE_CHIP_HEIGHT_DP)
         val laneGap = dp(BARRAGE_MIN_LANE_GAP_DP)
         val availableLaneCount = ((height + laneGap) / (laneHeight + laneGap))
@@ -627,16 +758,55 @@ class PostViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
             val animator = ValueAnimator.ofFloat(startX, endX).apply {
                 duration = BARRAGE_BASE_DURATION_MS + lane * BARRAGE_LANE_DURATION_STEP_MS
                 startDelay = laneStagger + roundStagger
-                repeatCount = ValueAnimator.INFINITE
-                repeatMode = ValueAnimator.RESTART
                 interpolator = LinearInterpolator()
                 addUpdateListener { animation ->
                     child.translationX = animation.animatedValue as Float
                     child.alpha = BARRAGE_START_ALPHA - animation.animatedFraction * BARRAGE_ALPHA_DELTA
                 }
+                addListener(object : Animator.AnimatorListener {
+                    private var canceled = false
+
+                    override fun onAnimationStart(animation: Animator) = Unit
+
+                    override fun onAnimationEnd(animation: Animator) {
+                        if (!canceled) {
+                            onBoostBarrageAnimatorFinished(animation)
+                        }
+                    }
+
+                    override fun onAnimationCancel(animation: Animator) {
+                        canceled = true
+                    }
+
+                    override fun onAnimationRepeat(animation: Animator) = Unit
+                })
             }
             boostBarrageAnimators.add(animator)
+            boostBarrageExpectedCompletions += 1
             animator.start()
+        }
+    }
+
+    private fun onBoostBarrageAnimatorFinished(animation: Animator) {
+        (animation as? ValueAnimator)?.let { boostBarrageAnimators.remove(it) }
+        boostBarrageCompletedCount += 1
+        if (boostBarrageExpectedCompletions <= 0 ||
+            boostBarrageCompletedCount < boostBarrageExpectedCompletions
+        ) {
+            return
+        }
+
+        val completedSignature = boostBarrageSignature ?: return
+        rememberPlayedBoostBarrage(completedSignature)
+        boostBarrageContainer.post {
+            if (boostBarrageSignature != completedSignature) return@post
+            boostBarrageStartRunnable?.let(boostBarrageContainer::removeCallbacks)
+            boostBarrageStartRunnable = null
+            boostBarrageAnimators.clear()
+            boostBarrageExpectedCompletions = 0
+            boostBarrageCompletedCount = 0
+            boostBarrageContainer.removeAllViews()
+            boostBarrageContainer.visibility = View.GONE
         }
     }
 
@@ -706,6 +876,22 @@ class PostViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
     }
 
     private fun applyStartMargin(view: View, marginDp: Int) {
+        val params = view.layoutParams as? ViewGroup.MarginLayoutParams ?: return
+        val marginPx = dp(marginDp)
+        if (params.marginStart == marginPx) return
+        params.marginStart = marginPx
+        view.layoutParams = params
+    }
+
+    private fun applyActionsTopMargin(marginDp: Int) {
+        val params = actionsScroll.layoutParams as? ViewGroup.MarginLayoutParams ?: return
+        val marginPx = dp(marginDp)
+        if (params.topMargin == marginPx) return
+        params.topMargin = marginPx
+        actionsScroll.layoutParams = params
+    }
+
+    private fun applyActionStartMargin(view: View, marginDp: Int) {
         val params = view.layoutParams as? ViewGroup.MarginLayoutParams ?: return
         val marginPx = dp(marginDp)
         if (params.marginStart == marginPx) return
@@ -883,10 +1069,30 @@ class PostViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
         private const val BARRAGE_START_ALPHA = 0.82f
         private const val BARRAGE_ALPHA_DELTA = 0.16f
         private const val BARRAGE_LAYOUT_RETRY_MS = 48L
+        private const val BARRAGE_PLAYED_CACHE_LIMIT = 256
         private const val FIXED_BOOST_MANUAL_ROWS = 2
         private const val FIXED_BOOST_MANUAL_ROW_HEIGHT_DP = 30
+        private const val FIXED_BOOST_MANUAL_ROW_SPACING_DP = 4
         private const val FIXED_BOOST_MANUAL_CHIP_HEIGHT_DP = 26
+        private const val FIXED_BOOST_MANUAL_CHIP_SPACING_DP = 8
+        private const val FIXED_BOOST_MANUAL_MIN_CHIP_WIDTH_DP = 48
         private const val POST_CONTENT_LEADING_MARGIN_DP = 46
+        private const val ACTIONS_DEFAULT_TOP_MARGIN_DP = 8
+        private val playedBoostBarrageSignatures = LinkedHashSet<String>()
+
+        private fun hasPlayedBoostBarrage(signature: String): Boolean {
+            return playedBoostBarrageSignatures.contains(signature)
+        }
+
+        private fun rememberPlayedBoostBarrage(signature: String) {
+            playedBoostBarrageSignatures.add(signature)
+            while (playedBoostBarrageSignatures.size > BARRAGE_PLAYED_CACHE_LIMIT) {
+                val iterator = playedBoostBarrageSignatures.iterator()
+                if (!iterator.hasNext()) return
+                iterator.next()
+                iterator.remove()
+            }
+        }
 
         fun create(parent: ViewGroup): PostViewHolder {
             val view = LayoutInflater.from(parent.context)
@@ -951,12 +1157,6 @@ class PostViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
             return AuthorMetadataChip("Lv.$label", R.color.fire_warning, R.color.fire_chip_warning_background)
         }
 
-        private fun boostAuthor(boost: TopicPostBoostState): String {
-            return cleaned(boost.user.username)?.let { "@$it" }
-                ?: cleaned(boost.user.name)
-                ?: "User ${boost.user.id}"
-        }
-
         private fun cleaned(value: String?): String? {
             return value?.trim()?.takeIf { it.isNotEmpty() }
         }
@@ -981,6 +1181,7 @@ class PostViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
         private const val MAX_CHIP_LABEL_LENGTH = 10
         private const val MAX_SECONDARY_LABEL_LENGTH = 16
         private val TRUST_LEVEL_REGEX = Regex("""(?i)(?:trust\s*level|tl|level|等级)\D*(\d+)""")
+        private val BOOST_ATTRIBUTION_PREFIX_REGEX = Regex("""^@?[^\s:：]{1,40}[:：]\s*""")
     }
 }
 
@@ -989,3 +1190,115 @@ private data class AuthorMetadataChip(
     val textColorRes: Int,
     val backgroundColorRes: Int,
 )
+
+private class FixedBoostManualChipLayout @JvmOverloads constructor(
+    context: Context,
+    attrs: AttributeSet? = null,
+) : ViewGroup(context, attrs) {
+
+    var rowCount: Int = 2
+    var rowHeightPx: Int = 0
+    var rowSpacingPx: Int = 0
+    var chipHeightPx: Int = 0
+    var chipSpacingPx: Int = 0
+    var minChipWidthPx: Int = 0
+
+    private var measuredChipWidths: IntArray = IntArray(0)
+    private var layoutResult = TopicDetailManualBoostLayoutResult(
+        placements = emptyList(),
+        contentWidth = 0,
+        usedRowCount = 0,
+    )
+
+    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        val viewportWidth = resolvedViewportWidth(widthMeasureSpec)
+        val maxChipWidth = (viewportWidth * MAX_CHIP_WIDTH_RATIO).toInt().coerceAtLeast(1)
+        val resolvedChipHeight = chipHeightPx.coerceAtLeast(1)
+        val childHeightSpec = MeasureSpec.makeMeasureSpec(resolvedChipHeight, MeasureSpec.EXACTLY)
+        val childWidthSpec = MeasureSpec.makeMeasureSpec(maxChipWidth, MeasureSpec.AT_MOST)
+        val widths = IntArray(childCount)
+
+        for (index in 0 until childCount) {
+            val child = getChildAt(index)
+            if (child.visibility == GONE) {
+                widths[index] = 0
+                continue
+            }
+            child.measure(childWidthSpec, childHeightSpec)
+            widths[index] = child.measuredWidth.coerceIn(minChipWidthPx.coerceAtLeast(1), maxChipWidth)
+            child.measure(
+                MeasureSpec.makeMeasureSpec(widths[index], MeasureSpec.EXACTLY),
+                childHeightSpec,
+            )
+        }
+
+        measuredChipWidths = widths
+        layoutResult = TopicDetailManualBoostLayout.placements(
+            chipWidths = widths.filter { it > 0 },
+            pageWidth = viewportWidth,
+            rowCount = rowCount,
+            chipSpacing = chipSpacingPx,
+        )
+
+        val resolvedRowCount = layoutResult.usedRowCount.coerceIn(0, rowCount.coerceAtLeast(1))
+        val resolvedRowHeight = rowHeightPx.coerceAtLeast(resolvedChipHeight)
+        val measuredHeight = if (resolvedRowCount == 0) {
+            0
+        } else {
+            resolvedRowCount * resolvedRowHeight +
+                (resolvedRowCount - 1) * rowSpacingPx
+        }
+        setMeasuredDimension(
+            layoutResult.contentWidth.coerceAtLeast(viewportWidth),
+            resolveSize(measuredHeight, heightMeasureSpec),
+        )
+    }
+
+    override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
+        val resolvedRowHeight = rowHeightPx.coerceAtLeast(chipHeightPx.coerceAtLeast(1))
+        var placementIndex = 0
+        for (index in 0 until childCount) {
+            val child = getChildAt(index)
+            if (child.visibility == GONE) continue
+            val placement = layoutResult.placements.getOrNull(placementIndex) ?: break
+            val width = measuredChipWidths.getOrNull(index)?.takeIf { it > 0 } ?: child.measuredWidth
+            val childTop = placement.rowIndex * (resolvedRowHeight + rowSpacingPx) +
+                ((resolvedRowHeight - child.measuredHeight).coerceAtLeast(0) / 2)
+            child.layout(
+                placement.x,
+                childTop,
+                placement.x + width,
+                childTop + child.measuredHeight,
+            )
+            placementIndex += 1
+        }
+    }
+
+    override fun generateDefaultLayoutParams(): LayoutParams {
+        return LayoutParams(LayoutParams.WRAP_CONTENT, chipHeightPx.coerceAtLeast(1))
+    }
+
+    override fun generateLayoutParams(attrs: AttributeSet): LayoutParams {
+        return LayoutParams(context, attrs)
+    }
+
+    override fun generateLayoutParams(params: LayoutParams): LayoutParams {
+        return LayoutParams(params)
+    }
+
+    override fun checkLayoutParams(params: LayoutParams): Boolean {
+        return true
+    }
+
+    private fun resolvedViewportWidth(widthMeasureSpec: Int): Int {
+        val specWidth = MeasureSpec.getSize(widthMeasureSpec)
+        if (specWidth > 0) return specWidth
+        val parentWidth = (parent as? View)?.width ?: 0
+        if (parentWidth > 0) return parentWidth
+        return resources.displayMetrics.widthPixels.coerceAtLeast(1)
+    }
+
+    private companion object {
+        private const val MAX_CHIP_WIDTH_RATIO = 0.72f
+    }
+}

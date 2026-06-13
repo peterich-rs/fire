@@ -66,6 +66,12 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         isPostTextExpanded: { [weak self] postID in
             self?.expandedPostTextIDs.contains(postID) ?? false
         },
+        isReplyThreadExpanded: { [weak self] postID in
+            self?.expandedReplyRootPostIDs.contains(postID) ?? false
+        },
+        isLoadingPostReplyContext: { [weak self] postID in
+            self?.topicDetailStore.isLoadingPostReplyContext(postID: postID) ?? false
+        },
         onVisiblePostNumbersChanged: { [weak self] visiblePostNumbers in
             self?.handleVisiblePostNumbersChanged(visiblePostNumbers)
         },
@@ -95,6 +101,9 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         },
         onOpenPostNumber: { [weak self] postNumber in
             self?.openPostNumber(postNumber)
+        },
+        onOpenPostReplies: { [weak self] post in
+            self?.openPostReplies(for: post)
         },
         onLinkTapped: { [weak self] url in
             self?.handleRichTextLink(url)
@@ -167,6 +176,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
     private var cancellables = Set<AnyCancellable>()
 
     private var expandedPostTextIDs: Set<UInt64> = []
+    private var expandedReplyRootPostIDs: Set<UInt64> = []
     private var composerContext: FireReplyComposerContext?
     private var replyDraft = ""
     private var quickReplyError: String?
@@ -799,7 +809,9 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
     private func buildCurrentInteractionState() -> FireTopicDetailInteractionState {
         FireTopicDetailInteractionState(
             mutatingPostIDs: topicDetailStore.mutatingPostIDs,
-            expandedPostTextIDs: expandedPostTextIDs
+            loadingPostReplyContextIDs: topicDetailStore.loadingPostReplyContextIDs,
+            expandedPostTextIDs: expandedPostTextIDs,
+            expandedReplyRootPostIDs: expandedReplyRootPostIDs
         )
     }
 
@@ -853,7 +865,8 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
                 canWriteInteractions: state.route.canWriteInteractions,
                 currentUsername: state.route.currentUsername ?? "",
                 baseURLString: state.route.baseURLString,
-                activeSearchPostID: activeTopicSearchMatch?.postID
+                activeSearchPostID: activeTopicSearchMatch?.postID,
+                expandedReplyRootPostIDs: state.interaction.expandedReplyRootPostIDs
             )),
             interactions: runtimeInteractions
         )
@@ -1100,6 +1113,17 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         guard postNumber > 0 else { return }
         Task {
             await loadTopicDetail(targetPostNumber: postNumber)
+        }
+    }
+
+    private func openPostReplies(for post: TopicPostState) {
+        expandedReplyRootPostIDs.insert(post.id)
+        buildAndApplySnapshot()
+        Task {
+            await topicDetailStore.loadPostReplyContextIfNeeded(
+                topicID: topic.id,
+                post: post
+            )
         }
     }
 

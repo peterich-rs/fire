@@ -42,7 +42,7 @@ struct FireNotificationHistoryView: View {
         .refreshable {
             await notificationStore.loadFullPage(offset: nil)
         }
-        .navigationDestination(item: $selectedRoute) { route in
+        .fireNavigationDestination(item: $selectedRoute) { route in
             FireAppRouteDestinationView(viewModel: appViewModel, route: route)
                 .fireNavigationPush(
                     sourceID: route.id,

@@ -204,31 +204,44 @@ login or a legacy recovery WebView from platform code.
 | Item | Choice |
 |---|---|
 | Language | Swift 5.10+ |
-| Minimum version | iOS 17 |
+| Minimum version | iOS 16 |
 | UI framework | UIKit + Texture (AsyncDisplayKit) |
 | Architecture | MVVM |
 | Image loading | **Nuke** (upper-layer scheduling + transitions + prefetch), **Rust** (lower-layer decode + cache) |
 | Build | XcodeGen |
 | FFI | UniFFI static library + generated Swift code |
 
-### 3.2 SwiftUI Migration Strategy
+### 3.2 UIKit/AppKit Migration Strategy
 
-Existing SwiftUI screens will migrate progressively to UIKit + Texture. SwiftUI will ultimately be reduced to a minimal shell for `@main` and the tab container.
+Fire supports iOS 16 and treats UIKit + Texture as the authoritative production
+iOS runtime. SwiftUI is allowed only where the platform requires it
+(WidgetKit), where the surface is explicitly secondary tooling (Developer
+Tools), or as a short-lived bridge while a screen is actively being migrated.
+
+Existing SwiftUI screens will migrate progressively to UIKit + Texture. The app
+root, tab shell, login/onboarding flow, production navigation, and high-traffic
+content surfaces must not depend on SwiftUI once their migration phase lands.
+AppKit support should consume the same Rust snapshots and command contracts as
+UIKit rather than introducing a second product logic path.
 
 | Phase | Scope | Target |
 |---|---|---|
 | 1 | Topic detail | Already Texture-based |
-| 2 | Home feed, notifications, search | Texture `ASCollectionNode` |
-| 3 | Profile, bookmarks, messages | UIKit `UICollectionView` |
-| 4 | Composer, onboarding/login | UIKit |
-| Final | App entry + tab container | Minimal SwiftUI shell only |
+| 2 | iOS 16 compatibility and root contract | Deployment target, verifier, and iOS 16-safe host utilities |
+| 3 | App root, tab shell, production navigation | UIKit `UIWindowScene` + `UITabBarController` + `UINavigationController` |
+| 4 | Home feed, notifications, search | UIKit/Texture list runtime |
+| 5 | Profile, bookmarks, messages | UIKit collection/list controllers |
+| 6 | Composer, onboarding/login | UIKit |
+| Final | Production SwiftUI removal | SwiftUI limited to WidgetKit, Developer Tools, and explicitly tracked transitional bridges |
 
 ### 3.3 Directory Structure
 
 ```
 native/ios-app/
   App/
-    FireApp.swift                        # @main entry, minimal SwiftUI shell
+    FireApp.swift                        # Transitional SwiftUI entry until the UIKit root lands
+    FireSceneDelegate.swift              # Target UIKit scene/root owner
+    FireMainTabBarController.swift       # Target authenticated tab shell
     AppDelegate.swift                    # Lifecycle, push registration
 
     Core/
@@ -965,13 +978,14 @@ Advantages:
 - iOS Store switches from polling to receiving pushes
 - Android ViewModel switches from polling to receiving pushes
 
-### Phase 4: SwiftUI Elimination (4-6 weeks)
+### Phase 4: Production SwiftUI Elimination (4-6 weeks)
 
-- Home topic list → Texture `ASCollectionNode`
-- Notifications / Search → Texture `ASCollectionNode`
+- App root / tab shell / production navigation → UIKit
+- Home topic list → UIKit/Texture list runtime
+- Notifications / Search → UIKit/Texture list runtime
 - Profile / Bookmarks / Messages → UIKit
-- Composer → UIKit
-- SwiftUI only retains `@main` shell
+- Composer / onboarding / login → UIKit
+- SwiftUI remains only for WidgetKit, Developer Tools, and tracked transitional bridges
 
 ### Phase 5: Android Alignment (3-4 weeks)
 

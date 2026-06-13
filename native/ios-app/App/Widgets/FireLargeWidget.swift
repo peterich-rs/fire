@@ -7,9 +7,7 @@ struct FireLargeWidget: Widget {
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: kind, provider: FireWidgetProvider()) { entry in
             FireLargeWidgetView(entry: entry)
-                .containerBackground(for: .widget) {
-                    Color.fireWidgetBackground
-                }
+                .fireWidgetContainerBackground()
         }
         .configurationDisplayName("Fire Timeline")
         .description("View a timeline of recent topics and unread notifications.")

@@ -132,26 +132,26 @@ struct FireHomeView: View {
         .task {
             await homeFeedStore.refreshTopicsIfPossible(force: false)
         }
-        .onChange(of: navigationState.pendingRoute) { _, route in
+        .onChange(of: navigationState.pendingRoute) { route in
             consumePendingRouteIfVisible(route)
         }
-        .onChange(of: navigationState.pendingSearchQuery) { _, query in
+        .onChange(of: navigationState.pendingSearchQuery) { query in
             consumePendingSearchQuery(query)
         }
-        .onChange(of: navigationState.selectedTab) { _, selectedTab in
+        .onChange(of: navigationState.selectedTab) { selectedTab in
             guard selectedTab == 0 else { return }
             consumePendingSearchQuery(navigationState.pendingSearchQuery)
         }
-        .onChange(of: homeFeedStore.selectedTopicKind) { _, _ in
+        .onChange(of: homeFeedStore.selectedTopicKind) { _ in
             resetPaginationTracking()
         }
-        .onChange(of: homeFeedStore.selectedHomeCategoryId) { _, _ in
+        .onChange(of: homeFeedStore.selectedHomeCategoryId) { _ in
             resetPaginationTracking()
         }
-        .onChange(of: homeFeedStore.selectedHomeTags) { _, _ in
+        .onChange(of: homeFeedStore.selectedHomeTags) { _ in
             resetPaginationTracking()
         }
-        .onChange(of: homeFeedStore.currentScopeNextTopicsPage) { _, nextPage in
+        .onChange(of: homeFeedStore.currentScopeNextTopicsPage) { nextPage in
             guard let nextPage else {
                 lastTriggeredTopicsPage = nil
                 return
@@ -161,12 +161,12 @@ struct FireHomeView: View {
                 self.lastTriggeredTopicsPage = nil
             }
         }
-        .onChange(of: homeFeedStore.topicLoadErrorMessage) { _, message in
+        .onChange(of: homeFeedStore.topicLoadErrorMessage) { message in
             if message != nil {
                 lastTriggeredTopicsPage = nil
             }
         }
-        .onChange(of: composerNotice) { _, message in
+        .onChange(of: composerNotice) { message in
             showToast(message, style: .info)
         }
         .sheet(isPresented: $showCategoryBrowser) {

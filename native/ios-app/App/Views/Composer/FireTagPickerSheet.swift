@@ -46,7 +46,7 @@ struct FireTagPickerSheet: View {
                 .listStyle(.plain)
             }
             .searchable(text: $searchText, prompt: "搜索标签…")
-            .onChange(of: searchText) { _, newValue in
+            .onChange(of: searchText) { newValue in
                 performSearch(query: newValue)
             }
             .navigationTitle("添加标签")

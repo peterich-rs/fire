@@ -100,7 +100,7 @@ private struct FireToastModifier: ViewModifier {
                 }
             }
             .animation(.easeOut(duration: 0.25), value: toast)
-            .onChange(of: toast) { _, newToast in
+            .onChange(of: toast) { newToast in
                 scheduleDismiss(for: newToast)
             }
             .onDisappear {

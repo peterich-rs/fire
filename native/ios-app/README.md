@@ -1,6 +1,6 @@
 # iOS Native App
 
-This directory now contains a runnable iOS host shell backed by generated
+This directory now contains a runnable iOS 16+ host shell backed by generated
 UniFFI Swift bindings and a Rust static library built during Xcode pre-build.
 
 The generated artifacts are written into
@@ -84,7 +84,8 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
   - enables back/forward swipe gestures on the embedded `WKWebView`
   - avoids mutating observed browser state from `UIViewRepresentable.updateUIView`, so SwiftUI updates do not loop back into `WKWebView` host state and freeze the login entry flow
 - `App/FireApp.swift`
-  - owns app-level URL opening and routes both `fire://...` custom schemes and LinuxDo universal links into the shared typed in-app route model before SwiftUI screens load
+  - currently owns the transitional SwiftUI entry point while the UIKit root shell is being introduced
+  - owns app-level URL opening and routes both `fire://...` custom schemes and LinuxDo universal links into the shared typed in-app route model before production screens load
 - `App/Routing/`
   - defines the typed `FireAppRoute` model, route parser, and shared destination view used by external URL opens, notification taps, and in-app search / notification navigation
   - topic routes opened from the authenticated tab shell are promoted to a single-flight app-root full-screen `UINavigationController` presentation instead of pushing inside a tab-owned `NavigationStack`, so topic detail is a separate page that preserves controller-owned back/share/navigation chrome without inheriting or hiding the current tab bar/navigation bar
@@ -107,7 +108,7 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
 - `App/FireMessageBusCoordinator.swift`
   - buffers and coalesces foreground MessageBus bursts before MainActor delivery so topic/detail/notification spikes no longer spawn one task per event on iOS
 - `App/FireMotion/`
-  - centralizes SwiftUI motion and haptic feedback through `FireMotionEffects`, including success/error/selection/impact sensory feedback modifiers plus a small UIKit bridge for Texture topic-detail cells
+  - centralizes motion and haptic feedback through `FireMotionEffects`, using iOS 16-compatible UIKit feedback generators for transitional SwiftUI surfaces plus the same small UIKit bridge for Texture topic-detail cells
 - `App/Stores/FireHomeFeedStore.swift`
   - owns selected feed kind, selected category/tags, paginated home rows, and bootstrap-derived category/tag metadata for the authenticated home shell
   - applies MessageBus-driven home refreshes only as incremental entity patching while the home list surface is actually foreground-visible and the app scene is active, instead of falling back to whole-array replacement or pulling from background/off-screen pages
@@ -174,6 +175,7 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
   - exposes host-owned notification permission / APNs registration state and the locally cached device token for production-readiness checks
   - exports both the Rust-owned diagnostics bundle and a host-owned full APM `.zip` archive containing local crash / MetricKit / route / span artifacts for share-sheet based escalation during beta, auto-presenting the share sheet after full APM export completes
 - `App/FireTabRoot.swift`
+  - is the transitional SwiftUI root container until `FireMainTabBarController` / UIKit scene ownership lands
   - instantiates the authenticated-shell store graph (`FireHomeFeedStore`, `FireSearchStore`, `FireNotificationStore`, `FireTopicDetailStore`, `FireProfileViewModel`) around one shared `FireAppViewModel`
   - injects home/topic-detail stores through the SwiftUI environment so those screens observe scoped feature state instead of the app-wide root object
   - forwards scene-phase transitions into shared diagnostics lifecycle logging, re-syncs APNs registration state for authenticated sessions, flushes logs before `inactive` / `background` so exported diagnostics stay durable, and keeps the current top-level route synchronized into the host-owned APM runtime

@@ -200,7 +200,7 @@ struct FireReadHistoryView: View {
         .background(FireTheme.canvasTop)
         .navigationTitle("浏览历史")
         .navigationBarTitleDisplayMode(.inline)
-        .navigationDestination(item: $selectedRoute) { route in
+        .fireNavigationDestination(item: $selectedRoute) { route in
             FireAppRouteDestinationView(viewModel: viewModel, route: route)
         }
         .task {
@@ -237,7 +237,7 @@ struct FireReadHistoryView: View {
                 }
             )
         }
-        .onChange(of: topicActionNotice) { _, message in
+        .onChange(of: topicActionNotice) { message in
             guard let message,
                   !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 return

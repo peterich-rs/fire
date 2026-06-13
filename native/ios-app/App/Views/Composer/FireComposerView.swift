@@ -940,21 +940,21 @@ struct FireComposerView: View {
         .task {
             await loadInitialComposerState()
         }
-        .onChange(of: selectedPhoto) { _, item in
+        .onChange(of: selectedPhoto) { item in
             guard let item else { return }
             handleSelectedPhoto(item)
         }
-        .onChange(of: title) { _, _ in
+        .onChange(of: title) { _ in
             errorMessage = nil
             scheduleAutosave()
         }
-        .onChange(of: bodyText) { _, _ in
+        .onChange(of: bodyText) { _ in
             errorMessage = nil
             updateMentionSearch()
             scheduleAutosave()
             resolveShortUploadsIfNeeded()
         }
-        .onChange(of: selectedCategoryID) { _, _ in
+        .onChange(of: selectedCategoryID) { _ in
             errorMessage = nil
             if tagInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 tagResults = []
@@ -963,14 +963,14 @@ struct FireComposerView: View {
             }
             scheduleAutosave()
         }
-        .onChange(of: selectedTags) { _, _ in
+        .onChange(of: selectedTags) { _ in
             errorMessage = nil
             scheduleAutosave()
         }
-        .onChange(of: tagInput) { _, newValue in
+        .onChange(of: tagInput) { newValue in
             performTagSearch(query: newValue)
         }
-        .onChange(of: recipientQuery) { _, newValue in
+        .onChange(of: recipientQuery) { newValue in
             performRecipientSearch(query: newValue)
         }
         .onDisappear {

@@ -312,7 +312,7 @@ struct FirePrivateMessagesView: View {
         .background(FireTheme.canvasTop)
         .navigationTitle("私信")
         .navigationBarTitleDisplayMode(.inline)
-        .navigationDestination(item: $selectedRoute) { route in
+        .fireNavigationDestination(item: $selectedRoute) { route in
             FireAppRouteDestinationView(viewModel: viewModel, route: route)
         }
         .toolbar {
@@ -352,7 +352,7 @@ struct FirePrivateMessagesView: View {
                 )
             }
         }
-        .onChange(of: composerNotice) { _, message in
+        .onChange(of: composerNotice) { message in
             guard let message,
                   !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 return

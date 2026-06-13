@@ -120,14 +120,34 @@ require_no_source_reference_imports() {
   fi
 }
 
+require_no_ios_app_source_pattern() {
+  local label="$1"
+  local pattern="$2"
+
+  if rg -q -g '*.swift' "$pattern" native/ios-app/App; then
+    fail "$label: forbidden pattern found: $pattern"
+    rg -n -g '*.swift' "$pattern" native/ios-app/App >&2 || true
+  else
+    pass "$label: forbidden pattern absent from iOS app source"
+  fi
+}
+
 echo "==> Platform minimums"
-require_pattern_count "iOS app/widget/test deployment targets" "native/ios-app/project.yml" 'deploymentTarget: "17\.0"' 3
-require_pattern "iOS architecture document minimum" "docs/architecture/fire-native-architecture.md" '\| Minimum version \| iOS 17 \|'
+require_pattern_count "iOS app/widget/test deployment targets" "native/ios-app/project.yml" 'deploymentTarget: "16\.0"' 3
+require_pattern "iOS architecture document minimum" "docs/architecture/fire-native-architecture.md" '\| Minimum version \| iOS 16 \|'
 require_pattern "Android min SDK" "native/android-app/build.gradle.kts" 'minSdk = 26'
 require_pattern "Android target SDK" "native/android-app/build.gradle.kts" 'targetSdk = 35'
 require_pattern "Android compile SDK" "native/android-app/build.gradle.kts" 'compileSdk = 35'
 require_pattern "Android architecture document minimum" "docs/architecture/fire-native-architecture.md" '\| Minimum version \| API 26 \(Android 8\.0\) \|'
 require_pattern "Android architecture document target" "docs/architecture/fire-native-architecture.md" '\| Target version \| API 35 \|'
+
+echo
+echo "==> iOS 16 source compatibility guardrails"
+require_no_ios_app_source_pattern "iOS app source avoids iOS 17 SwiftUI sensoryFeedback" 'sensoryFeedback'
+require_no_ios_app_source_pattern "iOS app source avoids iOS 17 two-parameter onChange closures" '\.onChange\(of:[^\n]+\) \{ _,'
+require_no_ios_app_source_pattern "iOS app source avoids iOS 17 navigationDestination item overload" '\.navigationDestination\(item:'
+require_no_ios_app_source_pattern "iOS app source avoids iOS 17 ContentUnavailableView" 'ContentUnavailableView'
+require_no_ios_app_source_pattern "iOS app source avoids iOS 17 transaction value overload" '\.transaction\(value:'
 
 echo
 echo "==> Platform-owned browser, cookie, and store boundaries"
@@ -145,7 +165,7 @@ require_pattern "Android keystore credential store" "native/android-app/src/main
 
 echo
 echo "==> Rust-owned core and UniFFI orchestration"
-require_pattern "Rust core owns openwire dependency" "Cargo.toml" 'openwire = \{ version = "0\.1\.0"'
+require_pattern "Rust core owns openwire dependency" "Cargo.toml" 'openwire = \{ version = "0\.1\.1"'
 require_pattern "Rust core owns xlog dependency" "Cargo.toml" 'mars-xlog = \{ version = "0\.1\.0-preview\.2"'
 require_pattern "fire-core depends on openwire through workspace" "rust/crates/fire-core/Cargo.toml" 'openwire\.workspace = true'
 require_pattern "fire-core depends on xlog through workspace" "rust/crates/fire-core/Cargo.toml" 'mars-xlog\.workspace = true'

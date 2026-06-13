@@ -401,7 +401,7 @@ struct FireAuthScreen: View {
             .onAppear {
                 viewModel.setAPMRoute(route)
             }
-            .onChange(of: scenePhase) { _, phase in
+            .onChange(of: scenePhase) { phase in
                 guard phase == .active, let webView = webViewBox.webView else {
                     return
                 }
@@ -410,7 +410,7 @@ struct FireAuthScreen: View {
                     viewModel.refreshLoginSyncReadiness(from: webView)
                 }
             }
-            .onChange(of: webViewBox.isLoading) { _, isLoading in
+            .onChange(of: webViewBox.isLoading) { isLoading in
                 guard let webView = webViewBox.webView else {
                     return
                 }

@@ -1673,9 +1673,9 @@ checksum = "7c87def4c32ab89d880effc9e097653c8da5d6ef28e6b539d313baaacfbafcbe"
 
 [[package]]
 name = "openwire"
-version = "0.1.0"
+version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c4cf50859f433b9036073c77d839ceefbdce832a612edd5c2f1d6a8c27761f36"
+checksum = "53ed60b58519d54e26da24f5f5956f32317af96cc199275dd420b34b6d4f95be"
 dependencies = [
  "async-compression",
  "base64",
@@ -1687,6 +1687,7 @@ dependencies = [
  "http",
  "http-body",
  "http-body-util",
+ "httpdate",
  "hyper",
  "openwire-core",
  "openwire-rustls",
@@ -1701,9 +1702,9 @@ dependencies = [
 
 [[package]]
 name = "openwire-core"
-version = "0.1.0"
+version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e99debd4a5ae2cac5edfc51f983fb642d296d0defe5d4b786609ff0a2b120a68"
+checksum = "8157ea0334cc4de6548615f0fece00e026e6da8c8687f9f123dd3d674e4c83e6"
 dependencies = [
  "bytes",
  "futures-core",
@@ -1723,9 +1724,9 @@ dependencies = [
 
 [[package]]
 name = "openwire-rustls"
-version = "0.1.0"
+version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c514d502c2c783079a4621a2531573d77f6a4d452684490ce82a55458f63029f"
+checksum = "a1d712b1e3ef4d9fa444e3ef6c687c8f5dd47dab829a9ef1164f77286c93788b"
 dependencies = [
  "bytes",
  "futures-util",
@@ -1746,9 +1747,9 @@ dependencies = [
 
 [[package]]
 name = "openwire-tokio"
-version = "0.1.0"
+version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "72b806b7473168be8df3882c848bfc56f2ebed9aa9f5998c463ef5a30e18171e"
+checksum = "caec0e7a57f34b9677c248ed32870aeb606de6105450d2bba8ec26766bea01a5"
 dependencies = [
  "hyper",
  "openwire-core",

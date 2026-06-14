@@ -1,5 +1,4 @@
 import Combine
-import SwiftUI
 import UIKit
 
 @MainActor
@@ -284,8 +283,8 @@ final class FireRootCoordinator {
 
     private func makeOnboardingController() -> UIViewController {
         mainTabBarController = nil
-        let rootView = FireOnboardingRootHost(viewModel: viewModel)
-        return UIHostingController(rootView: rootView)
+        let controller = FireOnboardingViewController(viewModel: viewModel)
+        return UINavigationController(rootViewController: controller)
     }
 
     private func makeMainTabBarController() -> UIViewController {
@@ -358,15 +357,14 @@ final class FireRootCoordinator {
     private func syncAuthPresentation(_ state: FireAuthPresentationState?) {
         if let state {
             guard authController == nil else { return }
-            let controller = UIHostingController(
-                rootView: FireAuthScreen(
-                    viewModel: viewModel,
-                    presentationState: state
-                )
+            let controller = FireLoginWebViewController(
+                viewModel: viewModel,
+                presentationState: state
             )
-            controller.modalPresentationStyle = .fullScreen
-            presentationAnchor()?.present(controller, animated: true)
-            authController = controller
+            let navigationController = UINavigationController(rootViewController: controller)
+            navigationController.modalPresentationStyle = .fullScreen
+            presentationAnchor()?.present(navigationController, animated: true)
+            authController = navigationController
             return
         }
 
@@ -461,18 +459,6 @@ final class FireRootCoordinator {
 
     private func presentationAnchor() -> UIViewController? {
         window?.rootViewController?.fireTopPresentedViewController
-    }
-}
-
-private struct FireOnboardingRootHost: View {
-    @ObservedObject var viewModel: FireAppViewModel
-
-    var body: some View {
-        FireOnboardingView(
-            viewModel: viewModel,
-            isBootstrappingSession: viewModel.isBootstrappingSession,
-            isStartupLoadingVisible: viewModel.isStartupLoadingVisible
-        )
     }
 }
 

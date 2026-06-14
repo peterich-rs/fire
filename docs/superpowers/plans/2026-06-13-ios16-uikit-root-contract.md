@@ -53,23 +53,34 @@ Promote the current `FireDiffableListController` from a SwiftUI
 `UIViewControllerRepresentable` bridge into the primary UIKit list runtime.
 Migrate high-traffic list surfaces first:
 
-- Home
+- Home (landed: tab root now uses `FireHomeViewController`; the topic list, filters, pagination, offline banner, and topic menus run on `FireListViewController`; the former SwiftUI production page and `FireHomeCollectionView` bridge were removed; category/tag sheets and bookmark editing remain tracked transitional SwiftUI presentations)
 - Notifications (landed: tab root now uses `FireNotificationsViewController`; full history uses `FireNotificationHistoryViewController`; both run on `FireListViewController` and the SwiftUI production pages were removed)
-- Search
-- Messages
+- Search (landed: `FireSearchViewController` on `FireListViewController`; the SwiftUI production page and SwiftUI result rows were removed; bookmark editor remains a tracked transitional SwiftUI presentation)
+- Messages (landed: `FirePrivateMessagesViewController` on `FireListViewController`; new private messages now open `FireComposerViewController`; Profile keeps only a thin SwiftUI-to-UIKit host until Profile itself migrates)
 - Bookmarks (landed: `FireBookmarksViewController` on `FireListViewController`; Profile keeps only a thin SwiftUI-to-UIKit host until Profile itself migrates)
 - Read history (landed: `FireReadHistoryViewController` on `FireListViewController`; Profile keeps only a thin SwiftUI-to-UIKit host until Profile itself migrates)
-- Drafts (landed: `FireDraftsViewController` on `FireListViewController`; Profile keeps only a thin SwiftUI-to-UIKit host until Profile itself migrates; Composer remains a tracked transitional SwiftUI surface)
+- Drafts (landed: `FireDraftsViewController` on `FireListViewController`; draft continuation now opens `FireComposerViewController`; Profile keeps only a thin SwiftUI-to-UIKit host until Profile itself migrates)
 
 Each migrated screen should delete its previous production SwiftUI page instead
 of leaving a fallback.
 
 ### 3. Auth and Composer
 
-Move WebView login, onboarding, Cloudflare foreground challenge presentation,
-and composer/editor flows onto UIKit. These surfaces own platform UI, text
-input, WebKit, files, media pickers, and native presentation chrome while Rust
-keeps session and API orchestration.
+- Login WebView (landed: `FireLoginWebViewController` now owns the UIKit
+  `WKWebView`, navigation chrome, readiness state, credential capture, and
+  completion action; the former SwiftUI auth screen and `UIViewRepresentable`
+  login bridge were removed)
+- Cloudflare foreground challenge (landed: `FireCloudflareChallengeViewController`
+  remains the platform-owned UIKit WebView challenge path)
+- Onboarding (landed: `FireOnboardingViewController` is the unauthenticated
+  UIKit root; Developer Tools remains a tracked SwiftUI exception)
+- Composer (landed: `FireComposerViewController` owns native text input,
+  markdown toolbar actions, category/tag/recipient/mention search, draft
+  recovery/autosave, platform photo picking, image upload insertion, and
+  create-topic/reply/private-message submission. Home, Messages, Drafts, Topic
+  detail, and Public Profile now open the UIKit runtime; the old SwiftUI
+  `FireComposerView` page has been deleted; Public Profile still uses a
+  temporary SwiftUI-to-UIKit host until Profile itself migrates.)
 
 ### 4. Profile and Secondary Surfaces
 

@@ -974,12 +974,12 @@ final class FireTopicListTopicCell: UICollectionViewCell {
         }
 
         if let category {
+            let categoryTint = UIColor(fireHex: category.colorHex) ?? FireTopicListPalette.accent
             chipStack.addArrangedSubview(
                 FireTopicListChipLabel(
                     text: category.displayName,
-                    textColor: UIColor(fireHex: category.colorHex) ?? FireTopicListPalette.accent,
-                    backgroundColor: (UIColor(fireHex: category.colorHex) ?? FireTopicListPalette.accent)
-                        .withAlphaComponent(0.14)
+                    textColor: categoryTint,
+                    backgroundColor: FireTopicListPalette.categoryChipBackground(accent: categoryTint)
                 )
             )
         }
@@ -988,8 +988,8 @@ final class FireTopicListTopicCell: UICollectionViewCell {
             chipStack.addArrangedSubview(
                 FireTopicListChipLabel(
                     text: "#\(tagName)",
-                    textColor: .secondaryLabel,
-                    backgroundColor: .tertiarySystemFill
+                    textColor: FireTopicListPalette.tagChipForeground,
+                    backgroundColor: FireTopicListPalette.tagChipBackground
                 )
             )
         }
@@ -1005,7 +1005,16 @@ final class FireTopicListTopicCell: UICollectionViewCell {
         if row.hasUnreadPosts {
             chipStack.addArrangedSubview(FireTopicListUnreadDot())
         }
-        chipStack.isHidden = chipStack.arrangedSubviews.isEmpty
+
+        let chipCount = chipStack.arrangedSubviews.count
+        if chipCount > 0 {
+            let spacer = UIView()
+            spacer.isAccessibilityElement = false
+            spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+            spacer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+            chipStack.addArrangedSubview(spacer)
+        }
+        chipStack.isHidden = chipCount == 0
     }
 
     private func configureSubviews() {
@@ -1071,12 +1080,12 @@ final class FireTopicListTopicCell: UICollectionViewCell {
 
         usernameLabel.font = UIFont.preferredFont(forTextStyle: .caption2).withWeight(.medium)
         usernameLabel.adjustsFontForContentSizeCategory = true
-        usernameLabel.textColor = .secondaryLabel
+        usernameLabel.textColor = FireTopicListPalette.subtleInk
         usernameLabel.numberOfLines = 1
 
         timestampLabel.font = UIFont.preferredFont(forTextStyle: .caption2)
         timestampLabel.adjustsFontForContentSizeCategory = true
-        timestampLabel.textColor = .tertiaryLabel
+        timestampLabel.textColor = FireTopicListPalette.tertiaryInk
         timestampLabel.numberOfLines = 1
 
         bylineStack.addArrangedSubview(usernameLabel)
@@ -1273,12 +1282,12 @@ final class FireTopicListMetricView: UIView {
     }
 
     private func configureSubviews() {
-        imageView.tintColor = .tertiaryLabel
+        imageView.tintColor = FireTopicListPalette.tertiaryInk
         imageView.contentMode = .scaleAspectFit
         imageView.setContentHuggingPriority(.required, for: .horizontal)
 
         valueLabel.font = UIFont.monospacedDigitSystemFont(ofSize: 12, weight: .regular)
-        valueLabel.textColor = .tertiaryLabel
+        valueLabel.textColor = FireTopicListPalette.tertiaryInk
         valueLabel.numberOfLines = 1
 
         let stack = UIStackView(arrangedSubviews: [imageView, valueLabel])
@@ -1311,6 +1320,7 @@ final class FireTopicListChipLabel: UILabel {
         lineBreakMode = .byTruncatingTail
         layer.cornerRadius = 4
         clipsToBounds = true
+        setContentHuggingPriority(.required, for: .horizontal)
         setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
     }
 
@@ -1376,6 +1386,7 @@ final class FireTopicListToastView: UIView {
     enum Style {
         case success
         case error
+        case info
     }
 
     init(message: String, style: Style) {
@@ -1396,10 +1407,8 @@ final class FireTopicListToastView: UIView {
         layer.shadowRadius = 12
         layer.shadowOffset = CGSize(width: 0, height: 4)
 
-        let iconView = UIImageView(
-            image: UIImage(systemName: style == .success ? "checkmark.circle.fill" : "xmark.circle.fill")
-        )
-        iconView.tintColor = style == .success ? .systemGreen : .systemRed
+        let iconView = UIImageView(image: UIImage(systemName: style.systemImage))
+        iconView.tintColor = style.tintColor
         iconView.setContentHuggingPriority(.required, for: .horizontal)
 
         let label = UILabel()
@@ -1426,8 +1435,69 @@ final class FireTopicListToastView: UIView {
     }
 }
 
+private extension FireTopicListToastView.Style {
+    var systemImage: String {
+        switch self {
+        case .success:
+            return "checkmark.circle.fill"
+        case .error:
+            return "xmark.circle.fill"
+        case .info:
+            return "info.circle.fill"
+        }
+    }
+
+    var tintColor: UIColor {
+        switch self {
+        case .success:
+            return .systemGreen
+        case .error:
+            return .systemRed
+        case .info:
+            return .systemBlue
+        }
+    }
+}
+
 enum FireTopicListPalette {
-    static let accent = UIColor(red: 0.91, green: 0.39, blue: 0.18, alpha: 1)
+    static let accent = adaptive(
+        light: UIColor(red: 0.91, green: 0.39, blue: 0.18, alpha: 1),
+        dark: UIColor(red: 0.96, green: 0.45, blue: 0.22, alpha: 1)
+    )
+
+    static let subtleInk = adaptive(
+        light: UIColor(red: 0.35, green: 0.35, blue: 0.38, alpha: 1),
+        dark: UIColor(red: 0.79, green: 0.78, blue: 0.75, alpha: 1)
+    )
+
+    static let tertiaryInk = adaptive(
+        light: UIColor(red: 0.52, green: 0.52, blue: 0.55, alpha: 1),
+        dark: UIColor(red: 0.62, green: 0.63, blue: 0.67, alpha: 1)
+    )
+
+    static let tagChipBackground = adaptive(
+        light: UIColor(red: 0.46, green: 0.46, blue: 0.50, alpha: 0.08),
+        dark: UIColor(white: 1, alpha: 0.10)
+    )
+
+    static let tagChipForeground = adaptive(
+        light: UIColor(red: 0.30, green: 0.30, blue: 0.33, alpha: 1),
+        dark: UIColor(red: 0.85, green: 0.84, blue: 0.82, alpha: 1)
+    )
+
+    static func categoryChipBackground(accent: UIColor) -> UIColor {
+        UIColor { traits in
+            let resolvedAccent = accent.resolvedColor(with: traits)
+            let alpha: CGFloat = traits.userInterfaceStyle == .dark ? 0.22 : 0.14
+            return resolvedAccent.withAlphaComponent(alpha)
+        }
+    }
+
+    private static func adaptive(light: UIColor, dark: UIColor) -> UIColor {
+        UIColor { traits in
+            traits.userInterfaceStyle == .dark ? dark : light
+        }
+    }
 }
 
 private final class FireBookmarksControllerReference {

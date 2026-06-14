@@ -229,17 +229,15 @@ struct FirePublicProfileView: View {
             FireBadgeDetailView(viewModel: viewModel, badgeID: item.badge.id, initialBadge: item.badge)
         }
         .fullScreenCover(isPresented: $showPrivateMessageComposer) {
-            NavigationStack {
-                FireComposerView(
-                    viewModel: viewModel,
-                    route: FireComposerRoute(
-                        kind: .privateMessage(recipients: [displayUsername], title: nil)
-                    ),
-                    onSubmissionNotice: { message in
-                        composerNotice = message
-                    }
-                )
-            }
+            FireComposerControllerHost(
+                viewModel: viewModel,
+                route: FireComposerRoute(
+                    kind: .privateMessage(recipients: [displayUsername], title: nil)
+                ),
+                onSubmissionNotice: { message in
+                    composerNotice = message
+                }
+            )
         }
         .onChange(of: composerNotice) { message in
             guard let message,

@@ -67,13 +67,15 @@ final class FireMainTabBarController: UITabBarController, UITabBarControllerDele
             title: "首页",
             systemImage: "house",
             selectedSystemImage: "house.fill",
-            rootView: AnyView(
-                FireHomeTabRootHost(
-                    viewModel: viewModel,
+            rootViewController: FireHomeViewController(
+                viewModel: viewModel,
+                navigationState: navigationState,
+                homeFeedStore: homeFeedStore,
+                searchStore: searchStore,
+                topicDetailStore: topicDetailStore,
+                topicRoutePresenter: FireTopicRoutePresenter.appRoot(
                     navigationState: navigationState,
-                    homeFeedStore: homeFeedStore,
-                    searchStore: searchStore,
-                    topicDetailStore: topicDetailStore
+                    logger: viewModel.topicRouteLogger()
                 )
             )
         )
@@ -152,36 +154,6 @@ final class FireMainTabBarController: UITabBarController, UITabBarControllerDele
         }
         tabBar.standardAppearance = appearance
         tabBar.scrollEdgeAppearance = appearance
-    }
-}
-
-private struct FireHomeTabRootHost: View {
-    let viewModel: FireAppViewModel
-    @ObservedObject var navigationState: FireNavigationState
-    @ObservedObject var homeFeedStore: FireHomeFeedStore
-    let searchStore: FireSearchStore
-    @ObservedObject var topicDetailStore: FireTopicDetailStore
-
-    var body: some View {
-        FireHomeView(viewModel: viewModel, searchStore: searchStore)
-            .environmentObject(navigationState)
-            .environmentObject(homeFeedStore)
-            .environmentObject(topicDetailStore)
-            .fireTopicRoutePresenter(topicRoutePresenter)
-    }
-
-    private var topicRoutePresenter: FireTopicRoutePresenter {
-        FireTopicRoutePresenter { route in
-            guard route.isTopicRoute else {
-                viewModel.topicRouteLogger()?.debug(
-                    "tab host topic presenter ignored non-topic route \(route.diagnosticsSummary)"
-                )
-                return false
-            }
-            viewModel.topicRouteLogger()?.info("tab host presenting topic route \(route.diagnosticsSummary)")
-            navigationState.presentTopicRoute(route)
-            return true
-        }
     }
 }
 

@@ -464,27 +464,25 @@ final class FireDraftsViewController: UIViewController {
             return
         }
 
-        let rootView = NavigationStack {
-            FireComposerView(
-                viewModel: appViewModel,
-                route: route,
-                onTopicCreated: { [weak self] _ in
-                    self?.refreshAfterComposerMutation()
-                },
-                onReplySubmitted: { [weak self] in
-                    self?.refreshAfterComposerMutation()
-                },
-                onPrivateMessageCreated: { [weak self] _, _ in
-                    self?.refreshAfterComposerMutation()
-                },
-                onSubmissionNotice: { [weak self] message in
-                    self?.showToast(message, style: .success)
-                }
-            )
-        }
-        let controller = UIHostingController(rootView: rootView)
-        controller.modalPresentationStyle = .fullScreen
-        present(controller, animated: true)
+        let composer = FireComposerViewController(
+            viewModel: appViewModel,
+            route: route,
+            onTopicCreated: { [weak self] _ in
+                self?.refreshAfterComposerMutation()
+            },
+            onReplySubmitted: { [weak self] in
+                self?.refreshAfterComposerMutation()
+            },
+            onPrivateMessageCreated: { [weak self] _, _ in
+                self?.refreshAfterComposerMutation()
+            },
+            onSubmissionNotice: { [weak self] message in
+                self?.showToast(message, style: .success)
+            }
+        )
+        let navigationController = UINavigationController(rootViewController: composer)
+        navigationController.modalPresentationStyle = .fullScreen
+        present(navigationController, animated: true)
     }
 
     private func refreshAfterComposerMutation() {

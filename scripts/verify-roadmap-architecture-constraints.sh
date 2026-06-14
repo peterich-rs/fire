@@ -249,14 +249,22 @@ require_pattern "iOS scene delegate owns UIWindow" "native/ios-app/App/Core/Fire
 require_pattern "iOS root coordinator owns route dispatch" "native/ios-app/App/Core/FireRootCoordinator.swift" 'static func dispatch\(_ route: FireAppRoute\)'
 require_pattern "iOS root coordinator owns auth presentation" "native/ios-app/App/Core/FireRootCoordinator.swift" 'syncAuthPresentation'
 require_pattern "iOS root coordinator owns topic presentation" "native/ios-app/App/Core/FireRootCoordinator.swift" 'syncTopicPresentation'
+require_pattern "iOS root coordinator uses UIKit onboarding controller" "native/ios-app/App/Core/FireRootCoordinator.swift" 'FireOnboardingViewController'
+require_no_pattern "iOS root coordinator avoids SwiftUI hosting" "native/ios-app/App/Core/FireRootCoordinator.swift" 'import SwiftUI|UIHostingController'
 require_pattern "iOS main tab shell is UIKit" "native/ios-app/App/Core/FireMainTabBarController.swift" 'UITabBarController'
 require_pattern "iOS main tab shell wraps tabs in navigation controllers" "native/ios-app/App/Core/FireMainTabBarController.swift" 'UINavigationController'
 require_no_pattern "iOS SwiftUI App entry removed" "native/ios-app/App/FireApp.swift" '@main|WindowGroup|@UIApplicationDelegateAdaptor|struct FireApp: App'
 require_no_pattern "iOS SwiftUI root TabView removed" "native/ios-app/App/Views/Other/FireTabRoot.swift" 'struct FireTabRoot: View|TabView|fullScreenCover|@Environment\(\\.scenePhase\)'
+require_pattern "iOS onboarding root is UIKit" "native/ios-app/App/Views/Other/FireOnboardingView.swift" 'final class FireOnboardingViewController: UIViewController'
+require_no_pattern "iOS onboarding SwiftUI root removed" "native/ios-app/App/Views/Other/FireOnboardingView.swift" 'struct FireOnboardingView:[[:space:]]*View|NavigationStack|@Environment'
 
 echo
 echo "==> Platform-owned browser, cookie, and store boundaries"
 require_pattern "iOS WebView login coordinator owns WKWebView" "native/ios-app/Sources/FireAppSession/FireWebViewLoginCoordinator.swift" 'WKWebView'
+require_pattern "iOS login auth page is UIKit" "native/ios-app/App/Views/Other/FireLoginWebView.swift" 'final class FireLoginWebViewController: UIViewController'
+require_pattern "iOS login auth page owns WKWebView directly" "native/ios-app/App/Views/Other/FireLoginWebView.swift" 'private let webView: WKWebView'
+require_pattern "iOS root coordinator presents UIKit login controller" "native/ios-app/App/Core/FireRootCoordinator.swift" 'FireLoginWebViewController'
+require_no_pattern "iOS login SwiftUI wrapper removed" "native/ios-app/App/Views/Other/FireLoginWebView.swift" 'import SwiftUI|UIViewRepresentable|struct FireAuthScreen:[[:space:]]*View|struct FireLoginWebView:[[:space:]]*UIViewRepresentable|FireAuthBottomBar:[[:space:]]*View'
 require_pattern "iOS platform cookie extraction" "native/ios-app/Sources/FireAppSession/FireWebViewLoginCoordinator.swift" 'WKHTTPCookieStore|HTTPCookieStorage'
 require_pattern "iOS Cloudflare challenge coordinator" "native/ios-app/Sources/FireAppSession/FireCloudflareChallengeCoordinator.swift" 'WKWebView'
 require_pattern "iOS keychain cookie storage" "native/ios-app/Sources/FireAppSession/FireAuthCookieKeychainStore.swift" 'kSecClassGenericPassword|SecItem'
@@ -304,6 +312,15 @@ require_pattern "ListKit SwiftUI adapter subclasses UIKit runtime" "native/ios-a
 require_pattern "ListKit SwiftUI adapter is the hosted-cell owner" "native/ios-app/App/ListKit/FireDiffableListController.swift" 'UIHostingConfiguration'
 require_ios_lazy_cell_registrations_prepared "UIKit list cell registration lifecycle"
 require_pattern "Collection host remains a bridge adapter" "native/ios-app/App/ListKit/FireCollectionHost.swift" 'UIViewControllerRepresentable'
+require_pattern "Home tab routes through UIKit controller" "native/ios-app/App/Core/FireMainTabBarController.swift" 'rootViewController: FireHomeViewController'
+require_pattern "Home page has UIKit controller" "native/ios-app/App/Views/Home/FireHomeView.swift" 'final class FireHomeViewController: UIViewController'
+require_pattern "Home controller uses UIKit-first list runtime" "native/ios-app/App/Views/Home/FireHomeView.swift" 'FireListViewController<FireHomeCollectionSection, FireHomeCollectionItem>'
+require_no_pattern "Home deleted SwiftUI page" "native/ios-app/App/Views/Home/FireHomeView.swift" 'struct FireHomeView:[[:space:]]*View|NavigationStack[[:space:]]*\{[[:space:]]*FireHome'
+if [[ -e "native/ios-app/App/ListKit/Home/FireHomeCollectionView.swift" ]]; then
+  fail "Home deleted SwiftUI collection bridge: native/ios-app/App/ListKit/Home/FireHomeCollectionView.swift still exists"
+else
+  pass "Home deleted SwiftUI collection bridge: old bridge file absent"
+fi
 require_pattern "Bookmarks page has UIKit controller" "native/ios-app/App/Views/Bookmarks/FireBookmarksViewController.swift" 'final class FireBookmarksViewController: UIViewController'
 require_pattern "Bookmarks controller uses UIKit-first list runtime" "native/ios-app/App/Views/Bookmarks/FireBookmarksViewController.swift" 'FireListViewController<FireBookmarksCollectionSection, FireBookmarksCollectionItem>'
 require_pattern "Profile routes bookmarks through UIKit host" "native/ios-app/App/Views/Profile/FireProfileView.swift" 'FireBookmarksControllerHost'
@@ -322,6 +339,28 @@ require_pattern "Drafts page has UIKit controller" "native/ios-app/App/Views/Oth
 require_pattern "Drafts controller uses UIKit-first list runtime" "native/ios-app/App/Views/Other/FireDraftsView.swift" 'FireListViewController<FireDraftsCollectionSection, FireDraftsCollectionItem>'
 require_pattern "Profile routes drafts through UIKit host" "native/ios-app/App/Views/Profile/FireProfileView.swift" 'FireDraftsControllerHost'
 require_no_pattern "Drafts deleted SwiftUI page" "native/ios-app/App/Views/Other/FireDraftsView.swift" 'struct FireDraftsView:[[:space:]]*View'
+require_pattern "Messages page has UIKit controller" "native/ios-app/App/Views/Messages/FirePrivateMessagesView.swift" 'final class FirePrivateMessagesViewController: UIViewController'
+require_pattern "Messages controller uses UIKit-first list runtime" "native/ios-app/App/Views/Messages/FirePrivateMessagesView.swift" 'FireListViewController<'
+require_pattern "Profile routes messages through UIKit host" "native/ios-app/App/Views/Profile/FireProfileView.swift" 'FirePrivateMessagesControllerHost'
+require_no_pattern "Messages deleted SwiftUI page" "native/ios-app/App/Views/Messages/FirePrivateMessagesView.swift" 'struct FirePrivateMessagesView:[[:space:]]*View|List[[:space:]]*\{'
+require_pattern "Search page has UIKit controller" "native/ios-app/App/Views/Search/FireSearchView.swift" 'final class FireSearchViewController: UIViewController'
+require_pattern "Search controller uses UIKit-first list runtime" "native/ios-app/App/Views/Search/FireSearchView.swift" 'FireListViewController<FireSearchCollectionSection, FireSearchCollectionItem>'
+require_pattern "Home routes search through UIKit controller" "native/ios-app/App/Views/Home/FireHomeView.swift" 'FireSearchViewController'
+require_no_pattern "Search deleted SwiftUI page" "native/ios-app/App/Views/Search/FireSearchView.swift" 'struct FireSearchView:[[:space:]]*View|FireSearchPostRow:[[:space:]]*View|FireSearchUserRow:[[:space:]]*View|List[[:space:]]*\{'
+require_pattern "Composer page has UIKit controller" "native/ios-app/App/Views/Composer/FireComposerView.swift" 'final class FireComposerViewController: UIViewController'
+require_pattern "Composer UIKit controller owns native text input" "native/ios-app/App/Views/Composer/FireComposerView.swift" 'private let bodyTextView = UITextView\(\)'
+require_pattern "Composer UIKit controller owns platform photo picker" "native/ios-app/App/Views/Composer/FireComposerView.swift" 'PHPickerViewController'
+require_no_pattern "Composer deleted legacy SwiftUI page" "native/ios-app/App/Views/Composer/FireComposerView.swift" 'struct FireComposerView:[[:space:]]*View'
+require_pattern "Home routes composer through UIKit controller" "native/ios-app/App/Views/Home/FireHomeView.swift" 'FireComposerViewController'
+require_pattern "Messages routes composer through UIKit controller" "native/ios-app/App/Views/Messages/FirePrivateMessagesView.swift" 'FireComposerViewController'
+require_pattern "Drafts routes composer through UIKit controller" "native/ios-app/App/Views/Other/FireDraftsView.swift" 'FireComposerViewController'
+require_pattern "Topic detail routes composer through UIKit controller" "native/ios-app/App/TopicDetail/Controller/FireTopicDetailModalRouter.swift" 'FireComposerViewController'
+require_pattern "Profile routes composer through UIKit runtime host" "native/ios-app/App/Views/Profile/FirePublicProfileView.swift" 'FireComposerControllerHost'
+require_no_pattern "Home composer caller avoids SwiftUI composer page" "native/ios-app/App/Views/Home/FireHomeView.swift" 'FireComposerView\('
+require_no_pattern "Messages composer caller avoids SwiftUI composer page" "native/ios-app/App/Views/Messages/FirePrivateMessagesView.swift" 'FireComposerView\('
+require_no_pattern "Drafts composer caller avoids SwiftUI composer page" "native/ios-app/App/Views/Other/FireDraftsView.swift" 'FireComposerView\('
+require_no_pattern "Profile composer caller avoids SwiftUI composer page" "native/ios-app/App/Views/Profile/FirePublicProfileView.swift" 'FireComposerView\('
+require_no_pattern "Topic detail composer caller avoids SwiftUI composer page" "native/ios-app/App/TopicDetail/Controller/FireTopicDetailModalRouter.swift" 'FireComposerView\('
 
 echo
 echo "==> Reference and infrastructure boundaries"

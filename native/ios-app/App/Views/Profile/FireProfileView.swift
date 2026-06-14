@@ -187,7 +187,7 @@ struct FireProfileView: View {
                     }
 
                     NavigationLink {
-                        FirePrivateMessagesView(viewModel: viewModel)
+                        FirePrivateMessagesControllerHost(viewModel: viewModel)
                     } label: {
                         shortcutRowContent(
                             icon: "tray.2.fill",

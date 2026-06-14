@@ -40,6 +40,7 @@
 		27D3B7AADEF91C6DE3B41618 /* FireTopicEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 577A99743CDCAA0033E2398C /* FireTopicEditorView.swift */; };
 		27F8780AB48C65663BA8CF6A /* FireProfileActivityRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 07E3386C6FC3093869C79E57 /* FireProfileActivityRow.swift */; };
 		28ADE71B45F2298CB7C8DFE6 /* FireMyBadgesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71D0063A5014FEF51FB2B8E8 /* FireMyBadgesView.swift */; };
+		29F891D31E57BD3D19AB4EBB /* FireBookmarksViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F329C317F6932DC1D07AD03 /* FireBookmarksViewController.swift */; };
 		2E24DA3BD96C8B64D78FFA5D /* FireTopicQuickReplyBarNode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 881FCA584D82BEB684F4E2C8 /* FireTopicQuickReplyBarNode.swift */; };
 		2EF020F79C1B4F20796C610C /* FireProfileTrustLevelPill.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A3BEB6E72878BC3AD27B487 /* FireProfileTrustLevelPill.swift */; };
 		3020B851468E970811BC595B /* FireAppRouteControllerFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 149C3D9916D55374B1B4A37C /* FireAppRouteControllerFactory.swift */; };
@@ -280,6 +281,7 @@
 		2C2060FDF4576F412DA20A94 /* FireTabRoot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireTabRoot.swift; sourceTree = "<group>"; };
 		2C3803B8939D9AF618CA74A6 /* FireProfileView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireProfileView.swift; sourceTree = "<group>"; };
 		2E4063863B8521F7719DD75F /* FireDiagnosticsViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireDiagnosticsViewModel.swift; sourceTree = "<group>"; };
+		2F329C317F6932DC1D07AD03 /* FireBookmarksViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireBookmarksViewController.swift; sourceTree = "<group>"; };
 		2FCFF26F4042B80F6B91305E /* FireTopicDetailPaginationCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireTopicDetailPaginationCoordinator.swift; sourceTree = "<group>"; };
 		301D9A74A8ACFE5A61280A86 /* FireTopicDetailPageState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireTopicDetailPageState.swift; sourceTree = "<group>"; };
 		30F75C7877A380748026CE06 /* FireWidget.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = FireWidget.entitlements; sourceTree = "<group>"; };
@@ -464,6 +466,7 @@
 			children = (
 				989F3E1E2DDB5711DB78EF19 /* FireBookmarkEditorSheet.swift */,
 				C96F415BE6AC44D202899B9B /* FireBookmarksView.swift */,
+				2F329C317F6932DC1D07AD03 /* FireBookmarksViewController.swift */,
 			);
 			path = Bookmarks;
 			sourceTree = "<group>";
@@ -1237,6 +1240,7 @@
 				78009659A664B236D8AD3434 /* FireBadgeDetailView.swift in Sources */,
 				FFA9CA2BD6BA97E97C13CCA8 /* FireBookmarkEditorSheet.swift in Sources */,
 				E74952BCA8EF2D8E92C528CD /* FireBookmarksView.swift in Sources */,
+				29F891D31E57BD3D19AB4EBB /* FireBookmarksViewController.swift in Sources */,
 				CB59605E778D5DDE7985CD9A /* FireCDKView.swift in Sources */,
 				E96C65EF805B1CE2F1A620B9 /* FireCategoriesView.swift in Sources */,
 				0AABB8FE83B25A7D6D7C67FC /* FireCfClearanceRefreshService.swift in Sources */,

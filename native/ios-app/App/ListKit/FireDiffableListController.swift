@@ -133,6 +133,10 @@ typealias FireListCellProvider<ItemID: Hashable> = (
     ItemID
 ) -> UICollectionViewCell
 
+typealias FireListContextMenuProvider<ItemID: Hashable> = (
+    ItemID
+) -> UIContextMenuConfiguration?
+
 @MainActor
 class FireListViewController<SectionID: Hashable, ItemID: Hashable>: UIViewController,
     UICollectionViewDelegate,
@@ -145,6 +149,7 @@ class FireListViewController<SectionID: Hashable, ItemID: Hashable>: UIViewContr
     private let onPrefetchItems: (([ItemID]) -> Void)?
     private let onScrollMetricsChanged: ((FireCollectionScrollMetrics) -> Void)?
     private let onRefresh: (() async -> Void)?
+    private var contextMenuConfigurationProvider: FireListContextMenuProvider<ItemID>?
     private var onContentWidthChanged: ((CGFloat) -> Void)?
     private let scrollAnchorRestorePolicy: FireCollectionScrollAnchorRestorePolicy
     private let updatePolicy: FireCollectionUpdatePolicy
@@ -188,6 +193,7 @@ class FireListViewController<SectionID: Hashable, ItemID: Hashable>: UIViewContr
         onPrefetchItems: (([ItemID]) -> Void)? = nil,
         onScrollMetricsChanged: ((FireCollectionScrollMetrics) -> Void)? = nil,
         onRefresh: (() async -> Void)? = nil,
+        contextMenuConfigurationProvider: FireListContextMenuProvider<ItemID>? = nil,
         onContentWidthChanged: ((CGFloat) -> Void)? = nil,
         scrollAnchorRestorePolicy: FireCollectionScrollAnchorRestorePolicy = .whenNotAnimatingDifferences,
         updatePolicy: FireCollectionUpdatePolicy = .applyImmediately,
@@ -206,6 +212,7 @@ class FireListViewController<SectionID: Hashable, ItemID: Hashable>: UIViewContr
         self.onPrefetchItems = onPrefetchItems
         self.onScrollMetricsChanged = onScrollMetricsChanged
         self.onRefresh = onRefresh
+        self.contextMenuConfigurationProvider = contextMenuConfigurationProvider
         self.onContentWidthChanged = onContentWidthChanged
         self.scrollAnchorRestorePolicy = scrollAnchorRestorePolicy
         self.updatePolicy = updatePolicy
@@ -293,6 +300,12 @@ class FireListViewController<SectionID: Hashable, ItemID: Hashable>: UIViewContr
 
     func updateCellProvider(_ cellProvider: @escaping FireListCellProvider<ItemID>) {
         self.cellProvider = cellProvider
+    }
+
+    func updateContextMenuConfigurationProvider(
+        _ provider: FireListContextMenuProvider<ItemID>?
+    ) {
+        contextMenuConfigurationProvider = provider
     }
 
     func updateOnContentWidthChanged(_ handler: ((CGFloat) -> Void)?) {
@@ -501,6 +514,17 @@ class FireListViewController<SectionID: Hashable, ItemID: Hashable>: UIViewContr
     func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
         guard let itemID = dataSource?.itemIdentifier(for: indexPath) else { return }
         onSelectItem?(itemID)
+    }
+
+    func collectionView(
+        _ collectionView: UICollectionView,
+        contextMenuConfigurationForItemAt indexPath: IndexPath,
+        point: CGPoint
+    ) -> UIContextMenuConfiguration? {
+        guard let itemID = dataSource?.itemIdentifier(for: indexPath) else {
+            return nil
+        }
+        return contextMenuConfigurationProvider?(itemID)
     }
 
     func collectionView(_ collectionView: UICollectionView, prefetchItemsAt indexPaths: [IndexPath]) {
@@ -843,6 +867,7 @@ final class FireDiffableListController<SectionID: Hashable, ItemID: Hashable, Ro
         onPrefetchItems: (([ItemID]) -> Void)? = nil,
         onScrollMetricsChanged: ((FireCollectionScrollMetrics) -> Void)? = nil,
         onRefresh: (() async -> Void)? = nil,
+        contextMenuConfigurationProvider: FireListContextMenuProvider<ItemID>? = nil,
         onContentWidthChanged: ((CGFloat) -> Void)? = nil,
         scrollAnchorRestorePolicy: FireCollectionScrollAnchorRestorePolicy = .whenNotAnimatingDifferences,
         updatePolicy: FireCollectionUpdatePolicy = .applyImmediately,
@@ -867,6 +892,7 @@ final class FireDiffableListController<SectionID: Hashable, ItemID: Hashable, Ro
             onPrefetchItems: onPrefetchItems,
             onScrollMetricsChanged: onScrollMetricsChanged,
             onRefresh: onRefresh,
+            contextMenuConfigurationProvider: contextMenuConfigurationProvider,
             onContentWidthChanged: onContentWidthChanged,
             scrollAnchorRestorePolicy: scrollAnchorRestorePolicy,
             updatePolicy: updatePolicy,

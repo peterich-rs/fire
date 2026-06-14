@@ -260,6 +260,10 @@ require_pattern "ListKit controller accepts UIKit cell providers" "native/ios-ap
 require_pattern "ListKit SwiftUI adapter subclasses UIKit runtime" "native/ios-app/App/ListKit/FireDiffableListController.swift" 'FireDiffableListController<SectionID: Hashable, ItemID: Hashable, RowContent: View>:[[:space:]]*$'
 require_pattern "ListKit SwiftUI adapter is the hosted-cell owner" "native/ios-app/App/ListKit/FireDiffableListController.swift" 'UIHostingConfiguration'
 require_pattern "Collection host remains a bridge adapter" "native/ios-app/App/ListKit/FireCollectionHost.swift" 'UIViewControllerRepresentable'
+require_pattern "Bookmarks page has UIKit controller" "native/ios-app/App/Views/Bookmarks/FireBookmarksViewController.swift" 'final class FireBookmarksViewController: UIViewController'
+require_pattern "Bookmarks controller uses UIKit-first list runtime" "native/ios-app/App/Views/Bookmarks/FireBookmarksViewController.swift" 'FireListViewController<FireBookmarksCollectionSection, FireBookmarksCollectionItem>'
+require_pattern "Profile routes bookmarks through UIKit host" "native/ios-app/App/Views/Profile/FireProfileView.swift" 'FireBookmarksControllerHost'
+require_no_pattern "Bookmarks deleted SwiftUI page" "native/ios-app/App/Views/Bookmarks/FireBookmarksView.swift" 'struct FireBookmarksView:[[:space:]]*View'
 
 echo
 echo "==> Reference and infrastructure boundaries"

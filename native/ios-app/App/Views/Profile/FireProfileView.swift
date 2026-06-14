@@ -154,7 +154,7 @@ struct FireProfileView: View {
 
                 Section {
                     NavigationLink {
-                        FireBookmarksView(viewModel: viewModel, username: displayUsername)
+                        FireBookmarksControllerHost(viewModel: viewModel, username: displayUsername)
                     } label: {
                         shortcutRowContent(
                             icon: "bookmark.fill",

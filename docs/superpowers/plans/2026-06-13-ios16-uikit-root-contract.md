@@ -57,7 +57,7 @@ Migrate high-traffic list surfaces first:
 - Notifications
 - Search
 - Messages
-- Bookmarks
+- Bookmarks (landed: `FireBookmarksViewController` on `FireListViewController`; Profile keeps only a thin SwiftUI-to-UIKit host until Profile itself migrates)
 - Read history
 - Drafts
 

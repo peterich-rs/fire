@@ -217,6 +217,9 @@ Fire supports iOS 16 and treats UIKit + Texture as the authoritative production
 iOS runtime. SwiftUI is allowed only where the platform requires it
 (WidgetKit), where the surface is explicitly secondary tooling (Developer
 Tools), or as a short-lived bridge while a screen is actively being migrated.
+Primary app surfaces must avoid iOS 17-only SwiftUI APIs; WidgetKit extension
+APIs and the transitional `FireMotionEffects` SwiftUI helper must keep explicit
+availability gates when they use newer system affordances.
 
 Existing SwiftUI screens will migrate progressively to UIKit + Texture. The app
 root, tab shell, login/onboarding flow, production navigation, and high-traffic

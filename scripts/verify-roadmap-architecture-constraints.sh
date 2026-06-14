@@ -132,6 +132,50 @@ require_no_ios_app_source_pattern() {
   fi
 }
 
+require_no_ios_primary_app_source_pattern() {
+  local label="$1"
+  local pattern="$2"
+
+  if rg -q \
+    -g '*.swift' \
+    -g '!native/ios-app/App/Widgets/**' \
+    -g '!native/ios-app/App/DeveloperTools/**' \
+    "$pattern" native/ios-app/App
+  then
+    fail "$label: forbidden pattern found: $pattern"
+    rg -n \
+      -g '*.swift' \
+      -g '!native/ios-app/App/Widgets/**' \
+      -g '!native/ios-app/App/DeveloperTools/**' \
+      "$pattern" native/ios-app/App >&2 || true
+  else
+    pass "$label: forbidden pattern absent from primary iOS app source"
+  fi
+}
+
+require_no_ios_primary_app_source_pattern_except_motion_helper() {
+  local label="$1"
+  local pattern="$2"
+
+  if rg -q \
+    -g '*.swift' \
+    -g '!native/ios-app/App/Widgets/**' \
+    -g '!native/ios-app/App/DeveloperTools/**' \
+    -g '!native/ios-app/App/FireMotion/FireMotionEffects.swift' \
+    "$pattern" native/ios-app/App
+  then
+    fail "$label: forbidden pattern found: $pattern"
+    rg -n \
+      -g '*.swift' \
+      -g '!native/ios-app/App/Widgets/**' \
+      -g '!native/ios-app/App/DeveloperTools/**' \
+      -g '!native/ios-app/App/FireMotion/FireMotionEffects.swift' \
+      "$pattern" native/ios-app/App >&2 || true
+  else
+    pass "$label: forbidden pattern absent from primary iOS app source outside motion helper"
+  fi
+}
+
 echo "==> Platform minimums"
 require_pattern_count "iOS app/widget/test deployment targets" "native/ios-app/project.yml" 'deploymentTarget: "16\.0"' 3
 require_pattern "iOS architecture document minimum" "docs/architecture/fire-native-architecture.md" '\| Minimum version \| iOS 16 \|'
@@ -143,11 +187,16 @@ require_pattern "Android architecture document target" "docs/architecture/fire-n
 
 echo
 echo "==> iOS 16 source compatibility guardrails"
-require_no_ios_app_source_pattern "iOS app source avoids iOS 17 SwiftUI sensoryFeedback" 'sensoryFeedback'
-require_no_ios_app_source_pattern "iOS app source avoids iOS 17 two-parameter onChange closures" '\.onChange\(of:[^\n]+\) \{ _,'
-require_no_ios_app_source_pattern "iOS app source avoids iOS 17 navigationDestination item overload" '\.navigationDestination\(item:'
-require_no_ios_app_source_pattern "iOS app source avoids iOS 17 ContentUnavailableView" 'ContentUnavailableView'
-require_no_ios_app_source_pattern "iOS app source avoids iOS 17 transaction value overload" '\.transaction\(value:'
+require_no_ios_primary_app_source_pattern "iOS primary app source avoids iOS 17 SwiftUI sensoryFeedback" 'sensoryFeedback'
+require_no_ios_primary_app_source_pattern "iOS primary app source avoids iOS 17 two-parameter onChange closures" '\.onChange\(of:[^\n]+\) \{[[:space:]]*[^,{}]+,[^{}]+ in'
+require_no_ios_primary_app_source_pattern "iOS primary app source avoids iOS 17 navigationDestination item overload" '\.navigationDestination\(item:'
+require_no_ios_primary_app_source_pattern "iOS primary app source avoids iOS 17 ContentUnavailableView" 'ContentUnavailableView'
+require_no_ios_primary_app_source_pattern "iOS primary app source avoids iOS 17 transaction value overload" '\.transaction\(value:'
+require_no_ios_primary_app_source_pattern "iOS primary app source avoids direct WidgetKit containerBackground outside widgets" 'containerBackground\(for:[[:space:]]*\.widget'
+require_no_ios_primary_app_source_pattern_except_motion_helper "iOS primary app source avoids direct SwiftUI symbolEffect outside guarded motion helper" 'symbolEffect'
+require_no_ios_primary_app_source_pattern_except_motion_helper "iOS primary app source avoids direct SwiftUI contentTransition outside guarded motion helper" 'contentTransition'
+require_pattern "iOS motion helper gates symbolEffect/contentTransition" "native/ios-app/App/FireMotion/FireMotionEffects.swift" '#available\(iOS 17, \*\)'
+require_pattern "WidgetKit container background is availability-gated" "native/ios-app/App/Widgets/FireWidgetViews.swift" '#available\(iOSApplicationExtension 17\.0, \*\)'
 
 echo
 echo "==> Platform-owned browser, cookie, and store boundaries"

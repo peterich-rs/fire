@@ -233,7 +233,7 @@ UIKit rather than introducing a second product logic path.
 | 1 | Topic detail | Already Texture-based |
 | 2 | iOS 16 compatibility and root contract | Deployment target, verifier, and iOS 16-safe host utilities |
 | 3 | App root, tab shell, production navigation | Landed: UIKit `UIWindowScene` + `UITabBarController` + `UINavigationController` |
-| 4 | Home feed, notifications, search | UIKit/Texture list runtime |
+| 4 | Home feed, notifications, search | UIKit-first `FireListViewController` runtime landed; page migrations follow |
 | 5 | Profile, bookmarks, messages | UIKit collection/list controllers |
 | 6 | Composer, onboarding/login | UIKit |
 | Final | Production SwiftUI removal | SwiftUI limited to WidgetKit, Developer Tools, and explicitly tracked transitional bridges |

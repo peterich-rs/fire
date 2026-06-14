@@ -254,6 +254,14 @@ require_no_pattern "Topic detail feed avoids SwiftUI row fallback" "native/ios-a
 require_no_pattern "Topic detail post cell avoids SwiftUI row fallback" "native/ios-app/App/ListKit/TopicDetail/FirePostCellNode.swift" '^import SwiftUI|UIHostingController|UIViewControllerRepresentable'
 
 echo
+echo "==> iOS UIKit-first ListKit runtime"
+require_pattern "ListKit exposes UIKit-first list controller" "native/ios-app/App/ListKit/FireDiffableListController.swift" 'class FireListViewController<SectionID: Hashable, ItemID: Hashable>: UIViewController'
+require_pattern "ListKit controller accepts UIKit cell providers" "native/ios-app/App/ListKit/FireDiffableListController.swift" 'typealias FireListCellProvider'
+require_pattern "ListKit SwiftUI adapter subclasses UIKit runtime" "native/ios-app/App/ListKit/FireDiffableListController.swift" 'FireDiffableListController<SectionID: Hashable, ItemID: Hashable, RowContent: View>:[[:space:]]*$'
+require_pattern "ListKit SwiftUI adapter is the hosted-cell owner" "native/ios-app/App/ListKit/FireDiffableListController.swift" 'UIHostingConfiguration'
+require_pattern "Collection host remains a bridge adapter" "native/ios-app/App/ListKit/FireCollectionHost.swift" 'UIViewControllerRepresentable'
+
+echo
 echo "==> Reference and infrastructure boundaries"
 require_dir "FluxDO reference submodule checkout" "references/fluxdo"
 require_pattern "FluxDO submodule registered" ".gitmodules" '\[submodule "references/fluxdo"\]'

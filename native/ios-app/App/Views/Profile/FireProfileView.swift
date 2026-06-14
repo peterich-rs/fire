@@ -154,7 +154,7 @@ struct FireProfileView: View {
 
                 Section {
                     NavigationLink {
-                        FireBookmarksView(viewModel: viewModel, username: displayUsername)
+                        FireBookmarksControllerHost(viewModel: viewModel, username: displayUsername)
                     } label: {
                         shortcutRowContent(
                             icon: "bookmark.fill",
@@ -165,7 +165,7 @@ struct FireProfileView: View {
                     }
 
                     NavigationLink {
-                        FireReadHistoryView(viewModel: viewModel)
+                        FireReadHistoryControllerHost(viewModel: viewModel)
                     } label: {
                         shortcutRowContent(
                             icon: "clock.arrow.trianglehead.counterclockwise.rotate.90",
@@ -176,7 +176,7 @@ struct FireProfileView: View {
                     }
 
                     NavigationLink {
-                        FireDraftsView(viewModel: viewModel)
+                        FireDraftsControllerHost(viewModel: viewModel)
                     } label: {
                         shortcutRowContent(
                             icon: "tray.full.fill",
@@ -187,7 +187,7 @@ struct FireProfileView: View {
                     }
 
                     NavigationLink {
-                        FirePrivateMessagesView(viewModel: viewModel)
+                        FirePrivateMessagesControllerHost(viewModel: viewModel)
                     } label: {
                         shortcutRowContent(
                             icon: "tray.2.fill",
@@ -347,7 +347,7 @@ struct FireProfileView: View {
             .background(FireTheme.canvasTop)
             .navigationTitle("我的")
             .navigationBarTitleDisplayMode(.inline)
-            .navigationDestination(item: $selectedRoute) { route in
+            .fireNavigationDestination(item: $selectedRoute) { route in
                 FireAppRouteDestinationView(viewModel: viewModel, route: route)
             }
             .toolbar {

@@ -263,6 +263,22 @@ final class FireListPaginationAndUpdateTests: XCTestCase {
         ))
     }
 
+    func testTopicListChipKeepsContentWidthInsteadOfExpandingAcrossRow() {
+        let chip = FireTopicListChipLabel(
+            text: "公告",
+            textColor: .label,
+            backgroundColor: .tertiarySystemFill
+        )
+
+        let textWidth = ("公告" as NSString).size(
+            withAttributes: [.font: chip.font as Any]
+        ).width
+
+        XCTAssertEqual(chip.contentHuggingPriority(for: .horizontal), .required)
+        XCTAssertEqual(chip.intrinsicContentSize.width, textWidth + 12, accuracy: 1)
+        XCTAssertLessThan(chip.intrinsicContentSize.width, 100)
+    }
+
     func testCollectionUpdatePolicyAllowsPagingFooterDuringRegularScroll() {
         XCTAssertFalse(fireCollectionShouldDeferSectionUpdate(
             updatePolicy: .deferDuringRefresh,

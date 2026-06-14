@@ -80,24 +80,20 @@ final class FireTopicDetailModalRouter {
     }
 
     private func presentPrivateMessageComposer(username: String, displayName: String) {
-        let rootView = NavigationStack {
-            FireComposerView(
-                viewModel: viewModel,
-                route: FireComposerRoute(kind: .privateMessage(recipients: [username], title: nil)),
-                onPrivateMessageCreated: { [weak self] topicID, title in
-                    self?.viewController?.dismiss(animated: true) {
-                        self?.push(route: .topic(
-                            topicId: topicID,
-                            postNumber: nil,
-                            preview: FireTopicRoutePreview.fromMetadata(title: title, slug: nil)
-                        ))
-                    }
-                }
-            )
-        }
-        let controller = UIHostingController(rootView: rootView)
-        controller.modalPresentationStyle = .fullScreen
-        viewController?.present(controller, animated: true)
+        let composer = FireComposerViewController(
+            viewModel: viewModel,
+            route: FireComposerRoute(kind: .privateMessage(recipients: [username], title: nil)),
+            onPrivateMessageCreated: { [weak self] topicID, title in
+                self?.push(route: .topic(
+                    topicId: topicID,
+                    postNumber: nil,
+                    preview: FireTopicRoutePreview.fromMetadata(title: title, slug: nil)
+                ))
+            }
+        )
+        let navigationController = UINavigationController(rootViewController: composer)
+        navigationController.modalPresentationStyle = .fullScreen
+        viewController?.present(navigationController, animated: true)
     }
 
     func presentBookmarkEditor(
@@ -269,19 +265,17 @@ final class FireTopicDetailModalRouter {
         onReplySubmitted: @escaping @MainActor () -> Void,
         onSubmissionNotice: @escaping @MainActor (String) -> Void
     ) {
-        let rootView = NavigationStack {
-            FireComposerView(
-                viewModel: viewModel,
-                route: route,
-                initialBody: initialBody,
-                initialBodySelectionLocation: initialBodySelectionLocation,
-                onReplySubmitted: onReplySubmitted,
-                onSubmissionNotice: onSubmissionNotice
-            )
-        }
-        let controller = UIHostingController(rootView: rootView)
-        controller.modalPresentationStyle = .fullScreen
-        viewController?.present(controller, animated: true)
+        let composer = FireComposerViewController(
+            viewModel: viewModel,
+            route: route,
+            initialBody: initialBody,
+            initialBodySelectionLocation: initialBodySelectionLocation,
+            onReplySubmitted: onReplySubmitted,
+            onSubmissionNotice: onSubmissionNotice
+        )
+        let navigationController = UINavigationController(rootViewController: composer)
+        navigationController.modalPresentationStyle = .fullScreen
+        viewController?.present(navigationController, animated: true)
     }
 
     func presentImageViewer(image: FireCookedImage) {

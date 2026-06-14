@@ -499,11 +499,35 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
             postLookup: [original.id: original]
         )
 
-        let item = try XCTUnwrap(
-            configuration.makeSnapshot().items.first(where: { $0.kind == .originalPost })
+        let snapshot = configuration.makeSnapshot()
+
+        XCTAssertNil(snapshot.items.first(where: { $0.kind == FireTopicDetailRuntimeItemKind.originalPost }))
+        XCTAssertNotNil(snapshot.items.first(where: { $0.kind == FireTopicDetailRuntimeItemKind.bodyState }))
+        XCTAssertTrue(configuration.isWaitingForPostRender)
+    }
+
+    func testSnapshotDefersRepliesWhileOriginalPostRenderContentIsMissing() {
+        let original = makePost(id: 100, postNumber: 1, username: "alice")
+        let reply = makePost(id: 200, postNumber: 2, username: "bob", replyToPostNumber: 1)
+        let renderState = FireTopicDetailRenderState(
+            originalRow: makeTimelineRow(post: original, depth: 0, isOriginalPost: true),
+            replyRows: [makeTimelineRow(post: reply, depth: 1)],
+            contentByPostID: [
+                reply.id: makeRenderContent("reply")
+            ]
+        )
+        let configuration = makeConfiguration(
+            detail: makeTopicDetail(posts: [original, reply]),
+            renderState: renderState,
+            postLookup: [original.id: original, reply.id: reply]
         )
 
-        XCTAssertNil(configuration.postContext(for: item))
+        let snapshot = configuration.makeSnapshot()
+
+        XCTAssertNil(snapshot.items.first(where: { $0.kind == FireTopicDetailRuntimeItemKind.originalPost }))
+        XCTAssertFalse(snapshot.items.contains { $0.kind == FireTopicDetailRuntimeItemKind.reply })
+        XCTAssertNotNil(snapshot.items.first(where: { $0.kind == FireTopicDetailRuntimeItemKind.bodyState }))
+        XCTAssertTrue(configuration.isWaitingForPostRender)
     }
 
     func testOriginalPostContextDoesNotShowInlineDivider() throws {

@@ -8,10 +8,10 @@ struct FireLogFilesListView: View {
     var body: some View {
         List {
             if viewModel.logFiles.isEmpty {
-                ContentUnavailableView(
-                    "暂无日志",
+                FireDiagnosticsUnavailableView(
+                    title: "暂无日志",
                     systemImage: "doc.text",
-                    description: Text("尚未生成任何日志文件。")
+                    message: "尚未生成任何日志文件。"
                 )
             } else {
                 ForEach(viewModel.logFiles, id: \.relativePath) { file in

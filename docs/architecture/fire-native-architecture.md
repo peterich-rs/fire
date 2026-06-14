@@ -204,34 +204,55 @@ login or a legacy recovery WebView from platform code.
 | Item | Choice |
 |---|---|
 | Language | Swift 5.10+ |
-| Minimum version | iOS 17 |
+| Minimum version | iOS 16 |
 | UI framework | UIKit + Texture (AsyncDisplayKit) |
 | Architecture | MVVM |
 | Image loading | **Nuke** (upper-layer scheduling + transitions + prefetch), **Rust** (lower-layer decode + cache) |
 | Build | XcodeGen |
 | FFI | UniFFI static library + generated Swift code |
 
-### 3.2 SwiftUI Migration Strategy
+### 3.2 UIKit/AppKit Migration Strategy
 
-Existing SwiftUI screens will migrate progressively to UIKit + Texture. SwiftUI will ultimately be reduced to a minimal shell for `@main` and the tab container.
+Fire supports iOS 16 and treats UIKit + Texture as the authoritative production
+iOS runtime. SwiftUI is allowed only where the platform requires it
+(WidgetKit), where the surface is explicitly secondary tooling (Developer
+Tools), or as a short-lived bridge while a screen is actively being migrated.
+Primary app surfaces must avoid iOS 17-only SwiftUI APIs; WidgetKit extension
+APIs and the transitional `FireMotionEffects` SwiftUI helper must keep explicit
+availability gates when they use newer system affordances.
+
+Existing SwiftUI screens will migrate progressively to UIKit + Texture. The app
+root, authenticated tab shell, and production route presentation are now owned
+by UIKit. Login/onboarding and high-traffic content surfaces should continue to
+move off SwiftUI without adding parallel fallback paths.
+UIKit list controllers prepare `UICollectionView.CellRegistration` instances
+during controller initialization so diffable data source cell providers only
+dequeue with already-created registrations.
+AppKit support should consume the same Rust snapshots and command contracts as
+UIKit rather than introducing a second product logic path.
 
 | Phase | Scope | Target |
 |---|---|---|
 | 1 | Topic detail | Already Texture-based |
-| 2 | Home feed, notifications, search | Texture `ASCollectionNode` |
-| 3 | Profile, bookmarks, messages | UIKit `UICollectionView` |
-| 4 | Composer, onboarding/login | UIKit |
-| Final | App entry + tab container | Minimal SwiftUI shell only |
+| 2 | iOS 16 compatibility and root contract | Deployment target, verifier, and iOS 16-safe host utilities |
+| 3 | App root, tab shell, production navigation | Landed: UIKit `UIWindowScene` + `UITabBarController` + `UINavigationController` |
+| 4 | Home feed, bookmarks, read history, notifications, drafts, search | UIKit-first `FireListViewController` runtime landed; Home, Search, Bookmarks, Read History, Notifications, Drafts, and Messages now run as UIKit controllers through the shared list runtime |
+| 5 | Profile and remaining utility lists | UIKit collection/list controllers |
+| 6 | Composer, onboarding/login | UIKit |
+| Final | Production SwiftUI removal | SwiftUI limited to WidgetKit, Developer Tools, and explicitly tracked transitional bridges |
 
 ### 3.3 Directory Structure
 
 ```
 native/ios-app/
   App/
-    FireApp.swift                        # @main entry, minimal SwiftUI shell
-    AppDelegate.swift                    # Lifecycle, push registration
-
+    FireApp.swift                        # Empty compatibility source; UIKit lifecycle is authoritative
     Core/
+      FireAppDelegate.swift              # UIKit @main, process lifecycle, push registration
+      FireSceneDelegate.swift            # UIWindowScene owner
+      FireRootCoordinator.swift          # Root/auth/preheat/route coordinator
+      FireMainTabBarController.swift     # Authenticated UIKit tab shell
+
       Theme/
         FireDesignTokens.swift           # Cross-platform design constants
       Motion/                            # Animation system
@@ -259,9 +280,8 @@ native/ios-app/
 
   Screens/                               # One directory per screen
     Home/
-      FireHomeViewController.swift       # UIViewController + ASCollectionNode
-      FireHomeFeedNode.swift             # Topic row ASCellNode
-      FireHomeFeedLayout.swift
+      FireHomeView.swift                 # FireHomeViewController + UIKit filter cells on FireListViewController
+      FireTopicRow.swift                 # Legacy SwiftUI row used only by remaining transitional SwiftUI lists
 
     TopicDetail/
       FireTopicDetailViewController.swift
@@ -274,8 +294,7 @@ native/ios-app/
       FireNotificationCellNode.swift
 
     Search/
-      FireSearchViewController.swift
-      FireSearchResultCellNode.swift
+      FireSearchView.swift               # FireSearchViewController + UIKit result cells on FireListViewController
 
     Profile/
       FireProfileViewController.swift
@@ -285,8 +304,9 @@ native/ios-app/
       FireComposerViewController.swift   # UIKit native editor
 
     Auth/
-      FireOnboardingViewController.swift
-      FireLoginWebViewController.swift
+      FireLoginWebView.swift             # FireLoginWebViewController + UIKit WKWebView login chrome
+      FireCloudflareChallengeCoordinator.swift  # UIKit foreground challenge WebView
+      FireOnboardingView.swift           # FireOnboardingViewController + UIKit unauthenticated root
 
   Shared/                                # Cross-screen shared components
     Render/
@@ -965,13 +985,21 @@ Advantages:
 - iOS Store switches from polling to receiving pushes
 - Android ViewModel switches from polling to receiving pushes
 
-### Phase 4: SwiftUI Elimination (4-6 weeks)
+### Phase 4: Production SwiftUI Elimination (4-6 weeks)
 
-- Home topic list → Texture `ASCollectionNode`
-- Notifications / Search → Texture `ASCollectionNode`
-- Profile / Bookmarks / Messages → UIKit
-- Composer → UIKit
-- SwiftUI only retains `@main` shell
+- App root / tab shell / production navigation → UIKit
+- Home topic list → UIKit `FireHomeViewController` on `FireListViewController`; the former SwiftUI production page and `FireHomeCollectionView` bridge have been removed while category/tag sheets and bookmark editing remain tracked transitional SwiftUI presentations
+- Bookmarks → UIKit `FireBookmarksViewController` on `FireListViewController`; the former SwiftUI production page has been removed
+- Read History → UIKit `FireReadHistoryViewController` on `FireListViewController`; the former SwiftUI production page has been removed
+- Notifications → UIKit `FireNotificationsViewController` and `FireNotificationHistoryViewController` on `FireListViewController`; the former SwiftUI production pages have been removed
+- Drafts → UIKit `FireDraftsViewController` on `FireListViewController`; the former SwiftUI production page has been removed and draft continuation opens the UIKit Composer runtime
+- Messages → UIKit `FirePrivateMessagesViewController` on `FireListViewController`; Profile keeps only a thin SwiftUI-to-UIKit host until Profile itself migrates
+- Search → UIKit `FireSearchViewController` on `FireListViewController`; the former SwiftUI production page and SwiftUI result rows have been removed while bookmark editing remains a tracked transitional SwiftUI presentation
+- Login / Cloudflare auth → UIKit `FireLoginWebViewController` and `FireCloudflareChallengeViewController`; the former SwiftUI auth screen and `UIViewRepresentable` login bridge have been removed
+- Onboarding → UIKit `FireOnboardingViewController`; the former SwiftUI onboarding root has been removed, with Developer Tools remaining an explicit SwiftUI exception
+- Composer → UIKit `FireComposerViewController`; the former SwiftUI `FireComposerView` page has been removed. Home, Messages, Drafts, Topic detail, and Public Profile open the UIKit runtime, with Public Profile using only a temporary SwiftUI-to-UIKit host until Profile itself migrates
+- Profile → UIKit
+- SwiftUI remains only for WidgetKit, Developer Tools, and tracked transitional bridges
 
 ### Phase 5: Android Alignment (3-4 weeks)
 

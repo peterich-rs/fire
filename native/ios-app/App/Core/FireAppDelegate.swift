@@ -2,7 +2,8 @@ import Foundation
 import UIKit
 import UserNotifications
 
-final class FireAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
+@main
+final class FireAppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterDelegate {
     func application(
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
@@ -14,6 +15,19 @@ final class FireAppDelegate: NSObject, UIApplicationDelegate, UNUserNotification
             await FirePushRegistrationCoordinator.shared.refreshAuthorizationStatus()
         }
         return true
+    }
+
+    func application(
+        _ application: UIApplication,
+        configurationForConnecting connectingSceneSession: UISceneSession,
+        options: UIScene.ConnectionOptions
+    ) -> UISceneConfiguration {
+        let configuration = UISceneConfiguration(
+            name: "Default Configuration",
+            sessionRole: connectingSceneSession.role
+        )
+        configuration.delegateClass = FireSceneDelegate.self
+        return configuration
     }
 
     func userNotificationCenter(
@@ -33,7 +47,7 @@ final class FireAppDelegate: NSObject, UIApplicationDelegate, UNUserNotification
         }
 
         await MainActor.run {
-            FireNavigationState.shared.pendingRoute = route
+            FireRootCoordinator.dispatch(route)
         }
     }
 

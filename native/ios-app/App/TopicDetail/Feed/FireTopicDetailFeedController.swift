@@ -1269,7 +1269,7 @@ private final class FireTopicDetailFeedCellFactory: NSObject {
         node.backgroundColor = .systemBackground
 
         let stackChildren: [ASLayoutElement]
-        if configuration.isLoadingTopic {
+        if configuration.isLoadingTopic || configuration.isWaitingForPostRender {
             let label = ASTextNode()
             label.attributedText = NSAttributedString(
                 string: "加载中...",

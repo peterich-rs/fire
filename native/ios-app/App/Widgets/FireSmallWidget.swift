@@ -7,9 +7,7 @@ struct FireSmallWidget: Widget {
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: kind, provider: FireWidgetProvider()) { entry in
             FireSmallWidgetView(entry: entry)
-                .containerBackground(for: .widget) {
-                    Color.fireWidgetBackground
-                }
+                .fireWidgetContainerBackground()
         }
         .configurationDisplayName("Fire Unread")
         .description("View unread notifications and the latest topic.")

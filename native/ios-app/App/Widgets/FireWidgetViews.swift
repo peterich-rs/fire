@@ -100,6 +100,19 @@ struct FireWidgetTopicRow: View {
     }
 }
 
+extension View {
+    @ViewBuilder
+    func fireWidgetContainerBackground() -> some View {
+        if #available(iOSApplicationExtension 17.0, *) {
+            self.containerBackground(for: .widget) {
+                Color.fireWidgetBackground
+            }
+        } else {
+            self.background(Color.fireWidgetBackground)
+        }
+    }
+}
+
 extension Color {
     static let fireWidgetBackground = Color(red: 0.05, green: 0.055, blue: 0.06)
     static let fireWidgetSurface = Color(red: 0.10, green: 0.105, blue: 0.115)

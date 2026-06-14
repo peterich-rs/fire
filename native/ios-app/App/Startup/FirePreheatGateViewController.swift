@@ -6,10 +6,18 @@ final class FirePreheatGateViewController: UIViewController {
     private let statusView = FireStartupOnboardingStatusView()
 
     private let sessionStore: FireSessionStore
+    private let onComplete: () -> Void
+    private let onRequestLogin: (String?) -> Void
     private var isLoaded = false
 
-    init(sessionStore: FireSessionStore) {
+    init(
+        sessionStore: FireSessionStore,
+        onComplete: @escaping () -> Void,
+        onRequestLogin: @escaping (String?) -> Void
+    ) {
         self.sessionStore = sessionStore
+        self.onComplete = onComplete
+        self.onRequestLogin = onRequestLogin
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -51,22 +59,14 @@ final class FirePreheatGateViewController: UIViewController {
 
     private func onPreloadedDataReady() {
         isLoaded = true
-        NotificationCenter.default.post(name: .firePreheatGateDidComplete, object: nil)
+        onComplete()
     }
 
     private func showErrorPage(_ message: String) {
         statusView.showLoginError(message, onLogin: {
-            NotificationCenter.default.post(
-                name: .firePreheatGateDidRequestLogin,
-                object: message
-            )
+            self.onRequestLogin(message)
         })
     }
-}
-
-extension Notification.Name {
-    static let firePreheatGateDidComplete = Notification.Name("firePreheatGateDidComplete")
-    static let firePreheatGateDidRequestLogin = Notification.Name("firePreheatGateDidRequestLogin")
 }
 
 enum FireStartupOnboardingPalette {

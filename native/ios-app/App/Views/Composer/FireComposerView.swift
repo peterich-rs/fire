@@ -346,6 +346,30 @@ enum FireMarkdownFormatAction: CaseIterable, Identifiable {
     }
 }
 
+private extension FireMarkdownFormatAction {
+    var rawTag: Int {
+        switch self {
+        case .bold: return 1
+        case .italic: return 2
+        case .strikethrough: return 3
+        case .inlineCode: return 4
+        case .codeBlock: return 5
+        case .quote: return 6
+        case .unorderedList: return 7
+        case .orderedList: return 8
+        case .link: return 9
+        case .image: return 10
+        }
+    }
+
+    init?(rawTag: Int) {
+        guard let action = Self.allCases.first(where: { $0.rawTag == rawTag }) else {
+            return nil
+        }
+        self = action
+    }
+}
+
 struct FireMarkdownInsertionResult: Equatable {
     let text: String
     let selectedRange: NSRange
@@ -681,52 +705,145 @@ enum FireComposerCategoryGuidance {
     }
 }
 
-struct FireComposerView: View {
-    @ObservedObject var viewModel: FireAppViewModel
-    let route: FireComposerRoute
-    var initialBody: String? = nil
-    var initialBodySelectionLocation: Int? = nil
-    var initialCategoryID: UInt64? = nil
-    var initialTags: [String] = []
-    var onTopicCreated: ((UInt64) -> Void)?
-    var onReplySubmitted: (() -> Void)?
-    var onPrivateMessageCreated: ((UInt64, String) -> Void)?
-    var onSubmissionNotice: ((String) -> Void)?
+@MainActor
+final class FireComposerViewController: UIViewController {
+    private let viewModel: FireAppViewModel
+    private let route: FireComposerRoute
+    private let initialBody: String?
+    private let initialBodySelectionLocation: Int?
+    private let initialCategoryID: UInt64?
+    private let initialTags: [String]
+    private let onTopicCreated: ((UInt64) -> Void)?
+    private let onReplySubmitted: (() -> Void)?
+    private let onPrivateMessageCreated: ((UInt64, String) -> Void)?
+    private let onSubmissionNotice: ((String) -> Void)?
 
-    @Environment(\.dismiss) private var dismiss
-    @State private var title = ""
-    @State private var bodyText = ""
-    @State private var selectedCategoryID: UInt64?
-    @State private var selectedTags: [String] = []
-    @State private var selectedRecipients: [String] = []
-    @State private var recipientQuery = ""
-    @State private var recipientResults: [UserMentionUserState] = []
-    @State private var bodySelection = NSRange(location: 0, length: 0)
-    @State private var isBodyFocused = false
-    @State private var isLoadingDraft = false
-    @State private var didLoadDraft = false
-    @State private var draftSequence: UInt32 = 0
-    @State private var lastInjectedTemplate: String?
-    @State private var autosaveTask: Task<Void, Never>?
-    @State private var tagSearchTask: Task<Void, Never>?
-    @State private var mentionSearchTask: Task<Void, Never>?
-    @State private var recipientSearchTask: Task<Void, Never>?
-    @State private var uploadResolutionTask: Task<Void, Never>?
-    @State private var tagInput = ""
-    @State private var tagResults: [TagSearchItemState] = []
-    @State private var mentionContext: FireComposerMentionContext?
-    @State private var mentionUsers: [UserMentionUserState] = []
-    @State private var mentionGroups: [UserMentionGroupState] = []
-    @State private var showCategorySheet = false
-    @State private var isSubmitting = false
-    @State private var isUploadingImage = false
-    @State private var previewMode = false
-    @State private var noticeMessage: String?
-    @State private var errorMessage: String?
-    @State private var selectedPhoto: PhotosPickerItem?
-    @State private var resolvedUploads: [String: ResolvedUploadUrlState] = [:]
-    @State private var saveCompletionPulse: Int = 0
-    @State private var errorFeedbackPulse: Int = 0
+    private var titleText = ""
+    private var bodyText = ""
+    private var selectedCategoryID: UInt64?
+    private var selectedTags: [String] = []
+    private var selectedRecipients: [String] = []
+    private var recipientQuery = ""
+    private var recipientResults: [UserMentionUserState] = []
+    private var bodySelection = NSRange(location: 0, length: 0)
+    private var isLoadingDraft = false
+    private var didLoadDraft = false
+    private var didCompleteSubmission = false
+    private var draftSequence: UInt32 = 0
+    private var lastInjectedTemplate: String?
+    private var tagInput = ""
+    private var tagResults: [TagSearchItemState] = []
+    private var mentionContext: FireComposerMentionContext?
+    private var mentionUsers: [UserMentionUserState] = []
+    private var mentionGroups: [UserMentionGroupState] = []
+    private var isSubmitting = false
+    private var isUploadingImage = false
+    private var previewMode = false
+    private var noticeMessage: String?
+    private var errorMessage: String?
+    private var resolvedUploads: [String: ResolvedUploadUrlState] = [:]
+
+    private var autosaveTask: Task<Void, Never>?
+    private var tagSearchTask: Task<Void, Never>?
+    private var mentionSearchTask: Task<Void, Never>?
+    private var recipientSearchTask: Task<Void, Never>?
+    private var uploadResolutionTask: Task<Void, Never>?
+
+    private let scrollView = UIScrollView()
+    private let contentStack = UIStackView()
+    private let noticeBanner = FireComposerBannerView(style: .success)
+    private let errorBanner = FireComposerBannerView(style: .error)
+    private let replyTargetCard = FireComposerCardView()
+    private let replyTargetStack = UIStackView()
+    private let topicHeaderStack = UIStackView()
+    private let privateHeaderStack = UIStackView()
+    private let topicTitleField = UITextField()
+    private let privateTitleField = UITextField()
+    private let categoryButton = UIButton(type: .system)
+    private let requirementsCard = FireComposerCardView()
+    private let requirementsStack = UIStackView()
+    private let selectedTagsStack = UIStackView()
+    private let suggestedTagsStack = UIStackView()
+    private let tagResultsStack = UIStackView()
+    private let tagField = UITextField()
+    private let recipientChipsStack = UIStackView()
+    private let recipientField = UITextField()
+    private let recipientResultsStack = UIStackView()
+    private let toolbarStack = UIStackView()
+    private let imageButton = UIButton(type: .system)
+    private let previewButton = UIButton(type: .system)
+    private let countLabel = UILabel()
+    private let markdownToolbarScroll = UIScrollView()
+    private let markdownToolbarStack = UIStackView()
+    private let editorContainer = FireComposerCardView()
+    private let bodyTextView = UITextView()
+    private let mentionResultsStack = UIStackView()
+    private let bodyRequirementLabel = UILabel()
+    private let previewContainer = FireComposerCardView()
+    private let previewStack = UIStackView()
+    private let bottomBar = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterial))
+    private let bottomStack = UIStackView()
+    private let validationLabel = UILabel()
+    private let clearDraftButton = UIButton(type: .system)
+    private let submitButton = UIButton(type: .system)
+    private var submitButtonConfiguration = UIButton.Configuration.filled()
+
+    init(
+        viewModel: FireAppViewModel,
+        route: FireComposerRoute,
+        initialBody: String? = nil,
+        initialBodySelectionLocation: Int? = nil,
+        initialCategoryID: UInt64? = nil,
+        initialTags: [String] = [],
+        onTopicCreated: ((UInt64) -> Void)? = nil,
+        onReplySubmitted: (() -> Void)? = nil,
+        onPrivateMessageCreated: ((UInt64, String) -> Void)? = nil,
+        onSubmissionNotice: ((String) -> Void)? = nil
+    ) {
+        self.viewModel = viewModel
+        self.route = route
+        self.initialBody = initialBody
+        self.initialBodySelectionLocation = initialBodySelectionLocation
+        self.initialCategoryID = initialCategoryID
+        self.initialTags = initialTags
+        self.onTopicCreated = onTopicCreated
+        self.onReplySubmitted = onReplySubmitted
+        self.onPrivateMessageCreated = onPrivateMessageCreated
+        self.onSubmissionNotice = onSubmissionNotice
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        configureChrome()
+        configureLayout()
+        configureTopicHeader()
+        configurePrivateHeader()
+        configureReplyTargetCard()
+        configureComposerToolbar()
+        configureEditor()
+        configurePreview()
+        configureBottomBar()
+        render()
+        Task { [weak self] in
+            await self?.loadInitialComposerState()
+        }
+    }
+
+    override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        guard isBeingDismissed || navigationController?.isBeingDismissed == true else { return }
+        cancelAsyncWork()
+        guard !didCompleteSubmission else { return }
+        Task { [weak self] in
+            await self?.persistDraftIfNeeded()
+        }
+    }
 
     private var baseURLString: String {
         let trimmed = viewModel.session.bootstrap.baseUrl.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -746,7 +863,7 @@ struct FireComposerView: View {
     }
 
     private var trimmedTitle: String {
-        title.trimmingCharacters(in: .whitespacesAndNewlines)
+        titleText.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private var trimmedBody: String {
@@ -776,10 +893,6 @@ struct FireComposerView: View {
         case .privateMessage:
             return Int(max(viewModel.session.bootstrap.minPersonalMessagePostLength, 1))
         }
-    }
-
-    private var canTagTopics: Bool {
-        viewModel.canTagTopics
     }
 
     private var selectedCategoryMinimumTags: Int {
@@ -830,15 +943,6 @@ struct FireComposerView: View {
         )
     }
 
-    private var canSubmit: Bool {
-        submitValidation.canSubmit
-    }
-
-    private var submitValidationMessage: String? {
-        guard !canSubmit else { return nil }
-        return submitValidation.message
-    }
-
     private var markdownImages: [FireComposerMarkdownImage] {
         extractMarkdownImages(from: bodyText)
     }
@@ -865,715 +969,605 @@ struct FireComposerView: View {
         }
     }
 
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                if let noticeMessage, !noticeMessage.isEmpty {
-                    noticeBanner(noticeMessage, tint: .green)
-                }
-                if let errorMessage, !errorMessage.isEmpty {
-                    noticeBanner(errorMessage, tint: .red)
-                }
+    private func configureChrome() {
+        title = route.navigationTitle
+        view.backgroundColor = FireComposerPalette.canvas
+        navigationItem.largeTitleDisplayMode = .never
+        navigationItem.leftBarButtonItem = UIBarButtonItem(
+            title: "关闭",
+            style: .plain,
+            target: self,
+            action: #selector(closeButtonTapped)
+        )
+        navigationItem.rightBarButtonItem = UIBarButtonItem(
+            title: route.submitLabel,
+            style: .done,
+            target: self,
+            action: #selector(submitButtonTapped)
+        )
+    }
 
-                if case .advancedReply = route.kind {
-                    replyTargetCard
-                }
+    private func configureLayout() {
+        scrollView.keyboardDismissMode = .interactive
+        scrollView.alwaysBounceVertical = true
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(scrollView)
 
-                if case .createTopic = route.kind {
-                    createTopicHeader
-                }
+        contentStack.axis = .vertical
+        contentStack.spacing = 18
+        contentStack.translatesAutoresizingMaskIntoConstraints = false
+        scrollView.addSubview(contentStack)
 
-                if case .privateMessage = route.kind {
-                    privateMessageHeader
-                }
+        contentStack.addArrangedSubview(noticeBanner)
+        contentStack.addArrangedSubview(errorBanner)
+        contentStack.addArrangedSubview(replyTargetCard)
+        contentStack.addArrangedSubview(topicHeaderStack)
+        contentStack.addArrangedSubview(privateHeaderStack)
+        contentStack.addArrangedSubview(toolbarStack)
+        contentStack.addArrangedSubview(markdownToolbarScroll)
+        contentStack.addArrangedSubview(editorContainer)
+        contentStack.addArrangedSubview(mentionResultsStack)
+        contentStack.addArrangedSubview(bodyRequirementLabel)
+        contentStack.addArrangedSubview(previewContainer)
 
-                composerToolbar
+        bottomBar.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(bottomBar)
 
-                if previewMode {
-                    previewContent
+        NSLayoutConstraint.activate([
+            bottomBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            bottomBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            bottomBar.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+
+            scrollView.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor),
+            scrollView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: bottomBar.topAnchor),
+
+            contentStack.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor, constant: 16),
+            contentStack.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor, constant: -16),
+            contentStack.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor, constant: 16),
+            contentStack.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor, constant: -24),
+            contentStack.widthAnchor.constraint(equalTo: scrollView.frameLayoutGuide.widthAnchor, constant: -32),
+        ])
+    }
+
+    private func configureTopicHeader() {
+        topicHeaderStack.axis = .vertical
+        topicHeaderStack.spacing = 14
+
+        configureTitleField(topicTitleField, placeholder: "标题")
+        topicTitleField.addTarget(self, action: #selector(titleFieldChanged(_:)), for: .editingChanged)
+
+        categoryButton.contentHorizontalAlignment = .leading
+        categoryButton.configuration = makePlainButtonConfiguration(title: "选择分类", systemImage: "folder")
+        categoryButton.addTarget(self, action: #selector(categoryButtonTapped), for: .touchUpInside)
+
+        requirementsStack.axis = .vertical
+        requirementsStack.spacing = 8
+        requirementsCard.embed(requirementsStack, insets: UIEdgeInsets(top: 14, left: 14, bottom: 14, right: 14))
+
+        configureHorizontalStack(selectedTagsStack)
+        configureHorizontalStack(suggestedTagsStack)
+        configureVerticalResultsStack(tagResultsStack)
+
+        configureSearchField(tagField, placeholder: "添加标签")
+        tagField.addTarget(self, action: #selector(tagFieldChanged(_:)), for: .editingChanged)
+
+        topicHeaderStack.addArrangedSubview(topicTitleField)
+        topicHeaderStack.addArrangedSubview(categoryButton)
+        topicHeaderStack.addArrangedSubview(requirementsCard)
+        topicHeaderStack.addArrangedSubview(selectedTagsStack)
+        topicHeaderStack.addArrangedSubview(tagField)
+        topicHeaderStack.addArrangedSubview(suggestedTagsStack)
+        topicHeaderStack.addArrangedSubview(tagResultsStack)
+    }
+
+    private func configurePrivateHeader() {
+        privateHeaderStack.axis = .vertical
+        privateHeaderStack.spacing = 14
+
+        configureHorizontalStack(recipientChipsStack)
+        configureSearchField(recipientField, placeholder: "添加收件人")
+        recipientField.textContentType = .username
+        recipientField.addTarget(self, action: #selector(recipientFieldChanged(_:)), for: .editingChanged)
+        configureVerticalResultsStack(recipientResultsStack)
+        configureTitleField(privateTitleField, placeholder: "标题")
+        privateTitleField.addTarget(self, action: #selector(titleFieldChanged(_:)), for: .editingChanged)
+
+        privateHeaderStack.addArrangedSubview(recipientChipsStack)
+        privateHeaderStack.addArrangedSubview(recipientField)
+        privateHeaderStack.addArrangedSubview(recipientResultsStack)
+        privateHeaderStack.addArrangedSubview(privateTitleField)
+    }
+
+    private func configureReplyTargetCard() {
+        replyTargetStack.axis = .vertical
+        replyTargetStack.spacing = 6
+        replyTargetCard.embed(replyTargetStack, insets: UIEdgeInsets(top: 14, left: 14, bottom: 14, right: 14))
+    }
+
+    private func configureComposerToolbar() {
+        toolbarStack.axis = .horizontal
+        toolbarStack.alignment = .center
+        toolbarStack.spacing = 12
+
+        imageButton.configuration = makePlainButtonConfiguration(title: "图片", systemImage: "photo")
+        imageButton.addTarget(self, action: #selector(imageButtonTapped), for: .touchUpInside)
+        previewButton.configuration = makePlainButtonConfiguration(title: "预览", systemImage: "eye")
+        previewButton.addTarget(self, action: #selector(previewButtonTapped), for: .touchUpInside)
+
+        countLabel.font = .preferredFont(forTextStyle: .caption1)
+        countLabel.adjustsFontForContentSizeCategory = true
+        countLabel.textColor = .secondaryLabel
+        countLabel.textAlignment = .right
+
+        toolbarStack.addArrangedSubview(imageButton)
+        toolbarStack.addArrangedSubview(previewButton)
+        toolbarStack.addArrangedSubview(UIView())
+        toolbarStack.addArrangedSubview(countLabel)
+
+        markdownToolbarScroll.showsHorizontalScrollIndicator = false
+        markdownToolbarScroll.backgroundColor = FireComposerPalette.chrome
+        markdownToolbarScroll.layer.cornerRadius = FireTheme.smallCornerRadius
+        markdownToolbarScroll.layer.borderColor = FireComposerPalette.divider.cgColor
+        markdownToolbarScroll.layer.borderWidth = 1
+        markdownToolbarScroll.heightAnchor.constraint(equalToConstant: 42).isActive = true
+
+        markdownToolbarStack.axis = .horizontal
+        markdownToolbarStack.alignment = .center
+        markdownToolbarStack.spacing = 4
+        markdownToolbarStack.translatesAutoresizingMaskIntoConstraints = false
+        markdownToolbarScroll.addSubview(markdownToolbarStack)
+
+        NSLayoutConstraint.activate([
+            markdownToolbarStack.leadingAnchor.constraint(equalTo: markdownToolbarScroll.contentLayoutGuide.leadingAnchor, constant: 6),
+            markdownToolbarStack.trailingAnchor.constraint(equalTo: markdownToolbarScroll.contentLayoutGuide.trailingAnchor, constant: -6),
+            markdownToolbarStack.topAnchor.constraint(equalTo: markdownToolbarScroll.contentLayoutGuide.topAnchor),
+            markdownToolbarStack.bottomAnchor.constraint(equalTo: markdownToolbarScroll.contentLayoutGuide.bottomAnchor),
+            markdownToolbarStack.heightAnchor.constraint(equalTo: markdownToolbarScroll.frameLayoutGuide.heightAnchor),
+        ])
+
+        for action in FireMarkdownFormatAction.allCases {
+            let button = UIButton(type: .system)
+            button.tag = action.rawTag
+            button.accessibilityLabel = action.accessibilityLabel
+            button.configuration = makeToolbarButtonConfiguration(for: action)
+            button.addTarget(self, action: #selector(markdownButtonTapped(_:)), for: .touchUpInside)
+            markdownToolbarStack.addArrangedSubview(button)
+            NSLayoutConstraint.activate([
+                button.widthAnchor.constraint(equalToConstant: 36),
+                button.heightAnchor.constraint(equalToConstant: 34),
+            ])
+        }
+    }
+
+    private func configureEditor() {
+        bodyTextView.delegate = self
+        bodyTextView.font = .preferredFont(forTextStyle: .body)
+        bodyTextView.adjustsFontForContentSizeCategory = true
+        bodyTextView.backgroundColor = .clear
+        bodyTextView.autocorrectionType = .yes
+        bodyTextView.autocapitalizationType = .sentences
+        bodyTextView.smartDashesType = .yes
+        bodyTextView.smartQuotesType = .yes
+        bodyTextView.textContainerInset = UIEdgeInsets(top: 14, left: 12, bottom: 14, right: 12)
+        editorContainer.embed(bodyTextView, insets: .zero)
+        bodyTextView.heightAnchor.constraint(greaterThanOrEqualToConstant: 260).isActive = true
+
+        configureVerticalResultsStack(mentionResultsStack)
+
+        bodyRequirementLabel.font = .preferredFont(forTextStyle: .caption1)
+        bodyRequirementLabel.adjustsFontForContentSizeCategory = true
+        bodyRequirementLabel.textColor = .secondaryLabel
+        bodyRequirementLabel.numberOfLines = 0
+    }
+
+    private func configurePreview() {
+        previewStack.axis = .vertical
+        previewStack.spacing = 14
+        previewContainer.embed(previewStack, insets: UIEdgeInsets(top: 18, left: 18, bottom: 18, right: 18))
+    }
+
+    private func configureBottomBar() {
+        bottomStack.axis = .vertical
+        bottomStack.spacing = 10
+        bottomStack.translatesAutoresizingMaskIntoConstraints = false
+        bottomBar.contentView.addSubview(bottomStack)
+
+        validationLabel.font = .preferredFont(forTextStyle: .caption1)
+        validationLabel.adjustsFontForContentSizeCategory = true
+        validationLabel.textColor = .secondaryLabel
+        validationLabel.numberOfLines = 0
+
+        clearDraftButton.setTitle("清除草稿", for: .normal)
+        clearDraftButton.titleLabel?.font = .preferredFont(forTextStyle: .subheadline)
+        clearDraftButton.addTarget(self, action: #selector(clearDraftButtonTapped), for: .touchUpInside)
+
+        submitButtonConfiguration.cornerStyle = .capsule
+        submitButtonConfiguration.baseBackgroundColor = FireTopicListPalette.accent
+        submitButtonConfiguration.baseForegroundColor = .white
+        submitButtonConfiguration.contentInsets = NSDirectionalEdgeInsets(top: 12, leading: 18, bottom: 12, trailing: 18)
+        submitButton.configuration = submitButtonConfiguration
+        submitButton.addTarget(self, action: #selector(submitButtonTapped), for: .touchUpInside)
+
+        let buttonRow = UIStackView(arrangedSubviews: [clearDraftButton, UIView(), submitButton])
+        buttonRow.axis = .horizontal
+        buttonRow.alignment = .center
+        buttonRow.spacing = 12
+
+        bottomStack.addArrangedSubview(validationLabel)
+        bottomStack.addArrangedSubview(buttonRow)
+
+        NSLayoutConstraint.activate([
+            bottomStack.leadingAnchor.constraint(equalTo: bottomBar.contentView.safeAreaLayoutGuide.leadingAnchor, constant: 16),
+            bottomStack.trailingAnchor.constraint(equalTo: bottomBar.contentView.safeAreaLayoutGuide.trailingAnchor, constant: -16),
+            bottomStack.topAnchor.constraint(equalTo: bottomBar.contentView.topAnchor, constant: 10),
+            bottomStack.bottomAnchor.constraint(equalTo: bottomBar.contentView.safeAreaLayoutGuide.bottomAnchor, constant: -12),
+            submitButton.widthAnchor.constraint(greaterThanOrEqualToConstant: 120),
+        ])
+    }
+
+    private func render() {
+        noticeBanner.setMessage(noticeMessage)
+        errorBanner.setMessage(errorMessage)
+
+        topicHeaderStack.isHidden = {
+            if case .createTopic = route.kind { return false }
+            return true
+        }()
+        privateHeaderStack.isHidden = {
+            if case .privateMessage = route.kind { return false }
+            return true
+        }()
+        replyTargetCard.isHidden = {
+            if case .advancedReply = route.kind { return false }
+            return true
+        }()
+
+        renderReplyTarget()
+        renderTopicHeader()
+        renderPrivateHeader()
+        renderToolbar()
+        renderEditor()
+        renderPreview()
+        renderBottomBar()
+    }
+
+    private func renderReplyTarget() {
+        replyTargetStack.removeAllArrangedSubviews()
+        guard case .advancedReply = route.kind else { return }
+        let titleLabel = makeLabel(route.topicTitle ?? "回复话题", style: .headline, color: .label)
+        replyTargetStack.addArrangedSubview(titleLabel)
+        if let replyToUsername = route.replyToUsername, !replyToUsername.isEmpty {
+            replyTargetStack.addArrangedSubview(makeLabel("回复 @\(replyToUsername)", style: .caption1, color: FireTopicListPalette.accent))
+        } else if let replyToPostNumber = route.replyToPostNumber {
+            replyTargetStack.addArrangedSubview(makeLabel("回复 #\(replyToPostNumber)", style: .caption1, color: FireTopicListPalette.accent))
+        }
+    }
+
+    private func renderTopicHeader() {
+        guard case .createTopic = route.kind else { return }
+        setTextField(topicTitleField, text: titleText)
+        categoryButton.configuration = makePlainButtonConfiguration(
+            title: selectedCategory.map(categoryDisplayName(for:)) ?? "选择分类",
+            systemImage: "folder"
+        )
+
+        requirementsStack.removeAllArrangedSubviews()
+        let headerRow = UIStackView()
+        headerRow.axis = .horizontal
+        headerRow.alignment = .center
+        headerRow.spacing = 8
+        let icon = UIImageView(image: UIImage(systemName: selectedCategory == nil ? "info.circle.fill" : "checkmark.circle.fill"))
+        icon.tintColor = selectedCategory == nil ? .secondaryLabel : FireTopicListPalette.accent
+        icon.setContentHuggingPriority(.required, for: .horizontal)
+        headerRow.addArrangedSubview(icon)
+        headerRow.addArrangedSubview(makeLabel("发布要求", style: .subheadline, color: .label, weight: .semibold))
+        requirementsStack.addArrangedSubview(headerRow)
+
+        if let selectedCategory {
+            requirementsStack.addArrangedSubview(makeLabel("当前分类：\(categoryDisplayName(for: selectedCategory))", style: .caption1, color: .label))
+            if selectedCategoryMinimumTags > 0 {
+                let progressColor = selectedTags.count >= selectedCategoryMinimumTags ? FireTopicListPalette.accent : .secondaryLabel
+                requirementsStack.addArrangedSubview(makeLabel("标签进度：\(selectedTags.count)/\(selectedCategoryMinimumTags)", style: .caption1, color: progressColor))
+            }
+            for group in selectedCategoryRequiredTagGroups {
+                requirementsStack.addArrangedSubview(makeLabel(requiredTagGroupRequirementText(group), style: .caption1, color: .secondaryLabel))
+            }
+            if selectedCategoryHasTemplate {
+                requirementsStack.addArrangedSubview(makeLabel("该分类会自动带出发帖模板。", style: .caption1, color: .secondaryLabel))
+            }
+        } else {
+            requirementsStack.addArrangedSubview(makeLabel("先选择分类，系统才会显示该分类的模板和标签要求。", style: .caption1, color: .secondaryLabel))
+        }
+
+        renderTagChips()
+        renderSuggestedTags()
+        renderTagResults()
+        setTextField(tagField, text: tagInput)
+        let canShowTags = viewModel.canTagTopics || selectedCategoryMinimumTags > 0
+        selectedTagsStack.isHidden = selectedTags.isEmpty
+        suggestedTagsStack.isHidden = !canShowTags || suggestedTags.isEmpty
+        tagField.isHidden = !canShowTags
+        tagResultsStack.isHidden = tagResults.isEmpty
+    }
+
+    private func renderPrivateHeader() {
+        guard case .privateMessage = route.kind else { return }
+        renderRecipientChips()
+        renderRecipientResults()
+        setTextField(recipientField, text: recipientQuery)
+        setTextField(privateTitleField, text: titleText)
+        recipientChipsStack.isHidden = selectedRecipients.isEmpty
+        recipientResultsStack.isHidden = recipientResults.isEmpty
+    }
+
+    private func renderTagChips() {
+        selectedTagsStack.removeAllArrangedSubviews()
+        for tag in selectedTags {
+            let button = makeChipButton(title: "#\(tag)", systemImage: "xmark")
+            button.addAction(UIAction { [weak self] _ in
+                self?.selectedTags.removeAll { $0 == tag }
+                self?.errorMessage = nil
+                self?.scheduleAutosave()
+                self?.render()
+            }, for: .touchUpInside)
+            selectedTagsStack.addArrangedSubview(button)
+        }
+        selectedTagsStack.addArrangedSubview(UIView())
+    }
+
+    private func renderSuggestedTags() {
+        suggestedTagsStack.removeAllArrangedSubviews()
+        for tag in suggestedTags {
+            let button = makeChipButton(title: "#\(tag)", systemImage: "plus", emphasized: false)
+            button.addAction(UIAction { [weak self] _ in
+                self?.addTag(tag)
+            }, for: .touchUpInside)
+            suggestedTagsStack.addArrangedSubview(button)
+        }
+        suggestedTagsStack.addArrangedSubview(UIView())
+    }
+
+    private func renderTagResults() {
+        tagResultsStack.removeAllArrangedSubviews()
+        for item in tagResults {
+            let title = item.count > 0 ? "#\(item.name)  \(item.count)" : "#\(item.name)"
+            let button = makeResultButton(title: title, subtitle: nil, systemImage: "number")
+            button.addAction(UIAction { [weak self] _ in
+                self?.addTag(item.name)
+            }, for: .touchUpInside)
+            tagResultsStack.addArrangedSubview(button)
+        }
+    }
+
+    private func renderRecipientChips() {
+        recipientChipsStack.removeAllArrangedSubviews()
+        for username in selectedRecipients {
+            let button = makeChipButton(title: "@\(username)", systemImage: "xmark")
+            button.addAction(UIAction { [weak self] _ in
+                self?.removeRecipient(username)
+                self?.render()
+            }, for: .touchUpInside)
+            recipientChipsStack.addArrangedSubview(button)
+        }
+        recipientChipsStack.addArrangedSubview(UIView())
+    }
+
+    private func renderRecipientResults() {
+        recipientResultsStack.removeAllArrangedSubviews()
+        for user in recipientResults {
+            let subtitle = user.name?.trimmingCharacters(in: .whitespacesAndNewlines).ifEmpty("")
+            let button = makeResultButton(
+                title: "@\(user.username)",
+                subtitle: subtitle?.isEmpty == false ? subtitle : nil,
+                systemImage: nil,
+                monogram: monogramForUsername(username: user.username)
+            )
+            button.addAction(UIAction { [weak self] _ in
+                self?.addRecipient(user)
+            }, for: .touchUpInside)
+            recipientResultsStack.addArrangedSubview(button)
+        }
+    }
+
+    private func renderToolbar() {
+        imageButton.configuration = makePlainButtonConfiguration(
+            title: isUploadingImage ? "上传中" : "图片",
+            systemImage: "photo"
+        )
+        imageButton.isEnabled = !isUploadingImage && !isSubmitting
+        previewButton.configuration = makePlainButtonConfiguration(
+            title: previewMode ? "继续编辑" : "预览",
+            systemImage: previewMode ? "pencil" : "eye"
+        )
+        let countText: String
+        switch route.kind {
+        case .createTopic, .privateMessage:
+            countText = "\(titleText.count)/\(minimumTitleLength)+"
+        case .advancedReply:
+            countText = "\(trimmedBody.count)/\(minimumBodyLength)+"
+        }
+        countLabel.text = countText
+    }
+
+    private func renderEditor() {
+        markdownToolbarScroll.isHidden = previewMode
+        editorContainer.isHidden = previewMode
+        mentionResultsStack.isHidden = previewMode || (mentionUsers.isEmpty && mentionGroups.isEmpty)
+        bodyRequirementLabel.isHidden = previewMode || trimmedBody.isEmpty || trimmedBody.count >= minimumBodyLength
+        bodyRequirementLabel.text = "正文至少需要 \(minimumBodyLength) 个字"
+        if bodyTextView.text != bodyText {
+            bodyTextView.text = bodyText
+        }
+        if bodyTextView.selectedRange != bodySelection {
+            bodyTextView.selectedRange = bodySelection
+        }
+        renderMentionResults()
+    }
+
+    private func renderMentionResults() {
+        mentionResultsStack.removeAllArrangedSubviews()
+        for user in mentionUsers {
+            let button = makeResultButton(
+                title: "@\(user.username)",
+                subtitle: user.name?.trimmingCharacters(in: .whitespacesAndNewlines).ifEmpty(""),
+                systemImage: nil,
+                monogram: monogramForUsername(username: user.username)
+            )
+            button.addAction(UIAction { [weak self] _ in
+                self?.insertMention("@\(user.username)")
+            }, for: .touchUpInside)
+            mentionResultsStack.addArrangedSubview(button)
+        }
+        for group in mentionGroups {
+            let button = makeResultButton(
+                title: "@\(group.name)",
+                subtitle: group.fullName?.trimmingCharacters(in: .whitespacesAndNewlines).ifEmpty(""),
+                systemImage: "person.3.fill"
+            )
+            button.addAction(UIAction { [weak self] _ in
+                self?.insertMention("@\(group.name)")
+            }, for: .touchUpInside)
+            mentionResultsStack.addArrangedSubview(button)
+        }
+    }
+
+    private func renderPreview() {
+        previewContainer.isHidden = !previewMode
+        previewStack.removeAllArrangedSubviews()
+        guard previewMode else { return }
+
+        switch route.kind {
+        case .createTopic, .privateMessage:
+            previewStack.addArrangedSubview(makeLabel(trimmedTitle.isEmpty ? "（无标题）" : trimmedTitle, style: .title2, color: .label, weight: .bold))
+        case .advancedReply:
+            break
+        }
+
+        if case .privateMessage = route.kind, !selectedRecipients.isEmpty {
+            previewStack.addArrangedSubview(makeLabel(selectedRecipients.map { "@\($0)" }.joined(separator: "、"), style: .caption1, color: FireTopicListPalette.accent, weight: .semibold))
+        }
+        if let selectedCategory, case .createTopic = route.kind {
+            previewStack.addArrangedSubview(makeLabel(categoryDisplayName(for: selectedCategory), style: .caption1, color: FireTopicListPalette.accent, weight: .semibold))
+        }
+        if !selectedTags.isEmpty, case .createTopic = route.kind {
+            previewStack.addArrangedSubview(makeLabel(selectedTags.map { "#\($0)" }.joined(separator: "  "), style: .caption1, color: FireTopicListPalette.accent, weight: .medium))
+        }
+
+        let bodyLabel = makeLabel(trimmedBody.isEmpty ? "暂无内容" : bodyText, style: .body, color: trimmedBody.isEmpty ? .secondaryLabel : .label)
+        bodyLabel.numberOfLines = 0
+        previewStack.addArrangedSubview(bodyLabel)
+
+        if !markdownImages.isEmpty {
+            previewStack.addArrangedSubview(makeLabel("图片预览", style: .subheadline, color: .label, weight: .semibold))
+            for image in markdownImages {
+                let label = image.altText ?? image.urlString
+                let resolved = resolvedURL(for: image.urlString)?.absoluteString ?? image.urlString
+                previewStack.addArrangedSubview(makeLabel("\(label)\n\(resolved)", style: .caption1, color: .secondaryLabel))
+            }
+        }
+    }
+
+    private func renderBottomBar() {
+        let validation = submitValidation
+        validationLabel.text = validation.canSubmit ? nil : validation.message
+        validationLabel.isHidden = validation.canSubmit || validation.message?.isEmpty != false
+        clearDraftButton.isHidden = draftSequence == 0
+        navigationItem.rightBarButtonItem?.isEnabled = validation.canSubmit
+        submitButton.isEnabled = validation.canSubmit
+
+        var configuration = submitButtonConfiguration
+        configuration.title = isSubmitting ? "提交中" : route.submitLabel
+        configuration.showsActivityIndicator = isSubmitting
+        configuration.baseBackgroundColor = validation.canSubmit ? FireTopicListPalette.accent : .tertiaryLabel
+        submitButton.configuration = configuration
+        navigationItem.leftBarButtonItem?.isEnabled = !isSubmitting
+    }
+
+    @objc private func closeButtonTapped() {
+        guard !isSubmitting else { return }
+        dismiss(animated: true)
+    }
+
+    @objc private func submitButtonTapped() {
+        submitComposer()
+    }
+
+    @objc private func titleFieldChanged(_ sender: UITextField) {
+        titleText = sender.text ?? ""
+        errorMessage = nil
+        scheduleAutosave()
+        render()
+    }
+
+    @objc private func tagFieldChanged(_ sender: UITextField) {
+        tagInput = sender.text ?? ""
+        performTagSearch(query: tagInput)
+        render()
+    }
+
+    @objc private func recipientFieldChanged(_ sender: UITextField) {
+        recipientQuery = sender.text ?? ""
+        performRecipientSearch(query: recipientQuery)
+        render()
+    }
+
+    @objc private func categoryButtonTapped() {
+        let alert = UIAlertController(title: "选择分类", message: nil, preferredStyle: .actionSheet)
+        for category in availableCategories {
+            let title = categoryDisplayName(for: category)
+            let summary = FireComposerCategoryGuidance.categorySheetSummary(for: category)
+            let action = UIAlertAction(title: summary == nil ? title : "\(title) · \(summary ?? "")", style: .default) { [weak self] _ in
+                guard let self else { return }
+                selectedCategoryID = category.id
+                applyCategoryTemplateIfNeeded()
+                if tagInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    tagResults = []
                 } else {
-                    editorContent
+                    performTagSearch(query: tagInput)
                 }
+                errorMessage = nil
+                scheduleAutosave()
+                render()
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 16)
-            .padding(.bottom, 120)
+            alert.addAction(action)
         }
-        .background(FireTheme.canvas)
-        .navigationTitle(route.navigationTitle)
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-                Button("关闭") {
-                    dismiss()
-                }
-                .disabled(isSubmitting)
-            }
-            ToolbarItem(placement: .confirmationAction) {
-                Button(route.submitLabel) {
-                    submitComposer()
-                }
-                .disabled(!canSubmit)
-                .fireCTAPress()
-            }
+        alert.addAction(UIAlertAction(title: "取消", style: .cancel))
+        if let popover = alert.popoverPresentationController {
+            popover.sourceView = categoryButton
+            popover.sourceRect = categoryButton.bounds
         }
-        .interactiveDismissDisabled(isSubmitting)
-        .fireSuccessFeedback(trigger: saveCompletionPulse)
-        .fireErrorFeedback(trigger: errorFeedbackPulse)
-        .safeAreaInset(edge: .bottom) {
-            bottomActionBar
-        }
-        .sheet(isPresented: $showCategorySheet) {
-            NavigationStack {
-                FireComposerCategorySheet(
-                    categories: availableCategories,
-                    selectedCategoryID: selectedCategoryID,
-                    categoryLabel: categoryDisplayName(for:)
-                ) { categoryID in
-                    selectedCategoryID = categoryID
-                    applyCategoryTemplateIfNeeded()
-                    scheduleAutosave()
-                }
-            }
-            .fireSheet(presented: $showCategorySheet)
-        }
-        .task {
-            await loadInitialComposerState()
-        }
-        .onChange(of: selectedPhoto) { _, item in
-            guard let item else { return }
-            handleSelectedPhoto(item)
-        }
-        .onChange(of: title) { _, _ in
-            errorMessage = nil
-            scheduleAutosave()
-        }
-        .onChange(of: bodyText) { _, _ in
-            errorMessage = nil
-            updateMentionSearch()
-            scheduleAutosave()
-            resolveShortUploadsIfNeeded()
-        }
-        .onChange(of: selectedCategoryID) { _, _ in
-            errorMessage = nil
-            if tagInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                tagResults = []
-            } else {
-                performTagSearch(query: tagInput)
-            }
-            scheduleAutosave()
-        }
-        .onChange(of: selectedTags) { _, _ in
-            errorMessage = nil
-            scheduleAutosave()
-        }
-        .onChange(of: tagInput) { _, newValue in
-            performTagSearch(query: newValue)
-        }
-        .onChange(of: recipientQuery) { _, newValue in
-            performRecipientSearch(query: newValue)
-        }
-        .onDisappear {
-            autosaveTask?.cancel()
-            tagSearchTask?.cancel()
-            mentionSearchTask?.cancel()
-            recipientSearchTask?.cancel()
-            uploadResolutionTask?.cancel()
-            Task {
-                await persistDraftIfNeeded()
-            }
-        }
+        present(alert, animated: true)
     }
 
-    private var createTopicHeader: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            TextField("标题", text: $title)
-                .textFieldStyle(.roundedBorder)
-                .font(.title3.weight(.semibold))
-
-            HStack(spacing: 10) {
-                Button {
-                    showCategorySheet = true
-                } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: "folder")
-                            .accessibilityHidden(true)
-                            .foregroundStyle(FireTheme.accent)
-                        Text(selectedCategory.map(categoryDisplayName(for:)) ?? "选择分类")
-                            .foregroundStyle(selectedCategory == nil ? .secondary : .primary)
-                        Spacer()
-                        Image(systemName: "chevron.up.chevron.down")
-                            .accessibilityHidden(true)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 12)
-                    .background(
-                        RoundedRectangle(cornerRadius: FireTheme.mediumCornerRadius, style: .continuous)
-                            .fill(FireTheme.surface)
-                    )
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(
-                    selectedCategory.map { "选择分类，当前 \(categoryDisplayName(for: $0))" } ?? "选择分类"
-                )
-            }
-
-            createTopicRequirementsCard
-
-            if canTagTopics || selectedCategoryMinimumTags > 0 {
-                VStack(alignment: .leading, spacing: 10) {
-                    if !selectedTags.isEmpty {
-                        FlowLayout(spacing: 8, fallbackWidth: max(UIScreen.main.bounds.width - 32, 200)) {
-                            ForEach(selectedTags, id: \.self) { tag in
-                                selectedTagChip(tag)
-                            }
-                        }
-                    }
-
-                    TextField("添加标签", text: $tagInput)
-                        .textFieldStyle(.roundedBorder)
-
-                    if !suggestedTags.isEmpty {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("推荐标签")
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(FireTheme.subtleInk)
-                            FlowLayout(spacing: 8, fallbackWidth: max(UIScreen.main.bounds.width - 32, 200)) {
-                                ForEach(suggestedTags, id: \.self) { tag in
-                                    suggestedTagChip(tag)
-                                }
-                            }
-                        }
-                    }
-
-                    if !tagResults.isEmpty {
-                        VStack(alignment: .leading, spacing: 0) {
-                            ForEach(tagResults, id: \.name) { item in
-                                Button {
-                                    addTag(item.name)
-                                } label: {
-                                    HStack {
-                                        Text("#\(item.name)")
-                                            .foregroundStyle(.primary)
-                                        Spacer()
-                                        if item.count > 0 {
-                                            Text("\(item.count)")
-                                                .font(.caption)
-                                                .foregroundStyle(.secondary)
-                                        }
-                                    }
-                                    .padding(.horizontal, 12)
-                                    .padding(.vertical, 10)
-                                }
-                                .buttonStyle(.plain)
-                                .accessibilityLabel("添加标签 \(item.name)")
-
-                                if item.name != tagResults.last?.name {
-                                    Divider()
-                                }
-                            }
-                        }
-                        .background(
-                            RoundedRectangle(cornerRadius: FireTheme.mediumCornerRadius, style: .continuous)
-                                .fill(FireTheme.surface)
-                        )
-                    }
-
-                    if selectedCategoryMinimumTags > 0 {
-                        Text("当前分类至少需要 \(selectedCategoryMinimumTags) 个标签")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-            }
-        }
+    @objc private func previewButtonTapped() {
+        previewMode.toggle()
+        render()
     }
 
-    private var createTopicRequirementsCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
-                Image(systemName: selectedCategory == nil ? "info.circle.fill" : "checkmark.circle.fill")
-                    .foregroundStyle(selectedCategory == nil ? FireTheme.subtleInk : FireTheme.accent)
-                Text("发布要求")
-                    .font(.subheadline.weight(.semibold))
-            }
-
-            if let selectedCategory {
-                Text("当前分类：\(categoryDisplayName(for: selectedCategory))")
-                    .font(.caption)
-                    .foregroundStyle(.primary)
-
-                if selectedCategoryMinimumTags > 0 {
-                    Text("标签进度：\(selectedTags.count)/\(selectedCategoryMinimumTags)")
-                        .font(.caption)
-                        .foregroundStyle(
-                            selectedTags.count >= selectedCategoryMinimumTags
-                                ? FireTheme.accent
-                                : FireTheme.subtleInk
-                        )
-                }
-
-                ForEach(selectedCategoryRequiredTagGroups, id: \.self) { group in
-                    Text(requiredTagGroupRequirementText(group))
-                        .font(.caption)
-                        .foregroundStyle(FireTheme.subtleInk)
-                }
-
-                if selectedCategoryHasTemplate {
-                    Text("该分类会自动带出发帖模板。")
-                        .font(.caption)
-                        .foregroundStyle(FireTheme.subtleInk)
-                }
-            } else {
-                Text("先选择分类，系统才会显示该分类的模板和标签要求。")
-                    .font(.caption)
-                    .foregroundStyle(FireTheme.subtleInk)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(14)
-        .background(
-            RoundedRectangle(cornerRadius: FireTheme.cornerRadius, style: .continuous)
-                .fill(FireTheme.surface)
-        )
+    @objc private func imageButtonTapped() {
+        var configuration = PHPickerConfiguration(photoLibrary: .shared())
+        configuration.filter = .images
+        configuration.selectionLimit = 1
+        let picker = PHPickerViewController(configuration: configuration)
+        picker.delegate = self
+        present(picker, animated: true)
     }
 
-    private var privateMessageHeader: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            FireRecipientTokenField(
-                recipients: selectedRecipients,
-                query: $recipientQuery,
-                results: recipientResults,
-                onRemoveRecipient: removeRecipient,
-                onAddRecipient: addRecipient
-            )
-
-            TextField("标题", text: $title)
-                .textFieldStyle(.roundedBorder)
-                .font(.title3.weight(.semibold))
-
-            if !selectedRecipients.isEmpty {
-                Text("将发送给：\(selectedRecipients.map { "@\($0)" }.joined(separator: "、"))")
-                    .font(.caption)
-                    .foregroundStyle(FireTheme.subtleInk)
-            }
-        }
+    @objc private func markdownButtonTapped(_ sender: UIButton) {
+        guard let action = FireMarkdownFormatAction(rawTag: sender.tag) else { return }
+        applyMarkdownFormat(action)
     }
 
-    private var replyTargetCard: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(route.topicTitle ?? "回复话题")
-                .font(.headline)
-            if let replyToUsername = route.replyToUsername, !replyToUsername.isEmpty {
-                Text("回复 @\(replyToUsername)")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(FireTheme.accent)
-            } else if let replyToPostNumber = route.replyToPostNumber {
-                Text("回复 #\(replyToPostNumber)")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(FireTheme.accent)
-            }
+    @objc private func clearDraftButtonTapped() {
+        Task { [weak self] in
+            guard let self else { return }
+            try? await viewModel.deleteDraft(draftKey: route.draftKey, sequence: draftSequence)
+            draftSequence = 0
+            noticeMessage = "草稿已清除"
+            render()
         }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: FireTheme.cornerRadius, style: .continuous)
-                .fill(FireTheme.surface)
-        )
-    }
-
-    private var composerToolbar: some View {
-        let uploadButtonTitle = isUploadingImage ? "上传中" : "图片"
-        return HStack(spacing: 12) {
-            PhotosPicker(selection: $selectedPhoto, matching: .images) {
-                Label(uploadButtonTitle, systemImage: "photo")
-                    .font(.subheadline.weight(.semibold))
-            }
-            .disabled(isUploadingImage || isSubmitting)
-            .accessibilityLabel("上传图片")
-            .accessibilityValue(isUploadingImage ? "上传中" : "未上传")
-
-            Button {
-                previewMode.toggle()
-            } label: {
-                Label(previewMode ? "继续编辑" : "预览", systemImage: previewMode ? "pencil" : "eye")
-                    .font(.subheadline.weight(.semibold))
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("切换预览")
-            .accessibilityValue(previewMode ? "正在预览" : "正在编辑")
-
-            Spacer()
-
-            if case .createTopic = route.kind {
-                Text("\(title.count)/\(minimumTitleLength)+")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            } else if case .privateMessage = route.kind {
-                Text("\(title.count)/\(minimumTitleLength)+")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            } else {
-                Text("\(trimmedBody.count)/\(minimumBodyLength)+")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-        }
-    }
-
-    private var editorContent: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            FireMarkdownToolbar(onFormat: applyMarkdownFormat)
-
-            FireComposerTextView(
-                text: $bodyText,
-                selectedRange: $bodySelection,
-                isFirstResponder: $isBodyFocused
-            )
-            .frame(minHeight: 260)
-            .background(
-                RoundedRectangle(cornerRadius: FireTheme.cornerRadius, style: .continuous)
-                    .fill(FireTheme.surface)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: FireTheme.cornerRadius, style: .continuous)
-                    .strokeBorder(FireTheme.divider, lineWidth: 1)
-            )
-
-            if let mentionContext, (!mentionUsers.isEmpty || !mentionGroups.isEmpty) {
-                mentionResultsList(mentionContext: mentionContext)
-            }
-
-            if trimmedBody.count > 0 && trimmedBody.count < minimumBodyLength {
-                Text("正文至少需要 \(minimumBodyLength) 个字")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-        }
-    }
-
-    private var previewContent: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            if case .createTopic = route.kind {
-                Text(trimmedTitle.isEmpty ? "（无标题）" : trimmedTitle)
-                    .font(.title2.weight(.bold))
-            } else if case .privateMessage = route.kind {
-                Text(trimmedTitle.isEmpty ? "（无标题）" : trimmedTitle)
-                    .font(.title2.weight(.bold))
-            }
-
-            if case .privateMessage = route.kind, !selectedRecipients.isEmpty {
-                Text(selectedRecipients.map { "@\($0)" }.joined(separator: "、"))
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(FireTheme.accent)
-            }
-
-            if let selectedCategory, case .createTopic = route.kind {
-                Text(categoryDisplayName(for: selectedCategory))
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(FireTheme.accent)
-            }
-
-            if !selectedTags.isEmpty, case .createTopic = route.kind {
-                FlowLayout(spacing: 8, fallbackWidth: max(UIScreen.main.bounds.width - 32, 200)) {
-                    ForEach(selectedTags, id: \.self) { tag in
-                        Text("#\(tag)")
-                            .font(.caption.weight(.medium))
-                            .foregroundStyle(FireTheme.accent)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 6)
-                            .background(
-                                Capsule().fill(FireTheme.accent.opacity(0.12))
-                            )
-                    }
-                }
-            }
-
-            if let attributed = previewAttributedText {
-                Text(attributed)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            } else {
-                Text("暂无内容")
-                    .foregroundStyle(.secondary)
-            }
-
-            if !markdownImages.isEmpty {
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("图片预览")
-                        .font(.subheadline.weight(.semibold))
-                    ForEach(markdownImages) { image in
-                        if let url = resolvedURL(for: image.urlString) {
-                            AsyncImage(url: url) { phase in
-                                switch phase {
-                                case .empty:
-                                    ProgressView()
-                                        .frame(maxWidth: .infinity)
-                                        .padding(.vertical, 20)
-                                case .success(let loaded):
-                                    loaded
-                                        .resizable()
-                                        .scaledToFit()
-                                        .clipShape(
-                                            RoundedRectangle(cornerRadius: FireTheme.cornerRadius, style: .continuous)
-                                        )
-                                case .failure:
-                                    previewImageFallback(label: image.altText ?? image.urlString)
-                                @unknown default:
-                                    previewImageFallback(label: image.altText ?? image.urlString)
-                                }
-                            }
-                        } else {
-                            previewImageFallback(label: image.altText ?? image.urlString)
-                        }
-                    }
-                }
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(18)
-        .background(
-            RoundedRectangle(cornerRadius: FireTheme.cornerRadius, style: .continuous)
-                .fill(FireTheme.surface)
-        )
-    }
-
-    private var bottomActionBar: some View {
-        VStack(spacing: 10) {
-            Divider()
-            if let submitValidationMessage, !submitValidationMessage.isEmpty {
-                Text(submitValidationMessage)
-                    .font(.caption)
-                    .foregroundStyle(FireTheme.subtleInk)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 16)
-            }
-            HStack(spacing: 12) {
-                if draftSequence > 0 {
-                    Button("清除草稿") {
-                        Task {
-                            try? await viewModel.deleteDraft(draftKey: route.draftKey, sequence: draftSequence)
-                            draftSequence = 0
-                            noticeMessage = "草稿已清除"
-                        }
-                    }
-                    .font(.subheadline.weight(.semibold))
-                }
-
-                Spacer()
-
-                Button {
-                    submitComposer()
-                } label: {
-                    HStack(spacing: 8) {
-                        if isSubmitting {
-                            ProgressView()
-                                .tint(.white)
-                                .accessibilityHidden(true)
-                        }
-                        Text(route.submitLabel)
-                            .font(.headline)
-                    }
-                    .frame(minWidth: 120)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 12)
-                    .background(
-                        Capsule().fill(canSubmit ? FireTheme.accent : Color(.tertiaryLabel))
-                    )
-                    .foregroundStyle(.white)
-                }
-                .buttonStyle(.plain)
-                .disabled(!canSubmit)
-                .accessibilityLabel(route.submitLabel)
-                .fireCTAPress()
-            }
-            .padding(.horizontal, 16)
-            .padding(.bottom, 12)
-        }
-        .background(.ultraThinMaterial)
-    }
-
-    private func noticeBanner(_ message: String, tint: Color) -> some View {
-        HStack(alignment: .top, spacing: 10) {
-            Image(systemName: tint == .red ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
-                .accessibilityHidden(true)
-                .foregroundStyle(tint)
-            Text(message)
-                .font(.subheadline)
-                .foregroundStyle(.primary)
-            Spacer()
-        }
-        .padding(14)
-        .background(
-            RoundedRectangle(cornerRadius: FireTheme.cornerRadius, style: .continuous)
-                .fill(tint.opacity(0.12))
-        )
-    }
-
-    private func selectedTagChip(_ tag: String) -> some View {
-        Button {
-            selectedTags.removeAll { $0 == tag }
-        } label: {
-            HStack(spacing: 6) {
-                Text("#\(tag)")
-                    .font(.caption.weight(.medium))
-                Image(systemName: "xmark")
-                    .accessibilityHidden(true)
-                    .font(.system(size: 8, weight: .bold))
-            }
-            .foregroundStyle(FireTheme.accent)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(
-                Capsule().fill(FireTheme.accent.opacity(0.12))
-            )
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("移除标签 \(tag)")
-    }
-
-    private func suggestedTagChip(_ tag: String) -> some View {
-        Button {
-            addTag(tag)
-        } label: {
-            HStack(spacing: 6) {
-                Image(systemName: "plus")
-                    .accessibilityHidden(true)
-                    .font(.system(size: 9, weight: .bold))
-                Text("#\(tag)")
-                    .font(.caption.weight(.medium))
-            }
-            .foregroundStyle(FireTheme.subtleInk)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(
-                Capsule().fill(Color(.tertiarySystemFill))
-            )
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("添加标签 \(tag)")
-    }
-
-    private func mentionResultsList(mentionContext: FireComposerMentionContext) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ForEach(mentionUsers, id: \.username) { user in
-                Button {
-                    insertMention("@\(user.username)")
-                } label: {
-                    HStack(spacing: 10) {
-                        Text(monogramForUsername(username: user.username))
-                            .font(.caption.weight(.bold))
-                            .foregroundStyle(.white)
-                            .frame(width: 28, height: 28)
-                            .background(Circle().fill(FireTheme.accent))
-                            .accessibilityHidden(true)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("@\(user.username)")
-                                .foregroundStyle(.primary)
-                            if let name = user.name, !name.isEmpty {
-                                Text(name)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                        Spacer()
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 10)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(user.name?.isEmpty == false
-                    ? "提及 @\(user.username)，\(user.name ?? "")"
-                    : "提及 @\(user.username)"
-                )
-
-                if user.username != mentionUsers.last?.username || !mentionGroups.isEmpty {
-                    Divider()
-                }
-            }
-
-            ForEach(mentionGroups, id: \.name) { group in
-                Button {
-                    insertMention("@\(group.name)")
-                } label: {
-                    HStack(spacing: 10) {
-                        Image(systemName: "person.3.fill")
-                            .accessibilityHidden(true)
-                            .foregroundStyle(FireTheme.accent)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("@\(group.name)")
-                                .foregroundStyle(.primary)
-                            if let fullName = group.fullName, !fullName.isEmpty {
-                                Text(fullName)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                        Spacer()
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 10)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(group.fullName?.isEmpty == false
-                    ? "提及群组 @\(group.name)，\(group.fullName ?? "")"
-                    : "提及群组 @\(group.name)"
-                )
-
-                if group.name != mentionGroups.last?.name {
-                    Divider()
-                }
-            }
-        }
-        .background(
-            RoundedRectangle(cornerRadius: FireTheme.cornerRadius, style: .continuous)
-                .fill(FireTheme.surface)
-        )
-    }
-
-    private func previewImageFallback(label: String) -> some View {
-        HStack(spacing: 10) {
-            Image(systemName: "photo")
-                .accessibilityHidden(true)
-                .foregroundStyle(.secondary)
-            Text(label)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(14)
-        .background(
-            RoundedRectangle(cornerRadius: FireTheme.cornerRadius, style: .continuous)
-                .fill(Color(.tertiarySystemFill))
-        )
-    }
-
-    private var previewAttributedText: AttributedString? {
-        guard !trimmedBody.isEmpty else {
-            return nil
-        }
-        if let attributed = try? AttributedString(markdown: bodyText) {
-            return attributed
-        }
-        return AttributedString(bodyText)
-    }
-
-    private func categoryDisplayName(for category: FireTopicCategoryPresentation) -> String {
-        guard let parentID = category.parentCategoryId,
-              let parent = viewModel.allCategories().first(where: { $0.id == parentID })
-        else {
-            return category.displayName
-        }
-        return "\(parent.displayName) / \(category.displayName)"
-    }
-
-    private func requiredTagGroupRequirementText(_ group: RequiredTagGroupState) -> String {
-        let trimmedName = group.name.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmedName.isEmpty {
-            return "需要从一个标签组里至少选择 \(group.minCount) 个标签。"
-        }
-        return "标签组「\(trimmedName)」至少需要 \(group.minCount) 个标签。"
     }
 
     private func addTag(_ tag: String) {
@@ -1583,6 +1577,9 @@ struct FireComposerView: View {
         selectedTags.append(trimmed)
         tagInput = ""
         tagResults = []
+        errorMessage = nil
+        scheduleAutosave()
+        render()
     }
 
     private func addRecipient(_ user: UserMentionUserState) {
@@ -1591,15 +1588,20 @@ struct FireComposerView: View {
         guard !selectedRecipients.contains(where: { $0.caseInsensitiveCompare(trimmed) == .orderedSame }) else {
             recipientQuery = ""
             recipientResults = []
+            render()
             return
         }
         selectedRecipients.append(trimmed)
         recipientQuery = ""
         recipientResults = []
+        errorMessage = nil
+        scheduleAutosave()
+        render()
     }
 
     private func removeRecipient(_ username: String) {
         selectedRecipients.removeAll { $0.caseInsensitiveCompare(username) == .orderedSame }
+        scheduleAutosave()
     }
 
     private func updateMentionSearch() {
@@ -1608,6 +1610,7 @@ struct FireComposerView: View {
         guard let mentionContext, !mentionContext.term.isEmpty else {
             mentionUsers = []
             mentionGroups = []
+            render()
             return
         }
 
@@ -1623,16 +1626,14 @@ struct FireComposerView: View {
                     categoryID: selectedCategoryID ?? route.fallbackCategoryID
                 )
                 guard !Task.isCancelled else { return }
-                await MainActor.run {
-                    mentionUsers = result.users
-                    mentionGroups = result.groups
-                }
+                mentionUsers = result.users
+                mentionGroups = result.groups
+                render()
             } catch {
                 guard !Task.isCancelled else { return }
-                await MainActor.run {
-                    mentionUsers = []
-                    mentionGroups = []
-                }
+                mentionUsers = []
+                mentionGroups = []
+                render()
             }
         }
     }
@@ -1642,6 +1643,7 @@ struct FireComposerView: View {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             recipientResults = []
+            render()
             return
         }
 
@@ -1657,18 +1659,16 @@ struct FireComposerView: View {
                     categoryID: nil
                 )
                 guard !Task.isCancelled else { return }
-                await MainActor.run {
-                    recipientResults = result.users.filter { user in
-                        !selectedRecipients.contains {
-                            $0.caseInsensitiveCompare(user.username) == .orderedSame
-                        }
+                recipientResults = result.users.filter { user in
+                    !selectedRecipients.contains {
+                        $0.caseInsensitiveCompare(user.username) == .orderedSame
                     }
                 }
+                render()
             } catch {
                 guard !Task.isCancelled else { return }
-                await MainActor.run {
-                    recipientResults = []
-                }
+                recipientResults = []
+                render()
             }
         }
     }
@@ -1678,6 +1678,7 @@ struct FireComposerView: View {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             tagResults = []
+            render()
             return
         }
 
@@ -1693,19 +1694,17 @@ struct FireComposerView: View {
                     selectedTags: selectedTags
                 )
                 guard !Task.isCancelled else { return }
-                await MainActor.run {
-                    let allowedTags = Set(selectedCategory?.allowedTags ?? [])
-                    if allowedTags.isEmpty {
-                        tagResults = result.results
-                    } else {
-                        tagResults = result.results.filter { allowedTags.contains($0.name) }
-                    }
+                let allowedTags = Set(selectedCategory?.allowedTags ?? [])
+                if allowedTags.isEmpty {
+                    tagResults = result.results
+                } else {
+                    tagResults = result.results.filter { allowedTags.contains($0.name) }
                 }
+                render()
             } catch {
                 guard !Task.isCancelled else { return }
-                await MainActor.run {
-                    tagResults = []
-                }
+                tagResults = []
+                render()
             }
         }
     }
@@ -1721,7 +1720,7 @@ struct FireComposerView: View {
             applyDefaultCategoryIfNeeded()
         } else if case .privateMessage(let recipients, let initialTitle) = route.kind {
             selectedRecipients = recipients
-            title = initialTitle ?? title
+            titleText = initialTitle ?? titleText
             if let initialBody, bodyText.isEmpty {
                 bodyText = initialBody
             }
@@ -1730,16 +1729,18 @@ struct FireComposerView: View {
         }
 
         isLoadingDraft = true
+        render()
         defer {
             isLoadingDraft = false
-            isBodyFocused = true
+            bodyTextView.becomeFirstResponder()
+            render()
         }
 
         do {
             if let draft = try await viewModel.fetchDraft(draftKey: route.draftKey) {
                 if case .createTopic = route.kind {
                     draftSequence = draft.sequence
-                    title = draft.data.title ?? title
+                    titleText = draft.data.title ?? titleText
                     bodyText = draft.data.reply ?? bodyText
                     selectedCategoryID = draft.data.categoryId ?? selectedCategoryID
                     selectedTags = draft.data.tags
@@ -1749,7 +1750,7 @@ struct FireComposerView: View {
                         draftRecipients: draft.data.recipients
                     ) {
                         draftSequence = draft.sequence
-                        title = draft.data.title ?? title
+                        titleText = draft.data.title ?? titleText
                         bodyText = draft.data.reply ?? bodyText
                         if !draft.data.recipients.isEmpty {
                             selectedRecipients = draft.data.recipients
@@ -1774,6 +1775,7 @@ struct FireComposerView: View {
             applyCategoryTemplateIfNeeded()
         }
         resolveShortUploadsIfNeeded()
+        render()
     }
 
     private func applyDefaultCategoryIfNeeded() {
@@ -1804,9 +1806,7 @@ struct FireComposerView: View {
     }
 
     private func applyInitialBodyIfNeeded() {
-        guard let initialBody else {
-            return
-        }
+        guard let initialBody else { return }
         let result = FireComposerInitialBody.merge(
             initialBody: initialBody,
             currentBody: bodyText,
@@ -1826,17 +1826,19 @@ struct FireComposerView: View {
         }
     }
 
-    @MainActor
     private func persistDraftIfNeeded() async {
         guard !isSubmitting else { return }
+        guard !didCompleteSubmission else { return }
 
         if !hasDraftContent {
             guard draftSequence > 0 else { return }
             do {
                 try await viewModel.deleteDraft(draftKey: route.draftKey, sequence: draftSequence)
                 draftSequence = 0
+                render()
             } catch {
                 errorMessage = error.localizedDescription
+                render()
             }
             return
         }
@@ -1846,7 +1848,7 @@ struct FireComposerView: View {
             title: {
                 switch route.kind {
                 case .createTopic, .privateMessage:
-                    return title
+                    return titleText
                 case .advancedReply:
                     return nil
                 }
@@ -1886,12 +1888,15 @@ struct FireComposerView: View {
                 data: draftData,
                 sequence: draftSequence
             )
+            render()
         } catch {
             errorMessage = error.localizedDescription
+            render()
         }
     }
 
     private func submitComposer() {
+        guard !isSubmitting else { return }
         errorMessage = nil
         noticeMessage = nil
 
@@ -1922,9 +1927,10 @@ struct FireComposerView: View {
                 return
             }
 
-            isSubmitting = true
-            Task { @MainActor in
-                defer { isSubmitting = false }
+            beginSubmitting()
+            Task { [weak self] in
+                guard let self else { return }
+                defer { endSubmitting() }
                 do {
                     let topicID = try await viewModel.createTopic(
                         title: trimmedTitle,
@@ -1934,20 +1940,11 @@ struct FireComposerView: View {
                     )
                     try? await viewModel.deleteDraft(draftKey: route.draftKey, sequence: draftSequence)
                     draftSequence = 0
-                    onTopicCreated?(topicID)
-                    saveCompletionPulse += 1
-                    onSubmissionNotice?(submissionSuccessMessage)
-                    dismiss()
-                } catch {
-                    let message = error.localizedDescription
-                    if message.localizedCaseInsensitiveContains("pending review") {
-                        try? await viewModel.deleteDraft(draftKey: route.draftKey, sequence: draftSequence)
-                        draftSequence = 0
-                        onSubmissionNotice?(pendingReviewMessage)
-                        dismiss()
-                        return
+                    finishSubmission(message: submissionSuccessMessage) { [weak self] in
+                        self?.onTopicCreated?(topicID)
                     }
-                    showSubmissionError(message)
+                } catch {
+                    handleSubmissionError(error)
                 }
             }
 
@@ -1973,9 +1970,10 @@ struct FireComposerView: View {
                 return
             }
 
-            isSubmitting = true
-            Task { @MainActor in
-                defer { isSubmitting = false }
+            beginSubmitting()
+            Task { [weak self] in
+                guard let self else { return }
+                defer { endSubmitting() }
                 do {
                     let topicID = try await viewModel.createPrivateMessage(
                         title: trimmedTitle,
@@ -1984,20 +1982,12 @@ struct FireComposerView: View {
                     )
                     try? await viewModel.deleteDraft(draftKey: route.draftKey, sequence: draftSequence)
                     draftSequence = 0
-                    onPrivateMessageCreated?(topicID, trimmedTitle)
-                    saveCompletionPulse += 1
-                    onSubmissionNotice?(submissionSuccessMessage)
-                    dismiss()
-                } catch {
-                    let message = error.localizedDescription
-                    if message.localizedCaseInsensitiveContains("pending review") {
-                        try? await viewModel.deleteDraft(draftKey: route.draftKey, sequence: draftSequence)
-                        draftSequence = 0
-                        onSubmissionNotice?(pendingReviewMessage)
-                        dismiss()
-                        return
+                    let submittedTitle = trimmedTitle
+                    finishSubmission(message: submissionSuccessMessage) { [weak self] in
+                        self?.onPrivateMessageCreated?(topicID, submittedTitle)
                     }
-                    showSubmissionError(message)
+                } catch {
+                    handleSubmissionError(error)
                 }
             }
 
@@ -2011,9 +2001,10 @@ struct FireComposerView: View {
                 return
             }
 
-            isSubmitting = true
-            Task { @MainActor in
-                defer { isSubmitting = false }
+            beginSubmitting()
+            Task { [weak self] in
+                guard let self else { return }
+                defer { endSubmitting() }
                 do {
                     try await viewModel.submitReply(
                         topicId: topicID,
@@ -2022,29 +2013,58 @@ struct FireComposerView: View {
                     )
                     try? await viewModel.deleteDraft(draftKey: route.draftKey, sequence: draftSequence)
                     draftSequence = 0
-                    onReplySubmitted?()
-                    saveCompletionPulse += 1
-                    onSubmissionNotice?(submissionSuccessMessage)
-                    dismiss()
-                } catch {
-                    let message = error.localizedDescription
-                    if message.localizedCaseInsensitiveContains("pending review") {
-                        try? await viewModel.deleteDraft(draftKey: route.draftKey, sequence: draftSequence)
-                        draftSequence = 0
-                        onReplySubmitted?()
-                        onSubmissionNotice?(pendingReviewMessage)
-                        dismiss()
-                        return
+                    finishSubmission(message: submissionSuccessMessage) { [weak self] in
+                        self?.onReplySubmitted?()
                     }
-                    showSubmissionError(message)
+                } catch {
+                    handleSubmissionError(error) { [weak self] in
+                        self?.onReplySubmitted?()
+                    }
                 }
             }
         }
     }
 
+    private func beginSubmitting() {
+        isSubmitting = true
+        view.endEditing(true)
+        render()
+    }
+
+    private func endSubmitting() {
+        isSubmitting = false
+        render()
+    }
+
+    private func handleSubmissionError(_ error: Error, pendingReviewCompletion: (() -> Void)? = nil) {
+        let message = error.localizedDescription
+        if message.localizedCaseInsensitiveContains("pending review") {
+            Task { [weak self] in
+                guard let self else { return }
+                try? await viewModel.deleteDraft(draftKey: route.draftKey, sequence: draftSequence)
+                draftSequence = 0
+                finishSubmission(message: pendingReviewMessage) {
+                    pendingReviewCompletion?()
+                }
+            }
+            return
+        }
+        showSubmissionError(message)
+    }
+
+    private func finishSubmission(message: String, completion: (() -> Void)? = nil) {
+        didCompleteSubmission = true
+        autosaveTask?.cancel()
+        onSubmissionNotice?(message)
+        dismiss(animated: true) {
+            completion?()
+        }
+    }
+
     private func showSubmissionError(_ message: String) {
         errorMessage = message
-        errorFeedbackPulse += 1
+        UINotificationFeedbackGenerator().notificationOccurred(.error)
+        render()
     }
 
     private func insertMention(_ mention: String) {
@@ -2052,6 +2072,7 @@ struct FireComposerView: View {
         mentionContext = nil
         mentionUsers = []
         mentionGroups = []
+        render()
     }
 
     private func applyMarkdownFormat(_ action: FireMarkdownFormatAction) {
@@ -2062,7 +2083,13 @@ struct FireComposerView: View {
         )
         bodyText = result.text
         bodySelection = result.selectedRange
-        isBodyFocused = true
+        updateTextViewSelection()
+        bodyTextView.becomeFirstResponder()
+        errorMessage = nil
+        updateMentionSearch()
+        scheduleAutosave()
+        resolveShortUploadsIfNeeded()
+        render()
     }
 
     private func replaceText(in range: NSRange, with replacement: String) {
@@ -2076,23 +2103,31 @@ struct FireComposerView: View {
             location: safeRange.location + (replacement as NSString).length,
             length: 0
         )
+        updateTextViewSelection()
+        errorMessage = nil
+        updateMentionSearch()
+        scheduleAutosave()
+        resolveShortUploadsIfNeeded()
     }
 
-    private func handleSelectedPhoto(_ item: PhotosPickerItem) {
-        Task { @MainActor in
-            defer { selectedPhoto = nil }
+    private func updateTextViewSelection() {
+        if bodyTextView.text != bodyText {
+            bodyTextView.text = bodyText
+        }
+        bodyTextView.selectedRange = bodySelection
+    }
+
+    private func uploadImageData(_ bytes: Data, fileExtension: String, mimeType: String) {
+        Task { [weak self] in
+            guard let self else { return }
+            isUploadingImage = true
+            render()
+            defer {
+                isUploadingImage = false
+                render()
+            }
             do {
-                isUploadingImage = true
-                let bytes = try await item.loadTransferable(type: Data.self)
-                guard let bytes else {
-                    isUploadingImage = false
-                    errorMessage = "读取图片失败。"
-                    return
-                }
-                let type = item.supportedContentTypes.first
-                let ext = type?.preferredFilenameExtension ?? "jpg"
-                let mimeType = type?.preferredMIMEType ?? "image/jpeg"
-                let fileName = "fire-\(UUID().uuidString).\(ext)"
+                let fileName = "fire-\(UUID().uuidString).\(fileExtension)"
                 let result = try await viewModel.uploadImage(
                     fileName: fileName,
                     mimeType: mimeType,
@@ -2102,10 +2137,11 @@ struct FireComposerView: View {
                 let prefix = bodySelection.location == 0 ? "" : "\n"
                 replaceText(in: bodySelection, with: "\(prefix)\(markdown)\n")
                 resolveShortUploadsIfNeeded()
+                render()
             } catch {
                 errorMessage = error.localizedDescription
+                render()
             }
-            isUploadingImage = false
         }
     }
 
@@ -2134,11 +2170,10 @@ struct FireComposerView: View {
             do {
                 let resolved = try await viewModel.lookupUploadUrls(shortUrls: missing)
                 guard !Task.isCancelled else { return }
-                await MainActor.run {
-                    for item in resolved {
-                        resolvedUploads[item.shortUrl] = item
-                    }
+                for item in resolved {
+                    resolvedUploads[item.shortUrl] = item
                 }
+                render()
             } catch {
                 guard !Task.isCancelled else { return }
             }
@@ -2179,47 +2214,420 @@ struct FireComposerView: View {
         )
         return FireComposerMentionContext(replacementRange: replacementRange, term: term)
     }
+
+    private func categoryDisplayName(for category: FireTopicCategoryPresentation) -> String {
+        guard let parentID = category.parentCategoryId,
+              let parent = viewModel.allCategories().first(where: { $0.id == parentID })
+        else {
+            return category.displayName
+        }
+        return "\(parent.displayName) / \(category.displayName)"
+    }
+
+    private func requiredTagGroupRequirementText(_ group: RequiredTagGroupState) -> String {
+        let trimmedName = group.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmedName.isEmpty {
+            return "需要从一个标签组里至少选择 \(group.minCount) 个标签。"
+        }
+        return "标签组「\(trimmedName)」至少需要 \(group.minCount) 个标签。"
+    }
+
+    private func cancelAsyncWork() {
+        autosaveTask?.cancel()
+        tagSearchTask?.cancel()
+        mentionSearchTask?.cancel()
+        recipientSearchTask?.cancel()
+        uploadResolutionTask?.cancel()
+    }
+
+    private func configureTitleField(_ field: UITextField, placeholder: String) {
+        field.borderStyle = .roundedRect
+        field.placeholder = placeholder
+        field.font = .preferredFont(forTextStyle: .title3)
+        field.adjustsFontForContentSizeCategory = true
+        field.returnKeyType = .next
+        field.clearButtonMode = .whileEditing
+    }
+
+    private func configureSearchField(_ field: UITextField, placeholder: String) {
+        field.borderStyle = .roundedRect
+        field.placeholder = placeholder
+        field.font = .preferredFont(forTextStyle: .body)
+        field.adjustsFontForContentSizeCategory = true
+        field.autocorrectionType = .no
+        field.autocapitalizationType = .none
+        field.clearButtonMode = .whileEditing
+    }
+
+    private func configureHorizontalStack(_ stack: UIStackView) {
+        stack.axis = .horizontal
+        stack.alignment = .center
+        stack.spacing = 8
+    }
+
+    private func configureVerticalResultsStack(_ stack: UIStackView) {
+        stack.axis = .vertical
+        stack.spacing = 0
+        stack.backgroundColor = FireComposerPalette.surface
+        stack.layer.cornerRadius = FireTheme.mediumCornerRadius
+        stack.clipsToBounds = true
+    }
+
+    private func makePlainButtonConfiguration(title: String, systemImage: String) -> UIButton.Configuration {
+        var configuration = UIButton.Configuration.plain()
+        configuration.title = title
+        configuration.image = UIImage(systemName: systemImage)
+        configuration.imagePadding = 8
+        configuration.baseForegroundColor = FireTopicListPalette.accent
+        configuration.contentInsets = NSDirectionalEdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0)
+        return configuration
+    }
+
+    private func makeToolbarButtonConfiguration(for action: FireMarkdownFormatAction) -> UIButton.Configuration {
+        var configuration = UIButton.Configuration.plain()
+        if let systemImage = action.systemImage {
+            configuration.image = UIImage(systemName: systemImage)
+        } else {
+            configuration.title = action.title
+        }
+        configuration.baseForegroundColor = .label
+        configuration.contentInsets = .zero
+        return configuration
+    }
+
+    private func makeChipButton(title: String, systemImage: String, emphasized: Bool = true) -> UIButton {
+        var configuration = UIButton.Configuration.filled()
+        configuration.title = title
+        configuration.image = UIImage(systemName: systemImage)
+        configuration.imagePlacement = .trailing
+        configuration.imagePadding = 6
+        configuration.cornerStyle = .capsule
+        configuration.baseBackgroundColor = emphasized
+            ? FireTopicListPalette.accent.withAlphaComponent(0.12)
+            : UIColor.tertiarySystemFill
+        configuration.baseForegroundColor = emphasized ? FireTopicListPalette.accent : .secondaryLabel
+        configuration.contentInsets = NSDirectionalEdgeInsets(top: 6, leading: 10, bottom: 6, trailing: 10)
+        let button = UIButton(type: .system)
+        button.configuration = configuration
+        button.titleLabel?.font = .preferredFont(forTextStyle: .caption1)
+        return button
+    }
+
+    private func makeResultButton(
+        title: String,
+        subtitle: String?,
+        systemImage: String?,
+        monogram: String? = nil
+    ) -> UIButton {
+        var configuration = UIButton.Configuration.plain()
+        configuration.title = title
+        configuration.subtitle = subtitle
+        configuration.imagePadding = 10
+        configuration.baseForegroundColor = .label
+        configuration.contentInsets = NSDirectionalEdgeInsets(top: 10, leading: 12, bottom: 10, trailing: 12)
+        if let systemImage {
+            configuration.image = UIImage(systemName: systemImage)
+        } else if let monogram {
+            configuration.image = FireComposerMonogramRenderer.image(text: monogram)
+        }
+        let button = UIButton(type: .system)
+        button.configuration = configuration
+        button.contentHorizontalAlignment = .leading
+        return button
+    }
+
+    private func makeLabel(
+        _ text: String,
+        style: UIFont.TextStyle,
+        color: UIColor,
+        weight: UIFont.Weight? = nil
+    ) -> UILabel {
+        let label = UILabel()
+        label.text = text
+        label.font = weight.map { UIFont.preferredFont(forTextStyle: style).withComposerWeight($0) }
+            ?? .preferredFont(forTextStyle: style)
+        label.adjustsFontForContentSizeCategory = true
+        label.textColor = color
+        label.numberOfLines = 0
+        return label
+    }
+
+    private func setTextField(_ field: UITextField, text: String) {
+        guard field.text != text, !field.isFirstResponder else { return }
+        field.text = text
+    }
 }
 
-private struct FireComposerCategorySheet: View {
-    let categories: [FireTopicCategoryPresentation]
-    let selectedCategoryID: UInt64?
-    let categoryLabel: (FireTopicCategoryPresentation) -> String
-    let onSelect: (UInt64) -> Void
-
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        List(categories, id: \.id) { category in
-            Button {
-                onSelect(category.id)
-                dismiss()
-            } label: {
-                HStack {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(categoryLabel(category))
-                            .foregroundStyle(.primary)
-                        if let summary = FireComposerCategoryGuidance.categorySheetSummary(for: category) {
-                            Text(summary)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    Spacer()
-                    if selectedCategoryID == category.id {
-                        Image(systemName: "checkmark")
-                            .accessibilityHidden(true)
-                            .foregroundStyle(FireTheme.accent)
-                    }
-                }
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(categoryLabel(category))
-            .accessibilityValue(selectedCategoryID == category.id ? "已选择" : "")
-        }
-        .navigationTitle("选择分类")
-        .navigationBarTitleDisplayMode(.inline)
+extension FireComposerViewController: UITextViewDelegate {
+    func textViewDidChange(_ textView: UITextView) {
+        bodyText = textView.text ?? ""
+        bodySelection = textView.selectedRange
+        errorMessage = nil
+        updateMentionSearch()
+        scheduleAutosave()
+        resolveShortUploadsIfNeeded()
+        render()
     }
+
+    func textViewDidChangeSelection(_ textView: UITextView) {
+        bodySelection = textView.selectedRange
+        updateMentionSearch()
+    }
+}
+
+extension FireComposerViewController: PHPickerViewControllerDelegate {
+    func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
+        picker.dismiss(animated: true)
+        guard let provider = results.first?.itemProvider else { return }
+        let type = provider.registeredTypeIdentifiers
+            .compactMap(UTType.init)
+            .first(where: { $0.conforms(to: .image) }) ?? .jpeg
+        provider.loadDataRepresentation(forTypeIdentifier: type.identifier) { [weak self] data, error in
+            Task { @MainActor in
+                guard let self else { return }
+                if let error {
+                    self.errorMessage = error.localizedDescription
+                    self.render()
+                    return
+                }
+                guard let data else {
+                    self.errorMessage = "读取图片失败。"
+                    self.render()
+                    return
+                }
+                self.uploadImageData(
+                    data,
+                    fileExtension: type.preferredFilenameExtension ?? "jpg",
+                    mimeType: type.preferredMIMEType ?? "image/jpeg"
+                )
+            }
+        }
+    }
+}
+
+private enum FireComposerPalette {
+    static var canvas: UIColor {
+        UIColor { traits in
+            if traits.userInterfaceStyle == .dark {
+                return FireTheme.isOledMode ? .black : UIColor(red: 0.10, green: 0.11, blue: 0.13, alpha: 1)
+            }
+            return UIColor(red: 0.94, green: 0.93, blue: 0.91, alpha: 1)
+        }
+    }
+
+    static var surface: UIColor {
+        UIColor { traits in
+            if traits.userInterfaceStyle == .dark {
+                return FireTheme.isOledMode
+                    ? UIColor(red: 0.04, green: 0.04, blue: 0.05, alpha: 1)
+                    : .secondarySystemBackground
+            }
+            return .secondarySystemBackground
+        }
+    }
+
+    static var chrome: UIColor {
+        UIColor { traits in
+            if traits.userInterfaceStyle == .dark {
+                return FireTheme.isOledMode
+                    ? UIColor(red: 0.04, green: 0.04, blue: 0.05, alpha: 0.92)
+                    : UIColor(red: 0.16, green: 0.17, blue: 0.19, alpha: 0.90)
+            }
+            return UIColor(red: 1.00, green: 1.00, blue: 1.00, alpha: 0.78)
+        }
+    }
+
+    static var divider: UIColor {
+        UIColor { traits in
+            traits.userInterfaceStyle == .dark
+                ? UIColor(white: 1, alpha: 0.08)
+                : UIColor(white: 0, alpha: 0.08)
+        }
+    }
+}
+
+private final class FireComposerCardView: UIView {
+    private var embeddedView: UIView?
+
+    init() {
+        super.init(frame: .zero)
+        backgroundColor = FireComposerPalette.surface
+        layer.cornerRadius = FireTheme.cornerRadius
+        layer.borderColor = FireComposerPalette.divider.cgColor
+        layer.borderWidth = 1
+        clipsToBounds = true
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func embed(_ view: UIView, insets: UIEdgeInsets) {
+        embeddedView?.removeFromSuperview()
+        embeddedView = view
+        view.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(view)
+        NSLayoutConstraint.activate([
+            view.leadingAnchor.constraint(equalTo: leadingAnchor, constant: insets.left),
+            view.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -insets.right),
+            view.topAnchor.constraint(equalTo: topAnchor, constant: insets.top),
+            view.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -insets.bottom),
+        ])
+    }
+
+    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection)
+        backgroundColor = FireComposerPalette.surface
+        layer.borderColor = FireComposerPalette.divider.cgColor
+    }
+}
+
+private final class FireComposerBannerView: UIView {
+    enum Style {
+        case success
+        case error
+    }
+
+    private let style: Style
+    private let iconView = UIImageView()
+    private let label = UILabel()
+
+    init(style: Style) {
+        self.style = style
+        super.init(frame: .zero)
+        configure()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func setMessage(_ message: String?) {
+        let trimmed = message?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        label.text = trimmed
+        isHidden = trimmed.isEmpty
+        accessibilityLabel = trimmed
+    }
+
+    private func configure() {
+        isHidden = true
+        backgroundColor = tint.withAlphaComponent(0.12)
+        layer.cornerRadius = FireTheme.mediumCornerRadius
+
+        iconView.image = UIImage(systemName: style == .error ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
+        iconView.tintColor = tint
+        iconView.setContentHuggingPriority(.required, for: .horizontal)
+
+        label.font = .preferredFont(forTextStyle: .subheadline)
+        label.adjustsFontForContentSizeCategory = true
+        label.textColor = .label
+        label.numberOfLines = 0
+
+        let stack = UIStackView(arrangedSubviews: [iconView, label])
+        stack.axis = .horizontal
+        stack.alignment = .top
+        stack.spacing = 10
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
+            stack.topAnchor.constraint(equalTo: topAnchor, constant: 14),
+            stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -14),
+        ])
+    }
+
+    private var tint: UIColor {
+        switch style {
+        case .success:
+            return .systemGreen
+        case .error:
+            return .systemRed
+        }
+    }
+}
+
+private enum FireComposerMonogramRenderer {
+    static func image(text: String) -> UIImage? {
+        let size = CGSize(width: 28, height: 28)
+        let renderer = UIGraphicsImageRenderer(size: size)
+        return renderer.image { context in
+            let rect = CGRect(origin: .zero, size: size)
+            FireTopicListPalette.accent.setFill()
+            context.cgContext.fillEllipse(in: rect)
+
+            let paragraph = NSMutableParagraphStyle()
+            paragraph.alignment = .center
+            let attributes: [NSAttributedString.Key: Any] = [
+                .font: UIFont.preferredFont(forTextStyle: .caption1).withComposerWeight(.bold),
+                .foregroundColor: UIColor(red: 1, green: 1, blue: 1, alpha: 1),
+                .paragraphStyle: paragraph,
+            ]
+            let attributed = NSAttributedString(string: text, attributes: attributes)
+            let textHeight = attributed.size().height
+            attributed.draw(
+                in: CGRect(
+                    x: 0,
+                    y: (size.height - textHeight) / 2,
+                    width: size.width,
+                    height: textHeight
+                )
+            )
+        }
+    }
+}
+
+private extension UIStackView {
+    func removeAllArrangedSubviews() {
+        for view in arrangedSubviews {
+            removeArrangedSubview(view)
+            view.removeFromSuperview()
+        }
+    }
+}
+
+private extension UIFont {
+    func withComposerWeight(_ weight: Weight) -> UIFont {
+        let descriptor = fontDescriptor.addingAttributes([
+            .traits: [UIFontDescriptor.TraitKey.weight: weight],
+        ])
+        return UIFont(descriptor: descriptor, size: pointSize)
+    }
+}
+
+struct FireComposerControllerHost: UIViewControllerRepresentable {
+    let viewModel: FireAppViewModel
+    let route: FireComposerRoute
+    var initialBody: String? = nil
+    var initialBodySelectionLocation: Int? = nil
+    var initialCategoryID: UInt64? = nil
+    var initialTags: [String] = []
+    var onTopicCreated: ((UInt64) -> Void)?
+    var onReplySubmitted: (() -> Void)?
+    var onPrivateMessageCreated: ((UInt64, String) -> Void)?
+    var onSubmissionNotice: ((String) -> Void)?
+
+    func makeUIViewController(context: Context) -> UINavigationController {
+        let composer = FireComposerViewController(
+            viewModel: viewModel,
+            route: route,
+            initialBody: initialBody,
+            initialBodySelectionLocation: initialBodySelectionLocation,
+            initialCategoryID: initialCategoryID,
+            initialTags: initialTags,
+            onTopicCreated: onTopicCreated,
+            onReplySubmitted: onReplySubmitted,
+            onPrivateMessageCreated: onPrivateMessageCreated,
+            onSubmissionNotice: onSubmissionNotice
+        )
+        let navigationController = UINavigationController(rootViewController: composer)
+        navigationController.modalPresentationStyle = .fullScreen
+        return navigationController
+    }
+
+    func updateUIViewController(_ uiViewController: UINavigationController, context: Context) {}
 }
 
 struct FireComposerTextView: UIViewRepresentable {

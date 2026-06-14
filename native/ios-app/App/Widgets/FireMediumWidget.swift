@@ -7,9 +7,7 @@ struct FireMediumWidget: Widget {
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: kind, provider: FireWidgetProvider()) { entry in
             FireMediumWidgetView(entry: entry)
-                .containerBackground(for: .widget) {
-                    Color.fireWidgetBackground
-                }
+                .fireWidgetContainerBackground()
         }
         .configurationDisplayName("Fire Topics")
         .description("View recent Fire topics.")

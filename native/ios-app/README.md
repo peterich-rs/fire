@@ -1,6 +1,6 @@
 # iOS Native App
 
-This directory now contains a runnable iOS host shell backed by generated
+This directory now contains a runnable iOS 16+ host shell backed by generated
 UniFFI Swift bindings and a Rust static library built during Xcode pre-build.
 
 The generated artifacts are written into
@@ -83,8 +83,14 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
   - does not try to bypass providers that reject embedded browsers; Google OAuth can still fail with `disallowed_useragent`, which requires a system auth/Safari fallback plus a way to import the resulting LinuxDo session back into Fire
   - enables back/forward swipe gestures on the embedded `WKWebView`
   - avoids mutating observed browser state from `UIViewRepresentable.updateUIView`, so SwiftUI updates do not loop back into `WKWebView` host state and freeze the login entry flow
-- `App/FireApp.swift`
-  - owns app-level URL opening and routes both `fire://...` custom schemes and LinuxDo universal links into the shared typed in-app route model before SwiftUI screens load
+- `App/Core/FireAppDelegate.swift`
+  - is the UIKit `@main` entry point, starts APM, registers background refresh, owns the notification center delegate, and forwards notification taps into the shared typed route dispatcher
+- `App/Core/FireSceneDelegate.swift`
+  - owns the `UIWindow`, creates `FireRootCoordinator`, and routes custom scheme / universal link opens from scene connection and continuation callbacks
+- `App/Core/FireRootCoordinator.swift`
+  - owns preheat, onboarding, authenticated root switching, auth modal presentation, typed pending-route consumption, topic full-screen presentation, scene-phase diagnostics, APNs refresh, and appearance override
+- `App/Core/FireMainTabBarController.swift`
+  - owns the authenticated UIKit `UITabBarController`; each tab is hosted in a `UINavigationController` while the tab contents continue their page-by-page UIKit migration
 - `App/Routing/`
   - defines the typed `FireAppRoute` model, route parser, and shared destination view used by external URL opens, notification taps, and in-app search / notification navigation
   - topic routes opened from the authenticated tab shell are promoted to a single-flight app-root full-screen `UINavigationController` presentation instead of pushing inside a tab-owned `NavigationStack`, so topic detail is a separate page that preserves controller-owned back/share/navigation chrome without inheriting or hiding the current tab bar/navigation bar
@@ -107,7 +113,7 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
 - `App/FireMessageBusCoordinator.swift`
   - buffers and coalesces foreground MessageBus bursts before MainActor delivery so topic/detail/notification spikes no longer spawn one task per event on iOS
 - `App/FireMotion/`
-  - centralizes SwiftUI motion and haptic feedback through `FireMotionEffects`, including success/error/selection/impact sensory feedback modifiers plus a small UIKit bridge for Texture topic-detail cells
+  - centralizes motion and haptic feedback through `FireMotionEffects`, using iOS 16-compatible UIKit feedback generators for transitional SwiftUI surfaces plus the same small UIKit bridge for Texture topic-detail cells
 - `App/Stores/FireHomeFeedStore.swift`
   - owns selected feed kind, selected category/tags, paginated home rows, and bootstrap-derived category/tag metadata for the authenticated home shell
   - applies MessageBus-driven home refreshes only as incremental entity patching while the home list surface is actually foreground-visible and the app scene is active, instead of falling back to whole-array replacement or pulling from background/off-screen pages
@@ -164,8 +170,6 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
 - `App/Push/FirePushRegistrationCoordinator.swift`
   - requests notification authorization when the authenticated shell becomes active
   - re-registers with APNs whenever authorization is available, stores the latest device token locally, and keeps host-owned registration diagnostics available without uploading the token
-- `App/FireAppDelegate.swift`
-  - registers the background refresh task at launch, starts the host-owned APM runtime, keeps `UNUserNotificationCenter` delegate ownership on the host side, routes notification taps through the typed route model, and records APNs registration callbacks
 - `App/FireDiagnosticsView.swift`
   - renders a native diagnostics screen on top of the shared Rust diagnostics APIs
   - lists workspace log files plus reverse-chronological network request traces
@@ -173,14 +177,14 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
   - keeps the developer tools overview and APM detail page live while visible, and lets Crash/卡顿 counters plus recent crash/stall/MetricKit/span rows open metadata detail pages
   - exposes host-owned notification permission / APNs registration state and the locally cached device token for production-readiness checks
   - exports both the Rust-owned diagnostics bundle and a host-owned full APM `.zip` archive containing local crash / MetricKit / route / span artifacts for share-sheet based escalation during beta, auto-presenting the share sheet after full APM export completes
-- `App/FireTabRoot.swift`
-  - instantiates the authenticated-shell store graph (`FireHomeFeedStore`, `FireSearchStore`, `FireNotificationStore`, `FireTopicDetailStore`, `FireProfileViewModel`) around one shared `FireAppViewModel`
-  - injects home/topic-detail stores through the SwiftUI environment so those screens observe scoped feature state instead of the app-wide root object
-  - forwards scene-phase transitions into shared diagnostics lifecycle logging, re-syncs APNs registration state for authenticated sessions, flushes logs before `inactive` / `background` so exported diagnostics stay durable, and keeps the current top-level route synchronized into the host-owned APM runtime
+- `App/Views/Other/FireTabRoot.swift`
+  - remains only as an empty compatibility source after the UIKit root migration; root ownership lives in `FireRootCoordinator` and `FireMainTabBarController`
 - `App/ListKit/`
-  - now contains the W3 collection-host foundation built around `UICollectionView`, diffable data source snapshots, and `UIHostingConfiguration`
-  - `FireCollectionHost.swift` bridges SwiftUI into a reusable collection-backed host while `FireDiffableListController.swift` preserves the top visible item and relative offset across snapshot applies, forwards scroll metrics, supports native pull-to-refresh, and defers anchor restoration through the entire refresh-control rebound (including the post-`endRefreshing()` deceleration window) so large-title shells like Home keep UIKit's native rebound behavior and the navigation chrome stays in sync with contentOffset
-  - `FireDiffableListController.swift` also owns pull-to-refresh completion feedback, keeping refresh haptics on the same UIKit controller path as the refresh gesture
+  - now has a UIKit-first `FireListViewController` runtime built around `UICollectionView`, diffable data source snapshots, UIKit cell providers, prefetch, visible-item reporting, scroll metrics, scroll requests, and native pull-to-refresh
+  - `FireDiffableListController` is now the transitional SwiftUI row adapter over that runtime: it supplies `UIHostingConfiguration` cells only for screens that have not yet migrated their rows, while native cell routing uses reload tokens so UIKit cells can replace hosted cells without a fallback path
+  - `FireCollectionHost.swift` remains the thin `UIViewControllerRepresentable` bridge for existing SwiftUI pages while `FireListViewController` is the direct entry point for new UIKit list screens
+  - the shared runtime preserves the top visible item and relative offset across snapshot applies, forwards scroll metrics, supports native pull-to-refresh, and defers anchor restoration through the entire refresh-control rebound (including the post-`endRefreshing()` deceleration window) so large-title shells like Home keep UIKit's native rebound behavior and the navigation chrome stays in sync with contentOffset
+  - the runtime also owns pull-to-refresh completion feedback, keeping refresh haptics on the same UIKit controller path as the refresh gesture
   - topic detail now bypasses the generic diffable ListKit host and uses the dedicated `App/TopicDetail/` module, where `FireTopicDetailViewController` owns page lifecycle, `FireTopicDetailFeedController` owns the Texture `ASCollectionNode` runtime, and the controller-local snapshot pipeline coordinates toolbar, quick reply, pagination, visibility, and modal ownership without routing those concerns back through SwiftUI page state
   - `FireListSectionModel.swift` provides the section/item shape shared by later home/notification/topic-detail migrations
   - `Home/FireHomeCollectionView.swift` is the first W3 migration slice and now drives the authenticated home feed through diffable collection snapshots instead of SwiftUI `List`
@@ -283,7 +287,8 @@ Current UX note:
 - Topic rows now come across the UniFFI boundary as Rust-generated row models that already resolve original-poster identity, status labels, plain-text excerpts, trimmed tag names, and Unix-millisecond timestamps from the topic-list payload, while Swift only formats timestamps and renders the native row layout.
 - The homepage `latest` feed now coalesces MessageBus topic-list updates on iOS, enforces a 30-second minimum refresh interval, and batches `/latest.json?topic_ids=...` incremental reloads only while the active view is the visible unfiltered latest list. Events that cannot be represented as topic-id incremental updates are ignored instead of forcing a full `/latest.json` refresh in the background, and leaving that page cancels pending latest-list refresh work.
 - Topic detail now renders its authoritative reading surface through `App/TopicDetail/FireTopicDetailViewController` plus `FireTopicDetailFeedController`, bridged into app navigation only by `FireTopicDetailControllerHost`. UIKit owns the page lifecycle, toolbar, quick-reply bar, modal routing, and route-anchor handling; Texture `ASCollectionNode` owns the scrolling surface and native runtime cells. The controller skips no-op snapshot updates, coalesces scroll-driven visible-post reports, keeps already-appended reply rows stable across partial topic-screen refreshes, and relayouts visible rows from `FirePostLayoutManager` publications instead of re-running precise rich-text overflow measurement on the hot scroll path. Header/category chips, AI summary, stats, topic vote, body-state, replies header, reply-footer, notice, original post, and reply rows all use native Texture/runtime cells. The old `FireTopicDetailCollectionView`/`FirePostRow` SwiftUI post-row fallback has been removed.
-- Topic detail now opens from tab-owned surfaces as an app-root full-screen route hosted by `FireTabRoot` through a real `UINavigationController`, so the detail page no longer relies on hiding the active tab bar or mutating the source tab's navigation bar state, and controller-owned back/share/more chrome remains intact. The active detail controller path still runs through `App/TopicDetail/FireTopicDetailViewController` and `FireTopicDetailFeedController`, and its request path is now aligned with Android: initial load, explicit force refresh, mutation refresh, and MessageBus-triggered refresh all use Rust-owned source snapshots plus tree presentation. Reply-context hydration still uses targeted `fetchTopicPosts` / `fetchPostReplyIds` / `fetchPostReplyHistory`, but no longer drives main pagination.
+- Topic detail only inserts original-post and reply post rows after both the backing `TopicPostState` and prepared render content are available. During transient source/render skew, the feed stays on the body-state loading row so Texture does not build placeholder cells for real post identities.
+- Topic detail now opens from tab-owned surfaces as an app-root full-screen route hosted by `FireRootCoordinator` through a real `UINavigationController`, so the detail page no longer relies on hiding the active tab bar or mutating the source tab's navigation bar state, and controller-owned back/share/more chrome remains intact. The active detail controller path still runs through `App/TopicDetail/FireTopicDetailViewController` and `FireTopicDetailFeedController`, and its request path is now aligned with Android: initial load, explicit force refresh, mutation refresh, and MessageBus-triggered refresh all use Rust-owned source snapshots plus tree presentation. Reply-context hydration still uses targeted `fetchTopicPosts` / `fetchPostReplyIds` / `fetchPostReplyHistory`, but no longer drives main pagination.
 - Topic-detail rich text and post images now render from Rust-owned `RenderDocumentState` through Texture nodes inside native cells: `FirePostCellNode` uses `ASTextNode` for collapsed text, selectable `UITextView` content after expansion, and Nuke-backed `ASImageNode` avatar/post image nodes with inline RenderBlock ordering, Rust attachment-backed image URL selection, loading/error retry states, display-size thumbnail preparation, and a JXPhotoBrowser full-screen preview backed by the same Nuke image request. If a Rust image attachment is not represented by a render-tree image block, iOS appends the missing image segment from `RenderDocument.imageAttachments` instead of reparsing cooked HTML. iOS does not parse `post.cooked` or synthesize a render document when `renderDocument` is missing. Texture is consumed as a checked-in `AsyncDisplayKit.xcframework` linked directly by the app target, not through CocoaPods or a local SwiftPM package product.
 - The app now also exposes a full-screen native composer for create-topic, private-message, and advanced-reply flows, with server-backed draft restore/save, recipient search, image uploads, upload URL resolution, tag search, selection-aware Markdown formatting, quote prefill from topic detail, and `@mention` autocomplete on top of shared Rust APIs.
 - Topic detail now supports per-post reply targeting, quote reply insertion from Rust-provided `RenderDocumentState.plainText`, post likes, in-topic search over already loaded Rust `RenderDocumentState.plainText` with active-result highlight/navigation, a searchable Rust-bootstrap-backed reaction picker with reaction-user lookup, post-level bookmarks with native reminder scheduling and local notifications, edit/delete/recover, and flag reporting through the shared Rust write APIs; the flag sheet uses server-provided post action types when available and falls back to the common LinuxDo / Discourse flag types only if that metadata is unavailable.

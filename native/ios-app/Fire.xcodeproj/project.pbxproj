@@ -26,6 +26,7 @@
 		178E55B850EED60EE530A0F2 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9B970247E0258DD4D4F34101 /* Foundation.framework */; };
 		18F45B9FD3C30EAB2C985803 /* FireTopicDetailFeedUpdatePipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C21247110244DC0C9E0BEDA /* FireTopicDetailFeedUpdatePipeline.swift */; };
 		19548BBFB9955554D178906B /* FireViewUnreadIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 054E88D925ECEFF053D4F62F /* FireViewUnreadIntent.swift */; };
+		1E755A60580B2CEBD3DDF9B8 /* FirePreheatGateWaitingViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0F5D586289C87EB98136D3F /* FirePreheatGateWaitingViewController.swift */; };
 		1F1EEDCE0B4FEAE2880DC061 /* FireWebViewLoginCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5E5271F93B7DF18859B101F /* FireWebViewLoginCoordinator.swift */; };
 		1F34091982CA9E4020CE6186 /* FireInviteLinksView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04449F91CF3EEB51F58E633B /* FireInviteLinksView.swift */; };
 		2096A4A9E23E920F6DAED284 /* FirePublicProfileView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA914F953785F6B75BAD848D /* FirePublicProfileView.swift */; };
@@ -39,6 +40,7 @@
 		27D3B7AADEF91C6DE3B41618 /* FireTopicEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 577A99743CDCAA0033E2398C /* FireTopicEditorView.swift */; };
 		27F8780AB48C65663BA8CF6A /* FireProfileActivityRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 07E3386C6FC3093869C79E57 /* FireProfileActivityRow.swift */; };
 		28ADE71B45F2298CB7C8DFE6 /* FireMyBadgesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71D0063A5014FEF51FB2B8E8 /* FireMyBadgesView.swift */; };
+		29F891D31E57BD3D19AB4EBB /* FireBookmarksViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F329C317F6932DC1D07AD03 /* FireBookmarksViewController.swift */; };
 		2E24DA3BD96C8B64D78FFA5D /* FireTopicQuickReplyBarNode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 881FCA584D82BEB684F4E2C8 /* FireTopicQuickReplyBarNode.swift */; };
 		2EF020F79C1B4F20796C610C /* FireProfileTrustLevelPill.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A3BEB6E72878BC3AD27B487 /* FireProfileTrustLevelPill.swift */; };
 		3020B851468E970811BC595B /* FireAppRouteControllerFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 149C3D9916D55374B1B4A37C /* FireAppRouteControllerFactory.swift */; };
@@ -49,6 +51,7 @@
 		355451477523656402E506B8 /* FireExportDiagnosticsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1127D7C4622ADFEED430046E /* FireExportDiagnosticsView.swift */; };
 		3629B6712AD67BC02B4288A1 /* FireSearchService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EBE1819A4C585EBED2C8F1C /* FireSearchService.swift */; };
 		390219653B0C0A96C81D8962 /* FireAPMEventStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 373861687BBCD8EB8E350DA4 /* FireAPMEventStore.swift */; };
+		3A20BD9A2A4CE944762B0BD7 /* FireReadHistoryViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C8AEE7516614D73C079F860 /* FireReadHistoryViewController.swift */; };
 		3A339550AA3EE966F7EA50E5 /* FireProfileViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DF67696B342C706CB3FAAFB /* FireProfileViewModel.swift */; };
 		3AFFAE192ADFE0FE4E054809 /* fire_uniffi_user.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F1F015314914FD74B56CC5D /* fire_uniffi_user.swift */; };
 		3C9FA7D66DAA4DAE2B1BF45D /* FireProfileActivityTimelineView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EFE429D39ACE68653A226FE9 /* FireProfileActivityTimelineView.swift */; };
@@ -81,8 +84,8 @@
 		60D0992EF0121C983BC95AAC /* FireHomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC543177753C32906EE6BE24 /* FireHomeView.swift */; };
 		61DA3972E51BDCEEAEC6C654 /* FirePostCellLayoutCalculatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1EF6B1D638EEA75C75B2B2D5 /* FirePostCellLayoutCalculatorTests.swift */; };
 		6568C3A35CB160E2269A67DD /* FireContextMenus.swift in Sources */ = {isa = PBXBuildFile; fileRef = E650ABD9C06621BC41908D59 /* FireContextMenus.swift */; };
-		659462A28F8ADF3054995F7B /* FireNotificationsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F3526A54129EBD47EBDAE41 /* FireNotificationsView.swift */; };
 		65A7971203D5D03D0681E719 /* FirePostFlagSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49784F572BD41F7D9F024F55 /* FirePostFlagSheet.swift */; };
+		69FB1571CB33DB7B8EE56946 /* FireNotificationsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = FACFD760D5F5796565CDAD75 /* FireNotificationsViewController.swift */; };
 		69FCB7426098CEDD059BB09A /* FireTopicInteractionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E056C5583CA4544A2781E2F /* FireTopicInteractionService.swift */; };
 		6C52C8A80C6D33CEEF5F6B18 /* FireTopicDetailPageSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC6AF43B5DBBA0811F63F137 /* FireTopicDetailPageSnapshot.swift */; };
 		6CD842F82A4371F3BCCCF4C5 /* FireEntityIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33FDDDCB91B973C1115A8F6B /* FireEntityIndex.swift */; };
@@ -105,7 +108,6 @@
 		800930BED241B0CF61E5FD0A /* fire_uniffi_types.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F09DBDDAC9BA75DCC865D23 /* fire_uniffi_types.swift */; };
 		816DB34CD28CD94ED88EF9C6 /* FirePaginatedStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D0D5E6727E0D21855DDEA2F /* FirePaginatedStore.swift */; };
 		83C439B40A75418E1406961F /* FireTopicPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = ECBDE8779B6F7E32204263F4 /* FireTopicPresentation.swift */; };
-		83E741D10CEEBE061C2B0B30 /* FireHomeCollectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC115AA696CF29500E0027DD /* FireHomeCollectionView.swift */; };
 		844785FCC5039F92456B99A2 /* FirePresentedTopicRouteHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6AB93352EFBE2A16C71B8223 /* FirePresentedTopicRouteHost.swift */; };
 		8AEF01149E05D149E2126D99 /* FireMediumWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5619EAAFA6C1DCD6B3E1A15 /* FireMediumWidget.swift */; };
 		8D792FAAE4BC6B104BAE1FC3 /* FirePreheatGateViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = E773C9CBFA4F6C8A6E36BBBA /* FirePreheatGateViewController.swift */; };
@@ -117,6 +119,7 @@
 		957DADCF16F936D3BCCDE7F5 /* FireAppServiceHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = E083189F2BF692A04EB7CF23 /* FireAppServiceHost.swift */; };
 		9726B24BBA832290EA063E8F /* libiconv.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = FD5A94769988E39B8BEA7B56 /* libiconv.tbd */; };
 		974A21358F0BAA6942E6FDFC /* fire_uniffi_messagebus.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5B34317DAE5858951DCD928 /* fire_uniffi_messagebus.swift */; };
+		9912E13751119248F5626F77 /* FireMainTabBarController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6CABC863F0E7DDEACF5B980D /* FireMainTabBarController.swift */; };
 		997549C307522F353C2C4354 /* FireWebViewBrowserProfile.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6A1ACC49B5E391857645187 /* FireWebViewBrowserProfile.swift */; };
 		9B0DABDC5BA87A4CAFF3232D /* FireEntityStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BADC2ED47CF65AD5BE795908 /* FireEntityStateTests.swift */; };
 		9E7B9F6741C79AF8E6C3D0DA /* FirePostLayoutManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A1B0239607F0ABAEA1ABCE0 /* FirePostLayoutManager.swift */; };
@@ -133,7 +136,6 @@
 		B0AA426C24E27249B4AE2E57 /* FireAppViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C063DC3D3814082F9655534 /* FireAppViewModel.swift */; };
 		B31E376321DE4A930954DFB5 /* FireLoginWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19BB7B37B7FD26B1CF0A143D /* FireLoginWebView.swift */; };
 		B4AA77D05D86AB070BE06A93 /* FireNotificationStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 502CE714A74D91C33212BF57 /* FireNotificationStore.swift */; };
-		B76556FFB0AC923853985D87 /* FireNotificationHistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1AAF2993FFB26B6D9309E47F /* FireNotificationHistoryView.swift */; };
 		B7784C41CA7002BF3223029B /* FireTopicDetailFeedCells.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8A36DF217F215CDEB23FDE1 /* FireTopicDetailFeedCells.swift */; };
 		B80E44034285312AABCD80A0 /* FireTopicImagePipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = D411B9ABE5C61805B92A2DD2 /* FireTopicImagePipeline.swift */; };
 		B82BAD7680591EAC6919F60A /* FireAppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39617F1E70204DE972BD489F /* FireAppDelegate.swift */; };
@@ -145,6 +147,7 @@
 		BDBF0CEBD8F5F7C1C19769B7 /* FireMessageBusCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C11839708BD8C370EB52334 /* FireMessageBusCoordinator.swift */; };
 		BE531BCFF96A8C23E0180F6B /* FireLogDiagnosticsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 429B9F8B7087E197A8366D2D /* FireLogDiagnosticsView.swift */; };
 		BFAAEB3942767128220C1DB5 /* FireAppViewModelSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 656CE7A291529B78CBAB24D8 /* FireAppViewModelSupport.swift */; };
+		C0912C916D7832645283F77D /* FireRootCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 97E8BD69061BE8C9E301D9BA /* FireRootCoordinator.swift */; };
 		C1695FEABEA1A67BA6770CD5 /* FireTopicTimingTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6566A1D9FDFFFF7BE5EC2229 /* FireTopicTimingTracker.swift */; };
 		C393F32FAD3010FF51E3E7F2 /* FireAppRouteDestinationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF328A93631D56CB94E4FA7A /* FireAppRouteDestinationView.swift */; };
 		C55AB47E8AAB3E7A47EE95FF /* FireTabRoot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C2060FDF4576F412DA20A94 /* FireTabRoot.swift */; };
@@ -153,6 +156,8 @@
 		C6D4775AD6FB33FB87BCC6B4 /* FireTopicRoutePresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 07010E91E6B6DFDF4B69170D /* FireTopicRoutePresenter.swift */; };
 		C71C2D1C073DD5D89D71E445 /* FireRichTextParagraphBoundaryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DBBEC3D8CF3903B3357395DC /* FireRichTextParagraphBoundaryTests.swift */; };
 		C8C0449611CDEF356A42A487 /* FireTopicDetailVisibilityCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A283C548CFC6BEDC0D406679 /* FireTopicDetailVisibilityCoordinator.swift */; };
+		C94AC2F334339FCFEB86CB04 /* FireSceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E41FA85B0FAA4DAF83AA747 /* FireSceneDelegate.swift */; };
+		C957386748A90B96C74997A7 /* FireNotificationPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 242BD5DA9E84D24E217AFBBB /* FireNotificationPresentation.swift */; };
 		CB59605E778D5DDE7985CD9A /* FireCDKView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6975FD77F7DBD0670E237842 /* FireCDKView.swift */; };
 		CEC557CB91456A379F8FE867 /* FireReadHistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C71352CB3CEB9F98E23B2696 /* FireReadHistoryView.swift */; };
 		CF0700843F7CDFE2F9140016 /* FireCloudflareChallengeCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = ABA36C072D3004B0CFDF73D3 /* FireCloudflareChallengeCoordinator.swift */; };
@@ -168,6 +173,7 @@
 		DFEA3B2EB2A47B0DE062F7F9 /* FireDraftsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 37D62EE646D7E0B9A6B9CA8F /* FireDraftsView.swift */; };
 		E11AA63F28A66090E98C2C47 /* FireMessageBusCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F45C6AFED397DB19D9A361E /* FireMessageBusCoordinatorTests.swift */; };
 		E29EFDDF900994EACCA13358 /* FireTopicDetailStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFBA718C5E89D3669A9C6D22 /* FireTopicDetailStoreTests.swift */; };
+		E3A267AB0EB528EFD43162CC /* FireNavigationDestinationCompat.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADF8658FBC78A5397FF37AB1 /* FireNavigationDestinationCompat.swift */; };
 		E44A45038AA722685149ACA1 /* FireAPMModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5264103A412DF3C9798D470 /* FireAPMModels.swift */; };
 		E460D11F2D744411AA61E5A6 /* FireNotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AAA1343DE9FD6BD637BBE1B /* FireNotificationService.swift */; };
 		E5268113A96209626BB13FEA /* FireTopicDetailPaginationCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2FCFF26F4042B80F6B91305E /* FireTopicDetailPaginationCoordinator.swift */; };
@@ -260,13 +266,13 @@
 		151CF08DEE9DBAE7D98495AC /* FireTopicPostStateFixtures.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireTopicPostStateFixtures.swift; sourceTree = "<group>"; };
 		1800DA0F94ED3D7B3099DB89 /* fire_uniffi_diagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = fire_uniffi_diagnostics.swift; sourceTree = "<group>"; };
 		19BB7B37B7FD26B1CF0A143D /* FireLoginWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireLoginWebView.swift; sourceTree = "<group>"; };
-		1AAF2993FFB26B6D9309E47F /* FireNotificationHistoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireNotificationHistoryView.swift; sourceTree = "<group>"; };
 		1EF6B1D638EEA75C75B2B2D5 /* FirePostCellLayoutCalculatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FirePostCellLayoutCalculatorTests.swift; sourceTree = "<group>"; };
 		1F1F872C6062881E7513980D /* FireAppViewModel+Diagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FireAppViewModel+Diagnostics.swift"; sourceTree = "<group>"; };
 		1FC1DB73221DE5E0CE4B0BB6 /* FireDiagnosticsShared.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireDiagnosticsShared.swift; sourceTree = "<group>"; };
 		20B88E94BDB7F6C957A8239E /* FireLargeWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireLargeWidget.swift; sourceTree = "<group>"; };
 		2349D54A410A25E70102DF84 /* AsyncDisplayKit.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = AsyncDisplayKit.xcframework; path = LocalPackages/TextureCore/Artifacts/AsyncDisplayKit.xcframework; sourceTree = "<group>"; };
 		24186C615A12A722B2ABEE06 /* FireComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireComponents.swift; sourceTree = "<group>"; };
+		242BD5DA9E84D24E217AFBBB /* FireNotificationPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireNotificationPresentation.swift; sourceTree = "<group>"; };
 		24E7CCCA8B867D5E6B0CE198 /* FirePostCellLayoutCalculator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FirePostCellLayoutCalculator.swift; sourceTree = "<group>"; };
 		25FD219C2BFB0727FD0D3DD2 /* FireSearchStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireSearchStore.swift; sourceTree = "<group>"; };
 		2933910F4309CBB2CC5F2BEC /* FireAppViewModel+RecoveryURLs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FireAppViewModel+RecoveryURLs.swift"; sourceTree = "<group>"; };
@@ -274,7 +280,9 @@
 		2A3BEB6E72878BC3AD27B487 /* FireProfileTrustLevelPill.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireProfileTrustLevelPill.swift; sourceTree = "<group>"; };
 		2C2060FDF4576F412DA20A94 /* FireTabRoot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireTabRoot.swift; sourceTree = "<group>"; };
 		2C3803B8939D9AF618CA74A6 /* FireProfileView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireProfileView.swift; sourceTree = "<group>"; };
+		2C8AEE7516614D73C079F860 /* FireReadHistoryViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireReadHistoryViewController.swift; sourceTree = "<group>"; };
 		2E4063863B8521F7719DD75F /* FireDiagnosticsViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireDiagnosticsViewModel.swift; sourceTree = "<group>"; };
+		2F329C317F6932DC1D07AD03 /* FireBookmarksViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireBookmarksViewController.swift; sourceTree = "<group>"; };
 		2FCFF26F4042B80F6B91305E /* FireTopicDetailPaginationCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireTopicDetailPaginationCoordinator.swift; sourceTree = "<group>"; };
 		301D9A74A8ACFE5A61280A86 /* FireTopicDetailPageState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireTopicDetailPageState.swift; sourceTree = "<group>"; };
 		30F75C7877A380748026CE06 /* FireWidget.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = FireWidget.entitlements; sourceTree = "<group>"; };
@@ -302,6 +310,7 @@
 		49784F572BD41F7D9F024F55 /* FirePostFlagSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FirePostFlagSheet.swift; sourceTree = "<group>"; };
 		4B1EECEB8CD1DD9B64C8D92E /* FireFollowListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireFollowListView.swift; sourceTree = "<group>"; };
 		4B79252C493DBB0CE379F302 /* FireCategoriesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireCategoriesView.swift; sourceTree = "<group>"; };
+		4E41FA85B0FAA4DAF83AA747 /* FireSceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireSceneDelegate.swift; sourceTree = "<group>"; };
 		4E86F61501D5E51FA1584156 /* FireWidgetSnapshotWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireWidgetSnapshotWriter.swift; sourceTree = "<group>"; };
 		4EBE1819A4C585EBED2C8F1C /* FireSearchService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireSearchService.swift; sourceTree = "<group>"; };
 		502CE714A74D91C33212BF57 /* FireNotificationStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireNotificationStore.swift; sourceTree = "<group>"; };
@@ -311,7 +320,6 @@
 		577A99743CDCAA0033E2398C /* FireTopicEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireTopicEditorView.swift; sourceTree = "<group>"; };
 		5AE3D99CBA147535E68FB7E6 /* FireTopicDetailSnapshotAssembler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireTopicDetailSnapshotAssembler.swift; sourceTree = "<group>"; };
 		5DF67696B342C706CB3FAAFB /* FireProfileViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireProfileViewModel.swift; sourceTree = "<group>"; };
-		5F3526A54129EBD47EBDAE41 /* FireNotificationsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireNotificationsView.swift; sourceTree = "<group>"; };
 		6073E076839999F32D889101 /* FireSearchTopicsIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireSearchTopicsIntent.swift; sourceTree = "<group>"; };
 		627535804DAD392D5972B8FF /* FireNavigationState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireNavigationState.swift; sourceTree = "<group>"; };
 		631A4F82AE7302B3D139F94C /* FireProfileHeaderComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireProfileHeaderComponents.swift; sourceTree = "<group>"; };
@@ -321,6 +329,7 @@
 		6975FD77F7DBD0670E237842 /* FireCDKView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireCDKView.swift; sourceTree = "<group>"; };
 		6AB93352EFBE2A16C71B8223 /* FirePresentedTopicRouteHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FirePresentedTopicRouteHost.swift; sourceTree = "<group>"; };
 		6C063DC3D3814082F9655534 /* FireAppViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireAppViewModel.swift; sourceTree = "<group>"; };
+		6CABC863F0E7DDEACF5B980D /* FireMainTabBarController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireMainTabBarController.swift; sourceTree = "<group>"; };
 		6D2C1B5E7EE9786EBC541FAF /* FireAvatarURLTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireAvatarURLTests.swift; sourceTree = "<group>"; };
 		71D0063A5014FEF51FB2B8E8 /* FireMyBadgesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireMyBadgesView.swift; sourceTree = "<group>"; };
 		7337AE7EB0411AC9B53AD853 /* Fire-Local-Debug.example.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = "Fire-Local-Debug.example.xcconfig"; sourceTree = "<group>"; };
@@ -344,6 +353,7 @@
 		93403ACAB55BC36B100D8A05 /* FireTopicRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireTopicRow.swift; sourceTree = "<group>"; };
 		949B945E18FF2C7CF0F29CB4 /* FireShortcuts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireShortcuts.swift; sourceTree = "<group>"; };
 		97B0FC401C941BC8F73B959A /* Fire-Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = "Fire-Release.xcconfig"; sourceTree = "<group>"; };
+		97E8BD69061BE8C9E301D9BA /* FireRootCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireRootCoordinator.swift; sourceTree = "<group>"; };
 		97FFE2A260FE7B5682493795 /* FireNetworkTraceDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireNetworkTraceDetailView.swift; sourceTree = "<group>"; };
 		989F3E1E2DDB5711DB78EF19 /* FireBookmarkEditorSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireBookmarkEditorSheet.swift; sourceTree = "<group>"; };
 		996D95DE48DA65385BD587F7 /* FireApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireApp.swift; sourceTree = "<group>"; };
@@ -354,6 +364,7 @@
 		9F1F015314914FD74B56CC5D /* fire_uniffi_user.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = fire_uniffi_user.swift; sourceTree = "<group>"; };
 		9F51908C9A24B5866A517797 /* FireMotionEffects.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireMotionEffects.swift; sourceTree = "<group>"; };
 		A0AFFF5DCC989B801C9DF88E /* Fire-Debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = "Fire-Debug.xcconfig"; sourceTree = "<group>"; };
+		A0F5D586289C87EB98136D3F /* FirePreheatGateWaitingViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FirePreheatGateWaitingViewController.swift; sourceTree = "<group>"; };
 		A156E14A65C530B5582956CC /* FireRichTextRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireRichTextRenderer.swift; sourceTree = "<group>"; };
 		A1F80BACBD3038A4D91BDCCA /* FireWidget-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = "FireWidget-Info.plist"; sourceTree = "<group>"; };
 		A283C548CFC6BEDC0D406679 /* FireTopicDetailVisibilityCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireTopicDetailVisibilityCoordinator.swift; sourceTree = "<group>"; };
@@ -362,6 +373,7 @@
 		A680E7A822BDD20CE84C04EE /* fire_uniffi_ldc.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = fire_uniffi_ldc.swift; sourceTree = "<group>"; };
 		AA736A1F443337C34A6E33D6 /* Fire.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Fire.entitlements; sourceTree = "<group>"; };
 		ABA36C072D3004B0CFDF73D3 /* FireCloudflareChallengeCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireCloudflareChallengeCoordinator.swift; sourceTree = "<group>"; };
+		ADF8658FBC78A5397FF37AB1 /* FireNavigationDestinationCompat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireNavigationDestinationCompat.swift; sourceTree = "<group>"; };
 		B17BF0CB4137B71949AACC0C /* FireSearchStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireSearchStoreTests.swift; sourceTree = "<group>"; };
 		B220305F1DFD0C508260CFA9 /* FirePostCellLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FirePostCellLayout.swift; sourceTree = "<group>"; };
 		B5619EAAFA6C1DCD6B3E1A15 /* FireMediumWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireMediumWidget.swift; sourceTree = "<group>"; };
@@ -372,7 +384,6 @@
 		B9105F91929CE3DCF342AF0E /* FireRecipientTokenField.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireRecipientTokenField.swift; sourceTree = "<group>"; };
 		BA914F953785F6B75BAD848D /* FirePublicProfileView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FirePublicProfileView.swift; sourceTree = "<group>"; };
 		BADC2ED47CF65AD5BE795908 /* FireEntityStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireEntityStateTests.swift; sourceTree = "<group>"; };
-		BC115AA696CF29500E0027DD /* FireHomeCollectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireHomeCollectionView.swift; sourceTree = "<group>"; };
 		BEC29D6B75CD01B9ADD53F1A /* FireTopicDetailRootNode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireTopicDetailRootNode.swift; sourceTree = "<group>"; };
 		BEEAB2E2FBB20FA96A15FD11 /* FireWidgetBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireWidgetBundle.swift; sourceTree = "<group>"; };
 		BF328A93631D56CB94E4FA7A /* FireAppRouteDestinationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireAppRouteDestinationView.swift; sourceTree = "<group>"; };
@@ -422,6 +433,7 @@
 		F90878A611124AD41C0288B7 /* FireTopicDetailModalRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireTopicDetailModalRouter.swift; sourceTree = "<group>"; };
 		F9384B4FECD3434E8DCCB3BA /* FireFilteredTopicListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireFilteredTopicListView.swift; sourceTree = "<group>"; };
 		FA8E7753E3E1BB8E3CD88E96 /* Fire-Shared.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = "Fire-Shared.xcconfig"; sourceTree = "<group>"; };
+		FACFD760D5F5796565CDAD75 /* FireNotificationsViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireNotificationsViewController.swift; sourceTree = "<group>"; };
 		FB21BB9232240035114A9653 /* FireProfileBadgeChip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireProfileBadgeChip.swift; sourceTree = "<group>"; };
 		FD5A94769988E39B8BEA7B56 /* libiconv.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libiconv.tbd; path = usr/lib/libiconv.tbd; sourceTree = SDKROOT; };
 		FF475D56C78AFC82413AED55 /* FireAccountStatusView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireAccountStatusView.swift; sourceTree = "<group>"; };
@@ -454,6 +466,7 @@
 			children = (
 				989F3E1E2DDB5711DB78EF19 /* FireBookmarkEditorSheet.swift */,
 				C96F415BE6AC44D202899B9B /* FireBookmarksView.swift */,
+				2F329C317F6932DC1D07AD03 /* FireBookmarksViewController.swift */,
 			);
 			path = Bookmarks;
 			sourceTree = "<group>";
@@ -525,6 +538,7 @@
 				19BB7B37B7FD26B1CF0A143D /* FireLoginWebView.swift */,
 				BFB2F0A5B57993299161C5EC /* FireOnboardingView.swift */,
 				C71352CB3CEB9F98E23B2696 /* FireReadHistoryView.swift */,
+				2C8AEE7516614D73C079F860 /* FireReadHistoryViewController.swift */,
 				2C2060FDF4576F412DA20A94 /* FireTabRoot.swift */,
 			);
 			path = Other;
@@ -616,6 +630,7 @@
 			isa = PBXGroup;
 			children = (
 				E773C9CBFA4F6C8A6E36BBBA /* FirePreheatGateViewController.swift */,
+				A0F5D586289C87EB98136D3F /* FirePreheatGateWaitingViewController.swift */,
 			);
 			path = Startup;
 			sourceTree = "<group>";
@@ -709,14 +724,6 @@
 				3E056C5583CA4544A2781E2F /* FireTopicInteractionService.swift */,
 			);
 			path = Services;
-			sourceTree = "<group>";
-		};
-		84DB66F289AF610198CA72D4 /* Home */ = {
-			isa = PBXGroup;
-			children = (
-				BC115AA696CF29500E0027DD /* FireHomeCollectionView.swift */,
-			);
-			path = Home;
 			sourceTree = "<group>";
 		};
 		8FCD2C1B029D07F4C1B82746 /* Unit */ = {
@@ -899,7 +906,6 @@
 				7CF84F1E6774BE411D4D2C2E /* FireCollectionHost.swift */,
 				843289DCC260BF71A9C48DA4 /* FireDiffableListController.swift */,
 				FFB6B1F10783D1D78B2D1F63 /* FireListSectionModel.swift */,
-				84DB66F289AF610198CA72D4 /* Home */,
 				91D55969C4FC26D4640483D4 /* TopicDetail */,
 			);
 			path = ListKit;
@@ -911,6 +917,7 @@
 				46CF09F1CBAC6CFAA0E9128A /* FireAppRoute.swift */,
 				149C3D9916D55374B1B4A37C /* FireAppRouteControllerFactory.swift */,
 				BF328A93631D56CB94E4FA7A /* FireAppRouteDestinationView.swift */,
+				ADF8658FBC78A5397FF37AB1 /* FireNavigationDestinationCompat.swift */,
 				EAE00F2C2E4EB9A7A99D327A /* FireRouteParser.swift */,
 				07010E91E6B6DFDF4B69170D /* FireTopicRoutePresenter.swift */,
 			);
@@ -921,8 +928,8 @@
 			isa = PBXGroup;
 			children = (
 				EC5FF075F001E43924A7D188 /* FireBackgroundNotificationAlert.swift */,
-				1AAF2993FFB26B6D9309E47F /* FireNotificationHistoryView.swift */,
-				5F3526A54129EBD47EBDAE41 /* FireNotificationsView.swift */,
+				242BD5DA9E84D24E217AFBBB /* FireNotificationPresentation.swift */,
+				FACFD760D5F5796565CDAD75 /* FireNotificationsViewController.swift */,
 			);
 			path = Notifications;
 			sourceTree = "<group>";
@@ -969,6 +976,9 @@
 				39617F1E70204DE972BD489F /* FireAppDelegate.swift */,
 				24186C615A12A722B2ABEE06 /* FireComponents.swift */,
 				E650ABD9C06621BC41908D59 /* FireContextMenus.swift */,
+				6CABC863F0E7DDEACF5B980D /* FireMainTabBarController.swift */,
+				97E8BD69061BE8C9E301D9BA /* FireRootCoordinator.swift */,
+				4E41FA85B0FAA4DAF83AA747 /* FireSceneDelegate.swift */,
 				0182FF50BA5178478278FB01 /* FireShimmerModifier.swift */,
 				E0AA3F1257384BF109634D21 /* FireTheme.swift */,
 				3FC109FBAA1787EF49336258 /* SessionState+Helpers.swift */,
@@ -1162,7 +1172,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/bash;
-			shellScript = "#!/usr/bin/env bash\nset -euo pipefail\n\nif [[ \"${FIRE_SKIP_UNIFFI_BINDGEN:-}\" == \"1\" ]]; then\n  echo \"FIRE_SKIP_UNIFFI_BINDGEN=1: skipping UniFFI binding generation (using pre-built artifacts)\"\n  exit 0\nfi\n\nscript_dir=\"$(cd -- \"$(dirname -- \"${BASH_SOURCE[0]}\")\" && pwd)\"\nproject_root=\"${SRCROOT:-$(cd -- \"$script_dir/..\" && pwd)}\"\nrepo_root=\"$(cd -- \"$project_root/../..\" && pwd)\"\ngenerated_dir=\"$project_root/Generated\"\nswift_out_dir=\"$generated_dir/FireUniFfi\"\nffi_out_dir=\"$generated_dir/fire_uniffiFFI\"\nlib_out_root=\"$generated_dir/lib\"\nuniffi_config_path=\"$repo_root/rust/crates/fire-uniffi/uniffi.toml\"\n\nexport PATH=\"$HOME/.cargo/bin:$PATH\"\n\ncargo_bin=\"${CARGO:-$(command -v cargo || true)}\"\nrustup_bin=\"${RUSTUP:-$(command -v rustup || true)}\"\n\nif [[ -z \"$cargo_bin\" ]]; then\n  echo \"unable to locate cargo in PATH\" >&2\n  exit 1\nfi\n\nif [[ -z \"$rustup_bin\" ]]; then\n  echo \"unable to locate rustup in PATH\" >&2\n  exit 1\nfi\n\nplatform_name=\"${PLATFORM_NAME:-iphonesimulator}\"\nconfiguration_name=\"${CONFIGURATION:-Debug}\"\nprofile_dir=\"debug\"\n\nif [[ \"$configuration_name\" == \"Release\" ]]; then\n  profile_dir=\"release\"\nfi\n\ntmp_dir=\"$(mktemp -d \"${TMPDIR:-/tmp}/fire-ios-uniffi.XXXXXX\")\"\ntrap 'rm -rf \"$tmp_dir\"' EXIT\n\nmkdir -p \"$swift_out_dir\" \"$ffi_out_dir\" \"$lib_out_root/$platform_name\"\nrm -f \"$generated_dir/fire_uniffiFFI.h\" \"$generated_dir/fire_uniffiFFI.modulemap\"\nrm -f \"$generated_dir/fire_uniffi.swift\"\nrm -f \"$swift_out_dir\"/*.swift\n\nensure_rust_target_installed() {\n  local rust_target=\"$1\"\n  local installed_targets\n\n  installed_targets=\"$(\n    env \\\n      HOME=\"$HOME\" \\\n      PATH=\"$PATH\" \\\n      RUSTUP_HOME=\"${RUSTUP_HOME:-$HOME/.rustup}\" \\\n      \"$rustup_bin\" target list --installed\n  )\"\n\n  if ! grep -qx \"$rust_target\" <<<\"$installed_targets\"; then\n    echo \"required Rust target is not installed: $rust_target\" >&2\n    echo \"run: rustup target add $rust_target\" >&2\n    exit 1\n  fi\n}\n\nmap_simulator_arch_to_rust_target() {\n  local arch=\"$1\"\n\n  case \"$arch\" in\n    arm64)\n      printf '%s\\n' \"aarch64-apple-ios-sim\"\n      ;;\n    x86_64)\n      printf '%s\\n' \"x86_64-apple-ios\"\n      ;;\n    *)\n      echo \"unsupported iOS simulator arch: $arch\" >&2\n      exit 1\n      ;;\n  esac\n}\n\ndeclare -a rust_targets=()\n\ncase \"$platform_name\" in\n  iphoneos)\n    if [[ -z \"${IPHONEOS_DEPLOYMENT_TARGET:-}\" ]]; then\n      export IPHONEOS_DEPLOYMENT_TARGET=\"17.0\"\n    fi\n    rust_targets=(\"aarch64-apple-ios\")\n    ;;\n  iphonesimulator)\n    if [[ -n \"${ARCHS:-}\" ]]; then\n      for arch in $ARCHS; do\n        rust_targets+=(\"$(map_simulator_arch_to_rust_target \"$arch\")\")\n      done\n    else\n      case \"$(uname -m)\" in\n        arm64)\n          rust_targets=(\"aarch64-apple-ios-sim\")\n          ;;\n        x86_64)\n          rust_targets=(\"x86_64-apple-ios\")\n          ;;\n        *)\n          echo \"unable to infer simulator Rust target from host architecture\" >&2\n          exit 1\n          ;;\n      esac\n    fi\n    ;;\n  *)\n    echo \"unsupported PLATFORM_NAME: $platform_name\" >&2\n    exit 1\n    ;;\nesac\n\ndedupe_targets() {\n  local seen=\"\"\n  local rust_target\n  local deduped=()\n\n  for rust_target in \"${rust_targets[@]}\"; do\n    if [[ \" $seen \" == *\" $rust_target \"* ]]; then\n      continue\n    fi\n\n    seen+=\" $rust_target\"\n    deduped+=(\"$rust_target\")\n  done\n\n  rust_targets=(\"${deduped[@]}\")\n}\n\nbuild_staticlib() {\n  local rust_target=\"$1\"\n  local output_lib=\"$repo_root/rust/target/$rust_target/$profile_dir/libfire_uniffi.a\"\n\n  if [[ \"${FIRE_SKIP_RUST_CROSS_BUILD:-}\" == \"1\" ]]; then\n    if [[ ! -f \"$output_lib\" ]]; then\n      echo \"FIRE_SKIP_RUST_CROSS_BUILD=1 but $output_lib not found\" >&2\n      exit 1\n    fi\n    echo \"skipping cargo build: using pre-built $output_lib\"\n    return 0\n  fi\n\n  if [[ \"$profile_dir\" == \"release\" ]]; then\n    (\n      cd \"$repo_root\"\n      run_target_cargo \"$cargo_bin\" build -p fire-uniffi --target \"$rust_target\" --release\n    )\n  else\n    (\n      cd \"$repo_root\"\n      run_target_cargo \"$cargo_bin\" build -p fire-uniffi --target \"$rust_target\"\n    )\n  fi\n}\n\nrun_host_cargo() {\n  if [[ \"$(uname -s)\" == \"Darwin\" ]]; then\n    local sdk_root\n    local library_path\n\n    sdk_root=\"$(xcrun --sdk macosx --show-sdk-path)\"\n    library_path=\"${sdk_root}/usr/lib\"\n\n    env -i \\\n      HOME=\"$HOME\" \\\n      PATH=\"$PATH\" \\\n      SDKROOT=\"$sdk_root\" \\\n      LIBRARY_PATH=\"$library_path\" \\\n      PLATFORM_NAME= \\\n      EFFECTIVE_PLATFORM_NAME= \\\n      ARCHS= \\\n      TVOS_DEPLOYMENT_TARGET= \\\n      WATCHOS_DEPLOYMENT_TARGET= \\\n      \"$@\"\n  else\n    \"$@\"\n  fi\n}\n\nrun_target_cargo() {\n  if [[ \"$(uname -s)\" == \"Darwin\" ]]; then\n    local sdk_root\n    local iphoneos_deployment_target\n\n    sdk_root=\"$(xcrun --sdk macosx --show-sdk-path)\"\n    iphoneos_deployment_target=\"${IPHONEOS_DEPLOYMENT_TARGET:-17.0}\"\n\n    env -i \\\n      HOME=\"$HOME\" \\\n      PATH=\"$PATH\" \\\n      SDKROOT=\"$sdk_root\" \\\n      PLATFORM_NAME= \\\n      EFFECTIVE_PLATFORM_NAME= \\\n      ARCHS= \\\n      IPHONEOS_DEPLOYMENT_TARGET=\"$iphoneos_deployment_target\" \\\n      TVOS_DEPLOYMENT_TARGET= \\\n      WATCHOS_DEPLOYMENT_TARGET= \\\n      \"$@\"\n  else\n    \"$@\"\n  fi\n}\n\ndedupe_targets\n\n(\n  cd \"$repo_root\"\n  if [[ \"$profile_dir\" == \"release\" ]]; then\n    run_host_cargo \"$cargo_bin\" build -p fire-uniffi --lib --release\n  else\n    run_host_cargo \"$cargo_bin\" build -p fire-uniffi --lib\n  fi\n  run_host_cargo \"$cargo_bin\" build -p fire-uniffi --bin uniffi-bindgen\n  RUSTFLAGS= \\\n  IPHONEOS_DEPLOYMENT_TARGET=17.0 \\\n  \"$repo_root/rust/target/debug/uniffi-bindgen\" generate \\\n    --library \"$repo_root/rust/target/$profile_dir/libfire_uniffi.dylib\" \\\n    --language swift \\\n    --no-format \\\n    --out-dir \"$tmp_dir/bindings\"\n)\n\n# The fire-uniffi dylib bundles multiple UniFFI namespaces (fire_uniffi,\n# fire_uniffi_types, fire_uniffi_diagnostics, ...). Without a Swift ffi_module_name\n# override, bindgen emits one <namespace>FFI.{h,modulemap} per namespace and the\n# generated Swift files import their own per-namespace FFI module.\n#\n# We collapse every namespace into a single clang module \"fire_uniffiFFI\" that\n# all Swift sources import. That keeps the Xcode integration simple (one\n# modulemap, one include path) and is a strict superset of any one namespace's\n# FFI surface, so no symbols are lost.\n\n# Merge every per-namespace FFI header into one fire_uniffiFFI.h. The per-file\n# UNIFFI_SHARED_H / UNIFFI_FFIDEF_* guards keep duplicate typedefs out of the\n# concatenation; only #pragma once appears multiple times, which clang allows\n# (and the module is never #include-d in another TU).\n{\n  for header in \"$tmp_dir/bindings\"/*FFI.h; do\n    cat \"$header\"\n  done\n} > \"$ffi_out_dir/fire_uniffiFFI.h\"\n\ncat > \"$ffi_out_dir/module.modulemap\" <<'MODULEMAP'\nmodule fire_uniffiFFI {\n    header \"fire_uniffiFFI.h\"\n    export *\n    use \"Darwin\"\n    use \"_Builtin_stdbool\"\n    use \"_Builtin_stdint\"\n}\nMODULEMAP\n\n# Copy Swift sources and rewrite per-namespace FFI imports to the unified module.\nfor swift_file in \"$tmp_dir/bindings\"/*.swift; do\n  python3 - \"$swift_file\" \"$swift_out_dir/$(basename \"$swift_file\")\" <<'PY'\nimport re\nimport sys\n\nsrc, dst = sys.argv[1], sys.argv[2]\npattern = re.compile(r\"\\bfire_uniffi(?:_[a-z_]+)?FFI\\b\")\nwith open(src, \"r\", encoding=\"utf-8\") as fh:\n    text = fh.read()\ntext = pattern.sub(\"fire_uniffiFFI\", text)\nwith open(dst, \"w\", encoding=\"utf-8\") as fh:\n    fh.write(text)\nPY\ndone\n\npython3 - <<'PY' \"$swift_out_dir\"\nfrom pathlib import Path\nimport sys\n\ndirectory = Path(sys.argv[1])\nreplacements = {\n    '            if result == nil {\\n                print(\"Uniffi callback interface MessageBusEventHandler: handle missing in uniffiFree\")\\n            }\\n':\n    '            if result == nil {\\n                #if DEBUG\\n                print(\"Uniffi callback interface MessageBusEventHandler: handle missing in uniffiFree\")\\n                #endif\\n            }\\n',\n    '    } else {\\n        print(\"uniffiFutureContinuationCallback invalid handle\")\\n    }\\n':\n    '    } else {\\n        #if DEBUG\\n        print(\"uniffiFutureContinuationCallback invalid handle\")\\n        #endif\\n    }\\n',\n}\n\nfor path in sorted(directory.glob(\"*.swift\")):\n    text = path.read_text()\n    updated = text\n    for before, after in replacements.items():\n        updated = updated.replace(before, after)\n    if updated != text:\n        path.write_text(updated)\nPY\n\ndeclare -a built_libraries=()\n\nfor rust_target in \"${rust_targets[@]}\"; do\n  build_staticlib \"$rust_target\"\n  built_libraries+=(\"$repo_root/rust/target/$rust_target/$profile_dir/libfire_uniffi.a\")\ndone\n\nfinal_library_path=\"$lib_out_root/$platform_name/libfire_uniffi.a\"\n\nif [[ ${#built_libraries[@]} -eq 1 ]]; then\n  cp \"${built_libraries[0]}\" \"$final_library_path\"\nelse\n  simulator_library_path=\"$tmp_dir/libfire_uniffi.a\"\n  xcrun lipo -create \"${built_libraries[@]}\" -output \"$simulator_library_path\"\n  cp \"$simulator_library_path\" \"$final_library_path\"\nfi\n";
+			shellScript = "#!/usr/bin/env bash\nset -euo pipefail\n\nif [[ \"${FIRE_SKIP_UNIFFI_BINDGEN:-}\" == \"1\" ]]; then\n  echo \"FIRE_SKIP_UNIFFI_BINDGEN=1: skipping UniFFI binding generation (using pre-built artifacts)\"\n  exit 0\nfi\n\nscript_dir=\"$(cd -- \"$(dirname -- \"${BASH_SOURCE[0]}\")\" && pwd)\"\nproject_root=\"${SRCROOT:-$(cd -- \"$script_dir/..\" && pwd)}\"\nrepo_root=\"$(cd -- \"$project_root/../..\" && pwd)\"\ngenerated_dir=\"$project_root/Generated\"\nswift_out_dir=\"$generated_dir/FireUniFfi\"\nffi_out_dir=\"$generated_dir/fire_uniffiFFI\"\nlib_out_root=\"$generated_dir/lib\"\nuniffi_config_path=\"$repo_root/rust/crates/fire-uniffi/uniffi.toml\"\n\nexport PATH=\"$HOME/.cargo/bin:$PATH\"\n\ncargo_bin=\"${CARGO:-$(command -v cargo || true)}\"\nrustup_bin=\"${RUSTUP:-$(command -v rustup || true)}\"\n\nif [[ -z \"$cargo_bin\" ]]; then\n  echo \"unable to locate cargo in PATH\" >&2\n  exit 1\nfi\n\nif [[ -z \"$rustup_bin\" ]]; then\n  echo \"unable to locate rustup in PATH\" >&2\n  exit 1\nfi\n\nplatform_name=\"${PLATFORM_NAME:-iphonesimulator}\"\nconfiguration_name=\"${CONFIGURATION:-Debug}\"\nprofile_dir=\"debug\"\n\nif [[ \"$configuration_name\" == \"Release\" ]]; then\n  profile_dir=\"release\"\nfi\n\ntmp_dir=\"$(mktemp -d \"${TMPDIR:-/tmp}/fire-ios-uniffi.XXXXXX\")\"\ntrap 'rm -rf \"$tmp_dir\"' EXIT\n\nmkdir -p \"$swift_out_dir\" \"$ffi_out_dir\" \"$lib_out_root/$platform_name\"\nrm -f \"$generated_dir/fire_uniffiFFI.h\" \"$generated_dir/fire_uniffiFFI.modulemap\"\nrm -f \"$generated_dir/fire_uniffi.swift\"\nrm -f \"$swift_out_dir\"/*.swift\n\nensure_rust_target_installed() {\n  local rust_target=\"$1\"\n  local installed_targets\n\n  installed_targets=\"$(\n    env \\\n      HOME=\"$HOME\" \\\n      PATH=\"$PATH\" \\\n      RUSTUP_HOME=\"${RUSTUP_HOME:-$HOME/.rustup}\" \\\n      \"$rustup_bin\" target list --installed\n  )\"\n\n  if ! grep -qx \"$rust_target\" <<<\"$installed_targets\"; then\n    echo \"required Rust target is not installed: $rust_target\" >&2\n    echo \"run: rustup target add $rust_target\" >&2\n    exit 1\n  fi\n}\n\nmap_simulator_arch_to_rust_target() {\n  local arch=\"$1\"\n\n  case \"$arch\" in\n    arm64)\n      printf '%s\\n' \"aarch64-apple-ios-sim\"\n      ;;\n    x86_64)\n      printf '%s\\n' \"x86_64-apple-ios\"\n      ;;\n    *)\n      echo \"unsupported iOS simulator arch: $arch\" >&2\n      exit 1\n      ;;\n  esac\n}\n\ndeclare -a rust_targets=()\n\ncase \"$platform_name\" in\n  iphoneos)\n    if [[ -z \"${IPHONEOS_DEPLOYMENT_TARGET:-}\" ]]; then\n      export IPHONEOS_DEPLOYMENT_TARGET=\"16.0\"\n    fi\n    rust_targets=(\"aarch64-apple-ios\")\n    ;;\n  iphonesimulator)\n    if [[ -n \"${ARCHS:-}\" ]]; then\n      for arch in $ARCHS; do\n        rust_targets+=(\"$(map_simulator_arch_to_rust_target \"$arch\")\")\n      done\n    else\n      case \"$(uname -m)\" in\n        arm64)\n          rust_targets=(\"aarch64-apple-ios-sim\")\n          ;;\n        x86_64)\n          rust_targets=(\"x86_64-apple-ios\")\n          ;;\n        *)\n          echo \"unable to infer simulator Rust target from host architecture\" >&2\n          exit 1\n          ;;\n      esac\n    fi\n    ;;\n  *)\n    echo \"unsupported PLATFORM_NAME: $platform_name\" >&2\n    exit 1\n    ;;\nesac\n\ndedupe_targets() {\n  local seen=\"\"\n  local rust_target\n  local deduped=()\n\n  for rust_target in \"${rust_targets[@]}\"; do\n    if [[ \" $seen \" == *\" $rust_target \"* ]]; then\n      continue\n    fi\n\n    seen+=\" $rust_target\"\n    deduped+=(\"$rust_target\")\n  done\n\n  rust_targets=(\"${deduped[@]}\")\n}\n\nbuild_staticlib() {\n  local rust_target=\"$1\"\n  local output_lib=\"$repo_root/rust/target/$rust_target/$profile_dir/libfire_uniffi.a\"\n\n  if [[ \"${FIRE_SKIP_RUST_CROSS_BUILD:-}\" == \"1\" ]]; then\n    if [[ ! -f \"$output_lib\" ]]; then\n      echo \"FIRE_SKIP_RUST_CROSS_BUILD=1 but $output_lib not found\" >&2\n      exit 1\n    fi\n    echo \"skipping cargo build: using pre-built $output_lib\"\n    return 0\n  fi\n\n  if [[ \"$profile_dir\" == \"release\" ]]; then\n    (\n      cd \"$repo_root\"\n      run_target_cargo \"$cargo_bin\" build -p fire-uniffi --target \"$rust_target\" --release\n    )\n  else\n    (\n      cd \"$repo_root\"\n      run_target_cargo \"$cargo_bin\" build -p fire-uniffi --target \"$rust_target\"\n    )\n  fi\n}\n\nrun_host_cargo() {\n  if [[ \"$(uname -s)\" == \"Darwin\" ]]; then\n    local sdk_root\n    local library_path\n\n    sdk_root=\"$(xcrun --sdk macosx --show-sdk-path)\"\n    library_path=\"${sdk_root}/usr/lib\"\n\n    env -i \\\n      HOME=\"$HOME\" \\\n      PATH=\"$PATH\" \\\n      SDKROOT=\"$sdk_root\" \\\n      LIBRARY_PATH=\"$library_path\" \\\n      PLATFORM_NAME= \\\n      EFFECTIVE_PLATFORM_NAME= \\\n      ARCHS= \\\n      TVOS_DEPLOYMENT_TARGET= \\\n      WATCHOS_DEPLOYMENT_TARGET= \\\n      \"$@\"\n  else\n    \"$@\"\n  fi\n}\n\nrun_target_cargo() {\n  if [[ \"$(uname -s)\" == \"Darwin\" ]]; then\n    local sdk_root\n    local iphoneos_deployment_target\n    local ios_deployment_cfg\n    local target_rustflags\n\n    sdk_root=\"$(xcrun --sdk macosx --show-sdk-path)\"\n    iphoneos_deployment_target=\"${IPHONEOS_DEPLOYMENT_TARGET:-16.0}\"\n    ios_deployment_cfg=\"fire_ios_deployment_target_${iphoneos_deployment_target//./_}\"\n    target_rustflags=\"${RUSTFLAGS:-} --cfg=$ios_deployment_cfg\"\n\n    env -i \\\n      HOME=\"$HOME\" \\\n      PATH=\"$PATH\" \\\n      SDKROOT=\"$sdk_root\" \\\n      PLATFORM_NAME= \\\n      EFFECTIVE_PLATFORM_NAME= \\\n      ARCHS= \\\n      IPHONEOS_DEPLOYMENT_TARGET=\"$iphoneos_deployment_target\" \\\n      RUSTFLAGS=\"$target_rustflags\" \\\n      TVOS_DEPLOYMENT_TARGET= \\\n      WATCHOS_DEPLOYMENT_TARGET= \\\n      \"$@\"\n  else\n    \"$@\"\n  fi\n}\n\ndedupe_targets\n\n(\n  cd \"$repo_root\"\n  if [[ \"$profile_dir\" == \"release\" ]]; then\n    run_host_cargo \"$cargo_bin\" build -p fire-uniffi --lib --release\n  else\n    run_host_cargo \"$cargo_bin\" build -p fire-uniffi --lib\n  fi\n  run_host_cargo \"$cargo_bin\" build -p fire-uniffi --bin uniffi-bindgen\n  RUSTFLAGS= \\\n  IPHONEOS_DEPLOYMENT_TARGET=16.0 \\\n  \"$repo_root/rust/target/debug/uniffi-bindgen\" generate \\\n    --library \"$repo_root/rust/target/$profile_dir/libfire_uniffi.dylib\" \\\n    --language swift \\\n    --no-format \\\n    --out-dir \"$tmp_dir/bindings\"\n)\n\n# The fire-uniffi dylib bundles multiple UniFFI namespaces (fire_uniffi,\n# fire_uniffi_types, fire_uniffi_diagnostics, ...). Without a Swift ffi_module_name\n# override, bindgen emits one <namespace>FFI.{h,modulemap} per namespace and the\n# generated Swift files import their own per-namespace FFI module.\n#\n# We collapse every namespace into a single clang module \"fire_uniffiFFI\" that\n# all Swift sources import. That keeps the Xcode integration simple (one\n# modulemap, one include path) and is a strict superset of any one namespace's\n# FFI surface, so no symbols are lost.\n\n# Merge every per-namespace FFI header into one fire_uniffiFFI.h. The per-file\n# UNIFFI_SHARED_H / UNIFFI_FFIDEF_* guards keep duplicate typedefs out of the\n# concatenation; only #pragma once appears multiple times, which clang allows\n# (and the module is never #include-d in another TU).\n{\n  for header in \"$tmp_dir/bindings\"/*FFI.h; do\n    cat \"$header\"\n  done\n} > \"$ffi_out_dir/fire_uniffiFFI.h\"\n\ncat > \"$ffi_out_dir/module.modulemap\" <<'MODULEMAP'\nmodule fire_uniffiFFI {\n    header \"fire_uniffiFFI.h\"\n    export *\n    use \"Darwin\"\n    use \"_Builtin_stdbool\"\n    use \"_Builtin_stdint\"\n}\nMODULEMAP\n\n# Copy Swift sources and rewrite per-namespace FFI imports to the unified module.\nfor swift_file in \"$tmp_dir/bindings\"/*.swift; do\n  python3 - \"$swift_file\" \"$swift_out_dir/$(basename \"$swift_file\")\" <<'PY'\nimport re\nimport sys\n\nsrc, dst = sys.argv[1], sys.argv[2]\npattern = re.compile(r\"\\bfire_uniffi(?:_[a-z_]+)?FFI\\b\")\nwith open(src, \"r\", encoding=\"utf-8\") as fh:\n    text = fh.read()\ntext = pattern.sub(\"fire_uniffiFFI\", text)\nwith open(dst, \"w\", encoding=\"utf-8\") as fh:\n    fh.write(text)\nPY\ndone\n\npython3 - <<'PY' \"$swift_out_dir\"\nfrom pathlib import Path\nimport sys\n\ndirectory = Path(sys.argv[1])\nreplacements = {\n    '            if result == nil {\\n                print(\"Uniffi callback interface MessageBusEventHandler: handle missing in uniffiFree\")\\n            }\\n':\n    '            if result == nil {\\n                #if DEBUG\\n                print(\"Uniffi callback interface MessageBusEventHandler: handle missing in uniffiFree\")\\n                #endif\\n            }\\n',\n    '    } else {\\n        print(\"uniffiFutureContinuationCallback invalid handle\")\\n    }\\n':\n    '    } else {\\n        #if DEBUG\\n        print(\"uniffiFutureContinuationCallback invalid handle\")\\n        #endif\\n    }\\n',\n}\n\nfor path in sorted(directory.glob(\"*.swift\")):\n    text = path.read_text()\n    updated = text\n    for before, after in replacements.items():\n        updated = updated.replace(before, after)\n    if updated != text:\n        path.write_text(updated)\nPY\n\ndeclare -a built_libraries=()\n\nfor rust_target in \"${rust_targets[@]}\"; do\n  build_staticlib \"$rust_target\"\n  built_libraries+=(\"$repo_root/rust/target/$rust_target/$profile_dir/libfire_uniffi.a\")\ndone\n\nfinal_library_path=\"$lib_out_root/$platform_name/libfire_uniffi.a\"\n\nif [[ ${#built_libraries[@]} -eq 1 ]]; then\n  cp \"${built_libraries[0]}\" \"$final_library_path\"\nelse\n  simulator_library_path=\"$tmp_dir/libfire_uniffi.a\"\n  xcrun lipo -create \"${built_libraries[@]}\" -output \"$simulator_library_path\"\n  cp \"$simulator_library_path\" \"$final_library_path\"\nfi\n";
 			showEnvVarsInLog = 0;
 		};
 /* End PBXShellScriptBuildPhase section */
@@ -1222,6 +1232,7 @@
 				78009659A664B236D8AD3434 /* FireBadgeDetailView.swift in Sources */,
 				FFA9CA2BD6BA97E97C13CCA8 /* FireBookmarkEditorSheet.swift in Sources */,
 				E74952BCA8EF2D8E92C528CD /* FireBookmarksView.swift in Sources */,
+				29F891D31E57BD3D19AB4EBB /* FireBookmarksViewController.swift in Sources */,
 				CB59605E778D5DDE7985CD9A /* FireCDKView.swift in Sources */,
 				E96C65EF805B1CE2F1A620B9 /* FireCategoriesView.swift in Sources */,
 				0AABB8FE83B25A7D6D7C67FC /* FireCfClearanceRefreshService.swift in Sources */,
@@ -1239,7 +1250,6 @@
 				355451477523656402E506B8 /* FireExportDiagnosticsView.swift in Sources */,
 				FD8277139166DCD8F96715A9 /* FireFilteredTopicListView.swift in Sources */,
 				0F8BF17B3DEDC35D48A14E99 /* FireFollowListView.swift in Sources */,
-				83E741D10CEEBE061C2B0B30 /* FireHomeCollectionView.swift in Sources */,
 				768DC62B26A1D2EF4F545D35 /* FireHomeFeedStore.swift in Sources */,
 				60D0992EF0121C983BC95AAC /* FireHomeView.swift in Sources */,
 				1F34091982CA9E4020CE6186 /* FireInviteLinksView.swift in Sources */,
@@ -1247,19 +1257,21 @@
 				F31A70760B997F5ADFB7C489 /* FireListSectionModel.swift in Sources */,
 				BE531BCFF96A8C23E0180F6B /* FireLogDiagnosticsView.swift in Sources */,
 				B31E376321DE4A930954DFB5 /* FireLoginWebView.swift in Sources */,
+				9912E13751119248F5626F77 /* FireMainTabBarController.swift in Sources */,
 				BDBF0CEBD8F5F7C1C19769B7 /* FireMessageBusCoordinator.swift in Sources */,
 				A2BA00121D5BF00E4543EF13 /* FireMotionEffects.swift in Sources */,
 				5CACD8BFBDA8FDF7D7CBF4E7 /* FireMotionReduceMotion.swift in Sources */,
 				DEEB51E5288224C8D0D226FF /* FireMotionTokens.swift in Sources */,
 				FC0D869F1AD372A135EF553C /* FireMotionTransitions.swift in Sources */,
 				28ADE71B45F2298CB7C8DFE6 /* FireMyBadgesView.swift in Sources */,
+				E3A267AB0EB528EFD43162CC /* FireNavigationDestinationCompat.swift in Sources */,
 				DA6BD635BF623E34D242CB15 /* FireNavigationState.swift in Sources */,
 				087AF23CD1F909A1BFC87312 /* FireNetworkDiagnosticsView.swift in Sources */,
 				13C14E92B46B8FA37CFD3B1A /* FireNetworkTraceDetailView.swift in Sources */,
-				B76556FFB0AC923853985D87 /* FireNotificationHistoryView.swift in Sources */,
+				C957386748A90B96C74997A7 /* FireNotificationPresentation.swift in Sources */,
 				E460D11F2D744411AA61E5A6 /* FireNotificationService.swift in Sources */,
 				B4AA77D05D86AB070BE06A93 /* FireNotificationStore.swift in Sources */,
-				659462A28F8ADF3054995F7B /* FireNotificationsView.swift in Sources */,
+				69FB1571CB33DB7B8EE56946 /* FireNotificationsViewController.swift in Sources */,
 				47478A1EF4F9D689EFA0FD9E /* FireOnboardingView.swift in Sources */,
 				4291E89FC3D5D35AC9A06898 /* FireOrderedIDList.swift in Sources */,
 				816DB34CD28CD94ED88EF9C6 /* FirePaginatedStore.swift in Sources */,
@@ -1271,6 +1283,7 @@
 				9E7B9F6741C79AF8E6C3D0DA /* FirePostLayoutManager.swift in Sources */,
 				44803F9B07AEA78F2DEC49AB /* FirePostPollRenderer.swift in Sources */,
 				8D792FAAE4BC6B104BAE1FC3 /* FirePreheatGateViewController.swift in Sources */,
+				1E755A60580B2CEBD3DDF9B8 /* FirePreheatGateWaitingViewController.swift in Sources */,
 				3CA9AF0BFA58C32834B441F3 /* FirePresentationIdentity.swift in Sources */,
 				844785FCC5039F92456B99A2 /* FirePresentedTopicRouteHost.swift in Sources */,
 				E675D894EEA6866F811EDE4D /* FirePrivateMessagesView.swift in Sources */,
@@ -1286,10 +1299,13 @@
 				D914CE5CE076533C2C932623 /* FirePushDiagnosticsView.swift in Sources */,
 				6F88C8AAB2089E7F558EDE67 /* FirePushRegistrationCoordinator.swift in Sources */,
 				CEC557CB91456A379F8FE867 /* FireReadHistoryView.swift in Sources */,
+				3A20BD9A2A4CE944762B0BD7 /* FireReadHistoryViewController.swift in Sources */,
 				C61D6B26B2EB49CD2BE88224 /* FireRecipientTokenField.swift in Sources */,
 				FC1B2622266903265250390B /* FireRenderBlockNodeBuilder.swift in Sources */,
 				72AC7A92BEC5E2B99DEE5ACC /* FireRichTextRenderer.swift in Sources */,
+				C0912C916D7832645283F77D /* FireRootCoordinator.swift in Sources */,
 				DC4203187C3CAF0846C2D8BF /* FireRouteParser.swift in Sources */,
+				C94AC2F334339FCFEB86CB04 /* FireSceneDelegate.swift in Sources */,
 				3629B6712AD67BC02B4288A1 /* FireSearchService.swift in Sources */,
 				A04B275253CDF8FAAC9D8C6C /* FireSearchStore.swift in Sources */,
 				90E8F901D00245EA9611F1D7 /* FireSearchTopicsIntent.swift in Sources */,
@@ -1393,7 +1409,7 @@
 				);
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = "Configs/Fire-Info.plist";
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -1430,7 +1446,7 @@
 				DEVELOPMENT_TEAM = "$(FIRE_DEVELOPMENT_TEAM)";
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = "Configs/FireWidget-Info.plist";
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -1450,7 +1466,7 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				GENERATE_INFOPLIST_FILE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -1471,7 +1487,7 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				GENERATE_INFOPLIST_FILE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -1561,7 +1577,7 @@
 				DEVELOPMENT_TEAM = "$(FIRE_DEVELOPMENT_TEAM)";
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = "Configs/FireWidget-Info.plist";
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -1649,7 +1665,7 @@
 				);
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = "Configs/Fire-Info.plist";
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",

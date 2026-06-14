@@ -176,7 +176,7 @@ struct FireProfileView: View {
                     }
 
                     NavigationLink {
-                        FireDraftsView(viewModel: viewModel)
+                        FireDraftsControllerHost(viewModel: viewModel)
                     } label: {
                         shortcutRowContent(
                             icon: "tray.full.fill",

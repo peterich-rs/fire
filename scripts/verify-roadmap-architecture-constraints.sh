@@ -274,6 +274,10 @@ require_pattern "Notifications controller uses UIKit-first list runtime" "native
 require_pattern "Notification history page has UIKit controller" "native/ios-app/App/Views/Notifications/FireNotificationsViewController.swift" 'final class FireNotificationHistoryViewController: UIViewController'
 require_pattern "Notification history controller uses UIKit-first list runtime" "native/ios-app/App/Views/Notifications/FireNotificationsViewController.swift" 'FireListViewController<[[:space:]]*FireNotificationHistoryCollectionSection'
 require_no_pattern "Notifications deleted SwiftUI page" "native/ios-app/App/Views/Notifications/FireNotificationPresentation.swift" 'struct FireNotificationsView:[[:space:]]*View|struct FireNotificationHistoryView:[[:space:]]*View|FireNotificationRow'
+require_pattern "Drafts page has UIKit controller" "native/ios-app/App/Views/Other/FireDraftsView.swift" 'final class FireDraftsViewController: UIViewController'
+require_pattern "Drafts controller uses UIKit-first list runtime" "native/ios-app/App/Views/Other/FireDraftsView.swift" 'FireListViewController<FireDraftsCollectionSection, FireDraftsCollectionItem>'
+require_pattern "Profile routes drafts through UIKit host" "native/ios-app/App/Views/Profile/FireProfileView.swift" 'FireDraftsControllerHost'
+require_no_pattern "Drafts deleted SwiftUI page" "native/ios-app/App/Views/Other/FireDraftsView.swift" 'struct FireDraftsView:[[:space:]]*View'
 
 echo
 echo "==> Reference and infrastructure boundaries"

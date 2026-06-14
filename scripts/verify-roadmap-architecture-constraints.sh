@@ -199,6 +199,19 @@ require_pattern "iOS motion helper gates symbolEffect/contentTransition" "native
 require_pattern "WidgetKit container background is availability-gated" "native/ios-app/App/Widgets/FireWidgetViews.swift" '#available\(iOSApplicationExtension 17\.0, \*\)'
 
 echo
+echo "==> iOS UIKit root shell"
+require_pattern "iOS app delegate is UIKit main entry" "native/ios-app/App/Core/FireAppDelegate.swift" '@main'
+require_pattern "iOS app delegate connects scene delegate" "native/ios-app/App/Core/FireAppDelegate.swift" 'FireSceneDelegate'
+require_pattern "iOS scene delegate owns UIWindow" "native/ios-app/App/Core/FireSceneDelegate.swift" 'UIWindow'
+require_pattern "iOS root coordinator owns route dispatch" "native/ios-app/App/Core/FireRootCoordinator.swift" 'static func dispatch\(_ route: FireAppRoute\)'
+require_pattern "iOS root coordinator owns auth presentation" "native/ios-app/App/Core/FireRootCoordinator.swift" 'syncAuthPresentation'
+require_pattern "iOS root coordinator owns topic presentation" "native/ios-app/App/Core/FireRootCoordinator.swift" 'syncTopicPresentation'
+require_pattern "iOS main tab shell is UIKit" "native/ios-app/App/Core/FireMainTabBarController.swift" 'UITabBarController'
+require_pattern "iOS main tab shell wraps tabs in navigation controllers" "native/ios-app/App/Core/FireMainTabBarController.swift" 'UINavigationController'
+require_no_pattern "iOS SwiftUI App entry removed" "native/ios-app/App/FireApp.swift" '@main|WindowGroup|@UIApplicationDelegateAdaptor|struct FireApp: App'
+require_no_pattern "iOS SwiftUI root TabView removed" "native/ios-app/App/Views/Other/FireTabRoot.swift" 'struct FireTabRoot: View|TabView|fullScreenCover|@Environment\(\\.scenePhase\)'
+
+echo
 echo "==> Platform-owned browser, cookie, and store boundaries"
 require_pattern "iOS WebView login coordinator owns WKWebView" "native/ios-app/Sources/FireAppSession/FireWebViewLoginCoordinator.swift" 'WKWebView'
 require_pattern "iOS platform cookie extraction" "native/ios-app/Sources/FireAppSession/FireWebViewLoginCoordinator.swift" 'WKHTTPCookieStore|HTTPCookieStorage'

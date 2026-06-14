@@ -222,8 +222,9 @@ APIs and the transitional `FireMotionEffects` SwiftUI helper must keep explicit
 availability gates when they use newer system affordances.
 
 Existing SwiftUI screens will migrate progressively to UIKit + Texture. The app
-root, tab shell, login/onboarding flow, production navigation, and high-traffic
-content surfaces must not depend on SwiftUI once their migration phase lands.
+root, authenticated tab shell, and production route presentation are now owned
+by UIKit. Login/onboarding and high-traffic content surfaces should continue to
+move off SwiftUI without adding parallel fallback paths.
 AppKit support should consume the same Rust snapshots and command contracts as
 UIKit rather than introducing a second product logic path.
 
@@ -231,7 +232,7 @@ UIKit rather than introducing a second product logic path.
 |---|---|---|
 | 1 | Topic detail | Already Texture-based |
 | 2 | iOS 16 compatibility and root contract | Deployment target, verifier, and iOS 16-safe host utilities |
-| 3 | App root, tab shell, production navigation | UIKit `UIWindowScene` + `UITabBarController` + `UINavigationController` |
+| 3 | App root, tab shell, production navigation | Landed: UIKit `UIWindowScene` + `UITabBarController` + `UINavigationController` |
 | 4 | Home feed, notifications, search | UIKit/Texture list runtime |
 | 5 | Profile, bookmarks, messages | UIKit collection/list controllers |
 | 6 | Composer, onboarding/login | UIKit |
@@ -242,12 +243,13 @@ UIKit rather than introducing a second product logic path.
 ```
 native/ios-app/
   App/
-    FireApp.swift                        # Transitional SwiftUI entry until the UIKit root lands
-    FireSceneDelegate.swift              # Target UIKit scene/root owner
-    FireMainTabBarController.swift       # Target authenticated tab shell
-    AppDelegate.swift                    # Lifecycle, push registration
-
+    FireApp.swift                        # Empty compatibility source; UIKit lifecycle is authoritative
     Core/
+      FireAppDelegate.swift              # UIKit @main, process lifecycle, push registration
+      FireSceneDelegate.swift            # UIWindowScene owner
+      FireRootCoordinator.swift          # Root/auth/preheat/route coordinator
+      FireMainTabBarController.swift     # Authenticated UIKit tab shell
+
       Theme/
         FireDesignTokens.swift           # Cross-platform design constants
       Motion/                            # Animation system

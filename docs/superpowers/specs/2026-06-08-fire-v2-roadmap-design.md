@@ -107,7 +107,7 @@
 - `FireBookmarksView` — 书签行、删除操作
 - `FireDraftsView` — 草稿行、继续编辑、删除
 - `FireOnboardingView` — 登录按钮、品牌区域
-- `FireNotificationsView` — 通知行、标记已读
+- `FireNotificationsViewController` / `FireNotificationHistoryViewController` — 通知行、标记已读
 - `FireProfileView` — 各统计项、操作按钮
 
 **加载骨架屏标注：**

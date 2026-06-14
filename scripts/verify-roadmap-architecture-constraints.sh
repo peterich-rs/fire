@@ -268,6 +268,12 @@ require_pattern "Read history page has UIKit controller" "native/ios-app/App/Vie
 require_pattern "Read history controller uses UIKit-first list runtime" "native/ios-app/App/Views/Other/FireReadHistoryViewController.swift" 'FireListViewController<FireReadHistoryCollectionSection, FireReadHistoryCollectionItem>'
 require_pattern "Profile routes read history through UIKit host" "native/ios-app/App/Views/Profile/FireProfileView.swift" 'FireReadHistoryControllerHost'
 require_no_pattern "Read history deleted SwiftUI page" "native/ios-app/App/Views/Other/FireReadHistoryView.swift" 'struct FireReadHistoryView:[[:space:]]*View'
+require_pattern "Notifications tab routes through UIKit controller" "native/ios-app/App/Core/FireMainTabBarController.swift" 'rootViewController: FireNotificationsViewController'
+require_pattern "Notifications page has UIKit controller" "native/ios-app/App/Views/Notifications/FireNotificationsViewController.swift" 'final class FireNotificationsViewController: UIViewController'
+require_pattern "Notifications controller uses UIKit-first list runtime" "native/ios-app/App/Views/Notifications/FireNotificationsViewController.swift" 'FireListViewController<FireNotificationsCollectionSection, FireNotificationsCollectionItem>'
+require_pattern "Notification history page has UIKit controller" "native/ios-app/App/Views/Notifications/FireNotificationsViewController.swift" 'final class FireNotificationHistoryViewController: UIViewController'
+require_pattern "Notification history controller uses UIKit-first list runtime" "native/ios-app/App/Views/Notifications/FireNotificationsViewController.swift" 'FireListViewController<[[:space:]]*FireNotificationHistoryCollectionSection'
+require_no_pattern "Notifications deleted SwiftUI page" "native/ios-app/App/Views/Notifications/FireNotificationPresentation.swift" 'struct FireNotificationsView:[[:space:]]*View|struct FireNotificationHistoryView:[[:space:]]*View|FireNotificationRow'
 
 echo
 echo "==> Reference and infrastructure boundaries"

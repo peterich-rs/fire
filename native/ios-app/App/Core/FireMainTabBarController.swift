@@ -81,13 +81,11 @@ final class FireMainTabBarController: UITabBarController, UITabBarControllerDele
             title: "通知",
             systemImage: "bell",
             selectedSystemImage: "bell.fill",
-            rootView: AnyView(
-                FireNotificationsTabRootHost(
-                    viewModel: viewModel,
-                    navigationState: navigationState,
-                    notificationStore: notificationStore,
-                    topicDetailStore: topicDetailStore
-                )
+            rootViewController: FireNotificationsViewController(
+                viewModel: viewModel,
+                navigationState: navigationState,
+                notificationStore: notificationStore,
+                topicDetailStore: topicDetailStore
             )
         )
         let profile = makeNavigationController(
@@ -116,6 +114,23 @@ final class FireMainTabBarController: UITabBarController, UITabBarControllerDele
         host.view.backgroundColor = .systemBackground
         let navigationController = UINavigationController(rootViewController: host)
         navigationController.setNavigationBarHidden(true, animated: false)
+        navigationController.tabBarItem = UITabBarItem(
+            title: title,
+            image: UIImage(systemName: systemImage),
+            selectedImage: UIImage(systemName: selectedSystemImage)
+        )
+        return navigationController
+    }
+
+    private func makeNavigationController(
+        title: String,
+        systemImage: String,
+        selectedSystemImage: String,
+        rootViewController: UIViewController
+    ) -> UINavigationController {
+        let navigationController = UINavigationController(rootViewController: rootViewController)
+        navigationController.navigationBar.prefersLargeTitles = false
+        navigationController.setNavigationBarHidden(false, animated: false)
         navigationController.tabBarItem = UITabBarItem(
             title: title,
             image: UIImage(systemName: systemImage),
@@ -164,38 +179,6 @@ private struct FireHomeTabRootHost: View {
                 return false
             }
             viewModel.topicRouteLogger()?.info("tab host presenting topic route \(route.diagnosticsSummary)")
-            navigationState.presentTopicRoute(route)
-            return true
-        }
-    }
-}
-
-private struct FireNotificationsTabRootHost: View {
-    let viewModel: FireAppViewModel
-    @ObservedObject var navigationState: FireNavigationState
-    @ObservedObject var notificationStore: FireNotificationStore
-    @ObservedObject var topicDetailStore: FireTopicDetailStore
-
-    var body: some View {
-        FireNotificationsView(
-            appViewModel: viewModel,
-            notificationStore: notificationStore,
-            isActive: navigationState.selectedTab == 1
-        )
-        .environmentObject(navigationState)
-        .environmentObject(topicDetailStore)
-        .fireTopicRoutePresenter(topicRoutePresenter)
-    }
-
-    private var topicRoutePresenter: FireTopicRoutePresenter {
-        FireTopicRoutePresenter { route in
-            guard route.isTopicRoute else {
-                viewModel.topicRouteLogger()?.debug(
-                    "notifications tab topic presenter ignored non-topic route \(route.diagnosticsSummary)"
-                )
-                return false
-            }
-            viewModel.topicRouteLogger()?.info("notifications tab presenting topic route \(route.diagnosticsSummary)")
             navigationState.presentTopicRoute(route)
             return true
         }

@@ -54,7 +54,7 @@ Promote the current `FireDiffableListController` from a SwiftUI
 Migrate high-traffic list surfaces first:
 
 - Home
-- Notifications
+- Notifications (landed: tab root now uses `FireNotificationsViewController`; full history uses `FireNotificationHistoryViewController`; both run on `FireListViewController` and the SwiftUI production pages were removed)
 - Search
 - Messages
 - Bookmarks (landed: `FireBookmarksViewController` on `FireListViewController`; Profile keeps only a thin SwiftUI-to-UIKit host until Profile itself migrates)

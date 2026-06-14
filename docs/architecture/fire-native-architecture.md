@@ -233,7 +233,7 @@ UIKit rather than introducing a second product logic path.
 | 1 | Topic detail | Already Texture-based |
 | 2 | iOS 16 compatibility and root contract | Deployment target, verifier, and iOS 16-safe host utilities |
 | 3 | App root, tab shell, production navigation | Landed: UIKit `UIWindowScene` + `UITabBarController` + `UINavigationController` |
-| 4 | Home feed, bookmarks, read history, notifications, search | UIKit-first `FireListViewController` runtime landed; Bookmarks and Read History now run as UIKit controllers through the shared list runtime |
+| 4 | Home feed, bookmarks, read history, notifications, search | UIKit-first `FireListViewController` runtime landed; Bookmarks, Read History, and Notifications now run as UIKit controllers through the shared list runtime |
 | 5 | Profile, messages, remaining utility lists | UIKit collection/list controllers |
 | 6 | Composer, onboarding/login | UIKit |
 | Final | Production SwiftUI removal | SwiftUI limited to WidgetKit, Developer Tools, and explicitly tracked transitional bridges |
@@ -989,7 +989,8 @@ Advantages:
 - Home topic list → UIKit/Texture list runtime
 - Bookmarks → UIKit `FireBookmarksViewController` on `FireListViewController`; the former SwiftUI production page has been removed
 - Read History → UIKit `FireReadHistoryViewController` on `FireListViewController`; the former SwiftUI production page has been removed
-- Notifications / Search → UIKit/Texture list runtime
+- Notifications → UIKit `FireNotificationsViewController` and `FireNotificationHistoryViewController` on `FireListViewController`; the former SwiftUI production pages have been removed
+- Search → UIKit/Texture list runtime
 - Profile / Messages → UIKit
 - Composer / onboarding / login → UIKit
 - SwiftUI remains only for WidgetKit, Developer Tools, and tracked transitional bridges

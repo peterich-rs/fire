@@ -900,6 +900,7 @@ final class FireDiffableListController<SectionID: Hashable, ItemID: Hashable, Ro
             onScrollRequestCompleted: onScrollRequestCompleted,
             cellProvider: { _, _, _ in UICollectionViewCell() }
         )
+        prepareCellRegistrations()
         updateCellProvider(makeCellProvider())
     }
 
@@ -919,6 +920,10 @@ final class FireDiffableListController<SectionID: Hashable, ItemID: Hashable, Ro
         self.shouldUseNativeCell = shouldUseNativeCell
         self.nativeCellProvider = nativeCellProvider
         updateCellProvider(makeCellProvider())
+    }
+
+    private func prepareCellRegistrations() {
+        _ = hostedCellRegistration
     }
 
     override func setSections(

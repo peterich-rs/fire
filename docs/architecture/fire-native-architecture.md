@@ -225,6 +225,9 @@ Existing SwiftUI screens will migrate progressively to UIKit + Texture. The app
 root, authenticated tab shell, and production route presentation are now owned
 by UIKit. Login/onboarding and high-traffic content surfaces should continue to
 move off SwiftUI without adding parallel fallback paths.
+UIKit list controllers prepare `UICollectionView.CellRegistration` instances
+during controller initialization so diffable data source cell providers only
+dequeue with already-created registrations.
 AppKit support should consume the same Rust snapshots and command contracts as
 UIKit rather than introducing a second product logic path.
 

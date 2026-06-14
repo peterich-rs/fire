@@ -176,6 +176,49 @@ require_no_ios_primary_app_source_pattern_except_motion_helper() {
   fi
 }
 
+require_ios_lazy_cell_registrations_prepared() {
+  local label="$1"
+  local failed=0
+  local file
+  local registration
+  local registrations
+
+  while IFS= read -r file; do
+    registrations=()
+    while IFS= read -r registration; do
+      registrations+=("$registration")
+    done < <(
+      rg -o 'lazy var [[:alnum:]_]+CellRegistration' "$file" |
+        awk '{ print $3 }' |
+        sort -u || true
+    )
+    if [[ "${#registrations[@]}" -eq 0 ]]; then
+      continue
+    fi
+
+    if ! rg -q 'func prepareCellRegistrations\(' "$file"; then
+      fail "$label: $file declares lazy UICollectionView cell registrations without prepareCellRegistrations()"
+      failed=1
+      continue
+    fi
+
+    for registration in "${registrations[@]}"; do
+      if ! rg -q "_ = ${registration}" "$file"; then
+        fail "$label: $file does not prepare $registration before diffable cell provider dequeue"
+        failed=1
+      fi
+    done
+  done < <(
+    rg -l 'lazy var [[:alnum:]_]+CellRegistration' \
+      -g '*.swift' \
+      native/ios-app/App || true
+  )
+
+  if [[ "$failed" -eq 0 ]]; then
+    pass "$label: lazy UICollectionView cell registrations are prepared before provider dequeue"
+  fi
+}
+
 echo "==> Platform minimums"
 require_pattern_count "iOS app/widget/test deployment targets" "native/ios-app/project.yml" 'deploymentTarget: "16\.0"' 3
 require_pattern "iOS architecture document minimum" "docs/architecture/fire-native-architecture.md" '\| Minimum version \| iOS 16 \|'
@@ -259,6 +302,7 @@ require_pattern "ListKit exposes UIKit-first list controller" "native/ios-app/Ap
 require_pattern "ListKit controller accepts UIKit cell providers" "native/ios-app/App/ListKit/FireDiffableListController.swift" 'typealias FireListCellProvider'
 require_pattern "ListKit SwiftUI adapter subclasses UIKit runtime" "native/ios-app/App/ListKit/FireDiffableListController.swift" 'FireDiffableListController<SectionID: Hashable, ItemID: Hashable, RowContent: View>:[[:space:]]*$'
 require_pattern "ListKit SwiftUI adapter is the hosted-cell owner" "native/ios-app/App/ListKit/FireDiffableListController.swift" 'UIHostingConfiguration'
+require_ios_lazy_cell_registrations_prepared "UIKit list cell registration lifecycle"
 require_pattern "Collection host remains a bridge adapter" "native/ios-app/App/ListKit/FireCollectionHost.swift" 'UIViewControllerRepresentable'
 require_pattern "Bookmarks page has UIKit controller" "native/ios-app/App/Views/Bookmarks/FireBookmarksViewController.swift" 'final class FireBookmarksViewController: UIViewController'
 require_pattern "Bookmarks controller uses UIKit-first list runtime" "native/ios-app/App/Views/Bookmarks/FireBookmarksViewController.swift" 'FireListViewController<FireBookmarksCollectionSection, FireBookmarksCollectionItem>'

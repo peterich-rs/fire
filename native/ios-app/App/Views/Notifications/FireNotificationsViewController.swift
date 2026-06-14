@@ -155,6 +155,7 @@ final class FireNotificationsViewController: UIViewController {
         )
         super.init(nibName: nil, bundle: nil)
         controllerReference.controller = self
+        prepareCellRegistrations()
         configureListController()
     }
 
@@ -197,6 +198,14 @@ final class FireNotificationsViewController: UIViewController {
         listController.updateContextMenuConfigurationProvider { [weak self] item in
             self?.contextMenuConfiguration(for: item)
         }
+    }
+
+    private func prepareCellRegistrations() {
+        _ = stateCellRegistration
+        _ = offlineCellRegistration
+        _ = bannerCellRegistration
+        _ = notificationCellRegistration
+        _ = historyLinkCellRegistration
     }
 
     private func installListController() {
@@ -682,6 +691,7 @@ final class FireNotificationHistoryViewController: UIViewController {
         )
         super.init(nibName: nil, bundle: nil)
         controllerReference.controller = self
+        prepareCellRegistrations()
         configureListController()
     }
 
@@ -725,6 +735,14 @@ final class FireNotificationHistoryViewController: UIViewController {
         listController.updateContextMenuConfigurationProvider { [weak self] item in
             self?.contextMenuConfiguration(for: item)
         }
+    }
+
+    private func prepareCellRegistrations() {
+        _ = stateCellRegistration
+        _ = offlineCellRegistration
+        _ = bannerCellRegistration
+        _ = notificationCellRegistration
+        _ = retryCellRegistration
     }
 
     private func installListController() {

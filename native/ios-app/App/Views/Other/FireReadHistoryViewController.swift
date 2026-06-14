@@ -146,6 +146,7 @@ final class FireReadHistoryViewController: UIViewController {
         )
         super.init(nibName: nil, bundle: nil)
         controllerReference.controller = self
+        prepareCellRegistrations()
         configureListController()
     }
 
@@ -188,6 +189,12 @@ final class FireReadHistoryViewController: UIViewController {
         listController.updateContextMenuConfigurationProvider { [weak self] item in
             self?.contextMenuConfiguration(for: item)
         }
+    }
+
+    private func prepareCellRegistrations() {
+        _ = stateCellRegistration
+        _ = bannerCellRegistration
+        _ = topicCellRegistration
     }
 
     private func installListController() {

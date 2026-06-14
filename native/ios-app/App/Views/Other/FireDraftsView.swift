@@ -224,6 +224,7 @@ final class FireDraftsViewController: UIViewController {
         )
         super.init(nibName: nil, bundle: nil)
         controllerReference.controller = self
+        prepareCellRegistrations()
         configureListController()
     }
 
@@ -262,6 +263,12 @@ final class FireDraftsViewController: UIViewController {
         listController.updateContextMenuConfigurationProvider { [weak self] item in
             self?.contextMenuConfiguration(for: item)
         }
+    }
+
+    private func prepareCellRegistrations() {
+        _ = stateCellRegistration
+        _ = bannerCellRegistration
+        _ = draftCellRegistration
     }
 
     private func installListController() {

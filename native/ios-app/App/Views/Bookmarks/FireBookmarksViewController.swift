@@ -49,7 +49,7 @@ final class FireBookmarksViewController: UIViewController {
     private weak var toastView: UIView?
 
     private lazy var stateCellRegistration = UICollectionView.CellRegistration<
-        FireBookmarksStateCell,
+        FireTopicListStateCell,
         FireBookmarksCollectionItem
     > { [weak self] cell, _, item in
         guard let self else { return }
@@ -72,7 +72,7 @@ final class FireBookmarksViewController: UIViewController {
     }
 
     private lazy var bannerCellRegistration = UICollectionView.CellRegistration<
-        FireBookmarksErrorBannerCell,
+        FireTopicListErrorBannerCell,
         FireBookmarksCollectionItem
     > { [weak self] cell, _, item in
         guard case let .inlineErrorBanner(message) = item else { return }
@@ -88,7 +88,7 @@ final class FireBookmarksViewController: UIViewController {
     }
 
     private lazy var topicCellRegistration = UICollectionView.CellRegistration<
-        FireBookmarksTopicCell,
+        FireTopicListTopicCell,
         FireBookmarksCollectionItem
     > { [weak self] cell, _, item in
         guard let self else { return }
@@ -570,12 +570,12 @@ final class FireBookmarksViewController: UIViewController {
         present(controller, animated: true)
     }
 
-    private func showToast(_ message: String, style: FireBookmarksToastView.Style) {
+    private func showToast(_ message: String, style: FireTopicListToastView.Style) {
         guard !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         toastDismissTask?.cancel()
         toastView?.removeFromSuperview()
 
-        let toast = FireBookmarksToastView(message: message, style: style)
+        let toast = FireTopicListToastView(message: message, style: style)
         view.addSubview(toast)
         toast.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
@@ -612,7 +612,7 @@ final class FireBookmarksViewController: UIViewController {
     }
 }
 
-private final class FireBookmarksStateCell: UICollectionViewCell {
+final class FireTopicListStateCell: UICollectionViewCell {
     private let stackView = UIStackView()
     private let iconView = UIImageView()
     private let titleLabel = UILabel()
@@ -638,11 +638,11 @@ private final class FireBookmarksStateCell: UICollectionViewCell {
         activityIndicator.stopAnimating()
     }
 
-    func configureLoading() {
+    func configureLoading(title: String = "正在加载书签") {
         iconView.isHidden = true
         activityIndicator.isHidden = false
         activityIndicator.startAnimating()
-        titleLabel.text = "正在加载书签"
+        titleLabel.text = title
         messageLabel.text = nil
         actionButton.isHidden = true
         setCompact(false)
@@ -658,25 +658,33 @@ private final class FireBookmarksStateCell: UICollectionViewCell {
         setCompact(true)
     }
 
-    func configureEmpty() {
+    func configureEmpty(
+        title: String = "还没有书签",
+        message: String = "把想回看的话题或帖子收进来，后续会统一在这里管理。",
+        systemImage: String = "bookmark"
+    ) {
         activityIndicator.stopAnimating()
         activityIndicator.isHidden = true
         iconView.isHidden = false
-        iconView.image = UIImage(systemName: "bookmark")
+        iconView.image = UIImage(systemName: systemImage)
         iconView.tintColor = .tertiaryLabel
-        titleLabel.text = "还没有书签"
-        messageLabel.text = "把想回看的话题或帖子收进来，后续会统一在这里管理。"
+        titleLabel.text = title
+        messageLabel.text = message
         actionButton.isHidden = true
         setCompact(false)
     }
 
-    func configureBlockingError(message: String, onRetry: @escaping () -> Void) {
+    func configureBlockingError(
+        title: String = "书签加载失败",
+        message: String,
+        onRetry: @escaping () -> Void
+    ) {
         activityIndicator.stopAnimating()
         activityIndicator.isHidden = true
         iconView.isHidden = false
         iconView.image = UIImage(systemName: "exclamationmark.triangle.fill")
         iconView.tintColor = .systemRed
-        titleLabel.text = "书签加载失败"
+        titleLabel.text = title
         messageLabel.text = message
         actionButton.isHidden = false
         actionButton.setTitle("重试", for: .normal)
@@ -743,7 +751,7 @@ private final class FireBookmarksStateCell: UICollectionViewCell {
     }
 }
 
-private final class FireBookmarksErrorBannerCell: UICollectionViewCell {
+final class FireTopicListErrorBannerCell: UICollectionViewCell {
     private let containerView = UIView()
     private let iconView = UIImageView(image: UIImage(systemName: "exclamationmark.circle.fill"))
     private let messageLabel = UILabel()
@@ -841,20 +849,20 @@ private final class FireBookmarksErrorBannerCell: UICollectionViewCell {
     }
 }
 
-private final class FireBookmarksTopicCell: UICollectionViewCell {
+final class FireTopicListTopicCell: UICollectionViewCell {
     private let outerStack = UIStackView()
     private let metaStack = UIStackView()
     private let bookmarkNameLabel = UILabel()
     private let reminderLabel = UILabel()
     private let moreButton = UIButton(type: .system)
-    private let avatarView = FireBookmarksAvatarView()
+    private let avatarView = FireTopicListAvatarView()
     private let titleLabel = UILabel()
     private let chipStack = UIStackView()
     private let usernameLabel = UILabel()
     private let timestampLabel = UILabel()
-    private let replyMetric = FireBookmarksMetricView(systemImage: "arrowshape.turn.up.left")
-    private let viewsMetric = FireBookmarksMetricView(systemImage: "eye")
-    private let likesMetric = FireBookmarksMetricView(systemImage: "heart")
+    private let replyMetric = FireTopicListMetricView(systemImage: "arrowshape.turn.up.left")
+    private let viewsMetric = FireTopicListMetricView(systemImage: "eye")
+    private let likesMetric = FireTopicListMetricView(systemImage: "heart")
     private var onEditBookmark: (() -> Void)?
     private var onDeleteBookmark: (() -> Void)?
 
@@ -960,10 +968,10 @@ private final class FireBookmarksTopicCell: UICollectionViewCell {
 
         if let category {
             chipStack.addArrangedSubview(
-                FireBookmarksChipLabel(
+                FireTopicListChipLabel(
                     text: category.displayName,
-                    textColor: UIColor(fireHex: category.colorHex) ?? FireBookmarksPalette.accent,
-                    backgroundColor: (UIColor(fireHex: category.colorHex) ?? FireBookmarksPalette.accent)
+                    textColor: UIColor(fireHex: category.colorHex) ?? FireTopicListPalette.accent,
+                    backgroundColor: (UIColor(fireHex: category.colorHex) ?? FireTopicListPalette.accent)
                         .withAlphaComponent(0.14)
                 )
             )
@@ -971,7 +979,7 @@ private final class FireBookmarksTopicCell: UICollectionViewCell {
 
         for tagName in row.tagNames.prefix(3) {
             chipStack.addArrangedSubview(
-                FireBookmarksChipLabel(
+                FireTopicListChipLabel(
                     text: "#\(tagName)",
                     textColor: .secondaryLabel,
                     backgroundColor: .tertiarySystemFill
@@ -980,15 +988,15 @@ private final class FireBookmarksTopicCell: UICollectionViewCell {
         }
 
         if row.isPinned {
-            chipStack.addArrangedSubview(FireBookmarksIconChip(systemImage: "pin.fill", tintColor: .systemOrange))
+            chipStack.addArrangedSubview(FireTopicListIconChip(systemImage: "pin.fill", tintColor: .systemOrange))
         }
         if row.hasAcceptedAnswer {
             chipStack.addArrangedSubview(
-                FireBookmarksIconChip(systemImage: "checkmark.circle.fill", tintColor: .systemGreen)
+                FireTopicListIconChip(systemImage: "checkmark.circle.fill", tintColor: .systemGreen)
             )
         }
         if row.hasUnreadPosts {
-            chipStack.addArrangedSubview(FireBookmarksUnreadDot())
+            chipStack.addArrangedSubview(FireTopicListUnreadDot())
         }
         chipStack.isHidden = chipStack.arrangedSubviews.isEmpty
     }
@@ -1143,7 +1151,7 @@ private final class FireBookmarksTopicCell: UICollectionViewCell {
     }
 }
 
-private final class FireBookmarksAvatarView: UIView {
+final class FireTopicListAvatarView: UIView {
     private let imageView = UIImageView()
     private let monogramLabel = UILabel()
     private var imageTask: Task<Void, Never>?
@@ -1212,7 +1220,7 @@ private final class FireBookmarksAvatarView: UIView {
     private func configureSubviews() {
         clipsToBounds = true
         layer.cornerRadius = 17
-        backgroundColor = FireBookmarksPalette.accent
+        backgroundColor = FireTopicListPalette.accent
 
         monogramLabel.font = UIFont.systemFont(ofSize: 12, weight: .bold)
         monogramLabel.textColor = .white
@@ -1238,7 +1246,7 @@ private final class FireBookmarksAvatarView: UIView {
     }
 }
 
-private final class FireBookmarksMetricView: UIView {
+final class FireTopicListMetricView: UIView {
     private let imageView = UIImageView()
     private let valueLabel = UILabel()
 
@@ -1284,7 +1292,7 @@ private final class FireBookmarksMetricView: UIView {
     }
 }
 
-private final class FireBookmarksChipLabel: UILabel {
+final class FireTopicListChipLabel: UILabel {
     init(text: String, textColor: UIColor, backgroundColor: UIColor) {
         super.init(frame: .zero)
         self.text = text
@@ -1314,7 +1322,7 @@ private final class FireBookmarksChipLabel: UILabel {
     }
 }
 
-private final class FireBookmarksIconChip: UIView {
+final class FireTopicListIconChip: UIView {
     init(systemImage: String, tintColor: UIColor) {
         super.init(frame: .zero)
         let imageView = UIImageView(image: UIImage(systemName: systemImage))
@@ -1340,10 +1348,10 @@ private final class FireBookmarksIconChip: UIView {
     }
 }
 
-private final class FireBookmarksUnreadDot: UIView {
+final class FireTopicListUnreadDot: UIView {
     override init(frame: CGRect) {
         super.init(frame: frame)
-        backgroundColor = FireBookmarksPalette.accent
+        backgroundColor = FireTopicListPalette.accent
         layer.cornerRadius = 3.5
         NSLayoutConstraint.activate([
             widthAnchor.constraint(equalToConstant: 7),
@@ -1357,7 +1365,7 @@ private final class FireBookmarksUnreadDot: UIView {
     }
 }
 
-private final class FireBookmarksToastView: UIView {
+final class FireTopicListToastView: UIView {
     enum Style {
         case success
         case error
@@ -1411,7 +1419,7 @@ private final class FireBookmarksToastView: UIView {
     }
 }
 
-private enum FireBookmarksPalette {
+enum FireTopicListPalette {
     static let accent = UIColor(red: 0.91, green: 0.39, blue: 0.18, alpha: 1)
 }
 

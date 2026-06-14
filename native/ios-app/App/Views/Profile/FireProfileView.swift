@@ -165,7 +165,7 @@ struct FireProfileView: View {
                     }
 
                     NavigationLink {
-                        FireReadHistoryView(viewModel: viewModel)
+                        FireReadHistoryControllerHost(viewModel: viewModel)
                     } label: {
                         shortcutRowContent(
                             icon: "clock.arrow.trianglehead.counterclockwise.rotate.90",

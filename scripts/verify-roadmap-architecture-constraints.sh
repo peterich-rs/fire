@@ -264,6 +264,10 @@ require_pattern "Bookmarks page has UIKit controller" "native/ios-app/App/Views/
 require_pattern "Bookmarks controller uses UIKit-first list runtime" "native/ios-app/App/Views/Bookmarks/FireBookmarksViewController.swift" 'FireListViewController<FireBookmarksCollectionSection, FireBookmarksCollectionItem>'
 require_pattern "Profile routes bookmarks through UIKit host" "native/ios-app/App/Views/Profile/FireProfileView.swift" 'FireBookmarksControllerHost'
 require_no_pattern "Bookmarks deleted SwiftUI page" "native/ios-app/App/Views/Bookmarks/FireBookmarksView.swift" 'struct FireBookmarksView:[[:space:]]*View'
+require_pattern "Read history page has UIKit controller" "native/ios-app/App/Views/Other/FireReadHistoryViewController.swift" 'final class FireReadHistoryViewController: UIViewController'
+require_pattern "Read history controller uses UIKit-first list runtime" "native/ios-app/App/Views/Other/FireReadHistoryViewController.swift" 'FireListViewController<FireReadHistoryCollectionSection, FireReadHistoryCollectionItem>'
+require_pattern "Profile routes read history through UIKit host" "native/ios-app/App/Views/Profile/FireProfileView.swift" 'FireReadHistoryControllerHost'
+require_no_pattern "Read history deleted SwiftUI page" "native/ios-app/App/Views/Other/FireReadHistoryView.swift" 'struct FireReadHistoryView:[[:space:]]*View'
 
 echo
 echo "==> Reference and infrastructure boundaries"

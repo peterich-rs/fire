@@ -58,7 +58,7 @@ Migrate high-traffic list surfaces first:
 - Search
 - Messages
 - Bookmarks (landed: `FireBookmarksViewController` on `FireListViewController`; Profile keeps only a thin SwiftUI-to-UIKit host until Profile itself migrates)
-- Read history
+- Read history (landed: `FireReadHistoryViewController` on `FireListViewController`; Profile keeps only a thin SwiftUI-to-UIKit host until Profile itself migrates)
 - Drafts
 
 Each migrated screen should delete its previous production SwiftUI page instead

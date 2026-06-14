@@ -404,14 +404,25 @@ struct FireTopicDetailRuntimeConfiguration: @unchecked Sendable {
     }
 
     private var availableReplyRows: [FirePreparedTopicTimelineRow] {
-        // The feed only renders replies whose backing post entity is present.
+        // The feed only renders replies whose backing post entity and render content are both present.
         // This keeps transient store/render-state skew from producing placeholder rows.
-        replyRows.filter { postLookup[$0.entry.postId] != nil }
+        replyRows.filter {
+            postLookup[$0.entry.postId] != nil
+                && renderState?.contentByPostID[$0.entry.postId] != nil
+        }
     }
 
     var originalPostRenderContent: FireTopicPostRenderContent? {
         guard let originalRow else { return nil }
         return renderState?.contentByPostID[originalRow.entry.postId]
+    }
+
+    var canRenderOriginalPost: Bool {
+        originalPost != nil && originalPostRenderContent != nil
+    }
+
+    var isWaitingForPostRender: Bool {
+        detail != nil && !canRenderOriginalPost
     }
 
     var replyFooterState: FireTopicDetailRuntimeReplyFooterState {
@@ -476,35 +487,34 @@ struct FireTopicDetailRuntimeConfiguration: @unchecked Sendable {
             ))
         }
 
-        items.append(.init(
-            id: "original:\(topic.id)",
-            kind: .originalPost,
-            postID: originalPost?.id,
-            postNumber: originalPost?.postNumber,
-            replyIndex: nil,
-            contentToken: AnyHashable(
-                originalPost.map {
+        if let originalPost,
+           let originalPostRenderContent {
+            items.append(.init(
+                id: "original:\(topic.id)",
+                kind: .originalPost,
+                postID: originalPost.id,
+                postNumber: originalPost.postNumber,
+                replyIndex: nil,
+                contentToken: AnyHashable(
                     postLayoutContentToken(
-                        $0,
+                        originalPost,
                         renderContent: originalPostRenderContent,
                         replyShortcutCount: nil,
                         textExpansionState: .disabled
                     )
-                } ?? "missing"
-            ),
-            inPlaceUpdateToken: AnyHashable(
-                originalPost.map {
+                ),
+                inPlaceUpdateToken: AnyHashable(
                     postContentToken(
-                        $0,
+                        originalPost,
                         renderContent: originalPostRenderContent,
                         replyContext: nil,
                         replyTargetPostNumber: nil,
                         isLoadingReplyContext: false,
                         textExpansionState: .disabled
                     )
-                } ?? "missing"
-            )
-        ))
+                )
+            ))
+        }
 
         items.append(.init(
             id: "stats:\(topic.id)",
@@ -566,14 +576,20 @@ struct FireTopicDetailRuntimeConfiguration: @unchecked Sendable {
             ))
         }
 
-        if detail == nil {
+        if detail == nil || isWaitingForPostRender {
             items.append(.init(
                 id: "body-state:\(topic.id)",
                 kind: .bodyState,
                 postID: nil,
                 postNumber: nil,
                 replyIndex: nil,
-                contentToken: AnyHashable("\(isLoadingTopic)|\(detailError ?? "")")
+                contentToken: AnyHashable(
+                    [
+                        String(isLoadingTopic),
+                        String(isWaitingForPostRender),
+                        detailError ?? "",
+                    ].joined(separator: "\u{1F}")
+                )
             ))
         } else {
             for displayedRow in replyDisplayPlan.rows {

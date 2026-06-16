@@ -10,14 +10,15 @@ pub mod records;
 
 pub use records::{
     format_probe_result, AppStateRefreshEventState, AppStateRefreshHandler, AuthRecoveryHintState,
-    BootstrapState, CloudflareChallengeHandler, CloudflareChallengeRequestState,
-    CloudflareChallengeResultState, CookieReplayEntryState, CookieState, CurrentUserSnapshotState,
+    BootstrapState, CanonicalCookieState, CloudflareChallengeHandler,
+    CloudflareChallengeRequestState, CloudflareChallengeResultState, CookieReplayEntryState,
+    CookieSameSiteState, CookieSourceState, CookieState, CurrentUserSnapshotState,
     HomeTopicListScopeState, LoginFailureKindState, LoginFailureState,
     LoginFinalizationResultState, LoginPhaseState, LoginStateDeterminationState, LoginSyncState,
     PassiveLogoutTriggerState, PlatformCookieState, PreloadedDataStateState, RefreshBatchState,
     RefreshTriggerState, SecondFactorRequirementState, SessionPersistenceState,
-    SessionReadinessState, SessionState, TopicCategoryState, WebViewLoginDecisionState,
-    WebViewLoginJsResultState, WebViewLoginPhaseState,
+    SessionReadinessState, SessionState, TopicCategoryState, WebViewCookieActionState,
+    WebViewLoginDecisionState, WebViewLoginJsResultState, WebViewLoginPhaseState,
 };
 
 #[derive(uniffi::Object)]
@@ -335,6 +336,24 @@ impl FireSessionHandle {
             &self.shared.core,
             "classify_webview_login_result",
             move |inner| inner.classify_webview_login_result(result.into()).into(),
+        )
+    }
+
+    pub fn webview_priming_payload(
+        &self,
+        target_url: Option<String>,
+    ) -> Result<Vec<WebViewCookieActionState>, FireUniFfiError> {
+        run_infallible(
+            &self.shared.panic_state,
+            &self.shared.core,
+            "webview_priming_payload",
+            move |inner| {
+                inner
+                    .webview_priming_payload(target_url)
+                    .into_iter()
+                    .map(Into::into)
+                    .collect()
+            },
         )
     }
 

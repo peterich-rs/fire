@@ -3,11 +3,12 @@ use fire_core::{
     FireSessionPersistenceState as CoreSessionPersistenceState,
 };
 use fire_models::{
-    AppStateRefreshEvent, BootstrapArtifacts, CloudflareChallengeRequest,
-    CloudflareChallengeResult, CookieSnapshot, HomeTopicListScope, LoginFailure, LoginFailureKind,
-    LoginFinalizationResult, LoginPhase, LoginSyncInput, PassiveLogoutTrigger, PlatformCookie,
-    ProbeResult, RefreshBatch, SecondFactorRequirement, SessionReadiness, SessionSnapshot,
-    SignalStrength, TopicCategory, WebViewLoginDecision, WebViewLoginJsResult, WebViewLoginPhase,
+    AppStateRefreshEvent, BootstrapArtifacts, CanonicalCookie, CloudflareChallengeRequest,
+    CloudflareChallengeResult, CookieSameSite, CookieSnapshot, CookieSource, HomeTopicListScope,
+    LoginFailure, LoginFailureKind, LoginFinalizationResult, LoginPhase, LoginSyncInput,
+    PassiveLogoutTrigger, PlatformCookie, ProbeResult, RefreshBatch, SecondFactorRequirement,
+    SessionReadiness, SessionSnapshot, SignalStrength, TopicCategory, WebViewCookieAction,
+    WebViewLoginDecision, WebViewLoginJsResult, WebViewLoginPhase,
 };
 use fire_store::cookie_replay::CookieReplayEntry;
 
@@ -94,6 +95,182 @@ impl From<PlatformCookieState> for PlatformCookie {
     }
 }
 
+#[derive(uniffi::Enum, Debug, Clone, Copy)]
+pub enum CookieSameSiteState {
+    Unspecified,
+    Lax,
+    Strict,
+    None,
+}
+
+impl From<CookieSameSite> for CookieSameSiteState {
+    fn from(value: CookieSameSite) -> Self {
+        match value {
+            CookieSameSite::Unspecified => Self::Unspecified,
+            CookieSameSite::Lax => Self::Lax,
+            CookieSameSite::Strict => Self::Strict,
+            CookieSameSite::None => Self::None,
+        }
+    }
+}
+
+impl From<CookieSameSiteState> for CookieSameSite {
+    fn from(value: CookieSameSiteState) -> Self {
+        match value {
+            CookieSameSiteState::Unspecified => Self::Unspecified,
+            CookieSameSiteState::Lax => Self::Lax,
+            CookieSameSiteState::Strict => Self::Strict,
+            CookieSameSiteState::None => Self::None,
+        }
+    }
+}
+
+#[derive(uniffi::Enum, Debug, Clone, Copy)]
+pub enum CookieSourceState {
+    Unknown,
+    NetworkSetCookie,
+    WebViewLogin,
+    WebViewChallenge,
+    WebViewBulkRead,
+    ManualRestore,
+}
+
+impl From<CookieSource> for CookieSourceState {
+    fn from(value: CookieSource) -> Self {
+        match value {
+            CookieSource::Unknown => Self::Unknown,
+            CookieSource::NetworkSetCookie => Self::NetworkSetCookie,
+            CookieSource::WebViewLogin => Self::WebViewLogin,
+            CookieSource::WebViewChallenge => Self::WebViewChallenge,
+            CookieSource::WebViewBulkRead => Self::WebViewBulkRead,
+            CookieSource::ManualRestore => Self::ManualRestore,
+        }
+    }
+}
+
+impl From<CookieSourceState> for CookieSource {
+    fn from(value: CookieSourceState) -> Self {
+        match value {
+            CookieSourceState::Unknown => Self::Unknown,
+            CookieSourceState::NetworkSetCookie => Self::NetworkSetCookie,
+            CookieSourceState::WebViewLogin => Self::WebViewLogin,
+            CookieSourceState::WebViewChallenge => Self::WebViewChallenge,
+            CookieSourceState::WebViewBulkRead => Self::WebViewBulkRead,
+            CookieSourceState::ManualRestore => Self::ManualRestore,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct CanonicalCookieState {
+    pub name: String,
+    pub value: String,
+    pub domain: Option<String>,
+    pub path: String,
+    pub host_only: bool,
+    pub secure: bool,
+    pub http_only: bool,
+    pub same_site: CookieSameSiteState,
+    pub partition_key: Option<String>,
+    pub partitioned: bool,
+    pub expires_at_unix_ms: Option<i64>,
+    pub max_age_seconds: Option<i64>,
+    pub creation_time_unix_ms: i64,
+    pub last_access_time_unix_ms: i64,
+    pub version: u64,
+    pub source: CookieSourceState,
+    pub raw_set_cookie: Option<String>,
+    pub origin_url: Option<String>,
+}
+
+impl From<CanonicalCookie> for CanonicalCookieState {
+    fn from(value: CanonicalCookie) -> Self {
+        Self {
+            name: value.name,
+            value: value.value,
+            domain: value.domain,
+            path: value.path,
+            host_only: value.host_only,
+            secure: value.secure,
+            http_only: value.http_only,
+            same_site: value.same_site.into(),
+            partition_key: value.partition_key,
+            partitioned: value.partitioned,
+            expires_at_unix_ms: value.expires_at_unix_ms,
+            max_age_seconds: value.max_age_seconds,
+            creation_time_unix_ms: value.creation_time_unix_ms,
+            last_access_time_unix_ms: value.last_access_time_unix_ms,
+            version: value.version,
+            source: value.source.into(),
+            raw_set_cookie: value.raw_set_cookie,
+            origin_url: value.origin_url,
+        }
+    }
+}
+
+impl From<CanonicalCookieState> for CanonicalCookie {
+    fn from(value: CanonicalCookieState) -> Self {
+        Self {
+            name: value.name,
+            value: value.value,
+            domain: value.domain,
+            path: value.path,
+            host_only: value.host_only,
+            secure: value.secure,
+            http_only: value.http_only,
+            same_site: value.same_site.into(),
+            partition_key: value.partition_key,
+            partitioned: value.partitioned,
+            expires_at_unix_ms: value.expires_at_unix_ms,
+            max_age_seconds: value.max_age_seconds,
+            creation_time_unix_ms: value.creation_time_unix_ms,
+            last_access_time_unix_ms: value.last_access_time_unix_ms,
+            version: value.version,
+            source: value.source.into(),
+            raw_set_cookie: value.raw_set_cookie,
+            origin_url: value.origin_url,
+        }
+    }
+}
+
+#[derive(uniffi::Enum, Debug, Clone)]
+pub enum WebViewCookieActionState {
+    SetRaw {
+        url: String,
+        set_cookie: String,
+    },
+    DeleteExact {
+        url: String,
+        name: String,
+        domain: Option<String>,
+        path: String,
+    },
+    DeleteByName {
+        url: String,
+        name: String,
+    },
+}
+
+impl From<WebViewCookieAction> for WebViewCookieActionState {
+    fn from(value: WebViewCookieAction) -> Self {
+        match value {
+            WebViewCookieAction::SetRaw { url, set_cookie } => Self::SetRaw { url, set_cookie },
+            WebViewCookieAction::DeleteExact {
+                url,
+                name,
+                domain,
+                path,
+            } => Self::DeleteExact {
+                url,
+                name,
+                domain,
+                path,
+            },
+            WebViewCookieAction::DeleteByName { url, name } => Self::DeleteByName { url, name },
+        }
+    }
+}
+
 #[derive(uniffi::Record, Debug, Clone)]
 pub struct CookieState {
     pub t_token: Option<String>,
@@ -101,6 +278,7 @@ pub struct CookieState {
     pub cf_clearance: Option<String>,
     pub csrf_token: Option<String>,
     pub platform_cookies: Vec<PlatformCookieState>,
+    pub canonical_cookies: Vec<CanonicalCookieState>,
 }
 
 impl From<CookieSnapshot> for CookieState {
@@ -111,6 +289,11 @@ impl From<CookieSnapshot> for CookieState {
             cf_clearance: value.cf_clearance,
             csrf_token: value.csrf_token,
             platform_cookies: value.platform_cookies.into_iter().map(Into::into).collect(),
+            canonical_cookies: value
+                .canonical_cookies
+                .into_iter()
+                .map(Into::into)
+                .collect(),
         }
     }
 }
@@ -123,6 +306,11 @@ impl From<CookieState> for CookieSnapshot {
             cf_clearance: value.cf_clearance,
             csrf_token: value.csrf_token,
             platform_cookies: value.platform_cookies.into_iter().map(Into::into).collect(),
+            canonical_cookies: value
+                .canonical_cookies
+                .into_iter()
+                .map(Into::into)
+                .collect(),
         }
     }
 }

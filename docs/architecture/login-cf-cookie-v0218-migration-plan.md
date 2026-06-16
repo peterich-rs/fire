@@ -417,6 +417,19 @@ not by a removed reference submodule or stale full-browser login plan.
 - Add records for WebView cookie snapshots, raw set/delete actions, sweep
   status, and nuclear reset result.
 
+Current branch status:
+
+- Rust canonical cookie records, freshness arbitration, explicit delete,
+  host-only normalization, request header generation, and network `Set-Cookie`
+  ingestion are implemented.
+- Legacy `PlatformCookie` inputs are now bridged into canonical state with
+  source/trust distinctions so existing native call sites can migrate
+  incrementally.
+- `webview_priming_payload` is exposed over UniFFI and returns raw
+  `Set-Cookie` actions reconstructed from canonical state.
+- Sweep plan generation, sweep commit hooks, nuclear reset, self-healing retry,
+  and native execution of set/delete actions remain active implementation work.
+
 ## Phase 5: Cloudflare Freeze Gate
 
 **File: `rust/crates/fire-core/src/core/cf_challenge.rs`**

@@ -55,7 +55,8 @@ impl From<FireCoreError> for FireUniFfiError {
             FireCoreError::StaleSessionResponse { operation } => Self::StaleSessionResponse {
                 operation: operation.to_string(),
             },
-            FireCoreError::CloudflareChallenge { .. } => Self::CloudflareChallenge,
+            FireCoreError::CloudflareChallenge { .. }
+            | FireCoreError::CloudflareChallengeInProgress { .. } => Self::CloudflareChallenge,
             FireCoreError::HttpStatus {
                 operation,
                 status,

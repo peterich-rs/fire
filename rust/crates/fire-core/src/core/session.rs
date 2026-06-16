@@ -1,8 +1,9 @@
 use fire_models::{
     AuthRuntimeSignal, AuthRuntimeSignalKind, AuthRuntimeSignalSource, AuthRuntimeSignalStrength,
-    BootstrapArtifacts, CookieSnapshot, LoginFailure, LoginFailureKind, LoginFinalizationResult,
-    LoginSyncInput, PlatformCookie, SecondFactorRequirement, SessionSnapshot, WebViewLoginDecision,
-    WebViewLoginJsResult, WebViewLoginPhase,
+    BootstrapArtifacts, CookieSnapshot, CookieSource, CookieTrust, LoginFailure, LoginFailureKind,
+    LoginFinalizationResult, LoginSyncInput, PlatformCookie, SecondFactorRequirement,
+    SessionSnapshot, WebViewCookieAction, WebViewLoginDecision, WebViewLoginJsResult,
+    WebViewLoginPhase,
 };
 use serde_json::Value;
 use tracing::{debug, info};
@@ -186,11 +187,21 @@ impl FireCore {
             cookie_count = cookies.len(),
             "completing cloudflare challenge via platform cookie sync"
         );
+        let origin_url = url::Url::parse(self.base_url()).ok();
         self.update_session_advancing_epoch_if_auth_changed(
             "complete cloudflare challenge",
             FireAuthChangeSource::PlatformSync,
             |session| {
-                session.cookies.merge_platform_cookies(&cookies);
+                if let Some(origin_url) = origin_url.as_ref() {
+                    session.cookies.merge_platform_cookies_for_origin(
+                        &cookies,
+                        origin_url,
+                        CookieSource::WebViewChallenge,
+                        CookieTrust::Trusted,
+                    );
+                } else {
+                    session.cookies.merge_platform_cookies(&cookies);
+                }
                 if let Some(browser_user_agent) =
                     browser_user_agent.clone().filter(|value| !value.is_empty())
                 {
@@ -210,11 +221,21 @@ impl FireCore {
             cookie_count = cookies.len(),
             "merging platform cookies into session"
         );
+        let origin_url = url::Url::parse(self.base_url()).ok();
         self.update_session_advancing_epoch_if_auth_changed(
             "merge platform cookies",
             FireAuthChangeSource::PlatformSync,
             |session| {
-                session.cookies.merge_platform_cookies(&cookies);
+                if let Some(origin_url) = origin_url.as_ref() {
+                    session.cookies.merge_platform_cookies_for_origin(
+                        &cookies,
+                        origin_url,
+                        CookieSource::WebViewBulkRead,
+                        CookieTrust::Untrusted,
+                    );
+                } else {
+                    session.cookies.merge_platform_cookies(&cookies);
+                }
                 debug!(
                     phase = ?session.login_phase(),
                     readiness = ?session.readiness(),
@@ -229,11 +250,21 @@ impl FireCore {
             cookie_count = cookies.len(),
             "applying platform cookies into session"
         );
+        let origin_url = url::Url::parse(self.base_url()).ok();
         self.update_session_advancing_epoch_if_auth_changed(
             "apply platform cookies",
             FireAuthChangeSource::PlatformSync,
             |session| {
-                session.cookies.apply_platform_cookies(&cookies);
+                if let Some(origin_url) = origin_url.as_ref() {
+                    session.cookies.apply_platform_cookies_for_origin(
+                        &cookies,
+                        origin_url,
+                        CookieSource::WebViewBulkRead,
+                        CookieTrust::Untrusted,
+                    );
+                } else {
+                    session.cookies.apply_platform_cookies(&cookies);
+                }
                 debug!(
                     phase = ?session.login_phase(),
                     readiness = ?session.readiness(),
@@ -257,6 +288,19 @@ impl FireCore {
                 );
             },
         )
+    }
+
+    pub fn webview_priming_payload(&self, target_url: Option<String>) -> Vec<WebViewCookieAction> {
+        let uri = target_url
+            .as_deref()
+            .and_then(|value| url::Url::parse(value).ok())
+            .or_else(|| url::Url::parse(self.base_url()).ok());
+        let Some(uri) = uri else {
+            return Vec::new();
+        };
+
+        let snapshot = self.snapshot();
+        snapshot.cookies.webview_priming_payload(&uri)
     }
 
     pub fn apply_bootstrap(&self, bootstrap: BootstrapArtifacts) -> SessionSnapshot {
@@ -330,11 +374,25 @@ impl FireCore {
             .as_deref()
             .map(|html| parse_home_state(self.base_url(), html));
         let has_parsed_html = parsed_html.is_some();
+        let cookie_origin_url = input
+            .current_url
+            .as_deref()
+            .and_then(|value| url::Url::parse(value).ok())
+            .or_else(|| url::Url::parse(self.base_url()).ok());
         let snapshot = self.update_session_advancing_epoch_if_auth_changed(
             "sync login context",
             FireAuthChangeSource::PlatformSync,
             |session| {
-                session.cookies.apply_platform_cookies(&input.cookies);
+                if let Some(origin_url) = cookie_origin_url.as_ref() {
+                    session.cookies.apply_platform_cookies_for_origin(
+                        &input.cookies,
+                        origin_url,
+                        CookieSource::WebViewLogin,
+                        CookieTrust::Trusted,
+                    );
+                } else {
+                    session.cookies.apply_platform_cookies(&input.cookies);
+                }
                 if let Some(browser_user_agent) = input
                     .browser_user_agent
                     .clone()
@@ -401,11 +459,21 @@ impl FireCore {
             "finalize login from webview",
             FireAuthChangeSource::PlatformSync,
             |session| {
-                session.cookies.scored_apply_platform_cookies(
-                    &cookies,
-                    &host,
-                    allow_low_confidence_session_cookies,
-                );
+                if let Ok(origin_url) = url::Url::parse(base_url) {
+                    session.cookies.scored_apply_platform_cookies_for_origin(
+                        &cookies,
+                        &origin_url,
+                        CookieSource::WebViewLogin,
+                        CookieTrust::Trusted,
+                        allow_low_confidence_session_cookies,
+                    );
+                } else {
+                    session.cookies.scored_apply_platform_cookies(
+                        &cookies,
+                        &host,
+                        allow_low_confidence_session_cookies,
+                    );
+                }
                 debug!(
                     phase = ?session.login_phase(),
                     readiness = ?session.readiness(),

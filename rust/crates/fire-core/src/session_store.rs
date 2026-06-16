@@ -37,6 +37,7 @@ impl PersistedSessionEnvelope {
         snapshot.cookies.cf_clearance = None;
         snapshot.cookies.csrf_token = None;
         snapshot.cookies.platform_cookies.clear();
+        snapshot.cookies.canonical_cookies.clear();
 
         Self {
             version: Self::REDACTED_SNAPSHOT_VERSION,
@@ -83,6 +84,7 @@ impl From<LegacyCookieSnapshot> for CookieSnapshot {
             cf_clearance: value.cf_clearance,
             csrf_token: value.csrf_token,
             platform_cookies: Vec::new(),
+            canonical_cookies: Vec::new(),
         }
     }
 }
@@ -144,6 +146,7 @@ pub(crate) fn sanitize_snapshot_for_restore(
     normalize_option(&mut snapshot.cookies.cf_clearance);
     normalize_option(&mut snapshot.cookies.csrf_token);
     snapshot.cookies.refresh_known_platform_cookie_fields();
+    snapshot.cookies.refresh_known_canonical_cookie_fields();
     normalize_option(&mut snapshot.browser_user_agent);
 
     normalize_option(&mut snapshot.bootstrap.discourse_base_uri);

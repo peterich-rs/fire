@@ -71,6 +71,7 @@ mod tests {
             cf_clearance: Some("clearance".into()),
             csrf_token: None,
             platform_cookies: Vec::new(),
+            canonical_cookies: Vec::new(),
         };
 
         cookies.merge_platform_cookies(&[
@@ -139,6 +140,7 @@ mod tests {
             cf_clearance: Some("stale-clearance".into()),
             csrf_token: Some("csrf".into()),
             platform_cookies: Vec::new(),
+            canonical_cookies: Vec::new(),
         };
 
         cookies.apply_platform_cookies(&[
@@ -204,6 +206,7 @@ mod tests {
             cf_clearance: Some("clearance".into()),
             csrf_token: Some("csrf".into()),
             platform_cookies: Vec::new(),
+            canonical_cookies: Vec::new(),
         };
 
         cookies.merge_patch(&CookieSnapshot {
@@ -369,6 +372,7 @@ mod tests {
                     same_site: None,
                 },
             ],
+            canonical_cookies: Vec::new(),
         };
 
         assert!(!cookies.has_login_session());
@@ -610,6 +614,7 @@ mod tests {
                 cf_clearance: Some("clearance".into()),
                 csrf_token: Some("csrf".into()),
                 platform_cookies: Vec::new(),
+                canonical_cookies: Vec::new(),
             },
             bootstrap: BootstrapArtifacts {
                 base_url: "https://linux.do".into(),

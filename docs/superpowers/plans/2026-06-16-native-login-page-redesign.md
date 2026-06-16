@@ -18,7 +18,7 @@
 |------|----------------|
 | `native/ios-app/App/Views/Other/FireLoginViewController.swift` | Pure-native login page: logo, credential inputs, remember-password checkbox, login button, forgot-password link, "other login methods" button. Presents captcha dialog + handles results. |
 | `native/ios-app/App/Views/Other/FireCaptchaLoginDialogController.swift` | Form-sheet dialog containing WKWebView for hCaptcha + `__fireLogin` execution. Exposes live `webView` for cookie extraction. Supports `retryWithSecondFactor`. |
-| `native/ios-app/App/ViewModels/FireAppViewModel.swift` | Modified: `openLogin()` simplified, new `ensureCloudflareClearance()` / `primeCookiesForLogin()`, `completeMinimalLogin` gains `rememberCredential` param. |
+| `native/ios-app/App/ViewModels/FireAppViewModel.swift` | Modified: `openLogin()` simplified, new `ensureCloudflareClearance()` / `loginCoordinatorForDialog()` / `probeLoginSyncReadiness(from:)`, `completeMinimalLogin` gains `rememberCredential` param. |
 | `native/ios-app/App/Core/FireRootCoordinator.swift` | Modified: present `FireLoginViewController` instead of `FireLoginWebViewController`. |
 | `native/ios-app/App/Views/Other/FireLoginWebView.swift` | **Deleted.** |
 
@@ -81,7 +81,8 @@ final class FireCaptchaLoginDialogController: UIViewController {
     private let onResult: (FireCaptchaDialogResult) -> Void
     private let onCancel: () -> Void
 
-    private var lastHcaptchaToken: String?
+    private var lastLoginHcaptchaToken: String?
+    private var lastLoginSecondFactorToken: String?
     private var hasReportedResult = false
     private var titleLabel: UILabel!
     private var closeButton: UIButton!
@@ -220,6 +221,8 @@ final class FireCaptchaLoginDialogController: UIViewController {
     /// `h_captcha_temp_id` cookie is still valid for the short retry window.
     func retryWithSecondFactor(_ token: String) {
         hasReportedResult = false
+        lastLoginHcaptchaToken = nil
+        lastLoginSecondFactorToken = token
         statusLabel.text = "正在验证…"
         activityIndicator.startAnimating()
         let invocation = FireLoginScripts.fireLoginInvocation(
@@ -243,7 +246,8 @@ final class FireCaptchaLoginDialogController: UIViewController {
     // MARK: - Private
 
     private func runLogin(hcaptchaToken: String) {
-        lastHcaptchaToken = hcaptchaToken
+        lastLoginHcaptchaToken = hcaptchaToken
+        lastLoginSecondFactorToken = nil
         statusLabel.text = "正在登录…"
         activityIndicator.startAnimating()
         let invocation = FireLoginScripts.fireLoginInvocation(
@@ -402,11 +406,15 @@ In `FireAppViewModel.swift`, add a new method near the existing CF methods (afte
 /// Checks cf_clearance and runs CF challenge if missing.
 /// Returns true on success, false on failure or user cancellation.
 func ensureCloudflareClearance() async -> Bool {
-    guard !hasCloudflareClearance else { return true }
     do {
         let sessionStore = try await sessionStoreValue()
-        await completeLoginCloudflareChallenge(sessionStore: sessionStore)
-        return hasCloudflareClearance
+        if try await sessionStore.snapshot().readiness.hasCloudflareClearance {
+            return true
+        }
+
+        try await completeLoginCloudflareChallenge(sessionStore: sessionStore)
+        try await Task.sleep(for: .milliseconds(1_500))
+        return try await sessionStore.snapshot().readiness.hasCloudflareClearance
     } catch {
         errorMessage = error.localizedDescription
         return false
@@ -424,6 +432,13 @@ Add after `ensureCloudflareClearance()`:
 /// Returns the login coordinator for the captcha dialog to use for priming.
 func loginCoordinatorForDialog() async throws -> FireWebViewLoginCoordinator {
     try await loginCoordinatorValue()
+}
+
+/// Probes whether a full WebView fallback page has enough captured data
+/// for the existing completeLogin(from:) finalizer.
+func probeLoginSyncReadiness(from webView: WKWebView) async throws -> FireLoginSyncReadiness {
+    let loginCoordinator = try await loginCoordinatorValue()
+    return try await loginCoordinator.probeLoginSyncReadiness(from: webView)
 }
 ```
 
@@ -493,31 +508,21 @@ Key change: `saveLoginCredential` is now inside `if rememberCredential { }`, and
 
 - [ ] **Step 4: Add `classifyLoginResult` helper for dialog**
 
-Add a method that the VC can call to classify a raw login_result JS body. The `WebViewLoginJsResultState` takes a `WebViewLoginPhaseState` enum (`.csrf`/`.hcaptcha`/`.session`/`.exception`), a `UInt16` status, and a `String` body:
+Add a method that the VC can call to classify a raw login_result JS body. Keep this helper returning the shared `WebViewLoginDecisionState`; the UIKit-only `FireCaptchaDialogResult` mapping stays inside `FireLoginViewController`, so `FireAppViewModel` does not depend on UI types. The `WebViewLoginJsResultState` takes a `WebViewLoginPhaseState` enum (`.csrf`/`.hcaptcha`/`.session`/`.exception`), a `UInt16` status, and a `String` body:
 
 ```swift
-/// Classifies a raw login_result JS body into a dialog result.
+/// Classifies a raw login_result JS body into the shared WebView decision.
 func classifyLoginResult(
     phase: WebViewLoginPhaseState,
     status: UInt16,
     body: String
-) async throws -> FireCaptchaDialogResult {
+) async throws -> WebViewLoginDecisionState {
     let result = WebViewLoginJsResultState(
         phase: phase,
         status: status,
         body: body
     )
-    let decision = try await classifyWebViewLoginResult(result)
-    switch decision {
-    case .success:
-        return .success
-    case .needSecondFactor(let requirement):
-        return .needSecondFactor(requirement)
-    case .retryCloudflare:
-        return .retryCloudflare
-    case .failure(let failure):
-        return .failure(failure)
-    }
+    return try await classifyWebViewLoginResult(result)
 }
 ```
 
@@ -554,9 +559,10 @@ git add native/ios-app/App/ViewModels/FireAppViewModel.swift
 git commit -m "feat(login): add async login capabilities to ViewModel
 
 - ensureCloudflareClearance() for on-demand CF check
-- primeCookiesForLogin() for cookie payload
+- loginCoordinatorForDialog() exposes the authoritative login coordinator
+- probeLoginSyncReadiness(from:) supports full WebView fallback finalization
 - completeMinimalLogin gains rememberCredential param
-- classifyLoginResult() for dialog result mapping
+- classifyLoginResult() returns shared WebViewLoginDecisionState
 - openLogin() simplified, no WebView preload"
 ```
 
@@ -639,13 +645,17 @@ final class FireLoginViewController: UIViewController {
         setupOtherMethods()
         setupErrorBanner()
         setupActivityIndicator()
-        observeSavedCredential()
+        observeViewModelState()
     }
 
-    // MARK: - Credential Auto-fill (Combine subscription)
+    // MARK: - ViewModel State
 
-    /// Subscribes to viewModel.$savedLoginCredential so credentials are
-    /// auto-filled whenever they load (openLogin loads them asynchronously).
+    private func observeViewModelState() {
+        observeSavedCredential()
+        observeLoginErrorsAndSyncingState()
+    }
+
+    /// Auto-fills credentials whenever they load (openLogin loads them asynchronously).
     private func observeSavedCredential() {
         viewModel.$savedLoginCredential
             .receive(on: RunLoop.main)
@@ -655,6 +665,31 @@ final class FireLoginViewController: UIViewController {
                 self?.passwordField.text = credential.password
                 self?.rememberSwitch.isOn = true
                 self?.updateLoginButtonState()
+            }
+            .store(in: &cancellables)
+    }
+
+    /// Existing ViewModel finalization APIs are fire-and-forget. Observe their
+    /// published state so the native controller can clear loading UI and surface
+    /// finalization failures instead of leaving the sheet spinning.
+    private func observeLoginErrorsAndSyncingState() {
+        viewModel.$errorMessage
+            .receive(on: RunLoop.main)
+            .compactMap { $0 }
+            .filter { !$0.isEmpty }
+            .sink { [weak self] message in
+                guard let self, self.captchaDialog != nil else { return }
+                self.setLoginLoading(false)
+                self.dismissCaptchaDialog()
+                self.showErrorBanner(message)
+            }
+            .store(in: &cancellables)
+
+        viewModel.$isSyncingLoginSession
+            .receive(on: RunLoop.main)
+            .sink { [weak self] isSyncing in
+                guard let self, !isSyncing, self.viewModel.authPresentationState != nil else { return }
+                self.setLoginLoading(false)
             }
             .store(in: &cancellables)
     }
@@ -978,13 +1013,13 @@ final class FireLoginViewController: UIViewController {
             guard let self else { return }
             Task {
                 do {
-                    let result = try await self.viewModel.classifyLoginResult(
+                    let decision = try await self.viewModel.classifyLoginResult(
                         phase: phase,
                         status: status,
                         body: body
                     )
                     await MainActor.run {
-                        dialog.dispatchResult(result)
+                        dialog.dispatchResult(self.dialogResult(from: decision))
                     }
                 } catch {
                     await MainActor.run {
@@ -1001,6 +1036,19 @@ final class FireLoginViewController: UIViewController {
 
         captchaDialog = dialog
         present(dialog, animated: true)
+    }
+
+    private func dialogResult(from decision: WebViewLoginDecisionState) -> FireCaptchaDialogResult {
+        switch decision {
+        case .success:
+            return .success
+        case .needSecondFactor(let requirement):
+            return .needSecondFactor(requirement)
+        case .retryCloudflare:
+            return .retryCloudflare
+        case .failure(let failure):
+            return .failure(failure)
+        }
     }
 
     private func handleDialogResult(_ result: FireCaptchaDialogResult) {
@@ -1043,7 +1091,8 @@ final class FireLoginViewController: UIViewController {
                 password: password,
                 rememberCredential: remember
             )
-            // ViewModel sets authPresentationState(nil) → coordinator dismisses everything
+            // Success sets authPresentationState(nil) → coordinator dismisses everything.
+            // Errors are surfaced by observeLoginErrorsAndSyncingState().
         }
     }
 
@@ -1181,30 +1230,32 @@ git commit -m "feat(login): add FireLoginViewController with native form layout"
 - Modify: `native/ios-app/App/Core/FireRootCoordinator.swift`
 - Delete: `native/ios-app/App/Views/Other/FireLoginWebView.swift`
 
-**Context:** The coordinator currently creates `FireLoginWebViewController` at line 360-363. We switch to `FireLoginViewController`. Then delete the old file.
+**Context:** The coordinator currently creates `FireLoginWebViewController` inside `syncAuthPresentation(_:)`. This task is the build cutover that removes the old VC after the ViewModel signature changes. Task 5 must follow before the branch is considered mergeable/releasable, because same-dialog CF retry is part of the complete native login behavior.
 
 - [ ] **Step 1: Replace VC construction in coordinator**
 
 In `FireRootCoordinator.swift`, find the `syncAuthPresentation` method (around line 357-368). Replace the construction of `FireLoginWebViewController` with `FireLoginViewController`:
 
 ```swift
-case .login:
-    let loginVC = FireLoginViewController(viewModel: viewModel)
-    let navController = UINavigationController(rootViewController: loginVC)
-    navController.modalPresentationStyle = .fullScreen
-    authNavigationController = navController
-    topPresenter().present(navController, animated: true)
+let controller = FireLoginViewController(viewModel: viewModel)
+let navigationController = UINavigationController(rootViewController: controller)
+navigationController.modalPresentationStyle = .fullScreen
+presentationAnchor()?.present(navigationController, animated: true)
+authController = navigationController
 ```
 
 Find the exact old code that constructs `FireLoginWebViewController` and replace it. The old code likely looks like:
 ```swift
-let loginVC = FireLoginWebViewController(viewModel: viewModel, presentationState: .login)
+let controller = FireLoginWebViewController(
+    viewModel: viewModel,
+    presentationState: state
+)
 ```
 
 - [ ] **Step 2: Delete old login VC**
 
 ```bash
-rm native/ios-app/App/Views/Other/FireLoginWebView.swift
+git rm native/ios-app/App/Views/Other/FireLoginWebView.swift
 ```
 
 - [ ] **Step 3: Verify build**
@@ -1224,6 +1275,8 @@ git commit -m "feat(login): switch to FireLoginViewController, delete FireLoginW
 - Login flow: native form → on-demand CF → captcha dialog → finalize"
 ```
 
+Gate: do not merge or ship at this point. Continue immediately with Task 5 so `.retryCloudflare` reuses the same live dialog/WebView instead of failing back to a stale outer login flow.
+
 ---
 
 ### Task 5: Fix CF Retry Within Dialog
@@ -1231,7 +1284,7 @@ git commit -m "feat(login): switch to FireLoginViewController, delete FireLoginW
 **Files:**
 - Modify: `native/ios-app/App/Views/Other/FireLoginViewController.swift`
 
-**Context:** The `recoverCloudflare()` method in Task 3 has a TODO for CF retry within the same dialog. The knowledge base (`discourse-webview-login-guide.md:252-264`) specifies: CF verification → wait for cookie propagation → extract cookies → write to Rust trusted → re-prime the same live WebView → re-run `__fireLogin` (hCaptcha token reusable because csrf phase fails before hCaptcha create).
+**Context:** The `recoverCloudflare()` method in Task 3 has a TODO for CF retry within the same dialog. The knowledge base (`discourse-webview-login-guide.md:252-264`) specifies: CF verification → wait for cookie propagation → extract cookies → write to Rust trusted → re-prime the same live WebView → re-run `__fireLogin` with the same arguments that failed during the csrf phase.
 
 - [ ] **Step 1: Implement CF retry within dialog**
 
@@ -1253,7 +1306,7 @@ Replace the `recoverCloudflare()` method in `FireLoginViewController`:
             // Use existing recoverLoginCloudflareChallenge(in:) which always
             // forces CF challenge + 1.5s propagation wait + re-prime.
             // This is NOT the same as ensureCloudflareClearance() which
-            // short-circuits if hasCloudflareClearance is true — but .retryCloudflare
+            // short-circuits when session readiness already has CF clearance — but .retryCloudflare
             // means the current clearance was rejected by /session/csrf.
             guard let dialog = self.captchaDialog else { return }
             do {
@@ -1267,7 +1320,7 @@ Replace the `recoverCloudflare()` method in `FireLoginViewController`:
                 return
             }
 
-            // Re-run __fireLogin with the original hCaptcha token (reusable per knowledge base)
+            // Re-run __fireLogin with the same arguments that failed during csrf.
             await MainActor.run {
                 dialog.retryAfterCloudflareRecovery()
             }
@@ -1281,11 +1334,10 @@ In `FireCaptchaLoginDialogController.swift`, add:
 
 ```swift
 /// Re-primes and re-runs __fireLogin after CF recovery.
-/// The hCaptcha token is reused because csrf phase fails before hCaptcha create.
+/// Reuses the same arguments because csrf phase fails before hCaptcha create/session submit.
 func retryAfterCloudflareRecovery() {
-    guard let token = lastHcaptchaToken else {
-        // No token to reuse — user needs to redo hCaptcha
-        statusLabel.text = "请重新完成人机验证"
+    guard lastLoginHcaptchaToken != nil || lastLoginSecondFactorToken != nil else {
+        statusLabel.text = "请重新尝试登录"
         statusLabel.textColor = .secondaryLabel
         hasReportedResult = false
         return
@@ -1297,8 +1349,8 @@ func retryAfterCloudflareRecovery() {
     let invocation = FireLoginScripts.fireLoginInvocation(
         identifier: identifier,
         password: password,
-        hcaptchaToken: token,
-        secondFactorToken: nil
+        hcaptchaToken: lastLoginHcaptchaToken,
+        secondFactorToken: lastLoginSecondFactorToken
     )
     webView.evaluateJavaScript(invocation) { [weak self] _, error in
         if let error {
@@ -1325,7 +1377,7 @@ Expected: Build succeeds.
 git add native/ios-app/App/Views/Other/FireLoginViewController.swift native/ios-app/App/Views/Other/FireCaptchaLoginDialogController.swift
 git commit -m "feat(login): implement CF retry within captcha dialog
 
-Re-prime live WebView and reuse hCaptcha token after CF recovery
+Re-prime live WebView and reuse the failed csrf attempt args after CF recovery
 per discourse-webview-login-guide.md:252-264."
 ```
 
@@ -1338,13 +1390,14 @@ per discourse-webview-login-guide.md:252-264."
 **Files:**
 - Create: `native/ios-app/App/Views/Other/FireWebViewBrowserViewController.swift`
 
-**Context:** A simple full-screen WKWebView browser VC for loading `linux.do/login` or `linux.do/password-reset`. It monitors cookies for `_t` (auth token) to detect login success, then triggers the finalize path.
+**Context:** A simple full-screen WKWebView browser VC for loading `linux.do/login` or `linux.do/password-reset`. It uses the shared browser profile so preloaded bootstrap capture and fingerprint scripts stay installed. It monitors auth cookies, probes full login sync readiness, and only then triggers the existing `completeLogin(from:)` finalizer.
 
 - [ ] **Step 1: Create the browser VC**
 
 Create `native/ios-app/App/Views/Other/FireWebViewBrowserViewController.swift`:
 
 ```swift
+import Combine
 import UIKit
 import WebKit
 
@@ -1362,8 +1415,8 @@ final class FireWebViewBrowserViewController: UIViewController {
     private var progressView: UIProgressView!
     private var hasFinalizedLogin = false
     private var cookiePollTimer: Timer?
-
-    var onLoginSuccess: (() -> Void)?
+    private let scriptMessageProxy = FireBrowserScriptMessageProxy()
+    private var cancellables = Set<AnyCancellable>()
 
     // MARK: - Init
 
@@ -1384,6 +1437,7 @@ final class FireWebViewBrowserViewController: UIViewController {
         setupNavigationBar()
         setupWebView()
         setupProgressView()
+        observeViewModelErrors()
         loadURL()
         startCookiePolling()
     }
@@ -1391,6 +1445,12 @@ final class FireWebViewBrowserViewController: UIViewController {
     deinit {
         cookiePollTimer?.invalidate()
         webView?.removeObserver(self, forKeyPath: "estimatedProgress")
+        [
+            FireLoginScripts.loginCredentialsMessageName,
+            FireLoginScripts.fingerprintDoneMessageName,
+        ].forEach { name in
+            webView?.configuration.userContentController.removeScriptMessageHandler(forName: name)
+        }
         webView?.stopLoading()
     }
 
@@ -1423,10 +1483,19 @@ final class FireWebViewBrowserViewController: UIViewController {
     }
 
     private func setupWebView() {
-        let configuration = WKWebViewConfiguration()
-        configuration.websiteDataStore = WKWebsiteDataStore.default()
+        scriptMessageProxy.onMessage = { [weak self] message in
+            self?.handleScriptMessage(message)
+        }
+        let configuration = FireWebViewBrowserProfile.makeLoginConfiguration(
+            credential: viewModel.savedLoginCredential,
+            messageHandler: scriptMessageProxy
+        )
         webView = WKWebView(frame: .zero, configuration: configuration)
         webView.translatesAutoresizingMaskIntoConstraints = false
+        FireWebViewBrowserProfile.configure(
+            webView,
+            preferredUserAgent: viewModel.session.browserUserAgent
+        )
         webView.addObserver(self, forKeyPath: "estimatedProgress", options: .new, context: nil)
         view.addSubview(webView)
 
@@ -1436,6 +1505,20 @@ final class FireWebViewBrowserViewController: UIViewController {
             webView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             webView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
         ])
+    }
+
+    private func observeViewModelErrors() {
+        viewModel.$errorMessage
+            .receive(on: RunLoop.main)
+            .compactMap { $0 }
+            .filter { !$0.isEmpty }
+            .sink { [weak self] message in
+                guard let self, self.hasFinalizedLogin else { return }
+                self.hasFinalizedLogin = false
+                self.startCookiePolling()
+                self.showErrorAlert(message)
+            }
+            .store(in: &cancellables)
     }
 
     private func setupProgressView() {
@@ -1452,7 +1535,9 @@ final class FireWebViewBrowserViewController: UIViewController {
     }
 
     private func loadURL() {
-        // Prime cookies from Rust before loading
+        // Prime cookies from Rust before loading. The WebView configuration
+        // already installed preloadedDataCapture, credential autofill, and
+        // fingerprint intercept scripts through makeLoginConfiguration.
         Task {
             do {
                 let loginCoordinator = try await viewModel.loginCoordinatorForDialog()
@@ -1471,29 +1556,52 @@ final class FireWebViewBrowserViewController: UIViewController {
 
     private func startCookiePolling() {
         // Poll for _t cookie (auth token) every 2 seconds
+        cookiePollTimer?.invalidate()
         cookiePollTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
             self?.checkForAuthToken()
         }
     }
 
     private func checkForAuthToken() {
-        webView.configuration.websiteDataStore.cookieStore.getAllCookies { [weak self] cookies in
-            guard let self, !self.hasFinalizedLogin else { return }
-            let hasAuth = cookies.contains { $0.name == "_t" }
-            guard hasAuth else { return }
-
-            self.hasFinalizedLogin = true
-            DispatchQueue.main.async {
-                self.cookiePollTimer?.invalidate()
-            }
+        webView.configuration.websiteDataStore.httpCookieStore.getAllCookies { [weak self] cookies in
             Task { @MainActor in
+                guard let self, !self.hasFinalizedLogin else { return }
+                let hasAuth = cookies.contains { $0.name == "_t" && !$0.value.isEmpty }
+                guard hasAuth else { return }
+
+                do {
+                    let readiness = try await self.viewModel.probeLoginSyncReadiness(from: self.webView)
+                    guard readiness.isReady else { return }
+                } catch {
+                    return
+                }
+
+                self.hasFinalizedLogin = true
+                self.cookiePollTimer?.invalidate()
                 // Use completeLogin(from:) for full WebView path — it reads
                 // username/csrf from page meta/preloaded data, not from params.
-                // completeMinimalLogin would pass empty identifier as captured username.
                 self.viewModel.completeLogin(from: self.webView)
-                self.onLoginSuccess?()
             }
         }
+    }
+
+    private func handleScriptMessage(_ message: WKScriptMessage) {
+        switch message.name {
+        case FireLoginScripts.fingerprintDoneMessageName:
+            viewModel.recordLoginFingerprintDone()
+        case FireLoginScripts.loginCredentialsMessageName:
+            // The native login form owns credential persistence. For fallback
+            // pages this message is only used to keep preloaded capture active.
+            break
+        default:
+            break
+        }
+    }
+
+    private func showErrorAlert(_ message: String) {
+        let alert = UIAlertController(title: "登录同步失败", message: message, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "重试", style: .default))
+        present(alert, animated: true)
     }
 
     // MARK: - KVO
@@ -1513,9 +1621,20 @@ final class FireWebViewBrowserViewController: UIViewController {
         }
     }
 }
+
+private final class FireBrowserScriptMessageProxy: NSObject, WKScriptMessageHandler {
+    var onMessage: ((WKScriptMessage) -> Void)?
+
+    func userContentController(
+        _ userContentController: WKUserContentController,
+        didReceive message: WKScriptMessage
+    ) {
+        onMessage?(message)
+    }
+}
 ```
 
-Note: Cookie monitoring uses a 2-second polling timer against `WKWebsiteDataStore.cookieStore.getAllCookies`. The `completeMinimalLogin` with empty identifier/password is for OAuth path where we don't have credentials — the identifier is captured by the Rust finalizer from cookies.
+Note: Cookie monitoring uses a 2-second polling timer against `WKWebsiteDataStore.default().httpCookieStore.getAllCookies`. `_t` only indicates an auth cookie exists; finalization must also wait for `probeLoginSyncReadiness(from:)` because the Rust finalizer requires auth cookies plus captured username/bootstrap data from the preloaded scripts. Use `completeLogin(from:)` for this full WebView path; do not call `completeMinimalLogin` with empty credentials.
 
 - [ ] **Step 2: Wire up forgot-password and other-methods buttons**
 
@@ -1534,12 +1653,8 @@ In `FireLoginViewController.swift`, replace the `showComingSoon()` calls:
 
 private func presentWebViewBrowser(url: URL) {
     let browser = FireWebViewBrowserViewController(url: url, viewModel: viewModel)
-    browser.onLoginSuccess = { [weak self] in
-        // ViewModel already set authPresentationState(nil) → coordinator dismisses all
-    }
-    let navController = UINavigationController(rootViewController: browser)
-    navController.modalPresentationStyle = .fullScreen
-    present(navController, animated: true)
+    browser.modalPresentationStyle = .fullScreen
+    present(browser, animated: true)
 }
 
 private func showComingSoon() {
@@ -1761,5 +1876,5 @@ git commit -m "feat(login): native login page redesign complete
 | Other login methods → WebView /login | Task 6 |
 | Error states per WebViewLoginDecisionState | Task 3, Task 7 |
 | 2FA retry in same live WebView | Task 1, Task 3 |
-| CF retry within dialog (reuse hCaptcha token) | Task 5 |
+| CF retry within dialog (reuse failed csrf attempt args) | Task 5 |
 | Animated inline error banner | Task 7 |

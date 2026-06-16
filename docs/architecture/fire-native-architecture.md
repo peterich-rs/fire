@@ -304,7 +304,9 @@ native/ios-app/
       FireComposerViewController.swift   # UIKit native editor
 
     Auth/
-      FireLoginWebView.swift             # FireLoginWebViewController + UIKit WKWebView login chrome
+      FireLoginViewController.swift      # UIKit native login form and auth flow coordinator
+      FireCaptchaLoginDialogController.swift  # WKWebView hCaptcha + JS login sheet
+      FireWebViewBrowserViewController.swift  # Full WebView fallback for OAuth/passkey/password reset
       FireCloudflareChallengeCoordinator.swift  # UIKit foreground challenge WebView
       FireOnboardingView.swift           # FireOnboardingViewController + UIKit unauthenticated root
 
@@ -995,7 +997,7 @@ Advantages:
 - Drafts → UIKit `FireDraftsViewController` on `FireListViewController`; the former SwiftUI production page has been removed and draft continuation opens the UIKit Composer runtime
 - Messages → UIKit `FirePrivateMessagesViewController` on `FireListViewController`; Profile keeps only a thin SwiftUI-to-UIKit host until Profile itself migrates
 - Search → UIKit `FireSearchViewController` on `FireListViewController`; the former SwiftUI production page and SwiftUI result rows have been removed while bookmark editing remains a tracked transitional SwiftUI presentation
-- Login / Cloudflare auth → UIKit `FireLoginWebViewController` and `FireCloudflareChallengeViewController`; the former SwiftUI auth screen and `UIViewRepresentable` login bridge have been removed
+- Login / Cloudflare auth → UIKit `FireLoginViewController`, `FireCaptchaLoginDialogController`, `FireWebViewBrowserViewController`, and `FireCloudflareChallengeViewController`; the former monolithic login WebView controller, SwiftUI auth screen, and `UIViewRepresentable` login bridge have been removed
 - Onboarding → UIKit `FireOnboardingViewController`; the former SwiftUI onboarding root has been removed, with Developer Tools remaining an explicit SwiftUI exception
 - Composer → UIKit `FireComposerViewController`; the former SwiftUI `FireComposerView` page has been removed. Home, Messages, Drafts, Topic detail, and Public Profile open the UIKit runtime, with Public Profile using only a temporary SwiftUI-to-UIKit host until Profile itself migrates
 - Profile → UIKit

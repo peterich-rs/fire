@@ -187,10 +187,20 @@ When a WebView flow itself performed the network request:
 
 1. Do not expect Rust to have seen the `Set-Cookie` header.
 2. Extract cookies from the live WebView before disposal.
-3. Send those cookies to Rust with source `webview_login` or
+3. Preserve native cookie metadata when the platform exposes it. Android should
+   use `CookieManagerCompat.getCookieInfo()` for full WebView extraction and fall
+   back to plain `CookieManager.getCookie()` name/value snapshots only as
+   low-confidence input. Low-confidence session cookies must not complete login
+   unless an explicit device constraint allows it. Cloudflare challenge recovery
+   may use a low-confidence snapshot only after the platform has independently
+   confirmed the accepted fresh `cf_clearance` value, and Rust must reject any
+   other `cf_clearance` value from that snapshot.
+4. Send those cookies to Rust with source `webview_login` or
    `webview_challenge`.
-4. Mark the write trusted only when the flow boundary confirms freshness.
-5. Sweep critical names after applying the cookies.
+5. Mark the write trusted only when the flow boundary confirms freshness.
+6. For Cloudflare challenge completion, pass the accepted `fresh_cf_clearance`
+   value and let Rust reject any `cf_clearance` cookie with a different value.
+7. Sweep critical names after applying the cookies.
 
 Generic WebView reads outside these boundary events are untrusted.
 
@@ -199,12 +209,14 @@ Generic WebView reads outside these boundary events are untrusted.
 Before opening a login, challenge, or trusted in-app WebView:
 
 1. Ask Rust for a priming payload for `https://linux.do/`.
-2. Re-read canonical state immediately before each async write batch.
-3. Write raw `Set-Cookie` headers when available.
-4. Use structured fields to reconstruct `Set-Cookie` only when raw headers are
+2. For each critical cookie being primed, delete existing WebView variants for
+   that name before writing the canonical cookie.
+3. Re-read canonical state immediately before each async write batch.
+4. Write raw `Set-Cookie` headers when available.
+5. Use structured fields to reconstruct `Set-Cookie` only when raw headers are
    absent.
-5. Do not reinsert a cookie Rust deleted during the priming operation.
-6. Deduplicate repeated priming for the same URL unless invalidated.
+6. Do not reinsert a cookie Rust deleted during the priming operation.
+7. Deduplicate repeated priming for the same URL unless invalidated.
 
 Priming must be invalidated after CF cleanup, explicit delete, logout, and any
 trusted update to a critical cookie.

@@ -64,7 +64,8 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
   - clears host-side LinuxDo auth cookies after a successful explicit logout while preserving `cf_clearance`
 - `FireCloudflareChallengeCoordinator.swift`
   - implements the registered Rust `CloudflareChallengeHandler` bridge for foreground-capable iOS requests
-  - opens a host-owned full-screen `WKWebView`, records the baseline `cf_clearance`, waits for a new clearance plus the absence of active challenge markers, and then returns only the relevant browser cookies back to Rust
+  - opens a host-owned full-screen `WKWebView`, records and deletes the baseline `cf_clearance`, waits for a fresh clearance plus the absence of active challenge markers, and returns both the fresh value and relevant browser cookies back to Rust
+  - restores the deleted baseline clearance if the user cancels or the foreground verification does not complete
   - leaves background/silent work on the non-interactive path: if the request was not marked foreground-capable, the handler returns an incomplete result and Rust surfaces `CloudflareChallenge`
   - relies on Rust request-level presentation context, so user-opened notification history refreshes are foreground-capable while recent notification cache refreshes and other silent work stay non-interactive
 - `FireCfClearanceRefreshService.swift`
@@ -73,14 +74,17 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
   - injects a fetch interceptor before `api.js` loads, replays `/cdn-cgi/challenge-platform/.../rc/...` through native `URLSession`, and feeds the real response back into the page so `cf_clearance` can auto-renew without foreground UI
   - re-syncs refreshed WebKit cookies back into Rust and then pushes the updated session back through `FireAppViewModel.applySession`, which keeps native `HTTPCookieStorage` aligned for URLSession/media requests without overwriting the active WebKit cookie store
   - records APM breadcrumbs plus bounded retry failures for background clearance refresh attempts
-- `App/FireLoginWebView.swift`
-  - presents explicit password login as native username/password fields plus a minimal same-origin `WKWebView` that renders hCaptcha and runs `window.__fireLogin`
-  - loads inline login HTML with base URL `https://linux.do/`; the Discourse Ember `/login` app is not part of the normal password-login path
-  - waits for the host `FireAppViewModel` to replay queued `Set-Cookie` headers and prime Rust canonical cookies into WebKit before the first login fetch
-  - routes hCaptcha success/error/expiry and raw login `{phase,status,body}` results back through the native bridge, then asks Rust to classify the session response
-  - keeps the same live `WKWebView` for TOTP retry so the short-lived hCaptcha cookie written by the first attempt can be reused
-  - handles CSRF-phase Cloudflare failures by running one foreground verification, applying returned challenge cookies through Rust, re-priming the same live login `WKWebView`, and re-running `window.__fireLogin` with the original hCaptcha / TOTP arguments
-  - avoids mutating observed browser state from `UIViewRepresentable.updateUIView`, so SwiftUI updates do not loop back into `WKWebView` host state and freeze the login entry flow
+- `App/Views/Other/FireLoginViewController.swift`
+  - presents explicit password login as a pure-native UIKit form with username/password fields, remember-password state, inline error presentation, forgot-password, and other-method fallback entry points
+  - does not create a login `WKWebView` when the page opens; Cloudflare clearance and hCaptcha login work starts only after the user enters credentials and taps login
+  - presents `FireCaptchaLoginDialogController` as the live hCaptcha + `window.__fireLogin` sheet and passes its still-alive `WKWebView` into `FireAppViewModel.completeMinimalLogin(from:identifier:password:rememberCredential:)` before dismissal
+  - handles Rust-classified login decisions for success, TOTP retry, one CSRF-phase Cloudflare retry, and login failure while preserving the live dialog WebView for cookie extraction and retry windows
+- `App/Views/Other/FireCaptchaLoginDialogController.swift`
+  - loads inline same-origin hCaptcha HTML with base URL `https://linux.do/`, primes Rust canonical cookies into WebKit, and routes hCaptcha / login-result bridge messages back to the login page
+  - keeps the same live `WKWebView` for TOTP and Cloudflare retry so short-lived cookies and the failed CSRF attempt arguments can be reused
+- `App/Views/Other/FireWebViewBrowserViewController.swift`
+  - provides the full WebView fallback for Discourse `/login` OAuth/Passkey flows and `/password-reset`
+  - uses the shared login browser profile, polls for auth cookies, waits for `FireWebViewLoginCoordinator.probeLoginSyncReadiness(from:)`, and finalizes through `FireAppViewModel.completeLogin(from:)`
 - `App/Core/FireAppDelegate.swift`
   - is the UIKit `@main` entry point, starts APM, registers background refresh, owns the notification center delegate, and forwards notification taps into the shared typed route dispatcher
 - `App/Core/FireSceneDelegate.swift`
@@ -218,7 +222,7 @@ Expected integration flow:
 2. Build the app target. Xcode runs `scripts/sync_uniffi_bindings.sh` before compile and refreshes the UniFFI Swift/FFI/staticlib outputs in `Generated/`.
 3. Keep the native files in `Sources/FireAppSession/` in the same Xcode target.
 4. Create a single `FireSessionStore` instance early in app launch and call `restoreColdStartSession()`.
-5. For explicit password login, render native username/password inputs, load the minimal same-origin hCaptcha document, let `window.__fireLogin` issue `/session/csrf`, hCaptcha create, and `/session.json`; if Rust classifies a CSRF result as Cloudflare retryable, run foreground verification once and re-prime the same login WebView before retrying; after Rust classifies the JS result as success, call `FireWebViewLoginCoordinator.completeJsLogin(from:identifier:)`.
+5. For explicit password login, render native username/password inputs first. After the user taps login, ensure Rust has a fresh Cloudflare clearance, present the captcha dialog, load the minimal same-origin hCaptcha document, let `window.__fireLogin` issue `/session/csrf`, hCaptcha create, and `/session.json`; if Rust classifies a CSRF result as Cloudflare retryable, run foreground verification once and re-prime the same dialog WebView before retrying; after Rust classifies the JS result as success, call `FireWebViewLoginCoordinator.completeJsLogin(from:identifier:)` before dismissing the dialog.
 6. After login or restore, let `FireCfClearanceRefreshService.shared` track the active session only after the authoritative startup/login path has confirmed the current authenticated session; once confirmed, same-site Cloudflare cookies can refresh in the background when bootstrap has a Turnstile sitekey.
 7. After login or restore, render the topic feeds through `fetchTopicList`, render iOS topic detail through Rust-owned source snapshots + tree presentation, let Rust own raw-stream append/load-more, keep targeted `fetchTopicPosts` hydration scoped to reply context/anchor repair, and fetch optional AI summaries through `fetchTopicAiSummary`.
 8. On explicit logout, clear local auth state through the login coordinator path so the Rust snapshot, persisted session file, and host-side LinuxDo auth cookies stay aligned while preserving `cf_clearance`.

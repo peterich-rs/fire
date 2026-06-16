@@ -77,16 +77,25 @@ surface when interaction is required.
 Recommended completion checks:
 
 1. Snapshot the old `cf_clearance` before verification.
-2. Delete stale challenge cookies when starting a fresh verification.
+2. Delete stale `cf_clearance` cookies from the platform WebView store when
+   starting a fresh verification.
 3. Load the challenge or origin URL in the WebView.
 4. Detect active challenge markers in the page.
 5. Poll the WebView cookie store for `cf_clearance`.
 6. Accept success only when the new value is non-empty and differs from the old
    value, or when Rust has no old value.
-7. Sync the fresh value and related cookies to Rust as trusted writes.
+7. Sync the fresh value and related cookies to Rust as trusted writes through
+   the challenge-completion path.
 
 Related cookies include `cf_clearance`, `_cfuvid`, and any LinuxDo cookies the
 WebView received during verification.
+
+On Android, `CookieManagerCompat.getCookieInfo()` should be preferred because it
+preserves domain/path/flag metadata. If the runtime only exposes
+`CookieManager.getCookie()` name/value data, the platform may still use it to
+report the independently confirmed fresh `cf_clearance` value. Rust remains
+responsible for accepting only that value and treating the rest of the snapshot
+as low-metadata input.
 
 ## 6. Freshness Filtering
 

@@ -720,6 +720,89 @@ impl CookieSnapshot {
             .collect()
     }
 
+    pub fn cookie_sweep_plan(
+        &self,
+        uri: &url::Url,
+        name: &str,
+        webview_cookies: &[WebViewCookieInfo],
+    ) -> CookieSweepPlan {
+        let variants = matching_webview_cookie_infos(webview_cookies, name);
+        let canonical = self.canonical_cookie_for_request(uri, name);
+        let selected_winner = select_sweep_winner(uri, canonical.as_ref(), &variants);
+        let actions = if variants.len() <= 1
+            && variants_match_selected_winner(&variants, selected_winner.as_ref())
+        {
+            Vec::new()
+        } else {
+            let mut actions = delete_actions_for_variants(uri, &variants);
+            if let Some(winner) = selected_winner.as_ref() {
+                actions.push(WebViewCookieAction::SetRaw {
+                    url: uri.as_str().to_string(),
+                    set_cookie: winner.to_set_cookie_header(),
+                });
+            }
+            actions
+        };
+
+        CookieSweepPlan {
+            name: name.to_string(),
+            intent: CookieSweepIntent::EnsureUnique,
+            actions,
+            selected_winner,
+        }
+    }
+
+    pub fn cookie_delete_plan(
+        &self,
+        uri: &url::Url,
+        name: &str,
+        webview_cookies: &[WebViewCookieInfo],
+    ) -> CookieSweepPlan {
+        let variants = matching_webview_cookie_infos(webview_cookies, name);
+        CookieSweepPlan {
+            name: name.to_string(),
+            intent: CookieSweepIntent::Delete,
+            actions: delete_actions_for_variants(uri, &variants),
+            selected_winner: None,
+        }
+    }
+
+    pub fn cookie_nuclear_reset_plan(
+        &self,
+        uri: &url::Url,
+        webview_cookies: &[WebViewCookieInfo],
+    ) -> NuclearResetPlan {
+        let mut names = Vec::<String>::new();
+        for cookie in &self.canonical_cookies {
+            if canonical_cookie_matches_url(cookie, uri)
+                && !names.iter().any(|name| name == &cookie.name)
+            {
+                names.push(cookie.name.clone());
+            }
+        }
+        for cookie in webview_cookies {
+            if !cookie.name.trim().is_empty() && !names.iter().any(|name| name == &cookie.name) {
+                names.push(cookie.name.clone());
+            }
+        }
+
+        let mut actions = Vec::new();
+        for name in names {
+            let variants = matching_webview_cookie_infos(webview_cookies, &name);
+            actions.extend(delete_actions_for_variants(uri, &variants));
+        }
+        actions.extend(self.webview_priming_payload(uri));
+        NuclearResetPlan { actions }
+    }
+
+    fn canonical_cookie_for_request(&self, uri: &url::Url, name: &str) -> Option<CanonicalCookie> {
+        let store = CanonicalCookieStore::from_cookies(self.canonical_cookies.clone());
+        store
+            .load_for_request(uri)
+            .into_iter()
+            .find(|cookie| cookie.name == name && !cookie.value.trim().is_empty())
+    }
+
     pub fn clear_login_state(&mut self, preserve_cf_clearance: bool) {
         self.t_token = None;
         self.forum_session = None;
@@ -1010,7 +1093,185 @@ fn default_linux_do_url() -> Option<url::Url> {
 }
 
 fn is_critical_cookie_name(name: &str) -> bool {
-    matches!(name, "_t" | "_forum_session" | "cf_clearance")
+    matches!(
+        name,
+        "_t" | "_forum_session" | "cf_clearance" | "_cfuvid" | "h_captcha_temp_id"
+    )
+}
+
+fn matching_webview_cookie_infos<'a>(
+    cookies: &'a [WebViewCookieInfo],
+    name: &str,
+) -> Vec<&'a WebViewCookieInfo> {
+    cookies
+        .iter()
+        .filter(|cookie| cookie.name == name)
+        .collect::<Vec<_>>()
+}
+
+fn select_sweep_winner(
+    uri: &url::Url,
+    canonical: Option<&CanonicalCookie>,
+    variants: &[&WebViewCookieInfo],
+) -> Option<CanonicalCookie> {
+    let Some(canonical) = canonical else {
+        return variants
+            .iter()
+            .max_by(|left, right| {
+                webview_cookie_info_score(left).cmp(&webview_cookie_info_score(right))
+            })
+            .and_then(|winner| canonical_cookie_from_webview_info(winner, uri, None));
+    };
+
+    if variants.is_empty() {
+        return Some(canonical.clone());
+    }
+
+    let has_canonical_value = variants
+        .iter()
+        .any(|variant| variant.value == canonical.value);
+    if variants.len() > 1 && has_canonical_value {
+        return variants
+            .iter()
+            .filter(|variant| variant.value != canonical.value)
+            .max_by(|left, right| {
+                webview_cookie_info_score(left).cmp(&webview_cookie_info_score(right))
+            })
+            .and_then(|winner| canonical_cookie_from_webview_info(winner, uri, Some(canonical)))
+            .or_else(|| Some(canonical.clone()));
+    }
+
+    Some(canonical.clone())
+}
+
+fn variants_match_selected_winner(
+    variants: &[&WebViewCookieInfo],
+    selected_winner: Option<&CanonicalCookie>,
+) -> bool {
+    match (variants, selected_winner) {
+        ([variant], Some(winner)) => {
+            variant.value == winner.value
+                && variant.path.as_deref().unwrap_or("/") == normalized_cookie_path(&winner.path)
+                && webview_info_domain_matches_winner(variant, winner)
+        }
+        ([], None) => true,
+        _ => false,
+    }
+}
+
+fn webview_info_domain_matches_winner(
+    variant: &WebViewCookieInfo,
+    winner: &CanonicalCookie,
+) -> bool {
+    match (
+        variant.host_only,
+        variant.domain.as_deref(),
+        winner.host_only,
+    ) {
+        (Some(true), _, true) => true,
+        (Some(false), Some(domain), false) => {
+            normalized_cookie_domain(Some(domain)) == winner.normalized_domain()
+        }
+        (None, None, true) => true,
+        (_, Some(domain), _) => {
+            normalized_cookie_domain(Some(domain)) == winner.normalized_domain()
+        }
+        _ => false,
+    }
+}
+
+fn delete_actions_for_variants(
+    uri: &url::Url,
+    variants: &[&WebViewCookieInfo],
+) -> Vec<WebViewCookieAction> {
+    if variants.is_empty() {
+        return Vec::new();
+    }
+
+    let mut actions = Vec::new();
+    for variant in variants {
+        let name = variant.name.clone();
+        if variant.domain.is_some() || variant.path.is_some() || variant.host_only.is_some() {
+            actions.push(WebViewCookieAction::DeleteExact {
+                url: uri.as_str().to_string(),
+                name,
+                domain: variant.domain.clone(),
+                path: variant.path.clone().unwrap_or_else(|| "/".to_string()),
+            });
+        } else if !actions.iter().any(|action| {
+            matches!(
+                action,
+                WebViewCookieAction::DeleteByName {
+                    name: existing_name,
+                    ..
+                } if existing_name == &name
+            )
+        }) {
+            actions.push(WebViewCookieAction::DeleteByName {
+                url: uri.as_str().to_string(),
+                name,
+            });
+        }
+    }
+    actions
+}
+
+fn canonical_cookie_from_webview_info(
+    info: &WebViewCookieInfo,
+    uri: &url::Url,
+    canonical_template: Option<&CanonicalCookie>,
+) -> Option<CanonicalCookie> {
+    if info.name.trim().is_empty() {
+        return None;
+    }
+
+    let mut cookie = canonical_template
+        .cloned()
+        .unwrap_or_else(|| CanonicalCookie::new(info.name.trim(), info.value.trim(), uri.as_str()));
+    cookie.name = info.name.trim().to_string();
+    cookie.value = info.value.trim().to_string();
+    if canonical_template.is_none() {
+        cookie.path = info
+            .path
+            .as_deref()
+            .map(str::trim)
+            .filter(|path| !path.is_empty())
+            .unwrap_or("/")
+            .to_string();
+        cookie.secure = info.secure.unwrap_or(false);
+        cookie.http_only = info.http_only.unwrap_or(false);
+        cookie.same_site = info.same_site.unwrap_or_default();
+        cookie.expires_at_unix_ms = info.expires_at_unix_ms;
+        if let Some(domain) = info
+            .domain
+            .as_deref()
+            .map(str::trim)
+            .filter(|domain| !domain.is_empty())
+        {
+            let normalized = domain.trim_start_matches('.').to_ascii_lowercase();
+            if info.host_only == Some(false) || domain.starts_with('.') {
+                cookie.host_only = false;
+                cookie.domain = Some(format!(".{normalized}"));
+            } else {
+                cookie.host_only = true;
+                cookie.domain = None;
+                cookie.origin_url = Some(origin_url_for_host(uri, &normalized));
+            }
+        }
+    }
+    Some(cookie)
+}
+
+fn webview_cookie_info_score(cookie: &WebViewCookieInfo) -> (u8, u8, u8, i64, usize) {
+    let non_empty = (!cookie.value.trim().is_empty()) as u8;
+    let now_unix_ms = current_unix_ms();
+    let unexpired = cookie
+        .expires_at_unix_ms
+        .is_none_or(|expires_at_unix_ms| expires_at_unix_ms > now_unix_ms)
+        as u8;
+    let host_only = (cookie.host_only == Some(true)) as u8;
+    let expiry = cookie.expires_at_unix_ms.unwrap_or(i64::MAX);
+    (non_empty, unexpired, host_only, expiry, cookie.value.len())
 }
 
 pub fn current_unix_ms() -> i64 {
@@ -1421,5 +1682,129 @@ mod tests {
         assert!(set_cookie.contains("Secure"));
         assert!(set_cookie.contains("SameSite=None"));
         assert!(set_cookie.contains("Partitioned"));
+    }
+
+    #[test]
+    fn sweep_plan_picks_non_canonical_webview_variant_when_multiple_exist() {
+        let uri = url::Url::parse("https://linux.do/").expect("url");
+        let mut snapshot = CookieSnapshot::default();
+        let mut canonical = CanonicalCookie::new("cf_clearance", "old", "https://linux.do/");
+        canonical.host_only = false;
+        canonical.domain = Some(".linux.do".into());
+        canonical.secure = true;
+        canonical.same_site = CookieSameSite::None;
+        snapshot.merge_canonical_cookies(&uri, &[canonical], CookieTrust::Trusted);
+
+        let plan = snapshot.cookie_sweep_plan(
+            &uri,
+            "cf_clearance",
+            &[
+                WebViewCookieInfo {
+                    name: "cf_clearance".into(),
+                    value: "old".into(),
+                    domain: Some(".linux.do".into()),
+                    path: Some("/".into()),
+                    host_only: Some(false),
+                    secure: Some(true),
+                    http_only: None,
+                    same_site: Some(CookieSameSite::None),
+                    expires_at_unix_ms: None,
+                },
+                WebViewCookieInfo {
+                    name: "cf_clearance".into(),
+                    value: "new-webview".into(),
+                    domain: Some(".linux.do".into()),
+                    path: Some("/".into()),
+                    host_only: Some(false),
+                    secure: Some(true),
+                    http_only: None,
+                    same_site: Some(CookieSameSite::None),
+                    expires_at_unix_ms: None,
+                },
+            ],
+        );
+
+        assert_eq!(
+            plan.selected_winner
+                .as_ref()
+                .map(|cookie| cookie.value.as_str()),
+            Some("new-webview")
+        );
+        assert!(plan.actions.iter().any(|action| {
+            matches!(
+                action,
+                WebViewCookieAction::SetRaw { set_cookie, .. }
+                    if set_cookie.contains("cf_clearance=new-webview")
+                        && set_cookie.contains("SameSite=None")
+                        && set_cookie.contains("Secure")
+            )
+        }));
+    }
+
+    #[test]
+    fn delete_plan_uses_exact_delete_when_webview_metadata_exists() {
+        let uri = url::Url::parse("https://linux.do/").expect("url");
+        let snapshot = CookieSnapshot::default();
+        let plan = snapshot.cookie_delete_plan(
+            &uri,
+            "cf_clearance",
+            &[WebViewCookieInfo {
+                name: "cf_clearance".into(),
+                value: "stale".into(),
+                domain: Some(".linux.do".into()),
+                path: Some("/".into()),
+                host_only: Some(false),
+                secure: None,
+                http_only: None,
+                same_site: None,
+                expires_at_unix_ms: None,
+            }],
+        );
+
+        assert_eq!(plan.intent, CookieSweepIntent::Delete);
+        assert_eq!(plan.actions.len(), 1);
+        assert!(matches!(
+            &plan.actions[0],
+            WebViewCookieAction::DeleteExact {
+                name,
+                domain,
+                path,
+                ..
+            } if name == "cf_clearance" && domain.as_deref() == Some(".linux.do") && path == "/"
+        ));
+    }
+
+    #[test]
+    fn nuclear_reset_deletes_webview_variants_and_reprimes_canonical() {
+        let uri = url::Url::parse("https://linux.do/").expect("url");
+        let mut snapshot = CookieSnapshot::default();
+        let canonical = CanonicalCookie::new("_t", "fresh", "https://linux.do/");
+        snapshot.merge_canonical_cookies(&uri, &[canonical], CookieTrust::Trusted);
+
+        let plan = snapshot.cookie_nuclear_reset_plan(
+            &uri,
+            &[WebViewCookieInfo {
+                name: "_t".into(),
+                value: "stale".into(),
+                domain: None,
+                path: None,
+                host_only: None,
+                secure: None,
+                http_only: None,
+                same_site: None,
+                expires_at_unix_ms: None,
+            }],
+        );
+
+        assert!(plan
+            .actions
+            .iter()
+            .any(|action| matches!(action, WebViewCookieAction::DeleteByName { name, .. } if name == "_t")));
+        assert!(plan.actions.iter().any(|action| {
+            matches!(
+                action,
+                WebViewCookieAction::SetRaw { set_cookie, .. } if set_cookie.contains("_t=fresh")
+            )
+        }));
     }
 }

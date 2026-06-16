@@ -1,9 +1,9 @@
 use fire_models::{
     AuthRuntimeSignal, AuthRuntimeSignalKind, AuthRuntimeSignalSource, AuthRuntimeSignalStrength,
-    BootstrapArtifacts, CookieSnapshot, CookieSource, CookieTrust, LoginFailure, LoginFailureKind,
-    LoginFinalizationResult, LoginSyncInput, PlatformCookie, SecondFactorRequirement,
-    SessionSnapshot, WebViewCookieAction, WebViewLoginDecision, WebViewLoginJsResult,
-    WebViewLoginPhase,
+    BootstrapArtifacts, CookieSnapshot, CookieSource, CookieSweepPlan, CookieTrust, LoginFailure,
+    LoginFailureKind, LoginFinalizationResult, LoginSyncInput, NuclearResetPlan, PlatformCookie,
+    SecondFactorRequirement, SessionSnapshot, WebViewCookieAction, WebViewCookieInfo,
+    WebViewLoginDecision, WebViewLoginJsResult, WebViewLoginPhase,
 };
 use serde_json::Value;
 use tracing::{debug, info};
@@ -301,6 +301,48 @@ impl FireCore {
 
         let snapshot = self.snapshot();
         snapshot.cookies.webview_priming_payload(&uri)
+    }
+
+    pub fn cookie_sweep_plan(
+        &self,
+        target_url: Option<String>,
+        name: String,
+        webview_cookies: Vec<WebViewCookieInfo>,
+    ) -> CookieSweepPlan {
+        let uri = target_url
+            .as_deref()
+            .and_then(|value| url::Url::parse(value).ok())
+            .or_else(|| url::Url::parse(self.base_url()).ok());
+        let Some(uri) = uri else {
+            return CookieSweepPlan {
+                name,
+                ..CookieSweepPlan::default()
+            };
+        };
+
+        let snapshot = self.snapshot();
+        snapshot
+            .cookies
+            .cookie_sweep_plan(&uri, &name, &webview_cookies)
+    }
+
+    pub fn cookie_nuclear_reset_plan(
+        &self,
+        target_url: Option<String>,
+        webview_cookies: Vec<WebViewCookieInfo>,
+    ) -> NuclearResetPlan {
+        let uri = target_url
+            .as_deref()
+            .and_then(|value| url::Url::parse(value).ok())
+            .or_else(|| url::Url::parse(self.base_url()).ok());
+        let Some(uri) = uri else {
+            return NuclearResetPlan::default();
+        };
+
+        let snapshot = self.snapshot();
+        snapshot
+            .cookies
+            .cookie_nuclear_reset_plan(&uri, &webview_cookies)
     }
 
     pub fn apply_bootstrap(&self, bootstrap: BootstrapArtifacts) -> SessionSnapshot {

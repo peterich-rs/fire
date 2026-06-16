@@ -4,11 +4,12 @@ use fire_core::{
 };
 use fire_models::{
     AppStateRefreshEvent, BootstrapArtifacts, CanonicalCookie, CloudflareChallengeRequest,
-    CloudflareChallengeResult, CookieSameSite, CookieSnapshot, CookieSource, HomeTopicListScope,
-    LoginFailure, LoginFailureKind, LoginFinalizationResult, LoginPhase, LoginSyncInput,
-    PassiveLogoutTrigger, PlatformCookie, ProbeResult, RefreshBatch, SecondFactorRequirement,
-    SessionReadiness, SessionSnapshot, SignalStrength, TopicCategory, WebViewCookieAction,
-    WebViewLoginDecision, WebViewLoginJsResult, WebViewLoginPhase,
+    CloudflareChallengeResult, CookieSameSite, CookieSnapshot, CookieSource, CookieSweepIntent,
+    CookieSweepPlan, HomeTopicListScope, LoginFailure, LoginFailureKind, LoginFinalizationResult,
+    LoginPhase, LoginSyncInput, NuclearResetPlan, PassiveLogoutTrigger, PlatformCookie,
+    ProbeResult, RefreshBatch, SecondFactorRequirement, SessionReadiness, SessionSnapshot,
+    SignalStrength, TopicCategory, WebViewCookieAction, WebViewCookieInfo, WebViewLoginDecision,
+    WebViewLoginJsResult, WebViewLoginPhase,
 };
 use fire_store::cookie_replay::CookieReplayEntry;
 
@@ -267,6 +268,82 @@ impl From<WebViewCookieAction> for WebViewCookieActionState {
                 path,
             },
             WebViewCookieAction::DeleteByName { url, name } => Self::DeleteByName { url, name },
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct WebViewCookieInfoState {
+    pub name: String,
+    pub value: String,
+    pub domain: Option<String>,
+    pub path: Option<String>,
+    pub host_only: Option<bool>,
+    pub secure: Option<bool>,
+    pub http_only: Option<bool>,
+    pub same_site: Option<CookieSameSiteState>,
+    pub expires_at_unix_ms: Option<i64>,
+}
+
+impl From<WebViewCookieInfoState> for WebViewCookieInfo {
+    fn from(value: WebViewCookieInfoState) -> Self {
+        Self {
+            name: value.name,
+            value: value.value,
+            domain: value.domain,
+            path: value.path,
+            host_only: value.host_only,
+            secure: value.secure,
+            http_only: value.http_only,
+            same_site: value.same_site.map(Into::into),
+            expires_at_unix_ms: value.expires_at_unix_ms,
+        }
+    }
+}
+
+#[derive(uniffi::Enum, Debug, Clone, Copy)]
+pub enum CookieSweepIntentState {
+    EnsureUnique,
+    Delete,
+}
+
+impl From<CookieSweepIntent> for CookieSweepIntentState {
+    fn from(value: CookieSweepIntent) -> Self {
+        match value {
+            CookieSweepIntent::EnsureUnique => Self::EnsureUnique,
+            CookieSweepIntent::Delete => Self::Delete,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct CookieSweepPlanState {
+    pub name: String,
+    pub intent: CookieSweepIntentState,
+    pub actions: Vec<WebViewCookieActionState>,
+    pub selected_winner: Option<CanonicalCookieState>,
+}
+
+impl From<CookieSweepPlan> for CookieSweepPlanState {
+    fn from(value: CookieSweepPlan) -> Self {
+        Self {
+            name: value.name,
+            intent: value.intent.into(),
+            actions: value.actions.into_iter().map(Into::into).collect(),
+            selected_winner: value.selected_winner.map(Into::into),
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct NuclearResetPlanState {
+    pub actions: Vec<WebViewCookieActionState>,
+}
+
+impl From<NuclearResetPlan> for NuclearResetPlanState {
+    fn from(value: NuclearResetPlan) -> Self {
+        Self {
+            actions: value.actions.into_iter().map(Into::into).collect(),
         }
     }
 }

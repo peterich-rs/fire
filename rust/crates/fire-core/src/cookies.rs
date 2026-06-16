@@ -316,7 +316,10 @@ fn join_cookie_headers(left: &str, right: &str) -> String {
 }
 
 fn is_critical_cookie_name(name: &str) -> bool {
-    matches!(name, "_t" | "_forum_session" | "cf_clearance")
+    matches!(
+        name,
+        "_t" | "_forum_session" | "cf_clearance" | "_cfuvid" | "h_captcha_temp_id"
+    )
 }
 
 fn push_cookie_pair(pairs: &mut Vec<String>, name: &str, value: Option<&str>) {

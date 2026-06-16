@@ -427,8 +427,10 @@ Current branch status:
   incrementally.
 - `webview_priming_payload` is exposed over UniFFI and returns raw
   `Set-Cookie` actions reconstructed from canonical state.
-- Sweep plan generation, sweep commit hooks, nuclear reset, self-healing retry,
-  and native execution of set/delete actions remain active implementation work.
+- Sweep plan generation and nuclear reset plan generation are implemented and
+  exposed over UniFFI.
+- Sweep commit hooks, self-healing retry orchestration, and native execution of
+  set/delete actions remain active implementation work.
 
 ## Phase 5: Cloudflare Freeze Gate
 

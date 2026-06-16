@@ -2,6 +2,8 @@ import UIKit
 import WebKit
 
 enum FireLoginScripts {
+    static let linuxDoHcaptchaSiteKey = "a776b4ac-8c4c-441e-986a-c6ee9ed8cf08"
+
     static let loginCredentialsMessageName = "loginCredentials"
     static let fingerprintDoneMessageName = "fingerprintDone"
     static let hcaptchaPassMessageName = "hcaptcha_pass"
@@ -451,6 +453,21 @@ enum FireWebViewBrowserProfile {
             messageHandler,
             name: FireLoginScripts.fingerprintDoneMessageName
         )
+        return makeConfiguration(userContentController: userContentController)
+    }
+
+    static func makeMinimalLoginConfiguration(
+        messageHandler: WKScriptMessageHandler
+    ) -> WKWebViewConfiguration {
+        let userContentController = WKUserContentController()
+        [
+            FireLoginScripts.hcaptchaPassMessageName,
+            FireLoginScripts.hcaptchaErrorMessageName,
+            FireLoginScripts.hcaptchaExpiredMessageName,
+            FireLoginScripts.loginResultMessageName,
+        ].forEach { name in
+            userContentController.add(messageHandler, name: name)
+        }
         return makeConfiguration(userContentController: userContentController)
     }
 

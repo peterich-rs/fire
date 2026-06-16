@@ -65,6 +65,12 @@ The document contains only:
 
 The document must not load the Discourse Ember application.
 
+LinuxDo's current hCaptcha site key is:
+
+```text
+a776b4ac-8c4c-441e-986a-c6ee9ed8cf08
+```
+
 ## 5. JavaScript Bridge
 
 The WebView page sends these callbacks to native code:

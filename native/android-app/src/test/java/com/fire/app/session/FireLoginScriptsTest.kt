@@ -10,6 +10,7 @@ class FireLoginScriptsTest {
         val html = FireLoginScripts.minimalLoginDocument("site-key")
 
         assertTrue(html.contains("https://js.hcaptcha.com/1/api.js"))
+        assertTrue(FireLoginScripts.linuxDoHcaptchaSiteKey.matches(Regex("[0-9a-f-]{36}")))
         assertTrue(html.contains("hcaptcha.render('hcaptcha'"))
         assertTrue(html.contains("window.__fireLogin = async function"))
         assertTrue(html.contains("fetch('/session/csrf'"))

@@ -30,6 +30,16 @@
     <string name="login_blocked_external_navigation">This login browser only opens web links.</string>
     <string name="login_safe_browsing_blocked">Unsafe page blocked.</string>
     <string name="login_sync_error">Unable to sync login.</string>
+    <string name="login_identifier_hint">Username or email</string>
+    <string name="login_password_hint">Password</string>
+    <string name="login_hcaptcha_required">Complete the hCaptcha check first.</string>
+    <string name="login_credentials_required">Enter username/email and password first.</string>
+    <string name="login_hcaptcha_error">hCaptcha failed. Try again.</string>
+    <string name="login_hcaptcha_expired">hCaptcha expired. Complete it again.</string>
+    <string name="login_two_factor_title">Two-factor code</string>
+    <string name="login_two_factor_hint">Authentication code</string>
+    <string name="login_two_factor_submit">Verify</string>
+    <string name="login_cloudflare_retry_required">Cloudflare verification is required before login. Try again after verification.</string>
     <string name="browser_title">Topic Browser</string>
     <string name="in_app_web_title">Web Page</string>
     <string name="diagnostics_title">Diagnostics</string>

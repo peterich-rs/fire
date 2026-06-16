@@ -2,108 +2,38 @@ import Combine
 import UIKit
 import WebKit
 
-public final class FireLoginWebViewProbeBridge: NSObject, WKHTTPCookieStoreObserver {
-    private static let cookieProbeDebounceDelay: TimeInterval = 0.35
-
-    private weak var observedWebView: WKWebView?
-    private weak var observedCookieStore: WKHTTPCookieStore?
-    private var pendingProbeWorkItem: DispatchWorkItem?
-    private let onProbeRequested: (WKWebView) -> Void
-
-    public init(onProbeRequested: @escaping (WKWebView) -> Void) {
-        self.onProbeRequested = onProbeRequested
-    }
-
-    deinit {
-        pendingProbeWorkItem?.cancel()
-        observedCookieStore?.remove(self)
-    }
-
-    public func attach(to webView: WKWebView) {
-        let cookieStore = webView.configuration.websiteDataStore.httpCookieStore
-        if observedCookieStore !== cookieStore {
-            observedCookieStore?.remove(self)
-            cookieStore.add(self)
-            observedCookieStore = cookieStore
-        }
-        observedWebView = webView
-    }
-
-    public func detach() {
-        pendingProbeWorkItem?.cancel()
-        pendingProbeWorkItem = nil
-        observedCookieStore?.remove(self)
-        observedCookieStore = nil
-        observedWebView = nil
-    }
-
-    public func requestProbe() {
-        requestProbe(after: 0)
-    }
-
-    private func requestProbe(after delay: TimeInterval) {
-        pendingProbeWorkItem?.cancel()
-        guard let observedWebView else {
-            return
-        }
-
-        let workItem = DispatchWorkItem { [weak self, weak observedWebView] in
-            guard self != nil, let observedWebView else {
-                return
-            }
-            self?.pendingProbeWorkItem = nil
-            self?.onProbeRequested(observedWebView)
-        }
-        pendingProbeWorkItem = workItem
-
-        if delay <= 0 {
-            DispatchQueue.main.async(execute: workItem)
-        } else {
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
-        }
-    }
-
-    public func cookiesDidChange(in cookieStore: WKHTTPCookieStore) {
-        requestProbe(after: Self.cookieProbeDebounceDelay)
-    }
-}
-
 @MainActor
 final class FireLoginWebViewController: UIViewController, WKNavigationDelegate, WKUIDelegate,
     WKScriptMessageHandler
 {
     private let viewModel: FireAppViewModel
-    private let presentationState: FireAuthPresentationState
     private let progressView = UIProgressView(progressViewStyle: .bar)
     private let addressBar = FireLoginAddressBarView()
     private let errorBanner = FireLoginErrorBannerView()
+    private let credentialStack = UIStackView()
+    private let identifierField = UITextField()
+    private let passwordField = UITextField()
     private let bottomBar = FireAuthBottomToolbarView()
     private let webView: WKWebView
-    private let probeBridge: FireLoginWebViewProbeBridge
     private let scriptMessageProxy: FireLoginScriptMessageProxy
     private var cancellables: Set<AnyCancellable> = []
     private var observations: [NSKeyValueObservation] = []
     private var errorBannerHiddenHeightConstraint: NSLayoutConstraint?
     private var lastInjectedCredential: FireSavedCredential?
     private var didTearDownWebView = false
+    private var lastHcaptchaToken: String?
+    private var isRunningMinimalLogin = false
 
     init(
         viewModel: FireAppViewModel,
-        presentationState: FireAuthPresentationState
+        presentationState _: FireAuthPresentationState
     ) {
         self.viewModel = viewModel
-        self.presentationState = presentationState
-        self.probeBridge = FireLoginWebViewProbeBridge { webView in
-            Task { @MainActor in
-                viewModel.refreshLoginSyncReadiness(from: webView)
-            }
-        }
         let scriptMessageProxy = FireLoginScriptMessageProxy()
         self.scriptMessageProxy = scriptMessageProxy
         self.webView = WKWebView(
             frame: .zero,
-            configuration: FireWebViewBrowserProfile.makeLoginConfiguration(
-                credential: viewModel.savedLoginCredential,
+            configuration: FireWebViewBrowserProfile.makeMinimalLoginConfiguration(
                 messageHandler: scriptMessageProxy
             )
         )
@@ -144,7 +74,7 @@ final class FireLoginWebViewController: UIViewController, WKNavigationDelegate, 
         bindState()
         observeWebView()
         syncBrowserState()
-        viewModel.prepareAuthWebView(webView)
+        viewModel.prepareMinimalAuthWebView(webView)
     }
 
     override func viewDidAppear(_ animated: Bool) {
@@ -164,15 +94,16 @@ final class FireLoginWebViewController: UIViewController, WKNavigationDelegate, 
         guard !didTearDownWebView else { return }
         didTearDownWebView = true
         observations.removeAll()
-        probeBridge.detach()
         webView.navigationDelegate = nil
         webView.uiDelegate = nil
-        webView.configuration.userContentController.removeScriptMessageHandler(
-            forName: FireLoginScripts.loginCredentialsMessageName
-        )
-        webView.configuration.userContentController.removeScriptMessageHandler(
-            forName: FireLoginScripts.fingerprintDoneMessageName
-        )
+        [
+            FireLoginScripts.hcaptchaPassMessageName,
+            FireLoginScripts.hcaptchaErrorMessageName,
+            FireLoginScripts.hcaptchaExpiredMessageName,
+            FireLoginScripts.loginResultMessageName,
+        ].forEach { name in
+            webView.configuration.userContentController.removeScriptMessageHandler(forName: name)
+        }
     }
 
     private func configureWebView() {
@@ -183,7 +114,6 @@ final class FireLoginWebViewController: UIViewController, WKNavigationDelegate, 
             webView,
             preferredUserAgent: viewModel.session.browserUserAgent
         )
-        probeBridge.attach(to: webView)
     }
 
     private func installSubviews() {
@@ -195,12 +125,22 @@ final class FireLoginWebViewController: UIViewController, WKNavigationDelegate, 
         addressBar.translatesAutoresizingMaskIntoConstraints = false
         errorBanner.translatesAutoresizingMaskIntoConstraints = false
         errorBanner.isHidden = true
+        credentialStack.translatesAutoresizingMaskIntoConstraints = false
+        credentialStack.axis = .vertical
+        credentialStack.spacing = 10
+        credentialStack.layoutMargins = UIEdgeInsets(top: 12, left: 16, bottom: 10, right: 16)
+        credentialStack.isLayoutMarginsRelativeArrangement = true
+        configureCredentialField(identifierField, placeholder: "用户名或邮箱", secure: false)
+        configureCredentialField(passwordField, placeholder: "密码", secure: true)
+        credentialStack.addArrangedSubview(identifierField)
+        credentialStack.addArrangedSubview(passwordField)
         webView.translatesAutoresizingMaskIntoConstraints = false
         bottomBar.translatesAutoresizingMaskIntoConstraints = false
 
         view.addSubview(progressView)
         view.addSubview(addressBar)
         view.addSubview(errorBanner)
+        view.addSubview(credentialStack)
         view.addSubview(webView)
         view.addSubview(bottomBar)
 
@@ -224,7 +164,11 @@ final class FireLoginWebViewController: UIViewController, WKNavigationDelegate, 
 
             webView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             webView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            webView.topAnchor.constraint(equalTo: errorBanner.bottomAnchor),
+            credentialStack.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            credentialStack.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            credentialStack.topAnchor.constraint(equalTo: errorBanner.bottomAnchor),
+
+            webView.topAnchor.constraint(equalTo: credentialStack.bottomAnchor),
             webView.bottomAnchor.constraint(equalTo: bottomBar.topAnchor),
 
             bottomBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -255,9 +199,8 @@ final class FireLoginWebViewController: UIViewController, WKNavigationDelegate, 
             .store(in: &cancellables)
 
         viewModel.$isSyncingLoginSession
-            .combineLatest(viewModel.$canSyncLoginSession)
             .receive(on: RunLoop.main)
-            .sink { [weak self] _, _ in
+            .sink { [weak self] _ in
                 self?.syncBrowserState()
             }
             .store(in: &cancellables)
@@ -272,7 +215,7 @@ final class FireLoginWebViewController: UIViewController, WKNavigationDelegate, 
         NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
-                self?.refreshReadinessForActiveScene()
+                self?.syncBrowserState()
             }
             .store(in: &cancellables)
     }
@@ -317,21 +260,33 @@ final class FireLoginWebViewController: UIViewController, WKNavigationDelegate, 
             return
         }
         lastInjectedCredential = credential
-        webView.evaluateJavaScript(FireLoginScripts.credentialAutoFillSource(credential: credential))
+        identifierField.text = credential?.username
+        passwordField.text = credential?.password
+        syncBrowserState()
+    }
+
+    private func configureCredentialField(
+        _ field: UITextField,
+        placeholder: String,
+        secure: Bool
+    ) {
+        field.borderStyle = .roundedRect
+        field.placeholder = placeholder
+        field.autocapitalizationType = .none
+        field.autocorrectionType = .no
+        field.clearButtonMode = .whileEditing
+        field.isSecureTextEntry = secure
+        field.returnKeyType = secure ? .done : .next
+        field.textContentType = secure ? .password : .username
+        field.addTarget(self, action: #selector(credentialFieldChanged), for: .editingChanged)
+    }
+
+    @objc private func credentialFieldChanged() {
+        syncBrowserState()
     }
 
     private func handleLoadingStateChange(isLoading: Bool) {
         syncBrowserState()
-        if !isLoading {
-            viewModel.refreshLoginSyncReadiness(from: webView)
-        }
-    }
-
-    private func refreshReadinessForActiveScene() {
-        switch presentationState {
-        case .login:
-            viewModel.refreshLoginSyncReadiness(from: webView)
-        }
     }
 
     private func syncBrowserState() {
@@ -341,11 +296,16 @@ final class FireLoginWebViewController: UIViewController, WKNavigationDelegate, 
         bottomBar.configure(
             canGoBack: webView.canGoBack,
             canGoForward: webView.canGoForward,
-            isLoading: webView.isLoading,
-            isRunningAction: viewModel.isSyncingLoginSession,
-            canPerformPrimaryAction: viewModel.canSyncLoginSession,
-            primaryTitle: viewModel.isSyncingLoginSession ? "同步中..." : "完成登录"
+            isLoading: webView.isLoading || isRunningMinimalLogin,
+            isRunningAction: viewModel.isSyncingLoginSession || isRunningMinimalLogin,
+            canPerformPrimaryAction: hasEnteredCredentials(),
+            primaryTitle: (viewModel.isSyncingLoginSession || isRunningMinimalLogin) ? "登录中..." : "登录"
         )
+    }
+
+    private func hasEnteredCredentials() -> Bool {
+        !(identifierField.text?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+            && !(passwordField.text?.isEmpty ?? true)
     }
 
     private func updateErrorBanner(_ message: String?) {
@@ -360,16 +320,37 @@ final class FireLoginWebViewController: UIViewController, WKNavigationDelegate, 
     }
 
     private func performPrimaryAction() {
-        switch presentationState {
-        case .login:
-            viewModel.completeLogin(from: webView)
+        guard let token = lastHcaptchaToken, !token.isEmpty else {
+            viewModel.errorMessage = "请先完成人机验证。"
+            return
         }
+        runMinimalLogin(hcaptchaToken: token, secondFactorToken: nil)
     }
 
-    private func syncBrowserStateAndProbe(_ webView: WKWebView) {
+    private func runMinimalLogin(hcaptchaToken: String?, secondFactorToken: String?) {
+        let identifier = identifierField.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let password = passwordField.text ?? ""
+        guard !identifier.isEmpty, !password.isEmpty else {
+            viewModel.errorMessage = "请先填写账号和密码。"
+            return
+        }
+
+        isRunningMinimalLogin = true
         syncBrowserState()
-        probeBridge.attach(to: webView)
-        probeBridge.requestProbe()
+        let script = FireLoginScripts.fireLoginInvocation(
+            identifier: identifier,
+            password: password,
+            hcaptchaToken: hcaptchaToken,
+            secondFactorToken: secondFactorToken
+        )
+        webView.evaluateJavaScript(script) { [weak self] _, error in
+            guard let self, let error else { return }
+            Task { @MainActor in
+                self.isRunningMinimalLogin = false
+                self.viewModel.errorMessage = error.localizedDescription
+                self.syncBrowserState()
+            }
+        }
     }
 
     private func openInCurrentWebViewIfNeeded(
@@ -401,7 +382,7 @@ final class FireLoginWebViewController: UIViewController, WKNavigationDelegate, 
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        syncBrowserStateAndProbe(webView)
+        syncBrowserState()
     }
 
     func webView(
@@ -409,7 +390,7 @@ final class FireLoginWebViewController: UIViewController, WKNavigationDelegate, 
         didFail navigation: WKNavigation!,
         withError error: Error
     ) {
-        syncBrowserStateAndProbe(webView)
+        syncBrowserState()
     }
 
     func webView(
@@ -417,11 +398,11 @@ final class FireLoginWebViewController: UIViewController, WKNavigationDelegate, 
         didFailProvisionalNavigation navigation: WKNavigation!,
         withError error: Error
     ) {
-        syncBrowserStateAndProbe(webView)
+        syncBrowserState()
     }
 
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
-        syncBrowserStateAndProbe(webView)
+        syncBrowserState()
     }
 
     func webView(
@@ -439,20 +420,112 @@ final class FireLoginWebViewController: UIViewController, WKNavigationDelegate, 
         didReceive message: WKScriptMessage
     ) {
         switch message.name {
-        case FireLoginScripts.loginCredentialsMessageName:
-            guard
-                let body = message.body as? [String: Any],
-                let username = body["username"] as? String,
-                let password = body["password"] as? String
-            else {
-                return
-            }
-            viewModel.saveLoginCredential(username: username, password: password)
-        case FireLoginScripts.fingerprintDoneMessageName:
-            viewModel.recordLoginFingerprintDone()
+        case FireLoginScripts.hcaptchaPassMessageName:
+            guard let token = message.body as? String else { return }
+            lastHcaptchaToken = token
+            runMinimalLogin(hcaptchaToken: token, secondFactorToken: nil)
+        case FireLoginScripts.hcaptchaErrorMessageName:
+            isRunningMinimalLogin = false
+            viewModel.errorMessage = (message.body as? String) ?? "hCaptcha 验证失败，请重试。"
+            syncBrowserState()
+        case FireLoginScripts.hcaptchaExpiredMessageName:
+            lastHcaptchaToken = nil
+            isRunningMinimalLogin = false
+            viewModel.errorMessage = "hCaptcha 已过期，请重新验证。"
+            syncBrowserState()
+        case FireLoginScripts.loginResultMessageName:
+            handleLoginResult(message.body)
         default:
             break
         }
+    }
+
+    private func handleLoginResult(_ body: Any) {
+        guard let result = makeLoginJsResult(from: body) else {
+            isRunningMinimalLogin = false
+            viewModel.errorMessage = "登录结果格式无效。"
+            syncBrowserState()
+            return
+        }
+
+        Task { @MainActor in
+            do {
+                let decision = try await viewModel.classifyWebViewLoginResult(result)
+                handleLoginDecision(decision)
+            } catch {
+                isRunningMinimalLogin = false
+                viewModel.errorMessage = error.localizedDescription
+                syncBrowserState()
+            }
+        }
+    }
+
+    private func makeLoginJsResult(from body: Any) -> WebViewLoginJsResultState? {
+        guard let payload = body as? [String: Any] else {
+            return nil
+        }
+        let phase: WebViewLoginPhaseState
+        switch (payload["phase"] as? String)?.lowercased() {
+        case "csrf":
+            phase = .csrf
+        case "hcaptcha":
+            phase = .hcaptcha
+        case "session":
+            phase = .session
+        default:
+            phase = .exception
+        }
+        let status = UInt16(clamping: (payload["status"] as? NSNumber)?.intValue ?? 0)
+        return WebViewLoginJsResultState(
+            phase: phase,
+            status: status,
+            body: (payload["body"] as? String) ?? ""
+        )
+    }
+
+    private func handleLoginDecision(_ decision: WebViewLoginDecisionState) {
+        switch decision {
+        case .success:
+            completeMinimalLogin()
+        case .needSecondFactor:
+            isRunningMinimalLogin = false
+            syncBrowserState()
+            showSecondFactorPrompt()
+        case .retryCloudflare:
+            isRunningMinimalLogin = false
+            viewModel.errorMessage = "需要先完成 Cloudflare 验证后再登录。"
+            syncBrowserState()
+        case let .failure(failure):
+            isRunningMinimalLogin = false
+            viewModel.errorMessage = failure.message ?? "登录失败，请重试。"
+            syncBrowserState()
+        }
+    }
+
+    private func completeMinimalLogin() {
+        isRunningMinimalLogin = false
+        syncBrowserState()
+        viewModel.completeMinimalLogin(
+            from: webView,
+            identifier: identifierField.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
+            password: passwordField.text ?? ""
+        )
+    }
+
+    private func showSecondFactorPrompt() {
+        let alert = UIAlertController(title: "二步验证码", message: nil, preferredStyle: .alert)
+        alert.addTextField { field in
+            field.placeholder = "身份验证器验证码"
+            field.keyboardType = .numberPad
+            field.textContentType = .oneTimeCode
+        }
+        alert.addAction(UIAlertAction(title: "取消", style: .cancel))
+        alert.addAction(UIAlertAction(title: "验证", style: .default) { [weak self, weak alert] _ in
+            guard let self else { return }
+            let code = alert?.textFields?.first?.text?.trimmingCharacters(in: .whitespacesAndNewlines)
+            self.runMinimalLogin(hcaptchaToken: nil, secondFactorToken: code)
+        })
+        present(alert, animated: true)
     }
 }
 
@@ -623,7 +696,7 @@ private final class FireAuthBottomToolbarView: UIView {
         configureNavigationButton(backButton, systemImage: "chevron.backward")
         configureNavigationButton(forwardButton, systemImage: "chevron.forward")
         primaryButton.configuration = primaryConfiguration(
-            title: "完成登录",
+            title: "登录",
             showsActivityIndicator: false
         )
 

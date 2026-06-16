@@ -50,6 +50,20 @@ class FireWebViewLoginCoordinator(
         return sessionStore.refreshBootstrapIfNeeded()
     }
 
+    suspend fun completeJsLogin(webView: WebView, identifier: String): SessionState =
+        withContext(Dispatchers.Main) {
+            FireCapturedLoginState(
+                currentUrl = webView.url ?: "$loginBaseUrl/",
+                username = identifier,
+                csrfToken = null,
+                homeHtml = null,
+                browserUserAgent = webView.settings.userAgentString?.takeIf { it.isNotBlank() },
+                cookies = relevantCookies(webView.url ?: "$loginBaseUrl/"),
+            )
+        }.let { captured ->
+            completeLogin(captured)
+        }
+
     suspend fun logout(): SessionState {
         return sessionStore.logout()
     }

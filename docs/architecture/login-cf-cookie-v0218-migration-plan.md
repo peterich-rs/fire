@@ -435,9 +435,13 @@ Current branch status:
   sweep, and nuclear-reset APIs; both WebView login coordinators can execute
   Rust `SetRaw`, `DeleteExact`, and `DeleteByName` cookie actions against their
   native WebView cookie stores.
-- Sweep commit hooks, self-healing retry orchestration, and replacing the
-  primary login UI entry with the minimal dialog remain active implementation
-  work.
+- The primary iOS and Android password-login entries now use native credential
+  fields plus a minimal same-origin WebView document for hCaptcha and
+  `window.__fireLogin`; they no longer load the Discourse Ember `/login` page as
+  the normal password-login path.
+- Remaining active implementation work: automatic Cloudflare manual-verify
+  retry for login CSRF failures, sweep commit hooks, self-healing retry
+  orchestration, and the Rust CF pre-dispatch freeze gate.
 
 ## Phase 5: Cloudflare Freeze Gate
 

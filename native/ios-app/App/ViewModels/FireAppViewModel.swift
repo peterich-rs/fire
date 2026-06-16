@@ -46,7 +46,7 @@ final class FireAppViewModel: ObservableObject {
     private var readPathLoginRecoveryTask: Task<Bool, Never>?
     private var readPathLoginRecoveryEpoch: UInt64?
     private var readPathLoginRecoveryAttemptedEpochs: Set<UInt64> = []
-    private let loginURL = URL(string: "https://linux.do/login")!
+    private let loginURL = URL(string: "https://linux.do/")!
     private let loginCoordinatorPreloader: LoginCoordinatorPreloader?
     private let loginNetworkWarmup: LoginNetworkWarmup?
     private lazy var appServiceHost = FireAppServiceHost(owner: self)
@@ -289,6 +289,61 @@ final class FireAppViewModel: ObservableObject {
         }
     }
 
+    func completeMinimalLogin(
+        from webView: WKWebView,
+        identifier: String,
+        password: String
+    ) {
+        guard !isSyncingLoginSession else {
+            return
+        }
+
+        isSyncingLoginSession = true
+        Task {
+            defer { isSyncingLoginSession = false }
+
+            do {
+                try await FireAPMManager.shared.withSpan(.authLoginSync) {
+                    let loginCoordinator = try await loginCoordinatorValue()
+                    let sessionStore = try await sessionStoreValue()
+                    errorMessage = nil
+                    await applySession(
+                        try await loginCoordinator.completeJsLogin(
+                            from: webView,
+                            identifier: identifier
+                        ),
+                        activateMessageBus: false
+                    )
+                    try await sessionStore.saveLoginCredential(
+                        username: identifier,
+                        password: password
+                    )
+                    savedLoginCredential = try await sessionStore.loadSavedCredential()
+                    FireCfClearanceRefreshService.shared.setLoginStateConfirmed(true)
+                    try await sessionStore.triggerAppStateRefresh(
+                        .loginCompleted,
+                        handler: appStateRefreshCoordinator
+                    )
+                    setAuthPresentationState(nil)
+                    canSyncLoginSession = false
+                    cachedLoginSyncReadiness = nil
+                }
+            } catch {
+                if await handleRecoverableSessionErrorIfNeeded(error) {
+                    return
+                }
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    func classifyWebViewLoginResult(
+        _ result: WebViewLoginJsResultState
+    ) async throws -> WebViewLoginDecisionState {
+        let sessionStore = try await sessionStoreValue()
+        return try await sessionStore.classifyWebViewLoginResult(result)
+    }
+
     func dismissAuthPresentation() {
         canSyncLoginSession = false
         cachedLoginSyncReadiness = nil
@@ -330,6 +385,50 @@ final class FireAppViewModel: ObservableObject {
                 return
             }
             webView.load(URLRequest(url: targetURL))
+        }
+    }
+
+    func prepareMinimalAuthWebView(_ webView: WKWebView) {
+        guard webView.url == nil else {
+            return
+        }
+
+        Task { [weak self, weak webView] in
+            guard let self, let webView else { return }
+            do {
+                let sessionStore = try await sessionStoreValue()
+                let replayEntries = try await sessionStore.cookieReplayQueue()
+                if !replayEntries.isEmpty {
+                    let cookieStore = webView.configuration.websiteDataStore.httpCookieStore
+                    for entry in replayEntries {
+                        guard let cookieURL = URL(string: entry.url) else {
+                            continue
+                        }
+                        let cookies = HTTPCookie.cookies(
+                            withResponseHeaderFields: ["Set-Cookie": entry.rawSetCookie],
+                            for: cookieURL
+                        )
+                        for cookie in cookies {
+                            await setWebKitCookie(cookie, in: cookieStore)
+                        }
+                    }
+                    try await sessionStore.clearCookieReplayQueue()
+                }
+                let loginCoordinator = try await loginCoordinatorValue()
+                try await loginCoordinator.primeCookies(into: webView, targetURL: URL(string: "https://linux.do/"))
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+
+            guard webView.url == nil else {
+                return
+            }
+            webView.loadHTMLString(
+                FireLoginScripts.minimalLoginHTML(
+                    hcaptchaSiteKey: FireLoginScripts.linuxDoHcaptchaSiteKey
+                ),
+                baseURL: URL(string: "https://linux.do/")
+            )
         }
     }
 

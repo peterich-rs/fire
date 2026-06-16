@@ -3,6 +3,8 @@ package com.fire.app.session
 import org.json.JSONObject
 
 object FireLoginScripts {
+    const val linuxDoHcaptchaSiteKey = "a776b4ac-8c4c-441e-986a-c6ee9ed8cf08"
+
     private const val hcaptchaScriptUrl = "https://js.hcaptcha.com/1/api.js"
 
     const val preloadedDataCapture = """

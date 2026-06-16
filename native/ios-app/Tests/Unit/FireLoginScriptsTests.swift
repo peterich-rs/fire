@@ -6,6 +6,10 @@ final class FireLoginScriptsTests: XCTestCase {
         let html = FireLoginScripts.minimalLoginHTML(hcaptchaSiteKey: "site-key")
 
         XCTAssertTrue(html.contains("https://js.hcaptcha.com/1/api.js"))
+        XCTAssertTrue(FireLoginScripts.linuxDoHcaptchaSiteKey.range(
+            of: #"^[0-9a-f-]{36}$"#,
+            options: .regularExpression
+        ) != nil)
         XCTAssertTrue(html.contains("hcaptcha.render('hcaptcha'"))
         XCTAssertTrue(html.contains("window.__fireLogin = async function"))
         XCTAssertTrue(html.contains("fetch('/session/csrf'"))

@@ -209,6 +209,152 @@ impl CanonicalCookie {
     }
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CanonicalCookieStore {
+    cookies: Vec<CanonicalCookie>,
+}
+
+impl CanonicalCookieStore {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn read_all(&self) -> &[CanonicalCookie] {
+        &self.cookies
+    }
+
+    pub fn into_cookies(self) -> Vec<CanonicalCookie> {
+        self.cookies
+    }
+
+    pub fn save_canonical_cookies(
+        &mut self,
+        uri: &url::Url,
+        cookies: impl IntoIterator<Item = CanonicalCookie>,
+        trust: CookieTrust,
+    ) {
+        for cookie in cookies {
+            let mut resolved = resolve_canonical_cookie(uri, cookie);
+            let Some(idx) = self
+                .cookies
+                .iter()
+                .position(|existing| existing.storage_key() == resolved.storage_key())
+            else {
+                if !resolved.is_expired_now() {
+                    self.cookies.push(resolved);
+                }
+                continue;
+            };
+
+            let existing = self.cookies[idx].clone();
+            resolved = match trust {
+                CookieTrust::Trusted => resolved.with_trusted_version_from(&existing),
+                CookieTrust::Untrusted => {
+                    if !resolved.is_fresher_than(&existing) {
+                        continue;
+                    }
+                    resolved.creation_time_unix_ms = existing.creation_time_unix_ms;
+                    resolved.last_access_time_unix_ms = existing.last_access_time_unix_ms;
+                    resolved
+                }
+            };
+
+            self.cookies.remove(idx);
+            if !resolved.is_expired_now() {
+                self.cookies.push(resolved);
+            }
+        }
+    }
+
+    pub fn delete_by_name(&mut self, uri: &url::Url, name: &str) -> usize {
+        let host = uri.host_str().map(|value| value.to_ascii_lowercase());
+        let before = self.cookies.len();
+        self.cookies.retain(|cookie| {
+            if cookie.name != name {
+                return true;
+            }
+            let Some(host) = host.as_deref() else {
+                return false;
+            };
+            let Some(domain) = cookie.normalized_domain() else {
+                return false;
+            };
+            !(host == domain
+                || host.ends_with(&format!(".{domain}"))
+                || domain.ends_with(&format!(".{host}")))
+        });
+        before - self.cookies.len()
+    }
+
+    pub fn load_for_request(&self, uri: &url::Url) -> Vec<CanonicalCookie> {
+        let mut matching = self
+            .cookies
+            .iter()
+            .filter(|cookie| canonical_cookie_matches_url(cookie, uri))
+            .cloned()
+            .collect::<Vec<_>>();
+        matching.sort_by(|left, right| {
+            right
+                .path
+                .len()
+                .cmp(&left.path.len())
+                .then_with(|| {
+                    let left_domain_len = left.normalized_domain().map_or(0, |domain| domain.len());
+                    let right_domain_len =
+                        right.normalized_domain().map_or(0, |domain| domain.len());
+                    right_domain_len.cmp(&left_domain_len)
+                })
+                .then_with(|| right.host_only.cmp(&left.host_only))
+                .then_with(|| left.creation_time_unix_ms.cmp(&right.creation_time_unix_ms))
+        });
+        matching
+    }
+}
+
+fn resolve_canonical_cookie(uri: &url::Url, cookie: CanonicalCookie) -> CanonicalCookie {
+    let origin_url = cookie
+        .origin_url
+        .clone()
+        .or_else(|| Some(uri.as_str().to_string()));
+    let mut resolved = cookie;
+    resolved.origin_url = origin_url;
+    if resolved.path.trim().is_empty() {
+        resolved.path = "/".to_string();
+    }
+    if resolved.domain.is_none() && !resolved.host_only {
+        resolved.domain = uri.host_str().map(|host| host.to_ascii_lowercase());
+    }
+    resolved
+}
+
+fn canonical_cookie_matches_url(cookie: &CanonicalCookie, uri: &url::Url) -> bool {
+    if cookie.is_expired_now() {
+        return false;
+    }
+    if cookie.secure && uri.scheme() != "https" {
+        return false;
+    }
+    let Some(host) = uri.host_str().map(|value| value.to_ascii_lowercase()) else {
+        return false;
+    };
+    let Some(domain) = cookie.normalized_domain() else {
+        return false;
+    };
+    if cookie.host_only {
+        if host != domain {
+            return false;
+        }
+    } else if host != domain && !host.ends_with(&format!(".{domain}")) {
+        return false;
+    }
+    let request_path = if uri.path().is_empty() {
+        "/"
+    } else {
+        uri.path()
+    };
+    request_path.starts_with(&normalized_cookie_path(&cookie.path))
+}
+
 fn normalized_cookie_path(path: &str) -> String {
     let trimmed = path.trim();
     if trimmed.is_empty() {
@@ -766,5 +912,88 @@ mod tests {
         assert!(header.contains("SameSite=None"));
         assert!(header.contains("Partitioned"));
         assert!(header.contains("Max-Age=120"));
+    }
+
+    #[test]
+    fn canonical_store_trusted_write_bumps_existing_version() {
+        let uri = url::Url::parse("https://linux.do/").expect("url");
+        let mut store = CanonicalCookieStore::new();
+
+        store.save_canonical_cookies(
+            &uri,
+            [CanonicalCookie::new("_t", "old", "https://linux.do/")],
+            CookieTrust::Trusted,
+        );
+        store.save_canonical_cookies(
+            &uri,
+            [CanonicalCookie::new("_t", "new", "https://linux.do/")],
+            CookieTrust::Trusted,
+        );
+
+        let cookie = store.read_all().first().expect("cookie");
+        assert_eq!(cookie.value, "new");
+        assert_eq!(cookie.version, 2);
+    }
+
+    #[test]
+    fn canonical_store_untrusted_stale_write_is_ignored() {
+        let uri = url::Url::parse("https://linux.do/").expect("url");
+        let mut store = CanonicalCookieStore::new();
+        let mut trusted = CanonicalCookie::new("cf_clearance", "fresh", "https://linux.do/");
+        trusted.version = 3;
+        store.save_canonical_cookies(&uri, [trusted], CookieTrust::Trusted);
+
+        let mut stale = CanonicalCookie::new("cf_clearance", "stale", "https://linux.do/");
+        stale.version = 1;
+        stale.expires_at_unix_ms = Some(current_unix_ms() + 10_000_000);
+        store.save_canonical_cookies(&uri, [stale], CookieTrust::Untrusted);
+
+        let cookie = store.read_all().first().expect("cookie");
+        assert_eq!(cookie.value, "fresh");
+        assert_eq!(cookie.version, 3);
+    }
+
+    #[test]
+    fn canonical_store_delete_by_name_bypasses_freshness() {
+        let uri = url::Url::parse("https://linux.do/").expect("url");
+        let mut store = CanonicalCookieStore::new();
+        let mut cookie = CanonicalCookie::new("cf_clearance", "fresh", "https://linux.do/");
+        cookie.expires_at_unix_ms = Some(current_unix_ms() + 10_000_000);
+        store.save_canonical_cookies(&uri, [cookie], CookieTrust::Trusted);
+
+        let removed = store.delete_by_name(&uri, "cf_clearance");
+
+        assert_eq!(removed, 1);
+        assert!(store.read_all().is_empty());
+    }
+
+    #[test]
+    fn canonical_store_load_for_request_matches_domain_and_path() {
+        let uri = url::Url::parse("https://linux.do/t/1").expect("url");
+        let subdomain_uri = url::Url::parse("https://connect.linux.do/t/1").expect("url");
+        let mut store = CanonicalCookieStore::new();
+
+        let mut host_only = CanonicalCookie::new("_t", "host-only", "https://linux.do/");
+        host_only.host_only = true;
+        host_only.path = "/".into();
+        let mut domain_cookie = CanonicalCookie::new("cf_clearance", "domain", "https://linux.do/");
+        domain_cookie.host_only = false;
+        domain_cookie.domain = Some(".linux.do".into());
+        domain_cookie.path = "/t/".into();
+        store.save_canonical_cookies(&uri, [host_only, domain_cookie], CookieTrust::Trusted);
+
+        let main_values = store
+            .load_for_request(&uri)
+            .into_iter()
+            .map(|cookie| cookie.value)
+            .collect::<Vec<_>>();
+        let subdomain_values = store
+            .load_for_request(&subdomain_uri)
+            .into_iter()
+            .map(|cookie| cookie.value)
+            .collect::<Vec<_>>();
+
+        assert_eq!(main_values, vec!["domain", "host-only"]);
+        assert_eq!(subdomain_values, vec!["domain"]);
     }
 }

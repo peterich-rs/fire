@@ -4,11 +4,12 @@ use fire_core::{
 };
 use fire_models::{
     AppStateRefreshEvent, BootstrapArtifacts, CanonicalCookie, CloudflareChallengeRequest,
-    CloudflareChallengeResult, CookieSameSite, CookieSnapshot, CookieSource, CookieSweepIntent,
-    CookieSweepPlan, HomeTopicListScope, LoginFailure, LoginFailureKind, LoginFinalizationResult,
-    LoginPhase, LoginSyncInput, NuclearResetPlan, PassiveLogoutTrigger, PlatformCookie,
-    ProbeResult, RefreshBatch, SecondFactorRequirement, SessionReadiness, SessionSnapshot,
-    SignalStrength, TopicCategory, WebViewCookieAction, WebViewCookieInfo, WebViewLoginDecision,
+    CloudflareChallengeResult, CookieSameSite, CookieSelfHealingPhase, CookieSelfHealingRequest,
+    CookieSelfHealingResult, CookieSnapshot, CookieSource, CookieSweepIntent, CookieSweepPlan,
+    HomeTopicListScope, LoginFailure, LoginFailureKind, LoginFinalizationResult, LoginPhase,
+    LoginSyncInput, NuclearResetPlan, PassiveLogoutTrigger, PlatformCookie, ProbeResult,
+    RefreshBatch, SecondFactorRequirement, SessionReadiness, SessionSnapshot, SignalStrength,
+    TopicCategory, WebViewCookieAction, WebViewCookieInfo, WebViewLoginDecision,
     WebViewLoginJsResult, WebViewLoginPhase,
 };
 use fire_store::cookie_replay::CookieReplayEntry;
@@ -947,6 +948,70 @@ impl From<CloudflareChallengeResultState> for CloudflareChallengeResult {
     }
 }
 
+#[derive(uniffi::Enum, Debug, Clone, Copy)]
+pub enum CookieSelfHealingPhaseState {
+    Sweep,
+    NuclearReset,
+}
+
+impl From<CookieSelfHealingPhase> for CookieSelfHealingPhaseState {
+    fn from(value: CookieSelfHealingPhase) -> Self {
+        match value {
+            CookieSelfHealingPhase::Sweep => Self::Sweep,
+            CookieSelfHealingPhase::NuclearReset => Self::NuclearReset,
+        }
+    }
+}
+
+impl From<CookieSelfHealingPhaseState> for CookieSelfHealingPhase {
+    fn from(value: CookieSelfHealingPhaseState) -> Self {
+        match value {
+            CookieSelfHealingPhaseState::Sweep => Self::Sweep,
+            CookieSelfHealingPhaseState::NuclearReset => Self::NuclearReset,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct CookieSelfHealingRequestState {
+    pub operation: String,
+    pub request_url: String,
+    pub target_url: String,
+    pub phase: CookieSelfHealingPhaseState,
+    pub attempt: u8,
+    pub cookie_names: Vec<String>,
+    pub session_epoch: u64,
+}
+
+impl From<CookieSelfHealingRequest> for CookieSelfHealingRequestState {
+    fn from(value: CookieSelfHealingRequest) -> Self {
+        Self {
+            operation: value.operation,
+            request_url: value.request_url,
+            target_url: value.target_url,
+            phase: value.phase.into(),
+            attempt: value.attempt,
+            cookie_names: value.cookie_names,
+            session_epoch: value.session_epoch,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct CookieSelfHealingResultState {
+    pub completed: bool,
+    pub session_epoch: u64,
+}
+
+impl From<CookieSelfHealingResultState> for CookieSelfHealingResult {
+    fn from(value: CookieSelfHealingResultState) -> Self {
+        Self {
+            completed: value.completed,
+            session_epoch: value.session_epoch,
+        }
+    }
+}
+
 #[derive(uniffi::Record, Debug, Clone)]
 pub struct CurrentUserSnapshotState {
     pub id: u64,
@@ -1095,4 +1160,9 @@ pub trait CloudflareChallengeHandler: Send + Sync {
         &self,
         request: CloudflareChallengeRequestState,
     ) -> CloudflareChallengeResultState;
+}
+
+#[uniffi::export(with_foreign)]
+pub trait CookieSelfHealingHandler: Send + Sync {
+    fn heal_cookies(&self, request: CookieSelfHealingRequestState) -> CookieSelfHealingResultState;
 }

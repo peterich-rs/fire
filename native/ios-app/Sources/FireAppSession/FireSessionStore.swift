@@ -135,6 +135,16 @@ public actor FireSessionStore {
         try core.session().unregisterCloudflareChallengeHandler()
     }
 
+    public func registerCookieSelfHealingHandler(
+        _ handler: any CookieSelfHealingHandler
+    ) throws {
+        try core.session().registerCookieSelfHealingHandler(handler: handler)
+    }
+
+    public func unregisterCookieSelfHealingHandler() throws {
+        try core.session().unregisterCookieSelfHealingHandler()
+    }
+
     public func ensurePreloadedDataLoaded() async throws {
         try await core.session().ensurePreloadedDataLoaded()
         try persistCurrentSessionIfNeeded()

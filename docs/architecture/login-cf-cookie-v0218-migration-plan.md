@@ -271,6 +271,26 @@ pub struct CookieSweepPlan {
     pub actions: Vec<WebViewCookieAction>,
     pub selected_winner: Option<CanonicalCookie>,
 }
+
+pub enum CookieSelfHealingPhase {
+    Sweep,
+    NuclearReset,
+}
+
+pub struct CookieSelfHealingRequest {
+    pub operation: String,
+    pub request_url: String,
+    pub target_url: String,
+    pub phase: CookieSelfHealingPhase,
+    pub attempt: u8,
+    pub cookie_names: Vec<String>,
+    pub session_epoch: u64,
+}
+
+pub struct CookieSelfHealingResult {
+    pub completed: bool,
+    pub session_epoch: u64,
+}
 ```
 
 Usage example:
@@ -406,16 +426,28 @@ not by a removed reference submodule or stale full-browser login plan.
   sweep + retry, then nuclear reset + retry once, with recursion guard.
 - Keep conservative session probe for true logout after healing fails.
 
+**File: `rust/crates/fire-core/src/core/cookie_healing.rs`**
+
+- Add the Rust-owned platform handler registry used by the network
+  self-healing branch.
+- Keep platform cookie-store mutation behind an explicit handler so normal API
+  orchestration stays in Rust while native cookie stores remain platform-owned.
+
 **File: `rust/crates/fire-uniffi-session/src/lib.rs`**
 
 - Expose `webview_priming_payload`.
 - Expose `cookie_sweep_plan`, `cookie_nuclear_reset_plan`, and
   `commit_cookie_sweep_result`.
+- Expose `register_cookie_self_healing_handler` and
+  `unregister_cookie_self_healing_handler`.
 
 **File: `rust/crates/fire-uniffi-session/src/records.rs`**
 
 - Add records for WebView cookie snapshots, raw set/delete actions, sweep
   status, and nuclear reset result.
+- Add `CookieSelfHealingPhaseState`, `CookieSelfHealingRequestState`,
+  `CookieSelfHealingResultState`, and the foreign `CookieSelfHealingHandler`
+  trait.
 
 Current branch status:
 
@@ -450,8 +482,21 @@ Current branch status:
 - Sweep commit hooks are now implemented: iOS and Android execute Rust
   WebView cookie action plans, re-sample the platform cookie store, and commit
   the post-sweep winner/delete result back into Rust canonical cookie state.
-- Remaining active implementation work: self-healing retry orchestration for
-  `401`, `419`, and strong logged-out signals.
+- Cookie self-healing retry orchestration is implemented in Rust network
+  execution. `401`, `419`, and strong `discourse-logged-out` responses trigger
+  sweep + retry twice, then nuclear reset + retry once, guarded by a request
+  marker to prevent recursive healing.
+- iOS and Android register runtime cookie self-healing handlers. The handlers
+  call the existing platform WebView cookie sweep/nuclear-reset action
+  executor against the default browser cookie store and return the observed
+  session epoch to Rust.
+- Platform cookie extraction now treats hidden `cf_clearance` SameSite metadata
+  as `SameSite=None` when native APIs omit it; raw network `Set-Cookie`
+  metadata still wins when present.
+- Remaining follow-up hardening is higher-fidelity cookie-store observation and
+  platform metadata extraction where native APIs expose it. The current login,
+  CF, sweep, and self-healing paths no longer depend on the old Ember `/login`
+  flow.
 
 ## Phase 5: Cloudflare Freeze Gate
 
@@ -608,6 +653,20 @@ cd native/android-app && ./gradlew testDebugUnitTest
 cd native/ios-app && xcodebuild test -scheme Fire -destination 'platform=iOS Simulator,name=iPhone 17 Pro'
 ```
 
+Current branch targeted verification:
+
+```bash
+cargo test --manifest-path rust/crates/fire-core/Cargo.toml self_heal
+cargo test --manifest-path rust/crates/fire-uniffi-session/Cargo.toml register_cookie_self_healing_handler
+cd native/android-app && ./gradlew compileDebugKotlin compileDebugUnitTestKotlin testDebugUnitTest --rerun-tasks -x syncFireUniffiDebugBindings --tests com.fire.app.session.FireWebViewCookieActionSupportTest --tests com.fire.app.session.FireLoginScriptsTest
+cd native/ios-app && xcodebuild test -quiet -scheme Fire -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -only-testing:FireTests/FireWebViewCookieActionSupportTests
+```
+
+Note: a full Android `--rerun-tasks` native archive rebuild was attempted, but
+the local machine ran out of disk space while writing `libfire_uniffi.a`. The
+targeted Android command above still forced Kotlin recompilation and unit tests
+against the existing generated UniFFI bindings.
+
 ## Architectural Notes
 
 - Semver impact: UniFFI records and methods change; generated Swift/Kotlin
@@ -638,10 +697,11 @@ cd native/ios-app && xcodebuild test -scheme Fire -destination 'platform=iOS Sim
 - `docs/knowledge/api/02-auth-and-session.md` -- update login boundary to the minimal WebView JS flow.
 - `docs/knowledge/api/14-misc-apis.md` -- update recommended login order.
 - `docs/knowledge/discourse-cloudflare-challenge-guide.md` -- new stack-neutral CF challenge contract.
-- `docs/knowledge/discourse-cookie-session-state-guide.md` -- new stack-neutral canonical cookie/session contract.
+- `docs/knowledge/discourse-cookie-session-state-guide.md` -- stack-neutral canonical cookie/session contract, including platform SameSite metadata gaps.
 - `docs/knowledge/discourse-webview-login-guide.md` -- expanded stack-neutral password-login contract.
 - `native/android-app/src/main/java/com/fire/app/session/FireCloudflareChallengeActivity.kt` -- implement CF verification result handoff.
 - `native/android-app/src/main/java/com/fire/app/session/FireCloudflareChallengeCoordinator.kt` -- bridge CF request mode/manual verify options.
+- `native/android-app/src/main/java/com/fire/app/session/FireCookieSelfHealingCoordinator.kt` -- bridge Rust cookie self-healing requests to Android WebView cookie actions.
 - `native/android-app/src/main/java/com/fire/app/session/FireLoginScripts.kt` -- build minimal login HTML/JS.
 - `native/android-app/src/main/java/com/fire/app/session/FireSessionStore.kt` -- bridge new FFI login/cookie APIs.
 - `native/android-app/src/main/java/com/fire/app/session/FireWebViewLoginCoordinator.kt` -- implement priming, extraction, and sweep actions.
@@ -651,6 +711,7 @@ cd native/ios-app && xcodebuild test -scheme Fire -destination 'platform=iOS Sim
 - `native/ios-app/App/Views/Other/FireLoginWebView.swift` -- replace full browser login with native form + JS dialog.
 - `native/ios-app/Sources/FireAppSession/FireCfClearanceRefreshService.swift` -- coordinate priming invalidation and CF refresh races.
 - `native/ios-app/Sources/FireAppSession/FireCloudflareChallengeCoordinator.swift` -- implement CF verification result handoff.
+- `native/ios-app/Sources/FireAppSession/FireCookieSelfHealingCoordinator.swift` -- bridge Rust cookie self-healing requests to WebKit cookie actions.
 - `native/ios-app/Sources/FireAppSession/FireSessionStore.swift` -- bridge new FFI login/cookie APIs.
 - `native/ios-app/Sources/FireAppSession/FireWebViewBrowserProfile.swift` -- add lean login-dialog WebView profile.
 - `native/ios-app/Sources/FireAppSession/FireWebViewLoginCoordinator.swift` -- implement priming, extraction, observer, and sweep actions.
@@ -658,6 +719,7 @@ cd native/ios-app && xcodebuild test -scheme Fire -destination 'platform=iOS Sim
 - `rust/crates/fire-core/src/cookies.rs` -- implement canonical cookie jar, freshness, sweep planning, priming, and self-healing helpers.
 - `rust/crates/fire-core/src/core/auth.rs` -- align probes/passive logout with cookie self-healing.
 - `rust/crates/fire-core/src/core/cf_challenge.rs` -- expose CF in-progress state and request modes.
+- `rust/crates/fire-core/src/core/cookie_healing.rs` -- register platform cookie self-healing handlers.
 - `rust/crates/fire-core/src/core/interactions.rs` -- drop/suppress timings during CF verification.
 - `rust/crates/fire-core/src/core/network.rs` -- implement CF pre-dispatch gate, detection, and healing retry guard.
 - `rust/crates/fire-core/src/core/session.rs` -- implement WebView login classifier and async finalizer.

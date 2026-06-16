@@ -65,6 +65,12 @@ strict
 none
 ```
 
+Platform WebView APIs may omit `SameSite` even when the cookie was originally
+set with it. When extracting `cf_clearance` and no explicit value is visible,
+Fire treats it as `none` because Cloudflare clearance is expected to be
+`SameSite=None; Secure` for the LinuxDo challenge flow. Raw network
+`Set-Cookie` metadata remains authoritative when available.
+
 `source` values should distinguish at least:
 
 ```text

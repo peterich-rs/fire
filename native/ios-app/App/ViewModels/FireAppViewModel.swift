@@ -34,6 +34,7 @@ final class FireAppViewModel: ObservableObject {
     private var sessionStore: FireSessionStore?
     private var loginCoordinator: FireWebViewLoginCoordinator?
     private var cloudflareChallengeHandler: FireCloudflareChallengeRuntimeHandler?
+    private var cookieSelfHealingHandler: FireCookieSelfHealingRuntimeHandler?
     private var sessionStoreInitializationTask: Task<FireSessionStore, Error>?
     private var initialStateTask: Task<Void, Never>?
     private var initialStateLoadingDelayTask: Task<Void, Never>?
@@ -1561,6 +1562,16 @@ final class FireAppViewModel: ObservableObject {
         if let cloudflareChallengeHandler {
             try? await sessionStore.registerCloudflareChallengeHandler(
                 cloudflareChallengeHandler
+            )
+        }
+        if cookieSelfHealingHandler == nil {
+            cookieSelfHealingHandler = FireCookieSelfHealingRuntimeHandler(
+                loginCoordinator: loginCoordinator
+            )
+        }
+        if let cookieSelfHealingHandler {
+            try? await sessionStore.registerCookieSelfHealingHandler(
+                cookieSelfHealingHandler
             )
         }
     }

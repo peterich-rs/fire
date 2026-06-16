@@ -1,6 +1,6 @@
 mod common;
 
-use std::sync::{atomic::Ordering, Arc};
+use std::sync::{atomic::Ordering, Arc, Mutex};
 
 use common::{
     raw_cloudflare_challenge_response, raw_json_response, raw_text_response, sample_home_html,
@@ -10,8 +10,9 @@ use fire_core::{
     FireAuthRecoveryHint, FireAuthRecoveryHintReason, FireCore, FireCoreConfig, FireCoreError,
 };
 use fire_models::{
-    LoginSyncInput, PlatformCookie, TopicDetailQuery, TopicDetailSourceQuery, TopicListKind,
-    TopicListQuery, TopicReplyRequest, TopicTag,
+    CookieSelfHealingPhase, CookieSelfHealingResult, LoginSyncInput, PlatformCookie,
+    TopicDetailQuery, TopicDetailSourceQuery, TopicListKind, TopicListQuery, TopicReplyRequest,
+    TopicTag,
 };
 use serde_json::{json, Value};
 use tokio::{
@@ -685,6 +686,115 @@ async fn business_request_is_blocked_while_cloudflare_challenge_is_in_progress()
 
     assert_eq!(response.rows.len(), 1);
     assert_eq!(requests.len(), 2);
+}
+
+#[tokio::test]
+async fn fetch_topic_list_self_heals_unauthorized_with_sweep_retry() {
+    let responses = vec![
+        raw_json_response(
+            401,
+            "application/json",
+            r#"{"errors":["You need to log in."],"error_type":"not_logged_in"}"#,
+        ),
+        raw_json_response(200, "application/json", &sample_latest_json()),
+    ];
+    let server = TestServer::spawn(responses).await.expect("server");
+    let core = FireCore::new(FireCoreConfig {
+        base_url: server.base_url(),
+        workspace_path: None,
+    })
+    .expect("core");
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    {
+        let calls = Arc::clone(&calls);
+        core.set_cookie_self_healing_handler(move |request| {
+            let calls = Arc::clone(&calls);
+            async move {
+                calls
+                    .lock()
+                    .expect("calls mutex")
+                    .push((request.phase, request.attempt));
+                CookieSelfHealingResult {
+                    completed: true,
+                    session_epoch: request.session_epoch,
+                }
+            }
+        });
+    }
+
+    let response = core
+        .fetch_topic_list(TopicListQuery {
+            kind: TopicListKind::Latest,
+            ..TopicListQuery::default()
+        })
+        .await
+        .expect("self-healed request should retry");
+    let requests = server.shutdown_with_requests().await;
+
+    assert_eq!(response.rows.len(), 1);
+    assert_eq!(requests.len(), 2);
+    assert_eq!(
+        calls.lock().expect("calls mutex").as_slice(),
+        &[(CookieSelfHealingPhase::Sweep, 1)]
+    );
+}
+
+#[tokio::test]
+async fn fetch_topic_list_self_healing_escalates_to_nuclear_reset() {
+    let unauthorized = raw_json_response(
+        401,
+        "application/json",
+        r#"{"errors":["You need to log in."],"error_type":"not_logged_in"}"#,
+    );
+    let responses = vec![
+        unauthorized.clone(),
+        unauthorized.clone(),
+        unauthorized,
+        raw_json_response(200, "application/json", &sample_latest_json()),
+    ];
+    let server = TestServer::spawn(responses).await.expect("server");
+    let core = FireCore::new(FireCoreConfig {
+        base_url: server.base_url(),
+        workspace_path: None,
+    })
+    .expect("core");
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    {
+        let calls = Arc::clone(&calls);
+        core.set_cookie_self_healing_handler(move |request| {
+            let calls = Arc::clone(&calls);
+            async move {
+                calls
+                    .lock()
+                    .expect("calls mutex")
+                    .push((request.phase, request.attempt));
+                CookieSelfHealingResult {
+                    completed: true,
+                    session_epoch: request.session_epoch,
+                }
+            }
+        });
+    }
+
+    let response = core
+        .fetch_topic_list(TopicListQuery {
+            kind: TopicListKind::Latest,
+            ..TopicListQuery::default()
+        })
+        .await
+        .expect("nuclear reset should retry once");
+    let requests = server.shutdown_with_requests().await;
+
+    assert_eq!(response.rows.len(), 1);
+    assert_eq!(requests.len(), 4);
+    assert_eq!(
+        calls.lock().expect("calls mutex").as_slice(),
+        &[
+            (CookieSelfHealingPhase::Sweep, 1),
+            (CookieSelfHealingPhase::Sweep, 2),
+            (CookieSelfHealingPhase::NuclearReset, 1),
+        ]
+    );
 }
 
 #[tokio::test]

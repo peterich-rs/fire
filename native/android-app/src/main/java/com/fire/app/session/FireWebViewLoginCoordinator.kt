@@ -8,6 +8,7 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import kotlin.coroutines.resume
+import uniffi.fire_uniffi_session.CookieSameSiteState
 import uniffi.fire_uniffi_session.CookieSweepPlanState
 import uniffi.fire_uniffi_session.LoginPhaseState
 import uniffi.fire_uniffi_session.PlatformCookieState
@@ -84,6 +85,14 @@ class FireWebViewLoginCoordinator(
         webView: WebView,
         names: List<String> = SESSION_COOKIE_NAMES,
         targetUrl: String = webView.url?.takeIf { it.isNotBlank() } ?: "$loginBaseUrl/",
+    ): List<CookieSweepPlanState> = sweepCookies(
+        names = names,
+        targetUrl = targetUrl,
+    )
+
+    suspend fun sweepCookies(
+        names: List<String> = SESSION_COOKIE_NAMES,
+        targetUrl: String = "$loginBaseUrl/",
     ): List<CookieSweepPlanState> {
         val cookieInfos = webViewCookieInfos(targetUrl)
         return names.map { name ->
@@ -106,6 +115,10 @@ class FireWebViewLoginCoordinator(
     suspend fun nuclearResetCookies(
         webView: WebView,
         targetUrl: String = webView.url?.takeIf { it.isNotBlank() } ?: "$loginBaseUrl/",
+    ) = nuclearResetCookies(targetUrl)
+
+    suspend fun nuclearResetCookies(
+        targetUrl: String = "$loginBaseUrl/",
     ) {
         val plan = sessionStore.cookieNuclearResetPlan(
             targetUrl = targetUrl,
@@ -303,11 +316,14 @@ internal object FireWebViewCookieActionSupport {
                 hostOnly = null,
                 secure = null,
                 httpOnly = null,
-                sameSite = null,
+                sameSite = inferredSameSite(name),
                 expiresAtUnixMs = null,
             )
         }
     }
+
+    private fun inferredSameSite(name: String): CookieSameSiteState? =
+        if (name == "cf_clearance") CookieSameSiteState.NONE else null
 
     fun parsePlatformCookies(header: String?): List<PlatformCookieState> {
         return cookiePairs(header).map { (name, value) ->

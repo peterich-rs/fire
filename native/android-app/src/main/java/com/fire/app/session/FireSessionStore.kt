@@ -31,6 +31,7 @@ import uniffi.fire_uniffi_search.UserMentionQueryState
 import uniffi.fire_uniffi_search.UserMentionResultState
 import uniffi.fire_uniffi_session.AppStateRefreshHandler
 import uniffi.fire_uniffi_session.CloudflareChallengeHandler
+import uniffi.fire_uniffi_session.CookieSelfHealingHandler
 import uniffi.fire_uniffi_session.CookieReplayEntryState
 import uniffi.fire_uniffi_session.CookieSweepPlanState
 import uniffi.fire_uniffi_session.CurrentUserSnapshotState
@@ -110,6 +111,14 @@ class FireSessionStore(
 
     fun unregisterCloudflareChallengeHandler() {
         core.session().unregisterCloudflareChallengeHandler()
+    }
+
+    fun registerCookieSelfHealingHandler(handler: CookieSelfHealingHandler) {
+        core.session().registerCookieSelfHealingHandler(handler)
+    }
+
+    fun unregisterCookieSelfHealingHandler() {
+        core.session().unregisterCookieSelfHealingHandler()
     }
 
     suspend fun restorePersistedSessionIfAvailable(): SessionState? = withContext(Dispatchers.IO) {

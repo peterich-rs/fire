@@ -2,6 +2,7 @@ mod auth;
 mod auth_strike;
 mod cdk;
 mod cf_challenge;
+mod cookie_healing;
 mod creation;
 mod interactions;
 mod ldc;
@@ -154,6 +155,7 @@ pub struct FireCore {
     csrf_refresh: Arc<TokioMutex<()>>,
     cloudflare_challenge_handler: cf_challenge::FireCloudflareChallengeHandlerRegistry,
     cloudflare_challenge_runtime: Arc<Mutex<cf_challenge::FireCloudflareChallengeRuntime>>,
+    cookie_self_healing_handler: cookie_healing::FireCookieSelfHealingHandlerRegistry,
     preloaded_data: OnceLock<Arc<crate::preloaded_data::PreloadedDataService>>,
     app_state_refresher: OnceLock<Arc<crate::app_state_refresher::AppStateRefresher>>,
 }
@@ -229,6 +231,8 @@ impl FireCore {
             cloudflare_challenge_handler:
                 cf_challenge::FireCloudflareChallengeHandlerRegistry::default(),
             cloudflare_challenge_runtime,
+            cookie_self_healing_handler:
+                cookie_healing::FireCookieSelfHealingHandlerRegistry::default(),
             preloaded_data: OnceLock::new(),
             app_state_refresher: OnceLock::new(),
         })

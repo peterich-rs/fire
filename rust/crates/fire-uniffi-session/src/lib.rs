@@ -12,14 +12,16 @@ pub use records::{
     format_probe_result, AppStateRefreshEventState, AppStateRefreshHandler, AuthRecoveryHintState,
     BootstrapState, CanonicalCookieState, CloudflareChallengeHandler,
     CloudflareChallengeRequestState, CloudflareChallengeResultState, CookieReplayEntryState,
-    CookieSameSiteState, CookieSourceState, CookieState, CookieSweepIntentState,
-    CookieSweepPlanState, CurrentUserSnapshotState, HomeTopicListScopeState, LoginFailureKindState,
-    LoginFailureState, LoginFinalizationResultState, LoginPhaseState, LoginStateDeterminationState,
-    LoginSyncState, NuclearResetPlanState, PassiveLogoutTriggerState, PlatformCookieState,
-    PreloadedDataStateState, RefreshBatchState, RefreshTriggerState, SecondFactorRequirementState,
-    SessionPersistenceState, SessionReadinessState, SessionState, TopicCategoryState,
-    WebViewCookieActionState, WebViewCookieInfoState, WebViewLoginDecisionState,
-    WebViewLoginJsResultState, WebViewLoginPhaseState,
+    CookieSameSiteState, CookieSelfHealingHandler, CookieSelfHealingPhaseState,
+    CookieSelfHealingRequestState, CookieSelfHealingResultState, CookieSourceState, CookieState,
+    CookieSweepIntentState, CookieSweepPlanState, CurrentUserSnapshotState,
+    HomeTopicListScopeState, LoginFailureKindState, LoginFailureState,
+    LoginFinalizationResultState, LoginPhaseState, LoginStateDeterminationState, LoginSyncState,
+    NuclearResetPlanState, PassiveLogoutTriggerState, PlatformCookieState, PreloadedDataStateState,
+    RefreshBatchState, RefreshTriggerState, SecondFactorRequirementState, SessionPersistenceState,
+    SessionReadinessState, SessionState, TopicCategoryState, WebViewCookieActionState,
+    WebViewCookieInfoState, WebViewLoginDecisionState, WebViewLoginJsResultState,
+    WebViewLoginPhaseState,
 };
 
 #[derive(uniffi::Object)]
@@ -192,6 +194,34 @@ impl FireSessionHandle {
                 inner
                     .restore_session_json(json)
                     .map(SessionState::from_snapshot)
+            },
+        )
+    }
+
+    pub fn register_cookie_self_healing_handler(
+        &self,
+        handler: Arc<dyn CookieSelfHealingHandler>,
+    ) -> Result<(), FireUniFfiError> {
+        run_infallible(
+            &self.shared.panic_state,
+            &self.shared.core,
+            "register_cookie_self_healing_handler",
+            move |inner| {
+                inner.set_cookie_self_healing_handler(move |request| {
+                    let handler = Arc::clone(&handler);
+                    async move { handler.heal_cookies(request.into()).into() }
+                });
+            },
+        )
+    }
+
+    pub fn unregister_cookie_self_healing_handler(&self) -> Result<(), FireUniFfiError> {
+        run_infallible(
+            &self.shared.panic_state,
+            &self.shared.core,
+            "unregister_cookie_self_healing_handler",
+            move |inner| {
+                inner.clear_cookie_self_healing_handler();
             },
         )
     }

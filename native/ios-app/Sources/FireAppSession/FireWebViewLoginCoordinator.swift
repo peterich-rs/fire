@@ -186,7 +186,7 @@ enum FireWebViewCookieActionSupport {
             hostOnly: !cookie.domain.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("."),
             secure: cookie.isSecure,
             httpOnly: cookie.isHTTPOnly,
-            sameSite: sameSitePolicy(from: cookie),
+            sameSite: sameSitePolicy(from: cookie) ?? inferredSameSitePolicy(forName: cookie.name),
             expiresAtUnixMs: cookie.expiresDate.map { Int64($0.timeIntervalSince1970 * 1000) }
         )
     }
@@ -253,6 +253,10 @@ enum FireWebViewCookieActionSupport {
         default:
             return .unspecified
         }
+    }
+
+    private static func inferredSameSitePolicy(forName name: String) -> CookieSameSiteState? {
+        name == "cf_clearance" ? CookieSameSiteState.none : nil
     }
 
     private static func domainMatches(_ cookieDomain: String, host: String) -> Bool {
@@ -462,8 +466,32 @@ public final class FireWebViewLoginCoordinator {
         targetURL: URL? = nil
     ) async throws -> [CookieSweepPlanState] {
         let resolvedURL = targetURL ?? webView.url ?? Self.defaultLoginURL
+        return try await sweepCookies(
+            in: webView.configuration.websiteDataStore.httpCookieStore,
+            names: names,
+            targetURL: resolvedURL
+        )
+    }
+
+    @discardableResult
+    public func sweepCookies(
+        names: [String]? = nil,
+        targetURL: URL? = nil
+    ) async throws -> [CookieSweepPlanState] {
+        try await sweepCookies(
+            in: WKWebsiteDataStore.default().httpCookieStore,
+            names: names,
+            targetURL: targetURL ?? Self.defaultLoginURL
+        )
+    }
+
+    private func sweepCookies(
+        in store: WKHTTPCookieStore,
+        names: [String]? = nil,
+        targetURL resolvedURL: URL
+    ) async throws -> [CookieSweepPlanState] {
         let cookieInfos = try await webViewCookieInfos(
-            from: webView.configuration.websiteDataStore.httpCookieStore
+            from: store
         )
         let targetNames = names ?? Self.sessionCookieNames
         var plans: [CookieSweepPlanState] = []
@@ -475,14 +503,14 @@ public final class FireWebViewLoginCoordinator {
             )
             try await executeCookieActions(
                 plan.actions,
-                in: webView.configuration.websiteDataStore.httpCookieStore
+                in: store
             )
-            try await sessionStore.commitCookieSweepResult(
+            _ = try await sessionStore.commitCookieSweepResult(
                 targetURL: resolvedURL.absoluteString,
                 name: name,
                 intent: plan.intent,
                 webViewCookies: try await webViewCookieInfos(
-                    from: webView.configuration.websiteDataStore.httpCookieStore
+                    from: store
                 )
             )
             plans.append(plan)
@@ -495,21 +523,40 @@ public final class FireWebViewLoginCoordinator {
         targetURL: URL? = nil
     ) async throws {
         let resolvedURL = targetURL ?? webView.url ?? Self.defaultLoginURL
+        try await nuclearResetCookies(
+            in: webView.configuration.websiteDataStore.httpCookieStore,
+            targetURL: resolvedURL
+        )
+    }
+
+    public func nuclearResetCookies(
+        targetURL: URL? = nil
+    ) async throws {
+        try await nuclearResetCookies(
+            in: WKWebsiteDataStore.default().httpCookieStore,
+            targetURL: targetURL ?? Self.defaultLoginURL
+        )
+    }
+
+    private func nuclearResetCookies(
+        in store: WKHTTPCookieStore,
+        targetURL resolvedURL: URL
+    ) async throws {
         let plan = try await sessionStore.cookieNuclearResetPlan(
             targetURL: resolvedURL.absoluteString,
             webViewCookies: try await webViewCookieInfos(
-                from: webView.configuration.websiteDataStore.httpCookieStore
+                from: store
             )
         )
         try await executeCookieActions(
             plan.actions,
-            in: webView.configuration.websiteDataStore.httpCookieStore
+            in: store
         )
         let committedCookies = try await webViewCookieInfos(
-            from: webView.configuration.websiteDataStore.httpCookieStore
+            from: store
         )
         for name in Self.sessionCookieNames {
-            try await sessionStore.commitCookieSweepResult(
+            _ = try await sessionStore.commitCookieSweepResult(
                 targetURL: resolvedURL.absoluteString,
                 name: name,
                 intent: CookieSweepIntentState.ensureUnique,

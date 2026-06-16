@@ -13,6 +13,8 @@ object FireSessionStoreRepository {
     private var shared: FireSessionStore? = null
     @Volatile
     private var challengeHandler: FireCloudflareChallengeRuntimeHandler? = null
+    @Volatile
+    private var cookieSelfHealingHandler: FireCookieSelfHealingRuntimeHandler? = null
 
     suspend fun get(context: Context): FireSessionStore = withContext(Dispatchers.IO) {
         getOrCreateBlocking(context.applicationContext)
@@ -36,6 +38,10 @@ object FireSessionStoreRepository {
                     )
                 }
                 challengeHandler?.let(store::registerCloudflareChallengeHandler)
+                if (cookieSelfHealingHandler == null) {
+                    cookieSelfHealingHandler = FireCookieSelfHealingRuntimeHandler(store)
+                }
+                cookieSelfHealingHandler?.let(store::registerCookieSelfHealingHandler)
                 shared = store
                 Log.d(TAG, "session store get cold_create=true session_store_get_ms=${SystemClock.elapsedRealtime() - startedAt}")
             }

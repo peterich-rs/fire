@@ -88,6 +88,10 @@ final class FireCaptchaLoginDialogController: UIViewController {
     private var statusLabel: UILabel!
     private var activityIndicator: UIActivityIndicatorView!
 
+    /// Set by the presenting VC before presenting. Called when JS posts
+    /// a login_result message to classify the raw phase/status/body.
+    var classifyResult: ((WebViewLoginPhaseState, UInt16, String) -> Void)?
+
     // MARK: - Init
 
     init(
@@ -146,8 +150,7 @@ final class FireCaptchaLoginDialogController: UIViewController {
     }
 
     private func setupWebView() {
-        let profile = FireWebViewBrowserProfile()
-        let configuration = profile.makeMinimalLoginConfiguration(
+        let configuration = FireWebViewBrowserProfile.makeMinimalLoginConfiguration(
             messageHandler: FireCaptchaScriptMessageProxy(delegate: self)
         )
         webView = WKWebView(frame: .zero, configuration: configuration)
@@ -190,8 +193,6 @@ final class FireCaptchaLoginDialogController: UIViewController {
     // MARK: - Load
 
     private func loadMinimalLoginPage() {
-        let profile = FireWebViewBrowserProfile()
-
         // Prime cookies into the WebView store before loading HTML
         // Uses loginCoordinator.primeCookies which reads canonical cookies from Rust
         Task {
@@ -205,7 +206,7 @@ final class FireCaptchaLoginDialogController: UIViewController {
             }
             await MainActor.run {
                 let html = FireLoginScripts.minimalLoginHTML(
-                    hcaptchaSiteKey: "a776b4ac-8c4c-441e-986a-c6ee9ed8cf08",
+                    hcaptchaSiteKey: FireLoginScripts.linuxDoHcaptchaSiteKey,
                     hcaptchaCreateEndpoint: "/captcha/hcaptcha/create.json"
                 )
                 self.webView.loadHTMLString(html, baseURL: URL(string: "https://linux.do/"))
@@ -298,9 +299,9 @@ final class FireCaptchaLoginDialogController: UIViewController {
 // MARK: - Script Message Handling
 
 private final class FireCaptchaScriptMessageProxy: NSObject, WKScriptMessageHandler {
-    weak var delegate: FireCaptchaDialogController?
+    weak var delegate: FireCaptchaLoginDialogController?
 
-    init(delegate: FireCaptchaDialogController) {
+    init(delegate: FireCaptchaLoginDialogController) {
         self.delegate = delegate
     }
 
@@ -310,16 +311,18 @@ private final class FireCaptchaScriptMessageProxy: NSObject, WKScriptMessageHand
     ) {
         guard let delegate else { return }
         switch message.name {
-        case "hcaptcha_pass":
-            if let body = message.body as? [String: Any],
-               let token = body["token"] as? String {
+        case FireLoginScripts.hcaptchaPassMessageName:
+            // JS posts the token as a plain string: postNative('hcaptcha_pass', token)
+            if let token = message.body as? String {
                 delegate.runLoginInternal(hcaptchaToken: token)
             }
-        case "hcaptcha_error":
-            delegate.showHcaptchaError(message.body as? String ?? "人机验证失败")
-        case "hcaptcha_expired":
+        case FireLoginScripts.hcaptchaErrorMessageName:
+            // JS posts error as string
+            let msg = (message.body as? String) ?? "人机验证失败"
+            delegate.showHcaptchaError(msg)
+        case FireLoginScripts.hcaptchaExpiredMessageName:
             delegate.showHcaptchaError("人机验证已过期，请重试")
-        case "login_result":
+        case FireLoginScripts.loginResultMessageName:
             if let body = message.body as? [String: Any] {
                 delegate.handleLoginResultJs(body)
             }
@@ -329,7 +332,10 @@ private final class FireCaptchaScriptMessageProxy: NSObject, WKScriptMessageHand
     }
 }
 
-// MARK: - Internal extensions for message proxy access
+// MARK: - Internal methods for message proxy access
+//
+// These methods are called by FireCaptchaScriptMessageProxy. They must be
+// on the main class (not an extension) because they access private state.
 
 extension FireCaptchaLoginDialogController {
     func runLoginInternal(hcaptchaToken: String) {
@@ -358,9 +364,6 @@ extension FireCaptchaLoginDialogController {
         let bodyStr = (body["body"] as? String) ?? ""
         classifyResult?(phase, status, bodyStr)
     }
-
-    // This will be set by the presenting VC before presenting
-    var classifyResult: ((WebViewLoginPhaseState, UInt16, String) -> Void)?
 }
 ```
 
@@ -368,14 +371,15 @@ Note: The dialog receives a `FireWebViewLoginCoordinator` instance for cookie pr
 
 - [ ] **Step 2: Verify it compiles**
 
-Run: `xcodebuild -workspace native/ios-app/Fire.xcworkspace -scheme Fire -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 16' build 2>&1 | tail -20`
+Run: `xcodegen generate --spec native/ios-app/project.yml && xcodebuild -project native/ios-app/Fire.xcodeproj -scheme Fire -destination 'generic/platform=iOS Simulator' build 2>&1 | tail -20`
 
 Expected: Build errors only from the new file (referencing types that don't exist yet or priming API mismatch). Fix any type mismatches against the actual `FireWebViewBrowserProfile` / `FireWebViewLoginCoordinator` APIs.
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 3: Regenerate Xcode project and commit**
 
 ```bash
-git add native/ios-app/App/Views/Other/FireCaptchaLoginDialogController.swift
+xcodegen generate --spec native/ios-app/project.yml
+git add native/ios-app/App/Views/Other/FireCaptchaLoginDialogController.swift native/ios-app/Fire.xcodeproj/project.pbxproj
 git commit -m "feat(login): add FireCaptchaLoginDialogController for hCaptcha + login request"
 ```
 
@@ -460,6 +464,11 @@ func completeMinimalLogin(
                         password: password
                     )
                     savedLoginCredential = try await sessionStore.loadSavedCredential()
+                } else {
+                    // User unchecked "remember password" — clear old saved credentials
+                    // so the next login page open does not auto-fill.
+                    try await sessionStore.clearSavedCredential()
+                    savedLoginCredential = nil
                 }
                 FireCfClearanceRefreshService.shared.setLoginStateConfirmed(true)
                 try await sessionStore.triggerAppStateRefresh(
@@ -480,7 +489,7 @@ func completeMinimalLogin(
 }
 ```
 
-Key change: `saveLoginCredential` is now inside `if rememberCredential { }`. When unchecked, existing saved credentials are preserved (not cleared).
+Key change: `saveLoginCredential` is now inside `if rememberCredential { }`, and when unchecked `clearSavedCredential()` is called to remove any previously saved credentials. Product semantic: unchecking "remember password" means the next login page open will not auto-fill.
 
 - [ ] **Step 4: Add `classifyLoginResult` helper for dialog**
 
@@ -534,7 +543,7 @@ func openLogin() {
 
 - [ ] **Step 6: Verify it compiles**
 
-Run: `xcodebuild -workspace native/ios-app/Fire.xcworkspace -scheme Fire -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 16' build 2>&1 | tail -20`
+Run: `xcodegen generate --spec native/ios-app/project.yml && xcodebuild -project native/ios-app/Fire.xcodeproj -scheme Fire -destination 'generic/platform=iOS Simulator' build 2>&1 | tail -20`
 
 Expected: Build may still fail because `FireLoginWebViewController` references the old `completeMinimalLogin(from:identifier:password:)` signature. That's OK — Task 4 will delete that file.
 
@@ -567,6 +576,7 @@ Create `native/ios-app/App/Views/Other/FireLoginViewController.swift`:
 ```swift
 import UIKit
 import WebKit
+import Combine
 
 /// Pure-native login page. No WebView in this VC.
 /// Presents `FireCaptchaLoginDialogController` for hCaptcha + login request.
@@ -575,6 +585,7 @@ final class FireLoginViewController: UIViewController {
     // MARK: - Dependencies
 
     private let viewModel: FireAppViewModel
+    private var cancellables = Set<AnyCancellable>()
 
     // MARK: - UI Elements
 
@@ -628,7 +639,24 @@ final class FireLoginViewController: UIViewController {
         setupOtherMethods()
         setupErrorBanner()
         setupActivityIndicator()
-        applySavedCredentialIfNeeded()
+        observeSavedCredential()
+    }
+
+    // MARK: - Credential Auto-fill (Combine subscription)
+
+    /// Subscribes to viewModel.$savedLoginCredential so credentials are
+    /// auto-filled whenever they load (openLogin loads them asynchronously).
+    private func observeSavedCredential() {
+        viewModel.$savedLoginCredential
+            .receive(on: RunLoop.main)
+            .sink { [weak self] credential in
+                guard let credential else { return }
+                self?.identifierField.text = credential.username
+                self?.passwordField.text = credential.password
+                self?.rememberSwitch.isOn = true
+                self?.updateLoginButtonState()
+            }
+            .store(in: &cancellables)
     }
 
     // MARK: - Setup
@@ -1134,7 +1162,7 @@ func dispatchResult(_ result: FireCaptchaDialogResult) {
 
 - [ ] **Step 3: Verify it compiles**
 
-Run: `xcodebuild -workspace native/ios-app/Fire.xcworkspace -scheme Fire -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 16' build 2>&1 | tail -20`
+Run: `xcodegen generate --spec native/ios-app/project.yml && xcodebuild -project native/ios-app/Fire.xcodeproj -scheme Fire -destination 'generic/platform=iOS Simulator' build 2>&1 | tail -20`
 
 Expected: Build should succeed except for `FireRootCoordinator` still referencing old VC and `FireLoginWebView.swift` referencing old `completeMinimalLogin` signature.
 
@@ -1181,7 +1209,7 @@ rm native/ios-app/App/Views/Other/FireLoginWebView.swift
 
 - [ ] **Step 3: Verify build**
 
-Run: `xcodebuild -workspace native/ios-app/Fire.xcworkspace -scheme Fire -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 16' build 2>&1 | tail -30`
+Run: `xcodegen generate --spec native/ios-app/project.yml && xcodebuild -project native/ios-app/Fire.xcodeproj -scheme Fire -destination 'generic/platform=iOS Simulator' build 2>&1 | tail -30`
 
 Expected: Build succeeds. If there are references to `FireLoginWebViewController` elsewhere, find and update them.
 
@@ -1222,9 +1250,15 @@ Replace the `recoverCloudflare()` method in `FireLoginViewController`:
         cfRetryUsed = true
 
         Task {
-            // Step 1: Run CF challenge
-            let cfOK = await viewModel.ensureCloudflareClearance()
-            guard cfOK else {
+            // Use existing recoverLoginCloudflareChallenge(in:) which always
+            // forces CF challenge + 1.5s propagation wait + re-prime.
+            // This is NOT the same as ensureCloudflareClearance() which
+            // short-circuits if hasCloudflareClearance is true — but .retryCloudflare
+            // means the current clearance was rejected by /session/csrf.
+            guard let dialog = self.captchaDialog else { return }
+            do {
+                try await viewModel.recoverLoginCloudflareChallenge(in: dialog.webView)
+            } catch {
                 await MainActor.run {
                     self.setLoginLoading(false)
                     self.dismissCaptchaDialog()
@@ -1233,24 +1267,7 @@ Replace the `recoverCloudflare()` method in `FireLoginViewController`:
                 return
             }
 
-            // Step 2: Re-prime the dialog's live WebView via loginCoordinator
-            guard let dialog = self.captchaDialog else { return }
-            do {
-                let loginCoordinator = try await viewModel.loginCoordinatorForDialog()
-                try await loginCoordinator.primeCookies(
-                    into: dialog.webView,
-                    targetURL: URL(string: "https://linux.do/")
-                )
-            } catch {
-                await MainActor.run {
-                    self.setLoginLoading(false)
-                    self.dismissCaptchaDialog()
-                    self.showErrorBanner("网络准备失败，请重试")
-                }
-                return
-            }
-
-            // Step 3: Re-run __fireLogin with the original hCaptcha token (reusable per knowledge base)
+            // Re-run __fireLogin with the original hCaptcha token (reusable per knowledge base)
             await MainActor.run {
                 dialog.retryAfterCloudflareRecovery()
             }
@@ -1298,7 +1315,7 @@ func retryAfterCloudflareRecovery() {
 
 - [ ] **Step 3: Verify build**
 
-Run: `xcodebuild -workspace native/ios-app/Fire.xcworkspace -scheme Fire -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 16' build 2>&1 | tail -20`
+Run: `xcodegen generate --spec native/ios-app/project.yml && xcodebuild -project native/ios-app/Fire.xcodeproj -scheme Fire -destination 'generic/platform=iOS Simulator' build 2>&1 | tail -20`
 
 Expected: Build succeeds.
 
@@ -1470,12 +1487,10 @@ final class FireWebViewBrowserViewController: UIViewController {
                 self.cookiePollTimer?.invalidate()
             }
             Task { @MainActor in
-                self.viewModel.completeMinimalLogin(
-                    from: self.webView,
-                    identifier: "",
-                    password: "",
-                    rememberCredential: false
-                )
+                // Use completeLogin(from:) for full WebView path — it reads
+                // username/csrf from page meta/preloaded data, not from params.
+                // completeMinimalLogin would pass empty identifier as captured username.
+                self.viewModel.completeLogin(from: self.webView)
                 self.onLoginSuccess?()
             }
         }
@@ -1536,7 +1551,7 @@ Remove the `showComingSoon()` method body and the two call sites that used it.
 
 - [ ] **Step 3: Verify build**
 
-Run: `xcodebuild -workspace native/ios-app/Fire.xcworkspace -scheme Fire -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 16' build 2>&1 | tail -20`
+Run: `xcodegen generate --spec native/ios-app/project.yml && xcodebuild -project native/ios-app/Fire.xcodeproj -scheme Fire -destination 'generic/platform=iOS Simulator' build 2>&1 | tail -20`
 
 Expected: Build succeeds.
 
@@ -1663,7 +1678,7 @@ private func showSecondFactorPrompt(requirement: SecondFactorRequirementState) {
 
 - [ ] **Step 3: Verify build**
 
-Run: `xcodebuild -workspace native/ios-app/Fire.xcworkspace -scheme Fire -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 16' build 2>&1 | tail -20`
+Run: `xcodegen generate --spec native/ios-app/project.yml && xcodebuild -project native/ios-app/Fire.xcodeproj -scheme Fire -destination 'generic/platform=iOS Simulator' build 2>&1 | tail -20`
 
 Expected: Build succeeds.
 
@@ -1696,7 +1711,7 @@ git commit -m "polish(login): animated error banner + 2FA retry messaging"
 2. Open login page → verify saved credentials auto-filled, checkbox on
 3. Uncheck "记住密码", log in
 4. Log out again
-5. Open login → verify fields are **not** auto-filled (old saved credentials preserved but not offered)
+5. Open login → verify fields are **empty** (old saved credentials were cleared)
 
 - [ ] **Step 3: Verify 2FA flow**
 

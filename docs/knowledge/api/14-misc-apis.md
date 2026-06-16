@@ -78,12 +78,15 @@ Clients should cache these static JSON responses and may use stale cache data if
 
 ## 4. Recommended Login Order
 
-1. Open the official Discourse login flow in a browser-capable context.
-2. Complete password/OAuth/PassKey/hCaptcha/Cloudflare interactions in that context.
-3. Copy resulting cookies for `https://linux.do` into the HTTP client cookie store.
-4. Fetch bootstrap HTML or call `GET /session/current.json` to confirm identity.
-5. Fetch CSRF if no token was discovered in bootstrap HTML.
-6. Start MessageBus subscriptions after the user id and channel metadata are known.
+1. Ensure a usable Cloudflare clearance exists, running manual verification if
+   needed.
+2. Open the minimal same-origin WebView login document.
+3. Let WebView perform login CSRF, hCaptcha create, and `/session.json`.
+4. Classify the session response through shared session logic.
+5. Extract trusted login cookies from the live WebView before disposal.
+6. Finalize login with bounded bootstrap refresh.
+7. Start MessageBus subscriptions after the user id and channel metadata are
+   known.
 
 ## 5. Recommended Topic Detail Order
 

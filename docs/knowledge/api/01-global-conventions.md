@@ -137,7 +137,7 @@ These are client safety recommendations rather than server-declared limits.
 | `401` / `403` + `not_logged_in` | Strong auth-invalid signal | Verify with `GET /session/current.json` before clearing local state |
 | `discourse-logged-out` response header | Logout/session-invalid signal; can appear on both success and failure responses | Treat `401/403` as strong, `2xx` as weak; verify before destructive logout |
 | `429` | Rate limited | Honor `Retry-After`; retry later if the action is retryable |
-| Cloudflare challenge HTML or headers | Bot/challenge gate, not a forum API response | Complete challenge in a browser-capable surface, sync `cf_clearance`, then retry eligible foreground requests once |
+| Cloudflare challenge HTML or headers | Bot/challenge gate, not a forum API response | Complete challenge in a WebView, sync fresh `cf_clearance`, freeze business requests while verification is active, then retry eligible foreground requests once |
 | `502` / `503` / `504` | Transient upstream failure | Retry idempotent or explicitly safe requests with backoff |
 
 Useful response headers:
@@ -176,3 +176,12 @@ Discourse errors commonly return one of these shapes:
 ```
 
 Clients should parse structured fields first, then fall back to a generic HTTP error message.
+
+## 10. Detailed Session Guides
+
+- [../discourse-webview-login-guide.md](../discourse-webview-login-guide.md)
+  defines the password-login WebView JS contract.
+- [../discourse-cloudflare-challenge-guide.md](../discourse-cloudflare-challenge-guide.md)
+  defines challenge detection, manual verification, and request freezing.
+- [../discourse-cookie-session-state-guide.md](../discourse-cookie-session-state-guide.md)
+  defines canonical cookie state, freshness, priming, sweep, and self-healing.

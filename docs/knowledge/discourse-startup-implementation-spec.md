@@ -158,7 +158,8 @@ Typical initial subscriptions:
 - Bootstrap HTML network failure should not erase cookies.
 - Startup verification failure should surface a login/challenge path and preserve
   local session state instead of trapping the user in a deterministic retry loop.
-- Cloudflare challenge HTML should be routed to the login/challenge browser flow.
+- Cloudflare challenge HTML should be routed to the WebView challenge flow
+  defined in [discourse-cloudflare-challenge-guide.md](discourse-cloudflare-challenge-guide.md).
 - CSRF extraction failure can be recovered by `GET /session/csrf`.
 - Malformed `data-preloaded` should degrade to explicit JSON API requests.
 - MessageBus errors should use retry/backoff and should not block ordinary page loading.

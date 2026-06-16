@@ -45,6 +45,9 @@ service outside the backend protocol reference.
 |---|---|---|
 | Global conventions | [api/01-global-conventions.md](api/01-global-conventions.md) | Base URLs, headers, cookies, content types, status signals |
 | Auth and session | [api/02-auth-and-session.md](api/02-auth-and-session.md) | Current session, logout, CSRF, conservative session validation |
+| WebView password login | [discourse-webview-login-guide.md](discourse-webview-login-guide.md) | Native form, minimal WebView JS login, hCaptcha, 2FA, login finalization |
+| Cloudflare challenge | [discourse-cloudflare-challenge-guide.md](discourse-cloudflare-challenge-guide.md) | 403/429 detection, manual verification, request freeze, fresh cookie sync |
+| Cookie/session state | [discourse-cookie-session-state-guide.md](discourse-cookie-session-state-guide.md) | Canonical cookies, freshness, priming, sentinel sweep, self-healing |
 | Topics | [api/03-topics.md](api/03-topics.md) | Topic lists, detail, post batches, creation, topic state |
 | Posts | [api/04-posts.md](api/04-posts.md) | Replies, edits, actions, reactions, flags, solutions, clicks |
 | Users | [api/05-users.md](api/05-users.md) | Profiles, summaries, activity, follows, messages, badges, invites |
@@ -73,12 +76,16 @@ service outside the backend protocol reference.
 
 ### Login
 
-1. Load the official Discourse login flow in a browser-capable surface.
-2. After successful login, copy the resulting Discourse cookies into the HTTP
-   client cookie store for `https://linux.do`.
-3. Refresh bootstrap data or call `GET /session/current.json` to confirm the
-   authenticated identity.
-4. Fetch or refresh CSRF before the first mutating request.
+1. Present a native username/password form.
+2. Ensure a usable Cloudflare clearance exists; if absent, run manual WebView
+   verification first.
+3. Open the minimal same-origin WebView login document.
+4. Let the WebView perform `GET /session/csrf`, hCaptcha create, and
+   `POST /session.json`.
+5. Classify the raw session response through shared session logic.
+6. Extract login cookies from the live WebView before disposal.
+7. Finalize login by applying trusted cookies, refreshing bootstrap with a
+   bounded timeout, and notifying login-ready.
 
 ### Topic Detail
 

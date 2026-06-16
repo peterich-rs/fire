@@ -1,6 +1,12 @@
 # 认证与会话 API
 
-LinuxDo 使用 Discourse 的 Cookie 会话认证。官方登录流程运行在网页中；第三方客户端通常应通过浏览器或 WebView 完成登录、Cloudflare challenge、OAuth、PassKey 等交互，然后把得到的站点 Cookie 同步给程序化 HTTP 客户端。
+LinuxDo 使用 Discourse 的 Cookie 会话认证。Fire 的密码登录边界是原生
+用户名/密码表单加最小 WebView JS 登录事务：WebView 负责登录 CSRF、
+hCaptcha create 和 `/session.json`，Rust 负责结果解析、cookie 仲裁和会话
+收口。
+
+OAuth、PassKey、邮件链接等浏览器型能力应单独设计。它们不能把 Ember
+`/login` 页面重新变成密码登录的主路径。
 
 ## 1. 当前会话
 
@@ -132,12 +138,17 @@ Discourse logout responses vary by server version and plugin state. Clients shou
 
 ## 5. Login Boundary
 
-Login itself is not a stable JSON API contract for third-party clients. The robust path is:
+Password login is not a Rust/OpenWire JSON-login flow. The robust path is:
 
-1. Open the Discourse login URL in a browser-capable context.
-2. Let the server handle password login, OAuth, PassKey, hCaptcha, and Cloudflare challenge pages.
-3. After navigation indicates a logged-in state, copy cookies for `https://linux.do` into the HTTP client cookie store.
-4. Validate with `GET /session/current.json`.
-5. Fetch CSRF before mutating requests.
+1. Ensure `cf_clearance` exists, running manual WebView verification if needed.
+2. Open a minimal same-origin WebView document, not the Ember `/login` page.
+3. Let WebView fetch `/session/csrf`, create the hCaptcha session cookie, and
+   post `/session.json`.
+4. Parse the raw session response through the shared Rust classifier.
+5. On success, extract `_t`, `_forum_session`, `cf_clearance`, and related
+   cookies from the live WebView before disposal.
+6. Apply extracted cookies as trusted writes and finalize login with a bounded
+   bootstrap refresh.
 
-See [../discourse-webview-login-guide.md](../discourse-webview-login-guide.md) for the stack-neutral browser-login protocol notes.
+See [../discourse-webview-login-guide.md](../discourse-webview-login-guide.md)
+for the stack-neutral password-login protocol.

@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
+use time::{format_description::well_known::Rfc2822, OffsetDateTime};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PlatformCookie {
@@ -12,6 +13,216 @@ pub struct PlatformCookie {
     pub expires_at_unix_ms: Option<i64>,
     #[serde(default)]
     pub same_site: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CookieSameSite {
+    #[default]
+    Unspecified,
+    Lax,
+    Strict,
+    None,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CookieSource {
+    #[default]
+    Unknown,
+    NetworkSetCookie,
+    WebViewLogin,
+    WebViewChallenge,
+    WebViewBulkRead,
+    ManualRestore,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CookieTrust {
+    #[default]
+    Untrusted,
+    Trusted,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CanonicalCookie {
+    pub name: String,
+    pub value: String,
+    pub domain: Option<String>,
+    pub path: String,
+    pub host_only: bool,
+    pub secure: bool,
+    pub http_only: bool,
+    pub same_site: CookieSameSite,
+    pub partition_key: Option<String>,
+    pub partitioned: bool,
+    pub expires_at_unix_ms: Option<i64>,
+    pub max_age_seconds: Option<i64>,
+    pub creation_time_unix_ms: i64,
+    pub last_access_time_unix_ms: i64,
+    pub version: u64,
+    pub source: CookieSource,
+    pub raw_set_cookie: Option<String>,
+    pub origin_url: Option<String>,
+}
+
+impl CanonicalCookie {
+    pub fn new(name: impl Into<String>, value: impl Into<String>, origin_url: &str) -> Self {
+        let now = current_unix_ms();
+        Self {
+            name: name.into(),
+            value: value.into(),
+            domain: None,
+            path: "/".to_string(),
+            host_only: true,
+            secure: false,
+            http_only: false,
+            same_site: CookieSameSite::Unspecified,
+            partition_key: None,
+            partitioned: false,
+            expires_at_unix_ms: None,
+            max_age_seconds: None,
+            creation_time_unix_ms: now,
+            last_access_time_unix_ms: now,
+            version: 1,
+            source: CookieSource::Unknown,
+            raw_set_cookie: None,
+            origin_url: Some(origin_url.to_string()),
+        }
+    }
+
+    pub fn normalized_domain(&self) -> Option<String> {
+        let domain = self
+            .domain
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(|value| value.trim_start_matches('.').to_ascii_lowercase());
+        if domain.is_some() {
+            return domain;
+        }
+        if !self.host_only {
+            return None;
+        }
+        self.origin_url
+            .as_deref()
+            .and_then(|value| url::Url::parse(value).ok())
+            .and_then(|url| url.host_str().map(|host| host.to_ascii_lowercase()))
+    }
+
+    pub fn storage_key(&self) -> String {
+        serde_json::json!([
+            &self.name,
+            self.normalized_domain(),
+            normalized_cookie_path(&self.path),
+            self.partition_key.as_deref(),
+        ])
+        .to_string()
+    }
+
+    pub fn is_expired_at(&self, now_unix_ms: i64) -> bool {
+        if let Some(max_age_seconds) = self.max_age_seconds {
+            return self
+                .creation_time_unix_ms
+                .saturating_add(max_age_seconds.saturating_mul(1000))
+                <= now_unix_ms;
+        }
+        self.expires_at_unix_ms
+            .is_some_and(|expires_at_unix_ms| expires_at_unix_ms <= now_unix_ms)
+    }
+
+    pub fn is_expired_now(&self) -> bool {
+        self.is_expired_at(current_unix_ms())
+    }
+
+    pub fn is_fresher_than(&self, other: &Self) -> bool {
+        if self.version != other.version {
+            return self.version > other.version;
+        }
+        match (self.expires_at_unix_ms, other.expires_at_unix_ms) {
+            (Some(lhs), Some(rhs)) if lhs != rhs => return lhs > rhs,
+            (Some(_), None) => return true,
+            (None, Some(_)) => return false,
+            _ => {}
+        }
+        self.creation_time_unix_ms > other.creation_time_unix_ms
+    }
+
+    pub fn with_trusted_version_from(mut self, existing: &Self) -> Self {
+        self.version = if self.value == existing.value {
+            existing.version
+        } else {
+            existing.version.saturating_add(1)
+        };
+        self.creation_time_unix_ms = existing.creation_time_unix_ms;
+        self.last_access_time_unix_ms = existing.last_access_time_unix_ms;
+        self
+    }
+
+    pub fn to_set_cookie_header(&self) -> String {
+        if let Some(raw) = self
+            .raw_set_cookie
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            return raw.to_string();
+        }
+
+        let mut header = format!("{}={}", self.name, self.value);
+        if !self.host_only {
+            if let Some(domain) = self.domain.as_deref().filter(|value| !value.is_empty()) {
+                header.push_str("; Domain=");
+                header.push_str(domain);
+            }
+        }
+
+        header.push_str("; Path=");
+        header.push_str(&normalized_cookie_path(&self.path));
+
+        if let Some(expires_at_unix_ms) = self.expires_at_unix_ms {
+            if let Some(formatted) = format_http_date(expires_at_unix_ms) {
+                header.push_str("; Expires=");
+                header.push_str(&formatted);
+            }
+        }
+
+        if let Some(max_age_seconds) = self.max_age_seconds {
+            header.push_str("; Max-Age=");
+            header.push_str(&max_age_seconds.to_string());
+        }
+
+        if self.secure {
+            header.push_str("; Secure");
+        }
+        if self.http_only {
+            header.push_str("; HttpOnly");
+        }
+        match self.same_site {
+            CookieSameSite::Unspecified => {}
+            CookieSameSite::Lax => header.push_str("; SameSite=Lax"),
+            CookieSameSite::Strict => header.push_str("; SameSite=Strict"),
+            CookieSameSite::None => header.push_str("; SameSite=None"),
+        }
+        if self.partitioned {
+            header.push_str("; Partitioned");
+        }
+        header
+    }
+}
+
+fn normalized_cookie_path(path: &str) -> String {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        "/".to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
+fn format_http_date(unix_ms: i64) -> Option<String> {
+    let seconds = unix_ms.div_euclid(1000);
+    OffsetDateTime::from_unix_timestamp(seconds)
+        .ok()
+        .and_then(|date| date.format(&Rfc2822).ok())
 }
 
 impl PlatformCookie {
@@ -481,5 +692,79 @@ mod tests {
             true,
         );
         assert_eq!(snapshot.t_token.as_deref(), Some("host-only-value"));
+    }
+
+    #[test]
+    fn canonical_storage_key_excludes_host_only_flag() {
+        let mut host_only = CanonicalCookie::new("_t", "host", "https://linux.do/");
+        host_only.host_only = true;
+        host_only.domain = None;
+
+        let mut domain_cookie = CanonicalCookie::new("_t", "domain", "https://linux.do/");
+        domain_cookie.host_only = false;
+        domain_cookie.domain = Some(".linux.do".into());
+
+        assert_eq!(host_only.storage_key(), domain_cookie.storage_key());
+    }
+
+    #[test]
+    fn canonical_freshness_prefers_version_then_expiry_then_creation_time() {
+        let mut existing = CanonicalCookie::new("cf_clearance", "old", "https://linux.do/");
+        existing.version = 2;
+        existing.expires_at_unix_ms = Some(1000);
+        existing.creation_time_unix_ms = 1000;
+
+        let mut lower_version = existing.clone();
+        lower_version.version = 1;
+        lower_version.expires_at_unix_ms = Some(9999);
+        assert!(!lower_version.is_fresher_than(&existing));
+
+        let mut later_expiry = existing.clone();
+        later_expiry.expires_at_unix_ms = Some(2000);
+        assert!(later_expiry.is_fresher_than(&existing));
+
+        let mut later_creation = existing.clone();
+        later_creation.expires_at_unix_ms = existing.expires_at_unix_ms;
+        later_creation.creation_time_unix_ms = 2000;
+        assert!(later_creation.is_fresher_than(&existing));
+    }
+
+    #[test]
+    fn trusted_replacement_bumps_version_when_value_changes() {
+        let mut existing = CanonicalCookie::new("_t", "old", "https://linux.do/");
+        existing.version = 7;
+        existing.creation_time_unix_ms = 100;
+        existing.last_access_time_unix_ms = 200;
+
+        let replacement = CanonicalCookie::new("_t", "new", "https://linux.do/")
+            .with_trusted_version_from(&existing);
+
+        assert_eq!(replacement.version, 8);
+        assert_eq!(replacement.creation_time_unix_ms, 100);
+        assert_eq!(replacement.last_access_time_unix_ms, 200);
+    }
+
+    #[test]
+    fn canonical_set_cookie_header_preserves_metadata() {
+        let mut cookie = CanonicalCookie::new("cf_clearance", "value", "https://linux.do/");
+        cookie.host_only = false;
+        cookie.domain = Some(".linux.do".into());
+        cookie.path = "/".into();
+        cookie.secure = true;
+        cookie.http_only = true;
+        cookie.same_site = CookieSameSite::None;
+        cookie.partitioned = true;
+        cookie.max_age_seconds = Some(120);
+
+        let header = cookie.to_set_cookie_header();
+
+        assert!(header.contains("cf_clearance=value"));
+        assert!(header.contains("Domain=.linux.do"));
+        assert!(header.contains("Path=/"));
+        assert!(header.contains("Secure"));
+        assert!(header.contains("HttpOnly"));
+        assert!(header.contains("SameSite=None"));
+        assert!(header.contains("Partitioned"));
+        assert!(header.contains("Max-Age=120"));
     }
 }

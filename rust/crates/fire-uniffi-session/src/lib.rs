@@ -12,10 +12,12 @@ pub use records::{
     format_probe_result, AppStateRefreshEventState, AppStateRefreshHandler, AuthRecoveryHintState,
     BootstrapState, CloudflareChallengeHandler, CloudflareChallengeRequestState,
     CloudflareChallengeResultState, CookieReplayEntryState, CookieState, CurrentUserSnapshotState,
-    HomeTopicListScopeState, LoginFinalizationResultState, LoginPhaseState,
-    LoginStateDeterminationState, LoginSyncState, PassiveLogoutTriggerState, PlatformCookieState,
-    PreloadedDataStateState, RefreshBatchState, RefreshTriggerState, SessionPersistenceState,
-    SessionReadinessState, SessionState, TopicCategoryState,
+    HomeTopicListScopeState, LoginFailureKindState, LoginFailureState,
+    LoginFinalizationResultState, LoginPhaseState, LoginStateDeterminationState, LoginSyncState,
+    PassiveLogoutTriggerState, PlatformCookieState, PreloadedDataStateState, RefreshBatchState,
+    RefreshTriggerState, SecondFactorRequirementState, SessionPersistenceState,
+    SessionReadinessState, SessionState, TopicCategoryState, WebViewLoginDecisionState,
+    WebViewLoginJsResultState, WebViewLoginPhaseState,
 };
 
 #[derive(uniffi::Object)]
@@ -321,6 +323,18 @@ impl FireSessionHandle {
             &self.shared.core,
             "sync_login_context",
             move |inner| SessionState::from_snapshot(inner.sync_login_context(context.into())),
+        )
+    }
+
+    pub fn classify_webview_login_result(
+        &self,
+        result: WebViewLoginJsResultState,
+    ) -> Result<WebViewLoginDecisionState, FireUniFfiError> {
+        run_infallible(
+            &self.shared.panic_state,
+            &self.shared.core,
+            "classify_webview_login_result",
+            move |inner| inner.classify_webview_login_result(result.into()).into(),
         )
     }
 

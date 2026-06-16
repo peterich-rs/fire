@@ -4,9 +4,10 @@ use fire_core::{
 };
 use fire_models::{
     AppStateRefreshEvent, BootstrapArtifacts, CloudflareChallengeRequest,
-    CloudflareChallengeResult, CookieSnapshot, HomeTopicListScope, LoginFinalizationResult,
-    LoginPhase, LoginSyncInput, PassiveLogoutTrigger, PlatformCookie, ProbeResult, RefreshBatch,
-    SessionReadiness, SessionSnapshot, SignalStrength, TopicCategory,
+    CloudflareChallengeResult, CookieSnapshot, HomeTopicListScope, LoginFailure, LoginFailureKind,
+    LoginFinalizationResult, LoginPhase, LoginSyncInput, PassiveLogoutTrigger, PlatformCookie,
+    ProbeResult, RefreshBatch, SecondFactorRequirement, SessionReadiness, SessionSnapshot,
+    SignalStrength, TopicCategory, WebViewLoginDecision, WebViewLoginJsResult, WebViewLoginPhase,
 };
 use fire_store::cookie_replay::CookieReplayEntry;
 
@@ -310,6 +311,151 @@ pub struct LoginSyncState {
     pub home_html: Option<String>,
     pub browser_user_agent: Option<String>,
     pub cookies: Vec<PlatformCookieState>,
+}
+
+#[derive(uniffi::Enum, Debug, Clone, Copy)]
+pub enum WebViewLoginPhaseState {
+    Csrf,
+    Hcaptcha,
+    Session,
+    Exception,
+}
+
+impl From<WebViewLoginPhaseState> for WebViewLoginPhase {
+    fn from(value: WebViewLoginPhaseState) -> Self {
+        match value {
+            WebViewLoginPhaseState::Csrf => Self::Csrf,
+            WebViewLoginPhaseState::Hcaptcha => Self::Hcaptcha,
+            WebViewLoginPhaseState::Session => Self::Session,
+            WebViewLoginPhaseState::Exception => Self::Exception,
+        }
+    }
+}
+
+impl From<WebViewLoginPhase> for WebViewLoginPhaseState {
+    fn from(value: WebViewLoginPhase) -> Self {
+        match value {
+            WebViewLoginPhase::Csrf => Self::Csrf,
+            WebViewLoginPhase::Hcaptcha => Self::Hcaptcha,
+            WebViewLoginPhase::Session => Self::Session,
+            WebViewLoginPhase::Exception => Self::Exception,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct WebViewLoginJsResultState {
+    pub phase: WebViewLoginPhaseState,
+    pub status: u16,
+    pub body: String,
+}
+
+impl From<WebViewLoginJsResultState> for WebViewLoginJsResult {
+    fn from(value: WebViewLoginJsResultState) -> Self {
+        Self {
+            phase: value.phase.into(),
+            status: value.status,
+            body: value.body,
+        }
+    }
+}
+
+impl From<WebViewLoginJsResult> for WebViewLoginJsResultState {
+    fn from(value: WebViewLoginJsResult) -> Self {
+        Self {
+            phase: value.phase.into(),
+            status: value.status,
+            body: value.body,
+        }
+    }
+}
+
+#[derive(uniffi::Enum, Debug, Clone, Copy)]
+pub enum LoginFailureKindState {
+    InvalidCredentials,
+    NotActivated,
+    NotApproved,
+    PasswordExpired,
+    Network,
+    Unknown,
+}
+
+impl From<LoginFailureKind> for LoginFailureKindState {
+    fn from(value: LoginFailureKind) -> Self {
+        match value {
+            LoginFailureKind::InvalidCredentials => Self::InvalidCredentials,
+            LoginFailureKind::NotActivated => Self::NotActivated,
+            LoginFailureKind::NotApproved => Self::NotApproved,
+            LoginFailureKind::PasswordExpired => Self::PasswordExpired,
+            LoginFailureKind::Network => Self::Network,
+            LoginFailureKind::Unknown => Self::Unknown,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct LoginFailureState {
+    pub kind: LoginFailureKindState,
+    pub message: Option<String>,
+    pub sent_to_email: Option<String>,
+    pub current_email: Option<String>,
+}
+
+impl From<LoginFailure> for LoginFailureState {
+    fn from(value: LoginFailure) -> Self {
+        Self {
+            kind: value.kind.into(),
+            message: value.message,
+            sent_to_email: value.sent_to_email,
+            current_email: value.current_email,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct SecondFactorRequirementState {
+    pub totp_enabled: bool,
+    pub security_key_enabled: bool,
+    pub backup_enabled: bool,
+    pub message: Option<String>,
+}
+
+impl From<SecondFactorRequirement> for SecondFactorRequirementState {
+    fn from(value: SecondFactorRequirement) -> Self {
+        Self {
+            totp_enabled: value.totp_enabled,
+            security_key_enabled: value.security_key_enabled,
+            backup_enabled: value.backup_enabled,
+            message: value.message,
+        }
+    }
+}
+
+#[derive(uniffi::Enum, Debug, Clone)]
+pub enum WebViewLoginDecisionState {
+    Success,
+    NeedSecondFactor {
+        requirement: SecondFactorRequirementState,
+    },
+    RetryCloudflare,
+    Failure {
+        failure: LoginFailureState,
+    },
+}
+
+impl From<WebViewLoginDecision> for WebViewLoginDecisionState {
+    fn from(value: WebViewLoginDecision) -> Self {
+        match value {
+            WebViewLoginDecision::Success => Self::Success,
+            WebViewLoginDecision::NeedSecondFactor(requirement) => Self::NeedSecondFactor {
+                requirement: requirement.into(),
+            },
+            WebViewLoginDecision::RetryCloudflare => Self::RetryCloudflare,
+            WebViewLoginDecision::Failure(failure) => Self::Failure {
+                failure: failure.into(),
+            },
+        }
+    }
 }
 
 impl From<LoginSyncInput> for LoginSyncState {

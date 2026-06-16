@@ -2,7 +2,9 @@ mod common;
 
 use common::sample_home_html;
 use fire_core::{FireCore, FireCoreConfig};
-use fire_models::PlatformCookie;
+use fire_models::{
+    LoginFailureKind, PlatformCookie, WebViewLoginDecision, WebViewLoginJsResult, WebViewLoginPhase,
+};
 
 #[test]
 fn finalize_login_from_webview_applies_scored_cookies_and_advances_epoch() {
@@ -188,4 +190,92 @@ fn finalize_login_from_webview_rejects_low_confidence_session_cookies_when_not_a
     );
 
     assert!(!result.success);
+}
+
+#[test]
+fn classify_webview_login_session_success() {
+    let core = FireCore::new(FireCoreConfig::default()).expect("core");
+
+    let decision = core.classify_webview_login_result(WebViewLoginJsResult {
+        phase: WebViewLoginPhase::Session,
+        status: 200,
+        body: r#"{"user":{"username":"alice"}}"#.into(),
+    });
+
+    assert_eq!(decision, WebViewLoginDecision::Success);
+}
+
+#[test]
+fn classify_webview_login_second_factor_required() {
+    let core = FireCore::new(FireCoreConfig::default()).expect("core");
+
+    let decision = core.classify_webview_login_result(WebViewLoginJsResult {
+        phase: WebViewLoginPhase::Session,
+        status: 200,
+        body: r#"{"reason":"second_factor","error":"需要验证码","totp_enabled":true,"security_key_enabled":false,"backup_enabled":true}"#.into(),
+    });
+
+    match decision {
+        WebViewLoginDecision::NeedSecondFactor(requirement) => {
+            assert!(requirement.totp_enabled);
+            assert!(!requirement.security_key_enabled);
+            assert!(requirement.backup_enabled);
+            assert_eq!(requirement.message.as_deref(), Some("需要验证码"));
+        }
+        other => panic!("expected second factor, got {other:?}"),
+    }
+}
+
+#[test]
+fn classify_webview_login_known_failure_reason() {
+    let core = FireCore::new(FireCoreConfig::default()).expect("core");
+
+    let decision = core.classify_webview_login_result(WebViewLoginJsResult {
+        phase: WebViewLoginPhase::Session,
+        status: 200,
+        body: r#"{"reason":"invalid_credentials","error":"wrong"}"#.into(),
+    });
+
+    match decision {
+        WebViewLoginDecision::Failure(failure) => {
+            assert_eq!(failure.kind, LoginFailureKind::InvalidCredentials);
+            assert_eq!(failure.message.as_deref(), Some("wrong"));
+        }
+        other => panic!("expected failure, got {other:?}"),
+    }
+}
+
+#[test]
+fn classify_webview_login_non_json_body_is_unknown_failure() {
+    let core = FireCore::new(FireCoreConfig::default()).expect("core");
+
+    let decision = core.classify_webview_login_result(WebViewLoginJsResult {
+        phase: WebViewLoginPhase::Session,
+        status: 500,
+        body: "not json".into(),
+    });
+
+    match decision {
+        WebViewLoginDecision::Failure(failure) => {
+            assert_eq!(failure.kind, LoginFailureKind::Unknown);
+            assert_eq!(
+                failure.message.as_deref(),
+                Some("Discourse returned non-JSON: HTTP 500")
+            );
+        }
+        other => panic!("expected failure, got {other:?}"),
+    }
+}
+
+#[test]
+fn classify_webview_login_csrf_challenge_requests_cloudflare_retry() {
+    let core = FireCore::new(FireCoreConfig::default()).expect("core");
+
+    let decision = core.classify_webview_login_result(WebViewLoginJsResult {
+        phase: WebViewLoginPhase::Csrf,
+        status: 403,
+        body: "Just a moment... cloudflare challenge-platform".into(),
+    });
+
+    assert_eq!(decision, WebViewLoginDecision::RetryCloudflare);
 }

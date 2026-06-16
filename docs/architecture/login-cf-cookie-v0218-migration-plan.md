@@ -443,8 +443,15 @@ Current branch status:
   verification path, apply returned challenge cookies to Rust, wait briefly for
   platform cookie propagation, re-prime the same live login WebView, and re-run
   `window.__fireLogin` with the original hCaptcha/second-factor arguments.
-- Remaining active implementation work: sweep commit hooks, self-healing retry
-  orchestration, and the Rust CF pre-dispatch freeze gate.
+- Rust detects Cloudflare challenge responses on `403` or `429`, treats
+  `cf-mitigated: challenge` as sufficient even for non-HTML bodies, marks
+  verification as in-progress, blocks ordinary business requests before
+  dispatch, and allows only explicit `skip_cf_block` retries through the gate.
+- Sweep commit hooks are now implemented: iOS and Android execute Rust
+  WebView cookie action plans, re-sample the platform cookie store, and commit
+  the post-sweep winner/delete result back into Rust canonical cookie state.
+- Remaining active implementation work: self-healing retry orchestration for
+  `401`, `419`, and strong logged-out signals.
 
 ## Phase 5: Cloudflare Freeze Gate
 

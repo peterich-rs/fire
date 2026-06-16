@@ -346,6 +346,23 @@ public actor FireSessionStore {
     }
 
     @discardableResult
+    public func commitCookieSweepResult(
+        targetURL: String? = nil,
+        name: String,
+        intent: CookieSweepIntentState,
+        webViewCookies: [WebViewCookieInfoState]
+    ) throws -> SessionState {
+        let state = try core.session().commitCookieSweepResult(
+            targetUrl: targetURL,
+            name: name,
+            intent: intent,
+            webviewCookies: webViewCookies
+        )
+        try persistCurrentSessionIfNeeded()
+        return state
+    }
+
+    @discardableResult
     public func logoutLocal(preserveCfClearance: Bool = true) throws -> SessionState {
         let state = try core.session().logoutLocal(preserveCfClearance: preserveCfClearance)
         try authCookieStore.clear(preserveCfClearance: preserveCfClearance)

@@ -316,6 +316,15 @@ impl From<CookieSweepIntent> for CookieSweepIntentState {
     }
 }
 
+impl From<CookieSweepIntentState> for CookieSweepIntent {
+    fn from(value: CookieSweepIntentState) -> Self {
+        match value {
+            CookieSweepIntentState::EnsureUnique => Self::EnsureUnique,
+            CookieSweepIntentState::Delete => Self::Delete,
+        }
+    }
+}
+
 #[derive(uniffi::Record, Debug, Clone)]
 pub struct CookieSweepPlanState {
     pub name: String,

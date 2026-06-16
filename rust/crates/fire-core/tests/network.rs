@@ -718,6 +718,37 @@ async fn fetch_topic_list_surfaces_rate_limited_cloudflare_challenge_error() {
 }
 
 #[tokio::test]
+async fn fetch_topic_list_accepts_cf_mitigated_challenge_without_html_content_type() {
+    let body = "managed challenge";
+    let responses = vec![format!(
+        "HTTP/1.1 429 TEST\r\nServer: cloudflare\r\nContent-Type: text/plain; charset=utf-8\r\nCf-Mitigated: challenge\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        body.len()
+    )];
+    let server = TestServer::spawn(responses).await.expect("server");
+    let core = FireCore::new(FireCoreConfig {
+        base_url: server.base_url(),
+        workspace_path: None,
+    })
+    .expect("core");
+
+    let error = core
+        .fetch_topic_list(TopicListQuery {
+            kind: TopicListKind::Latest,
+            ..TopicListQuery::default()
+        })
+        .await
+        .expect_err("cf-mitigated challenge should not require HTML content type");
+    let _ = server.shutdown().await;
+
+    assert!(matches!(
+        error,
+        FireCoreError::CloudflareChallenge {
+            operation: "fetch topic list"
+        }
+    ));
+}
+
+#[tokio::test]
 async fn fetch_topic_list_does_not_treat_non_cloudflare_403_body_as_challenge() {
     let responses = vec![raw_json_response(
         403,

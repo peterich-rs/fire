@@ -1,9 +1,10 @@
 use fire_models::{
     AuthRuntimeSignal, AuthRuntimeSignalKind, AuthRuntimeSignalSource, AuthRuntimeSignalStrength,
-    BootstrapArtifacts, CookieSnapshot, CookieSource, CookieSweepPlan, CookieTrust, LoginFailure,
-    LoginFailureKind, LoginFinalizationResult, LoginSyncInput, NuclearResetPlan, PlatformCookie,
-    SecondFactorRequirement, SessionSnapshot, WebViewCookieAction, WebViewCookieInfo,
-    WebViewLoginDecision, WebViewLoginJsResult, WebViewLoginPhase,
+    BootstrapArtifacts, CookieSnapshot, CookieSource, CookieSweepIntent, CookieSweepPlan,
+    CookieTrust, LoginFailure, LoginFailureKind, LoginFinalizationResult, LoginSyncInput,
+    NuclearResetPlan, PlatformCookie, SecondFactorRequirement, SessionSnapshot,
+    WebViewCookieAction, WebViewCookieInfo, WebViewLoginDecision, WebViewLoginJsResult,
+    WebViewLoginPhase,
 };
 use serde_json::Value;
 use tracing::{debug, info};
@@ -343,6 +344,32 @@ impl FireCore {
         snapshot
             .cookies
             .cookie_nuclear_reset_plan(&uri, &webview_cookies)
+    }
+
+    pub fn commit_cookie_sweep_result(
+        &self,
+        target_url: Option<String>,
+        name: String,
+        intent: CookieSweepIntent,
+        webview_cookies: Vec<WebViewCookieInfo>,
+    ) -> SessionSnapshot {
+        let uri = target_url
+            .as_deref()
+            .and_then(|value| url::Url::parse(value).ok())
+            .or_else(|| url::Url::parse(self.base_url()).ok());
+        let Some(uri) = uri else {
+            return self.snapshot();
+        };
+
+        self.update_session_advancing_epoch_if_auth_changed(
+            "commit cookie sweep result",
+            FireAuthChangeSource::PlatformSync,
+            |session| {
+                session
+                    .cookies
+                    .commit_cookie_sweep_result(&uri, &name, intent, &webview_cookies);
+            },
+        )
     }
 
     pub fn apply_bootstrap(&self, bootstrap: BootstrapArtifacts) -> SessionSnapshot {

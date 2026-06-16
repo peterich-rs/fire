@@ -400,6 +400,28 @@ impl FireSessionHandle {
         )
     }
 
+    pub fn commit_cookie_sweep_result(
+        &self,
+        target_url: Option<String>,
+        name: String,
+        intent: CookieSweepIntentState,
+        webview_cookies: Vec<WebViewCookieInfoState>,
+    ) -> Result<SessionState, FireUniFfiError> {
+        run_infallible(
+            &self.shared.panic_state,
+            &self.shared.core,
+            "commit_cookie_sweep_result",
+            move |inner| {
+                SessionState::from_snapshot(inner.commit_cookie_sweep_result(
+                    target_url,
+                    name,
+                    intent.into(),
+                    webview_cookies.into_iter().map(Into::into).collect(),
+                ))
+            },
+        )
+    }
+
     pub fn logout_local(
         &self,
         preserve_cf_clearance: bool,

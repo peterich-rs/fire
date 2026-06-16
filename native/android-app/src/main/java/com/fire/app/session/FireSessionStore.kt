@@ -201,6 +201,22 @@ class FireSessionStore(
         core.session().cookieNuclearResetPlan(targetUrl, webViewCookies)
     }
 
+    suspend fun commitCookieSweepResult(
+        targetUrl: String? = null,
+        name: String,
+        intent: uniffi.fire_uniffi_session.CookieSweepIntentState,
+        webViewCookies: List<WebViewCookieInfoState>,
+    ): SessionState = withContext(Dispatchers.Default) {
+        val state = core.session().commitCookieSweepResult(
+            targetUrl,
+            name,
+            intent,
+            webViewCookies,
+        )
+        persistCurrentSession()
+        state
+    }
+
     suspend fun refreshBootstrapIfNeeded(): SessionState = withContext(Dispatchers.IO) {
         val refreshed = core.session().refreshBootstrapIfNeeded()
         persistCurrentSession()

@@ -93,6 +93,12 @@ class FireWebViewLoginCoordinator(
                 webViewCookies = cookieInfos,
             ).also { plan ->
                 executeCookieActions(plan.actions)
+                sessionStore.commitCookieSweepResult(
+                    targetUrl = targetUrl,
+                    name = name,
+                    intent = plan.intent,
+                    webViewCookies = webViewCookieInfos(targetUrl),
+                )
             }
         }
     }
@@ -106,6 +112,15 @@ class FireWebViewLoginCoordinator(
             webViewCookies = webViewCookieInfos(targetUrl),
         )
         executeCookieActions(plan.actions)
+        val committedCookies = webViewCookieInfos(targetUrl)
+        for (name in SESSION_COOKIE_NAMES) {
+            sessionStore.commitCookieSweepResult(
+                targetUrl = targetUrl,
+                name = name,
+                intent = uniffi.fire_uniffi_session.CookieSweepIntentState.ENSURE_UNIQUE,
+                webViewCookies = committedCookies,
+            )
+        }
     }
 
     suspend fun webViewCookieInfos(targetUrl: String? = "$loginBaseUrl/"): List<WebViewCookieInfoState> =

@@ -1527,14 +1527,14 @@ pub(crate) fn is_cloudflare_challenge_response(
         return false;
     }
 
-    let content_type = header_value(headers, "content-type").unwrap_or_default();
-    if !content_type.to_ascii_lowercase().contains("text/html") {
-        return false;
-    }
-
     let cf_mitigated = header_value(headers, "cf-mitigated").unwrap_or_default();
     if cf_mitigated.to_ascii_lowercase().contains("challenge") {
         return true;
+    }
+
+    let content_type = header_value(headers, "content-type").unwrap_or_default();
+    if !content_type.to_ascii_lowercase().contains("text/html") {
+        return false;
     }
 
     is_cloudflare_challenge_body(body)

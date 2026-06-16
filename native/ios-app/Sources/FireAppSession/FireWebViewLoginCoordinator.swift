@@ -305,6 +305,12 @@ protocol FireLoginSessionStoring: Sendable {
         targetURL: String?,
         webViewCookies: [WebViewCookieInfoState]
     ) async throws -> NuclearResetPlanState
+    func commitCookieSweepResult(
+        targetURL: String?,
+        name: String,
+        intent: CookieSweepIntentState,
+        webViewCookies: [WebViewCookieInfoState]
+    ) async throws -> SessionState
 }
 
 extension FireSessionStore: FireLoginSessionStoring {
@@ -316,7 +322,7 @@ extension FireSessionStore: FireLoginSessionStoring {
 @MainActor
 public final class FireWebViewLoginCoordinator {
     private static let defaultLoginURL = URL(string: "https://linux.do/")!
-    private static let sessionCookieNames = ["_t", "_forum_session", "cf_clearance"]
+    private static let sessionCookieNames = ["_t", "_forum_session", "cf_clearance", "_cfuvid"]
 
     private let sessionStore: any FireLoginSessionStoring
 
@@ -471,6 +477,14 @@ public final class FireWebViewLoginCoordinator {
                 plan.actions,
                 in: webView.configuration.websiteDataStore.httpCookieStore
             )
+            try await sessionStore.commitCookieSweepResult(
+                targetURL: resolvedURL.absoluteString,
+                name: name,
+                intent: plan.intent,
+                webViewCookies: try await webViewCookieInfos(
+                    from: webView.configuration.websiteDataStore.httpCookieStore
+                )
+            )
             plans.append(plan)
         }
         return plans
@@ -491,6 +505,17 @@ public final class FireWebViewLoginCoordinator {
             plan.actions,
             in: webView.configuration.websiteDataStore.httpCookieStore
         )
+        let committedCookies = try await webViewCookieInfos(
+            from: webView.configuration.websiteDataStore.httpCookieStore
+        )
+        for name in Self.sessionCookieNames {
+            try await sessionStore.commitCookieSweepResult(
+                targetURL: resolvedURL.absoluteString,
+                name: name,
+                intent: CookieSweepIntentState.ensureUnique,
+                webViewCookies: committedCookies
+            )
+        }
     }
 
     public func webViewCookieInfos(from webView: WKWebView) async throws -> [WebViewCookieInfoState] {

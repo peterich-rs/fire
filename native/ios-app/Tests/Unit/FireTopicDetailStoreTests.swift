@@ -899,6 +899,7 @@ private actor MockLoginSessionStore: FireLoginSessionStoring {
         case webViewPrimingPayload
         case cookieSweepPlan
         case cookieNuclearResetPlan
+        case commitCookieSweepResult
     }
 
     private let finalizationResult: SessionState
@@ -1011,6 +1012,16 @@ private actor MockLoginSessionStore: FireLoginSessionStoring {
     ) async throws -> NuclearResetPlanState {
         calls.append(.cookieNuclearResetPlan)
         return NuclearResetPlanState(actions: [])
+    }
+
+    func commitCookieSweepResult(
+        targetURL: String?,
+        name: String,
+        intent: CookieSweepIntentState,
+        webViewCookies: [WebViewCookieInfoState]
+    ) async throws -> SessionState {
+        calls.append(.commitCookieSweepResult)
+        return finalizationResult
     }
 
     func callsSnapshot() -> [Call] {

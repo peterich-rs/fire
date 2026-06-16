@@ -795,6 +795,33 @@ impl CookieSnapshot {
         NuclearResetPlan { actions }
     }
 
+    pub fn commit_cookie_sweep_result(
+        &mut self,
+        uri: &url::Url,
+        name: &str,
+        intent: CookieSweepIntent,
+        webview_cookies: &[WebViewCookieInfo],
+    ) {
+        match intent {
+            CookieSweepIntent::Delete => {
+                self.delete_canonical_cookie_by_name(uri, name);
+            }
+            CookieSweepIntent::EnsureUnique => {
+                let variants = matching_webview_cookie_infos(webview_cookies, name);
+                let [variant] = variants.as_slice() else {
+                    return;
+                };
+                let canonical_template = self.canonical_cookie_for_request(uri, name);
+                let Some(cookie) =
+                    canonical_cookie_from_webview_info(variant, uri, canonical_template.as_ref())
+                else {
+                    return;
+                };
+                self.merge_canonical_cookies(uri, &[cookie], CookieTrust::Trusted);
+            }
+        }
+    }
+
     fn canonical_cookie_for_request(&self, uri: &url::Url, name: &str) -> Option<CanonicalCookie> {
         let store = CanonicalCookieStore::from_cookies(self.canonical_cookies.clone());
         store
@@ -1739,6 +1766,69 @@ mod tests {
                         && set_cookie.contains("Secure")
             )
         }));
+    }
+
+    #[test]
+    fn commit_sweep_result_promotes_single_webview_winner() {
+        let uri = url::Url::parse("https://linux.do/").expect("url");
+        let mut snapshot = CookieSnapshot::default();
+        let mut canonical = CanonicalCookie::new("cf_clearance", "old", "https://linux.do/");
+        canonical.host_only = false;
+        canonical.domain = Some(".linux.do".into());
+        canonical.secure = true;
+        canonical.same_site = CookieSameSite::None;
+        snapshot.merge_canonical_cookies(&uri, &[canonical], CookieTrust::Trusted);
+
+        snapshot.commit_cookie_sweep_result(
+            &uri,
+            "cf_clearance",
+            CookieSweepIntent::EnsureUnique,
+            &[WebViewCookieInfo {
+                name: "cf_clearance".into(),
+                value: "new-webview".into(),
+                domain: Some(".linux.do".into()),
+                path: Some("/".into()),
+                host_only: Some(false),
+                secure: Some(true),
+                http_only: None,
+                same_site: Some(CookieSameSite::None),
+                expires_at_unix_ms: None,
+            }],
+        );
+
+        assert_eq!(snapshot.cf_clearance.as_deref(), Some("new-webview"));
+        let cookie = snapshot
+            .canonical_cookies
+            .iter()
+            .find(|cookie| cookie.name == "cf_clearance")
+            .expect("canonical cookie");
+        assert_eq!(cookie.value, "new-webview");
+        assert_eq!(cookie.domain.as_deref(), Some(".linux.do"));
+        assert_eq!(cookie.same_site, CookieSameSite::None);
+        assert_eq!(cookie.version, 2);
+    }
+
+    #[test]
+    fn commit_delete_sweep_result_removes_canonical_cookie() {
+        let uri = url::Url::parse("https://linux.do/").expect("url");
+        let mut snapshot = CookieSnapshot::default();
+        snapshot.merge_canonical_cookies(
+            &uri,
+            &[CanonicalCookie::new(
+                "cf_clearance",
+                "fresh",
+                "https://linux.do/",
+            )],
+            CookieTrust::Trusted,
+        );
+
+        snapshot.commit_cookie_sweep_result(&uri, "cf_clearance", CookieSweepIntent::Delete, &[]);
+
+        assert_eq!(snapshot.cf_clearance, None);
+        assert!(!snapshot
+            .canonical_cookies
+            .iter()
+            .any(|cookie| cookie.name == "cf_clearance"));
     }
 
     #[test]

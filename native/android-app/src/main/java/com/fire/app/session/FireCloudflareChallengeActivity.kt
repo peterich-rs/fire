@@ -23,6 +23,7 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import uniffi.fire_uniffi_session.CloudflareChallengeResultState
 import uniffi.fire_uniffi_session.PlatformCookieState
+import uniffi.fire_uniffi_session.WebViewCookieInfoState
 
 class FireCloudflareChallengeActivity : ComponentActivity() {
     private lateinit var pendingToken: String
@@ -30,6 +31,7 @@ class FireCloudflareChallengeActivity : ComponentActivity() {
     private lateinit var webView: WebView
     private lateinit var progressBar: ProgressBar
     private var baselineClearance: String? = null
+    private var preservedClearanceCookies: List<WebViewCookieInfoState> = emptyList()
     private var finishedResult = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -49,7 +51,13 @@ class FireCloudflareChallengeActivity : ComponentActivity() {
             finishWithResult(cancelledResult(userCancelled = true))
         }
 
-        baselineClearance = extractCfClearance(CookieManager.getInstance().getCookie(targetUrl))
+        val cookieManager = CookieManager.getInstance()
+        val baselineCookies = collectRelevantCookies()
+        baselineClearance = baselineCookies.firstOrNull { it.name == "cf_clearance" }?.value
+        preservedClearanceCookies = FireWebViewCookieActionSupport
+            .cookieInfos(cookieManager, targetUrl)
+            .filter { it.name == "cf_clearance" && it.value.isNotBlank() }
+        deleteCloudflareClearanceCookies(cookieManager)
         FireWebViewSupport.configureBrowserLikeWebView(webView)
         webView.webViewClient = object : android.webkit.WebViewClient() {
             override fun onPageFinished(view: WebView, url: String?) {
@@ -108,7 +116,9 @@ class FireCloudflareChallengeActivity : ComponentActivity() {
         }
         lifecycleScope.launch {
             val cookies = withContext(Dispatchers.Main) { collectRelevantCookies() }
-            val newClearance = cookies.firstOrNull { it.name == "cf_clearance" }?.value
+            val newClearance = cookies
+                .firstOrNull { it.name == "cf_clearance" && it.value != baselineClearance }
+                ?.value
             if (newClearance.isNullOrBlank() || newClearance == baselineClearance) {
                 return@launch
             }
@@ -120,6 +130,7 @@ class FireCloudflareChallengeActivity : ComponentActivity() {
                 CloudflareChallengeResultState(
                     completed = true,
                     userCancelled = false,
+                    freshCfClearance = newClearance,
                     cookies = cookies,
                     browserUserAgent = webView.settings.userAgentString,
                 ),
@@ -155,29 +166,69 @@ class FireCloudflareChallengeActivity : ComponentActivity() {
         val urls = linkedSetOf(targetUrl, "https://linux.do", "https://linux.do/")
         val merged = LinkedHashMap<String, PlatformCookieState>()
         urls.forEach { url ->
-            cookieManager.getCookie(url)
-                .orEmpty()
-                .let(FireWebViewCookieActionSupport::parsePlatformCookies)
+            FireWebViewCookieActionSupport
+                .platformCookies(cookieManager, url)
                 .filter { it.value.isNotEmpty() && it.name in RELEVANT_COOKIE_NAMES }
                 .forEach { cookie ->
-                    merged.putIfAbsent(cookie.name, cookie)
+                    merged.putIfAbsent(
+                        listOf(
+                            cookie.name,
+                            cookie.value,
+                            cookie.domain.orEmpty(),
+                            cookie.path.orEmpty(),
+                        ).joinToString(separator = "\u0000"),
+                        cookie,
+                    )
                 }
         }
         return merged.values.toList()
     }
 
-    private fun extractCfClearance(rawCookieHeader: String?): String? {
-        return rawCookieHeader
-            ?.split(";")
-            ?.map { it.trim() }
-            ?.firstOrNull { it.startsWith("cf_clearance=") }
-            ?.substringAfter("=")
-            ?.takeIf { it.isNotEmpty() }
+    private fun deleteCloudflareClearanceCookies(cookieManager: CookieManager) {
+        val infos = FireWebViewCookieActionSupport
+            .cookieInfos(cookieManager, targetUrl)
+            .filter { it.name == "cf_clearance" }
+        if (infos.isNotEmpty()) {
+            infos.forEach { cookie ->
+                cookieManager.setCookie(
+                    targetUrl,
+                    FireWebViewCookieActionSupport.expiredCookieHeader(
+                        name = cookie.name,
+                        domain = cookie.domain,
+                        path = cookie.path ?: "/",
+                    ),
+                )
+            }
+        }
+        FireWebViewCookieActionSupport.deleteByNameHeaders(
+            url = targetUrl,
+            name = "cf_clearance",
+        ).forEach { header ->
+            cookieManager.setCookie(targetUrl, header)
+        }
+        cookieManager.flush()
+    }
+
+    private fun restorePreservedClearanceCookies() {
+        if (preservedClearanceCookies.isEmpty()) {
+            return
+        }
+        val cookieManager = CookieManager.getInstance()
+        preservedClearanceCookies.forEach { cookie ->
+            cookieManager.setCookie(
+                targetUrl,
+                FireWebViewCookieActionSupport.setCookieHeader(cookie),
+            )
+        }
+        cookieManager.flush()
     }
 
     private fun finishWithResult(result: CloudflareChallengeResultState) {
         if (finishedResult) {
             return
+        }
+        if (!result.completed) {
+            restorePreservedClearanceCookies()
         }
         finishedResult = true
         PendingChallenges.finish(pendingToken, result)
@@ -188,6 +239,7 @@ class FireCloudflareChallengeActivity : ComponentActivity() {
         return CloudflareChallengeResultState(
             completed = false,
             userCancelled = userCancelled,
+            freshCfClearance = null,
             cookies = emptyList(),
             browserUserAgent = null,
         )

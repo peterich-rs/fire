@@ -574,14 +574,25 @@ async fn fetch_topic_list_retries_once_after_cloudflare_challenge_completion() {
         fire_models::CloudflareChallengeResult {
             completed: true,
             user_cancelled: false,
-            cookies: vec![PlatformCookie {
-                name: "cf_clearance".into(),
-                value: "new-clearance".into(),
-                domain: Some("linux.do".into()),
-                path: Some("/".into()),
-                expires_at_unix_ms: None,
-                same_site: None,
-            }],
+            fresh_cf_clearance: Some("new-clearance".into()),
+            cookies: vec![
+                PlatformCookie {
+                    name: "cf_clearance".into(),
+                    value: "new-clearance".into(),
+                    domain: Some("linux.do".into()),
+                    path: Some("/".into()),
+                    expires_at_unix_ms: None,
+                    same_site: None,
+                },
+                PlatformCookie {
+                    name: "cf_clearance".into(),
+                    value: "stale-clearance".into(),
+                    domain: Some(".linux.do".into()),
+                    path: Some("/".into()),
+                    expires_at_unix_ms: None,
+                    same_site: None,
+                },
+            ],
             browser_user_agent: Some("FireBrowser/1.0".into()),
         }
     });
@@ -637,6 +648,7 @@ async fn business_request_is_blocked_while_cloudflare_challenge_is_in_progress()
                 fire_models::CloudflareChallengeResult {
                     completed: true,
                     user_cancelled: false,
+                    fresh_cf_clearance: Some("new-clearance".into()),
                     cookies: vec![PlatformCookie {
                         name: "cf_clearance".into(),
                         value: "new-clearance".into(),

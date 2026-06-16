@@ -933,6 +933,7 @@ impl From<CloudflareChallengeRequest> for CloudflareChallengeRequestState {
 pub struct CloudflareChallengeResultState {
     pub completed: bool,
     pub user_cancelled: bool,
+    pub fresh_cf_clearance: Option<String>,
     pub cookies: Vec<PlatformCookieState>,
     pub browser_user_agent: Option<String>,
 }
@@ -942,6 +943,7 @@ impl From<CloudflareChallengeResultState> for CloudflareChallengeResult {
         Self {
             completed: value.completed,
             user_cancelled: value.user_cancelled,
+            fresh_cf_clearance: value.fresh_cf_clearance,
             cookies: value.cookies.into_iter().map(Into::into).collect(),
             browser_user_agent: value.browser_user_agent,
         }

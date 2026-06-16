@@ -355,12 +355,9 @@ final class FireRootCoordinator {
     }
 
     private func syncAuthPresentation(_ state: FireAuthPresentationState?) {
-        if let state {
+        if state != nil {
             guard authController == nil else { return }
-            let controller = FireLoginWebViewController(
-                viewModel: viewModel,
-                presentationState: state
-            )
+            let controller = FireLoginViewController(viewModel: viewModel)
             let navigationController = UINavigationController(rootViewController: controller)
             navigationController.modalPresentationStyle = .fullScreen
             presentationAnchor()?.present(navigationController, animated: true)

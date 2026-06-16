@@ -30,6 +30,7 @@ final class FireCloudflareChallengeCoordinator: NSObject, @unchecked Sendable {
             return CloudflareChallengeResultState(
                 completed: false,
                 userCancelled: false,
+                freshCfClearance: nil,
                 cookies: [],
                 browserUserAgent: nil
             )
@@ -43,6 +44,7 @@ final class FireCloudflareChallengeCoordinator: NSObject, @unchecked Sendable {
                     CloudflareChallengeResultState(
                         completed: false,
                         userCancelled: false,
+                        freshCfClearance: nil,
                         cookies: [],
                         browserUserAgent: nil
                     )
@@ -83,6 +85,7 @@ final class FireCloudflareChallengeCoordinator: NSObject, @unchecked Sendable {
             return CloudflareChallengeResultState(
                 completed: false,
                 userCancelled: false,
+                freshCfClearance: nil,
                 cookies: [],
                 browserUserAgent: nil
             )
@@ -91,17 +94,29 @@ final class FireCloudflareChallengeCoordinator: NSObject, @unchecked Sendable {
             return CloudflareChallengeResultState(
                 completed: false,
                 userCancelled: false,
+                freshCfClearance: nil,
                 cookies: [],
                 browserUserAgent: nil
             )
         }
 
-        let baseline = await currentCookieSnapshot()
         let snapshot = try? await sessionStore.snapshot()
         let challengeURL = challengeURL(
             request.originUrl,
             fallbackBaseURL: snapshot?.bootstrap.baseUrl
         )
+        let cookieStore = WKWebsiteDataStore.default().httpCookieStore
+        let existingCookies = await httpCookies(from: cookieStore)
+        let baseline = challengeCookieSnapshot(from: existingCookies)
+        let preservedClearanceCookies = existingCookies.filter {
+            $0.name == "cf_clearance"
+                && FireWebViewCookieActionSupport.matchesDeleteByName(
+                    $0,
+                    url: challengeURL,
+                    name: "cf_clearance"
+                )
+        }
+        await deleteCloudflareClearanceCookies(from: cookieStore, targetURL: challengeURL)
         let controller = FireCloudflareChallengeViewController(
             url: challengeURL,
             preferredUserAgent: snapshot?.browserUserAgent,
@@ -113,18 +128,21 @@ final class FireCloudflareChallengeCoordinator: NSObject, @unchecked Sendable {
         let outcome = await controller.awaitOutcome()
         switch outcome {
         case .cancelled:
+            await restoreCookies(preservedClearanceCookies, in: cookieStore)
             return CloudflareChallengeResultState(
                 completed: false,
                 userCancelled: true,
+                freshCfClearance: nil,
                 cookies: [],
                 browserUserAgent: nil
             )
-        case let .completed(browserUserAgent):
+        case let .completed(browserUserAgent, freshCfClearance):
             let loginCoordinator = FireWebViewLoginCoordinator(sessionStore: sessionStore)
             let cookies = (try? await loginCoordinator.platformCookiesForSessionResync()) ?? []
             return CloudflareChallengeResultState(
                 completed: true,
                 userCancelled: false,
+                freshCfClearance: freshCfClearance,
                 cookies: cookies,
                 browserUserAgent: browserUserAgent
             )
@@ -143,13 +161,52 @@ final class FireCloudflareChallengeCoordinator: NSObject, @unchecked Sendable {
     }
 
     @MainActor
-    private func currentCookieSnapshot() async -> FireCloudflareRecoveryCookieSnapshot {
-        let cookies = await withCheckedContinuation { continuation in
-            WKWebsiteDataStore.default().httpCookieStore.getAllCookies { cookies in
+    private func httpCookies(from store: WKHTTPCookieStore) async -> [HTTPCookie] {
+        await withCheckedContinuation { continuation in
+            store.getAllCookies { cookies in
                 continuation.resume(returning: cookies)
             }
         }
-        return challengeCookieSnapshot(from: cookies)
+    }
+
+    @MainActor
+    private func deleteCloudflareClearanceCookies(
+        from store: WKHTTPCookieStore,
+        targetURL: URL
+    ) async {
+        let cookies = await httpCookies(from: store)
+        for cookie in cookies where FireWebViewCookieActionSupport.matchesDeleteByName(
+            cookie,
+            url: targetURL,
+            name: "cf_clearance"
+        ) {
+            await deleteCookie(cookie, from: store)
+        }
+    }
+
+    @MainActor
+    private func restoreCookies(_ cookies: [HTTPCookie], in store: WKHTTPCookieStore) async {
+        for cookie in cookies {
+            await setCookie(cookie, in: store)
+        }
+    }
+
+    @MainActor
+    private func deleteCookie(_ cookie: HTTPCookie, from store: WKHTTPCookieStore) async {
+        await withCheckedContinuation { continuation in
+            store.delete(cookie) {
+                continuation.resume()
+            }
+        }
+    }
+
+    @MainActor
+    private func setCookie(_ cookie: HTTPCookie, in store: WKHTTPCookieStore) async {
+        await withCheckedContinuation { continuation in
+            store.setCookie(cookie) {
+                continuation.resume()
+            }
+        }
     }
 
     @MainActor
@@ -208,6 +265,7 @@ private final class LockedChallengeResultState: @unchecked Sendable {
     private var value = CloudflareChallengeResultState(
         completed: false,
         userCancelled: false,
+        freshCfClearance: nil,
         cookies: [],
         browserUserAgent: nil
     )
@@ -229,7 +287,7 @@ private final class FireCloudflareChallengeViewController: UIViewController, WKN
     WKUIDelegate, WKHTTPCookieStoreObserver
 {
     enum Outcome {
-        case completed(browserUserAgent: String?)
+        case completed(browserUserAgent: String?, freshCfClearance: String)
         case cancelled
     }
 
@@ -342,7 +400,13 @@ private final class FireCloudflareChallengeViewController: UIViewController, WKN
             }
         }
         let snapshot = challengeCookieSnapshot(from: cookies)
-        guard snapshot.hasNewCloudflareClearance(comparedTo: baselineSnapshot) else {
+        guard
+            snapshot.hasNewCloudflareClearance(comparedTo: baselineSnapshot),
+            let freshCfClearance = freshCloudflareClearanceValue(
+                from: cookies,
+                comparedTo: baselineSnapshot
+            )
+        else {
             return
         }
 
@@ -350,7 +414,24 @@ private final class FireCloudflareChallengeViewController: UIViewController, WKN
         guard !stillBlocked else {
             return
         }
-        finish(.completed(browserUserAgent: webView.customUserAgent))
+        finish(.completed(browserUserAgent: webView.customUserAgent, freshCfClearance: freshCfClearance))
+    }
+
+    private func freshCloudflareClearanceValue(
+        from cookies: [HTTPCookie],
+        comparedTo baseline: FireCloudflareRecoveryCookieSnapshot
+    ) -> String? {
+        let values = cookies
+            .filter {
+                $0.domain.range(of: "linux.do", options: .caseInsensitive) != nil
+                    && $0.name == "cf_clearance"
+            }
+            .map { $0.value.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        if let oldValue = baseline.cfClearanceFingerprint {
+            return values.first { $0 != oldValue }
+        }
+        return values.first
     }
 
     private func challengeCookieSnapshot(

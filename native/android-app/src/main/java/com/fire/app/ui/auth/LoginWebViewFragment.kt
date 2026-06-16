@@ -231,10 +231,8 @@ class LoginWebViewFragment : Fragment() {
                 if (replayEntries.isNotEmpty()) {
                     sessionStore.clearCookieReplayQueue()
                 }
+                ensureCloudflareClearanceForLogin(sessionStore)
                 coordinator.primeCookies(webView, "$loginBaseUrl/")
-            } catch (_: Exception) {
-                // Best-effort only: the authoritative session is still in Rust.
-            } finally {
                 webView.loadDataWithBaseURL(
                     "$loginBaseUrl/",
                     FireLoginScripts.minimalLoginDocument(FireLoginScripts.linuxDoHcaptchaSiteKey),
@@ -242,8 +240,45 @@ class LoginWebViewFragment : Fragment() {
                     "UTF-8",
                     null,
                 )
+            } catch (_: Exception) {
+                Toast.makeText(
+                    requireContext(),
+                    R.string.login_cloudflare_retry_failed,
+                    Toast.LENGTH_LONG,
+                ).show()
             }
         }
+    }
+
+    private suspend fun ensureCloudflareClearanceForLogin(sessionStore: FireSessionStore) {
+        if (sessionStore.snapshot().readiness.hasCloudflareClearance) {
+            return
+        }
+        val result = withContext(Dispatchers.IO) {
+            FireCloudflareChallengeCoordinator(requireContext().applicationContext)
+                .completeSynchronously(
+                    CloudflareChallengeRequestState(
+                        operation = "login.preflight",
+                        requestUrl = "$loginBaseUrl/session/csrf",
+                        originUrl = "$loginBaseUrl/",
+                        isForeground = true,
+                        sessionEpoch = 0uL,
+                    ),
+                )
+        }
+        val freshCfClearance = result.freshCfClearance?.trim().orEmpty()
+        if (!result.completed || freshCfClearance.isBlank()) {
+            error(getString(R.string.login_cloudflare_retry_failed))
+        }
+        val session = sessionStore.completeCloudflareChallenge(
+            cookies = result.cookies,
+            freshCfClearance = freshCfClearance,
+            browserUserAgent = result.browserUserAgent,
+        )
+        if (session.cookies.cfClearance != freshCfClearance) {
+            error(getString(R.string.login_cloudflare_retry_failed))
+        }
+        delay(1_500)
     }
 
     private fun configureLoginWebView(webView: WebView) {
@@ -445,9 +480,22 @@ class LoginWebViewFragment : Fragment() {
                 ).show()
                 return@launchWithFireErrorHandling
             }
-            if (result.cookies.isNotEmpty()) {
-                sessionStore.applyPlatformCookies(result.cookies)
+            val freshCfClearance = result.freshCfClearance?.trim().orEmpty()
+            if (freshCfClearance.isBlank()) {
+                isCompletingLogin = false
+                syncButton.isEnabled = true
+                Toast.makeText(
+                    requireContext(),
+                    R.string.login_cloudflare_retry_failed,
+                    Toast.LENGTH_LONG,
+                ).show()
+                return@launchWithFireErrorHandling
             }
+            sessionStore.completeCloudflareChallenge(
+                cookies = result.cookies,
+                freshCfClearance = freshCfClearance,
+                browserUserAgent = result.browserUserAgent,
+            )
             delay(1_500)
             coordinator.primeCookies(webView, "$loginBaseUrl/")
             runMinimalLogin(

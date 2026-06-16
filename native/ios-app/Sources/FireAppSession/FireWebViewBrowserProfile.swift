@@ -190,8 +190,14 @@ enum FireLoginScripts {
         "(function(){return window.__rawPreloaded||null;})()"
     }
 
-    static func minimalLoginHTML(hcaptchaSiteKey: String) -> String {
+    static func minimalLoginHTML(
+        hcaptchaSiteKey: String,
+        hcaptchaCreateEndpoint: String? = nil
+    ) -> String {
         let siteKey = jsStringLiteral(hcaptchaSiteKey)
+        let hcaptchaCreateEndpoints = jsStringArrayLiteral(
+            resolvedHcaptchaCreateEndpoints(preferred: hcaptchaCreateEndpoint)
+        )
         return """
         <!doctype html>
         <html>
@@ -282,10 +288,7 @@ enum FireLoginScripts {
 
               async function createHcaptcha(csrf, token) {
                 if (token === null || token === undefined || token === '') return true;
-                var endpoints = [
-                  '/captcha/hcaptcha/create.json',
-                  '/hcaptcha/create.json'
-                ];
+                var endpoints = \(hcaptchaCreateEndpoints);
                 var lastStatus = 0;
                 var lastBody = '';
                 for (var i = 0; i < endpoints.length; i++) {
@@ -410,6 +413,24 @@ enum FireLoginScripts {
         }
         let data = try? JSONEncoder().encode(value)
         return String(data: data ?? Data("null".utf8), encoding: .utf8) ?? "null"
+    }
+
+    private static func jsStringArrayLiteral(_ values: [String]) -> String {
+        let data = try? JSONEncoder().encode(values)
+        return String(data: data ?? Data("[]".utf8), encoding: .utf8) ?? "[]"
+    }
+
+    private static func resolvedHcaptchaCreateEndpoints(preferred: String?) -> [String] {
+        var endpoints: [String] = []
+        if let preferred = preferred?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !preferred.isEmpty {
+            endpoints.append(preferred)
+        }
+        for endpoint in ["/captcha/hcaptcha/create.json", "/hcaptcha/create.json"]
+            where !endpoints.contains(endpoint) {
+            endpoints.append(endpoint)
+        }
+        return endpoints
     }
 }
 

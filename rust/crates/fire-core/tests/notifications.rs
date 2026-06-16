@@ -482,6 +482,7 @@ async fn fetch_notifications_marks_cloudflare_challenge_as_foreground() {
         fire_models::CloudflareChallengeResult {
             completed: true,
             user_cancelled: false,
+            fresh_cf_clearance: Some("notification-clearance".into()),
             cookies: vec![PlatformCookie {
                 name: "cf_clearance".into(),
                 value: "notification-clearance".into(),
@@ -523,6 +524,7 @@ async fn fetch_recent_notifications_keeps_cloudflare_challenge_background() {
         fire_models::CloudflareChallengeResult {
             completed: false,
             user_cancelled: false,
+            fresh_cf_clearance: None,
             cookies: Vec::new(),
             browser_user_agent: None,
         }

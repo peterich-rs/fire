@@ -14,8 +14,8 @@ class FireLoginScriptsTest {
         assertTrue(html.contains("hcaptcha.render('hcaptcha'"))
         assertTrue(html.contains("window.__fireLogin = async function"))
         assertTrue(html.contains("fetch('/session/csrf'"))
-        assertTrue(html.contains("'/captcha/hcaptcha/create.json'"))
-        assertTrue(html.contains("'/hcaptcha/create.json'"))
+        assertTrue(html.contains("\"/captcha/hcaptcha/create.json\""))
+        assertTrue(html.contains("\"/hcaptcha/create.json\""))
         assertTrue(html.contains("fetch('/session.json'"))
         assertTrue(html.contains("'X-Requested-With': 'XMLHttpRequest'"))
         assertTrue(html.contains("credentials: 'include'"))
@@ -37,5 +37,18 @@ class FireLoginScriptsTest {
         assertTrue(script.contains("\"p\\\"ass\\\\word\""))
         assertTrue(script.contains("\"hc-token\""))
         assertTrue(script.endsWith(",null);"))
+    }
+
+    @Test
+    fun minimalLoginDocumentAllowsConfiguredHcaptchaEndpointFirst() {
+        val html = FireLoginScripts.minimalLoginDocument(
+            hcaptchaSiteKey = "site-key",
+            hcaptchaCreateEndpoint = "/custom/hcaptcha/create.json",
+        )
+
+        assertTrue(
+            html.indexOf("\"/custom/hcaptcha/create.json\"") <
+                html.indexOf("\"/captcha/hcaptcha/create.json\""),
+        )
     }
 }

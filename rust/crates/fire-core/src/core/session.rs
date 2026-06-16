@@ -182,10 +182,15 @@ impl FireCore {
     pub fn complete_cloudflare_challenge(
         &self,
         cookies: Vec<PlatformCookie>,
+        fresh_cf_clearance: Option<String>,
         browser_user_agent: Option<String>,
     ) -> SessionSnapshot {
+        let cookies = filter_cloudflare_challenge_cookies(cookies, fresh_cf_clearance.as_deref());
         info!(
             cookie_count = cookies.len(),
+            fresh_clearance = fresh_cf_clearance
+                .as_deref()
+                .is_some_and(|value| !value.trim().is_empty()),
             "completing cloudflare challenge via platform cookie sync"
         );
         let origin_url = url::Url::parse(self.base_url()).ok();
@@ -725,4 +730,22 @@ impl FireCore {
             }
         }
     }
+}
+
+fn filter_cloudflare_challenge_cookies(
+    cookies: Vec<PlatformCookie>,
+    fresh_cf_clearance: Option<&str>,
+) -> Vec<PlatformCookie> {
+    let fresh_cf_clearance = fresh_cf_clearance
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    cookies
+        .into_iter()
+        .filter(|cookie| {
+            if cookie.name.eq_ignore_ascii_case("cf_clearance") {
+                return fresh_cf_clearance.is_some_and(|fresh| cookie.value.trim() == fresh);
+            }
+            true
+        })
+        .collect()
 }

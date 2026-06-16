@@ -227,27 +227,17 @@ final class FireAppViewModel: ObservableObject {
     }
 
     func openLogin() {
-        guard !isPreparingLogin else {
-            if authPresentationState == nil {
-                setAuthPresentationState(.login)
-            }
-            return
-        }
-
+        guard authPresentationState == nil else { return }
         errorMessage = nil
         canSyncLoginSession = false
         cachedLoginSyncReadiness = nil
         setAuthPresentationState(.login)
-        isPreparingLogin = true
 
         Task {
-            defer { isPreparingLogin = false }
-
             do {
                 let sessionStore = try await sessionStoreValue()
                 savedLoginCredential = try await sessionStore.loadSavedCredential()
-                try await preloadLoginCoordinator()
-                await warmLoginNetworkAccess()
+                _ = try await loginCoordinatorValue()
             } catch {
                 errorMessage = error.localizedDescription
             }
@@ -293,7 +283,8 @@ final class FireAppViewModel: ObservableObject {
     func completeMinimalLogin(
         from webView: WKWebView,
         identifier: String,
-        password: String
+        password: String,
+        rememberCredential: Bool
     ) {
         guard !isSyncingLoginSession else {
             return
@@ -315,11 +306,16 @@ final class FireAppViewModel: ObservableObject {
                         ),
                         activateMessageBus: false
                     )
-                    try await sessionStore.saveLoginCredential(
-                        username: identifier,
-                        password: password
-                    )
-                    savedLoginCredential = try await sessionStore.loadSavedCredential()
+                    if rememberCredential {
+                        try await sessionStore.saveLoginCredential(
+                            username: identifier,
+                            password: password
+                        )
+                        savedLoginCredential = try await sessionStore.loadSavedCredential()
+                    } else {
+                        try await sessionStore.clearSavedCredential()
+                        savedLoginCredential = nil
+                    }
                     FireCfClearanceRefreshService.shared.setLoginStateConfirmed(true)
                     try await sessionStore.triggerAppStateRefresh(
                         .loginCompleted,
@@ -345,23 +341,77 @@ final class FireAppViewModel: ObservableObject {
         return try await sessionStore.classifyWebViewLoginResult(result)
     }
 
+    func classifyLoginResult(
+        phase: WebViewLoginPhaseState,
+        status: UInt16,
+        body: String
+    ) async throws -> WebViewLoginDecisionState {
+        let result = WebViewLoginJsResultState(
+            phase: phase,
+            status: status,
+            body: body
+        )
+        return try await classifyWebViewLoginResult(result)
+    }
+
     func recoverLoginCloudflareChallenge(in webView: WKWebView) async throws {
         let sessionStore = try await sessionStoreValue()
-        let challengeCoordinator = FireCloudflareChallengeCoordinator(sessionStore: sessionStore)
-        let result = await challengeCoordinator.completeManualVerification(originURL: "https://linux.do/")
-        guard result.completed else {
-            throw FireLoginPreparationError.cloudflareVerificationIncomplete
-        }
-
-        if !result.cookies.isEmpty {
-            _ = try await sessionStore.applyPlatformCookies(result.cookies)
-        }
+        try await completeLoginCloudflareChallenge(sessionStore: sessionStore)
         try await Task.sleep(for: .milliseconds(1_500))
         let loginCoordinator = try await loginCoordinatorValue()
         try await loginCoordinator.primeCookies(
             into: webView,
             targetURL: URL(string: "https://linux.do/")
         )
+    }
+
+    func ensureCloudflareClearance() async -> Bool {
+        do {
+            let sessionStore = try await sessionStoreValue()
+            if try await sessionStore.snapshot().readiness.hasCloudflareClearance {
+                return true
+            }
+
+            try await completeLoginCloudflareChallenge(sessionStore: sessionStore)
+            try await Task.sleep(for: .milliseconds(1_500))
+            return try await sessionStore.snapshot().readiness.hasCloudflareClearance
+        } catch {
+            errorMessage = error.localizedDescription
+            return false
+        }
+    }
+
+    func loginCoordinatorForDialog() async throws -> FireWebViewLoginCoordinator {
+        try await loginCoordinatorValue()
+    }
+
+    func probeLoginSyncReadiness(from webView: WKWebView) async throws -> FireLoginSyncReadiness {
+        let loginCoordinator = try await loginCoordinatorValue()
+        return try await loginCoordinator.probeLoginSyncReadiness(from: webView)
+    }
+
+    private func completeLoginCloudflareChallenge(
+        sessionStore: FireSessionStore
+    ) async throws {
+        let challengeCoordinator = FireCloudflareChallengeCoordinator(sessionStore: sessionStore)
+        let result = await challengeCoordinator.completeManualVerification(originURL: "https://linux.do/")
+        guard
+            result.completed,
+            let freshCfClearance = result.freshCfClearance?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+            !freshCfClearance.isEmpty
+        else {
+            throw FireLoginPreparationError.cloudflareVerificationIncomplete
+        }
+
+        let session = try await sessionStore.completeCloudflareChallenge(
+            cookies: result.cookies,
+            freshCfClearance: freshCfClearance,
+            browserUserAgent: result.browserUserAgent
+        )
+        guard session.cookies.cfClearance == freshCfClearance else {
+            throw FireLoginPreparationError.cloudflareVerificationIncomplete
+        }
     }
 
     func dismissAuthPresentation() {
@@ -405,50 +455,6 @@ final class FireAppViewModel: ObservableObject {
                 return
             }
             webView.load(URLRequest(url: targetURL))
-        }
-    }
-
-    func prepareMinimalAuthWebView(_ webView: WKWebView) {
-        guard webView.url == nil else {
-            return
-        }
-
-        Task { [weak self, weak webView] in
-            guard let self, let webView else { return }
-            do {
-                let sessionStore = try await sessionStoreValue()
-                let replayEntries = try await sessionStore.cookieReplayQueue()
-                if !replayEntries.isEmpty {
-                    let cookieStore = webView.configuration.websiteDataStore.httpCookieStore
-                    for entry in replayEntries {
-                        guard let cookieURL = URL(string: entry.url) else {
-                            continue
-                        }
-                        let cookies = HTTPCookie.cookies(
-                            withResponseHeaderFields: ["Set-Cookie": entry.rawSetCookie],
-                            for: cookieURL
-                        )
-                        for cookie in cookies {
-                            await setWebKitCookie(cookie, in: cookieStore)
-                        }
-                    }
-                    try await sessionStore.clearCookieReplayQueue()
-                }
-                let loginCoordinator = try await loginCoordinatorValue()
-                try await loginCoordinator.primeCookies(into: webView, targetURL: URL(string: "https://linux.do/"))
-            } catch {
-                errorMessage = error.localizedDescription
-            }
-
-            guard webView.url == nil else {
-                return
-            }
-            webView.loadHTMLString(
-                FireLoginScripts.minimalLoginHTML(
-                    hcaptchaSiteKey: FireLoginScripts.linuxDoHcaptchaSiteKey
-                ),
-                baseURL: URL(string: "https://linux.do/")
-            )
         }
     }
 

@@ -6,14 +6,49 @@ import org.junit.Test
 
 class FireWebViewCookieActionSupportTest {
     @Test
-    fun parseCookieHeaderKeepsNameValuePairsForSweepPlanning() {
-        val cookies = FireWebViewCookieActionSupport.parseCookieHeader(
-            "_t=token; _forum_session=session; empty=; cf_clearance=clear",
+    fun parseCookieInfoHeadersKeepMetadataForSweepPlanning() {
+        val cookies = FireWebViewCookieActionSupport.parseCookieInfoHeaders(
+            listOf(
+                "_t=token; Path=/; Domain=linux.do; Secure; HttpOnly; SameSite=Lax",
+                "cf_clearance=clear; Path=/; Domain=.linux.do; Secure; SameSite=None",
+            ),
+        )
+
+        assertEquals(listOf("_t", "cf_clearance"), cookies.map { it.name })
+        assertEquals(listOf("token", "clear"), cookies.map { it.value })
+        assertEquals(listOf("linux.do", ".linux.do"), cookies.map { it.domain })
+        assertEquals(listOf("/", "/"), cookies.map { it.path })
+        assertTrue(cookies.all { it.secure == true })
+        assertEquals(false, cookies[0].hostOnly)
+    }
+
+    @Test
+    fun cookieInfosFromHeadersFallsBackToLowConfidenceCookieHeader() {
+        val cookies = FireWebViewCookieActionSupport.cookieInfosFromHeadersOrFallback(
+            cookieInfoHeaders = emptyList(),
+            cookieHeader = "_t=token; _forum_session=forum; cf_clearance=clear=with_equals; ignored; empty=",
         )
 
         assertEquals(listOf("_t", "_forum_session", "cf_clearance"), cookies.map { it.name })
-        assertEquals(listOf("token", "session", "clear"), cookies.map { it.value })
-        assertTrue(cookies.all { it.domain == null && it.path == null })
+        assertEquals(listOf("token", "forum", "clear=with_equals"), cookies.map { it.value })
+        assertTrue(cookies.all { it.domain == null })
+        assertTrue(cookies.all { it.path == null })
+        assertTrue(cookies.all { it.hostOnly == null })
+        assertEquals(null, cookies[0].sameSite)
+        assertEquals(uniffi.fire_uniffi_session.CookieSameSiteState.NONE, cookies[2].sameSite)
+    }
+
+    @Test
+    fun cookieInfosPreferRichCookieInfoHeadersWhenAvailable() {
+        val cookies = FireWebViewCookieActionSupport.cookieInfosFromHeadersOrFallback(
+            cookieInfoHeaders = listOf("cf_clearance=rich; Path=/; Domain=.linux.do; Secure; SameSite=None"),
+            cookieHeader = "cf_clearance=plain",
+        )
+
+        assertEquals(1, cookies.size)
+        assertEquals("rich", cookies[0].value)
+        assertEquals(".linux.do", cookies[0].domain)
+        assertEquals("/", cookies[0].path)
     }
 
     @Test

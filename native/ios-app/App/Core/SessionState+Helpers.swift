@@ -1,7 +1,7 @@
 import Foundation
 
 extension SessionState {
-    private static let scalarFallbackCookieNames: Set<String> = ["_t", "_forum_session", "cf_clearance"]
+    private static let mirroredCookieNames: Set<String> = ["_t", "_forum_session", "cf_clearance"]
 
     static func placeholder(baseUrl: String = "https://linux.do") -> SessionState {
         SessionState(
@@ -117,30 +117,7 @@ extension SessionState {
             }
         let usesFullSameSiteScope = !platformCookies.isEmpty
 
-        let mirroredNames = Set(platformCookies.map(\.name))
-        let scalarFallbackCandidates: [(String, String?)] = [
-            ("_t", cookies.tToken),
-            ("_forum_session", cookies.forumSession),
-            ("cf_clearance", cookies.cfClearance),
-        ]
-        let scalarFallback: [HTTPCookie] = scalarFallbackCandidates.compactMap {
-            (name: String, value: String?) -> HTTPCookie? in
-            guard !mirroredNames.contains(name), let value, !value.isEmpty else {
-                return nil
-            }
-
-            return Self.makeCookie(
-                name: name,
-                value: value,
-                domain: host,
-                path: "/",
-                expiresAtUnixMs: nil,
-                secure: secure,
-                originURL: baseURL
-            )
-        }
-
-        let sortedCookies = (platformCookies + scalarFallback).sorted {
+        let sortedCookies = platformCookies.sorted {
             let lhs = Self.cookieDescriptor($0)
             let rhs = Self.cookieDescriptor($1)
             return lhs < rhs
@@ -172,7 +149,7 @@ extension SessionState {
         host: String,
         fullSameSiteScope: Bool
     ) -> Bool {
-        if !fullSameSiteScope && !scalarFallbackCookieNames.contains(cookie.name) {
+        if !fullSameSiteScope && !mirroredCookieNames.contains(cookie.name) {
             return false
         }
 

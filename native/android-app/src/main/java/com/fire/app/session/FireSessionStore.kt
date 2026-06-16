@@ -162,7 +162,7 @@ class FireSessionStore(
 
     suspend fun finalizeLoginFromWebView(
         captured: FireCapturedLoginState,
-        allowLowConfidenceSessionCookies: Boolean = true,
+        allowLowConfidenceSessionCookies: Boolean = false,
     ): LoginFinalizationResultState = withContext(Dispatchers.Default) {
         val result = core.session().finalizeLoginFromWebview(
             username = captured.username.orEmpty(),
@@ -182,6 +182,20 @@ class FireSessionStore(
             persistCurrentSession()
             state
         }
+
+    suspend fun completeCloudflareChallenge(
+        cookies: List<PlatformCookieState>,
+        freshCfClearance: String,
+        browserUserAgent: String?,
+    ): SessionState = withContext(Dispatchers.Default) {
+        val state = core.session().completeCloudflareChallenge(
+            cookies = cookies,
+            freshCfClearance = freshCfClearance,
+            browserUserAgent = browserUserAgent,
+        )
+        persistCurrentSession()
+        state
+    }
 
     suspend fun classifyWebViewLoginResult(
         result: WebViewLoginJsResultState,

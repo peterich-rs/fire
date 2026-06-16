@@ -132,8 +132,13 @@ object FireLoginScripts {
 
     const val readPreloadedData = "(function(){return window.__rawPreloaded||null;})()"
 
-    fun minimalLoginDocument(hcaptchaSiteKey: String): String {
+    fun minimalLoginDocument(
+        hcaptchaSiteKey: String,
+        hcaptchaCreateEndpoint: String? = null,
+    ): String {
         val siteKey = JSONObject.quote(hcaptchaSiteKey)
+        val hcaptchaCreateEndpoints = resolvedHcaptchaCreateEndpoints(hcaptchaCreateEndpoint)
+            .joinToString(prefix = "[", postfix = "]") { JSONObject.quote(it) }
         return """
             <!doctype html>
             <html>
@@ -220,10 +225,7 @@ object FireLoginScripts {
 
                   async function createHcaptcha(csrf, token) {
                     if (token === null || token === undefined || token === '') return true;
-                    var endpoints = [
-                      '/captcha/hcaptcha/create.json',
-                      '/hcaptcha/create.json'
-                    ];
+                    var endpoints = $hcaptchaCreateEndpoints;
                     var lastStatus = 0;
                     var lastBody = '';
                     for (var i = 0; i < endpoints.length; i++) {
@@ -328,5 +330,13 @@ object FireLoginScripts {
         val escapedHcaptcha = hcaptchaToken?.let { JSONObject.quote(it) } ?: "null"
         val escapedSecondFactor = secondFactorToken?.let { JSONObject.quote(it) } ?: "null"
         return "window.__fireLogin($escapedIdentifier,$escapedPassword,$escapedHcaptcha,$escapedSecondFactor);"
+    }
+
+    private fun resolvedHcaptchaCreateEndpoints(preferred: String?): List<String> {
+        val endpoints = linkedSetOf<String>()
+        preferred?.trim()?.takeIf { it.isNotEmpty() }?.let(endpoints::add)
+        endpoints.add("/captcha/hcaptcha/create.json")
+        endpoints.add("/hcaptcha/create.json")
+        return endpoints.toList()
     }
 }

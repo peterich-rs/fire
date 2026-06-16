@@ -54,6 +54,7 @@ class FireCloudflareChallengeCoordinator(
         return CloudflareChallengeResultState(
             completed = false,
             userCancelled = userCancelled,
+            freshCfClearance = null,
             cookies = emptyList(),
             browserUserAgent = null,
         )
@@ -82,6 +83,7 @@ internal class PendingChallenge {
     var result: CloudflareChallengeResultState = CloudflareChallengeResultState(
         completed = false,
         userCancelled = false,
+        freshCfClearance = null,
         cookies = emptyList(),
         browserUserAgent = null,
     )

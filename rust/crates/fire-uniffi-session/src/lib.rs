@@ -307,6 +307,26 @@ impl FireSessionHandle {
         )
     }
 
+    pub fn complete_cloudflare_challenge(
+        &self,
+        cookies: Vec<PlatformCookieState>,
+        fresh_cf_clearance: String,
+        browser_user_agent: Option<String>,
+    ) -> Result<SessionState, FireUniFfiError> {
+        run_infallible(
+            &self.shared.panic_state,
+            &self.shared.core,
+            "complete_cloudflare_challenge",
+            move |inner| {
+                SessionState::from_snapshot(inner.complete_cloudflare_challenge(
+                    cookies.into_iter().map(Into::into).collect(),
+                    Some(fresh_cf_clearance),
+                    browser_user_agent,
+                ))
+            },
+        )
+    }
+
     pub fn apply_bootstrap(
         &self,
         bootstrap: BootstrapState,

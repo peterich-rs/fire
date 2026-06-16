@@ -931,6 +931,7 @@ impl FireCore {
                     runtime.begin();
                 }
 
+                let before_clearance = self.snapshot().cookies.cf_clearance.clone();
                 let challenge_result = handler(CloudflareChallengeRequest {
                     operation: operation.to_string(),
                     request_url: request_url.clone(),
@@ -939,35 +940,49 @@ impl FireCore {
                     session_epoch: self.current_session_epoch(),
                 })
                 .await;
-                let before_clearance = self.snapshot().cookies.cf_clearance.clone();
                 let resolved = if !challenge_result.completed || challenge_result.user_cancelled {
                     Err(FireCoreError::CloudflareChallenge { operation })
                 } else {
-                    let session = self.complete_cloudflare_challenge(
-                        challenge_result.cookies,
-                        challenge_result.browser_user_agent,
-                    );
-                    let has_new_clearance = session.cookies.cf_clearance != before_clearance
-                        && session.cookies.has_cloudflare_clearance();
-                    if !has_new_clearance {
+                    let fresh_clearance = challenge_result
+                        .fresh_cf_clearance
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty())
+                        .map(str::to_string);
+                    let has_confirmed_fresh_clearance = fresh_clearance
+                        .as_deref()
+                        .is_some_and(|fresh| before_clearance.as_deref() != Some(fresh));
+                    if !has_confirmed_fresh_clearance {
                         Err(FireCoreError::CloudflareChallenge { operation })
-                    } else if let Some(mut retry_request) = retry_request {
-                        retry_request
-                            .extensions_mut()
-                            .insert(FireRequestEpoch(self.current_session_epoch()));
-                        retry_request
-                            .extensions_mut()
-                            .insert(FireSkipCloudflareBlock);
-                        let retry = trace_request(&self.diagnostics, operation, retry_request);
-                        self.network
-                            .execute_traced_with_options(
-                                retry,
-                                FireCallProfile::DefaultApi,
-                                options,
-                            )
-                            .await
                     } else {
-                        Err(FireCoreError::CloudflareChallenge { operation })
+                        let session = self.complete_cloudflare_challenge(
+                            challenge_result.cookies,
+                            fresh_clearance.clone(),
+                            challenge_result.browser_user_agent,
+                        );
+                        let has_new_clearance = session.cookies.cf_clearance.as_deref()
+                            == fresh_clearance.as_deref()
+                            && session.cookies.has_cloudflare_clearance();
+                        if !has_new_clearance {
+                            Err(FireCoreError::CloudflareChallenge { operation })
+                        } else if let Some(mut retry_request) = retry_request {
+                            retry_request
+                                .extensions_mut()
+                                .insert(FireRequestEpoch(self.current_session_epoch()));
+                            retry_request
+                                .extensions_mut()
+                                .insert(FireSkipCloudflareBlock);
+                            let retry = trace_request(&self.diagnostics, operation, retry_request);
+                            self.network
+                                .execute_traced_with_options(
+                                    retry,
+                                    FireCallProfile::DefaultApi,
+                                    options,
+                                )
+                                .await
+                        } else {
+                            Err(FireCoreError::CloudflareChallenge { operation })
+                        }
                     }
                 };
                 {

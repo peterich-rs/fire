@@ -2,7 +2,14 @@ package com.fire.app.session
 
 import android.webkit.CookieManager
 import android.webkit.WebView
+import androidx.webkit.CookieManagerCompat
+import androidx.webkit.WebViewFeature
 import java.net.URI
+import java.time.Instant
+import java.time.ZoneOffset
+import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
+import java.time.format.DateTimeParseException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
@@ -42,7 +49,7 @@ class FireWebViewLoginCoordinator(
     suspend fun completeLogin(captured: FireCapturedLoginState): SessionState {
         val finalization = sessionStore.finalizeLoginFromWebView(
             captured = captured,
-            allowLowConfidenceSessionCookies = true,
+            allowLowConfidenceSessionCookies = false,
         )
         if (finalization.session.loginPhase == LoginPhaseState.READY) {
             return finalization.session
@@ -138,10 +145,9 @@ class FireWebViewLoginCoordinator(
 
     suspend fun webViewCookieInfos(targetUrl: String? = "$loginBaseUrl/"): List<WebViewCookieInfoState> =
         withContext(Dispatchers.Main) {
+            val cookieManager = CookieManager.getInstance()
             relevantCookieUrls(targetUrl).flatMap { url ->
-                FireWebViewCookieActionSupport.parseCookieHeader(
-                    CookieManager.getInstance().getCookie(url),
-                )
+                FireWebViewCookieActionSupport.cookieInfos(cookieManager, url)
             }.distinctBy { "${it.name}\u0000${it.value}\u0000${it.domain}\u0000${it.path}" }
         }
 
@@ -213,15 +219,12 @@ class FireWebViewLoginCoordinator(
 
     private fun relevantCookies(currentUrl: String?): List<PlatformCookieState> {
         val merged = LinkedHashMap<String, PlatformCookieState>()
+        val cookieManager = CookieManager.getInstance()
         for (url in relevantCookieUrls(currentUrl)) {
-            CookieManager.getInstance()
-                .getCookie(url)
-                .orEmpty()
-                .let(FireWebViewCookieActionSupport::parsePlatformCookies)
+            FireWebViewCookieActionSupport
+                .platformCookies(cookieManager, url)
                 .forEach { cookie ->
-                    if (cookie.name !in merged) {
-                        merged[cookie.name] = cookie
-                    }
+                    merged.putIfAbsent(cookie.variantKey(), cookie)
                 }
         }
         return merged.values.toList()
@@ -306,6 +309,46 @@ class FireWebViewLoginCoordinator(
 }
 
 internal object FireWebViewCookieActionSupport {
+    fun cookieInfos(cookieManager: CookieManager, url: String): List<WebViewCookieInfoState> {
+        return cookieInfosFromHeadersOrFallback(
+            cookieInfoHeaders = cookieInfoHeaders(cookieManager, url),
+            cookieHeader = cookieManager.getCookie(url),
+        )
+    }
+
+    fun cookieInfoHeaders(cookieManager: CookieManager, url: String): List<String> {
+        if (!WebViewFeature.isFeatureSupported(WebViewFeature.GET_COOKIE_INFO)) {
+            return emptyList()
+        }
+        return runCatching {
+            CookieManagerCompat.getCookieInfo(cookieManager, url)
+        }.getOrDefault(emptyList())
+    }
+
+    fun platformCookies(cookieManager: CookieManager, url: String): List<PlatformCookieState> {
+        return cookieInfos(cookieManager, url).map { cookie ->
+            PlatformCookieState(
+                name = cookie.name,
+                value = cookie.value,
+                domain = cookie.domain,
+                path = cookie.path,
+                expiresAtUnixMs = cookie.expiresAtUnixMs,
+                sameSite = platformSameSite(cookie.sameSite),
+            )
+        }
+    }
+
+    fun parseCookieInfoHeaders(headers: List<String>): List<WebViewCookieInfoState> =
+        headers.mapNotNull(::parseCookieInfoHeader)
+
+    fun cookieInfosFromHeadersOrFallback(
+        cookieInfoHeaders: List<String>,
+        cookieHeader: String?,
+    ): List<WebViewCookieInfoState> {
+        val richCookies = parseCookieInfoHeaders(cookieInfoHeaders)
+        return richCookies.ifEmpty { parseCookieHeader(cookieHeader) }
+    }
+
     fun parseCookieHeader(header: String?): List<WebViewCookieInfoState> {
         return cookiePairs(header).map { (name, value) ->
             WebViewCookieInfoState(
@@ -316,24 +359,8 @@ internal object FireWebViewCookieActionSupport {
                 hostOnly = null,
                 secure = null,
                 httpOnly = null,
-                sameSite = inferredSameSite(name),
+                sameSite = if (name == "cf_clearance") CookieSameSiteState.NONE else null,
                 expiresAtUnixMs = null,
-            )
-        }
-    }
-
-    private fun inferredSameSite(name: String): CookieSameSiteState? =
-        if (name == "cf_clearance") CookieSameSiteState.NONE else null
-
-    fun parsePlatformCookies(header: String?): List<PlatformCookieState> {
-        return cookiePairs(header).map { (name, value) ->
-            PlatformCookieState(
-                name = name,
-                value = value,
-                domain = null,
-                path = null,
-                expiresAtUnixMs = null,
-                sameSite = null,
             )
         }
     }
@@ -347,6 +374,41 @@ internal object FireWebViewCookieActionSupport {
             if (!domain.isNullOrBlank()) {
                 append("; Domain=")
                 append(domain.trim())
+            }
+        }
+    }
+
+    fun setCookieHeader(cookie: WebViewCookieInfoState): String {
+        return buildString {
+            val domain = cookie.domain?.trim()?.takeIf { it.isNotBlank() }
+            append(cookie.name)
+            append("=")
+            append(cookie.value)
+            append("; Path=")
+            append(cookie.path?.takeIf { it.isNotBlank() } ?: "/")
+            if (domain != null) {
+                append("; Domain=")
+                append(domain)
+            }
+            if (cookie.secure == true) {
+                append("; Secure")
+            }
+            if (cookie.httpOnly == true) {
+                append("; HttpOnly")
+            }
+            when (cookie.sameSite) {
+                CookieSameSiteState.LAX -> append("; SameSite=Lax")
+                CookieSameSiteState.STRICT -> append("; SameSite=Strict")
+                CookieSameSiteState.NONE -> append("; SameSite=None")
+                CookieSameSiteState.UNSPECIFIED, null -> Unit
+            }
+            cookie.expiresAtUnixMs?.let { expiresAt ->
+                append("; Expires=")
+                append(
+                    DateTimeFormatter.RFC_1123_DATE_TIME.format(
+                        Instant.ofEpochMilli(expiresAt).atZone(ZoneOffset.UTC),
+                    ),
+                )
             }
         }
     }
@@ -371,6 +433,92 @@ internal object FireWebViewCookieActionSupport {
         }
     }
 
+    private fun parseCookieInfoHeader(header: String): WebViewCookieInfoState? {
+        val segments = header.split(";").map { it.trim() }.filter { it.isNotEmpty() }
+        val first = segments.firstOrNull() ?: return null
+        val separator = first.indexOf('=')
+        if (separator <= 0) {
+            return null
+        }
+        val name = first.substring(0, separator).trim()
+        val value = first.substring(separator + 1).trim()
+        if (name.isEmpty() || value.isEmpty()) {
+            return null
+        }
+
+        var domain: String? = null
+        var path: String? = null
+        var secure: Boolean? = null
+        var httpOnly: Boolean? = null
+        var sameSite: CookieSameSiteState? = null
+        var expiresAtUnixMs: Long? = null
+        for (segment in segments.drop(1)) {
+            val attrSeparator = segment.indexOf('=')
+            val attrName = if (attrSeparator > 0) {
+                segment.substring(0, attrSeparator).trim().lowercase()
+            } else {
+                segment.trim().lowercase()
+            }
+            val attrValue = if (attrSeparator > 0) {
+                segment.substring(attrSeparator + 1).trim()
+            } else {
+                ""
+            }
+            when (attrName) {
+                "domain" -> domain = attrValue.takeIf { it.isNotBlank() }
+                "path" -> path = attrValue.takeIf { it.isNotBlank() }
+                "secure" -> secure = true
+                "httponly" -> httpOnly = true
+                "samesite" -> sameSite = sameSite(attrValue)
+                "expires" -> expiresAtUnixMs = parseExpiresUnixMs(attrValue)
+                "max-age" -> expiresAtUnixMs = parseMaxAgeUnixMs(attrValue)
+            }
+        }
+
+        return WebViewCookieInfoState(
+            name = name,
+            value = value,
+            domain = domain,
+            path = path,
+            hostOnly = if (domain == null) true else false,
+            secure = secure,
+            httpOnly = httpOnly,
+            sameSite = sameSite ?: if (name == "cf_clearance") CookieSameSiteState.NONE else null,
+            expiresAtUnixMs = expiresAtUnixMs,
+        )
+    }
+
+    private fun sameSite(value: String): CookieSameSiteState =
+        when (value.trim().lowercase()) {
+            "lax" -> CookieSameSiteState.LAX
+            "strict" -> CookieSameSiteState.STRICT
+            "none" -> CookieSameSiteState.NONE
+            else -> CookieSameSiteState.UNSPECIFIED
+        }
+
+    private fun platformSameSite(value: CookieSameSiteState?): String? =
+        when (value) {
+            CookieSameSiteState.LAX -> "lax"
+            CookieSameSiteState.STRICT -> "strict"
+            CookieSameSiteState.NONE -> "none"
+            CookieSameSiteState.UNSPECIFIED, null -> null
+        }
+
+    private fun parseExpiresUnixMs(value: String): Long? {
+        return try {
+            ZonedDateTime.parse(value, DateTimeFormatter.RFC_1123_DATE_TIME)
+                .toInstant()
+                .toEpochMilli()
+        } catch (_: DateTimeParseException) {
+            null
+        }
+    }
+
+    private fun parseMaxAgeUnixMs(value: String): Long? {
+        val seconds = value.toLongOrNull() ?: return null
+        return System.currentTimeMillis() + seconds * 1_000
+    }
+
     private fun cookiePairs(header: String?): List<Pair<String, String>> {
         return header.orEmpty()
             .split(";")
@@ -392,6 +540,14 @@ internal object FireWebViewCookieActionSupport {
             }
     }
 }
+
+private fun PlatformCookieState.variantKey(): String =
+    listOf(
+        name,
+        value,
+        domain.orEmpty(),
+        path.orEmpty(),
+    ).joinToString(separator = "\u0000")
 
 private suspend fun CookieManager.setCookieSuspend(url: String, value: String): Boolean =
     suspendCancellableCoroutine { continuation ->

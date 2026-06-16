@@ -578,6 +578,7 @@ pub struct CloudflareChallengeRequest {
 pub struct CloudflareChallengeResult {
     pub completed: bool,
     pub user_cancelled: bool,
+    pub fresh_cf_clearance: Option<String>,
     pub cookies: Vec<PlatformCookie>,
     pub browser_user_agent: Option<String>,
 }

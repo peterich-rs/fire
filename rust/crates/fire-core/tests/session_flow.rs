@@ -128,8 +128,13 @@ fn webview_priming_payload_exports_canonical_set_cookie_actions() {
 
     let payload = core.webview_priming_payload(Some("https://linux.do/".into()));
 
-    assert_eq!(payload.len(), 1);
-    let WebViewCookieAction::SetRaw { url, set_cookie } = &payload[0] else {
+    assert_eq!(payload.len(), 2);
+    assert!(matches!(
+        &payload[0],
+        WebViewCookieAction::DeleteByName { url, name }
+            if url == "https://linux.do/" && name == "cf_clearance"
+    ));
+    let WebViewCookieAction::SetRaw { url, set_cookie } = &payload[1] else {
         panic!("expected raw set-cookie action");
     };
     assert_eq!(url, "https://linux.do/");

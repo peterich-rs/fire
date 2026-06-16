@@ -321,6 +321,21 @@ public actor FireSessionStore {
         return state
     }
 
+    @discardableResult
+    public func completeCloudflareChallenge(
+        cookies: [PlatformCookieState],
+        freshCfClearance: String,
+        browserUserAgent: String?
+    ) throws -> SessionState {
+        let state = try core.session().completeCloudflareChallenge(
+            cookies: cookies,
+            freshCfClearance: freshCfClearance,
+            browserUserAgent: browserUserAgent
+        )
+        try persistCurrentSessionIfNeeded()
+        return state
+    }
+
     public func classifyWebViewLoginResult(
         _ result: WebViewLoginJsResultState
     ) throws -> WebViewLoginDecisionState {

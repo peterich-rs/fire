@@ -13,8 +13,8 @@ final class FireLoginScriptsTests: XCTestCase {
         XCTAssertTrue(html.contains("hcaptcha.render('hcaptcha'"))
         XCTAssertTrue(html.contains("window.__fireLogin = async function"))
         XCTAssertTrue(html.contains("fetch('/session/csrf'"))
-        XCTAssertTrue(html.contains("'/captcha/hcaptcha/create.json'"))
-        XCTAssertTrue(html.contains("'/hcaptcha/create.json'"))
+        XCTAssertTrue(html.contains(#""\/captcha\/hcaptcha\/create.json""#))
+        XCTAssertTrue(html.contains(#""\/hcaptcha\/create.json""#))
         XCTAssertTrue(html.contains("fetch('/session.json'"))
         XCTAssertTrue(html.contains("'X-Requested-With': 'XMLHttpRequest'"))
         XCTAssertTrue(html.contains("credentials: 'include'"))
@@ -35,5 +35,17 @@ final class FireLoginScriptsTests: XCTestCase {
         XCTAssertTrue(script.contains(#""p\"ass\\word""#))
         XCTAssertTrue(script.contains(#""hc-token""#))
         XCTAssertTrue(script.hasSuffix(",null);"))
+    }
+
+    func testMinimalLoginHTMLAllowsConfiguredHcaptchaEndpointFirst() {
+        let html = FireLoginScripts.minimalLoginHTML(
+            hcaptchaSiteKey: "site-key",
+            hcaptchaCreateEndpoint: "/custom/hcaptcha/create.json"
+        )
+
+        XCTAssertLessThan(
+            html.range(of: #""\/custom\/hcaptcha\/create.json""#)?.lowerBound ?? html.endIndex,
+            html.range(of: #""\/captcha\/hcaptcha\/create.json""#)?.lowerBound ?? html.endIndex
+        )
     }
 }

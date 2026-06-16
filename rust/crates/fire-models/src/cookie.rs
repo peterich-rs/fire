@@ -695,29 +695,31 @@ impl CookieSnapshot {
     pub fn webview_priming_payload(&self, uri: &url::Url) -> Vec<WebViewCookieAction> {
         let store = CanonicalCookieStore::from_cookies(self.canonical_cookies.clone());
         let mut seen_critical_names = Vec::<String>::new();
-        store
-            .load_for_request(uri)
-            .into_iter()
-            .filter_map(|cookie| {
-                if cookie.value.trim().is_empty() {
-                    return None;
-                }
-                if is_critical_cookie_name(&cookie.name)
-                    && seen_critical_names
-                        .iter()
-                        .any(|name| name.eq_ignore_ascii_case(&cookie.name))
-                {
-                    return None;
-                }
-                if is_critical_cookie_name(&cookie.name) {
-                    seen_critical_names.push(cookie.name.clone());
-                }
-                Some(WebViewCookieAction::SetRaw {
+        let mut actions = Vec::new();
+        for cookie in store.load_for_request(uri) {
+            if cookie.value.trim().is_empty() {
+                continue;
+            }
+            if is_critical_cookie_name(&cookie.name)
+                && seen_critical_names
+                    .iter()
+                    .any(|name| name.eq_ignore_ascii_case(&cookie.name))
+            {
+                continue;
+            }
+            if is_critical_cookie_name(&cookie.name) {
+                seen_critical_names.push(cookie.name.clone());
+                actions.push(WebViewCookieAction::DeleteByName {
                     url: uri.as_str().to_string(),
-                    set_cookie: cookie.to_set_cookie_header(),
-                })
-            })
-            .collect()
+                    name: cookie.name.clone(),
+                });
+            }
+            actions.push(WebViewCookieAction::SetRaw {
+                url: uri.as_str().to_string(),
+                set_cookie: cookie.to_set_cookie_header(),
+            });
+        }
+        actions
     }
 
     pub fn cookie_sweep_plan(
@@ -1700,8 +1702,12 @@ mod tests {
 
         let payload = snapshot.webview_priming_payload(&uri);
 
-        assert_eq!(payload.len(), 1);
-        let WebViewCookieAction::SetRaw { set_cookie, .. } = &payload[0] else {
+        assert_eq!(payload.len(), 2);
+        assert!(matches!(
+            &payload[0],
+            WebViewCookieAction::DeleteByName { name, .. } if name == "cf_clearance"
+        ));
+        let WebViewCookieAction::SetRaw { set_cookie, .. } = &payload[1] else {
             panic!("expected set action");
         };
         assert!(set_cookie.contains("cf_clearance=fresh"));

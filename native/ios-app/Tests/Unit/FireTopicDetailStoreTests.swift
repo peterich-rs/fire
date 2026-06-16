@@ -896,6 +896,9 @@ private actor MockLoginSessionStore: FireLoginSessionStoring {
         case refreshBootstrapIfNeeded
         case refreshCsrfTokenIfNeeded
         case logoutLocal
+        case webViewPrimingPayload
+        case cookieSweepPlan
+        case cookieNuclearResetPlan
     }
 
     private let finalizationResult: SessionState
@@ -981,6 +984,33 @@ private actor MockLoginSessionStore: FireLoginSessionStoring {
         calls.append(.applyPlatformCookies)
         appliedPlatformCookies = cookies
         return finalizationResult
+    }
+
+    func webViewPrimingPayload(targetURL: String?) async throws -> [WebViewCookieActionState] {
+        calls.append(.webViewPrimingPayload)
+        return []
+    }
+
+    func cookieSweepPlan(
+        targetURL: String?,
+        name: String,
+        webViewCookies: [WebViewCookieInfoState]
+    ) async throws -> CookieSweepPlanState {
+        calls.append(.cookieSweepPlan)
+        return CookieSweepPlanState(
+            name: name,
+            intent: .ensureUnique,
+            actions: [],
+            selectedWinner: nil
+        )
+    }
+
+    func cookieNuclearResetPlan(
+        targetURL: String?,
+        webViewCookies: [WebViewCookieInfoState]
+    ) async throws -> NuclearResetPlanState {
+        calls.append(.cookieNuclearResetPlan)
+        return NuclearResetPlanState(actions: [])
     }
 
     func callsSnapshot() -> [Call] {

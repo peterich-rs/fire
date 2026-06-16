@@ -32,14 +32,20 @@ import uniffi.fire_uniffi_search.UserMentionResultState
 import uniffi.fire_uniffi_session.AppStateRefreshHandler
 import uniffi.fire_uniffi_session.CloudflareChallengeHandler
 import uniffi.fire_uniffi_session.CookieReplayEntryState
+import uniffi.fire_uniffi_session.CookieSweepPlanState
 import uniffi.fire_uniffi_session.CurrentUserSnapshotState
 import uniffi.fire_uniffi_session.HomeTopicListScopeState
 import uniffi.fire_uniffi_session.LoginFinalizationResultState
 import uniffi.fire_uniffi_session.LoginStateDeterminationState
 import uniffi.fire_uniffi_session.LoginSyncState
+import uniffi.fire_uniffi_session.NuclearResetPlanState
 import uniffi.fire_uniffi_session.PlatformCookieState
 import uniffi.fire_uniffi_session.RefreshTriggerState
 import uniffi.fire_uniffi_session.SessionState
+import uniffi.fire_uniffi_session.WebViewCookieActionState
+import uniffi.fire_uniffi_session.WebViewCookieInfoState
+import uniffi.fire_uniffi_session.WebViewLoginDecisionState
+import uniffi.fire_uniffi_session.WebViewLoginJsResultState
 import uniffi.fire_uniffi_types.DraftDataState
 import uniffi.fire_uniffi_types.DraftListResponseState
 import uniffi.fire_uniffi_types.DraftState
@@ -167,6 +173,33 @@ class FireSessionStore(
             persistCurrentSession()
             state
         }
+
+    suspend fun classifyWebViewLoginResult(
+        result: WebViewLoginJsResultState,
+    ): WebViewLoginDecisionState = withContext(Dispatchers.Default) {
+        core.session().classifyWebviewLoginResult(result)
+    }
+
+    suspend fun webViewPrimingPayload(
+        targetUrl: String? = null,
+    ): List<WebViewCookieActionState> = withContext(Dispatchers.Default) {
+        core.session().webviewPrimingPayload(targetUrl)
+    }
+
+    suspend fun cookieSweepPlan(
+        targetUrl: String? = null,
+        name: String,
+        webViewCookies: List<WebViewCookieInfoState>,
+    ): CookieSweepPlanState = withContext(Dispatchers.Default) {
+        core.session().cookieSweepPlan(targetUrl, name, webViewCookies)
+    }
+
+    suspend fun cookieNuclearResetPlan(
+        targetUrl: String? = null,
+        webViewCookies: List<WebViewCookieInfoState>,
+    ): NuclearResetPlanState = withContext(Dispatchers.Default) {
+        core.session().cookieNuclearResetPlan(targetUrl, webViewCookies)
+    }
 
     suspend fun refreshBootstrapIfNeeded(): SessionState = withContext(Dispatchers.IO) {
         val refreshed = core.session().refreshBootstrapIfNeeded()

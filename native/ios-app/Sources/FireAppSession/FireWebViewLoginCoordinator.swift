@@ -176,6 +176,112 @@ public enum FireWebViewLoginCoordinatorError: LocalizedError {
     }
 }
 
+enum FireWebViewCookieActionSupport {
+    static func webViewCookieInfo(_ cookie: HTTPCookie) -> WebViewCookieInfoState {
+        WebViewCookieInfoState(
+            name: cookie.name,
+            value: cookie.value,
+            domain: cookie.domain,
+            path: cookie.path,
+            hostOnly: !cookie.domain.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("."),
+            secure: cookie.isSecure,
+            httpOnly: cookie.isHTTPOnly,
+            sameSite: sameSitePolicy(from: cookie),
+            expiresAtUnixMs: cookie.expiresDate.map { Int64($0.timeIntervalSince1970 * 1000) }
+        )
+    }
+
+    static func cookies(fromSetCookieHeader setCookie: String, urlString: String) throws -> [HTTPCookie] {
+        guard let url = URL(string: urlString) else {
+            throw FireWebViewCookieActionSupportError.invalidCookieURL(urlString)
+        }
+        return HTTPCookie.cookies(withResponseHeaderFields: ["Set-Cookie": setCookie], for: url)
+    }
+
+    static func matchesExactDelete(
+        _ cookie: HTTPCookie,
+        url: URL?,
+        name: String,
+        domain: String?,
+        path: String
+    ) -> Bool {
+        guard cookie.name == name else {
+            return false
+        }
+        let normalizedPath = path.isEmpty ? "/" : path
+        guard cookie.path == normalizedPath else {
+            return false
+        }
+        if let domain, !domain.isEmpty {
+            return normalizedDomain(cookie.domain) == normalizedDomain(domain)
+        }
+        return url.map { applies(cookie, to: $0) } ?? true
+    }
+
+    static func matchesDeleteByName(
+        _ cookie: HTTPCookie,
+        url: URL?,
+        name: String
+    ) -> Bool {
+        cookie.name == name && (url.map { applies(cookie, to: $0) } ?? true)
+    }
+
+    static func applies(_ cookie: HTTPCookie, to url: URL) -> Bool {
+        guard let host = url.host?.lowercased(), domainMatches(cookie.domain, host: host) else {
+            return false
+        }
+        let urlPath = url.path.isEmpty ? "/" : url.path
+        let cookiePath = cookie.path.isEmpty ? "/" : cookie.path
+        return urlPath == cookiePath || urlPath.hasPrefix(cookiePath.hasSuffix("/") ? cookiePath : "\(cookiePath)/")
+    }
+
+    private static func sameSitePolicy(from cookie: HTTPCookie) -> CookieSameSiteState? {
+        guard
+            let raw = cookie.properties?[HTTPCookiePropertyKey("SameSite")] as? String
+                ?? cookie.properties?[HTTPCookiePropertyKey("sameSite")] as? String
+        else {
+            return nil
+        }
+
+        switch raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "lax":
+            return .lax
+        case "strict":
+            return .strict
+        case "none":
+            return CookieSameSiteState.none
+        default:
+            return .unspecified
+        }
+    }
+
+    private static func domainMatches(_ cookieDomain: String, host: String) -> Bool {
+        let normalized = normalizedDomain(cookieDomain)
+        return host == normalized || host.hasSuffix(".\(normalized)")
+    }
+
+    private static func normalizedDomain(_ domain: String) -> String {
+        let normalized = domain
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        guard normalized.hasPrefix(".") else {
+            return normalized
+        }
+        return String(normalized.dropFirst())
+    }
+}
+
+enum FireWebViewCookieActionSupportError: LocalizedError {
+    case invalidCookieURL(String)
+
+    var errorDescription: String? {
+        switch self {
+        case let .invalidCookieURL(url):
+            return "Invalid cookie action URL: \(url)"
+        }
+    }
+}
+
 protocol FireLoginSessionStoring: Sendable {
     func currentSessionSnapshot() async throws -> SessionState
     func restorePersistedSessionIfAvailable() async throws -> SessionState?
@@ -189,6 +295,16 @@ protocol FireLoginSessionStoring: Sendable {
     func logout() async throws -> SessionState
     func logoutLocal(preserveCfClearance: Bool) async throws -> SessionState
     func applyPlatformCookies(_ cookies: [PlatformCookieState]) async throws -> SessionState
+    func webViewPrimingPayload(targetURL: String?) async throws -> [WebViewCookieActionState]
+    func cookieSweepPlan(
+        targetURL: String?,
+        name: String,
+        webViewCookies: [WebViewCookieInfoState]
+    ) async throws -> CookieSweepPlanState
+    func cookieNuclearResetPlan(
+        targetURL: String?,
+        webViewCookies: [WebViewCookieInfoState]
+    ) async throws -> NuclearResetPlanState
 }
 
 extension FireSessionStore: FireLoginSessionStoring {
@@ -199,6 +315,9 @@ extension FireSessionStore: FireLoginSessionStoring {
 
 @MainActor
 public final class FireWebViewLoginCoordinator {
+    private static let defaultLoginURL = URL(string: "https://linux.do/")!
+    private static let sessionCookieNames = ["_t", "_forum_session", "cf_clearance"]
+
     private let sessionStore: any FireLoginSessionStoring
 
     public init(sessionStore: FireSessionStore) {
@@ -298,6 +417,98 @@ public final class FireWebViewLoginCoordinator {
         return try await applyPlatformCookiesIfAuthoritative(cookies)
     }
 
+    public func primeCookies(
+        into webView: WKWebView,
+        targetURL: URL? = nil
+    ) async throws {
+        let resolvedURL = targetURL ?? webView.url ?? Self.defaultLoginURL
+        let actions = try await sessionStore.webViewPrimingPayload(
+            targetURL: resolvedURL.absoluteString
+        )
+        try await executeCookieActions(
+            actions,
+            in: webView.configuration.websiteDataStore.httpCookieStore
+        )
+    }
+
+    @discardableResult
+    public func sweepCookies(
+        in webView: WKWebView,
+        names: [String]? = nil,
+        targetURL: URL? = nil
+    ) async throws -> [CookieSweepPlanState] {
+        let resolvedURL = targetURL ?? webView.url ?? Self.defaultLoginURL
+        let cookieInfos = try await webViewCookieInfos(
+            from: webView.configuration.websiteDataStore.httpCookieStore
+        )
+        let targetNames = names ?? Self.sessionCookieNames
+        var plans: [CookieSweepPlanState] = []
+        for name in targetNames {
+            let plan = try await sessionStore.cookieSweepPlan(
+                targetURL: resolvedURL.absoluteString,
+                name: name,
+                webViewCookies: cookieInfos
+            )
+            try await executeCookieActions(
+                plan.actions,
+                in: webView.configuration.websiteDataStore.httpCookieStore
+            )
+            plans.append(plan)
+        }
+        return plans
+    }
+
+    public func nuclearResetCookies(
+        in webView: WKWebView,
+        targetURL: URL? = nil
+    ) async throws {
+        let resolvedURL = targetURL ?? webView.url ?? Self.defaultLoginURL
+        let plan = try await sessionStore.cookieNuclearResetPlan(
+            targetURL: resolvedURL.absoluteString,
+            webViewCookies: try await webViewCookieInfos(
+                from: webView.configuration.websiteDataStore.httpCookieStore
+            )
+        )
+        try await executeCookieActions(
+            plan.actions,
+            in: webView.configuration.websiteDataStore.httpCookieStore
+        )
+    }
+
+    public func webViewCookieInfos(from webView: WKWebView) async throws -> [WebViewCookieInfoState] {
+        try await webViewCookieInfos(from: webView.configuration.websiteDataStore.httpCookieStore)
+    }
+
+    func executeCookieActions(
+        _ actions: [WebViewCookieActionState],
+        in store: WKHTTPCookieStore
+    ) async throws {
+        guard !actions.isEmpty else {
+            return
+        }
+
+        for action in actions {
+            switch action {
+            case let .setRaw(url: urlString, setCookie: setCookie):
+                try await setRawCookie(setCookie, urlString: urlString, in: store)
+            case let .deleteExact(url: urlString, name: name, domain: domain, path: path):
+                try await deleteExactCookie(
+                    urlString: urlString,
+                    name: name,
+                    domain: domain,
+                    path: path,
+                    from: store
+                )
+            case let .deleteByName(url: urlString, name: name):
+                try await deleteCookiesByName(
+                    urlString: urlString,
+                    name: name,
+                    from: store
+                )
+            }
+        }
+    }
+
     func applyPlatformCookiesIfAuthoritative(
         _ cookies: [PlatformCookieState]
     ) async throws -> SessionState {
@@ -338,6 +549,16 @@ public final class FireWebViewLoginCoordinator {
 
     private func relevantCookies(from webView: WKWebView) async throws -> [PlatformCookieState] {
         try await relevantCookies(from: webView.configuration.websiteDataStore.httpCookieStore)
+    }
+
+    private func webViewCookieInfos(
+        from store: WKHTTPCookieStore
+    ) async throws -> [WebViewCookieInfoState] {
+        try await httpCookies(from: store)
+            .filter { cookie in
+                isSameSiteCookie(cookie) && isActiveCookie(cookie)
+            }
+            .map(FireWebViewCookieActionSupport.webViewCookieInfo)
     }
 
     private func relevantCookies(from store: WKHTTPCookieStore) async throws -> [PlatformCookieState] {
@@ -415,6 +636,64 @@ public final class FireWebViewLoginCoordinator {
             store.delete(cookie) {
                 continuation.resume()
             }
+        }
+    }
+
+    private func setRawCookie(
+        _ rawSetCookie: String,
+        urlString: String,
+        in store: WKHTTPCookieStore
+    ) async throws {
+        let cookies = try FireWebViewCookieActionSupport.cookies(
+            fromSetCookieHeader: rawSetCookie,
+            urlString: urlString
+        )
+        for cookie in cookies {
+            await setCookie(cookie, in: store)
+        }
+    }
+
+    private func setCookie(_ cookie: HTTPCookie, in store: WKHTTPCookieStore) async {
+        await withCheckedContinuation { continuation in
+            store.setCookie(cookie) {
+                continuation.resume()
+            }
+        }
+    }
+
+    private func deleteExactCookie(
+        urlString: String,
+        name: String,
+        domain: String?,
+        path: String,
+        from store: WKHTTPCookieStore
+    ) async throws {
+        let url = URL(string: urlString)
+        let cookies = try await httpCookies(from: store)
+        for cookie in cookies where FireWebViewCookieActionSupport.matchesExactDelete(
+            cookie,
+            url: url,
+            name: name,
+            domain: domain,
+            path: path
+        ) {
+            await deleteCookie(cookie, from: store)
+        }
+    }
+
+    private func deleteCookiesByName(
+        urlString: String,
+        name: String,
+        from store: WKHTTPCookieStore
+    ) async throws {
+        let url = URL(string: urlString)
+        let cookies = try await httpCookies(from: store)
+        for cookie in cookies where FireWebViewCookieActionSupport.matchesDeleteByName(
+            cookie,
+            url: url,
+            name: name
+        ) {
+            await deleteCookie(cookie, from: store)
         }
     }
 

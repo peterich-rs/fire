@@ -311,6 +311,40 @@ public actor FireSessionStore {
         return state
     }
 
+    public func classifyWebViewLoginResult(
+        _ result: WebViewLoginJsResultState
+    ) throws -> WebViewLoginDecisionState {
+        try core.session().classifyWebviewLoginResult(result: result)
+    }
+
+    public func webViewPrimingPayload(
+        targetURL: String? = nil
+    ) throws -> [WebViewCookieActionState] {
+        try core.session().webviewPrimingPayload(targetUrl: targetURL)
+    }
+
+    public func cookieSweepPlan(
+        targetURL: String? = nil,
+        name: String,
+        webViewCookies: [WebViewCookieInfoState]
+    ) throws -> CookieSweepPlanState {
+        try core.session().cookieSweepPlan(
+            targetUrl: targetURL,
+            name: name,
+            webviewCookies: webViewCookies
+        )
+    }
+
+    public func cookieNuclearResetPlan(
+        targetURL: String? = nil,
+        webViewCookies: [WebViewCookieInfoState]
+    ) throws -> NuclearResetPlanState {
+        try core.session().cookieNuclearResetPlan(
+            targetUrl: targetURL,
+            webviewCookies: webViewCookies
+        )
+    }
+
     @discardableResult
     public func logoutLocal(preserveCfClearance: Bool = true) throws -> SessionState {
         let state = try core.session().logoutLocal(preserveCfClearance: preserveCfClearance)

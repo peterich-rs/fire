@@ -2,14 +2,18 @@ package com.fire.app.session
 
 import android.webkit.CookieManager
 import android.webkit.WebView
+import java.net.URI
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import kotlin.coroutines.resume
+import uniffi.fire_uniffi_session.CookieSweepPlanState
 import uniffi.fire_uniffi_session.LoginPhaseState
 import uniffi.fire_uniffi_session.PlatformCookieState
 import uniffi.fire_uniffi_session.SessionState
+import uniffi.fire_uniffi_session.WebViewCookieActionState
+import uniffi.fire_uniffi_session.WebViewCookieInfoState
 
 data class FireLoginSyncReadiness(
     val isReady: Boolean,
@@ -54,6 +58,86 @@ class FireWebViewLoginCoordinator(
         return applyPlatformCookiesIfAuthoritative(relevantCookies(webView))
     }
 
+    suspend fun primeCookies(
+        webView: WebView,
+        targetUrl: String = webView.url?.takeIf { it.isNotBlank() } ?: "$loginBaseUrl/",
+    ) {
+        val actions = sessionStore.webViewPrimingPayload(targetUrl)
+        executeCookieActions(actions)
+    }
+
+    suspend fun sweepCookies(
+        webView: WebView,
+        names: List<String> = SESSION_COOKIE_NAMES,
+        targetUrl: String = webView.url?.takeIf { it.isNotBlank() } ?: "$loginBaseUrl/",
+    ): List<CookieSweepPlanState> {
+        val cookieInfos = webViewCookieInfos(targetUrl)
+        return names.map { name ->
+            sessionStore.cookieSweepPlan(
+                targetUrl = targetUrl,
+                name = name,
+                webViewCookies = cookieInfos,
+            ).also { plan ->
+                executeCookieActions(plan.actions)
+            }
+        }
+    }
+
+    suspend fun nuclearResetCookies(
+        webView: WebView,
+        targetUrl: String = webView.url?.takeIf { it.isNotBlank() } ?: "$loginBaseUrl/",
+    ) {
+        val plan = sessionStore.cookieNuclearResetPlan(
+            targetUrl = targetUrl,
+            webViewCookies = webViewCookieInfos(targetUrl),
+        )
+        executeCookieActions(plan.actions)
+    }
+
+    suspend fun webViewCookieInfos(targetUrl: String? = "$loginBaseUrl/"): List<WebViewCookieInfoState> =
+        withContext(Dispatchers.Main) {
+            relevantCookieUrls(targetUrl).flatMap { url ->
+                FireWebViewCookieActionSupport.parseCookieHeader(
+                    CookieManager.getInstance().getCookie(url),
+                )
+            }.distinctBy { "${it.name}\u0000${it.value}\u0000${it.domain}\u0000${it.path}" }
+        }
+
+    suspend fun executeCookieActions(actions: List<WebViewCookieActionState>) {
+        if (actions.isEmpty()) {
+            return
+        }
+        withContext(Dispatchers.Main) {
+            val cookieManager = CookieManager.getInstance()
+            for (action in actions) {
+                when (action) {
+                    is WebViewCookieActionState.SetRaw -> {
+                        cookieManager.setCookieSuspend(action.url, action.setCookie)
+                    }
+                    is WebViewCookieActionState.DeleteExact -> {
+                        cookieManager.setCookieSuspend(
+                            action.url,
+                            FireWebViewCookieActionSupport.expiredCookieHeader(
+                                name = action.name,
+                                domain = action.domain,
+                                path = action.path,
+                            ),
+                        )
+                    }
+                    is WebViewCookieActionState.DeleteByName -> {
+                        FireWebViewCookieActionSupport.deleteByNameHeaders(
+                            url = action.url,
+                            name = action.name,
+                        ).forEach { header ->
+                            cookieManager.setCookieSuspend(action.url, header)
+                        }
+                    }
+                }
+            }
+            cookieManager.flush()
+        }
+    }
+
     suspend fun probeLoginSyncReadiness(webView: WebView): FireLoginSyncReadiness {
         val captured = captureLoginState(webView)
         return loginSyncReadiness(captured)
@@ -86,17 +170,12 @@ class FireWebViewLoginCoordinator(
     }
 
     private fun relevantCookies(currentUrl: String?): List<PlatformCookieState> {
-        val candidateUrls = linkedSetOf<String>()
-        currentUrl?.takeIf { it.isNotBlank() }?.let(candidateUrls::add)
-        candidateUrls.add(loginBaseUrl)
-        candidateUrls.add("$loginBaseUrl/")
-
         val merged = LinkedHashMap<String, PlatformCookieState>()
-        for (url in candidateUrls) {
+        for (url in relevantCookieUrls(currentUrl)) {
             CookieManager.getInstance()
                 .getCookie(url)
                 .orEmpty()
-                .parsePlatformCookies()
+                .let(FireWebViewCookieActionSupport::parsePlatformCookies)
                 .forEach { cookie ->
                     if (cookie.name !in merged) {
                         merged[cookie.name] = cookie
@@ -104,6 +183,14 @@ class FireWebViewLoginCoordinator(
                 }
         }
         return merged.values.toList()
+    }
+
+    private fun relevantCookieUrls(currentUrl: String?): LinkedHashSet<String> {
+        return linkedSetOf<String>().also { urls ->
+            currentUrl?.takeIf { it.isNotBlank() }?.let(urls::add)
+            urls.add(loginBaseUrl)
+            urls.add("$loginBaseUrl/")
+        }
     }
 
     private suspend fun applyPlatformCookiesIfAuthoritative(
@@ -161,31 +248,9 @@ class FireWebViewLoginCoordinator(
         }.getOrNull()
     }
 
-    private fun String.parsePlatformCookies(): List<PlatformCookieState> {
-        return split(";")
-            .mapNotNull { segment ->
-                val trimmed = segment.trim()
-                if (trimmed.isEmpty()) {
-                    return@mapNotNull null
-                }
-                val separator = trimmed.indexOf('=')
-                if (separator <= 0) {
-                    return@mapNotNull null
-                }
-
-                PlatformCookieState(
-                    name = trimmed.substring(0, separator),
-                    value = trimmed.substring(separator + 1).trim(),
-                    domain = null,
-                    path = null,
-                    expiresAtUnixMs = null,
-                    sameSite = null,
-                )
-            }
-            .filter { it.value.isNotEmpty() }
-    }
-
     companion object {
+        private val SESSION_COOKIE_NAMES = listOf("_t", "_forum_session", "cf_clearance")
+
         fun containsActiveAuthCookies(cookies: List<PlatformCookieState>): Boolean {
             val nowUnixMs = System.currentTimeMillis()
             val activeCookies = cookies.filter { cookie ->
@@ -197,6 +262,98 @@ class FireWebViewLoginCoordinator(
         }
     }
 }
+
+internal object FireWebViewCookieActionSupport {
+    fun parseCookieHeader(header: String?): List<WebViewCookieInfoState> {
+        return cookiePairs(header).map { (name, value) ->
+            WebViewCookieInfoState(
+                name = name,
+                value = value,
+                domain = null,
+                path = null,
+                hostOnly = null,
+                secure = null,
+                httpOnly = null,
+                sameSite = null,
+                expiresAtUnixMs = null,
+            )
+        }
+    }
+
+    fun parsePlatformCookies(header: String?): List<PlatformCookieState> {
+        return cookiePairs(header).map { (name, value) ->
+            PlatformCookieState(
+                name = name,
+                value = value,
+                domain = null,
+                path = null,
+                expiresAtUnixMs = null,
+                sameSite = null,
+            )
+        }
+    }
+
+    fun expiredCookieHeader(name: String, domain: String?, path: String): String {
+        return buildString {
+            append(name)
+            append("=; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT")
+            append("; Path=")
+            append(path.ifBlank { "/" })
+            if (!domain.isNullOrBlank()) {
+                append("; Domain=")
+                append(domain.trim())
+            }
+        }
+    }
+
+    fun deleteByNameHeaders(url: String, name: String): List<String> {
+        val domains = linkedSetOf<String?>()
+        domains.add(null)
+        runCatching { URI(url).host }
+            .getOrNull()
+            ?.trim()
+            ?.lowercase()
+            ?.takeIf { it.isNotEmpty() }
+            ?.let { host ->
+                domains.add(host)
+                domains.add(".$host")
+                if (host == "linux.do" || host.endsWith(".linux.do")) {
+                    domains.add(".linux.do")
+                }
+            }
+        return domains.map { domain ->
+            expiredCookieHeader(name = name, domain = domain, path = "/")
+        }
+    }
+
+    private fun cookiePairs(header: String?): List<Pair<String, String>> {
+        return header.orEmpty()
+            .split(";")
+            .mapNotNull { segment ->
+                val trimmed = segment.trim()
+                if (trimmed.isEmpty()) {
+                    return@mapNotNull null
+                }
+                val separator = trimmed.indexOf('=')
+                if (separator <= 0) {
+                    return@mapNotNull null
+                }
+                val name = trimmed.substring(0, separator).trim()
+                val value = trimmed.substring(separator + 1).trim()
+                if (name.isEmpty() || value.isEmpty()) {
+                    return@mapNotNull null
+                }
+                name to value
+            }
+    }
+}
+
+private suspend fun CookieManager.setCookieSuspend(url: String, value: String): Boolean =
+    suspendCancellableCoroutine { continuation ->
+        setCookie(url, value) { accepted ->
+            continuation.resume(accepted)
+        }
+    }
 
 private object FireBootstrapHtmlHeuristics {
     const val REUSABLE_LOGIN_BOOTSTRAP_SCORE_THRESHOLD = 8

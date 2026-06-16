@@ -157,25 +157,7 @@ class FireCloudflareChallengeActivity : ComponentActivity() {
         urls.forEach { url ->
             cookieManager.getCookie(url)
                 .orEmpty()
-                .split(";")
-                .mapNotNull { segment ->
-                    val trimmed = segment.trim()
-                    if (trimmed.isEmpty()) {
-                        return@mapNotNull null
-                    }
-                    val separator = trimmed.indexOf('=')
-                    if (separator <= 0) {
-                        return@mapNotNull null
-                    }
-                    PlatformCookieState(
-                        name = trimmed.substring(0, separator),
-                        value = trimmed.substring(separator + 1).trim(),
-                        domain = null,
-                        path = null,
-                        expiresAtUnixMs = null,
-                        sameSite = null,
-                    )
-                }
+                .let(FireWebViewCookieActionSupport::parsePlatformCookies)
                 .filter { it.value.isNotEmpty() && it.name in RELEVANT_COOKIE_NAMES }
                 .forEach { cookie ->
                     merged.putIfAbsent(cookie.name, cookie)

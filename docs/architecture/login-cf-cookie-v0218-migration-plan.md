@@ -431,8 +431,13 @@ Current branch status:
   exposed over UniFFI.
 - iOS and Android now have stack-local minimal login HTML/JS builders and unit
   tests for the WebView-owned CSRF, hCaptcha, and `/session.json` transaction.
-- Sweep commit hooks, self-healing retry orchestration, and native execution of
-  set/delete actions remain active implementation work.
+- iOS and Android session facades now expose login classification, priming,
+  sweep, and nuclear-reset APIs; both WebView login coordinators can execute
+  Rust `SetRaw`, `DeleteExact`, and `DeleteByName` cookie actions against their
+  native WebView cookie stores.
+- Sweep commit hooks, self-healing retry orchestration, and replacing the
+  primary login UI entry with the minimal dialog remain active implementation
+  work.
 
 ## Phase 5: Cloudflare Freeze Gate
 

@@ -263,7 +263,7 @@ class FireWebViewLoginCoordinator(
     }
 
     companion object {
-        private val SESSION_COOKIE_NAMES = listOf("_t", "_forum_session", "cf_clearance")
+        private val SESSION_COOKIE_NAMES = listOf("_t", "_forum_session", "cf_clearance", "_cfuvid")
 
         fun containsActiveAuthCookies(cookies: List<PlatformCookieState>): Boolean {
             val nowUnixMs = System.currentTimeMillis()

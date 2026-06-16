@@ -344,6 +344,25 @@ final class FireAppViewModel: ObservableObject {
         return try await sessionStore.classifyWebViewLoginResult(result)
     }
 
+    func recoverLoginCloudflareChallenge(in webView: WKWebView) async throws {
+        let sessionStore = try await sessionStoreValue()
+        let challengeCoordinator = FireCloudflareChallengeCoordinator(sessionStore: sessionStore)
+        let result = await challengeCoordinator.completeManualVerification(originURL: "https://linux.do/")
+        guard result.completed else {
+            throw FireLoginPreparationError.cloudflareVerificationIncomplete
+        }
+
+        if !result.cookies.isEmpty {
+            _ = try await sessionStore.applyPlatformCookies(result.cookies)
+        }
+        try await Task.sleep(for: .milliseconds(1_500))
+        let loginCoordinator = try await loginCoordinatorValue()
+        try await loginCoordinator.primeCookies(
+            into: webView,
+            targetURL: URL(string: "https://linux.do/")
+        )
+    }
+
     func dismissAuthPresentation() {
         canSyncLoginSession = false
         cachedLoginSyncReadiness = nil

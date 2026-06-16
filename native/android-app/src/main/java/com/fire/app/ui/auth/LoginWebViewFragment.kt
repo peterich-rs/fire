@@ -30,6 +30,7 @@ import com.fire.app.R
 import com.fire.app.core.error.launchWithFireErrorHandling
 import com.fire.app.session.FireAppStateRefreshRepository
 import com.fire.app.session.FireCredentialStore
+import com.fire.app.session.FireCloudflareChallengeCoordinator
 import com.fire.app.session.FireLoginScripts
 import com.fire.app.session.FireSavedCredential
 import com.fire.app.session.FireSessionStore
@@ -37,8 +38,12 @@ import com.fire.app.session.FireSessionStoreRepository
 import com.fire.app.session.FireWebViewLoginCoordinator
 import com.fire.app.ui.webview.FireWebViewSupport
 import com.google.android.material.button.MaterialButton
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import uniffi.fire_uniffi_session.CloudflareChallengeRequestState
 import uniffi.fire_uniffi_session.RefreshTriggerState
 import uniffi.fire_uniffi_session.WebViewLoginDecisionState
 import uniffi.fire_uniffi_session.WebViewLoginJsResultState
@@ -51,6 +56,9 @@ class LoginWebViewFragment : Fragment() {
     private var isCompletingLogin = false
     private var credential: FireSavedCredential? = null
     private var lastHcaptchaToken: String? = null
+    private var lastLoginHcaptchaToken: String? = null
+    private var lastLoginSecondFactorToken: String? = null
+    private var cfRetryUsed = false
 
     private val loginBaseUrl = "https://linux.do"
 
@@ -254,6 +262,7 @@ class LoginWebViewFragment : Fragment() {
         hcaptchaToken: String?,
         secondFactorToken: String?,
         syncButton: MaterialButton,
+        isCloudflareRetry: Boolean = false,
     ) {
         val identifier = identifierInput.text?.toString()?.trim().orEmpty()
         val password = passwordInput.text?.toString().orEmpty()
@@ -261,6 +270,11 @@ class LoginWebViewFragment : Fragment() {
             Toast.makeText(requireContext(), R.string.login_credentials_required, Toast.LENGTH_SHORT).show()
             return
         }
+        if (!isCloudflareRetry) {
+            cfRetryUsed = false
+        }
+        lastLoginHcaptchaToken = hcaptchaToken
+        lastLoginSecondFactorToken = secondFactorToken
         isCompletingLogin = true
         syncButton.isEnabled = false
         webView.evaluateJavascript(
@@ -317,15 +331,7 @@ class LoginWebViewFragment : Fragment() {
             when (val decision = sessionStore.classifyWebViewLoginResult(result)) {
                 is WebViewLoginDecisionState.Success -> completeMinimalLoginAndNavigate()
                 is WebViewLoginDecisionState.NeedSecondFactor -> showSecondFactorDialog()
-                is WebViewLoginDecisionState.RetryCloudflare -> {
-                    isCompletingLogin = false
-                    view?.findViewById<MaterialButton>(R.id.sync_button)?.isEnabled = true
-                    Toast.makeText(
-                        requireContext(),
-                        R.string.login_cloudflare_retry_required,
-                        Toast.LENGTH_LONG,
-                    ).show()
-                }
+                is WebViewLoginDecisionState.RetryCloudflare -> handleCloudflareRetry()
                 is WebViewLoginDecisionState.Failure -> {
                     isCompletingLogin = false
                     view?.findViewById<MaterialButton>(R.id.sync_button)?.isEnabled = true
@@ -380,6 +386,80 @@ class LoginWebViewFragment : Fragment() {
                 )
             }
             .show()
+    }
+
+    private fun handleCloudflareRetry() {
+        val sessionStore = requireNotNull(sessionStore)
+        val coordinator = loginCoordinator ?: return
+        val root = view ?: return
+        val webView: WebView = root.findViewById(R.id.login_webview)
+        val identifierInput: EditText = root.findViewById(R.id.login_identifier_input)
+        val passwordInput: EditText = root.findViewById(R.id.login_password_input)
+        val syncButton: MaterialButton = root.findViewById(R.id.sync_button)
+        if (cfRetryUsed) {
+            isCompletingLogin = false
+            syncButton.isEnabled = true
+            Toast.makeText(
+                requireContext(),
+                R.string.login_cloudflare_retry_failed,
+                Toast.LENGTH_LONG,
+            ).show()
+            return
+        }
+
+        cfRetryUsed = true
+        Toast.makeText(
+            requireContext(),
+            R.string.login_cloudflare_retry_running,
+            Toast.LENGTH_LONG,
+        ).show()
+        viewLifecycleOwner.lifecycleScope.launchWithFireErrorHandling(
+            operation = "login_webview.cloudflare_retry",
+            sessionStore = sessionStore,
+            fallbackMessage = getString(R.string.login_cloudflare_retry_failed),
+            onError = { error ->
+                isCompletingLogin = false
+                syncButton.isEnabled = true
+                Toast.makeText(requireContext(), error.displayMessage, Toast.LENGTH_SHORT).show()
+            },
+        ) {
+            val result = withContext(Dispatchers.IO) {
+                FireCloudflareChallengeCoordinator(requireContext().applicationContext)
+                    .completeSynchronously(
+                        CloudflareChallengeRequestState(
+                            operation = "login.csrf",
+                            requestUrl = "$loginBaseUrl/session/csrf",
+                            originUrl = "$loginBaseUrl/",
+                            isForeground = true,
+                            sessionEpoch = 0uL,
+                        ),
+                    )
+            }
+            if (!result.completed) {
+                isCompletingLogin = false
+                syncButton.isEnabled = true
+                Toast.makeText(
+                    requireContext(),
+                    R.string.login_cloudflare_retry_failed,
+                    Toast.LENGTH_LONG,
+                ).show()
+                return@launchWithFireErrorHandling
+            }
+            if (result.cookies.isNotEmpty()) {
+                sessionStore.applyPlatformCookies(result.cookies)
+            }
+            delay(1_500)
+            coordinator.primeCookies(webView, "$loginBaseUrl/")
+            runMinimalLogin(
+                webView = webView,
+                identifierInput = identifierInput,
+                passwordInput = passwordInput,
+                hcaptchaToken = lastLoginHcaptchaToken,
+                secondFactorToken = lastLoginSecondFactorToken,
+                syncButton = syncButton,
+                isCloudflareRetry = true,
+            )
+        }
     }
 
     private fun completeMinimalLoginAndNavigate() {

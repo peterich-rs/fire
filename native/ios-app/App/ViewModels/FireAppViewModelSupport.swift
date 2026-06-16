@@ -2,11 +2,14 @@ import Foundation
 
 enum FireLoginPreparationError: LocalizedError {
     case invalidResponse
+    case cloudflareVerificationIncomplete
 
     var errorDescription: String? {
         switch self {
         case .invalidResponse:
             "Unable to prepare login network access."
+        case .cloudflareVerificationIncomplete:
+            "Cloudflare verification did not complete. Try login again."
         }
     }
 }

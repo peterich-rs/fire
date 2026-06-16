@@ -224,6 +224,6 @@ class FireCloudflareChallengeActivity : ComponentActivity() {
         const val EXTRA_PENDING_TOKEN = "fire.pending_token"
         const val EXTRA_TARGET_URL = "fire.target_url"
 
-        private val RELEVANT_COOKIE_NAMES = setOf("_t", "_forum_session", "cf_clearance")
+        private val RELEVANT_COOKIE_NAMES = setOf("_t", "_forum_session", "cf_clearance", "_cfuvid")
     }
 }

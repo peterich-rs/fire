@@ -40,6 +40,8 @@
     <string name="login_two_factor_hint">Authentication code</string>
     <string name="login_two_factor_submit">Verify</string>
     <string name="login_cloudflare_retry_required">Cloudflare verification is required before login. Try again after verification.</string>
+    <string name="login_cloudflare_retry_running">Complete Cloudflare verification to continue login.</string>
+    <string name="login_cloudflare_retry_failed">Cloudflare verification did not complete. Try login again.</string>
     <string name="browser_title">Topic Browser</string>
     <string name="in_app_web_title">Web Page</string>
     <string name="diagnostics_title">Diagnostics</string>

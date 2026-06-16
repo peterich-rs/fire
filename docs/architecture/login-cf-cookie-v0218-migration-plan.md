@@ -439,8 +439,11 @@ Current branch status:
   fields plus a minimal same-origin WebView document for hCaptcha and
   `window.__fireLogin`; they no longer load the Discourse Ember `/login` page as
   the normal password-login path.
-- Remaining active implementation work: automatic Cloudflare manual-verify
-  retry for login CSRF failures, sweep commit hooks, self-healing retry
+- Login CSRF Cloudflare failures now trigger a one-shot platform foreground
+  verification path, apply returned challenge cookies to Rust, wait briefly for
+  platform cookie propagation, re-prime the same live login WebView, and re-run
+  `window.__fireLogin` with the original hCaptcha/second-factor arguments.
+- Remaining active implementation work: sweep commit hooks, self-healing retry
   orchestration, and the Rust CF pre-dispatch freeze gate.
 
 ## Phase 5: Cloudflare Freeze Gate

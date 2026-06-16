@@ -62,6 +62,20 @@ final class FireCloudflareChallengeCoordinator: NSObject, @unchecked Sendable {
     }
 
     @MainActor
+    func completeManualVerification(originURL: String? = "https://linux.do/") async -> CloudflareChallengeResultState {
+        let epoch = (try? await sessionStore.currentSessionEpoch()) ?? 0
+        return await complete(
+            request: CloudflareChallengeRequestState(
+                operation: "login.csrf",
+                requestUrl: "https://linux.do/session/csrf",
+                originUrl: originURL,
+                isForeground: true,
+                sessionEpoch: epoch
+            )
+        )
+    }
+
+    @MainActor
     private func complete(
         request: CloudflareChallengeRequestState
     ) async -> CloudflareChallengeResultState {

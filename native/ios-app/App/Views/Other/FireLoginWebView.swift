@@ -22,6 +22,9 @@ final class FireLoginWebViewController: UIViewController, WKNavigationDelegate, 
     private var lastInjectedCredential: FireSavedCredential?
     private var didTearDownWebView = false
     private var lastHcaptchaToken: String?
+    private var lastLoginHcaptchaToken: String?
+    private var lastLoginSecondFactorToken: String?
+    private var cfRetryUsed = false
     private var isRunningMinimalLogin = false
 
     init(
@@ -327,7 +330,11 @@ final class FireLoginWebViewController: UIViewController, WKNavigationDelegate, 
         runMinimalLogin(hcaptchaToken: token, secondFactorToken: nil)
     }
 
-    private func runMinimalLogin(hcaptchaToken: String?, secondFactorToken: String?) {
+    private func runMinimalLogin(
+        hcaptchaToken: String?,
+        secondFactorToken: String?,
+        isCloudflareRetry: Bool = false
+    ) {
         let identifier = identifierField.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let password = passwordField.text ?? ""
         guard !identifier.isEmpty, !password.isEmpty else {
@@ -335,6 +342,11 @@ final class FireLoginWebViewController: UIViewController, WKNavigationDelegate, 
             return
         }
 
+        if !isCloudflareRetry {
+            cfRetryUsed = false
+        }
+        lastLoginHcaptchaToken = hcaptchaToken
+        lastLoginSecondFactorToken = secondFactorToken
         isRunningMinimalLogin = true
         syncBrowserState()
         let script = FireLoginScripts.fireLoginInvocation(
@@ -492,9 +504,7 @@ final class FireLoginWebViewController: UIViewController, WKNavigationDelegate, 
             syncBrowserState()
             showSecondFactorPrompt()
         case .retryCloudflare:
-            isRunningMinimalLogin = false
-            viewModel.errorMessage = "需要先完成 Cloudflare 验证后再登录。"
-            syncBrowserState()
+            recoverCloudflareAndRetry()
         case let .failure(failure):
             isRunningMinimalLogin = false
             viewModel.errorMessage = failure.message ?? "登录失败，请重试。"
@@ -526,6 +536,33 @@ final class FireLoginWebViewController: UIViewController, WKNavigationDelegate, 
             self.runMinimalLogin(hcaptchaToken: nil, secondFactorToken: code)
         })
         present(alert, animated: true)
+    }
+
+    private func recoverCloudflareAndRetry() {
+        guard !cfRetryUsed else {
+            isRunningMinimalLogin = false
+            viewModel.errorMessage = "Cloudflare 验证未完成，请重新登录。"
+            syncBrowserState()
+            return
+        }
+
+        cfRetryUsed = true
+        isRunningMinimalLogin = true
+        syncBrowserState()
+        Task { @MainActor in
+            do {
+                try await viewModel.recoverLoginCloudflareChallenge(in: webView)
+                runMinimalLogin(
+                    hcaptchaToken: lastLoginHcaptchaToken,
+                    secondFactorToken: lastLoginSecondFactorToken,
+                    isCloudflareRetry: true
+                )
+            } catch {
+                isRunningMinimalLogin = false
+                viewModel.errorMessage = error.localizedDescription
+                syncBrowserState()
+            }
+        }
     }
 }
 

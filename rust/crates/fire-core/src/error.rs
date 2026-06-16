@@ -31,6 +31,8 @@ pub enum FireCoreError {
     StaleSessionResponse { operation: &'static str },
     #[error("{operation} requires Cloudflare challenge verification")]
     CloudflareChallenge { operation: &'static str },
+    #[error("{operation} blocked during Cloudflare challenge verification")]
+    CloudflareChallengeInProgress { operation: &'static str },
     #[error("failed to parse {operation} response: {source}")]
     ResponseDeserialize {
         operation: &'static str,

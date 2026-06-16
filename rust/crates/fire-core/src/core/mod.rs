@@ -198,11 +198,15 @@ impl FireCore {
             Arc::clone(&session),
             Some(Arc::clone(&shared_store)),
         ));
+        let cloudflare_challenge_runtime = Arc::new(Mutex::new(
+            cf_challenge::FireCloudflareChallengeRuntime::default(),
+        ));
         let network = network::FireNetworkLayer::new(
             &base_url,
             Arc::clone(&session),
             Arc::clone(&diagnostics),
             cookie_jar,
+            Arc::clone(&cloudflare_challenge_runtime),
         )?;
 
         Ok(Self {
@@ -224,9 +228,7 @@ impl FireCore {
             csrf_refresh: Arc::new(TokioMutex::new(())),
             cloudflare_challenge_handler:
                 cf_challenge::FireCloudflareChallengeHandlerRegistry::default(),
-            cloudflare_challenge_runtime: Arc::new(Mutex::new(
-                cf_challenge::FireCloudflareChallengeRuntime::default(),
-            )),
+            cloudflare_challenge_runtime,
             preloaded_data: OnceLock::new(),
             app_state_refresher: OnceLock::new(),
         })

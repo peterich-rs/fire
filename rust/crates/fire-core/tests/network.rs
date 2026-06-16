@@ -1,6 +1,6 @@
 mod common;
 
-use std::sync::atomic::Ordering;
+use std::sync::{atomic::Ordering, Arc};
 
 use common::{
     raw_cloudflare_challenge_response, raw_json_response, raw_text_response, sample_home_html,
@@ -14,7 +14,10 @@ use fire_models::{
     TopicListQuery, TopicReplyRequest, TopicTag,
 };
 use serde_json::{json, Value};
-use tokio::time::{sleep, Duration};
+use tokio::{
+    sync::Notify,
+    time::{sleep, Duration},
+};
 
 #[tokio::test]
 async fn fetch_topic_list_parses_latest_payload() {
@@ -602,6 +605,86 @@ async fn fetch_topic_list_retries_once_after_cloudflare_challenge_completion() {
         snapshot.browser_user_agent.as_deref(),
         Some("FireBrowser/1.0")
     );
+}
+
+#[tokio::test]
+async fn business_request_is_blocked_while_cloudflare_challenge_is_in_progress() {
+    let responses = vec![
+        raw_cloudflare_challenge_response(
+            403,
+            r#"<html><head><title>Just a moment...</title></head><body>__cf_chl_opt</body></html>"#,
+        ),
+        raw_json_response(200, "application/json", &sample_latest_json()),
+    ];
+    let server = TestServer::spawn(responses).await.expect("server");
+    let core = FireCore::new(FireCoreConfig {
+        base_url: server.base_url(),
+        workspace_path: None,
+    })
+    .expect("core");
+    let challenge_started = Arc::new(Notify::new());
+    let release_challenge = Arc::new(Notify::new());
+    {
+        let challenge_started = Arc::clone(&challenge_started);
+        let release_challenge = Arc::clone(&release_challenge);
+        core.set_cloudflare_challenge_handler(move |_| {
+            let challenge_started = Arc::clone(&challenge_started);
+            let release_challenge = Arc::clone(&release_challenge);
+            async move {
+                challenge_started.notify_waiters();
+                release_challenge.notified().await;
+                fire_models::CloudflareChallengeResult {
+                    completed: true,
+                    user_cancelled: false,
+                    cookies: vec![PlatformCookie {
+                        name: "cf_clearance".into(),
+                        value: "new-clearance".into(),
+                        domain: Some("linux.do".into()),
+                        path: Some("/".into()),
+                        expires_at_unix_ms: None,
+                        same_site: None,
+                    }],
+                    browser_user_agent: None,
+                }
+            }
+        });
+    }
+
+    let first_core = core.clone();
+    let first = tokio::spawn(async move {
+        first_core
+            .fetch_topic_list(TopicListQuery {
+                kind: TopicListKind::Latest,
+                ..TopicListQuery::default()
+            })
+            .await
+    });
+    challenge_started.notified().await;
+
+    let blocked = core
+        .fetch_topic_list(TopicListQuery {
+            kind: TopicListKind::Latest,
+            ..TopicListQuery::default()
+        })
+        .await
+        .expect_err("business request should be blocked locally");
+
+    assert!(matches!(
+        blocked,
+        FireCoreError::CloudflareChallengeInProgress {
+            operation: "fetch topic list"
+        }
+    ));
+
+    release_challenge.notify_waiters();
+    let response = first
+        .await
+        .expect("task should finish")
+        .expect("first request should retry after challenge");
+    let requests = server.shutdown_with_requests().await;
+
+    assert_eq!(response.rows.len(), 1);
+    assert_eq!(requests.len(), 2);
 }
 
 #[tokio::test]

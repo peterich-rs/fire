@@ -1,4 +1,4 @@
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 
 use fire_models::{
     AuthRuntimeSignal, AuthRuntimeSignalKind, AuthRuntimeSignalSource, AuthRuntimeSignalStrength,
@@ -122,6 +122,7 @@ pub(crate) struct FireNetworkLayer {
     client: Client,
     diagnostics: Arc<FireDiagnosticsStore>,
     session: Arc<RwLock<super::FireSessionRuntimeState>>,
+    cloudflare_challenge_runtime: Arc<Mutex<super::cf_challenge::FireCloudflareChallengeRuntime>>,
 }
 
 #[derive(Clone)]
@@ -260,6 +261,9 @@ pub(crate) struct TracedRequest {
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) struct FireSkipCsrfHeader;
 
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct FireSkipCloudflareBlock;
+
 impl TracedRequest {
     pub(crate) fn with_challenge_presentation(
         mut self,
@@ -280,6 +284,10 @@ fn clone_request_for_retry(request: &Request<RequestBody>) -> Option<Request<Req
     let request_profile = request.extensions().get::<FireRequestProfile>().copied();
     let request_epoch = request.extensions().get::<FireRequestEpoch>().copied();
     let skip_csrf_header = request.extensions().get::<FireSkipCsrfHeader>().copied();
+    let skip_cloudflare_block = request
+        .extensions()
+        .get::<FireSkipCloudflareBlock>()
+        .copied();
     let challenge_presentation = request
         .extensions()
         .get::<FireChallengePresentation>()
@@ -299,6 +307,9 @@ fn clone_request_for_retry(request: &Request<RequestBody>) -> Option<Request<Req
         request.extensions_mut().insert(epoch);
     }
     if let Some(skip) = skip_csrf_header {
+        request.extensions_mut().insert(skip);
+    }
+    if let Some(skip) = skip_cloudflare_block {
         request.extensions_mut().insert(skip);
     }
     if let Some(presentation) = challenge_presentation {
@@ -382,6 +393,9 @@ impl FireNetworkLayer {
         session: Arc<RwLock<super::FireSessionRuntimeState>>,
         diagnostics: Arc<FireDiagnosticsStore>,
         cookie_jar: Arc<FireSessionCookieJar>,
+        cloudflare_challenge_runtime: Arc<
+            Mutex<super::cf_challenge::FireCloudflareChallengeRuntime>,
+        >,
     ) -> Result<Self, FireCoreError> {
         let builder = Client::builder()
             .cookie_jar(cookie_jar)
@@ -411,6 +425,7 @@ impl FireNetworkLayer {
             client,
             diagnostics,
             session,
+            cloudflare_challenge_runtime,
         })
     }
 
@@ -435,6 +450,25 @@ impl FireNetworkLayer {
     ) -> Result<(u64, Response<ResponseBody>), FireCoreError> {
         let trace_id = traced.trace_id;
         let operation = traced.operation;
+        let skip_cloudflare_block = traced
+            .request
+            .extensions()
+            .get::<FireSkipCloudflareBlock>()
+            .is_some();
+        if !skip_cloudflare_block
+            && self
+                .cloudflare_challenge_runtime
+                .lock()
+                .expect("cloudflare challenge runtime mutex poisoned")
+                .in_progress
+        {
+            self.diagnostics.record_cancelled_if_in_progress(
+                trace_id,
+                "Blocked during Cloudflare challenge",
+                Some("Request was not dispatched because Cloudflare verification is in progress"),
+            );
+            return Err(FireCoreError::CloudflareChallengeInProgress { operation });
+        }
         let request_epoch = traced
             .request
             .extensions()
@@ -907,6 +941,9 @@ impl FireCore {
                 retry_request
                     .extensions_mut()
                     .insert(FireRequestEpoch(self.current_session_epoch()));
+                retry_request
+                    .extensions_mut()
+                    .insert(FireSkipCloudflareBlock);
                 let retry = trace_request(&self.diagnostics, operation, retry_request);
                 self.network
                     .execute_traced_with_options(retry, FireCallProfile::DefaultApi, options)

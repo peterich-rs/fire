@@ -10,7 +10,8 @@ extension SessionState {
                 forumSession: nil,
                 cfClearance: nil,
                 csrfToken: nil,
-                platformCookies: []
+                platformCookies: [],
+                canonicalCookies: []
             ),
             bootstrap: BootstrapState(
                 baseUrl: baseUrl,

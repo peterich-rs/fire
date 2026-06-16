@@ -123,7 +123,8 @@ final class FireSessionStoreTests: XCTestCase {
                 forumSession: "forum",
                 cfClearance: "clearance",
                 csrfToken: csrfToken,
-                platformCookies: []
+                platformCookies: [],
+                canonicalCookies: []
             ),
             bootstrap: BootstrapState(
                 baseUrl: "https://linux.do",

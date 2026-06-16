@@ -429,6 +429,8 @@ Current branch status:
   `Set-Cookie` actions reconstructed from canonical state.
 - Sweep plan generation and nuclear reset plan generation are implemented and
   exposed over UniFFI.
+- iOS and Android now have stack-local minimal login HTML/JS builders and unit
+  tests for the WebView-owned CSRF, hCaptcha, and `/session.json` transaction.
 - Sweep commit hooks, self-healing retry orchestration, and native execution of
   set/delete actions remain active implementation work.
 

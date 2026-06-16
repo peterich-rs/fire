@@ -595,7 +595,8 @@ final class FireTopicDetailStoreTests: XCTestCase {
                 forumSession: "forum",
                 cfClearance: "clearance",
                 csrfToken: nil,
-                platformCookies: []
+                platformCookies: [],
+                canonicalCookies: []
             ),
             bootstrap: BootstrapState(
                 baseUrl: "https://linux.do",
@@ -825,7 +826,8 @@ final class FireTopicDetailStoreTests: XCTestCase {
                 forumSession: "forum",
                 cfClearance: "clearance",
                 csrfToken: csrfToken,
-                platformCookies: []
+                platformCookies: [],
+                canonicalCookies: []
             ),
             bootstrap: BootstrapState(
                 baseUrl: "https://linux.do",

@@ -853,7 +853,8 @@ final class FireTopicPresentationTests: XCTestCase {
                 forumSession: "forum",
                 cfClearance: "clearance",
                 csrfToken: "csrf",
-                platformCookies: []
+                platformCookies: [],
+                canonicalCookies: []
             ),
             bootstrap: makeBootstrap(
                 currentUsername: nil,
@@ -890,7 +891,8 @@ final class FireTopicPresentationTests: XCTestCase {
                 forumSession: nil,
                 cfClearance: nil,
                 csrfToken: nil,
-                platformCookies: []
+                platformCookies: [],
+                canonicalCookies: []
             ),
             bootstrap: makeBootstrap(
                 currentUsername: "alice",

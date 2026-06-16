@@ -3,6 +3,8 @@ package com.fire.app.session
 import org.json.JSONObject
 
 object FireLoginScripts {
+    private const val hcaptchaScriptUrl = "https://js.hcaptcha.com/1/api.js"
+
     const val preloadedDataCapture = """
         new MutationObserver(function(_, obs) {
           var el = document.querySelector('[data-preloaded]');
@@ -127,4 +129,202 @@ object FireLoginScripts {
     """
 
     const val readPreloadedData = "(function(){return window.__rawPreloaded||null;})()"
+
+    fun minimalLoginDocument(hcaptchaSiteKey: String): String {
+        val siteKey = JSONObject.quote(hcaptchaSiteKey)
+        return """
+            <!doctype html>
+            <html>
+            <head>
+              <meta charset="utf-8">
+              <meta name="viewport" content="width=device-width, initial-scale=1">
+              <style>
+                html, body {
+                  margin: 0;
+                  min-height: 100%;
+                  background: transparent;
+                  color-scheme: light dark;
+                  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+                }
+                #hcaptcha {
+                  display: flex;
+                  min-height: 92px;
+                  align-items: center;
+                  justify-content: center;
+                }
+              </style>
+              <script>
+                (function() {
+                  var hcaptchaSiteKey = $siteKey;
+
+                  function postAndroid(name, payload) {
+                    try {
+                      if (!window.Android || typeof window.Android[name] !== 'function') return;
+                      window.Android[name](
+                        typeof payload === 'string' ? payload : JSON.stringify(payload)
+                      );
+                    } catch (error) {}
+                  }
+
+                  function report(phase, status, body) {
+                    postAndroid('loginResult', {
+                      phase: phase,
+                      status: status || 0,
+                      body: body == null ? '' : String(body)
+                    });
+                  }
+
+                  function formBody(fields) {
+                    var body = new URLSearchParams();
+                    Object.keys(fields).forEach(function(key) {
+                      var value = fields[key];
+                      if (value !== null && value !== undefined) {
+                        body.append(key, value);
+                      }
+                    });
+                    return body.toString();
+                  }
+
+                  async function responseText(response) {
+                    try {
+                      return await response.text();
+                    } catch (error) {
+                      return String(error && error.message ? error.message : error);
+                    }
+                  }
+
+                  async function fetchCsrf() {
+                    var response = await fetch('/session/csrf', {
+                      method: 'GET',
+                      credentials: 'include',
+                      cache: 'no-store',
+                      headers: {
+                        'Accept': 'application/json',
+                        'X-Requested-With': 'XMLHttpRequest'
+                      }
+                    });
+                    var text = await responseText(response);
+                    if (!response.ok) {
+                      report('csrf', response.status, text);
+                      return null;
+                    }
+                    try {
+                      var parsed = JSON.parse(text);
+                      if (parsed && parsed.csrf) return parsed.csrf;
+                    } catch (error) {}
+                    report('csrf', response.status, text);
+                    return null;
+                  }
+
+                  async function createHcaptcha(csrf, token) {
+                    if (token === null || token === undefined || token === '') return true;
+                    var endpoints = [
+                      '/captcha/hcaptcha/create.json',
+                      '/hcaptcha/create.json'
+                    ];
+                    var lastStatus = 0;
+                    var lastBody = '';
+                    for (var i = 0; i < endpoints.length; i++) {
+                      try {
+                        var response = await fetch(endpoints[i], {
+                          method: 'POST',
+                          credentials: 'include',
+                          headers: {
+                            'Content-Type': 'application/x-www-form-urlencoded',
+                            'X-CSRF-Token': csrf,
+                            'X-Requested-With': 'XMLHttpRequest'
+                          },
+                          body: formBody({ token: token })
+                        });
+                        var text = await responseText(response);
+                        if (response.ok) return true;
+                        lastStatus = response.status;
+                        lastBody = text;
+                        if (response.status === 404) continue;
+                        break;
+                      } catch (error) {
+                        lastStatus = 0;
+                        lastBody = String(error && error.message ? error.message : error);
+                      }
+                    }
+                    report('hcaptcha', lastStatus, lastBody);
+                    return false;
+                  }
+
+                  async function submitSession(csrf, identifier, password, secondFactorToken) {
+                    var fields = {
+                      login: identifier,
+                      password: password
+                    };
+                    if (secondFactorToken !== null && secondFactorToken !== undefined && secondFactorToken !== '') {
+                      fields.second_factor_token = secondFactorToken;
+                      fields.second_factor_method = '1';
+                    }
+                    var response = await fetch('/session.json', {
+                      method: 'POST',
+                      credentials: 'include',
+                      headers: {
+                        'Accept': 'application/json',
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                        'X-CSRF-Token': csrf,
+                        'X-Requested-With': 'XMLHttpRequest'
+                      },
+                      body: formBody(fields)
+                    });
+                    report('session', response.status, await responseText(response));
+                  }
+
+                  window.__fireLogin = async function(identifier, password, hcaptchaToken, secondFactorToken) {
+                    try {
+                      var csrf = await fetchCsrf();
+                      if (!csrf) return;
+                      if (!(await createHcaptcha(csrf, hcaptchaToken))) return;
+                      await submitSession(csrf, identifier, password, secondFactorToken);
+                    } catch (error) {
+                      report('exception', 0, String(error && error.message ? error.message : error));
+                    }
+                  };
+
+                  window.__fireHcaptchaReady = function() {
+                    try {
+                      if (!window.hcaptcha || !hcaptchaSiteKey) return;
+                      window.__fireHcaptchaWidgetId = hcaptcha.render('hcaptcha', {
+                        sitekey: hcaptchaSiteKey,
+                        callback: function(token) {
+                          postAndroid('hcaptchaPass', token);
+                        },
+                        'error-callback': function(message) {
+                          postAndroid('hcaptchaError', message || 'hcaptcha_error');
+                        },
+                        'expired-callback': function() {
+                          postAndroid('hcaptchaExpired', 'expired');
+                        }
+                      });
+                    } catch (error) {
+                      postAndroid('hcaptchaError', String(error && error.message ? error.message : error));
+                    }
+                  };
+                })();
+              </script>
+              <script src="$hcaptchaScriptUrl" async defer onload="window.__fireHcaptchaReady && window.__fireHcaptchaReady()"></script>
+            </head>
+            <body>
+              <div id="hcaptcha"></div>
+            </body>
+            </html>
+        """.trimIndent()
+    }
+
+    fun fireLoginInvocation(
+        identifier: String,
+        password: String,
+        hcaptchaToken: String?,
+        secondFactorToken: String?,
+    ): String {
+        val escapedIdentifier = JSONObject.quote(identifier)
+        val escapedPassword = JSONObject.quote(password)
+        val escapedHcaptcha = hcaptchaToken?.let { JSONObject.quote(it) } ?: "null"
+        val escapedSecondFactor = secondFactorToken?.let { JSONObject.quote(it) } ?: "null"
+        return "window.__fireLogin($escapedIdentifier,$escapedPassword,$escapedHcaptcha,$escapedSecondFactor);"
+    }
 }

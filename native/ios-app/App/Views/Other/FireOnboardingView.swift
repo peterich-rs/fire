@@ -112,9 +112,6 @@ final class FireOnboardingViewController: UIViewController {
             bottomStack.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 24),
             bottomStack.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -24),
             bottomStack.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -40),
-            phaseContainerView.leadingAnchor.constraint(equalTo: bottomStack.leadingAnchor),
-            phaseContainerView.trailingAnchor.constraint(equalTo: bottomStack.trailingAnchor),
-            phaseContainerView.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -40),
             phaseContainerView.heightAnchor.constraint(greaterThanOrEqualToConstant: 240),
         ])
     }

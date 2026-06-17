@@ -88,9 +88,9 @@ enum FireOnboardingPhase: Equatable {
 
 原 rev 1 用 `isBootstrappingSession` 派生 `.validating`，经代码核实**不成立**：
 
-- `loadInitialState()`（`FireAppViewModel.swift:126-174`）只调用 `sessionStore.prepareStartupSession()` 并调度 `ensurePreloadedDataLoaded()`，**不调用 `determineLoginState()` 或 `applySession()`**。
+- `loadInitialState()`（`FireAppViewModel.swift:126-174`）只调用 `sessionStore.prepareStartupSession()` 并调度 `ensurePreloadedDataLoaded()`，**不调用 `determineLoginStateWithProbe()` 或 `applySession()`**。
 - `isBootstrappingSession` 在 `finishInitialStateLoading(generation:)`（`FireAppViewModel.swift:1114`）翻为 false，这发生在 `prepareStartupSession` 返回时，**早于**登录态判定。
-- 真正的登录态判定（`determineLoginState` + `applySession`）在 `completeStartupAfterPreheat()`（`FireAppViewModel.swift:176`），当前唯一驱动方是 `FirePreheatGateViewController.awaitPreloadedData()` 的 `onComplete` 回调 → `FireRootCoordinator.completePreheat()`（`FireRootCoordinator.swift:340`）。
+- 真正的登录态判定（`determineLoginStateWithProbe` + `applySession`）在 `completeStartupAfterPreheat()`（`FireAppViewModel.swift:176`），当前唯一驱动方是 `FirePreheatGateViewController.awaitPreloadedData()` 的 `onComplete` 回调 → `FireRootCoordinator.completePreheat()`（`FireRootCoordinator.swift:340`）。
 - PreheatGate 实际等待两个阶段：`prepareStartupSession()` **和** `awaitPreloadedData()`（`FirePreheatGateViewController.swift:46-63`），rev 1 只覆盖前者。
 - `9a6fe30` 后，`awaitPreloadedData()` 失败不再等同于启动校验失败：当前 PreheatGate 会读取 `sessionStore.snapshot().readiness`，只要 `canReadAuthenticatedApi == true` 或 `hasLoginCookie == true`，就保留本地会话并继续 `onComplete`，让 `completeStartupAfterPreheat()` 做最终登录态分流。
 
@@ -434,7 +434,7 @@ viewModel.$isSyncingLoginSession
 
 先在 `FireAppViewModel` 新增 `isStartupValidationComplete` / `isStartupValidationInFlight` / `performStartupValidation()` / `prepareLoginForm()`（见 §5）。再在 `FireOnboardingViewController` 加 `phase` 属性 + `bindState` 派生逻辑（用 `isStartupValidationComplete` 而非 `isBootstrappingSession`）。中间区域换成 `phaseContainerView`，挂载 Step 1 的子视图。hero 区和 error banner 保留。onboarding VC 的 `viewDidLoad` 触发 `Task { await viewModel.performStartupValidation() }`，`applyPhase(.credential)` 时触发 `viewModel.prepareLoginForm()`。迁移 `savedLoginCredential` / `errorMessage` / `isSyncingLoginSession` 绑定。
 
-验证：onboarding 页能显示 loading 态，校验结束后能切到表单且表单有已保存凭据回填；构造 `awaitPreloadedData()` 失败但 snapshot readiness 仍有 `canReadAuthenticatedApi` 或 `hasLoginCookie` 的场景时，不能直接显示启动失败，而应继续执行 `completeStartupAfterPreheat()`，再由 `determineLoginState()` 决定进入 `.main` 还是留在 `.credential`。
+验证：onboarding 页能显示 loading 态，校验结束后能切到表单且表单有已保存凭据回填；构造 `awaitPreloadedData()` 失败但 snapshot readiness 仍有 `canReadAuthenticatedApi` 或 `hasLoginCookie` 的场景时，不能直接显示启动失败，而应继续执行 `completeStartupAfterPreheat()`，再由 `determineLoginStateWithProbe()` 决定进入 `.main` 还是留在 `.credential`。只有本次 preload 明确拿到 fresh `currentUser` 时才允许跳过 probe；持久化 session 里的旧 `currentUser` 不能单独作为冷启动登录态凭据。
 
 #### Step 3 — 迁移登录编排逻辑
 
@@ -492,7 +492,7 @@ xcodebuild test -project native/ios-app/Fire.xcodeproj -scheme Fire \
 
 #### 风险与回退
 
-- **主要风险**（rev 3 更新）：`completeStartupAfterPreheat()` 失去 RootCoordinator 驱动方，需由 `performStartupValidation()` 接管；若遗漏 `prepareStartupSession()`、`awaitPreloadedData()` 的可恢复失败分支，或 `determineLoginState()`，校验链路会断裂或把仍需判定的本地会话直接推到启动失败/登录表单。**缓解**：Step 2 的验证项必须确认冷启动能走完 `prepareStartupSession → awaitPreloadedData → determineLoginState → applySession` 全链路，并覆盖 `awaitPreloadedData` 失败但 snapshot readiness 仍可恢复的场景。
+- **主要风险**（rev 3 更新）：`completeStartupAfterPreheat()` 失去 RootCoordinator 驱动方，需由 `performStartupValidation()` 接管；若遗漏 `prepareStartupSession()`、`awaitPreloadedData()` 的可恢复失败分支，或 `determineLoginStateWithProbe()`，校验链路会断裂或把仍需判定的本地会话直接推到启动失败/登录表单。**缓解**：Step 2 的验证项必须确认冷启动能走完 `prepareStartupSession → awaitPreloadedData → determineLoginStateWithProbe → applySession` 全链路，并覆盖 `awaitPreloadedData` 失败但 snapshot readiness 仍可恢复的场景。
 - **次要风险**：登录成功后 captcha dialog 不 dismiss。**缓解**：Step 3 验证项必须覆盖"成功登录 → dialog 消失 → root 切 .main"完整路径。
 - **回退**：每个 Step 是独立 commit，任何一步出问题可 revert 单步。
 

@@ -664,11 +664,19 @@ impl FireCore {
 
     pub async fn determine_login_state_with_probe(&self) -> fire_models::LoginStateDetermination {
         let snapshot = self.snapshot();
-        let initial = self.determine_login_state();
-        if snapshot.readiness().has_current_user
-            && !matches!(initial, fire_models::LoginStateDetermination::NotLoggedIn)
-        {
-            return initial;
+        let readiness = snapshot.readiness();
+        let fresh_current_user = self
+            .preloaded_data
+            .get()
+            .and_then(|service| service.get_current_user());
+
+        if let Some(current_user) = fresh_current_user {
+            if readiness.can_read_authenticated_api {
+                return fire_models::LoginStateDetermination::LoggedIn {
+                    username: current_user.username,
+                    user_id: current_user.id,
+                };
+            }
         }
 
         if !snapshot.cookies.has_login_session() {

@@ -181,7 +181,7 @@ final class FireAppViewModel: ObservableObject {
             let sessionStore = try await sessionStoreValue()
             guard self.initialStateLoadGeneration == generation else { return }
             self.errorMessage = nil
-            let loginState = await sessionStore.determineLoginState()
+            let loginState = try await sessionStore.determineLoginStateWithProbe()
             guard self.initialStateLoadGeneration == generation else { return }
             switch loginState {
             case .loggedIn:

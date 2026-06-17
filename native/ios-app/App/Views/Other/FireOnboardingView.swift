@@ -214,6 +214,12 @@ final class FireOnboardingViewController: UIViewController {
         let previous = phase
         phase = next
 
+        if next == .loggingIn {
+            setLoginLoading(true)
+        } else if previous == .loggingIn {
+            setLoginLoading(false)
+        }
+
         UIView.transition(
             with: phaseContainerView,
             duration: 0.22,

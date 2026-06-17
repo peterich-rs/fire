@@ -4,12 +4,22 @@ import UIKit
 
 @MainActor
 final class FireOnboardingViewController: UIViewController {
+    private enum FireOnboardingPhase: Equatable {
+        case validating
+        case credential
+        case loggingIn
+    }
+
     private let viewModel: FireAppViewModel
     private let brandStack = UIStackView()
     private let bottomStack = UIStackView()
     private let errorBanner = FireOnboardingErrorBannerView()
-    private let loadingRow = FireOnboardingLoadingView()
-    private let loginButton = UIButton(type: .system)
+    private let phaseContainerView = UIView()
+    private lazy var validatingView = FireOnboardingValidatingView()
+    private lazy var credentialFormView = FireOnboardingCredentialFormView()
+    private lazy var loggingInView = FireOnboardingLoggingInView()
+    private var phase: FireOnboardingPhase = .validating
+    private var errorDismissWorkItem: DispatchWorkItem?
     private var cancellables: Set<AnyCancellable> = []
 
     init(viewModel: FireAppViewModel) {
@@ -37,7 +47,8 @@ final class FireOnboardingViewController: UIViewController {
         configureBrand()
         configureBottomControls()
         bindState()
-        render()
+        installValidatingPhaseInitial()
+        Task { await viewModel.performStartupValidation() }
     }
 
     private func configureBrand() {
@@ -87,141 +98,184 @@ final class FireOnboardingViewController: UIViewController {
             self?.viewModel.dismissError()
         }
 
-        loginButton.addAction(UIAction { [weak self] _ in
-            self?.viewModel.openLogin()
-        }, for: .touchUpInside)
+        phaseContainerView.translatesAutoresizingMaskIntoConstraints = false
 
         bottomStack.axis = .vertical
         bottomStack.alignment = .fill
         bottomStack.spacing = 12
         bottomStack.translatesAutoresizingMaskIntoConstraints = false
         bottomStack.addArrangedSubview(errorBanner)
-        bottomStack.addArrangedSubview(loadingRow)
-        bottomStack.addArrangedSubview(loginButton)
+        bottomStack.addArrangedSubview(phaseContainerView)
 
         view.addSubview(bottomStack)
         NSLayoutConstraint.activate([
             bottomStack.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 24),
             bottomStack.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -24),
             bottomStack.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -40),
-            loadingRow.heightAnchor.constraint(greaterThanOrEqualToConstant: 46),
-            loginButton.heightAnchor.constraint(greaterThanOrEqualToConstant: 48),
+            phaseContainerView.leadingAnchor.constraint(equalTo: bottomStack.leadingAnchor),
+            phaseContainerView.trailingAnchor.constraint(equalTo: bottomStack.trailingAnchor),
+            phaseContainerView.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -40),
+            phaseContainerView.heightAnchor.constraint(greaterThanOrEqualToConstant: 240),
         ])
     }
 
     private func bindState() {
         viewModel.$errorMessage
             .receive(on: RunLoop.main)
-            .sink { [weak self] _ in
-                self?.render()
+            .sink { [weak self] errorMessage in
+                guard let self else { return }
+                if let errorMessage,
+                   !errorMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    self.showErrorBanner(errorMessage)
+                } else {
+                    self.hideErrorBanner()
+                }
             }
             .store(in: &cancellables)
 
-        viewModel.$isBootstrappingSession
-            .combineLatest(viewModel.$isStartupLoadingVisible, viewModel.$isPreparingLogin)
+        Publishers.CombineLatest3(
+            viewModel.$isStartupValidationComplete,
+            viewModel.$session,
+            viewModel.$isSyncingLoginSession
+        )
+        .receive(on: RunLoop.main)
+        .sink { [weak self] isStartupValidationComplete, session, isSyncingLoginSession in
+            guard let self else { return }
+            let nextPhase: FireOnboardingPhase
+            if !isStartupValidationComplete {
+                nextPhase = .validating
+            } else if isSyncingLoginSession {
+                nextPhase = .loggingIn
+            } else if !session.readiness.canReadAuthenticatedApi {
+                nextPhase = .credential
+            } else {
+                return
+            }
+            self.applyPhase(nextPhase)
+        }
+        .store(in: &cancellables)
+
+        viewModel.$savedLoginCredential
             .receive(on: RunLoop.main)
-            .sink { [weak self] _, _, _ in
-                self?.render()
+            .sink { [weak self] credential in
+                self?.credentialFormView.applySavedCredential(credential)
             }
             .store(in: &cancellables)
+
+        wireCredentialFormCallbacks()
     }
 
-    private func render() {
-        if let errorMessage = viewModel.errorMessage,
-           !errorMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            errorBanner.configure(message: errorMessage)
-            errorBanner.isHidden = false
-        } else {
-            errorBanner.isHidden = true
+    private func wireCredentialFormCallbacks() {
+        // Step 3 wires onLoginTapped / onForgotPassword / onOtherMethods to the
+        // migrated login orchestration methods. Kept nil for now.
+    }
+
+    private func applyPhase(_ next: FireOnboardingPhase) {
+        guard phase != next else { return }
+
+        if next == .credential, phase != .credential {
+            Task { await viewModel.prepareLoginForm() }
         }
 
-        let isBootstrapping = viewModel.isBootstrappingSession
-        loadingRow.isHidden = !isBootstrapping
-        loadingRow.configure(
-            isAnimating: isBootstrapping && viewModel.isStartupLoadingVisible,
-            message: viewModel.isStartupLoadingVisible ? "正在读取本地登录态..." : ""
-        )
+        let previous = phase
+        phase = next
 
-        loginButton.isHidden = isBootstrapping
-        loginButton.isEnabled = !viewModel.isPreparingLogin
-        loginButton.configuration = loginButtonConfiguration(
-            title: viewModel.isPreparingLogin ? "准备中..." : "登录 LinuxDo",
-            showsActivityIndicator: viewModel.isPreparingLogin
-        )
+        UIView.transition(
+            with: phaseContainerView,
+            duration: 0.22,
+            options: [.transitionCrossDissolve]
+        ) {
+            self.installPhaseSubviews(for: next, replacing: previous)
+        }
     }
 
-    private func loginButtonConfiguration(
-        title: String,
-        showsActivityIndicator: Bool
-    ) -> UIButton.Configuration {
-        var configuration = UIButton.Configuration.filled()
-        configuration.title = title
-        configuration.image = showsActivityIndicator ? nil : UIImage(systemName: "person.badge.key")
-        configuration.imagePadding = 8
-        configuration.baseBackgroundColor = .systemOrange
-        configuration.baseForegroundColor = .white
-        configuration.cornerStyle = .medium
-        configuration.showsActivityIndicator = showsActivityIndicator
-        configuration.contentInsets = NSDirectionalEdgeInsets(
-            top: 12,
-            leading: 16,
-            bottom: 12,
-            trailing: 16
-        )
-        return configuration
+    private func installValidatingPhaseInitial() {
+        phaseContainerView.addSubview(validatingView)
+        validatingView.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            validatingView.topAnchor.constraint(equalTo: phaseContainerView.topAnchor),
+            validatingView.leadingAnchor.constraint(equalTo: phaseContainerView.leadingAnchor),
+            validatingView.trailingAnchor.constraint(equalTo: phaseContainerView.trailingAnchor),
+            validatingView.bottomAnchor.constraint(equalTo: phaseContainerView.bottomAnchor),
+        ])
+        validatingView.configure(isAnimating: true, message: "正在校验登录态…")
+    }
+
+    private func installPhaseSubviews(for next: FireOnboardingPhase, replacing previous: FireOnboardingPhase) {
+        if previous == .loggingIn {
+            credentialFormView.setLoggingIn(false)
+            loggingInView.removeFromSuperview()
+        }
+
+        validatingView.removeFromSuperview()
+        credentialFormView.removeFromSuperview()
+
+        switch next {
+        case .validating:
+            phaseContainerView.addSubview(validatingView)
+            validatingView.translatesAutoresizingMaskIntoConstraints = false
+            NSLayoutConstraint.activate([
+                validatingView.topAnchor.constraint(equalTo: phaseContainerView.topAnchor),
+                validatingView.leadingAnchor.constraint(equalTo: phaseContainerView.leadingAnchor),
+                validatingView.trailingAnchor.constraint(equalTo: phaseContainerView.trailingAnchor),
+                validatingView.bottomAnchor.constraint(equalTo: phaseContainerView.bottomAnchor),
+            ])
+            validatingView.configure(isAnimating: true, message: "正在校验登录态…")
+
+        case .credential:
+            phaseContainerView.addSubview(credentialFormView)
+            credentialFormView.translatesAutoresizingMaskIntoConstraints = false
+            NSLayoutConstraint.activate([
+                credentialFormView.topAnchor.constraint(equalTo: phaseContainerView.topAnchor),
+                credentialFormView.leadingAnchor.constraint(equalTo: phaseContainerView.leadingAnchor),
+                credentialFormView.trailingAnchor.constraint(equalTo: phaseContainerView.trailingAnchor),
+                credentialFormView.bottomAnchor.constraint(equalTo: phaseContainerView.bottomAnchor),
+            ])
+
+        case .loggingIn:
+            phaseContainerView.addSubview(credentialFormView)
+            credentialFormView.translatesAutoresizingMaskIntoConstraints = false
+            NSLayoutConstraint.activate([
+                credentialFormView.topAnchor.constraint(equalTo: phaseContainerView.topAnchor),
+                credentialFormView.leadingAnchor.constraint(equalTo: phaseContainerView.leadingAnchor),
+                credentialFormView.trailingAnchor.constraint(equalTo: phaseContainerView.trailingAnchor),
+                credentialFormView.bottomAnchor.constraint(equalTo: phaseContainerView.bottomAnchor),
+            ])
+            credentialFormView.setLoggingIn(true)
+
+            phaseContainerView.addSubview(loggingInView)
+            loggingInView.translatesAutoresizingMaskIntoConstraints = false
+            NSLayoutConstraint.activate([
+                loggingInView.topAnchor.constraint(equalTo: phaseContainerView.topAnchor),
+                loggingInView.leadingAnchor.constraint(equalTo: phaseContainerView.leadingAnchor),
+                loggingInView.trailingAnchor.constraint(equalTo: phaseContainerView.trailingAnchor),
+                loggingInView.bottomAnchor.constraint(equalTo: phaseContainerView.bottomAnchor),
+            ])
+        }
+    }
+
+    private func showErrorBanner(_ message: String) {
+        errorDismissWorkItem?.cancel()
+        errorBanner.configure(message: message)
+        errorBanner.isHidden = false
+
+        let workItem = DispatchWorkItem { [weak self] in
+            self?.hideErrorBanner()
+        }
+        errorDismissWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 4, execute: workItem)
+    }
+
+    private func hideErrorBanner() {
+        errorDismissWorkItem?.cancel()
+        errorDismissWorkItem = nil
+        errorBanner.isHidden = true
     }
 
     @objc private func developerToolsButtonTapped() {
         let controller = UIHostingController(rootView: FireDeveloperToolsView(viewModel: viewModel))
         controller.title = "开发者工具"
         navigationController?.pushViewController(controller, animated: true)
-    }
-}
-
-private final class FireOnboardingLoadingView: UIView {
-    private let activityIndicator = UIActivityIndicatorView(style: .medium)
-    private let label = UILabel()
-
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        configureSubviews()
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    func configure(isAnimating: Bool, message: String) {
-        label.text = message
-        activityIndicator.isHidden = !isAnimating
-        if isAnimating {
-            activityIndicator.startAnimating()
-        } else {
-            activityIndicator.stopAnimating()
-        }
-    }
-
-    private func configureSubviews() {
-        let stackView = UIStackView(arrangedSubviews: [activityIndicator, label])
-        stackView.axis = .horizontal
-        stackView.alignment = .center
-        stackView.distribution = .fill
-        stackView.spacing = 8
-        stackView.translatesAutoresizingMaskIntoConstraints = false
-
-        label.font = UIFont.preferredFont(forTextStyle: .subheadline).withOnboardingWeight(.medium)
-        label.adjustsFontForContentSizeCategory = true
-        label.textColor = .secondaryLabel
-        label.numberOfLines = 1
-
-        addSubview(stackView)
-        NSLayoutConstraint.activate([
-            stackView.centerXAnchor.constraint(equalTo: centerXAnchor),
-            stackView.centerYAnchor.constraint(equalTo: centerYAnchor),
-            stackView.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor),
-            stackView.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor),
-        ])
     }
 }
 

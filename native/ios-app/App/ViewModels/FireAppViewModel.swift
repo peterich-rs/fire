@@ -28,6 +28,8 @@ final class FireAppViewModel: ObservableObject {
     @Published private(set) var canSyncLoginSession = false
     @Published private(set) var savedLoginCredential: FireSavedCredential?
     @Published var isLoggingOut = false
+    @Published private(set) var isStartupValidationComplete = false
+    private var isStartupValidationInFlight = false
 
     // MARK: - Private
 
@@ -226,6 +228,45 @@ final class FireAppViewModel: ObservableObject {
         }
     }
 
+    func performStartupValidation() async {
+        guard !isStartupValidationComplete else { return }
+        guard !isStartupValidationInFlight else { return }
+        isStartupValidationInFlight = true
+        defer {
+            isStartupValidationInFlight = false
+            isStartupValidationComplete = true
+        }
+
+        do {
+            let sessionStore = try await sessionStoreValue()
+            _ = try await sessionStore.prepareStartupSession()
+            do {
+                _ = try await sessionStore.awaitPreloadedData()
+            } catch {
+                let snapshot = try? await sessionStore.snapshot()
+                let readiness = snapshot?.readiness
+                guard readiness?.canReadAuthenticatedApi == true
+                    || readiness?.hasLoginCookie == true
+                else {
+                    throw error
+                }
+            }
+            await completeStartupAfterPreheat()
+        } catch {
+            completeStartupAfterPreheatFailure(message: "网络异常，请重新登录")
+        }
+    }
+
+    func prepareLoginForm() async {
+        do {
+            let sessionStore = try await sessionStoreValue()
+            savedLoginCredential = try await sessionStore.loadSavedCredential()
+            _ = try await loginCoordinatorValue()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
     func openLogin() {
         guard authPresentationState == nil else { return }
         errorMessage = nil
@@ -233,15 +274,7 @@ final class FireAppViewModel: ObservableObject {
         cachedLoginSyncReadiness = nil
         setAuthPresentationState(.login)
 
-        Task {
-            do {
-                let sessionStore = try await sessionStoreValue()
-                savedLoginCredential = try await sessionStore.loadSavedCredential()
-                _ = try await loginCoordinatorValue()
-            } catch {
-                errorMessage = error.localizedDescription
-            }
-        }
+        Task { await prepareLoginForm() }
     }
 
     func completeLogin(from webView: WKWebView) {

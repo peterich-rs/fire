@@ -53,6 +53,11 @@ final class FireOnboardingCredentialFormView: UIView {
         updateLoginButtonState()
     }
 
+    func clearPasswordField() {
+        passwordField.text = nil
+        updateLoginButtonState()
+    }
+
     func setLoggingIn(_ loading: Bool) {
         isLoggingIn = loading
         identifierField.isEnabled = !loading

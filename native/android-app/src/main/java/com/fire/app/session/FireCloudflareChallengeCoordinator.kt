@@ -29,10 +29,6 @@ class FireCloudflareChallengeCoordinator(
     fun completeSynchronously(
         request: CloudflareChallengeRequestState,
     ): CloudflareChallengeResultState {
-        if (!request.isForeground) {
-            return cancelledResult(userCancelled = false)
-        }
-
         val token = UUID.randomUUID().toString()
         val pending = PendingChallenge()
         PendingChallenges.register(token, pending)

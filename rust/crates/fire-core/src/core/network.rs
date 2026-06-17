@@ -307,7 +307,7 @@ fn clone_request_for_retry(request: &Request<RequestBody>) -> Option<Request<Req
         .uri(request.uri().clone())
         .version(request.version());
     for (name, value) in request.headers() {
-        if name == COOKIE {
+        if should_rebuild_header_for_retry(name) {
             continue;
         }
         builder = builder.header(name, value);
@@ -332,6 +332,22 @@ fn clone_request_for_retry(request: &Request<RequestBody>) -> Option<Request<Req
         request.extensions_mut().insert(presentation);
     }
     Some(request)
+}
+
+fn should_rebuild_header_for_retry(name: &HeaderName) -> bool {
+    name == COOKIE
+        || name == USER_AGENT
+        || name == ACCEPT_LANGUAGE
+        || name == ORIGIN
+        || name == REFERER
+        || name.as_str().eq_ignore_ascii_case("x-csrf-token")
+        || name.as_str().eq_ignore_ascii_case("x-requested-with")
+        || name.as_str().eq_ignore_ascii_case("sec-fetch-dest")
+        || name.as_str().eq_ignore_ascii_case("sec-fetch-mode")
+        || name.as_str().eq_ignore_ascii_case("sec-fetch-site")
+        || name.as_str().eq_ignore_ascii_case("priority")
+        || name.as_str().eq_ignore_ascii_case("discourse-logged-in")
+        || name.as_str().eq_ignore_ascii_case("discourse-present")
 }
 
 fn trace_request(
@@ -1188,6 +1204,33 @@ impl FireCore {
         let body = self.read_response_text(trace_id, response).await?;
         self.diagnostics
             .record_http_status_error(trace_id, StatusCode::FORBIDDEN.as_u16(), &body);
+
+        if is_bad_csrf_body(&body) {
+            info!(
+                operation,
+                trace_id, "received BAD CSRF, refreshing token and retrying"
+            );
+            let _ = self.clear_csrf_token();
+            let refreshed = self.refresh_csrf_token_if_needed().await?;
+            if !refreshed.cookies.can_authenticate_requests() {
+                warn!(
+                    operation,
+                    trace_id, "skipping BAD CSRF retry because login cookies are unavailable"
+                );
+                return Err(FireCoreError::MissingLoginSession);
+            }
+            if !refreshed.cookies.has_csrf_token() {
+                warn!(
+                    operation,
+                    trace_id, "skipping BAD CSRF retry because refresh did not produce a token"
+                );
+                return Err(FireCoreError::MissingCsrfToken);
+            }
+
+            let retry = make_request()?;
+            return self.execute_request(retry).await;
+        }
+
         if let Some(error) = response_login_invalidation_error(
             operation,
             trace_id,
@@ -1219,45 +1262,19 @@ impl FireCore {
             let _ = self.process_auth_runtime_signal(signal, operation).await;
         }
 
-        if !is_bad_csrf_body(&body) {
-            warn!(
-                operation,
-                trace_id,
-                status = 403u16,
-                body_prefix = %body.chars().take(200).collect::<String>(),
-                "request rejected with 403 (not a CSRF error)"
-            );
-            return Err(classify_http_status_error(
-                operation,
-                StatusCode::FORBIDDEN.as_u16(),
-                &response_headers,
-                body,
-            ));
-        }
-
-        info!(
+        warn!(
             operation,
-            trace_id, "received BAD CSRF, refreshing token and retrying"
+            trace_id,
+            status = 403u16,
+            body_prefix = %body.chars().take(200).collect::<String>(),
+            "request rejected with 403 (not a CSRF error)"
         );
-        let _ = self.clear_csrf_token();
-        let refreshed = self.refresh_csrf_token_if_needed().await?;
-        if !refreshed.cookies.can_authenticate_requests() {
-            warn!(
-                operation,
-                trace_id, "skipping BAD CSRF retry because login cookies are unavailable"
-            );
-            return Err(FireCoreError::MissingLoginSession);
-        }
-        if !refreshed.cookies.has_csrf_token() {
-            warn!(
-                operation,
-                trace_id, "skipping BAD CSRF retry because refresh did not produce a token"
-            );
-            return Err(FireCoreError::MissingCsrfToken);
-        }
-
-        let retry = make_request()?;
-        self.execute_request(retry).await
+        Err(classify_http_status_error(
+            operation,
+            StatusCode::FORBIDDEN.as_u16(),
+            &response_headers,
+            body,
+        ))
     }
 
     pub(crate) async fn read_response_json_with_diagnostics<T>(
@@ -1661,6 +1678,7 @@ fn is_cookie_self_healing_response(status: StatusCode, headers: &HeaderMap, body
     if is_invalid_access_forbidden(status, body)
         || is_cloudflare_challenge_response(status.as_u16(), headers, body)
         || is_bad_csrf_body(body)
+        || not_logged_in_message(status.as_u16(), body).is_some()
     {
         return false;
     }
@@ -1668,8 +1686,7 @@ fn is_cookie_self_healing_response(status: StatusCode, headers: &HeaderMap, body
         return true;
     }
     let invalidation = response_login_invalidation_signal(headers);
-    (status.is_client_error() && invalidation.discourse_logged_out)
-        || not_logged_in_message(status.as_u16(), body).is_some()
+    status.is_client_error() && invalidation.discourse_logged_out
 }
 
 pub(crate) fn is_cloudflare_challenge_body(body: &str) -> bool {
@@ -1923,6 +1940,11 @@ mod tests {
             .method(Method::GET)
             .uri("https://example.com/latest.json")
             .header("Cookie", "cf_clearance=stale")
+            .header("User-Agent", "stale-agent")
+            .header("X-CSRF-Token", "stale-csrf")
+            .header("Sec-Fetch-Site", "same-origin")
+            .header("Discourse-Logged-In", "true")
+            .header("Discourse-Track-View", "1")
             .body(RequestBody::empty())
             .expect("request");
         request.extensions_mut().insert(FireRequestProfile::JsonApi);
@@ -1940,6 +1962,17 @@ mod tests {
         assert!(
             retry_request.headers().get(COOKIE).is_none(),
             "retry clone must let the cookie jar rebuild Cookie from current session"
+        );
+        assert!(retry_request.headers().get(USER_AGENT).is_none());
+        assert!(retry_request.headers().get("X-CSRF-Token").is_none());
+        assert!(retry_request.headers().get("Sec-Fetch-Site").is_none());
+        assert!(retry_request.headers().get("Discourse-Logged-In").is_none());
+        assert_eq!(
+            retry_request
+                .headers()
+                .get("Discourse-Track-View")
+                .and_then(|value| value.to_str().ok()),
+            Some("1")
         );
         assert!(matches!(
             retry_request

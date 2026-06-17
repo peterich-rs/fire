@@ -953,7 +953,7 @@ async fn fetch_topic_list_self_heals_unauthorized_with_sweep_retry() {
         raw_json_response(
             401,
             "application/json",
-            r#"{"errors":["You need to log in."],"error_type":"not_logged_in"}"#,
+            r#"{"errors":["session cookie state is stale"]}"#,
         ),
         raw_json_response(200, "application/json", &sample_latest_json()),
     ];
@@ -999,11 +999,94 @@ async fn fetch_topic_list_self_heals_unauthorized_with_sweep_retry() {
 }
 
 #[tokio::test]
+async fn fetch_topic_list_does_not_self_heal_cloudflare_challenge_without_handler() {
+    let responses = vec![raw_cloudflare_challenge_response(
+        403,
+        r#"<html><head><title>Just a moment...</title></head><body>__cf_chl_opt</body></html>"#,
+    )];
+    let server = TestServer::spawn(responses).await.expect("server");
+    let core = FireCore::new(FireCoreConfig {
+        base_url: server.base_url(),
+        workspace_path: None,
+    })
+    .expect("core");
+    let calls = Arc::new(AtomicUsize::new(0));
+    {
+        let calls = Arc::clone(&calls);
+        core.set_cookie_self_healing_handler(move |request| {
+            calls.fetch_add(1, Ordering::SeqCst);
+            async move {
+                CookieSelfHealingResult {
+                    completed: true,
+                    session_epoch: request.session_epoch,
+                }
+            }
+        });
+    }
+
+    let error = core
+        .fetch_topic_list(TopicListQuery {
+            kind: TopicListKind::Latest,
+            ..TopicListQuery::default()
+        })
+        .await
+        .expect_err("cloudflare challenge must not trigger cookie healing");
+    let requests = server.shutdown_with_requests().await;
+
+    assert!(matches!(
+        error,
+        FireCoreError::CloudflareChallenge {
+            operation: "fetch topic list"
+        }
+    ));
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+    assert_eq!(requests.len(), 1);
+}
+
+#[tokio::test]
+async fn fetch_topic_list_does_not_self_heal_explicit_not_logged_in() {
+    let body = r#"{"errors":["You need to log in."],"error_type":"not_logged_in"}"#;
+    let responses = vec![raw_json_response(401, "application/json", body)];
+    let server = TestServer::spawn(responses).await.expect("server");
+    let core = FireCore::new(FireCoreConfig {
+        base_url: server.base_url(),
+        workspace_path: None,
+    })
+    .expect("core");
+    let calls = Arc::new(AtomicUsize::new(0));
+    {
+        let calls = Arc::clone(&calls);
+        core.set_cookie_self_healing_handler(move |request| {
+            calls.fetch_add(1, Ordering::SeqCst);
+            async move {
+                CookieSelfHealingResult {
+                    completed: true,
+                    session_epoch: request.session_epoch,
+                }
+            }
+        });
+    }
+
+    let error = core
+        .fetch_topic_list(TopicListQuery {
+            kind: TopicListKind::Latest,
+            ..TopicListQuery::default()
+        })
+        .await
+        .expect_err("explicit not_logged_in must surface as login required");
+    let requests = server.shutdown_with_requests().await;
+
+    assert!(matches!(error, FireCoreError::LoginRequired { .. }));
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+    assert_eq!(requests.len(), 1);
+}
+
+#[tokio::test]
 async fn fetch_topic_list_self_healing_escalates_to_nuclear_reset() {
     let unauthorized = raw_json_response(
         401,
         "application/json",
-        r#"{"errors":["You need to log in."],"error_type":"not_logged_in"}"#,
+        r#"{"errors":["session cookie state is stale"]}"#,
     );
     let responses = vec![
         unauthorized.clone(),
@@ -3476,6 +3559,223 @@ async fn create_reply_refreshes_csrf_and_parses_wrapped_post_payload() {
     assert_eq!(
         core.snapshot().cookies.csrf_token.as_deref(),
         Some("fresh-csrf")
+    );
+}
+
+#[tokio::test]
+async fn create_reply_refreshes_csrf_before_logged_out_header_handling() {
+    let bad_csrf_body = r#"["BAD CSRF"]"#;
+    let bad_csrf_response = format!(
+        "HTTP/1.1 403 TEST\r\nContent-Type: application/json; charset=utf-8\r\nDiscourse-Logged-Out: 1\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{bad_csrf_body}",
+        bad_csrf_body.len()
+    );
+    let responses = vec![
+        bad_csrf_response,
+        raw_json_response(200, "application/json", r#"{"csrf":"fresh-csrf"}"#),
+        raw_json_response(
+            200,
+            "application/json",
+            r#"{
+              "post": {
+                "id": 9010,
+                "username": "alice",
+                "name": "Alice",
+                "avatar_template": "/user_avatar/linux.do/alice/{size}/1_2.png",
+                "cooked": "<p>Reply body</p>",
+                "post_number": 2,
+                "post_type": 1,
+                "created_at": "2026-03-28T00:10:00Z",
+                "updated_at": "2026-03-28T00:10:00Z",
+                "like_count": 0,
+                "reply_count": 0,
+                "reply_to_post_number": 1,
+                "bookmarked": false,
+                "bookmark_id": null,
+                "reactions": [],
+                "current_user_reaction": null,
+                "accepted_answer": false,
+                "can_edit": true,
+                "can_delete": true,
+                "can_recover": false,
+                "hidden": false
+              }
+            }"#,
+        ),
+    ];
+    let server = TestServer::spawn(responses).await.expect("server");
+    let core = FireCore::new(FireCoreConfig {
+        base_url: server.base_url(),
+        workspace_path: None,
+    })
+    .expect("core");
+
+    let _ = core.sync_login_context(LoginSyncInput {
+        username: Some("alice".into()),
+        home_html: None,
+        csrf_token: Some("stale-csrf".into()),
+        current_url: Some(server.base_url()),
+        browser_user_agent: None,
+        cookies: vec![
+            PlatformCookie {
+                name: "_t".into(),
+                value: "token".into(),
+                domain: None,
+                path: None,
+                expires_at_unix_ms: None,
+                same_site: None,
+            },
+            PlatformCookie {
+                name: "_forum_session".into(),
+                value: "forum".into(),
+                domain: None,
+                path: None,
+                expires_at_unix_ms: None,
+                same_site: None,
+            },
+        ],
+    });
+
+    let post = core
+        .create_reply(TopicReplyRequest {
+            topic_id: 123,
+            raw: "Reply body".into(),
+            reply_to_post_number: Some(1),
+        })
+        .await
+        .expect("create reply after BAD CSRF refresh");
+    let requests = server.shutdown_with_requests().await;
+
+    assert_eq!(post.id, 9010);
+    assert_eq!(requests.len(), 3);
+    assert!(requests[0].contains("POST /posts.json HTTP/1.1"));
+    assert!(requests[1].contains("GET /session/csrf HTTP/1.1"));
+    assert!(requests[2].contains("POST /posts.json HTTP/1.1"));
+    assert!(requests[2]
+        .to_ascii_lowercase()
+        .contains("x-csrf-token: fresh-csrf"));
+    assert_eq!(
+        core.snapshot().cookies.csrf_token.as_deref(),
+        Some("fresh-csrf")
+    );
+}
+
+#[tokio::test]
+async fn create_reply_cloudflare_retry_rebuilds_stale_csrf_header() {
+    let responses = vec![
+        raw_cloudflare_challenge_response(
+            403,
+            r#"<html><head><title>Just a moment...</title></head><body>__cf_chl_opt</body></html>"#,
+        ),
+        raw_json_response(
+            200,
+            "application/json",
+            r#"{
+              "post": {
+                "id": 9010,
+                "username": "alice",
+                "name": "Alice",
+                "avatar_template": "/user_avatar/linux.do/alice/{size}/1_2.png",
+                "cooked": "<p>Reply body</p>",
+                "post_number": 2,
+                "post_type": 1,
+                "created_at": "2026-03-28T00:10:00Z",
+                "updated_at": "2026-03-28T00:10:00Z",
+                "like_count": 0,
+                "reply_count": 0,
+                "reply_to_post_number": 1,
+                "bookmarked": false,
+                "bookmark_id": null,
+                "reactions": [],
+                "current_user_reaction": null,
+                "accepted_answer": false,
+                "can_edit": true,
+                "can_delete": true,
+                "can_recover": false,
+                "hidden": false
+              }
+            }"#,
+        ),
+    ];
+    let server = TestServer::spawn(responses).await.expect("server");
+    let core = FireCore::new(FireCoreConfig {
+        base_url: server.base_url(),
+        workspace_path: None,
+    })
+    .expect("core");
+
+    let _ = core.sync_login_context(LoginSyncInput {
+        username: Some("alice".into()),
+        home_html: None,
+        csrf_token: Some("stale-csrf".into()),
+        current_url: Some(server.base_url()),
+        browser_user_agent: None,
+        cookies: vec![
+            PlatformCookie {
+                name: "_t".into(),
+                value: "token".into(),
+                domain: None,
+                path: None,
+                expires_at_unix_ms: None,
+                same_site: None,
+            },
+            PlatformCookie {
+                name: "_forum_session".into(),
+                value: "forum".into(),
+                domain: None,
+                path: None,
+                expires_at_unix_ms: None,
+                same_site: None,
+            },
+        ],
+    });
+    {
+        let handler_core = core.clone();
+        core.set_cloudflare_challenge_handler(move |_| {
+            let core = handler_core.clone();
+            async move {
+                let _ = core.apply_csrf_token("fresh-csrf".into());
+                fire_models::CloudflareChallengeResult {
+                    completed: true,
+                    user_cancelled: false,
+                    fresh_cf_clearance: Some("new-clearance".into()),
+                    cookies: vec![PlatformCookie {
+                        name: "cf_clearance".into(),
+                        value: "new-clearance".into(),
+                        domain: Some("linux.do".into()),
+                        path: Some("/".into()),
+                        expires_at_unix_ms: None,
+                        same_site: None,
+                    }],
+                    browser_user_agent: None,
+                }
+            }
+        });
+    }
+
+    let post = core
+        .create_reply(TopicReplyRequest {
+            topic_id: 123,
+            raw: "Reply body".into(),
+            reply_to_post_number: Some(1),
+        })
+        .await
+        .expect("create reply after challenge");
+    let requests = server.shutdown_with_requests().await;
+
+    assert_eq!(post.id, 9010);
+    assert_eq!(requests.len(), 2);
+    assert!(requests[0]
+        .to_ascii_lowercase()
+        .contains("x-csrf-token: stale-csrf"));
+    assert!(requests[1]
+        .to_ascii_lowercase()
+        .contains("x-csrf-token: fresh-csrf"));
+    assert!(
+        !requests[1]
+            .to_ascii_lowercase()
+            .contains("x-csrf-token: stale-csrf"),
+        "retry must not replay stale CSRF header:\n{}",
+        requests[1]
     );
 }
 

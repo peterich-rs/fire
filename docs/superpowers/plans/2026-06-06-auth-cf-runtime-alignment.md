@@ -49,6 +49,15 @@
 - 已存在：iOS `FireCfClearanceRefreshService` 有登录态确认 gate 后的隐藏 Turnstile runtime；Android 尚无等价服务。
 - 已存在：iOS `performWithCloudflareRecovery` / `performWriteWithCloudflareRetry` 目前只是直跑闭包，不会自动弹恢复 WebView；后续需要改名或接入新的 auth runtime handler，避免保留误导性命名。
 
+## Follow-Up Scope (2026-06-17)
+
+本轮修复优先处理会造成用户卡死或登录态被错误清理的硬失败路径，已对齐 FluxDO 的核心边界：CF challenge 不进入 self-heal/logout，BAD-CSRF 优先刷新重试，CF 完成后重试请求重建 profile header，后台/静默请求命中 CF 时不再直接返回 incomplete/cancelled。
+
+仍需单独规划的体验与调度增强：
+
+- FluxDO 式非阻塞验证入口：后台/静默请求触发 CF 时，先展示可升级的 floating pill / 小窗入口，而不是立即打开全屏 challenge UI。用户点击或超时后再提升为前台验证。当前 Fire 的最小修复是复用同一个全屏 WebView/Activity 来打通验证闭环。
+- 全局 RequestScheduler / sliding-window limit：在 `cf_verifying`、短时间高并发 403/429、以及普通 rate-limit 场景下，于请求发出前冻结或排队非 `skip_cf_block` 业务请求，避免并发请求风暴反复撞 CF。当前 Fire 只有 Rust CF runtime `in_progress` 门控和 cooldown，还没有 FluxDO 那层统一调度与滑动窗口限流。
+
 ---
 
 ## Runtime Signal Matrix
@@ -383,7 +392,7 @@ Manual CF WebView must share login WebView UA, cookie manager, JS settings, popu
 
 - [ ] **Step 2: Implement foreground challenge UI**
 
-Foreground user actions may present a visible challenge screen. Background/silent work may not steal focus; it should either use hidden refresh or return `CloudflareChallenge`.
+Foreground user actions may present a visible challenge screen. Background/silent work must also be able to complete CF verification instead of returning `CloudflareChallenge` immediately. The current minimum path may reuse the full-screen challenge Activity; a later UX pass should add a FluxDO-style floating pill / small-window entry that can be promoted to full-screen verification.
 
 - [ ] **Step 3: Implement hidden `cf_clearance` refresh**
 
@@ -413,7 +422,7 @@ Onboarding remains a single login entry. Startup session restoration stays in `P
 
 - [ ] **Step 2: Cloudflare presentation**
 
-Foreground operations may route to manual challenge. Passive/background operations should record diagnostics and show a non-blocking retry message.
+Foreground operations may route to manual challenge. Passive/background operations that hit CF should be able to trigger verification instead of failing silently; the current bridge may use the same host-owned challenge UI, while the follow-up UX target is a non-blocking floating pill / small-window entry that can be promoted by user action or timeout.
 
 Current implementation note: Rust now carries Cloudflare presentation context on
 the traced request. The full notification history fetch is explicitly
@@ -421,7 +430,11 @@ foreground-capable, while recent notification cache refreshes remain
 background. This keeps notification-tab user gestures aligned with home/topic
 detail/search reads without letting silent notification work steal focus.
 
-- [ ] **Step 3: State-driven navigation**
+- [ ] **Step 3: Add global request scheduler and sliding-window limit**
+
+Introduce a RequestScheduler-style gate before business requests are sent. When manual CF verification is active, block or queue non-`skip_cf_block` requests; when repeated 403/429 responses arrive in a short window, apply cooldown/backoff before more requests are dispatched. This is separate from the existing Rust CF challenge `in_progress` gate, which only protects the active resolution window and does not provide FluxDO-style global request scheduling.
+
+- [ ] **Step 4: State-driven navigation**
 
 Navigation to onboarding/login must be driven by authoritative session snapshot state, not by a local platform classifier.
 
@@ -524,6 +537,6 @@ xcodebuild -scheme Fire -destination 'platform=iOS Simulator,name=iPhone 16' bui
 - [ ] `403 not_logged_in` + probe valid: request fails, session preserved.
 - [ ] `403 not_logged_in` + probe invalid: passive logout, onboarding after snapshot changes.
 - [ ] `403 CF HTML`: manual challenge, new `cf_clearance`, original request retries once.
-- [ ] Silent/background `403 CF HTML`: no foreground steal; error recorded or hidden refresh used.
+- [ ] Silent/background `403 CF HTML`: verification path is available and does not return incomplete/cancelled solely because the triggering request is background; future UX should prefer floating pill / small-window promotion over immediate full-screen UI.
 - [x] Redirect across same origin: openwire audit confirms normal Fire CookieJar-owned requests recompute cookies for each follow-up URL.
 - [x] Redirect across origin: openwire audit confirms cross-origin redirect removes `Cookie` / `Authorization`, and Fire cookie ingress remains same-site scoped.

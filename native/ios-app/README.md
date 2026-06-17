@@ -63,11 +63,11 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
   - if the follow-up Rust bootstrap refresh still fails, it now surfaces that request failure directly instead of locally logging the user out or starting an automatic recovery path
   - clears host-side LinuxDo auth cookies after a successful explicit logout while preserving `cf_clearance`
 - `FireCloudflareChallengeCoordinator.swift`
-  - implements the registered Rust `CloudflareChallengeHandler` bridge for foreground-capable iOS requests
+  - implements the registered Rust `CloudflareChallengeHandler` bridge for iOS requests that hit Cloudflare, including background/silent operations while the app can present UI
   - opens a host-owned full-screen `WKWebView`, records and deletes the baseline `cf_clearance`, waits for a fresh clearance plus the absence of active challenge markers, and returns both the fresh value and relevant browser cookies back to Rust
-  - restores the deleted baseline clearance if the user cancels or the foreground verification does not complete
-  - leaves background/silent work on the non-interactive path: if the request was not marked foreground-capable, the handler returns an incomplete result and Rust surfaces `CloudflareChallenge`
-  - relies on Rust request-level presentation context, so user-opened notification history refreshes are foreground-capable while recent notification cache refreshes and other silent work stay non-interactive
+  - observes cookie-store changes, navigation commits, injected `/cdn-cgi/challenge-platform/` fetch/XHR signals, pagehide/beforeunload events, and a 1-second polling fallback so completion is not dependent on a single WebKit callback
+  - restores the deleted baseline clearance if the user cancels or verification does not complete
+  - pauses the offscreen `FireCfClearanceRefreshService` runtime while manual verification is active so the hidden Turnstile refresh path cannot race the manual challenge cookie write
 - `FireCfClearanceRefreshService.swift`
   - owns an offscreen `WKWebView` that keeps a Turnstile widget alive once the shared session is authenticated, scene-active, and bootstrap has exposed a Turnstile sitekey
   - configures that hidden WebView with the captured login browser user agent exposed on `SessionState`, falling back to the same Mobile Safari-style profile used by login
@@ -106,7 +106,7 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
   - now also owns native private-message inbox/sent loading plus private-message creation on top of the shared Rust mailbox and `/posts.json` PM surfaces
   - now acts as a session/runtime facade for feature stores instead of also owning every screen's transient state directly
   - now owns the foreground MessageBus transport lifecycle on iOS and forwards runtime refresh work into the bound feature stores instead of publishing home/topic-detail state itself
-  - now registers the Rust-owned Cloudflare challenge handler on session initialization, so foreground blocked requests can complete a host-owned challenge WebView and then let Rust retry the original operation once
+  - now registers the Rust-owned Cloudflare challenge handler on session initialization, so blocked requests can complete a host-owned challenge WebView and then let Rust retry the original operation once
   - still treats `LoginRequired` as an ordinary request failure unless the authoritative Rust session snapshot has actually transitioned to logged out
   - now attempts a single-flight host cookie resync on passive reads (home feed, topic detail): if the WebKit cookie store has already rotated `_t` / `_forum_session` past the shared Rust epoch, the resync rotates the shared session in place and the read retries once; otherwise the original request failure is surfaced unchanged
   - now prepares the minimal login `WKWebView`, classifies JS login results through Rust, and applies the single Rust login finalization handoff after session cookies are extracted

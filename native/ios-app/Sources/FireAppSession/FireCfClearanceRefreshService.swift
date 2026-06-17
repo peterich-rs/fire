@@ -106,6 +106,7 @@ final class FireCfClearanceRefreshService: NSObject, WKNavigationDelegate, WKScr
     private var retryTask: Task<Void, Never>?
     private var initialSolveTimeoutTask: Task<Void, Never>?
     private var webView: WKWebView?
+    private var manualChallengePauseCount = 0
     private var loadContinuation: CheckedContinuation<Void, Error>?
     private var generation: UInt64 = 0
     private var consecutiveFailureCount = 0
@@ -154,6 +155,19 @@ final class FireCfClearanceRefreshService: NSObject, WKNavigationDelegate, WKScr
     func setLoginStateConfirmed(_ confirmed: Bool) {
         loginStateConfirmed = confirmed
         reconfigureRuntime(reason: confirmed ? "login_state_confirmed" : "login_state_unconfirmed")
+    }
+
+    func beginManualChallenge(reason: String) {
+        manualChallengePauseCount += 1
+        stopRuntime(reason: reason)
+    }
+
+    func endManualChallenge(reason: String) {
+        if manualChallengePauseCount > 0 {
+            manualChallengePauseCount -= 1
+        }
+        guard manualChallengePauseCount == 0 else { return }
+        reconfigureRuntime(reason: reason)
     }
 
     nonisolated static func shouldAutoRefresh(
@@ -249,11 +263,12 @@ final class FireCfClearanceRefreshService: NSObject, WKNavigationDelegate, WKScr
     }
 
     private var shouldRun: Bool {
-        Self.shouldAutoRefresh(
-            session: session,
-            sceneActive: sceneActive,
-            loginStateConfirmed: loginStateConfirmed
-        )
+        manualChallengePauseCount == 0
+            && Self.shouldAutoRefresh(
+                session: session,
+                sceneActive: sceneActive,
+                loginStateConfirmed: loginStateConfirmed
+            )
     }
 
     private var normalizedTurnstileSitekey: String? {

@@ -131,7 +131,7 @@ class FireCloudflareChallengeActivity : ComponentActivity() {
                     completed = true,
                     userCancelled = false,
                     freshCfClearance = newClearance,
-                    cookies = cookies,
+                    cookies = challengeResultCookies(cookies, newClearance),
                     browserUserAgent = webView.settings.userAgentString,
                 ),
             )
@@ -277,5 +277,19 @@ class FireCloudflareChallengeActivity : ComponentActivity() {
         const val EXTRA_TARGET_URL = "fire.target_url"
 
         private val RELEVANT_COOKIE_NAMES = setOf("_t", "_forum_session", "cf_clearance", "_cfuvid")
+
+        internal fun challengeResultCookies(
+            cookies: List<PlatformCookieState>,
+            freshCfClearance: String,
+        ): List<PlatformCookieState> {
+            val acceptedClearance = freshCfClearance.trim()
+            return cookies.filter { cookie ->
+                if (!cookie.name.equals("cf_clearance", ignoreCase = true)) {
+                    true
+                } else {
+                    acceptedClearance.isNotEmpty() && cookie.value.trim() == acceptedClearance
+                }
+            }
+        }
     }
 }

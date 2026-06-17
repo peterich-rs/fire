@@ -3,6 +3,7 @@ package com.fire.app.session
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import uniffi.fire_uniffi_session.PlatformCookieState
 
 class FireWebViewCookieActionSupportTest {
     @Test
@@ -76,5 +77,43 @@ class FireWebViewCookieActionSupportTest {
             "_t=; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Path=/session; Domain=.linux.do",
             header,
         )
+    }
+
+    @Test
+    fun cloudflareChallengeResultCookiesAcceptOnlyFreshClearance() {
+        val cookies = listOf(
+            PlatformCookieState(
+                name = "_t",
+                value = "token",
+                domain = "linux.do",
+                path = "/",
+                expiresAtUnixMs = null,
+                sameSite = null,
+            ),
+            PlatformCookieState(
+                name = "cf_clearance",
+                value = "old-clearance",
+                domain = ".linux.do",
+                path = "/",
+                expiresAtUnixMs = null,
+                sameSite = null,
+            ),
+            PlatformCookieState(
+                name = "cf_clearance",
+                value = "fresh-clearance",
+                domain = ".linux.do",
+                path = "/",
+                expiresAtUnixMs = null,
+                sameSite = "none",
+            ),
+        )
+
+        val result = FireCloudflareChallengeActivity.challengeResultCookies(
+            cookies = cookies,
+            freshCfClearance = " fresh-clearance ",
+        )
+
+        assertEquals(listOf("_t", "cf_clearance"), result.map { it.name })
+        assertEquals("fresh-clearance", result.last().value)
     }
 }

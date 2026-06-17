@@ -611,6 +611,20 @@ async fn fetch_topic_list_retries_once_after_cloudflare_challenge_completion() {
 
     assert_eq!(response.rows.len(), 1);
     assert_eq!(requests.len(), 2);
+    let retry_request = &requests[1];
+    let retry_request_lower = retry_request.to_ascii_lowercase();
+    assert!(
+        retry_request_lower.contains("cookie: cf_clearance=new-clearance"),
+        "retry request should send fresh cf_clearance:\n{retry_request}"
+    );
+    assert!(
+        !retry_request.contains("stale-clearance"),
+        "retry request must not send stale cf_clearance:\n{retry_request}"
+    );
+    assert!(
+        retry_request_lower.contains("user-agent: firebrowser/1.0"),
+        "retry request should use challenge WebView user agent:\n{retry_request}"
+    );
     let snapshot = core.snapshot();
     assert_eq!(
         snapshot.cookies.cf_clearance.as_deref(),
@@ -619,6 +633,119 @@ async fn fetch_topic_list_retries_once_after_cloudflare_challenge_completion() {
     assert_eq!(
         snapshot.browser_user_agent.as_deref(),
         Some("FireBrowser/1.0")
+    );
+}
+
+#[tokio::test]
+async fn cloudflare_challenge_retry_synthesizes_confirmed_clearance_when_snapshot_missing() {
+    let responses = vec![
+        raw_cloudflare_challenge_response(
+            403,
+            r#"<html><head><title>Just a moment...</title></head><body>__cf_chl_opt</body></html>"#,
+        ),
+        raw_json_response(200, "application/json", &sample_latest_json()),
+    ];
+    let server = TestServer::spawn(responses).await.expect("server");
+    let core = FireCore::new(FireCoreConfig {
+        base_url: server.base_url(),
+        workspace_path: None,
+    })
+    .expect("core");
+    core.set_cloudflare_challenge_handler(|_| async move {
+        fire_models::CloudflareChallengeResult {
+            completed: true,
+            user_cancelled: false,
+            fresh_cf_clearance: Some("confirmed-clearance".into()),
+            cookies: vec![],
+            browser_user_agent: None,
+        }
+    });
+
+    let response = core
+        .fetch_topic_list(TopicListQuery {
+            kind: TopicListKind::Latest,
+            ..TopicListQuery::default()
+        })
+        .await
+        .expect("confirmed clearance should be synthesized for retry");
+    let requests = server.shutdown_with_requests().await;
+
+    assert_eq!(response.rows.len(), 1);
+    assert_eq!(requests.len(), 2);
+    assert!(
+        requests[1]
+            .to_ascii_lowercase()
+            .contains("cookie: cf_clearance=confirmed-clearance"),
+        "retry request should send synthesized cf_clearance:\n{}",
+        requests[1]
+    );
+    assert_eq!(
+        core.snapshot().cookies.cf_clearance.as_deref(),
+        Some("confirmed-clearance")
+    );
+}
+
+#[tokio::test]
+async fn cloudflare_challenge_retry_synthesizes_confirmed_clearance_when_snapshot_scope_is_wrong() {
+    let responses = vec![
+        raw_cloudflare_challenge_response(
+            403,
+            r#"<html><head><title>Just a moment...</title></head><body>__cf_chl_opt</body></html>"#,
+        ),
+        raw_json_response(200, "application/json", &sample_latest_json()),
+    ];
+    let server = TestServer::spawn(responses).await.expect("server");
+    let core = FireCore::new(FireCoreConfig {
+        base_url: server.base_url(),
+        workspace_path: None,
+    })
+    .expect("core");
+    core.set_cloudflare_challenge_handler(|_| async move {
+        fire_models::CloudflareChallengeResult {
+            completed: true,
+            user_cancelled: false,
+            fresh_cf_clearance: Some("wrong-scope-clearance".into()),
+            cookies: vec![PlatformCookie {
+                name: "cf_clearance".into(),
+                value: "wrong-scope-clearance".into(),
+                domain: Some("unrelated.example".into()),
+                path: Some("/challenge".into()),
+                expires_at_unix_ms: None,
+                same_site: None,
+            }],
+            browser_user_agent: None,
+        }
+    });
+
+    let response = core
+        .fetch_topic_list(TopicListQuery {
+            kind: TopicListKind::Latest,
+            ..TopicListQuery::default()
+        })
+        .await
+        .expect("confirmed wrong-scope clearance should be synthesized for retry");
+    let requests = server.shutdown_with_requests().await;
+
+    assert_eq!(response.rows.len(), 1);
+    assert_eq!(requests.len(), 2);
+    assert!(
+        requests[1]
+            .to_ascii_lowercase()
+            .contains("cookie: cf_clearance=wrong-scope-clearance"),
+        "retry request should send synthesized cf_clearance:\n{}",
+        requests[1]
+    );
+    let snapshot = core.snapshot();
+    let clearance_cookie = snapshot
+        .cookies
+        .platform_cookies
+        .iter()
+        .find(|cookie| cookie.name == "cf_clearance")
+        .expect("cf_clearance platform cookie");
+    assert_eq!(clearance_cookie.path.as_deref(), Some("/"));
+    assert_ne!(
+        clearance_cookie.domain.as_deref(),
+        Some("unrelated.example")
     );
 }
 

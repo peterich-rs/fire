@@ -48,8 +48,7 @@ Rust should classify challenge requests by mode:
 | `data` | Foreground data needed by visible UI | May show contextual verification |
 | `action` | User-initiated action or login prerequisite | May show manual verification immediately |
 
-Manual user actions may bypass cooldown with an explicit
-`show_manual_verify_now` style flag.
+Explicit manual verification actions may bypass a recent failure cooldown.
 
 ## 4. In-Progress State
 
@@ -103,14 +102,15 @@ as low-metadata input.
 
 ## 6. Freshness Filtering
 
-When the platform sends cookies after verification, Rust should accept the
-confirmed challenge value and reject stale bulk-read values.
+When the platform sends cookies after verification, the challenge result should
+carry only the confirmed `cf_clearance` variant. Rust must still enforce the
+same rule as a second boundary check and reject stale bulk-read values.
 
 Recommended input shape:
 
 ```text
 fresh_clearance: optional string
-cookies: full WebView cookie snapshot
+cookies: WebView cookie snapshot with cf_clearance filtered to fresh_clearance
 trusted: true
 accept_values: { "cf_clearance": fresh_clearance } when present
 ```
@@ -118,6 +118,12 @@ accept_values: { "cf_clearance": fresh_clearance } when present
 If `accept_values` contains a cookie name, Rust must accept only the matching
 value for that name. This prevents old WebView variants from overwriting the
 fresh challenge result.
+
+If the platform independently confirms a fresh `cf_clearance` value but the
+cookie snapshot is missing that value or only contains a variant that cannot be
+sent to the site root, Rust must materialize that accepted value as a trusted
+root-path `cf_clearance` for the LinuxDo origin before retrying. The retry
+remains the authority for whether the confirmed clearance is actually usable.
 
 ## 7. Cooldown And Auto Verify
 
@@ -128,8 +134,8 @@ WebView.
 
 Recommended cooldown:
 
-- Track consecutive verification failures.
-- Enter a short cooldown after repeated failures.
+- Track verification failures.
+- Enter a short cooldown after a failed or cancelled verification.
 - Let explicit foreground/manual verification bypass cooldown.
 - Reset cooldown after confirmed success.
 

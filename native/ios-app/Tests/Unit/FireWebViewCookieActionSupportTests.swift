@@ -74,4 +74,41 @@ final class FireWebViewCookieActionSupportTests: XCTestCase {
             )
         )
     }
+
+    func testCloudflareChallengeResultCookiesAcceptsOnlyFreshClearance() {
+        let cookies = [
+            PlatformCookieState(
+                name: "_t",
+                value: "token",
+                domain: "linux.do",
+                path: "/",
+                expiresAtUnixMs: nil,
+                sameSite: nil
+            ),
+            PlatformCookieState(
+                name: "cf_clearance",
+                value: "old-clearance",
+                domain: ".linux.do",
+                path: "/",
+                expiresAtUnixMs: nil,
+                sameSite: nil
+            ),
+            PlatformCookieState(
+                name: "cf_clearance",
+                value: "fresh-clearance",
+                domain: ".linux.do",
+                path: "/",
+                expiresAtUnixMs: nil,
+                sameSite: .none
+            ),
+        ]
+
+        let result = FireCloudflareChallengeCoordinator.challengeResultCookies(
+            cookies,
+            freshCfClearance: " fresh-clearance "
+        )
+
+        XCTAssertEqual(result.map(\.name), ["_t", "cf_clearance"])
+        XCTAssertEqual(result.last?.value, "fresh-clearance")
+    }
 }

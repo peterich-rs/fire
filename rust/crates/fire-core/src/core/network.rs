@@ -5,7 +5,9 @@ use fire_models::{
     CloudflareChallengeRequest, CookieSelfHealingPhase, CookieSelfHealingRequest,
 };
 use http::{
-    header::{HeaderMap, HeaderName, HeaderValue, ACCEPT_LANGUAGE, ORIGIN, REFERER, USER_AGENT},
+    header::{
+        HeaderMap, HeaderName, HeaderValue, ACCEPT_LANGUAGE, COOKIE, ORIGIN, REFERER, USER_AGENT,
+    },
     Method, Request, Response, StatusCode,
 };
 #[cfg(debug_assertions)]
@@ -305,6 +307,9 @@ fn clone_request_for_retry(request: &Request<RequestBody>) -> Option<Request<Req
         .uri(request.uri().clone())
         .version(request.version());
     for (name, value) in request.headers() {
+        if name == COOKIE {
+            continue;
+        }
         builder = builder.header(name, value);
     }
     let mut request = builder.body(cloned_body).ok()?;
@@ -1917,6 +1922,7 @@ mod tests {
         let mut request = Request::builder()
             .method(Method::GET)
             .uri("https://example.com/latest.json")
+            .header("Cookie", "cf_clearance=stale")
             .body(RequestBody::empty())
             .expect("request");
         request.extensions_mut().insert(FireRequestProfile::JsonApi);
@@ -1931,6 +1937,10 @@ mod tests {
             .extensions()
             .get::<crate::diagnostics::FireRequestTraceMetadata>()
             .is_none());
+        assert!(
+            retry_request.headers().get(COOKIE).is_none(),
+            "retry clone must let the cookie jar rebuild Cookie from current session"
+        );
         assert!(matches!(
             retry_request
                 .extensions()

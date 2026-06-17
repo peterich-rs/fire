@@ -1,8 +1,12 @@
 # 统一启动登录页设计
 
 > 日期：2026-06-17
-> 状态：已确认，待实现
+> 状态：已确认，待实现（rev 2 — 根据代码审阅修正 P1/P2 问题）
 > 范围：iOS 启动流程 UI 合并，逻辑层保持解耦
+
+## 修订记录
+
+- **rev 2（本次）**：根据对实际源码的二次核实修正四处 P1 缺陷与两处 P2。原 rev 1 误判 `isBootstrappingSession` 已覆盖校验全链路，且忽略了删除 preheat/auth modal 后 `completeStartupAfterPreheat()` 失去驱动方、captcha dialog 失去 dismiss 路径、saved credential 失去加载入口三个回归。详见各节"⚠️ rev 2 修正"标记。
 
 ## 背景与问题
 
@@ -73,25 +77,50 @@ enum FireOnboardingPhase: Equatable {
 
 | viewModel 状态组合 | phase |
 |---|---|
-| `isBootstrappingSession == true` | `.validating` |
+| `isStartupValidationComplete == false` | `.validating` |
+| `isStartupValidationComplete == true` 且未认证 | `.credential` |
 | `isSyncingLoginSession == true` 或 captchaDialog 已 present | `.loggingIn` |
-| 其他（校验结束且未认证） | `.credential` |
 
 `.validating → .credential` 的切换不需要用户点击，纯响应式。
 
-#### `isBootstrappingSession` 语义核实（已完成）
+#### ⚠️ rev 2 修正：启动校验状态必须覆盖全链路
 
-经代码核实，`FireAppViewModel.isBootstrappingSession`（L23）精确匹配"校验中"语义：
+原 rev 1 用 `isBootstrappingSession` 派生 `.validating`，经代码核实**不成立**：
 
-- `loadInitialState()` L133：`isBootstrappingSession = true`（校验开始）
-- `finishInitialStateLoading(generation:)` L1121：`isBootstrappingSession = false`（校验结束，成功路径）
-- `completeStartupAfterPreheatFailure(message:)` L221：`isBootstrappingSession = false`（校验结束，失败路径）
+- `loadInitialState()`（`FireAppViewModel.swift:126-174`）只调用 `sessionStore.prepareStartupSession()` 并调度 `ensurePreloadedDataLoaded()`，**不调用 `determineLoginState()` 或 `applySession()`**。
+- `isBootstrappingSession` 在 `finishInitialStateLoading(generation:)`（`FireAppViewModel.swift:1114`）翻为 false，这发生在 `prepareStartupSession` 返回时，**早于**登录态判定。
+- 真正的登录态判定（`determineLoginState` + `applySession`）在 `completeStartupAfterPreheat()`（`FireAppViewModel.swift:176`），当前唯一驱动方是 `FirePreheatGateViewController.awaitPreloadedData()` 的 `onComplete` 回调 → `FireRootCoordinator.completePreheat()`（`FireRootCoordinator.swift:340`）。
+- PreheatGate 实际等待两个阶段：`prepareStartupSession()` **和** `awaitPreloadedData()`（`FirePreheatGateViewController.swift:46-58`），rev 1 只覆盖前者。
 
-无需新增 `@Published` 状态。
+**修正方案**：新增 viewModel 状态与方法，把"校验完成"语义收口到 viewModel，由 onboarding VC 在 `viewDidLoad` 时触发。
+
+```swift
+// FireAppViewModel 新增
+@Published private(set) var isStartupValidationComplete = false
+
+/// 替代 PreheatGate 的 awaitPreloadedData + completeStartupAfterPreheat 链路。
+/// 由 onboarding VC 在 viewDidLoad 触发一次（冷启动 root == .launch 时）。
+func performStartupValidation() async {
+    guard !isStartupValidationComplete else { return }
+    do {
+        let sessionStore = try await sessionStoreValue()
+        _ = try await sessionStore.awaitPreloadedData()   // 原 PreheatGate L52
+        await completeStartupAfterPreheat()               // 原 RootCoordinator.completePreheat L343
+        isStartupValidationComplete = true
+    } catch {
+        completeStartupAfterPreheatFailure(message: error.localizedDescription)
+        isStartupValidationComplete = true
+    }
+}
+```
+
+`isBootstrappingSession` 保留原语义（仅标记 `prepareStartupSession` 阶段），不再用于 onboarding phase 派生。onboarding phase 的 `.validating` 完全由 `isStartupValidationComplete == false` 决定。
+
+`loadInitialState()` 在 `start()` 中保留调用（负责 `prepareStartupSession` + preload 调度），onboarding VC 的 `viewDidLoad` 额外触发 `performStartupValidation()` 完成 `awaitPreloadedData + determineLoginState` 链路。
 
 #### `authPresentationState` 弃用（不删除）
 
-`openLogin()` 和 `dismissAuthPresentation()` 保留方法定义，但 onboarding 页不再调用 `openLogin()`（表单内嵌）。`completeMinimalLogin` / `completeLogin` 成功时 `setAuthPresentationState(nil)` 变成 no-op，无害。`dismissAuthPresentation()` 的唯一调用方（login VC 关闭按钮）随 login VC 删除而消失，保留方法不删除以避免连锁改动。
+`openLogin()` 和 `dismissAuthPresentation()` 保留方法定义，但 onboarding 页不再调用 `openLogin()`（表单内嵌）。`completeMinimalLogin` / `completeLogin` 成功时 `setAuthPresentationState(nil)` 不再驱动 modal dismiss——dismiss 责任迁移到 onboarding VC 的 `isSyncingLoginSession` 监听（见 §4 "登录成功后必须显式清理"）。`dismissAuthPresentation()` 的唯一调用方（login VC 关闭按钮）随 login VC 删除而消失，保留方法不删除以避免连锁改动。
 
 ### §2 页面结构与视图拆分
 
@@ -122,9 +151,11 @@ enum FireOnboardingPhase: Equatable {
    - `UIActivityIndicatorView` + `UILabel`（"正在校验登录态…"）。
    - 从现有 `FireStartupOnboardingStatusView.showLoading` 抽取，纯展示。
 
-2. **`FireOnboardingCredentialFormView`**（新建，约 250 行，从 `FireLoginViewController` 迁移）
+2. **`FireOnboardingCredentialFormView`**（新建，约 280 行，从 `FireLoginViewController` 迁移）
    - 包含：用户名输入、密码输入、记住密码开关、登录按钮、忘记密码、其他方式登录。
    - 迁移自 `FireLoginViewController` 的 `setupCredentialFields` / `setupRememberPassword` / `setupLoginButton` / `setupForgotPassword` / `setupOtherMethods`。
+   - **保留 `UIScrollView` + `contentView` 容器结构**（迁移自 `FireLoginViewController.setupScrollView` L128-148），以适配小屏键盘遮挡：`scrollView.keyboardDismissMode = .interactive`、`contentView.widthAnchor == scrollView.frameLayoutGuide.widthAnchor` 保证竖向滚动 + 横向不溢出。
+   - 监听键盘 `willChangeFrame` / `willHide` 通知，调整 `scrollView.contentInset.bottom`，避免输入框被键盘覆盖（现有 login VC 的键盘适配逻辑一并迁移）。
    - 不持有 viewModel，通过闭包回调：`onLoginTapped(identifier:password:remember:)`、`onForgotPassword`、`onOtherMethods`。
    - 暴露 `applySavedCredential(_:)` 用于回填已保存凭据。
    - 暴露 `setLoggingIn(_:)` 用于 disable/enable 表单。
@@ -262,33 +293,99 @@ onboarding phase == .credential
 
 `.loggingIn` 状态下 `FireOnboardingLoggingInView` overlay 显示，表单 disabled。
 
-#### saved credential 绑定
+#### ⚠️ rev 2 修正：saved credential 必须显式加载
 
-现有 `FireLoginViewController` 的 `viewModel.$savedLoginCredential` 订阅（L77-93）迁移到 onboarding VC，通过 `formView.applySavedCredential(credential)` 回填。
+原 rev 1 说迁移 `$savedLoginCredential` 订阅即可回填表单。经代码核实**不成立**：
+
+`loadSavedCredential()` 只在 `openLogin()`（`FireAppViewModel.swift:236-244`）的 Task 里调用。`$savedLoginCredential` 订阅本身不触发加载，只在 viewModel 已发布值时回调。onboarding 页不调用 `openLogin()`，则 `savedLoginCredential` 永远为初始值 `nil`，表单无法回填。
+
+**修正方案**：从 `openLogin()` 抽出登录表单准备逻辑为独立方法，onboarding VC 在进入 `.credential` phase 时调用：
+
+```swift
+// FireAppViewModel 新增（从 openLogin L236-244 抽取）
+func prepareLoginForm() async {
+    do {
+        let sessionStore = try await sessionStoreValue()
+        savedLoginCredential = try await sessionStore.loadSavedCredential()
+        _ = try await loginCoordinatorValue()   // 预热 coordinator
+    } catch {
+        errorMessage = error.localizedDescription
+    }
+}
+```
+
+onboarding VC 的 phase 派生逻辑里，当 `isStartupValidationComplete == true` 且未认证（即将进入或已在 `.credential`）时触发一次：
+
+```swift
+private func applyPhase(_ next: FireOnboardingPhase) {
+    if next == .credential, phase != .credential {
+        Task { await viewModel.prepareLoginForm() }
+    }
+    phase = next
+    // ...container view 切换
+}
+```
+
+`openLogin()` 保留供其他入口（开发者工具等，实现阶段确认 call site），但其内部的 credential 加载逻辑改为调用 `prepareLoginForm()` 以避免重复。
 
 #### errorMessage 绑定
 
-现有 `FireOnboardingView.swift:113-118` 的 `viewModel.$errorMessage` 订阅保留。新增：当 captcha dialog present 时收到 errorMessage，走与 `handleDialogResult(.failure)` 相同的 dismiss + showErrorBanner 路径（迁移自 `FireLoginViewController.swift:95-105`）。
+现有 `FireOnboardingView.swift:113-118` 的 `viewModel.$errorMessage` 订阅保留。当 `phase == .loggingIn` 时收到 errorMessage，走与 `handleDialogResult(.failure)` 相同的 dismiss + showErrorBanner 路径（迁移自 `FireLoginViewController.swift:95-105`），并让 phase 回到 `.credential`。
 
-#### isSyncingLoginSession 绑定
+#### ⚠️ rev 2 修正：登录成功后必须显式清理 captcha dialog 与 loggingIn phase
 
-现有 `FireLoginViewController.swift:107-115` 的逻辑迁移：`isSyncingLoginSession` 变 false 且 `phase == .loggingIn` 时 `setLoginLoading(false)`。
+原 rev 1 称 `setAuthPresentationState(nil)` 变成 no-op "无害"。经代码核实**有害**：
 
-### §5 ViewModel 改动（最小化）
+当前成功路径 `completeMinimalLogin`（`FireAppViewModel.swift:324`）调用 `setAuthPresentationState(nil)`，RootCoordinator 的 `syncAuthPresentation(nil)`（`FireRootCoordinator.swift:368-377`）负责 `authController.dismiss(animated:)`，**这个 dismiss 同时移除了 login VC 及其 present 的 captcha dialog**。
 
-viewModel 改动压到最小，**不新增 `@Published` 状态**（`isBootstrappingSession` 已精确匹配"校验中"语义）。
+删除 `syncAuthPresentation` binding 后，onboarding 页成为 captcha dialog 的 present 宿主。成功路径不再有任何代码 dismiss dialog 或退出 `.loggingIn` phase。
+
+**修正方案**：在 onboarding VC 监听 `viewModel.$isSyncingLoginSession` 的 false 翻转，作为登录完成的权威信号：
+
+```swift
+viewModel.$isSyncingLoginSession
+    .receive(on: RunLoop.main)
+    .sink { [weak self] isSyncing in
+        guard let self else { return }
+        guard !isSyncing, self.phase == .loggingIn else { return }
+        self.setLoginLoading(false)
+        self.dismissCaptchaDialog()     // 显式关闭 hCaptcha dialog
+        // phase 无需手动复位：root 即将切到 .main，onboarding VC 随之销毁。
+        // 若登录失败（未切 root），completeMinimalLogin 的 catch 分支会
+        // 通过 errorMessage 绑定走 dismiss + showErrorBanner 路径。
+    }
+    .store(in: &cancellables)
+```
+
+`dismissCaptchaDialog()` 迁移自 `FireLoginViewController`，负责 `captchaDialog?.dismiss(animated:)` + 置空持有变量。
+
+登录失败路径（未切 root）由上文 errorMessage 绑定处理：`setLoginLoading(false)` + `dismissCaptchaDialog()` + `showErrorBanner(message)`，phase 回到 `.credential`。
+
+### §5 ViewModel 改动
+
+> ⚠️ rev 2：原 rev 1 称"不新增 `@Published`"。经核实需新增两个状态与两个方法，否则 preheat 链路断裂（见 §1 修正说明）。
+
+#### 新增的状态与方法
+
+| 新增 | 用途 |
+|---|---|
+| `@Published private(set) var isStartupValidationComplete` | onboarding phase `.validating` ↔ `.credential` 的权威派生源（替代语义不符的 `isBootstrappingSession`） |
+| `func performStartupValidation() async` | 替代 PreheatGate 的 `awaitPreloadedData + completeStartupAfterPreheat` 链路，由 onboarding VC viewDidLoad 触发 |
+| `func prepareLoginForm() async` | 从 `openLogin()` 抽取，负责 `loadSavedCredential` + coordinator 预热，由 onboarding VC 进入 `.credential` phase 时触发 |
+
+`openLogin()` 的内部 credential 加载逻辑改为调用 `prepareLoginForm()` 以避免重复。
 
 #### 不改动的部分
 
-- `FireSessionStore` 全部 public API
+- `FireSessionStore` 全部 public API（含 `awaitPreloadedData`）
 - `FireWebViewLoginCoordinator` 全部 public API
 - `FireCaptchaLoginDialogController` 全部 API
-- `loadInitialState()` / `completeStartupAfterPreheat()` / `completeStartupAfterPreheatFailure()` 的方法签名和核心逻辑
+- `loadInitialState()` / `completeStartupAfterPreheat()` / `completeStartupAfterPreheatFailure()` 的**方法签名和核心逻辑**不变（`performStartupValidation` 内部调用它们，不重写）
 - 所有登录编排方法签名
 
 #### `authPresentationState` 弃用
 
-`openLogin()` 保留但 onboarding 页不再调用。`dismissAuthPresentation()` 保留但无调用方（login VC 删除后）。这两个方法标记为后续清理，不在本次删除。
+`openLogin()` 保留但 onboarding 页不再调用（credential 加载逻辑已抽出到 `prepareLoginForm()`）。`dismissAuthPresentation()` 保留但无调用方（login VC 删除后）。这两个方法标记为后续清理，不在本次删除。
 
 #### call site 影响清单
 
@@ -309,11 +406,11 @@ viewModel 改动压到最小，**不新增 `@Published` 状态**（`isBootstrapp
 
 验证：`xcodebuild` 编译通过。
 
-#### Step 2 — Onboarding VC 接入 phase 状态机
+#### Step 2 — Onboarding VC 接入 phase 状态机 + viewModel 新增
 
-在 `FireOnboardingViewController` 加 `phase` 属性 + `bindState` 派生逻辑。中间区域换成 `phaseContainerView`，挂载 Step 1 的子视图。hero 区和 error banner 保留。迁移 `savedLoginCredential` / `errorMessage` / `isSyncingLoginSession` 绑定。
+先在 `FireAppViewModel` 新增 `isStartupValidationComplete` / `performStartupValidation()` / `prepareLoginForm()`（见 §5）。再在 `FireOnboardingViewController` 加 `phase` 属性 + `bindState` 派生逻辑（用 `isStartupValidationComplete` 而非 `isBootstrappingSession`）。中间区域换成 `phaseContainerView`，挂载 Step 1 的子视图。hero 区和 error banner 保留。onboarding VC 的 `viewDidLoad` 触发 `viewModel.performStartupValidation()`，`applyPhase(.credential)` 时触发 `viewModel.prepareLoginForm()`。迁移 `savedLoginCredential` / `errorMessage` / `isSyncingLoginSession` 绑定。
 
-验证：onboarding 页能显示 loading 态。
+验证：onboarding 页能显示 loading 态，校验结束后能切到表单且表单有已保存凭据回填。
 
 #### Step 3 — 迁移登录编排逻辑
 
@@ -335,7 +432,20 @@ viewModel 改动压到最小，**不新增 `@Published` 状态**（`isBootstrapp
 
 #### Step 6 — 文档同步
 
-更新 `docs/architecture/fire-native-architecture.md`（如有启动流程描述）。确认无其他文档引用被删除的类名。
+> ⚠️ rev 2：扩大同步范围。原 rev 1 只提 architecture 文档。
+
+删除 `FireLoginViewController` / PreheatGate 后，以下文档都引用了它们，必须一并更新：
+
+- `docs/architecture/fire-native-architecture.md`：
+  - L253 `FireRootCoordinator.swift` 注释（删 "preheat"、保留 "root/auth/route"）。
+  - L307 `FireLoginViewController.swift` 条目删除，改为 onboarding 合并后的条目。
+  - L1000 登录/Cloudflare auth 段落，把 `FireLoginViewController` 替换为 onboarding VC 内嵌表单的描述。
+- `native/ios-app/README.md`：
+  - L77 `App/Views/Other/FireLoginViewController.swift` 文件清单条目删除，补 `FireOnboardingCredentialFormView` 等新文件。
+  - L93 RootCoordinator 职责描述（删 "auth modal presentation"）。
+  - L103 onboarding/PreheatGate 段落改为统一启动页描述。
+  - L274-275 UX note 改为反映单页多 phase 体验。
+- 全仓 grep `FirePreheatGate`、`FireLoginViewController`、`authPresentationState`、`PreheatGate`，确认无其他残留引用。
 
 #### 验证命令
 
@@ -358,7 +468,8 @@ xcodebuild test -project native/ios-app/Fire.xcodeproj -scheme Fire \
 
 #### 风险与回退
 
-- **主要风险**：已排除。`isBootstrappingSession` 经核实精确匹配"校验中/校验完成"语义。
+- **主要风险**（rev 2 更新）：`completeStartupAfterPreheat()` 失去 RootCoordinator 驱动方，需由 `performStartupValidation()` 接管；若遗漏 `awaitPreloadedData()` 或 `determineLoginState()`，校验链路断裂。**缓解**：Step 2 的验证项必须确认冷启动能走完 `prepareStartupSession → awaitPreloadedData → determineLoginState → applySession` 全链路，并验证 `.validating → .credential` 切换发生在 `isStartupValidationComplete == true` 之后。
+- **次要风险**：登录成功后 captcha dialog 不 dismiss。**缓解**：Step 3 验证项必须覆盖"成功登录 → dialog 消失 → root 切 .main"完整路径。
 - **回退**：每个 Step 是独立 commit，任何一步出问题可 revert 单步。
 
 ## 文件变更摘要
@@ -368,14 +479,15 @@ xcodebuild test -project native/ios-app/Fire.xcodeproj -scheme Fire \
 | 文件 | 内容 | 行数估算 |
 |---|---|---|
 | `App/Startup/FireOnboardingValidatingView.swift` | 校验中 loading 视图 | ~40 |
-| `App/Startup/FireOnboardingCredentialFormView.swift` | 账号密码表单（从 login VC 迁移） | ~250 |
+| `App/Startup/FireOnboardingCredentialFormView.swift` | 账号密码表单（含 scrollView + 键盘适配，从 login VC 迁移） | ~280 |
 | `App/Startup/FireOnboardingLoggingInView.swift` | 登录中 overlay 视图 | ~30 |
 
 ### 修改
 
 | 文件 | 改动 |
 |---|---|
-| `App/Views/Other/FireOnboardingView.swift` | 接入 phase 状态机、phaseContainerView、登录编排逻辑迁移 |
+| `App/ViewModels/FireAppViewModel.swift` | 新增 `isStartupValidationComplete` / `performStartupValidation()` / `prepareLoginForm()`（rev 2） |
+| `App/Views/Other/FireOnboardingView.swift` | 接入 phase 状态机、phaseContainerView、登录编排逻辑迁移、`performStartupValidation` 触发 |
 | `App/Core/FireRootCoordinator.swift` | RootKind 两态化，删除 preheat/auth presentation 路径 |
 
 ### 删除
@@ -386,4 +498,4 @@ xcodebuild test -project native/ios-app/Fire.xcodeproj -scheme Fire \
 | `App/Startup/FirePreheatGateViewController.swift`（含 `FireStartupOnboardingStatusView`） | 221 |
 | `App/Views/Other/FireLoginViewController.swift` | 622 |
 
-净删除约 900 行，新增约 320 行（含 onboarding VC 增量约 200 行）。
+净删除约 900 行，新增约 370 行（含 onboarding VC 增量约 200 行、viewModel 增量约 30 行、表单 view 含 scrollView 增量约 30 行）。

@@ -177,7 +177,12 @@ impl FireCore {
         fresh_cf_clearance: Option<String>,
         browser_user_agent: Option<String>,
     ) -> SessionSnapshot {
-        let cookies = filter_cloudflare_challenge_cookies(cookies, fresh_cf_clearance.as_deref());
+        let origin_url = url::Url::parse(self.base_url()).ok();
+        let cookies = filter_cloudflare_challenge_cookies(
+            cookies,
+            fresh_cf_clearance.as_deref(),
+            origin_url.as_ref(),
+        );
         info!(
             cookie_count = cookies.len(),
             fresh_clearance = fresh_cf_clearance
@@ -185,7 +190,6 @@ impl FireCore {
                 .is_some_and(|value| !value.trim().is_empty()),
             "completing cloudflare challenge via platform cookie sync"
         );
-        let origin_url = url::Url::parse(self.base_url()).ok();
         self.update_session_advancing_epoch_if_auth_changed(
             "complete cloudflare challenge",
             FireAuthChangeSource::PlatformSync,
@@ -727,11 +731,12 @@ impl FireCore {
 fn filter_cloudflare_challenge_cookies(
     cookies: Vec<PlatformCookie>,
     fresh_cf_clearance: Option<&str>,
+    origin_url: Option<&url::Url>,
 ) -> Vec<PlatformCookie> {
     let fresh_cf_clearance = fresh_cf_clearance
         .map(str::trim)
         .filter(|value| !value.is_empty());
-    cookies
+    let mut filtered = cookies
         .into_iter()
         .filter(|cookie| {
             if cookie.name.eq_ignore_ascii_case("cf_clearance") {
@@ -739,5 +744,73 @@ fn filter_cloudflare_challenge_cookies(
             }
             true
         })
-        .collect()
+        .collect::<Vec<_>>();
+
+    let Some(fresh_cf_clearance) = fresh_cf_clearance else {
+        return filtered;
+    };
+    let Some(origin_url) = origin_url else {
+        return filtered;
+    };
+
+    let has_origin_scoped_clearance = filtered.iter().any(|cookie| {
+        cookie.name.eq_ignore_ascii_case("cf_clearance")
+            && cookie.value.trim() == fresh_cf_clearance
+            && platform_cookie_matches_origin(cookie, origin_url)
+    });
+    if has_origin_scoped_clearance {
+        return filtered;
+    }
+
+    filtered.retain(|cookie| !cookie.name.eq_ignore_ascii_case("cf_clearance"));
+    if let Some(host) = origin_url.host_str() {
+        filtered.push(PlatformCookie {
+            name: "cf_clearance".to_string(),
+            value: fresh_cf_clearance.to_string(),
+            domain: Some(host.to_ascii_lowercase()),
+            path: Some("/".to_string()),
+            expires_at_unix_ms: None,
+            same_site: Some("None".to_string()),
+        });
+    }
+    filtered
+}
+
+fn platform_cookie_matches_origin(cookie: &PlatformCookie, origin_url: &url::Url) -> bool {
+    if cookie.is_expired_now() || cookie.value.trim().is_empty() {
+        return false;
+    }
+    let Some(request_host) = origin_url
+        .host_str()
+        .map(|value| value.to_ascii_lowercase())
+    else {
+        return false;
+    };
+    let Some(raw_domain) = cookie
+        .domain
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return true;
+    };
+    let domain = raw_domain.trim_start_matches('.').to_ascii_lowercase();
+    if domain.is_empty() {
+        return false;
+    }
+    if raw_domain.starts_with('.') {
+        if request_host != domain && !request_host.ends_with(&format!(".{domain}")) {
+            return false;
+        }
+    } else if request_host != domain {
+        return false;
+    }
+
+    let cookie_path = cookie
+        .path
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("/");
+    cookie_path == "/"
 }

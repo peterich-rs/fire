@@ -138,7 +138,10 @@ final class FireCloudflareChallengeCoordinator: NSObject, @unchecked Sendable {
             )
         case let .completed(browserUserAgent, freshCfClearance):
             let loginCoordinator = FireWebViewLoginCoordinator(sessionStore: sessionStore)
-            let cookies = (try? await loginCoordinator.platformCookiesForSessionResync()) ?? []
+            let cookies = Self.challengeResultCookies(
+                (try? await loginCoordinator.platformCookiesForSessionResync()) ?? [],
+                freshCfClearance: freshCfClearance
+            )
             return CloudflareChallengeResultState(
                 completed: true,
                 userCancelled: false,
@@ -146,6 +149,20 @@ final class FireCloudflareChallengeCoordinator: NSObject, @unchecked Sendable {
                 cookies: cookies,
                 browserUserAgent: browserUserAgent
             )
+        }
+    }
+
+    static func challengeResultCookies(
+        _ cookies: [PlatformCookieState],
+        freshCfClearance: String
+    ) -> [PlatformCookieState] {
+        let acceptedClearance = freshCfClearance.trimmingCharacters(in: .whitespacesAndNewlines)
+        return cookies.filter { cookie in
+            guard cookie.name.caseInsensitiveCompare("cf_clearance") == .orderedSame else {
+                return true
+            }
+            return !acceptedClearance.isEmpty
+                && cookie.value.trimmingCharacters(in: .whitespacesAndNewlines) == acceptedClearance
         }
     }
 

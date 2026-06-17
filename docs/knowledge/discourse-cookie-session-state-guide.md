@@ -193,8 +193,8 @@ When a WebView flow itself performed the network request:
    low-confidence input. Low-confidence session cookies must not complete login
    unless an explicit device constraint allows it. Cloudflare challenge recovery
    may use a low-confidence snapshot only after the platform has independently
-   confirmed the accepted fresh `cf_clearance` value, and Rust must reject any
-   other `cf_clearance` value from that snapshot.
+   confirmed the accepted `cf_clearance` value, and Rust must reject any other
+   `cf_clearance` value from that snapshot.
 4. Send those cookies to Rust with source `webview_login` or
    `webview_challenge`.
 5. Mark the write trusted only when the flow boundary confirms freshness.

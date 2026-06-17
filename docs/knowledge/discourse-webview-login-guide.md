@@ -257,8 +257,8 @@ If phase `csrf` returns a Cloudflare challenge response:
 2. Run manual Cloudflare verification in a platform WebView.
 3. Wait briefly for WebView cookie propagation.
 4. Extract all relevant WebView cookies, including `cf_clearance` and `_cfuvid`.
-5. Save confirmed fresh challenge cookies into Rust as trusted writes, passing
-   the accepted `fresh_cf_clearance` so stale WebView variants are rejected.
+5. Save confirmed challenge cookies into Rust as trusted writes, passing the
+   accepted `fresh_cf_clearance` so stale WebView variants are rejected.
 6. Invalidate the login dialog priming state.
 7. Re-prime the same live login WebView.
 8. Re-run `window.__fireLogin` with the same hCaptcha and second-factor args.

@@ -931,7 +931,6 @@ impl FireCore {
                     runtime.begin();
                 }
 
-                let before_clearance = self.snapshot().cookies.cf_clearance.clone();
                 let challenge_result = handler(CloudflareChallengeRequest {
                     operation: operation.to_string(),
                     request_url: request_url.clone(),
@@ -949,10 +948,13 @@ impl FireCore {
                         .map(str::trim)
                         .filter(|value| !value.is_empty())
                         .map(str::to_string);
-                    let has_confirmed_fresh_clearance = fresh_clearance
-                        .as_deref()
-                        .is_some_and(|fresh| before_clearance.as_deref() != Some(fresh));
-                    if !has_confirmed_fresh_clearance {
+                    // The platform baseline can differ from Rust's snapshot when
+                    // WebView storage was missing or had already dropped
+                    // cf_clearance. Treat the platform-reported value as the
+                    // accepted challenge result even if it matches Rust's
+                    // previous scalar value; the retry still proves whether it
+                    // is usable for the Rust network path.
+                    if fresh_clearance.is_none() {
                         Err(FireCoreError::CloudflareChallenge { operation })
                     } else {
                         let session = self.complete_cloudflare_challenge(
@@ -960,10 +962,10 @@ impl FireCore {
                             fresh_clearance.clone(),
                             challenge_result.browser_user_agent,
                         );
-                        let has_new_clearance = session.cookies.cf_clearance.as_deref()
+                        let has_accepted_clearance = session.cookies.cf_clearance.as_deref()
                             == fresh_clearance.as_deref()
                             && session.cookies.has_cloudflare_clearance();
-                        if !has_new_clearance {
+                        if !has_accepted_clearance {
                             Err(FireCoreError::CloudflareChallenge { operation })
                         } else if let Some(mut retry_request) = retry_request {
                             retry_request

@@ -620,6 +620,67 @@ async fn fetch_topic_list_retries_once_after_cloudflare_challenge_completion() {
 }
 
 #[tokio::test]
+async fn cloudflare_challenge_retry_accepts_platform_confirmed_existing_clearance() {
+    let responses = vec![
+        raw_cloudflare_challenge_response(
+            403,
+            r#"<html><head><title>Just a moment...</title></head><body>__cf_chl_opt</body></html>"#,
+        ),
+        raw_json_response(200, "application/json", &sample_latest_json()),
+    ];
+    let server = TestServer::spawn(responses).await.expect("server");
+    let core = FireCore::new(FireCoreConfig {
+        base_url: server.base_url(),
+        workspace_path: None,
+    })
+    .expect("core");
+    let snapshot = core.apply_platform_cookies(vec![PlatformCookie {
+        name: "cf_clearance".into(),
+        value: "stable-clearance".into(),
+        domain: Some("linux.do".into()),
+        path: Some("/".into()),
+        expires_at_unix_ms: None,
+        same_site: None,
+    }]);
+    assert_eq!(
+        snapshot.cookies.cf_clearance.as_deref(),
+        Some("stable-clearance")
+    );
+    core.set_cloudflare_challenge_handler(|_| async move {
+        fire_models::CloudflareChallengeResult {
+            completed: true,
+            user_cancelled: false,
+            fresh_cf_clearance: Some("stable-clearance".into()),
+            cookies: vec![PlatformCookie {
+                name: "cf_clearance".into(),
+                value: "stable-clearance".into(),
+                domain: Some("linux.do".into()),
+                path: Some("/".into()),
+                expires_at_unix_ms: None,
+                same_site: None,
+            }],
+            browser_user_agent: None,
+        }
+    });
+
+    let response = core
+        .fetch_topic_list(TopicListQuery {
+            kind: TopicListKind::Latest,
+            ..TopicListQuery::default()
+        })
+        .await
+        .expect("platform-confirmed clearance should unblock retry");
+    let requests = server.shutdown_with_requests().await;
+
+    assert_eq!(response.rows.len(), 1);
+    assert_eq!(requests.len(), 2);
+    assert_eq!(
+        core.snapshot().cookies.cf_clearance.as_deref(),
+        Some("stable-clearance")
+    );
+}
+
+#[tokio::test]
 async fn business_request_is_blocked_while_cloudflare_challenge_is_in_progress() {
     let responses = vec![
         raw_cloudflare_challenge_response(

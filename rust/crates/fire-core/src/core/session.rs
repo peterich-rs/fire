@@ -644,16 +644,15 @@ impl FireCore {
         let snapshot = self.snapshot();
         let readiness = snapshot.readiness();
 
-        if readiness.has_current_user {
-            if let (Some(username), Some(user_id)) = (
-                snapshot.bootstrap.current_username.as_deref(),
-                snapshot.bootstrap.current_user_id,
-            ) {
-                return fire_models::LoginStateDetermination::LoggedIn {
-                    username: username.to_string(),
-                    user_id,
-                };
-            }
+        if readiness.has_current_user || readiness.can_read_authenticated_api {
+            return fire_models::LoginStateDetermination::LoggedIn {
+                username: snapshot
+                    .bootstrap
+                    .current_username
+                    .clone()
+                    .unwrap_or_else(|| snapshot.profile_display_name()),
+                user_id: snapshot.bootstrap.current_user_id.unwrap_or(0),
+            };
         }
 
         if !readiness.has_login_cookie {
@@ -664,12 +663,14 @@ impl FireCore {
     }
 
     pub async fn determine_login_state_with_probe(&self) -> fire_models::LoginStateDetermination {
+        let snapshot = self.snapshot();
         let initial = self.determine_login_state();
-        if !matches!(initial, fire_models::LoginStateDetermination::NotLoggedIn) {
+        if snapshot.readiness().has_current_user
+            && !matches!(initial, fire_models::LoginStateDetermination::NotLoggedIn)
+        {
             return initial;
         }
 
-        let snapshot = self.snapshot();
         if !snapshot.cookies.has_login_session() {
             return fire_models::LoginStateDetermination::NotLoggedIn;
         }

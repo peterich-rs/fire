@@ -78,6 +78,23 @@ async fn preloaded_data_service_waits_for_single_in_flight_request() {
 }
 
 #[tokio::test]
+async fn determine_login_state_restores_cookie_only_session_without_startup_probe() {
+    let core = FireCore::new(FireCoreConfig::default()).expect("core");
+
+    let snapshot = core.apply_platform_cookies(login_cookies());
+    assert!(snapshot.readiness().can_read_authenticated_api);
+    assert!(!snapshot.readiness().has_current_user);
+
+    assert_eq!(
+        core.determine_login_state(),
+        LoginStateDetermination::LoggedIn {
+            username: "会话已连接".into(),
+            user_id: 0,
+        }
+    );
+}
+
+#[tokio::test]
 async fn determine_login_state_with_probe_marks_invalid_session_and_clears_auth() {
     let server = TestServer::spawn(vec![raw_json_response(200, "application/json", "{}")])
         .await

@@ -61,7 +61,14 @@ class PreheatGateFragment : Fragment() {
                 logStartupStep("prepare_startup_session_ms", prepareStartedAt)
 
                 val preloadedStartedAt = SystemClock.elapsedRealtime()
-                store.awaitPreloadedData()
+                try {
+                    store.awaitPreloadedData()
+                } catch (e: Exception) {
+                    val readiness = store.snapshot().readiness
+                    if (!readiness.canReadAuthenticatedApi && !readiness.hasLoginCookie) {
+                        throw e
+                    }
+                }
                 logStartupStep("await_preloaded_ms", preloadedStartedAt)
 
                 onPreloadedDataReady(store)

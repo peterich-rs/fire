@@ -37,6 +37,11 @@ The bootstrap HTML request can run before most JSON requests because it provides
 CSRF, site metadata, current-user data, and MessageBus configuration in one
 response.
 
+If this request fails during cold start but local `_t` and `_forum_session`
+cookies are available, the client should preserve the local session as a
+recovering authenticated state. A failed preheat/bootstrap fetch is not a logout
+signal and should not force the user through login again.
+
 ## 3. Bootstrap HTML Request
 
 ```http
@@ -99,7 +104,8 @@ Recommended session decision matrix:
 |---|---|---|
 | `currentUser` exists in bootstrap | Cookies are valid enough for startup | Use the user object and refresh in background if needed |
 | No `currentUser`, no `_t` cookie | Anonymous session | Continue logged out |
-| No `currentUser`, `_t` cookie exists | Ambiguous | Preserve local cookies and offer login/challenge flow |
+| No `currentUser`, `_t` + `_forum_session` cookies exist | Recovering authenticated session | Preserve local cookies, enter the app, and refresh bootstrap/current user in background |
+| No `currentUser`, only one identity cookie exists | Ambiguous | Preserve local cookies and offer login/challenge flow |
 | Probe returns `current_user` | Authenticated | Use returned user |
 | Probe returns `404`, `not_logged_in`, or no `current_user` | Invalid session | Treat as expired only in an explicit verification path; avoid destructive clearing from a failed startup gate |
 | Probe fails due to network/Cloudflare/timeout | Inconclusive | Preserve local session and retry later |

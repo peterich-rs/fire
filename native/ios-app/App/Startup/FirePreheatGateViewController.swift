@@ -49,7 +49,17 @@ final class FirePreheatGateViewController: UIViewController {
 
             do {
                 _ = try await sessionStore.prepareStartupSession()
-                let _ = try await sessionStore.awaitPreloadedData()
+                do {
+                    let _ = try await sessionStore.awaitPreloadedData()
+                } catch {
+                    let snapshot = try? await sessionStore.snapshot()
+                    let readiness = snapshot?.readiness
+                    guard readiness?.canReadAuthenticatedApi == true
+                        || readiness?.hasLoginCookie == true
+                    else {
+                        throw error
+                    }
+                }
                 onPreloadedDataReady()
             } catch {
                 showErrorPage(Self.startupLoginErrorMessage)

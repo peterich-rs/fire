@@ -79,7 +79,9 @@ Recommended completion checks:
 1. Snapshot the old `cf_clearance` before verification.
 2. Delete stale `cf_clearance` cookies from the platform WebView store when
    starting a fresh verification.
-3. Load the challenge or origin URL in the WebView.
+3. Prefer loading the same-origin `/challenge` URL in the WebView. If a
+   platform cannot build that URL, it may fall back to an origin URL on the
+   same LinuxDo host.
 4. Detect active challenge markers in the page.
 5. Poll the WebView cookie store for `cf_clearance`.
 6. Accept success only when the platform has independently confirmed a non-empty
@@ -128,7 +130,7 @@ Recommended cooldown:
 
 - Track consecutive verification failures.
 - Enter a short cooldown after repeated failures.
-- Let explicit manual verification bypass cooldown.
+- Let explicit foreground/manual verification bypass cooldown.
 - Reset cooldown after confirmed success.
 
 Cooldown is a UI/rate-control policy. It must not change cookie freshness rules.

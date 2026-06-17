@@ -1,6 +1,9 @@
 mod common;
 
-use std::sync::{atomic::Ordering, Arc, Mutex};
+use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    Arc, Mutex,
+};
 
 use common::{
     raw_cloudflare_challenge_response, raw_json_response, raw_text_response, sample_home_html,
@@ -759,6 +762,62 @@ async fn business_request_is_blocked_while_cloudflare_challenge_is_in_progress()
 
     assert_eq!(response.rows.len(), 1);
     assert_eq!(requests.len(), 2);
+}
+
+#[tokio::test]
+async fn foreground_retry_bypasses_cloudflare_failure_cooldown() {
+    let responses = vec![
+        raw_cloudflare_challenge_response(
+            403,
+            r#"<html><head><title>Just a moment...</title></head><body>__cf_chl_opt</body></html>"#,
+        ),
+        raw_cloudflare_challenge_response(
+            403,
+            r#"<html><head><title>Just a moment...</title></head><body>__cf_chl_opt</body></html>"#,
+        ),
+    ];
+    let server = TestServer::spawn(responses).await.expect("server");
+    let core = FireCore::new(FireCoreConfig {
+        base_url: server.base_url(),
+        workspace_path: None,
+    })
+    .expect("core");
+    let challenge_calls = Arc::new(AtomicUsize::new(0));
+    {
+        let challenge_calls = Arc::clone(&challenge_calls);
+        core.set_cloudflare_challenge_handler(move |_| {
+            challenge_calls.fetch_add(1, Ordering::SeqCst);
+            async move {
+                fire_models::CloudflareChallengeResult {
+                    completed: false,
+                    user_cancelled: false,
+                    fresh_cf_clearance: None,
+                    cookies: vec![],
+                    browser_user_agent: None,
+                }
+            }
+        });
+    }
+
+    for _ in 0..2 {
+        let error = core
+            .fetch_topic_list(TopicListQuery {
+                kind: TopicListKind::Latest,
+                ..TopicListQuery::default()
+            })
+            .await
+            .expect_err("challenge should remain unresolved");
+        assert!(matches!(
+            error,
+            FireCoreError::CloudflareChallenge {
+                operation: "fetch topic list"
+            }
+        ));
+    }
+    let requests = server.shutdown_with_requests().await;
+
+    assert_eq!(requests.len(), 2);
+    assert_eq!(challenge_calls.load(Ordering::SeqCst), 2);
 }
 
 #[tokio::test]

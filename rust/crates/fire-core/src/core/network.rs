@@ -925,7 +925,7 @@ impl FireCore {
                         .cloudflare_challenge_runtime
                         .lock()
                         .expect("cloudflare challenge runtime mutex poisoned");
-                    if !runtime.can_start() {
+                    if !runtime.can_start(is_foreground) {
                         return Err(FireCoreError::CloudflareChallenge { operation });
                     }
                     runtime.begin();

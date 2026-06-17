@@ -51,7 +51,10 @@ pub(crate) struct FireCloudflareChallengeRuntime {
 }
 
 impl FireCloudflareChallengeRuntime {
-    pub(crate) fn can_start(&self) -> bool {
+    pub(crate) fn can_start(&self, bypass_cooldown: bool) -> bool {
+        if bypass_cooldown {
+            return !self.in_progress;
+        }
         self.cooldown_until
             .is_none_or(|until| Instant::now() >= until)
             && !self.in_progress

@@ -152,12 +152,21 @@ final class FireCloudflareChallengeCoordinator: NSObject, @unchecked Sendable {
     @MainActor
     private func challengeURL(_ originURL: String?, fallbackBaseURL: String?) -> URL {
         if let originURL, let url = URL(string: originURL) {
-            return url
+            return rootChallengeURL(from: url)
         }
         if let fallbackBaseURL, let baseURL = URL(string: fallbackBaseURL) {
-            return baseURL.appending(path: "challenge")
+            return rootChallengeURL(from: baseURL)
         }
         return URL(string: "https://linux.do/challenge")!
+    }
+
+    @MainActor
+    private func rootChallengeURL(from url: URL) -> URL {
+        var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+        components?.path = "/challenge"
+        components?.query = nil
+        components?.fragment = nil
+        return components?.url ?? url
     }
 
     @MainActor

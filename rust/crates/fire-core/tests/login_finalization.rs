@@ -279,3 +279,41 @@ fn classify_webview_login_csrf_challenge_requests_cloudflare_retry() {
 
     assert_eq!(decision, WebViewLoginDecision::RetryCloudflare);
 }
+
+#[test]
+fn classify_webview_login_csrf_plain_403_is_network_failure() {
+    let core = FireCore::new(FireCoreConfig::default()).expect("core");
+
+    let decision = core.classify_webview_login_result(WebViewLoginJsResult {
+        phase: WebViewLoginPhase::Csrf,
+        status: 403,
+        body: "Forbidden".into(),
+    });
+
+    match decision {
+        WebViewLoginDecision::Failure(failure) => {
+            assert_eq!(failure.kind, LoginFailureKind::Network);
+            assert_eq!(failure.message.as_deref(), Some("Forbidden"));
+        }
+        other => panic!("expected failure, got {other:?}"),
+    }
+}
+
+#[test]
+fn classify_webview_login_csrf_plain_429_is_network_failure() {
+    let core = FireCore::new(FireCoreConfig::default()).expect("core");
+
+    let decision = core.classify_webview_login_result(WebViewLoginJsResult {
+        phase: WebViewLoginPhase::Csrf,
+        status: 429,
+        body: "Too Many Requests".into(),
+    });
+
+    match decision {
+        WebViewLoginDecision::Failure(failure) => {
+            assert_eq!(failure.kind, LoginFailureKind::Network);
+            assert_eq!(failure.message.as_deref(), Some("Too Many Requests"));
+        }
+        other => panic!("expected failure, got {other:?}"),
+    }
+}

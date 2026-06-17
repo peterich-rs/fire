@@ -251,10 +251,12 @@ clear unsupported-method error until those methods are implemented.
 
 ## 9. Login CSRF Cloudflare Retry
 
-If phase `csrf` returns a Cloudflare challenge response:
+If phase `csrf` returns a Cloudflare challenge response with explicit
+Cloudflare body markers:
 
 1. Retry this recovery path at most once for the current login attempt.
-2. Run manual Cloudflare verification in a platform WebView.
+2. Run manual Cloudflare verification in a platform WebView, preferring the
+   same-origin `/challenge` URL.
 3. Wait briefly for WebView cookie propagation.
 4. Extract all relevant WebView cookies, including `cf_clearance` and `_cfuvid`.
 5. Save confirmed challenge cookies into Rust as trusted writes, passing the

@@ -38,9 +38,6 @@ pub(crate) fn classify_webview_login_result(result: WebViewLoginJsResult) -> Web
 }
 
 fn classify_csrf_phase(status: u16, body: &str) -> WebViewLoginDecision {
-    if matches!(status, 403 | 429) && !looks_like_discourse_json(body) {
-        return WebViewLoginDecision::RetryCloudflare;
-    }
     if matches!(status, 403 | 429) && looks_like_cloudflare_challenge(body) {
         return WebViewLoginDecision::RetryCloudflare;
     }
@@ -156,11 +153,6 @@ fn non_empty_string(value: impl AsRef<str>) -> Option<String> {
     } else {
         Some(trimmed.to_string())
     }
-}
-
-fn looks_like_discourse_json(body: &str) -> bool {
-    let trimmed = body.trim_start();
-    trimmed.starts_with('{') || trimmed.starts_with('[')
 }
 
 fn looks_like_cloudflare_challenge(body: &str) -> bool {

@@ -175,7 +175,8 @@ func performStartupValidation() async {
    - 包含：用户名输入、密码输入、记住密码开关、登录按钮、忘记密码、其他方式登录。
    - 迁移自 `FireLoginViewController` 的 `setupCredentialFields` / `setupRememberPassword` / `setupLoginButton` / `setupForgotPassword` / `setupOtherMethods`。
    - **保留 `UIScrollView` + `contentView` 容器结构**（迁移自 `FireLoginViewController.setupScrollView` L128-148），以适配小屏键盘遮挡：`scrollView.keyboardDismissMode = .interactive`、`contentView.widthAnchor == scrollView.frameLayoutGuide.widthAnchor` 保证竖向滚动 + 横向不溢出。
-   - 监听键盘 `willChangeFrame` / `willHide` 通知，调整 `scrollView.contentInset.bottom`，避免输入框被键盘覆盖（现有 login VC 的键盘适配逻辑一并迁移）。
+   - 外层 onboarding VC 将品牌区固定在 safe area 顶部的紧凑头部，`phaseContainerView` 占满品牌下方到 safe area / 键盘上方的可用空间，避免 logo 居中挤压账号密码和其他登录方式。
+   - 监听键盘 `willChangeFrame` / `willHide` 通知，外层移动表单容器到键盘上方，表单内部按本地坐标补充 `scrollView.contentInset.bottom`，并支持点空白、拖动、Return/Go、输入工具栏"完成"关闭键盘。
    - 不持有 viewModel，通过闭包回调：`onLoginTapped(identifier:password:remember:)`、`onForgotPassword`、`onOtherMethods`。
    - 暴露 `applySavedCredential(_:)` 用于回填已保存凭据。
    - 暴露 `setLoggingIn(_:)` 用于 disable/enable 表单。
@@ -199,7 +200,7 @@ onboarding VC 持有 `phaseContainerView`，根据 phase 切换子视图：
 
 #### Hero 区复用
 
-现有 `FireOnboardingViewController.configureBrand()`（`FireOnboardingView.swift:43-83`）的 logo + title + subtitle 布局原样保留，作为所有 phase 共享的固定头部。
+`FireOnboardingViewController.configureBrand()` 的 logo + title + subtitle 作为所有 phase 共享的固定头部，但布局必须靠近 safe area 顶部并保持紧凑，给 `.credential` phase 留出完整表单高度。
 
 #### error banner 职责统一
 

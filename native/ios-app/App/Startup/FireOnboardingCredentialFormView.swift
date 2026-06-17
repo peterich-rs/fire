@@ -1,7 +1,7 @@
 import UIKit
 
 @MainActor
-final class FireOnboardingCredentialFormView: UIView {
+final class FireOnboardingCredentialFormView: UIView, UITextFieldDelegate {
     var onLoginTapped: ((String, String, Bool) -> Void)?
     var onForgotPassword: (() -> Void)?
     var onOtherMethods: (() -> Void)?
@@ -17,6 +17,15 @@ final class FireOnboardingCredentialFormView: UIView {
     private let dividerLabel = UILabel()
     private let otherMethodsButton = UIButton(type: .system)
     private var isLoggingIn = false
+    private lazy var keyboardToolbar: UIToolbar = {
+        let toolbar = UIToolbar()
+        toolbar.items = [
+            UIBarButtonItem(systemItem: .flexibleSpace),
+            UIBarButtonItem(title: "完成", style: .done, target: self, action: #selector(doneEditingTapped)),
+        ]
+        toolbar.sizeToFit()
+        return toolbar
+    }()
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -84,6 +93,10 @@ final class FireOnboardingCredentialFormView: UIView {
         contentView.translatesAutoresizingMaskIntoConstraints = false
         scrollView.addSubview(contentView)
 
+        let tapGesture = UITapGestureRecognizer(target: self, action: #selector(backgroundTapped))
+        tapGesture.cancelsTouchesInView = false
+        scrollView.addGestureRecognizer(tapGesture)
+
         NSLayoutConstraint.activate([
             scrollView.topAnchor.constraint(equalTo: topAnchor),
             scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -101,19 +114,21 @@ final class FireOnboardingCredentialFormView: UIView {
     private func setupCredentialFields() {
         configureTextField(identifierField, placeholder: "用户名或邮箱", secure: false)
         identifierField.returnKeyType = .next
+        identifierField.delegate = self
         identifierField.addTarget(self, action: #selector(textFieldsChanged), for: .editingChanged)
 
         configureTextField(passwordField, placeholder: "密码", secure: true)
         passwordField.returnKeyType = .go
+        passwordField.delegate = self
         passwordField.addTarget(self, action: #selector(textFieldsChanged), for: .editingChanged)
 
         contentView.addSubview(identifierField)
         contentView.addSubview(passwordField)
 
         NSLayoutConstraint.activate([
-            identifierField.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 32),
-            identifierField.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 24),
-            identifierField.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -24),
+            identifierField.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 8),
+            identifierField.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            identifierField.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
             identifierField.heightAnchor.constraint(equalToConstant: 48),
 
             passwordField.topAnchor.constraint(equalTo: identifierField.bottomAnchor, constant: 12),
@@ -132,6 +147,7 @@ final class FireOnboardingCredentialFormView: UIView {
         field.clearButtonMode = .whileEditing
         field.isSecureTextEntry = secure
         field.textContentType = secure ? .password : .username
+        field.inputAccessoryView = keyboardToolbar
     }
 
     private func setupRememberPassword() {
@@ -204,7 +220,7 @@ final class FireOnboardingCredentialFormView: UIView {
 
         otherMethodsButton.translatesAutoresizingMaskIntoConstraints = false
         var configuration = UIButton.Configuration.bordered()
-        configuration.title = "其他方式登录 (OAuth / Passkey)"
+        configuration.title = "其他方式登录"
         configuration.image = UIImage(systemName: "globe")
         configuration.imagePadding = 8
         configuration.cornerStyle = .medium
@@ -253,8 +269,8 @@ final class FireOnboardingCredentialFormView: UIView {
         guard let frameEnd = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else {
             return
         }
-        let windowBounds = window?.bounds ?? bounds
-        let overlap = max(0, windowBounds.height - frameEnd.origin.y)
+        let convertedFrame = convert(frameEnd, from: nil)
+        let overlap = max(0, bounds.maxY - convertedFrame.minY)
         scrollView.contentInset.bottom = overlap
         scrollView.verticalScrollIndicatorInsets.bottom = overlap
     }
@@ -266,6 +282,14 @@ final class FireOnboardingCredentialFormView: UIView {
 
     @objc private func textFieldsChanged() {
         updateLoginButtonState()
+    }
+
+    @objc private func backgroundTapped() {
+        endEditing(true)
+    }
+
+    @objc private func doneEditingTapped() {
+        endEditing(true)
     }
 
     @objc private func rememberLabelTapped() {
@@ -281,6 +305,7 @@ final class FireOnboardingCredentialFormView: UIView {
         else {
             return
         }
+        endEditing(true)
         onLoginTapped?(identifier, password, rememberSwitch.isOn)
     }
 
@@ -290,5 +315,16 @@ final class FireOnboardingCredentialFormView: UIView {
 
     @objc private func otherMethodsTapped() {
         onOtherMethods?()
+    }
+
+    func textFieldShouldReturn(_ textField: UITextField) -> Bool {
+        if textField === identifierField {
+            passwordField.becomeFirstResponder()
+        } else if loginButton.isEnabled {
+            loginTapped()
+        } else {
+            textField.resignFirstResponder()
+        }
+        return true
     }
 }

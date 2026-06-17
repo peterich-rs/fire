@@ -15,6 +15,7 @@ final class FireOnboardingViewController: UIViewController {
     private let bottomStack = UIStackView()
     private let errorBanner = FireOnboardingErrorBannerView()
     private let phaseContainerView = UIView()
+    private var bottomStackBottomConstraint: NSLayoutConstraint?
     private lazy var validatingView = FireOnboardingValidatingView()
     private lazy var credentialFormView = FireOnboardingCredentialFormView()
     private lazy var loggingInView = FireOnboardingLoggingInView()
@@ -53,9 +54,15 @@ final class FireOnboardingViewController: UIViewController {
 
         configureBrand()
         configureBottomControls()
+        installKeyboardDismissGesture()
+        observeKeyboardNotifications()
         bindState()
         installValidatingPhaseInitial()
         Task { await viewModel.performStartupValidation() }
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
     }
 
     private func configureBrand() {
@@ -65,7 +72,7 @@ final class FireOnboardingViewController: UIViewController {
 
         let titleLabel = UILabel()
         titleLabel.text = "Fire"
-        titleLabel.font = UIFont.preferredFont(forTextStyle: .largeTitle).withOnboardingWeight(.bold)
+        titleLabel.font = UIFont.preferredFont(forTextStyle: .title1).withOnboardingWeight(.bold)
         titleLabel.adjustsFontForContentSizeCategory = true
         titleLabel.textColor = .label
         titleLabel.textAlignment = .center
@@ -80,21 +87,21 @@ final class FireOnboardingViewController: UIViewController {
         let textStack = UIStackView(arrangedSubviews: [titleLabel, subtitleLabel])
         textStack.axis = .vertical
         textStack.alignment = .center
-        textStack.spacing = 8
+        textStack.spacing = 4
 
         brandStack.axis = .vertical
         brandStack.alignment = .center
-        brandStack.spacing = 20
+        brandStack.spacing = 10
         brandStack.translatesAutoresizingMaskIntoConstraints = false
         brandStack.addArrangedSubview(imageView)
         brandStack.addArrangedSubview(textStack)
 
         view.addSubview(brandStack)
         NSLayoutConstraint.activate([
-            imageView.widthAnchor.constraint(equalToConstant: 58),
-            imageView.heightAnchor.constraint(equalToConstant: 58),
+            imageView.widthAnchor.constraint(equalToConstant: 44),
+            imageView.heightAnchor.constraint(equalToConstant: 44),
+            brandStack.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 20),
             brandStack.centerXAnchor.constraint(equalTo: view.safeAreaLayoutGuide.centerXAnchor),
-            brandStack.centerYAnchor.constraint(equalTo: view.safeAreaLayoutGuide.centerYAnchor, constant: -96),
             brandStack.leadingAnchor.constraint(greaterThanOrEqualTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 24),
             brandStack.trailingAnchor.constraint(lessThanOrEqualTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -24),
         ])
@@ -115,12 +122,44 @@ final class FireOnboardingViewController: UIViewController {
         bottomStack.addArrangedSubview(phaseContainerView)
 
         view.addSubview(bottomStack)
+        let bottomConstraint = bottomStack.bottomAnchor.constraint(
+            equalTo: view.safeAreaLayoutGuide.bottomAnchor,
+            constant: -24
+        )
+        let topConstraint = bottomStack.topAnchor.constraint(equalTo: brandStack.bottomAnchor, constant: 24)
+        topConstraint.priority = .defaultHigh
+        let minimumTopConstraint = bottomStack.topAnchor.constraint(
+            greaterThanOrEqualTo: brandStack.bottomAnchor,
+            constant: 12
+        )
+        let phaseMinimumHeightConstraint = phaseContainerView.heightAnchor.constraint(
+            greaterThanOrEqualToConstant: 180
+        )
+        phaseMinimumHeightConstraint.priority = .defaultHigh
+        bottomStackBottomConstraint = bottomConstraint
         NSLayoutConstraint.activate([
             bottomStack.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 24),
             bottomStack.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -24),
-            bottomStack.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -40),
-            phaseContainerView.heightAnchor.constraint(greaterThanOrEqualToConstant: 240),
+            topConstraint,
+            minimumTopConstraint,
+            bottomConstraint,
+            phaseMinimumHeightConstraint,
         ])
+    }
+
+    private func installKeyboardDismissGesture() {
+        let tapGesture = UITapGestureRecognizer(target: self, action: #selector(backgroundTapped))
+        tapGesture.cancelsTouchesInView = false
+        view.addGestureRecognizer(tapGesture)
+    }
+
+    private func observeKeyboardNotifications() {
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(keyboardWillChangeFrame(_:)),
+            name: UIResponder.keyboardWillChangeFrameNotification,
+            object: nil
+        )
     }
 
     private func bindState() {
@@ -485,6 +524,9 @@ final class FireOnboardingViewController: UIViewController {
     }
 
     private func setLoginLoading(_ loading: Bool) {
+        if loading {
+            view.endEditing(true)
+        }
         credentialFormView.setLoggingIn(loading)
         view.isUserInteractionEnabled = !loading
     }
@@ -499,6 +541,32 @@ final class FireOnboardingViewController: UIViewController {
         let controller = UIHostingController(rootView: FireDeveloperToolsView(viewModel: viewModel))
         controller.title = "开发者工具"
         navigationController?.pushViewController(controller, animated: true)
+    }
+
+    @objc private func backgroundTapped() {
+        view.endEditing(true)
+    }
+
+    @objc private func keyboardWillChangeFrame(_ notification: Notification) {
+        guard let frameEnd = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else {
+            return
+        }
+
+        let convertedFrame = view.convert(frameEnd, from: nil)
+        let overlap = max(0, view.bounds.maxY - convertedFrame.minY - view.safeAreaInsets.bottom)
+        bottomStackBottomConstraint?.constant = overlap > 0 ? -(overlap + 12) : -24
+
+        let duration = notification.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? TimeInterval
+            ?? 0.25
+        let curve = notification.userInfo?[UIResponder.keyboardAnimationCurveUserInfoKey] as? UInt
+            ?? UIView.AnimationOptions.curveEaseInOut.rawValue
+        UIView.animate(
+            withDuration: duration,
+            delay: 0,
+            options: UIView.AnimationOptions(rawValue: curve << 16)
+        ) {
+            self.view.layoutIfNeeded()
+        }
     }
 }
 

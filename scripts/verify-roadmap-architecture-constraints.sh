@@ -247,7 +247,8 @@ require_pattern "iOS app delegate is UIKit main entry" "native/ios-app/App/Core/
 require_pattern "iOS app delegate connects scene delegate" "native/ios-app/App/Core/FireAppDelegate.swift" 'FireSceneDelegate'
 require_pattern "iOS scene delegate owns UIWindow" "native/ios-app/App/Core/FireSceneDelegate.swift" 'UIWindow'
 require_pattern "iOS root coordinator owns route dispatch" "native/ios-app/App/Core/FireRootCoordinator.swift" 'static func dispatch\(_ route: FireAppRoute\)'
-require_pattern "iOS root coordinator owns auth presentation" "native/ios-app/App/Core/FireRootCoordinator.swift" 'syncAuthPresentation'
+require_pattern "iOS root coordinator drives launch/main two-state root" "native/ios-app/App/Core/FireRootCoordinator.swift" 'case launch'
+require_pattern "iOS onboarding owns login orchestration" "native/ios-app/App/Views/Other/FireOnboardingView.swift" 'func performLogin\(\) async'
 require_pattern "iOS root coordinator owns topic presentation" "native/ios-app/App/Core/FireRootCoordinator.swift" 'syncTopicPresentation'
 require_pattern "iOS root coordinator uses UIKit onboarding controller" "native/ios-app/App/Core/FireRootCoordinator.swift" 'FireOnboardingViewController'
 require_no_pattern "iOS root coordinator avoids SwiftUI hosting" "native/ios-app/App/Core/FireRootCoordinator.swift" 'import SwiftUI|UIHostingController'
@@ -261,10 +262,7 @@ require_no_pattern "iOS onboarding SwiftUI root removed" "native/ios-app/App/Vie
 echo
 echo "==> Platform-owned browser, cookie, and store boundaries"
 require_pattern "iOS WebView login coordinator owns WKWebView" "native/ios-app/Sources/FireAppSession/FireWebViewLoginCoordinator.swift" 'WKWebView'
-require_pattern "iOS login auth page is UIKit" "native/ios-app/App/Views/Other/FireLoginWebView.swift" 'final class FireLoginWebViewController: UIViewController'
-require_pattern "iOS login auth page owns WKWebView directly" "native/ios-app/App/Views/Other/FireLoginWebView.swift" 'private let webView: WKWebView'
-require_pattern "iOS root coordinator presents UIKit login controller" "native/ios-app/App/Core/FireRootCoordinator.swift" 'FireLoginWebViewController'
-require_no_pattern "iOS login SwiftUI wrapper removed" "native/ios-app/App/Views/Other/FireLoginWebView.swift" 'import SwiftUI|UIViewRepresentable|struct FireAuthScreen:[[:space:]]*View|struct FireLoginWebView:[[:space:]]*UIViewRepresentable|FireAuthBottomBar:[[:space:]]*View'
+require_pattern "iOS onboarding presents captcha login dialog" "native/ios-app/App/Views/Other/FireOnboardingView.swift" 'FireCaptchaLoginDialogController'
 require_pattern "iOS platform cookie extraction" "native/ios-app/Sources/FireAppSession/FireWebViewLoginCoordinator.swift" 'WKHTTPCookieStore|HTTPCookieStorage'
 require_pattern "iOS Cloudflare challenge coordinator" "native/ios-app/Sources/FireAppSession/FireCloudflareChallengeCoordinator.swift" 'WKWebView'
 require_pattern "iOS keychain cookie storage" "native/ios-app/Sources/FireAppSession/FireAuthCookieKeychainStore.swift" 'kSecClassGenericPassword|SecItem'

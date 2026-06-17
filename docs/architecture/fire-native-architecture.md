@@ -250,7 +250,7 @@ native/ios-app/
     Core/
       FireAppDelegate.swift              # UIKit @main, process lifecycle, push registration
       FireSceneDelegate.swift            # UIWindowScene owner
-      FireRootCoordinator.swift          # Root/auth/preheat/route coordinator
+      FireRootCoordinator.swift          # Root/auth/route coordinator (launch↔main two-state)
       FireMainTabBarController.swift     # Authenticated UIKit tab shell
 
       Theme/
@@ -304,11 +304,15 @@ native/ios-app/
       FireComposerViewController.swift   # UIKit native editor
 
     Auth/
-      FireLoginViewController.swift      # UIKit native login form and auth flow coordinator
       FireCaptchaLoginDialogController.swift  # WKWebView hCaptcha + JS login sheet
       FireWebViewBrowserViewController.swift  # Full WebView fallback for OAuth/passkey/password reset
       FireCloudflareChallengeCoordinator.swift  # UIKit foreground challenge WebView
-      FireOnboardingView.swift           # FireOnboardingViewController + UIKit unauthenticated root
+      FireOnboardingView.swift           # FireOnboardingViewController — unified launch/login page (validating→credential→loggingIn phase state machine)
+
+    Startup/
+      FireOnboardingValidatingView.swift      # .validating phase loading view
+      FireOnboardingCredentialFormView.swift  # .credential phase form (UIScrollView-backed, migrated from the former FireLoginViewController)
+      FireOnboardingLoggingInView.swift       # .loggingIn phase overlay
 
   Shared/                                # Cross-screen shared components
     Render/
@@ -997,7 +1001,7 @@ Advantages:
 - Drafts → UIKit `FireDraftsViewController` on `FireListViewController`; the former SwiftUI production page has been removed and draft continuation opens the UIKit Composer runtime
 - Messages → UIKit `FirePrivateMessagesViewController` on `FireListViewController`; Profile keeps only a thin SwiftUI-to-UIKit host until Profile itself migrates
 - Search → UIKit `FireSearchViewController` on `FireListViewController`; the former SwiftUI production page and SwiftUI result rows have been removed while bookmark editing remains a tracked transitional SwiftUI presentation
-- Login / Cloudflare auth → UIKit `FireLoginViewController`, `FireCaptchaLoginDialogController`, `FireWebViewBrowserViewController`, and `FireCloudflareChallengeViewController`; the former monolithic login WebView controller, SwiftUI auth screen, and `UIViewRepresentable` login bridge have been removed
+- Login / Cloudflare auth → UIKit `FireOnboardingViewController` (unified launch/login page with validating→credential→loggingIn phases), `FireOnboardingCredentialFormView`, `FireCaptchaLoginDialogController`, `FireWebViewBrowserViewController`, and `FireCloudflareChallengeViewController`; the former separate `FireLoginViewController`, the standalone PreheatGate controllers (`FirePreheatGateViewController` / `FirePreheatGateWaitingViewController`), the monolithic login WebView controller, the SwiftUI auth screen, and the `UIViewRepresentable` login bridge have all been removed in favor of the single onboarding page
 - Onboarding → UIKit `FireOnboardingViewController`; the former SwiftUI onboarding root has been removed, with Developer Tools remaining an explicit SwiftUI exception
 - Composer → UIKit `FireComposerViewController`; the former SwiftUI `FireComposerView` page has been removed. Home, Messages, Drafts, Topic detail, and Public Profile open the UIKit runtime, with Public Profile using only a temporary SwiftUI-to-UIKit host until Profile itself migrates
 - Profile → UIKit

@@ -294,6 +294,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         viewModel.topicDetailLogger()?.debug("topic detail viewWillAppear configure navigation start topic_id=\(row.topic.id)")
         configureNavigationAppearance()
         updateDismissButtonIfNeeded()
+        updateBackGestureAvailability()
         viewModel.topicDetailLogger()?.debug("topic detail viewWillAppear configure navigation complete topic_id=\(row.topic.id)")
         viewModel.setAPMRoute("topic.detail.\(row.topic.id)")
         viewModel.topicDetailLogger()?.info(
@@ -306,9 +307,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         viewModel.topicDetailLogger()?.info(
             "topic detail viewDidAppear topic_id=\(row.topic.id) animated=\(animated) view_attached=\(feedController.isViewAttached)"
         )
-        navigationController?.interactivePopGestureRecognizer?.isEnabled =
-            (navigationController?.viewControllers.count ?? 0) > 1
-        pageBackEdgePanGestureRecognizer.isEnabled = canNavigateBackFromTopicDetail
+        updateBackGestureAvailability()
         Task {
             await timingTracker.setSceneActive(true)
         }
@@ -600,6 +599,14 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
                 || navigationController.presentingViewController != nil
         }
         return presentingViewController != nil
+    }
+
+    private func updateBackGestureAvailability() {
+        let usesMainNavigationController = navigationController is FireMainNavigationController
+        navigationController?.interactivePopGestureRecognizer?.isEnabled =
+            !usesMainNavigationController && (navigationController?.viewControllers.count ?? 0) > 1
+        pageBackEdgePanGestureRecognizer.isEnabled =
+            !usesMainNavigationController && canNavigateBackFromTopicDetail
     }
 
     @objc private func handlePageBackEdgePan(_ gestureRecognizer: UIScreenEdgePanGestureRecognizer) {

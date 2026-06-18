@@ -1,6 +1,17 @@
 import Foundation
 import WebKit
 
+private enum FireCfClearanceRefreshError: LocalizedError {
+    case missingCloudflareClearance
+
+    var errorDescription: String? {
+        switch self {
+        case .missingCloudflareClearance:
+            return "Cloudflare refresh completed without a readable cf_clearance cookie"
+        }
+    }
+}
+
 @MainActor
 final class FireCfClearanceRefreshService: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
     static let shared = FireCfClearanceRefreshService()
@@ -710,7 +721,23 @@ final class FireCfClearanceRefreshService: NSObject, WKNavigationDelegate, WKScr
                 return
             }
 
-            let refreshed = try await loginCoordinator.refreshPlatformCookies()
+            let platformCookies = try await loginCoordinator.platformCookiesForSessionResync()
+            guard let freshCfClearance = Self.cloudflareClearanceValue(
+                in: platformCookies,
+                previousValue: session.cookies.cfClearance
+            ) else {
+                throw FireCfClearanceRefreshError.missingCloudflareClearance
+            }
+
+            let challengeCookies = FireCloudflareChallengeCoordinator.challengeResultCookies(
+                platformCookies,
+                freshCfClearance: freshCfClearance
+            )
+            let refreshed = try await loginCoordinator.completeCloudflareChallenge(
+                cookies: challengeCookies,
+                freshCfClearance: freshCfClearance,
+                browserUserAgent: webView?.customUserAgent ?? activeUserAgent
+            )
             guard isCurrentRuntime(generation: generation, runtimeToken: runtimeToken) else {
                 return
             }
@@ -793,6 +820,24 @@ final class FireCfClearanceRefreshService: NSObject, WKNavigationDelegate, WKScr
                 }
             }
         }
+    }
+
+    nonisolated static func cloudflareClearanceValue(
+        in cookies: [PlatformCookieState],
+        previousValue: String?
+    ) -> String? {
+        let values = cookies
+            .filter { $0.name.caseInsensitiveCompare("cf_clearance") == .orderedSame }
+            .map { $0.value.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        guard !values.isEmpty else { return nil }
+
+        if let previousValue = previousValue?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !previousValue.isEmpty,
+           let changedValue = values.first(where: { $0 != previousValue }) {
+            return changedValue
+        }
+        return values.first
     }
 
     nonisolated private static func javaScriptStringLiteral(_ value: String) -> String {

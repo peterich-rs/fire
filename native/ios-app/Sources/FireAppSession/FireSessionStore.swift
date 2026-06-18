@@ -322,6 +322,13 @@ public actor FireSessionStore {
     }
 
     @discardableResult
+    public func mergePlatformCookies(_ cookies: [PlatformCookieState]) throws -> SessionState {
+        let state = try core.session().mergePlatformCookies(cookies: cookies)
+        try persistCurrentSessionIfNeeded()
+        return state
+    }
+
+    @discardableResult
     public func completeCloudflareChallenge(
         cookies: [PlatformCookieState],
         freshCfClearance: String,
@@ -1422,8 +1429,32 @@ public actor FireSessionStore {
     private func applyPlatformCookiesForAuthenticatedWritePreflight(
         _ cookies: [PlatformCookieState]
     ) async throws -> AuthenticatedWritePreflightContext {
+        guard Self.containsActiveAuthCookies(in: cookies) else {
+            logHost(
+                level: .info,
+                target: "session.auth_write_preflight",
+                message: "Skipping authoritative platform cookie apply because host resync returned partial auth cookies."
+            )
+            return try authenticatedWritePreflightContext()
+        }
         _ = try applyPlatformCookies(cookies)
         return try authenticatedWritePreflightContext()
+    }
+
+    nonisolated private static func containsActiveAuthCookies(
+        in cookies: [PlatformCookieState]
+    ) -> Bool {
+        let activeCookies = cookies.filter { cookie in
+            let value = cookie.value.trimmingCharacters(in: .whitespacesAndNewlines)
+            return !value.isEmpty && !(cookie.expiresAtUnixMs.map { $0 <= currentUnixMs() } ?? false)
+        }
+
+        return activeCookies.contains(where: { $0.name == "_t" })
+            && activeCookies.contains(where: { $0.name == "_forum_session" })
+    }
+
+    nonisolated private static func currentUnixMs() -> Int64 {
+        Int64(Date().timeIntervalSince1970 * 1000)
     }
 
     private func runAuthenticatedWritePreflight() async throws {
@@ -1499,7 +1530,7 @@ public actor FireSessionStore {
                 )
             } catch {
             }
-            await clearAuthenticatedWriteHostResyncTask(for: sessionEpoch)
+            clearAuthenticatedWriteHostResyncTask(for: sessionEpoch)
         }
         authenticatedWriteHostResyncTasks[sessionEpoch] = task
         await task.value

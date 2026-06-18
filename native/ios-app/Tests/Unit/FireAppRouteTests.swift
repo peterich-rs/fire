@@ -1,3 +1,4 @@
+import UIKit
 import XCTest
 @testable import Fire
 
@@ -178,5 +179,39 @@ final class FireAppRouteTests: XCTestCase {
         navigationState.presentTopicRoute(nextRoute)
 
         XCTAssertEqual(navigationState.presentedTopicRoute, nextRoute)
+    }
+
+    @MainActor
+    func testMainNavigationControllerShowsBarAwayFromHiddenRoot() {
+        let root = UIViewController()
+        let detail = UIViewController()
+        let navigationController = FireMainNavigationController(
+            rootViewController: root,
+            hidesNavigationBarAtRoot: true
+        )
+
+        XCTAssertTrue(navigationController.isNavigationBarHidden)
+
+        navigationController.pushViewController(detail, animated: false)
+        XCTAssertFalse(navigationController.isNavigationBarHidden)
+
+        navigationController.updateNavigationBarVisibility(for: root, animated: false)
+        XCTAssertTrue(navigationController.isNavigationBarHidden)
+    }
+
+    @MainActor
+    func testMainNavigationControllerFullScreenPopThresholds() {
+        let navigationController = FireMainNavigationController(rootViewController: UIViewController())
+
+        XCTAssertFalse(navigationController.canBeginFullScreenPop(velocity: CGPoint(x: 900, y: 0)))
+
+        navigationController.pushViewController(UIViewController(), animated: false)
+        XCTAssertTrue(navigationController.canBeginFullScreenPop(velocity: CGPoint(x: 900, y: 50)))
+        XCTAssertFalse(navigationController.canBeginFullScreenPop(velocity: CGPoint(x: -900, y: 0)))
+        XCTAssertFalse(navigationController.canBeginFullScreenPop(velocity: CGPoint(x: 80, y: 300)))
+
+        XCTAssertTrue(navigationController.shouldFinishFullScreenPop(progress: 0.40, velocityX: 0))
+        XCTAssertTrue(navigationController.shouldFinishFullScreenPop(progress: 0.10, velocityX: 800))
+        XCTAssertFalse(navigationController.shouldFinishFullScreenPop(progress: 0.20, velocityX: 200))
     }
 }

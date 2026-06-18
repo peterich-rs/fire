@@ -37,7 +37,6 @@ final class FireRootCoordinator {
     private var cancellables = Set<AnyCancellable>()
     private var rootKind: RootKind?
     private var mainTabBarController: FireMainTabBarController?
-    private weak var topicNavigationController: UINavigationController?
     private var lastAuthenticatedState: Bool?
     private let selectionFeedback = UISelectionFeedbackGenerator()
 
@@ -144,7 +143,7 @@ final class FireRootCoordinator {
         navigationState.$presentedTopicRoute
             .receive(on: RunLoop.main)
             .sink { [weak self] route in
-                self?.syncTopicPresentation(route)
+                self?.handleTopicRouteRequest(route)
             }
             .store(in: &cancellables)
 
@@ -265,38 +264,31 @@ final class FireRootCoordinator {
         return controller
     }
 
-    private func syncTopicPresentation(_ route: FireAppRoute?) {
-        if let route {
-            guard topicNavigationController == nil else { return }
-            viewModel.topicRouteLogger()?.info("root coordinator presenting topic route \(route.diagnosticsSummary)")
-            let navigationController = FireAppRouteControllerFactory.makeNavigationController(
-                viewModel: viewModel,
-                topicDetailStore: topicDetailStore,
-                route: route,
-                onDismiss: { [weak self] in
-                    self?.topicPresentationDidDismiss()
-                }
+    private func handleTopicRouteRequest(_ route: FireAppRoute?) {
+        guard let route else { return }
+        guard let navigationController = mainTabBarController?.selectedViewController as? UINavigationController else {
+            viewModel.topicRouteLogger()?.warning(
+                "root coordinator could not resolve selected tab nav controller for \(route.diagnosticsSummary)"
             )
-            navigationController.modalPresentationStyle = .fullScreen
-            presentationAnchor()?.present(navigationController, animated: true)
-            topicNavigationController = navigationController
             return
         }
 
-        guard let topicNavigationController else { return }
-        topicNavigationController.dismiss(animated: true)
-        self.topicNavigationController = nil
-    }
-
-    private func topicPresentationDidDismiss() {
-        viewModel.topicRouteLogger()?.info(
-            "root coordinator topic route dismissed current_presented_route_id=\(navigationState.presentedTopicRoute?.id ?? "nil")"
+        let topicRoutePresenter = FireAppRouteControllerFactory.makeTopicRoutePresenter(
+            viewModel: viewModel,
+            topicDetailStore: topicDetailStore,
+            navigationControllerProvider: { [weak navigationController] in navigationController }
         )
-        topicNavigationController = nil
-        if navigationState.presentedTopicRoute != nil {
-            navigationState.dismissPresentedTopicRoute()
-        }
-        updateTopLevelAPMRoute()
+        let controller = FireAppRouteControllerFactory.makeViewController(
+            viewModel: viewModel,
+            topicDetailStore: topicDetailStore,
+            route: route,
+            topicRoutePresenter: topicRoutePresenter
+        )
+        controller.hidesBottomBarWhenPushed = true
+
+        viewModel.topicRouteLogger()?.info("root coordinator pushing topic route \(route.diagnosticsSummary)")
+        navigationController.pushViewController(controller, animated: true)
+        navigationState.dismissPresentedTopicRoute()
     }
 
     private func handlePendingRouteIfReady(_ route: FireAppRoute?) {
@@ -340,24 +332,4 @@ final class FireRootCoordinator {
         }
     }
 
-    private func presentationAnchor() -> UIViewController? {
-        window?.rootViewController?.fireTopPresentedViewController
-    }
-}
-
-private extension UIViewController {
-    var fireTopPresentedViewController: UIViewController {
-        if let presentedViewController {
-            return presentedViewController.fireTopPresentedViewController
-        }
-        if let navigationController = self as? UINavigationController,
-           let visibleViewController = navigationController.visibleViewController {
-            return visibleViewController.fireTopPresentedViewController
-        }
-        if let tabBarController = self as? UITabBarController,
-           let selectedViewController = tabBarController.selectedViewController {
-            return selectedViewController.fireTopPresentedViewController
-        }
-        return self
-    }
 }

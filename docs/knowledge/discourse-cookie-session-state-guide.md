@@ -200,9 +200,14 @@ When a WebView flow itself performed the network request:
 5. Mark the write trusted only when the flow boundary confirms freshness.
 6. For Cloudflare challenge completion, pass the accepted `fresh_cf_clearance`
    value and let Rust reject any `cf_clearance` cookie with a different value.
-7. Sweep critical names after applying the cookies.
+7. Challenge completion is a merge, not an authoritative login-state replace.
+   If that WebView snapshot lacks `_t` or `_forum_session`, Rust must preserve
+   the existing Discourse identity cookies.
+8. Sweep critical names after applying the cookies.
 
-Generic WebView reads outside these boundary events are untrusted.
+Generic WebView reads outside these boundary events are untrusted. They may be
+used as an authoritative login-state replacement only when the host resync batch
+contains both active identity cookies, `_t` and `_forum_session`.
 
 ## 9. Cookie Priming
 

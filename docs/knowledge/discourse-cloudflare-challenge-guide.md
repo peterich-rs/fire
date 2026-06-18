@@ -87,11 +87,16 @@ Recommended completion checks:
    `cf_clearance` after the challenge page is no longer active. That value
    usually differs from the platform baseline, but it may match Rust's previous
    snapshot when the Rust jar and WebView store were out of sync.
-7. Sync the accepted value and related cookies to Rust as trusted writes through
-   the challenge-completion path.
+7. Sync the accepted value and related Cloudflare cookies to Rust as trusted
+   writes through the challenge-completion path.
 
-Related cookies include `cf_clearance`, `_cfuvid`, and any LinuxDo cookies the
-WebView received during verification.
+Related cookies include `cf_clearance` and `_cfuvid`. A challenge WebView
+snapshot may also contain Discourse identity cookies, but challenge completion
+must merge those inputs into Rust's existing session; it must not treat a partial
+WebView snapshot as proof that `_t` or `_forum_session` disappeared. Replacing
+the Discourse identity pair is reserved for successful login finalization,
+explicit logout, or an explicitly authoritative host resync that contains both
+active identity cookies.
 
 On Android, `CookieManagerCompat.getCookieInfo()` should be preferred because it
 preserves domain/path/flag metadata. If the runtime only exposes
@@ -168,7 +173,7 @@ with the browser session that produced the clearance.
 
 | Outcome | Rust action |
 |---|---|
-| Fresh clearance returned | Apply trusted cookies, sweep critical variants, retry original foreground request once |
+| Fresh clearance returned | Merge trusted challenge cookies, preserve Discourse identity cookies, sweep critical variants, retry original foreground request once |
 | User cancelled | Clear `cf_in_progress`, return a challenge-cancelled error |
 | Cooldown active and no manual bypass | Clear `cf_in_progress`, return a soft challenge error |
 | WebView failed without fresh cookie | Clear `cf_in_progress`, preserve existing cookies, surface retry |

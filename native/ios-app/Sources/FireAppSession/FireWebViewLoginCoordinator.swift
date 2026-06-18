@@ -299,6 +299,11 @@ protocol FireLoginSessionStoring: Sendable {
     func logout() async throws -> SessionState
     func logoutLocal(preserveCfClearance: Bool) async throws -> SessionState
     func applyPlatformCookies(_ cookies: [PlatformCookieState]) async throws -> SessionState
+    func completeCloudflareChallenge(
+        cookies: [PlatformCookieState],
+        freshCfClearance: String,
+        browserUserAgent: String?
+    ) async throws -> SessionState
     func webViewPrimingPayload(targetURL: String?) async throws -> [WebViewCookieActionState]
     func cookieSweepPlan(
         targetURL: String?,
@@ -443,6 +448,18 @@ public final class FireWebViewLoginCoordinator {
     public func refreshPlatformCookies() async throws -> SessionState {
         let cookies = try await platformCookiesForSessionResync()
         return try await applyPlatformCookiesIfAuthoritative(cookies)
+    }
+
+    public func completeCloudflareChallenge(
+        cookies: [PlatformCookieState],
+        freshCfClearance: String,
+        browserUserAgent: String? = nil
+    ) async throws -> SessionState {
+        try await sessionStore.completeCloudflareChallenge(
+            cookies: cookies,
+            freshCfClearance: freshCfClearance,
+            browserUserAgent: browserUserAgent
+        )
     }
 
     public func primeCookies(

@@ -3,34 +3,6 @@ import UIKit
 
 @MainActor
 enum FireAppRouteControllerFactory {
-    static func makeNavigationController(
-        viewModel: FireAppViewModel,
-        topicDetailStore: FireTopicDetailStore,
-        route: FireAppRoute,
-        onDismiss: (@MainActor () -> Void)? = nil
-    ) -> UINavigationController {
-        viewModel.topicRouteLogger()?.info("route factory make navigation controller start \(route.diagnosticsSummary)")
-        let navigationControllerBox = FireWeakNavigationControllerBox()
-        let topicRoutePresenter = makeTopicRoutePresenter(
-            viewModel: viewModel,
-            topicDetailStore: topicDetailStore,
-            navigationControllerProvider: { navigationControllerBox.navigationController }
-        )
-        let rootViewController = makeViewController(
-            viewModel: viewModel,
-            topicDetailStore: topicDetailStore,
-            route: route,
-            topicRoutePresenter: topicRoutePresenter
-        )
-        let navigationController = FirePresentedRouteNavigationController(rootViewController: rootViewController)
-        navigationController.onDidDismiss = onDismiss
-        navigationControllerBox.navigationController = navigationController
-        viewModel.topicRouteLogger()?.info(
-            "route factory make navigation controller complete \(route.diagnosticsSummary) view_controller_count=\(navigationController.viewControllers.count)"
-        )
-        return navigationController
-    }
-
     static func makeViewController(
         viewModel: FireAppViewModel,
         topicDetailStore: FireTopicDetailStore,
@@ -102,27 +74,5 @@ enum FireAppRouteControllerFactory {
             )
             return true
         }
-    }
-}
-
-private final class FireWeakNavigationControllerBox {
-    weak var navigationController: UINavigationController?
-}
-
-private final class FirePresentedRouteNavigationController: UINavigationController {
-    var onDidDismiss: (@MainActor () -> Void)?
-
-    private var didReportDismissal = false
-
-    override func viewDidDisappear(_ animated: Bool) {
-        super.viewDidDisappear(animated)
-        guard isBeingDismissed else { return }
-        reportDismissalIfNeeded()
-    }
-
-    private func reportDismissalIfNeeded() {
-        guard !didReportDismissal else { return }
-        didReportDismissal = true
-        onDidDismiss?()
     }
 }

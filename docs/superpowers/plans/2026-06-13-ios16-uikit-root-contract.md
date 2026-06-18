@@ -47,6 +47,13 @@ This workstream must land before broad screen migration, because route handling,
 deep links, notification taps, APM route labels, and auth-state transitions all
 currently converge in the SwiftUI root.
 
+Topic route presentation now uses the selected tab's UIKit navigation stack
+instead of a root-level full-screen modal navigation controller. The legacy
+`FirePresentedTopicRouteHost`, modal topic navigation factory, and presented
+route navigation controller were removed. `FireMainNavigationController` is the
+single tab navigation owner; it centralizes root navigation-bar visibility and
+owns the full-screen `UIPercentDrivenInteractiveTransition` pop gesture.
+
 ### 2. UIKit List Runtime
 
 Promote the current `FireDiffableListController` from a SwiftUI

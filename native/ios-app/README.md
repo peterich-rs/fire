@@ -72,7 +72,7 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
   - owns an offscreen `WKWebView` that keeps a Turnstile widget alive once the shared session is authenticated, scene-active, and bootstrap has exposed a Turnstile sitekey
   - configures that hidden WebView with the captured login browser user agent exposed on `SessionState`, falling back to the same Mobile Safari-style profile used by login
   - injects a fetch interceptor before `api.js` loads, replays `/cdn-cgi/challenge-platform/.../rc/...` through native `URLSession`, and feeds the real response back into the page so `cf_clearance` can auto-renew without foreground UI
-  - re-syncs refreshed WebKit cookies back into Rust and then pushes the updated session back through `FireAppViewModel.applySession`, which keeps native `HTTPCookieStorage` aligned for URLSession/media requests without overwriting the active WebKit cookie store
+  - merges the confirmed refreshed `cf_clearance` back into Rust through the challenge-completion path and then pushes the updated session through `FireAppViewModel.applySession`, which keeps native `HTTPCookieStorage` aligned for URLSession/media requests without letting a partial WebKit snapshot clear `_t` / `_forum_session`
   - records APM breadcrumbs plus bounded retry failures for background clearance refresh attempts
 - `App/Startup/FireOnboardingCredentialFormView.swift`
   - presents explicit password login as a pure-native UIKit form (username/password fields, remember-password state, forgot-password, and other-method fallback entry points) embedded inside the unified onboarding page's `.credential` phase
@@ -306,7 +306,7 @@ Current UX note:
 - The app now keeps the in-app notification list synchronized from Rust-owned notification runtime state when MessageBus notification events arrive, instead of only updating the unread badge count.
 - iOS now schedules background refresh work for `/notification-alert/{userId}` and presents host-owned local notifications from a dedicated one-shot Rust MessageBus poll path.
 - The authenticated shell now also requests APNs registration, caches the resulting device token locally, and exposes host-side registration diagnostics without attempting backend token upload yet.
-- iOS now also runs a default-on offscreen Cloudflare Turnstile runtime for authenticated sessions that still expose a Turnstile sitekey in bootstrap, replaying the internal `/rc` refresh requests through native networking and re-syncing the refreshed cookie batch back into Rust and WebKit while the scene stays active.
+- iOS now also runs a default-on offscreen Cloudflare Turnstile runtime for authenticated sessions that still expose a Turnstile sitekey in bootstrap, replaying the internal `/rc` refresh requests through native networking and merging the refreshed `cf_clearance` back into Rust while the scene stays active.
 - The app now exposes a diagnostics screen for tail-first log inspection, preview-first request-trace body paging, and local support-bundle export.
 - The profile screen now consumes Rust-derived session display labels, so authenticated recovery states are described consistently across hosts instead of being inferred separately in Swift.
 - The profile area now includes a native private-message mailbox, and public profile headers can open a pre-addressed private-message composer when the viewed user allows PMs.

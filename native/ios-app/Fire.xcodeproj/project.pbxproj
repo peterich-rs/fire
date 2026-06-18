@@ -298,7 +298,7 @@
 		3C21247110244DC0C9E0BEDA /* FireTopicDetailFeedUpdatePipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireTopicDetailFeedUpdatePipeline.swift; sourceTree = "<group>"; };
 		3E056C5583CA4544A2781E2F /* FireTopicInteractionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireTopicInteractionService.swift; sourceTree = "<group>"; };
 		3FC109FBAA1787EF49336258 /* SessionState+Helpers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionState+Helpers.swift"; sourceTree = "<group>"; };
-		40B24CD54573A1C053B37121 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		40B24CD54573A1C053B37121 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		41317BCBB3F398437E13997C /* FirePostEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FirePostEditorView.swift; sourceTree = "<group>"; };
 		41AECD88340113D3FD81D59B /* FireTopicPresentationTestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireTopicPresentationTestSupport.swift; sourceTree = "<group>"; };
 		429B9F8B7087E197A8366D2D /* FireLogDiagnosticsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireLogDiagnosticsView.swift; sourceTree = "<group>"; };
@@ -311,7 +311,7 @@
 		46C35F105D036EECAAE7B93D /* FireRouteParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireRouteParserTests.swift; sourceTree = "<group>"; };
 		46CF09F1CBAC6CFAA0E9128A /* FireAppRoute.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireAppRoute.swift; sourceTree = "<group>"; };
 		48A7EA25CD5ADF94676BE48E /* fire_uniffi_session.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = fire_uniffi_session.swift; sourceTree = "<group>"; };
-		48CAB0E38556929FC140E25D /* Fire.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Fire.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		48CAB0E38556929FC140E25D /* Fire.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Fire.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		49784F572BD41F7D9F024F55 /* FirePostFlagSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FirePostFlagSheet.swift; sourceTree = "<group>"; };
 		4B1EECEB8CD1DD9B64C8D92E /* FireFollowListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireFollowListView.swift; sourceTree = "<group>"; };
 		4B79252C493DBB0CE379F302 /* FireCategoriesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireCategoriesView.swift; sourceTree = "<group>"; };
@@ -332,7 +332,7 @@
 		631A4F82AE7302B3D139F94C /* FireProfileHeaderComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireProfileHeaderComponents.swift; sourceTree = "<group>"; };
 		6566A1D9FDFFFF7BE5EC2229 /* FireTopicTimingTracker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireTopicTimingTracker.swift; sourceTree = "<group>"; };
 		656CE7A291529B78CBAB24D8 /* FireAppViewModelSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireAppViewModelSupport.swift; sourceTree = "<group>"; };
-		6958AA64094FA7BB21B5FC36 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		6958AA64094FA7BB21B5FC36 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		6975FD77F7DBD0670E237842 /* FireCDKView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireCDKView.swift; sourceTree = "<group>"; };
 		6C063DC3D3814082F9655534 /* FireAppViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireAppViewModel.swift; sourceTree = "<group>"; };
 		6CABC863F0E7DDEACF5B980D /* FireMainTabBarController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireMainTabBarController.swift; sourceTree = "<group>"; };
@@ -437,7 +437,7 @@
 		F112BF5A6A226C1D21861F90 /* FireOnboardingCredentialFormView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireOnboardingCredentialFormView.swift; sourceTree = "<group>"; };
 		F74563DD6B9E870850553DDA /* FireAppViewModel+Profile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FireAppViewModel+Profile.swift"; sourceTree = "<group>"; };
 		F7C061876458A31F793EE975 /* FireWebViewBrowserViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireWebViewBrowserViewController.swift; sourceTree = "<group>"; };
-		F7F4881067D974AA645C77FC /* FireWidgetExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = FireWidgetExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		F7F4881067D974AA645C77FC /* FireWidgetExtension.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = FireWidgetExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		F90878A611124AD41C0288B7 /* FireTopicDetailModalRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireTopicDetailModalRouter.swift; sourceTree = "<group>"; };
 		F9384B4FECD3434E8DCCB3BA /* FireFilteredTopicListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireFilteredTopicListView.swift; sourceTree = "<group>"; };
 		FA8E7753E3E1BB8E3CD88E96 /* Fire-Shared.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = "Fire-Shared.xcconfig"; sourceTree = "<group>"; };
@@ -1092,9 +1092,11 @@
 				LastUpgradeCheck = 1430;
 				TargetAttributes = {
 					87BF3D86E2CA36A3D645AA33 = {
+						DevelopmentTeam = "$(FIRE_DEVELOPMENT_TEAM)";
 						ProvisioningStyle = "$(FIRE_CODE_SIGN_STYLE)";
 					};
 					BEC723EF3D036CE24703367A = {
+						DevelopmentTeam = "$(FIRE_DEVELOPMENT_TEAM)";
 						ProvisioningStyle = "$(FIRE_CODE_SIGN_STYLE)";
 					};
 				};
@@ -1441,7 +1443,10 @@
 				PRODUCT_NAME = Fire;
 				PROVISIONING_PROFILE_SPECIFIER = "$(FIRE_PROVISIONING_PROFILE_SPECIFIER)";
 				SDKROOT = iphoneos;
-				SWIFT_INCLUDE_PATHS = "$(inherited) $(SRCROOT)/Generated";
+				SWIFT_INCLUDE_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/Generated",
+				);
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Debug;
@@ -1454,7 +1459,7 @@
 				CODE_SIGN_ENTITLEMENTS = FireWidget.entitlements;
 				CODE_SIGN_STYLE = "$(FIRE_CODE_SIGN_STYLE)";
 				CURRENT_PROJECT_VERSION = "$(FIRE_BUILD_NUMBER)";
-				DEVELOPMENT_TEAM = YHK2G6Y994;
+				DEVELOPMENT_TEAM = "$(FIRE_DEVELOPMENT_TEAM)";
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = "Configs/FireWidget-Info.plist";
 				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
@@ -1484,7 +1489,10 @@
 					"@loader_path/Frameworks",
 				);
 				SDKROOT = iphoneos;
-				SWIFT_INCLUDE_PATHS = "$(inherited) $(SRCROOT)/Generated";
+				SWIFT_INCLUDE_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/Generated",
+				);
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Fire.app/Fire";
 			};
@@ -1502,7 +1510,10 @@
 					"@loader_path/Frameworks",
 				);
 				SDKROOT = iphoneos;
-				SWIFT_INCLUDE_PATHS = "$(inherited) $(SRCROOT)/Generated";
+				SWIFT_INCLUDE_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/Generated",
+				);
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Fire.app/Fire";
 			};
@@ -1662,7 +1673,7 @@
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = "$(FIRE_CODE_SIGN_STYLE)";
 				CURRENT_PROJECT_VERSION = "$(FIRE_BUILD_NUMBER)";
-				DEVELOPMENT_TEAM = YHK2G6Y994;
+				DEVELOPMENT_TEAM = "$(FIRE_DEVELOPMENT_TEAM)";
 				FIRE_GIT_SHA = "$(FIRE_GIT_SHA)";
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
@@ -1688,7 +1699,10 @@
 				PRODUCT_NAME = Fire;
 				PROVISIONING_PROFILE_SPECIFIER = "$(FIRE_PROVISIONING_PROFILE_SPECIFIER)";
 				SDKROOT = iphoneos;
-				SWIFT_INCLUDE_PATHS = "$(inherited) $(SRCROOT)/Generated";
+				SWIFT_INCLUDE_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/Generated",
+				);
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Release;

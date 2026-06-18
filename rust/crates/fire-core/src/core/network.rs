@@ -270,6 +270,11 @@ pub(crate) struct FireSkipCloudflareBlock;
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) struct FireSkipCookieSelfHeal;
 
+struct FireCookieSelfHealingTarget {
+    request_url: String,
+    origin_url: Option<String>,
+}
+
 impl TracedRequest {
     pub(crate) fn with_challenge_presentation(
         mut self,
@@ -1025,8 +1030,10 @@ impl FireCore {
             return self
                 .maybe_self_heal_response(
                     operation,
-                    request_url,
-                    origin_url,
+                    FireCookieSelfHealingTarget {
+                        request_url,
+                        origin_url,
+                    },
                     trace_id,
                     response,
                     retry_request,
@@ -1041,8 +1048,7 @@ impl FireCore {
     async fn maybe_self_heal_response(
         &self,
         operation: &'static str,
-        request_url: String,
-        origin_url: Option<String>,
+        target: FireCookieSelfHealingTarget,
         trace_id: u64,
         response: Response<ResponseBody>,
         retry_request: Option<Request<RequestBody>>,
@@ -1069,6 +1075,10 @@ impl FireCore {
         let Some(original_retry_request) = retry_request else {
             return Ok((current_trace_id, response_from_parts(parts, body)));
         };
+        let FireCookieSelfHealingTarget {
+            request_url,
+            origin_url,
+        } = target;
         let target_url = origin_url.unwrap_or_else(|| self.base_url.as_str().to_string());
         let cookie_names = COOKIE_SELF_HEALING_NAMES
             .iter()

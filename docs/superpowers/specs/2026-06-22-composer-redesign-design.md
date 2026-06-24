@@ -34,7 +34,7 @@ Root cause: the bar absorbs the keyboard inset into its own height instead of le
 
 ## 3. Non-goals
 
-- Private message composer changes (current UX is acceptable per user).
+- Private message composer changes (current UX is acceptable per user). The PM composer keeps using the server draft API; local draft storage (§4.4) does not apply to `.privateMessage` or PM `.advancedReply` routes.
 - Rich-text / WYSIWYG rendering of markdown in the editor body. The body editor remains a plain `UITextView`; only image attachments get inline visual treatment via `NSTextAttachment`.
 - Android composer (iOS-only in this spec).
 - Changes to the server draft API or Discourse upload protocol.
@@ -45,21 +45,35 @@ Root cause: the bar absorbs the keyboard inset into its own height instead of le
 
 **Bar height excludes keyboard inset.** The bar only owns `input row (36) + vertical padding (22) + safe-area bottom`. The keyboard inset is applied to the feed's `contentInset.bottom` so feed content scrolls up to reveal the bar.
 
+The bar and feed are composed via Texture layout specs, not Auto Layout constraints (`FireTopicDetailRootNode.layoutSpecThatFits` returns `ASOverlayLayoutSpec(child: feedNode, overlay: ASRelativeLayoutSpec(.end, child: bar))`). The fix stays in that spec path:
+
 ```
-FireTopicQuickReplyBarNode.estimatedHeight:
-  height = 10 + 36 + 12   // input row + padding only
-  + topStackHeight (typing/target, conditional)
-  + validationMessageHeight (conditional)
-  // bottomInset (keyboard) is NOT added here
+FireTopicQuickReplyBarNode.estimatedHeight(forWidth:):
+  height = 10 + 36 + 12            // input row + vertical padding only
+        + topStackHeight            // typing/target line, conditional
+        + validationMessageHeight   // conditional
+  // bottomInset (full keyboard height) is NOT added — see fix below
 
-FireTopicDetailRootNode.layout():
-  insets.bottom = barHeight + keyboardInset  // feed contentInset
-  // bar is positioned at view.bottom - keyboardInset - safeArea
+FireTopicDetailRootNode.layoutSpecThatFits(_ :):
+  // 1. feed contentInset.bottom absorbs bar height + keyboard overlap
+  //    so feed content scrolls up to reveal the bar (existing inset
+  //    update path, just with corrected bottom value).
+  scrollView.contentInset.bottom = barHeight + keyboardOverlap
+
+  // 2. overlay offsets the bar UP by keyboardOverlap so it sits above
+  //    the keyboard. Use an ASInsetLayoutSpec wrapping the relative
+  //    overlay (bottom inset = keyboardOverlap + safeAreaBottom),
+  //    NOT Auto Layout constraints and NOT growing bar height.
+  let pinned = ASRelativeLayoutSpec(.start, .end, child: bar)
+  return ASInsetLayoutSpec(
+      insets: UIEdgeInsets(top: 0, left: 0, bottom: keyboardOverlap + safeAreaBottom, right: 0),
+      child: ASOverlayLayoutSpec(child: feedNode, overlay: pinned)
+  )
 ```
 
-**Bar vertical position.** The overlay layout must offset the bar up by the keyboard height so it sits above the keyboard. This is done by constraining the bar node's bottom to `view.bottomAnchor - currentBottomChromeInset` instead of growing the bar's height.
+`keyboardOverlap` is the live keyboard frame height intersecting the view (0 when hidden). It is passed into the root node alongside the existing `bottomInset` plumbing; the bar no longer consumes it into its own `estimatedHeight`.
 
-This is a bug fix within the existing Texture node path. No fallback rendering introduced.
+This is a bug fix within the existing Texture node path. No fallback rendering introduced, and the fix is expressed in layout specs — no Auto Layout constraint APIs are introduced for the overlay.
 
 ### 4.2 Composer two-step flow
 
@@ -123,7 +137,13 @@ A single screen. State-driven: category selection controls whether the tag secti
 
 **Category change clears tags.** If the user changes category while tags are selected, show a confirm alert: "更换分类会清空已选标签，继续？". On confirm, clear `selectedTags` and re-render. Rationale: `allowedTags` differ across categories; clearing is predictable and simple.
 
-**Next button gating:** enabled when `trimmedTitle.count >= minimumTitleLength` AND `selectedCategoryID != nil` AND `selectedTags.count >= selectedCategoryMinimumTags`. If the category has no minimum tag requirement, tags are optional.
+**Next button gating:** enabled when all of:
+- `trimmedTitle.count >= minimumTitleLength`
+- `selectedCategoryID != nil`
+- `selectedTags.count >= selectedCategoryMinimumTags` (category `minimumRequiredTags`)
+- every `requiredTagGroup` is satisfied: for each group, `selectedTags.filter { group.tags.contains($0) }.count >= group.minCount`
+
+This rule is implemented once in the shared `FireComposerValidation` helper (see component inventory) and reused by step-1 gating, step-2 publish gating, and tests — so step-1 cannot pass while a required tag group is still violated. The requirement summaries already rendered in `FireComposerView` (group name + `minCount`) are surfaced from the same category data, keeping display and gating consistent.
 
 **Category template injection:** if the selected category has a `topicTemplate`, inject it into the body when transitioning to step 2 (only if body is empty). Track `lastInjectedTemplate` so re-selecting the same category doesn't overwrite user edits.
 
@@ -239,16 +259,18 @@ Local draft files in `Drafts / <draftKey> / local-<uuid>.<ext>` survive across s
 
 ### 4.4 Local draft storage
 
-**Pure local storage.** Replace server draft API calls with a local store. No more `viewModel.saveDraft` / `viewModel.fetchDraft` / `viewModel.deleteDraft` for composer state.
+**Pure local storage — scoped to `.createTopic` and non-PM `.advancedReply`.** Replace server draft API calls with a local store for those two route kinds only. Private-message composer (`.privateMessage`) and PM `.advancedReply` (`route.isPrivateMessage == true`) keep using the existing server draft path (`viewModel.saveDraft` / `fetchDraft` / `deleteDraft`). No more `viewModel.saveDraft` / `viewModel.fetchDraft` / `viewModel.deleteDraft` for createTopic / non-PM reply composer state.
 
 **Storage:** A lightweight local persistence layer (file-based JSON + image files). No new DB dependency (GRDB/SQLite/CoreData) — the data is small and simple.
 
 ```
 App Support / FireDrafts /
   <draftKey>/
-    meta.json          # title, categoryId, tags, bodyText, recipients, step, updatedAt
+    meta.json          # title, categoryId, tags, bodyText, step, updatedAt
     local-<uuid>.jpg   # image files
 ```
+
+(`draftKey` for PM routes is not written here — PM keeps server drafts.)
 
 **`meta.json` schema:**
 
@@ -260,7 +282,6 @@ App Support / FireDrafts /
   "categoryId": 4,
   "tags": ["分享", "教程"],
   "bodyText": "正文 {{attach:local-abc123}} 更多",
-  "recipients": [],
   "routeKind": "createTopic",
   "updatedAt": 1719043200.0
 }
@@ -283,8 +304,7 @@ struct FireLocalDraft {
     var categoryId: UInt64?
     var tags: [String]
     var bodyText: String
-    var recipients: [String]
-    var routeKind: RouteKind
+    var routeKind: RouteKind   // only .createTopic / non-PM .advancedReply are persisted locally
     var updatedAt: Date
 }
 ```
@@ -297,7 +317,7 @@ struct FireLocalDraft {
 - On successful publish: delete local draft + image files.
 - On close without publish: keep local draft (no confirmation needed for keeping; only confirm if user explicitly clears).
 
-**Existing server draft code removal:** The composer's calls to `viewModel.saveDraft`, `viewModel.fetchDraft`, `viewModel.deleteDraft`, and `scheduleAutosave` (server variant) are replaced by local store calls. The server draft API and its UniFFI bindings remain available for other consumers but are no longer used by the composer.
+**Existing server draft code scoping:** For `.createTopic` and non-PM `.advancedReply`, the composer's calls to `viewModel.saveDraft`, `viewModel.fetchDraft`, `viewModel.deleteDraft`, and `scheduleAutosave` (server variant) are replaced by local store calls. The `.privateMessage` and PM `.advancedReply` paths continue to call the server draft API unchanged. The server draft API and its UniFFI bindings remain available for PM and any other consumers.
 
 **Note on `draftSequence`:** Server drafts use a sequence for conflict resolution. Local drafts are single-writer (one device, one composer instance), so no sequence is needed. `draftSequence` is removed from composer state.
 
@@ -306,7 +326,9 @@ struct FireLocalDraft {
 Two reusable half-sheet panel controllers:
 
 1. **`FireCategoryPickerSheet`** — full category list with search. Used by "更多分类…" and "更换".
-2. **`FireTagPickerSheet`** — tag search with results. Used by "没有想要的？搜索标签". (Hot tags remain inline in step 1; this sheet is only for search.)
+2. **`FireComposerTagSearchSheet`** — tag search with results. Used by "没有想要的？搜索标签". (Hot tags remain inline in step 1; this sheet is only for search.)
+
+> Naming: the composer tag search uses `FireComposerTagSearchSheet`, not `FireTagPickerSheet`. The existing `FireTagPickerSheet` (SwiftUI `View`, used by Home and bound to `FireHomeFeedStore`) is a different component and is not reused here to avoid leaking Home feed state into the composer.
 
 Both use `sheetPresentationController` with detents `[.medium(), .large()]` and `prefersGrabberVisible = true`. Presented over the current step.
 
@@ -317,15 +339,16 @@ For step 2's category/tag card expand: re-present `FireCategoryPickerSheet` (cat
 | Component | Type | Responsibility |
 |-----------|------|----------------|
 | `FireTopicQuickReplyBarNode` | Existing (Texture) | Fix height formula + keyboard offset |
-| `FireTopicDetailRootNode` | Existing (Texture) | Fix bar positioning vs keyboard |
+| `FireTopicDetailRootNode` | Existing (Texture) | Fix bar positioning vs keyboard (layout-spec offset, not Auto Layout) |
 | `FireComposerViewController` | Existing (UIKit) | Add step state machine; restructure layout |
 | `FireComposerMetaStepView` | New (UIKit) | Step 1 content: title, category, tags |
 | `FireComposerBodyStepView` | New (UIKit) | Step 2 content: editor, toolbar, attachments |
 | `FireCategoryPickerSheet` | New (UIKit) | Half-sheet category list + search |
-| `FireTagPickerSheet` | New (UIKit) | Half-sheet tag search |
+| `FireComposerTagSearchSheet` | New (UIKit) | Half-sheet tag search (distinct from the existing SwiftUI `FireTagPickerSheet` used by Home) |
 | `FireComposerImageAttachment` | New (NSTextAttachment) | Inline local image thumbnail in UITextView |
-| `FireLocalDraftStore` | New (protocol + impl) | File-based local draft persistence |
-| `FireLocalDraft` | New (struct) | Draft data model |
+| `FireLocalDraftStore` | New (protocol + impl) | File-based local draft persistence (createTopic / non-PM advancedReply only) |
+| `FireLocalDraft` | New (struct) | Draft data model (no `recipients` — PM excluded) |
+| `FireComposerValidation` | Existing (extend) | Shared gating: title/category/minimumTags + `requiredTagGroups`; reused by step-1, publish, tests |
 
 ## 6. Data flow
 
@@ -358,17 +381,17 @@ Step 1 (meta)                         Step 2 (body)
 
 ## 8. Testing
 
-- **Unit:** `FireComposerValidation` (existing, extend for step transitions). `FireLocalDraftStore` (save/load/delete/restore with images). `FireMarkdownInsertion` (existing, verify `{{attach:}}` token handling). Image token scan + replacement logic (pure function, testable without UIKit).
-- **Unit:** Quick reply bar height calculation (no keyboard inset in height). Root node inset calculation (keyboard inset in `contentInset.bottom`, not bar height).
-- **Integration:** PHPicker → local file → attachment render → publish upload → markdown replacement → submit. End-to-end with mock upload service.
-- **Manual:** Quick reply bar visible and tappable with keyboard up. Composer step 1 → step 2 transition. Image pick → preview → publish. Draft restore across app relaunch.
+- **Unit:** `FireComposerValidation` — extend for step transitions AND `requiredTagGroups` gating (case: enough total tags but a group short on `minCount` → step-1 disabled). `FireLocalDraftStore` (save/load/delete/restore with images; verify PM routes are NOT persisted locally). `FireMarkdownInsertion` (existing, verify `{{attach:}}` token handling). Image token scan + replacement logic (pure function, testable without UIKit).
+- **Unit:** Quick reply bar height calculation (no keyboard inset in height). Root node layout-spec offset + `contentInset.bottom` carries the keyboard overlap (no Auto Layout constraints introduced).
+- **Integration:** PHPicker → local file → attachment render → publish upload → markdown replacement → submit. End-to-end with mock upload service. Verify `.privateMessage` / PM `.advancedReply` still round-trip through the server draft API (regression guard).
+- **Manual:** Quick reply bar visible and tappable with keyboard up. Composer step 1 → step 2 transition (incl. a category with a `requiredTagGroup` blocking Next until satisfied). Image pick → preview → publish. Draft restore across app relaunch.
 
 ## 9. Phased implementation
 
 **Phase 1 — Quick reply bar fix** (bug fix, ships independently)
-- Fix `FireTopicQuickReplyBarNode.estimatedHeight` to exclude keyboard inset.
-- Fix `FireTopicDetailRootNode` bar positioning vs keyboard.
-- Verify feed scrolls to reveal bar.
+- Fix `FireTopicQuickReplyBarNode.estimatedHeight` to exclude the full keyboard height from `bottomInset`.
+- In `FireTopicDetailRootNode.layoutSpecThatFits`, route the keyboard overlap into the feed `contentInset.bottom` and an `ASInsetLayoutSpec` offset on the overlay (not into bar height, not via Auto Layout).
+- Verify feed scrolls to reveal the bar and the input row is tappable with keyboard up.
 
 **Phase 2 — Composer keyboard avoidance + layout restructure**
 - Add `keyboardLayoutGuide`-driven avoidance.

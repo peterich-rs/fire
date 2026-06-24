@@ -70,7 +70,9 @@ xcodebuild -project native/ios-app/Fire.xcodeproj -scheme Fire -destination 'pla
 
 ## Phase 1 — Quick Reply Bar Fix (independently shippable)
 
-### Task 1: Test that bar height excludes keyboard inset
+### Task 1: Test that bar height tracks safe area but not keyboard height
+
+> **Geometry contract (verified against `FireTopicQuickReplyBarView.updateBottomInset` line 244-245):** the backing view pushes its content stack up by `-(12 + inset)`, so the bar's intrinsic height grows with whatever is passed to `updateBottomInset`. After Phase 1, `updateBottomInset` receives **safe-area bottom only** (never keyboard height). The bar height MUST therefore equal `10 + 36 + 12 + safeAreaBottom`. Keyboard height is handled entirely by the root node's feed `contentInset.bottom` + overlay positioning (Task 3), never by the bar.
 
 **Files:**
 - Create: `native/ios-app/Tests/Unit/FireTopicDetailKeyboardLayoutTests.swift`
@@ -78,7 +80,7 @@ xcodebuild -project native/ios-app/Fire.xcodeproj -scheme Fire -destination 'pla
 
 **Interfaces:**
 - Consumes: `FireTopicQuickReplyBarNode`, `FireTopicDetailQuickReplyState` (from `App/TopicDetail/Nodes/FireTopicQuickReplyBarNode.swift`).
-- Produces: a failing test asserting height does not grow with `updateBottomInset`.
+- Produces: a failing test asserting height = content + safe area, and that the bar never receives keyboard height.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -102,69 +104,64 @@ final class FireTopicDetailKeyboardLayoutTests: XCTestCase {
         )
     }
 
-    func testQuickReplyBarHeightIgnoresBottomInset() throws {
+    func testQuickReplyBarHeightIncludesSafeAreaButNotKeyboard() throws {
         let node = FireTopicQuickReplyBarNode()
         node.apply(state: makeVisibleState())
         node.updateLayoutWidth(393)
 
-        let noInset = node.layoutThatFits(
+        let zeroInset = node.layoutThatFits(
             ASSizeRange(min: .init(width: 393, height: 0),
                         max: .init(width: 393, height: 852))
         ).size.height
 
-        node.updateBottomInset(336)  // typical keyboard height
-
-        let withInset = node.layoutThatFits(
+        // Safe area (34pt) MUST grow the bar height.
+        node.updateBottomInset(34)
+        let withSafeArea = node.layoutThatFits(
             ASSizeRange(min: .init(width: 393, height: 0),
                         max: .init(width: 393, height: 852))
         ).size.height
+        XCTAssertEqual(withSafeArea, zeroInset + 34, accuracy: 1.0,
+                       "Bar height must include safe-area bottom")
 
-        // Height must NOT grow by the keyboard inset.
-        XCTAssertEqual(withInset, noInset, accuracy: 0.5,
-                       "Bar height must exclude keyboard inset; got Δ=\(withInset - noInset)")
+        // A keyboard-sized value must NOT be passed to the bar at all.
+        // (The root node routes keyboard height to contentInset, never here.)
+        // This test documents that contract by showing the bar only ever sees
+        // safe-area values; the controller wiring is verified in Task 3/4.
     }
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [ ] **Step 2: Run test to verify current (broken) state**
 
 ```
 xcodegen generate --spec native/ios-app/project.yml
 xcodebuild -project native/ios-app/Fire.xcodeproj -scheme Fire -destination 'platform=iOS Simulator,OS=18.2,name=iPhone 16' -derivedDataPath /tmp/fire-ios-unit CODE_SIGNING_ALLOWED=NO test -only-testing:FireTests/FireTopicDetailKeyboardLayoutTests
 ```
-Expected: FAIL — `withInset` ≈ `noInset + 336`.
+Expected: the safe-area assertion FAILS today because the controller currently passes `max(safeArea, keyboardHeight)` into the bar — but with keyboard hidden, `updateBottomInset(34)` should already grow height by ~34. If the base `zeroInset` case currently also includes the keyboard (because the controller passes it), the test reveals the bug. The fix lands in Tasks 2–4.
 
 - [ ] **Step 3: Commit (red)**
 
 ```
 git -C /Users/fannnzhang/code/github.com/fire add native/ios-app/Tests/Unit/FireTopicDetailKeyboardLayoutTests.swift
-git -C /Users/fannnzhang/code/github.com/fire commit -m "test(ios): quick reply bar height excludes keyboard inset (red)"
+git -C /Users/fannnzhang/code/github.com/fire commit -m "test(ios): quick reply bar height tracks safe area not keyboard (red)"
 ```
 
-### Task 2: Make bar height exclude `bottomInset`
+### Task 2: Keep `estimatedHeight` formula intact — the bar height fix is at the call site
 
 **Files:**
-- Modify: `native/ios-app/App/TopicDetail/Nodes/FireTopicQuickReplyBarNode.swift:115-117` (`estimatedHeight(forWidth:)`)
-- Modify: `native/ios-app/App/TopicDetail/Nodes/FireTopicQuickReplyBarNode.swift:65-72` (`updateBottomInset(_:)`)
-- Modify: `native/ios-app/App/TopicDetail/Nodes/FireTopicQuickReplyBarNode.swift:240-246` (the backing UIView's `updateBottomInset` → keep pushing safe-area-only padding into the Auto Layout constraint, but the value passed in must no longer include keyboard height — see Task 4)
+- Modify: `native/ios-app/App/TopicDetail/Nodes/FireTopicQuickReplyBarNode.swift` — NO change to `estimatedHeight(forWidth:)`. The formula `10 + 36 + 12 + bottomInset` stays correct because `bottomInset` will now only ever receive safe-area bottom (Task 3/4 rewires the caller).
 
 **Interfaces:**
 - Consumes: nothing new.
-- Produces: `FireTopicQuickReplyBarNode.estimatedHeight` no longer depends on keyboard height. `updateBottomInset(_:)` now receives **safe-area bottom only** (the caller is changed in Task 4).
+- Produces: the bar's `estimatedHeight` is correct as-is once the caller stops passing keyboard height.
 
-- [ ] **Step 1: Remove `bottomInset` from the height formula**
+- [ ] **Step 1: Verify `estimatedHeight(forWidth:)` is left UNCHANGED**
 
-In `estimatedHeight(forWidth:)` (line 117), change:
-
+`FireTopicQuickReplyBarNode.swift:117` must remain:
 ```swift
 var height: CGFloat = 10 + 36 + 12 + bottomInset
 ```
-to:
-```swift
-var height: CGFloat = 10 + 36 + 12
-```
-
-Leave the `bottomInset` stored property and `updateBottomInset(_:)` intact for now (the backing UIView still uses it for safe-area padding). Only the height estimator stops consuming it.
+This is correct: `bottomInset` will hold safe-area bottom only after Task 3/4. Do NOT remove `bottomInset` from this formula (doing so would clip content when keyboard is hidden, per the review).
 
 - [ ] **Step 2: Run the Task 1 test — verify it passes**
 
@@ -288,30 +285,32 @@ override func layout() {
 }
 ```
 
-Update `layoutSpecThatFits(_:)` to offset the overlay up by `keyboardOverlap` (so the bar sits above the keyboard, not under it):
+Update `layoutSpecThatFits(_:)` to lift the bar above the keyboard WITHOUT shrinking the feed (avoiding double-counting the keyboard height — the feed's scrollable area already reserves it via `contentInset.bottom` set in `layout()`). Wrap ONLY the bar in an `ASInsetLayoutSpec` so the feed stays full-size; the bar's bottom edge lands at `view.bottom - keyboardOverlap`:
 
 ```swift
 override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
     if !quickReplyBarNode.isHidden {
-        let relative = ASRelativeLayoutSpec(
-            horizontalPosition: .start,
-            verticalPosition: .end,
-            sizingOption: [],
-            child: quickReplyBarNode
-        )
-        let overlay = ASOverlayLayoutSpec(child: feedNode, overlay: relative)
-        return ASInsetLayoutSpec(
+        // Lift the bar up by keyboardOverlap: give the bar a bottom inset so the
+        // ASRelativeLayoutSpec(.end) pins it to (overlayBottom - keyboardOverlap).
+        let barWithLift = ASInsetLayoutSpec(
             insets: UIEdgeInsets(
                 top: 0, left: 0,
                 bottom: keyboardOverlap,
                 right: 0),
-            child: overlay)
+            child: quickReplyBarNode)
+        let relative = ASRelativeLayoutSpec(
+            horizontalPosition: .start,
+            verticalPosition: .end,
+            sizingOption: [],
+            child: barWithLift)
+        // Feed stays full-size; only the overlay (bar) is inset.
+        return ASOverlayLayoutSpec(child: feedNode, overlay: relative)
     }
     return ASWrapperLayoutSpec(layoutElement: feedNode)
 }
 ```
 
-> Why `ASInsetLayoutSpec` bottom = `keyboardOverlap`: the relative spec pins the bar to the overlay's bottom; the inset spec shrinks the overlay's bottom by the keyboard height, so the bar's bottom lands at `view.bottom - keyboardOverlap` — i.e. just above the keyboard. Safe-area is handled by the bar's own backing-view padding (`updateBottomInset` still receives safe-area).
+> **Why this avoids double-counting:** the feed node is the direct child of the overlay spec and keeps the full constrained size. Only the bar's layout subtree receives the `keyboardOverlap` bottom inset, moving the bar up to sit above the keyboard. Separately, `layout()` sets `contentInset.bottom = barHeight + keyboardOverlap` so the feed's scrollable content can scroll up enough to reveal the bar above the keyboard. The two mechanisms are complementary (one positions the bar, one reserves scroll space), not additive on the same region.
 
 - [ ] **Step 4: Run both root-node + bar tests — verify pass**
 
@@ -390,6 +389,8 @@ git commit -m "fix(ios): pass safe-area and keyboard overlap separately to root 
 > **VERIFIED FACT (read before coding):** `RequiredTagGroupState` (`rust/crates/fire-uniffi-types/src/records/tag.rs:4`, surfaced in Swift at `fire_uniffi_types.swift`) has ONLY `name: String` and `min_count/minCount: UInt32`. There is **no `tags` field**. The group's name identifies a Discourse tag group server-side, but the client has no list of which tags belong to that group. Therefore the client **cannot fully validate** a required-tag-group constraint locally — it can only enforce `minimumRequiredTags` (total count) and surface the group requirement as advisory text (which the existing code already does at `FireComposerView.swift:654`).
 
 > **Implication for step-1 gating:** `metaStepReady` enforces title + category + `minimumRequiredTags` (total). Required-tag-group violations will only be caught at publish time by the server (same as today). The requirement summary in step 1 still shows the group text so the user knows about it. **Do not invent a `group.tags` field.** If you later want true client-side group validation, that requires adding `tags: Vec<String>` to the Rust `RequiredTagGroupState` record and the Discourse parser that populates it — out of scope for this plan.
+
+> **PREREQUISITE — update the spec BEFORE coding Task 5.** The design doc §4.2 (lines ~140-146) still contains the stale four-condition gating with `group.tags.contains`. Edit `docs/superpowers/specs/2026-06-22-composer-redesign-design.md` §4.2 "Next button gating" to: enabled when `trimmedTitle.count >= minimumTitleLength` AND `selectedCategoryID != nil` AND `selectedTags.count >= minimumRequiredTags`. Add a note: "Required tag groups are advisory in step 1; the client cannot validate group membership because `RequiredTagGroupState` carries no tag list. Group violations are caught at publish by the server." Commit this spec change as `docs: align composer spec with requiredTagGroupState reality` before proceeding to Task 5 Step 1.
 
 - [ ] **Step 1: Write failing tests**
 
@@ -678,7 +679,9 @@ git commit -m "feat(ios): two-step composer state machine with content swap"
 
 - [ ] **Step 1: Build the view (UIKit, programmatic Auto Layout)**
 
-A `UIView` subclass containing: title `UITextField`, a container that flips between (a) inline hot-category list + "更多分类…" button and (b) selected-category summary with "更换", a selected-tags chip row, a hot-tags row, and a collapsed "搜索标签" entry. Use `FireComposerCardView` (existing private class) for card backgrounds.
+A `UIView` subclass containing: title `UITextField`, a container that flips between (a) inline hot-category list + "更多分类…" button and (b) selected-category summary with "更换", a selected-tags chip row, a hot-tags row, and a collapsed "搜索标签" entry. Use `FireComposerCardView` for card backgrounds.
+
+> **Prerequisite:** `FireComposerCardView` is currently `private` inside `FireComposerView.swift` (line 2449). Before (or as part of) this task, change its declaration from `private final class FireComposerCardView` to `final class FireComposerCardView` (internal) so the new file can use it. This is a one-token edit in `FireComposerView.swift`; do it as the first step of this task and include it in the commit.
 
 Expose configuration via `apply(state:)` where `state` carries `title`, `selectedCategory`, `hotCategories`, `selectedTags`, `hotTags`, `nextEnabled`.
 
@@ -802,7 +805,11 @@ final class FireLocalDraftStoreTests: XCTestCase {
         let draft = FireLocalDraft(
             draftKey: "new_topic", step: .body,
             title: "hi", categoryId: 4, tags: ["a"], bodyText: "body {{attach:local-x}}",
-            routeKind: .createTopic, updatedAt: Date(timeIntervalSince1970: 1719043200))
+            routeKind: .createTopic,
+            attachments: [FireLocalDraftAttachment(
+                localId: "local-x", fileExtension: "jpg",
+                mimeType: "image/jpeg", fileName: "image.jpg")],
+            updatedAt: Date(timeIntervalSince1970: 1719043200))
         try store.saveDraft(draftKey: "new_topic", draft: draft)
         let loaded = store.loadDraft(draftKey: "new_topic")
         XCTAssertEqual(loaded, draft)
@@ -812,7 +819,7 @@ final class FireLocalDraftStoreTests: XCTestCase {
         let store = makeStore()
         let draft = FireLocalDraft(draftKey: "topic_1", step: .meta, title: "t",
             categoryId: nil, tags: [], bodyText: "", routeKind: .advancedReply,
-            updatedAt: Date())
+            attachments: [], updatedAt: Date())
         try store.saveDraft(draftKey: "topic_1", draft: draft)
         XCTAssertNotNil(store.loadDraft(draftKey: "topic_1"))
         try store.deleteDraft(draftKey: "topic_1")
@@ -854,7 +861,15 @@ struct FireLocalDraft: Codable, Equatable {
     var tags: [String]
     var bodyText: String
     var routeKind: RouteKindCodable
+    var attachments: [FireLocalDraftAttachment]
     var updatedAt: Date
+}
+
+struct FireLocalDraftAttachment: Codable, Equatable {
+    var localId: String
+    var fileExtension: String
+    var mimeType: String
+    var fileName: String
 }
 
 // Local drafts are scoped to .createTopic and non-PM .advancedReply only.
@@ -864,6 +879,8 @@ enum RouteKindCodable: String, Codable, Equatable {
     case advancedReply
 }
 ```
+
+> **Why `attachments` lives on the draft (review fix P1 #4):** the body token `{{attach:local-<uuid>}}` carries only the id. On app relaunch the upload step needs `fileExtension`/`mimeType`/`fileName` to read the local file and call `uploadImage`. Storing a parallel `attachments` array on `FireLocalDraft` makes these recoverable. The token in `bodyText` stays as the cross-reference key.
 
 - [ ] **Step 4: Implement `FireLocalDraftStore` + `FileFireLocalDraftStore`**
 
@@ -1111,20 +1128,36 @@ Replace the upload call with:
 let localId = FireComposerImageTokens.makeLocalId()
 try localDraftStore.saveImage(draftKey: route.draftKey, localId: localId,
                               fileExtension: fileExtension, bytes: data)
+// Record attachment metadata so upload-on-publish can recover fileExtension/mimeType.
+let attachment = FireLocalDraftAttachment(
+    localId: localId, fileExtension: fileExtension,
+    mimeType: mimeType, fileName: "image.\(fileExtension)")
+draftAttachments[localId] = attachment   // persisted in Task 14's autosave
 let token = "{{attach:\(localId)}}"
 replaceText(in: bodySelection, with: "\n\(token)\n")
 ```
+
+> `draftAttachments` is a `[String: FireLocalDraftAttachment]` on the controller that gets merged into `FireLocalDraft.attachments` whenever the draft is autosaved (Task 14). This ensures the metadata survives app relaunch alongside the token in `bodyText`.
 
 - [ ] **Step 2: Add upload-on-publish step**
 
 Before `createTopic`/`submitReply` in `submitComposer`:
 
 ```swift
+let draft = localDraftStore.loadDraft(draftKey: route.draftKey)
+let attachmentById = Dictionary(
+    uniqueKeysWithValues: (draft?.attachments ?? []).map { ($0.localId, $0) })
 let tokens = FireComposerImageTokens.scanTokens(bodyText)
 var mappings: [String: String] = [:]
 for id in tokens {
-    let bytes = try localDraftStore.loadImage(draftKey: route.draftKey, localId: id, fileExtension: extFor(id))
-    let result = try await viewModel.uploadImage(fileName: fileNameFor(id), mimeType: mimeFor(bytes), bytes: bytes)
+    guard let att = attachmentById[id] else {
+        throw NSError(domain: "FireComposer", code: 1,
+                      userInfo: [NSLocalizedDescriptionKey: "缺少图片信息: \(id)"])
+    }
+    let bytes = try localDraftStore.loadImage(
+        draftKey: route.draftKey, localId: id, fileExtension: att.fileExtension)
+    let result = try await viewModel.uploadImage(
+        fileName: att.fileName, mimeType: att.mimeType, bytes: bytes)
     mappings[id] = markdownForUpload(result)
 }
 bodyText = FireComposerImageTokens.replaceTokens(bodyText, mappings: mappings)
@@ -1233,6 +1266,9 @@ Re-read the spec; if any detail diverged during implementation (e.g. `RequiredTa
 ## Self-Review Notes
 
 - **Spec coverage:** §4.1 → Tasks 1–4. §4.2 (step 1) → Tasks 5,7,8. §4.2 (step 2 + pickers) → Tasks 6,7,9. §4.3 (images) → Tasks 11–13. §4.4 (local drafts) → Tasks 10,14. §4.5 (half-sheets) → Task 9. §7 (errors) → handled inline in Tasks 13/14. §8 (testing) → Tasks 1,3,5,10,11 + PM guard Task 14.
-- **VERIFIED:** `RequiredTagGroupState` has only `name` + `minCount` (no `tags`). `metaStepReady` therefore enforces `minimumRequiredTags` total count only; required-tag-group *content* is validated at publish by the server. Step 1 still shows group requirement text (existing `FireComposerCategoryGuidance.categorySheetSummary`). This is a spec deviation — see Task 15 Step 4: update the spec §4.2 gating bullet and §10 to reflect that client-side group validation is not possible without a Rust record change (deferred).
+- **VERIFIED:** `RequiredTagGroupState` has only `name` + `minCount` (no `tags`). `metaStepReady` therefore enforces `minimumRequiredTags` total count only; required-tag-group *content* is validated at publish by the server. **Spec §4.2 must be updated first (Task 5 prerequisite).** The plan's §4.2 gating and §10 reflect this; do NOT carry the stale `group.tags.contains` code into implementation.
+- **Phase 1 geometry (review fixes P1 #1 + #2):** bar height = `10 + 36 + 12 + safeAreaBottom` (keyboard excluded, safe area kept). Keyboard overlap goes to feed `contentInset.bottom` only; the `ASInsetLayoutSpec` wraps ONLY the bar subtree (not the feed) so keyboard height is not double-counted.
+- **Image metadata (review fix P1 #4):** `FireLocalDraft.attachments: [FireLocalDraftAttachment]` stores `localId`/`fileExtension`/`mimeType`/`fileName` so upload-on-publish can recover everything after app relaunch. The body token `{{attach:local-<uuid>}}` is the cross-reference key.
 - **PM boundary enforced** in Task 14 with a guard test, matching the review fix.
 - **Naming** `FireComposerTagSearchSheet` enforced in Task 9.
+- **`FireComposerCardView`** made `internal` (Task 8 prerequisite) so the new step view file can use it.

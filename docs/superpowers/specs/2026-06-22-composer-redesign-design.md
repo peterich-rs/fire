@@ -49,10 +49,11 @@ The bar and feed are composed via Texture layout specs, not Auto Layout constrai
 
 ```
 FireTopicQuickReplyBarNode.estimatedHeight(forWidth:):
-  height = 10 + 36 + 12            // input row + vertical padding only
+  height = 10 + 36 + 12 + bottomInset
+                                      // input row + vertical padding + safe area
         + topStackHeight            // typing/target line, conditional
         + validationMessageHeight   // conditional
-  // bottomInset (full keyboard height) is NOT added — see fix below
+  // bottomInset is safe-area only; keyboard height is NOT passed to the bar.
 
 FireTopicDetailRootNode.layoutSpecThatFits(_ :):
   // 1. feed contentInset.bottom absorbs bar height + keyboard overlap
@@ -61,14 +62,14 @@ FireTopicDetailRootNode.layoutSpecThatFits(_ :):
   scrollView.contentInset.bottom = barHeight + keyboardOverlap
 
   // 2. overlay offsets the bar UP by keyboardOverlap so it sits above
-  //    the keyboard. Use an ASInsetLayoutSpec wrapping the relative
-  //    overlay (bottom inset = keyboardOverlap + safeAreaBottom),
-  //    NOT Auto Layout constraints and NOT growing bar height.
-  let pinned = ASRelativeLayoutSpec(.start, .end, child: bar)
-  return ASInsetLayoutSpec(
-      insets: UIEdgeInsets(top: 0, left: 0, bottom: keyboardOverlap + safeAreaBottom, right: 0),
-      child: ASOverlayLayoutSpec(child: feedNode, overlay: pinned)
+  //    the keyboard. Wrap only the bar subtree in ASInsetLayoutSpec
+  //    (bottom inset = keyboardOverlap), NOT the feed overlay itself.
+  let liftedBar = ASInsetLayoutSpec(
+      insets: UIEdgeInsets(top: 0, left: 0, bottom: keyboardOverlap, right: 0),
+      child: bar
   )
+  let pinned = ASRelativeLayoutSpec(.start, .end, child: liftedBar)
+  return ASOverlayLayoutSpec(child: feedNode, overlay: pinned)
 ```
 
 `keyboardOverlap` is the live keyboard frame height intersecting the view (0 when hidden). It is passed into the root node alongside the existing `bottomInset` plumbing; the bar no longer consumes it into its own `estimatedHeight`.
@@ -141,9 +142,10 @@ A single screen. State-driven: category selection controls whether the tag secti
 - `trimmedTitle.count >= minimumTitleLength`
 - `selectedCategoryID != nil`
 - `selectedTags.count >= selectedCategoryMinimumTags` (category `minimumRequiredTags`)
-- every `requiredTagGroup` is satisfied: for each group, `selectedTags.filter { group.tags.contains($0) }.count >= group.minCount`
 
-This rule is implemented once in the shared `FireComposerValidation` helper (see component inventory) and reused by step-1 gating, step-2 publish gating, and tests — so step-1 cannot pass while a required tag group is still violated. The requirement summaries already rendered in `FireComposerView` (group name + `minCount`) are surfaced from the same category data, keeping display and gating consistent.
+Required tag groups are **advisory in step 1**; the client cannot validate group membership because `RequiredTagGroupState` carries only `name` and `min_count` — there is no `tags` field listing which tags belong to each group. Group violations are caught at publish time by the server (same as today). Step 1 still renders the group requirement summaries (group name + `minCount`) so the user knows about them.
+
+This rule is implemented once in the shared `FireComposerValidation.metaStepReady(...)` helper (see component inventory) and reused by step-1 gating, step-2 publish gating, and tests.
 
 **Category template injection:** if the selected category has a `topicTemplate`, inject it into the body when transitioning to step 2 (only if body is empty). Track `lastInjectedTemplate` so re-selecting the same category doesn't overwrite user edits.
 
@@ -348,7 +350,7 @@ For step 2's category/tag card expand: re-present `FireCategoryPickerSheet` (cat
 | `FireComposerImageAttachment` | New (NSTextAttachment) | Inline local image thumbnail in UITextView |
 | `FireLocalDraftStore` | New (protocol + impl) | File-based local draft persistence (createTopic / non-PM advancedReply only) |
 | `FireLocalDraft` | New (struct) | Draft data model (no `recipients` — PM excluded) |
-| `FireComposerValidation` | Existing (extend) | Shared gating: title/category/minimumTags + `requiredTagGroups`; reused by step-1, publish, tests |
+| `FireComposerValidation` | Existing (extend) | Shared step-1 gating: title/category/minimumTags (`metaStepReady`); required tag groups are advisory only. Reused by step-1, publish, tests |
 
 ## 6. Data flow
 
@@ -381,7 +383,7 @@ Step 1 (meta)                         Step 2 (body)
 
 ## 8. Testing
 
-- **Unit:** `FireComposerValidation` — extend for step transitions AND `requiredTagGroups` gating (case: enough total tags but a group short on `minCount` → step-1 disabled). `FireLocalDraftStore` (save/load/delete/restore with images; verify PM routes are NOT persisted locally). `FireMarkdownInsertion` (existing, verify `{{attach:}}` token handling). Image token scan + replacement logic (pure function, testable without UIKit).
+- **Unit:** `FireComposerValidation` — extend for step-1 gating (`metaStepReady`: title/category/`minimumRequiredTags`; required tag groups cannot be validated client-side because `RequiredTagGroupState` has no tag list, so they stay advisory). `FireLocalDraftStore` (save/load/delete/restore with images; verify PM routes are NOT persisted locally). `FireMarkdownInsertion` (existing, verify `{{attach:}}` token handling). Image token scan + replacement logic (pure function, testable without UIKit).
 - **Unit:** Quick reply bar height calculation (no keyboard inset in height). Root node layout-spec offset + `contentInset.bottom` carries the keyboard overlap (no Auto Layout constraints introduced).
 - **Integration:** PHPicker → local file → attachment render → publish upload → markdown replacement → submit. End-to-end with mock upload service. Verify `.privateMessage` / PM `.advancedReply` still round-trip through the server draft API (regression guard).
 - **Manual:** Quick reply bar visible and tappable with keyboard up. Composer step 1 → step 2 transition (incl. a category with a `requiredTagGroup` blocking Next until satisfied). Image pick → preview → publish. Draft restore across app relaunch.

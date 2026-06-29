@@ -789,6 +789,7 @@ final class FireComposerViewController: UIViewController {
     private let suggestedTagsStack = UIStackView()
     private let tagResultsStack = UIStackView()
     private let tagField = UITextField()
+    private let metaStepView = FireComposerMetaStepView()
     private let recipientChipsStack = UIStackView()
     private let recipientField = UITextField()
     private let recipientResultsStack = UIStackView()
@@ -1138,6 +1139,9 @@ final class FireComposerViewController: UIViewController {
         topicHeaderStack.addArrangedSubview(tagField)
         topicHeaderStack.addArrangedSubview(suggestedTagsStack)
         topicHeaderStack.addArrangedSubview(tagResultsStack)
+        topicHeaderStack.addArrangedSubview(metaStepView)
+
+        configureMetaStepView()
     }
 
     private func configurePrivateHeader() {
@@ -1374,6 +1378,112 @@ final class FireComposerViewController: UIViewController {
         suggestedTagsStack.isHidden = !canShowTags || suggestedTags.isEmpty
         tagField.isHidden = !canShowTags
         tagResultsStack.isHidden = tagResults.isEmpty
+
+        let useMetaStep = isMetaStepForCreateTopic
+        topicTitleField.isHidden = useMetaStep
+        categoryButton.isHidden = useMetaStep
+        requirementsCard.isHidden = useMetaStep || selectedCategory == nil
+        selectedTagsStack.isHidden = useMetaStep ? true : selectedTags.isEmpty
+        tagField.isHidden = useMetaStep ? true : !canShowTags
+        suggestedTagsStack.isHidden = useMetaStep ? true : (!canShowTags || suggestedTags.isEmpty)
+        metaStepView.isHidden = !useMetaStep
+
+        if useMetaStep {
+            renderMetaStep()
+        }
+    }
+
+    private func renderMetaStep() {
+        let categoryName = selectedCategory.map(categoryDisplayName(for:))
+        let nextEnabled = FireComposerValidation.metaStepReady(
+            trimmedTitle: trimmedTitle,
+            categoryId: selectedCategoryID,
+            selectedTagCount: selectedTags.count,
+            category: selectedCategory,
+            minimumTitleLength: minimumTitleLength
+        )
+
+        var summaryLines: [String] = []
+        if selectedCategoryMinimumTags > 0 {
+            summaryLines.append("标签进度：\(selectedTags.count)/\(selectedCategoryMinimumTags)")
+        }
+        for group in selectedCategoryRequiredTagGroups {
+            summaryLines.append(requiredTagGroupRequirementText(group))
+        }
+        if selectedCategoryHasTemplate {
+            summaryLines.append("该分类会自动带出发帖模板。")
+        }
+        if categoryName == nil {
+            summaryLines.append("先选择分类，系统才会显示该分类的模板和标签要求。")
+        }
+
+        let hotCategoryNames = availableCategories.prefix(6).map(categoryDisplayName(for:))
+
+        let state = FireComposerMetaStepState(
+            title: titleText,
+            selectedCategoryName: categoryName,
+            hotCategoryNames: hotCategoryNames,
+            selectedTags: selectedTags,
+            hotTags: suggestedTags,
+            minimumRequiredTags: selectedCategoryMinimumTags,
+            selectedTagCount: selectedTags.count,
+            requirementSummaryLines: summaryLines,
+            nextEnabled: nextEnabled
+        )
+        metaStepView.apply(state: state)
+    }
+
+    private func configureMetaStepView() {
+        metaStepView.translatesAutoresizingMaskIntoConstraints = false
+        metaStepView.onTitleChanged = { [weak self] text in
+            guard let self else { return }
+            self.titleText = text
+            self.errorMessage = nil
+            self.scheduleAutosave()
+            self.render()
+        }
+        metaStepView.onCategorySelected = { [weak self] index in
+            guard let self else { return }
+            let categories = Array(self.availableCategories.prefix(6))
+            guard index < categories.count else { return }
+            self.selectCategory(categories[index])
+        }
+        metaStepView.onRequestMoreCategories = { [weak self] in
+            self?.categoryButtonTapped()
+        }
+        metaStepView.onRequestChangeCategory = { [weak self] in
+            self?.categoryButtonTapped()
+        }
+        metaStepView.onTagToggled = { [weak self] tag in
+            guard let self else { return }
+            if self.selectedTags.contains(tag) {
+                self.selectedTags.removeAll { $0 == tag }
+                self.errorMessage = nil
+                self.scheduleAutosave()
+                self.render()
+            } else {
+                self.addTag(tag)
+            }
+        }
+        metaStepView.onRequestTagSearch = { [weak self] in
+            self?.tagField.becomeFirstResponder()
+        }
+        metaStepView.onNext = { [weak self] in
+            self?.goToBodyStep()
+        }
+    }
+
+    private func selectCategory(_ category: FireTopicCategoryPresentation) {
+        selectedCategoryID = category.id
+        applyCategoryTemplateIfNeeded()
+        if tagInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            tagResults = []
+        } else {
+            performTagSearch(query: tagInput)
+        }
+        errorMessage = nil
+        scheduleAutosave()
+        render()
     }
 
     private func renderPrivateHeader() {
@@ -2621,7 +2731,7 @@ private enum FireComposerPalette {
     }
 }
 
-private final class FireComposerCardView: UIView {
+final class FireComposerCardView: UIView {
     private var embeddedView: UIView?
 
     init() {

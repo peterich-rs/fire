@@ -780,7 +780,6 @@ final class FireComposerViewController: UIViewController {
     private let privateHeaderStack = UIStackView()
     private let topicTitleField = UITextField()
     private let privateTitleField = UITextField()
-    private let categoryButton = UIButton(type: .system)
     private let requirementsCard = FireComposerCardView()
     private let requirementsStack = UIStackView()
     private let selectedTagsStack = UIStackView()
@@ -1110,10 +1109,6 @@ final class FireComposerViewController: UIViewController {
         configureTitleField(topicTitleField, placeholder: "标题")
         topicTitleField.addTarget(self, action: #selector(titleFieldChanged(_:)), for: .editingChanged)
 
-        categoryButton.contentHorizontalAlignment = .leading
-        categoryButton.configuration = makePlainButtonConfiguration(title: "选择分类", systemImage: "folder")
-        categoryButton.addTarget(self, action: #selector(categoryButtonTapped), for: .touchUpInside)
-
         requirementsStack.axis = .vertical
         requirementsStack.spacing = 8
         requirementsCard.embed(requirementsStack, insets: UIEdgeInsets(top: 14, left: 14, bottom: 14, right: 14))
@@ -1126,7 +1121,6 @@ final class FireComposerViewController: UIViewController {
         tagField.addTarget(self, action: #selector(tagFieldChanged(_:)), for: .editingChanged)
 
         topicHeaderStack.addArrangedSubview(topicTitleField)
-        topicHeaderStack.addArrangedSubview(categoryButton)
         topicHeaderStack.addArrangedSubview(requirementsCard)
         topicHeaderStack.addArrangedSubview(selectedTagsStack)
         topicHeaderStack.addArrangedSubview(tagField)
@@ -1322,10 +1316,6 @@ final class FireComposerViewController: UIViewController {
     private func renderTopicHeader() {
         guard case .createTopic = route.kind else { return }
         setTextField(topicTitleField, text: titleText)
-        categoryButton.configuration = makePlainButtonConfiguration(
-            title: selectedCategory.map(categoryDisplayName(for:)) ?? "选择分类",
-            systemImage: "folder"
-        )
 
         requirementsStack.removeAllArrangedSubviews()
         let headerRow = UIStackView()
@@ -1367,7 +1357,6 @@ final class FireComposerViewController: UIViewController {
 
         let useMetaStep = isMetaStepForCreateTopic
         topicTitleField.isHidden = useMetaStep
-        categoryButton.isHidden = useMetaStep
         requirementsCard.isHidden = useMetaStep || selectedCategory == nil
         selectedTagsStack.isHidden = useMetaStep ? true : selectedTags.isEmpty
         tagField.isHidden = useMetaStep ? true : !canShowTags
@@ -1824,34 +1813,6 @@ final class FireComposerViewController: UIViewController {
         recipientQuery = sender.text ?? ""
         performRecipientSearch(query: recipientQuery)
         render()
-    }
-
-    @objc private func categoryButtonTapped() {
-        let alert = UIAlertController(title: "选择分类", message: nil, preferredStyle: .actionSheet)
-        for category in availableCategories {
-            let title = categoryDisplayName(for: category)
-            let summary = FireComposerCategoryGuidance.categorySheetSummary(for: category)
-            let action = UIAlertAction(title: summary == nil ? title : "\(title) · \(summary ?? "")", style: .default) { [weak self] _ in
-                guard let self else { return }
-                selectedCategoryID = category.id
-                applyCategoryTemplateIfNeeded()
-                if tagInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    tagResults = []
-                } else {
-                    performTagSearch(query: tagInput)
-                }
-                errorMessage = nil
-                scheduleAutosave()
-                render()
-            }
-            alert.addAction(action)
-        }
-        alert.addAction(UIAlertAction(title: "取消", style: .cancel))
-        if let popover = alert.popoverPresentationController {
-            popover.sourceView = categoryButton
-            popover.sourceRect = categoryButton.bounds
-        }
-        present(alert, animated: true)
     }
 
     private func presentCategoryPickerSheet() {

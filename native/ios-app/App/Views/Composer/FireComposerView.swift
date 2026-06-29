@@ -799,6 +799,7 @@ final class FireComposerViewController: UIViewController {
     private let previewContainer = FireComposerCardView()
     private let previewStack = UIStackView()
     private let bottomBar = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterial))
+    private var bottomBarBottomConstraint: NSLayoutConstraint?
     private let bottomStack = UIStackView()
     private let validationLabel = UILabel()
     private let clearDraftButton = UIButton(type: .system)
@@ -1030,10 +1031,12 @@ final class FireComposerViewController: UIViewController {
         bottomBar.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(bottomBar)
 
+        bottomBarBottomConstraint = bottomBar.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+
         NSLayoutConstraint.activate([
             bottomBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             bottomBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            bottomBar.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            bottomBarBottomConstraint!,
 
             scrollView.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor),
@@ -1046,6 +1049,19 @@ final class FireComposerViewController: UIViewController {
             contentStack.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor, constant: -24),
             contentStack.widthAnchor.constraint(equalTo: scrollView.frameLayoutGuide.widthAnchor, constant: -32),
         ])
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(composerKeyboardWillChangeFrame(_:)),
+            name: UIResponder.keyboardWillChangeFrameNotification,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(composerKeyboardWillHide(_:)),
+            name: UIResponder.keyboardWillHideNotification,
+            object: nil
+        )
     }
 
     private func configureTopicHeader() {
@@ -1500,6 +1516,32 @@ final class FireComposerViewController: UIViewController {
         configuration.baseBackgroundColor = validation.canSubmit ? FireTopicListPalette.accent : .tertiaryLabel
         submitButton.configuration = configuration
         navigationItem.leftBarButtonItem?.isEnabled = !isSubmitting
+    }
+
+    @objc private func composerKeyboardWillChangeFrame(_ notification: Notification) {
+        guard let frameEnd = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else { return }
+        let converted = view.convert(frameEnd, from: nil)
+        let overlap = max(0, view.bounds.maxY - converted.minY)
+        applyKeyboardInset(overlap, notification: notification)
+    }
+
+    @objc private func composerKeyboardWillHide(_ notification: Notification) {
+        applyKeyboardInset(0, notification: notification)
+    }
+
+    private func applyKeyboardInset(_ overlap: CGFloat, notification: Notification) {
+        scrollView.contentInset.bottom = overlap
+        scrollView.verticalScrollIndicatorInsets.bottom = overlap
+        bottomBarBottomConstraint?.constant = overlap > 0 ? -overlap : 0
+        let duration = (notification.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? NSNumber)?.doubleValue ?? 0.25
+        let curveRaw = (notification.userInfo?[UIResponder.keyboardAnimationCurveUserInfoKey] as? NSNumber)?.uintValue ?? UInt(UIView.AnimationCurve.easeInOut.rawValue)
+        UIView.animate(
+            withDuration: duration,
+            delay: 0,
+            options: [UIView.AnimationOptions(rawValue: curveRaw << 16), .beginFromCurrentState]
+        ) {
+            self.view.layoutIfNeeded()
+        }
     }
 
     @objc private func closeButtonTapped() {

@@ -724,6 +724,11 @@ enum FireComposerCategoryGuidance {
 
 @MainActor
 final class FireComposerViewController: UIViewController {
+    enum Step {
+        case meta
+        case body
+    }
+
     private let viewModel: FireAppViewModel
     private let route: FireComposerRoute
     private let initialBody: String?
@@ -759,6 +764,7 @@ final class FireComposerViewController: UIViewController {
     private var noticeMessage: String?
     private var errorMessage: String?
     private var resolvedUploads: [String: ResolvedUploadUrlState] = [:]
+    private var step: Step = .body
 
     private var autosaveTask: Task<Void, Never>?
     private var tagSearchTask: Task<Void, Never>?
@@ -838,6 +844,7 @@ final class FireComposerViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        step = initialStep(for: route.kind)
         configureChrome()
         configureLayout()
         configureTopicHeader()
@@ -988,21 +995,59 @@ final class FireComposerViewController: UIViewController {
     }
 
     private func configureChrome() {
-        title = route.navigationTitle
         view.backgroundColor = FireComposerPalette.canvas
         navigationItem.largeTitleDisplayMode = .never
-        navigationItem.leftBarButtonItem = UIBarButtonItem(
-            title: "关闭",
-            style: .plain,
-            target: self,
-            action: #selector(closeButtonTapped)
-        )
-        navigationItem.rightBarButtonItem = UIBarButtonItem(
-            title: route.submitLabel,
-            style: .done,
-            target: self,
-            action: #selector(submitButtonTapped)
-        )
+        renderNavBar()
+    }
+
+    private func renderNavBar() {
+        switch route.kind {
+        case .createTopic:
+            switch step {
+            case .meta:
+                title = route.navigationTitle
+                navigationItem.leftBarButtonItem = UIBarButtonItem(
+                    title: "关闭",
+                    style: .plain,
+                    target: self,
+                    action: #selector(closeButtonTapped)
+                )
+                navigationItem.rightBarButtonItem = UIBarButtonItem(
+                    title: "下一步",
+                    style: .done,
+                    target: self,
+                    action: #selector(nextStepButtonTapped)
+                )
+            case .body:
+                title = "编辑正文"
+                navigationItem.leftBarButtonItem = UIBarButtonItem(
+                    title: "上一步",
+                    style: .plain,
+                    target: self,
+                    action: #selector(backStepButtonTapped)
+                )
+                navigationItem.rightBarButtonItem = UIBarButtonItem(
+                    title: route.submitLabel,
+                    style: .done,
+                    target: self,
+                    action: #selector(submitButtonTapped)
+                )
+            }
+        case .advancedReply, .privateMessage:
+            title = route.navigationTitle
+            navigationItem.leftBarButtonItem = UIBarButtonItem(
+                title: "关闭",
+                style: .plain,
+                target: self,
+                action: #selector(closeButtonTapped)
+            )
+            navigationItem.rightBarButtonItem = UIBarButtonItem(
+                title: route.submitLabel,
+                style: .done,
+                target: self,
+                action: #selector(submitButtonTapped)
+            )
+        }
     }
 
     private func configureLayout() {
@@ -1245,7 +1290,7 @@ final class FireComposerViewController: UIViewController {
         errorBanner.setMessage(errorMessage)
 
         topicHeaderStack.isHidden = {
-            if case .createTopic = route.kind { return false }
+            if case .createTopic = route.kind, step == .meta { return false }
             return true
         }()
         privateHeaderStack.isHidden = {
@@ -1256,6 +1301,7 @@ final class FireComposerViewController: UIViewController {
             if case .advancedReply = route.kind { return false }
             return true
         }()
+        toolbarStack.isHidden = isMetaStepForCreateTopic
 
         renderReplyTarget()
         renderTopicHeader()
@@ -1264,6 +1310,11 @@ final class FireComposerViewController: UIViewController {
         renderEditor()
         renderPreview()
         renderBottomBar()
+    }
+
+    private var isMetaStepForCreateTopic: Bool {
+        if case .createTopic = route.kind, step == .meta { return true }
+        return false
     }
 
     private func renderReplyTarget() {
@@ -1425,6 +1476,13 @@ final class FireComposerViewController: UIViewController {
     }
 
     private func renderEditor() {
+        if isMetaStepForCreateTopic {
+            markdownToolbarScroll.isHidden = true
+            editorContainer.isHidden = true
+            mentionResultsStack.isHidden = true
+            bodyRequirementLabel.isHidden = true
+            return
+        }
         markdownToolbarScroll.isHidden = previewMode
         editorContainer.isHidden = previewMode
         mentionResultsStack.isHidden = previewMode || (mentionUsers.isEmpty && mentionGroups.isEmpty)
@@ -1467,9 +1525,9 @@ final class FireComposerViewController: UIViewController {
     }
 
     private func renderPreview() {
-        previewContainer.isHidden = !previewMode
+        previewContainer.isHidden = isMetaStepForCreateTopic ? true : !previewMode
         previewStack.removeAllArrangedSubviews()
-        guard previewMode else { return }
+        guard previewMode, !isMetaStepForCreateTopic else { return }
 
         switch route.kind {
         case .createTopic, .privateMessage:
@@ -1507,7 +1565,12 @@ final class FireComposerViewController: UIViewController {
         validationLabel.text = validation.canSubmit ? nil : validation.message
         validationLabel.isHidden = validation.canSubmit || validation.message?.isEmpty != false
         clearDraftButton.isHidden = draftSequence == 0
-        navigationItem.rightBarButtonItem?.isEnabled = validation.canSubmit
+
+        let isMetaStep: Bool = {
+            if case .createTopic = route.kind, step == .meta { return true }
+            return false
+        }()
+        navigationItem.rightBarButtonItem?.isEnabled = isMetaStep ? true : validation.canSubmit
         submitButton.isEnabled = validation.canSubmit
 
         var configuration = submitButtonConfiguration
@@ -1515,7 +1578,12 @@ final class FireComposerViewController: UIViewController {
         configuration.showsActivityIndicator = isSubmitting
         configuration.baseBackgroundColor = validation.canSubmit ? FireTopicListPalette.accent : .tertiaryLabel
         submitButton.configuration = configuration
-        navigationItem.leftBarButtonItem?.isEnabled = !isSubmitting
+
+        if case .createTopic = route.kind, step == .body {
+            navigationItem.leftBarButtonItem?.isEnabled = true
+        } else {
+            navigationItem.leftBarButtonItem?.isEnabled = !isSubmitting
+        }
     }
 
     @objc private func composerKeyboardWillChangeFrame(_ notification: Notification) {
@@ -1542,6 +1610,54 @@ final class FireComposerViewController: UIViewController {
         ) {
             self.view.layoutIfNeeded()
         }
+    }
+
+    private func initialStep(for kind: FireComposerRoute.Kind) -> Step {
+        switch kind {
+        case .createTopic:
+            return .meta
+        case .advancedReply, .privateMessage:
+            return .body
+        }
+    }
+
+    private func goToMetaStep() {
+        guard case .createTopic = route.kind else { return }
+        step = .meta
+        errorMessage = nil
+        renderNavBar()
+        render()
+    }
+
+    private func goToBodyStep() {
+        guard case .createTopic = route.kind else {
+            step = .body
+            renderNavBar()
+            render()
+            return
+        }
+        guard FireComposerValidation.metaStepReady(
+            trimmedTitle: trimmedTitle,
+            categoryId: selectedCategoryID,
+            selectedTagCount: selectedTags.count,
+            category: selectedCategory,
+            minimumTitleLength: minimumTitleLength
+        ) else {
+            showSubmissionError("请先完善标题、分类和标签。")
+            return
+        }
+        applyCategoryTemplateIfNeeded()
+        step = .body
+        renderNavBar()
+        render()
+    }
+
+    @objc private func nextStepButtonTapped() {
+        goToBodyStep()
+    }
+
+    @objc private func backStepButtonTapped() {
+        goToMetaStep()
     }
 
     @objc private func closeButtonTapped() {

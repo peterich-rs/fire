@@ -1070,11 +1070,11 @@ final class FireComposerViewController: UIViewController {
         view.addSubview(bottomBar)
 
         bottomBarBottomConstraint = bottomBar.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+        bottomBarBottomConstraint?.isActive = true
 
         NSLayoutConstraint.activate([
             bottomBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             bottomBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            bottomBarBottomConstraint!,
 
             scrollView.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor),
@@ -1421,7 +1421,7 @@ final class FireComposerViewController: UIViewController {
             guard let self else { return }
             let categories = Array(self.availableCategories.prefix(6))
             guard index < categories.count else { return }
-            self.selectCategory(categories[index])
+            self.handleCategorySelected(categories[index].id)
         }
         metaStepView.onRequestMoreCategories = { [weak self] in
             self?.presentCategoryPickerSheet()
@@ -1446,19 +1446,6 @@ final class FireComposerViewController: UIViewController {
         metaStepView.onNext = { [weak self] in
             self?.goToBodyStep()
         }
-    }
-
-    private func selectCategory(_ category: FireTopicCategoryPresentation) {
-        selectedCategoryID = category.id
-        applyCategoryTemplateIfNeeded()
-        if tagInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            tagResults = []
-        } else {
-            performTagSearch(query: tagInput)
-        }
-        errorMessage = nil
-        scheduleAutosave()
-        render()
     }
 
     private func renderPrivateHeader() {
@@ -1773,7 +1760,6 @@ final class FireComposerViewController: UIViewController {
             showSubmissionError("请先完善标题、分类和标签。")
             return
         }
-        applyCategoryTemplateIfNeeded()
         step = .body
         renderNavBar()
         render()

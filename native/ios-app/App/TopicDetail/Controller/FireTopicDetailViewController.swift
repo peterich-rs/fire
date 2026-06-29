@@ -1020,7 +1020,8 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
     }
 
     private func updateBottomChromeInset(animatedWith notification: Notification? = nil) {
-        rootNode.updateBottomSafeAreaInset(currentBottomChromeInset)
+        rootNode.updateBottomSafeAreaInset(view.safeAreaInsets.bottom)
+        rootNode.updateKeyboardOverlap(keyboardOverlapHeight)
         updateFeedTopInset()
 
         guard let notification else { return }
@@ -1036,10 +1037,6 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         ) {
             self.view.layoutIfNeeded()
         }
-    }
-
-    private var currentBottomChromeInset: CGFloat {
-        max(view.safeAreaInsets.bottom, keyboardOverlapHeight)
     }
 
     private var currentSearchBarHeight: CGFloat {

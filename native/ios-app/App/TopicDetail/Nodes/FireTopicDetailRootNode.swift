@@ -12,6 +12,7 @@ final class FireTopicDetailRootNode: ASDisplayNode {
     let feedNode: ASCollectionNode
     let quickReplyBarNode: FireTopicQuickReplyBarNode
     private var bottomSafeAreaInset: CGFloat = 0
+    private var keyboardOverlap: CGFloat = 0
     private var topChromeInset: CGFloat = 0
 
     // MARK: - Init
@@ -38,6 +39,15 @@ final class FireTopicDetailRootNode: ASDisplayNode {
     }
 
     @MainActor
+    func updateKeyboardOverlap(_ overlap: CGFloat) {
+        let target = max(overlap, 0)
+        guard abs(keyboardOverlap - target) > 0.5 else { return }
+        keyboardOverlap = target
+        invalidateCalculatedLayout()
+        setNeedsLayout()
+    }
+
+    @MainActor
     func updateTopChromeInset(_ inset: CGFloat) {
         guard abs(topChromeInset - inset) > 0.5 else { return }
         topChromeInset = inset
@@ -49,11 +59,12 @@ final class FireTopicDetailRootNode: ASDisplayNode {
         guard let scrollView = feedNode.view as? UIScrollView else { return }
         var insets = scrollView.contentInset
         insets.top = topChromeInset
-        if !quickReplyBarNode.isHidden {
-            insets.bottom = quickReplyBarNode.calculatedSize.height
-        } else {
-            insets.bottom = bottomSafeAreaInset
-        }
+        insets.bottom = fireTopicDetailFeedBottomInset(
+            quickReplyBarHeight: quickReplyBarNode.calculatedSize.height,
+            safeAreaBottom: bottomSafeAreaInset,
+            keyboardOverlap: keyboardOverlap,
+            isQuickReplyVisible: !quickReplyBarNode.isHidden
+        )
         if abs(scrollView.contentInset.top - insets.top) > 0.5
             || abs(scrollView.contentInset.bottom - insets.bottom) > 0.5 {
             scrollView.contentInset = insets
@@ -65,14 +76,32 @@ final class FireTopicDetailRootNode: ASDisplayNode {
 
     override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
         if !quickReplyBarNode.isHidden {
+            let liftedBar = ASInsetLayoutSpec(
+                insets: UIEdgeInsets(
+                    top: 0,
+                    left: 0,
+                    bottom: keyboardOverlap,
+                    right: 0
+                ),
+                child: quickReplyBarNode
+            )
             let replyOverlay = ASRelativeLayoutSpec(
                 horizontalPosition: .start,
                 verticalPosition: .end,
                 sizingOption: [],
-                child: quickReplyBarNode
+                child: liftedBar
             )
             return ASOverlayLayoutSpec(child: feedNode, overlay: replyOverlay)
         }
         return ASWrapperLayoutSpec(layoutElement: feedNode)
     }
+}
+
+func fireTopicDetailFeedBottomInset(
+    quickReplyBarHeight: CGFloat,
+    safeAreaBottom: CGFloat,
+    keyboardOverlap: CGFloat,
+    isQuickReplyVisible: Bool
+) -> CGFloat {
+    isQuickReplyVisible ? quickReplyBarHeight + keyboardOverlap : safeAreaBottom
 }

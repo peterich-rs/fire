@@ -640,6 +640,23 @@ enum FireComposerValidation {
 
         return State(canSubmit: true, message: nil)
     }
+
+    static func metaStepReady(
+        trimmedTitle: String,
+        categoryId: UInt64?,
+        selectedTagCount: Int,
+        category: TopicCategoryState?,
+        minimumTitleLength: Int
+    ) -> Bool {
+        guard trimmedTitle.count >= minimumTitleLength, categoryId != nil, let category else {
+            return false
+        }
+        let minTags = Int(category.minimumRequiredTags)
+        return selectedTagCount >= minTags
+        // NOTE: required tag groups cannot be validated client-side (no tag list
+        // per group in RequiredTagGroupState). Group violations are caught at
+        // publish by the server. Step 1 surfaces group requirements as advisory text.
+    }
 }
 
 enum FireComposerCategoryGuidance {

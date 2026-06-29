@@ -776,8 +776,6 @@ final class FireComposerViewController: UIViewController {
     private let contentStack = UIStackView()
     private let noticeBanner = FireComposerBannerView(style: .success)
     private let errorBanner = FireComposerBannerView(style: .error)
-    private let replyTargetCard = FireComposerCardView()
-    private let replyTargetStack = UIStackView()
     private let topicHeaderStack = UIStackView()
     private let privateHeaderStack = UIStackView()
     private let topicTitleField = UITextField()
@@ -790,6 +788,7 @@ final class FireComposerViewController: UIViewController {
     private let tagResultsStack = UIStackView()
     private let tagField = UITextField()
     private let metaStepView = FireComposerMetaStepView()
+    private let bodyStepView = FireComposerBodyStepView()
     private let recipientChipsStack = UIStackView()
     private let recipientField = UITextField()
     private let recipientResultsStack = UIStackView()
@@ -799,10 +798,8 @@ final class FireComposerViewController: UIViewController {
     private let countLabel = UILabel()
     private let markdownToolbarScroll = UIScrollView()
     private let markdownToolbarStack = UIStackView()
-    private let editorContainer = FireComposerCardView()
     private let bodyTextView = UITextView()
     private let mentionResultsStack = UIStackView()
-    private let bodyRequirementLabel = UILabel()
     private let previewContainer = FireComposerCardView()
     private let previewStack = UIStackView()
     private let bottomBar = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterial))
@@ -850,7 +847,6 @@ final class FireComposerViewController: UIViewController {
         configureLayout()
         configureTopicHeader()
         configurePrivateHeader()
-        configureReplyTargetCard()
         configureComposerToolbar()
         configureEditor()
         configurePreview()
@@ -1064,14 +1060,11 @@ final class FireComposerViewController: UIViewController {
 
         contentStack.addArrangedSubview(noticeBanner)
         contentStack.addArrangedSubview(errorBanner)
-        contentStack.addArrangedSubview(replyTargetCard)
         contentStack.addArrangedSubview(topicHeaderStack)
         contentStack.addArrangedSubview(privateHeaderStack)
         contentStack.addArrangedSubview(toolbarStack)
-        contentStack.addArrangedSubview(markdownToolbarScroll)
-        contentStack.addArrangedSubview(editorContainer)
+        contentStack.addArrangedSubview(bodyStepView)
         contentStack.addArrangedSubview(mentionResultsStack)
-        contentStack.addArrangedSubview(bodyRequirementLabel)
         contentStack.addArrangedSubview(previewContainer)
 
         bottomBar.translatesAutoresizingMaskIntoConstraints = false
@@ -1162,12 +1155,6 @@ final class FireComposerViewController: UIViewController {
         privateHeaderStack.addArrangedSubview(privateTitleField)
     }
 
-    private func configureReplyTargetCard() {
-        replyTargetStack.axis = .vertical
-        replyTargetStack.spacing = 6
-        replyTargetCard.embed(replyTargetStack, insets: UIEdgeInsets(top: 14, left: 14, bottom: 14, right: 14))
-    }
-
     private func configureComposerToolbar() {
         toolbarStack.axis = .horizontal
         toolbarStack.alignment = .center
@@ -1209,6 +1196,15 @@ final class FireComposerViewController: UIViewController {
             markdownToolbarStack.heightAnchor.constraint(equalTo: markdownToolbarScroll.frameLayoutGuide.heightAnchor),
         ])
 
+        markdownToolbarScroll.translatesAutoresizingMaskIntoConstraints = false
+        bodyStepView.markdownToolbarContainer.addSubview(markdownToolbarScroll)
+        NSLayoutConstraint.activate([
+            markdownToolbarScroll.leadingAnchor.constraint(equalTo: bodyStepView.markdownToolbarContainer.leadingAnchor),
+            markdownToolbarScroll.trailingAnchor.constraint(equalTo: bodyStepView.markdownToolbarContainer.trailingAnchor),
+            markdownToolbarScroll.topAnchor.constraint(equalTo: bodyStepView.markdownToolbarContainer.topAnchor),
+            markdownToolbarScroll.bottomAnchor.constraint(equalTo: bodyStepView.markdownToolbarContainer.bottomAnchor),
+        ])
+
         for action in FireMarkdownFormatAction.allCases {
             let button = UIButton(type: .system)
             button.tag = action.rawTag
@@ -1233,15 +1229,20 @@ final class FireComposerViewController: UIViewController {
         bodyTextView.smartDashesType = .yes
         bodyTextView.smartQuotesType = .yes
         bodyTextView.textContainerInset = UIEdgeInsets(top: 14, left: 12, bottom: 14, right: 12)
-        editorContainer.embed(bodyTextView, insets: .zero)
+        bodyStepView.editorContainer.embed(bodyTextView, insets: .zero)
         bodyTextView.heightAnchor.constraint(greaterThanOrEqualToConstant: 260).isActive = true
 
         configureVerticalResultsStack(mentionResultsStack)
+        configureBodyStepCallbacks()
+    }
 
-        bodyRequirementLabel.font = .preferredFont(forTextStyle: .caption1)
-        bodyRequirementLabel.adjustsFontForContentSizeCategory = true
-        bodyRequirementLabel.textColor = .secondaryLabel
-        bodyRequirementLabel.numberOfLines = 0
+    private func configureBodyStepCallbacks() {
+        bodyStepView.onRequestChangeCategory = { [weak self] in
+            self?.presentCategoryPickerSheet()
+        }
+        bodyStepView.onRequestTagSearch = { [weak self] in
+            self?.presentTagSearchSheet()
+        }
     }
 
     private func configurePreview() {
@@ -1301,17 +1302,14 @@ final class FireComposerViewController: UIViewController {
             if case .privateMessage = route.kind { return false }
             return true
         }()
-        replyTargetCard.isHidden = {
-            if case .advancedReply = route.kind { return false }
-            return true
-        }()
+        bodyStepView.isHidden = isMetaStepForCreateTopic
         toolbarStack.isHidden = isMetaStepForCreateTopic
 
-        renderReplyTarget()
         renderTopicHeader()
         renderPrivateHeader()
         renderToolbar()
         renderEditor()
+        renderBodyStep()
         renderPreview()
         renderBottomBar()
     }
@@ -1319,18 +1317,6 @@ final class FireComposerViewController: UIViewController {
     private var isMetaStepForCreateTopic: Bool {
         if case .createTopic = route.kind, step == .meta { return true }
         return false
-    }
-
-    private func renderReplyTarget() {
-        replyTargetStack.removeAllArrangedSubviews()
-        guard case .advancedReply = route.kind else { return }
-        let titleLabel = makeLabel(route.topicTitle ?? "回复话题", style: .headline, color: .label)
-        replyTargetStack.addArrangedSubview(titleLabel)
-        if let replyToUsername = route.replyToUsername, !replyToUsername.isEmpty {
-            replyTargetStack.addArrangedSubview(makeLabel("回复 @\(replyToUsername)", style: .caption1, color: FireTopicListPalette.accent))
-        } else if let replyToPostNumber = route.replyToPostNumber {
-            replyTargetStack.addArrangedSubview(makeLabel("回复 #\(replyToPostNumber)", style: .caption1, color: FireTopicListPalette.accent))
-        }
     }
 
     private func renderTopicHeader() {
@@ -1449,10 +1435,10 @@ final class FireComposerViewController: UIViewController {
             self.selectCategory(categories[index])
         }
         metaStepView.onRequestMoreCategories = { [weak self] in
-            self?.categoryButtonTapped()
+            self?.presentCategoryPickerSheet()
         }
         metaStepView.onRequestChangeCategory = { [weak self] in
-            self?.categoryButtonTapped()
+            self?.presentCategoryPickerSheet()
         }
         metaStepView.onTagToggled = { [weak self] tag in
             guard let self else { return }
@@ -1466,7 +1452,7 @@ final class FireComposerViewController: UIViewController {
             }
         }
         metaStepView.onRequestTagSearch = { [weak self] in
-            self?.tagField.becomeFirstResponder()
+            self?.presentTagSearchSheet()
         }
         metaStepView.onNext = { [weak self] in
             self?.goToBodyStep()
@@ -1588,16 +1574,14 @@ final class FireComposerViewController: UIViewController {
     private func renderEditor() {
         if isMetaStepForCreateTopic {
             markdownToolbarScroll.isHidden = true
-            editorContainer.isHidden = true
+            bodyStepView.editorContainer.isHidden = true
             mentionResultsStack.isHidden = true
-            bodyRequirementLabel.isHidden = true
+            bodyStepView.bodyRequirementLabel.isHidden = true
             return
         }
         markdownToolbarScroll.isHidden = previewMode
-        editorContainer.isHidden = previewMode
+        bodyStepView.editorContainer.isHidden = previewMode
         mentionResultsStack.isHidden = previewMode || (mentionUsers.isEmpty && mentionGroups.isEmpty)
-        bodyRequirementLabel.isHidden = previewMode || trimmedBody.isEmpty || trimmedBody.count >= minimumBodyLength
-        bodyRequirementLabel.text = "正文至少需要 \(minimumBodyLength) 个字"
         if bodyTextView.text != bodyText {
             bodyTextView.text = bodyText
         }
@@ -1605,6 +1589,50 @@ final class FireComposerViewController: UIViewController {
             bodyTextView.selectedRange = bodySelection
         }
         renderMentionResults()
+    }
+
+    private func renderBodyStep() {
+        guard !isMetaStepForCreateTopic else { return }
+
+        let replyTitle: String?
+        let replySubtitle: String?
+        if case .advancedReply = route.kind {
+            replyTitle = route.topicTitle ?? "回复话题"
+            if let replyToUsername = route.replyToUsername, !replyToUsername.isEmpty {
+                replySubtitle = "回复 @\(replyToUsername)"
+            } else if let replyToPostNumber = route.replyToPostNumber {
+                replySubtitle = "回复 #\(replyToPostNumber)"
+            } else {
+                replySubtitle = nil
+            }
+        } else {
+            replyTitle = nil
+            replySubtitle = nil
+        }
+
+        let summaryCategoryName: String?
+        let summaryHidden: Bool
+        if case .createTopic = route.kind {
+            summaryCategoryName = selectedCategory.map(categoryDisplayName(for:))
+            summaryHidden = previewMode || selectedCategory == nil
+        } else {
+            summaryCategoryName = nil
+            summaryHidden = true
+        }
+
+        let bodyRequirementHidden = previewMode || trimmedBody.isEmpty || trimmedBody.count >= minimumBodyLength
+
+        let state = FireComposerBodyStepState(
+            replyTitle: replyTitle,
+            replySubtitle: replySubtitle,
+            summaryCategoryName: summaryCategoryName,
+            summaryTagCount: selectedTags.count,
+            summaryHidden: summaryHidden,
+            bodyCount: trimmedBody.count,
+            minimumBodyLength: minimumBodyLength,
+            bodyRequirementHidden: bodyRequirementHidden
+        )
+        bodyStepView.apply(state: state)
     }
 
     private func renderMentionResults() {
@@ -1824,6 +1852,100 @@ final class FireComposerViewController: UIViewController {
             popover.sourceRect = categoryButton.bounds
         }
         present(alert, animated: true)
+    }
+
+    private func presentCategoryPickerSheet() {
+        let categories = availableCategories
+        let picker = FireCategoryPickerSheet(
+            categories: categories,
+            selectedCategoryID: selectedCategoryID,
+            displayName: { [weak self] category in
+                self?.categoryDisplayName(for: category) ?? category.displayName
+            }
+        )
+        picker.onSelected = { [weak self] categoryID in
+            self?.handleCategorySelected(categoryID)
+        }
+        let nav = UINavigationController(rootViewController: picker)
+        applySheetPresentation(nav)
+        present(nav, animated: true)
+    }
+
+    private func handleCategorySelected(_ categoryID: UInt64) {
+        guard categoryID != selectedCategoryID else { return }
+        if !selectedTags.isEmpty {
+            let alert = UIAlertController(
+                title: "更换分类",
+                message: "更换分类会清空已选标签，继续？",
+                preferredStyle: .alert
+            )
+            alert.addAction(UIAlertAction(title: "取消", style: .cancel))
+            alert.addAction(UIAlertAction(title: "继续", style: .destructive) { [weak self] _ in
+                self?.applyCategorySelection(categoryID, clearTags: true)
+            })
+            present(alert, animated: true)
+        } else {
+            applyCategorySelection(categoryID, clearTags: false)
+        }
+    }
+
+    private func applyCategorySelection(_ categoryID: UInt64, clearTags: Bool) {
+        selectedCategoryID = categoryID
+        if clearTags {
+            selectedTags = []
+        }
+        applyCategoryTemplateIfNeeded()
+        tagInput = ""
+        tagResults = []
+        errorMessage = nil
+        scheduleAutosave()
+        render()
+    }
+
+    private func presentTagSearchSheet() {
+        let initialResults = tagResults
+        let sheet = FireComposerTagSearchSheet(initialResults: initialResults)
+        let currentCategoryID = selectedCategoryID
+        let currentSelectedTags = selectedTags
+        sheet.onSearch = { [weak self] query, completion in
+            guard let self else { return }
+            Task { [weak self] in
+                guard let self else { return }
+                do {
+                    let result = try await self.viewModel.searchService.searchTags(
+                        query: query,
+                        filterForInput: true,
+                        limit: 20,
+                        categoryID: currentCategoryID,
+                        selectedTags: currentSelectedTags
+                    )
+                    let allowedTags = Set(self.selectedCategory?.allowedTags ?? [])
+                    let filtered = allowedTags.isEmpty
+                        ? result.results
+                        : result.results.filter { allowedTags.contains($0.name) }
+                    await MainActor.run {
+                        completion(filtered)
+                    }
+                } catch {
+                    await MainActor.run {
+                        completion([])
+                    }
+                }
+            }
+        }
+        sheet.onSelected = { [weak self] tag in
+            self?.addTag(tag)
+        }
+        let nav = UINavigationController(rootViewController: sheet)
+        applySheetPresentation(nav)
+        present(nav, animated: true)
+    }
+
+    private func applySheetPresentation(_ controller: UIViewController) {
+        if let sheet = controller.sheetPresentationController {
+            sheet.detents = [.medium(), .large()]
+            sheet.prefersGrabberVisible = true
+        }
     }
 
     @objc private func previewButtonTapped() {

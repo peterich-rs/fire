@@ -11,6 +11,7 @@
 /uniffi/
 /artifacts/
 /third_party/openwire/
+/third_party/*-worktrees/
 **/*.xcodeproj/xcuserdata/
 **/*.xcworkspace/xcuserdata/
 **/DerivedData/

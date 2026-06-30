@@ -20,7 +20,7 @@ resolver = "2"
 [workspace.package]
 edition = "2021"
 license = "GPL-3.0-only"
-rust-version = "1.88"
+rust-version = "1.95"
 version = "0.1.0"
 authors = ["Fire contributors"]
 homepage = "https://github.com/peterich-rs/fire"

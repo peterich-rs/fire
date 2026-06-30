@@ -29,7 +29,7 @@ permissions:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
-  RUST_TOOLCHAIN: 1.88.0
+  RUST_TOOLCHAIN: 1.95.0
 
 jobs:
   testflight:

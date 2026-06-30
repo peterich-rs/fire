@@ -2,7 +2,7 @@
 
 This directory contains the shared Rust core for the native clients.
 
-The workspace MSRV is Rust `1.88`, pinned in the repository with [`rust-toolchain.toml`](../rust-toolchain.toml) as `1.88.0`.
+The workspace Rust version is `1.95`, pinned in the repository with [`rust-toolchain.toml`](../rust-toolchain.toml) as `1.95.0`.
 
 Current crates:
 

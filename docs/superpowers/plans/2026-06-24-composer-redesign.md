@@ -37,7 +37,7 @@ xcodebuild -project native/ios-app/Fire.xcodeproj -scheme Fire -destination 'pla
 | Path | Responsibility |
 |------|----------------|
 | `native/ios-app/Tests/Unit/FireTopicDetailKeyboardLayoutTests.swift` | Unit tests for quick reply bar height (no keyboard inset) + root node contentInset routing. |
-| `native/ios-app/Tests/Unit/FireComposerStepGatingTests.swift` | Unit tests for step-1/meta gating incl. `requiredTagGroups`. |
+| `native/ios-app/Tests/Unit/FireComposerStepGatingTests.swift` | Unit tests for step-1/meta gating: title + category + `minimumRequiredTags`; required tag groups are advisory until Rust exposes membership. |
 | `native/ios-app/App/Views/Composer/FireComposerMetaStepView.swift` | UIKit view: step-1 content (title field, category inline list + "更多", selected-category summary, tag chips, hot tags). Pure view; no networking. |
 | `native/ios-app/App/Views/Composer/FireComposerBodyStepView.swift` | UIKit view: step-2 content (reply header OR category/tag summary card, editor UITextView, char count, markdown toolbar host). Pure view. |
 | `native/ios-app/App/Views/Composer/FireCategoryPickerSheet.swift` | UIKit `UIViewController` half-sheet: full category list + search, presented via `sheetPresentationController` `[.medium(), .large()]` + grabber. |
@@ -53,8 +53,8 @@ xcodebuild -project native/ios-app/Fire.xcodeproj -scheme Fire -destination 'pla
 
 | Path | Changes |
 |------|---------|
-| `native/ios-app/App/TopicDetail/Nodes/FireTopicQuickReplyBarNode.swift` | `estimatedHeight(forWidth:)` stops adding `bottomInset`; `updateBottomInset` repurposed to only drive the backing view's safe-area padding (not bar height). |
-| `native/ios-app/App/TopicDetail/Nodes/FireTopicDetailRootNode.swift` | New property `keyboardOverlap: CGFloat`; `layout()` sets `contentInset.bottom = barHeight + keyboardOverlap`; `layoutSpecThatFits` wraps the overlay in `ASInsetLayoutSpec` bottom = `keyboardOverlap + safeAreaBottom`. |
+| `native/ios-app/App/TopicDetail/Nodes/FireTopicQuickReplyBarNode.swift` | `estimatedHeight(forWidth:)` keeps adding `bottomInset`; the caller now passes safe-area only, never keyboard height. |
+| `native/ios-app/App/TopicDetail/Nodes/FireTopicDetailRootNode.swift` | New property `keyboardOverlap: CGFloat`; `layout()` sets `contentInset.bottom = barHeight + keyboardOverlap`; `layoutSpecThatFits` wraps only the bar subtree in `ASInsetLayoutSpec` bottom = `keyboardOverlap`. |
 | `native/ios-app/App/TopicDetail/Controller/FireTopicDetailViewController.swift` | Stop passing `currentBottomChromeInset` into `updateBottomSafeAreaInset`; instead pass safe-area to bar and keyboard overlap to root node via two setters. |
 | `native/ios-app/App/Views/Composer/FireComposerView.swift` | Add `step` state; swap `contentStack` children per step; add `FireComposerMetaStepView`/`FireComposerBodyStepView`; keyboard avoidance on scroll; route category/tag pickers to half-sheets; replace image-upload-on-pick with local-token path; swap server draft calls to `FireLocalDraftStore` for createTopic/non-PM advancedReply; unify submit validation. |
 | `native/ios-app/project.yml` | (No edit needed if new files are already under `App/`/`Tests/Unit/` globs — verify via xcodegen drift check.) |
@@ -63,7 +63,7 @@ xcodebuild -project native/ios-app/Fire.xcodeproj -scheme Fire -destination 'pla
 
 - `FireLocalDraft` (Task 10): `struct FireLocalDraft: Codable, Equatable { draftKey, step: ComposerStep, title, categoryId: UInt64?, tags: [String], bodyText, routeKind: FireComposerRoute.Kind, updatedAt: Date }` — note `routeKind` stored as a serializable enum, NOT the full `FireComposerRoute`.
 - `ComposerStep` (Task 10): `enum ComposerStep: String, Codable, Equatable { case meta, body }`.
-- `FireComposerValidation.metaStepReady(...)` (Task 8): the shared step-1 gate incl. `requiredTagGroups`.
+- `FireComposerValidation.metaStepReady(...)` (Task 8): the shared step-1 gate for title, category, and `minimumRequiredTags`; `requiredTagGroups` remain advisory because membership is not exposed.
 - `FireComposerImageTokens` (Task 11): `scanTokens(_ bodyText: String) -> [String]`, `replaceTokens(_ bodyText: String, mappings: [String: String]) -> String`.
 
 ---
@@ -137,7 +137,7 @@ final class FireTopicDetailKeyboardLayoutTests: XCTestCase {
 xcodegen generate --spec native/ios-app/project.yml
 xcodebuild -project native/ios-app/Fire.xcodeproj -scheme Fire -destination 'platform=iOS Simulator,OS=18.2,name=iPhone 16' -derivedDataPath /tmp/fire-ios-unit CODE_SIGNING_ALLOWED=NO test -only-testing:FireTests/FireTopicDetailKeyboardLayoutTests
 ```
-Expected: the safe-area assertion FAILS today because the controller currently passes `max(safeArea, keyboardHeight)` into the bar — but with keyboard hidden, `updateBottomInset(34)` should already grow height by ~34. If the base `zeroInset` case currently also includes the keyboard (because the controller passes it), the test reveals the bug. The fix lands in Tasks 2–4.
+Expected: the direct safe-area measurement passes because the bar should grow with safe area. The controller/root wiring still fails until Tasks 3-4 stop passing keyboard height into the bar and route keyboard overlap through the root node.
 
 - [ ] **Step 3: Commit (red)**
 
@@ -166,7 +166,7 @@ This is correct: `bottomInset` will hold safe-area bottom only after Task 3/4. D
 - [ ] **Step 2: Run the Task 1 test — verify it passes**
 
 ```
-xcodebuild -project native/ios-app/Fire.xcodeproj -scheme Fire -destination 'platform=iOS Simulator,OS=18.2,name=iPhone 16' -derivedDataPath /tmp/fire-ios-unit CODE_SIGNING_ALLOWED=NO test -only-testing:FireTests/FireTopicDetailKeyboardLayoutTests/testQuickReplyBarHeightIgnoresBottomInset
+xcodebuild -project native/ios-app/Fire.xcodeproj -scheme Fire -destination 'platform=iOS Simulator,OS=18.2,name=iPhone 16' -derivedDataPath /tmp/fire-ios-unit CODE_SIGNING_ALLOWED=NO test -only-testing:FireTests/FireTopicDetailKeyboardLayoutTests/testQuickReplyBarHeightIncludesSafeAreaButNotKeyboard
 ```
 Expected: PASS.
 
@@ -175,7 +175,7 @@ Expected: PASS.
 ```
 xcodebuild ... -only-testing:FireTests/FireTopicDetailRuntimeTests/testQuickReplyBarMeasuresToCompactVisibleHeight
 ```
-Expected: PASS (height < 220 still holds; it only got smaller).
+Expected: PASS (height < 220 still holds).
 
 - [ ] **Step 4: Commit**
 

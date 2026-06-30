@@ -30,6 +30,8 @@ if [[ -z "$rustup_bin" ]]; then
   exit 1
 fi
 
+rustc_bin="${RUSTC:-$(cd "$repo_root" && "$rustup_bin" which rustc)}"
+
 platform_name="${PLATFORM_NAME:-iphonesimulator}"
 configuration_name="${CONFIGURATION:-Debug}"
 profile_dir="debug"
@@ -171,6 +173,7 @@ run_host_cargo() {
     env -i \
       HOME="$HOME" \
       PATH="$PATH" \
+      RUSTC="$rustc_bin" \
       SDKROOT="$sdk_root" \
       LIBRARY_PATH="$library_path" \
       PLATFORM_NAME= \
@@ -199,6 +202,7 @@ run_target_cargo() {
     env -i \
       HOME="$HOME" \
       PATH="$PATH" \
+      RUSTC="$rustc_bin" \
       SDKROOT="$sdk_root" \
       PLATFORM_NAME= \
       EFFECTIVE_PLATFORM_NAME= \

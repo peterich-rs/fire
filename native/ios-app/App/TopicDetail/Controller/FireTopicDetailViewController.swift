@@ -1020,7 +1020,10 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
     }
 
     private func updateBottomChromeInset(animatedWith notification: Notification? = nil) {
-        rootNode.updateBottomSafeAreaInset(currentBottomChromeInset)
+        // Quick-reply bar height must only include safe-area bottom — never keyboard
+        // height. Keyboard overlap lifts the bar via root layout + feed contentInset.
+        rootNode.updateBottomSafeAreaInset(view.safeAreaInsets.bottom)
+        rootNode.updateKeyboardOverlap(keyboardOverlapHeight)
         updateFeedTopInset()
 
         guard let notification else { return }
@@ -1036,10 +1039,6 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         ) {
             self.view.layoutIfNeeded()
         }
-    }
-
-    private var currentBottomChromeInset: CGFloat {
-        max(view.safeAreaInsets.bottom, keyboardOverlapHeight)
     }
 
     private var currentSearchBarHeight: CGFloat {

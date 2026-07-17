@@ -1020,8 +1020,12 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
     }
 
     private func updateBottomChromeInset(animatedWith notification: Notification? = nil) {
-        // Quick-reply bar height must only include safe-area bottom — never keyboard
-        // height. Keyboard overlap lifts the bar via root layout + feed contentInset.
+        // Split geometry:
+        // - safe-area bottom → quick-reply bar height / home-indicator padding only
+        // - keyboard overlap → root main-thread frame lift + feed contentInset
+        // Never fold keyboard height into the bar bottom inset (that ballooned the
+        // bar and broke focus). Never drive keyboard through Texture layoutSpec
+        // invalidation (full-tree remeasure freezes topic detail).
         rootNode.updateBottomSafeAreaInset(view.safeAreaInsets.bottom)
         rootNode.updateKeyboardOverlap(keyboardOverlapHeight)
         updateFeedTopInset()
@@ -1037,6 +1041,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
             delay: 0,
             options: [options, .beginFromCurrentState, .allowUserInteraction]
         ) {
+            // Only re-runs main-thread layout() (frame offset + contentInset).
             self.view.layoutIfNeeded()
         }
     }

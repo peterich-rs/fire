@@ -52,4 +52,18 @@ final class FireTopicDetailKeyboardLayoutTests: XCTestCase {
             34
         )
     }
+
+    func testFeedBottomInsetWhenKeyboardHiddenUsesBarHeightOnly() {
+        // Resting state: bar height already includes safe-area padding; do not
+        // add safeAreaBottom again on top of the bar.
+        XCTAssertEqual(
+            fireTopicDetailFeedBottomInset(
+                quickReplyBarHeight: 92,
+                safeAreaBottom: 34,
+                keyboardOverlap: 0,
+                isQuickReplyVisible: true
+            ),
+            92
+        )
+    }
 }

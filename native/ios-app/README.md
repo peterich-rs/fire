@@ -115,7 +115,16 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
 - `App/FireMessageBusCoordinator.swift`
   - buffers and coalesces foreground MessageBus bursts before MainActor delivery so topic/detail/notification spikes no longer spawn one task per event on iOS
 - `App/FireMotion/`
-  - centralizes motion and haptic feedback through `FireMotionEffects`, using iOS 16-compatible UIKit feedback generators for transitional SwiftUI surfaces plus the same small UIKit bridge for Texture topic-detail cells
+  - centralizes motion and haptic feedback through `FireMotionEffects` (legacy SwiftUI surfaces) and `FireMotionUIKit` (UIKit primary path), using iOS 16-compatible UIKit feedback generators and the same `FireMotionHaptics` bridge for Texture topic-detail cells
+- `App/Core/FireTheme.swift` + `App/Core/UIKit/`
+  - single design-token source: `FireTheme.ui*` (`UIColor`) for product UIKit surfaces and matching SwiftUI `Color` wrappers
+  - UIKit chrome facades over open-source libraries (call sites should use Fire APIs, not library types directly):
+    - `FireUIKitToast` → BastiaanJansen/toast-swift
+    - `FireUIKitSkeleton` → Juanpe/SkeletonView
+    - `FireUIKitEmptyStateView` / `FireUIKitErrorBannerView` → SnapKit-laid-out shared chrome
+  - **UIKit-first policy:** new product screens ship as `UIViewController` + ListKit/UIKit cells. SwiftUI remains for Widgets, developer tools, and temporary sheets only. Topic-detail post rows stay on Texture (no SwiftUI post-row fallback).
+  - High-traffic surfaces now UIKit-owned: Home, Notifications, Search, Bookmarks, Read History, Drafts, PMs, **Filtered topic lists** (`FireFilteredTopicListViewController`), **Profile tab** (`FireProfileViewController`), **Public profile** (`FirePublicProfileViewController`), Topic detail (Texture feed + UIKit chrome).
+  - **Unified dark design language:** pure-black canvas + elevated charcoal cards app-wide (`FireTheme`); Profile/Settings more closely follow modern card-settings UI; brand accent stays Fire orange.
 - `App/Stores/FireHomeFeedStore.swift`
   - owns selected feed kind, selected category/tags, paginated home rows, and bootstrap-derived category/tag metadata for the authenticated home shell
   - applies MessageBus-driven home refreshes only as incremental entity patching while the home list surface is actually foreground-visible and the app scene is active, instead of falling back to whole-array replacement or pulling from background/off-screen pages
@@ -232,7 +241,7 @@ Xcode project generation rules:
 - `native/ios-app/project.yml` is the source of truth for `Fire.xcodeproj`.
 - The generated project now ships a single shared scheme `Fire` that drives both app builds and the pure-logic unit-test lane (used by ⌘U and CI).
 - Signing now flows through `native/ios-app/Configs/Fire-*.xcconfig` so local developer-account overrides do not need to touch the generated project.
-- Swift Package dependencies are declared in `project.yml`: Nuke 12.8.0, CrashReporter, and ConfettiSwiftUI.
+- Swift Package dependencies are declared in `project.yml`: Nuke 12.8.0, CrashReporter, ConfettiSwiftUI, JXPhotoBrowser, SkeletonView 1.31.0, Toast (BastiaanJansen/toast-swift) 2.1.3, and SnapKit 5.7.1.
 - Texture 3.2.0 is linked directly from `LocalPackages/TextureCore/Artifacts/AsyncDisplayKit.xcframework` and embedded by the app target. Regenerate it with `native/ios-app/scripts/build_texture_xcframework.sh` when Texture needs to be rebuilt.
 - New Swift files placed under existing source roots such as `App/` or `Sources/FireAppSession/` do not require a `project.yml` edit, but they do require rerunning `xcodegen generate --spec native/ios-app/project.yml` and committing the regenerated `Fire.xcodeproj`.
 - Changes that introduce a new source/resource directory, framework dependency, build script, target, or Xcode build setting must update `project.yml` first, then regenerate `Fire.xcodeproj`.

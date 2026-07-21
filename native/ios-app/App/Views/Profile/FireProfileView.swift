@@ -637,7 +637,7 @@ private struct FireProfileLoadTrigger: Equatable {
     let isActive: Bool
 }
 
-private struct FireSettingsView: View {
+struct FireSettingsView: View {
     @ObservedObject var viewModel: FireAppViewModel
     let canLogout: Bool
     @AppStorage(FireTheme.appearancePreferenceStorageKey) private var appearancePreferenceRawValue = FireAppearancePreference.system.rawValue

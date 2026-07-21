@@ -331,8 +331,8 @@ final class FirePrivateMessagesViewController: UIViewController {
         let controllerReference = FirePrivateMessagesControllerReference()
         self.controllerReference = controllerReference
         self.listController = FireListViewController(
-            layout: FireCollectionLayouts.plainList(backgroundColor: .systemGroupedBackground),
-            backgroundColor: .systemGroupedBackground,
+            layout: FireCollectionLayouts.plainList(backgroundColor: FireTheme.uiCanvas),
+            backgroundColor: FireTheme.uiCanvas,
             onSelectItem: { [controllerReference] item in
                 controllerReference.controller?.handleSelection(item)
             },
@@ -377,7 +377,7 @@ final class FirePrivateMessagesViewController: UIViewController {
             target: self,
             action: #selector(openComposer)
         )
-        view.backgroundColor = .systemGroupedBackground
+        view.backgroundColor = FireTheme.uiCanvas
 
         installListController()
         bindViewModel()
@@ -683,43 +683,10 @@ final class FirePrivateMessagesViewController: UIViewController {
     }
 
     private func showToast(_ message: String, style: FireTopicListToastView.Style) {
-        guard !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         toastDismissTask?.cancel()
         toastView?.removeFromSuperview()
-
-        let toast = FireTopicListToastView(message: message, style: style)
-        view.addSubview(toast)
-        toast.translatesAutoresizingMaskIntoConstraints = false
-        NSLayoutConstraint.activate([
-            toast.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 16),
-            toast.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -16),
-            toast.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 12),
-        ])
-        toastView = toast
-        toast.alpha = 0
-        toast.transform = CGAffineTransform(translationX: 0, y: -8)
-        UIView.animate(withDuration: 0.18) {
-            toast.alpha = 1
-            toast.transform = .identity
-        }
-        toastDismissTask = Task { [weak self, weak toast] in
-            try? await Task.sleep(for: .seconds(2.0))
-            await MainActor.run {
-                guard let self, self.toastView === toast else { return }
-                self.dismissToast()
-            }
-        }
-    }
-
-    private func dismissToast() {
-        guard let toast = toastView else { return }
         toastView = nil
-        UIView.animate(withDuration: 0.18, animations: {
-            toast.alpha = 0
-            toast.transform = CGAffineTransform(translationX: 0, y: -8)
-        }, completion: { _ in
-            toast.removeFromSuperview()
-        })
+        FireUIKitToast.show(message, style: FireUIKitToast.Style(style), in: view)
     }
 }
 

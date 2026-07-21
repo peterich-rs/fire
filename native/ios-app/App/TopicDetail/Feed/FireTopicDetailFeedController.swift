@@ -51,8 +51,8 @@ final class FireTopicDetailFeedController: NSObject,
         collectionNode.delegate = self
         configureTextureRanges()
 
-        collectionNode.backgroundColor = .systemBackground
-        collectionNode.view.backgroundColor = .systemBackground
+        collectionNode.backgroundColor = FireTheme.uiCanvas
+        collectionNode.view.backgroundColor = FireTheme.uiCanvas
         collectionNode.view.alwaysBounceVertical = true
         collectionNode.view.showsVerticalScrollIndicator = false
         collectionNode.view.showsHorizontalScrollIndicator = false
@@ -997,7 +997,7 @@ private final class FireTopicDetailFeedCellFactory: NSObject {
 
         let wrapperNode = ASCellNode()
         wrapperNode.automaticallyManagesSubnodes = true
-        wrapperNode.backgroundColor = .systemBackground
+        wrapperNode.backgroundColor = FireTheme.uiCanvas
 
         let containerNode = ASDisplayNode()
         containerNode.backgroundColor = .secondarySystemBackground
@@ -1107,7 +1107,7 @@ private final class FireTopicDetailFeedCellFactory: NSObject {
     private func makeRepliesHeaderCellNode(configuration: FireTopicDetailRuntimeConfiguration) -> ASCellNode {
         let node = ASCellNode()
         node.automaticallyManagesSubnodes = true
-        node.backgroundColor = .systemBackground
+        node.backgroundColor = FireTheme.uiCanvas
 
         let titleNode = ASTextNode()
         titleNode.attributedText = NSAttributedString(
@@ -1162,7 +1162,7 @@ private final class FireTopicDetailFeedCellFactory: NSObject {
     ) -> ASCellNode {
         let node = ASCellNode()
         node.automaticallyManagesSubnodes = true
-        node.backgroundColor = .systemBackground
+        node.backgroundColor = FireTheme.uiCanvas
 
         let state = (item.contentToken.base as? String)
             .flatMap(FireTopicDetailRuntimeReplyFooterState.fromContentToken(_:))
@@ -1266,7 +1266,7 @@ private final class FireTopicDetailFeedCellFactory: NSObject {
     private func makeBodyStateCellNode(configuration: FireTopicDetailRuntimeConfiguration) -> ASCellNode {
         let node = ASCellNode()
         node.automaticallyManagesSubnodes = true
-        node.backgroundColor = .systemBackground
+        node.backgroundColor = FireTheme.uiCanvas
 
         let stackChildren: [ASLayoutElement]
         if configuration.isLoadingTopic || configuration.isWaitingForPostRender {
@@ -1333,7 +1333,7 @@ private final class FireTopicDetailFeedCellFactory: NSObject {
     ) -> ASCellNode {
         let node = ASCellNode()
         node.automaticallyManagesSubnodes = true
-        node.backgroundColor = .systemBackground
+        node.backgroundColor = FireTheme.uiCanvas
 
         let titleNode = ASTextNode()
         titleNode.maximumNumberOfLines = 0
@@ -1442,7 +1442,7 @@ private final class FireTopicDetailFeedCellFactory: NSObject {
     private func makeMissingPostCellNode() -> ASCellNode {
         let node = ASCellNode()
         node.automaticallyManagesSubnodes = true
-        node.backgroundColor = .systemBackground
+        node.backgroundColor = FireTheme.uiCanvas
 
         let textNode = ASTextNode()
         textNode.attributedText = NSAttributedString(

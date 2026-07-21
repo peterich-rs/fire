@@ -244,8 +244,8 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         viewModel.topicDetailLogger()?.info(
             "topic detail viewDidLoad start topic_id=\(row.topic.id) owner_token=\(detailOwnerToken)"
         )
-        view.backgroundColor = .systemBackground
-        view.tintColor = FireTopicDetailCellColors.accent
+        view.backgroundColor = FireTheme.uiCanvas
+        view.tintColor = FireTheme.uiAccent
         configureRuntime()
         configureTopicSearchBar()
         configureNavigationAppearance()
@@ -651,20 +651,22 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
 
     private func configureNavigationAppearance() {
         let appearance = UINavigationBarAppearance()
-        appearance.configureWithOpaqueBackground()
-        appearance.backgroundColor = .systemBackground
-        appearance.shadowColor = .separator
+        appearance.configureWithDefaultBackground()
+        appearance.backgroundEffect = UIBlurEffect(style: .systemChromeMaterial)
+        appearance.backgroundColor = FireTheme.uiChrome
+        appearance.shadowColor = FireTheme.uiDivider
         appearance.titleTextAttributes = [
-            .foregroundColor: UIColor.label,
+            .foregroundColor: FireTheme.uiInk,
         ]
         appearance.largeTitleTextAttributes = [
-            .foregroundColor: UIColor.label,
+            .foregroundColor: FireTheme.uiInk,
         ]
 
         navigationItem.standardAppearance = appearance
         navigationItem.scrollEdgeAppearance = appearance
         navigationItem.compactAppearance = appearance
-        navigationController?.navigationBar.tintColor = FireTopicDetailCellColors.accent
+        navigationController?.navigationBar.tintColor = FireTheme.uiAccent
+        view.tintColor = FireTheme.uiAccent
     }
 
     private func kickOffMessageBusSubscription() {
@@ -1440,7 +1442,9 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
                     toggledReactionId: toggledReactionID,
                     postId: postId
                 )
+                FireMotionHaptics.success()
             } catch {
+                FireMotionHaptics.error()
                 modalRouter.presentNotice(message: error.localizedDescription)
             }
         }
@@ -1682,7 +1686,7 @@ private final class FireTopicSearchBar: UIView, UITextFieldDelegate {
     }
 
     private func setup() {
-        backgroundColor = .systemBackground
+        backgroundColor = FireTheme.uiCanvas
         layer.shadowColor = UIColor.black.cgColor
         layer.shadowOpacity = 0.08
         layer.shadowRadius = 8

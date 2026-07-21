@@ -14,6 +14,15 @@ packages:
   JXPhotoBrowser:
     url: https://github.com/JiongXing/PhotoBrowser.git
     exactVersion: 4.0.3
+  SkeletonView:
+    url: https://github.com/Juanpe/SkeletonView.git
+    exactVersion: 1.31.0
+  Toast:
+    url: https://github.com/BastiaanJansen/toast-swift.git
+    exactVersion: 2.1.3
+  SnapKit:
+    url: https://github.com/SnapKit/SnapKit.git
+    exactVersion: 5.7.1
 fileGroups:
   - Configs/Fire-Debug.xcconfig
   - Configs/Fire-Info.plist
@@ -75,6 +84,12 @@ targets:
         product: Nuke
       - package: JXPhotoBrowser
         product: JXPhotoBrowser
+      - package: SkeletonView
+        product: SkeletonView
+      - package: Toast
+        product: Toast
+      - package: SnapKit
+        product: SnapKit
       - framework: LocalPackages/TextureCore/Artifacts/AsyncDisplayKit.xcframework
         embed: true
         codeSign: true

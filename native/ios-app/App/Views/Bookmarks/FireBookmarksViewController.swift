@@ -125,7 +125,7 @@ final class FireBookmarksViewController: UIViewController {
         self.topicRoutePresenter = topicRoutePresenter
         self.listController = FireListViewController(
             layout: FireCollectionLayouts.plainList(),
-            backgroundColor: .systemBackground,
+            backgroundColor: FireTheme.uiCanvas,
             onSelectItem: { [controllerReference] item in
                 controllerReference.controller?.handleSelection(item)
             },
@@ -164,7 +164,7 @@ final class FireBookmarksViewController: UIViewController {
 
         title = "我的书签"
         navigationItem.largeTitleDisplayMode = .never
-        view.backgroundColor = .systemBackground
+        view.backgroundColor = FireTheme.uiCanvas
 
         installListController()
         bindViewModel()
@@ -578,44 +578,10 @@ final class FireBookmarksViewController: UIViewController {
     }
 
     private func showToast(_ message: String, style: FireTopicListToastView.Style) {
-        guard !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         toastDismissTask?.cancel()
         toastView?.removeFromSuperview()
-
-        let toast = FireTopicListToastView(message: message, style: style)
-        view.addSubview(toast)
-        toast.translatesAutoresizingMaskIntoConstraints = false
-        NSLayoutConstraint.activate([
-            toast.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 16),
-            toast.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -16),
-            toast.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 12),
-        ])
-        toastView = toast
-        toast.alpha = 0
-        toast.transform = CGAffineTransform(translationX: 0, y: -8)
-        UIView.animate(withDuration: 0.22, delay: 0, options: [.curveEaseOut]) {
-            toast.alpha = 1
-            toast.transform = .identity
-        }
-
-        toastDismissTask = Task { [weak self, weak toast] in
-            try? await Task.sleep(for: .seconds(2))
-            await MainActor.run {
-                guard let self, self.toastView === toast else { return }
-                self.hideToast()
-            }
-        }
-    }
-
-    private func hideToast() {
-        guard let toast = toastView else { return }
         toastView = nil
-        UIView.animate(withDuration: 0.18, delay: 0, options: [.curveEaseIn]) {
-            toast.alpha = 0
-            toast.transform = CGAffineTransform(translationX: 0, y: -8)
-        } completion: { _ in
-            toast.removeFromSuperview()
-        }
+        FireUIKitToast.show(message, style: FireUIKitToast.Style(style), in: view)
     }
 }
 
@@ -1459,44 +1425,17 @@ private extension FireTopicListToastView.Style {
     }
 }
 
+/// Compatibility alias for existing UIKit list call sites.
+/// Prefer `FireTheme.ui*` for new code; this type only forwards to FireTheme.
 enum FireTopicListPalette {
-    static let accent = adaptive(
-        light: UIColor(red: 0.91, green: 0.39, blue: 0.18, alpha: 1),
-        dark: UIColor(red: 0.96, green: 0.45, blue: 0.22, alpha: 1)
-    )
-
-    static let subtleInk = adaptive(
-        light: UIColor(red: 0.35, green: 0.35, blue: 0.38, alpha: 1),
-        dark: UIColor(red: 0.79, green: 0.78, blue: 0.75, alpha: 1)
-    )
-
-    static let tertiaryInk = adaptive(
-        light: UIColor(red: 0.52, green: 0.52, blue: 0.55, alpha: 1),
-        dark: UIColor(red: 0.62, green: 0.63, blue: 0.67, alpha: 1)
-    )
-
-    static let tagChipBackground = adaptive(
-        light: UIColor(red: 0.46, green: 0.46, blue: 0.50, alpha: 0.08),
-        dark: UIColor(white: 1, alpha: 0.10)
-    )
-
-    static let tagChipForeground = adaptive(
-        light: UIColor(red: 0.30, green: 0.30, blue: 0.33, alpha: 1),
-        dark: UIColor(red: 0.85, green: 0.84, blue: 0.82, alpha: 1)
-    )
+    static var accent: UIColor { FireTheme.uiAccent }
+    static var subtleInk: UIColor { FireTheme.uiSubtleInk }
+    static var tertiaryInk: UIColor { FireTheme.uiTertiaryInk }
+    static var tagChipBackground: UIColor { FireTheme.uiTagChipBackground }
+    static var tagChipForeground: UIColor { FireTheme.uiTagChipForeground }
 
     static func categoryChipBackground(accent: UIColor) -> UIColor {
-        UIColor { traits in
-            let resolvedAccent = accent.resolvedColor(with: traits)
-            let alpha: CGFloat = traits.userInterfaceStyle == .dark ? 0.22 : 0.14
-            return resolvedAccent.withAlphaComponent(alpha)
-        }
-    }
-
-    private static func adaptive(light: UIColor, dark: UIColor) -> UIColor {
-        UIColor { traits in
-            traits.userInterfaceStyle == .dark ? dark : light
-        }
+        FireTheme.uiCategoryChipBackground(accent: accent)
     }
 }
 

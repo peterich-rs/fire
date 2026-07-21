@@ -141,7 +141,7 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
     }
 
     private func setupNodes() {
-        backgroundColor = .systemBackground
+        backgroundColor = FireTheme.uiCanvas
 
         // Avatar
         avatarContainerNode.isUserInteractionEnabled = true
@@ -307,7 +307,7 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
     private func configureSearchHighlight(_ isHighlighted: Bool) {
         backgroundColor = isHighlighted
             ? Self.accentTextColor.withAlphaComponent(0.10)
-            : .systemBackground
+            : FireTheme.uiCanvas
         borderWidth = isHighlighted ? 1 : 0
         borderColor = isHighlighted
             ? Self.accentTextColor.withAlphaComponent(0.70).cgColor
@@ -1941,7 +1941,7 @@ private final class FirePostImageNode: ASControlNode {
         retryNode.cornerRadius = 12
         retryNode.borderWidth = 1
         retryNode.borderColor = UIColor.systemBlue.withAlphaComponent(0.45).cgColor
-        retryNode.backgroundColor = UIColor.systemBackground.withAlphaComponent(0.8)
+        retryNode.backgroundColor = FireTheme.uiCanvas.withAlphaComponent(0.8)
         retryNode.addTarget(self, action: #selector(handleRetryTap), forControlEvents: .touchUpInside)
 
         updateRenderSize(renderSize)
@@ -2200,7 +2200,7 @@ private final class FirePostBoostBarrageView: UIView {
 
         for boost in visibleBoosts {
             let chip = FirePostBoostChipView(
-                backgroundColor: UIColor.systemBackground.withAlphaComponent(0.72),
+                backgroundColor: FireTheme.uiCanvas.withAlphaComponent(0.72),
                 textColor: .label,
                 borderColor: UIColor.systemOrange.withAlphaComponent(0.28)
             )

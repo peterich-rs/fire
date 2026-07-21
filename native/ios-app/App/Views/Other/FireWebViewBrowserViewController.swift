@@ -35,7 +35,7 @@ final class FireWebViewBrowserViewController: UIViewController, WKNavigationDele
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = .systemBackground
+        view.backgroundColor = FireTheme.uiCanvas
         setupNavigationBar()
         setupWebView()
         setupProgressView()

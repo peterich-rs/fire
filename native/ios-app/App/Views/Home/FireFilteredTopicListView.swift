@@ -1,7 +1,7 @@
 import SwiftUI
 import UIKit
 
-enum FireScopedTopicListDisplayState: Equatable {
+enum FireScopedTopicListDisplayState: Equatable, Hashable {
     case loading
     case blockingError(message: String)
     case empty(nonBlockingErrorMessage: String?)
@@ -195,321 +195,27 @@ final class FireFilteredTopicListViewModel: ObservableObject {
     }
 }
 
+/// Legacy SwiftUI entry for category browser NavigationLink.
+/// Authoritative implementation is `FireFilteredTopicListViewController`.
 struct FireFilteredTopicListView: View {
-    @Environment(\.fireTopicRoutePresenter) private var topicRoutePresenter
     @ObservedObject var viewModel: FireAppViewModel
-
     let title: String
     let categorySlug: String?
     let categoryId: UInt64?
     let parentCategorySlug: String?
     let tag: String?
 
-    @StateObject private var listViewModel: FireFilteredTopicListViewModel
-    @State private var copiedErrorMessage = false
-    @State private var selectedRoute: FireAppRoute?
-    @State private var editingBookmarkContext: FireBookmarkEditorContext?
-    @State private var topicActionNotice: String?
-    @State private var toast: FireToast?
-    @Namespace private var feedSelectorNamespace
-    @Namespace private var pushTransitionNamespace
-
-    init(
-        viewModel: FireAppViewModel,
-        title: String,
-        categorySlug: String?,
-        categoryId: UInt64?,
-        parentCategorySlug: String?,
-        tag: String?
-    ) {
-        self.viewModel = viewModel
-        self.title = title
-        self.categorySlug = categorySlug
-        self.categoryId = categoryId
-        self.parentCategorySlug = parentCategorySlug
-        self.tag = tag
-        _listViewModel = StateObject(
-            wrappedValue: FireFilteredTopicListViewModel(
-                appViewModel: viewModel,
-                categorySlug: categorySlug,
-                categoryId: categoryId,
-                parentCategorySlug: parentCategorySlug,
-                tag: tag
-            )
-        )
-    }
-
-    private var displayState: FireScopedTopicListDisplayState {
-        listViewModel.currentKindDisplayState
-    }
-
-    private var nonBlockingErrorMessage: String? {
-        switch displayState {
-        case .empty(let message), .content(let message):
-            return message
-        case .loading, .blockingError:
-            return nil
-        }
-    }
-
-    private var baseURLString: String {
-        let trimmed = viewModel.session.bootstrap.baseUrl.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? "https://linux.do" : trimmed
-    }
-
     var body: some View {
-        List {
-            kindSelectorSection
-
-            if let errorMessage = nonBlockingErrorMessage {
-                Section {
-                    FireErrorBanner(
-                        message: errorMessage,
-                        copied: copiedErrorMessage,
-                        onCopy: {
-                            UIPasteboard.general.string = errorMessage
-                            copiedErrorMessage = true
-                            Task { @MainActor in
-                                try? await Task.sleep(for: .seconds(1.2))
-                                copiedErrorMessage = false
-                            }
-                        },
-                        onDismiss: {
-                            listViewModel.errorMessage = nil
-                        }
-                    )
-                }
-            }
-
-            switch displayState {
-            case .loading:
-                loadingSection
-            case .blockingError(let errorMessage):
-                Section {
-                    FireBlockingErrorState(
-                        title: "列表加载失败",
-                        message: errorMessage,
-                        onRetry: {
-                            Task {
-                                await listViewModel.refresh()
-                            }
-                        }
-                    )
-                }
-            case .empty:
-                emptySection
-            case .content:
-                topicListSection
-            }
-        }
-        .listStyle(.plain)
+        FireFilteredTopicListControllerHost(
+            viewModel: viewModel,
+            title: title,
+            categorySlug: categorySlug,
+            categoryId: categoryId,
+            parentCategorySlug: parentCategorySlug,
+            tag: tag
+        )
+        .ignoresSafeArea()
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
-        .fireNavigationDestination(item: $selectedRoute) { route in
-            FireAppRouteDestinationView(viewModel: viewModel, route: route)
-                .fireNavigationPush(
-                    sourceID: route.id,
-                    namespace: pushTransitionNamespace
-                )
-        }
-        .refreshable {
-            await listViewModel.refresh()
-        }
-        .task {
-            await listViewModel.loadIfNeeded()
-        }
-        .sheet(item: $editingBookmarkContext) { context in
-            FireBookmarkEditorSheet(
-                context: context,
-                onSave: { name, reminderAt in
-                    if let bookmarkID = context.bookmarkID {
-                        try await viewModel.topicInteraction.updateBookmark(
-                            bookmarkID: bookmarkID,
-                            name: name,
-                            reminderAt: reminderAt
-                        )
-                    } else {
-                        _ = try await viewModel.topicInteraction.createBookmark(
-                            bookmarkableID: context.bookmarkableID,
-                            bookmarkableType: context.bookmarkableType,
-                            name: name,
-                            reminderAt: reminderAt
-                        )
-                    }
-                    await listViewModel.refresh()
-                },
-                onDelete: context.bookmarkID.map { bookmarkID in
-                    {
-                        try await viewModel.topicInteraction.deleteBookmark(bookmarkID: bookmarkID)
-                        await listViewModel.refresh()
-                    }
-                }
-            )
-        }
-        .onChange(of: topicActionNotice) { message in
-            guard let message,
-                  !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                return
-            }
-            toast = FireToast(message: message, style: .error)
-            topicActionNotice = nil
-        }
-        .fireToast($toast)
-    }
-
-    // MARK: - Kind Selector
-
-    private var kindSelectorSection: some View {
-        Section {
-            FireFeedKindSelector(
-                selectedKind: listViewModel.selectedKind,
-                namespace: feedSelectorNamespace
-            ) { kind in
-                Task<Void, Never> {
-                    await listViewModel.selectKind(
-                        kind,
-                        animation: .easeInOut(duration: 0.2)
-                    )
-                }
-            }
-        }
-        .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
-        .listRowSeparator(.hidden)
-        .listRowBackground(Color.clear)
-    }
-
-    // MARK: - Topic List
-
-    private var topicListSection: some View {
-        Section {
-            if listViewModel.isLoading {
-                HStack {
-                    Spacer()
-                    ProgressView()
-                        .controlSize(.small)
-                        .padding(.vertical, 8)
-                    Spacer()
-                }
-            }
-
-            ForEach(listViewModel.displayedRows, id: \.topic.id) { topicRow in
-                Button {
-                    presentRoute(.topic(row: topicRow))
-                } label: {
-                    FireTopicRow(
-                        row: topicRow,
-                        category: viewModel.categoryPresentation(for: topicRow.topic.categoryId)
-                    )
-                }
-                .buttonStyle(.plain)
-                .matchedTransitionSourceIfAvailable(
-                    id: FireAppRoute.topic(row: topicRow).id,
-                    in: pushTransitionNamespace
-                )
-                .contextMenu {
-                    FireTopicContextMenu(
-                        row: topicRow,
-                        shareURL: topicRow.fireTopicURL(baseURL: baseURLString),
-                        onOpen: {
-                            presentRoute(.topic(row: topicRow))
-                        },
-                        onBookmark: {
-                            editingBookmarkContext = topicRow.fireBookmarkEditorContext()
-                        },
-                        onMute: {
-                            muteTopic(topicRow)
-                        }
-                    )
-                }
-            }
-
-            if listViewModel.currentKindNextPage != nil {
-                loadMoreRow
-            }
-        }
-    }
-
-    private var loadMoreRow: some View {
-        Button {
-            _ = Task<Void, Never> {
-                await listViewModel.loadMore()
-            }
-        } label: {
-            HStack {
-                Spacer()
-                if listViewModel.isLoadingMore {
-                    ProgressView().controlSize(.small)
-                } else {
-                    Label("加载更多", systemImage: "arrow.down.circle")
-                        .font(.subheadline.weight(.medium))
-                        .foregroundStyle(FireTheme.accent)
-                }
-                Spacer()
-            }
-            .padding(.vertical, 8)
-        }
-        .disabled(listViewModel.isLoading || listViewModel.isLoadingMore)
-        .listRowSeparator(.hidden)
-    }
-
-    // MARK: - Loading & Empty
-
-    private var loadingSection: some View {
-        Section {
-            ForEach(0..<6, id: \.self) { _ in
-                HStack(spacing: 12) {
-                    Circle()
-                        .fill(Color(.tertiarySystemFill))
-                        .frame(width: 38, height: 38)
-                    VStack(alignment: .leading, spacing: 6) {
-                        RoundedRectangle(cornerRadius: 4)
-                            .fill(Color(.tertiarySystemFill))
-                            .frame(height: 14)
-                        RoundedRectangle(cornerRadius: 4)
-                            .fill(Color(.quaternarySystemFill))
-                            .frame(width: 100, height: 10)
-                    }
-                }
-                .padding(.vertical, 6)
-                .fireShimmer()
-                .accessibilityHidden(true)
-            }
-        }
-    }
-
-    private var emptySection: some View {
-        Section {
-            FireEmptyFeedState(
-                systemImage: "tray",
-                title: "暂无话题",
-                message: "当前筛选条件下还没有话题。",
-                actionTitle: "刷新"
-            ) {
-                Task { await listViewModel.refresh() }
-            }
-            .padding(.vertical, 40)
-        }
-        .listRowSeparator(.hidden)
-    }
-
-    private func presentRoute(_ route: FireAppRoute) {
-        if topicRoutePresenter.present(route) {
-            return
-        }
-        selectedRoute = route
-    }
-
-    private func muteTopic(_ row: FireTopicRowPresentation) {
-        Task {
-            do {
-                try await viewModel.topicInteraction.setTopicNotificationLevel(
-                    topicID: row.topic.id,
-                    notificationLevel: FireTopicNotificationLevelOption.muted.rawValue
-                )
-                toast = FireToast(message: "已静音话题", style: .success)
-            } catch {
-                topicActionNotice = error.localizedDescription
-            }
-        }
     }
 }

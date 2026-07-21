@@ -22,12 +22,11 @@ enum FireAppRouteControllerFactory {
                 scrollToPostNumber: payload.postNumber
             )
         case .profile(let username):
-            return UIHostingController(
-                rootView: FirePublicProfileView(
-                    viewModel: viewModel,
-                    username: username
-                )
-                .fireTopicRoutePresenter(topicRoutePresenter)
+            return FirePublicProfileViewController(
+                viewModel: viewModel,
+                username: username,
+                topicDetailStore: topicDetailStore,
+                topicRoutePresenter: topicRoutePresenter
             )
         case .profileTab, .notifications, .search:
             return UIHostingController(rootView: EmptyView())

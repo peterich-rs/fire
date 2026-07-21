@@ -1,4 +1,3 @@
-import SwiftUI
 import UIKit
 
 final class FireMainTabBarController: UITabBarController, UITabBarControllerDelegate {
@@ -94,36 +93,14 @@ final class FireMainTabBarController: UITabBarController, UITabBarControllerDele
             title: "我的",
             systemImage: "person",
             selectedSystemImage: "person.fill",
-            rootView: AnyView(
-                FireProfileTabRootHost(
-                    viewModel: viewModel,
-                    navigationState: navigationState,
-                    profileViewModel: profileViewModel,
-                    topicDetailStore: topicDetailStore
-                )
+            rootViewController: FireProfileViewController(
+                viewModel: viewModel,
+                navigationState: navigationState,
+                profileViewModel: profileViewModel,
+                topicDetailStore: topicDetailStore
             )
         )
         viewControllers = [home, notifications, profile]
-    }
-
-    private func makeNavigationController(
-        title: String,
-        systemImage: String,
-        selectedSystemImage: String,
-        rootView: AnyView
-    ) -> UINavigationController {
-        let host = UIHostingController(rootView: rootView)
-        host.view.backgroundColor = .systemBackground
-        let navigationController = FireMainNavigationController(
-            rootViewController: host,
-            hidesNavigationBarAtRoot: true
-        )
-        navigationController.tabBarItem = UITabBarItem(
-            title: title,
-            image: UIImage(systemName: systemImage),
-            selectedImage: UIImage(systemName: selectedSystemImage)
-        )
-        return navigationController
     }
 
     private func makeNavigationController(
@@ -143,16 +120,13 @@ final class FireMainTabBarController: UITabBarController, UITabBarControllerDele
     }
 
     private func configureAppearance() {
-        tabBar.tintColor = UIColor(red: 0.91, green: 0.39, blue: 0.18, alpha: 1)
-        tabBar.unselectedItemTintColor = .secondaryLabel
+        tabBar.tintColor = FireTheme.uiAccent
+        tabBar.unselectedItemTintColor = FireTheme.uiTertiaryInk
 
         let appearance = UITabBarAppearance()
         appearance.configureWithDefaultBackground()
-        appearance.backgroundColor = UIColor { traits in
-            traits.userInterfaceStyle == .dark
-                ? UIColor(red: 0.10, green: 0.10, blue: 0.12, alpha: 0.94)
-                : UIColor(red: 0.97, green: 0.96, blue: 0.95, alpha: 0.94)
-        }
+        appearance.backgroundEffect = UIBlurEffect(style: .systemChromeMaterial)
+        appearance.backgroundColor = FireTheme.uiTabBarBackground
         tabBar.standardAppearance = appearance
         tabBar.scrollEdgeAppearance = appearance
     }
@@ -354,38 +328,6 @@ private final class FireMainPopAnimator: NSObject, UIViewControllerAnimatedTrans
                 transitionContext.completeTransition(!cancelled)
             }
         )
-    }
-}
-
-private struct FireProfileTabRootHost: View {
-    let viewModel: FireAppViewModel
-    @ObservedObject var navigationState: FireNavigationState
-    @ObservedObject var profileViewModel: FireProfileViewModel
-    @ObservedObject var topicDetailStore: FireTopicDetailStore
-
-    var body: some View {
-        FireProfileView(
-            viewModel: viewModel,
-            profileViewModel: profileViewModel,
-            isActive: navigationState.selectedTab == 2
-        )
-        .environmentObject(navigationState)
-        .environmentObject(topicDetailStore)
-        .fireTopicRoutePresenter(topicRoutePresenter)
-    }
-
-    private var topicRoutePresenter: FireTopicRoutePresenter {
-        FireTopicRoutePresenter { route in
-            guard route.isTopicRoute else {
-                viewModel.topicRouteLogger()?.debug(
-                    "profile tab topic presenter ignored non-topic route \(route.diagnosticsSummary)"
-                )
-                return false
-            }
-            viewModel.topicRouteLogger()?.info("profile tab presenting topic route \(route.diagnosticsSummary)")
-            navigationState.presentTopicRoute(route)
-            return true
-        }
     }
 }
 

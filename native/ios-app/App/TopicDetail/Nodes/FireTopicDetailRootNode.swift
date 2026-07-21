@@ -29,7 +29,7 @@ final class FireTopicDetailRootNode: ASDisplayNode {
         self.quickReplyBarNode = quickReplyBarNode
         super.init()
         automaticallyManagesSubnodes = true
-        backgroundColor = .systemBackground
+        backgroundColor = FireTheme.uiCanvas
         self.feedNode.style.flexGrow = 1.0
         self.feedNode.style.flexShrink = 1.0
     }

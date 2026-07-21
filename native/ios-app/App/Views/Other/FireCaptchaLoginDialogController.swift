@@ -59,7 +59,7 @@ final class FireCaptchaLoginDialogController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = .systemBackground
+        view.backgroundColor = FireTheme.uiCanvas
         setupNavigationBar()
         setupWebView()
         setupStatusLabel()

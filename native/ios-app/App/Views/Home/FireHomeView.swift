@@ -223,7 +223,7 @@ final class FireHomeViewController: UIViewController {
         self.controllerReference = controllerReference
         self.listController = FireListViewController(
             layout: FireCollectionLayouts.plainList(),
-            backgroundColor: .systemBackground,
+            backgroundColor: FireTheme.uiCanvas,
             onSelectItem: { [controllerReference] item in
                 controllerReference.controller?.handleSelection(item)
             },
@@ -272,7 +272,7 @@ final class FireHomeViewController: UIViewController {
         navigationItem.largeTitleDisplayMode = .never
         navigationController?.navigationBar.tintColor = FireTopicListPalette.accent
         view.tintColor = FireTopicListPalette.accent
-        view.backgroundColor = .systemBackground
+        view.backgroundColor = FireTheme.uiCanvas
         configureToolbar()
         installListController()
         installOfflineBanner()
@@ -846,6 +846,8 @@ final class FireHomeViewController: UIViewController {
     private func presentCategoryBrowser() {
         let rootView = FireCategoryBrowserSheet(viewModel: appViewModel)
             .environmentObject(homeFeedStore)
+            .environmentObject(topicDetailStore)
+            .fireTopicRoutePresenter(topicRoutePresenter)
         let controller = UIHostingController(rootView: rootView)
         if let sheet = controller.sheetPresentationController {
             sheet.detents = [.medium(), .large()]
@@ -982,45 +984,12 @@ final class FireHomeViewController: UIViewController {
     }
 
     private func showToast(_ message: String, style: FireTopicListToastView.Style) {
-        guard !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         toastDismissTask?.cancel()
         toastView?.removeFromSuperview()
-
-        let toast = FireTopicListToastView(message: message, style: style)
-        view.addSubview(toast)
-        toast.translatesAutoresizingMaskIntoConstraints = false
-        NSLayoutConstraint.activate([
-            toast.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 16),
-            toast.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -16),
-            toast.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 12),
-        ])
-        toastView = toast
-        toast.alpha = 0
-        toast.transform = CGAffineTransform(translationX: 0, y: -8)
-        UIView.animate(withDuration: 0.22, delay: 0, options: [.curveEaseOut]) {
-            toast.alpha = 1
-            toast.transform = .identity
-        }
-
-        toastDismissTask = Task { [weak self, weak toast] in
-            try? await Task.sleep(for: .seconds(2))
-            await MainActor.run {
-                guard let self, self.toastView === toast else { return }
-                self.hideToast()
-            }
-        }
-    }
-
-    private func hideToast() {
-        guard let toast = toastView else { return }
         toastView = nil
-        UIView.animate(withDuration: 0.18, delay: 0, options: [.curveEaseIn]) {
-            toast.alpha = 0
-            toast.transform = CGAffineTransform(translationX: 0, y: -8)
-        } completion: { _ in
-            toast.removeFromSuperview()
-        }
+        FireUIKitToast.show(message, style: FireUIKitToast.Style(style), in: view)
     }
+
 
     private func syncOfflineBanner(animated: Bool) {
         let shouldShow = homeFeedStore.isOffline
@@ -1308,9 +1277,9 @@ private final class FireHomeTagChipsCell: UICollectionViewCell {
 }
 
 private final class FireHomeLoadingSkeletonCell: UICollectionViewCell {
-    private let avatarView = FireHomeSkeletonShapeView(cornerRadius: 19, fillColor: .tertiarySystemFill)
-    private let titleBar = FireHomeSkeletonShapeView(cornerRadius: 4, fillColor: .tertiarySystemFill)
-    private let subtitleBar = FireHomeSkeletonShapeView(cornerRadius: 4, fillColor: .quaternarySystemFill)
+    private let avatarView = UIView()
+    private let titleBar = UIView()
+    private let subtitleBar = UIView()
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -1322,9 +1291,15 @@ private final class FireHomeLoadingSkeletonCell: UICollectionViewCell {
         fatalError("init(coder:) has not been implemented")
     }
 
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        FireUIKitSkeleton.hide(contentView)
+    }
+
     func configure() {
         isAccessibilityElement = false
         contentView.isAccessibilityElement = false
+        FireUIKitSkeleton.show(contentView)
     }
 
     private func configureSubviews() {
@@ -1335,6 +1310,13 @@ private final class FireHomeLoadingSkeletonCell: UICollectionViewCell {
             bottom: 6,
             trailing: 16
         )
+
+        avatarView.layer.cornerRadius = 19
+        avatarView.layer.cornerCurve = .continuous
+        titleBar.layer.cornerRadius = 4
+        titleBar.layer.cornerCurve = .continuous
+        subtitleBar.layer.cornerRadius = 4
+        subtitleBar.layer.cornerCurve = .continuous
 
         let bodyStack = UIStackView(arrangedSubviews: [titleBar, subtitleBar])
         bodyStack.axis = .vertical
@@ -1361,74 +1343,8 @@ private final class FireHomeLoadingSkeletonCell: UICollectionViewCell {
             rowStack.topAnchor.constraint(equalTo: contentView.layoutMarginsGuide.topAnchor),
             rowStack.bottomAnchor.constraint(equalTo: contentView.layoutMarginsGuide.bottomAnchor),
         ])
-    }
-}
 
-private final class FireHomeSkeletonShapeView: UIView {
-    private let shimmerLayer = CAGradientLayer()
-    private var animatedWidth: CGFloat = 0
-
-    init(cornerRadius: CGFloat, fillColor: UIColor) {
-        super.init(frame: .zero)
-        backgroundColor = fillColor
-        layer.cornerRadius = cornerRadius
-        layer.masksToBounds = true
-        configureShimmerLayer()
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        shimmerLayer.frame = bounds.insetBy(dx: -bounds.width, dy: 0)
-        if window != nil,
-           !UIAccessibility.isReduceMotionEnabled,
-           abs(animatedWidth - bounds.width) > 0.5 {
-            shimmerLayer.removeAnimation(forKey: "fire.home.skeleton.shimmer")
-            startShimmering()
-        }
-    }
-
-    override func didMoveToWindow() {
-        super.didMoveToWindow()
-        if window == nil || UIAccessibility.isReduceMotionEnabled {
-            animatedWidth = 0
-            shimmerLayer.removeAnimation(forKey: "fire.home.skeleton.shimmer")
-        } else {
-            startShimmering()
-        }
-    }
-
-    private func configureShimmerLayer() {
-        shimmerLayer.startPoint = CGPoint(x: 0, y: 0.5)
-        shimmerLayer.endPoint = CGPoint(x: 1, y: 0.5)
-        shimmerLayer.locations = [0.35, 0.5, 0.65]
-        shimmerLayer.colors = [
-            UIColor.clear.cgColor,
-            UIColor.white.withAlphaComponent(0.22).cgColor,
-            UIColor.clear.cgColor,
-        ]
-        layer.addSublayer(shimmerLayer)
-    }
-
-    private func startShimmering() {
-        guard bounds.width > 0 else {
-            return
-        }
-        guard shimmerLayer.animation(forKey: "fire.home.skeleton.shimmer") == nil else {
-            return
-        }
-        let animation = CABasicAnimation(keyPath: "transform.translation.x")
-        animation.fromValue = -bounds.width
-        animation.toValue = bounds.width
-        animation.duration = 1.15
-        animation.repeatCount = .infinity
-        animation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-        shimmerLayer.add(animation, forKey: "fire.home.skeleton.shimmer")
-        animatedWidth = bounds.width
+        FireUIKitSkeleton.prepareHierarchy(in: contentView)
     }
 }
 

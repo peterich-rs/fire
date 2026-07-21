@@ -288,14 +288,14 @@ private final class FireTopicQuickReplyBarView: UIView, UITextFieldDelegate {
 
     private func setupView() {
         backgroundColor = .clear
-        tintColor = FireTopicDetailCellColors.accent
+        tintColor = FireTheme.uiAccent
 
         backgroundView.translatesAutoresizingMaskIntoConstraints = false
-        backgroundView.backgroundColor = .systemBackground
+        backgroundView.backgroundColor = FireTheme.uiChromeStrong
         addSubview(backgroundView)
 
         topBorderView.translatesAutoresizingMaskIntoConstraints = false
-        topBorderView.backgroundColor = .separator
+        topBorderView.backgroundColor = FireTheme.uiDivider
         backgroundView.addSubview(topBorderView)
 
         let contentStack = UIStackView()

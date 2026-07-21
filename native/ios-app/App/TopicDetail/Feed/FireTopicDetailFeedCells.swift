@@ -2,36 +2,14 @@ import AsyncDisplayKit
 import UIKit
 
 enum FireTopicDetailCellColors {
-    static let accent = UIColor { traits in
-        if traits.userInterfaceStyle == .dark {
-            return UIColor(red: 0.96, green: 0.45, blue: 0.22, alpha: 1)
-        }
-        return UIColor(red: 0.91, green: 0.39, blue: 0.18, alpha: 1)
-    }
-    static let warning = UIColor { traits in
-        if traits.userInterfaceStyle == .dark {
-            return UIColor(red: 0.93, green: 0.60, blue: 0.29, alpha: 1)
-        }
-        return UIColor(red: 0.80, green: 0.49, blue: 0.20, alpha: 1)
-    }
-    static let tagChipBackground = UIColor { traits in
-        if traits.userInterfaceStyle == .dark {
-            return UIColor(white: 1, alpha: 0.10)
-        }
-        return UIColor(red: 0.46, green: 0.46, blue: 0.50, alpha: 0.08)
-    }
-    static let tagChipForeground = UIColor { traits in
-        if traits.userInterfaceStyle == .dark {
-            return UIColor(red: 0.85, green: 0.84, blue: 0.82, alpha: 1)
-        }
-        return UIColor(red: 0.30, green: 0.30, blue: 0.33, alpha: 1)
-    }
+    static var accent: UIColor { FireTheme.uiAccent }
+    static var warning: UIColor { FireTheme.uiWarning }
+    static var tagChipBackground: UIColor { FireTheme.uiTagChipBackground }
+    static var tagChipForeground: UIColor { FireTheme.uiTagChipForeground }
     static let privateMessageForeground = UIColor.systemIndigo
 
     static func categoryChipBackground(accent: UIColor) -> UIColor {
-        UIColor { traits in
-            accent.withAlphaComponent(traits.userInterfaceStyle == .dark ? 0.22 : 0.14)
-        }
+        FireTheme.uiCategoryChipBackground(accent: accent)
     }
 }
 
@@ -53,7 +31,7 @@ final class FireTopicDetailTextCell: UICollectionViewCell {
     }
 
     private func setup() {
-        contentView.backgroundColor = .systemBackground
+        contentView.backgroundColor = FireTheme.uiCanvas
         stackView.axis = .vertical
         stackView.alignment = .fill
         stackView.spacing = 6
@@ -118,7 +96,7 @@ final class FireTopicDetailStatsCell: UICollectionViewCell {
     }
 
     private func setup() {
-        contentView.backgroundColor = .systemBackground
+        contentView.backgroundColor = FireTheme.uiCanvas
         dividerView.backgroundColor = .separator
         dividerView.translatesAutoresizingMaskIntoConstraints = false
 
@@ -226,7 +204,7 @@ final class FireTopicDetailRepliesHeaderCell: UICollectionViewCell {
     }
 
     private func setup() {
-        contentView.backgroundColor = .systemBackground
+        contentView.backgroundColor = FireTheme.uiCanvas
 
         titleLabel.text = "回复"
         titleLabel.font = .preferredFont(forTextStyle: .headline)
@@ -297,7 +275,7 @@ final class FireTopicDetailReplyFooterCell: UICollectionViewCell {
     }
 
     private func setup() {
-        contentView.backgroundColor = .systemBackground
+        contentView.backgroundColor = FireTheme.uiCanvas
 
         label.font = .preferredFont(forTextStyle: .subheadline)
         label.adjustsFontForContentSizeCategory = true
@@ -428,7 +406,7 @@ final class FireTopicDetailBodyStateCell: UICollectionViewCell {
     }
 
     private func setup() {
-        contentView.backgroundColor = .systemBackground
+        contentView.backgroundColor = FireTheme.uiCanvas
 
         messageLabel.font = .preferredFont(forTextStyle: .caption1)
         messageLabel.adjustsFontForContentSizeCategory = true
@@ -512,7 +490,7 @@ final class FireTopicDetailTopicVoteCell: UICollectionViewCell {
     }
 
     private func setup() {
-        contentView.backgroundColor = .systemBackground
+        contentView.backgroundColor = FireTheme.uiCanvas
 
         containerView.backgroundColor = .secondarySystemBackground
         containerView.layer.cornerRadius = 8
@@ -709,7 +687,7 @@ final class FireTopicDetailHeaderCellNode: ASCellNode {
         chipNodes = chips
         super.init()
         automaticallyManagesSubnodes = true
-        backgroundColor = .systemBackground
+        backgroundColor = FireTheme.uiCanvas
         isAccessibilityElement = true
         accessibilityLabel = [configuration.displayedTopicTitle, chips.compactMap(\.accessibilityLabel).joined(separator: ", ")]
             .filter { !$0.isEmpty }
@@ -900,7 +878,7 @@ final class FireTopicDetailAISummaryCellNode: ASCellNode {
 
         super.init()
         automaticallyManagesSubnodes = true
-        backgroundColor = .systemBackground
+        backgroundColor = FireTheme.uiCanvas
         isAccessibilityElement = true
         accessibilityLabel = [
             "AI 摘要",

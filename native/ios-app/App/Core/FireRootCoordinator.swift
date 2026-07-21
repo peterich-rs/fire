@@ -61,6 +61,8 @@ final class FireRootCoordinator {
     func start() {
         guard let window else { return }
         Self.activeCoordinator = self
+        FireTheme.applyGlobalAppearances()
+        FireUIKitSkeleton.applyThemeDefaults()
         bindState()
         updatePreferredAppearance()
         updateRoot(animated: false)
@@ -330,6 +332,7 @@ final class FireRootCoordinator {
         case .dark, .oled:
             window?.overrideUserInterfaceStyle = .dark
         }
+        FireTheme.applyGlobalAppearances()
     }
 
 }

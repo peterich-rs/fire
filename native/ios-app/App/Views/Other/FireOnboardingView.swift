@@ -43,7 +43,7 @@ final class FireOnboardingViewController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
 
-        view.backgroundColor = .systemBackground
+        view.backgroundColor = FireTheme.uiCanvas
         navigationItem.rightBarButtonItem = UIBarButtonItem(
             image: UIImage(systemName: "ant"),
             style: .plain,

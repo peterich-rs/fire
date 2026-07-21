@@ -1,8 +1,22 @@
-import AsyncDisplayKit
 import UIKit
 
+/// WeChat-style bottom input chrome for topic detail.
+///
+/// Pure UIKit (not a Texture node). The view controller pins this view to the
+/// bottom of the page above the feed so feed cells can never composite through
+/// the bar. Keyboard lift is a bottom-constraint constant, not Texture layout.
+///
+/// ```
+/// ┌─────────────────────────────┐
+/// │  feed                       │
+/// ├─────────────────────────────┤  ← this view (opaque, full width)
+/// │  [✎]  快速回复…        [↑]  │
+/// └─────────────────────────────┘
+/// │ keyboard                    │
+/// └─────────────────────────────┘
+/// ```
 @MainActor
-final class FireTopicQuickReplyBarNode: ASDisplayNode {
+final class FireTopicQuickReplyBarView: UIView, UITextFieldDelegate {
     struct Callbacks {
         let onDraftChanged: (String) -> Void
         let onSubmit: () -> Void
@@ -11,23 +25,45 @@ final class FireTopicQuickReplyBarNode: ASDisplayNode {
         let onFocusChanged: (Bool) -> Void
     }
 
-    private let contentNode = ASDisplayNode(viewBlock: {
-        FireTopicQuickReplyBarView()
-    })
-    private var measuredWidth: CGFloat = max(UIScreen.main.bounds.width, 1)
-    private var measuredHeight: CGFloat = 0
-    private var bottomInset: CGFloat = 0
-
-    var callbacks: Callbacks? {
-        didSet {
-            contentView.callbacks = callbacks
-        }
-    }
+    var callbacks: Callbacks?
 
     var isInputFocused: Bool {
-        contentView.isInputFocused
+        textField.isFirstResponder
     }
 
+    /// Current laid-out height including bottom padding. 0 when hidden.
+    var barHeight: CGFloat {
+        isHidden ? 0 : bounds.height
+    }
+
+    /// Preferred height for Auto Layout height constraint (includes bottom padding).
+    func preferredHeight(forWidth width: CGFloat) -> CGFloat {
+        guard !isHidden else { return 0 }
+        return Self.estimatedHeight(
+            state: currentState,
+            width: max(width, 1),
+            bottomInset: bottomInset
+        )
+    }
+
+    private let backgroundFill = UIView()
+    private let topBorderView = UIView()
+    private let contentStack = UIStackView()
+    private let topStack = UIStackView()
+    private let typingLabel = UILabel()
+    private let targetRow = UIStackView()
+    private let targetLabel = UILabel()
+    private let clearTargetButton = UIButton(type: .system)
+    private let inputRow = UIStackView()
+    private let composerButton = UIButton(type: .system)
+    private let fieldContainer = UIView()
+    private let textField = UITextField()
+    private let sendButton = UIButton(type: .system)
+    private let messageLabel = UILabel()
+
+    private var applyingState = false
+    private var contentStackBottomConstraint: NSLayoutConstraint?
+    private var bottomInset: CGFloat = 0
     private var currentState = FireTopicDetailQuickReplyState(
         isVisible: false,
         typingSummary: nil,
@@ -37,138 +73,6 @@ final class FireTopicQuickReplyBarNode: ASDisplayNode {
         isSubmitting: false,
         validationMessage: nil
     )
-
-    override init() {
-        super.init()
-        automaticallyManagesSubnodes = true
-        backgroundColor = .clear
-        updateMeasuredSize(forWidth: measuredWidth)
-    }
-
-    func apply(state: FireTopicDetailQuickReplyState) {
-        currentState = state
-        isHidden = !state.isVisible
-        contentView.apply(state: state)
-        updateMeasuredSize(forWidth: measuredWidth)
-        invalidateCalculatedLayout()
-        setNeedsLayout()
-    }
-
-    func focusInput() {
-        contentView.focusInput()
-    }
-
-    func resignInputFocus() {
-        contentView.resignInputFocus()
-    }
-
-    func updateBottomInset(_ inset: CGFloat) {
-        guard abs(bottomInset - inset) > 0.5 else { return }
-        bottomInset = inset
-        contentView.updateBottomInset(inset)
-        updateMeasuredSize(forWidth: measuredWidth)
-        invalidateCalculatedLayout()
-        setNeedsLayout()
-    }
-
-    func updateLayoutWidth(_ width: CGFloat) {
-        let targetWidth = max(width, 1)
-        guard abs(measuredWidth - targetWidth) > 0.5 else { return }
-        updateMeasuredSize(forWidth: targetWidth)
-        invalidateCalculatedLayout()
-        setNeedsLayout()
-    }
-
-    override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
-        guard currentState.isVisible else {
-            return ASInsetLayoutSpec(insets: .zero, child: ASLayoutSpec())
-        }
-        let constrainedWidth = max(constrainedSize.max.width, 1)
-        contentNode.style.minWidth = ASDimensionMake(constrainedWidth)
-        contentNode.style.maxWidth = ASDimensionMake(constrainedWidth)
-        contentNode.style.minHeight = ASDimensionMake(max(measuredHeight, 1))
-        contentNode.style.maxHeight = ASDimensionMake(max(measuredHeight, 1))
-        return ASWrapperLayoutSpec(layoutElement: contentNode)
-    }
-
-    private var contentView: FireTopicQuickReplyBarView {
-        guard let view = contentNode.view as? FireTopicQuickReplyBarView else {
-            fatalError("Expected FireTopicQuickReplyBarView backing view")
-        }
-        return view
-    }
-
-    private func updateMeasuredSize(forWidth width: CGFloat) {
-        let targetWidth = max(width, 1)
-        measuredWidth = targetWidth
-        measuredHeight = currentState.isVisible
-            ? max(estimatedHeight(forWidth: targetWidth), 1)
-            : 0
-        contentNode.style.preferredSize = CGSize(
-            width: targetWidth,
-            height: measuredHeight
-        )
-    }
-
-    // Avoid re-entering UIKit fitting while the topic-detail controller is laying out.
-    // The bar UI is simple enough that a deterministic height estimate is safer here.
-    private func estimatedHeight(forWidth width: CGFloat) -> CGFloat {
-        let contentWidth = max(width - 32, 1)
-        var height: CGFloat = 10 + 36 + 12 + bottomInset
-
-        let caption1LineHeight = ceil(UIFont.preferredFont(forTextStyle: .caption1).lineHeight)
-        var topStackHeight: CGFloat = 0
-        if !(currentState.typingSummary?.isEmpty ?? true) {
-            topStackHeight += caption1LineHeight
-        }
-        if !(currentState.targetSummary?.isEmpty ?? true) {
-            if topStackHeight > 0 {
-                topStackHeight += 8
-            }
-            topStackHeight += max(caption1LineHeight, 18)
-        }
-        if topStackHeight > 0 {
-            height += topStackHeight + 10
-        }
-
-        if let message = currentState.validationMessage,
-           !message.isEmpty {
-            let font = UIFont.preferredFont(forTextStyle: .caption2)
-            let messageBounds = (message as NSString).boundingRect(
-                with: CGSize(width: contentWidth, height: .greatestFiniteMagnitude),
-                options: [.usesLineFragmentOrigin, .usesFontLeading],
-                attributes: [.font: font],
-                context: nil
-            )
-            height += 10 + ceil(messageBounds.height)
-        }
-
-        return ceil(height)
-    }
-}
-
-private final class FireTopicQuickReplyBarView: UIView, UITextFieldDelegate {
-    private let backgroundView = UIView()
-    private let topBorderView = UIView()
-    private let topStack = UIStackView()
-    private let typingLabel = UILabel()
-    private let targetRow = UIStackView()
-    private let targetLabel = UILabel()
-    private let clearTargetButton = UIButton(type: .system)
-    private let inputRow = UIStackView()
-    private let composerButton = UIButton(type: .system)
-    private let textField = UITextField()
-    private let sendButton = UIButton(type: .system)
-    private let messageLabel = UILabel()
-
-    var callbacks: FireTopicQuickReplyBarNode.Callbacks?
-
-    var isInputFocused: Bool {
-        textField.isFirstResponder
-    }
-
-    private var applyingState = false
-    private var contentStackBottomConstraint: NSLayoutConstraint?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -180,9 +84,19 @@ private final class FireTopicQuickReplyBarView: UIView, UITextFieldDelegate {
         fatalError("init(coder:) is not supported")
     }
 
+    override var intrinsicContentSize: CGSize {
+        let height = isHidden
+            ? 0
+            : Self.estimatedHeight(state: currentState, width: bounds.width > 1 ? bounds.width : UIScreen.main.bounds.width, bottomInset: bottomInset)
+        return CGSize(width: UIView.noIntrinsicMetric, height: height)
+    }
+
     func apply(state: FireTopicDetailQuickReplyState) {
         applyingState = true
         defer { applyingState = false }
+
+        currentState = state
+        isHidden = !state.isVisible
 
         typingLabel.text = state.typingSummary
         typingLabel.isHidden = (state.typingSummary?.isEmpty ?? true)
@@ -190,7 +104,13 @@ private final class FireTopicQuickReplyBarView: UIView, UITextFieldDelegate {
         targetLabel.text = state.targetSummary
         targetRow.isHidden = (state.targetSummary?.isEmpty ?? true)
 
-        textField.placeholder = state.placeholder
+        textField.attributedPlaceholder = NSAttributedString(
+            string: state.placeholder,
+            attributes: [
+                .foregroundColor: FireTheme.uiTertiaryInk,
+                .font: UIFont.preferredFont(forTextStyle: .subheadline),
+            ]
+        )
         if textField.text != state.draft {
             textField.text = state.draft
         }
@@ -198,10 +118,129 @@ private final class FireTopicQuickReplyBarView: UIView, UITextFieldDelegate {
         composerButton.isEnabled = !state.isSubmitting
         clearTargetButton.isEnabled = !state.isSubmitting
 
-        if state.isSubmitting {
+        applySendButton(isSubmitting: state.isSubmitting)
+
+        if let message = state.validationMessage, message.isEmpty == false {
+            messageLabel.text = message
+            messageLabel.textColor = message.contains("至少需要")
+                ? FireTheme.uiSubtleInk
+                : FireTheme.uiError
+            messageLabel.isHidden = false
+        } else {
+            messageLabel.text = nil
+            messageLabel.isHidden = true
+        }
+
+        invalidateIntrinsicContentSize()
+        setNeedsLayout()
+    }
+
+    func focusInput() {
+        textField.becomeFirstResponder()
+    }
+
+    func resignInputFocus() {
+        textField.resignFirstResponder()
+    }
+
+    /// Home-indicator / keyboard-adjacent padding under the input row.
+    func updateBottomInset(_ inset: CGFloat) {
+        let target = max(inset, 0)
+        guard abs(bottomInset - target) > 0.5 else { return }
+        bottomInset = target
+        contentStackBottomConstraint?.constant = -(10 + bottomInset)
+        invalidateIntrinsicContentSize()
+        setNeedsLayout()
+    }
+
+    /// Deterministic height used by tests and intrinsic content size.
+    static func estimatedHeight(
+        state: FireTopicDetailQuickReplyState,
+        width: CGFloat,
+        bottomInset: CGFloat
+    ) -> CGFloat {
+        guard state.isVisible else { return 0 }
+        let contentWidth = max(width - 24, 1)
+        // top pad 10 + input row 36 + bottom content pad 10 + home/keyboard pad
+        var height: CGFloat = 10 + 36 + 10 + max(bottomInset, 0)
+
+        let caption1LineHeight = ceil(UIFont.preferredFont(forTextStyle: .caption1).lineHeight)
+        var topStackHeight: CGFloat = 0
+        if !(state.typingSummary?.isEmpty ?? true) {
+            topStackHeight += caption1LineHeight
+        }
+        if !(state.targetSummary?.isEmpty ?? true) {
+            if topStackHeight > 0 {
+                topStackHeight += 8
+            }
+            topStackHeight += max(caption1LineHeight, 18)
+        }
+        if topStackHeight > 0 {
+            height += topStackHeight + 8
+        }
+
+        if let message = state.validationMessage, !message.isEmpty {
+            let font = UIFont.preferredFont(forTextStyle: .caption2)
+            let messageBounds = (message as NSString).boundingRect(
+                with: CGSize(width: contentWidth, height: .greatestFiniteMagnitude),
+                options: [.usesLineFragmentOrigin, .usesFontLeading],
+                attributes: [.font: font],
+                context: nil
+            )
+            height += 8 + ceil(messageBounds.height)
+        }
+
+        return ceil(height)
+    }
+
+    // MARK: - UITextFieldDelegate
+
+    func textFieldShouldReturn(_ textField: UITextField) -> Bool {
+        callbacks?.onSubmit()
+        return false
+    }
+
+    func textFieldDidBeginEditing(_ textField: UITextField) {
+        callbacks?.onFocusChanged(true)
+    }
+
+    func textFieldDidEndEditing(_ textField: UITextField) {
+        callbacks?.onFocusChanged(false)
+    }
+
+    // MARK: - Actions
+
+    @objc private func draftDidChange() {
+        guard !applyingState else { return }
+        callbacks?.onDraftChanged(textField.text ?? "")
+    }
+
+    @objc private func handleSubmit() {
+        callbacks?.onSubmit()
+    }
+
+    @objc private func handleOpenAdvancedComposer() {
+        callbacks?.onOpenAdvancedComposer()
+    }
+
+    @objc private func handleClearTarget() {
+        let shouldRestoreFocus = textField.isFirstResponder
+        callbacks?.onClearTarget()
+        if shouldRestoreFocus {
+            DispatchQueue.main.async { [weak self] in
+                self?.textField.becomeFirstResponder()
+            }
+        }
+    }
+
+    // MARK: - Private
+
+    private func applySendButton(isSubmitting: Bool) {
+        if isSubmitting {
             let indicator = UIActivityIndicatorView(style: .medium)
+            indicator.color = FireTheme.uiAccent
             indicator.startAnimating()
-            sendButton.configuration?.image = nil
+            sendButton.configuration = nil
             sendButton.setTitle(nil, for: .normal)
             sendButton.setImage(nil, for: .normal)
             sendButton.subviews.forEach { $0.removeFromSuperview() }
@@ -217,99 +256,47 @@ private final class FireTopicQuickReplyBarView: UIView, UITextFieldDelegate {
                     $0.removeFromSuperview()
                 }
             }
-            sendButton.setImage(UIImage(systemName: "arrow.up.circle.fill"), for: .normal)
-        }
-
-        if let message = state.validationMessage,
-           message.isEmpty == false {
-            messageLabel.text = message
-            messageLabel.textColor = message.contains("至少需要") ? .secondaryLabel : .systemRed
-            messageLabel.isHidden = false
-        } else {
-            messageLabel.text = nil
-            messageLabel.isHidden = true
-        }
-
-        setNeedsLayout()
-    }
-
-    func focusInput() {
-        textField.becomeFirstResponder()
-    }
-
-    func resignInputFocus() {
-        textField.resignFirstResponder()
-    }
-
-    func updateBottomInset(_ inset: CGFloat) {
-        contentStackBottomConstraint?.constant = -(12 + inset)
-        setNeedsLayout()
-    }
-
-    func textFieldShouldReturn(_ textField: UITextField) -> Bool {
-        callbacks?.onSubmit()
-        return false
-    }
-
-    func textFieldDidBeginEditing(_ textField: UITextField) {
-        callbacks?.onFocusChanged(true)
-    }
-
-    func textFieldDidEndEditing(_ textField: UITextField) {
-        callbacks?.onFocusChanged(false)
-    }
-
-    @objc
-    private func draftDidChange() {
-        guard !applyingState else { return }
-        callbacks?.onDraftChanged(textField.text ?? "")
-    }
-
-    @objc
-    private func handleSubmit() {
-        callbacks?.onSubmit()
-    }
-
-    @objc
-    private func handleOpenAdvancedComposer() {
-        callbacks?.onOpenAdvancedComposer()
-    }
-
-    @objc
-    private func handleClearTarget() {
-        let shouldRestoreFocus = textField.isFirstResponder
-        callbacks?.onClearTarget()
-        if shouldRestoreFocus {
-            DispatchQueue.main.async { [weak self] in
-                self?.textField.becomeFirstResponder()
-            }
+            var sendConfig = UIButton.Configuration.plain()
+            sendConfig.image = UIImage(systemName: "arrow.up.circle.fill")
+            sendConfig.contentInsets = .zero
+            sendConfig.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(
+                pointSize: 28,
+                weight: .regular
+            )
+            sendButton.configuration = sendConfig
+            sendButton.tintColor = FireTheme.uiAccent
         }
     }
 
     private func setupView() {
-        backgroundColor = .clear
+        // Fully opaque canvas — never translucent chrome over scrolling feed text.
+        // Hard opaque resolved color (not dynamic with alpha) so UIKit never
+        // composites underlying Texture cells through this layer.
+        let canvas = FireTheme.uiCanvas.resolvedColor(with: traitCollection)
+        isOpaque = true
+        backgroundColor = canvas
+        clipsToBounds = true
         tintColor = FireTheme.uiAccent
 
-        backgroundView.translatesAutoresizingMaskIntoConstraints = false
-        backgroundView.backgroundColor = FireTheme.uiChromeStrong
-        addSubview(backgroundView)
+        backgroundFill.translatesAutoresizingMaskIntoConstraints = false
+        backgroundFill.isOpaque = true
+        backgroundFill.backgroundColor = canvas
+        addSubview(backgroundFill)
 
         topBorderView.translatesAutoresizingMaskIntoConstraints = false
         topBorderView.backgroundColor = FireTheme.uiDivider
-        backgroundView.addSubview(topBorderView)
+        backgroundFill.addSubview(topBorderView)
 
-        let contentStack = UIStackView()
         contentStack.axis = .vertical
-        contentStack.spacing = 10
+        contentStack.spacing = 8
         contentStack.translatesAutoresizingMaskIntoConstraints = false
-        backgroundView.addSubview(contentStack)
+        backgroundFill.addSubview(contentStack)
 
         topStack.axis = .vertical
         topStack.spacing = 8
-        topStack.translatesAutoresizingMaskIntoConstraints = false
 
         typingLabel.font = UIFont.preferredFont(forTextStyle: .caption1)
-        typingLabel.textColor = .secondaryLabel
+        typingLabel.textColor = FireTheme.uiSubtleInk
         typingLabel.numberOfLines = 1
 
         targetRow.axis = .horizontal
@@ -317,11 +304,11 @@ private final class FireTopicQuickReplyBarView: UIView, UITextFieldDelegate {
         targetRow.alignment = .center
 
         targetLabel.font = UIFont.preferredFont(forTextStyle: .caption1)
-        targetLabel.textColor = FireTopicDetailCellColors.accent
+        targetLabel.textColor = FireTheme.uiAccent
         targetLabel.numberOfLines = 1
 
         clearTargetButton.setImage(UIImage(systemName: "xmark.circle.fill"), for: .normal)
-        clearTargetButton.tintColor = .tertiaryLabel
+        clearTargetButton.tintColor = FireTheme.uiTertiaryInk
         clearTargetButton.addTarget(self, action: #selector(handleClearTarget), for: .touchUpInside)
 
         let targetSpacer = UIView()
@@ -341,28 +328,44 @@ private final class FireTopicQuickReplyBarView: UIView, UITextFieldDelegate {
 
         var composerConfig = UIButton.Configuration.plain()
         composerConfig.image = UIImage(systemName: "square.and.pencil")
+        composerConfig.contentInsets = .zero
+        composerConfig.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(
+            pointSize: 20,
+            weight: .medium
+        )
         composerButton.configuration = composerConfig
-        composerButton.tintColor = FireTopicDetailCellColors.accent
+        composerButton.tintColor = FireTheme.uiSubtleInk
+        composerButton.accessibilityLabel = "打开完整编辑器"
         composerButton.addTarget(self, action: #selector(handleOpenAdvancedComposer), for: .touchUpInside)
 
-        textField.borderStyle = .roundedRect
+        fieldContainer.translatesAutoresizingMaskIntoConstraints = false
+        fieldContainer.backgroundColor = FireTheme.uiSurface
+        fieldContainer.layer.cornerRadius = 18
+        fieldContainer.layer.cornerCurve = .continuous
+        fieldContainer.clipsToBounds = true
+
+        textField.borderStyle = .none
+        textField.backgroundColor = .clear
         textField.font = UIFont.preferredFont(forTextStyle: .subheadline)
         textField.adjustsFontForContentSizeCategory = true
+        textField.textColor = FireTheme.uiInk
+        textField.tintColor = FireTheme.uiAccent
         textField.returnKeyType = .send
         textField.delegate = self
         textField.clearButtonMode = .whileEditing
+        textField.autocorrectionType = .default
+        textField.translatesAutoresizingMaskIntoConstraints = false
         textField.addTarget(self, action: #selector(draftDidChange), for: .editingChanged)
         textField.setContentHuggingPriority(.defaultLow, for: .horizontal)
         textField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        fieldContainer.addSubview(textField)
 
-        var sendConfig = UIButton.Configuration.plain()
-        sendConfig.image = UIImage(systemName: "arrow.up.circle.fill")
-        sendButton.configuration = sendConfig
-        sendButton.tintColor = FireTopicDetailCellColors.accent
+        applySendButton(isSubmitting: false)
+        sendButton.accessibilityLabel = "发送"
         sendButton.addTarget(self, action: #selector(handleSubmit), for: .touchUpInside)
 
         inputRow.addArrangedSubview(composerButton)
-        inputRow.addArrangedSubview(textField)
+        inputRow.addArrangedSubview(fieldContainer)
         inputRow.addArrangedSubview(sendButton)
         contentStack.addArrangedSubview(inputRow)
 
@@ -371,30 +374,55 @@ private final class FireTopicQuickReplyBarView: UIView, UITextFieldDelegate {
         messageLabel.isHidden = true
         contentStack.addArrangedSubview(messageLabel)
 
-        let bottomConstraint = contentStack.bottomAnchor.constraint(equalTo: backgroundView.bottomAnchor, constant: -12)
+        let bottomConstraint = contentStack.bottomAnchor.constraint(
+            equalTo: backgroundFill.bottomAnchor,
+            constant: -10
+        )
         contentStackBottomConstraint = bottomConstraint
 
         NSLayoutConstraint.activate([
-            backgroundView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            backgroundView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            backgroundView.topAnchor.constraint(equalTo: topAnchor),
-            backgroundView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            backgroundFill.leadingAnchor.constraint(equalTo: leadingAnchor),
+            backgroundFill.trailingAnchor.constraint(equalTo: trailingAnchor),
+            backgroundFill.topAnchor.constraint(equalTo: topAnchor),
+            backgroundFill.bottomAnchor.constraint(equalTo: bottomAnchor),
 
-            topBorderView.leadingAnchor.constraint(equalTo: backgroundView.leadingAnchor),
-            topBorderView.trailingAnchor.constraint(equalTo: backgroundView.trailingAnchor),
-            topBorderView.topAnchor.constraint(equalTo: backgroundView.topAnchor),
-            topBorderView.heightAnchor.constraint(equalToConstant: 0.5),
+            topBorderView.leadingAnchor.constraint(equalTo: backgroundFill.leadingAnchor),
+            topBorderView.trailingAnchor.constraint(equalTo: backgroundFill.trailingAnchor),
+            topBorderView.topAnchor.constraint(equalTo: backgroundFill.topAnchor),
+            topBorderView.heightAnchor.constraint(equalToConstant: 1.0 / UIScreen.main.scale),
 
-            contentStack.leadingAnchor.constraint(equalTo: backgroundView.leadingAnchor, constant: 16),
-            contentStack.trailingAnchor.constraint(equalTo: backgroundView.trailingAnchor, constant: -16),
-            contentStack.topAnchor.constraint(equalTo: backgroundView.topAnchor, constant: 10),
+            contentStack.leadingAnchor.constraint(equalTo: backgroundFill.leadingAnchor, constant: 12),
+            contentStack.trailingAnchor.constraint(equalTo: backgroundFill.trailingAnchor, constant: -12),
+            contentStack.topAnchor.constraint(equalTo: backgroundFill.topAnchor, constant: 10),
             bottomConstraint,
 
-            composerButton.widthAnchor.constraint(equalToConstant: 34),
-            composerButton.heightAnchor.constraint(equalToConstant: 34),
-            textField.heightAnchor.constraint(equalToConstant: 36),
-            sendButton.widthAnchor.constraint(equalToConstant: 34),
-            sendButton.heightAnchor.constraint(equalToConstant: 34),
+            composerButton.widthAnchor.constraint(equalToConstant: 36),
+            composerButton.heightAnchor.constraint(equalToConstant: 36),
+
+            fieldContainer.heightAnchor.constraint(equalToConstant: 36),
+            textField.leadingAnchor.constraint(equalTo: fieldContainer.leadingAnchor, constant: 12),
+            textField.trailingAnchor.constraint(equalTo: fieldContainer.trailingAnchor, constant: -8),
+            textField.topAnchor.constraint(equalTo: fieldContainer.topAnchor),
+            textField.bottomAnchor.constraint(equalTo: fieldContainer.bottomAnchor),
+
+            sendButton.widthAnchor.constraint(equalToConstant: 36),
+            sendButton.heightAnchor.constraint(equalToConstant: 36),
         ])
+
+        isHidden = true
+    }
+
+    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection)
+        guard traitCollection.hasDifferentColorAppearance(comparedTo: previousTraitCollection) else {
+            return
+        }
+        let canvas = FireTheme.uiCanvas.resolvedColor(with: traitCollection)
+        backgroundColor = canvas
+        backgroundFill.backgroundColor = canvas
     }
 }
+
+// MARK: - Compatibility alias for older call sites / docs
+
+typealias FireTopicQuickReplyBarNode = FireTopicQuickReplyBarView

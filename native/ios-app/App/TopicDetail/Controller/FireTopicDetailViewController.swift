@@ -15,7 +15,10 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
     private let paginationCoordinator: FireTopicDetailPaginationCoordinator
     private let visibilityCoordinator: FireTopicDetailVisibilityCoordinator
     private let layoutManager = FirePostLayoutManager()
-    private let quickReplyBarNode: FireTopicQuickReplyBarNode
+    /// Pure UIKit bottom chrome layered above Texture feed (WeChat-style).
+    private let quickReplyBar = FireTopicQuickReplyBarView()
+    private var quickReplyBottomConstraint: NSLayoutConstraint?
+    private var quickReplyHeightConstraint: NSLayoutConstraint?
     let rootNode: FireTopicDetailRootNode
     private lazy var pageBackEdgePanGestureRecognizer: UIScreenEdgePanGestureRecognizer = {
         let gesture = UIScreenEdgePanGestureRecognizer(
@@ -208,10 +211,8 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         self.feedController = FireTopicDetailFeedController()
         self.paginationCoordinator = FireTopicDetailPaginationCoordinator()
         self.visibilityCoordinator = FireTopicDetailVisibilityCoordinator()
-        self.quickReplyBarNode = FireTopicQuickReplyBarNode()
         self.rootNode = FireTopicDetailRootNode(
-            feedNode: feedController.collectionNode,
-            quickReplyBarNode: quickReplyBarNode
+            feedNode: feedController.collectionNode
         )
         self.detailOwnerToken = "ios.topic-detail.\(row.topic.id).\(UUID().uuidString.lowercased())"
         self.timingTracker = FireTopicTimingTracker(topicId: row.topic.id)
@@ -247,6 +248,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         view.backgroundColor = FireTheme.uiCanvas
         view.tintColor = FireTheme.uiAccent
         configureRuntime()
+        configureQuickReplyBar()
         configureTopicSearchBar()
         configureNavigationAppearance()
         toolbarCoordinator.configureNavigationItem(navigationItem)
@@ -270,7 +272,6 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
             )
         }
         layoutTopicSearchBar()
-        quickReplyBarNode.updateLayoutWidth(view.bounds.width)
         updateBottomChromeInset()
         feedController.invalidateLayoutIfWidthChanged()
         if shouldLogLayout {
@@ -424,7 +425,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
             await self?.performRefresh()
         }
         feedController.onBackgroundTap = { [weak self] in
-            self?.quickReplyBarNode.resignInputFocus()
+            self?.quickReplyBar.resignInputFocus()
         }
         feedController.onScrollInteractionChanged = { [weak self] isActive in
             guard let self else { return }
@@ -453,7 +454,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
             self?.handleLayoutRevisionChanged()
         }
 
-        quickReplyBarNode.callbacks = .init(
+        quickReplyBar.callbacks = .init(
             onDraftChanged: { [weak self] draft in
                 self?.replyDraft = draft
                 self?.quickReplyError = nil
@@ -475,6 +476,25 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         viewModel.topicDetailLogger()?.debug(
             "topic detail configure runtime complete topic_id=\(row.topic.id) elapsed_ms=\(Self.elapsedMilliseconds(since: startedAt))"
         )
+    }
+
+    private func configureQuickReplyBar() {
+        // Layer above Texture feed so cells never show through the bar.
+        quickReplyBar.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(quickReplyBar)
+
+        let bottom = quickReplyBar.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+        let height = quickReplyBar.heightAnchor.constraint(equalToConstant: 0)
+        quickReplyBottomConstraint = bottom
+        quickReplyHeightConstraint = height
+
+        NSLayoutConstraint.activate([
+            quickReplyBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            quickReplyBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            bottom,
+            height,
+        ])
+        view.bringSubviewToFront(quickReplyBar)
     }
 
     private func configureTopicSearchBar() {
@@ -936,7 +956,8 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         composer: FireTopicDetailComposerState
     ) {
         toolbarCoordinator.apply(state: snapshotAssembler.makeToolbarState(from: chrome))
-        quickReplyBarNode.apply(state: snapshotAssembler.makeQuickReplyState(from: composer))
+        quickReplyBar.apply(state: snapshotAssembler.makeQuickReplyState(from: composer))
+        updateBottomChromeInset()
     }
 
     private func applyBuiltSnapshot(
@@ -1022,29 +1043,56 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
     }
 
     private func updateBottomChromeInset(animatedWith notification: Notification? = nil) {
-        // Split geometry:
-        // - safe-area bottom → quick-reply bar height / home-indicator padding only
-        // - keyboard overlap → root main-thread frame lift + feed contentInset
-        // Never fold keyboard height into the bar bottom inset (that ballooned the
-        // bar and broke focus). Never drive keyboard through Texture layoutSpec
-        // invalidation (full-tree remeasure freezes topic detail).
-        rootNode.updateBottomSafeAreaInset(view.safeAreaInsets.bottom)
-        rootNode.updateKeyboardOverlap(keyboardOverlapHeight)
-        updateFeedTopInset()
+        // WeChat-style bottom input — pure UIKit, no Texture overlay:
+        //
+        // 1) Bar internal bottom padding
+        //    - keyboard hidden → home-indicator safe area
+        //    - keyboard up     → small pad (keyboard covers home indicator)
+        // 2) Keyboard overlap → bar bottom constraint constant
+        // 3) Feed contentInset.bottom = barHeight + keyboardOverlap
+        let keyboardOverlap = keyboardOverlapHeight
+        let keyboardVisible = keyboardOverlap > 0.5
+        let homeIndicator = view.safeAreaInsets.bottom
+        let barBottomPadding: CGFloat = keyboardVisible ? 8 : homeIndicator
 
-        guard let notification else { return }
-        let duration = (notification.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? NSNumber)?
-            .doubleValue ?? 0.25
-        let curveRawValue = (notification.userInfo?[UIResponder.keyboardAnimationCurveUserInfoKey] as? NSNumber)?
-            .uintValue ?? UInt(UIView.AnimationCurve.easeInOut.rawValue)
-        let options = UIView.AnimationOptions(rawValue: curveRawValue << 16)
-        UIView.animate(
-            withDuration: duration,
-            delay: 0,
-            options: [options, .beginFromCurrentState, .allowUserInteraction]
-        ) {
-            // Only re-runs main-thread layout() (frame offset + contentInset).
-            self.view.layoutIfNeeded()
+        quickReplyBar.updateBottomInset(barBottomPadding)
+
+        let previousBottom = quickReplyBottomConstraint?.constant ?? 0
+        let previousHeight = quickReplyHeightConstraint?.constant ?? 0
+        let measuredBarHeight = quickReplyBar.preferredHeight(forWidth: max(view.bounds.width, 1))
+        quickReplyBottomConstraint?.constant = -keyboardOverlap
+        quickReplyHeightConstraint?.constant = measuredBarHeight
+
+        let barVisible = !quickReplyBar.isHidden
+        let feedBottom = fireTopicDetailFeedBottomInset(
+            quickReplyBarHeight: measuredBarHeight,
+            safeAreaBottom: homeIndicator,
+            keyboardOverlap: keyboardOverlap,
+            isQuickReplyVisible: barVisible
+        )
+        rootNode.updateFeedBottomInset(feedBottom)
+        updateFeedTopInset()
+        view.bringSubviewToFront(quickReplyBar)
+
+        let geometryChanged =
+            abs(previousBottom + keyboardOverlap) > 0.5
+            || abs(previousHeight - measuredBarHeight) > 0.5
+
+        guard geometryChanged || notification != nil else { return }
+
+        if let notification {
+            let duration = (notification.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? NSNumber)?
+                .doubleValue ?? 0.25
+            let curveRawValue = (notification.userInfo?[UIResponder.keyboardAnimationCurveUserInfoKey] as? NSNumber)?
+                .uintValue ?? UInt(UIView.AnimationCurve.easeInOut.rawValue)
+            let options = UIView.AnimationOptions(rawValue: curveRawValue << 16)
+            UIView.animate(
+                withDuration: duration,
+                delay: 0,
+                options: [options, .beginFromCurrentState, .allowUserInteraction]
+            ) {
+                self.view.layoutIfNeeded()
+            }
         }
     }
 
@@ -1119,7 +1167,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
             replyToUsername: replyToPost?.username
         )
         buildAndApplyChromeState()
-        quickReplyBarNode.focusInput()
+        quickReplyBar.focusInput()
     }
 
     private func openPostNumber(_ postNumber: UInt32) {
@@ -1226,13 +1274,13 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
     }
 
     private func clearComposerTarget() {
-        let shouldKeepFocus = quickReplyBarNode.isInputFocused
+        let shouldKeepFocus = quickReplyBar.isInputFocused
         composerContext = nil
         buildAndApplyChromeState()
         if shouldKeepFocus {
-            quickReplyBarNode.focusInput()
+            quickReplyBar.focusInput()
             DispatchQueue.main.async { [weak self] in
-                self?.quickReplyBarNode.focusInput()
+                self?.quickReplyBar.focusInput()
             }
         }
     }
@@ -1245,7 +1293,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
                 replyToPostNumber: nil,
                 replyToUsername: nil
             )
-        quickReplyBarNode.resignInputFocus()
+        quickReplyBar.resignInputFocus()
         modalRouter.presentAdvancedComposer(
             route: FireComposerRoute(
                 kind: .advancedReply(
@@ -1297,7 +1345,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
             replyToPostNumber: post.postNumber,
             replyToUsername: post.username
         )
-        quickReplyBarNode.resignInputFocus()
+        quickReplyBar.resignInputFocus()
         buildAndApplyChromeState()
         modalRouter.presentAdvancedComposer(
             route: FireComposerRoute(
@@ -1355,14 +1403,14 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
                 )
                 replyDraft = ""
                 composerContext = nil
-                quickReplyBarNode.resignInputFocus()
+                quickReplyBar.resignInputFocus()
                 buildAndApplyChromeState()
             } catch {
                 let message = error.localizedDescription
                 if message.localizedCaseInsensitiveContains("pending review") {
                     replyDraft = ""
                     composerContext = nil
-                    quickReplyBarNode.resignInputFocus()
+                    quickReplyBar.resignInputFocus()
                     buildAndApplyChromeState()
                     modalRouter.presentNotice(message: "回复已提交，等待审核。")
                     return

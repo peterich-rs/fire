@@ -1,4 +1,3 @@
-import AsyncDisplayKit
 import XCTest
 @testable import Fire
 
@@ -13,8 +12,7 @@ final class FireTopicDetailKeyboardLayoutTests: XCTestCase {
 
     @MainActor
     private func measuredQuickReplyBarHeight(bottomInset: CGFloat) -> CGFloat {
-        let node = FireTopicQuickReplyBarNode()
-        node.apply(state: FireTopicDetailQuickReplyState(
+        let state = FireTopicDetailQuickReplyState(
             isVisible: true,
             typingSummary: nil,
             targetSummary: nil,
@@ -22,13 +20,12 @@ final class FireTopicDetailKeyboardLayoutTests: XCTestCase {
             draft: "",
             isSubmitting: false,
             validationMessage: nil
-        ))
-        node.updateLayoutWidth(393)
-        node.updateBottomInset(bottomInset)
-        return node.layoutThatFits(ASSizeRange(
-            min: CGSize(width: 393, height: 0),
-            max: CGSize(width: 393, height: 852)
-        )).size.height
+        )
+        return FireTopicQuickReplyBarView.estimatedHeight(
+            state: state,
+            width: 393,
+            bottomInset: bottomInset
+        )
     }
 
     func testFeedBottomInsetAddsKeyboardOverlapOnlyWhenQuickReplyVisible() {

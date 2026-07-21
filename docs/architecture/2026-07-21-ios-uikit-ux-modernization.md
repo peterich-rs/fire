@@ -56,7 +56,12 @@ System APIs remain authoritative for: `UIRefreshControl`, `UIVisualEffectView` /
 2. Filtered topic list → ListKit UIKit VC (`FireFilteredTopicListViewController`) — **done**
 3. Profile tab + public profile → UIKit VCs (`FireProfileViewController`, `FirePublicProfileViewController`) — **done**
 4. Topic detail chrome polish (nav material, theme colors, reaction haptics; Texture cells untouched) — **done**
-5. Residual SwiftUI cleanup + docs — **in progress / progressive**
+5. Topic detail quick-reply bar: WeChat-style opaque full-width bottom strip — **done**
+   - **Pure UIKit** bar (`FireTopicQuickReplyBarView`) layered above Texture feed — not a Texture overlay
+     (Texture compositing was still letting feed text show through the left side)
+   - Solid opaque black chrome; resting pad = home indicator; keyboard pad = 8pt flush above keyboard
+   - Keyboard lifts via bottom Auto Layout constraint; feed `contentInset.bottom = barHeight + keyboardOverlap`
+6. Residual SwiftUI cleanup + docs — **in progress / progressive**
 
 ### Residual SwiftUI (allowed)
 

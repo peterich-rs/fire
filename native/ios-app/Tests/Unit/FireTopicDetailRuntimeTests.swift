@@ -5,8 +5,7 @@ import XCTest
 final class FireTopicDetailRuntimeTests: XCTestCase {
     @MainActor
     func testQuickReplyBarMeasuresToCompactVisibleHeight() {
-        let node = FireTopicQuickReplyBarNode()
-        node.apply(state: FireTopicDetailQuickReplyState(
+        let state = FireTopicDetailQuickReplyState(
             isVisible: true,
             typingSummary: "alice 正在输入",
             targetSummary: "#12 · bob",
@@ -14,16 +13,14 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
             draft: "hello world",
             isSubmitting: false,
             validationMessage: nil
-        ))
-        node.updateLayoutWidth(393)
-
-        let layout = node.layoutThatFits(ASSizeRange(
-            min: CGSize(width: 393, height: 0),
-            max: CGSize(width: 393, height: 852)
-        ))
-
-        XCTAssertEqual(layout.size.width, 393, accuracy: 0.5)
-        XCTAssertLessThan(layout.size.height, 220)
+        )
+        let height = FireTopicQuickReplyBarView.estimatedHeight(
+            state: state,
+            width: 393,
+            bottomInset: 34
+        )
+        XCTAssertGreaterThan(height, 50)
+        XCTAssertLessThan(height, 220)
     }
 
     func testSnapshotKeepsStableReplyItemsAndScrollLookup() {
